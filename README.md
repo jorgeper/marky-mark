@@ -19,12 +19,29 @@ releases page with the newest alpha at the top):
 
 | Platform | File | Note |
 | --- | --- | --- |
-| **macOS** (Intel + Apple Silicon) | `Marky Mark_<version>_universal.dmg` | Unsigned — after the "Not Opened" dialog: System Settings → Privacy & Security → **Open Anyway**, or `xattr -dr com.apple.quarantine "/Applications/Marky Mark.app"` |
-| **Windows** (x64) | `Marky Mark_<version>_x64-setup.exe` | Unsigned — SmartScreen → More info → Run anyway |
+| **macOS** (Intel + Apple Silicon) | `Marky Mark_<version>_universal.dmg` | Unsigned — see [First launch on macOS](#first-launch-on-macos) |
+| **Windows** (x64) | `Marky Mark_<version>_x64-setup.exe` | Unsigned — SmartScreen → **More info** → **Run anyway** |
 | **Web** (any platform) | `marky-mark-web-<version>.html` | The whole app in one file: download and open, or host anywhere static |
 
 Verify downloads against `SHA256SUMS.txt`. All versions:
 [releases](https://github.com/jorgeper/marky-mark/releases).
+
+### First launch on macOS
+
+Alpha builds aren't signed or notarized yet, so the first open is blocked
+with *“Apple could not verify 'Marky Mark' is free of malware.”* Click
+**Done** (not Move to Trash!), then:
+
+**System Settings → Privacy & Security → scroll down to
+*“Marky Mark” was blocked…* → Open Anyway.**
+
+Terminal alternative:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Marky Mark.app"
+```
+
+Either way it's a one-time step — the app opens normally afterwards.
 
 ## What you get
 
