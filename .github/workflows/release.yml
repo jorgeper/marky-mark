@@ -145,7 +145,13 @@ jobs:
             if [ "$size" -gt 26214400 ]; then echo "::error::$f is $size bytes (> 25 MB)"; exit 1; fi
           done
       - name: Checksums
-        run: cd release-assets && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+        run: |
+          cd release-assets
+          # GitHub rewrites spaces in asset filenames to dots on upload; rename
+          # first so SHA256SUMS.txt matches what users actually download.
+          for f in *\ *; do [ -e "$f" ] && mv "$f" "${f// /.}"; done
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
       - name: Release notes header
         run: |
           cat > NOTES.md <<'EOF'
