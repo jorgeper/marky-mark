@@ -19,7 +19,7 @@ releases page with the newest alpha at the top):
 
 | Platform | File | Note |
 | --- | --- | --- |
-| **macOS** (Intel + Apple Silicon) | `Marky Mark_<version>_universal.dmg` | Unsigned — right-click → Open the first time, or `xattr -dc "/Applications/Marky Mark.app"` |
+| **macOS** (Intel + Apple Silicon) | `Marky Mark_<version>_universal.dmg` | Unsigned — after the "Not Opened" dialog: System Settings → Privacy & Security → **Open Anyway**, or `xattr -dr com.apple.quarantine "/Applications/Marky Mark.app"` |
 | **Windows** (x64) | `Marky Mark_<version>_x64-setup.exe` | Unsigned — SmartScreen → More info → Run anyway |
 | **Web** (any platform) | `marky-mark-web-<version>.html` | The whole app in one file: download and open, or host anywhere static |
 

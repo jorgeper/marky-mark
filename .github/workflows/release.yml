@@ -159,7 +159,7 @@ jobs:
 
           | Asset | What it is |
           | --- | --- |
-          | `Marky Mark_*_universal.dmg` | macOS app (Intel + Apple Silicon). Unsigned: right-click → Open, or `xattr -dc "/Applications/Marky Mark.app"`. |
+          | `Marky Mark_*_universal.dmg` | macOS app (Intel + Apple Silicon). Unsigned — Gatekeeper will refuse it at first: System Settings → Privacy & Security → **Open Anyway**, or `xattr -dr com.apple.quarantine "/Applications/Marky Mark.app"`. |
           | `Marky Mark_*_x64-setup.exe` | Windows installer (x64). Unsigned: SmartScreen → More info → Run anyway. |
           | `marky-mark-web-*.html` | The whole app in one file — download and open, or host anywhere static. |
           | `SHA256SUMS.txt` | Checksums for the three assets above. |
