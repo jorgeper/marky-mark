@@ -51,10 +51,10 @@ The app code was Windows-portable from v1 (this seam, `Mod` hotkeys,
 `appConfigDir()`-relative paths, CLI-arg file-association handling in
 `lib.rs`). Two build paths:
 
-1. **CI (canonical)** — `.github/workflows/release.yml` builds a universal
-   macOS `.dmg` on `macos-latest` and an NSIS installer on `windows-latest`
-   via `tauri-action` (plus the single-file web page on `ubuntu-latest`),
-   on tag push or manual dispatch.
+1. **CI (canonical)** — `.github/workflows/release.yml` (the SPEC10 release
+   pipeline, below) builds the NSIS installer natively on `windows-latest`
+   (plus the universal macOS `.dmg` and the single-file web page) on `v*`
+   tag push or manual dispatch.
 2. **Cross-compile from macOS (experimental Tauri path)** —
    `rustup target add x86_64-pc-windows-msvc`, `cargo install cargo-xwin`,
    `brew install nsis llvm`, then
@@ -391,3 +391,69 @@ to the app's first-run config bootstrap (which happens during first render).
   tests and dev; the real app has no such limit.
 - `bundle.targets` builds `.app` + `.dmg` only; Windows targets are a config
   change documented in `WINDOWS.md`.
+
+## Release engineering (SPEC10)
+
+### `__APP_VERSION__` plumbing
+
+`package.json` is the single source of truth for the app version at build
+time. All three bundler configs — `vite.config.ts` (desktop),
+`vite.web.config.ts` (single-file web), and `vitest.config.ts` (so the unit
+suite sees the identical constant) — import `package.json` and `define`
+**`__APP_VERSION__`** as `JSON.stringify(pkg.version)`; `src/vite-env.d.ts`
+declares it for TypeScript. App code (the About dialog) reads the version
+only through this constant — there is no runtime fetch or re-parse of
+`package.json`, and the pre-release identifier (`0.2.0-alpha.1`) survives
+verbatim into the UI.
+
+The version is duplicated by necessity into `src-tauri/tauri.conf.json`
+(bundle metadata) and `src-tauri/Cargo.toml` (crate version). The three files
+move in lock-step only via `npm run release:prepare -- <version>`
+(`scripts/release-prepare.mjs`: strict-semver validation, surgical
+version-line rewrites, lockfile refresh, scoped diffstat, a
+`chore: release v<version>` commit — `--no-commit` to inspect; rerunning
+with the current version is a no-op), and `npm run validate` fails fast if
+they ever drift. Tags mirror the files (`v` + version), never the reverse.
+
+### Release pipeline topology
+
+`.github/workflows/release.yml`:
+
+```
+tag push v* ────────┐            ┌─ build-macos  (macos-latest, universal .dmg) ─┐
+                    ├─▶ test ────┼─ build-windows (windows-latest, NSIS x64) ────┼─▶ release
+workflow_dispatch ──┘  (macos)   └─ build-web    (ubuntu, single .html) ─────────┘   (draft)
+```
+
+- **test** gates everything: `npm run validate` (the full local gate) plus a
+  version check — tag suffix / dispatch input must equal all three version
+  files, failure names the stale file.
+- The three builds run in parallel; the web asset is renamed
+  `marky-mark-web-<version>.html` so it is self-describing when downloaded.
+- **release** guards the assets (exactly dmg + setup.exe + html, none over
+  25 MB), writes `SHA256SUMS.txt`, and creates a **draft** release (dispatch
+  dry-runs: draft **prerelease**) whose notes header documents the
+  unsigned-build escape hatches. Publishing is always a human action
+  (`gh release edit --draft=false`, see RELEASING.md). `contents: write` is
+  granted to the release job only; a concurrency group cancels stale runs of
+  the same ref.
+
+Out of scope, with seams reserved: signing/notarization (secrets into the two
+build jobs), Linux (one more matrix leg), auto-updater (needs signing first),
+hosted web (a `release: published` follow-up workflow).
+
+### License allowlist guard
+
+`npm run licenses` (`scripts/licenses.mjs`) regenerates
+`THIRD-PARTY-NOTICES.md` from the real dependency graphs: production npm
+packages resolved from `package-lock.json` (dev deps excluded) and the full
+Rust crate graph from `cargo metadata`. Output is deterministic — sorted by
+name@version, no timestamps — so a rerun with unchanged deps is a zero-diff.
+Every license expression must evaluate permissively against an explicit SPDX
+allowlist (`OR`: any branch suffices; `AND`: every branch must pass; `WITH`
+exceptions matched as a unit; license-file-only crates are flagged for a
+human decision). A disallowed, unknown, or missing license fails the run
+naming the offenders — copyleft can never slip into the bundle silently.
+Unit test U16 exercises the checker's core against fake copyleft entries;
+`license.md` records the MIT decision and the dependency audit behind the
+allowlist.

@@ -19,6 +19,7 @@ interface Props {
   onSave(): void;
   onSaveAs(): void;
   onHelp(): void;
+  onAbout(): void;
   onOpenSettings(): void;
   /** Reports the menu popover state so the auto-hiding shell can stay pinned. */
   onMenuOpenChange(open: boolean): void;
@@ -38,9 +39,9 @@ function MenuIcon() {
 }
 
 /** The app icon in miniature: white "M" on the terracotta rounded square. */
-function AppBadge() {
+export function AppBadge({ size = 20, testId = 'app-badge' }: { size?: number; testId?: string }) {
   return (
-    <svg data-testid="app-badge" width="20" height="20" viewBox="0 0 32 32" aria-label="Marky Mark">
+    <svg data-testid={testId} width={size} height={size} viewBox="0 0 32 32" aria-label="Marky Mark">
       <rect x="1" y="1" width="30" height="30" rx="7" fill="#d97757" />
       <g stroke="#faf9f5" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" fill="none">
         <path d="M 9.5 22.5 V 10 L 16 18 L 22.5 10 V 22.5" />
@@ -145,6 +146,7 @@ export function Toolbar(p: Props) {
             {item('menu-save', 'Save', displayCombo(p.hotkeys.save, p.isMac), p.onSave)}
             {item('menu-save-as', 'Save As…', null, p.onSaveAs)}
             {item('menu-help', 'Help', null, p.onHelp)}
+            {item('menu-about', 'About Marky Mark', null, p.onAbout)}
             <div className="menu-footer">{item('menu-settings', 'Settings…', null, p.onOpenSettings)}</div>
           </div>
         )}

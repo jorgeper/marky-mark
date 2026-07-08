@@ -22,6 +22,7 @@ import { FIXTURES } from './bundled';
 import { Toolbar } from './components/Toolbar';
 import { CommentCard } from './components/CommentCard';
 import { SettingsPanel } from './components/SettingsPanel';
+import { AboutDialog } from './components/AboutDialog';
 
 const Editor = lazy(() => import('./components/Editor'));
 
@@ -54,6 +55,7 @@ export default function App() {
   const [draft, setDraft] = useState('');
   const [selInfo, setSelInfo] = useState<{ start: number; end: number; x: number; y: number } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [closePrompt, setClosePrompt] = useState(false);
   const [openPrompt, setOpenPrompt] = useState<string | null>(null); // pending path awaiting the unsaved-changes decision
   // Auto-hiding toolbar (SPEC4 §2): launch grace → hover/pin driven.
@@ -271,6 +273,7 @@ export default function App() {
     toolbarFocus ||
     menuPin ||
     settingsOpen ||
+    aboutOpen ||
     closePrompt ||
     openPrompt !== null;
 
@@ -840,6 +843,7 @@ export default function App() {
         onSave={() => void saveDoc()}
         onSaveAs={() => void saveDocAs()}
         onHelp={() => void openHelp()}
+        onAbout={() => setAboutOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onMenuOpenChange={setMenuPin}
       />
@@ -1012,6 +1016,8 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
         />
       )}
+
+      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
 
       {openPrompt && (
         <div className="overlay">

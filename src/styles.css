@@ -947,3 +947,33 @@ mark.hl.ghost {
   border-radius: 5px;
   padding: 1px 6px;
 }
+
+/* --- About dialog (SPEC10 §3) --------------------------------------------- */
+.about-dialog {
+  width: min(360px, 92vw);
+}
+.about-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+.about-head h2 {
+  margin: 0;
+}
+.about-version {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  opacity: 0.75;
+}
+.about-alpha {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #b3591f;
+  margin: 8px 0;
+}
+.about-meta {
+  font-size: 12.5px;
+  margin: 4px 0;
+  opacity: 0.85;
+}

@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /**
- * Validation harness (SPEC §8 + SPEC2 §7). Runs, in order, failing on the
- * first non-zero exit:
- *   1. tsc --noEmit
- *   2. unit tests (Vitest, U1–U11)
- *   3. desktop e2e (Playwright, browser platform shim, E1–E16)
- *   4. single-file web build
- *   5. web e2e (Playwright against dist-web, W1–W4)
- *   6. cargo check (Rust host compiles)
- *   7. single-file check (dist-web = exactly one self-contained index.html)
+ * Validation harness (SPEC §8 + SPEC2 §7 + SPEC10 §1.3). Runs, in order,
+ * failing on the first non-zero exit:
+ *   1. version lock-step check (three version files agree, valid semver)
+ *   2. tsc --noEmit
+ *   3. unit tests (Vitest, U1–U16)
+ *   4. desktop e2e (Playwright, browser platform shim, E1–E41 + E45)
+ *   5. single-file web build
+ *   6. web e2e (Playwright against dist-web, W1–W4)
+ *   7. cargo check (Rust host compiles)
+ *   8. single-file check (dist-web = exactly one self-contained index.html)
  * Prints VALIDATION: ALL PASSED as the final line only if all steps passed.
  */
 import { spawnSync } from 'node:child_process';
@@ -22,6 +23,23 @@ const env = {
   ...process.env,
   PATH: `${path.join(homedir(), '.cargo', 'bin')}:${process.env.PATH ?? ''}`,
 };
+
+// Version lock-step (SPEC10 §1.3): the three release files must agree on one
+// valid semver, pre-release identifier intact.
+console.log('=== validate: version lock-step ===');
+const versions = {
+  'package.json': JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version,
+  'src-tauri/tauri.conf.json': JSON.parse(readFileSync(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8')).version,
+  'src-tauri/Cargo.toml': /^version = "([^"]*)"/m.exec(readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8'))?.[1],
+};
+const { isValidSemver } = await import('./release-prepare.mjs');
+const distinct = new Set(Object.values(versions));
+if (distinct.size !== 1 || !isValidSemver(versions['package.json'])) {
+  for (const [f, v] of Object.entries(versions)) console.error(`  ${f}: ${v}`);
+  console.error('\nVALIDATION FAILED at step: version lock-step');
+  process.exit(1);
+}
+console.log(`version ${versions['package.json']} in lock-step across package.json, tauri.conf.json, Cargo.toml`);
 
 const steps = [
   { name: 'typecheck', cmd: 'npx', args: ['tsc', '--noEmit'] },

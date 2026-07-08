@@ -14,7 +14,7 @@ rustup target add x86_64-pc-windows-msvc
 cargo install cargo-xwin
 brew install nsis llvm
 npm run tauri build -- --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
-# → src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/Markimark_<ver>_x64-setup.exe
+# → src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/Marky Mark_<ver>_x64-setup.exe
 ```
 
 The installer is unsigned (signing needs a Windows host or a custom `sign_command`).

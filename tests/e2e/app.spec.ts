@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures';
+import pkg from '../../package.json' with { type: 'json' };
 import {
   addComment,
   freshApp,
@@ -285,8 +286,9 @@ test('E13: toolbar is minimal — one overflow menu with exactly Open/Save/Save 
   await expect(menu.getByTestId('menu-save')).toBeVisible();
   await expect(menu.getByTestId('menu-save-as')).toBeVisible();
   await expect(menu.getByTestId('menu-help')).toBeVisible();
+  await expect(menu.getByTestId('menu-about')).toBeVisible();
   await expect(menu.getByTestId('menu-settings')).toBeVisible();
-  await expect(menu.locator('button')).toHaveCount(5); // exactly these five (SPEC4 §5.2)
+  await expect(menu.locator('button')).toHaveCount(6); // exactly these six (SPEC4 §5.2 + SPEC10 §6)
   await page.keyboard.press('Escape');
   await revealToolbar(page);
   await page.getByTestId('docname').click(); // close menu
@@ -1091,4 +1093,29 @@ test('E41: undo/redo hotkeys work for edits, and history survives a preview↔ed
   await expect(content).toContainText('UNDOMARK');
   await page.keyboard.press('ControlOrMeta+z');
   await expect(content).not.toContainText('UNDOMARK');
+});
+
+// E42–E44 are reserved for SPEC8 (scroll continuity), which stays unimplemented.
+
+test('E45: About dialog shows name, exact build version, alpha notice, developer, and MIT; Escape closes it', async ({
+  page,
+}) => {
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-about').click();
+
+  const dlg = page.getByTestId('about-dialog');
+  await expect(dlg).toBeVisible();
+  await expect(dlg.getByTestId('about-name')).toHaveText('Marky Mark');
+  // The version comes from __APP_VERSION__, baked at build time from
+  // package.json — pre-release identifier intact (SPEC10 §2–§3).
+  await expect(dlg.getByTestId('about-version')).toHaveText(`v${pkg.version}`);
+  expect(pkg.version).toContain('-'); // alpha builds carry a pre-release id
+  await expect(dlg.getByTestId('about-alpha')).toContainText(/alpha/i);
+  await expect(dlg.getByTestId('about-developer')).toContainText('Developer: Jorge Pereira');
+  await expect(dlg.getByTestId('about-license')).toContainText('MIT');
+  await expect(dlg.getByTestId('about-repo')).toHaveAttribute('href', 'https://github.com/jorgeper/marky-mark');
+
+  await dlg.getByTestId('about-close').click();
+  await expect(dlg).toHaveCount(0);
 });

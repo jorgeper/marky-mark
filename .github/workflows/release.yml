@@ -1,76 +1,171 @@
+# Marky Mark release pipeline (SPEC10 §2): tag push (v*) or manual dispatch →
+# full validate gate + version check → three platform builds → one draft
+# GitHub Release with exactly four assets (dmg, setup.exe, web html,
+# SHA256SUMS.txt). Nothing auto-publishes; a human smoke-tests the draft and
+# flips it live (see RELEASING.md).
 name: release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to dry-run (e.g. 0.2.0-alpha.2); produces a draft prerelease'
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            args: '--target universal-apple-darwin'
-            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
-          - platform: windows-latest
-            args: ''
-            rust-targets: ''
-    runs-on: ${{ matrix.platform }}
+  test:
+    runs-on: macos-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
+          cache: npm
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust-targets }}
-
-      - uses: swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - name: Resolve release version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Version check (no silent drift)
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          fail=0
+          for f in package.json src-tauri/tauri.conf.json; do
+            got=$(node -p "JSON.parse(require('fs').readFileSync('$f','utf8')).version")
+            if [ "$got" != "$v" ]; then echo "::error::$f has $got, releasing $v"; fail=1; fi
+          done
+          got=$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)
+          if [ "$got" != "$v" ]; then echo "::error::src-tauri/Cargo.toml has $got, releasing $v"; fail=1; fi
+          exit $fail
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: npm run validate
 
-      - name: Install frontend dependencies
-        run: npm ci
-
-      # Builds the frontend (beforeBuildCommand) and bundles:
-      #   macOS   → .app + .dmg (universal)
-      #   Windows → NSIS installer .exe (+ .msi), WebView2 bootstrapper mode
-      - name: Build desktop app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  build-macos:
+    runs-on: macos-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          args: ${{ matrix.args }}
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Markimark {0}', github.ref_name) || '' }}
-          releaseDraft: true
-
-      - name: Upload artifacts (manual runs)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v4
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          name: markimark-${{ matrix.platform }}
-          path: |
-            src-tauri/target/**/bundle/dmg/*.dmg
-            src-tauri/target/**/bundle/macos/*.app/**
-            src-tauri/target/**/bundle/nsis/*.exe
-            src-tauri/target/**/bundle/msi/*.msi
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      # One universal .dmg covers Intel and Apple Silicon (SPEC10 §2.2).
+      - run: npm run tauri build -- --target universal-apple-darwin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm run tauri build -- --bundles nsis
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-nsis
+          path: src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
 
   build-web:
     runs-on: ubuntu-latest
+    needs: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
       - run: npm ci
       - run: npm run build:web
+      - name: Self-describing asset name
+        run: mv dist-web/index.html "dist-web/marky-mark-web-${{ needs.test.outputs.version }}.html"
       - uses: actions/upload-artifact@v4
         with:
-          name: markimark-web
-          path: dist-web/index.html
+          name: web-html
+          path: dist-web/marky-mark-web-*.html
+          if-no-files-found: error
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [test, build-macos, build-windows, build-web]
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.test.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Asset guard (all present, none over 25 MB)
+        run: |
+          cd release-assets
+          ls -l
+          [ "$(ls *.dmg *-setup.exe *.html 2>/dev/null | wc -l)" -eq 3 ] || { echo "::error::expected exactly dmg + setup.exe + html"; exit 1; }
+          for f in *; do
+            size=$(wc -c < "$f")
+            if [ "$size" -gt 26214400 ]; then echo "::error::$f is $size bytes (> 25 MB)"; exit 1; fi
+          done
+      - name: Checksums
+        run: cd release-assets && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Release notes header
+        run: |
+          cat > NOTES.md <<'EOF'
+          **Alpha preview — unsigned builds, expect rough edges.**
+
+          | Asset | What it is |
+          | --- | --- |
+          | `Marky Mark_*_universal.dmg` | macOS app (Intel + Apple Silicon). Unsigned: right-click → Open, or `xattr -dc "/Applications/Marky Mark.app"`. |
+          | `Marky Mark_*_x64-setup.exe` | Windows installer (x64). Unsigned: SmartScreen → More info → Run anyway. |
+          | `marky-mark-web-*.html` | The whole app in one file — download and open, or host anywhere static. |
+          | `SHA256SUMS.txt` | Checksums for the three assets above. |
+          EOF
+      - name: Create draft release
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            gh release create "$GITHUB_REF_NAME" --draft --generate-notes \
+              --title "Marky Mark $VERSION" --notes-file NOTES.md \
+              release-assets/*.dmg release-assets/*-setup.exe release-assets/*.html release-assets/SHA256SUMS.txt
+          else
+            gh release create "v$VERSION" --draft --prerelease --target "$GITHUB_SHA" \
+              --title "Marky Mark $VERSION" --notes-file NOTES.md \
+              release-assets/*.dmg release-assets/*-setup.exe release-assets/*.html release-assets/SHA256SUMS.txt
+          fi

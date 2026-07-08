@@ -1,7 +1,8 @@
 {
   "name": "markimark",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0-alpha.1",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,7 +14,9 @@
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:web": "playwright test --config playwright.web.config.ts",
-    "validate": "node scripts/validate.mjs"
+    "validate": "node scripts/validate.mjs",
+    "release:prepare": "node scripts/release-prepare.mjs",
+    "licenses": "node scripts/licenses.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.8.0",
