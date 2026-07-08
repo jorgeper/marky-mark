@@ -2,7 +2,7 @@
 # full validate gate + version check → three platform builds → one draft
 # GitHub Release with exactly four assets (dmg, setup.exe, web html,
 # SHA256SUMS.txt). Nothing auto-publishes; a human smoke-tests the draft and
-# flips it live (see RELEASING.md).
+# flips it live (see docs/RELEASING.md).
 name: release
 
 on:
