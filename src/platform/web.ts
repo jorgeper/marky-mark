@@ -249,7 +249,15 @@ export function createWebPlatform(): Platform {
     },
 
     resolveAssetSrc(src) {
-      return src;
+      // The single-file page has no filesystem: doc-relative images can never
+      // resolve, and under the page's CSP an attempt would only produce a
+      // violation. Inline data/blob images pass; everything else neutralizes.
+      return /^(data:|blob:)/i.test(src) ? src : '';
+    },
+
+    async openExternal(url) {
+      if (!/^https?:\/\//i.test(url)) return;
+      window.open(url, '_blank', 'noopener,noreferrer');
     },
 
     async commitFile(path) {

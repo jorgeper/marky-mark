@@ -6,7 +6,7 @@ import { AppBadge } from './Toolbar';
  * (__APP_VERSION__, pre-release identifier intact), an alpha notice, the
  * developer credit, and the license. Escape / backdrop / Close dismiss it.
  */
-export function AboutDialog({ onClose }: { onClose(): void }) {
+export function AboutDialog({ onClose, onOpenUrl }: { onClose(): void; onOpenUrl(url: string): void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -37,7 +37,14 @@ export function AboutDialog({ onClose }: { onClose(): void }) {
           MIT License
         </p>
         <p className="about-meta">
-          <a href="https://github.com/jorgeper/marky-mark" target="_blank" rel="noreferrer" data-testid="about-repo">
+          <a
+            href="https://github.com/jorgeper/marky-mark"
+            data-testid="about-repo"
+            onClick={(e) => {
+              e.preventDefault(); // managed hand-off (SPEC11 §4.2) — never navigate the webview
+              onOpenUrl('https://github.com/jorgeper/marky-mark');
+            }}
+          >
             github.com/jorgeper/marky-mark
           </a>
         </p>

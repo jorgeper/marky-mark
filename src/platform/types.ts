@@ -58,4 +58,11 @@ export interface Platform {
   saveFileDialog?(suggestedName: string): Promise<string | null>;
   /** Desktop only: reveal <configDir>/themes in the OS file manager. */
   revealThemesDir?(): Promise<void>;
+
+  /**
+   * Managed external-link hand-off (SPEC11 §4): open an http(s) URL outside
+   * the app — OS default browser on desktop, new noopener tab on web. The
+   * webview itself never navigates anywhere.
+   */
+  openExternal(url: string): Promise<void>;
 }

@@ -54,6 +54,12 @@ jobs:
           if [ "$got" != "$v" ]; then echo "::error::src-tauri/Cargo.toml has $got, releasing $v"; fail=1; fi
           exit $fail
       - run: npm ci
+      - name: Dependency audit — npm production tree (SPEC11 §6.7)
+        run: npm audit --omit=dev --audit-level=high
+      - name: Dependency audit — cargo advisories (SPEC11 §6.7)
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit --file src-tauri/Cargo.lock
       - run: npx playwright install chromium
       - run: npm run validate
 

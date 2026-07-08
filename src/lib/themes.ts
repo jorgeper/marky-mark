@@ -26,9 +26,20 @@ export interface Theme extends ThemeMeta {
 
 /** Matches url( http:// | https:// | //protocol-relative ) — remote refs. */
 const REMOTE_URL = /url\(\s*['"]?\s*(?:https?:)?\/\//i;
+/** Any @import — themes are single-file by contract (THEMES.md), and the
+ * string form (`@import "https://…"`) would bypass the url() check. */
+const IMPORT_RULE = /@import\b/i;
+/** Quoted remote reference outside url() — e.g. the @import string form. */
+const QUOTED_REMOTE = /['"]\s*(?:https?:)?\/\//i;
 
+/**
+ * SPEC11 §2 (theme guard v2, fixes assessment N3): scan only effective CSS —
+ * comments are stripped first so author credits may contain URLs — and
+ * reject every remote-reference form.
+ */
 export function hasRemoteUrls(css: string): boolean {
-  return REMOTE_URL.test(css);
+  const effective = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  return REMOTE_URL.test(effective) || IMPORT_RULE.test(effective) || QUOTED_REMOTE.test(effective);
 }
 
 function metaValue(block: string, key: string): string | null {

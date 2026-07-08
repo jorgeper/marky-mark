@@ -7,9 +7,11 @@
  *   3. unit tests (Vitest, U1–U16)
  *   4. desktop e2e (Playwright, browser platform shim, E1–E41 + E45)
  *   5. single-file web build
- *   6. web e2e (Playwright against dist-web, W1–W4)
- *   7. cargo check (Rust host compiles)
- *   8. single-file check (dist-web = exactly one self-contained index.html)
+ *   6. web e2e (Playwright against dist-web, W1–W5)
+ *   7. desktop bundle build (vite → dist/, scanned below)
+ *   8. cargo check (Rust host compiles)
+ *   9. single-file check (dist-web = exactly one self-contained index.html)
+ *  10. static bundle scan (SPEC11 §6.6: no network call sites ship)
  * Prints VALIDATION: ALL PASSED as the final line only if all steps passed.
  */
 import { spawnSync } from 'node:child_process';
@@ -47,6 +49,7 @@ const steps = [
   { name: 'e2e tests (desktop shim)', cmd: 'npm', args: ['run', 'test:e2e'] },
   { name: 'web single-file build', cmd: 'npm', args: ['run', 'build:web'] },
   { name: 'e2e tests (web, dist-web)', cmd: 'npm', args: ['run', 'test:e2e:web'] },
+  { name: 'desktop bundle build', cmd: 'npm', args: ['run', 'build'] },
   { name: 'cargo check', cmd: 'cargo', args: ['check'], cwd: path.join(root, 'src-tauri') },
 ];
 
@@ -81,5 +84,36 @@ if (externalRef) {
 }
 const bytes = statSync(path.join(distWeb, 'index.html')).size;
 console.log(`dist-web/index.html is self-contained (single file, no external script/style refs), ${bytes} bytes`);
+
+// SPEC11 §6.6 — static bundle scan: the shipped JS may contain no network
+// call sites. fetch( occurrences must equal the committed allowlist below.
+console.log('\n=== validate: static bundle scan (network call sites) ===');
+const FETCH_ALLOWLIST = 0; // no fetch() call sites are expected; justify any future entry here
+const FORBIDDEN = ['XMLHttpRequest(', 'new WebSocket', 'sendBeacon', 'new EventSource'];
+const bundleTargets = [
+  path.join(distWeb, 'index.html'),
+  ...readdirSync(path.join(root, 'dist', 'assets'))
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => path.join(root, 'dist', 'assets', f)),
+];
+let fetchCount = 0;
+const scanViolations = [];
+for (const t of bundleTargets) {
+  const text = readFileSync(t, 'utf8');
+  for (const token of FORBIDDEN) {
+    if (text.includes(token)) scanViolations.push(`${path.relative(root, t)}: ${token}`);
+  }
+  fetchCount += (text.match(/\bfetch\s*\(/g) ?? []).length;
+}
+if (scanViolations.length || fetchCount !== FETCH_ALLOWLIST) {
+  for (const v of scanViolations) console.error(`  forbidden network call site: ${v}`);
+  if (fetchCount !== FETCH_ALLOWLIST)
+    console.error(`  fetch( call sites: ${fetchCount}, allowlist expects ${FETCH_ALLOWLIST}`);
+  console.error('\nVALIDATION FAILED at step: static bundle scan');
+  process.exit(1);
+}
+console.log(
+  `static bundle scan: ${bundleTargets.length} bundle files — no XMLHttpRequest/WebSocket/sendBeacon/EventSource call sites; fetch( count ${fetchCount} matches allowlist (${FETCH_ALLOWLIST})`,
+);
 
 console.log('\nVALIDATION: ALL PASSED');

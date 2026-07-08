@@ -457,3 +457,44 @@ naming the offenders — copyleft can never slip into the bundle silently.
 Unit test U16 exercises the checker's core against fake copyleft entries;
 `license.md` records the MIT decision and the dependency audit behind the
 allowlist.
+
+## Security model & network isolation (SPEC11)
+
+**The guarantee: Marky Mark never makes an outbound network request** — not
+from app code, not from dependencies, and not from anything a document or
+theme contains. Two independent enforcement layers, so a hole in one is
+caught by the other:
+
+1. **Content layer.** The render pipeline swaps every remote image
+   (`http:`, `https:`, protocol-relative) for an inert placeholder naming
+   the blocked origin *before* sanitization; the sanitize schema then only
+   admits `data:`/`blob:`/`asset:` image protocols at all. Theme CSS is
+   rejected if its effective (comment-stripped) text contains any remote
+   reference form — `url(...)`, `@import` (both forms; local `@import` too),
+   or a quoted protocol-relative URL.
+2. **Platform layer (CSP).** The desktop webview runs under a strict CSP
+   (`tauri.conf.json`) whose only permitted hosts are Tauri's own loopback
+   pseudo-origins (`asset.localhost` for local files, `ipc.localhost` for
+   the command bridge on Windows); `devCsp` stays open for Vite HMR in dev
+   only. The single-file web build carries an equivalent
+   `<meta http-equiv="Content-Security-Policy">` with `connect-src 'none'`.
+
+**Managed links:** clicks on document anchors never navigate the webview.
+Fragment links scroll locally; `http(s)` links are handed to the OS default
+browser (desktop, via `opener:allow-open-url` scoped to http/https) or a
+`noopener` tab (web); everything else is inert. Hover shows the destination.
+
+**Accepted scope trade-off:** `fs:scope` and the asset protocol remain broad
+(`**`) — Marky Mark is an open-anything file editor, so the webview can read
+and write user files by design. The compensating controls are exactly the
+layers above: documents can't execute script (rehype-sanitize), and even a
+hypothetical renderer compromise has no network exfiltration channel.
+
+**Proof, continuously:** `fixtures/adversarial.md` (remote/protocol-relative
+images, remote link) is rendered under Playwright request interception in
+E46 (desktop shim) and W5 (built web page), asserting zero non-localhost
+requests and no app navigation; U17/U18 pin the theme guard and renderer;
+`npm run validate` ends with a static scan proving the shipped bundles
+contain no `fetch`/`XMLHttpRequest`/`WebSocket`/`sendBeacon`/`EventSource`
+call sites; CI runs `npm audit` (production, high+) and `cargo audit` on
+every release. Full findings history: `docs/security/assessment.md`.

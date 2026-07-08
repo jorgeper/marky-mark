@@ -977,3 +977,13 @@ mark.hl.ghost {
   margin: 4px 0;
   opacity: 0.85;
 }
+
+/* --- Blocked remote image placeholder (SPEC11 §1) -------------------------- */
+.mm-blocked-remote {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px dashed var(--mm-border, #d1d9e0);
+  border-radius: 6px;
+  font-size: 0.85em;
+  opacity: 0.75;
+}

@@ -545,9 +545,18 @@ export default function App() {
       const dir = p.dirname(path);
       doc.querySelectorAll('img').forEach((img) => {
         const src = img.getAttribute('src');
-        if (src) img.src = p.resolveAssetSrc(src, dir);
+        if (!src) return;
+        const resolved = p.resolveAssetSrc(src, dir);
+        if (resolved) img.src = resolved;
+        else img.removeAttribute('src'); // unresolvable here (e.g. web): stay inert
       });
     }
+    // External links: show the destination on hover — the hand-off to the OS
+    // browser (SPEC11 §4) should never be a surprise.
+    doc.querySelectorAll('a[href]').forEach((a) => {
+      const href = a.getAttribute('href') ?? '';
+      if (/^https?:\/\//i.test(href)) a.setAttribute('title', href);
+    });
 
     const text = getDocText(doc);
     docTextRef.current = text;
@@ -596,7 +605,10 @@ export default function App() {
       const dir = p.dirname(path);
       el.querySelectorAll('img').forEach((img) => {
         const src = img.getAttribute('src');
-        if (src) img.src = p.resolveAssetSrc(src, dir);
+        if (!src) return;
+        const resolved = p.resolveAssetSrc(src, dir);
+        if (resolved) img.src = resolved;
+        else img.removeAttribute('src');
       });
     }
   }, [html, mode, settings.splitEdit]);
@@ -867,6 +879,19 @@ export default function App() {
               data-testid="doc"
               ref={docRef}
               onClick={(e) => {
+                // Managed links (SPEC11 §4): the webview never navigates.
+                const a = (e.target as HTMLElement).closest?.('a[href]') as HTMLAnchorElement | null;
+                if (a) {
+                  e.preventDefault();
+                  const href = a.getAttribute('href') ?? '';
+                  if (href.startsWith('#')) {
+                    const id = decodeURIComponent(href.slice(1));
+                    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+                  } else if (/^https?:\/\//i.test(href)) {
+                    void platform.openExternal(href); // explicit hand-off to the OS browser
+                  }
+                  return; // any other protocol is inert
+                }
                 const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
                 if (mark?.dataset.cid && showComments) handleMarkClick(mark.dataset.cid);
               }}
@@ -1017,7 +1042,7 @@ export default function App() {
         />
       )}
 
-      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} onOpenUrl={(u) => void platform.openExternal(u)} />}
 
       {openPrompt && (
         <div className="overlay">

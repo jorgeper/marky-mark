@@ -167,3 +167,41 @@ test('W4: zero network requests after initial load (self-contained page)', async
 
   expect(extraRequests).toEqual([]);
 });
+
+test('W5: network isolation — adversarial doc: zero non-localhost requests; remote link never navigates the page; CSP baked in', async ({
+  page,
+}) => {
+  const external: string[] = [];
+  page.on('request', (req) => {
+    const url = req.url();
+    if (url.startsWith('data:') || url.startsWith('blob:')) return;
+    const host = new URL(url).hostname;
+    if (host !== 'localhost' && host !== '127.0.0.1') external.push(url);
+  });
+  // Abort anything external context-wide (covers the hand-off tab too).
+  await page.context().route('**/*', (route) => {
+    const host = new URL(route.request().url()).hostname;
+    return host === 'localhost' || host === '127.0.0.1' ? route.continue() : route.abort();
+  });
+
+  // The page carries its own CSP (SPEC11 §3.2).
+  const csp = await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute('content');
+  expect(csp).toContain("connect-src 'none'");
+  expect(csp).toContain('img-src data: blob:');
+
+  const adversarial = readFileSync(new URL('../../fixtures/adversarial.md', import.meta.url), 'utf8');
+  await dropFile(page, 'adversarial.md', adversarial);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Adversarial');
+  const placeholders = page.locator('.mm-blocked-remote');
+  await expect(placeholders).toHaveCount(2);
+  await expect(placeholders.first()).toContainText('remote image (evil.example.com');
+  expect(external).toEqual([]); // rendering attempted nothing non-local
+
+  // Remote link: the hand-off may open a (blocked) new tab, but the app page
+  // itself never navigates.
+  const before = page.url();
+  await page.getByRole('link', { name: 'click me' }).click();
+  await page.waitForTimeout(400);
+  expect(page.url()).toBe(before);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Adversarial');
+});

@@ -16,6 +16,9 @@ export default defineConfig({
     strictPort: true,
   },
   build: {
+    // SPEC11 §6.6: no fetch() call sites may ship — drop vite's modulepreload
+    // polyfill (an optimization only; modern webviews preload natively).
+    modulePreload: { polyfill: false },
     target: 'es2022',
     outDir: 'dist',
   },

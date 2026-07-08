@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { expect, test } from './fixtures';
 import pkg from '../../package.json' with { type: 'json' };
 import {
@@ -1118,4 +1120,48 @@ test('E45: About dialog shows name, exact build version, alpha notice, developer
 
   await dlg.getByTestId('about-close').click();
   await expect(dlg).toHaveCount(0);
+});
+
+test('E46: network isolation — adversarial doc renders with zero non-localhost requests; placeholders shown; links never navigate the app', async ({
+  page,
+}) => {
+  // Block-and-log anything that tries to leave localhost, context-wide.
+  const external: string[] = [];
+  await page.context().route('**/*', (route) => {
+    const host = new URL(route.request().url()).hostname;
+    if (host === 'localhost' || host === '127.0.0.1') return route.continue();
+    external.push(route.request().url());
+    return route.abort();
+  });
+
+  const adversarial = readFileSync(fileURLToPath(new URL('../../fixtures/adversarial.md', import.meta.url)), 'utf8');
+  await fsWrite(page, '/docs/adversarial.md', adversarial);
+  page.once('dialog', (d) => void d.accept('/docs/adversarial.md'));
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-open').click();
+  await expect(page.getByTestId('docname')).toContainText('adversarial.md');
+
+  // Both remote images became inert placeholders naming the blocked origin;
+  // no element in the doc points at a remote URL.
+  const placeholders = page.locator('.mm-blocked-remote');
+  await expect(placeholders).toHaveCount(2);
+  await expect(placeholders.first()).toContainText('remote image (evil.example.com');
+  await expect(placeholders.first()).toContainText('Marky Mark is local-only');
+  await expect(page.getByTestId('doc').locator('img[src*="evil"]')).toHaveCount(0);
+
+  // Remote link: managed hand-off (SPEC11 §4) — recorded, app never navigates.
+  const before = page.url();
+  await page.getByRole('link', { name: 'click me' }).click();
+  await expect(page.getByTestId('docname')).toContainText('adversarial.md');
+  expect(page.url()).toBe(before);
+  const opens = await page.evaluate(() => (window as unknown as { __mmExternalOpens?: string[] }).__mmExternalOpens ?? []);
+  expect(opens).toEqual(['https://evil.example.com/phone-home']);
+
+  // Fragment link stays local and inert-safe.
+  await page.getByRole('link', { name: 'back to top' }).click();
+  expect(page.url()).toBe(before);
+
+  // The guarantee: not one request attempted to leave localhost.
+  expect(external).toEqual([]);
 });

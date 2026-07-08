@@ -2,7 +2,7 @@ import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import remarkRehype from 'remark-rehype';
-import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from 'rehype-sanitize';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeStringify from 'rehype-stringify';
 
@@ -16,19 +16,82 @@ import rehypeStringify from 'rehype-stringify';
  */
 
 // GitHub-style sanitize schema, extended to keep task-list checkboxes.
-const schema = {
+// SPEC11 §1: image sources are local-only — absolute URLs must be data:/blob:/
+// asset: (http/https removed from the default schema), and the pre-sanitize
+// plugin below has already swapped remote images for inert placeholders.
+const schema: SanitizeSchema = {
   ...defaultSchema,
   tagNames: [...(defaultSchema.tagNames ?? []), 'input'],
   attributes: {
     ...defaultSchema.attributes,
     input: ['type', 'checked', 'disabled'],
+    span: [...(defaultSchema.attributes?.span ?? []), ['className', 'mm-blocked-remote']],
+  },
+  protocols: {
+    ...defaultSchema.protocols,
+    src: ['data', 'blob', 'asset'],
   },
 };
+
+const REMOTE_SRC = /^(?:https?:)?\/\//i;
+
+/** Hostname for the placeholder label; tolerant of unparsable URLs. */
+function remoteHost(src: string): string {
+  try {
+    return new URL(src.startsWith('//') ? `https:${src}` : src).hostname || 'remote host';
+  } catch {
+    return 'remote host';
+  }
+}
+
+interface HastNode {
+  type: string;
+  tagName?: string;
+  properties?: Record<string, unknown>;
+  children?: HastNode[];
+  value?: string;
+}
+
+/**
+ * SPEC11 §1 (fixes assessment N1): runs before sanitize. Every image whose
+ * src is remote (http:, https:, or protocol-relative) is replaced by an inert
+ * placeholder naming the blocked origin — the DOM never contains a remote
+ * URL, so nothing can be fetched. Unconditional: there is no setting to turn
+ * remote images back on.
+ */
+function blockRemoteImages() {
+  const visit = (node: HastNode) => {
+    if (!node.children) return;
+    node.children = node.children.map((child) => {
+      if (child.type === 'element' && child.tagName === 'img') {
+        const src = String(child.properties?.src ?? '');
+        if (REMOTE_SRC.test(src)) {
+          const alt = String(child.properties?.alt ?? '').trim();
+          return {
+            type: 'element',
+            tagName: 'span',
+            properties: { className: ['mm-blocked-remote'] },
+            children: [
+              {
+                type: 'text',
+                value: `🚫 remote image (${remoteHost(src)}${alt ? `: “${alt}”` : ''}) — Marky Mark is local-only`,
+              },
+            ],
+          } satisfies HastNode;
+        }
+      }
+      visit(child);
+      return child;
+    });
+  };
+  return (tree: HastNode) => visit(tree);
+}
 
 const processor = unified()
   .use(remarkParse)
   .use(remarkGfm)
   .use(remarkRehype)
+  .use(blockRemoteImages)
   .use(rehypeSanitize, schema)
   .use(rehypeHighlight, { detect: false })
   .use(rehypeStringify);

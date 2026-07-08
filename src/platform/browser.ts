@@ -210,5 +210,14 @@ export function createBrowserPlatform(): Platform {
     resolveAssetSrc(src) {
       return src;
     },
+
+    async openExternal(url) {
+      if (!/^https?:\/\//i.test(url)) return;
+      // The shim is the dev/test platform: record the hand-off (E46 asserts
+      // it happened without the app navigating) instead of opening anything —
+      // the e2e network-isolation assertion stays absolute.
+      const w = window as unknown as { __mmExternalOpens?: string[] };
+      (w.__mmExternalOpens ??= []).push(url);
+    },
   };
 }

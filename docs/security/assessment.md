@@ -6,6 +6,12 @@ Fixes land via [SPEC11](../specs/SPEC11.md).*
 
 ## Verdict
 
+**Post-SPEC11 update (v0.2.0-alpha.1+): the guarantee now holds.** All
+network findings below are fixed — remote content is stripped at the
+sanitize layer, a strict CSP backstops both targets, links are managed
+hand-offs — and the property is enforced by tests (U17/U18/E46/W5) plus a
+static bundle scan on every `npm run validate`. Original assessment follows.
+
 The app is **almost** fully local. Application code contains **zero network
 calls** (no fetch/XHR/WebSocket/beacon anywhere in `src/`), the Rust host has
 **no network-capable dependencies** (no HTTP plugin, no updater, no
@@ -18,16 +24,16 @@ by CSP and proven by tests*.
 
 ## Findings
 
-| ID | Sev | Finding | Fix (SPEC11) |
-| --- | --- | --- | --- |
-| **N1** | **High** | **Remote images auto-fetch.** A document containing `![](https://…)` makes the webview fetch it on render — silent outbound, no user action. The sanitizer's GitHub schema allows `http(s)` image URLs and `src/platform/tauri.ts:123` passes them through untouched. Classic tracking-pixel vector. | §1: sanitize-strip remote image protocols, render an inert placeholder; §3: CSP blocks as backstop |
-| **N2** | **High** | **No CSP at all** (`"csp": null` in tauri.conf.json; none in the web build). Nothing at the platform layer prevents any request if a render-side hole (known or future) is found. | §3: strict CSP — no remote origins — for desktop and web builds |
-| **N3** | Med | **Theme guard misses `@import "https://…"`.** `hasRemoteUrls` only matches `url(...)` forms; a theme CSS using the string form of `@import` fetches remote CSS. | §2: theme guard v2 (comment-strip, then reject every remote-reference form) |
-| **N4** | Med | **Link clicks are unmanaged.** Anchors in rendered documents are live; clicking one navigates the webview/page to the internet (turning the app into a browser). Exact desktop behavior unverified — pinned down and fixed by E46. | §4: intercept all clicks; external links open in the OS browser only (explicit, user-initiated), never in-app |
-| **N5** | Low | About dialog's repo link relies on `target="_blank"` with no `opener:allow-open-url` permission granted — behavior undefined; should go through the same managed link path as N4. | §4/§5 |
-| **L1** | Med (accepted) | **`fs:scope` is effectively full-disk** (`**` + `$HOME/**`). Product necessity for an open-anything file editor; consequence: a renderer compromise = disk access. Mitigation is exactly N1–N4 (no script execution + no exfil channel). *Decision for owner: keep (recommended, documented) or narrow at the cost of breaking files outside `$HOME`.* | §5 documents; optional tightening |
-| **L2** | Low | `assetProtocol` scope `**`: any local file is readable as an image/asset URL inside a document. Local disclosure only — harmless while N1–N4 close the exfil channel; noted for awareness. | §5 documents |
-| **S1** | Low | No continuous dependency-vulnerability gate (today: `npm audit` = 0 vulns, prod tree; cargo-audit not run). | §6: audit step in CI |
+| ID | Sev | Finding | Fix (SPEC11) | Status |
+| --- | --- | --- | --- | --- |
+| **N1** | **High** | **Remote images auto-fetch.** A document containing `![](https://…)` makes the webview fetch it on render — silent outbound, no user action. The sanitizer's GitHub schema allows `http(s)` image URLs and `src/platform/tauri.ts:123` passes them through untouched. Classic tracking-pixel vector. | §1: sanitize-strip remote image protocols, render an inert placeholder; §3: CSP blocks as backstop | **Fixed** (§1, §3) |
+| **N2** | **High** | **No CSP at all** (`"csp": null` in tauri.conf.json; none in the web build). Nothing at the platform layer prevents any request if a render-side hole (known or future) is found. | §3: strict CSP — no remote origins — for desktop and web builds | **Fixed** (§3) |
+| **N3** | Med | **Theme guard misses `@import "https://…"`.** `hasRemoteUrls` only matches `url(...)` forms; a theme CSS using the string form of `@import` fetches remote CSS. | §2: theme guard v2 (comment-strip, then reject every remote-reference form) | **Fixed** (§2) |
+| **N4** | Med | **Link clicks are unmanaged.** Anchors in rendered documents are live; clicking one navigates the webview/page to the internet (turning the app into a browser). Exact desktop behavior unverified — pinned down and fixed by E46. | §4: intercept all clicks; external links open in the OS browser only (explicit, user-initiated), never in-app | **Fixed** (§4) |
+| **N5** | Low | About dialog's repo link relies on `target="_blank"` with no `opener:allow-open-url` permission granted — behavior undefined; should go through the same managed link path as N4. | §4/§5 | **Fixed** (§4, §5) |
+| **L1** | Med (accepted) | **`fs:scope` is effectively full-disk** (`**` + `$HOME/**`). Product necessity for an open-anything file editor; consequence: a renderer compromise = disk access. Mitigation is exactly N1–N4 (no script execution + no exfil channel). *Decision for owner: keep (recommended, documented) or narrow at the cost of breaking files outside `$HOME`.* | §5 documents; optional tightening | Accepted (documented) |
+| **L2** | Low | `assetProtocol` scope `**`: any local file is readable as an image/asset URL inside a document. Local disclosure only — harmless while N1–N4 close the exfil channel; noted for awareness. | §5 documents | Accepted (documented) |
+| **S1** | Low | No continuous dependency-vulnerability gate (today: `npm audit` = 0 vulns, prod tree; cargo-audit not run). | §6: audit step in CI | **Fixed** (§6.7) |
 
 ## What is already solid
 

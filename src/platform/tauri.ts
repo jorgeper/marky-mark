@@ -120,9 +120,18 @@ export async function createTauriPlatform(): Promise<Platform> {
     },
 
     resolveAssetSrc(src, docDir) {
-      if (/^(https?:|data:|asset:|blob:)/.test(src)) return src;
+      // SPEC11 §1.3: remote URLs no longer pass through (the renderer already
+      // replaced them with placeholders; this is belt-and-braces).
+      if (/^(https?:)?\/\//i.test(src)) return '';
+      if (/^(data:|asset:|blob:)/.test(src)) return src;
       const abs = /^([/\\]|[A-Za-z]:)/.test(src) ? src : join(docDir, ...src.split('/'));
       return convertFileSrc(abs);
+    },
+
+    async openExternal(url) {
+      if (!/^https?:\/\//i.test(url)) return; // http(s) only, matching the capability scope
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      await openUrl(url);
     },
   };
   return platform;
