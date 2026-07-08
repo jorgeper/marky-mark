@@ -1,0 +1,48 @@
+/* @name: Vaporwave
+   @author: Marky Mark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #1f1147;
+  --mm-bg-elevated: #2a1a5e;
+  --mm-fg: #e6d8ff;
+  --mm-fg-muted: #8a7bb8;
+  --mm-heading: #ff71ce;
+  --mm-link: #01cdfe;
+  --mm-accent: #ff71ce;
+  --mm-border: #3b2a76;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #180d38;
+  --mm-code-fg: #e6d8ff;
+  --mm-blockquote-border: #ff71ce;
+  --mm-blockquote-fg: #c3b3e8;
+  --mm-table-border: #3b2a76;
+  --mm-table-stripe: #251552;
+  --mm-hr: #3b2a76;
+  --mm-selection: rgba(1, 205, 254, 0.3);
+  --mm-comment-tint: rgba(255, 113, 206, 0.24);
+  --mm-comment-tint-active: rgba(255, 113, 206, 0.44);
+
+  --mm-syn-keyword: #ff71ce;
+  --mm-syn-string: #05ffa1;
+  --mm-syn-comment: #8a7bb8;
+  --mm-syn-number: #fffb96;
+  --mm-syn-title: #01cdfe;
+  --mm-syn-attr: #fffb96;
+  --mm-syn-literal: #b967ff;
+  --mm-syn-meta: #01cdfe;
+}
+
+.theme-root .doc h1 {
+  background: linear-gradient(90deg, #ff71ce, #01cdfe, #05ffa1);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}

@@ -1,0 +1,41 @@
+/* @name: Gruvbox Dark
+   @author: Marky Mark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #282828;
+  --mm-bg-elevated: #3c3836;
+  --mm-fg: #ebdbb2;
+  --mm-fg-muted: #928374;
+  --mm-heading: #fabd2f;
+  --mm-link: #83a598;
+  --mm-accent: #fe8019;
+  --mm-border: #504945;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #1d2021;
+  --mm-code-fg: #ebdbb2;
+  --mm-blockquote-border: #fe8019;
+  --mm-blockquote-fg: #d5c4a1;
+  --mm-table-border: #504945;
+  --mm-table-stripe: #32302f;
+  --mm-hr: #504945;
+  --mm-selection: rgba(131, 165, 152, 0.3);
+  --mm-comment-tint: rgba(250, 189, 47, 0.26);
+  --mm-comment-tint-active: rgba(250, 189, 47, 0.48);
+
+  --mm-syn-keyword: #fb4934;
+  --mm-syn-string: #b8bb26;
+  --mm-syn-comment: #928374;
+  --mm-syn-number: #d3869b;
+  --mm-syn-title: #fabd2f;
+  --mm-syn-attr: #fe8019;
+  --mm-syn-literal: #d3869b;
+  --mm-syn-meta: #8ec07c;
+}

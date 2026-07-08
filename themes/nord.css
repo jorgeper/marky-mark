@@ -1,0 +1,41 @@
+/* @name: Nord
+   @author: Markimark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #2e3440;
+  --mm-bg-elevated: #3b4252;
+  --mm-fg: #d8dee9;
+  --mm-fg-muted: #7b88a1;
+  --mm-heading: #88c0d0;
+  --mm-link: #81a1c1;
+  --mm-accent: #88c0d0;
+  --mm-border: #434c5e;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #272c36;
+  --mm-code-fg: #d8dee9;
+  --mm-blockquote-border: #5e81ac;
+  --mm-blockquote-fg: #aeb8cc;
+  --mm-table-border: #434c5e;
+  --mm-table-stripe: #333947;
+  --mm-hr: #434c5e;
+  --mm-selection: rgba(136, 192, 208, 0.25);
+  --mm-comment-tint: rgba(235, 203, 139, 0.26);
+  --mm-comment-tint-active: rgba(235, 203, 139, 0.48);
+
+  --mm-syn-keyword: #81a1c1;
+  --mm-syn-string: #a3be8c;
+  --mm-syn-comment: #616e88;
+  --mm-syn-number: #b48ead;
+  --mm-syn-title: #88c0d0;
+  --mm-syn-attr: #d08770;
+  --mm-syn-literal: #b48ead;
+  --mm-syn-meta: #616e88;
+}

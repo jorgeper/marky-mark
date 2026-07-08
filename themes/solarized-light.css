@@ -1,0 +1,41 @@
+/* @name: Solarized Light
+   @author: Markimark
+   @variant: light */
+
+.theme-root {
+  --mm-bg: #fdf6e3;
+  --mm-bg-elevated: #eee8d5;
+  --mm-fg: #657b83;
+  --mm-fg-muted: #93a1a1;
+  --mm-heading: #586e75;
+  --mm-link: #268bd2;
+  --mm-accent: #cb4b16;
+  --mm-border: #e4ddc8;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #eee8d5;
+  --mm-code-fg: #586e75;
+  --mm-blockquote-border: #b58900;
+  --mm-blockquote-fg: #839496;
+  --mm-table-border: #e4ddc8;
+  --mm-table-stripe: #f5eeda;
+  --mm-hr: #e4ddc8;
+  --mm-selection: rgba(38, 139, 210, 0.18);
+  --mm-comment-tint: rgba(181, 137, 0, 0.24);
+  --mm-comment-tint-active: rgba(181, 137, 0, 0.42);
+
+  --mm-syn-keyword: #859900;
+  --mm-syn-string: #2aa198;
+  --mm-syn-comment: #93a1a1;
+  --mm-syn-number: #d33682;
+  --mm-syn-title: #268bd2;
+  --mm-syn-attr: #b58900;
+  --mm-syn-literal: #6c71c4;
+  --mm-syn-meta: #cb4b16;
+}

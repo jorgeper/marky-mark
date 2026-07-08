@@ -1,0 +1,41 @@
+/* @name: GitHub Dark
+   @author: Marky Mark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #0d1117;
+  --mm-bg-elevated: #161b22;
+  --mm-fg: #e6edf3;
+  --mm-fg-muted: #8b949e;
+  --mm-heading: #e6edf3;
+  --mm-link: #58a6ff;
+  --mm-accent: #58a6ff;
+  --mm-border: #30363d;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #161b22;
+  --mm-code-fg: #e6edf3;
+  --mm-blockquote-border: #30363d;
+  --mm-blockquote-fg: #8b949e;
+  --mm-table-border: #30363d;
+  --mm-table-stripe: #11161d;
+  --mm-hr: #30363d;
+  --mm-selection: rgba(88, 166, 255, 0.3);
+  --mm-comment-tint: rgba(210, 153, 34, 0.28);
+  --mm-comment-tint-active: rgba(210, 153, 34, 0.5);
+
+  --mm-syn-keyword: #ff7b72;
+  --mm-syn-string: #a5d6ff;
+  --mm-syn-comment: #8b949e;
+  --mm-syn-number: #79c0ff;
+  --mm-syn-title: #d2a8ff;
+  --mm-syn-attr: #79c0ff;
+  --mm-syn-literal: #79c0ff;
+  --mm-syn-meta: #ffa657;
+}

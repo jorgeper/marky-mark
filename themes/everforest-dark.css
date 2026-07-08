@@ -1,0 +1,41 @@
+/* @name: Everforest Dark
+   @author: Marky Mark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #2d353b;
+  --mm-bg-elevated: #343f44;
+  --mm-fg: #d3c6aa;
+  --mm-fg-muted: #859289;
+  --mm-heading: #a7c080;
+  --mm-link: #7fbbb3;
+  --mm-accent: #e69875;
+  --mm-border: #475258;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #272e33;
+  --mm-code-fg: #d3c6aa;
+  --mm-blockquote-border: #a7c080;
+  --mm-blockquote-fg: #9da9a0;
+  --mm-table-border: #475258;
+  --mm-table-stripe: #333c42;
+  --mm-hr: #475258;
+  --mm-selection: rgba(127, 187, 179, 0.28);
+  --mm-comment-tint: rgba(219, 188, 127, 0.26);
+  --mm-comment-tint-active: rgba(219, 188, 127, 0.48);
+
+  --mm-syn-keyword: #e67e80;
+  --mm-syn-string: #a7c080;
+  --mm-syn-comment: #859289;
+  --mm-syn-number: #d699b6;
+  --mm-syn-title: #7fbbb3;
+  --mm-syn-attr: #dbbc7f;
+  --mm-syn-literal: #d699b6;
+  --mm-syn-meta: #83c092;
+}

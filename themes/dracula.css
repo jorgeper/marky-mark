@@ -1,0 +1,41 @@
+/* @name: Dracula
+   @author: Markimark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #282a36;
+  --mm-bg-elevated: #343746;
+  --mm-fg: #f8f8f2;
+  --mm-fg-muted: #6272a4;
+  --mm-heading: #bd93f9;
+  --mm-link: #8be9fd;
+  --mm-accent: #ff79c6;
+  --mm-border: #44475a;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #21222c;
+  --mm-code-fg: #f8f8f2;
+  --mm-blockquote-border: #bd93f9;
+  --mm-blockquote-fg: #b8bdd9;
+  --mm-table-border: #44475a;
+  --mm-table-stripe: #2e3040;
+  --mm-hr: #44475a;
+  --mm-selection: rgba(68, 71, 90, 0.9);
+  --mm-comment-tint: rgba(241, 250, 140, 0.26);
+  --mm-comment-tint-active: rgba(241, 250, 140, 0.48);
+
+  --mm-syn-keyword: #ff79c6;
+  --mm-syn-string: #f1fa8c;
+  --mm-syn-comment: #6272a4;
+  --mm-syn-number: #bd93f9;
+  --mm-syn-title: #50fa7b;
+  --mm-syn-attr: #ffb86c;
+  --mm-syn-literal: #bd93f9;
+  --mm-syn-meta: #6272a4;
+}

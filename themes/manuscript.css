@@ -1,0 +1,47 @@
+/* @name: Manuscript
+   @author: Marky Mark
+   @variant: light */
+
+.theme-root {
+  --mm-bg: #fffdf8;
+  --mm-bg-elevated: #f7f6f3;
+  --mm-fg: #232323;
+  --mm-fg-muted: #767676;
+  --mm-heading: #161616;
+  --mm-link: #1a4c8b;
+  --mm-accent: #1a4c8b;
+  --mm-border: #e6e4df;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --mm-font-heading: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 17px;
+  --mm-line-height: 1.8;
+
+  --mm-code-bg: #f5f4f0;
+  --mm-code-fg: #3a3a3a;
+  --mm-blockquote-border: #c9c5bb;
+  --mm-blockquote-fg: #5d5d5d;
+  --mm-table-border: #e6e4df;
+  --mm-table-stripe: #faf9f7;
+  --mm-hr: #e6e4df;
+  --mm-selection: rgba(26, 76, 139, 0.16);
+  --mm-comment-tint: rgba(240, 200, 90, 0.35);
+  --mm-comment-tint-active: rgba(240, 200, 90, 0.6);
+
+  --mm-syn-keyword: #7c2d5e;
+  --mm-syn-string: #3f6e3f;
+  --mm-syn-comment: #9a9a9a;
+  --mm-syn-number: #9a5b12;
+  --mm-syn-title: #1a4c8b;
+  --mm-syn-attr: #6b5b12;
+  --mm-syn-literal: #9a5b12;
+  --mm-syn-meta: #9a9a9a;
+}
+
+.theme-root .doc h1 {
+  text-align: center;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}

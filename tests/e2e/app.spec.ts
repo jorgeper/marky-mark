@@ -1,0 +1,1094 @@
+import { expect, test } from './fixtures';
+import {
+  addComment,
+  freshApp,
+  fsRead,
+  fsWrite,
+  openSettings,
+  openWelcomeViaHelp,
+  revealToolbar,
+  selectPhrase,
+  selectSpan,
+  waitForSidecar,
+  WELCOME,
+  WELCOME_SIDECAR,
+} from './helpers';
+
+// A phrase from fixtures/welcome.md that lives inside one paragraph.
+const PHRASE = 'saved to a sidecar file next to the document';
+// Longer than TOOLBAR_GRACE_MS (2500) + TOOLBAR_HIDE_DELAY_MS (400).
+const TOOLBAR_WAIT = 3200;
+
+test.beforeEach(async ({ page }) => {
+  await freshApp(page);
+});
+
+test('E1: launch shows the clean empty state; Help opens the welcome doc fully rendered', async ({ page }) => {
+  // beforeEach opened welcome — reset to a pristine launch for this test.
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const hint = page.getByTestId('empty-hint');
+  await expect(hint).toBeVisible();
+  await expect(hint).toContainText('Drag a markdown file here');
+  await expect(page.getByTestId('doc')).toHaveText(''); // no document content
+  await expect(page.getByTestId('docname').getByTestId('app-badge')).toBeVisible();
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  await openWelcomeViaHelp(page);
+  const doc = page.getByTestId('doc');
+  await expect(doc.locator('h1')).toContainText('Welcome to Marky Mark');
+  await expect(doc.locator('pre code')).toBeVisible();
+  await expect(doc.locator('table')).toBeVisible();
+  await expect(doc.locator('table')).toContainText('Switch theme');
+  await expect(doc.locator('input[type="checkbox"]').first()).toBeVisible();
+});
+
+test('E2: Settings lists the 7 built-in themes; Monokai changes the background; choice persists across reload', async ({
+  page,
+}) => {
+  await openSettings(page);
+  const select = page.getByTestId('settings-theme-light');
+  for (const id of ['crisp', 'claude', 'monokai', 'dracula', 'nord', 'solarized-light', 'one-dark']) {
+    await expect(select.locator(`option[value="${id}"]`)).toHaveCount(1);
+  }
+
+  const before = await page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(before).toBe('rgb(255, 255, 255)'); // Crisp default
+
+  await select.selectOption('monokai');
+  await expect
+    .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
+    .toBe('rgb(39, 40, 34)'); // Monokai #272822
+  await page.getByTestId('settings-close').click();
+
+  await page.reload();
+  await openWelcomeViaHelp(page);
+  await expect
+    .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
+    .toBe('rgb(39, 40, 34)');
+  await openSettings(page);
+  await expect(page.getByTestId('settings-theme-light')).toHaveValue('monokai');
+});
+
+test('E3: dropping a user theme into the config themes dir + Reload themes (in Settings) makes it appear and apply', async ({
+  page,
+}) => {
+  const css = `/* @name: Midnight Ocean\n   @author: e2e\n   @variant: dark */\n.theme-root { --mm-bg: #010203; --mm-fg: #d8e2ec; }`;
+  await fsWrite(page, '/config/themes/midnight-ocean.css', css);
+
+  await openSettings(page);
+  await page.getByTestId('reload-themes').click();
+  const select = page.getByTestId('settings-theme-light');
+  const option = select.locator('option[value="midnight-ocean"]');
+  await expect(option).toHaveCount(1);
+  await expect(option).toHaveText(/Midnight Ocean/);
+  await select.selectOption('midnight-ocean');
+  await expect
+    .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
+    .toBe('rgb(1, 2, 3)');
+});
+
+test('E4: hotkey toggles into edit mode showing markdown source; editing reflects in preview after toggling back', async ({
+  page,
+}) => {
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor).toBeVisible();
+  await expect(editor.locator('.cm-content')).toContainText('# Welcome to Marky Mark');
+  await expect(page.getByTestId('doc')).toHaveCount(0); // swap, never side-by-side
+
+  // Click the first line (the H1) so the typed text lands in rendered output,
+  // not in a non-rendering spot like a table delimiter or fence info string.
+  await editor.locator('.cm-line').first().click();
+  await page.keyboard.type('EDITMARK ');
+
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('doc')).toBeVisible();
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(page.getByTestId('doc')).toContainText('EDITMARK');
+});
+
+test('E5: Cmd/Ctrl+S in edit mode persists the buffer to disk and clears the dirty indicator', async ({ page }) => {
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('SAVEMARK ');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  const onDisk = await fsRead(page, WELCOME);
+  expect(onDisk).toContain('SAVEMARK');
+});
+
+test('E6: remapping the edit-toggle hotkey in settings takes effect immediately; the old combo stops working', async ({
+  page,
+}) => {
+  await openSettings(page, 'hotkeys');
+  await page.getByTestId('hotkey-toggleEdit').click();
+  await page.keyboard.press('Control+Shift+E');
+  await page.getByTestId('settings-close').click();
+
+  await page.keyboard.press('Control+e'); // old combo — must do nothing
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(page.getByTestId('doc')).toBeVisible();
+
+  await page.keyboard.press('Control+Shift+E'); // new combo
+  await expect(page.getByTestId('editor')).toBeVisible();
+
+  // Persisted to settings.json in the config dir.
+  const settings = await fsRead(page, '/config/settings.json');
+  expect(settings).toContain('Mod+Shift+E');
+});
+
+test('E7: select text → Add comment → highlight in DOM and card in panel with the body text', async ({ page }) => {
+  await selectPhrase(page, PHRASE);
+  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
+  await page.getByTestId('add-comment-btn').click();
+  await expect(page.getByTestId('composer')).toBeVisible();
+  await page.getByTestId('composer-input').fill('First note');
+  await page.getByTestId('composer-submit').click();
+
+  const mark = page.locator('mark.hl');
+  await expect(mark.first()).toBeVisible();
+  await expect(mark.first()).toContainText('saved to a sidecar file');
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('card-body')).toHaveText('First note');
+});
+
+test('E8: comments, highlights, and thread state persist across reload via the sidecar', async ({ page }) => {
+  await addComment(page, PHRASE, 'Persistent note');
+  await waitForSidecar(page, (s) => !!s && s.includes('Persistent note'));
+
+  await page.reload();
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('card-body')).toHaveText('Persistent note');
+  await expect(page.locator('mark.hl').first()).toBeVisible();
+
+  const sidecar = await fsRead(page, WELCOME_SIDECAR);
+  expect(sidecar).toContain('"exact"');
+  expect(sidecar).toContain('"prefix"');
+  expect(sidecar).toContain('"suffix"');
+});
+
+test('E9: reply, edit reply, resolve (highlight gone, card in Resolved), reopen (highlight returns)', async ({
+  page,
+}) => {
+  // SPEC7 §4 flipped the showResolved default to true; this test exercises
+  // the collapsed-section behavior, so turn it off explicitly (assertions
+  // below are unchanged from SPEC2).
+  await openSettings(page, 'general');
+  await page.getByTestId('show-resolved').uncheck();
+  await page.getByTestId('settings-close').click();
+
+  await addComment(page, PHRASE, 'Root comment');
+
+  await page.getByTestId('reply-btn').click();
+  await page.getByTestId('reply-input').fill('A reply');
+  await page.getByTestId('submit-reply').click();
+  await expect(page.getByTestId('thread-entry')).toHaveCount(2);
+  await expect(page.getByTestId('reply-body')).toHaveText('A reply');
+
+  await page.getByTestId('edit-reply').click();
+  await page.getByTestId('edit-input').fill('An edited reply');
+  await page.getByTestId('save-edit').click();
+  await expect(page.getByTestId('reply-body')).toHaveText('An edited reply');
+
+  await page.getByTestId('resolve-btn').click();
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+  const resolvedSection = page.getByTestId('resolved-section');
+  await expect(resolvedSection).toContainText('Resolved (1)');
+  await resolvedSection.locator('summary').click();
+  await expect(resolvedSection.getByTestId('comment-card')).toHaveCount(1);
+
+  await resolvedSection.getByTestId('reopen-btn').click();
+  await expect(page.locator('mark.hl').first()).toBeVisible();
+});
+
+test('E10: a comment spanning two blocks highlights in both; deleting it (confirmed) removes card and sidecar entry', async ({
+  page,
+}) => {
+  // From inside the "Reading" paragraph into the blockquote further down.
+  await selectSpan(page, 'GitHub-flavored markdown', 'A task list');
+  await page.getByTestId('add-comment-btn').click();
+  await page.getByTestId('composer-input').fill('Spanning comment');
+  await page.getByTestId('composer-submit').click();
+
+  const markCount = await page.locator('mark.hl').count();
+  expect(markCount).toBeGreaterThanOrEqual(2);
+  await waitForSidecar(page, (s) => !!s && s.includes('Spanning comment'));
+
+  await page.getByTestId('delete-btn').click();
+  await page.getByTestId('confirm-delete').click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+  // Last comment deleted → the sidecar file itself is removed.
+  await waitForSidecar(page, (s) => s === null);
+});
+
+test('E11: edit-survival — inserting a paragraph near the top re-anchors the comment to the same text', async ({
+  page,
+}) => {
+  await addComment(page, PHRASE, 'Survivor');
+  await waitForSidecar(page, (s) => !!s && s.includes('Survivor'));
+
+  const md = (await fsRead(page, WELCOME))!;
+  const edited = md.replace(
+    '## Reading',
+    'A freshly inserted paragraph that shifts every offset in this document by a good amount.\n\n## Reading'
+  );
+  expect(edited).not.toBe(md);
+  await fsWrite(page, WELCOME, edited);
+
+  await page.reload();
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  const highlighted = await page.locator('mark.hl').allTextContents();
+  expect(highlighted.join('')).toBe(PHRASE);
+  await expect(page.getByTestId('orphan-badge')).toHaveCount(0);
+});
+
+test('E12: orphan — deleting the anchored sentence yields an orphan badge, no highlight, no console errors', async ({
+  page,
+}) => {
+  await addComment(page, PHRASE, 'Orphan-to-be');
+  await waitForSidecar(page, (s) => !!s && s.includes('Orphan-to-be'));
+
+  const md = (await fsRead(page, WELCOME))!;
+  const sentence =
+    'Your note is saved to a sidecar file next to the document (`welcome.md.comments.json`), so the markdown itself stays untouched.';
+  expect(md).toContain(sentence);
+  await fsWrite(page, WELCOME, md.replace(sentence, ''));
+
+  await page.reload();
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('orphan-badge')).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toContainText('Orphan-to-be');
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+  // consoleGuard fixture asserts zero console errors at teardown.
+});
+
+test('E13: toolbar is minimal — one overflow menu with exactly Open/Save/Save As/Settings; menu Save persists', async ({
+  page,
+}) => {
+  // Old toolbar buttons are gone.
+  await expect(page.getByTestId('theme-picker')).toHaveCount(0);
+  await expect(page.getByTestId('open-file')).toHaveCount(0);
+  await expect(page.getByTestId('settings-btn')).toHaveCount(0);
+
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  const menu = page.getByTestId('app-menu');
+  await expect(menu.getByTestId('menu-open')).toBeVisible();
+  await expect(menu.getByTestId('menu-save')).toBeVisible();
+  await expect(menu.getByTestId('menu-save-as')).toBeVisible();
+  await expect(menu.getByTestId('menu-help')).toBeVisible();
+  await expect(menu.getByTestId('menu-settings')).toBeVisible();
+  await expect(menu.locator('button')).toHaveCount(5); // exactly these five (SPEC4 §5.2)
+  await page.keyboard.press('Escape');
+  await revealToolbar(page);
+  await page.getByTestId('docname').click(); // close menu
+
+  // Dirty the buffer, then save via the menu.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('MENUSAVE ');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-save').click();
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  expect(await fsRead(page, WELCOME)).toContain('MENUSAVE');
+});
+
+test('E14: hovering the filename reveals the full on-disk path (title attribute)', async ({ page }) => {
+  await expect(page.getByTestId('docname')).toHaveAttribute('title', WELCOME);
+  await expect(page.getByTestId('docname')).toContainText('welcome.md');
+});
+
+test('E15: embedded mode — comments autosave into an invisible trailer, sidecar removed, reload restores', async ({
+  page,
+}) => {
+  // Seed a sidecar first so the migration (sidecar → embedded) is exercised.
+  await addComment(page, PHRASE, 'Embedded note');
+  await waitForSidecar(page, (s) => !!s && s.includes('Embedded note'));
+
+  await openSettings(page, 'general');
+  await page.getByTestId('comment-storage').selectOption('embedded');
+  await page.getByTestId('settings-close').click();
+
+  // Any comment change triggers the embedded autosave + sidecar cleanup.
+  await page.getByTestId('reply-btn').click();
+  await page.getByTestId('reply-input').fill('embedded reply');
+  await page.getByTestId('submit-reply').click();
+
+  await expect.poll(async () => (await fsRead(page, WELCOME))?.includes('markimark-comments')).toBe(true);
+  await expect.poll(async () => fsRead(page, WELCOME_SIDECAR), { timeout: 5000 }).toBe(null);
+  const onDisk = (await fsRead(page, WELCOME))!;
+  expect(onDisk).toContain('Embedded note');
+  expect(onDisk.trimEnd().endsWith('-->')).toBe(true);
+
+  await page.reload();
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('card-body')).toHaveText('Embedded note');
+  await expect(page.locator('mark.hl').first()).toBeVisible();
+
+  // The trailer is invisible everywhere: preview text and edit buffer.
+  await expect(page.getByTestId('doc')).not.toContainText('markimark-comments');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).not.toContainText('markimark-comments');
+});
+
+test('E16: embedded autosave never flushes unsaved text edits; explicit save writes both', async ({ page }) => {
+  await openSettings(page, 'general');
+  await page.getByTestId('comment-storage').selectOption('embedded');
+  await page.getByTestId('settings-close').click();
+
+  // Dirty the buffer without saving.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('DIRTYMARK ');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Comment autosave rewrites the file from the LAST SAVED text.
+  await addComment(page, PHRASE, 'while dirty');
+  await expect.poll(async () => (await fsRead(page, WELCOME))?.includes('markimark-comments')).toBe(true);
+  const afterAutosave = (await fsRead(page, WELCOME))!;
+  expect(afterAutosave).not.toContain('DIRTYMARK');
+  expect(afterAutosave).toContain('while dirty');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible(); // still dirty
+
+  // Explicit save writes buffer + trailer together.
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  const afterSave = (await fsRead(page, WELCOME))!;
+  expect(afterSave).toContain('DIRTYMARK');
+  expect(afterSave).toContain('markimark-comments');
+  expect(afterSave).toContain('while dirty');
+});
+
+test('E17: hamburger and outline-balloon SVG icons replace the glyph/emoji', async ({ page }) => {
+  const menuBtn = page.getByTestId('menu-btn');
+  await expect(menuBtn.getByTestId('menu-icon')).toBeVisible();
+  expect(await menuBtn.evaluate((el) => el.querySelector('svg') !== null)).toBe(true);
+  expect(await menuBtn.textContent()).not.toContain('⋯');
+
+  const commentsBtn = page.getByTestId('comments-toggle');
+  await expect(commentsBtn.getByTestId('comments-icon')).toBeVisible();
+  expect(await commentsBtn.evaluate((el) => el.querySelector('svg') !== null)).toBe(true);
+  expect(await commentsBtn.textContent()).not.toContain('💬');
+  // The balloon is an outline: stroked, unfilled path.
+  const path = commentsBtn.locator('svg path');
+  await expect(path).toHaveAttribute('fill', 'none');
+  await expect(path).toHaveAttribute('stroke', 'currentColor');
+});
+
+test('E18: Save As writes the buffer (and sidecar) to the chosen path and switches to it', async ({ page }) => {
+  await addComment(page, PHRASE, 'travels along');
+  await waitForSidecar(page, (s) => !!s && s.includes('travels along'));
+
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/copy.md';
+  });
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-save-as').click();
+
+  await expect(page.getByTestId('docname')).toContainText('copy.md');
+  await expect(page.getByTestId('docname')).toHaveAttribute('title', '/docs/copy.md');
+  const copied = await fsRead(page, '/docs/copy.md');
+  expect(copied).toContain('# Welcome to Marky Mark');
+  // Sidecar mode: comments were written next to the NEW file and still show.
+  const sidecar = await fsRead(page, '/docs/copy.md.comments.json');
+  expect(sidecar).toContain('travels along');
+  await expect(page.getByTestId('card-body')).toHaveText('travels along');
+});
+
+test('E19: customized font size applies to the document; Auto restores the theme default', async ({ page }) => {
+  await openSettings(page);
+  await page.getByTestId('fontsize-custom').check();
+  await page.getByTestId('fontsize-input').fill('20');
+  await expect
+    .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
+    .toBe('20px');
+
+  await page.getByTestId('fontsize-auto').check();
+  await expect
+    .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
+    .toBe('16px'); // Crisp's --mm-font-size
+});
+
+test('E20: zoom scales only the document text — the settings UI keeps its size; Reset restores 100%', async ({
+  page,
+}) => {
+  await openSettings(page);
+  const modalFontBefore = await page.getByTestId('settings-panel').evaluate((el) => getComputedStyle(el).fontSize);
+
+  await page.getByTestId('zoom-select').selectOption('150');
+  await expect
+    .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
+    .toBe('24px'); // 16px × 1.5 — document text only
+
+  // The UI is NOT zoomed: settings modal font size unchanged, root not CSS-zoomed.
+  expect(await page.getByTestId('settings-panel').evaluate((el) => getComputedStyle(el).fontSize)).toBe(
+    modalFontBefore
+  );
+  expect(await page.locator('.theme-root').evaluate((el) => getComputedStyle(el).zoom)).toBe('1');
+
+  await page.getByTestId('zoom-reset').click();
+  await expect(page.getByTestId('zoom-select')).toHaveValue('100');
+  await expect
+    .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
+    .toBe('16px');
+});
+
+test('E21: light/dark theme pair follows the OS scheme; unchecking uses the light theme everywhere', async ({
+  page,
+}) => {
+  await openSettings(page);
+  await page.getByTestId('settings-theme-light').selectOption('crisp');
+  await page.getByTestId('settings-theme-dark').selectOption('one-dark');
+  const useDark = page.getByTestId('use-dark-theme');
+  if (!(await useDark.isChecked())) await useDark.check();
+  await page.getByTestId('settings-close').click();
+
+  const bg = () => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect.poll(bg).toBe('rgb(40, 44, 52)'); // One Dark #282c34
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect.poll(bg).toBe('rgb(255, 255, 255)'); // Crisp
+
+  // Uncheck "Use separate theme in dark mode" → dark scheme keeps the light theme.
+  await openSettings(page);
+  await page.getByTestId('use-dark-theme').uncheck();
+  await page.getByTestId('settings-close').click();
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect.poll(bg).toBe('rgb(255, 255, 255)');
+});
+
+test('E22: Wide text margins narrow the column; line numbers gutter follows its setting', async ({ page }) => {
+  // Theme default (Crisp) is now the narrow-margin 60rem column (SPEC4 §7).
+  await expect
+    .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).maxWidth))
+    .toBe('960px');
+
+  await openSettings(page);
+  await page.getByTestId('settings-margins').selectOption('super-narrow');
+  await expect
+    .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).maxWidth))
+    .toBe('1216px'); // 76rem — even fewer margins than narrow
+
+  await page.getByTestId('settings-margins').selectOption('wide');
+  await expect
+    .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).maxWidth))
+    .toBe('608px'); // 38rem
+  await page.getByTestId('settings-close').click();
+
+  // Default: gutter present.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-lineNumbers')).toBeVisible();
+  await page.keyboard.press('Control+e');
+
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-line-numbers').uncheck();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await expect(page.getByTestId('editor').locator('.cm-lineNumbers')).toHaveCount(0);
+});
+
+test('E23: vim navigation — off by default, full motion set when enabled, never fires while typing', async ({
+  page,
+}) => {
+  const scrollTop = () => page.locator('.workspace').evaluate((el) => el.scrollTop);
+
+  // Disabled (default): j does nothing.
+  await revealToolbar(page);
+  await page.getByTestId('docname').click();
+  await page.keyboard.press('j');
+  await page.waitForTimeout(150);
+  expect(await scrollTop()).toBe(0);
+
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-vimnav').check();
+  await page.getByTestId('settings-close').click();
+
+  // j scrolls down, k back up.
+  await page.keyboard.press('j');
+  await expect.poll(scrollTop).toBeGreaterThan(0);
+  const afterJ = await scrollTop();
+  await page.keyboard.press('k');
+  await expect.poll(scrollTop).toBeLessThan(afterJ);
+
+  // Ctrl+d jumps about half a viewport; gg returns to top; G reaches bottom.
+  await page.keyboard.press('Control+d');
+  const viewport = await page.locator('.workspace').evaluate((el) => el.clientHeight);
+  await expect.poll(scrollTop).toBeGreaterThanOrEqual(viewport / 2 - 80);
+  await page.keyboard.press('g');
+  await page.keyboard.press('g');
+  await expect.poll(scrollTop).toBe(0);
+  await page.keyboard.press('Shift+G');
+  const max = await page.locator('.workspace').evaluate((el) => el.scrollHeight - el.clientHeight);
+  await expect.poll(scrollTop).toBeGreaterThanOrEqual(max - 2);
+
+  // Typing j into the composer inserts a "j" and does not scroll.
+  await page.keyboard.press('g'); // reset: gg to top
+  await page.keyboard.press('g');
+  await expect.poll(scrollTop).toBe(0);
+  await selectPhrase(page, PHRASE);
+  await page.getByTestId('add-comment-btn').click();
+  await expect(page.getByTestId('composer-input')).toBeFocused();
+  // Bring the composer on-screen first — otherwise Chromium scrolls the
+  // focused textarea into view on the first keystroke (unrelated to vim nav).
+  await page.getByTestId('composer-input').scrollIntoViewIfNeeded();
+  // Let the composer autofocus/card-alignment scrolling settle, then measure.
+  await expect
+    .poll(async () => {
+      const a = await scrollTop();
+      await page.waitForTimeout(120);
+      return (await scrollTop()) - a;
+    })
+    .toBe(0);
+  const composerScroll = await scrollTop();
+  await page.getByTestId('composer-input').pressSequentially('jjj');
+  await expect(page.getByTestId('composer-input')).toHaveValue('jjj');
+  expect(await scrollTop()).toBe(composerScroll);
+});
+
+test('E24: the new Claude theme — Typora-derived paper, serif body, tight headings, 752px column', async ({
+  page,
+}) => {
+  await openSettings(page);
+  await page.getByTestId('settings-theme-light').selectOption('claude');
+  await page.getByTestId('settings-close').click();
+
+  const doc = page.getByTestId('doc');
+  await expect
+    .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
+    .toBe('rgb(250, 249, 245)'); // #faf9f5 paper
+  expect(await doc.evaluate((el) => getComputedStyle(el).fontFamily)).toContain('Georgia'); // serif body stack
+  await expect.poll(() => doc.evaluate((el) => getComputedStyle(el).maxWidth)).toBe('960px'); // 60rem (SPEC4 §7)
+  expect(await doc.locator('h1').first().evaluate((el) => getComputedStyle(el).fontSize)).toBe('22px'); // 1.375rem
+});
+
+test('E25: toolbar auto-hides after launch, reveals on top-edge hover (with shadow), pins while the menu is open', async ({
+  page,
+}) => {
+  // Auto-hide is opt-in as of SPEC5 — enable it first (persists in settings).
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-autohide').check();
+  await page.getByTestId('settings-close').click();
+
+  // Fresh load with the mouse parked away from the top edge (freshApp leaves
+  // it in the hot zone, which would legitimately pin the bar forever).
+  await page.mouse.move(500, 400);
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+
+  const shell = page.getByTestId('toolbar-shell');
+  // Visible during the launch grace period…
+  await expect(shell).toHaveAttribute('data-visible', 'true');
+  // …then slides up and away (grace ≈ 2.5 s).
+  await expect(shell).toHaveAttribute('data-visible', 'false', { timeout: 6000 });
+  const ty = await shell.evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).m42);
+  expect(ty).toBeLessThan(-30); // moved out through the top
+
+  // Mouse into the top hot zone → toolbar returns, wearing its faint shadow.
+  await page.mouse.move(500, 8);
+  await expect(shell).toHaveAttribute('data-visible', 'true');
+  const shadow = await page.locator('.toolbar').evaluate((el) => getComputedStyle(el).boxShadow);
+  expect(shadow).not.toBe('none');
+
+  // Mouse away → hides again after the hide delay.
+  await page.mouse.move(500, 400);
+  await expect(shell).toHaveAttribute('data-visible', 'false', { timeout: 3000 });
+
+  // Pinned while the app menu is open, even with the mouse elsewhere.
+  await page.mouse.move(500, 8);
+  await expect(shell).toHaveAttribute('data-visible', 'true');
+  await page.getByTestId('menu-btn').click();
+  await expect(page.getByTestId('app-menu')).toBeVisible();
+  await page.mouse.move(500, 400);
+  await page.waitForTimeout(TOOLBAR_WAIT);
+  await expect(shell).toHaveAttribute('data-visible', 'true'); // still pinned
+  await page.keyboard.press('Escape');
+  await page.mouse.click(500, 400); // close the menu, mouse away from the bar
+  await expect(shell).toHaveAttribute('data-visible', 'false', { timeout: 3000 });
+});
+
+test('E26: settings shows three left tabs with the right content on each; controls work through their tabs', async ({
+  page,
+}) => {
+  await openSettings(page);
+  const tabs = page.getByTestId('settings-tabs');
+  await expect(tabs.locator('button')).toHaveCount(3);
+  await expect(page.getByTestId('settings-tab-appearance')).toHaveClass(/active/); // default tab
+
+  // Appearance: font size present, General/Hotkeys content absent.
+  await expect(page.getByTestId('fontsize-auto')).toBeVisible();
+  await expect(page.getByTestId('comment-storage')).toHaveCount(0);
+  await expect(page.getByTestId('hotkey-toggleEdit')).toHaveCount(0);
+
+  // General: comments + navigation, no appearance controls.
+  await page.getByTestId('settings-tab-general').click();
+  await expect(page.getByTestId('comment-storage')).toBeVisible();
+  await expect(page.getByTestId('settings-vimnav')).toBeVisible();
+  await expect(page.getByTestId('zoom-select')).toHaveCount(0);
+
+  // Hotkeys tab.
+  await page.getByTestId('settings-tab-hotkeys').click();
+  await expect(page.getByTestId('hotkey-toggleEdit')).toBeVisible();
+  await expect(page.getByTestId('fontsize-auto')).toHaveCount(0);
+
+  // A control still works through its tab: change author in General, persists.
+  await page.getByTestId('settings-tab-general').click();
+  await page.getByTestId('author-input').fill('TabTester');
+  await page.getByTestId('settings-close').click();
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('TabTester');
+});
+
+test('E27: opening another file with unsaved changes prompts Save / Don’t save / Cancel; clean opens never prompt', async ({
+  page,
+}) => {
+  // Clean buffer → Open another file via the dialog: no prompt.
+  page.once('dialog', (d) => void d.accept('/docs/field-guide.md'));
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-open').click();
+  await expect(page.getByTestId('docname')).toContainText('field-guide.md');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+
+  // Dirty the buffer.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('GUARDMARK ');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Help (a different file) → prompt. Cancel keeps everything.
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-help').click();
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  await page.getByTestId('open-cancel').click();
+  await expect(page.getByTestId('docname')).toContainText('field-guide.md');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Help again → Don't save: welcome opens, the edit never reached disk.
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-help').click();
+  await page.getByTestId('open-discard').click();
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  expect(await fsRead(page, '/docs/field-guide.md')).not.toContain('GUARDMARK');
+
+  // Dirty welcome, then Open field-guide → Save: edit persisted, then opened.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('GUARDMARK2 ');
+  await page.keyboard.press('Control+e');
+  page.once('dialog', (d) => void d.accept('/docs/field-guide.md'));
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-open').click();
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  await page.getByTestId('open-save').click();
+  await expect(page.getByTestId('docname')).toContainText('field-guide.md');
+  expect(await fsRead(page, WELCOME)).toContain('GUARDMARK2');
+});
+
+test('E28: the toolbar title slot shows the app badge when empty; titles say Marky Mark', async ({ page }) => {
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+
+  const docname = page.getByTestId('docname');
+  await expect(docname.getByTestId('app-badge')).toBeVisible();
+  expect(await docname.evaluate((el) => el.querySelector('svg') !== null)).toBe(true);
+  expect((await docname.textContent())?.trim()).toBe(''); // icon only — no app-name text
+
+  expect(await page.title()).toContain('Marky Mark');
+  expect(await page.title()).not.toContain('Markimark');
+
+  // With a document open, the filename replaces the badge.
+  await openWelcomeViaHelp(page);
+  await expect(docname).toContainText('welcome.md');
+  await expect(docname.getByTestId('app-badge')).toHaveCount(0);
+});
+
+test('E29: the toolbar stays put by default; the auto-hide setting turns hiding on and back off', async ({
+  page,
+}) => {
+  const shell = page.getByTestId('toolbar-shell');
+
+  // Default: mouse parked mid-screen, well past grace+delay — still visible.
+  await page.mouse.move(500, 400);
+  await page.waitForTimeout(TOOLBAR_WAIT);
+  await expect(shell).toHaveAttribute('data-visible', 'true');
+
+  // Enable auto-hide → it hides once the mouse is away.
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-autohide').check();
+  await page.getByTestId('settings-close').click();
+  await page.mouse.move(500, 400);
+  await expect(shell).toHaveAttribute('data-visible', 'false', { timeout: 6000 });
+
+  // Hover reveals; disabling the setting pins it permanently again.
+  await page.mouse.move(500, 8);
+  await expect(shell).toHaveAttribute('data-visible', 'true');
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-autohide').uncheck();
+  await page.getByTestId('settings-close').click();
+  await page.mouse.move(500, 400);
+  await page.waitForTimeout(TOOLBAR_WAIT);
+  await expect(shell).toHaveAttribute('data-visible', 'true');
+});
+
+test('E30: the empty-state hint sits in the true center of the window', async ({ page }) => {
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  const hint = page.getByTestId('empty-hint');
+  await expect(hint).toBeVisible();
+
+  const box = (await hint.boundingBox())!;
+  const vp = page.viewportSize()!;
+  expect(Math.abs(box.x + box.width / 2 - vp.width / 2)).toBeLessThanOrEqual(40);
+  expect(Math.abs(box.y + box.height / 2 - vp.height / 2)).toBeLessThanOrEqual(40);
+});
+
+test('E31: the edit-mode text column aligns with the preview column', async ({ page }) => {
+  const previewTextLeft = () =>
+    page
+      .getByTestId('doc')
+      .evaluate((el) => el.getBoundingClientRect().left + parseFloat(getComputedStyle(el).paddingLeft));
+  const editorTextLeft = () => page.locator('.cm-line').first().evaluate((el) => el.getBoundingClientRect().left);
+
+  // Exact alignment with the gutter off.
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-line-numbers').uncheck();
+  await page.getByTestId('settings-close').click();
+
+  const p1 = await previewTextLeft();
+  await page.keyboard.press('Control+e');
+  expect(Math.abs((await editorTextLeft()) - p1)).toBeLessThanOrEqual(2);
+  await page.keyboard.press('Control+e');
+
+  // Margins move both columns together.
+  await openSettings(page);
+  await page.getByTestId('settings-margins').selectOption('wide');
+  await page.getByTestId('settings-close').click();
+  const p2 = await previewTextLeft();
+  expect(p2).toBeGreaterThan(p1); // narrower column starts further right
+  await page.keyboard.press('Control+e');
+  expect(Math.abs((await editorTextLeft()) - p2)).toBeLessThanOrEqual(2);
+  await page.keyboard.press('Control+e');
+
+  // With the gutter on, the text may shift by at most the gutter width.
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-line-numbers').check();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  const gutterW = await page.locator('.cm-gutters').evaluate((el) => el.getBoundingClientRect().width);
+  expect(Math.abs((await editorTextLeft()) - p2)).toBeLessThanOrEqual(gutterW + 2);
+});
+
+test('E32: activating a buried comment glides it level with its highlight; cards wear a faint shadow', async ({
+  page,
+}) => {
+  // Three comments anchored inside one paragraph → a stack near one line.
+  await addComment(page, 'saved to a sidecar file', 'first note');
+  await addComment(page, 'markdown itself stays untouched', 'second note');
+  await addComment(page, 'cards instead of being lost', 'third note');
+  await expect(page.getByTestId('comment-card')).toHaveCount(3);
+
+  // Cards have the faint balloon shadow.
+  const shadow = await page.getByTestId('comment-card').first().evaluate((el) => getComputedStyle(el).boxShadow);
+  expect(shadow).not.toBe('none');
+
+  // Activate the LAST card (bottom of the stack).
+  const third = page.locator('[data-testid="comment-card"]', { hasText: 'third note' });
+  await third.click();
+  await expect(third).toHaveClass(/active/);
+
+  // Word behavior: its top animates level with its highlight (±10 px).
+  await expect
+    .poll(async () => {
+      const cardTop = (await third.boundingBox())!.y;
+      const markTop = (await page
+        .locator('mark.hl')
+        .filter({ hasText: 'instead of being lost' })
+        .first()
+        .boundingBox())!.y;
+      return Math.abs(cardTop - markTop);
+    })
+    .toBeLessThanOrEqual(10);
+
+  // The earlier cards moved out of the way (fully above the active card) —
+  // polled, since their 180ms glide finishes after the active card's does.
+  const first = page.locator('[data-testid="comment-card"]', { hasText: 'first note' });
+  await expect
+    .poll(async () => {
+      const f = (await first.boundingBox())!;
+      const t = (await third.boundingBox())!;
+      return f.y + f.height - t.y;
+    })
+    .toBeLessThanOrEqual(0);
+});
+
+test('E33: resolved comments can be shown ghosted in place, reopened from the ghost, and re-collapsed', async ({
+  page,
+}) => {
+  await addComment(page, PHRASE, 'ghost me');
+  await page.getByTestId('resolve-btn').click();
+
+  // Show-resolved defaults ON (SPEC7 §4): ghost card in the flow + ghost
+  // highlight in the text, with the toggle now living in Settings.
+  const ghost = page.locator('.card.resolved-ghost');
+  await expect(ghost).toHaveCount(1);
+  await expect(ghost).toContainText('ghost me');
+  expect(await ghost.evaluate((el) => parseFloat(getComputedStyle(el).opacity))).toBeLessThan(1);
+  await expect(page.locator('mark.hl.ghost').first()).toBeVisible();
+  await expect(page.getByTestId('resolved-section')).toHaveCount(0);
+
+  // Reopen from the ghost: normal card + normal highlight return.
+  await ghost.getByTestId('reopen-btn').click();
+  await expect(page.locator('.card.resolved-ghost')).toHaveCount(0);
+  await expect(page.locator('mark.hl:not(.ghost)').first()).toBeVisible();
+  await expect(page.getByTestId('card-body')).toHaveText('ghost me');
+
+  // Resolve again and turn the toggle off (in Settings) → collapsed section.
+  await page.getByTestId('resolve-btn').click();
+  await openSettings(page, 'general');
+  await page.getByTestId('show-resolved').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect(page.getByTestId('resolved-section')).toContainText('Resolved (1)');
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+});
+
+test('E34: the theme catalog lists 27+ themes; new classics apply their canonical backgrounds', async ({
+  page,
+}) => {
+  await openSettings(page);
+  const select = page.getByTestId('settings-theme-light');
+  expect(await select.locator('option').count()).toBeGreaterThanOrEqual(27);
+
+  const bg = () => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
+
+  await select.selectOption('gruvbox-dark');
+  await expect.poll(bg).toBe('rgb(40, 40, 40)'); // #282828
+
+  await select.selectOption('github-dark');
+  await expect.poll(bg).toBe('rgb(13, 17, 23)'); // #0d1117
+
+  await select.selectOption('phosphor');
+  await expect.poll(bg).toBe('rgb(10, 15, 10)'); // near-black CRT
+  // Phosphor is a mono theme — the document body uses a monospace stack.
+  expect(
+    await page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontFamily.toLowerCase())
+  ).toContain('mono');
+});
+
+test('E35: the settings dialog keeps one fixed size across all three tabs', async ({ page }) => {
+  await openSettings(page);
+  const boxes: Array<{ x: number; y: number; width: number; height: number }> = [];
+  for (const tab of ['appearance', 'general', 'hotkeys'] as const) {
+    await page.getByTestId(`settings-tab-${tab}`).click();
+    await expect(page.getByTestId(`settings-tab-${tab}`)).toHaveClass(/active/);
+    boxes.push((await page.getByTestId('settings-panel').boundingBox())!);
+  }
+  for (const b of boxes.slice(1)) {
+    expect(Math.abs(b.width - boxes[0].width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(b.height - boxes[0].height)).toBeLessThanOrEqual(1);
+    expect(Math.abs(b.x - boxes[0].x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(b.y - boxes[0].y)).toBeLessThanOrEqual(1);
+  }
+});
+
+test('E36: disabling comments hides every comment affordance non-destructively; re-enabling restores', async ({
+  page,
+}) => {
+  await addComment(page, PHRASE, 'still here');
+  await waitForSidecar(page, (s) => !!s && s.includes('still here'));
+  await expect(page.locator('mark.hl').first()).toBeVisible();
+  await expect(page.getByTestId('comments-toggle')).toBeVisible();
+
+  await openSettings(page, 'general');
+  await page.getByTestId('set-comments-enabled').uncheck();
+  await page.getByTestId('settings-close').click();
+
+  // Highlights, panel, and the toolbar toggle are gone — the doc reads clean.
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+  await expect(page.getByTestId('panel')).toHaveCount(0);
+  await expect(page.getByTestId('comments-toggle')).toHaveCount(0);
+
+  // Selecting text produces no floating button, and typing starts no composer.
+  await selectPhrase(page, PHRASE);
+  await page.waitForTimeout(200);
+  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+  await page.keyboard.press('x');
+  await page.waitForTimeout(150);
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+
+  // The stored comment was never touched.
+  expect(await fsRead(page, WELCOME_SIDECAR)).toContain('still here');
+
+  await openSettings(page, 'general');
+  await page.getByTestId('set-comments-enabled').check();
+  await page.getByTestId('settings-close').click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.locator('mark.hl').first()).toBeVisible();
+  await expect(page.getByTestId('comments-toggle')).toBeVisible();
+});
+
+test('E37: typing over a selection opens the composer seeded with the keystroke; off → button only', async ({
+  page,
+}) => {
+  await selectPhrase(page, PHRASE);
+  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
+  await page.keyboard.press('x');
+  await expect(page.getByTestId('composer')).toBeVisible();
+  await expect(page.getByTestId('composer-input')).toHaveValue('x');
+  await expect(page.getByTestId('composer-input')).toBeFocused();
+  // The caret sits after the seed: continuing to type appends.
+  await page.keyboard.type('yz');
+  await expect(page.getByTestId('composer-input')).toHaveValue('xyz');
+  await page.getByTestId('composer-submit').click();
+  await expect(page.getByTestId('card-body')).toHaveText('xyz');
+
+  // Setting off → typing over a selection does nothing; the button still works.
+  await openSettings(page, 'general');
+  await page.getByTestId('set-type-to-comment').uncheck();
+  await page.getByTestId('settings-close').click();
+  await selectPhrase(page, 'GitHub-flavored markdown');
+  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
+  await page.keyboard.press('q');
+  await page.waitForTimeout(150);
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+});
+
+test('E38: resolving defaults to a faint ghost in place; the toggle lives in Settings, not the panel', async ({
+  page,
+}) => {
+  await addComment(page, PHRASE, 'fade me');
+  await page.getByTestId('resolve-btn').click();
+
+  // The panel grew no header toggle — the switch moved to Settings (SPEC7 §4).
+  await expect(page.getByTestId('panel').getByTestId('show-resolved')).toHaveCount(0);
+
+  // Default ON: the ghost card renders in the flow at 0.40 opacity (±0.02).
+  const ghost = page.locator('.card.resolved-ghost');
+  await expect(ghost).toHaveCount(1);
+  await page.mouse.move(30, 300); // hover brightens ghosts; measure unhovered
+  await expect
+    .poll(() => ghost.evaluate((el) => parseFloat(getComputedStyle(el).opacity)))
+    .toBeGreaterThanOrEqual(0.38);
+  await expect
+    .poll(() => ghost.evaluate((el) => parseFloat(getComputedStyle(el).opacity)))
+    .toBeLessThanOrEqual(0.42);
+  await expect(page.locator('mark.hl.ghost').first()).toBeVisible();
+
+  // Turning the setting off collapses resolved comments as before.
+  await openSettings(page, 'general');
+  await page.getByTestId('show-resolved').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect(page.getByTestId('resolved-section')).toContainText('Resolved (1)');
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+});
+
+test('E39: side-by-side edit shows editor plus live preview; typing updates the right pane', async ({ page }) => {
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').check();
+  await page.getByTestId('settings-close').click();
+
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expect(page.getByTestId('split-preview').locator('h1')).toContainText('Welcome to Marky Mark');
+
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('LIVEMARK ');
+  await expect(page.getByTestId('split-preview')).toContainText('LIVEMARK', { timeout: 1000 });
+
+  // The toggle returns to the reading preview (comments surface).
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('doc')).toBeVisible();
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+});
+
+test('E40: the split divider drags within bounds, persists its ratio, and double-click resets', async ({
+  page,
+}) => {
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').check();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+
+  const wsBox = (await page.locator('.workspace.split').boundingBox())!;
+  const editorFraction = async () => {
+    const e = (await page.locator('.split-editor').boundingBox())!;
+    return e.width / wsBox.width;
+  };
+  expect(Math.abs((await editorFraction()) - 0.5)).toBeLessThanOrEqual(0.05);
+
+  // Drag the divider to ~30% of the window.
+  const divider = page.getByTestId('split-divider');
+  const d1 = (await divider.boundingBox())!;
+  await page.mouse.move(d1.x + d1.width / 2, d1.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(wsBox.x + wsBox.width * 0.3, d1.y + 200, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(editorFraction).toBeGreaterThanOrEqual(0.25);
+  await expect.poll(editorFraction).toBeLessThanOrEqual(0.35);
+
+  // The ratio survives leaving and re-entering edit mode, and reaches disk.
+  await page.keyboard.press('Control+e');
+  await page.keyboard.press('Control+e');
+  await expect.poll(editorFraction).toBeLessThanOrEqual(0.35);
+  await expect
+    .poll(async () => {
+      const raw = await fsRead(page, '/config/settings.json');
+      return raw ? (JSON.parse(raw) as { splitRatio?: number }).splitRatio : null;
+    })
+    .toBeLessThanOrEqual(0.35);
+
+  // Dragging far left clamps at the 0.2 floor.
+  const d2 = (await divider.boundingBox())!;
+  await page.mouse.move(d2.x + d2.width / 2, d2.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(wsBox.x + 5, d2.y + 200, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(editorFraction).toBeGreaterThanOrEqual(0.19);
+  await expect.poll(editorFraction).toBeLessThanOrEqual(0.22);
+
+  // Double-click resets to an even split.
+  await divider.dblclick();
+  await expect.poll(editorFraction).toBeGreaterThanOrEqual(0.45);
+  await expect.poll(editorFraction).toBeLessThanOrEqual(0.55);
+});
+
+test('E41: undo/redo hotkeys work for edits, and history survives a preview↔edit toggle', async ({ page }) => {
+  await page.keyboard.press('Control+e');
+  const content = page.getByTestId('editor').locator('.cm-content');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('UNDOMARK');
+  await expect(content).toContainText('UNDOMARK');
+
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(content).not.toContainText('UNDOMARK');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect(content).toContainText('UNDOMARK');
+
+  // Toggle to preview and back: the pre-toggle edit is still undoable.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('doc')).toContainText('UNDOMARK');
+  await page.keyboard.press('Control+e');
+  await expect(content).toContainText('UNDOMARK');
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(content).not.toContainText('UNDOMARK');
+});

@@ -1,0 +1,47 @@
+/* @name: Typewriter
+   @author: Marky Mark
+   @variant: light */
+
+.theme-root {
+  --mm-bg: #f7f3e9;
+  --mm-bg-elevated: #efe9db;
+  --mm-fg: #2e2a24;
+  --mm-fg-muted: #7c7466;
+  --mm-heading: #2e2a24;
+  --mm-link: #8b2500;
+  --mm-accent: #8b2500;
+  --mm-border: #ddd5c3;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: "Courier Prime", "American Typewriter", "Courier New", Courier, monospace;
+  --mm-font-heading: "Courier Prime", "American Typewriter", "Courier New", Courier, monospace;
+  --mm-font-mono: "Courier Prime", "Courier New", Courier, monospace;
+  --mm-font-size: 15.5px;
+  --mm-line-height: 1.85;
+
+  --mm-code-bg: #efe9db;
+  --mm-code-fg: #4a4438;
+  --mm-blockquote-border: #c9bfa8;
+  --mm-blockquote-fg: #5d564a;
+  --mm-table-border: #ddd5c3;
+  --mm-table-stripe: #f2ecdf;
+  --mm-hr: #ddd5c3;
+  --mm-selection: rgba(139, 37, 0, 0.18);
+  --mm-comment-tint: rgba(139, 37, 0, 0.16);
+  --mm-comment-tint-active: rgba(139, 37, 0, 0.32);
+
+  --mm-syn-keyword: #8b2500;
+  --mm-syn-string: #5a6e3a;
+  --mm-syn-comment: #9a917e;
+  --mm-syn-number: #8b6914;
+  --mm-syn-title: #54432e;
+  --mm-syn-attr: #8b6914;
+  --mm-syn-literal: #8b2500;
+  --mm-syn-meta: #9a917e;
+}
+
+.theme-root .doc h1,
+.theme-root .doc h2 {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}

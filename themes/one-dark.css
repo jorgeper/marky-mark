@@ -1,0 +1,41 @@
+/* @name: One Dark
+   @author: Markimark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #282c34;
+  --mm-bg-elevated: #333842;
+  --mm-fg: #abb2bf;
+  --mm-fg-muted: #5c6370;
+  --mm-heading: #e5c07b;
+  --mm-link: #61afef;
+  --mm-accent: #c678dd;
+  --mm-border: #3e4451;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #21252b;
+  --mm-code-fg: #abb2bf;
+  --mm-blockquote-border: #61afef;
+  --mm-blockquote-fg: #828997;
+  --mm-table-border: #3e4451;
+  --mm-table-stripe: #2c313a;
+  --mm-hr: #3e4451;
+  --mm-selection: rgba(97, 175, 239, 0.25);
+  --mm-comment-tint: rgba(229, 192, 123, 0.26);
+  --mm-comment-tint-active: rgba(229, 192, 123, 0.48);
+
+  --mm-syn-keyword: #c678dd;
+  --mm-syn-string: #98c379;
+  --mm-syn-comment: #5c6370;
+  --mm-syn-number: #d19a66;
+  --mm-syn-title: #61afef;
+  --mm-syn-attr: #e5c07b;
+  --mm-syn-literal: #56b6c2;
+  --mm-syn-meta: #5c6370;
+}

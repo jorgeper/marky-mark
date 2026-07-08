@@ -1,0 +1,50 @@
+/* @name: Phosphor
+   @author: Marky Mark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #0a0f0a;
+  --mm-bg-elevated: #101810;
+  --mm-fg: #33ff66;
+  --mm-fg-muted: #1d9e44;
+  --mm-heading: #66ff99;
+  --mm-link: #66ff99;
+  --mm-accent: #33ff66;
+  --mm-border: #164a26;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-heading: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 15px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #0d140d;
+  --mm-code-fg: #33ff66;
+  --mm-blockquote-border: #33ff66;
+  --mm-blockquote-fg: #28cc52;
+  --mm-table-border: #164a26;
+  --mm-table-stripe: #0d140d;
+  --mm-hr: #164a26;
+  --mm-selection: rgba(51, 255, 102, 0.25);
+  --mm-comment-tint: rgba(51, 255, 102, 0.18);
+  --mm-comment-tint-active: rgba(51, 255, 102, 0.34);
+
+  --mm-syn-keyword: #66ff99;
+  --mm-syn-string: #99ffbb;
+  --mm-syn-comment: #1d9e44;
+  --mm-syn-number: #ccffdd;
+  --mm-syn-title: #66ff99;
+  --mm-syn-attr: #99ffbb;
+  --mm-syn-literal: #ccffdd;
+  --mm-syn-meta: #1d9e44;
+}
+
+.theme-root .doc {
+  text-shadow: 0 0 6px rgba(51, 255, 102, 0.35);
+}
+
+.theme-root .doc pre,
+.theme-root .doc code {
+  text-shadow: none;
+}

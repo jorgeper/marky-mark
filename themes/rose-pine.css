@@ -1,0 +1,41 @@
+/* @name: Rosé Pine
+   @author: Marky Mark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #191724;
+  --mm-bg-elevated: #1f1d2e;
+  --mm-fg: #e0def4;
+  --mm-fg-muted: #6e6a86;
+  --mm-heading: #c4a7e7;
+  --mm-link: #9ccfd8;
+  --mm-accent: #ebbcba;
+  --mm-border: #26233a;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #1f1d2e;
+  --mm-code-fg: #e0def4;
+  --mm-blockquote-border: #c4a7e7;
+  --mm-blockquote-fg: #908caa;
+  --mm-table-border: #26233a;
+  --mm-table-stripe: #1d1b29;
+  --mm-hr: #26233a;
+  --mm-selection: rgba(156, 207, 216, 0.25);
+  --mm-comment-tint: rgba(246, 193, 119, 0.24);
+  --mm-comment-tint-active: rgba(246, 193, 119, 0.46);
+
+  --mm-syn-keyword: #31748f;
+  --mm-syn-string: #f6c177;
+  --mm-syn-comment: #6e6a86;
+  --mm-syn-number: #ebbcba;
+  --mm-syn-title: #c4a7e7;
+  --mm-syn-attr: #9ccfd8;
+  --mm-syn-literal: #eb6f92;
+  --mm-syn-meta: #908caa;
+}

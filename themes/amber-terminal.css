@@ -1,0 +1,50 @@
+/* @name: Amber Terminal
+   @author: Marky Mark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #100c08;
+  --mm-bg-elevated: #1a140c;
+  --mm-fg: #ffb000;
+  --mm-fg-muted: #8f6a1a;
+  --mm-heading: #ffc84d;
+  --mm-link: #ffc84d;
+  --mm-accent: #ffb000;
+  --mm-border: #4a3812;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-heading: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 15px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #160f08;
+  --mm-code-fg: #ffb000;
+  --mm-blockquote-border: #ffb000;
+  --mm-blockquote-fg: #d99a1c;
+  --mm-table-border: #4a3812;
+  --mm-table-stripe: #150f09;
+  --mm-hr: #4a3812;
+  --mm-selection: rgba(255, 176, 0, 0.25);
+  --mm-comment-tint: rgba(255, 176, 0, 0.18);
+  --mm-comment-tint-active: rgba(255, 176, 0, 0.34);
+
+  --mm-syn-keyword: #ffc84d;
+  --mm-syn-string: #ffd98a;
+  --mm-syn-comment: #8f6a1a;
+  --mm-syn-number: #ffe6b3;
+  --mm-syn-title: #ffc84d;
+  --mm-syn-attr: #ffd98a;
+  --mm-syn-literal: #ffe6b3;
+  --mm-syn-meta: #8f6a1a;
+}
+
+.theme-root .doc {
+  text-shadow: 0 0 5px rgba(255, 176, 0, 0.3);
+}
+
+.theme-root .doc pre,
+.theme-root .doc code {
+  text-shadow: none;
+}

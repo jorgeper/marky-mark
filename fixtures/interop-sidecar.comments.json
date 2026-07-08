@@ -1,0 +1,19 @@
+{
+  "comments": [
+    {
+      "id": "214eaf06-601c-40aa-bed2-2c4bcb71f378",
+      "author": "Reviewer",
+      "createdAt": "2026-07-06T12:41:34.828Z",
+      "body": "hello",
+      "resolved": false,
+      "thread": [],
+      "anchor": {
+        "exact": "Action\nWhere\n\n\n\n\nComment\nSelect text in the document\n\n\nReply\nUse the card in the margin",
+        "prefix": "hing persists\n\nA small table\n\n\n\n",
+        "suffix": "\n\n\n\nSome code\nfunction greet(nam",
+        "start": 348,
+        "end": 435
+      }
+    }
+  ]
+}

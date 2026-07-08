@@ -1,0 +1,41 @@
+/* @name: Crisp
+   @author: Markimark
+   @variant: light */
+
+.theme-root {
+  --mm-bg: #ffffff;
+  --mm-bg-elevated: #f6f8fa;
+  --mm-fg: #1f2328;
+  --mm-fg-muted: #59636e;
+  --mm-heading: #1f2328;
+  --mm-link: #0969da;
+  --mm-accent: #0969da;
+  --mm-border: #d1d9e0;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #f6f8fa;
+  --mm-code-fg: #1f2328;
+  --mm-blockquote-border: #d1d9e0;
+  --mm-blockquote-fg: #59636e;
+  --mm-table-border: #d1d9e0;
+  --mm-table-stripe: #f6f8fa;
+  --mm-hr: #d8dee4;
+  --mm-selection: rgba(9, 105, 218, 0.18);
+  --mm-comment-tint: rgba(255, 214, 102, 0.42);
+  --mm-comment-tint-active: rgba(255, 193, 37, 0.6);
+
+  --mm-syn-keyword: #cf222e;
+  --mm-syn-string: #0a3069;
+  --mm-syn-comment: #59636e;
+  --mm-syn-number: #0550ae;
+  --mm-syn-title: #6639ba;
+  --mm-syn-attr: #0550ae;
+  --mm-syn-literal: #0550ae;
+  --mm-syn-meta: #953800;
+}

@@ -1,0 +1,41 @@
+/* @name: Catppuccin Latte
+   @author: Marky Mark
+   @variant: light */
+
+.theme-root {
+  --mm-bg: #eff1f5;
+  --mm-bg-elevated: #e6e9ef;
+  --mm-fg: #4c4f69;
+  --mm-fg-muted: #9ca0b0;
+  --mm-heading: #8839ef;
+  --mm-link: #1e66f5;
+  --mm-accent: #ea76cb;
+  --mm-border: #ccd0da;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #e6e9ef;
+  --mm-code-fg: #4c4f69;
+  --mm-blockquote-border: #8839ef;
+  --mm-blockquote-fg: #5c5f77;
+  --mm-table-border: #ccd0da;
+  --mm-table-stripe: #eaecf2;
+  --mm-hr: #ccd0da;
+  --mm-selection: rgba(30, 102, 245, 0.18);
+  --mm-comment-tint: rgba(223, 142, 29, 0.2);
+  --mm-comment-tint-active: rgba(223, 142, 29, 0.4);
+
+  --mm-syn-keyword: #8839ef;
+  --mm-syn-string: #40a02b;
+  --mm-syn-comment: #9ca0b0;
+  --mm-syn-number: #fe640b;
+  --mm-syn-title: #1e66f5;
+  --mm-syn-attr: #df8e1d;
+  --mm-syn-literal: #d20f39;
+  --mm-syn-meta: #179299;
+}

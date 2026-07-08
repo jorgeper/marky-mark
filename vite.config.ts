@@ -1,0 +1,18 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+// Tauri expects a fixed dev port; the browser-shim e2e server picks its own.
+export default defineConfig({
+  plugins: [react()],
+  clearScreen: false,
+  server: {
+    // `tauri dev` points its webview at this exact port, so it must be strict;
+    // the Playwright webServer passes its own --port/--strictPort flags.
+    port: 1420,
+    strictPort: true,
+  },
+  build: {
+    target: 'es2022',
+    outDir: 'dist',
+  },
+});

@@ -1,0 +1,41 @@
+/* @name: Crisp Mono
+   @author: Marky Mark
+   @variant: light */
+
+.theme-root {
+  --mm-bg: #fefefe;
+  --mm-bg-elevated: #f6f6f6;
+  --mm-fg: #1c1c1c;
+  --mm-fg-muted: #6e6e6e;
+  --mm-heading: #111111;
+  --mm-link: #0550ae;
+  --mm-accent: #0550ae;
+  --mm-border: #e2e2e2;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-heading: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 15px;
+  --mm-line-height: 1.75;
+
+  --mm-code-bg: #f4f4f4;
+  --mm-code-fg: #1c1c1c;
+  --mm-blockquote-border: #d0d0d0;
+  --mm-blockquote-fg: #555555;
+  --mm-table-border: #e2e2e2;
+  --mm-table-stripe: #fafafa;
+  --mm-hr: #e2e2e2;
+  --mm-selection: rgba(5, 80, 174, 0.16);
+  --mm-comment-tint: rgba(255, 214, 102, 0.4);
+  --mm-comment-tint-active: rgba(255, 193, 37, 0.6);
+
+  --mm-syn-keyword: #a626a4;
+  --mm-syn-string: #50a14f;
+  --mm-syn-comment: #a0a1a7;
+  --mm-syn-number: #986801;
+  --mm-syn-title: #4078f2;
+  --mm-syn-attr: #986801;
+  --mm-syn-literal: #0184bc;
+  --mm-syn-meta: #a0a1a7;
+}

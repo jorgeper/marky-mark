@@ -1,0 +1,51 @@
+/* @name: Newsprint
+   @author: Marky Mark
+   @variant: light */
+
+.theme-root {
+  --mm-bg: #f4f1ea;
+  --mm-bg-elevated: #ebe7dd;
+  --mm-fg: #1d1d1b;
+  --mm-fg-muted: #6d6a63;
+  --mm-heading: #111110;
+  --mm-link: #1d1d1b;
+  --mm-accent: #a51c1c;
+  --mm-border: #d9d4c7;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --mm-font-heading: "Times New Roman", Times, serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.65;
+
+  --mm-code-bg: #ebe7dd;
+  --mm-code-fg: #33322e;
+  --mm-blockquote-border: #1d1d1b;
+  --mm-blockquote-fg: #4c4a44;
+  --mm-table-border: #c9c4b5;
+  --mm-table-stripe: #efebe1;
+  --mm-hr: #1d1d1b;
+  --mm-selection: rgba(165, 28, 28, 0.16);
+  --mm-comment-tint: rgba(165, 28, 28, 0.14);
+  --mm-comment-tint-active: rgba(165, 28, 28, 0.3);
+
+  --mm-syn-keyword: #a51c1c;
+  --mm-syn-string: #3d5a3d;
+  --mm-syn-comment: #8b887e;
+  --mm-syn-number: #7a5213;
+  --mm-syn-title: #1d3a5f;
+  --mm-syn-attr: #7a5213;
+  --mm-syn-literal: #a51c1c;
+  --mm-syn-meta: #8b887e;
+}
+
+.theme-root .doc h1,
+.theme-root .doc h2 {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.theme-root .doc a {
+  text-decoration: underline;
+}

@@ -1,0 +1,41 @@
+/* @name: Night Owl
+   @author: Marky Mark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #011627;
+  --mm-bg-elevated: #0b2942;
+  --mm-fg: #d6deeb;
+  --mm-fg-muted: #637777;
+  --mm-heading: #82aaff;
+  --mm-link: #82aaff;
+  --mm-accent: #c792ea;
+  --mm-border: #1d3b53;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #0b2942;
+  --mm-code-fg: #d6deeb;
+  --mm-blockquote-border: #c792ea;
+  --mm-blockquote-fg: #8badc1;
+  --mm-table-border: #1d3b53;
+  --mm-table-stripe: #04192b;
+  --mm-hr: #1d3b53;
+  --mm-selection: rgba(130, 170, 255, 0.3);
+  --mm-comment-tint: rgba(236, 196, 141, 0.26);
+  --mm-comment-tint-active: rgba(236, 196, 141, 0.48);
+
+  --mm-syn-keyword: #c792ea;
+  --mm-syn-string: #ecc48d;
+  --mm-syn-comment: #637777;
+  --mm-syn-number: #f78c6c;
+  --mm-syn-title: #82aaff;
+  --mm-syn-attr: #addb67;
+  --mm-syn-literal: #ff5874;
+  --mm-syn-meta: #7fdbca;
+}

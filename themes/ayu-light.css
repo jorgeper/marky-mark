@@ -1,0 +1,41 @@
+/* @name: Ayu Light
+   @author: Marky Mark
+   @variant: light */
+
+.theme-root {
+  --mm-bg: #fcfcfc;
+  --mm-bg-elevated: #f3f4f5;
+  --mm-fg: #5c6166;
+  --mm-fg-muted: #abb0b6;
+  --mm-heading: #fa8d3e;
+  --mm-link: #399ee6;
+  --mm-accent: #fa8d3e;
+  --mm-border: #e7e8e9;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #f3f4f5;
+  --mm-code-fg: #5c6166;
+  --mm-blockquote-border: #fa8d3e;
+  --mm-blockquote-fg: #787b80;
+  --mm-table-border: #e7e8e9;
+  --mm-table-stripe: #f8f9fa;
+  --mm-hr: #e7e8e9;
+  --mm-selection: rgba(57, 158, 230, 0.18);
+  --mm-comment-tint: rgba(250, 141, 62, 0.18);
+  --mm-comment-tint-active: rgba(250, 141, 62, 0.36);
+
+  --mm-syn-keyword: #fa8d3e;
+  --mm-syn-string: #86b300;
+  --mm-syn-comment: #abb0b6;
+  --mm-syn-number: #a37acc;
+  --mm-syn-title: #399ee6;
+  --mm-syn-attr: #f2ae49;
+  --mm-syn-literal: #a37acc;
+  --mm-syn-meta: #4cbf99;
+}

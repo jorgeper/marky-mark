@@ -1,0 +1,41 @@
+/* @name: Tokyo Night
+   @author: Marky Mark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #1a1b26;
+  --mm-bg-elevated: #24283b;
+  --mm-fg: #a9b1d6;
+  --mm-fg-muted: #565f89;
+  --mm-heading: #7aa2f7;
+  --mm-link: #7dcfff;
+  --mm-accent: #bb9af7;
+  --mm-border: #2f3549;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #16161e;
+  --mm-code-fg: #c0caf5;
+  --mm-blockquote-border: #bb9af7;
+  --mm-blockquote-fg: #9aa5ce;
+  --mm-table-border: #2f3549;
+  --mm-table-stripe: #1f2233;
+  --mm-hr: #2f3549;
+  --mm-selection: rgba(122, 162, 247, 0.3);
+  --mm-comment-tint: rgba(224, 175, 104, 0.26);
+  --mm-comment-tint-active: rgba(224, 175, 104, 0.48);
+
+  --mm-syn-keyword: #bb9af7;
+  --mm-syn-string: #9ece6a;
+  --mm-syn-comment: #565f89;
+  --mm-syn-number: #ff9e64;
+  --mm-syn-title: #7aa2f7;
+  --mm-syn-attr: #e0af68;
+  --mm-syn-literal: #ff9e64;
+  --mm-syn-meta: #7dcfff;
+}

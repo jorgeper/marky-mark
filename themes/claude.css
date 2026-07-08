@@ -1,0 +1,135 @@
+/* @name: Claude
+   @author: Markimark (ported from the Typora Claude theme)
+   @variant: light */
+
+/* Palette and typography pinned from the user's Typora claude.css (SPEC3 §7):
+   paper #faf9f5, hover #f0eee6, ink #141413, secondary #3d3d3a, terracotta
+   #D97757, serif body, 752px column, tight headings, bottom-only table rules. */
+
+.theme-root {
+  --mm-bg: #faf9f5;
+  --mm-bg-elevated: #f0eee6;
+  --mm-fg: #141413;
+  --mm-fg-muted: #3d3d3a;
+  --mm-heading: #141413;
+  --mm-link: #141413;
+  --mm-accent: #d97757;
+  --mm-border: rgba(31, 30, 29, 0.15);
+
+  --mm-content-width: 60rem; /* narrow-margin default (SPEC4 §7) */
+  --mm-font-body: "Anthropic Serif Web Text", Georgia, "Times New Roman", serif;
+  --mm-font-heading: "Anthropic Sans Web Text", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mm-font-mono: "Anthropic Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.5;
+
+  --mm-code-bg: rgba(61, 61, 58, 0.05);
+  --mm-code-fg: #8a2424;
+  --mm-blockquote-border: rgba(31, 30, 29, 0.1);
+  --mm-blockquote-fg: #3d3d3a;
+  --mm-table-border: rgba(31, 30, 29, 0.3);
+  --mm-table-stripe: transparent;
+  --mm-hr: rgba(31, 30, 29, 0.3);
+  --mm-selection: rgba(217, 119, 87, 0.35);
+  --mm-comment-tint: rgba(217, 119, 87, 0.2);
+  --mm-comment-tint-active: rgba(217, 119, 87, 0.38);
+
+  --mm-syn-keyword: #ab2b65;
+  --mm-syn-string: #576f3f;
+  --mm-syn-comment: #9c9a92;
+  --mm-syn-number: #b0592e;
+  --mm-syn-title: #8a563e;
+  --mm-syn-attr: #6a6031;
+  --mm-syn-literal: #b0592e;
+  --mm-syn-meta: #9c9a92;
+}
+
+/* Tight Typora-style headings: h1 1.375rem / h2 1.125rem / h3 1rem, bold,
+   compact margins — noticeably denser than the variable-contract defaults. */
+.theme-root .doc h1 {
+  font-size: 1.375rem;
+  line-height: 1.65rem;
+  font-weight: 700;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.theme-root .doc h2 {
+  font-size: 1.125rem;
+  line-height: 1.65rem;
+  font-weight: 700;
+  margin: 0.75rem 0 0.25rem;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.theme-root .doc h3,
+.theme-root .doc h4,
+.theme-root .doc h5,
+.theme-root .doc h6 {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 700;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.theme-root .doc p,
+.theme-root .doc li {
+  margin: 0.35rem 0;
+}
+
+/* Terracotta touches: caret, link hover (links stay ink-colored at rest). */
+.theme-root .doc a {
+  text-decoration: underline;
+  text-decoration-color: rgba(31, 30, 29, 0.3);
+  text-underline-offset: 2px;
+}
+
+.theme-root .doc a:hover {
+  color: #d97757;
+  text-decoration-color: #d97757;
+}
+
+.theme-root .cm-editor .cm-content {
+  caret-color: #d97757;
+}
+
+/* Inline code: muted red on a faint warm wash with a hairline border. */
+.theme-root .doc code {
+  border: 0.5px solid rgba(31, 30, 29, 0.15);
+}
+
+/* Code blocks: near-white surface with a hairline border. */
+.theme-root .doc pre {
+  background: rgba(255, 255, 255, 0.5);
+  border: 0.5px solid rgba(31, 30, 29, 0.15);
+}
+
+.theme-root .doc pre code {
+  border: none;
+  color: #4a4536;
+}
+
+/* Tables: Typora's bottom-only hairlines (th darker than td), no zebra. */
+.theme-root .doc th,
+.theme-root .doc td {
+  border: none;
+  border-bottom: 0.5px solid rgba(31, 30, 29, 0.3);
+  padding: 5px 13px;
+}
+
+.theme-root .doc th {
+  border-bottom-color: rgba(31, 30, 29, 0.6);
+}
+
+.theme-root .doc tbody tr:nth-child(2n) {
+  background: transparent;
+}
+
+.theme-root .doc blockquote {
+  border-left-width: 4px;
+  margin-left: 0.5rem;
+}
+
+.theme-root .doc hr {
+  border-top-width: 1px;
+}

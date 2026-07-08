@@ -1,0 +1,41 @@
+/* @name: Sepia
+   @author: Marky Mark
+   @variant: light */
+
+.theme-root {
+  --mm-bg: #f4ecd8;
+  --mm-bg-elevated: #ece2c8;
+  --mm-fg: #5b4636;
+  --mm-fg-muted: #8f7a63;
+  --mm-heading: #4a3826;
+  --mm-link: #7a4a21;
+  --mm-accent: #a0642c;
+  --mm-border: #ddd0b2;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --mm-font-heading: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 17px;
+  --mm-line-height: 1.8;
+
+  --mm-code-bg: #ece2c8;
+  --mm-code-fg: #6b4f33;
+  --mm-blockquote-border: #c9b591;
+  --mm-blockquote-fg: #7a6650;
+  --mm-table-border: #ddd0b2;
+  --mm-table-stripe: #f0e7cf;
+  --mm-hr: #ddd0b2;
+  --mm-selection: rgba(160, 100, 44, 0.2);
+  --mm-comment-tint: rgba(160, 100, 44, 0.18);
+  --mm-comment-tint-active: rgba(160, 100, 44, 0.36);
+
+  --mm-syn-keyword: #8a4b2a;
+  --mm-syn-string: #5f6e3a;
+  --mm-syn-comment: #a6947c;
+  --mm-syn-number: #9a6a1f;
+  --mm-syn-title: #6b4a8a;
+  --mm-syn-attr: #9a6a1f;
+  --mm-syn-literal: #8a4b2a;
+  --mm-syn-meta: #a6947c;
+}

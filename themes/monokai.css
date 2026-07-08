@@ -1,0 +1,41 @@
+/* @name: Monokai
+   @author: Markimark
+   @variant: dark */
+
+.theme-root {
+  --mm-bg: #272822;
+  --mm-bg-elevated: #32332b;
+  --mm-fg: #f8f8f2;
+  --mm-fg-muted: #a59f85;
+  --mm-heading: #a6e22e;
+  --mm-link: #66d9ef;
+  --mm-accent: #f92672;
+  --mm-border: #49483e;
+
+  --mm-content-width: 60rem;
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-line-height: 1.7;
+
+  --mm-code-bg: #1e1f1a;
+  --mm-code-fg: #f8f8f2;
+  --mm-blockquote-border: #fd971f;
+  --mm-blockquote-fg: #c8c3ac;
+  --mm-table-border: #49483e;
+  --mm-table-stripe: #2e2f28;
+  --mm-hr: #49483e;
+  --mm-selection: rgba(102, 217, 239, 0.25);
+  --mm-comment-tint: rgba(230, 219, 116, 0.28);
+  --mm-comment-tint-active: rgba(230, 219, 116, 0.5);
+
+  --mm-syn-keyword: #f92672;
+  --mm-syn-string: #e6db74;
+  --mm-syn-comment: #75715e;
+  --mm-syn-number: #ae81ff;
+  --mm-syn-title: #a6e22e;
+  --mm-syn-attr: #fd971f;
+  --mm-syn-literal: #ae81ff;
+  --mm-syn-meta: #75715e;
+}
