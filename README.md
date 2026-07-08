@@ -12,7 +12,10 @@ Select text to comment on it.
 
 ## Download
 
-Grab the [**latest release**](https://github.com/jorgeper/marky-mark/releases/latest):
+Grab the [**latest release**](https://github.com/jorgeper/marky-mark/releases/latest)
+(currently a **pre-release** — while Marky Mark is in alpha, every build is
+flagged pre-release on GitHub, and the latest-release link lands on the
+releases page with the newest alpha at the top):
 
 | Platform | File | Note |
 | --- | --- | --- |
