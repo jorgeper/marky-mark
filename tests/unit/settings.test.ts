@@ -8,7 +8,7 @@ describe('v3 settings', () => {
     expect(d.themeLight).toBe('crisp-mono');
     expect(d.themeDark).toBe('one-dark');
     expect(d.useDarkTheme).toBe(true);
-    expect(d.fontSize).toBe('auto');
+    expect(d.fontSize).toBe(12);
     expect(d.zoom).toBe(100);
     expect(d.margins).toBe('default');
     expect(d.lineNumbers).toBe(true);
@@ -48,9 +48,10 @@ describe('v3 settings', () => {
     expect(custom.vimNav).toBe(true);
 
     // Out-of-range / unknown values fall back.
-    expect(parseSettings('{"fontSize":8}').fontSize).toBe('auto'); // below min 10
-    expect(parseSettings('{"fontSize":99}').fontSize).toBe('auto'); // above max 32
-    expect(parseSettings('{"fontSize":"big"}').fontSize).toBe('auto');
+    expect(parseSettings('{"fontSize":8}').fontSize).toBe(12); // below min 10 → default
+    expect(parseSettings('{"fontSize":99}').fontSize).toBe(12); // above max 32 → default
+    expect(parseSettings('{"fontSize":"big"}').fontSize).toBe(12);
+    expect(parseSettings('{"fontSize":"auto"}').fontSize).toBe('auto'); // explicit auto preserved
     expect(parseSettings('{"zoom":137}').zoom).toBe(100); // not a preset level
     expect(parseSettings('{"margins":"gigantic"}').margins).toBe('default');
     // SPEC4 §7: super-narrow is a valid preset with a wider column than narrow.

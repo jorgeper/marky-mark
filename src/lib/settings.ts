@@ -45,7 +45,7 @@ export const DEFAULT_SETTINGS: Settings = {
   themeLight: 'crisp-mono',
   themeDark: 'one-dark',
   useDarkTheme: true,
-  fontSize: 'auto',
+  fontSize: 12,
   zoom: 100,
   margins: 'default',
   lineNumbers: true,
@@ -79,8 +79,12 @@ export function parseSettings(json: string): Settings {
   // Migration: pre-v3 settings stored a single `theme` key.
   const legacyTheme = typeof o.theme === 'string' && o.theme ? o.theme : null;
 
-  let fontSize: 'auto' | number = 'auto';
-  if (typeof o.fontSize === 'number' && o.fontSize >= FONT_SIZE_MIN && o.fontSize <= FONT_SIZE_MAX) {
+  // Explicit "auto" is preserved; missing/invalid falls back to the default
+  // (12px). Auto still means "the theme's own size".
+  let fontSize: 'auto' | number = DEFAULT_SETTINGS.fontSize;
+  if (o.fontSize === 'auto') {
+    fontSize = 'auto';
+  } else if (typeof o.fontSize === 'number' && o.fontSize >= FONT_SIZE_MIN && o.fontSize <= FONT_SIZE_MAX) {
     fontSize = Math.round(o.fontSize);
   }
 

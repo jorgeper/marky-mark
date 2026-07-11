@@ -430,12 +430,17 @@ test('E20: zoom scales only the document text — the settings UI keeps its size
   page,
 }) => {
   await openSettings(page);
+  // Let the async settings load apply the default font override first —
+  // the baseline must be the settled UI, not the boot-time theme value.
+  await expect
+    .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
+    .toBe('12px');
   const modalFontBefore = await page.getByTestId('settings-panel').evaluate((el) => getComputedStyle(el).fontSize);
 
   await page.getByTestId('zoom-select').selectOption('150');
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
-    .toBe('22.5px'); // 15px × 1.5 — document text only
+    .toBe('18px'); // 12px default × 1.5 — document text only
 
   // The UI is NOT zoomed: settings modal font size unchanged, root not CSS-zoomed.
   expect(await page.getByTestId('settings-panel').evaluate((el) => getComputedStyle(el).fontSize)).toBe(
@@ -447,7 +452,7 @@ test('E20: zoom scales only the document text — the settings UI keeps its size
   await expect(page.getByTestId('zoom-select')).toHaveValue('100');
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
-    .toBe('15px');
+    .toBe('12px');
 });
 
 test('E21: light/dark theme pair follows the OS scheme; unchecking uses the light theme everywhere', async ({
@@ -1538,8 +1543,8 @@ test('E56: the native menu carries Next/Previous Comment; clicking steps; the ma
 
 // --- SPEC15: synchronized split scrolling ---------------------------------------
 
-/** Long fixture + split-edit on + doc open + edit mode: both panes mounted. */
-async function splitApp(page: import('@playwright/test').Page): Promise<void> {
+/** Long fixture + doc open + edit mode (split by default, full when false). */
+async function splitApp(page: import('@playwright/test').Page, split = true): Promise<void> {
   await freshApp(page);
   await page.evaluate(() => {
     const sections: string[] = [];
@@ -1549,15 +1554,17 @@ async function splitApp(page: import('@playwright/test').Page): Promise<void> {
       else sections.push(`Paragraph for section ${i}. `.repeat(8) + '\n');
     }
     window.__mmfs!.write('/docs/long.md', sections.join('\n'));
+  });
+  await page.evaluate((s) => {
     const raw = window.__mmfs!.read('/config/settings.json');
     const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, splitEdit: true }));
-  });
+    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, splitEdit: s }));
+  }, split);
   await page.reload(); // boot again so the app reads splitEdit from settings.json
   await page.goto('/#open=/docs/long.md'); // hashchange → the shim's onOpenFile
   await expect(page.getByTestId('doc').locator('h2').first()).toContainText('Marker 1');
   await page.keyboard.press('Control+e');
-  await expect(page.getByTestId('split-divider')).toBeVisible();
+  if (split) await expect(page.getByTestId('split-divider')).toBeVisible();
   await expect(page.locator('.cm-content')).toBeVisible();
 }
 
@@ -1571,10 +1578,10 @@ const editorTopGutterLine = (page: import('@playwright/test').Page) =>
     return first ? Number(first.textContent) : -1;
   });
 
-/** Source lines of the anchors bracketing the preview's top edge. */
-const previewTopAnchorLines = (page: import('@playwright/test').Page) =>
-  page.evaluate(() => {
-    const scroller = document.querySelector('.split-preview')!;
+/** Source lines of the anchors bracketing the given scroller's top edge. */
+const previewTopAnchorLines = (page: import('@playwright/test').Page, scrollerSel = '.split-preview') =>
+  page.evaluate((sel) => {
+    const scroller = document.querySelector(sel)!;
     const doc = scroller.querySelector('.doc')!;
     const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
     const y = scroller.scrollTop;
@@ -1592,7 +1599,7 @@ const previewTopAnchorLines = (page: import('@playwright/test').Page) =>
       }
     }
     return { before, after };
-  });
+  }, scrollerSel);
 
 test('E57: split scroll sync — the preview follows the editor, ends clamp, blocks stay aligned', async ({
   page,
@@ -1652,4 +1659,27 @@ test('E58: split scroll sync — the editor follows the preview; no feedback osc
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   const b = await snap();
   expect(b).toEqual(a);
+});
+
+test('E59: mode toggling carries the reading position — edit ↔ preview stay on the same block', async ({
+  page,
+}) => {
+  await splitApp(page, false); // full edit on the long doc
+  const editor = page.locator('.cm-scroller');
+  await editor.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.5));
+  await expect.poll(() => editorTopGutterLine(page)).toBeGreaterThan(1);
+  const line = await editorTopGutterLine(page);
+
+  await page.keyboard.press('Control+e'); // → preview: same block at the top
+  await expect(page.getByTestId('doc').locator('h2').first()).toBeVisible();
+  await expect
+    .poll(async () => {
+      const { before, after } = await previewTopAnchorLines(page, '.workspace');
+      return line >= before - 5 && line <= after + 5;
+    })
+    .toBe(true);
+
+  await page.keyboard.press('Control+e'); // → back to edit: same line at the top
+  await expect.poll(() => editorTopGutterLine(page)).toBeGreaterThan(line - 6);
+  expect(await editorTopGutterLine(page)).toBeLessThan(line + 6);
 });

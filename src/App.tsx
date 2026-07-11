@@ -51,6 +51,15 @@ export const TOOLBAR_HIDE_DELAY_MS = 400;
 type Positions = Record<string, ReanchorMatch | null>;
 type Mode = 'preview' | 'edit';
 
+/** SPEC15 §3.3: anchor tops in the scroller's content coordinates. */
+function collectAnchors(scroller: HTMLElement, docEl: HTMLElement): SyncAnchor[] {
+  const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
+  return Array.from(docEl.querySelectorAll<HTMLElement>('[data-mm-line]')).map((el) => ({
+    line: Number(el.dataset.mmLine),
+    top: el.getBoundingClientRect().top - base,
+  }));
+}
+
 function anchorsEqual(a: Anchor, b: Anchor): boolean {
   return a.exact === b.exact && a.prefix === b.prefix && a.suffix === b.suffix && a.start === b.start && a.end === b.end;
 }
@@ -97,7 +106,8 @@ export default function App() {
   const editorSyncRef = useRef<EditorSyncHandle | null>(null);
   const skipSaveRef = useRef(true);
   const unwatchRef = useRef<(() => void) | null>(null);
-  const scrollRatioRef = useRef(0);
+  /** Source line carried across mode switches (line-anchored, not ratio). */
+  const pendingScrollLineRef = useRef<number | null>(null);
 
   const dirty = buffer !== savedText;
   // SPEC12 §2.3: a platform that owns a native menu gets no in-app header.
@@ -352,7 +362,10 @@ export default function App() {
     // and editor styles — never CSS `zoom`, which would scale the whole UI.
     if (settings.zoom === 100) el.style.removeProperty('--mm-zoom');
     else el.style.setProperty('--mm-zoom', String(settings.zoom / 100));
-  }, [settings.fontSize, settings.margins, settings.zoom]);
+    // `platform` in the deps: the pre-boot render has no rootRef, so this
+    // must re-run once the real root mounts — otherwise defaults that equal
+    // the initial state (e.g. fontSize 12) are never applied.
+  }, [platform, settings.fontSize, settings.margins, settings.zoom]);
 
   // --- settings persistence ---------------------------------------------------
   const updateSettings = useCallback(
@@ -386,11 +399,18 @@ export default function App() {
 
   const toggleMode = useCallback(() => {
     const s = stateRef.current;
-    const ws = workspaceRef.current;
-    if (ws && ws.scrollHeight > 0) scrollRatioRef.current = ws.scrollTop / ws.scrollHeight;
+    // Carry the source line at the top of the current view so the other mode
+    // opens on the same block (works for full and split edit alike).
     if (s.mode === 'preview') {
+      const ws = workspaceRef.current;
+      const doc = docRef.current;
+      pendingScrollLineRef.current =
+        ws && doc && ws.scrollHeight > 0
+          ? lineAtOffset(collectAnchors(ws, doc), ws.scrollHeight, ws.scrollTop)
+          : null;
       setMode('edit');
     } else {
+      pendingScrollLineRef.current = editorSyncRef.current?.topLine() ?? null;
       if (s.settings.autosaveOnToggle && s.dirty) void saveDoc();
       setMode('preview');
     }
@@ -712,10 +732,37 @@ export default function App() {
     };
   }, [buffer, mode, settings.splitEdit]);
 
-  // --- restore scroll position when swapping modes --------------------------------
-  useLayoutEffect(() => {
-    const ws = workspaceRef.current;
-    if (ws) ws.scrollTop = scrollRatioRef.current * ws.scrollHeight;
+  // --- restore scroll position when swapping modes (line-anchored) ----------------
+  // Into edit (full or split): the editor mounts lazily — retry until its
+  // handle exists, then put the carried source line at the viewport top.
+  useEffect(() => {
+    if (mode !== 'edit') return;
+    if (pendingScrollLineRef.current === null) return;
+    let disposed = false;
+    let tries = 120; // ~2s of frames
+    const attempt = () => {
+      if (disposed) return;
+      const ed = editorSyncRef.current;
+      const line = pendingScrollLineRef.current;
+      if (!ed || line === null) {
+        if (line !== null && tries-- > 0) requestAnimationFrame(attempt);
+        return;
+      }
+      // A scroll effect dispatched into a freshly-created CM view can be
+      // swallowed by its initial layout — write, then verify next frame and
+      // retry until the top line actually matches (bounded).
+      ed.scrollToLine(line);
+      requestAnimationFrame(() => {
+        if (disposed) return;
+        const landed = editorSyncRef.current?.topLine() ?? line;
+        if (Math.abs(landed - line) < 2 || tries-- <= 0) pendingScrollLineRef.current = null;
+        else attempt();
+      });
+    };
+    attempt();
+    return () => {
+      disposed = true;
+    };
   }, [mode]);
 
   // --- inject rendered doc, re-anchor, highlight ----------------------------------
@@ -784,6 +831,19 @@ export default function App() {
     }
   }, [html, comments, showComments, mode, settings.showResolved, settings.commentsEnabled]);
 
+  // Into preview: once the doc is injected, map the carried line back to a
+  // pixel offset (block-anchored, so code blocks don't skew it).
+  useLayoutEffect(() => {
+    if (mode !== 'preview') return;
+    const line = pendingScrollLineRef.current;
+    if (line === null) return;
+    const ws = workspaceRef.current;
+    const doc = docRef.current;
+    if (!ws || !doc || doc.childElementCount === 0) return;
+    ws.scrollTop = offsetForLine(collectAnchors(ws, doc), Math.max(ws.scrollHeight, 1), line);
+    pendingScrollLineRef.current = null;
+  }, [mode, html]);
+
   // --- split-edit live preview pane (SPEC7 §5): plain reading pane, no comments ----
   useLayoutEffect(() => {
     if (mode !== 'edit' || !settings.splitEdit) return;
@@ -817,14 +877,7 @@ export default function App() {
     let anchors: SyncAnchor[] = [];
     let contentHeight = 1;
     const rebuild = () => {
-      // Anchor tops in the scroller's CONTENT coordinates (scroll-invariant):
-      // measuring against the doc element would drop its top margin/padding
-      // and skew every mapping by that delta.
-      const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
-      anchors = Array.from(docEl.querySelectorAll<HTMLElement>('[data-mm-line]')).map((el) => ({
-        line: Number(el.dataset.mmLine),
-        top: el.getBoundingClientRect().top - base,
-      }));
+      anchors = collectAnchors(scroller, docEl);
       contentHeight = Math.max(scroller.scrollHeight, 1);
     };
     rebuild();
@@ -1297,6 +1350,7 @@ export default function App() {
               lineNumbers={settings.lineNumbers}
               onChange={setBuffer}
               historyRef={editorHistoryRef}
+              syncRef={editorSyncRef}
             />
           </Suspense>
         </div>
