@@ -74,6 +74,27 @@ unsaved-changes guard as the window close button — never predefined Quit,
 which would bypass it. Menus are local UI: no new network surface, and the
 SPEC11 isolation guarantee (CSP, sanitize layer, bundle scan) is unchanged.
 
+## Aux windows: Settings & About (SPEC13)
+
+On desktop, Settings (⌘,) and About open as real windows (Tauri labels
+`settings`/`about`), not in-page overlays. One owner, dumb views: the main
+window keeps sole ownership of settings state, `settings.json`, themes, and
+command handlers; aux windows render only what they're sent. The protocol
+(`src/lib/auxProtocol.ts`, pure) rides the platform event bus:
+`mm://aux-ready` → `mm://aux-init` (handshake), `mm://settings-edit` (whole
+Settings up), `mm://aux-request` (reload/reveal/open-external side effects
+run by main), `mm://settings-changed` / `mm://themes-changed` (canonical
+echo down — applying a broadcast never re-emits, and edits merge through the
+latest canonical state so panel-unedited keys like `splitRatio` are never
+clobbered). `src/lib/windowRole.ts` routes `?window=` to the right React
+root. Render rule: the overlays render iff `platform.openAuxWindow` is
+undefined — web keeps them, desktop never shows them, the dev shim provides
+aux windows under `?nativeMenu=1` via `window.open` + BroadcastChannel so
+Playwright drives the real two-window protocol (E51–E53). Security posture:
+aux windows run under their own capability
+(`src-tauri/capabilities/aux.json`) with events and self-close only — no
+fs, dialog, or opener permissions.
+
 ## Windows build story
 
 The app code was Windows-portable from v1 (this seam, `Mod` hotkeys,

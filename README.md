@@ -54,7 +54,8 @@ Either way it's a one-time step — the app opens normally afterwards.
 - **Instant, tiny, native** — a ~6 MB Tauri 2 app on a native webview. No
   Electron. Or the single self-contained HTML file — no install at all.
 - **A real desktop citizen** — native menus (macOS menu bar / Windows menu
-  bar) and a chromeless window: no in-app toolbar, just your document.
+  bar), a chromeless window with no in-app toolbar, and real Settings (⌘,)
+  and About windows — not in-page pop-overs.
 - **27+ built-in themes** (Crisp, Claude, Monokai, Dracula, Nord, Solarized,
   One Dark, …) and drop-in custom themes — one CSS file, no build step. See
   [THEMES.md](THEMES.md) for making your own.
