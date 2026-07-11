@@ -57,7 +57,7 @@ test('E2: Settings lists the 7 built-in themes; Monokai changes the background; 
   }
 
   const before = await page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(before).toBe('rgb(255, 255, 255)'); // Crisp default
+  expect(before).toBe('rgb(254, 254, 254)'); // Crisp Mono default (#fefefe)
 
   await select.selectOption('monokai');
   await expect

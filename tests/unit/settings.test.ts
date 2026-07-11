@@ -5,7 +5,7 @@ describe('v3 settings', () => {
   test('U13: new fields parse with defaults, invalid values fall back, legacy `theme` migrates to themeLight', () => {
     // Empty/malformed input → full defaults.
     const d = parseSettings('{}');
-    expect(d.themeLight).toBe('crisp');
+    expect(d.themeLight).toBe('crisp-mono');
     expect(d.themeDark).toBe('one-dark');
     expect(d.useDarkTheme).toBe(true);
     expect(d.fontSize).toBe('auto');

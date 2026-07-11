@@ -42,7 +42,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  themeLight: 'crisp',
+  themeLight: 'crisp-mono',
   themeDark: 'one-dark',
   useDarkTheme: true,
   fontSize: 'auto',
