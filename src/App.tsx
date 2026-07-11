@@ -19,6 +19,8 @@ import { displayCombo, eventMatches } from './lib/hotkeys';
 import { dispatchCommand, registerCommands } from './lib/commands';
 import { buildMenuSpec } from './lib/menuSpec';
 import { stepComment } from './lib/commentNav';
+import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
+import type { EditorSyncHandle } from './components/Editor';
 import {
   buildAuxInit,
   EV_AUX_INIT,
@@ -92,6 +94,7 @@ export default function App() {
   const vimRef = useRef(new VimNavResolver());
   const docTextRef = useRef('');
   const navLabelRef = useRef('');
+  const editorSyncRef = useRef<EditorSyncHandle | null>(null);
   const skipSaveRef = useRef(true);
   const unwatchRef = useRef<(() => void) | null>(null);
   const scrollRatioRef = useRef(0);
@@ -801,6 +804,99 @@ export default function App() {
     }
   }, [html, mode, settings.splitEdit]);
 
+  // --- SPEC15: synchronized split scrolling ------------------------------------
+  // Whichever pane the user scrolls leads; the other follows within a frame.
+  // Programmatic follower writes are counted in `suppress` so they never
+  // re-lead (no feedback loop). Ends clamp mutually reachable (§1.3).
+  useEffect(() => {
+    if (mode !== 'edit' || !settings.splitEdit) return;
+    const docEl = splitDocRef.current;
+    const scroller = docEl?.parentElement; // .split-preview
+    if (!docEl || !scroller) return;
+
+    let anchors: SyncAnchor[] = [];
+    let contentHeight = 1;
+    const rebuild = () => {
+      const docTop = docEl.getBoundingClientRect().top;
+      anchors = Array.from(docEl.querySelectorAll<HTMLElement>('[data-mm-line]')).map((el) => ({
+        line: Number(el.dataset.mmLine),
+        top: el.getBoundingClientRect().top - docTop,
+      }));
+      contentHeight = Math.max(scroller.scrollHeight, 1);
+    };
+    rebuild();
+    const ro = new ResizeObserver(rebuild); // divider drags, resizes, late images
+    ro.observe(docEl);
+
+    const suppress = { editor: 0, preview: 0 };
+    const AT_END = 2; // px slack for end clamping
+
+    const editorLeads = () => {
+      const ed = editorSyncRef.current;
+      if (!ed) return;
+      const { top, max } = ed.scrollInfo();
+      const previewMax = scroller.scrollHeight - scroller.clientHeight;
+      let target: number;
+      if (top <= AT_END) target = 0;
+      else if (top >= max - AT_END) target = previewMax;
+      else target = Math.min(offsetForLine(anchors, contentHeight, ed.topLine()), previewMax);
+      if (Math.abs(scroller.scrollTop - target) < 1) return; // no-op → no event
+      suppress.preview++;
+      scroller.scrollTop = target;
+    };
+
+    const previewLeads = () => {
+      const ed = editorSyncRef.current;
+      if (!ed) return;
+      const { top: before, max } = ed.scrollInfo();
+      const previewMax = scroller.scrollHeight - scroller.clientHeight;
+      const y = scroller.scrollTop;
+      let target: number;
+      if (y <= AT_END) target = 0;
+      else if (y >= previewMax - AT_END) target = max;
+      else target = -1; // line-mapped below
+      suppress.editor++;
+      if (target >= 0) ed.setScrollTop(target);
+      else ed.scrollToLine(lineAtOffset(anchors, contentHeight, y));
+      if (Math.abs(ed.scrollInfo().top - before) < 1) suppress.editor--; // no-op write → no event
+    };
+
+    const onEditorScroll = () => {
+      if (suppress.editor > 0) {
+        suppress.editor--;
+        return;
+      }
+      requestAnimationFrame(editorLeads);
+    };
+    const onPreviewScroll = () => {
+      if (suppress.preview > 0) {
+        suppress.preview--;
+        return;
+      }
+      requestAnimationFrame(previewLeads);
+    };
+
+    // The editor loads lazily — retry the subscription until its handle
+    // appears (bounded; the html-keyed rerun also gets a fresh shot).
+    let offEditor: (() => void) | null = null;
+    let disposed = false;
+    let retries = 120; // ~2s of frames
+    const subscribe = () => {
+      if (disposed) return;
+      const ed = editorSyncRef.current;
+      if (ed) offEditor = ed.onScroll(onEditorScroll);
+      else if (retries-- > 0) requestAnimationFrame(subscribe);
+    };
+    subscribe();
+    scroller.addEventListener('scroll', onPreviewScroll);
+    return () => {
+      disposed = true;
+      ro.disconnect();
+      offEditor?.();
+      scroller.removeEventListener('scroll', onPreviewScroll);
+    };
+  }, [mode, settings.splitEdit, html]);
+
   // --- active highlight styling -----------------------------------------------------
   useEffect(() => {
     const doc = docRef.current;
@@ -1182,6 +1278,7 @@ export default function App() {
                 lineNumbers={settings.lineNumbers}
                 onChange={setBuffer}
                 historyRef={editorHistoryRef}
+                syncRef={editorSyncRef}
               />
             </Suspense>
           </div>
