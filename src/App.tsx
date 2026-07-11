@@ -18,6 +18,17 @@ import {
 import { displayCombo, eventMatches } from './lib/hotkeys';
 import { dispatchCommand, registerCommands } from './lib/commands';
 import { buildMenuSpec } from './lib/menuSpec';
+import {
+  buildAuxInit,
+  EV_AUX_INIT,
+  EV_AUX_READY,
+  EV_AUX_REQUEST,
+  EV_SETTINGS_CHANGED,
+  EV_SETTINGS_EDIT,
+  EV_THEMES_CHANGED,
+  mergeSettingsEdit,
+  type AuxRequest,
+} from './lib/auxProtocol';
 import { VimNavResolver } from './lib/vimnav';
 import type { Theme } from './lib/themes';
 import { applyThemeCss, loadAllThemes } from './themeRuntime';
@@ -88,8 +99,8 @@ export default function App() {
   const nativeMenu = !!platform?.setAppMenu;
 
   // Refs mirroring state, for stable event handlers.
-  const stateRef = useRef({ settings, mode, dirty, docPath, buffer, savedText, comments, platform });
-  stateRef.current = { settings, mode, dirty, docPath, buffer, savedText, comments, platform };
+  const stateRef = useRef({ settings, mode, dirty, docPath, buffer, savedText, comments, platform, themes });
+  stateRef.current = { settings, mode, dirty, docPath, buffer, savedText, comments, platform, themes };
 
   /** Read a doc file and its comments from both stores (trailer wins by id). */
   const loadDocParts = useCallback(async (p: Platform, path: string) => {
@@ -449,16 +460,31 @@ export default function App() {
         // Master switch off (SPEC7 §2): the comments UI is gone, commands included.
         if (stateRef.current.settings.commentsEnabled) setShowComments((v) => !v);
       },
-      settings: () => setSettingsOpen(true),
+      // SPEC13 §4.2: a platform with aux windows never shows the overlays.
+      settings: () => {
+        const p = stateRef.current.platform;
+        if (p?.openAuxWindow) void p.openAuxWindow('settings');
+        else setSettingsOpen(true);
+      },
       help: () => void openHelp(),
-      about: () => setAboutOpen(true),
+      about: () => {
+        const p = stateRef.current.platform;
+        if (p?.openAuxWindow) void p.openAuxWindow('about');
+        else setAboutOpen(true);
+      },
       zoomIn: () => stepZoom(1),
       zoomOut: () => stepZoom(-1),
       zoomReset: () => updateSettings({ ...stateRef.current.settings, zoom: 100 }),
-      // SPEC12 §1.5: Quit/Exit/Close Window all run the unsaved-changes guard.
+      // SPEC12 §1.5 + SPEC13 §1.3: ⌘W with an aux window focused closes that
+      // window (the native accelerator always lands here, in main's JS);
+      // otherwise Quit/Exit/Close run the unsaved-changes guard, unchanged.
       close: () => {
-        if (stateRef.current.dirty) setClosePrompt(true);
-        else void stateRef.current.platform?.closeNow();
+        void (async () => {
+          const p = stateRef.current.platform;
+          if (p?.closeFocusedAuxWindow && (await p.closeFocusedAuxWindow())) return;
+          if (stateRef.current.dirty) setClosePrompt(true);
+          else void p?.closeNow();
+        })();
       },
     });
   }, [openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings]);
@@ -477,6 +503,47 @@ export default function App() {
       })
     );
   }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys]);
+
+  // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
+  useEffect(() => {
+    if (!platform?.busListen || !platform.busEmit) return;
+    let disposed = false;
+    const offs: Array<() => void> = [];
+    void (async () => {
+      const ready = await platform.busListen!(EV_AUX_READY, () => {
+        const s = stateRef.current;
+        void platform.busEmit!(
+          EV_AUX_INIT,
+          buildAuxInit({ settings: s.settings, themes: s.themes, isMac: platform.isMac, version: __APP_VERSION__ })
+        );
+      });
+      const edit = await platform.busListen!(EV_SETTINGS_EDIT, (payload) => {
+        // §3.5: merge through the latest canonical state — a stale popup
+        // snapshot must never clobber splitRatio (or future panel-unedited keys).
+        updateSettings(mergeSettingsEdit(stateRef.current.settings, payload as Settings));
+      });
+      const req = await platform.busListen!(EV_AUX_REQUEST, (payload) => {
+        const r = payload as AuxRequest;
+        if (r.req === 'reloadThemes') void reloadThemes();
+        else if (r.req === 'revealThemesDir') void platform.revealThemesDir?.();
+        else if (r.req === 'openExternal') void platform.openExternal(r.url);
+      });
+      if (disposed) [ready, edit, req].forEach((off) => off());
+      else offs.push(ready, edit, req);
+    })();
+    return () => {
+      disposed = true;
+      offs.forEach((off) => off());
+    };
+  }, [platform, updateSettings, reloadThemes]);
+
+  // §3.5 canonical echo: every settings/themes change broadcasts, whatever its source.
+  useEffect(() => {
+    if (platform?.busEmit) void platform.busEmit(EV_SETTINGS_CHANGED, settings);
+  }, [platform, settings]);
+  useEffect(() => {
+    if (platform?.busEmit) void platform.busEmit(EV_THEMES_CHANGED, themes);
+  }, [platform, themes]);
 
   // --- global hotkeys (capture phase so Cmd+S never reaches the webview) --------
   useEffect(() => {
@@ -1084,7 +1151,7 @@ export default function App() {
         </button>
       )}
 
-      {settingsOpen && (
+      {!platform.openAuxWindow && settingsOpen && (
         <SettingsPanel
           settings={settings}
           themes={themes}
@@ -1105,7 +1172,9 @@ export default function App() {
         />
       )}
 
-      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} onOpenUrl={(u) => void platform.openExternal(u)} />}
+      {!platform.openAuxWindow && aboutOpen && (
+        <AboutDialog onClose={() => setAboutOpen(false)} onOpenUrl={(u) => void platform.openExternal(u)} />
+      )}
 
       {openPrompt && (
         <div className="overlay">
