@@ -817,10 +817,13 @@ export default function App() {
     let anchors: SyncAnchor[] = [];
     let contentHeight = 1;
     const rebuild = () => {
-      const docTop = docEl.getBoundingClientRect().top;
+      // Anchor tops in the scroller's CONTENT coordinates (scroll-invariant):
+      // measuring against the doc element would drop its top margin/padding
+      // and skew every mapping by that delta.
+      const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
       anchors = Array.from(docEl.querySelectorAll<HTMLElement>('[data-mm-line]')).map((el) => ({
         line: Number(el.dataset.mmLine),
-        top: el.getBoundingClientRect().top - docTop,
+        top: el.getBoundingClientRect().top - base,
       }));
       contentHeight = Math.max(scroller.scrollHeight, 1);
     };
@@ -828,7 +831,11 @@ export default function App() {
     const ro = new ResizeObserver(rebuild); // divider drags, resizes, late images
     ro.observe(docEl);
 
-    const suppress = { editor: 0, preview: 0 };
+    // A follower may emit several scroll events per logical write (CM's
+    // scrollIntoView measure loop), so suppression is a short quiet window
+    // rather than an exact event count — leak-free either way.
+    const quiet = { editor: 0, preview: 0 };
+    const QUIET_MS = 120;
     const AT_END = 2; // px slack for end clamping
 
     const editorLeads = () => {
@@ -840,39 +847,29 @@ export default function App() {
       if (top <= AT_END) target = 0;
       else if (top >= max - AT_END) target = previewMax;
       else target = Math.min(offsetForLine(anchors, contentHeight, ed.topLine()), previewMax);
-      if (Math.abs(scroller.scrollTop - target) < 1) return; // no-op → no event
-      suppress.preview++;
+      if (Math.abs(scroller.scrollTop - target) < 1) return; // no-op → nothing to quiet
+      quiet.preview = performance.now() + QUIET_MS;
       scroller.scrollTop = target;
     };
 
     const previewLeads = () => {
       const ed = editorSyncRef.current;
       if (!ed) return;
-      const { top: before, max } = ed.scrollInfo();
+      const { max } = ed.scrollInfo();
       const previewMax = scroller.scrollHeight - scroller.clientHeight;
       const y = scroller.scrollTop;
-      let target: number;
-      if (y <= AT_END) target = 0;
-      else if (y >= previewMax - AT_END) target = max;
-      else target = -1; // line-mapped below
-      suppress.editor++;
-      if (target >= 0) ed.setScrollTop(target);
+      quiet.editor = performance.now() + QUIET_MS;
+      if (y <= AT_END) ed.setScrollTop(0);
+      else if (y >= previewMax - AT_END) ed.setScrollTop(max);
       else ed.scrollToLine(lineAtOffset(anchors, contentHeight, y));
-      if (Math.abs(ed.scrollInfo().top - before) < 1) suppress.editor--; // no-op write → no event
     };
 
     const onEditorScroll = () => {
-      if (suppress.editor > 0) {
-        suppress.editor--;
-        return;
-      }
+      if (performance.now() < quiet.editor) return;
       requestAnimationFrame(editorLeads);
     };
     const onPreviewScroll = () => {
-      if (suppress.preview > 0) {
-        suppress.preview--;
-        return;
-      }
+      if (performance.now() < quiet.preview) return;
       requestAnimationFrame(previewLeads);
     };
 

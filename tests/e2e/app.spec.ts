@@ -1535,3 +1535,121 @@ test('E56: the native menu carries Next/Previous Comment; clicking steps; the ma
   await expect.poll(async () => (await menuItem(page, 'nextComment')) === undefined).toBe(true);
   await expect.poll(async () => (await menuItem(page, 'prevComment')) === undefined).toBe(true);
 });
+
+// --- SPEC15: synchronized split scrolling ---------------------------------------
+
+/** Long fixture + split-edit on + doc open + edit mode: both panes mounted. */
+async function splitApp(page: import('@playwright/test').Page): Promise<void> {
+  await freshApp(page);
+  await page.evaluate(() => {
+    const sections: string[] = [];
+    for (let i = 1; i <= 40; i++) {
+      sections.push(`## Marker ${i}\n`);
+      if (i === 20) sections.push('```\n' + 'code line\n'.repeat(60) + '```\n');
+      else sections.push(`Paragraph for section ${i}. `.repeat(8) + '\n');
+    }
+    window.__mmfs!.write('/docs/long.md', sections.join('\n'));
+    const raw = window.__mmfs!.read('/config/settings.json');
+    const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, splitEdit: true }));
+  });
+  await page.reload(); // boot again so the app reads splitEdit from settings.json
+  await page.goto('/#open=/docs/long.md'); // hashchange → the shim's onOpenFile
+  await expect(page.getByTestId('doc').locator('h2').first()).toContainText('Marker 1');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expect(page.locator('.cm-content')).toBeVisible();
+}
+
+/** First fully/partially visible gutter line number in the editor pane. */
+const editorTopGutterLine = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => {
+    const scroller = document.querySelector('.cm-scroller')!;
+    const top = scroller.getBoundingClientRect().top;
+    const gutters = Array.from(document.querySelectorAll('.cm-lineNumbers .cm-gutterElement'));
+    const first = gutters.find((g) => g.getBoundingClientRect().bottom > top + 1 && /\d/.test(g.textContent ?? ''));
+    return first ? Number(first.textContent) : -1;
+  });
+
+/** Source lines of the anchors bracketing the preview's top edge. */
+const previewTopAnchorLines = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => {
+    const scroller = document.querySelector('.split-preview')!;
+    const doc = scroller.querySelector('.doc')!;
+    const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
+    const y = scroller.scrollTop;
+    const anchors = Array.from(doc.querySelectorAll<HTMLElement>('[data-mm-line]')).map((el) => ({
+      line: Number(el.dataset.mmLine),
+      top: el.getBoundingClientRect().top - base,
+    }));
+    let before = 1;
+    let after = Number.MAX_SAFE_INTEGER;
+    for (const a of anchors) {
+      if (a.top <= y + 1) before = a.line;
+      else {
+        after = a.line;
+        break;
+      }
+    }
+    return { before, after };
+  });
+
+test('E57: split scroll sync — the preview follows the editor, ends clamp, blocks stay aligned', async ({
+  page,
+}) => {
+  await splitApp(page);
+  const editor = page.locator('.cm-scroller');
+  const preview = page.locator('.split-preview');
+
+  // End clamp: editor to bottom → preview bottoms out.
+  await editor.evaluate((el) => (el.scrollTop = el.scrollHeight));
+  await expect
+    .poll(() => preview.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop))
+    .toBeLessThan(3);
+
+  // Back to top → preview zeroes.
+  await editor.evaluate((el) => (el.scrollTop = 0));
+  await expect.poll(() => preview.evaluate((el) => el.scrollTop)).toBeLessThan(3);
+
+  // Mid-document: the editor's top visible line falls between the preview's
+  // top bracketing anchors (±one block, SPEC15 §1.2).
+  await editor.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.4));
+  await expect
+    .poll(async () => {
+      const line = await editorTopGutterLine(page);
+      const { before, after } = await previewTopAnchorLines(page);
+      return line >= before - 5 && line <= after + 5;
+    })
+    .toBe(true);
+});
+
+test('E58: split scroll sync — the editor follows the preview; no feedback oscillation', async ({ page }) => {
+  await splitApp(page);
+  const preview = page.locator('.split-preview');
+
+  // Scroll the preview so Marker 30 sits at the pane top.
+  await preview.evaluate((el) => {
+    const doc = el.querySelector('.doc')!;
+    const target = Array.from(doc.querySelectorAll('h2')).find((h) => h.textContent === 'Marker 30')!;
+    el.scrollTop = el.scrollTop + target.getBoundingClientRect().top - el.getBoundingClientRect().top;
+  });
+  const markerLine = await preview.evaluate((el) => {
+    const target = Array.from(el.querySelectorAll<HTMLElement>('[data-mm-line]')).find(
+      (n) => n.textContent === 'Marker 30'
+    )!;
+    return Number(target.dataset.mmLine);
+  });
+  await expect.poll(async () => Math.abs((await editorTopGutterLine(page)) - markerLine)).toBeLessThan(6);
+
+  // Settle check: both panes hold still across two frames — no loop.
+  await page.waitForTimeout(150);
+  const snap = () =>
+    page.evaluate(() => ({
+      e: document.querySelector('.cm-scroller')!.scrollTop,
+      p: document.querySelector('.split-preview')!.scrollTop,
+    }));
+  const a = await snap();
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const b = await snap();
+  expect(b).toEqual(a);
+});

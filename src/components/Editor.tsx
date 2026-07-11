@@ -90,10 +90,12 @@ export default function Editor({ value, lineNumbers: showLineNumbers, onChange, 
           return n + frac;
         },
         scrollToLine(line) {
+          // CM's own scrollIntoView iterates its height measurements until the
+          // position truly sits at the viewport top — manual scrollTop math
+          // over estimated block heights lands many lines off in long docs.
           const doc = view.state.doc;
-          const n = Math.min(Math.max(Math.floor(line), 1), doc.lines);
-          const block = view.lineBlockAt(doc.line(n).from);
-          dom.scrollTop = block.top + (line - n) * block.height + view.documentPadding.top;
+          const n = Math.min(Math.max(Math.round(line), 1), doc.lines);
+          view.dispatch({ effects: EditorView.scrollIntoView(doc.line(n).from, { y: 'start' }) });
         },
         scrollInfo() {
           return { top: dom.scrollTop, max: dom.scrollHeight - dom.clientHeight };
