@@ -29,6 +29,18 @@ npm run build:web    # single-file web app → dist-web/index.html
 npm run licenses     # regenerate THIRD-PARTY-NOTICES.md (allowlist-guarded)
 ```
 
+### Testing the installed app (macOS)
+
+`npm run tauri dev` is the fast loop — frontend edits hot-reload, Rust edits
+rebuild and relaunch automatically. When you need to test the *installed*
+app in `/Applications` (file associations, packaged behavior):
+
+```bash
+npm run build:app    # release .app only — skips the slow .dmg step
+npm run install:app  # quit, replace /Applications/Marky Mark.app, relaunch
+npm run clean:app    # wipe every trace (app, data, prefs, caches) for a true first run
+```
+
 ## How this codebase works
 
 - **Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first.** The one rule
