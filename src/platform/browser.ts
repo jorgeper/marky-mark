@@ -2,6 +2,7 @@ import type { Platform } from './types';
 import { FIXTURES } from '../bundled';
 import { dispatchCommand, type CommandId } from '../lib/commands';
 import type { MenuSpec } from '../lib/menuSpec';
+import type { AuxKind } from '../lib/auxProtocol';
 
 /**
  * Browser shim platform: a virtual filesystem persisted to localStorage so
@@ -37,6 +38,14 @@ declare global {
     __mmMenu?: {
       spec: MenuSpec | null;
       click(command: string): void;
+    };
+    /**
+     * SPEC13 §5.2: aux-window activity recorded for e2e — how many times each
+     * kind was opened vs focused-instead (singleton assertion seam).
+     */
+    __mmAux?: {
+      opened: Record<AuxKind, number>;
+      focused: Record<AuxKind, number>;
     };
   }
 }
@@ -122,9 +131,57 @@ export function createBrowserPlatform(): Platform {
     };
   };
 
+  /**
+   * SPEC13 §5.2: the shim's cross-window bus. BroadcastChannel never delivers
+   * to the posting context, exactly like the real protocol needs (main and
+   * aux windows only ever consume each other's events, never their own).
+   */
+  const channel = new BroadcastChannel('mm://bus');
+  const busEmit = async (event: string, payload: unknown) => {
+    channel.postMessage({ event, payload });
+  };
+  const busListen = async (event: string, cb: (payload: unknown) => void) => {
+    const handler = (e: MessageEvent) => {
+      const data = e.data as { event?: string; payload?: unknown };
+      if (data && data.event === event) cb(data.payload);
+    };
+    channel.addEventListener('message', handler);
+    return () => channel.removeEventListener('message', handler);
+  };
+
+  /** SPEC13 §5.2: aux windows are same-origin popups; singleton by handle. */
+  const auxHandles: Partial<Record<AuxKind, Window | null>> = {};
+  const openAuxWindow = async (kind: AuxKind) => {
+    const aux = (window.__mmAux ??= {
+      opened: { settings: 0, about: 0 },
+      focused: { settings: 0, about: 0 },
+    });
+    const existing = auxHandles[kind];
+    if (existing && !existing.closed) {
+      existing.focus();
+      aux.focused[kind] += 1;
+      return;
+    }
+    auxHandles[kind] = window.open(`/?window=${kind}&nativeMenu=1`, `mm-${kind}`, 'width=620,height=560');
+    aux.opened[kind] += 1;
+  };
+
+  const closeFocusedAuxWindow = async () => {
+    for (const kind of ['settings', 'about'] as const) {
+      const h = auxHandles[kind];
+      if (h && !h.closed && h.document.hasFocus()) {
+        h.close();
+        return true;
+      }
+    }
+    return false;
+  };
+
   return {
     kind: 'browser',
-    ...(nativeMenu ? { setAppMenu } : {}),
+    ...(nativeMenu ? { setAppMenu, openAuxWindow, closeFocusedAuxWindow } : {}),
+    busEmit,
+    busListen,
     isMac: navigator.platform.toLowerCase().includes('mac'),
 
     async readTextFile(path) {
