@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import { AuxWindow } from './aux/AuxWindow';
+import { AuxWindow } from './AuxWindow';
 import { windowRole } from './lib/windowRole';
 import './styles.css';
 

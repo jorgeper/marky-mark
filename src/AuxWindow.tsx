@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getPlatform, type Platform } from '../platform';
+import { getPlatform, type Platform } from './platform';
 import {
   buildAuxInit,
   EV_AUX_INIT,
@@ -13,12 +13,12 @@ import {
   type AuxInit,
   type AuxKind,
   type AuxRequest,
-} from '../lib/auxProtocol';
-import type { Settings } from '../lib/settings';
-import type { Theme } from '../lib/themes';
-import { applyThemeCss } from '../themeRuntime';
-import { SettingsPanel } from '../components/SettingsPanel';
-import { AboutDialog } from '../components/AboutDialog';
+} from './lib/auxProtocol';
+import type { Settings } from './lib/settings';
+import type { Theme } from './lib/themes';
+import { applyThemeCss } from './themeRuntime';
+import { SettingsPanel } from './components/SettingsPanel';
+import { AboutDialog } from './components/AboutDialog';
 
 /**
  * SPEC13 §1–§3: the aux-window root. A dumb view — no filesystem, no
