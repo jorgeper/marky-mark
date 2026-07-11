@@ -60,7 +60,8 @@ Either way it's a one-time step — the app opens normally afterwards.
   One Dark, …) and drop-in custom themes — one CSS file, no build step. See
   [THEMES.md](THEMES.md) for making your own.
 - **Edit mode** — full-screen swap or side-by-side split (⌘E / Ctrl+E,
-  remappable), with undo history that survives mode switches.
+  remappable) with synchronized scrolling between the panes, and undo
+  history that survives mode switches.
 - **Comments** (experimental) — select text → 💬. Threads, resolve, reopen,
   edit-survival re-anchoring. Jump between comments with ⌥⌘↓ / ⌥⌘↑
   (rebindable) or the fixed navigator pill — park the mouse and click
