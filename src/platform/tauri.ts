@@ -1,9 +1,28 @@
 import type { Platform } from './types';
+import type { MenuItemSpec, MenuSpec } from '../lib/menuSpec';
+import { dispatchCommand } from '../lib/commands';
+import { parseCombo } from '../lib/hotkeys';
 
 /**
  * Real desktop platform. All Tauri imports are dynamic so this module only
  * evaluates inside the Tauri webview; the browser shim never touches them.
  */
+
+/**
+ * Canonical combo ("Mod+Shift+C") → Tauri/muda accelerator ("CmdOrCtrl+Shift+C").
+ * muda's parser takes literal characters (=, -, ,, digits, letters) and the
+ * usual key names (F5, ArrowUp) case-insensitively, so the key passes through.
+ */
+function toAccelerator(combo: string): string | undefined {
+  const c = parseCombo(combo);
+  if (!c) return undefined;
+  const parts: string[] = [];
+  if (c.mod) parts.push('CmdOrCtrl');
+  if (c.shift) parts.push('Shift');
+  if (c.alt) parts.push('Alt');
+  parts.push(c.key);
+  return parts.join('+');
+}
 export async function createTauriPlatform(): Promise<Platform> {
   const fsp = await import('@tauri-apps/plugin-fs');
   const dialog = await import('@tauri-apps/plugin-dialog');
@@ -132,6 +151,47 @@ export async function createTauriPlatform(): Promise<Platform> {
       if (!/^https?:\/\//i.test(url)) return; // http(s) only, matching the capability scope
       const { openUrl } = await import('@tauri-apps/plugin-opener');
       await openUrl(url);
+    },
+
+    /**
+     * Native menu bar (SPEC12 §3.3): convert the pure spec into real menu
+     * objects — app menu on macOS, in-window menu bar on Windows. Item
+     * activations dispatch into the command registry; each install replaces
+     * the previous menu atomically (old items keep working until then, so a
+     * rebuild never drops a click).
+     */
+    async setAppMenu(spec: MenuSpec) {
+      const { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } = await import('@tauri-apps/api/menu');
+
+      const toItem = async (it: MenuItemSpec) => {
+        if (it.type === 'predefined') {
+          return PredefinedMenuItem.new({ item: it.item, ...(it.label ? { text: it.label } : {}) });
+        }
+        const common = {
+          text: it.label,
+          accelerator: it.accelerator ? toAccelerator(it.accelerator) : undefined,
+          action: () => dispatchCommand(it.command, 'menu'),
+        };
+        try {
+          return it.checked !== undefined
+            ? await CheckMenuItem.new({ ...common, checked: it.checked })
+            : await MenuItem.new(common);
+        } catch {
+          // An exotic rebound key the accelerator parser rejects must never
+          // take the whole menu down — keep the item, drop the shortcut.
+          return it.checked !== undefined
+            ? CheckMenuItem.new({ ...common, accelerator: undefined, checked: it.checked })
+            : MenuItem.new({ ...common, accelerator: undefined });
+        }
+      };
+
+      const submenus = await Promise.all(
+        spec.submenus.map(async (m) =>
+          Submenu.new({ text: m.title, items: await Promise.all(m.items.map(toItem)) })
+        )
+      );
+      const menu = await Menu.new({ items: submenus });
+      await menu.setAsAppMenu();
     },
   };
   return platform;
