@@ -24,6 +24,9 @@ const schema: SanitizeSchema = {
   tagNames: [...(defaultSchema.tagNames ?? []), 'input'],
   attributes: {
     ...defaultSchema.attributes,
+    // SPEC15 §2.2: the one attribute scroll sync needs — inert data, no URL
+    // or script surface. Nothing else widens.
+    '*': [...(defaultSchema.attributes?.['*'] ?? []), 'dataMmLine'],
     input: ['type', 'checked', 'disabled'],
     span: [...(defaultSchema.attributes?.span ?? []), ['className', 'mm-blocked-remote']],
   },
@@ -87,10 +90,33 @@ function blockRemoteImages() {
   return (tree: HastNode) => visit(tree);
 }
 
+interface Positioned {
+  position?: { start?: { line?: number } };
+}
+
+/**
+ * SPEC15 §2: stamp top-level block elements with their markdown source start
+ * line (1-based) so the split view can block-anchor its scroll sync. Only
+ * direct children of the root are stamped; nodes without position data are
+ * left alone (sync interpolates across gaps). Attributes only — the rendered
+ * text is untouched, so the comment-anchor coordinate space is unchanged.
+ */
+function stampSourceLines() {
+  return (tree: HastNode) => {
+    for (const child of tree.children ?? []) {
+      const line = (child as Positioned).position?.start?.line;
+      if (child.type === 'element' && typeof line === 'number') {
+        child.properties = { ...child.properties, dataMmLine: line };
+      }
+    }
+  };
+}
+
 const processor = unified()
   .use(remarkParse)
   .use(remarkGfm)
   .use(remarkRehype)
+  .use(stampSourceLines)
   .use(blockRemoteImages)
   .use(rehypeSanitize, schema)
   .use(rehypeHighlight, { detect: false })
