@@ -1431,3 +1431,107 @@ test('E53: About opens its own window, Esc closes it; aux windows are singletons
     .toEqual({ opened: { settings: 1, about: 1 }, focused: { settings: 1, about: 0 } });
   await expect(sp.getByTestId('settings-panel')).toBeVisible();
 });
+
+// --- SPEC14: comment navigation (hotkeys + fixed navigator pill) ----------------
+
+// Three phrases from fixtures/welcome.md, in document order.
+const NAV_P1 = 'lightweight, fast markdown viewer';
+const NAV_P2 = 'renders GitHub-flavored markdown';
+const NAV_P3 = 'seven built-in themes';
+
+test('E54: fixed navigator pill — appears on selection, steps in order, wraps, never moves; click-away dismisses', async ({
+  page,
+}) => {
+  await addComment(page, NAV_P1, 'first');
+  await addComment(page, NAV_P2, 'second');
+  await addComment(page, NAV_P3, 'third');
+
+  // Start from a clean deactivated state, then select the first comment.
+  await page.getByTestId('doc').locator('h1').click();
+  await expect(page.getByTestId('comment-nav')).toHaveCount(0);
+  await page.locator('mark.hl').first().click();
+  await expect(page.getByTestId('comment-nav')).toBeVisible();
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 3');
+
+  // The don't-move-the-mouse guarantee: once shown, stepping never moves the
+  // pill (measure after the first step so the entrance slide has settled —
+  // the invariant is about stepping, not the appear animation).
+  await page.getByTestId('comment-nav-next').click();
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('2 / 3');
+  const box = await page.getByTestId('comment-nav').boundingBox();
+  await page.getByTestId('comment-nav-next').click();
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('3 / 3');
+  expect(await page.getByTestId('comment-nav').boundingBox()).toEqual(box);
+  await page.getByTestId('comment-nav-next').click(); // wrap forward
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 3');
+  expect(await page.getByTestId('comment-nav').boundingBox()).toEqual(box);
+  await page.getByTestId('comment-nav-prev').click(); // wrap back
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('3 / 3');
+  expect(await page.getByTestId('comment-nav').boundingBox()).toEqual(box);
+  // Stepping keeps an active highlight in the document and never killed the pill.
+  await expect(page.locator('mark.hl.active').first()).toBeVisible();
+
+  // Click-away (not on a mark) deactivates and the pill disappears.
+  await page.getByTestId('doc').locator('h1').click();
+  await expect(page.getByTestId('comment-nav')).toHaveCount(0);
+});
+
+test('E55: nav hotkeys — defaults enter at first/last; rebinding Next takes effect immediately and persists', async ({
+  page,
+}) => {
+  await addComment(page, NAV_P1, 'first');
+  await addComment(page, NAV_P3, 'second');
+
+  await page.getByTestId('doc').locator('h1').click(); // deactivate
+  await expect(page.getByTestId('comment-nav')).toHaveCount(0);
+  await page.keyboard.press('Control+Alt+ArrowDown'); // nothing active → first
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 2');
+  await page.getByTestId('doc').locator('h1').click();
+  await page.keyboard.press('Control+Alt+ArrowUp'); // nothing active → last
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('2 / 2');
+
+  await openSettings(page, 'hotkeys');
+  await page.getByTestId('hotkey-nextComment').click();
+  await page.keyboard.press('Control+Shift+J');
+  await page.getByTestId('settings-close').click();
+
+  await page.keyboard.press('Control+Alt+ArrowDown'); // old combo — must do nothing
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('2 / 2');
+  await page.keyboard.press('Control+Shift+J'); // new combo — wraps 2 → 1
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 2');
+  expect(await fsRead(page, '/config/settings.json')).toContain('Mod+Shift+J');
+});
+
+test('E56: the native menu carries Next/Previous Comment; clicking steps; the master switch removes them', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await addComment(page, NAV_P1, 'first');
+  await addComment(page, NAV_P3, 'second');
+
+  expect((await menuItem(page, 'nextComment'))!.label).toBe('Next Comment');
+  expect((await menuItem(page, 'prevComment'))!.label).toBe('Previous Comment');
+  const accel = await page.evaluate(
+    () =>
+      (window
+        .__mmMenu!.spec!.submenus.flatMap((m) => m.items)
+        .find((i) => i.type === 'command' && i.command === 'nextComment') as { accelerator?: string })?.accelerator
+  );
+  expect(accel).toBe('Mod+Alt+ArrowDown');
+
+  // The last add left the second comment active — menu Next wraps to the first.
+  await menuClick(page, 'nextComment');
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 2');
+
+  // Master switch off (via the settings aux window) → both items leave the spec.
+  const popup = page.waitForEvent('popup');
+  await menuClick(page, 'settings');
+  const sp = await popup;
+  await sp.getByTestId('settings-panel').waitFor();
+  await sp.getByTestId('settings-tab-general').click();
+  await sp.getByTestId('set-comments-enabled').click();
+  await expect.poll(async () => (await menuItem(page, 'nextComment')) === undefined).toBe(true);
+  await expect.poll(async () => (await menuItem(page, 'prevComment')) === undefined).toBe(true);
+});
