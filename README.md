@@ -62,8 +62,10 @@ Either way it's a one-time step — the app opens normally afterwards.
 - **Edit mode** — full-screen swap or side-by-side split (⌘E / Ctrl+E,
   remappable), with undo history that survives mode switches.
 - **Comments** (experimental) — select text → 💬. Threads, resolve, reopen,
-  edit-survival re-anchoring. Stored in a `foo.md.comments.json` sidecar or
-  embedded invisibly in the markdown file itself — your pick.
+  edit-survival re-anchoring. Jump between comments with ⌥⌘↓ / ⌥⌘↑
+  (rebindable) or the fixed navigator pill — park the mouse and click
+  through. Stored in a `foo.md.comments.json` sidecar or embedded invisibly
+  in the markdown file itself — your pick.
 - **Private by design** — no server, no telemetry, and **no outbound
   network, guaranteed**: remote images and theme imports are blocked at
   render time, a strict CSP backstops everything, and CI proves it with
