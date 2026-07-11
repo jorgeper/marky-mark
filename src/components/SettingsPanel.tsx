@@ -18,6 +18,8 @@ interface Props {
   /** Desktop only: reveal the themes folder in the OS file manager. */
   onRevealThemesDir?: () => void | Promise<void>;
   onClose(): void;
+  /** SPEC13 §1.3: aux-window mode — no scrim, no Done button. */
+  frameless?: boolean;
 }
 
 const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
@@ -54,6 +56,7 @@ export function SettingsPanel({
   onImportTheme,
   onRevealThemesDir,
   onClose,
+  frameless,
 }: Props) {
   const [tab, setTab] = useState<SettingsTab>('appearance');
   const [hint, setHint] = useState('');
@@ -398,32 +401,40 @@ export function SettingsPanel({
     </>
   );
 
-  return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal settings-modal" data-testid="settings-panel">
-        <nav className="tab-rail" data-testid="settings-tabs">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              className={`tab-btn${tab === t.id ? ' active' : ''}`}
-              data-testid={`settings-tab-${t.id}`}
-              onClick={() => setTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-        <div className="tab-content">
-          {tab === 'appearance' && appearanceTab}
-          {tab === 'general' && generalTab}
-          {tab === 'hotkeys' && hotkeysTab}
+  const body = (
+    <div className="modal settings-modal" data-testid="settings-panel">
+      <nav className="tab-rail" data-testid="settings-tabs">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            className={`tab-btn${tab === t.id ? ' active' : ''}`}
+            data-testid={`settings-tab-${t.id}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+      <div className="tab-content">
+        {tab === 'appearance' && appearanceTab}
+        {tab === 'general' && generalTab}
+        {tab === 'hotkeys' && hotkeysTab}
+        {!frameless && (
           <div className="actions">
             <button className="primary" data-testid="settings-close" onClick={onClose}>
               Done
             </button>
           </div>
-        </div>
+        )}
       </div>
+    </div>
+  );
+
+  // SPEC13 §1.3: in an aux window the OS chrome is the close affordance.
+  if (frameless) return body;
+  return (
+    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      {body}
     </div>
   );
 }

@@ -987,3 +987,23 @@ mark.hl.ghost {
   font-size: 0.85em;
   opacity: 0.75;
 }
+
+/* --- SPEC13: aux windows (Settings/About render frameless, filling the window) --- */
+.aux-root {
+  height: 100vh;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  overflow: hidden;
+}
+.aux-root > .modal {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: auto;
+}
