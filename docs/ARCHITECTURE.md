@@ -92,7 +92,9 @@ undefined — web keeps them, desktop never shows them, the dev shim provides
 aux windows under `?nativeMenu=1` via `window.open` + BroadcastChannel so
 Playwright drives the real two-window protocol (E51–E53). Security posture:
 aux windows run under their own capability
-(`src-tauri/capabilities/aux.json`) with events and self-close only — no
+(`src-tauri/capabilities/auxiliary.json` — not `aux.json`; `AUX` is a
+reserved filename on Windows and would break checkout there) with events
+and self-close only — no
 fs, dialog, or opener permissions.
 
 ## Windows build story
