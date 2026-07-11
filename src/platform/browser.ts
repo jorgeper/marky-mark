@@ -1,5 +1,7 @@
 import type { Platform } from './types';
 import { FIXTURES } from '../bundled';
+import { dispatchCommand, type CommandId } from '../lib/commands';
+import type { MenuSpec } from '../lib/menuSpec';
 
 /**
  * Browser shim platform: a virtual filesystem persisted to localStorage so
@@ -25,6 +27,16 @@ declare global {
       nextSavePath?: string | null;
       /** Test observability: set when revealThemesDir() was invoked. */
       revealedThemesDir?: boolean;
+    };
+    /**
+     * SPEC12 §5.2: under ?nativeMenu=1 the shim simulates the desktop menu —
+     * the latest installed spec is recorded here, and click(command) drives
+     * the registry exactly like a native menu item activation. This is the
+     * e2e seam; Playwright cannot click real native menus.
+     */
+    __mmMenu?: {
+      spec: MenuSpec | null;
+      click(command: string): void;
     };
   }
 }
@@ -84,6 +96,7 @@ class BrowserFs {
 
 export function createBrowserPlatform(): Platform {
   const fs = new BrowserFs();
+  const nativeMenu = new URLSearchParams(window.location.search).has('nativeMenu');
   window.__mmfs = {
     read: (p) => fs.read(p),
     write: (p, c) => fs.write(p, c),
@@ -95,8 +108,23 @@ export function createBrowserPlatform(): Platform {
 
   const join = (...parts: string[]) => normalize(parts.join('/'));
 
+  /** SPEC12 §5.2: record the installed spec; click() dispatches like a menu. */
+  const setAppMenu = async (spec: MenuSpec) => {
+    window.__mmMenu = {
+      spec,
+      click(command: string) {
+        const exists = spec.submenus.some((m) =>
+          m.items.some((it) => it.type === 'command' && it.command === command)
+        );
+        if (!exists) throw new Error(`no menu item for command: ${command}`);
+        dispatchCommand(command as CommandId, 'menu');
+      },
+    };
+  };
+
   return {
     kind: 'browser',
+    ...(nativeMenu ? { setAppMenu } : {}),
     isMac: navigator.platform.toLowerCase().includes('mac'),
 
     async readTextFile(path) {

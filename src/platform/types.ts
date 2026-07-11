@@ -1,3 +1,5 @@
+import type { MenuSpec } from '../lib/menuSpec';
+
 /**
  * The single seam between the app and the host (SPEC FR-6). Everything that
  * touches the filesystem, dialogs, paths, or the window goes through this
@@ -65,4 +67,12 @@ export interface Platform {
    * webview itself never navigates anywhere.
    */
   openExternal(url: string): Promise<void>;
+
+  /**
+   * Native menu installation (SPEC12 §3.3). Defined ⇒ the platform owns the
+   * menu and the in-app header is not rendered at all (SPEC12 §2.3); item
+   * activations dispatch into the command registry. Desktop implements it;
+   * web never does; the dev shim records the spec under ?nativeMenu=1.
+   */
+  setAppMenu?(spec: MenuSpec): Promise<void>;
 }

@@ -1165,3 +1165,155 @@ test('E46: network isolation — adversarial doc renders with zero non-localhost
   // The guarantee: not one request attempted to leave localhost.
   expect(external).toEqual([]);
 });
+
+// --- SPEC12: native desktop menus & chromeless window (shim ?nativeMenu=1) ------
+
+/** Re-launch the shim in desktop-menu mode: no header, spec on window.__mmMenu. */
+async function freshNativeMenuApp(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/?nativeMenu=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+}
+
+const menuClick = (page: import('@playwright/test').Page, command: string) =>
+  page.evaluate((c) => window.__mmMenu!.click(c), command);
+
+const menuItem = (page: import('@playwright/test').Page, command: string) =>
+  page.evaluate(
+    (c) =>
+      window
+        .__mmMenu!.spec!.submenus.flatMap((m) => m.items)
+        .find((i) => i.type === 'command' && i.command === c) as
+        | { label: string; checked?: boolean }
+        | undefined,
+    command
+  );
+
+test('E47: nativeMenu mode renders no header; the window title is the only filename/dirty display', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  // Chromeless (SPEC12 §2.1): no toolbar shell, hot zone, or hamburger at all.
+  await expect(page.getByTestId('toolbar-shell')).toHaveCount(0);
+  await expect(page.getByTestId('toolbar-hotzone')).toHaveCount(0);
+  await expect(page.getByTestId('menu-btn')).toHaveCount(0);
+  // No document: bare app name (SPEC12 §2.2).
+  await expect(page).toHaveTitle('Marky Mark');
+
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await expect(page).toHaveTitle('welcome.md — Marky Mark');
+  // The document area starts at the very top of the window.
+  const box = await page.locator('.workspace').boundingBox();
+  expect(box!.y).toBe(0);
+
+  await menuClick(page, 'toggleMode');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('TITLEMARK ');
+  await expect(page).toHaveTitle('welcome.md • — Marky Mark');
+  await menuClick(page, 'save');
+  await expect(page).toHaveTitle('welcome.md — Marky Mark');
+});
+
+test('E48: the installed menu spec drives every command, and re-installs with live checkmarks and count', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  const titles = await page.evaluate(() => window.__mmMenu!.spec!.submenus.map((m) => m.title));
+  expect(titles).toEqual(expect.arrayContaining(['File', 'Edit', 'View', 'Help']));
+
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+
+  // Edit Mode checkmark follows the mode through re-installed specs.
+  expect((await menuItem(page, 'toggleMode'))!.checked).toBe(false);
+  await menuClick(page, 'toggleMode');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect.poll(async () => (await menuItem(page, 'toggleMode'))!.checked).toBe(true);
+
+  // Save through the menu persists to disk, exactly like the toolbar path.
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('MENUMARK ');
+  await menuClick(page, 'save');
+  await expect(page).toHaveTitle('welcome.md — Marky Mark');
+  expect(await fsRead(page, WELCOME)).toContain('MENUMARK');
+
+  await menuClick(page, 'toggleMode');
+  await expect(page.getByTestId('doc')).toBeVisible();
+  await expect.poll(async () => (await menuItem(page, 'toggleMode'))!.checked).toBe(false);
+
+  // Comment count lands in the label; the toggle hides the panel and unchecks.
+  await addComment(page, 'MENUMARK', 'menu comment');
+  await expect.poll(async () => (await menuItem(page, 'toggleComments'))!.label).toBe('Comments (1)');
+  await menuClick(page, 'toggleComments');
+  await expect(page.getByTestId('panel')).toHaveCount(0);
+  await expect.poll(async () => (await menuItem(page, 'toggleComments'))!.checked).toBe(false);
+  await menuClick(page, 'toggleComments');
+  await expect(page.getByTestId('panel')).toBeVisible();
+
+  // Settings and About open through the registry.
+  await menuClick(page, 'settings');
+  await expect(page.getByTestId('settings-panel')).toBeVisible();
+  await page.getByTestId('settings-close').click();
+  await menuClick(page, 'about');
+  await expect(page.getByTestId('about-dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('about-dialog')).toHaveCount(0);
+
+  // Save As… switches to the new document; Open… routes through the dialog.
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/copy.md';
+  });
+  await menuClick(page, 'saveAs');
+  await expect(page).toHaveTitle('copy.md — Marky Mark');
+  page.once('dialog', (d) => void d.accept('/docs/welcome.md'));
+  await menuClick(page, 'open');
+  await expect(page).toHaveTitle('welcome.md — Marky Mark');
+});
+
+test('E49: the auto-hide toolbar setting is absent under native menus, present otherwise; the key round-trips', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'settings');
+  await page.getByTestId('settings-panel').waitFor();
+  await page.getByTestId('settings-tab-general').click();
+  await expect(page.getByTestId('settings-line-numbers')).toBeVisible();
+  await expect(page.getByTestId('settings-autohide')).toHaveCount(0);
+  // Force a settings write; the autoHideToolbar key must survive it (SPEC12 §4.2).
+  await page.getByTestId('settings-line-numbers').click();
+  await expect
+    .poll(async () => {
+      const raw = await fsRead(page, '/config/settings.json');
+      return raw ? 'autoHideToolbar' in (JSON.parse(raw) as Record<string, unknown>) : false;
+    })
+    .toBe(true);
+  await page.getByTestId('settings-close').click();
+
+  // Classic (web-style) mode keeps the checkbox.
+  await page.goto('/');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await openSettings(page, 'general');
+  await expect(page.getByTestId('settings-autohide')).toBeVisible();
+});
+
+test('E50: menu Quit/Close with unsaved changes shows the guard prompt; cancel keeps the document', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await menuClick(page, 'toggleMode');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('GUARDMARK3 ');
+  await expect(page).toHaveTitle('welcome.md • — Marky Mark');
+
+  await menuClick(page, 'close');
+  await expect(page.getByTestId('close-prompt')).toBeVisible();
+  await page.getByTestId('close-cancel').click();
+  await expect(page.getByTestId('close-prompt')).toHaveCount(0);
+  // Nothing lost: still dirty, edit still in the buffer.
+  await expect(page).toHaveTitle('welcome.md • — Marky Mark');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('GUARDMARK3');
+});

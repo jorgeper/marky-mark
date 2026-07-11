@@ -12,9 +12,12 @@ import {
   serializeSettings,
   SPLIT_RATIO_MAX,
   SPLIT_RATIO_MIN,
+  ZOOM_LEVELS,
   type Settings,
 } from './lib/settings';
 import { displayCombo, eventMatches } from './lib/hotkeys';
+import { dispatchCommand, registerCommands } from './lib/commands';
+import { buildMenuSpec } from './lib/menuSpec';
 import { VimNavResolver } from './lib/vimnav';
 import type { Theme } from './lib/themes';
 import { applyThemeCss, loadAllThemes } from './themeRuntime';
@@ -81,6 +84,8 @@ export default function App() {
   const scrollRatioRef = useRef(0);
 
   const dirty = buffer !== savedText;
+  // SPEC12 §2.3: a platform that owns a native menu gets no in-app header.
+  const nativeMenu = !!platform?.setAppMenu;
 
   // Refs mirroring state, for stable event handlers.
   const stateRef = useRef({ settings, mode, dirty, docPath, buffer, savedText, comments, platform });
@@ -420,6 +425,59 @@ export default function App() {
     setThemes(await loadAllThemes(p));
   }, []);
 
+  /** Zoom In/Out (SPEC12 §1.4): step the same ZOOM_LEVELS the dropdown uses. */
+  const stepZoom = useCallback(
+    (dir: 1 | -1) => {
+      const s = stateRef.current.settings;
+      const levels = ZOOM_LEVELS as readonly number[];
+      const idx = levels.indexOf(s.zoom);
+      const next = levels[Math.min(levels.length - 1, Math.max(0, (idx === -1 ? levels.indexOf(100) : idx) + dir))];
+      if (next !== s.zoom) updateSettings({ ...s, zoom: next });
+    },
+    [updateSettings]
+  );
+
+  // --- command registry (SPEC12 §3.1): the single dispatch point for the DOM
+  // toolbar (web), the native menu (desktop), and the hotkey listener.
+  useEffect(() => {
+    registerCommands({
+      open: () => void openViaDialog(),
+      save: () => void saveDoc(),
+      saveAs: () => void saveDocAs(),
+      toggleMode,
+      toggleComments: () => {
+        // Master switch off (SPEC7 §2): the comments UI is gone, commands included.
+        if (stateRef.current.settings.commentsEnabled) setShowComments((v) => !v);
+      },
+      settings: () => setSettingsOpen(true),
+      help: () => void openHelp(),
+      about: () => setAboutOpen(true),
+      zoomIn: () => stepZoom(1),
+      zoomOut: () => stepZoom(-1),
+      zoomReset: () => updateSettings({ ...stateRef.current.settings, zoom: 100 }),
+      // SPEC12 §1.5: Quit/Exit/Close Window all run the unsaved-changes guard.
+      close: () => {
+        if (stateRef.current.dirty) setClosePrompt(true);
+        else void stateRef.current.platform?.closeNow();
+      },
+    });
+  }, [openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings]);
+
+  // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
+  useEffect(() => {
+    if (!platform?.setAppMenu) return;
+    void platform.setAppMenu(
+      buildMenuSpec({
+        isMac: platform.isMac,
+        mode,
+        showComments,
+        commentsEnabled: settings.commentsEnabled,
+        commentCount: comments.length,
+        hotkeys: settings.hotkeys,
+      })
+    );
+  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys]);
+
   // --- global hotkeys (capture phase so Cmd+S never reaches the webview) --------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -427,22 +485,21 @@ export default function App() {
       const hk = stateRef.current.settings.hotkeys;
       if (eventMatches(e, hk.toggleEdit)) {
         e.preventDefault();
-        toggleMode();
+        dispatchCommand('toggleMode', 'hotkey');
       } else if (eventMatches(e, hk.save)) {
         e.preventDefault();
-        void saveDoc();
+        dispatchCommand('save', 'hotkey');
       } else if (eventMatches(e, hk.openFile)) {
         e.preventDefault();
-        void openViaDialog();
+        dispatchCommand('open', 'hotkey');
       } else if (eventMatches(e, hk.toggleComments)) {
         e.preventDefault();
-        // Master switch off (SPEC7 §2): the comments UI is gone, hotkey included.
-        if (stateRef.current.settings.commentsEnabled) setShowComments((v) => !v);
+        dispatchCommand('toggleComments', 'hotkey');
       }
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [toggleMode, saveDoc, openViaDialog]);
+  }, []);
 
   // --- vim-style navigation (SPEC3 §5): preview only, never while typing ------------
   useEffect(() => {
@@ -491,13 +548,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // --- window title -------------------------------------------------------------
+  // --- window title: the only filename/dirty display on desktop (SPEC12 §2.2) ---
   useEffect(() => {
     const p = platform;
     if (!p) return;
-    const name = docPath ? p.basename(docPath) : 'Marky Mark';
-    void p.setTitle(`${name}${dirty ? ' •' : ''} — Marky Mark`);
-    document.title = `${name}${dirty ? ' •' : ''} — Marky Mark`;
+    const title = docPath ? `${p.basename(docPath)}${dirty ? ' •' : ''} — Marky Mark` : 'Marky Mark';
+    void p.setTitle(title);
+    document.title = title;
   }, [platform, docPath, dirty]);
 
   // --- markdown rendering (preview mode; debounced live in split edit, SPEC7 §5) ----
@@ -824,42 +881,47 @@ export default function App() {
   if (!platform) return <div className="theme-root" />;
 
   return (
-    <div className={`theme-root${settings.autoHideToolbar ? '' : ' toolbar-static'}`} ref={rootRef}>
-      <div
-        className="toolbar-hotzone"
-        data-testid="toolbar-hotzone"
-        onMouseEnter={toolbarEnter}
-        onMouseMove={toolbarEnter}
-        onMouseLeave={toolbarLeave}
-      />
-      <div
-        className={`toolbar-shell${toolbarShown ? ' shown' : ''}`}
-        data-testid="toolbar-shell"
-        data-visible={toolbarShown ? 'true' : 'false'}
-        onMouseEnter={toolbarEnter}
-        onMouseLeave={toolbarLeave}
-      >
-      <Toolbar
-        docName={docPath ? platform.basename(docPath) : null}
-        docPath={docPath}
-        dirty={dirty}
-        mode={mode}
-        showComments={showComments}
-        commentsEnabled={settings.commentsEnabled}
-        commentCount={comments.length}
-        hotkeys={settings.hotkeys}
-        isMac={platform.isMac}
-        onToggleMode={toggleMode}
-        onToggleComments={() => setShowComments((v) => !v)}
-        onOpenFile={() => void openViaDialog()}
-        onSave={() => void saveDoc()}
-        onSaveAs={() => void saveDocAs()}
-        onHelp={() => void openHelp()}
-        onAbout={() => setAboutOpen(true)}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onMenuOpenChange={setMenuPin}
-      />
-      </div>
+    <div className={`theme-root${!nativeMenu && !settings.autoHideToolbar ? ' toolbar-static' : ''}`} ref={rootRef}>
+      {/* SPEC12 §2.1: with a native menu the header does not render at all. */}
+      {!nativeMenu && (
+        <>
+          <div
+            className="toolbar-hotzone"
+            data-testid="toolbar-hotzone"
+            onMouseEnter={toolbarEnter}
+            onMouseMove={toolbarEnter}
+            onMouseLeave={toolbarLeave}
+          />
+          <div
+            className={`toolbar-shell${toolbarShown ? ' shown' : ''}`}
+            data-testid="toolbar-shell"
+            data-visible={toolbarShown ? 'true' : 'false'}
+            onMouseEnter={toolbarEnter}
+            onMouseLeave={toolbarLeave}
+          >
+            <Toolbar
+              docName={docPath ? platform.basename(docPath) : null}
+              docPath={docPath}
+              dirty={dirty}
+              mode={mode}
+              showComments={showComments}
+              commentsEnabled={settings.commentsEnabled}
+              commentCount={comments.length}
+              hotkeys={settings.hotkeys}
+              isMac={platform.isMac}
+              onToggleMode={() => dispatchCommand('toggleMode')}
+              onToggleComments={() => dispatchCommand('toggleComments')}
+              onOpenFile={() => dispatchCommand('open')}
+              onSave={() => dispatchCommand('save')}
+              onSaveAs={() => dispatchCommand('saveAs')}
+              onHelp={() => dispatchCommand('help')}
+              onAbout={() => dispatchCommand('about')}
+              onOpenSettings={() => dispatchCommand('settings')}
+              onMenuOpenChange={setMenuPin}
+            />
+          </div>
+        </>
+      )}
 
       {mode === 'preview' ? (
         <div className="workspace" ref={workspaceRef}>
@@ -1028,6 +1090,7 @@ export default function App() {
           themes={themes}
           isMac={platform.isMac}
           storageLocked={platform.kind === 'web'}
+          autoHideAvailable={!nativeMenu}
           onChange={updateSettings}
           onReloadThemes={() => void reloadThemes()}
           onImportTheme={

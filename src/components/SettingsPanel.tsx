@@ -9,6 +9,8 @@ interface Props {
   isMac: boolean;
   /** Web build: comments are always embedded; the storage control locks. */
   storageLocked: boolean;
+  /** SPEC12 §4.1: desktop has no toolbar, so the auto-hide option hides too. */
+  autoHideAvailable: boolean;
   onChange(next: Settings): void;
   onReloadThemes(): void;
   /** Web only: pick a .css file and add it as a user theme. */
@@ -46,6 +48,7 @@ export function SettingsPanel({
   themes,
   isMac,
   storageLocked,
+  autoHideAvailable,
   onChange,
   onReloadThemes,
   onImportTheme,
@@ -335,18 +338,20 @@ export function SettingsPanel({
         {storageLocked && <p className="hotkey-hint">The web version always embeds comments in the file.</p>}
       </div>
 
-      <div className="checkbox-row">
-        <input
-          id="settings-autohide"
-          type="checkbox"
-          data-testid="settings-autohide"
-          checked={settings.autoHideToolbar}
-          onChange={(e) => onChange({ ...settings, autoHideToolbar: e.target.checked })}
-        />
-        <label htmlFor="settings-autohide" style={{ margin: 0, fontWeight: 400 }}>
-          Auto-hide the toolbar (reveal by moving the mouse to the top)
-        </label>
-      </div>
+      {autoHideAvailable && (
+        <div className="checkbox-row">
+          <input
+            id="settings-autohide"
+            type="checkbox"
+            data-testid="settings-autohide"
+            checked={settings.autoHideToolbar}
+            onChange={(e) => onChange({ ...settings, autoHideToolbar: e.target.checked })}
+          />
+          <label htmlFor="settings-autohide" style={{ margin: 0, fontWeight: 400 }}>
+            Auto-hide the toolbar (reveal by moving the mouse to the top)
+          </label>
+        </div>
+      )}
 
       <h3 className="tab-section">Navigation</h3>
       <div className="checkbox-row">
