@@ -1,6 +1,6 @@
 [package]
 name = "markimark"
-version = "0.2.0-alpha.2"
+version = "0.2.0-alpha.3"
 description = "A lightweight, fast, themeable markdown viewer"
 license = "MIT"
 edition = "2021"

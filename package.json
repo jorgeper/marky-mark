@@ -1,7 +1,7 @@
 {
   "name": "markimark",
   "private": true,
-  "version": "0.2.0-alpha.2",
+  "version": "0.2.0-alpha.3",
   "license": "MIT",
   "type": "module",
   "scripts": {
