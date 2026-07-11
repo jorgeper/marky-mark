@@ -423,7 +423,7 @@ test('E19: customized font size applies to the document; Auto restores the theme
   await page.getByTestId('fontsize-auto').check();
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
-    .toBe('16px'); // Crisp's --mm-font-size
+    .toBe('15px'); // Crisp Mono's --mm-font-size
 });
 
 test('E20: zoom scales only the document text — the settings UI keeps its size; Reset restores 100%', async ({
@@ -435,7 +435,7 @@ test('E20: zoom scales only the document text — the settings UI keeps its size
   await page.getByTestId('zoom-select').selectOption('150');
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
-    .toBe('24px'); // 16px × 1.5 — document text only
+    .toBe('22.5px'); // 15px × 1.5 — document text only
 
   // The UI is NOT zoomed: settings modal font size unchanged, root not CSS-zoomed.
   expect(await page.getByTestId('settings-panel').evaluate((el) => getComputedStyle(el).fontSize)).toBe(
@@ -447,7 +447,7 @@ test('E20: zoom scales only the document text — the settings UI keeps its size
   await expect(page.getByTestId('zoom-select')).toHaveValue('100');
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
-    .toBe('16px');
+    .toBe('15px');
 });
 
 test('E21: light/dark theme pair follows the OS scheme; unchecking uses the light theme everywhere', async ({
