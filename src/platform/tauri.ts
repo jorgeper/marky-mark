@@ -1,5 +1,6 @@
 import type { Platform } from './types';
 import type { MenuItemSpec, MenuSpec } from '../lib/menuSpec';
+import type { AuxKind } from '../lib/auxProtocol';
 import { dispatchCommand } from '../lib/commands';
 import { parseCombo } from '../lib/hotkeys';
 
@@ -28,7 +29,7 @@ export async function createTauriPlatform(): Promise<Platform> {
   const dialog = await import('@tauri-apps/plugin-dialog');
   const pathApi = await import('@tauri-apps/api/path');
   const { getCurrentWindow } = await import('@tauri-apps/api/window');
-  const { listen } = await import('@tauri-apps/api/event');
+  const { emit, listen } = await import('@tauri-apps/api/event');
   const { invoke, convertFileSrc } = await import('@tauri-apps/api/core');
 
   const sep = pathApi.sep();
@@ -40,6 +41,13 @@ export async function createTauriPlatform(): Promise<Platform> {
   const splitPath = (p: string) => p.split(/[/\\]+/).filter(Boolean);
 
   let cachedConfigDir: string | null = null;
+
+  // SPEC13 §1–§2: the two aux windows — fixed-size, non-resizable, singleton.
+  const AUX_LABELS: readonly AuxKind[] = ['settings', 'about'];
+  const AUX_OPTIONS: Record<AuxKind, { title: string; width: number; height: number }> = {
+    settings: { title: 'Settings', width: 620, height: 560 },
+    about: { title: 'About Marky Mark', width: 360, height: 420 },
+  };
 
   const platform: Platform = {
     kind: 'tauri',
@@ -135,7 +143,17 @@ export async function createTauriPlatform(): Promise<Platform> {
       });
     },
     async closeNow() {
-      await getCurrentWindow().destroy();
+      const current = getCurrentWindow();
+      if (current.label === 'main') {
+        // SPEC13 §3.6: aux windows die with the main window, promptless. An
+        // aux window closing itself must not tear down its sibling.
+        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+        for (const label of AUX_LABELS) {
+          const w = await WebviewWindow.getByLabel(label);
+          if (w) await w.destroy().catch(() => {});
+        }
+      }
+      await current.destroy();
     },
 
     resolveAssetSrc(src, docDir) {
@@ -192,6 +210,46 @@ export async function createTauriPlatform(): Promise<Platform> {
       );
       const menu = await Menu.new({ items: submenus });
       await menu.setAsAppMenu();
+    },
+
+    /** SPEC13 §1–§2: one fixed-size window per kind; reinvoke = focus. */
+    async openAuxWindow(kind: AuxKind) {
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+      const existing = await WebviewWindow.getByLabel(kind);
+      if (existing) {
+        await existing.unminimize().catch(() => {});
+        await existing.setFocus();
+        return;
+      }
+      const opt = AUX_OPTIONS[kind];
+      new WebviewWindow(kind, {
+        url: `index.html?window=${kind}`,
+        title: opt.title,
+        width: opt.width,
+        height: opt.height,
+        resizable: false,
+        maximizable: false,
+        center: true,
+      });
+    },
+
+    async busEmit(event, payload) {
+      await emit(event, payload);
+    },
+    async busListen(event, cb) {
+      return listen(event, (e) => cb(e.payload));
+    },
+
+    async closeFocusedAuxWindow() {
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+      for (const label of AUX_LABELS) {
+        const w = await WebviewWindow.getByLabel(label);
+        if (w && (await w.isFocused().catch(() => false))) {
+          await w.destroy().catch(() => {});
+          return true;
+        }
+      }
+      return false;
     },
   };
   return platform;

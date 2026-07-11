@@ -1,4 +1,5 @@
 import type { MenuSpec } from '../lib/menuSpec';
+import type { AuxKind } from '../lib/auxProtocol';
 
 /**
  * The single seam between the app and the host (SPEC FR-6). Everything that
@@ -75,4 +76,22 @@ export interface Platform {
    * web never does; the dev shim records the spec under ?nativeMenu=1.
    */
   setAppMenu?(spec: MenuSpec): Promise<void>;
+
+  /**
+   * SPEC13 §4.2: open (or focus — singleton) the Settings/About aux window.
+   * Defined ⇒ the in-page settings/about overlays are never rendered.
+   * Desktop implements it; web never does; the dev shim only under
+   * ?nativeMenu=1 (window.open + BroadcastChannel).
+   */
+  openAuxWindow?(kind: AuxKind): Promise<void>;
+  /** Cross-window event bus for the SPEC13 §3 protocol. */
+  busEmit?(event: string, payload: unknown): Promise<void>;
+  /** Subscribe; resolves to an unlisten function. */
+  busListen?(event: string, cb: (payload: unknown) => void): Promise<() => void>;
+  /**
+   * Close the focused aux window if any (the ⌘W path — the native Close
+   * Window accelerator runs in the main window's JS regardless of window
+   * focus). Resolves true if an aux window was focused and closed.
+   */
+  closeFocusedAuxWindow?(): Promise<boolean>;
 }
