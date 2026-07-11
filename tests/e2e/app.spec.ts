@@ -1252,14 +1252,20 @@ test('E48: the installed menu spec drives every command, and re-installs with li
   await menuClick(page, 'toggleComments');
   await expect(page.getByTestId('panel')).toBeVisible();
 
-  // Settings and About open through the registry.
+  // Settings and About open through the registry — in their own windows (SPEC13).
+  const settingsPopup = page.waitForEvent('popup');
   await menuClick(page, 'settings');
-  await expect(page.getByTestId('settings-panel')).toBeVisible();
-  await page.getByTestId('settings-close').click();
+  const sp = await settingsPopup;
+  await expect(sp.getByTestId('settings-panel')).toBeVisible();
+  await sp.close();
+  const aboutPopup = page.waitForEvent('popup');
   await menuClick(page, 'about');
-  await expect(page.getByTestId('about-dialog')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.getByTestId('about-dialog')).toHaveCount(0);
+  const ap = await aboutPopup;
+  await expect(ap.getByTestId('about-dialog')).toBeVisible();
+  // Esc closes the window on keydown — the page can die before the paired
+  // keyup is delivered, interrupting press(); the poll asserts the outcome.
+  await ap.keyboard.press('Escape').catch(() => {});
+  await expect.poll(() => ap.isClosed()).toBe(true);
 
   // Save As… switches to the new document; Open… routes through the dialog.
   await page.evaluate(() => {
@@ -1276,20 +1282,23 @@ test('E49: the auto-hide toolbar setting is absent under native menus, present o
   page,
 }) => {
   await freshNativeMenuApp(page);
+  const popup = page.waitForEvent('popup');
   await menuClick(page, 'settings');
-  await page.getByTestId('settings-panel').waitFor();
-  await page.getByTestId('settings-tab-general').click();
-  await expect(page.getByTestId('settings-line-numbers')).toBeVisible();
-  await expect(page.getByTestId('settings-autohide')).toHaveCount(0);
+  const sp = await popup;
+  await sp.getByTestId('settings-panel').waitFor();
+  await sp.getByTestId('settings-tab-general').click();
+  await expect(sp.getByTestId('settings-line-numbers')).toBeVisible();
+  await expect(sp.getByTestId('settings-autohide')).toHaveCount(0);
   // Force a settings write; the autoHideToolbar key must survive it (SPEC12 §4.2).
-  await page.getByTestId('settings-line-numbers').click();
+  // Persistence still goes through the main window — the sole settings owner.
+  await sp.getByTestId('settings-line-numbers').click();
   await expect
     .poll(async () => {
       const raw = await fsRead(page, '/config/settings.json');
       return raw ? 'autoHideToolbar' in (JSON.parse(raw) as Record<string, unknown>) : false;
     })
     .toBe(true);
-  await page.getByTestId('settings-close').click();
+  await sp.close();
 
   // Classic (web-style) mode keeps the checkbox.
   await page.goto('/');
@@ -1316,4 +1325,109 @@ test('E50: menu Quit/Close with unsaved changes shows the guard prompt; cancel k
   // Nothing lost: still dirty, edit still in the buffer.
   await expect(page).toHaveTitle('welcome.md • — Marky Mark');
   await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('GUARDMARK3');
+});
+
+// --- SPEC13: native Settings & About windows (shim popups + BroadcastChannel) ----
+
+test('E51: Settings opens its own window — no in-page overlay; edits apply live in main and persist; menu zoom echoes back', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc')).toBeVisible();
+  await menuClick(page, 'toggleMode');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.locator('.cm-lineNumbers')).toBeVisible();
+
+  const popupPromise = page.waitForEvent('popup');
+  await menuClick(page, 'settings');
+  const sp = await popupPromise;
+  await sp.getByTestId('settings-panel').waitFor();
+  await expect(page.getByTestId('settings-panel')).toHaveCount(0); // never an overlay on desktop
+
+  await expect(sp.getByTestId('settings-tab-appearance')).toBeVisible();
+  await expect(sp.getByTestId('settings-tab-general')).toBeVisible();
+  await expect(sp.getByTestId('settings-tab-hotkeys')).toBeVisible();
+
+  // Toggle line numbers in the popup → the main editor gutter reacts live…
+  await sp.getByTestId('settings-tab-general').click();
+  await sp.getByTestId('settings-line-numbers').click();
+  await expect(page.locator('.cm-lineNumbers')).toHaveCount(0);
+  // …and persists through the main window (the sole owner of settings.json).
+  await expect
+    .poll(async () => {
+      const raw = await fsRead(page, '/config/settings.json');
+      return raw ? (JSON.parse(raw) as { lineNumbers?: boolean }).lineNumbers : undefined;
+    })
+    .toBe(false);
+
+  // Canonical echo: zoom stepped via the main window's menu lands in the popup control.
+  await sp.getByTestId('settings-tab-appearance').click();
+  await menuClick(page, 'zoomIn');
+  await expect(sp.getByTestId('zoom-select')).toHaveValue('110');
+});
+
+test('E52: rebinding Save in the settings window updates the menu accelerator; old combo dead, new combo saves', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc')).toBeVisible();
+
+  const popupPromise = page.waitForEvent('popup');
+  await menuClick(page, 'settings');
+  const sp = await popupPromise;
+  await sp.getByTestId('settings-panel').waitFor();
+  await sp.getByTestId('settings-tab-hotkeys').click();
+  await sp.getByTestId('hotkey-save').click();
+  await sp.keyboard.press('Control+Shift+D');
+
+  // The main window's installed menu spec follows the rebind (SPEC13 §1.5).
+  await expect
+    .poll(async () => {
+      const item = await page.evaluate(
+        () =>
+          window
+            .__mmMenu!.spec!.submenus.flatMap((m) => m.items)
+            .find((i) => i.type === 'command' && i.command === 'save') as { accelerator?: string } | undefined
+      );
+      return item?.accelerator;
+    })
+    .toBe('Mod+Shift+D');
+
+  await menuClick(page, 'toggleMode');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('REBINDMARK ');
+  await page.keyboard.press('Control+s'); // old combo — must do nothing
+  await expect(page).toHaveTitle('welcome.md • — Marky Mark');
+  await page.keyboard.press('Control+Shift+D'); // new combo — saves, exactly once
+  await expect(page).toHaveTitle('welcome.md — Marky Mark');
+  expect(await fsRead(page, WELCOME)).toContain('REBINDMARK');
+});
+
+test('E53: About opens its own window, Esc closes it; aux windows are singletons — reinvoke focuses', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+
+  const aboutPromise = page.waitForEvent('popup');
+  await menuClick(page, 'about');
+  const ap = await aboutPromise;
+  await ap.getByTestId('about-dialog').waitFor();
+  await expect(ap.getByTestId('about-version')).toContainText('v');
+  // Esc closes the window on keydown — the page can die before the paired
+  // keyup is delivered, interrupting press(); the poll asserts the outcome.
+  await ap.keyboard.press('Escape').catch(() => {});
+  await expect.poll(() => ap.isClosed()).toBe(true);
+
+  const settingsPromise = page.waitForEvent('popup');
+  await menuClick(page, 'settings');
+  const sp = await settingsPromise;
+  await sp.getByTestId('settings-panel').waitFor();
+  await menuClick(page, 'settings'); // second invoke: focus the existing window, never a second one
+  await expect
+    .poll(() => page.evaluate(() => window.__mmAux))
+    .toEqual({ opened: { settings: 1, about: 1 }, focused: { settings: 1, about: 0 } });
+  await expect(sp.getByTestId('settings-panel')).toBeVisible();
 });
