@@ -1448,7 +1448,7 @@ test('E54: fixed navigator pill — appears on selection, steps in order, wraps,
 
   // Start from a clean deactivated state, then select the first comment.
   await page.getByTestId('doc').locator('h1').click();
-  await expect(page.getByTestId('comment-nav')).toHaveCount(0);
+  await expect(page.getByTestId('comment-nav')).toBeHidden(); // fades out, stays mounted
   await page.locator('mark.hl').first().click();
   await expect(page.getByTestId('comment-nav')).toBeVisible();
   await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 3');
@@ -1473,7 +1473,7 @@ test('E54: fixed navigator pill — appears on selection, steps in order, wraps,
 
   // Click-away (not on a mark) deactivates and the pill disappears.
   await page.getByTestId('doc').locator('h1').click();
-  await expect(page.getByTestId('comment-nav')).toHaveCount(0);
+  await expect(page.getByTestId('comment-nav')).toBeHidden(); // fades out, stays mounted
 });
 
 test('E55: nav hotkeys — defaults enter at first/last; rebinding Next takes effect immediately and persists', async ({
@@ -1483,7 +1483,7 @@ test('E55: nav hotkeys — defaults enter at first/last; rebinding Next takes ef
   await addComment(page, NAV_P3, 'second');
 
   await page.getByTestId('doc').locator('h1').click(); // deactivate
-  await expect(page.getByTestId('comment-nav')).toHaveCount(0);
+  await expect(page.getByTestId('comment-nav')).toBeHidden(); // fades out, stays mounted
   await page.keyboard.press('Control+Alt+ArrowDown'); // nothing active → first
   await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 2');
   await page.getByTestId('doc').locator('h1').click();

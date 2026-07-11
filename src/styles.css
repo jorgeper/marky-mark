@@ -1008,11 +1008,14 @@ mark.hl.ghost {
   overflow: auto;
 }
 
-/* --- SPEC14: fixed comment navigator pill — never moves while stepping --- */
+/* --- SPEC14: fixed comment navigator pill — never moves while stepping.
+   Centered over the 300px comment margin (right = half the panel width),
+   fading in/out via opacity+visibility so it leaves as softly as it
+   arrives. --- */
 .comment-nav {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 150px;
+  transform: translateX(50%);
   bottom: 18px;
   z-index: 60; /* above the document, below .overlay (100) */
   display: flex;
@@ -1023,12 +1026,14 @@ mark.hl.ghost {
   background: var(--mm-bg-elevated, #f6f8fa);
   color: var(--mm-fg, #1f2328);
   border: 1px solid var(--mm-border, #d1d9e0);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
-  animation: mm-nav-in 0.15s ease-out;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.18s ease, visibility 0.18s;
 }
-@keyframes mm-nav-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+.comment-nav.visible {
+  opacity: 1;
+  visibility: visible;
 }
 .comment-nav button {
   font: inherit;

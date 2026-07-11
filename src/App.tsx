@@ -91,6 +91,7 @@ export default function App() {
   const rootRef = useRef<HTMLDivElement>(null);
   const vimRef = useRef(new VimNavResolver());
   const docTextRef = useRef('');
+  const navLabelRef = useRef('');
   const skipSaveRef = useRef(true);
   const unwatchRef = useRef<(() => void) | null>(null);
   const scrollRatioRef = useRef(0);
@@ -1008,6 +1009,10 @@ export default function App() {
   const panelVisible =
     mode === 'preview' && showComments && settings.commentsEnabled && (comments.length > 0 || pending !== null);
 
+  // Navigator pill label, frozen across the fade-out (SPEC14 §3.5).
+  const navIdx = activeId ? open.findIndex((c) => c.id === activeId) : -1;
+  if (navIdx >= 0) navLabelRef.current = `${navIdx + 1} / ${open.length}`;
+
   if (!platform) return <div className="theme-root" />;
 
   return (
@@ -1215,15 +1220,19 @@ export default function App() {
         </button>
       )}
 
-      {/* SPEC14 §3: fixed navigator pill — park the mouse and click through. */}
-      {activeId && showComments && settings.commentsEnabled && open.some((c) => c.id === activeId) && (
-        <div className="comment-nav" data-testid="comment-nav" onMouseDown={(e) => e.stopPropagation()}>
+      {/* SPEC14 §3: fixed navigator pill, centered over the comment margin —
+          park the mouse and click through. Stays mounted while the panel shows
+          so it can fade out; the label freezes so the fade never shows "0/N". */}
+      {panelVisible && (
+        <div
+          className={`comment-nav${activeId && open.some((c) => c.id === activeId) ? ' visible' : ''}`}
+          data-testid="comment-nav"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           <button data-testid="comment-nav-prev" title="Previous comment" onClick={() => dispatchCommand('prevComment')}>
             ↑
           </button>
-          <span data-testid="comment-nav-count">
-            {open.findIndex((c) => c.id === activeId) + 1} / {open.length}
-          </span>
+          <span data-testid="comment-nav-count">{navLabelRef.current}</span>
           <button data-testid="comment-nav-next" title="Next comment" onClick={() => dispatchCommand('nextComment')}>
             ↓
           </button>
