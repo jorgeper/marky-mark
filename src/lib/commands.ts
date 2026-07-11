@@ -10,6 +10,8 @@ export type CommandId =
   | 'saveAs'
   | 'toggleMode'
   | 'toggleComments'
+  | 'nextComment'
+  | 'prevComment'
   | 'settings'
   | 'help'
   | 'about'

@@ -10,6 +10,8 @@ export interface HotkeyMap {
   openFile: string;
   toggleComments: string;
   save: string;
+  nextComment: string;
+  prevComment: string;
 }
 
 export const DEFAULT_HOTKEYS: HotkeyMap = {
@@ -17,6 +19,8 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   openFile: 'Mod+O',
   toggleComments: 'Mod+Shift+C',
   save: 'Mod+S',
+  nextComment: 'Mod+Alt+ArrowDown',
+  prevComment: 'Mod+Alt+ArrowUp',
 };
 
 export interface ComboParts {

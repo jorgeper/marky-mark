@@ -27,6 +27,8 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   openFile: 'Open file',
   toggleComments: 'Show / hide comments',
   save: 'Save',
+  nextComment: 'Next comment',
+  prevComment: 'Previous comment',
 };
 
 const MARGIN_LABELS: Array<{ value: Margins; label: string }> = [

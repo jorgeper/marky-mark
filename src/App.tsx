@@ -18,6 +18,7 @@ import {
 import { displayCombo, eventMatches } from './lib/hotkeys';
 import { dispatchCommand, registerCommands } from './lib/commands';
 import { buildMenuSpec } from './lib/menuSpec';
+import { stepComment } from './lib/commentNav';
 import {
   buildAuxInit,
   EV_AUX_INIT,
@@ -99,8 +100,34 @@ export default function App() {
   const nativeMenu = !!platform?.setAppMenu;
 
   // Refs mirroring state, for stable event handlers.
-  const stateRef = useRef({ settings, mode, dirty, docPath, buffer, savedText, comments, platform, themes });
-  stateRef.current = { settings, mode, dirty, docPath, buffer, savedText, comments, platform, themes };
+  const stateRef = useRef({
+    settings,
+    mode,
+    dirty,
+    docPath,
+    buffer,
+    savedText,
+    comments,
+    platform,
+    themes,
+    positions,
+    activeId,
+    showComments,
+  });
+  stateRef.current = {
+    settings,
+    mode,
+    dirty,
+    docPath,
+    buffer,
+    savedText,
+    comments,
+    platform,
+    themes,
+    positions,
+    activeId,
+    showComments,
+  };
 
   /** Read a doc file and its comments from both stores (trailer wins by id). */
   const loadDocParts = useCallback(async (p: Platform, path: string) => {
@@ -448,6 +475,34 @@ export default function App() {
     [updateSettings]
   );
 
+  /** SPEC14 §1: step activation through the open comments in position order. */
+  const navigateComment = useCallback((dir: 1 | -1) => {
+    const s = stateRef.current;
+    // Only where the comments panel renders: preview or split-edit (§1.4).
+    if (!s.settings.commentsEnabled || !s.showComments) return;
+    if (s.mode === 'edit' && !s.settings.splitEdit) return;
+    const ordered = s.comments
+      .filter((c) => !c.resolved)
+      .sort((a, b) => (s.positions[a.id]?.start ?? a.anchor.start) - (s.positions[b.id]?.start ?? b.anchor.start))
+      .map((c) => c.id);
+    const id = stepComment(ordered, s.activeId, dir);
+    if (!id) return;
+    setActiveId(id);
+    // Same activation feel as clicking the card (SPEC14 §1.3): center + flash
+    // the highlight (split-edit marks live in the split preview) and keep the
+    // margin card in view.
+    const doc = docRef.current ?? splitDocRef.current;
+    const marks = doc ? Array.from(doc.querySelectorAll<HTMLElement>(`mark.hl[data-cid="${CSS.escape(id)}"]`)) : [];
+    if (marks.length > 0) {
+      marks[0].scrollIntoView({ block: 'center' });
+      for (const m of marks) {
+        m.classList.add('flash');
+        setTimeout(() => m.classList.remove('flash'), 900);
+      }
+    }
+    panelRef.current?.querySelector(`[data-flowcard="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, []);
+
   // --- command registry (SPEC12 §3.1): the single dispatch point for the DOM
   // toolbar (web), the native menu (desktop), and the hotkey listener.
   useEffect(() => {
@@ -460,6 +515,8 @@ export default function App() {
         // Master switch off (SPEC7 §2): the comments UI is gone, commands included.
         if (stateRef.current.settings.commentsEnabled) setShowComments((v) => !v);
       },
+      nextComment: () => navigateComment(1),
+      prevComment: () => navigateComment(-1),
       // SPEC13 §4.2: a platform with aux windows never shows the overlays.
       settings: () => {
         const p = stateRef.current.platform;
@@ -487,7 +544,7 @@ export default function App() {
         })();
       },
     });
-  }, [openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings]);
+  }, [openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment]);
 
   // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
   useEffect(() => {
@@ -562,6 +619,12 @@ export default function App() {
       } else if (eventMatches(e, hk.toggleComments)) {
         e.preventDefault();
         dispatchCommand('toggleComments', 'hotkey');
+      } else if (eventMatches(e, hk.nextComment)) {
+        e.preventDefault();
+        dispatchCommand('nextComment', 'hotkey');
+      } else if (eventMatches(e, hk.prevComment)) {
+        e.preventDefault();
+        dispatchCommand('prevComment', 'hotkey');
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -1023,6 +1086,7 @@ export default function App() {
                 }
                 const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
                 if (mark?.dataset.cid && showComments) handleMarkClick(mark.dataset.cid);
+                else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
               }}
             />
           </div>
@@ -1149,6 +1213,21 @@ export default function App() {
         >
           💬 Add comment
         </button>
+      )}
+
+      {/* SPEC14 §3: fixed navigator pill — park the mouse and click through. */}
+      {activeId && showComments && settings.commentsEnabled && open.some((c) => c.id === activeId) && (
+        <div className="comment-nav" data-testid="comment-nav" onMouseDown={(e) => e.stopPropagation()}>
+          <button data-testid="comment-nav-prev" title="Previous comment" onClick={() => dispatchCommand('prevComment')}>
+            ↑
+          </button>
+          <span data-testid="comment-nav-count">
+            {open.findIndex((c) => c.id === activeId) + 1} / {open.length}
+          </span>
+          <button data-testid="comment-nav-next" title="Next comment" onClick={() => dispatchCommand('nextComment')}>
+            ↓
+          </button>
+        </div>
       )}
 
       {!platform.openAuxWindow && settingsOpen && (

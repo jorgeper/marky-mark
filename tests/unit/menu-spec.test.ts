@@ -67,4 +67,21 @@ describe('SPEC12 menu spec', () => {
     expect(find(rebound, 'File', 'open')!.accelerator).toBe(DEFAULT_HOTKEYS.openFile);
     expect(find(rebound, 'View', 'toggleMode')!.accelerator).toBe(DEFAULT_HOTKEYS.toggleEdit);
   });
+
+  test('U25: View carries Next/Previous Comment after Comments with hotkey accelerators; they vanish with the master switch', () => {
+    for (const s of [base, { ...base, isMac: false }]) {
+      const view = commandsIn(s, 'View').map((i) => i.command);
+      const at = view.indexOf('toggleComments');
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(view.slice(at, at + 3)).toEqual(['toggleComments', 'nextComment', 'prevComment']);
+      expect(find(s, 'View', 'nextComment')!.accelerator).toBe('Mod+Alt+ArrowDown');
+      expect(find(s, 'View', 'prevComment')!.accelerator).toBe('Mod+Alt+ArrowUp');
+    }
+    const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, nextComment: 'Mod+J' } };
+    expect(find(rebound, 'View', 'nextComment')!.accelerator).toBe('Mod+J');
+    expect(find(rebound, 'View', 'prevComment')!.accelerator).toBe('Mod+Alt+ArrowUp');
+    const off = { ...base, commentsEnabled: false };
+    expect(find(off, 'View', 'nextComment')).toBeUndefined();
+    expect(find(off, 'View', 'prevComment')).toBeUndefined();
+  });
 });

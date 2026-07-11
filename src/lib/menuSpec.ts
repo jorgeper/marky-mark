@@ -84,7 +84,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
     title: 'View',
     items: [
       cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit'),
-      // Master switch off (SPEC7 §2): the comments UI is gone, menu included.
+      // Master switch off (SPEC7 §2): the comments UI is gone, menu included —
+      // navigation items too (SPEC14 §2.3).
       ...(s.commentsEnabled
         ? [
             cmd(
@@ -93,6 +94,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
               s.hotkeys.toggleComments,
               s.showComments
             ),
+            cmd('nextComment', 'Next Comment', s.hotkeys.nextComment),
+            cmd('prevComment', 'Previous Comment', s.hotkeys.prevComment),
           ]
         : []),
       sep,

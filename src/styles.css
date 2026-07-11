@@ -1007,3 +1007,48 @@ mark.hl.ghost {
   box-shadow: none;
   overflow: auto;
 }
+
+/* --- SPEC14: fixed comment navigator pill — never moves while stepping --- */
+.comment-nav {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 18px;
+  z-index: 60; /* above the document, below .overlay (100) */
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  color: var(--mm-fg, #1f2328);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  animation: mm-nav-in 0.15s ease-out;
+}
+@keyframes mm-nav-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.comment-nav button {
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.comment-nav button:hover {
+  background: color-mix(in srgb, var(--mm-accent, #0969da) 14%, transparent);
+}
+.comment-nav span {
+  font-size: 11.5px;
+  color: var(--mm-fg-muted, #59636e);
+  padding: 0 4px;
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
