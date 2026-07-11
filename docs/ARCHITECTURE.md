@@ -45,6 +45,35 @@ Every filesystem, path, dialog, window, and event access goes through the
 App code never imports host APIs directly and never assumes an OS; hotkeys
 use a "Mod" abstraction (⌘ or Ctrl).
 
+## Native menus & the command registry (SPEC12)
+
+On desktop there is no in-app header at all: the platform's native menu bar
+(system menu bar on macOS, in-window menu bar on Windows) and the window
+title carry everything the toolbar used to. Three pieces make that work:
+
+- **`src/lib/commands.ts`** — a named-command registry, the single dispatch
+  point for every user action. The DOM toolbar (web), the native menu
+  (desktop), and the hotkey listener all call `dispatchCommand(id, source)`;
+  `App.tsx` registers the handlers once. A small cross-source window makes a
+  combo that is both a native accelerator and an in-app hotkey fire exactly
+  once per keypress, whichever path the OS delivers first.
+- **`src/lib/menuSpec.ts`** — pure `buildMenuSpec(state)` → plain data (no
+  Tauri imports): submenu layout per OS, checkbox state, the live comment
+  count, and accelerators that track the user's rebindable hotkeys. Unit
+  tests (U19–U21) assert on it directly.
+- **`Platform.setAppMenu?(spec)`** — the seam. `tauri.ts` converts the spec
+  to real `@tauri-apps/api/menu` objects and installs it (rebuilt on state
+  change; each install replaces the previous menu atomically). `web.ts`
+  never defines it. `browser.ts` defines it only under `?nativeMenu=1`,
+  recording the spec on `window.__mmMenu` with a `click(command)` hook — the
+  e2e seam (E47–E50), since Playwright cannot click real native menus.
+
+**The render rule:** the header renders iff `platform.setAppMenu` is
+undefined. Quit/Exit/Close Window are custom items routed through the same
+unsaved-changes guard as the window close button — never predefined Quit,
+which would bypass it. Menus are local UI: no new network surface, and the
+SPEC11 isolation guarantee (CSP, sanitize layer, bundle scan) is unchanged.
+
 ## Windows build story
 
 The app code was Windows-portable from v1 (this seam, `Mod` hotkeys,

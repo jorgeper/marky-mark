@@ -4,8 +4,8 @@
  * failing on the first non-zero exit:
  *   1. version lock-step check (three version files agree, valid semver)
  *   2. tsc --noEmit
- *   3. unit tests (Vitest, U1–U16)
- *   4. desktop e2e (Playwright, browser platform shim, E1–E41 + E45)
+ *   3. unit tests (Vitest, U1–U21)
+ *   4. desktop e2e (Playwright, browser platform shim, E1–E41 + E45–E50)
  *   5. single-file web build
  *   6. web e2e (Playwright against dist-web, W1–W5)
  *   7. desktop bundle build (vite → dist/, scanned below)
