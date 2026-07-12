@@ -134,7 +134,7 @@ test('W3: open via file-input fallback, comment, Save downloads the file with th
   expect(download.suggestedFilename()).toBe('picked.md');
   const savedPath = await download.path();
   const saved = readFileSync(savedPath, 'utf8');
-  expect(saved).toContain('markimark-comments');
+  expect(saved).toContain('marky-mark-comments');
   expect(saved).toContain('web comment');
   expect(saved.trimEnd().endsWith('-->')).toBe(true);
 
@@ -144,7 +144,7 @@ test('W3: open via file-input fallback, comment, Save downloads the file with th
   await expect(page.getByTestId('card-body')).toHaveText('web comment');
   await expect(page.locator('mark.hl').first()).toBeVisible();
   // The trailer never shows in the rendered doc.
-  await expect(page.getByTestId('doc')).not.toContainText('markimark-comments');
+  await expect(page.getByTestId('doc')).not.toContainText('marky-mark-comments');
 });
 
 test('W4: zero network requests after initial load (self-contained page)', async ({ page }) => {
@@ -215,7 +215,7 @@ test('W6: a review bundle boots straight into its document with the comment inta
   const template = readFileSync('dist-web/index.html', 'utf8');
   const trailer = [
     '',
-    '<!-- markimark-comments',
+    '<!-- marky-mark-comments',
     JSON.stringify(
       {
         version: 1,
@@ -273,7 +273,7 @@ test('W7: a bundle carrying an export theme boots with it applied — without to
     .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
     .toBe('rgb(40, 42, 54)');
   // …but nothing persisted into the recipient's saved settings.
-  const persisted = await page.evaluate(() => localStorage.getItem('markimark.web.config.v1'));
+  const persisted = await page.evaluate(() => localStorage.getItem('marky-mark.web.config.v1'));
   expect(persisted ?? '').not.toContain('dracula');
 });
 

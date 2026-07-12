@@ -251,7 +251,7 @@ Re-anchoring cascade on every load (`src/lib/anchoring.ts`, pure, DOM-free):
 - **Embedded** (forced on web): an invisible trailer at the end of the file:
 
   ```
-  <!-- markimark-comments
+  <!-- marky-mark-comments
   {"version":1,"comments":[ …sidecar schema… ]}
   -->
   ```
@@ -374,10 +374,12 @@ migrates to `themeLight`):
 
 - **Rename**: the product is **"Marky Mark"** everywhere users see it (window
   titles, bundle `productName` → `Marky Mark.app`, welcome doc, docs, web
-  `<title>`). The bundle **identifier stays `com.markimark.app`** on purpose:
-  changing it would relocate the config dir and orphan existing settings,
-  themes, and the welcome doc. Internal names (npm package, crate, test ids,
-  the `markimark-comments` trailer marker — a file format!) are unchanged.
+  `<title>`). The bundle identifier was `com.markimark.app` through 0.3;
+  **SPEC32 (0.4) broke identity once, while alpha**: it is now
+  `io.jorgepereira.markymark.app`, the trailer marker is
+  `marky-mark-comments` (legacy `markimark-comments` still parses; first
+  save migrates), and desktop/web state starts fresh — an owner decision,
+  no migration performed.
 - **App badge**: with no document open, the toolbar title slot shows an
   inline-SVG replica of the app icon (white M on the terracotta rounded
   square) instead of the app name.

@@ -3,11 +3,11 @@
 # app bundle, app data, preferences, WebKit storage, caches, and saved state.
 set -uo pipefail
 
-BUNDLE_ID="com.markimark.app"
+BUNDLE_ID="io.jorgepereira.markymark.app"
 APP="/Applications/Marky Mark.app"
 
 echo "Quitting Marky Mark…"
-pkill -x markimark 2>/dev/null
+pkill -x marky-mark 2>/dev/null
 
 echo "Removing the app bundle…"
 rm -rf "$APP"

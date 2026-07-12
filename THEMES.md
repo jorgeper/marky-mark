@@ -6,8 +6,8 @@ version, use *Import theme…* in Settings instead — the file is stored in the
 
 **Where the themes folder is**
 
-- macOS: `~/Library/Application Support/com.markimark.app/themes/`
-- Windows: `%APPDATA%\com.markimark.app\themes\`
+- macOS: `~/Library/Application Support/io.jorgepereira.markymark.app/themes/`
+- Windows: `%APPDATA%\io.jorgepereira.markymark.app\themes\`
 
 Marky Mark creates this folder (and a copy of this guide) on first run.
 

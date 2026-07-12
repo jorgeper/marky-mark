@@ -334,7 +334,7 @@ test('E15: embedded mode — comments autosave into an invisible trailer, sideca
   await page.getByTestId('reply-input').fill('embedded reply');
   await page.getByTestId('submit-reply').click();
 
-  await expect.poll(async () => (await fsRead(page, WELCOME))?.includes('markimark-comments')).toBe(true);
+  await expect.poll(async () => (await fsRead(page, WELCOME))?.includes('marky-mark-comments')).toBe(true);
   await expect.poll(async () => fsRead(page, WELCOME_SIDECAR), { timeout: 5000 }).toBe(null);
   const onDisk = (await fsRead(page, WELCOME))!;
   expect(onDisk).toContain('Embedded note');
@@ -346,9 +346,9 @@ test('E15: embedded mode — comments autosave into an invisible trailer, sideca
   await expect(page.locator('mark.hl').first()).toBeVisible();
 
   // The trailer is invisible everywhere: preview text and edit buffer.
-  await expect(page.getByTestId('doc')).not.toContainText('markimark-comments');
+  await expect(page.getByTestId('doc')).not.toContainText('marky-mark-comments');
   await page.keyboard.press('Control+e');
-  await expect(page.getByTestId('editor').locator('.cm-content')).not.toContainText('markimark-comments');
+  await expect(page.getByTestId('editor').locator('.cm-content')).not.toContainText('marky-mark-comments');
 });
 
 test('E16: embedded autosave never flushes unsaved text edits; explicit save writes both', async ({ page }) => {
@@ -365,7 +365,7 @@ test('E16: embedded autosave never flushes unsaved text edits; explicit save wri
 
   // Comment autosave rewrites the file from the LAST SAVED text.
   await addComment(page, PHRASE, 'while dirty');
-  await expect.poll(async () => (await fsRead(page, WELCOME))?.includes('markimark-comments')).toBe(true);
+  await expect.poll(async () => (await fsRead(page, WELCOME))?.includes('marky-mark-comments')).toBe(true);
   const afterAutosave = (await fsRead(page, WELCOME))!;
   expect(afterAutosave).not.toContain('DIRTYMARK');
   expect(afterAutosave).toContain('while dirty');
@@ -376,7 +376,7 @@ test('E16: embedded autosave never flushes unsaved text edits; explicit save wri
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   const afterSave = (await fsRead(page, WELCOME))!;
   expect(afterSave).toContain('DIRTYMARK');
-  expect(afterSave).toContain('markimark-comments');
+  expect(afterSave).toContain('marky-mark-comments');
   expect(afterSave).toContain('while dirty');
 });
 

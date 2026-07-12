@@ -117,12 +117,12 @@ Either way it's a one-time step — the app opens normally afterwards.
   themes), run:
 
   ```bash
-  rm -rf ~/Library/Application\ Support/com.markimark.app \
-         ~/Library/Preferences/com.markimark.app.plist \
-         ~/Library/WebKit/com.markimark.app \
-         ~/Library/Caches/com.markimark.app \
-         ~/Library/HTTPStorages/com.markimark.app \
-         ~/Library/Saved\ Application\ State/com.markimark.app.savedState
+  rm -rf ~/Library/Application\ Support/io.jorgepereira.markymark.app \
+         ~/Library/Preferences/io.jorgepereira.markymark.app.plist \
+         ~/Library/WebKit/io.jorgepereira.markymark.app \
+         ~/Library/Caches/io.jorgepereira.markymark.app \
+         ~/Library/HTTPStorages/io.jorgepereira.markymark.app \
+         ~/Library/Saved\ Application\ State/io.jorgepereira.markymark.app.savedState
   ```
 
 - **Windows** — Settings → Apps → Marky Mark → Uninstall (the standard

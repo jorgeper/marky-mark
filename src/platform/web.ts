@@ -34,7 +34,7 @@ declare global {
   }
 }
 
-const LS_CONFIG = 'markimark.web.config.v1';
+const LS_CONFIG = 'marky-mark.web.config.v1'; // SPEC32 §3: fresh start at 0.4
 const MD_PICKER_TYPES = [
   { description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown'] as string[] } },
 ];

@@ -11,7 +11,7 @@ import type { AuxKind } from '../lib/auxProtocol';
  * Exposed to Playwright as window.__mmfs.
  */
 
-const LS_KEY = 'markimark.fs.v1';
+const LS_KEY = 'marky-mark.fs.v1'; // SPEC32 §3: fresh start at 0.4
 
 type Store = Record<string, string>;
 

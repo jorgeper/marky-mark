@@ -21,10 +21,19 @@ describe('embedded comment trailer', () => {
 
     // The raw trailer must be a single well-formed HTML comment: no premature
     // terminator before the final one.
-    expect(trailer.startsWith('\n<!-- markimark-comments\n')).toBe(true);
+    expect(trailer.startsWith('\n<!-- marky-mark-comments\n')).toBe(true);
     expect(trailer.trimEnd().endsWith('-->')).toBe(true);
     const inner = trailer.slice(0, trailer.lastIndexOf('-->'));
     expect(inner.includes('-->')).toBe(false); // "-->" never appears before the close
+
+    // SPEC32 §4 (strengthened): the legacy marker still parses, and
+    // re-attaching writes the NEW marker — old files migrate on first save.
+    const legacy = `# Old\n${trailer.replace('marky-mark-comments', 'markimark-comments')}`;
+    const legacySplit = splitEmbedded(legacy);
+    expect(legacySplit.hadTrailer).toBe(true);
+    expect(legacySplit.comments.length).toBe(2);
+    expect(attachEmbedded(legacySplit.content, legacySplit.comments)).toContain('<!-- marky-mark-comments');
+    expect(attachEmbedded(legacySplit.content, legacySplit.comments)).not.toContain('markimark-comments');
 
     const doc = `# Title\n\nSome content.\n${trailer}`;
     const split = splitEmbedded(doc);
@@ -48,7 +57,7 @@ describe('embedded comment trailer', () => {
     // attach on already-attached text never doubles the trailer.
     const twice = attachEmbedded(withTrailer, comments);
     expect(twice).toBe(withTrailer);
-    expect(twice.match(/markimark-comments/g)?.length).toBe(1);
+    expect(twice.match(/marky-mark-comments/g)?.length).toBe(1);
 
     // No-trailer documents pass through untouched.
     const plain = splitEmbedded(content);

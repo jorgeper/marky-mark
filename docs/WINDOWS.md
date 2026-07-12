@@ -29,7 +29,7 @@ The installer is unsigned (signing needs a Windows host or a custom `sign_comman
    the NSIS/MSI installer registers `.md`/`.markdown`. Files opened by double-click
    arrive as CLI arguments, which `src-tauri/src/lib.rs` already queues for the
    frontend (`take_pending_open_files`).
-4. Paths: the config dir resolves to `%APPDATA%\com.markimark.app\` automatically via
+4. Paths: the config dir resolves to `%APPDATA%\io.jorgepereira.markymark.app\` automatically via
    `appConfigDir()`; themes live in `themes\` inside it. No code changes needed.
 
 Nothing else is macOS-specific: the `RunEvent::Opened` handler is `#[cfg(target_os =

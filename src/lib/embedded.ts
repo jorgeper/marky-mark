@@ -5,7 +5,7 @@ import { parseSidecar } from './sidecar';
  * Embedded comment storage (SPEC2 §5): comments live in an invisible HTML
  * comment trailer at the very end of the markdown file:
  *
- *   <!-- markimark-comments
+ *   <!-- marky-mark-comments
  *   {"version":1,"comments":[ …sidecar schema… ]}
  *   -->
  *
@@ -19,7 +19,9 @@ import { parseSidecar } from './sidecar';
  * the blanket replace is safe.) Pure module — no DOM, no platform imports.
  */
 
-const TRAILER_RE = /\n?<!-- markimark-comments\n([\s\S]*?)\n-->\s*$/;
+// SPEC32 §2: the marker renamed at 0.4 — new files write marky-mark-comments,
+// but legacy markimark-comments trailers still parse (first save migrates).
+const TRAILER_RE = /\n?<!-- (?:marky-mark|markimark)-comments\n([\s\S]*?)\n-->\s*$/;
 
 export interface SplitDoc {
   /** Markdown content with the trailer removed (byte-exact otherwise). */
@@ -50,7 +52,7 @@ export function serializeTrailer(comments: CommentData[]): string {
   const json = JSON.stringify({ version: 1, comments }, null, 2)
     // Keep the enclosing HTML comment intact even if a body contains "-->".
     .replace(/-->/g, '-\\u002d>');
-  return `\n<!-- markimark-comments\n${json}\n-->\n`;
+  return `\n<!-- marky-mark-comments\n${json}\n-->\n`;
 }
 
 /** Compose file text: content + trailer (no trailer for zero comments). */
