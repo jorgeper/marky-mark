@@ -1066,10 +1066,10 @@ mark.hl.ghost {
   box-shadow: inset 3px 0 0 var(--mm-diff-removed, #d1242f);
 }
 
-/* --- SPEC16: word-count chip, bottom-left --- */
+/* --- SPEC16: word-count chip, bottom-right corner --- */
 .word-chip {
   position: fixed;
-  left: 14px;
+  right: 14px;
   bottom: 14px;
   z-index: 60;
   font-size: 11px;
@@ -1078,7 +1078,7 @@ mark.hl.ghost {
   background: var(--mm-bg-elevated, #f6f8fa);
   color: var(--mm-fg-muted, #59636e);
   border: 1px solid var(--mm-border, #d1d9e0);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22), 0 1px 4px rgba(0, 0, 0, 0.12);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
