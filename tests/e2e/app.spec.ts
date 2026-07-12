@@ -1767,7 +1767,10 @@ test('E61: heading palette — Mod+K opens, fuzzy-filters, Enter jumps preview a
   await page.getByTestId('heading-palette-input').fill('marker 25');
   await expect(page.getByTestId('heading-palette-item').first()).toContainText('Marker 25');
   await page.keyboard.press('Enter');
-  await expect.poll(() => editorTopGutterLine(page)).toBeGreaterThan(marker25Line - 6);
+  // CI's 2-core runners need real time for CM's iterative scroll-measure
+  // convergence (heavier since the SPEC23/30 editor extensions) — timeout
+  // headroom only, the assertion is unchanged.
+  await expect.poll(() => editorTopGutterLine(page), { timeout: 20000 }).toBeGreaterThan(marker25Line - 6);
   expect(await editorTopGutterLine(page)).toBeLessThan(marker25Line + 6);
 });
 
