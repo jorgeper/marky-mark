@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { displayCombo, type HotkeyMap } from '../lib/hotkeys';
 
 interface Props {
@@ -39,13 +39,65 @@ function MenuIcon() {
   );
 }
 
-/** The app icon in miniature: white "M" on the terracotta rounded square. */
-export function AppBadge({ size = 20, testId = 'app-badge' }: { size?: number; testId?: string }) {
+/**
+ * SPEC27 §2: the smiley-M glyph from icon-assets/source, transparent
+ * background — the splash floats it on the CSS cloud. Gradient/filter ids
+ * ride useId() so multiple instances never collide in one document.
+ */
+export function MarkGlyph({ size = 120, testId }: { size?: number; testId?: string }) {
+  const uid = useId();
   return (
-    <svg data-testid={testId} width={size} height={size} viewBox="0 0 32 32" aria-label="Marky Mark">
-      <rect x="1" y="1" width="30" height="30" rx="7" fill="#d97757" />
-      <g stroke="#faf9f5" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" fill="none">
-        <path d="M 9.5 22.5 V 10 L 16 18 L 22.5 10 V 22.5" />
+    <svg data-testid={testId} width={size} height={size} viewBox="0 0 240 240" aria-label="Marky Mark">
+      <defs>
+        <linearGradient id={`tg-${uid}`} gradientUnits="userSpaceOnUse" x1="0" y1="34" x2="0" y2="206">
+          <stop offset="0%" stopColor="#FFFBF4" />
+          <stop offset="60%" stopColor="#F9EDDC" />
+          <stop offset="100%" stopColor="#EFD9BC" />
+        </linearGradient>
+        <filter id={`gs-${uid}`} x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="1" stdDeviation="0.5" floodColor="#601E0C" floodOpacity="0.3" />
+          <feDropShadow dx="0" dy="3" stdDeviation="1.8" floodColor="#601E0C" floodOpacity="0.36" />
+        </filter>
+      </defs>
+      <g filter={`url(#gs-${uid})`}>
+        <rect x="74" y="38" width="32" height="164" rx="16" fill={`url(#tg-${uid})`} />
+        <rect x="134" y="38" width="32" height="164" rx="16" fill={`url(#tg-${uid})`} />
+        <rect x="36" y="74" width="168" height="32" rx="16" fill={`url(#tg-${uid})`} transform="rotate(-9 120 90)" />
+        <rect x="36" y="134" width="168" height="32" rx="16" fill={`url(#tg-${uid})`} />
+        <circle cx="90" cy="120" r="9.5" fill="#BE5E3F" />
+        <circle cx="150" cy="120" r="9.5" fill="#BE5E3F" />
+        <path d="M102,148 Q120,162 138,146" stroke="#BE5E3F" strokeWidth="8.5" strokeLinecap="round" fill="none" />
+      </g>
+    </svg>
+  );
+}
+
+/** SPEC27 §2: the full tile — terracotta gradient square + the glyph. */
+export function AppBadge({ size = 20, testId = 'app-badge' }: { size?: number; testId?: string }) {
+  const uid = useId();
+  return (
+    <svg data-testid={testId} width={size} height={size} viewBox="0 0 240 240" aria-label="Marky Mark">
+      <defs>
+        <linearGradient id={`bg-${uid}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#DA8560" />
+          <stop offset="100%" stopColor="#B95A3D" />
+        </linearGradient>
+        <linearGradient id={`tg-${uid}`} gradientUnits="userSpaceOnUse" x1="0" y1="34" x2="0" y2="206">
+          <stop offset="0%" stopColor="#FFFBF4" />
+          <stop offset="60%" stopColor="#F9EDDC" />
+          <stop offset="100%" stopColor="#EFD9BC" />
+        </linearGradient>
+      </defs>
+      <rect width="240" height="240" rx="54" fill={`url(#bg-${uid})`} />
+      {/* No drop-shadow filter at chip sizes — crisper, cheaper. */}
+      <g>
+        <rect x="74" y="38" width="32" height="164" rx="16" fill={`url(#tg-${uid})`} />
+        <rect x="134" y="38" width="32" height="164" rx="16" fill={`url(#tg-${uid})`} />
+        <rect x="36" y="74" width="168" height="32" rx="16" fill={`url(#tg-${uid})`} transform="rotate(-9 120 90)" />
+        <rect x="36" y="134" width="168" height="32" rx="16" fill={`url(#tg-${uid})`} />
+        <circle cx="90" cy="120" r="9.5" fill="#BE5E3F" />
+        <circle cx="150" cy="120" r="9.5" fill="#BE5E3F" />
+        <path d="M102,148 Q120,162 138,146" stroke="#BE5E3F" strokeWidth="8.5" strokeLinecap="round" fill="none" />
       </g>
     </svg>
   );

@@ -1038,29 +1038,80 @@ mark.hl.ghost {
   pointer-events: none;
 }
 
-.empty-hint {
+/* SPEC27 §3: the splash — glyph on a wispy terracotta cloud, About info,
+   one drop hint. All theme-variable driven; the cloud is pure CSS. */
+.splash {
   text-align: center;
   color: var(--mm-fg-muted, #59636e);
   user-select: none;
+  pointer-events: auto; /* the repo link is clickable (.empty-center is none) */
 }
 
-.empty-hint p {
-  margin: 4px 0;
-  font-size: 17px;
+.splash-mark {
+  position: relative;
+  width: 260px;
+  height: 176px;
+  margin: 0 auto 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.empty-hint .empty-sub {
-  font-size: 13.5px;
-  opacity: 0.85;
+.splash-cloud {
+  position: absolute;
+  inset: 0;
+  filter: blur(26px);
+  opacity: 0.55;
+  background:
+    radial-gradient(92px 56px at 38% 58%, rgba(217, 119, 87, 0.78), transparent 70%),
+    radial-gradient(115px 62px at 63% 44%, rgba(218, 133, 96, 0.62), transparent 70%),
+    radial-gradient(72px 46px at 50% 72%, rgba(185, 90, 61, 0.55), transparent 70%);
 }
 
-.empty-hint kbd {
-  font-family: var(--mm-font-mono, monospace);
+.splash-mark svg {
+  position: relative;
+}
+
+.splash-title {
+  margin: 0 0 2px;
+  font-size: 27px;
+  font-weight: 700;
+  font-family: var(--mm-font-heading, inherit);
+  color: var(--mm-heading, var(--mm-fg, #1f2328));
+}
+
+.splash-version {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.splash-alpha {
+  margin: 0 0 4px;
+  font-size: 12.5px;
+}
+
+.splash-meta {
+  margin: 0 0 2px;
   font-size: 12px;
-  background: var(--mm-bg-elevated, #f6f8fa);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 5px;
-  padding: 1px 6px;
+}
+
+.splash-meta a {
+  color: var(--mm-link, #0969da);
+  text-decoration: none;
+}
+
+.splash-meta a:hover {
+  text-decoration: underline;
+}
+
+.splash-drop {
+  display: inline-block;
+  margin-top: 22px;
+  padding: 7px 18px;
+  font-size: 13.5px;
+  border: 1px dashed var(--mm-border, #d1d9e0);
+  border-radius: 999px;
 }
 
 /* --- About dialog (SPEC10 §3) --------------------------------------------- */

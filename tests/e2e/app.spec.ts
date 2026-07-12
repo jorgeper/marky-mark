@@ -35,7 +35,9 @@ test('E1: launch shows the clean empty state; Help opens the welcome doc fully r
 
   const hint = page.getByTestId('empty-hint');
   await expect(hint).toBeVisible();
-  await expect(hint).toContainText('Drag a markdown file here');
+  // SPEC27 §4.1 amendment: the empty state is now the branded splash.
+  await expect(hint).toContainText('Marky Mark');
+  await expect(hint).toContainText('Drop a file to open');
   await expect(page.getByTestId('doc')).toHaveText(''); // no document content
   await expect(page.getByTestId('docname').getByTestId('app-badge')).toBeVisible();
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
@@ -2247,10 +2249,10 @@ test('E78: ⌘N opens an untitled buffer — no dialog, nothing on disk; first �
   await page.reload();
   const hint = page.getByTestId('empty-hint');
   await expect(hint).toBeVisible();
-  await expect(hint).toContainText('⌘O'); // shim reports the host OS (mac)
-  await expect(hint).toContainText('to open one');
-  await expect(hint).toContainText('⌘N');
-  await expect(hint).toContainText('to create one');
+  // SPEC27 §4.1 amendment: the key-combo hint lines no longer exist — the
+  // splash carries a single drop hint (the hotkeys themselves are E78's
+  // subject below and unchanged).
+  await expect(hint).toContainText('Drop a file to open');
 
   const before = await page.evaluate(() => window.__mmfs!.list());
   await page.keyboard.press('Control+n');
@@ -2705,4 +2707,31 @@ test('E86: front matter becomes a dismissable card — never rendered markdown; 
   await page.reload();
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Plain Doc');
   await expect(page.getByTestId('fm-card')).toHaveCount(0);
+});
+
+test('E87: the splash — glyph on the cloud, About info, one drop hint, no key-combo text', async ({ page }) => {
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+
+  const hint = page.getByTestId('empty-hint');
+  await expect(hint).toBeVisible();
+  await expect(page.getByTestId('splash-mark')).toBeVisible();
+  await expect(hint).toContainText('Marky Mark');
+  await expect(hint).toContainText(`v${pkg.version}`); // exact build version, like About
+  await expect(hint).toContainText('Alpha — pre-release software, expect rough edges.');
+  await expect(hint).toContainText('Developer: Jorge Pereira');
+  await expect(hint).toContainText('MIT License');
+  await expect(hint).toContainText('github.com/jorgeper/marky-mark');
+  await expect(hint).toContainText('Drop a file to open');
+  // The old key-combo hints are gone for good.
+  await expect(hint).not.toContainText('⌘O');
+  await expect(hint).not.toContainText('⌘N');
+  await expect(hint).not.toContainText('press');
+
+  // Opening a document removes the splash entirely; the badge chip remains.
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
+  await expect(page.getByTestId('splash-mark')).toHaveCount(0);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('docname').click(); // close menu
 });

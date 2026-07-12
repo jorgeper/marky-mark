@@ -49,7 +49,7 @@ import { FrontMatterCard } from './components/FrontMatterCard';
 import type { Theme } from './lib/themes';
 import { applyThemeCss, loadAllThemes } from './themeRuntime';
 import { FIXTURES } from './bundled';
-import { Toolbar } from './components/Toolbar';
+import { MarkGlyph, Toolbar } from './components/Toolbar';
 import { ImageResizer, type ImageRewriteRequest } from './components/ImageResizer';
 import { CommentCard } from './components/CommentCard';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -1884,14 +1884,29 @@ export default function App() {
             )}
             {!docPath && !untitled && (
               <div className="empty-center">
-                <div className="empty-hint" data-testid="empty-hint">
-                  <p>Drag a markdown file here</p>
-                  <p className="empty-sub">
-                    — or press <kbd>{displayCombo(settings.hotkeys.openFile, platform.isMac)}</kbd> to open one
+                {/* SPEC27 §3: the splash — glyph on a wispy cloud, the About
+                    info, one drop hint. Pure app UI, no images. */}
+                <div className="splash" data-testid="empty-hint">
+                  <div className="splash-mark" data-testid="splash-mark">
+                    <div className="splash-cloud" aria-hidden="true" />
+                    <MarkGlyph size={128} />
+                  </div>
+                  <h1 className="splash-title">Marky Mark</h1>
+                  <p className="splash-version">v{__APP_VERSION__}</p>
+                  <p className="splash-alpha">Alpha — pre-release software, expect rough edges.</p>
+                  <p className="splash-meta">Developer: Jorge Pereira · MIT License</p>
+                  <p className="splash-meta">
+                    <a
+                      href="https://github.com/jorgeper/marky-mark"
+                      onClick={(e) => {
+                        e.preventDefault(); // managed hand-off (SPEC11 §4.2)
+                        void platform.openExternal('https://github.com/jorgeper/marky-mark');
+                      }}
+                    >
+                      github.com/jorgeper/marky-mark
+                    </a>
                   </p>
-                  <p className="empty-sub">
-                    — or <kbd>{displayCombo(settings.hotkeys.newFile, platform.isMac)}</kbd> to create one
-                  </p>
+                  <p className="splash-drop">Drop a file to open</p>
                 </div>
               </div>
             )}
