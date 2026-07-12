@@ -12,6 +12,8 @@ export const REVIEW_PAYLOAD_ID = 'mm-review-doc';
 export interface ReviewPayload {
   name: string;
   markdown: string;
+  /** SPEC17 §2.2: theme id the bundle opens with (session-only, optional). */
+  theme?: string;
 }
 
 /** The document surface extract needs — satisfied by `document` and stubs. */
@@ -26,7 +28,11 @@ export function buildReviewBundle(templateHtml: string, payload: ReviewPayload):
   const at = templateHtml.lastIndexOf('</head>');
   if (at === -1) throw new Error('review template has no </head>');
   // `<` → < inside JSON strings: no `</script>`, no `<!--`, still JSON.
-  const json = JSON.stringify({ name: payload.name, markdown: payload.markdown }).replace(/</g, '\\u003c');
+  const json = JSON.stringify({
+    name: payload.name,
+    markdown: payload.markdown,
+    ...(payload.theme ? { theme: payload.theme } : {}),
+  }).replace(/</g, '\\u003c');
   const script = `<script type="application/json" id="${REVIEW_PAYLOAD_ID}">${json}</script>`;
   return templateHtml.slice(0, at) + script + templateHtml.slice(at);
 }
@@ -35,9 +41,13 @@ export function extractReviewPayload(host: PayloadHost): ReviewPayload | null {
   const el = host.getElementById(REVIEW_PAYLOAD_ID);
   if (!el?.textContent) return null;
   try {
-    const data = JSON.parse(el.textContent) as { name?: unknown; markdown?: unknown };
+    const data = JSON.parse(el.textContent) as { name?: unknown; markdown?: unknown; theme?: unknown };
     if (typeof data.name === 'string' && data.name && typeof data.markdown === 'string') {
-      return { name: data.name, markdown: data.markdown };
+      return {
+        name: data.name,
+        markdown: data.markdown,
+        ...(typeof data.theme === 'string' && data.theme ? { theme: data.theme } : {}),
+      };
     }
   } catch {
     /* not a payload */
