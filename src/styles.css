@@ -1060,12 +1060,13 @@ mark.hl.ghost {
 .splash-cloud {
   position: absolute;
   inset: 0;
-  filter: blur(26px);
-  opacity: 0.55;
+  filter: blur(28px);
+  /* Deep terracotta — the cream glyph needs real contrast to sit on. */
+  opacity: 0.9;
   background:
-    radial-gradient(92px 56px at 38% 58%, rgba(217, 119, 87, 0.78), transparent 70%),
-    radial-gradient(115px 62px at 63% 44%, rgba(218, 133, 96, 0.62), transparent 70%),
-    radial-gradient(72px 46px at 50% 72%, rgba(185, 90, 61, 0.55), transparent 70%);
+    radial-gradient(92px 56px at 38% 58%, rgba(168, 70, 38, 0.95), transparent 72%),
+    radial-gradient(118px 64px at 63% 44%, rgba(192, 92, 55, 0.85), transparent 72%),
+    radial-gradient(74px 48px at 50% 72%, rgba(134, 50, 26, 0.85), transparent 72%);
 }
 
 .splash-mark svg {

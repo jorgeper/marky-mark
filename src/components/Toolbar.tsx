@@ -54,9 +54,9 @@ export function MarkGlyph({ size = 120, testId }: { size?: number; testId?: stri
           <stop offset="60%" stopColor="#F9EDDC" />
           <stop offset="100%" stopColor="#EFD9BC" />
         </linearGradient>
-        <filter id={`gs-${uid}`} x="-30%" y="-30%" width="160%" height="160%">
-          <feDropShadow dx="0" dy="1" stdDeviation="0.5" floodColor="#601E0C" floodOpacity="0.3" />
-          <feDropShadow dx="0" dy="3" stdDeviation="1.8" floodColor="#601E0C" floodOpacity="0.36" />
+        <filter id={`gs-${uid}`} x="-40%" y="-40%" width="180%" height="180%">
+          {/* One soft, low-opacity shadow — gentler than the icon tile's. */}
+          <feDropShadow dx="0" dy="4" stdDeviation="7" floodColor="#601E0C" floodOpacity="0.22" />
         </filter>
       </defs>
       <g filter={`url(#gs-${uid})`}>
