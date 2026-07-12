@@ -10,14 +10,13 @@ export interface ExportRequest {
 }
 
 /**
- * SPEC17 §1: the Export dialog. Format (HTML review page / PDF via the OS
+ * SPEC17 §1 / SPEC18: the Export dialog. Format (static HTML page / PDF via the OS
  * print dialog), include-comments, include-word-count, and the sticky theme
  * select. Pure UI — the owner runs the export and persists the theme choice.
  */
 export function ExportDialog({
   themes,
   initialTheme,
-  canHtml,
   canPdf,
   onThemeChange,
   onExport,
@@ -25,13 +24,12 @@ export function ExportDialog({
 }: {
   themes: Theme[];
   initialTheme: string;
-  canHtml: boolean;
   canPdf: boolean;
   onThemeChange(theme: string): void;
   onExport(req: ExportRequest): void;
   onClose(): void;
 }) {
-  const [format, setFormat] = useState<'html' | 'pdf'>(canHtml ? 'html' : 'pdf');
+  const [format, setFormat] = useState<'html' | 'pdf'>('html');
   const [includeComments, setIncludeComments] = useState(true);
   const [includeWordCount, setIncludeWordCount] = useState(true);
   const [theme, setTheme] = useState(initialTheme);
@@ -58,10 +56,9 @@ export function ExportDialog({
                 name="export-format"
                 data-testid="export-format-html"
                 checked={format === 'html'}
-                disabled={!canHtml}
                 onChange={() => setFormat('html')}
               />
-              HTML — self-contained review page
+              HTML — static reading page
             </label>
           </div>
           <div className="inline-row">

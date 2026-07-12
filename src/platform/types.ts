@@ -100,18 +100,15 @@ export interface Platform {
   closeFocusedAuxWindow?(): Promise<boolean>;
 
   /**
-   * SPEC16 §1.5: the single-file web viewer used as the review-bundle
-   * template. Desktop embeds it at build time (null when dist-web hasn't
-   * been built — dev trees); the shim returns a stub; web leaves this
-   * undefined (the web build opens bundles, it doesn't export them).
-   */
-  reviewTemplate?(): Promise<string | null>;
-
-  /**
    * SPEC17 §3: hand a standalone print-ready page to the OS print dialog
    * (macOS: PDF ▾ / Save as PDF). Desktop opens the printview window; the
    * shim records the html on window.__mmPrints; web leaves it undefined
    * (the PDF option is disabled there).
    */
   printDocument?(html: string): Promise<void>;
+  /**
+   * printview window only (SPEC18 §2): the webview's REAL native print via
+   * the Rust print_view command — window.print() is a WKWebView no-op.
+   */
+  printPage?(): Promise<void>;
 }

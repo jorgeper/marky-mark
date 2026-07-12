@@ -51,13 +51,13 @@ Either way it's a one-time step — the app opens normally afterwards.
 
 ## What you get
 
-- **Instant, tiny, native** — a ~7 MB Tauri 2 app on a native webview. No
+- **Instant, tiny, native** — a ~6 MB Tauri 2 app on a native webview. No
   Electron. Or the single self-contained HTML file — no install at all.
-- **Export** — File → Export… opens a dialog: **HTML** (a self-contained
-  review page — your document *and every comment thread* in one file that
-  opens in any browser, no install, no server, zero network) or **PDF**
-  (via the system print dialog), with or without comments and word counts,
-  in the theme of your choice — the app remembers your export theme.
+- **Export** — File → Export… opens a dialog: **HTML** (a beautiful fully
+  static reading page — your themed document with comments as numbered
+  notes, zero scripts, opens anywhere) or **PDF** (via the system print
+  dialog), with or without comments and word counts, in the theme of your
+  choice — the app remembers your export theme.
 - **A real desktop citizen** — native menus (macOS menu bar / Windows menu
   bar), a chromeless window with no in-app toolbar, and real Settings (⌘,)
   and About windows — not in-page pop-overs.

@@ -27,14 +27,17 @@ export function PrintView() {
         parsed.querySelectorAll('style').forEach((s) => host.appendChild(s.cloneNode(true)));
         Array.from(parsed.body.children).forEach((el) => host.appendChild(el.cloneNode(true)));
         // Give the webview a frame to lay out, then print and leave —
-        // window.print() is the webview-native dialog in Tauri on macOS.
+        // the REAL native print via the Rust print_view command (SPEC18 §2;
+        // window.print() is a silent no-op in WKWebView).
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            try {
-              window.print();
-            } finally {
-              setTimeout(() => void p.closeNow(), 400);
-            }
+            void (async () => {
+              try {
+                await p.printPage?.();
+              } finally {
+                setTimeout(() => void p.closeNow(), 400);
+              }
+            })();
           });
         });
       });

@@ -21,8 +21,8 @@ import { buildMenuSpec } from './lib/menuSpec';
 import { stepComment } from './lib/commentNav';
 import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
 import type { EditorSyncHandle } from './components/Editor';
-import { buildReviewBundle, extractReviewPayload } from './lib/reviewBundle';
-import { buildExportMarkdown, buildPrintHtml, statsLine } from './lib/exportDoc';
+import { extractReviewPayload } from './lib/reviewBundle';
+import { buildStaticHtml, statsLine, type StaticComment } from './lib/exportDoc';
 import { ExportDialog, type ExportRequest } from './components/ExportDialog';
 import { diffLineSets, type DiffLineSets } from './lib/diffLines';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
@@ -90,7 +90,6 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [closePrompt, setClosePrompt] = useState(false);
-  const [canExportReview, setCanExportReview] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [diff, setDiff] = useState<DiffLineSets | null>(null);
@@ -323,11 +322,6 @@ export default function App() {
         if (await p.exists(posPath)) positionsRef.current = parsePositions(await p.readTextFile(posPath));
       } catch {
         /* start empty */
-      }
-      // SPEC16 §1.6: export exists only where a review template does.
-      if (p.reviewTemplate) {
-        const template = await p.reviewTemplate();
-        if (!disposed) setCanExportReview(template !== null);
       }
 
       setPlatform(p);
@@ -602,7 +596,7 @@ export default function App() {
     panelRef.current?.querySelector(`[data-flowcard="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
   }, []);
 
-  /** SPEC17 §2–§3: run the export the dialog described. */
+  /** SPEC18: build the static page and hand it to the chosen format. */
   const runExport = useCallback((req: ExportRequest) => {
     setExportOpen(false);
     void (async () => {
@@ -611,39 +605,62 @@ export default function App() {
       if (!p || !s.docPath) return;
       const dark = window.matchMedia('(prefers-color-scheme: dark)').matches && s.settings.useDarkTheme;
       const themeId = req.theme === 'current' ? (dark ? s.settings.themeDark : s.settings.themeLight) : req.theme;
-      if (req.format === 'html') {
-        if (!p.reviewTemplate || !p.saveFileDialog) return;
-        const template = await p.reviewTemplate();
-        if (!template) return;
-        const name = p.basename(s.docPath);
-        const target = await p.saveFileDialog(`${name.replace(/\.(md|markdown)$/i, '')}.review.html`, 'html');
-        if (!target) return;
-        const markdown = buildExportMarkdown(s.buffer, s.comments, {
-          includeComments: req.includeComments,
-          includeWordCount: req.includeWordCount,
+      const theme = s.themes.find((t) => t.id === themeId) ?? s.themes.find((t) => t.id === 'crisp') ?? s.themes[0];
+
+      // One artifact shape for both formats (SPEC18 §2.2): the rendered doc,
+      // highlights + numbered note refs when comments are included, and a
+      // static Comments section at the end.
+      const rendered = await renderMarkdown(s.buffer);
+      const holder = document.createElement('div');
+      holder.innerHTML = rendered;
+      let staticComments: StaticComment[] | undefined;
+      if (req.includeComments) {
+        const text = getDocText(holder);
+        const open = s.comments
+          .filter((c) => !c.resolved)
+          .map((c) => ({ c, m: reanchor(c.anchor, text) }))
+          .sort((a, b) => (a.m?.start ?? a.c.anchor.start) - (b.m?.start ?? b.c.anchor.start));
+        staticComments = open.map(({ c, m }, i) => {
+          const n = i + 1;
+          if (m) {
+            const marks = highlightRange(holder, m.start, m.end, c.id);
+            const last = marks[marks.length - 1];
+            if (last) {
+              const sup = document.createElement('sup');
+              sup.className = 'mm-ref';
+              const a = document.createElement('a');
+              a.href = `#mm-comment-${n}`;
+              a.textContent = String(n);
+              sup.appendChild(a);
+              last.after(sup);
+            }
+          }
+          return {
+            n,
+            excerpt: c.anchor.exact,
+            author: c.author,
+            body: c.body,
+            replies: c.thread.map((r) => ({ author: r.author, body: r.body })),
+          };
         });
-        await p.writeTextFile(target, buildReviewBundle(template, { name, markdown, theme: themeId }));
+      }
+      const name = p.basename(s.docPath);
+      const html = buildStaticHtml({
+        title: name,
+        bodyHtml: holder.innerHTML,
+        themeCss: theme?.css ?? '',
+        stats: req.includeWordCount ? statsLine(s.buffer) : undefined,
+        comments: staticComments,
+      });
+
+      if (req.format === 'html') {
+        if (!p.saveFileDialog) return;
+        const target = await p.saveFileDialog(`${name.replace(/\.(md|markdown)$/i, '')}.html`, 'html');
+        if (!target) return;
+        await p.writeTextFile(target, html);
         await p.commitFile?.(target);
       } else {
-        if (!p.printDocument) return;
-        // Print path: render the document, re-inject the comment highlights
-        // into a detached DOM when comments are included (marks only — no
-        // margin cards in print, SPEC17 §3.2).
-        const rendered = await renderMarkdown(s.buffer);
-        const holder = document.createElement('div');
-        holder.innerHTML = rendered;
-        if (req.includeComments) {
-          const text = getDocText(holder);
-          for (const c of s.comments) {
-            if (c.resolved) continue;
-            const m = reanchor(c.anchor, text);
-            if (m) highlightRange(holder, m.start, m.end, c.id);
-          }
-        }
-        const theme = s.themes.find((t) => t.id === themeId);
-        await p.printDocument(
-          buildPrintHtml(holder.innerHTML, theme?.css ?? '', req.includeWordCount ? statsLine(s.buffer) : undefined)
-        );
+        await p.printDocument?.(html);
       }
     })();
   }, []);
@@ -1656,7 +1673,6 @@ export default function App() {
         <ExportDialog
           themes={themes}
           initialTheme={settings.exportTheme}
-          canHtml={canExportReview}
           canPdf={!!platform.printDocument}
           onThemeChange={(id) => updateSettings({ ...stateRef.current.settings, exportTheme: id })}
           onExport={runExport}

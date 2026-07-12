@@ -182,10 +182,6 @@ export function createBrowserPlatform(): Platform {
     ...(nativeMenu ? { setAppMenu, openAuxWindow, closeFocusedAuxWindow } : {}),
     busEmit,
     busListen,
-    // SPEC16 §1.5: a tiny stub so the export flow is e2e-testable.
-    async reviewTemplate() {
-      return '<!doctype html><html><head><meta charset="utf-8"><title>stub</title></head><body>mm-stub-template</body></html>';
-    },
     // SPEC17 §3.1: the shim never opens print UI — record for e2e (E67).
     async printDocument(html) {
       ((window as unknown as { __mmPrints?: string[] }).__mmPrints ??= []).push(html);

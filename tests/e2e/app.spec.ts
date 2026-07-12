@@ -1810,7 +1810,7 @@ test('E64: the word-count chip toggles with Mod+Shift+W and the choice persists'
   await expect(page.getByTestId('word-chip')).toBeVisible();
 });
 
-test('E63: Export Review Bundle writes a parseable bundle carrying the comment trailer', async ({ page }) => {
+test('E63: Export HTML writes a fully static reading page with comments as numbered notes', async ({ page }) => {
   await freshNativeMenuApp(page);
   await menuClick(page, 'help');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
@@ -1830,15 +1830,18 @@ test('E63: Export Review Bundle writes a parseable bundle carrying the comment t
     .poll(async () => ((await fsRead(page, '/docs/welcome.review.html')) ? 'written' : 'missing'))
     .toBe('written');
 
-  const bundle = (await fsRead(page, '/docs/welcome.review.html'))!;
-  expect(bundle).toContain('mm-stub-template'); // composed onto the shim's template
-  const m = /<script type="application\/json" id="mm-review-doc">([\s\S]*?)<\/script>/.exec(bundle);
-  expect(m).not.toBeNull();
-  const payload = JSON.parse(m![1]) as { name: string; markdown: string };
-  expect(payload.name).toBe('welcome.md');
-  expect(payload.markdown).toContain('first review note');
-  expect(payload.markdown).toContain('second review note');
-  expect(payload.markdown).toContain('markimark-comments'); // the embedded trailer marker
+  const page63 = (await fsRead(page, '/docs/welcome.review.html'))!;
+  // SPEC18 §1: a fully static reading page — no scripts, no app, no payload.
+  expect(page63).not.toContain('<script');
+  expect(page63).not.toContain('mm-review-doc');
+  expect(page63).toContain('<title>welcome.md</title>');
+  expect(page63).toContain('Welcome to Marky Mark'); // the rendered document
+  // Comments as numbered static notes.
+  expect(page63).toContain('<h2>Comments</h2>');
+  expect(page63).toContain('id="mm-comment-1"');
+  expect(page63).toContain('href="#mm-comment-1"');
+  expect(page63).toContain('first review note');
+  expect(page63).toContain('second review note');
 });
 
 test('E65: the Export dialog — defaults, cancel paths, and the include options shape the bundle', async ({
@@ -1870,15 +1873,16 @@ test('E65: the Export dialog — defaults, cancel paths, and the include options
   await page.getByTestId('export-include-comments').uncheck();
   await page.getByTestId('export-run').click();
   await expect.poll(async () => ((await fsRead(page, '/docs/welcome.review.html')) ? 'ok' : 'no')).toBe('ok');
-  const bundle = (await fsRead(page, '/docs/welcome.review.html'))!;
-  const payload = JSON.parse(
-    /<script type="application\/json" id="mm-review-doc">([\s\S]*?)<\/script>/.exec(bundle)![1]
-  ) as { markdown: string };
-  expect(payload.markdown).not.toContain('markimark-comments');
-  expect(payload.markdown.trimEnd()).toMatch(/\*[\d,]+ words · \d+ min read\*$/);
+  const artifact = (await fsRead(page, '/docs/welcome.review.html'))!;
+  // Comments off ⇒ no highlights, no notes section; word count on ⇒ stats line.
+  expect(artifact).not.toContain('<h2>Comments</h2>');
+  expect(artifact).not.toContain('mark class="hl"');
+  expect(artifact).not.toContain('optional note');
+  expect(artifact).toMatch(/[\d,]+ words · \d+ min read/);
+  expect(artifact).not.toContain('<script');
 });
 
-test('E66: the export theme is sticky — survives reopening the dialog and an app restart; lands in the payload', async ({
+test('E66: the export theme is sticky — survives reopening the dialog and an app restart; lands in the artifact', async ({
   page,
 }) => {
   await freshNativeMenuApp(page);
@@ -1892,12 +1896,8 @@ test('E66: the export theme is sticky — survives reopening the dialog and an a
   });
   await page.getByTestId('export-run').click();
   await expect.poll(async () => ((await fsRead(page, '/docs/sticky.review.html')) ? 'ok' : 'no')).toBe('ok');
-  const payload = JSON.parse(
-    /<script type="application\/json" id="mm-review-doc">([\s\S]*?)<\/script>/.exec(
-      (await fsRead(page, '/docs/sticky.review.html'))!
-    )![1]
-  ) as { theme?: string };
-  expect(payload.theme).toBe('dracula');
+  // The chosen theme's CSS travels inside the static page.
+  expect((await fsRead(page, '/docs/sticky.review.html'))!).toContain('@name: Dracula');
 
   // Sticky in the same session…
   await menuClick(page, 'exportDoc');
@@ -1931,8 +1931,37 @@ test('E67: PDF export hands a themed print page to the platform — no file writ
   await expect.poll(() => page.evaluate(() => (window as { __mmPrints?: string[] }).__mmPrints?.length ?? 0)).toBe(1);
   const printed = await page.evaluate(() => (window as unknown as { __mmPrints: string[] }).__mmPrints[0]);
   expect(printed).toContain('Welcome to Marky Mark'); // the rendered document
-  expect(printed).toContain('Dracula'); // the chosen theme's CSS travels along
+  expect(printed).toContain('@name: Dracula'); // the chosen theme's CSS travels along
   expect(printed).toMatch(/[\d,]+ words · \d+ min read/); // stats line (default on)
   expect(printed).toContain('mark class="hl"'); // comment highlight, no cards
+  expect(printed).not.toContain('<script'); // same static page as the HTML export
   expect(await fsRead(page, '/docs/should-not-exist.html')).toBeNull();
+});
+
+test('E68: word count off is honored — no count anywhere, in either format', async ({ page }) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+
+  // HTML.
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/nocount.html';
+  });
+  await menuClick(page, 'exportDoc');
+  await page.getByTestId('export-include-wordcount').uncheck();
+  await page.getByTestId('export-run').click();
+  await expect.poll(async () => ((await fsRead(page, '/docs/nocount.html')) ? 'ok' : 'no')).toBe('ok');
+  const artifact = (await fsRead(page, '/docs/nocount.html'))!;
+  expect(artifact).not.toContain('min read');
+  expect(artifact).not.toMatch(/\d+ words/);
+
+  // PDF.
+  await menuClick(page, 'exportDoc');
+  await page.getByTestId('export-include-wordcount').uncheck();
+  await page.getByTestId('export-format-pdf').check();
+  await page.getByTestId('export-run').click();
+  await expect.poll(() => page.evaluate(() => (window as { __mmPrints?: string[] }).__mmPrints?.length ?? 0)).toBe(1);
+  const printed = await page.evaluate(() => (window as unknown as { __mmPrints: string[] }).__mmPrints[0]);
+  expect(printed).not.toContain('min read');
+  expect(printed).not.toMatch(/\d+ words/);
 });

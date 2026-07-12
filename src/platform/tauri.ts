@@ -43,10 +43,6 @@ export async function createTauriPlatform(): Promise<Platform> {
   let cachedConfigDir: string | null = null;
 
   // SPEC13 §1–§2: the two aux windows — fixed-size, non-resizable, singleton.
-  // SPEC16 §1.5: the web viewer embedded at build time. glob (not a bare
-  // import) so a dev tree without dist-web still compiles and runs.
-  const reviewTemplates = import.meta.glob('/dist-web/index.html', { query: '?raw', import: 'default' });
-
   const AUX_LABELS: readonly AuxKind[] = ['settings', 'about'];
   const AUX_OPTIONS: Record<AuxKind, { title: string; width: number; height: number }> = {
     settings: { title: 'Settings', width: 620, height: 560 },
@@ -247,16 +243,14 @@ export async function createTauriPlatform(): Promise<Platform> {
       return listen(event, (e) => cb(e.payload));
     },
 
-    async reviewTemplate() {
-      const load = reviewTemplates['/dist-web/index.html'];
-      if (!load) return null;
-      return (await load()) as string;
-    },
-
     /**
      * SPEC17 §3.1: open the printview window and hand it the page over the
      * aux bus once it says it's ready; it prints natively and closes itself.
      */
+    async printPage() {
+      await invoke('print_view');
+    },
+
     async printDocument(html) {
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
       const un = await listen('mm://print-ready', () => {
