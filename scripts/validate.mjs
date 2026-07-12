@@ -13,6 +13,12 @@
  *   9. single-file check (dist-web = exactly one self-contained index.html)
  *  10. static bundle scan (SPEC11 §6.6: no network call sites ship)
  * Prints VALIDATION: ALL PASSED as the final line only if all steps passed.
+ *
+ * SPEC33 §1.1: `--quick` runs the inner-loop subset only — version
+ * lock-step, typecheck, unit tests, desktop-shim e2e — and prints the
+ * DISTINCT line `QUICK VALIDATION: ALL PASSED`. Only the full gate's
+ * `VALIDATION: ALL PASSED` counts as release evidence. The full step list
+ * below is untouched.
  */
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -20,6 +26,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const QUICK = process.argv.includes('--quick');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const env = {
   ...process.env,
@@ -53,7 +60,12 @@ const steps = [
   { name: 'cargo check', cmd: 'cargo', args: ['check'], cwd: path.join(root, 'src-tauri') },
 ];
 
-for (const step of steps) {
+// SPEC33 §1.1: the quick tier runs the first three steps only; the `steps`
+// array above (the full gate's step list) is deliberately untouched.
+const QUICK_STEPS = new Set(['typecheck', 'unit tests', 'e2e tests (desktop shim)']);
+const runSteps = QUICK ? steps.filter((s) => QUICK_STEPS.has(s.name)) : steps;
+
+for (const step of runSteps) {
   console.log(`\n=== validate: ${step.name} ===`);
   const res = spawnSync(step.cmd, step.args, {
     cwd: step.cwd ?? root,
@@ -64,6 +76,11 @@ for (const step of steps) {
     console.error(`\nVALIDATION FAILED at step: ${step.name}`);
     process.exit(res.status ?? 1);
   }
+}
+
+if (QUICK) {
+  console.log('\nQUICK VALIDATION: ALL PASSED');
+  process.exit(0);
 }
 
 console.log('\n=== validate: single-file check ===');

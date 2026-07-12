@@ -1,0 +1,147 @@
+# SPEC33 §2.2: the Windows follow-up. Run on demand against an existing
+# release tag (draft or published): test gate → signed NSIS build → append
+# the installer to that release, regenerate SHA256SUMS.txt over ALL assets,
+# add the windows platform to latest.json — and, if the release is already
+# published, re-dispatch the updater-manifest workflow so the rolling
+# pointer picks the windows entry up.
+#
+#   gh workflow run release-windows.yml -f tag=v0.4.0-alpha.1
+name: release-windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to add the Windows installer to (e.g. v0.4.0-alpha.1)'
+        required: true
+        type: string
+
+concurrency:
+  group: release-windows-${{ inputs.tag }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Resolve version from the tag
+        id: version
+        run: |
+          tag="${{ inputs.tag }}"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+      - name: Version check (tag matches the tree)
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          got=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
+          [ "$got" = "$v" ] || { echo "::error::package.json has $got, tag says $v"; exit 1; }
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: npm run validate
+
+  build-windows:
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm run tauri build -- --bundles nsis
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-nsis
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/nsis/*-setup.exe.sig
+          if-no-files-found: error
+
+  attach:
+    runs-on: ubuntu-latest
+    needs: [test, build-windows]
+    permissions:
+      contents: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+      VERSION: ${{ needs.test.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-nsis
+          path: nsis
+      - name: Append installer + refresh checksums and manifest
+        run: |
+          set -euo pipefail
+          # GitHub rewrites spaces to dots on upload; match that convention.
+          cd nsis
+          for f in *\ *; do [ -e "$f" ] && mv "$f" "${f// /.}"; done
+          cd ..
+          EXE=$(ls nsis/*-setup.exe)
+          SIG="$EXE.sig"
+
+          # Pull the release's existing assets, drop stale sums/manifest.
+          mkdir assets && cd assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY"
+          rm -f SHA256SUMS.txt latest.json
+          cp "../$EXE" .
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+
+          # latest.json: keep the darwin entry, add windows from the fresh sig.
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json -D old || true
+          node - "$VERSION" "$EXE" "$SIG" <<'EOF'
+          const { readFileSync, writeFileSync, existsSync } = require('fs');
+          const [version, exe, sig] = process.argv.slice(2);
+          const base = `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/download/${process.env.TAG}`;
+          const manifest = existsSync('old/latest.json')
+            ? JSON.parse(readFileSync('old/latest.json', 'utf8'))
+            : { version, notes: `Marky Mark ${version}`, pub_date: new Date().toISOString(), platforms: {} };
+          manifest.platforms['windows-x86_64'] = {
+            url: `${base}/${exe.split('/').pop()}`,
+            signature: readFileSync(sig, 'utf8').trim(),
+          };
+          writeFileSync('assets/latest.json', `${JSON.stringify(manifest, null, 2)}\n`);
+          console.log(readFileSync('assets/latest.json', 'utf8'));
+          EOF
+
+          # Upload: the new exe plus refreshed sums + manifest (clobber).
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "$EXE" assets/SHA256SUMS.txt assets/latest.json
+      - name: Advance the rolling updater pointer (published releases only)
+        run: |
+          draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+          if [ "$draft" = "false" ]; then
+            gh workflow run updater-manifest.yml --repo "$GITHUB_REPOSITORY" -f tag="$TAG"
+            echo "updater-manifest dispatched for $TAG"
+          else
+            echo "release still draft — the pointer advances on publish as usual"
+          fi

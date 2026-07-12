@@ -133,7 +133,9 @@ Either way it's a one-time step — the app opens normally afterwards.
 ## For developers
 
 Want to build from source, run the test suite, or contribute? Start with
-[CONTRIBUTING.md](CONTRIBUTING.md). The design docs live in
+[CONTRIBUTING.md](CONTRIBUTING.md) and the
+[developer workflow guide](docs/DEVELOPING.md) — which loop to use when,
+and the exact commands for each tier. The design docs live in
 [docs/](docs/) — [architecture](docs/ARCHITECTURE.md), the
 [delta specs](docs/specs/) that drove each milestone, and the
 [release process](docs/RELEASING.md).

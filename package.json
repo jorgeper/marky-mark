@@ -19,7 +19,11 @@
     "build:app": "tauri build --bundles app --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'",
     "clean:app": "bash scripts/deep-clean.sh",
     "install:app": "pkill -x marky-mark; rm -rf '/Applications/Marky Mark.app' && ditto 'src-tauri/target/release/bundle/macos/Marky Mark.app' '/Applications/Marky Mark.app' && open '/Applications/Marky Mark.app'",
-    "licenses": "node scripts/licenses.mjs"
+    "licenses": "node scripts/licenses.mjs",
+    "validate:quick": "node scripts/validate.mjs --quick",
+    "build:app:fast": "tauri build --debug --bundles app --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'",
+    "install:app:fast": "pkill -x marky-mark; rm -rf '/Applications/Marky Mark.app' && ditto 'src-tauri/target/debug/bundle/macos/Marky Mark.app' '/Applications/Marky Mark.app' && open '/Applications/Marky Mark.app'",
+    "ship:local": "npm run validate:quick && npm run build:app:fast && npm run install:app:fast"
   },
   "dependencies": {
     "@codemirror/commands": "^6.8.0",

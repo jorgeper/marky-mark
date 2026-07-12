@@ -1,8 +1,12 @@
 # Releasing Marky Mark
 
-Releases are cut from a tag, built by `.github/workflows/release.yml` (SPEC10
-§2), and land as a **draft** GitHub Release — nothing goes public until a
-human smoke-tests the draft and flips it. Versions are strict semver; the
+Releases are two-phase (SPEC33 §2): a tag builds **macOS + web** via
+`.github/workflows/release.yml` and lands as a **draft** GitHub Release —
+nothing goes public until a human smoke-tests the draft and flips it.
+**Windows follows on demand**: `gh workflow run release-windows.yml -f
+tag=vX.Y.Z` builds the NSIS installer against the tag, appends it to the
+same release, and refreshes SHA256SUMS.txt + latest.json (re-advancing
+the updater pointer if already published). Versions are strict semver; the
 pre-release identifier (`0.2.0-alpha.1`) is **never stripped**. The version
 lives in `package.json`, `src-tauri/tauri.conf.json`, and
 `src-tauri/Cargo.toml`, and moves only via `npm run release:prepare`. Tags
@@ -54,6 +58,11 @@ gh release download v0.2.0-alpha.2 -D /tmp/mm-smoke
 # ---- publish (the only irreversible step) -------------------------------------
 gh release edit v0.2.0-alpha.2 --draft=false --prerelease   # alpha/beta/rc
 gh release edit v1.0.0 --draft=false --latest               # stable releases
+
+# ---- Windows, whenever (SPEC33 §2.2) --------------------------------------------
+gh workflow run release-windows.yml -f tag=v0.2.0-alpha.2   # appends setup.exe
+gh run watch                                                # gate → NSIS → attach
+gh release view v0.2.0-alpha.2                              # exe + refreshed sums present
 
 # ---- other moves ---------------------------------------------------------------
 gh workflow run release.yml -f version=0.2.0-alpha.2   # dry-run: draft prerelease, no tag
