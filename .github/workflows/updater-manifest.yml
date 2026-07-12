@@ -31,10 +31,16 @@ jobs:
         run: |
           gh release download "$TAG" --pattern latest.json --dir manifest || {
             echo "::warning::$TAG has no latest.json (pre-SPEC19 release?) — nothing to advance"; exit 0; }
+          # --prerelease keeps it out of the `releases/latest` slot for good:
+          # --latest=false only breaks ties among FULL releases, and with every
+          # real release an alpha the rolling release was claiming "latest",
+          # hijacking the README's latest-release link.
           if ! gh release view updater > /dev/null 2>&1; then
-            gh release create updater --latest=false \
+            gh release create updater --latest=false --prerelease \
               --title "Updater manifest (rolling)" \
               --notes "Machine-consumed pointer for Check for Updates… — always mirrors the newest PUBLISHED release's latest.json. Not for humans; grab the newest release instead."
+          else
+            gh release edit updater --prerelease > /dev/null
           fi
           gh release upload updater manifest/latest.json --clobber
           echo "updater manifest advanced to $TAG"
