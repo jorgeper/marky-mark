@@ -97,6 +97,62 @@ reserved filename on Windows and would break checkout there) with events
 and self-close only — no
 fs, dialog, or opener permissions.
 
+## Updates: Check for Updates… (SPEC19)
+
+The desktop app updates itself from **GitHub Releases** via the official
+`tauri-plugin-updater` — no server of ours, strictly user-initiated.
+
+**The flow, end to end.** The menu item (app menu on macOS, Help on
+Windows) dispatches the `checkUpdates` command → `UpdateDialog` opens and
+calls through the `Platform.updates` seam (`check` /
+`downloadAndInstall(onProgress)` / `restart`). On desktop that seam wraps
+the updater and process plugins: the **Rust side** fetches the manifest,
+compares versions, downloads the platform bundle, **verifies it against
+the minisign public key baked into `tauri.conf.json`**, swaps the
+installed app, and relaunches. A tampered, corrupted, or wrong asset fails
+closed — GitHub is the host, but the signature is the trust anchor. The
+dialog walks checking → up-to-date / available (version + notes) →
+progress → restart, with dismissable error states (offline, bad manifest,
+bad signature) — never a crash, never a partial install.
+
+**The endpoint: a rolling release.** The app polls exactly one URL,
+`releases/download/updater/latest.json` on this repo — a release tagged
+`updater` that exists only as a machine-consumed pointer. The indirection
+exists because GitHub's `releases/latest` convenience skips pre-releases,
+which every alpha is. The pointer only ever advances on **publish**: the
+`updater-manifest` workflow (`on: release published/prereleased/released`,
+plus a manual `workflow_dispatch` recovery lever) copies the published
+release's `latest.json` onto the rolling release. Draft releases are
+therefore invisible to the updater, exactly like they're invisible to
+downloads — the human publish flip remains the single gate.
+
+**The pipeline half.** Release builds run with the signing key
+(`TAURI_SIGNING_PRIVATE_KEY` / `_PASSWORD` from Actions secrets;
+`bundle.createUpdaterArtifacts` in tauri.conf) and emit
+`Marky.Mark_<version>_universal.app.tar.gz` + `.sig` (macOS) and a signed
+NSIS installer (Windows). `scripts/updater-manifest.mjs` (pure, U42)
+composes `latest.json` — per-platform URLs into the versioned release's
+assets with the signature *contents* embedded. Key management: the private
+key lives only in Actions secrets and an out-of-repo backup; losing both
+means future updates can't be signed (users fall back to manual
+downloads). No private-key material may ever be committed.
+
+**The privacy invariant, restated.** The *webview* still makes zero
+network requests — its CSP, the sanitize layer, the static bundle scan,
+and the W4/W5 adversarial tests are unchanged and still enforced. The
+updater's network lives entirely in Rust, fires only on the user's
+explicit menu click, and speaks only to the two GitHub endpoints. No
+scheduled checks, no telemetry. `docs/security/assessment.md` carries the
+formal amendment.
+
+**Testing.** The shim implements `Platform.updates` as a mock driven by
+`window.__mmUpdate` (next result, recorded progress/installs/restarts) —
+E69 walks the full dialog flow, E70 proves failures are honest and
+recoverable; U41 pins the menu placement, U42 the manifest schema. The
+real network path is intentionally untestable in CI and is verified live:
+install release N, publish N+1, Check for Updates… must offer and install
+it.
+
 ## Windows build story
 
 The app code was Windows-portable from v1 (this seam, `Mod` hotkeys,
