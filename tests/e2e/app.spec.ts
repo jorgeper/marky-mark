@@ -284,13 +284,14 @@ test('E13: toolbar is minimal — one overflow menu with exactly Open/Save/Save 
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   const menu = page.getByTestId('app-menu');
+  await expect(menu.getByTestId('menu-new')).toBeVisible(); // SPEC21 §5.6 amendment
   await expect(menu.getByTestId('menu-open')).toBeVisible();
   await expect(menu.getByTestId('menu-save')).toBeVisible();
   await expect(menu.getByTestId('menu-save-as')).toBeVisible();
   await expect(menu.getByTestId('menu-help')).toBeVisible();
   await expect(menu.getByTestId('menu-about')).toBeVisible();
   await expect(menu.getByTestId('menu-settings')).toBeVisible();
-  await expect(menu.locator('button')).toHaveCount(6); // exactly these six (SPEC4 §5.2 + SPEC10 §6)
+  await expect(menu.locator('button')).toHaveCount(7); // exactly these seven (SPEC4 §5.2 + SPEC10 §6 + SPEC21)
   await page.keyboard.press('Escape');
   await revealToolbar(page);
   await page.getByTestId('docname').click(); // close menu
@@ -2234,4 +2235,84 @@ test('E77: image resize works in the split-edit live preview, and the rewrite la
   // split preview still shows both the image and the sentence after it.
   await expect(img).toBeVisible();
   await expect(page.getByTestId('split-preview')).toContainText('A line right after the image.');
+});
+
+test('E78: splash advertises ⌘N; New… is save-dialog-first — the empty file opens in edit mode; cancel is a no-op', async ({
+  page,
+}) => {
+  // Pristine launch (like E1): the splash shows both hints with live combos.
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  const hint = page.getByTestId('empty-hint');
+  await expect(hint).toBeVisible();
+  await expect(hint).toContainText('⌘O'); // shim reports the host OS (mac)
+  await expect(hint).toContainText('to open one');
+  await expect(hint).toContainText('⌘N');
+  await expect(hint).toContainText('to create one');
+
+  // Cancelled save dialog ⇒ nothing happens, nothing is written.
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = null;
+  });
+  await page.keyboard.press('Control+n');
+  await expect(hint).toBeVisible();
+  expect(await page.evaluate(() => window.__mmfs!.list())).not.toContain('/docs/fresh.md');
+
+  // Chosen path ⇒ an EMPTY file exists on disk and opens in edit mode, clean.
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/fresh.md';
+  });
+  await page.keyboard.press('Control+n');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('docname')).toContainText('fresh.md');
+  await expect(page.getByTestId('docname')).toHaveAttribute('title', '/docs/fresh.md');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  expect(await fsRead(page, '/docs/fresh.md')).toBe('');
+});
+
+test('E79: New… with a dirty buffer runs the three-way guard; Cancel keeps everything (and drops the edit-mode intent); Don’t save opens the new file in edit mode', async ({
+  page,
+}) => {
+  // Dirty the welcome doc.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('DIRTYMARK ');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // New… → the file is created first, then the guard prompts.
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/one.md';
+  });
+  await page.keyboard.press('Control+n');
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  expect(await fsRead(page, '/docs/one.md')).toBe('');
+
+  // Cancel: still on the dirty welcome doc.
+  await page.getByTestId('open-cancel').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('docname')).toContainText('welcome.md');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // The abandoned New… must not leak edit mode into the next open: reopening
+  // welcome via Help (same path ⇒ no prompt) lands in preview as always.
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+
+  // Dirty again, New… again — Don’t save opens the new file in edit mode.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('DIRTYMARK ');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/two.md';
+  });
+  await page.keyboard.press('Control+n');
+  await page.getByTestId('open-discard').click();
+
+  await expect(page.getByTestId('docname')).toContainText('two.md');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  expect(await fsRead(page, '/docs/two.md')).toBe('');
+  // Don’t save really didn’t save: the discarded edit never reached disk.
+  expect(await fsRead(page, WELCOME)).not.toContain('DIRTYMARK');
 });

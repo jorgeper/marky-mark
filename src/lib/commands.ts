@@ -5,6 +5,7 @@
  */
 
 export type CommandId =
+  | 'newFile'
   | 'open'
   | 'save'
   | 'saveAs'

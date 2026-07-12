@@ -110,3 +110,20 @@ describe('v7 settings', () => {
     expect(parseSettings('{"splitRatio":1e999}').splitRatio).toBe(0.5); // parses to Infinity
   });
 });
+
+describe('SPEC21 settings', () => {
+  test('U48: newFile hotkey defaults to Mod+N, merges into pre-SPEC21 files, overrides round-trip', () => {
+    expect(parseSettings('{}').hotkeys.newFile).toBe('Mod+N');
+    // A settings file written before SPEC21 has no newFile key — it gains the
+    // default without disturbing the user's other bindings.
+    const old = parseSettings('{"hotkeys":{"save":"Mod+Shift+S"}}');
+    expect(old.hotkeys.newFile).toBe('Mod+N');
+    expect(old.hotkeys.save).toBe('Mod+Shift+S');
+    const round = parseSettings(
+      serializeSettings({ ...DEFAULT_SETTINGS, hotkeys: { ...DEFAULT_SETTINGS.hotkeys, newFile: 'Mod+Shift+N' } })
+    );
+    expect(round.hotkeys.newFile).toBe('Mod+Shift+N');
+    // Blank/invalid stored values fall back like every other hotkey.
+    expect(parseSettings('{"hotkeys":{"newFile":"  "}}').hotkeys.newFile).toBe('Mod+N');
+  });
+});

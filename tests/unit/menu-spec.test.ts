@@ -29,7 +29,8 @@ describe('SPEC12 menu spec', () => {
     expect(find(base, 'Marky Mark', 'settings')!.accelerator).toBe('Mod+,');
     expect(find(base, 'Marky Mark', 'close')!.label).toBe('Quit Marky Mark');
     const file = commandsIn(base, 'File').map((i) => i.command);
-    expect(file).toEqual(['open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']);
+    // SPEC21 §5.6 amendment: New… now leads the File menu.
+    expect(file).toEqual(['newFile', 'open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']);
     expect(find(base, 'File', 'close')!.label).toBe('Close Window');
     expect(commandsIn(base, 'Help').map((i) => i.command)).toEqual(['help']);
     // Edit: the predefined system items in the standard order, then the one
@@ -49,7 +50,8 @@ describe('SPEC12 menu spec', () => {
     const win = { ...base, isMac: false };
     expect(titles(win)).toEqual(['File', 'Edit', 'View', 'Help']);
     const file = commandsIn(win, 'File').map((i) => i.command);
-    expect(file).toEqual(['open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']);
+    // SPEC21 §5.6 amendment: New… now leads the File menu.
+    expect(file).toEqual(['newFile', 'open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']);
     expect(find(win, 'File', 'close')!.label).toBe('Exit');
     expect(find(win, 'File', 'settings')!.accelerator).toBe('Mod+,');
     expect(commandsIn(win, 'Help').map((i) => i.command)).toEqual(['help', 'about', 'checkUpdates']);
@@ -143,5 +145,19 @@ describe('SPEC12 menu spec', () => {
       expect(item.label).toBe('Check for Updates…');
       expect(item.accelerator).toBeUndefined();
     }
+  });
+
+  test('U47: File starts with New… then Open… on both layouts; the accelerator follows rebinds', () => {
+    expect(DEFAULT_HOTKEYS.newFile).toBe('Mod+N');
+    for (const s of [base, { ...base, isMac: false }]) {
+      const file = commandsIn(s, 'File').map((i) => i.command);
+      expect(file.indexOf('newFile')).toBe(0);
+      expect(file.indexOf('open')).toBe(1);
+      expect(find(s, 'File', 'newFile')!.label).toBe('New…');
+      expect(find(s, 'File', 'newFile')!.accelerator).toBe(DEFAULT_HOTKEYS.newFile);
+    }
+    const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, newFile: 'Mod+Shift+N' } };
+    expect(find(rebound, 'File', 'newFile')!.accelerator).toBe('Mod+Shift+N');
+    expect(find(rebound, 'File', 'open')!.accelerator).toBe(DEFAULT_HOTKEYS.openFile);
   });
 });

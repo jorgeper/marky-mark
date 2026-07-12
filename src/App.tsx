@@ -132,6 +132,9 @@ export default function App() {
   const unwatchRef = useRef<(() => void) | null>(null);
   /** Source line carried across mode switches (line-anchored, not ratio). */
   const pendingScrollLineRef = useRef<number | null>(null);
+  // SPEC21 §1.3: a just-created file opens in edit mode; openDoc consumes this
+  // (it survives the unsaved-changes prompt; cancelling the prompt clears it).
+  const pendingEditModeRef = useRef(false);
 
   const dirty = buffer !== savedText;
   // SPEC12 §2.3: a platform that owns a native menu gets no in-app header.
@@ -349,7 +352,8 @@ export default function App() {
     setPositions({});
     setActiveId(null);
     setPending(null);
-    setMode('preview');
+    setMode(pendingEditModeRef.current ? 'edit' : 'preview');
+    pendingEditModeRef.current = false;
     setShowDiff(false); // SPEC16 §2: the diff toggle resets per document
     setDiff(null);
 
@@ -646,6 +650,23 @@ export default function App() {
     if (path) openDocGuarded(p, path);
   }, [openDocGuarded]);
 
+  /**
+   * File → New… (SPEC21 §1): save-dialog-first — pick a location, write an
+   * empty file, open it in edit mode through the normal guard. No untitled
+   * in-memory state: every open document keeps a real path.
+   */
+  const newViaDialog = useCallback(async () => {
+    const p = stateRef.current.platform;
+    if (!p?.saveFileDialog) return;
+    const target = await p.saveFileDialog('Untitled.md');
+    if (!target) return;
+    // No commitFile: on web that would download an empty file — the first
+    // real Save commits it (the handle-less path is a normal unsaved doc).
+    await p.writeTextFile(target, '');
+    pendingEditModeRef.current = true;
+    openDocGuarded(p, target);
+  }, [openDocGuarded]);
+
   /** Help (SPEC4 §5): open the welcome doc like any file — guard included. */
   const openHelp = useCallback(async () => {
     const p = stateRef.current.platform;
@@ -788,6 +809,7 @@ export default function App() {
   // toolbar (web), the native menu (desktop), and the hotkey listener.
   useEffect(() => {
     registerCommands({
+      newFile: () => void newViaDialog(),
       open: () => void openViaDialog(),
       save: () => void saveDoc(),
       saveAs: () => void saveDocAs(),
@@ -866,7 +888,7 @@ export default function App() {
         })();
       },
     });
-  }, [openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage]);
+  }, [newViaDialog, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage]);
 
   // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
   useEffect(() => {
@@ -982,6 +1004,9 @@ export default function App() {
       } else if (eventMatches(e, hk.save)) {
         e.preventDefault();
         dispatchCommand('save', 'hotkey');
+      } else if (eventMatches(e, hk.newFile)) {
+        e.preventDefault();
+        dispatchCommand('newFile', 'hotkey');
       } else if (eventMatches(e, hk.openFile)) {
         e.preventDefault();
         dispatchCommand('open', 'hotkey');
@@ -1550,6 +1575,7 @@ export default function App() {
               isMac={platform.isMac}
               onToggleMode={() => dispatchCommand('toggleMode')}
               onToggleComments={() => dispatchCommand('toggleComments')}
+              onNewFile={() => dispatchCommand('newFile')}
               onOpenFile={() => dispatchCommand('open')}
               onSave={() => dispatchCommand('save')}
               onSaveAs={() => dispatchCommand('saveAs')}
@@ -1578,6 +1604,9 @@ export default function App() {
                   <p>Drag a markdown file here</p>
                   <p className="empty-sub">
                     — or press <kbd>{displayCombo(settings.hotkeys.openFile, platform.isMac)}</kbd> to open one
+                  </p>
+                  <p className="empty-sub">
+                    — or <kbd>{displayCombo(settings.hotkeys.newFile, platform.isMac)}</kbd> to create one
                   </p>
                 </div>
               </div>
@@ -1851,7 +1880,13 @@ export default function App() {
               {platform.basename(openPrompt)}”?
             </p>
             <div className="actions">
-              <button data-testid="open-cancel" onClick={() => setOpenPrompt(null)}>
+              <button
+                data-testid="open-cancel"
+                onClick={() => {
+                  setOpenPrompt(null);
+                  pendingEditModeRef.current = false; // SPEC21 §1.3: abandoned New… must not leak edit mode
+                }}
+              >
                 Cancel
               </button>
               <button

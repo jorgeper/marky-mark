@@ -7,6 +7,7 @@
 
 export interface HotkeyMap {
   toggleEdit: string;
+  newFile: string;
   openFile: string;
   toggleComments: string;
   save: string;
@@ -18,6 +19,7 @@ export interface HotkeyMap {
 
 export const DEFAULT_HOTKEYS: HotkeyMap = {
   toggleEdit: 'Mod+E',
+  newFile: 'Mod+N',
   openFile: 'Mod+O',
   toggleComments: 'Mod+Shift+C',
   save: 'Mod+S',

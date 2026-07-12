@@ -154,6 +154,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
         {
           title: 'File',
           items: [
+            // SPEC21 §3.1: save-dialog-first New… — every document has a real path.
+            cmd('newFile', 'New…', s.hotkeys.newFile),
             cmd('open', 'Open…', s.hotkeys.openFile),
             sep,
             cmd('save', 'Save', s.hotkeys.save),
@@ -177,6 +179,7 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
       {
         title: 'File',
         items: [
+          cmd('newFile', 'New…', s.hotkeys.newFile),
           cmd('open', 'Open…', s.hotkeys.openFile),
           sep,
           cmd('save', 'Save', s.hotkeys.save),
