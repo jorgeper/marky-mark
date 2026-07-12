@@ -57,8 +57,20 @@ export function applyImageRewrite(
 ): { text: string; newEnd: number } | null {
   const replacement = rewriteImageSpan(source.slice(start, end), parts, width);
   if (replacement === null) return null;
+  // A line-leading <img …> starts a CommonMark HTML block that swallows every
+  // following line until a blank one — the image (and the swallowed text)
+  // would vanish from the render. Guarantee the blank line.
+  let suffix = '';
+  const atLineStart = start === 0 || source[start - 1] === '\n';
+  if (atLineStart) {
+    const after = source.slice(end);
+    if (after !== '' && after !== '\n') {
+      if (!after.startsWith('\n')) suffix = '\n\n'; // trailing text on the same line
+      else if (after[1] !== '\n') suffix = '\n'; // next line is not blank
+    }
+  }
   return {
-    text: source.slice(0, start) + replacement + source.slice(end),
+    text: source.slice(0, start) + replacement + suffix + source.slice(end),
     newEnd: start + replacement.length,
   };
 }

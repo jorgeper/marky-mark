@@ -15,6 +15,7 @@ export type CommandId =
   | 'nextComment'
   | 'prevComment'
   | 'toggleDiff'
+  | 'insertImage'
   | 'headingPalette'
   | 'toggleWordCount'
   | 'settings'

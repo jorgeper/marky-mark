@@ -57,6 +57,10 @@ export interface Platform {
    * web leaves it undefined — paste there shows the needs-desktop notice.
    */
   writeBinaryFile?(path: string, bytes: Uint8Array): Promise<void>;
+  /** SPEC20 follow-up (Insert Image…): pick an image file; null = cancelled. */
+  openImageDialog?(): Promise<string | null>;
+  /** SPEC20 follow-up: copy a file, creating the destination's parents. */
+  copyFile?(src: string, dest: string): Promise<void>;
 
   /**
    * Web only: flush an explicit user Save for handle-less files (download

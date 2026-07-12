@@ -73,14 +73,32 @@ describe('SPEC20 §4 image source spans and rewrite', () => {
     // Width removal on plain markdown syntax: nothing to remove — no-op.
     expect(rewriteImageSpan('![pic](a.png)', { src: 'a.png', alt: 'pic' }, null)).toBeNull();
 
-    // applyImageRewrite splices the document and reports the new span end.
+    // applyImageRewrite splices the document and reports the new span end. A
+    // line-leading <img> starts an HTML block that eats lines until a blank
+    // one, so the splice guarantees a blank line after the tag.
     const doc = 'before\n![pic](a.png)\nafter';
     const start = doc.indexOf('![pic]');
     const end = start + '![pic](a.png)'.length;
     const res = applyImageRewrite(doc, start, end, { src: 'a.png', alt: 'pic' }, 120);
     expect(res).not.toBeNull();
-    expect(res!.text).toBe('before\n<img src="a.png" alt="pic" width="120">\nafter');
+    expect(res!.text).toBe('before\n<img src="a.png" alt="pic" width="120">\n\nafter');
     expect(res!.text.slice(start, res!.newEnd)).toBe('<img src="a.png" alt="pic" width="120">');
+    // Already followed by a blank line (or EOF): nothing extra inserted.
+    expect(applyImageRewrite('![p](a.png)\n\ntext', 0, 11, { src: 'a.png', alt: 'p' }, 99)!.text).toBe(
+      '<img src="a.png" alt="p" width="99">\n\ntext'
+    );
+    expect(applyImageRewrite('![p](a.png)\n', 0, 11, { src: 'a.png', alt: 'p' }, 99)!.text).toBe(
+      '<img src="a.png" alt="p" width="99">\n'
+    );
+    // Trailing text on the same line gets pushed past a blank line too.
+    expect(applyImageRewrite('![p](a.png) tail', 0, 11, { src: 'a.png', alt: 'p' }, 99)!.text).toBe(
+      '<img src="a.png" alt="p" width="99">\n\n tail'
+    );
+    // Mid-line images render inline — no blank-line surgery.
+    const inlineDoc = 'text ![p](a.png) more';
+    expect(applyImageRewrite(inlineDoc, 5, 16, { src: 'a.png', alt: 'p' }, 99)!.text).toBe(
+      'text <img src="a.png" alt="p" width="99"> more'
+    );
     // No-op path returns null and leaves the document to the caller untouched.
     expect(applyImageRewrite(doc, start, end, { src: 'a.png', alt: 'pic' }, null)).toBeNull();
   });

@@ -163,6 +163,18 @@ export async function createTauriPlatform(): Promise<Platform> {
       await this.mkdirp(this.dirname(path));
       await fsp.writeFile(path, bytes);
     },
+    async openImageDialog() {
+      const picked = await dialog.open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] }],
+      });
+      return typeof picked === 'string' ? picked : null;
+    },
+    async copyFile(src, dest) {
+      await this.mkdirp(this.dirname(dest));
+      await fsp.copyFile(src, dest);
+    },
 
     resolveAssetSrc(src, docDir) {
       // SPEC11 §1.3: remote URLs no longer pass through (the renderer already

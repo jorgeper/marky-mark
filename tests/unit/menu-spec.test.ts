@@ -32,11 +32,12 @@ describe('SPEC12 menu spec', () => {
     expect(file).toEqual(['open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']);
     expect(find(base, 'File', 'close')!.label).toBe('Close Window');
     expect(commandsIn(base, 'Help').map((i) => i.command)).toEqual(['help']);
-    // Edit is entirely predefined system items, in the standard order.
+    // Edit: the predefined system items in the standard order, then the one
+    // app command (SPEC20 follow-up: Insert Image…).
     const edit = buildMenuSpec(base).submenus.find((m) => m.title === 'Edit')!;
-    expect(edit.items.every((i) => i.type === 'predefined')).toBe(true);
     const editKinds = edit.items.flatMap((i) => (i.type === 'predefined' && i.item !== 'Separator' ? [i.item] : []));
     expect(editKinds).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'SelectAll']);
+    expect(commandsIn(base, 'Edit').map((i) => i.command)).toEqual(['insertImage']);
     // View ends with Full Screen on mac; Window menu is predefined-only.
     const view = buildMenuSpec(base).submenus.find((m) => m.title === 'View')!;
     expect(view.items.some((i) => i.type === 'predefined' && i.item === 'Fullscreen')).toBe(true);

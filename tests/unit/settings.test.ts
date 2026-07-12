@@ -5,7 +5,7 @@ describe('v3 settings', () => {
   test('U13: new fields parse with defaults, invalid values fall back, legacy `theme` migrates to themeLight', () => {
     // Empty/malformed input → full defaults.
     const d = parseSettings('{}');
-    expect(d.themeLight).toBe('crisp-mono');
+    expect(d.themeLight).toBe('crisp');
     expect(d.themeDark).toBe('one-dark');
     expect(d.useDarkTheme).toBe(true);
     expect(d.fontSize).toBe(12);
@@ -71,11 +71,12 @@ describe('v3 settings', () => {
 
 describe('v7 settings', () => {
   test('U15: comment controls and split-edit fields parse with defaults; malformed values fall back', () => {
-    // Defaults (SPEC7): comments on, type-to-comment on, split off, ratio 0.5.
+    // Defaults: comments on, type-to-comment on, split ON (owner call,
+    // SPEC20 follow-up — was off in SPEC7), ratio 0.5.
     const d = parseSettings('{}');
     expect(d.commentsEnabled).toBe(true);
     expect(d.typeToComment).toBe(true);
-    expect(d.splitEdit).toBe(false);
+    expect(d.splitEdit).toBe(true);
     expect(d.splitRatio).toBe(0.5);
 
     // Explicit values round-trip through serialize → parse.
@@ -98,7 +99,8 @@ describe('v7 settings', () => {
     // Malformed booleans fall back to their defaults.
     expect(parseSettings('{"commentsEnabled":"no"}').commentsEnabled).toBe(true);
     expect(parseSettings('{"typeToComment":0}').typeToComment).toBe(true);
-    expect(parseSettings('{"splitEdit":"yes"}').splitEdit).toBe(false);
+    expect(parseSettings('{"splitEdit":"yes"}').splitEdit).toBe(true); // falls back to the (on) default
+    expect(parseSettings('{"splitEdit":false}').splitEdit).toBe(false); // explicit off is honored
 
     // splitRatio clamps to [0.2, 0.8]; non-finite/non-number falls back to 0.5.
     expect(parseSettings('{"splitRatio":0.05}').splitRatio).toBe(0.2);

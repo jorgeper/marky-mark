@@ -81,7 +81,19 @@ const cmd = (command: CommandId, label: string, accelerator?: string, checked?: 
 export function buildMenuSpec(s: MenuState): MenuSpec {
   const editMenu: SubmenuSpec = {
     title: 'Edit',
-    items: [pre('Undo'), pre('Redo'), sep, pre('Cut'), pre('Copy'), pre('Paste'), pre('SelectAll')],
+    items: [
+      pre('Undo'),
+      pre('Redo'),
+      sep,
+      pre('Cut'),
+      pre('Copy'),
+      pre('Paste'),
+      pre('SelectAll'),
+      sep,
+      // SPEC20 follow-up: pick an image file, copy it into the images folder
+      // next to the doc, reference it at the cursor (edit mode).
+      cmd('insertImage', 'Insert Image…'),
+    ],
   };
 
   const viewMenu: SubmenuSpec = {

@@ -51,7 +51,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  themeLight: 'crisp-mono',
+  themeLight: 'crisp',
   themeDark: 'one-dark',
   useDarkTheme: true,
   fontSize: 12,
@@ -64,7 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showResolved: true,
   commentsEnabled: true,
   typeToComment: true,
-  splitEdit: false,
+  splitEdit: true,
   splitRatio: 0.5,
   author: 'Reviewer',
   autosaveOnToggle: false,
@@ -128,7 +128,7 @@ export function parseSettings(json: string): Settings {
     showResolved: typeof o.showResolved === 'boolean' ? o.showResolved : DEFAULT_SETTINGS.showResolved,
     commentsEnabled: typeof o.commentsEnabled === 'boolean' ? o.commentsEnabled : DEFAULT_SETTINGS.commentsEnabled,
     typeToComment: typeof o.typeToComment === 'boolean' ? o.typeToComment : DEFAULT_SETTINGS.typeToComment,
-    splitEdit: o.splitEdit === true,
+    splitEdit: typeof o.splitEdit === 'boolean' ? o.splitEdit : DEFAULT_SETTINGS.splitEdit,
     splitRatio:
       typeof o.splitRatio === 'number' && Number.isFinite(o.splitRatio)
         ? Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, o.splitRatio))

@@ -57,7 +57,7 @@ test('E2: Settings lists the 7 built-in themes; Monokai changes the background; 
   }
 
   const before = await page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(before).toBe('rgb(254, 254, 254)'); // Crisp Mono default (#fefefe)
+  expect(before).toBe('rgb(255, 255, 255)'); // Crisp default (#ffffff)
 
   await select.selectOption('monokai');
   await expect
@@ -423,7 +423,7 @@ test('E19: customized font size applies to the document; Auto restores the theme
   await page.getByTestId('fontsize-auto').check();
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
-    .toBe('15px'); // Crisp Mono's --mm-font-size
+    .toBe('16px'); // Crisp's --mm-font-size
 });
 
 test('E20: zoom scales only the document text — the settings UI keeps its size; Reset restores 100%', async ({
@@ -776,9 +776,12 @@ test('E31: the edit-mode text column aligns with the preview column', async ({ p
       .evaluate((el) => el.getBoundingClientRect().left + parseFloat(getComputedStyle(el).paddingLeft));
   const editorTextLeft = () => page.locator('.cm-line').first().evaluate((el) => el.getBoundingClientRect().left);
 
-  // Exact alignment with the gutter off.
+  // Exact alignment with the gutter off — in FULL-SCREEN edit (this test is
+  // about the swap alignment; split edit is the default now and has its own
+  // geometry, so switch it off here).
   await openSettings(page, 'general');
   await page.getByTestId('settings-line-numbers').uncheck();
+  await page.getByTestId('set-split-edit').uncheck();
   await page.getByTestId('settings-close').click();
 
   const p1 = await previewTextLeft();
@@ -2170,4 +2173,65 @@ test('E75: double-click removes the width (back to natural size); Escape deselec
   // Width removal persisted to the source (tag stays HTML, no width attr).
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('<img src="pic.png" alt="p">');
+});
+
+test('E76: Insert Image… (menu) copies the picked file into the images folder and references it at the cursor', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+
+  // In preview the command only nudges toward edit mode.
+  await menuClick(page, 'insertImage');
+  await expect(page.getByTestId('notice')).toContainText('edit mode');
+
+  // Seed a picture elsewhere in the virtual fs, then insert it in edit mode.
+  await fsWrite(page, '/docs/downloads/logo.png', `data:image/png;base64,${TINY_PNG}`);
+  await menuClick(page, 'toggleMode');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  page.once('dialog', (d) => void d.accept('/docs/downloads/logo.png'));
+  await menuClick(page, 'insertImage');
+
+  // Copied next to the doc under the configured folder, referenced at cursor.
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('![logo](images/logo.png)');
+  expect(await fsRead(page, '/docs/images/logo.png')).toContain('data:image/png');
+
+  // Picking a file already inside the folder references it without recopying.
+  page.once('dialog', (d) => void d.accept('/docs/images/logo.png'));
+  await menuClick(page, 'insertImage');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('![logo](images/logo.png)!');
+  const files = await page.evaluate(() => window.__mmfs!.list());
+  expect(files.filter((f) => f.startsWith('/docs/images/'))).toEqual(['/docs/images/logo.png']);
+});
+
+test('E77: image resize works in the split-edit live preview, and the rewrite lands in the editor buffer', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/pic.png', `data:image/png;base64,${WIDE_PNG}`);
+  await fsWrite(page, '/docs/pic.md', '# Pic\n\n![p](pic.png)\nA line right after the image.\n');
+  await page.goto('/#open=/docs/pic.md');
+  await expect(page.getByTestId('doc').locator('img[alt="p"]')).toBeVisible();
+
+  // Split edit is the default mode; the live preview renders the image.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  const img = page.getByTestId('split-preview').locator('img[alt="p"]');
+  await expect(img).toBeVisible();
+
+  // Click → handles; drag the SE corner left → width persists in the buffer.
+  await img.click();
+  await expect(page.getByTestId('img-resize-overlay')).toBeVisible();
+  const handle = await page.getByTestId('img-handle-se').boundingBox();
+  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle!.x - 60, handle!.y + handle!.height / 2, { steps: 5 });
+  await page.mouse.up();
+
+  const content = page.getByTestId('editor').locator('.cm-content');
+  await expect(content).toContainText('<img src="pic.png" alt="p" width="');
+  // The blank-line rule kept the following text out of the HTML block: the
+  // split preview still shows both the image and the sentence after it.
+  await expect(img).toBeVisible();
+  await expect(page.getByTestId('split-preview')).toContainText('A line right after the image.');
 });

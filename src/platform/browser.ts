@@ -328,6 +328,18 @@ export function createBrowserPlatform(): Platform {
       window.close();
     },
 
+    /** SPEC20 follow-up: Insert Image… — prompt-driven like openFileDialog. */
+    async openImageDialog() {
+      const path = window.prompt('Insert image (virtual path):', '/docs/images/');
+      if (!path) return null;
+      return fs.exists(path) ? normalize(path) : null;
+    },
+    async copyFile(src, dest) {
+      const content = fs.read(src);
+      if (content === null) throw new Error(`ENOENT: ${src}`);
+      fs.write(dest, content);
+    },
+
     /**
      * SPEC20 §3: pasted images live in the virtual fs as data: URIs, so the
      * shim preview renders them for real and e2e can assert on the pixels.

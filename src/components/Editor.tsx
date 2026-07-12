@@ -45,6 +45,8 @@ interface Props {
    * inserted text is.
    */
   onPasteImages?(files: File[]): Promise<string | null>;
+  /** Imperative insert-at-cursor for menu-driven insertions (Insert Image…). */
+  insertRef?: MutableRefObject<((text: string) => void) | null>;
 }
 
 /**
@@ -72,7 +74,7 @@ function diffDecorations(view: EditorView, diff: DiffLineSets): DecorationSet {
   return builder.finish();
 }
 
-export default function Editor({ value, lineNumbers: showLineNumbers, onChange, historyRef, syncRef, diff, onPasteImages }: Props) {
+export default function Editor({ value, lineNumbers: showLineNumbers, onChange, historyRef, syncRef, diff, onPasteImages, insertRef }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const gutterComp = useRef(new Compartment());
@@ -137,6 +139,14 @@ export default function Editor({ value, lineNumbers: showLineNumbers, onChange, 
     viewRef.current = view;
     view.focus();
 
+    if (insertRef) {
+      insertRef.current = (text) => {
+        const { from, to } = view.state.selection.main;
+        view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length } });
+        view.focus();
+      };
+    }
+
     if (syncRef) {
       const dom = view.scrollDOM;
       syncRef.current = {
@@ -170,6 +180,7 @@ export default function Editor({ value, lineNumbers: showLineNumbers, onChange, 
 
     return () => {
       if (syncRef) syncRef.current = null;
+      if (insertRef) insertRef.current = null;
       historyRef.current = view.state.toJSON({ history: historyField });
       view.destroy();
       viewRef.current = null;

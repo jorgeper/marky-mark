@@ -682,6 +682,8 @@ mark.hl.ghost {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  /* SPEC20 §4.2 (split): offset parent for the image-resize overlay. */
+  position: relative;
 }
 
 .split-preview .doc {

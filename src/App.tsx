@@ -28,7 +28,7 @@ import { UpdateDialog } from './components/UpdateDialog';
 import { diffLineSets, type DiffLineSets } from './lib/diffLines';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
 import { countWords } from './lib/wordCount';
-import { expandImageName, extForMime, imageMarkdownRef } from './lib/imagePaste';
+import { expandImageName, extForMime, imageMarkdownRef, sanitizeImageName } from './lib/imagePaste';
 import { applyImageRewrite } from './lib/imageResize';
 import { HeadingPalette, type PaletteHeading } from './components/HeadingPalette';
 import {
@@ -115,6 +115,7 @@ export default function App() {
 
   const docRef = useRef<HTMLDivElement>(null);
   const splitDocRef = useRef<HTMLDivElement>(null);
+  const splitPreviewRef = useRef<HTMLDivElement>(null);
   // Parked CodeMirror state (doc + undo history), so toggling preview↔edit
   // never loses undo (SPEC7 §6). Reset when another document opens.
   const editorHistoryRef = useRef<unknown>(null);
@@ -125,6 +126,7 @@ export default function App() {
   const docTextRef = useRef('');
   const navLabelRef = useRef('');
   const editorSyncRef = useRef<EditorSyncHandle | null>(null);
+  const editorInsertRef = useRef<((text: string) => void) | null>(null);
   const positionsRef = useRef<PositionStore>({ version: 1, entries: [] });
   const skipSaveRef = useRef(true);
   const unwatchRef = useRef<(() => void) | null>(null);
@@ -231,6 +233,54 @@ export default function App() {
     setBuffer(res.text);
     return { start: req.start, end: res.newEnd };
   }, []);
+
+  /**
+   * SPEC20 follow-up: Insert Image… — pick an image file, copy it into the
+   * images folder next to the doc (unless it already lives there), reference
+   * it at the cursor. Edit mode only; the notices explain everything else.
+   */
+  const insertImage = useCallback(async () => {
+    const s = stateRef.current;
+    const p = s.platform;
+    if (!p) return;
+    if (!p.openImageDialog || !p.copyFile) {
+      showNotice('Insert Image needs the desktop app');
+      return;
+    }
+    if (s.mode !== 'edit') {
+      showNotice(`Insert Image works in edit mode — ${displayCombo(s.settings.hotkeys.toggleEdit, p.isMac)} first`);
+      return;
+    }
+    if (!s.docPath) {
+      showNotice('Save the document first to insert images');
+      return;
+    }
+    const picked = await p.openImageDialog();
+    if (!picked) return;
+    const folder = s.settings.imageFolder;
+    const folderPath = p.join(p.dirname(s.docPath), folder);
+    try {
+      let fileName: string;
+      if (p.dirname(picked) === folderPath) {
+        fileName = p.basename(picked); // already in the folder — just reference it
+      } else {
+        const base = p.basename(picked);
+        const dot = base.lastIndexOf('.');
+        const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : 'png';
+        const stem = sanitizeImageName(dot > 0 ? base.slice(0, dot) : base);
+        const taken = new Set((await p.readDirNames(folderPath)).map((n) => n.toLowerCase()));
+        fileName = expandImageName(stem, ext, {
+          docName: '',
+          now: new Date(),
+          exists: (fn) => taken.has(fn.toLowerCase()),
+        });
+        await p.copyFile(picked, p.join(folderPath, fileName));
+      }
+      editorInsertRef.current?.(imageMarkdownRef(folder, fileName));
+    } catch (err) {
+      showNotice(`Couldn’t insert the image: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }, [showNotice]);
 
   /** Read a doc file and its comments from both stores (trailer wins by id). */
   const loadDocParts = useCallback(async (p: Platform, path: string) => {
@@ -754,6 +804,7 @@ export default function App() {
         if (stateRef.current.platform?.updates) setUpdateOpen(true);
       },
       toggleDiff: () => setShowDiff((v) => !v),
+      insertImage: () => void insertImage(),
       toggleWordCount: () => {
         const s = stateRef.current.settings;
         updateSettings({ ...s, showWordCount: !s.showWordCount });
@@ -815,7 +866,7 @@ export default function App() {
         })();
       },
     });
-  }, [openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment]);
+  }, [openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage]);
 
   // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
   useEffect(() => {
@@ -1163,6 +1214,7 @@ export default function App() {
       el.querySelectorAll('img').forEach((img) => {
         const src = img.getAttribute('src');
         if (!src) return;
+        img.dataset.mmOriginalSrc = src; // SPEC20 §4.2: resize writes this back
         const resolved = p.resolveAssetSrc(src, dir);
         if (resolved) img.src = resolved;
         else img.removeAttribute('src');
@@ -1644,6 +1696,7 @@ export default function App() {
                 syncRef={editorSyncRef}
                 diff={diff}
                 onPasteImages={pasteImages}
+                insertRef={editorInsertRef}
               />
             </Suspense>
           </div>
@@ -1653,7 +1706,14 @@ export default function App() {
             onPointerDown={dragDivider}
             onDoubleClick={() => updateSettings({ ...stateRef.current.settings, splitRatio: 0.5 })}
           />
-          <div className="split-preview" data-testid="split-preview">
+          <div className="split-preview" data-testid="split-preview" ref={splitPreviewRef}>
+            <ImageResizer
+              active={settings.splitEdit}
+              docRef={splitDocRef}
+              workspaceRef={splitPreviewRef}
+              html={html}
+              onRewrite={rewriteImage}
+            />
             <div className="doc" ref={splitDocRef} />
           </div>
         </div>
@@ -1668,6 +1728,7 @@ export default function App() {
               syncRef={editorSyncRef}
               diff={diff}
               onPasteImages={pasteImages}
+              insertRef={editorInsertRef}
             />
           </Suspense>
         </div>
