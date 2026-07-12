@@ -1,8 +1,34 @@
-import { useEffect, useRef, type MutableRefObject } from 'react';
-import { Decoration, EditorView, keymap, lineNumbers, highlightActiveLine, type DecorationSet } from '@codemirror/view';
-import { Compartment, EditorState, RangeSetBuilder } from '@codemirror/state';
-import { defaultKeymap, history, historyField, historyKeymap } from '@codemirror/commands';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import {
+  Decoration,
+  drawSelection,
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLine,
+  type DecorationSet,
+} from '@codemirror/view';
+import { Compartment, EditorState, Prec, RangeSetBuilder } from '@codemirror/state';
+import {
+  cursorCharLeft,
+  cursorCharRight,
+  cursorDocEnd,
+  cursorDocStart,
+  cursorGroupBackward,
+  cursorGroupForward,
+  cursorLineDown,
+  cursorLineEnd,
+  cursorLineStart,
+  cursorLineUp,
+  defaultKeymap,
+  history,
+  historyField,
+  historyKeymap,
+} from '@codemirror/commands';
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
 import { markdown } from '@codemirror/lang-markdown';
+import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
 import type { DiffLineSets } from '../lib/diffLines';
 
 /**
@@ -47,7 +73,45 @@ interface Props {
   onPasteImages?(files: File[]): Promise<string | null>;
   /** Imperative insert-at-cursor for menu-driven insertions (Insert Image…). */
   insertRef?: MutableRefObject<((text: string) => void) | null>;
+  /** SPEC23 §3: markdown syntax highlighting (live-reconfigured, no remount). */
+  syntax: boolean;
+  /** SPEC23 §2: the vimNav setting — off ⇒ Esc stays inert, zero new behavior. */
+  vimNav: boolean;
+  /** SPEC23 §2/§4: nav-mode transitions (badge is internal; this feeds the seam). */
+  onVimModeChange?(nav: boolean): void;
+  /** SPEC23 §4: cursor/selection reports for the dev-shim __mmEdit seam. */
+  onEditState?(s: { head: number; headLine: number; selFrom: number; selTo: number; selText: string }): void;
+  /**
+   * SPEC23 §1: imperative select-source-range for mirrored preview
+   * selections — sets the CM selection and scrolls it into view WITHOUT
+   * focusing the editor (the preview selection must survive).
+   */
+  selectRangeRef?: MutableRefObject<((from: number, to: number) => void) | null>;
 }
+
+/**
+ * SPEC23 §3: Lezer tags → mm-md-* classes; colors/weights live in styles.css
+ * on theme CSS variables, so every theme drives the palette untouched.
+ */
+const mmHighlight = HighlightStyle.define([
+  { tag: tags.heading1, class: 'mm-md-h1' },
+  { tag: tags.heading2, class: 'mm-md-h2' },
+  { tag: tags.heading3, class: 'mm-md-h3' },
+  { tag: tags.heading4, class: 'mm-md-h4' },
+  { tag: tags.heading5, class: 'mm-md-h5' },
+  { tag: tags.heading6, class: 'mm-md-h6' },
+  { tag: tags.emphasis, class: 'mm-md-em' },
+  { tag: tags.strong, class: 'mm-md-strong' },
+  { tag: tags.monospace, class: 'mm-md-code' },
+  { tag: tags.link, class: 'mm-md-link' },
+  { tag: tags.url, class: 'mm-md-url' },
+  { tag: tags.quote, class: 'mm-md-quote' },
+  { tag: tags.strikethrough, class: 'mm-md-strike' },
+  { tag: tags.contentSeparator, class: 'mm-md-hr' },
+  // HeaderMark/QuoteMark/ListMark/LinkMark/EmphasisMark/CodeMark — the
+  // markdown punctuation itself, rendered dimmed.
+  { tag: tags.processingInstruction, class: 'mm-md-mark' },
+]);
 
 /**
  * CodeMirror 6 markdown editor. This module is loaded lazily (React.lazy) so
@@ -74,15 +138,68 @@ function diffDecorations(view: EditorView, diff: DiffLineSets): DecorationSet {
   return builder.finish();
 }
 
-export default function Editor({ value, lineNumbers: showLineNumbers, onChange, historyRef, syncRef, diff, onPasteImages, insertRef }: Props) {
+/** SPEC23 §2: Ctrl+d/u — half the viewport, cursor moves, view centers on it. */
+function halfPage(view: EditorView, dir: 1 | -1): void {
+  const count = Math.max(1, Math.round(view.scrollDOM.clientHeight / view.defaultLineHeight / 2));
+  const doc = view.state.doc;
+  const cur = doc.lineAt(view.state.selection.main.head).number;
+  const pos = doc.line(Math.min(doc.lines, Math.max(1, cur + dir * count))).from;
+  view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
+}
+
+const VIM_MOTIONS: Partial<Record<VimEditAction, (view: EditorView) => void>> = {
+  left: (v) => void cursorCharLeft(v),
+  right: (v) => void cursorCharRight(v),
+  down: (v) => void cursorLineDown(v),
+  up: (v) => void cursorLineUp(v),
+  wordFwd: (v) => void cursorGroupForward(v),
+  wordBack: (v) => void cursorGroupBackward(v),
+  lineStart: (v) => void cursorLineStart(v),
+  lineEnd: (v) => void cursorLineEnd(v),
+  top: (v) => void cursorDocStart(v),
+  bottom: (v) => void cursorDocEnd(v),
+  halfDown: (v) => halfPage(v, 1),
+  halfUp: (v) => halfPage(v, -1),
+};
+
+export default function Editor({
+  value,
+  lineNumbers: showLineNumbers,
+  onChange,
+  historyRef,
+  syncRef,
+  diff,
+  onPasteImages,
+  insertRef,
+  syntax,
+  vimNav,
+  onVimModeChange,
+  onEditState,
+  selectRangeRef,
+}: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const gutterComp = useRef(new Compartment());
   const diffComp = useRef(new Compartment());
+  const syntaxComp = useRef(new Compartment());
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const onPasteImagesRef = useRef(onPasteImages);
   onPasteImagesRef.current = onPasteImages;
+  // SPEC23 §2: modal vim state — per mount, starts in typing mode.
+  const [navMode, setNavMode] = useState(false);
+  const vimResolver = useRef(new VimEditResolver());
+  const vimNavRef = useRef(vimNav);
+  vimNavRef.current = vimNav;
+  const onVimModeChangeRef = useRef(onVimModeChange);
+  onVimModeChangeRef.current = onVimModeChange;
+  const onEditStateRef = useRef(onEditState);
+  onEditStateRef.current = onEditState;
+
+  const setNav = (nav: boolean) => {
+    setNavMode(nav);
+    onVimModeChangeRef.current?.(nav);
+  };
 
   useEffect(() => {
     const host = hostRef.current;
@@ -90,13 +207,49 @@ export default function Editor({ value, lineNumbers: showLineNumbers, onChange, 
     const extensions = [
       gutterComp.current.of(showLineNumbers ? lineNumbers() : []),
       diffComp.current.of([]),
+      // SPEC23 §3: highlighting rides a compartment — toggling the setting
+      // reconfigures live, undo history intact.
+      syntaxComp.current.of(syntax ? syntaxHighlighting(mmHighlight) : []),
       history(),
       highlightActiveLine(),
+      // SPEC23 §1: CM-drawn selection so a mirrored range shows while the
+      // editor is unfocused (styled via .cm-selectionBackground).
+      drawSelection(),
       markdown(),
       EditorView.lineWrapping,
+      // SPEC23 §2: the vim modal layer runs ahead of every keymap. Gated on
+      // the setting; typing mode passes everything through untouched.
+      Prec.highest(
+        EditorView.domEventHandlers({
+          keydown: (e, view) => {
+            if (!vimNavRef.current) return false;
+            if (e.isComposing || e.keyCode === 229) return false; // IME untouched
+            const action = vimResolver.current.resolve(
+              { key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: e.shiftKey },
+              performance.now()
+            );
+            if (action === 'passthrough') return false;
+            e.preventDefault();
+            if (action === 'enterNav') setNav(true);
+            else if (action === 'exitNav') setNav(false);
+            else if (action !== 'inert') VIM_MOTIONS[action]?.(view);
+            return true;
+          },
+        })
+      ),
       keymap.of([...defaultKeymap, ...historyKeymap]),
       EditorView.updateListener.of((u) => {
         if (u.docChanged) onChangeRef.current(u.state.doc.toString());
+        if ((u.selectionSet || u.docChanged) && onEditStateRef.current) {
+          const main = u.state.selection.main;
+          onEditStateRef.current({
+            head: main.head,
+            headLine: u.state.doc.lineAt(main.head).number,
+            selFrom: main.from,
+            selTo: main.to,
+            selText: u.state.sliceDoc(main.from, main.to),
+          });
+        }
       }),
       // SPEC20 §2: a paste carrying image files is intercepted whole (mixed
       // clipboards: the image wins); text-only pastes take the default path.
@@ -147,6 +300,31 @@ export default function Editor({ value, lineNumbers: showLineNumbers, onChange, 
       };
     }
 
+    // SPEC23 §1: mirrored selection entry point — no focus() here, ever.
+    if (selectRangeRef) {
+      selectRangeRef.current = (from, to) => {
+        const len = view.state.doc.length;
+        const a = Math.max(0, Math.min(from, len));
+        const b = Math.max(a, Math.min(to, len));
+        view.dispatch({
+          selection: { anchor: a, head: b },
+          effects: EditorView.scrollIntoView(a, { y: 'center' }),
+        });
+      };
+    }
+
+    // SPEC23 §4: seed the seam with the mount-time cursor.
+    if (onEditStateRef.current) {
+      const main = view.state.selection.main;
+      onEditStateRef.current({
+        head: main.head,
+        headLine: view.state.doc.lineAt(main.head).number,
+        selFrom: main.from,
+        selTo: main.to,
+        selText: view.state.sliceDoc(main.from, main.to),
+      });
+    }
+
     if (syncRef) {
       const dom = view.scrollDOM;
       syncRef.current = {
@@ -181,6 +359,8 @@ export default function Editor({ value, lineNumbers: showLineNumbers, onChange, 
     return () => {
       if (syncRef) syncRef.current = null;
       if (insertRef) insertRef.current = null;
+      if (selectRangeRef) selectRangeRef.current = null;
+      onVimModeChangeRef.current?.(false); // a remount always re-enters typing mode
       historyRef.current = view.state.toJSON({ history: historyField });
       view.destroy();
       viewRef.current = null;
@@ -204,6 +384,22 @@ export default function Editor({ value, lineNumbers: showLineNumbers, onChange, 
     });
   }, [showLineNumbers]);
 
+  // SPEC23 §3: live highlight toggle — same compartment pattern as the gutter.
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: syntaxComp.current.reconfigure(syntax ? syntaxHighlighting(mmHighlight) : []),
+    });
+  }, [syntax]);
+
+  // SPEC23 §2: turning the setting off mid-session drops out of nav mode.
+  useEffect(() => {
+    if (!vimNav) {
+      vimResolver.current.reset();
+      setNavMode(false);
+      onVimModeChangeRef.current?.(false);
+    }
+  }, [vimNav]);
+
   // SPEC16 §2: swap the diff decorations in/out as the sets change.
   useEffect(() => {
     const view = viewRef.current;
@@ -215,5 +411,13 @@ export default function Editor({ value, lineNumbers: showLineNumbers, onChange, 
     });
   }, [diff]);
 
-  return <div className="editor-wrap" data-testid="editor" ref={hostRef} />;
+  return (
+    <div className="editor-wrap" data-testid="editor" ref={hostRef}>
+      {navMode && (
+        <div className="vim-badge" data-testid="vim-badge" aria-live="polite">
+          NAV
+        </div>
+      )}
+    </div>
+  );
 }

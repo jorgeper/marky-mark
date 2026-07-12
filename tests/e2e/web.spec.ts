@@ -324,3 +324,25 @@ test('W9: hamburger New opens an untitled buffer; Save runs the handle-less Save
   expect(download.suggestedFilename()).toBe('Untitled.md');
   await expect(page.getByTestId('docname')).toContainText('Untitled.md');
 });
+
+test('W10: markdown token classes on by default in edit mode; vim NAV badge and G work with the setting on', async ({
+  page,
+}) => {
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.mm-md-h1:not(.mm-md-mark)').first()).toContainText('Welcome to Marky Mark');
+
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-vimnav').check();
+  await page.getByTestId('settings-close').click();
+  await editor.locator('.cm-line').first().click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('vim-badge')).toBeVisible();
+  const before = await editor.locator('.cm-scroller').evaluate((el) => el.scrollTop);
+  await page.keyboard.press('G');
+  await expect.poll(() => editor.locator('.cm-scroller').evaluate((el) => el.scrollTop)).toBeGreaterThan(before);
+
+  // The __mmEdit seam is dev-shim only — never present in the web build.
+  expect(await page.evaluate(() => (window as { __mmEdit?: unknown }).__mmEdit)).toBeUndefined();
+});

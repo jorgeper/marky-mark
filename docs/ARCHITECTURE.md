@@ -430,6 +430,49 @@ mode, and it stands down whenever focus is in an input/textarea/
 contenteditable or any modal overlay is open — typing "j" in the comment
 composer types a j.
 
+## Editor vim navigation mode (SPEC23 §2)
+
+The same `vimNav` setting also arms a modal layer inside the CodeMirror
+editor: `VimEditResolver` (in `vimnav.ts`, pure, beside the untouched
+preview resolver) tracks typing/nav mode — Esc enters nav, `i`/`a` exit,
+and in nav mode the keyset `h j k l`, `w b`, `0 $`, `gg`/`G`, `Ctrl+d/u`
+resolves to cursor motions while every other editing key resolves to
+`inert` (consumed, buffer byte-identical). The Editor mounts it as a
+`Prec.highest` keydown handler ahead of all keymaps, gated on the setting,
+skipping IME composition, and leaving ⌘/Alt (and non-d/u Ctrl) combos to
+the accelerator layers. A NAV pill pinned to the editor pane reflects the
+mode; a remount (mode toggle, document switch) always re-enters typing.
+
+## Mirrored split selection (SPEC23 §1)
+
+Selecting in the split preview selects the corresponding **source** in the
+editor. The rendered text differs from the source, so `selectionMap.ts`
+(pure) rebuilds each source line's visible form with a per-character map
+back to source offsets (`stripInline`: block prefixes, emphasis/strong,
+strikethrough, inline code, links, images, escapes), then locates the
+selection's text — whitespace-normalized — inside the line range bounded
+by the blocks' `data-mm-line` stamps (`mapSelectionToSource`). An exact,
+unambiguous hit selects precise source offsets; anything else falls back
+to the covering line range — never a wrong guess. The App listens to
+`selectionchange` (debounced, split-edit only, non-collapsed selections
+anchored in the preview pane) and dispatches into CM without focusing it;
+`drawSelection()` renders the unfocused selection. One wrinkle: a focused
+CM re-asserts its own DOM selection, so a `pointerdown` in the preview
+releases the editor's focus before the drag-selection begins.
+
+## Editor markdown highlighting (SPEC23 §3)
+
+`@codemirror/lang-markdown` always parsed the buffer; SPEC23 attaches a
+`HighlightStyle` that maps Lezer tags to `mm-md-*` CSS classes (headings
+per level, emphasis, strong, code, links/URLs, quotes, strikethrough, HR,
+and the punctuation marks dimmed as `mm-md-mark`). Colors and weights live
+in `styles.css` on theme CSS variables, so every theme — built-in or
+custom — drives the editor palette with no theme-format change. The
+extension rides a compartment: the `editorSyntax` setting (default on)
+reconfigures live with undo history intact. `@lezer/highlight` (the tag
+vocabulary) was already vendored transitively and is now an explicit
+dependency.
+
 ## Save As (SPEC3 §3)
 
 `Platform.saveFileDialog(suggestedName)` — native save dialog on Tauri,

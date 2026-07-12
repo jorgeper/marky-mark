@@ -127,3 +127,16 @@ describe('SPEC21 settings', () => {
     expect(parseSettings('{"hotkeys":{"newFile":"  "}}').hotkeys.newFile).toBe('Mod+N');
   });
 });
+
+describe('SPEC23 settings', () => {
+  test('U51: editorSyntax defaults true, explicit false honored, malformed falls back, round-trips', () => {
+    expect(parseSettings('{}').editorSyntax).toBe(true);
+    expect(DEFAULT_SETTINGS.editorSyntax).toBe(true);
+    expect(parseSettings('{"editorSyntax":false}').editorSyntax).toBe(false);
+    expect(parseSettings('{"editorSyntax":true}').editorSyntax).toBe(true);
+    expect(parseSettings('{"editorSyntax":"off"}').editorSyntax).toBe(true); // malformed → default
+    expect(parseSettings('{"editorSyntax":0}').editorSyntax).toBe(true);
+    const round = parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, editorSyntax: false }));
+    expect(round.editorSyntax).toBe(false);
+  });
+});

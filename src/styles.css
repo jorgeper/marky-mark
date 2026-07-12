@@ -604,6 +604,79 @@ mark.hl.ghost {
   flex: 1;
   overflow: hidden;
   display: flex;
+  position: relative; /* anchors the vim NAV badge (SPEC23 §2) */
+}
+
+/* SPEC23 §2: navigation-mode pill, pinned to the editor pane's corner. */
+.vim-badge {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  z-index: 5;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font: 600 11px/1.4 var(--mm-font-mono, monospace);
+  letter-spacing: 0.08em;
+  color: var(--mm-bg, #ffffff);
+  background: var(--mm-accent, #0969da);
+  box-shadow: var(--mm-card-shadow, 0 1px 4px rgba(0, 0, 0, 0.2));
+  pointer-events: none;
+  user-select: none;
+}
+
+/* SPEC23 §3: markdown token classes — colors/weights ride theme variables,
+   so built-in and custom themes drive the editor palette untouched. */
+.editor-wrap .mm-md-h1,
+.editor-wrap .mm-md-h2,
+.editor-wrap .mm-md-h3,
+.editor-wrap .mm-md-h4,
+.editor-wrap .mm-md-h5,
+.editor-wrap .mm-md-h6 {
+  color: var(--mm-heading, var(--mm-fg, #1f2328));
+  font-weight: 700;
+}
+.editor-wrap .mm-md-h1 {
+  font-size: 1.3em;
+}
+.editor-wrap .mm-md-h2 {
+  font-size: 1.15em;
+}
+.editor-wrap .mm-md-h3 {
+  font-size: 1.05em;
+}
+.editor-wrap .mm-md-em {
+  font-style: italic;
+}
+.editor-wrap .mm-md-strong {
+  font-weight: 700;
+}
+.editor-wrap .mm-md-code {
+  color: var(--mm-code-fg, var(--mm-fg, #1f2328));
+  background: var(--mm-code-bg, rgba(175, 184, 193, 0.2));
+  border-radius: 3px;
+}
+.editor-wrap .mm-md-link {
+  color: var(--mm-link, var(--mm-accent, #0969da));
+}
+.editor-wrap .mm-md-url {
+  color: var(--mm-link, var(--mm-accent, #0969da));
+  opacity: 0.75;
+}
+.editor-wrap .mm-md-quote {
+  color: var(--mm-blockquote-fg, var(--mm-fg-muted, #57606a));
+  font-style: italic;
+}
+.editor-wrap .mm-md-strike {
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+.editor-wrap .mm-md-hr {
+  color: var(--mm-hr, var(--mm-fg-muted, #57606a));
+}
+.editor-wrap .mm-md-mark {
+  color: var(--mm-fg-muted, #57606a);
+  opacity: 0.7;
+  font-weight: 400;
 }
 
 .editor-wrap .cm-editor {

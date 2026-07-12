@@ -47,6 +47,8 @@ export interface Settings {
   imageFolder: string;
   /** SPEC20 §1: pasted-image name pattern; tokens {doc} {n} {date} {time}. */
   imageNamePattern: string;
+  /** SPEC23 §3: markdown syntax highlighting in the editor (on by default). */
+  editorSyntax: boolean;
   hotkeys: HotkeyMap;
 }
 
@@ -72,6 +74,7 @@ export const DEFAULT_SETTINGS: Settings = {
   exportTheme: 'current',
   imageFolder: 'images',
   imageNamePattern: '{doc} {n}',
+  editorSyntax: true,
   hotkeys: { ...DEFAULT_HOTKEYS },
 };
 
@@ -145,6 +148,7 @@ export function parseSettings(json: string): Settings {
       typeof o.imageNamePattern === 'string' && o.imageNamePattern.trim()
         ? o.imageNamePattern
         : DEFAULT_SETTINGS.imageNamePattern,
+    editorSyntax: typeof o.editorSyntax === 'boolean' ? o.editorSyntax : DEFAULT_SETTINGS.editorSyntax,
     hotkeys,
   };
 }

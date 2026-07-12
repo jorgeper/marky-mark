@@ -112,3 +112,62 @@ export async function waitForSidecar(
     .poll(async () => predicate(await fsRead(page, WELCOME_SIDECAR)), { timeout: 5000 })
     .toBe(true);
 }
+
+/** SPEC23: select `phrase` inside an arbitrary container (e.g. the split preview). */
+export async function selectPhraseInPane(page: Page, containerSelector: string, phrase: string): Promise<void> {
+  await page.evaluate(
+    ([selector, needle]) => {
+      const pane = document.querySelector(selector);
+      if (!pane) throw new Error(`pane not found: ${selector}`);
+      const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const idx = node.nodeValue?.indexOf(needle) ?? -1;
+        if (idx !== -1) {
+          const range = document.createRange();
+          range.setStart(node, idx);
+          range.setEnd(node, idx + needle.length);
+          const sel = window.getSelection()!;
+          sel.removeAllRanges();
+          sel.addRange(range);
+          return;
+        }
+      }
+      throw new Error(`phrase not found in pane: ${needle}`);
+    },
+    [containerSelector, phrase] as const
+  );
+}
+
+/** SPEC23: select from the start of `phraseA` to the end of `phraseB` inside a container. */
+export async function selectSpanInPane(
+  page: Page,
+  containerSelector: string,
+  phraseA: string,
+  phraseB: string
+): Promise<void> {
+  await page.evaluate(
+    ([selector, a, b]) => {
+      const pane = document.querySelector(selector);
+      if (!pane) throw new Error(`pane not found: ${selector}`);
+      const find = (needle: string) => {
+        const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
+        let node: Node | null;
+        while ((node = walker.nextNode())) {
+          const idx = node.nodeValue?.indexOf(needle) ?? -1;
+          if (idx !== -1) return { node, idx };
+        }
+        throw new Error(`phrase not found in pane: ${needle}`);
+      };
+      const start = find(a);
+      const end = find(b);
+      const range = document.createRange();
+      range.setStart(start.node, start.idx);
+      range.setEnd(end.node, end.idx + b.length);
+      const sel = window.getSelection()!;
+      sel.removeAllRanges();
+      sel.addRange(range);
+    },
+    [containerSelector, phraseA, phraseB] as const
+  );
+}

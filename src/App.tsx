@@ -43,6 +43,7 @@ import {
   type AuxRequest,
 } from './lib/auxProtocol';
 import { VimNavResolver } from './lib/vimnav';
+import { mapSelectionToSource } from './lib/selectionMap';
 import type { Theme } from './lib/themes';
 import { applyThemeCss, loadAllThemes } from './themeRuntime';
 import { FIXTURES } from './bundled';
@@ -131,6 +132,8 @@ export default function App() {
   const navLabelRef = useRef('');
   const editorSyncRef = useRef<EditorSyncHandle | null>(null);
   const editorInsertRef = useRef<((text: string) => void) | null>(null);
+  /** SPEC23 §1: imperative mirrored-selection entry into the mounted editor. */
+  const editorSelectRef = useRef<((from: number, to: number) => void) | null>(null);
   const positionsRef = useRef<PositionStore>({ version: 1, entries: [] });
   const skipSaveRef = useRef(true);
   const unwatchRef = useRef<(() => void) | null>(null);
@@ -174,6 +177,27 @@ export default function App() {
     showComments,
     html,
   };
+
+  // --- SPEC23 §4: dev-shim-only __mmEdit seam (same gating as __mmMenu) ---------
+  const seamEditState = useCallback(
+    (s: { head: number; headLine: number; selFrom: number; selTo: number; selText: string }) => {
+      if (stateRef.current.platform?.kind !== 'browser') return;
+      window.__mmEdit = { nav: window.__mmEdit?.nav ?? false, ...s };
+    },
+    []
+  );
+  const seamVimMode = useCallback((nav: boolean) => {
+    if (stateRef.current.platform?.kind !== 'browser') return;
+    window.__mmEdit = {
+      head: 0,
+      headLine: 1,
+      selFrom: 0,
+      selTo: 0,
+      selText: '',
+      ...(window.__mmEdit ?? {}),
+      nav,
+    };
+  }, []);
 
   /** SPEC20 §2: transient feedback chip; each message restarts the 4s clock. */
   const showNotice = useCallback((msg: string) => {
@@ -1440,6 +1464,74 @@ export default function App() {
     return () => clearTimeout(t);
   }, [comments, platform, docPath, persistComments]);
 
+  // --- SPEC23 §1: mirror split-preview selections into the editor -----------------
+  // Non-collapsed selections anchored inside the split preview map to exact
+  // source offsets (selectionMap); unlocatable/ambiguous text falls back to
+  // the covering line range. The editor is never focused — the preview
+  // selection must survive.
+  useEffect(() => {
+    if (mode !== 'edit' || !settings.splitEdit) return;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const apply = () => {
+      const pane = splitDocRef.current;
+      const sel = document.getSelection();
+      if (!pane || !sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      if (!pane.contains(range.startContainer) || !pane.contains(range.endContainer)) return;
+      const text = sel.toString();
+      if (!text.trim()) return;
+      const buffer = stateRef.current.buffer;
+      const lines = buffer.split('\n');
+      const stamped = Array.from(pane.querySelectorAll<HTMLElement>('[data-mm-line]'));
+      // Nearest stamped ancestor, else the last stamped block before the node.
+      const blockOf = (node: Node): HTMLElement | null => {
+        const el = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+        const hit = el?.closest<HTMLElement>('[data-mm-line]');
+        if (hit) return hit;
+        let best: HTMLElement | null = null;
+        for (const s of stamped) {
+          if (s.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) best = s;
+          else break;
+        }
+        return best;
+      };
+      const startEl = blockOf(range.startContainer);
+      const endEl = blockOf(range.endContainer);
+      const fromLine = startEl ? Number(startEl.dataset.mmLine) : 1;
+      // End bound: the next stamped block after the end block opens the next
+      // source region — stop one line short of it (else: the buffer end).
+      let toLine = lines.length;
+      if (endEl) {
+        const endLine = Number(endEl.dataset.mmLine);
+        const next = stamped.find((el) => Number(el.dataset.mmLine) > endLine && el !== endEl);
+        toLine = next ? Number(next.dataset.mmLine) - 1 : lines.length;
+        if (toLine < endLine) toLine = endLine;
+      }
+      if (toLine < fromLine) toLine = fromLine;
+      const hit = mapSelectionToSource(buffer, fromLine, toLine, text);
+      if (hit) {
+        editorSelectRef.current?.(hit.from, hit.to);
+        return;
+      }
+      // Fallback (§1.4): the covering source line range — never a wrong guess.
+      const starts: number[] = [0];
+      for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
+      const lo = Math.min(fromLine, lines.length);
+      let hi = Math.min(toLine, lines.length);
+      while (hi > lo && lines[hi - 1].trim() === '') hi--; // blank tail lines aren't content
+      editorSelectRef.current?.(starts[lo - 1], starts[hi - 1] + lines[hi - 1].length);
+    };
+    const onSel = () => {
+      if (t) clearTimeout(t);
+      t = setTimeout(apply, 150);
+    };
+    document.addEventListener('selectionchange', onSel);
+    return () => {
+      if (t) clearTimeout(t);
+      document.removeEventListener('selectionchange', onSel);
+    };
+  }, [mode, settings.splitEdit]);
+
   // --- selection → floating "Add comment" button ---------------------------------------
   useEffect(() => {
     if (mode !== 'preview') return;
@@ -1760,6 +1852,11 @@ export default function App() {
                 diff={diff}
                 onPasteImages={pasteImages}
                 insertRef={editorInsertRef}
+                syntax={settings.editorSyntax}
+                vimNav={settings.vimNav}
+                onVimModeChange={seamVimMode}
+                onEditState={seamEditState}
+                selectRangeRef={editorSelectRef}
               />
             </Suspense>
           </div>
@@ -1769,7 +1866,19 @@ export default function App() {
             onPointerDown={dragDivider}
             onDoubleClick={() => updateSettings({ ...stateRef.current.settings, splitRatio: 0.5 })}
           />
-          <div className="split-preview" data-testid="split-preview" ref={splitPreviewRef}>
+          <div
+            className="split-preview"
+            data-testid="split-preview"
+            ref={splitPreviewRef}
+            // SPEC23 §1: a focused CodeMirror re-asserts its own DOM selection,
+            // which would kill a preview drag-selection mid-gesture. Selecting
+            // in the preview starts with a pointerdown — release the editor's
+            // focus first so the native selection can live in this pane.
+            onPointerDownCapture={() => {
+              const ae = document.activeElement as HTMLElement | null;
+              if (ae?.closest('.editor-wrap')) ae.blur();
+            }}
+          >
             <ImageResizer
               active={settings.splitEdit}
               docRef={splitDocRef}
@@ -1792,6 +1901,11 @@ export default function App() {
               diff={diff}
               onPasteImages={pasteImages}
               insertRef={editorInsertRef}
+              syntax={settings.editorSyntax}
+              vimNav={settings.vimNav}
+              onVimModeChange={seamVimMode}
+              onEditState={seamEditState}
+              selectRangeRef={editorSelectRef}
             />
           </Suspense>
         </div>

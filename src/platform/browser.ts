@@ -48,6 +48,19 @@ declare global {
       focused: Record<AuxKind, number>;
     };
     /**
+     * SPEC23 §4: dev-shim-only editor seam — cursor/selection/nav-mode
+     * mirror for e2e. The app maintains it only when platform.kind is
+     * 'browser'; desktop and web builds never set it.
+     */
+    __mmEdit?: {
+      head: number;
+      headLine: number;
+      selFrom: number;
+      selTo: number;
+      selText: string;
+      nav: boolean;
+    };
+    /**
      * SPEC19 §2.3: the shim's updater mock — tests set `next` (null = up to
      * date, a version = available, {error} = failure) and read back what
      * happened. No network, ever.

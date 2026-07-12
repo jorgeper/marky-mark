@@ -380,7 +380,7 @@ export function SettingsPanel({
           onChange={(e) => onChange({ ...settings, vimNav: e.target.checked })}
         />
         <label htmlFor="settings-vimnav" style={{ margin: 0, fontWeight: 400 }}>
-          Vim-style navigation in preview (j/k scroll, Ctrl+d/u half page, gg top, G bottom)
+          Vim-style navigation (preview: j/k, Ctrl+d/u, gg/G; edit: Esc for nav mode, i to type)
         </label>
       </div>
     </>
@@ -394,6 +394,20 @@ export function SettingsPanel({
 
   const editorTab = (
     <>
+      <h3 className="tab-section">Syntax</h3>
+      <div className="checkbox-row">
+        <input
+          id="editor-syntax"
+          type="checkbox"
+          data-testid="editor-syntax"
+          checked={settings.editorSyntax}
+          onChange={(e) => onChange({ ...settings, editorSyntax: e.target.checked })}
+        />
+        <label htmlFor="editor-syntax" style={{ margin: 0, fontWeight: 400 }}>
+          Markdown syntax highlighting
+        </label>
+      </div>
+
       <h3 className="tab-section">Images</h3>
       <div className="field">
         <label htmlFor="image-folder">Folder for pasted images (created next to the document)</label>

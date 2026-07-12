@@ -4,6 +4,8 @@ import { expect, test } from './fixtures';
 import pkg from '../../package.json' with { type: 'json' };
 import {
   addComment,
+  selectPhraseInPane,
+  selectSpanInPane,
   freshApp,
   fsRead,
   fsWrite,
@@ -2322,4 +2324,175 @@ test('E79: unsaved-changes guard — around New, and Save-through when opening o
   await page.getByTestId('open-save').click();
   await expect(page.getByTestId('docname')).toContainText('welcome.md');
   expect(await fsRead(page, '/docs/kept.md')).toContain('# Keep me');
+});
+
+test('E80: split-preview selections mirror into the editor as exact source ranges; fallback covers lines', async ({
+  page,
+}) => {
+  const FILLER = Array.from({ length: 60 }, (_, i) => `filler line ${i + 1}`).join('\n\n');
+  await fsWrite(
+    page,
+    '/docs/mirror.md',
+    `# Mirror Title\n\n${FILLER}\n\nThe **quick brown** fox jumps far.\n\nrepeat me and repeat me.\n`
+  );
+  await page.goto('/#open=/docs/mirror.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Mirror Title');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  // The lazy editor must be mounted (its selection hook registered) first.
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+
+  // Real flow: the user's mousedown in the preview blurs the editor before
+  // the drag-selection exists (a focused CM re-asserts its own selection).
+  await page.getByTestId('split-preview').click({ position: { x: 10, y: 10 } });
+
+  // A phrase crossing a bold boundary lands on the exact SOURCE spelling.
+  await selectSpanInPane(page, '[data-testid="split-preview"] .doc', 'brown', 'fox jumps');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('brown** fox jumps');
+  // The unfocused editor draws the selection and scrolled it into view.
+  expect(await page.locator('[data-testid="editor"] .cm-selectionBackground').count()).toBeGreaterThan(0);
+  expect(
+    await page.locator('[data-testid="editor"] .cm-scroller').evaluate((el) => el.scrollTop)
+  ).toBeGreaterThan(0);
+  // The preview's own selection survived the mirror.
+  expect(await page.evaluate(() => document.getSelection()?.toString())).toBe('brown fox jumps');
+
+  // A collapsed selection (click/caret) never touches the editor selection.
+  await page.evaluate(() => {
+    const sel = window.getSelection()!;
+    sel.collapseToStart();
+  });
+  await page.waitForTimeout(300); // debounce window
+  expect(await page.evaluate(() => window.__mmEdit?.selText)).toBe('brown** fox jumps');
+
+  // Ambiguous text (two identical phrases in range) → covering-line fallback.
+  await selectPhraseInPane(page, '[data-testid="split-preview"] .doc', 'repeat me');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('repeat me and repeat me.');
+});
+
+test('E81: editor vim nav — Esc inert with the setting off; full modal keyset on; buffer stays byte-identical', async ({
+  page,
+}) => {
+  const DOC = Array.from({ length: 40 }, (_, i) => `line number ${i + 1}`).join('\n\n');
+  await fsWrite(page, '/docs/vim.md', `${DOC}\n`);
+  await page.goto('/#open=/docs/vim.md');
+  await expect(page.getByTestId('doc')).toContainText('line number 1');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+
+  // Setting off (default): Esc does nothing — no badge, typing still edits.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('vim-badge')).toHaveCount(0);
+  await page.keyboard.type('OFFCHECK ');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.keyboard.press('Control+s'); // clean slate for the byte-identical check
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // Enable vim, back to the editor.
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-vimnav').check();
+  await page.getByTestId('settings-close').click();
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.press('Control+Home'); // deterministic start (native nav still works)
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('vim-badge')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.nav)).toBe(true);
+
+  // Motions move the cursor.
+  const headLine = () => page.evaluate(() => window.__mmEdit?.headLine);
+  const head = () => page.evaluate(() => window.__mmEdit?.head);
+  await expect.poll(headLine).toBe(1);
+  await page.keyboard.press('j');
+  await page.keyboard.press('j');
+  await expect.poll(headLine).toBe(3);
+  await page.keyboard.press('k');
+  await expect.poll(headLine).toBe(2);
+  await page.keyboard.press('j'); // line 3: "line number 2"
+  const atLineStart = (await head())!;
+  await page.keyboard.press('w');
+  expect((await head())!).toBeGreaterThan(atLineStart);
+  await page.keyboard.press('$');
+  const atEnd = (await head())!;
+  await page.keyboard.press('0');
+  expect((await head())!).toBeLessThan(atEnd);
+  await page.keyboard.press('G');
+  await expect.poll(headLine).toBeGreaterThan(70); // 40 lines + blanks
+  await page.keyboard.press('g');
+  await page.keyboard.press('g');
+  await expect.poll(headLine).toBe(1);
+  await page.keyboard.press('Control+d');
+  const afterHalf = (await headLine())!;
+  expect(afterHalf).toBeGreaterThan(1);
+  await page.keyboard.press('Control+u');
+  await expect.poll(headLine).toBeLessThan(afterHalf);
+
+  // Editing keys are inert: the buffer stays byte-identical (never dirty).
+  for (const k of ['x', 'q', 'Backspace', 'Delete', 'Enter', 'Tab', '#']) {
+    await page.keyboard.press(k);
+  }
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(page.getByTestId('vim-badge')).toBeVisible();
+
+  // i exits to typing; typing edits again.
+  await page.keyboard.press('i');
+  await expect(page.getByTestId('vim-badge')).toHaveCount(0);
+  await page.keyboard.type('ONCHECK');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Esc → nav, then a mode roundtrip re-enters typing mode.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('vim-badge')).toBeVisible();
+  await page.keyboard.press('Control+e'); // to preview (accelerators pass through nav mode)
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await page.keyboard.press('Control+e'); // back to edit
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('vim-badge')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.nav)).toBe(false);
+});
+
+test('E82: markdown highlighting — themed token classes on by default, live toggle keeps undo, persists', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/hl.md', '# Big Title\n\nsome **bold** and `code` here\n');
+  await page.goto('/#open=/docs/hl.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Big Title');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+
+  // On by default: token classes present.
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.mm-md-h1:not(.mm-md-mark)').first()).toContainText('Big Title');
+  await expect(editor.locator('.mm-md-strong:not(.mm-md-mark)').first()).toContainText('bold');
+  await expect(editor.locator('.mm-md-code:not(.mm-md-mark)').first()).toContainText('code');
+  expect(await editor.locator('.mm-md-mark').count()).toBeGreaterThan(0); // dimmed # / ** / `
+
+  // Type A (undo baseline), toggle the setting off live.
+  await editor.locator('.cm-line').last().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('AAA');
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-tab-editor').click();
+  await page.getByTestId('editor-syntax').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect(editor.locator('[class*="mm-md-"]')).toHaveCount(0);
+
+  // Undo history survived the live reconfigure: type BBB, undo removes it only.
+  await editor.locator('.cm-line').last().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('BBB');
+  await expect(editor.locator('.cm-content')).toContainText('AAABBB');
+  await page.keyboard.press('ControlOrMeta+z'); // CM's own history keymap wants the real Mod
+  await expect(editor.locator('.cm-content')).toContainText('AAA');
+  await expect(editor.locator('.cm-content')).not.toContainText('BBB');
+
+  // The setting persisted.
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"editorSyntax": false');
+  await page.reload();
+  await page.goto('/#open=/docs/hl.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Big Title'); // app booted
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('editor').locator('[class*="mm-md-"]')).toHaveCount(0);
 });
