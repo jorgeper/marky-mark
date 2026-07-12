@@ -57,8 +57,12 @@ export interface Platform {
   commitFile?(path: string): Promise<void>;
   /** Web only: pick a .css theme file and store it as a user theme. */
   importTheme?(): Promise<boolean>;
-  /** Pick a destination for Save As…; null = cancelled. */
-  saveFileDialog?(suggestedName: string): Promise<string | null>;
+  /**
+   * Pick a destination for Save As… / exports; null = cancelled. `kind`
+   * selects the extension filter (default markdown; the review-bundle
+   * export passes 'html' so the OS dialog doesn't force a .md suffix).
+   */
+  saveFileDialog?(suggestedName: string, kind?: 'markdown' | 'html'): Promise<string | null>;
   /** Desktop only: reveal <configDir>/themes in the OS file manager. */
   revealThemesDir?(): Promise<void>;
 

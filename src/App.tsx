@@ -609,7 +609,7 @@ export default function App() {
           const template = await p.reviewTemplate();
           if (!template) return;
           const name = p.basename(s.docPath);
-          const target = await p.saveFileDialog(`${name.replace(/\.(md|markdown)$/i, '')}.review.html`);
+          const target = await p.saveFileDialog(`${name.replace(/\.(md|markdown)$/i, '')}.review.html`, 'html');
           if (!target) return;
           // Comments always travel embedded, whatever the storage setting.
           const markdown = attachEmbedded(s.buffer, s.comments);

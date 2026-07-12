@@ -99,10 +99,13 @@ export async function createTauriPlatform(): Promise<Platform> {
       });
       return typeof picked === 'string' ? picked : null;
     },
-    async saveFileDialog(suggestedName) {
+    async saveFileDialog(suggestedName, kind = 'markdown') {
       const picked = await dialog.save({
         defaultPath: suggestedName,
-        filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+        filters:
+          kind === 'html'
+            ? [{ name: 'HTML', extensions: ['html'] }]
+            : [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
       });
       return typeof picked === 'string' ? picked : null;
     },
