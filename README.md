@@ -89,6 +89,27 @@ Either way it's a one-time step — the app opens normally afterwards.
   against the app's built-in signing key. Strictly manual — the app never
   phones home on its own.
 
+## Uninstalling
+
+- **macOS** — drag `Marky Mark.app` from Applications to the Trash; that's
+  the whole uninstall. If you also want zero traces (settings, themes,
+  reading positions, webview caches — a few KB unless you added custom
+  themes), run:
+
+  ```bash
+  rm -rf ~/Library/Application\ Support/com.markimark.app \
+         ~/Library/Preferences/com.markimark.app.plist \
+         ~/Library/WebKit/com.markimark.app \
+         ~/Library/Caches/com.markimark.app \
+         ~/Library/HTTPStorages/com.markimark.app \
+         ~/Library/Saved\ Application\ State/com.markimark.app.savedState
+  ```
+
+- **Windows** — Settings → Apps → Marky Mark → Uninstall (the standard
+  Add/Remove Programs entry the installer registers).
+- **Web** — it's one file; delete it. Settings live in your browser's
+  localStorage for the page and vanish with normal site-data clearing.
+
 ## For developers
 
 Want to build from source, run the test suite, or contribute? Start with
