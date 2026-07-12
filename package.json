@@ -1,5 +1,5 @@
 {
-  "name": "markimark",
+  "name": "marky-mark",
   "private": true,
   "version": "0.3.0-alpha.1",
   "license": "MIT",
@@ -18,7 +18,7 @@
     "release:prepare": "node scripts/release-prepare.mjs",
     "build:app": "tauri build --bundles app --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'",
     "clean:app": "bash scripts/deep-clean.sh",
-    "install:app": "pkill -x markimark; rm -rf '/Applications/Marky Mark.app' && ditto 'src-tauri/target/release/bundle/macos/Marky Mark.app' '/Applications/Marky Mark.app' && open '/Applications/Marky Mark.app'",
+    "install:app": "pkill -x marky-mark; rm -rf '/Applications/Marky Mark.app' && ditto 'src-tauri/target/release/bundle/macos/Marky Mark.app' '/Applications/Marky Mark.app' && open '/Applications/Marky Mark.app'",
     "licenses": "node scripts/licenses.mjs"
   },
   "dependencies": {

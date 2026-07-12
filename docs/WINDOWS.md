@@ -1,4 +1,4 @@
-# Building Markimark for Windows
+# Building Marky Mark for Windows
 
 The app code is fully portable — everything OS-specific sits behind `src/platform/` and
 Tauri config. Three ways to get a Windows build:

@@ -1,12 +1,12 @@
 [package]
-name = "markimark"
+name = "marky-mark"
 version = "0.3.0-alpha.1"
 description = "A lightweight, fast, themeable markdown viewer"
 license = "MIT"
 edition = "2021"
 
 [lib]
-name = "markimark_lib"
+name = "marky_mark_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

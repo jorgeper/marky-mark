@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    markimark_lib::run()
+    marky_mark_lib::run()
 }

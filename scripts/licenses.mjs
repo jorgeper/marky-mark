@@ -120,7 +120,7 @@ function main() {
   }
   const crates = new Map();
   for (const p of JSON.parse(meta.stdout).packages) {
-    if (p.name === 'markimark') continue; // the app itself
+    if (p.name === 'marky-mark') continue; // the app itself
     crates.set(`${p.name}@${p.version}`, {
       name: p.name,
       version: p.version,

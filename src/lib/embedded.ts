@@ -9,7 +9,7 @@ import { parseSidecar } from './sidecar';
  *   {"version":1,"comments":[ …sidecar schema… ]}
  *   -->
  *
- * HTML comments are stripped by Markimark's sanitizer and hidden by GitHub
+ * HTML comments are stripped by Marky Mark's sanitizer and hidden by GitHub
  * and every mainstream renderer, so the document looks untouched.
  *
  * The "-->" hazard: a comment body containing "-->" would terminate the HTML

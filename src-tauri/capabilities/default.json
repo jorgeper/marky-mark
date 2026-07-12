@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Markimark main window: fs for documents/sidecars/themes, dialogs, window control",
+  "description": "Marky Mark main window: fs for documents/sidecars/themes, dialogs, window control",
   "windows": ["main"],
   "permissions": [
     "core:default",

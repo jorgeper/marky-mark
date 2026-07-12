@@ -1,8 +1,8 @@
-# Markimark — Architecture
+# Marky Mark — Architecture
 
 ## Overview
 
-Markimark is a Tauri 2 desktop app: a minimal Rust host (window, file
+Marky Mark is a Tauri 2 desktop app: a minimal Rust host (window, file
 associations, fs/dialog plugins) with all application logic in a Vite + React +
 TypeScript frontend running in the OS-native webview (WKWebView on macOS,
 WebView2 on Windows). There is no server and no network access; documents are
@@ -256,7 +256,7 @@ Re-anchoring cascade on every load (`src/lib/anchoring.ts`, pure, DOM-free):
   -->
   ```
 
-  HTML comments are stripped by Markimark's sanitizer and hidden by GitHub
+  HTML comments are stripped by Marky Mark's sanitizer and hidden by GitHub
   and every mainstream renderer. `src/lib/embedded.ts` (pure) owns the
   format: `splitEmbedded` strips the trailer on load — it never appears in
   preview or the edit buffer — and `attachEmbedded` re-appends it on save,
@@ -631,7 +631,7 @@ mode is active, in which case local work is never clobbered.
 | Theme switch applied (< 50 ms) | **38–51 ms**¹ |
 | Preview ⇄ edit toggle, warm (< 100 ms) | **6–8 ms** |
 | First toggle into edit (one-time lazy CodeMirror load) | ~800 ms |
-| Packaged Markimark.app size (< 25 MB) | see build output (≈ 10 MB) |
+| Packaged Marky Mark.app size (< 25 MB) | see build output (≈ 10 MB) |
 
 ¹ Measured through Playwright round-trips (click → polled computed style), so
 these numbers include harness overhead; the in-page style swap itself is a

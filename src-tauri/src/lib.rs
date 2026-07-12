@@ -45,7 +45,7 @@ pub fn run() {
         }))
         .invoke_handler(tauri::generate_handler![take_pending_open_files, print_view])
         .build(tauri::generate_context!())
-        .expect("error while building Markimark")
+        .expect("error while building Marky Mark")
         .run(|app, event| {
             // macOS delivers file-association opens as RunEvent::Opened.
             #[cfg(target_os = "macos")]
