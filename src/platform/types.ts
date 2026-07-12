@@ -94,4 +94,12 @@ export interface Platform {
    * focus). Resolves true if an aux window was focused and closed.
    */
   closeFocusedAuxWindow?(): Promise<boolean>;
+
+  /**
+   * SPEC16 §1.5: the single-file web viewer used as the review-bundle
+   * template. Desktop embeds it at build time (null when dist-web hasn't
+   * been built — dev trees); the shim returns a stub; web leaves this
+   * undefined (the web build opens bundles, it doesn't export them).
+   */
+  reviewTemplate?(): Promise<string | null>;
 }

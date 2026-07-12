@@ -9,6 +9,8 @@ const base: MenuState = {
   commentsEnabled: true,
   commentCount: 0,
   hotkeys: { ...DEFAULT_HOTKEYS },
+  canExportReview: true,
+  showDiff: false,
 };
 
 const titles = (s: MenuState) => buildMenuSpec(s).submenus.map((m) => m.title);
@@ -27,7 +29,7 @@ describe('SPEC12 menu spec', () => {
     expect(find(base, 'Marky Mark', 'settings')!.accelerator).toBe('Mod+,');
     expect(find(base, 'Marky Mark', 'close')!.label).toBe('Quit Marky Mark');
     const file = commandsIn(base, 'File').map((i) => i.command);
-    expect(file).toEqual(['open', 'save', 'saveAs', 'close']);
+    expect(file).toEqual(['open', 'save', 'saveAs', 'exportReview', 'close']);
     expect(find(base, 'File', 'close')!.label).toBe('Close Window');
     expect(commandsIn(base, 'Help').map((i) => i.command)).toEqual(['help']);
     // Edit is entirely predefined system items, in the standard order.
@@ -46,7 +48,7 @@ describe('SPEC12 menu spec', () => {
     const win = { ...base, isMac: false };
     expect(titles(win)).toEqual(['File', 'Edit', 'View', 'Help']);
     const file = commandsIn(win, 'File').map((i) => i.command);
-    expect(file).toEqual(['open', 'save', 'saveAs', 'settings', 'close']);
+    expect(file).toEqual(['open', 'save', 'saveAs', 'exportReview', 'settings', 'close']);
     expect(find(win, 'File', 'close')!.label).toBe('Exit');
     expect(find(win, 'File', 'settings')!.accelerator).toBe('Mod+,');
     expect(commandsIn(win, 'Help').map((i) => i.command)).toEqual(['help', 'about']);
@@ -83,5 +85,24 @@ describe('SPEC12 menu spec', () => {
     const off = { ...base, commentsEnabled: false };
     expect(find(off, 'View', 'nextComment')).toBeUndefined();
     expect(find(off, 'View', 'prevComment')).toBeUndefined();
+  });
+
+  test('U34: exportReview gated by canExportReview; toggleDiff only in edit modes tracking showDiff; palette accelerator follows rebinds', () => {
+    // Export item present iff a template is available, on both layouts.
+    for (const s of [base, { ...base, isMac: false }]) {
+      expect(find(s, 'File', 'exportReview')!.label).toBe('Export Review Bundle…');
+      expect(find({ ...s, canExportReview: false }, 'File', 'exportReview')).toBeUndefined();
+    }
+
+    // Diff toggle: absent in preview, checkbox tracking showDiff in edit.
+    expect(find(base, 'View', 'toggleDiff')).toBeUndefined();
+    const edit = { ...base, mode: 'edit' as const };
+    expect(find(edit, 'View', 'toggleDiff')!.checked).toBe(false);
+    expect(find({ ...edit, showDiff: true }, 'View', 'toggleDiff')!.checked).toBe(true);
+
+    // Heading palette: always in View, rebindable accelerator.
+    expect(find(base, 'View', 'headingPalette')!.accelerator).toBe('Mod+K');
+    const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, headingPalette: 'Mod+Shift+O' } };
+    expect(find(rebound, 'View', 'headingPalette')!.accelerator).toBe('Mod+Shift+O');
   });
 });

@@ -12,6 +12,7 @@ export interface HotkeyMap {
   save: string;
   nextComment: string;
   prevComment: string;
+  headingPalette: string;
 }
 
 export const DEFAULT_HOTKEYS: HotkeyMap = {
@@ -21,6 +22,7 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   save: 'Mod+S',
   nextComment: 'Mod+Alt+ArrowDown',
   prevComment: 'Mod+Alt+ArrowUp',
+  headingPalette: 'Mod+K',
 };
 
 export interface ComboParts {

@@ -1,5 +1,6 @@
 import type { Platform } from './types';
 import { FIXTURES } from '../bundled';
+import { extractReviewPayload } from '../lib/reviewBundle';
 
 /**
  * Static-web platform (SPEC2 §3): the single-file build hosted anywhere.
@@ -89,6 +90,11 @@ export function createWebPlatform(): Platform {
 
   // Seed the welcome doc (in memory — never downloaded).
   docs.set('/welcome.md', { content: FIXTURES['welcome.md'] ?? '# Welcome\n', handle: null });
+
+  // SPEC16 §1.3: a review bundle carries its document — seed it and open it
+  // on boot through the same path a file association would use.
+  const review = extractReviewPayload(document);
+  if (review) docs.set(docPathFor(review.name), { content: review.markdown, handle: null });
 
   const openHandle = async (handle: FSFileHandle): Promise<string> => {
     const file = await handle.getFile();
@@ -207,8 +213,10 @@ export function createWebPlatform(): Platform {
     async setTitle(title) {
       document.title = title;
     },
-    async onOpenFile() {
-      /* no OS file associations on the web */
+    async onOpenFile(cb) {
+      // No OS file associations on the web — but a review bundle's embedded
+      // document opens on boot (SPEC16 §1.3).
+      if (review) cb(docPathFor(review.name));
     },
     async onFileDrop(cb) {
       window.addEventListener('dragover', (e) => e.preventDefault());

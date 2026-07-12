@@ -182,6 +182,10 @@ export function createBrowserPlatform(): Platform {
     ...(nativeMenu ? { setAppMenu, openAuxWindow, closeFocusedAuxWindow } : {}),
     busEmit,
     busListen,
+    // SPEC16 §1.5: a tiny stub so the export flow is e2e-testable.
+    async reviewTemplate() {
+      return '<!doctype html><html><head><meta charset="utf-8"><title>stub</title></head><body>mm-stub-template</body></html>';
+    },
     isMac: navigator.platform.toLowerCase().includes('mac'),
 
     async readTextFile(path) {

@@ -60,6 +60,10 @@ export interface MenuState {
   commentsEnabled: boolean;
   commentCount: number;
   hotkeys: HotkeyMap;
+  /** SPEC16 §1.6: a review template is available (desktop/shim, not web). */
+  canExportReview: boolean;
+  /** SPEC16 §2: Changes Since Save checkbox state (edit modes only). */
+  showDiff: boolean;
 }
 
 const sep: PredefinedItemSpec = { type: 'predefined', item: 'Separator' };
@@ -98,6 +102,9 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             cmd('prevComment', 'Previous Comment', s.hotkeys.prevComment),
           ]
         : []),
+      // SPEC16 §2: diff toggle exists only where an editor does.
+      ...(s.mode === 'edit' ? [cmd('toggleDiff', 'Changes Since Save', undefined, s.showDiff)] : []),
+      cmd('headingPalette', 'Go to Heading…', s.hotkeys.headingPalette),
       sep,
       // Zoom In sits on the = key (⌘+ without Shift), the platform convention.
       cmd('zoomIn', 'Zoom In', 'Mod+='),
@@ -137,6 +144,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             sep,
             cmd('save', 'Save', s.hotkeys.save),
             cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
+            // SPEC16 §1.6: only when a review template is available.
+            ...(s.canExportReview ? [cmd('exportReview', 'Export Review Bundle…')] : []),
             sep,
             cmd('close', 'Close Window', 'Mod+W'),
           ],
@@ -158,6 +167,7 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
           sep,
           cmd('save', 'Save', s.hotkeys.save),
           cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
+          ...(s.canExportReview ? [cmd('exportReview', 'Export Review Bundle…')] : []),
           sep,
           cmd('settings', 'Settings…', 'Mod+,'),
           sep,

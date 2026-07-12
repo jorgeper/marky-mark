@@ -29,6 +29,7 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   save: 'Save',
   nextComment: 'Next comment',
   prevComment: 'Previous comment',
+  headingPalette: 'Go to heading',
 };
 
 const MARGIN_LABELS: Array<{ value: Margins; label: string }> = [

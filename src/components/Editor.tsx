@@ -1,8 +1,9 @@
 import { useEffect, useRef, type MutableRefObject } from 'react';
-import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view';
-import { Compartment, EditorState } from '@codemirror/state';
+import { Decoration, EditorView, keymap, lineNumbers, highlightActiveLine, type DecorationSet } from '@codemirror/view';
+import { Compartment, EditorState, RangeSetBuilder } from '@codemirror/state';
 import { defaultKeymap, history, historyField, historyKeymap } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
+import type { DiffLineSets } from '../lib/diffLines';
 
 /**
  * SPEC15 §3.2: the imperative surface split scroll-sync needs — fractional
@@ -27,6 +28,8 @@ interface Props {
   onChange(next: string): void;
   /** SPEC15 §3.2: populated on mount when the owner wants scroll sync. */
   syncRef?: MutableRefObject<EditorSyncHandle | null>;
+  /** SPEC16 §2: changes-since-save line sets; null/undefined ⇒ no decorations. */
+  diff?: DiffLineSets | null;
   /**
    * Undo history survival (SPEC7 §6): the serialized editor state (doc +
    * history) is parked here on unmount and revived on the next mount, so
@@ -41,10 +44,31 @@ interface Props {
  * it costs nothing until the first toggle into edit mode (SPEC §2). Colors
  * come from the active theme's CSS variables via styles.css.
  */
-export default function Editor({ value, lineNumbers: showLineNumbers, onChange, historyRef, syncRef }: Props) {
+const changedLine = Decoration.line({ class: 'mm-diff-changed' });
+const deletedAfterLine = Decoration.line({ class: 'mm-diff-deleted-after' });
+
+/** SPEC16 §2: line decorations for the changes-since-save tint. */
+function diffDecorations(view: EditorView, diff: DiffLineSets): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  const lines = view.state.doc.lines;
+  const marks = new Map<number, Decoration>();
+  for (const n of diff.deletedAfter) {
+    const at = Math.min(Math.max(n, 1), lines); // deletion before line 1 clamps onto it
+    marks.set(at, deletedAfterLine);
+  }
+  for (const n of diff.changed) if (n >= 1 && n <= lines) marks.set(n, changedLine);
+  for (const n of [...marks.keys()].sort((a, b) => a - b)) {
+    const from = view.state.doc.line(n).from;
+    builder.add(from, from, marks.get(n)!);
+  }
+  return builder.finish();
+}
+
+export default function Editor({ value, lineNumbers: showLineNumbers, onChange, historyRef, syncRef, diff }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const gutterComp = useRef(new Compartment());
+  const diffComp = useRef(new Compartment());
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -53,6 +77,7 @@ export default function Editor({ value, lineNumbers: showLineNumbers, onChange, 
     if (!host) return;
     const extensions = [
       gutterComp.current.of(showLineNumbers ? lineNumbers() : []),
+      diffComp.current.of([]),
       history(),
       highlightActiveLine(),
       markdown(),
@@ -134,6 +159,17 @@ export default function Editor({ value, lineNumbers: showLineNumbers, onChange, 
       effects: gutterComp.current.reconfigure(showLineNumbers ? lineNumbers() : []),
     });
   }, [showLineNumbers]);
+
+  // SPEC16 §2: swap the diff decorations in/out as the sets change.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: diffComp.current.reconfigure(
+        diff ? EditorView.decorations.of((v) => diffDecorations(v, diff)) : []
+      ),
+    });
+  }, [diff]);
 
   return <div className="editor-wrap" data-testid="editor" ref={hostRef} />;
 }

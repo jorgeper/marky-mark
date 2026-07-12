@@ -21,6 +21,11 @@ import { buildMenuSpec } from './lib/menuSpec';
 import { stepComment } from './lib/commentNav';
 import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
 import type { EditorSyncHandle } from './components/Editor';
+import { buildReviewBundle } from './lib/reviewBundle';
+import { diffLineSets, type DiffLineSets } from './lib/diffLines';
+import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
+import { countWords } from './lib/wordCount';
+import { HeadingPalette, type PaletteHeading } from './components/HeadingPalette';
 import {
   buildAuxInit,
   EV_AUX_INIT,
@@ -83,6 +88,12 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [closePrompt, setClosePrompt] = useState(false);
+  const [canExportReview, setCanExportReview] = useState(false);
+  const [showDiff, setShowDiff] = useState(false);
+  const [diff, setDiff] = useState<DiffLineSets | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteHeadings, setPaletteHeadings] = useState<PaletteHeading[]>([]);
+  const [chip, setChip] = useState('');
   const [openPrompt, setOpenPrompt] = useState<string | null>(null); // pending path awaiting the unsaved-changes decision
   // Auto-hiding toolbar (SPEC4 §2): launch grace → hover/pin driven.
   const [graceOver, setGraceOver] = useState(false);
@@ -104,6 +115,7 @@ export default function App() {
   const docTextRef = useRef('');
   const navLabelRef = useRef('');
   const editorSyncRef = useRef<EditorSyncHandle | null>(null);
+  const positionsRef = useRef<PositionStore>({ version: 1, entries: [] });
   const skipSaveRef = useRef(true);
   const unwatchRef = useRef<(() => void) | null>(null);
   /** Source line carried across mode switches (line-anchored, not ratio). */
@@ -157,6 +169,36 @@ export default function App() {
     return { content: split.content, comments: mergeComments(split.comments, sidecarComments) };
   }, []);
 
+  /** Source line at the top of the current view, whatever the mode. */
+  const currentTopLine = useCallback((): number | null => {
+    const s = stateRef.current;
+    if (!s.docPath) return null;
+    if (s.mode === 'edit') return editorSyncRef.current?.topLine() ?? null;
+    const ws = workspaceRef.current;
+    const doc = docRef.current;
+    if (!ws || !doc || ws.scrollHeight === 0) return null;
+    return lineAtOffset(collectAnchors(ws, doc), ws.scrollHeight, ws.scrollTop);
+  }, []);
+
+  /** SPEC16 §3: remember where we are in the given doc, write-through. */
+  const recordPosition = useCallback((path: string | null, line: number | null) => {
+    if (!path || line === null) return;
+    positionsRef.current = rememberPosition(positionsRef.current, path, line, new Date().toISOString());
+    const p = stateRef.current.platform;
+    if (!p) return;
+    void (async () => {
+      try {
+        await p.writeTextFile(p.join(await p.configDir(), 'positions.json'), serializePositions(positionsRef.current));
+      } catch {
+        /* best effort */
+      }
+    })();
+  }, []);
+
+  // Guards the SPEC15/SPEC16 preview restore against firing on stale html
+  // (opening a doc from edit mode re-runs the effect before the new render).
+  const renderPendingRef = useRef(false);
+
   // --- document loading ------------------------------------------------------
   const openDoc = useCallback(async (p: Platform, path: string) => {
     let content: string;
@@ -166,6 +208,11 @@ export default function App() {
     } catch {
       return; // unreadable path (e.g. deleted file in a stale open event)
     }
+    // SPEC16 §3: park the outgoing doc's position, queue the incoming one's.
+    recordPosition(stateRef.current.docPath, currentTopLine());
+    pendingScrollLineRef.current = positionFor(positionsRef.current, path);
+    renderPendingRef.current = true; // consume the restore only against fresh html
+
     skipSaveRef.current = true;
     editorHistoryRef.current = null; // a fresh document starts a fresh undo history
     setDocPath(path);
@@ -176,6 +223,8 @@ export default function App() {
     setActiveId(null);
     setPending(null);
     setMode('preview');
+    setShowDiff(false); // SPEC16 §2: the diff toggle resets per document
+    setDiff(null);
 
     unwatchRef.current?.();
     unwatchRef.current = null;
@@ -196,7 +245,7 @@ export default function App() {
     } catch {
       /* watching is best-effort */
     }
-  }, [loadDocParts]);
+  }, [loadDocParts, recordPosition, currentTopLine]);
 
   /**
    * Unsaved-changes guard (SPEC4 §6): every user-initiated open routes here.
@@ -256,6 +305,19 @@ export default function App() {
       }
       if (p.kind === 'web') loaded = { ...loaded, commentStorage: 'embedded' }; // no sidecars on web
       const themeList = await loadAllThemes(p);
+
+      // SPEC16 §3: reading positions (corruption-tolerant).
+      try {
+        const posPath = p.join(cfg, 'positions.json');
+        if (await p.exists(posPath)) positionsRef.current = parsePositions(await p.readTextFile(posPath));
+      } catch {
+        /* start empty */
+      }
+      // SPEC16 §1.6: export exists only where a review template does.
+      if (p.reviewTemplate) {
+        const template = await p.reviewTemplate();
+        if (!disposed) setCanExportReview(template !== null);
+      }
 
       setPlatform(p);
       setSettings(loaded);
@@ -408,9 +470,11 @@ export default function App() {
         ws && doc && ws.scrollHeight > 0
           ? lineAtOffset(collectAnchors(ws, doc), ws.scrollHeight, ws.scrollTop)
           : null;
+      recordPosition(s.docPath, pendingScrollLineRef.current); // SPEC16 §3.2
       setMode('edit');
     } else {
       pendingScrollLineRef.current = editorSyncRef.current?.topLine() ?? null;
+      recordPosition(s.docPath, pendingScrollLineRef.current); // SPEC16 §3.2
       if (s.settings.autosaveOnToggle && s.dirty) void saveDoc();
       setMode('preview');
     }
@@ -534,6 +598,40 @@ export default function App() {
       open: () => void openViaDialog(),
       save: () => void saveDoc(),
       saveAs: () => void saveDocAs(),
+      // SPEC16 §1: compose the web viewer + document into one shareable file.
+      exportReview: () => {
+        void (async () => {
+          const s = stateRef.current;
+          const p = s.platform;
+          if (!p?.reviewTemplate || !p.saveFileDialog || !s.docPath) return;
+          const template = await p.reviewTemplate();
+          if (!template) return;
+          const name = p.basename(s.docPath);
+          const target = await p.saveFileDialog(`${name.replace(/\.(md|markdown)$/i, '')}.review.html`);
+          if (!target) return;
+          // Comments always travel embedded, whatever the storage setting.
+          const markdown = attachEmbedded(s.buffer, s.comments);
+          await p.writeTextFile(target, buildReviewBundle(template, { name, markdown }));
+          await p.commitFile?.(target);
+        })();
+      },
+      toggleDiff: () => setShowDiff((v) => !v),
+      headingPalette: () => {
+        const doc = docRef.current ?? splitDocRef.current;
+        const headings: PaletteHeading[] = doc
+          ? Array.from(
+              doc.querySelectorAll<HTMLElement>(
+                'h1[data-mm-line],h2[data-mm-line],h3[data-mm-line],h4[data-mm-line],h5[data-mm-line],h6[data-mm-line]'
+              )
+            ).map((el) => ({
+              line: Number(el.dataset.mmLine),
+              depth: Number(el.tagName[1]),
+              text: el.textContent ?? '',
+            }))
+          : [];
+        setPaletteHeadings(headings);
+        setPaletteOpen((v) => !v);
+      },
       toggleMode,
       toggleComments: () => {
         // Master switch off (SPEC7 §2): the comments UI is gone, commands included.
@@ -581,9 +679,11 @@ export default function App() {
         commentsEnabled: settings.commentsEnabled,
         commentCount: comments.length,
         hotkeys: settings.hotkeys,
+        canExportReview,
+        showDiff,
       })
     );
-  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys]);
+  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, canExportReview, showDiff]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -626,6 +726,51 @@ export default function App() {
     if (platform?.busEmit) void platform.busEmit(EV_THEMES_CHANGED, themes);
   }, [platform, themes]);
 
+  // --- SPEC16 §2: changes-since-save sets, recomputed on a debounce ------------
+  useEffect(() => {
+    if (!showDiff || mode !== 'edit') {
+      setDiff(null);
+      return;
+    }
+    const t = setTimeout(() => setDiff(diffLineSets(savedText, buffer)), 200);
+    return () => clearTimeout(t);
+  }, [showDiff, mode, buffer, savedText]);
+
+  // --- SPEC16 §5: word-count chip (selection-aware in preview) ------------------
+  useEffect(() => {
+    if (!docPath) {
+      setChip('');
+      return;
+    }
+    const t = setTimeout(() => {
+      const sel =
+        mode === 'preview' && selInfo && selInfo.end > selInfo.start
+          ? docTextRef.current.slice(selInfo.start, selInfo.end)
+          : '';
+      const text = sel || (mode === 'preview' ? docTextRef.current : buffer);
+      const { words, minutes } = countWords(text);
+      setChip(`${words.toLocaleString('en-US')} words · ${minutes} min`);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [docPath, mode, buffer, html, selInfo]);
+
+  // --- SPEC16 §3: capture the reading position on preview scrolls (debounced) ---
+  useEffect(() => {
+    if (mode !== 'preview' || !docPath) return;
+    const ws = workspaceRef.current;
+    if (!ws) return;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const onScroll = () => {
+      if (t) clearTimeout(t);
+      t = setTimeout(() => recordPosition(stateRef.current.docPath, currentTopLine()), 500);
+    };
+    ws.addEventListener('scroll', onScroll);
+    return () => {
+      if (t) clearTimeout(t);
+      ws.removeEventListener('scroll', onScroll);
+    };
+  }, [mode, docPath, recordPosition, currentTopLine]);
+
   // --- global hotkeys (capture phase so Cmd+S never reaches the webview) --------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -649,6 +794,9 @@ export default function App() {
       } else if (eventMatches(e, hk.prevComment)) {
         e.preventDefault();
         dispatchCommand('prevComment', 'hotkey');
+      } else if (eventMatches(e, hk.headingPalette)) {
+        e.preventDefault();
+        dispatchCommand('headingPalette', 'hotkey');
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -717,7 +865,9 @@ export default function App() {
     let cancelled = false;
     const render = () =>
       void renderMarkdown(buffer).then((rendered) => {
-        if (!cancelled) setHtml(rendered);
+        if (cancelled) return;
+        renderPendingRef.current = false; // fresh html — restores may consume
+        setHtml(rendered);
       });
     if (mode === 'edit') {
       const t = setTimeout(render, 200); // keystrokes coalesce; well under the 300ms budget
@@ -835,6 +985,7 @@ export default function App() {
   // pixel offset (block-anchored, so code blocks don't skew it).
   useLayoutEffect(() => {
     if (mode !== 'preview') return;
+    if (renderPendingRef.current) return; // stale html — wait for the fresh render
     const line = pendingScrollLineRef.current;
     if (line === null) return;
     const ws = workspaceRef.current;
@@ -1329,6 +1480,7 @@ export default function App() {
                 onChange={setBuffer}
                 historyRef={editorHistoryRef}
                 syncRef={editorSyncRef}
+                diff={diff}
               />
             </Suspense>
           </div>
@@ -1351,6 +1503,7 @@ export default function App() {
               onChange={setBuffer}
               historyRef={editorHistoryRef}
               syncRef={editorSyncRef}
+              diff={diff}
             />
           </Suspense>
         </div>
@@ -1366,6 +1519,34 @@ export default function App() {
         >
           💬 Add comment
         </button>
+      )}
+
+      {/* SPEC16 §5: quiet word-count chip, bottom-left. */}
+      {chip && (
+        <div className="word-chip" data-testid="word-chip">
+          {chip}
+        </div>
+      )}
+
+      {/* SPEC16 §4: the ⌘K heading palette. */}
+      {paletteOpen && (
+        <HeadingPalette
+          headings={paletteHeadings}
+          onClose={() => setPaletteOpen(false)}
+          onJump={(h) => {
+            const s = stateRef.current;
+            if (s.mode === 'edit') {
+              editorSyncRef.current?.scrollToLine(h.line);
+              return;
+            }
+            const ws = workspaceRef.current;
+            const doc = docRef.current;
+            const el = doc?.querySelector<HTMLElement>(`[data-mm-line="${h.line}"]`);
+            if (!ws || !el) return;
+            // Content-coordinate top of the heading → viewport top.
+            ws.scrollTop = el.getBoundingClientRect().top - (ws.getBoundingClientRect().top - ws.scrollTop);
+          }}
+        />
       )}
 
       {/* SPEC14 §3: fixed navigator pill, centered over the comment margin —

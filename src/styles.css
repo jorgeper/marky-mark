@@ -1057,3 +1057,87 @@ mark.hl.ghost {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+/* --- SPEC16: changes-since-save tints (theme-overridable) --- */
+.cm-line.mm-diff-changed {
+  background: var(--mm-diff-changed-bg, rgba(46, 160, 67, 0.14));
+}
+.cm-line.mm-diff-deleted-after {
+  box-shadow: inset 3px 0 0 var(--mm-diff-removed, #d1242f);
+}
+
+/* --- SPEC16: word-count chip, bottom-left --- */
+.word-chip {
+  position: fixed;
+  left: 14px;
+  bottom: 14px;
+  z-index: 60;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  color: var(--mm-fg-muted, #59636e);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* --- SPEC16: heading palette --- */
+.palette-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90; /* under .overlay modals, over everything else */
+  background: rgba(0, 0, 0, 0.18);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+}
+.palette {
+  width: min(480px, 92vw);
+  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  color: var(--mm-fg, #1f2328);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+.palette input {
+  font: inherit;
+  font-size: 14px;
+  color: inherit;
+  background: var(--mm-bg, #fff);
+  border: none;
+  border-bottom: 1px solid var(--mm-border, #d1d9e0);
+  padding: 12px 14px;
+  outline: none;
+}
+.palette ul {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+}
+.palette li button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.palette li button.active {
+  background: color-mix(in srgb, var(--mm-accent, #0969da) 16%, transparent);
+}
