@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { getPlatform, type Platform } from './platform';
 import { renderMarkdown } from './lib/markdown';
 import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
-import { getDocText, highlightRange, rangeToOffsets, rectForOffsets } from './lib/domtext';
+import { getDocText, highlightRange, offsetsToRange, rangeToOffsets, rectForOffsets } from './lib/domtext';
 import { parseSidecar, serializeSidecar, sidecarPathFor } from './lib/sidecar';
 import { attachEmbedded, mergeComments, splitEmbedded } from './lib/embedded';
 import {
@@ -134,6 +134,12 @@ export default function App() {
   const editorInsertRef = useRef<((text: string) => void) | null>(null);
   /** SPEC23 §1: imperative mirrored-selection entry into the mounted editor. */
   const editorSelectRef = useRef<((from: number, to: number) => void) | null>(null);
+  // SPEC25: selection carry across mode switches.
+  const lastEditorSelRef = useRef<{ from: number; to: number }>({ from: 0, to: 0 });
+  const pendingEditorSelRef = useRef<{ from: number; to: number } | null>(null);
+  const pendingPreviewSelRef = useRef<{ from: number; to: number } | null>(null);
+  /** True once the preview injection pass ran to completion for the current DOM. */
+  const injectionCompleteRef = useRef(false);
   const positionsRef = useRef<PositionStore>({ version: 1, entries: [] });
   const skipSaveRef = useRef(true);
   const unwatchRef = useRef<(() => void) | null>(null);
@@ -200,6 +206,55 @@ export default function App() {
     };
   }, []);
 
+  /**
+   * SPEC25 §1 (and SPEC23 §1): map the live native selection inside a preview
+   * pane to source offsets — exact via mapSelectionToSource, else the
+   * covering source line range (blank tail lines trimmed). Null when there
+   * is no usable selection in the pane.
+   */
+  const sourceRangeFromDomSelection = useCallback((pane: HTMLElement): { from: number; to: number } | null => {
+    const sel = document.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+    const range = sel.getRangeAt(0);
+    if (!pane.contains(range.startContainer) || !pane.contains(range.endContainer)) return null;
+    const text = sel.toString();
+    if (!text.trim()) return null;
+    const buffer = stateRef.current.buffer;
+    const lines = buffer.split('\n');
+    const stamped = Array.from(pane.querySelectorAll<HTMLElement>('[data-mm-line]'));
+    const blockOf = (node: Node): HTMLElement | null => {
+      const el = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+      const hit = el?.closest<HTMLElement>('[data-mm-line]');
+      if (hit) return hit;
+      let best: HTMLElement | null = null;
+      for (const s of stamped) {
+        if (s.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) best = s;
+        else break;
+      }
+      return best;
+    };
+    const startEl = blockOf(range.startContainer);
+    const endEl = blockOf(range.endContainer);
+    const fromLine = startEl ? Number(startEl.dataset.mmLine) : 1;
+    let toLine = lines.length;
+    if (endEl) {
+      const endLine = Number(endEl.dataset.mmLine);
+      const next = stamped.find((el) => Number(el.dataset.mmLine) > endLine && el !== endEl);
+      toLine = next ? Number(next.dataset.mmLine) - 1 : lines.length;
+      if (toLine < endLine) toLine = endLine;
+    }
+    if (toLine < fromLine) toLine = fromLine;
+    const hit = mapSelectionToSource(buffer, fromLine, toLine, text);
+    if (hit) return hit;
+    // Fallback: the covering source line range — never a wrong guess.
+    const starts: number[] = [0];
+    for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
+    const lo = Math.min(fromLine, lines.length);
+    let hi = Math.min(toLine, lines.length);
+    while (hi > lo && lines[hi - 1].trim() === '') hi--;
+    return { from: starts[lo - 1], to: starts[hi - 1] + lines[hi - 1].length };
+  }, []);
+
   // --- SPEC24 §1: editor → preview synthetic highlight -------------------------
   const mirrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -225,6 +280,7 @@ export default function App() {
   const handleEditState = useCallback(
     (s: { head: number; headLine: number; selFrom: number; selTo: number; selText: string; focused: boolean }) => {
       seamEditState(s);
+      lastEditorSelRef.current = { from: s.selFrom, to: s.selTo }; // SPEC25 §2.1
       const st = stateRef.current;
       if (st.mode !== 'edit' || !st.settings.splitEdit) return;
       if (mirrorTimerRef.current) clearTimeout(mirrorTimerRef.current);
@@ -439,6 +495,9 @@ export default function App() {
 
     skipSaveRef.current = true;
     editorHistoryRef.current = null; // a fresh document starts a fresh undo history
+    pendingEditorSelRef.current = null; // SPEC25: selection never crosses documents
+    pendingPreviewSelRef.current = null;
+    lastEditorSelRef.current = { from: 0, to: 0 };
     setDocPath(path);
     setUntitled(false); // SPEC22 §3.3: a real document replaces any untitled buffer
     setBuffer(content);
@@ -713,6 +772,13 @@ export default function App() {
 
   const toggleMode = useCallback(() => {
     const s = stateRef.current;
+    // SPEC25: carry the current selection across the mode switch.
+    if (s.mode === 'preview') {
+      pendingEditorSelRef.current = docRef.current ? sourceRangeFromDomSelection(docRef.current) : null;
+    } else {
+      const { from, to } = lastEditorSelRef.current;
+      pendingPreviewSelRef.current = from !== to ? { from, to } : null;
+    }
     // Carry the source line at the top of the current view so the other mode
     // opens on the same block (works for full and split edit alike).
     if (s.mode === 'preview') {
@@ -734,7 +800,7 @@ export default function App() {
     }
     setSelInfo(null);
     setPending(null);
-  }, [saveDoc]);
+  }, [saveDoc, sourceRangeFromDomSelection]);
 
   /**
    * Split divider drag (SPEC7 §5.4): pointer-captured; the live resize writes
@@ -782,6 +848,9 @@ export default function App() {
     pendingScrollLineRef.current = null;
     skipSaveRef.current = true;
     editorHistoryRef.current = null;
+    pendingEditorSelRef.current = null;
+    pendingPreviewSelRef.current = null;
+    lastEditorSelRef.current = { from: 0, to: 0 };
     setDocPath(null);
     setUntitled(true);
     setBuffer('');
@@ -979,6 +1048,11 @@ export default function App() {
         setPaletteOpen((v) => !v);
       },
       toggleMode,
+      // SPEC25 §3: first-class split toggle — flips the persisted setting live.
+      toggleSplit: () => {
+        const st = stateRef.current.settings;
+        updateSettings({ ...st, splitEdit: !st.splitEdit });
+      },
       toggleComments: () => {
         // Master switch off (SPEC7 §2): the comments UI is gone, commands included.
         if (stateRef.current.settings.commentsEnabled) setShowComments((v) => !v);
@@ -1021,6 +1095,7 @@ export default function App() {
       buildMenuSpec({
         isMac: platform.isMac,
         mode,
+        splitEdit: settings.splitEdit,
         showComments,
         commentsEnabled: settings.commentsEnabled,
         commentCount: comments.length,
@@ -1029,7 +1104,7 @@ export default function App() {
         showWordCount: settings.showWordCount,
       })
     );
-  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount]);
+  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -1125,6 +1200,9 @@ export default function App() {
       if (eventMatches(e, hk.toggleEdit)) {
         e.preventDefault();
         dispatchCommand('toggleMode', 'hotkey');
+      } else if (eventMatches(e, hk.toggleSplit)) {
+        e.preventDefault();
+        dispatchCommand('toggleSplit', 'hotkey');
       } else if (eventMatches(e, hk.save)) {
         e.preventDefault();
         dispatchCommand('save', 'hotkey');
@@ -1273,6 +1351,7 @@ export default function App() {
     if (mode !== 'preview') return;
     const doc = docRef.current;
     if (!doc) return;
+    injectionCompleteRef.current = false;
     doc.innerHTML = html;
     if (!html) {
       docTextRef.current = '';
@@ -1325,16 +1404,18 @@ export default function App() {
       setComments(updated);
       return;
     }
-    if (!showComments || !settings.commentsEnabled) return;
-    for (const c of comments) {
-      if (c.resolved && !settings.showResolved) continue;
-      const m = pos[c.id];
-      if (m) {
-        const marks = highlightRange(doc, m.start, m.end, c.id);
-        // Ghosted resolved highlights (SPEC6 §3): faint tint, still clickable.
-        if (c.resolved) marks.forEach((mk) => mk.classList.add('ghost'));
+    if (showComments && settings.commentsEnabled) {
+      for (const c of comments) {
+        if (c.resolved && !settings.showResolved) continue;
+        const m = pos[c.id];
+        if (m) {
+          const marks = highlightRange(doc, m.start, m.end, c.id);
+          // Ghosted resolved highlights (SPEC6 §3): faint tint, still clickable.
+          if (c.resolved) marks.forEach((mk) => mk.classList.add('ghost'));
+        }
       }
     }
+    injectionCompleteRef.current = true; // SPEC25 §2: this DOM is final for now
   }, [html, comments, showComments, mode, settings.showResolved, settings.commentsEnabled]);
 
   // Into preview: once the doc is injected, map the carried line back to a
@@ -1350,6 +1431,44 @@ export default function App() {
     ws.scrollTop = offsetForLine(collectAnchors(ws, doc), Math.max(ws.scrollHeight, 1), line);
     pendingScrollLineRef.current = null;
   }, [mode, html]);
+
+  // SPEC25 §2: once the preview DOM is final (injection completed — an
+  // anchor-refresh pass rebuilds it and must not eat the carry), restore the
+  // parked editor selection as a NATIVE selection of the rendered text.
+  useLayoutEffect(() => {
+    if (mode !== 'preview') return;
+    if (renderPendingRef.current || !injectionCompleteRef.current) return;
+    const pending = pendingPreviewSelRef.current;
+    if (!pending) return;
+    const doc = docRef.current;
+    if (!doc || doc.childElementCount === 0) return;
+    pendingPreviewSelRef.current = null;
+    const buffer = stateRef.current.buffer;
+    const needle = visibleTextForRange(buffer, pending.from, pending.to);
+    if (!needle.replace(/\s+/g, ' ').trim()) return;
+    const fromLine = buffer.slice(0, pending.from).split('\n').length;
+    const toLine = buffer.slice(0, pending.to).split('\n').length;
+    const stamped = Array.from(doc.querySelectorAll<HTMLElement>('[data-mm-line]'));
+    if (stamped.length === 0) return;
+    let startEl = stamped[0];
+    for (const el of stamped) {
+      if (Number(el.dataset.mmLine) <= fromLine) startEl = el;
+      else break;
+    }
+    const after = stamped.find((el) => Number(el.dataset.mmLine) > toLine);
+    const region = document.createRange();
+    region.setStartBefore(startEl);
+    if (after) region.setEndBefore(after);
+    else if (doc.lastChild) region.setEndAfter(doc.lastChild);
+    else return;
+    const { start: rs, end: re } = rangeToOffsets(doc, region);
+    const hit = findNormalized(getDocText(doc).slice(rs, re), needle);
+    const range = offsetsToRange(doc, hit ? rs + hit.start : rs, hit ? rs + hit.end : re);
+    if (!range) return;
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }, [mode, html, comments, showComments, settings.showResolved, settings.commentsEnabled]);
 
   // --- split-edit live preview pane (SPEC7 §5): plain reading pane, no comments ----
   useLayoutEffect(() => {
@@ -1541,52 +1660,9 @@ export default function App() {
     let t: ReturnType<typeof setTimeout> | null = null;
     const apply = () => {
       const pane = splitDocRef.current;
-      const sel = document.getSelection();
-      if (!pane || !sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-      const range = sel.getRangeAt(0);
-      if (!pane.contains(range.startContainer) || !pane.contains(range.endContainer)) return;
-      const text = sel.toString();
-      if (!text.trim()) return;
-      const buffer = stateRef.current.buffer;
-      const lines = buffer.split('\n');
-      const stamped = Array.from(pane.querySelectorAll<HTMLElement>('[data-mm-line]'));
-      // Nearest stamped ancestor, else the last stamped block before the node.
-      const blockOf = (node: Node): HTMLElement | null => {
-        const el = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
-        const hit = el?.closest<HTMLElement>('[data-mm-line]');
-        if (hit) return hit;
-        let best: HTMLElement | null = null;
-        for (const s of stamped) {
-          if (s.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) best = s;
-          else break;
-        }
-        return best;
-      };
-      const startEl = blockOf(range.startContainer);
-      const endEl = blockOf(range.endContainer);
-      const fromLine = startEl ? Number(startEl.dataset.mmLine) : 1;
-      // End bound: the next stamped block after the end block opens the next
-      // source region — stop one line short of it (else: the buffer end).
-      let toLine = lines.length;
-      if (endEl) {
-        const endLine = Number(endEl.dataset.mmLine);
-        const next = stamped.find((el) => Number(el.dataset.mmLine) > endLine && el !== endEl);
-        toLine = next ? Number(next.dataset.mmLine) - 1 : lines.length;
-        if (toLine < endLine) toLine = endLine;
-      }
-      if (toLine < fromLine) toLine = fromLine;
-      const hit = mapSelectionToSource(buffer, fromLine, toLine, text);
-      if (hit) {
-        editorSelectRef.current?.(hit.from, hit.to);
-        return;
-      }
-      // Fallback (§1.4): the covering source line range — never a wrong guess.
-      const starts: number[] = [0];
-      for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
-      const lo = Math.min(fromLine, lines.length);
-      let hi = Math.min(toLine, lines.length);
-      while (hi > lo && lines[hi - 1].trim() === '') hi--; // blank tail lines aren't content
-      editorSelectRef.current?.(starts[lo - 1], starts[hi - 1] + lines[hi - 1].length);
+      if (!pane) return;
+      const mapped = sourceRangeFromDomSelection(pane);
+      if (mapped) editorSelectRef.current?.(mapped.from, mapped.to);
     };
     const onSel = () => {
       if (t) clearTimeout(t);
@@ -1597,7 +1673,7 @@ export default function App() {
       if (t) clearTimeout(t);
       document.removeEventListener('selectionchange', onSel);
     };
-  }, [mode, settings.splitEdit]);
+  }, [mode, settings.splitEdit, sourceRangeFromDomSelection]);
 
   // --- selection → floating "Add comment" button ---------------------------------------
   useEffect(() => {
@@ -1924,6 +2000,7 @@ export default function App() {
                 onVimModeChange={seamVimMode}
                 onEditState={handleEditState}
                 selectRangeRef={editorSelectRef}
+                pendingSelectionRef={pendingEditorSelRef}
               />
             </Suspense>
           </div>
@@ -1973,6 +2050,7 @@ export default function App() {
               onVimModeChange={seamVimMode}
               onEditState={handleEditState}
               selectRangeRef={editorSelectRef}
+              pendingSelectionRef={pendingEditorSelRef}
             />
           </Suspense>
         </div>

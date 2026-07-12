@@ -95,6 +95,12 @@ interface Props {
    * focusing the editor (the preview selection must survive).
    */
   selectRangeRef?: MutableRefObject<((from: number, to: number) => void) | null>;
+  /**
+   * SPEC25 §1: a selection carried across a mode switch — consumed once at
+   * mount, applied AFTER the parked-history restore so it wins over the
+   * parked selection, then cleared.
+   */
+  pendingSelectionRef?: MutableRefObject<{ from: number; to: number } | null>;
 }
 
 /**
@@ -184,6 +190,7 @@ export default function Editor({
   onVimModeChange,
   onEditState,
   selectRangeRef,
+  pendingSelectionRef,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -300,6 +307,16 @@ export default function Editor({
     }
     viewRef.current = view;
     view.focus();
+
+    // SPEC25 §1: apply a carried selection (beats the parked-history one).
+    if (pendingSelectionRef?.current) {
+      const { from, to } = pendingSelectionRef.current;
+      pendingSelectionRef.current = null;
+      const len = view.state.doc.length;
+      const a = Math.max(0, Math.min(from, len));
+      const b = Math.max(a, Math.min(to, len));
+      view.dispatch({ selection: { anchor: a, head: b }, effects: EditorView.scrollIntoView(a, { y: 'center' }) });
+    }
 
     if (insertRef) {
       insertRef.current = (text) => {

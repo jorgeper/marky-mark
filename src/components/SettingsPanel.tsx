@@ -27,6 +27,7 @@ interface Props {
 
 const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   toggleEdit: 'Toggle edit / preview',
+  toggleSplit: 'Split edit',
   newFile: 'New file',
   openFile: 'Open file',
   toggleComments: 'Show / hide comments',

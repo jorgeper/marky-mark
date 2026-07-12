@@ -64,11 +64,13 @@ Either way it's a one-time step — the app opens normally afterwards.
 - **27+ built-in themes** (Crisp, Claude, Monokai, Dracula, Nord, Solarized,
   One Dark, …) and drop-in custom themes — one CSS file, no build step. See
   [THEMES.md](THEMES.md) for making your own.
-- **Edit mode** — full-screen swap or side-by-side split (⌘E / Ctrl+E,
-  remappable) with synchronized scrolling between the panes, a
+- **Edit mode** — full-screen swap or side-by-side split (⌘E and ⌘\ /
+  Ctrl+E and Ctrl+\, remappable; split also lives in the View menu) with
+  synchronized scrolling between the panes, a
   changes-since-save view that tints edited lines, and undo history that
   survives mode switches. File → New (⌘N) opens a fresh untitled buffer —
-  you pick where it lives on first save. Markdown syntax highlighting in
+  you pick where it lives on first save. Your selection survives switching
+  between edit and preview, in both layouts. Markdown syntax highlighting in
   the editor (theme-driven, toggleable), select in either split pane to
   see the same text selected in the other, and — with Vim navigation on —
   Esc puts the editor in a navigation-only vim mode (h/j/k/l, w/b, 0/$,

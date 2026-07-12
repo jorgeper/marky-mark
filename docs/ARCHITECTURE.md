@@ -471,6 +471,14 @@ bounce), and the reverse mirror ignores unfocused selection reports — the
 forward mirror's CM dispatch always arrives unfocused (and clears stale
 marks on the way through).
 
+Mode switches carry the selection too (SPEC25): into edit, the captured
+preview selection maps through the same source mapper and rides a ref the
+editor consumes at mount (after the parked-history restore, so it wins);
+into preview, the parked source range maps to rendered text and becomes a
+NATIVE selection once the injection pass completes (an anchor-refresh
+rebuild must not eat it — a completion flag gates the restore). No
+CodeMirror exists in preview, so the native selection is safe there.
+
 ## Editor markdown highlighting (SPEC23 §3)
 
 `@codemirror/lang-markdown` always parsed the buffer; SPEC23 attaches a

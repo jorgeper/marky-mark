@@ -12,6 +12,7 @@ export type CommandId =
   | 'exportDoc'
   | 'printDoc'
   | 'toggleMode'
+  | 'toggleSplit'
   | 'toggleComments'
   | 'nextComment'
   | 'prevComment'

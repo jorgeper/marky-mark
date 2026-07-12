@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'vitest';
 import { buildMenuSpec, type CommandItemSpec, type MenuState } from '../../src/lib/menuSpec';
 import { DEFAULT_HOTKEYS } from '../../src/lib/hotkeys';
+import { parseSettings } from '../../src/lib/settings';
 
 const base: MenuState = {
   isMac: true,
   mode: 'preview',
+  splitEdit: true, // SPEC25 §3: fixture-level only — no assertion changed
   showComments: true,
   commentsEnabled: true,
   commentCount: 0,
@@ -160,5 +162,21 @@ describe('SPEC12 menu spec', () => {
     const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, newFile: 'Mod+Shift+N' } };
     expect(find(rebound, 'File', 'newFile')!.accelerator).toBe('Mod+Shift+N');
     expect(find(rebound, 'File', 'open')!.accelerator).toBe(DEFAULT_HOTKEYS.openFile);
+  });
+
+  test('U53: View carries Split Edit right after Edit Mode — checkbox tracks the setting, accelerator rebinds', () => {
+    expect(DEFAULT_HOTKEYS.toggleSplit).toBe('Mod+\\');
+    for (const s of [base, { ...base, isMac: false }]) {
+      const view = commandsIn(s, 'View').map((i) => i.command);
+      expect(view.indexOf('toggleSplit')).toBe(view.indexOf('toggleMode') + 1);
+      expect(find(s, 'View', 'toggleSplit')!.label).toBe('Split Edit');
+      expect(find(s, 'View', 'toggleSplit')!.checked).toBe(true);
+      expect(find(s, 'View', 'toggleSplit')!.accelerator).toBe(DEFAULT_HOTKEYS.toggleSplit);
+    }
+    expect(find({ ...base, splitEdit: false }, 'View', 'toggleSplit')!.checked).toBe(false);
+    const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, toggleSplit: 'Mod+Shift+L' } };
+    expect(find(rebound, 'View', 'toggleSplit')!.accelerator).toBe('Mod+Shift+L');
+    // Pre-SPEC25 settings files gain the default binding via the sanitizer.
+    expect(parseSettings('{"hotkeys":{"save":"Mod+S"}}').hotkeys.toggleSplit).toBe('Mod+\\');
   });
 });

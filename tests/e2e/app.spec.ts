@@ -2539,3 +2539,104 @@ test('E83: editor selections mirror into the split preview as synthetic marks; b
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('quick brown** fox');
   await expect(marks).toHaveCount(0);
 });
+
+test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; setting persists; menu checkbox drives it', async ({
+  page,
+}) => {
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('split-preview')).toBeVisible(); // default on
+
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('SPLITMARK ');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toContain('SPLITMARK');
+
+  // Toggle to full-screen edit: everything carried across the remount.
+  await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('SPLITMARK');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toContain('SPLITMARK');
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"splitEdit": false');
+
+  // Undo still reaches across the remount and removes the typed run.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(page.getByTestId('editor').locator('.cm-content')).not.toContainText('SPLITMARK');
+
+  // Back to split.
+  await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"splitEdit": true');
+
+  // Native-menu surface: View carries the checkbox and click() toggles it.
+  await freshNativeMenuApp(page);
+  const splitItem = () =>
+    page.evaluate(() => {
+      const view = window.__mmMenu!.spec!.submenus.find((m) => m.title === 'View')!;
+      return view.items.find((i) => i.type === 'command' && i.command === 'toggleSplit') as {
+        label?: string;
+        checked?: boolean;
+        accelerator?: string;
+      };
+    });
+  expect((await splitItem()).label).toBe('Split Edit');
+  expect((await splitItem()).checked).toBe(true); // fresh settings → default on
+  expect((await splitItem()).accelerator).toBe('Mod+\\');
+  await menuClick(page, 'toggleSplit');
+  await expect.poll(async () => (await splitItem()).checked).toBe(false);
+});
+
+test('E85: the selection survives ⌘E in both directions, in full and split layouts', async ({ page }) => {
+  await fsWrite(
+    page,
+    '/docs/carry.md',
+    '# Carry Title\n\nThe **quick brown** fox jumps far.\n\nanother paragraph entirely.\n'
+  );
+  await page.goto('/#open=/docs/carry.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Carry Title');
+
+  // Preview → edit (split): the preview selection becomes the exact source
+  // selection, and the reverse mirror lights the split preview.
+  await selectSpanInPane(page, '[data-testid="doc"]', 'quick', 'fox jumps');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('quick brown** fox jumps');
+  const marks = page.locator('[data-testid="split-preview"] .doc mark.mm-mirror-sel');
+  await expect.poll(async () => (await marks.allTextContents()).join('')).toBe('quick brown fox jumps');
+
+  // Split → full edit (⌘\): the selection rides the parked editor state.
+  await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('quick brown** fox jumps');
+
+  // Edit → preview: the carried range becomes a NATIVE selection of the
+  // rendered text (markers stripped).
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? '')).toBe(
+    'quick brown fox jumps'
+  );
+
+  // Preview → edit again with a different phrase (full-screen edit now).
+  await selectPhraseInPane(page, '[data-testid="doc"]', 'another paragraph');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('another paragraph');
+  // It is a real selection: typing over it replaces the text.
+  await page.keyboard.type('REPLACED');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('REPLACED entirely.');
+  await page.keyboard.press('ControlOrMeta+z');
+
+  // Collapsed selections carry nothing: collapse in the editor, toggle to
+  // preview — no native selection materializes there.
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit && window.__mmEdit.selFrom === window.__mmEdit.selTo)).toBe(
+    true
+  );
+  await page.keyboard.press('Control+e'); // to preview
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Carry Title');
+  await page.waitForTimeout(250); // past the restore effect's window
+  expect(await page.evaluate(() => document.getSelection()?.toString() ?? '')).toBe('');
+});

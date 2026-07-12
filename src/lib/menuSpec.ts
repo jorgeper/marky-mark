@@ -56,6 +56,8 @@ export interface MenuSpec {
 export interface MenuState {
   isMac: boolean;
   mode: 'preview' | 'edit';
+  /** SPEC25 §3: the Split Edit checkbox mirrors the persisted setting. */
+  splitEdit: boolean;
   showComments: boolean;
   commentsEnabled: boolean;
   commentCount: number;
@@ -100,6 +102,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
     title: 'View',
     items: [
       cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit'),
+      // SPEC25 §3: split is a first-class toggle, not just a Settings checkbox.
+      cmd('toggleSplit', 'Split Edit', s.hotkeys.toggleSplit, s.splitEdit),
       // Master switch off (SPEC7 §2): the comments UI is gone, menu included —
       // navigation items too (SPEC14 §2.3).
       ...(s.commentsEnabled
