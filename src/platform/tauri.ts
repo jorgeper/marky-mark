@@ -169,7 +169,16 @@ export async function createTauriPlatform(): Promise<Platform> {
       // replaced them with placeholders; this is belt-and-braces).
       if (/^(https?:)?\/\//i.test(src)) return '';
       if (/^(data:|asset:|blob:)/.test(src)) return src;
-      const abs = /^([/\\]|[A-Za-z]:)/.test(src) ? src : join(docDir, ...src.split('/'));
+      // Markdown destinations are URL-spelled — "images/mods%201.png" names
+      // the on-disk "mods 1.png" (SPEC20 paste writes exactly that shape).
+      // Decode before touching the filesystem; malformed escapes pass as-is.
+      let spelled = src;
+      try {
+        spelled = decodeURIComponent(src);
+      } catch {
+        /* not percent-encoded — use the raw spelling */
+      }
+      const abs = /^([/\\]|[A-Za-z]:)/.test(spelled) ? spelled : join(docDir, ...spelled.split('/'));
       return convertFileSrc(abs);
     },
 
