@@ -20,6 +20,7 @@ export type CommandId =
   | 'settings'
   | 'help'
   | 'about'
+  | 'checkUpdates'
   | 'zoomIn'
   | 'zoomOut'
   | 'zoomReset'

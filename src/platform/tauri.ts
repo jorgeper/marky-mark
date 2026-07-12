@@ -243,6 +243,36 @@ export async function createTauriPlatform(): Promise<Platform> {
       return listen(event, (e) => cb(e.payload));
     },
 
+    updates: (() => {
+      // The Update object must survive from check() to downloadAndInstall().
+      let pending: import('@tauri-apps/plugin-updater').Update | null = null;
+      return {
+        async check() {
+          const { check } = await import('@tauri-apps/plugin-updater');
+          const update = await check();
+          pending = update;
+          if (!update) return null;
+          return { version: update.version, notes: update.body ?? '' };
+        },
+        async downloadAndInstall(onProgress: (pct: number) => void) {
+          if (!pending) throw new Error('no update pending — check first');
+          let total = 0;
+          let got = 0;
+          await pending.downloadAndInstall((event) => {
+            if (event.event === 'Started') total = event.data.contentLength ?? 0;
+            else if (event.event === 'Progress') {
+              got += event.data.chunkLength;
+              if (total > 0) onProgress(Math.min(99, Math.round((got / total) * 100)));
+            } else if (event.event === 'Finished') onProgress(100);
+          });
+        },
+        async restart() {
+          const { relaunch } = await import('@tauri-apps/plugin-process');
+          await relaunch();
+        },
+      };
+    })(),
+
     async printCurrent() {
       // Native print of THIS window (Rust print_view command) — no throwaway
       // print window whose teardown can kill the OS dialog. Print CSS trims

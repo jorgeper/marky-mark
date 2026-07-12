@@ -11,6 +11,8 @@
     "core:window:allow-destroy",
     "core:event:allow-listen",
     "core:event:allow-emit",
+    "updater:default",
+    "process:default",
     "core:webview:allow-create-webview-window",
     "core:window:allow-set-focus",
     "core:window:allow-unminimize",

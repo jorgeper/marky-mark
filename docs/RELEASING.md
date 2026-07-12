@@ -81,3 +81,15 @@ re-cut by fixing, deleting + re-pushing the tag, or `workflow_dispatch`.
 
 Out of scope for now (seams noted in SPEC10): code signing / notarization,
 the auto-updater, Linux packages, and hosted web deployment.
+
+## Updater artifacts (SPEC19)
+
+Release builds are signed with the updater key (`TAURI_SIGNING_PRIVATE_KEY`
+/ `_PASSWORD` in Actions secrets — the local backup lives outside the repo;
+guard it, losing it breaks updates). Each versioned release additionally
+carries `Marky.Mark_<version>_universal.app.tar.gz` and `latest.json`
+(signatures embedded). When you **publish** a draft, the `updater-manifest`
+workflow copies its `latest.json` onto the rolling **`updater`** release —
+the fixed endpoint Check for Updates… polls. Publishing remains the manual
+act it always was; updates start flowing the moment you flip the draft.
+Never edit the `updater` release by hand and never mark it pre-release.

@@ -1947,3 +1947,68 @@ test('E68: word count off is honored — no count anywhere in the exported page'
   expect(artifact).not.toMatch(/\d+ words/);
 
 });
+
+// --- SPEC19: Check for Updates… (shim mock via window.__mmUpdate) ----------------
+
+test('E69: the update dialog walks available → progress → restart, and reports up-to-date honestly', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+
+  // An update is available: version + notes shown, install runs to 100%,
+  // restart is recorded on the mock.
+  await page.evaluate(() => {
+    window.__mmUpdate = {
+      next: { version: '9.9.9', notes: 'Big fixes and bigger features.' },
+      progress: [],
+      installed: false,
+      restarted: false,
+    };
+  });
+  await menuClick(page, 'checkUpdates');
+  await expect(page.getByTestId('update-dialog')).toBeVisible();
+  await expect(page.getByTestId('update-available')).toContainText('9.9.9');
+  await expect(page.getByTestId('update-available')).toContainText('Big fixes');
+  await page.getByTestId('update-install').click();
+  await expect(page.getByTestId('update-restart')).toBeVisible();
+  expect(await page.evaluate(() => window.__mmUpdate!.installed)).toBe(true);
+  expect(await page.evaluate(() => window.__mmUpdate!.progress.at(-1))).toBe(100);
+  await page.getByTestId('update-restart').click();
+  await expect.poll(() => page.evaluate(() => window.__mmUpdate!.restarted)).toBe(true);
+  await page.keyboard.press('Escape');
+
+  // Up to date: the dialog says so, with the current version.
+  await page.evaluate(() => {
+    window.__mmUpdate!.next = null;
+  });
+  await menuClick(page, 'checkUpdates');
+  await expect(page.getByTestId('update-none')).toContainText('up to date');
+  await expect(page.getByTestId('update-none')).toContainText('v0.');
+});
+
+test('E70: update-check failures are honest and recoverable — never a crash', async ({ page }) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+
+  await page.evaluate(() => {
+    window.__mmUpdate = { next: { error: 'offline: could not reach github.com' }, progress: [], installed: false, restarted: false };
+  });
+  await menuClick(page, 'checkUpdates');
+  await expect(page.getByTestId('update-error')).toContainText('offline');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('update-dialog')).toHaveCount(0);
+
+  // Fully alive afterwards…
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await menuClick(page, 'toggleMode');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await menuClick(page, 'toggleMode');
+
+  // …and a second check can succeed (state resets).
+  await page.evaluate(() => {
+    window.__mmUpdate!.next = { version: '9.9.9', notes: '' };
+  });
+  await menuClick(page, 'checkUpdates');
+  await expect(page.getByTestId('update-available')).toContainText('9.9.9');
+});

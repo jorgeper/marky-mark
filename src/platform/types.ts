@@ -107,4 +107,17 @@ export interface Platform {
    * browser's own ⌘P already covers it).
    */
   printCurrent?(): Promise<void>;
+
+  /**
+   * SPEC19 §2.3: the updater seam. Desktop implements it with the official
+   * updater/process plugins (all network Rust-side, user-initiated only,
+   * responses verified against the baked-in public key); web leaves it
+   * undefined; the shim mocks it via window.__mmUpdate for e2e.
+   */
+  updates?: {
+    /** null ⇒ already up to date. Throws on network/manifest/signature errors. */
+    check(): Promise<{ version: string; notes: string } | null>;
+    downloadAndInstall(onProgress: (pct: number) => void): Promise<void>;
+    restart(): Promise<void>;
+  };
 }

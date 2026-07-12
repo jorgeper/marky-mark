@@ -47,6 +47,13 @@
         "role": "Editor",
         "mimeType": "text/markdown"
       }
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDczRkQzQkIwMzhGNjREQzIKUldUQ1RmWTRzRHY5YzNPc2pvVFlvTVdLMXJ2SEZDemZwSUlmN1VNbWNpVmptQjFKRG4xWHJQNGoK",
+      "endpoints": ["https://github.com/jorgeper/marky-mark/releases/download/updater/latest.json"]
+    }
   }
 }

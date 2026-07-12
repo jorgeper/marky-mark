@@ -124,6 +124,7 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
           title: 'Marky Mark',
           items: [
             cmd('about', 'About Marky Mark'),
+            cmd('checkUpdates', 'Check for Updates…'),
             sep,
             cmd('settings', 'Settings…', 'Mod+,'),
             sep,
@@ -178,7 +179,10 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
       },
       editMenu,
       viewMenu,
-      { title: 'Help', items: [helpItem, sep, cmd('about', 'About Marky Mark')] },
+      {
+        title: 'Help',
+        items: [helpItem, sep, cmd('about', 'About Marky Mark'), cmd('checkUpdates', 'Check for Updates…')],
+      },
     ],
   };
 }

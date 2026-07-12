@@ -12,6 +12,19 @@ sanitize layer, a strict CSP backstops both targets, links are managed
 hand-offs — and the property is enforced by tests (U17/U18/E46/W5) plus a
 static bundle scan on every `npm run validate`. Original assessment follows.
 
+**SPEC19 amendment (2026-07-12):** the desktop app gained a **strictly
+user-initiated** updater (Check for Updates…). Precisely: the *webview*
+still makes zero requests — its CSP, the sanitize layer, the bundle scan,
+and W4/W5 are unchanged and still enforced. The only network the app ever
+performs happens **Rust-side, only when the user invokes the menu item**,
+and exclusively against two endpoints: the rolling
+`releases/download/updater/latest.json` manifest and the referenced release
+asset on `github.com/jorgeper/marky-mark`. Downloads are verified against
+the minisign public key baked into `tauri.conf.json` before install — a
+compromised or substituted asset fails closed. No scheduled checks, no
+telemetry, no other hosts. (The pre-SPEC19 sentence "the Rust host has no
+network-capable dependencies / no updater" is superseded by this paragraph.)
+
 The app is **almost** fully local. Application code contains **zero network
 calls** (no fetch/XHR/WebSocket/beacon anywhere in `src/`), the Rust host has
 **no network-capable dependencies** (no HTTP plugin, no updater, no

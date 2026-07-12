@@ -47,6 +47,17 @@ declare global {
       opened: Record<AuxKind, number>;
       focused: Record<AuxKind, number>;
     };
+    /**
+     * SPEC19 §2.3: the shim's updater mock — tests set `next` (null = up to
+     * date, a version = available, {error} = failure) and read back what
+     * happened. No network, ever.
+     */
+    __mmUpdate?: {
+      next: { version: string; notes: string } | { error: string } | null;
+      progress: number[];
+      installed: boolean;
+      restarted: boolean;
+    };
   }
 }
 
@@ -185,6 +196,27 @@ export function createBrowserPlatform(): Platform {
     // The shim never opens print UI — record invocations for e2e (E67).
     async printCurrent() {
       ((window as unknown as { __mmPrints?: string[] }).__mmPrints ??= []).push('print-current');
+    },
+    // SPEC19 §2.3: mocked updater, driven by window.__mmUpdate (E69/E70).
+    updates: {
+      async check() {
+        const hook = (window.__mmUpdate ??= { next: null, progress: [], installed: false, restarted: false });
+        const next = hook.next;
+        if (next && 'error' in next) throw new Error(next.error);
+        return next;
+      },
+      async downloadAndInstall(onProgress) {
+        const hook = window.__mmUpdate!;
+        for (const pct of [12, 48, 87, 100]) {
+          hook.progress.push(pct);
+          onProgress(pct);
+          await new Promise((r) => setTimeout(r, 30));
+        }
+        hook.installed = true;
+      },
+      async restart() {
+        window.__mmUpdate!.restarted = true;
+      },
     },
     isMac: navigator.platform.toLowerCase().includes('mac'),
 

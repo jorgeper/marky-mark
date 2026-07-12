@@ -76,11 +76,18 @@ Either way it's a one-time step — the app opens normally afterwards.
   (rebindable) or the fixed navigator pill — park the mouse and click
   through. Stored in a `foo.md.comments.json` sidecar or embedded invisibly
   in the markdown file itself — your pick.
-- **Private by design** — no server, no telemetry, and **no outbound
-  network, guaranteed**: remote images and theme imports are blocked at
-  render time, a strict CSP backstops everything, and CI proves it with
-  adversarial tests. See the
+- **Private by design** — no server, no telemetry: the document viewer
+  makes **no outbound network requests, guaranteed** — remote images and
+  theme imports are blocked at render time, a strict CSP backstops
+  everything, and CI proves it with adversarial tests. The *only* network
+  the app ever performs is the **update check you explicitly trigger**
+  (Check for Updates…): a Rust-side, signature-verified request to this
+  repo's GitHub Releases — nothing automatic, nothing else, ever. See the
   [security assessment](docs/security/assessment.md). Your files stay files.
+- **Updates, on your terms** — Check for Updates… (in the app menu) checks
+  GitHub Releases and installs the new version in one click, verified
+  against the app's built-in signing key. Strictly manual — the app never
+  phones home on its own.
 
 ## For developers
 

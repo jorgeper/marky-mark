@@ -25,7 +25,7 @@ describe('SPEC12 menu spec', () => {
   test('U19: macOS layout — app menu holds About/Settings/Quit; File has Open/Save/Save As/Close; Window present; Help has no About', () => {
     expect(titles(base)).toEqual(['Marky Mark', 'File', 'Edit', 'View', 'Window', 'Help']);
     const app = commandsIn(base, 'Marky Mark').map((i) => i.command);
-    expect(app).toEqual(['about', 'settings', 'close']);
+    expect(app).toEqual(['about', 'checkUpdates', 'settings', 'close']);
     expect(find(base, 'Marky Mark', 'settings')!.accelerator).toBe('Mod+,');
     expect(find(base, 'Marky Mark', 'close')!.label).toBe('Quit Marky Mark');
     const file = commandsIn(base, 'File').map((i) => i.command);
@@ -51,7 +51,7 @@ describe('SPEC12 menu spec', () => {
     expect(file).toEqual(['open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']);
     expect(find(win, 'File', 'close')!.label).toBe('Exit');
     expect(find(win, 'File', 'settings')!.accelerator).toBe('Mod+,');
-    expect(commandsIn(win, 'Help').map((i) => i.command)).toEqual(['help', 'about']);
+    expect(commandsIn(win, 'Help').map((i) => i.command)).toEqual(['help', 'about', 'checkUpdates']);
     const view = buildMenuSpec(win).submenus.find((m) => m.title === 'View')!;
     expect(view.items.some((i) => i.type === 'predefined' && i.item === 'Fullscreen')).toBe(false);
   });
@@ -129,6 +129,18 @@ describe('SPEC12 menu spec', () => {
       expect(file.indexOf('printDoc')).toBe(file.indexOf('exportDoc') + 1);
       expect(find(s, 'File', 'printDoc')!.label).toBe('Print…');
       expect(find(s, 'File', 'printDoc')!.accelerator).toBe('Mod+P');
+    }
+  });
+
+  test('U41: Check for Updates… sits directly after About on both layouts, no accelerator', () => {
+    const app = commandsIn(base, 'Marky Mark').map((i) => i.command);
+    expect(app.indexOf('checkUpdates')).toBe(app.indexOf('about') + 1);
+    const help = commandsIn({ ...base, isMac: false }, 'Help').map((i) => i.command);
+    expect(help.indexOf('checkUpdates')).toBe(help.indexOf('about') + 1);
+    for (const s of [base, { ...base, isMac: false }]) {
+      const item = find(s, s.isMac ? 'Marky Mark' : 'Help', 'checkUpdates')!;
+      expect(item.label).toBe('Check for Updates…');
+      expect(item.accelerator).toBeUndefined();
     }
   });
 });

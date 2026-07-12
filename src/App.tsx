@@ -24,6 +24,7 @@ import type { EditorSyncHandle } from './components/Editor';
 import { extractReviewPayload } from './lib/reviewBundle';
 import { buildStaticHtml, statsLine, type StaticComment } from './lib/exportDoc';
 import { ExportDialog, type ExportRequest } from './components/ExportDialog';
+import { UpdateDialog } from './components/UpdateDialog';
 import { diffLineSets, type DiffLineSets } from './lib/diffLines';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
 import { countWords } from './lib/wordCount';
@@ -91,6 +92,7 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [closePrompt, setClosePrompt] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [diff, setDiff] = useState<DiffLineSets | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -675,6 +677,10 @@ export default function App() {
       // File → Print…: native print of this window; print CSS trims chrome.
       printDoc: () => {
         if (stateRef.current.docPath) void stateRef.current.platform?.printCurrent?.();
+      },
+      // SPEC19 §2: strictly manual update check (no-op where unsupported).
+      checkUpdates: () => {
+        if (stateRef.current.platform?.updates) setUpdateOpen(true);
       },
       toggleDiff: () => setShowDiff((v) => !v),
       toggleWordCount: () => {
@@ -1666,6 +1672,11 @@ export default function App() {
 
       {!platform.openAuxWindow && aboutOpen && (
         <AboutDialog onClose={() => setAboutOpen(false)} onOpenUrl={(u) => void platform.openExternal(u)} />
+      )}
+
+      {/* SPEC19 §2: the Check for Updates dialog. */}
+      {updateOpen && platform.updates && (
+        <UpdateDialog currentVersion={__APP_VERSION__} updates={platform.updates} onClose={() => setUpdateOpen(false)} />
       )}
 
       {/* SPEC17 §1: the Export dialog. */}

@@ -32,6 +32,8 @@
 | @tauri-apps/plugin-dialog | 2.7.1 | MIT OR Apache-2.0 |
 | @tauri-apps/plugin-fs | 2.5.1 | MIT OR Apache-2.0 |
 | @tauri-apps/plugin-opener | 2.5.4 | MIT OR Apache-2.0 |
+| @tauri-apps/plugin-process | 2.3.1 | MIT OR Apache-2.0 |
+| @tauri-apps/plugin-updater | 2.10.1 | MIT OR Apache-2.0 |
 | @types/debug | 4.1.13 | MIT |
 | @types/hast | 3.0.4 | MIT |
 | @types/mdast | 4.0.4 | MIT |
@@ -142,6 +144,7 @@
 | alloc-stdlib | 0.2.4 | BSD-3-Clause |
 | android_system_properties | 0.1.5 | MIT/Apache-2.0 |
 | anyhow | 1.0.103 | MIT OR Apache-2.0 |
+| arbitrary | 1.4.2 | MIT OR Apache-2.0 |
 | async-broadcast | 0.7.2 | MIT OR Apache-2.0 |
 | async-channel | 2.5.0 | Apache-2.0 OR MIT |
 | async-executor | 1.14.0 | Apache-2.0 OR MIT |
@@ -205,6 +208,7 @@
 | darling_macro | 0.23.0 | MIT |
 | dbus | 0.9.12 | Apache-2.0/MIT |
 | deranged | 0.5.8 | MIT OR Apache-2.0 |
+| derive_arbitrary | 1.4.2 | MIT OR Apache-2.0 |
 | derive_more | 2.1.1 | MIT |
 | derive_more-impl | 2.1.1 | MIT |
 | digest | 0.10.7 | MIT OR Apache-2.0 |
@@ -236,6 +240,7 @@
 | fdeflate | 0.3.7 | MIT OR Apache-2.0 |
 | field-offset | 0.3.6 | MIT OR Apache-2.0 |
 | file-id | 0.2.3 | MIT OR Apache-2.0 |
+| filetime | 0.2.29 | MIT/Apache-2.0 |
 | find-msvc-tools | 0.1.9 | MIT OR Apache-2.0 |
 | flate2 | 1.1.9 | MIT OR Apache-2.0 |
 | fnv | 1.0.7 | Apache-2.0 / MIT |
@@ -288,6 +293,7 @@
 | http-range | 0.1.5 | MIT |
 | httparse | 1.10.1 | MIT OR Apache-2.0 |
 | hyper | 1.10.1 | MIT |
+| hyper-rustls | 0.27.9 | Apache-2.0 OR ISC OR MIT |
 | hyper-util | 0.1.20 | MIT |
 | iana-time-zone | 0.1.65 | MIT OR Apache-2.0 |
 | iana-time-zone-haiku | 0.1.2 | MIT OR Apache-2.0 |
@@ -314,6 +320,8 @@
 | javascriptcore-rs | 1.1.2 | MIT |
 | javascriptcore-rs-sys | 1.1.1 | MIT |
 | jni | 0.21.1 | MIT/Apache-2.0 |
+| jni | 0.22.4 | MIT OR Apache-2.0 |
+| jni-macros | 0.22.4 | MIT OR Apache-2.0 |
 | jni-sys | 0.3.1 | MIT OR Apache-2.0 |
 | jni-sys | 0.4.1 | MIT OR Apache-2.0 |
 | jni-sys-macros | 0.4.1 | MIT OR Apache-2.0 |
@@ -337,6 +345,7 @@
 | memchr | 2.8.2 | Unlicense OR MIT |
 | memoffset | 0.9.1 | MIT |
 | mime | 0.3.17 | MIT OR Apache-2.0 |
+| minisign-verify | 0.2.5 | MIT |
 | miniz_oxide | 0.8.9 | MIT OR Zlib OR Apache-2.0 |
 | mio | 1.2.1 | MIT |
 | muda | 0.19.3 | Apache-2.0 OR MIT |
@@ -363,14 +372,17 @@
 | objc2-exception-helper | 0.1.1 | Zlib OR Apache-2.0 OR MIT |
 | objc2-foundation | 0.3.2 | MIT |
 | objc2-io-surface | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
+| objc2-osa-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-quartz-core | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-ui-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-user-notifications | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | objc2-web-kit | 0.3.2 | Zlib OR Apache-2.0 OR MIT |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 |
 | open | 5.3.6 | MIT |
+| openssl-probe | 0.2.1 | MIT OR Apache-2.0 |
 | option-ext | 0.2.0 | MPL-2.0 |
 | ordered-stream | 0.2.0 | MIT OR Apache-2.0 |
+| osakit | 0.3.1 | MIT OR Apache-2.0 |
 | pango | 0.18.3 | MIT |
 | pango-sys | 0.18.0 | MIT |
 | parking | 2.2.1 | Apache-2.0 OR MIT |
@@ -412,16 +424,26 @@
 | regex-syntax | 0.8.11 | MIT OR Apache-2.0 |
 | reqwest | 0.13.4 | MIT OR Apache-2.0 |
 | rfd | 0.16.0 | MIT |
+| ring | 0.17.14 | Apache-2.0 AND ISC |
 | rustc_version | 0.4.1 | MIT OR Apache-2.0 |
 | rustc-hash | 2.1.3 | Apache-2.0 OR MIT |
 | rustix | 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
+| rustls | 0.23.41 | Apache-2.0 OR ISC OR MIT |
+| rustls-native-certs | 0.8.4 | Apache-2.0 OR ISC OR MIT |
+| rustls-pki-types | 1.15.0 | MIT OR Apache-2.0 |
+| rustls-platform-verifier | 0.7.0 | MIT OR Apache-2.0 |
+| rustls-platform-verifier-android | 0.1.1 | MIT OR Apache-2.0 |
+| rustls-webpki | 0.103.13 | ISC |
 | rustversion | 1.0.23 | MIT OR Apache-2.0 |
 | same-file | 1.0.6 | Unlicense/MIT |
+| schannel | 0.1.29 | MIT |
 | schemars | 0.8.22 | MIT |
 | schemars | 0.9.0 | MIT |
 | schemars | 1.2.1 | MIT |
 | schemars_derive | 0.8.22 | MIT |
 | scopeguard | 1.2.0 | MIT OR Apache-2.0 |
+| security-framework | 3.7.0 | MIT OR Apache-2.0 |
+| security-framework-sys | 2.17.0 | MIT OR Apache-2.0 |
 | selectors | 0.36.1 | MPL-2.0 |
 | semver | 1.0.28 | MIT OR Apache-2.0 |
 | serde | 1.0.228 | MIT OR Apache-2.0 |
@@ -441,7 +463,9 @@
 | sha2 | 0.10.9 | MIT OR Apache-2.0 |
 | shlex | 2.0.1 | MIT OR Apache-2.0 |
 | signal-hook-registry | 1.4.8 | MIT OR Apache-2.0 |
+| simd_cesu8 | 1.1.1 | Apache-2.0 OR MIT |
 | simd-adler32 | 0.3.9 | MIT |
+| simdutf8 | 0.1.5 | MIT OR Apache-2.0 |
 | siphasher | 1.0.3 | MIT/Apache-2.0 |
 | slab | 0.4.12 | MIT |
 | smallvec | 1.15.2 | MIT OR Apache-2.0 |
@@ -453,6 +477,7 @@
 | string_cache | 0.9.0 | MIT OR Apache-2.0 |
 | string_cache_codegen | 0.6.1 | MIT OR Apache-2.0 |
 | strsim | 0.11.1 | MIT |
+| subtle | 2.6.1 | BSD-3-Clause |
 | swift-rs | 1.0.7 | MIT OR Apache-2.0 |
 | syn | 1.0.109 | MIT OR Apache-2.0 |
 | syn | 2.0.118 | MIT OR Apache-2.0 |
@@ -461,6 +486,7 @@
 | system-deps | 6.2.2 | MIT OR Apache-2.0 |
 | tao | 0.35.3 | Apache-2.0 |
 | tao-macros | 0.1.3 | MIT OR Apache-2.0 |
+| tar | 0.4.46 | MIT OR Apache-2.0 |
 | target-lexicon | 0.12.16 | Apache-2.0 WITH LLVM-exception |
 | tauri | 2.11.5 | Apache-2.0 OR MIT |
 | tauri-build | 2.6.3 | Apache-2.0 OR MIT |
@@ -470,6 +496,8 @@
 | tauri-plugin-dialog | 2.7.1 | Apache-2.0 OR MIT |
 | tauri-plugin-fs | 2.5.1 | Apache-2.0 OR MIT |
 | tauri-plugin-opener | 2.5.4 | Apache-2.0 OR MIT |
+| tauri-plugin-process | 2.3.1 | Apache-2.0 OR MIT |
+| tauri-plugin-updater | 2.10.1 | Apache-2.0 OR MIT |
 | tauri-plugin-window-state | 2.4.1 | Apache-2.0 OR MIT |
 | tauri-runtime | 2.11.3 | Apache-2.0 OR MIT |
 | tauri-runtime-wry | 2.11.4 | Apache-2.0 OR MIT |
@@ -488,6 +516,7 @@
 | tinyvec | 1.11.0 | Zlib OR Apache-2.0 OR MIT |
 | tinyvec_macros | 0.1.1 | MIT OR Apache-2.0 OR Zlib |
 | tokio | 1.52.3 | MIT |
+| tokio-rustls | 0.26.4 | MIT OR Apache-2.0 |
 | tokio-util | 0.7.18 | MIT |
 | toml | 0.8.2 | MIT OR Apache-2.0 |
 | toml | 0.9.12+spec-1.1.0 | MIT OR Apache-2.0 |
@@ -519,6 +548,7 @@
 | unic-ucd-version | 0.9.0 | MIT/Apache-2.0 |
 | unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | unicode-segmentation | 1.13.3 | MIT OR Apache-2.0 |
+| untrusted | 0.9.0 | ISC |
 | url | 2.5.8 | MIT OR Apache-2.0 |
 | urlpattern | 0.3.0 | MIT |
 | utf8_iter | 1.0.4 | Apache-2.0 OR MIT |
@@ -541,6 +571,7 @@
 | web-sys | 0.3.103 | MIT OR Apache-2.0 |
 | webkit2gtk | 2.0.2 | MIT |
 | webkit2gtk-sys | 2.0.2 | MIT |
+| webpki-root-certs | 1.0.8 | CDLA-Permissive-2.0 |
 | webview2-com | 0.38.2 | MIT |
 | webview2-com-macros | 0.8.1 | MIT |
 | webview2-com-sys | 0.38.2 | MIT |
@@ -587,6 +618,7 @@
 | windows-strings | 0.4.2 | MIT OR Apache-2.0 |
 | windows-strings | 0.5.1 | MIT OR Apache-2.0 |
 | windows-sys | 0.45.0 | MIT OR Apache-2.0 |
+| windows-sys | 0.52.0 | MIT OR Apache-2.0 |
 | windows-sys | 0.59.0 | MIT OR Apache-2.0 |
 | windows-sys | 0.60.2 | MIT OR Apache-2.0 |
 | windows-sys | 0.61.2 | MIT OR Apache-2.0 |
@@ -604,6 +636,7 @@
 | wry | 0.55.1 | Apache-2.0 OR MIT |
 | x11 | 2.21.0 | MIT |
 | x11-dl | 2.21.0 | MIT |
+| xattr | 1.6.1 | MIT OR Apache-2.0 |
 | yoke | 0.8.3 | Unicode-3.0 |
 | yoke-derive | 0.8.2 | Unicode-3.0 |
 | zbus | 5.17.0 | MIT |
@@ -611,9 +644,11 @@
 | zbus_names | 4.3.3 | MIT |
 | zerofrom | 0.1.8 | Unicode-3.0 |
 | zerofrom-derive | 0.1.7 | Unicode-3.0 |
+| zeroize | 1.9.0 | Apache-2.0 OR MIT |
 | zerotrie | 0.2.4 | Unicode-3.0 |
 | zerovec | 0.11.6 | Unicode-3.0 |
 | zerovec-derive | 0.11.3 | Unicode-3.0 |
+| zip | 4.6.1 | MIT |
 | zmij | 1.0.21 | MIT |
 | zvariant | 5.13.0 | MIT |
 | zvariant_derive | 5.13.0 | MIT |

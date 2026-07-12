@@ -36,6 +36,9 @@ const ALLOWED = new Set([
   'Unicode-3.0',
   'NCSA',
   'OFL-1.1',
+  // SPEC19: Mozilla's CA-certificate DATA (webpki-root-certs, pulled in by
+  // the updater's TLS stack) — permissive data license, no copyleft terms.
+  'CDLA-Permissive-2.0',
 ]);
 
 /** Evaluate an SPDX expression against the allowlist (exported for U16). */
