@@ -20,7 +20,10 @@ export interface PayloadHost {
 }
 
 export function buildReviewBundle(templateHtml: string, payload: ReviewPayload): string {
-  const at = templateHtml.indexOf('</head>');
+  // The LAST </head>: the single-file viewer inlines all its JS into <head>,
+  // and that JS (this very function included) contains the literal string —
+  // the document's real head close is the final occurrence.
+  const at = templateHtml.lastIndexOf('</head>');
   if (at === -1) throw new Error('review template has no </head>');
   // `<` → < inside JSON strings: no `</script>`, no `<!--`, still JSON.
   const json = JSON.stringify({ name: payload.name, markdown: payload.markdown }).replace(/</g, '\\u003c');

@@ -139,6 +139,7 @@ export default function App() {
     positions,
     activeId,
     showComments,
+    html,
   });
   stateRef.current = {
     settings,
@@ -153,6 +154,7 @@ export default function App() {
     positions,
     activeId,
     showComments,
+    html,
   };
 
   /** Read a doc file and its comments from both stores (trailer wins by id). */
@@ -617,10 +619,17 @@ export default function App() {
       },
       toggleDiff: () => setShowDiff((v) => !v),
       headingPalette: () => {
-        const doc = docRef.current ?? splitDocRef.current;
-        const headings: PaletteHeading[] = doc
+        // Live preview DOM when there is one; in full edit, parse the latest
+        // rendered html (the render loop keeps it fresh on a debounce).
+        const live: ParentNode | null = docRef.current ?? splitDocRef.current;
+        const root: ParentNode | null =
+          live ??
+          (stateRef.current.docPath && stateRef.current.html
+            ? new DOMParser().parseFromString(stateRef.current.html, 'text/html')
+            : null);
+        const headings: PaletteHeading[] = root
           ? Array.from(
-              doc.querySelectorAll<HTMLElement>(
+              root.querySelectorAll<HTMLElement>(
                 'h1[data-mm-line],h2[data-mm-line],h3[data-mm-line],h4[data-mm-line],h5[data-mm-line],h6[data-mm-line]'
               )
             ).map((el) => ({

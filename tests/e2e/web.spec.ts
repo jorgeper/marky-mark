@@ -205,3 +205,51 @@ test('W5: network isolation — adversarial doc: zero non-localhost requests; re
   expect(page.url()).toBe(before);
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Adversarial');
 });
+
+test('W6: a review bundle boots straight into its document with the comment intact — and zero network', async ({
+  page,
+}) => {
+  // Compose a REAL bundle from the actual built viewer, exactly as the
+  // desktop exporter does (same pure function).
+  const { buildReviewBundle } = await import('../../src/lib/reviewBundle');
+  const template = readFileSync('dist-web/index.html', 'utf8');
+  const trailer = [
+    '',
+    '<!-- markimark-comments',
+    JSON.stringify(
+      {
+        version: 1,
+        comments: [
+          {
+            id: 'w6c1',
+            anchor: { exact: 'special phrase', prefix: 'A ', suffix: ' to anchor', start: 13, end: 27 },
+            author: 'W6 Reviewer',
+            createdAt: '2026-07-11T00:00:00.000Z',
+            body: 'bundle note travels with the file',
+            thread: [],
+            resolved: false,
+          },
+        ],
+      },
+      null,
+      2
+    ),
+    '-->',
+    '',
+  ].join('\n');
+  const markdown = `# Bundle Doc\n\nA special phrase to anchor a comment on.\n${trailer}`;
+  const bundle = buildReviewBundle(template, { name: 'bundle.md', markdown });
+
+  const external: string[] = [];
+  page.on('request', (req) => {
+    const u = req.url();
+    if (!u.startsWith('data:') && !u.startsWith('blob:') && !u.includes('review.html')) external.push(u);
+  });
+  await page.route('**/review.html', (route) => route.fulfill({ contentType: 'text/html', body: bundle }));
+
+  await page.goto('/review.html');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Bundle Doc');
+  await expect(page.getByTestId('comment-card')).toContainText('bundle note travels with the file');
+  await expect(page.locator('mark.hl')).toBeVisible();
+  expect(external).toEqual([]);
+});

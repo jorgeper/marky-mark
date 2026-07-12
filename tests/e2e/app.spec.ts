@@ -1683,3 +1683,133 @@ test('E59: mode toggling carries the reading position — edit ↔ preview stay 
   await expect.poll(() => editorTopGutterLine(page)).toBeGreaterThan(line - 6);
   expect(await editorTopGutterLine(page)).toBeLessThan(line + 6);
 });
+
+// --- SPEC16: review bundles, reading memory, palette, chip -----------------------
+
+test('E60: reading position memory — reopening a document restores where you were, across reloads', async ({
+  page,
+}) => {
+  await splitApp(page, false); // long doc, currently in full edit
+  await page.keyboard.press('Control+e'); // back to preview
+  await expect(page.getByTestId('doc').locator('h2').first()).toBeVisible();
+
+  const ws = page.locator('.workspace');
+  await ws.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.4));
+  // The debounced capture lands in positions.json.
+  await expect
+    .poll(async () => {
+      const raw = await fsRead(page, '/config/positions.json');
+      if (!raw) return 0;
+      const store = JSON.parse(raw) as { entries: Array<{ path: string; line: number }> };
+      return store.entries.find((e) => e.path === '/docs/long.md')?.line ?? 0;
+    })
+    .toBeGreaterThan(10);
+  const savedScroll = await ws.evaluate((el) => el.scrollTop);
+
+  // Restart the app (localStorage persists); reopen the doc via the hash.
+  await page.goto('/');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.goto('/#open=/docs/long.md');
+  await expect(page.getByTestId('doc').locator('h2').first()).toBeAttached();
+  await expect
+    .poll(() => page.locator('.workspace').evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(savedScroll * 0.8);
+  expect(await page.locator('.workspace').evaluate((el) => el.scrollTop)).toBeLessThan(savedScroll * 1.2);
+});
+
+test('E61: heading palette — Mod+K opens, fuzzy-filters, Enter jumps preview and editor; Esc closes', async ({
+  page,
+}) => {
+  await splitApp(page, false); // long doc, entered full edit
+  await page.keyboard.press('Control+e'); // back to preview
+  await expect(page.getByTestId('doc').locator('h2').first()).toBeVisible();
+
+  // Capture the source line of a mid-document marker while the DOM has it.
+  const marker25Line = await page.evaluate(() => {
+    const el = Array.from(document.querySelectorAll<HTMLElement>('.doc [data-mm-line]')).find(
+      (h) => h.textContent === 'Marker 25'
+    )!;
+    return Number(el.dataset.mmLine);
+  });
+
+  await page.keyboard.press('Control+k');
+  await expect(page.getByTestId('heading-palette')).toBeVisible();
+  await page.getByTestId('heading-palette-input').fill('marker 15');
+  await expect(page.getByTestId('heading-palette-item').first()).toContainText('Marker 15');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('heading-palette')).toHaveCount(0);
+  // The heading sits at the viewport top (±120px).
+  const delta = await page.evaluate(() => {
+    const ws = document.querySelector('.workspace')!;
+    const el = Array.from(document.querySelectorAll('.doc h2')).find((h) => h.textContent === 'Marker 15')!;
+    return Math.abs(el.getBoundingClientRect().top - ws.getBoundingClientRect().top);
+  });
+  expect(delta).toBeLessThan(120);
+
+  // Esc closes without jumping.
+  await page.keyboard.press('Control+k');
+  await expect(page.getByTestId('heading-palette')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('heading-palette')).toHaveCount(0);
+
+  // Edit mode: the editor scrolls to the chosen heading's source line.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.keyboard.press('Control+k');
+  await page.getByTestId('heading-palette-input').fill('marker 25');
+  await expect(page.getByTestId('heading-palette-item').first()).toContainText('Marker 25');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => editorTopGutterLine(page)).toBeGreaterThan(marker25Line - 6);
+  expect(await editorTopGutterLine(page)).toBeLessThan(marker25Line + 6);
+});
+
+test('E62: word-count chip — document counts, selection counts, live edit updates', async ({ page }) => {
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  const chip = page.getByTestId('word-chip');
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveText(/^\d[\d,]* words · \d+ min$/);
+  const full = await chip.textContent();
+  const fullWords = Number(full!.split(' ')[0].replace(/,/g, ''));
+
+  // Selecting a phrase shrinks the count to the selection.
+  await selectPhrase(page, PHRASE);
+  await expect
+    .poll(async () => Number((await chip.textContent())!.split(' ')[0].replace(/,/g, '')))
+    .toBeLessThan(fullWords);
+
+  // Typing in edit mode grows the count.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('several brand new counted words ');
+  await expect
+    .poll(async () => Number((await chip.textContent())!.split(' ')[0].replace(/,/g, '')))
+    .toBeGreaterThan(fullWords);
+});
+
+test('E63: Export Review Bundle writes a parseable bundle carrying the comment trailer', async ({ page }) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await addComment(page, NAV_P1, 'first review note');
+  await addComment(page, NAV_P3, 'second review note');
+
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/welcome.review.html';
+  });
+  await menuClick(page, 'exportReview');
+  await expect
+    .poll(async () => ((await fsRead(page, '/docs/welcome.review.html')) ? 'written' : 'missing'))
+    .toBe('written');
+
+  const bundle = (await fsRead(page, '/docs/welcome.review.html'))!;
+  expect(bundle).toContain('mm-stub-template'); // composed onto the shim's template
+  const m = /<script type="application\/json" id="mm-review-doc">([\s\S]*?)<\/script>/.exec(bundle);
+  expect(m).not.toBeNull();
+  const payload = JSON.parse(m![1]) as { name: string; markdown: string };
+  expect(payload.name).toBe('welcome.md');
+  expect(payload.markdown).toContain('first review note');
+  expect(payload.markdown).toContain('second review note');
+  expect(payload.markdown).toContain('markimark-comments'); // the embedded trailer marker
+});

@@ -46,5 +46,14 @@ describe('SPEC16 review bundle', () => {
 
     // A template without </head> is an explicit error, not silent corruption.
     expect(() => buildReviewBundle('<html><body></body></html>', payload)).toThrow();
+
+    // Self-hosting: the real viewer's inlined JS contains the literal
+    // "</head>" — injection must target the document's REAL head close
+    // (the last occurrence), never a string inside a script.
+    const selfHosting =
+      '<!doctype html><html><head><script>const x = "</head>";</script></head><body>app</body></html>';
+    const hosted = buildReviewBundle(selfHosting, payload);
+    expect(hosted.indexOf(`id="${REVIEW_PAYLOAD_ID}"`)).toBeGreaterThan(hosted.indexOf('const x'));
+    expect(extractReviewPayload(docWith(hosted))!.markdown).toBe(markdown);
   });
 });

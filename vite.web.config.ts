@@ -30,11 +30,37 @@ function injectCsp(): Plugin {
   };
 }
 
+/**
+ * SPEC16 §1.5: the web build must NOT carry the Tauri platform — browsers
+ * never take that branch, and tauri.ts embeds dist-web/index.html via
+ * import.meta.glob, so inlining it would nest a stale copy of the viewer
+ * inside itself (doubling the single file). Resolve it to a throwing stub.
+ */
+function stubTauriPlatform(): Plugin {
+  const STUB = '\0mm-tauri-stub';
+  return {
+    name: 'mm-stub-tauri-platform',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (source.includes('platform/tauri') || (source === './tauri' && !!importer?.includes('platform/'))) {
+        return STUB;
+      }
+      return null;
+    },
+    load(id) {
+      if (id === STUB) {
+        return 'export function createTauriPlatform() { throw new Error("tauri platform is not part of the web build"); }';
+      }
+      return null;
+    },
+  };
+}
+
 // The static-web target (SPEC2 §3): everything — JS, CSS, themes, fixtures —
 // inlined into one self-contained dist-web/index.html with zero external
 // requests. Dynamic imports (the lazy CodeMirror chunk) are inlined too.
 export default defineConfig({
-  plugins: [react(), viteSingleFile(), injectCsp()],
+  plugins: [stubTauriPlatform(), react(), viteSingleFile(), injectCsp()],
   // Same build-time version constant as the desktop config (SPEC10 §2).
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   build: {
