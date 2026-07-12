@@ -43,7 +43,7 @@ import {
   type AuxRequest,
 } from './lib/auxProtocol';
 import { VimNavResolver } from './lib/vimnav';
-import { mapSelectionToSource } from './lib/selectionMap';
+import { findNormalized, mapSelectionToSource, visibleTextForRange } from './lib/selectionMap';
 import type { Theme } from './lib/themes';
 import { applyThemeCss, loadAllThemes } from './themeRuntime';
 import { FIXTURES } from './bundled';
@@ -180,7 +180,7 @@ export default function App() {
 
   // --- SPEC23 §4: dev-shim-only __mmEdit seam (same gating as __mmMenu) ---------
   const seamEditState = useCallback(
-    (s: { head: number; headLine: number; selFrom: number; selTo: number; selText: string }) => {
+    (s: { head: number; headLine: number; selFrom: number; selTo: number; selText: string; focused: boolean }) => {
       if (stateRef.current.platform?.kind !== 'browser') return;
       window.__mmEdit = { nav: window.__mmEdit?.nav ?? false, ...s };
     },
@@ -194,10 +194,77 @@ export default function App() {
       selFrom: 0,
       selTo: 0,
       selText: '',
+      focused: false,
       ...(window.__mmEdit ?? {}),
       nav,
     };
   }, []);
+
+  // --- SPEC24 §1: editor → preview synthetic highlight -------------------------
+  const mirrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Unwrap every mirror mark; text-node normalization keeps anchors stable. */
+  const clearMirrorMarks = useCallback(() => {
+    const pane = splitDocRef.current;
+    if (!pane) return;
+    pane.querySelectorAll('mark.mm-mirror-sel').forEach((m) => {
+      const parent = m.parentNode;
+      if (!parent) return;
+      while (m.firstChild) parent.insertBefore(m.firstChild, m);
+      m.remove();
+      parent.normalize();
+    });
+  }, []);
+
+  /**
+   * Editor selection reports drive the seam and the reverse mirror. The
+   * preview side is marks, never the native selection (a focused CM
+   * re-asserts that); unfocused reports only clear — the forward mirror's
+   * own dispatch can never bounce back (SPEC24 §1.4).
+   */
+  const handleEditState = useCallback(
+    (s: { head: number; headLine: number; selFrom: number; selTo: number; selText: string; focused: boolean }) => {
+      seamEditState(s);
+      const st = stateRef.current;
+      if (st.mode !== 'edit' || !st.settings.splitEdit) return;
+      if (mirrorTimerRef.current) clearTimeout(mirrorTimerRef.current);
+      mirrorTimerRef.current = setTimeout(() => {
+        const pane = splitDocRef.current;
+        if (!pane) return;
+        clearMirrorMarks();
+        if (!s.focused || s.selFrom === s.selTo) return;
+        const buffer = stateRef.current.buffer;
+        const needle = visibleTextForRange(buffer, s.selFrom, s.selTo);
+        if (!needle.replace(/\s+/g, ' ').trim()) return;
+        // Region: the stamped blocks covering the selection's source lines.
+        const fromLine = buffer.slice(0, s.selFrom).split('\n').length;
+        const toLine = buffer.slice(0, s.selTo).split('\n').length;
+        const stamped = Array.from(pane.querySelectorAll<HTMLElement>('[data-mm-line]'));
+        if (stamped.length === 0) return;
+        let startEl = stamped[0];
+        for (const el of stamped) {
+          if (Number(el.dataset.mmLine) <= fromLine) startEl = el;
+          else break;
+        }
+        const after = stamped.find((el) => Number(el.dataset.mmLine) > toLine);
+        const region = document.createRange();
+        region.setStartBefore(startEl);
+        if (after) region.setEndBefore(after);
+        else if (pane.lastChild) region.setEndAfter(pane.lastChild);
+        else return;
+        const { start: rs, end: re } = rangeToOffsets(pane, region);
+        const docText = getDocText(pane);
+        const hit = findNormalized(docText.slice(rs, re), needle);
+        // Unique hit → the exact rendered text; else the whole covered region.
+        const [hs, he] = hit ? [rs + hit.start, rs + hit.end] : [rs, re];
+        for (const m of highlightRange(pane, hs, he, '__mirror__')) {
+          m.className = 'mm-mirror-sel';
+          delete m.dataset.cid;
+        }
+      }, 150);
+    },
+    [seamEditState, clearMirrorMarks]
+  );
 
   /** SPEC20 §2: transient feedback chip; each message restarts the 4s clock. */
   const showNotice = useCallback((msg: string) => {
@@ -1855,7 +1922,7 @@ export default function App() {
                 syntax={settings.editorSyntax}
                 vimNav={settings.vimNav}
                 onVimModeChange={seamVimMode}
-                onEditState={seamEditState}
+                onEditState={handleEditState}
                 selectRangeRef={editorSelectRef}
               />
             </Suspense>
@@ -1904,7 +1971,7 @@ export default function App() {
               syntax={settings.editorSyntax}
               vimNav={settings.vimNav}
               onVimModeChange={seamVimMode}
-              onEditState={seamEditState}
+              onEditState={handleEditState}
               selectRangeRef={editorSelectRef}
             />
           </Suspense>

@@ -58,6 +58,8 @@ declare global {
       selFrom: number;
       selTo: number;
       selText: string;
+      /** SPEC24 §1: whether the editor had focus at report time. */
+      focused: boolean;
       nav: boolean;
     };
     /**

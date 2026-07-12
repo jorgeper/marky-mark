@@ -2496,3 +2496,46 @@ test('E82: markdown highlighting — themed token classes on by default, live to
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.getByTestId('editor').locator('[class*="mm-md-"]')).toHaveCount(0);
 });
+
+test('E83: editor selections mirror into the split preview as synthetic marks; both directions coexist loop-free', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/rev.md', '# Rev Title\n\nThe **quick brown** fox jumps far.\n\nsame para\n\nsame para\n');
+  await page.goto('/#open=/docs/rev.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Rev Title');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+
+  // Keyboard-select the whole bold-bearing source line.
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'quick brown' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+
+  // The preview shows the rendered sentence as synthetic marks.
+  const marks = page.locator('[data-testid="split-preview"] .doc mark.mm-mirror-sel');
+  await expect.poll(async () => (await marks.allTextContents()).join('')).toBe('The quick brown fox jumps far.');
+  // Inert to the comment machinery: not .hl, no data-cid.
+  expect(await page.locator('[data-testid="split-preview"] .doc mark.hl').count()).toBe(0);
+  expect(await marks.first().getAttribute('data-cid')).toBeNull();
+  // The editor's own selection is undisturbed — no feedback loop.
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('The **quick brown** fox jumps far.');
+
+  // Collapsing clears the marks.
+  await page.keyboard.press('End');
+  await expect(marks).toHaveCount(0);
+
+  // Cross-block selection (rendered blocks have no separator) → region fallback.
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'same para' }).first().click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Shift+End');
+  await expect.poll(async () => (await marks.allTextContents()).join('')).toBe('same parasame para');
+
+  // The forward direction still works afterwards, and the unfocused report
+  // that its CM dispatch produces clears the reverse marks.
+  await page.getByTestId('split-preview').click({ position: { x: 10, y: 10 } });
+  await selectSpanInPane(page, '[data-testid="split-preview"] .doc', 'quick', 'fox');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('quick brown** fox');
+  await expect(marks).toHaveCount(0);
+});

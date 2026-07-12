@@ -460,6 +460,17 @@ anchored in the preview pane) and dispatches into CM without focusing it;
 CM re-asserts its own DOM selection, so a `pointerdown` in the preview
 releases the editor's focus before the drag-selection begins.
 
+The reverse direction (SPEC24) mirrors editor selections into the preview
+as **synthetic marks** (`mm-mirror-sel`, via `highlightRange`, restyled so
+the comment click machinery never sees them) — never the native selection,
+for exactly the wrinkle above. `visibleTextForRange` renders the selected
+source's visible text; `findNormalized` locates it inside the covered
+blocks' `getDocText` region; no/ambiguous hit highlights the whole region.
+Loop-freedom is structural: marks fire no `selectionchange` (forward can't
+bounce), and the reverse mirror ignores unfocused selection reports — the
+forward mirror's CM dispatch always arrives unfocused (and clears stale
+marks on the way through).
+
 ## Editor markdown highlighting (SPEC23 §3)
 
 `@codemirror/lang-markdown` always parsed the buffer; SPEC23 attaches a

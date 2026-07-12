@@ -79,8 +79,16 @@ interface Props {
   vimNav: boolean;
   /** SPEC23 §2/§4: nav-mode transitions (badge is internal; this feeds the seam). */
   onVimModeChange?(nav: boolean): void;
-  /** SPEC23 §4: cursor/selection reports for the dev-shim __mmEdit seam. */
-  onEditState?(s: { head: number; headLine: number; selFrom: number; selTo: number; selText: string }): void;
+  /** SPEC23 §4 + SPEC24 §1: cursor/selection reports — the seam, and the
+   * reverse mirror (which acts only on focused, non-collapsed reports). */
+  onEditState?(s: {
+    head: number;
+    headLine: number;
+    selFrom: number;
+    selTo: number;
+    selText: string;
+    focused: boolean;
+  }): void;
   /**
    * SPEC23 §1: imperative select-source-range for mirrored preview
    * selections — sets the CM selection and scrolls it into view WITHOUT
@@ -248,6 +256,7 @@ export default function Editor({
             selFrom: main.from,
             selTo: main.to,
             selText: u.state.sliceDoc(main.from, main.to),
+            focused: u.view.hasFocus,
           });
         }
       }),
@@ -322,6 +331,7 @@ export default function Editor({
         selFrom: main.from,
         selTo: main.to,
         selText: view.state.sliceDoc(main.from, main.to),
+        focused: view.hasFocus,
       });
     }
 

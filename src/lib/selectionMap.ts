@@ -157,3 +157,62 @@ export function mapSelectionToSource(
   const to = hayMap[first + needle.length - 1] + 1;
   return { from, to };
 }
+
+/**
+ * SPEC24 §1: the inverse direction — the rendered-visible text of source
+ * range [from, to). Each covered line contributes the visible characters
+ * whose source offsets fall inside the range; lines join with a space.
+ */
+export function visibleTextForRange(source: string, from: number, to: number): string {
+  if (to <= from) return '';
+  const lines = source.split('\n');
+  const parts: string[] = [];
+  let lineStart = 0;
+  for (const line of lines) {
+    const lineEnd = lineStart + line.length;
+    if (lineEnd >= from && lineStart < to) {
+      const { visible, map } = stripInline(line);
+      let piece = '';
+      for (let k = 0; k < visible.length; k++) {
+        const abs = lineStart + map[k];
+        if (abs >= from && abs < to) piece += visible[k];
+      }
+      if (piece) parts.push(piece);
+    }
+    lineStart = lineEnd + 1;
+    if (lineStart >= to) break;
+  }
+  return parts.join(' ');
+}
+
+/**
+ * SPEC24 §1: locate the whitespace-normalized `needle` inside a raw
+ * `haystack`, returning RAW haystack offsets of the match — null when the
+ * needle is absent or matches more than once (the caller falls back).
+ */
+export function findNormalized(haystack: string, needle: string): { start: number; end: number } | null {
+  const want = needle.replace(/\s+/g, ' ').trim();
+  if (!want) return null;
+  const flat: string[] = [];
+  const map: number[] = [];
+  let pendingSpace = false;
+  for (let i = 0; i < haystack.length; i++) {
+    const ch = haystack[i];
+    if (/\s/.test(ch)) {
+      pendingSpace = flat.length > 0;
+      continue;
+    }
+    if (pendingSpace) {
+      flat.push(' ');
+      map.push(i); // the space anchors to the next raw char
+      pendingSpace = false;
+    }
+    flat.push(ch);
+    map.push(i);
+  }
+  const hay = flat.join('');
+  const first = hay.indexOf(want);
+  if (first === -1) return null;
+  if (hay.indexOf(want, first + 1) !== -1) return null; // ambiguous
+  return { start: map[first], end: map[first + want.length - 1] + 1 };
+}

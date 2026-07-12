@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { mapSelectionToSource, stripInline } from '../../src/lib/selectionMap';
+import { findNormalized, mapSelectionToSource, stripInline, visibleTextForRange } from '../../src/lib/selectionMap';
 
 describe('SPEC23 selection mapping', () => {
   test('U50: stripInline visible text + offset maps; mapSelectionToSource exact offsets and null fallbacks', () => {
@@ -50,5 +50,35 @@ describe('SPEC23 selection mapping', () => {
 
     // Empty/whitespace selections never match.
     expect(mapSelectionToSource(src, 1, 5, '   ')).toBeNull();
+  });
+
+  test('U52: visibleTextForRange strips markers within bounds; findNormalized locates, rejects ambiguity', () => {
+    const src = '# Title\n\nsome **bold move** here today\n\n- item one\n';
+
+    // Whole bold-bearing line renders without its markers.
+    const lineStart = src.indexOf('some');
+    const lineEnd = src.indexOf(' today') + ' today'.length;
+    expect(visibleTextForRange(src, lineStart, lineEnd)).toBe('some bold move here today');
+
+    // A range starting inside the strong markers picks up only in-range visible chars.
+    const from = src.indexOf('bold');
+    const to = src.indexOf(' here');
+    expect(visibleTextForRange(src, from, to)).toBe('bold move');
+
+    // Multi-line ranges join with a space; prefixes stay stripped.
+    expect(visibleTextForRange(src, 0, src.indexOf(' move'))).toBe('Title some bold');
+
+    // Degenerate ranges are empty.
+    expect(visibleTextForRange(src, 5, 5)).toBe('');
+
+    // findNormalized: exact raw offsets, whitespace-collapsed matching.
+    const hay = 'The quick\n  brown fox';
+    const hit = findNormalized(hay, 'quick brown');
+    expect(hit).not.toBeNull();
+    expect(hay.slice(hit!.start, hit!.end)).toBe('quick\n  brown');
+    // Absent and ambiguous needles both refuse.
+    expect(findNormalized(hay, 'zebra')).toBeNull();
+    expect(findNormalized('abc abc', 'abc')).toBeNull();
+    expect(findNormalized(hay, '   ')).toBeNull();
   });
 });

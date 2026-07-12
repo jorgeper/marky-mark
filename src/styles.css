@@ -1316,3 +1316,13 @@ mark.hl.ghost {
   background: var(--mm-accent, #0969da);
   transition: width 120ms ease;
 }
+
+/* SPEC24 §1: the editor→preview mirrored-selection highlight — a synthetic
+   mark (never the native selection: a focused CodeMirror re-asserts that),
+   tinted like a selection, inert to the comment click machinery. */
+.doc mark.mm-mirror-sel {
+  background: var(--mm-selection, rgba(9, 105, 218, 0.18));
+  color: inherit;
+  padding: 0;
+  border-radius: 2px;
+}

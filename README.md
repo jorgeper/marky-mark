@@ -69,8 +69,8 @@ Either way it's a one-time step — the app opens normally afterwards.
   changes-since-save view that tints edited lines, and undo history that
   survives mode switches. File → New (⌘N) opens a fresh untitled buffer —
   you pick where it lives on first save. Markdown syntax highlighting in
-  the editor (theme-driven, toggleable), select in the split preview to
-  select the same source in the editor, and — with Vim navigation on —
+  the editor (theme-driven, toggleable), select in either split pane to
+  see the same text selected in the other, and — with Vim navigation on —
   Esc puts the editor in a navigation-only vim mode (h/j/k/l, w/b, 0/$,
   gg/G, Ctrl+d/u; i to type again).
 - **Creature comforts** — every document reopens where you left off, ⌘K
