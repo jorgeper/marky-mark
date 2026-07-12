@@ -66,6 +66,8 @@ export interface MenuState {
   showDiff: boolean;
   /** Word-count chip visibility (persisted setting). */
   showWordCount: boolean;
+  /** SPEC26 §3: the front-matter card's SESSION visibility. */
+  showFrontmatter: boolean;
 }
 
 const sep: PredefinedItemSpec = { type: 'predefined', item: 'Separator' };
@@ -122,6 +124,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
       ...(s.mode === 'edit' ? [cmd('toggleDiff', 'Changes Since Save', undefined, s.showDiff)] : []),
       cmd('headingPalette', 'Go to Heading…', s.hotkeys.headingPalette),
       cmd('toggleWordCount', 'Word Count', s.hotkeys.toggleWordCount, s.showWordCount),
+      // SPEC26 §3: session toggle for the metadata card (no accelerator).
+      cmd('toggleFrontmatter', 'Front Matter', undefined, s.showFrontmatter),
       sep,
       // Zoom In sits on the = key (⌘+ without Shift), the platform convention.
       cmd('zoomIn', 'Zoom In', 'Mod+='),

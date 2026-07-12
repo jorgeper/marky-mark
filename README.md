@@ -75,6 +75,9 @@ Either way it's a one-time step — the app opens normally afterwards.
   see the same text selected in the other, and — with Vim navigation on —
   Esc puts the editor in a navigation-only vim mode (h/j/k/l, w/b, 0/$,
   gg/G, Ctrl+d/u; i to type again).
+- **Front matter, handled** — YAML front matter never renders as broken
+  markdown; it shows as a quiet metadata card you can dismiss (✕ or View →
+  Front Matter), with a setting for the default.
 - **Creature comforts** — every document reopens where you left off, ⌘K
   fuzzy-jumps to any heading, and a quiet word-count / reading-time chip
   keeps score (selection-aware).

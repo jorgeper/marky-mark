@@ -1,5 +1,6 @@
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
+import remarkFrontmatter from 'remark-frontmatter';
 import remarkGfm from 'remark-gfm';
 import remarkRehype from 'remark-rehype';
 import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from 'rehype-sanitize';
@@ -181,6 +182,11 @@ function stampSourceLines() {
 
 const processor = unified()
   .use(remarkParse)
+  // SPEC26 §1: a leading ----fenced YAML block parses as a yaml node that
+  // never reaches the HTML — no hr-plus-paragraph garbage, and body blocks
+  // keep their true source-line positions. The app renders the metadata as
+  // its own card UI (App.tsx), never as document content.
+  .use(remarkFrontmatter)
   .use(remarkGfm)
   // The html handler admits lone <img> tags only (SPEC20 §4.1) — raw HTML at
   // large remains dropped exactly as before (no rehype-raw, no dangerous mode).

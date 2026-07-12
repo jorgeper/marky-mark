@@ -492,6 +492,20 @@ reconfigures live with undo history intact. `@lezer/highlight` (the tag
 vocabulary) was already vendored transitively and is now an explicit
 dependency.
 
+## Front matter (SPEC26)
+
+`remark-frontmatter` in the pipeline parses a leading `---`-fenced YAML
+block as a node that never reaches the HTML — so it can't render as an
+hr-plus-paragraph mess, and body blocks keep true source-line positions
+for every line-anchored feature. Display parsing is `frontmatter.ts`
+(pure, no YAML dependency — key/value rows, one list level, raw
+passthrough); the card is app UI above the doc (preview + split preview),
+never part of the rendered markdown, so exports and the comment anchor
+space never see it. Visibility: `showFrontmatter` setting is the default;
+a nullable per-document override (View → Front Matter, or the card's ✕)
+carries the session state — null means "follow the setting", which also
+sidesteps the boot race where `#open` documents load before settings do.
+
 ## Save As (SPEC3 §3)
 
 `Platform.saveFileDialog(suggestedName)` — native save dialog on Tauri,

@@ -2640,3 +2640,69 @@ test('E85: the selection survives ⌘E in both directions, in full and split lay
   await page.waitForTimeout(250); // past the restore effect's window
   expect(await page.evaluate(() => document.getSelection()?.toString() ?? '')).toBe('');
 });
+
+test('E86: front matter becomes a dismissable card — never rendered markdown; View menu and setting govern it', async ({
+  page,
+}) => {
+  const FM_DOC =
+    '---\ndate: 2026-07-05\nkind: article\ntags:\n  - agentic-engineering\n  - llm\n---\n\n# FM Title\n\nBody paragraph here.\n';
+  await fsWrite(page, '/docs/fm.md', FM_DOC);
+  await page.goto('/#open=/docs/fm.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('FM Title');
+
+  // The old failure mode is gone: no top hr, no "date:" paragraph mush.
+  expect(await page.getByTestId('doc').locator('hr').count()).toBe(0);
+  await expect(page.getByTestId('doc')).not.toContainText('date:');
+
+  // The card lists keys, values, and the joined list.
+  const card = page.getByTestId('fm-card');
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('date');
+  await expect(card).toContainText('2026-07-05');
+  await expect(card).toContainText('agentic-engineering, llm');
+
+  // ✕ hides it for the session — split preview included.
+  await page.getByTestId('fm-close').click();
+  await expect(page.getByTestId('fm-card')).toHaveCount(0);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect(page.getByTestId('fm-card')).toHaveCount(0);
+  await page.keyboard.press('Control+e');
+
+  // Setting off ⇒ the next open starts hidden (doc renders as ever).
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-frontmatter').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"showFrontmatter": false');
+  await page.reload();
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('FM Title');
+  await expect(page.getByTestId('fm-card')).toHaveCount(0);
+
+  // Fresh boot with defaults + native menu: the View checkbox drives the card.
+  await freshNativeMenuApp(page);
+  await fsWrite(page, '/docs/fm.md', FM_DOC);
+  await page.goto('/?nativeMenu=1#open=/docs/fm.md');
+  await page.reload();
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('FM Title');
+  await expect(page.getByTestId('fm-card')).toBeVisible();
+  const fmItem = () =>
+    page.evaluate(() => {
+      const view = window.__mmMenu!.spec!.submenus.find((m) => m.title === 'View')!;
+      return view.items.find(
+        (i) => i.type === 'command' && (i as { command?: string }).command === 'toggleFrontmatter'
+      ) as { checked?: boolean };
+    });
+  expect((await fmItem()).checked).toBe(true);
+  await menuClick(page, 'toggleFrontmatter');
+  await expect(page.getByTestId('fm-card')).toHaveCount(0);
+  await expect.poll(async () => (await fmItem()).checked).toBe(false);
+  await menuClick(page, 'toggleFrontmatter');
+  await expect(page.getByTestId('fm-card')).toBeVisible();
+
+  // A document without front matter never shows a card.
+  await fsWrite(page, '/docs/plain.md', '# Plain Doc\n\ntext\n');
+  await page.goto('/?nativeMenu=1#open=/docs/plain.md');
+  await page.reload();
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Plain Doc');
+  await expect(page.getByTestId('fm-card')).toHaveCount(0);
+});

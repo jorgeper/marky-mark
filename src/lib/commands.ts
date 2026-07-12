@@ -20,6 +20,7 @@ export type CommandId =
   | 'insertImage'
   | 'headingPalette'
   | 'toggleWordCount'
+  | 'toggleFrontmatter'
   | 'settings'
   | 'help'
   | 'about'

@@ -371,6 +371,19 @@ export function SettingsPanel({
         </div>
       )}
 
+      <div className="checkbox-row">
+        <input
+          id="settings-frontmatter"
+          type="checkbox"
+          data-testid="settings-frontmatter"
+          checked={settings.showFrontmatter}
+          onChange={(e) => onChange({ ...settings, showFrontmatter: e.target.checked })}
+        />
+        <label htmlFor="settings-frontmatter" style={{ margin: 0, fontWeight: 400 }}>
+          Show front matter (when a document has it)
+        </label>
+      </div>
+
       <h3 className="tab-section">Navigation</h3>
       <div className="checkbox-row">
         <input

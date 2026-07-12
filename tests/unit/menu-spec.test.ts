@@ -13,6 +13,7 @@ const base: MenuState = {
   hotkeys: { ...DEFAULT_HOTKEYS },
   showDiff: false,
   showWordCount: true,
+  showFrontmatter: true, // SPEC26 §3: fixture-level only — no assertion changed
 };
 
 const titles = (s: MenuState) => buildMenuSpec(s).submenus.map((m) => m.title);
@@ -178,5 +179,20 @@ describe('SPEC12 menu spec', () => {
     expect(find(rebound, 'View', 'toggleSplit')!.accelerator).toBe('Mod+Shift+L');
     // Pre-SPEC25 settings files gain the default binding via the sanitizer.
     expect(parseSettings('{"hotkeys":{"save":"Mod+S"}}').hotkeys.toggleSplit).toBe('Mod+\\');
+  });
+
+  test('U55: View carries Front Matter after Word Count — checkbox, no accelerator; setting defaults true', () => {
+    for (const s of [base, { ...base, isMac: false }]) {
+      const view = commandsIn(s, 'View').map((i) => i.command);
+      expect(view.indexOf('toggleFrontmatter')).toBe(view.indexOf('toggleWordCount') + 1);
+      expect(find(s, 'View', 'toggleFrontmatter')!.label).toBe('Front Matter');
+      expect(find(s, 'View', 'toggleFrontmatter')!.checked).toBe(true);
+      expect(find(s, 'View', 'toggleFrontmatter')!.accelerator).toBeUndefined();
+    }
+    expect(find({ ...base, showFrontmatter: false }, 'View', 'toggleFrontmatter')!.checked).toBe(false);
+    // The persisted default: true, explicit false honored, malformed falls back.
+    expect(parseSettings('{}').showFrontmatter).toBe(true);
+    expect(parseSettings('{"showFrontmatter":false}').showFrontmatter).toBe(false);
+    expect(parseSettings('{"showFrontmatter":"nope"}').showFrontmatter).toBe(true);
   });
 });

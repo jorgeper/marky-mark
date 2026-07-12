@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getPlatform, type Platform } from './platform';
 import { renderMarkdown } from './lib/markdown';
 import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
@@ -44,6 +44,8 @@ import {
 } from './lib/auxProtocol';
 import { VimNavResolver } from './lib/vimnav';
 import { findNormalized, mapSelectionToSource, visibleTextForRange } from './lib/selectionMap';
+import { parseFrontMatter } from './lib/frontmatter';
+import { FrontMatterCard } from './components/FrontMatterCard';
 import type { Theme } from './lib/themes';
 import { applyThemeCss, loadAllThemes } from './themeRuntime';
 import { FIXTURES } from './bundled';
@@ -91,6 +93,9 @@ export default function App() {
   const [positions, setPositions] = useState<Positions>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showComments, setShowComments] = useState(true);
+  // SPEC26 §3: per-document front-matter override — null means "follow the
+  // setting". Beats the boot race where #open docs load before settings do.
+  const [fmOverride, setFmOverride] = useState<boolean | null>(null);
   const [pending, setPending] = useState<{ start: number; end: number } | null>(null);
   const [draft, setDraft] = useState('');
   const [selInfo, setSelInfo] = useState<{ start: number; end: number; x: number; y: number } | null>(null);
@@ -147,6 +152,9 @@ export default function App() {
   const pendingScrollLineRef = useRef<number | null>(null);
 
   const dirty = buffer !== savedText;
+  // SPEC26: display-parsed front matter for the card (null ⇒ none).
+  const frontMatter = useMemo(() => ((docPath || untitled) ? parseFrontMatter(buffer) : null), [buffer, docPath, untitled]);
+  const showFrontmatter = fmOverride ?? settings.showFrontmatter;
   // SPEC12 §2.3: a platform that owns a native menu gets no in-app header.
   const nativeMenu = !!platform?.setAppMenu;
 
@@ -498,6 +506,7 @@ export default function App() {
     pendingEditorSelRef.current = null; // SPEC25: selection never crosses documents
     pendingPreviewSelRef.current = null;
     lastEditorSelRef.current = { from: 0, to: 0 };
+    setFmOverride(null); // SPEC26 §3.3: a new document follows the setting
     setDocPath(path);
     setUntitled(false); // SPEC22 §3.3: a real document replaces any untitled buffer
     setBuffer(content);
@@ -851,6 +860,7 @@ export default function App() {
     pendingEditorSelRef.current = null;
     pendingPreviewSelRef.current = null;
     lastEditorSelRef.current = { from: 0, to: 0 };
+    setFmOverride(null); // SPEC26 §3.3
     setDocPath(null);
     setUntitled(true);
     setBuffer('');
@@ -1020,6 +1030,7 @@ export default function App() {
       },
       toggleDiff: () => setShowDiff((v) => !v),
       insertImage: () => void insertImage(),
+      toggleFrontmatter: () => setFmOverride((cur) => !(cur ?? stateRef.current.settings.showFrontmatter)),
       toggleWordCount: () => {
         const s = stateRef.current.settings;
         updateSettings({ ...s, showWordCount: !s.showWordCount });
@@ -1102,9 +1113,10 @@ export default function App() {
         hotkeys: settings.hotkeys,
         showDiff,
         showWordCount: settings.showWordCount,
+        showFrontmatter,
       })
     );
-  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit]);
+  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -1867,6 +1879,9 @@ export default function App() {
             onRewrite={rewriteImage}
           />
           <div className="docwrap">
+            {frontMatter && showFrontmatter && (
+              <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
+            )}
             {!docPath && !untitled && (
               <div className="empty-center">
                 <div className="empty-hint" data-testid="empty-hint">
@@ -2030,6 +2045,9 @@ export default function App() {
               html={html}
               onRewrite={rewriteImage}
             />
+            {frontMatter && showFrontmatter && (
+              <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
+            )}
             <div className="doc" ref={splitDocRef} />
           </div>
         </div>

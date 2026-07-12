@@ -238,7 +238,10 @@ button {
 .docwrap {
   flex: 1;
   display: flex;
-  justify-content: center;
+  /* SPEC26 §2: column so the front-matter card stacks above the doc; the
+     doc keeps centering itself via width/max-width + align-items. */
+  flex-direction: column;
+  align-items: center;
   min-width: 0;
 }
 
@@ -1325,4 +1328,61 @@ mark.hl.ghost {
   color: inherit;
   padding: 0;
   border-radius: 2px;
+}
+
+/* SPEC26 §2: the front-matter metadata card — dim, theme-driven, app UI
+   above the rendered document (preview and split preview). */
+.fm-card {
+  position: relative;
+  width: 100%;
+  max-width: var(--mm-content-width, 46rem);
+  margin: 28px auto -20px;
+  padding: 10px 32px 10px;
+}
+.fm-card dl {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 8px;
+  background: var(--mm-bg-elevated, #f6f8fa);
+}
+.fm-card .fm-row {
+  display: flex;
+  gap: 10px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--mm-fg-muted, #59636e);
+}
+.fm-card dt {
+  font-family: var(--mm-font-mono, monospace);
+  font-size: 11.5px;
+  min-width: 72px;
+  flex-shrink: 0;
+  opacity: 0.8;
+  padding-top: 1px;
+}
+.fm-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.fm-card .fm-raw {
+  font-family: var(--mm-font-mono, monospace);
+  font-size: 11.5px;
+  opacity: 0.7;
+}
+.fm-card .fm-close {
+  position: absolute;
+  top: 14px;
+  right: 38px;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  border-radius: 5px;
+  font-size: 14px;
+  color: var(--mm-fg-muted, #59636e);
+  opacity: 0.7;
+}
+.fm-card .fm-close:hover {
+  opacity: 1;
+  background: var(--mm-bg, #ffffff);
 }

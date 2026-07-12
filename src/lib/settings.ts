@@ -49,6 +49,8 @@ export interface Settings {
   imageNamePattern: string;
   /** SPEC23 §3: markdown syntax highlighting in the editor (on by default). */
   editorSyntax: boolean;
+  /** SPEC26 §3: show the front-matter card by default when a doc has one. */
+  showFrontmatter: boolean;
   hotkeys: HotkeyMap;
 }
 
@@ -75,6 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   imageFolder: 'images',
   imageNamePattern: '{doc} {n}',
   editorSyntax: true,
+  showFrontmatter: true,
   hotkeys: { ...DEFAULT_HOTKEYS },
 };
 
@@ -149,6 +152,7 @@ export function parseSettings(json: string): Settings {
         ? o.imageNamePattern
         : DEFAULT_SETTINGS.imageNamePattern,
     editorSyntax: typeof o.editorSyntax === 'boolean' ? o.editorSyntax : DEFAULT_SETTINGS.editorSyntax,
+    showFrontmatter: typeof o.showFrontmatter === 'boolean' ? o.showFrontmatter : DEFAULT_SETTINGS.showFrontmatter,
     hotkeys,
   };
 }
