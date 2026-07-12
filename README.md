@@ -74,14 +74,18 @@ Either way it's a one-time step — the app opens normally afterwards.
   the editor (theme-driven, toggleable), select in either split pane to
   see the same text selected in the other, and — with Vim navigation on —
   Esc puts the editor in a navigation-only vim mode (h/j/k/l, w/b, 0/$,
-  gg/G, Ctrl+d/u; i to type again).
+  gg/G, Ctrl+d/u; i to type again). ⌘F finds in both modes — live
+  highlighted matches in preview, find & replace in the editor.
+- **Never lose work** — dirty buffers shadow-save continuously; after a
+  crash or force-quit the next launch offers to restore your unsaved
+  changes, untitled buffers included.
 - **Front matter, handled** — YAML front matter never renders as broken
   markdown; it shows as a quiet metadata card you can dismiss (✕ or View →
   Front Matter), with a setting for the default.
-- **Creature comforts** — every document reopens where you left off,
-  File → Open Recent remembers your last ten documents, ⌘K fuzzy-jumps to
-  any heading, and a quiet word-count / reading-time chip keeps score
-  (selection-aware).
+- **Creature comforts** — launching the app reopens your last document
+  right where you left off (toggleable), File → Open Recent remembers
+  your last ten documents, ⌘K fuzzy-jumps to any heading, and a quiet
+  word-count / reading-time chip keeps score (selection-aware).
 - **Images that just work** — paste a screenshot straight into edit mode and
   it lands as a real file in an `images/` folder next to your document
   (folder and naming pattern configurable); click an image in preview and

@@ -26,6 +26,7 @@ import {
   historyKeymap,
 } from '@codemirror/commands';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { closeSearchPanel, findNext, findPrevious, getSearchQuery, openSearchPanel, replaceAll, replaceNext, search, searchPanelOpen, SearchQuery, setSearchQuery } from '@codemirror/search';
 import { tags } from '@lezer/highlight';
 import { markdown } from '@codemirror/lang-markdown';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
@@ -36,6 +37,24 @@ import type { DiffLineSets } from '../lib/diffLines';
  * top line in/out plus a user-scroll subscription. Built on CodeMirror
  * line-block geometry so wrapped lines measure for real.
  */
+/**
+ * SPEC30 §1.4: the FindBar's edit-mode engine — a thin imperative shell over
+ * @codemirror/search (CM's own panel and keymap are never enabled; the app's
+ * one bar drives both modes). Counts are recomputed per call: cheap at the
+ * document sizes this app targets.
+ */
+export interface EditorSearchHandle {
+  /** Install the query (live); advance=false refreshes without moving. */
+  setQuery(query: string, replace: string, advance?: boolean): { count: number; current: number };
+  next(): { count: number; current: number };
+  prev(): { count: number; current: number };
+  /** Replace the current match, advance. */
+  replaceOne(): { count: number; current: number };
+  /** Replace every match; returns how many. */
+  replaceAllMatches(): number;
+  clear(): void;
+}
+
 export interface EditorSyncHandle {
   /** Fractional 1-based source line at the top of the viewport. */
   topLine(): number;
@@ -101,6 +120,8 @@ interface Props {
    * parked selection, then cleared.
    */
   pendingSelectionRef?: MutableRefObject<{ from: number; to: number } | null>;
+  /** SPEC30 §1.4: populated at mount with the find/replace engine. */
+  searchRef?: MutableRefObject<EditorSearchHandle | null>;
 }
 
 /**
@@ -191,6 +212,7 @@ export default function Editor({
   onEditState,
   selectRangeRef,
   pendingSelectionRef,
+  searchRef,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -230,6 +252,16 @@ export default function Editor({
       // SPEC23 §1: CM-drawn selection so a mirrored range shows while the
       // editor is unfocused (styled via .cm-selectionBackground).
       drawSelection(),
+      // SPEC30 §1.4: match decorations only. The highlighter requires an
+      // open panel, so ours is an invisible stub (no [main-field] ⇒ it never
+      // steals focus); the app's FindBar is the real UI. No search keymap.
+      search({
+        createPanel: () => {
+          const dom = document.createElement('div');
+          dom.style.display = 'none';
+          return { dom };
+        },
+      }),
       markdown(),
       EditorView.lineWrapping,
       // SPEC23 §2: the vim modal layer runs ahead of every keymap. Gated on
@@ -339,6 +371,54 @@ export default function Editor({
       };
     }
 
+    // SPEC30 §1.4: the find/replace engine.
+    if (searchRef) {
+      const stats = () => {
+        const q = getSearchQuery(view.state);
+        if (!q.search) return { count: 0, current: 0 };
+        let count = 0;
+        let current = 0;
+        const sel = view.state.selection.main;
+        const cursor = q.getCursor(view.state.doc) as Iterator<{ from: number; to: number }>;
+        for (let r = cursor.next(); !r.done; r = cursor.next()) {
+          count++;
+          if (r.value.from === sel.from && r.value.to === sel.to) current = count;
+        }
+        return { count, current };
+      };
+      searchRef.current = {
+        setQuery(query, replace, advance = true) {
+          if (query && !searchPanelOpen(view.state)) openSearchPanel(view); // arms the highlighter
+          view.dispatch({
+            effects: setSearchQuery.of(new SearchQuery({ search: query, caseSensitive: false, literal: true, replace })),
+          });
+          if (query && advance) findNext(view); // land on the first match from the cursor
+          return stats();
+        },
+        next() {
+          findNext(view);
+          return stats();
+        },
+        prev() {
+          findPrevious(view);
+          return stats();
+        },
+        replaceOne() {
+          replaceNext(view);
+          return stats();
+        },
+        replaceAllMatches() {
+          const before = stats().count;
+          replaceAll(view);
+          return before;
+        },
+        clear() {
+          view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: '' })) });
+          if (searchPanelOpen(view.state)) closeSearchPanel(view);
+        },
+      };
+    }
+
     // SPEC23 §4: seed the seam with the mount-time cursor.
     if (onEditStateRef.current) {
       const main = view.state.selection.main;
@@ -387,6 +467,7 @@ export default function Editor({
       if (syncRef) syncRef.current = null;
       if (insertRef) insertRef.current = null;
       if (selectRangeRef) selectRangeRef.current = null;
+      if (searchRef) searchRef.current = null;
       onVimModeChangeRef.current?.(false); // a remount always re-enters typing mode
       historyRef.current = view.state.toJSON({ history: historyField });
       view.destroy();

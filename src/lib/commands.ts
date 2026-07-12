@@ -22,6 +22,7 @@ export type CommandId =
   | 'toggleWordCount'
   | 'toggleFrontmatter'
   | 'clearRecent'
+  | 'find'
   | 'settings'
   | 'help'
   | 'about'

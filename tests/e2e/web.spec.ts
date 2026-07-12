@@ -346,3 +346,22 @@ test('W10: markdown token classes on by default in edit mode; vim NAV badge and 
   // The __mmEdit seam is dev-shim only — never present in the web build.
   expect(await page.evaluate(() => (window as { __mmEdit?: unknown }).__mmEdit)).toBeUndefined();
 });
+
+test('W11: the find bar works on the web build; reload still lands on the splash (reopen inert on web)', async ({
+  page,
+}) => {
+  await page.keyboard.press('Control+f');
+  await expect(page.getByTestId('find-bar')).toBeVisible();
+  await page.getByTestId('find-input').fill('Marky');
+  await expect(page.getByTestId('find-count')).toContainText('of');
+  const before = (await page.getByTestId('find-count').textContent())!;
+  await page.getByTestId('find-input').press('Enter');
+  await expect(page.getByTestId('find-count')).not.toHaveText(before);
+  expect(await page.locator('.doc mark.mm-find').count()).toBeGreaterThan(0);
+  await page.getByTestId('find-input').press('Escape');
+  await expect(page.getByTestId('find-bar')).toHaveCount(0);
+
+  // Web documents don't survive a reload — reopen stays silently inert.
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+});

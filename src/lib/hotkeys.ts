@@ -10,6 +10,7 @@ export interface HotkeyMap {
   toggleSplit: string;
   newFile: string;
   openFile: string;
+  find: string;
   toggleComments: string;
   save: string;
   nextComment: string;
@@ -23,6 +24,7 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   toggleSplit: 'Mod+\\',
   newFile: 'Mod+N',
   openFile: 'Mod+O',
+  find: 'Mod+F',
   toggleComments: 'Mod+Shift+C',
   save: 'Mod+S',
   nextComment: 'Mod+Alt+ArrowDown',

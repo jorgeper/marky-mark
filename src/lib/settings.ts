@@ -51,6 +51,8 @@ export interface Settings {
   editorSyntax: boolean;
   /** SPEC26 §3: show the front-matter card by default when a doc has one. */
   showFrontmatter: boolean;
+  /** SPEC30 §2: reopen the most recent document at launch. */
+  reopenLastDoc: boolean;
   hotkeys: HotkeyMap;
 }
 
@@ -78,6 +80,7 @@ export const DEFAULT_SETTINGS: Settings = {
   imageNamePattern: '{doc} {n}',
   editorSyntax: true,
   showFrontmatter: true,
+  reopenLastDoc: true,
   hotkeys: { ...DEFAULT_HOTKEYS },
 };
 
@@ -153,6 +156,7 @@ export function parseSettings(json: string): Settings {
         : DEFAULT_SETTINGS.imageNamePattern,
     editorSyntax: typeof o.editorSyntax === 'boolean' ? o.editorSyntax : DEFAULT_SETTINGS.editorSyntax,
     showFrontmatter: typeof o.showFrontmatter === 'boolean' ? o.showFrontmatter : DEFAULT_SETTINGS.showFrontmatter,
+    reopenLastDoc: typeof o.reopenLastDoc === 'boolean' ? o.reopenLastDoc : DEFAULT_SETTINGS.reopenLastDoc,
     hotkeys,
   };
 }

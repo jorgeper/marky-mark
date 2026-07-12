@@ -601,7 +601,8 @@ test('E25: toolbar auto-hides after launch, reveals on top-edge hover (with shad
   // it in the hot zone, which would legitimately pin the bar forever).
   await page.mouse.move(500, 400);
   await page.reload();
-  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  // SPEC30 §4.1 amendment: the relaunch reopens the last document now.
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
 
   const shell = page.getByTestId('toolbar-shell');
   // Visible during the launch grace period…
@@ -1714,10 +1715,9 @@ test('E60: reading position memory — reopening a document restores where you w
     .toBeGreaterThan(10);
   const savedScroll = await ws.evaluate((el) => el.scrollTop);
 
-  // Restart the app (localStorage persists); reopen the doc via the hash.
+  // Restart the app (localStorage persists): SPEC30 §2 reopens the document
+  // by itself — no manual #open needed (§4.1 amendment, strengthened).
   await page.goto('/');
-  await expect(page.getByTestId('empty-hint')).toBeVisible();
-  await page.goto('/#open=/docs/long.md');
   await expect(page.getByTestId('doc').locator('h2').first()).toBeAttached();
   await expect
     .poll(() => page.locator('.workspace').evaluate((el) => el.scrollTop))
@@ -2781,4 +2781,185 @@ test('E88: Open Recent — MRU order, persistence, guarded reopen, vanished-file
   await menuClick(page, 'clearRecent');
   await expect.poll(recents).toEqual([]);
   await expect.poll(() => fsRead(page, '/config/recent.json')).not.toContain('/docs/ra.md');
+});
+
+test('E89: find in preview — live count, themed marks, wrap-around navigation, lossless close, prefill', async ({
+  page,
+}) => {
+  const before = await page.getByTestId('doc').evaluate((el) => el.textContent);
+
+  await page.keyboard.press('Control+f');
+  await expect(page.getByTestId('find-bar')).toBeVisible();
+  await page.getByTestId('find-input').fill('markdown');
+  await expect(page.getByTestId('find-count')).toContainText('of');
+  const total = Number((await page.getByTestId('find-count').textContent())!.split('of')[1]!.trim());
+  expect(total).toBeGreaterThan(1);
+  expect(await page.locator('.doc mark.mm-find').count()).toBeGreaterThanOrEqual(total);
+  await expect(page.locator('.doc mark.mm-find-active').first()).toBeVisible();
+  // Never the comment machinery's marks.
+  expect(await page.locator('.doc mark.mm-find[data-cid]').count()).toBe(0);
+  expect(await page.locator('.doc mark.hl.mm-find').count()).toBe(0);
+
+  // Enter advances, Shift+Enter wraps back around to the last match.
+  await expect(page.getByTestId('find-count')).toHaveText(`1 of ${total}`);
+  await page.getByTestId('find-input').press('Enter');
+  await expect(page.getByTestId('find-count')).toHaveText(`2 of ${total}`);
+  await page.getByTestId('find-input').press('Shift+Enter');
+  await page.getByTestId('find-input').press('Shift+Enter');
+  await expect(page.getByTestId('find-count')).toHaveText(`${total} of ${total}`);
+
+  // No matches state.
+  await page.getByTestId('find-input').fill('zzqqxx-nothing');
+  await expect(page.getByTestId('find-count')).toHaveText('No matches');
+
+  // Esc closes and the document text is byte-identical, zero marks left.
+  await page.getByTestId('find-input').press('Escape');
+  await expect(page.getByTestId('find-bar')).toHaveCount(0);
+  expect(await page.locator('.doc mark.mm-find').count()).toBe(0);
+  expect(await page.getByTestId('doc').evaluate((el) => el.textContent)).toBe(before);
+
+  // Selection prefill.
+  await selectPhraseInPane(page, '[data-testid="doc"]', 'sidecar file');
+  await page.keyboard.press('Control+f');
+  await expect(page.getByTestId('find-input')).toHaveValue('sidecar file');
+  await page.getByTestId('find-input').press('Escape');
+
+  // The Edit → Find… menu item drives the same bar (native-menu shim).
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await menuClick(page, 'find');
+  await expect(page.getByTestId('find-bar')).toBeVisible();
+});
+
+test('E90: find & replace in the editor — CM decorations, replace one/all on the undo path, query survives toggles', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/fr.md', '# T\n\nalpha beta alpha\n\ngamma alpha\n');
+  await page.goto('/#open=/docs/fr.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('T');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await expect(page.getByTestId('split-preview')).toBeVisible(); // split default
+
+  await page.keyboard.press('Control+f');
+  await expect(page.getByTestId('find-bar')).toBeVisible();
+  await expect(page.getByTestId('find-replace-input')).toBeVisible(); // edit mode has the replace row
+  await page.getByTestId('find-input').fill('alpha');
+  await expect(page.getByTestId('find-count')).toContainText('of 3');
+  expect(await page.locator('.cm-searchMatch').count()).toBe(3);
+  // The bar drives the EDITOR in split mode — the split preview stays unmarked.
+  expect(await page.locator('[data-testid="split-preview"] .doc mark.mm-find').count()).toBe(0);
+
+  await page.getByTestId('find-next').click();
+  await expect(page.getByTestId('find-count')).toContainText('2 of 3');
+
+  // Replace one (advances), then all (reports via the notice).
+  await page.getByTestId('find-replace-input').fill('OMEGA');
+  await page.getByTestId('find-replace-one').click();
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('OMEGA');
+  await expect(page.getByTestId('find-count')).toContainText('of 2');
+  await page.getByTestId('find-replace-all').click();
+  await expect(page.getByTestId('notice')).toContainText('Replaced 2 matches');
+  await expect(page.getByTestId('editor').locator('.cm-content')).not.toContainText('alpha');
+
+  // replace-all was ONE undo step (focus back in the editor first — ⌘Z
+  // targets the focused field, as it should).
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('alpha');
+
+  // The query survives a mode toggle and re-applies in preview.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('find-bar')).toBeVisible();
+  await expect(page.getByTestId('find-input')).toHaveValue('alpha');
+  await expect(page.getByTestId('find-count')).toContainText('of');
+  expect(await page.locator('.doc mark.mm-find').count()).toBeGreaterThan(0);
+});
+
+test('E91: reopen on launch — restores the last doc, loses to explicit opens, honors the setting, skips missing files', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/r1.md', '# R One\n');
+  await fsWrite(page, '/docs/r2.md', '# R Two\n');
+  await page.goto('/#open=/docs/r1.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('R One');
+
+  // A hash-less relaunch reopens r1 by itself.
+  await page.goto('/');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('R One');
+
+  // An explicit #open at boot beats reopen.
+  await page.goto('/#open=/docs/r2.md');
+  await page.reload();
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('R Two');
+
+  // Setting off ⇒ splash.
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-reopen').uncheck();
+  await page.getByTestId('settings-close').click();
+  await page.goto('/');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+
+  // Back on, but the top recent has vanished ⇒ splash, entry retained.
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-reopen').check();
+  await page.getByTestId('settings-close').click();
+  await page.evaluate(() => window.__mmfs!.remove('/docs/r2.md'));
+  await page.goto('/');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  expect(await fsRead(page, '/config/recent.json')).toContain('/docs/r2.md');
+});
+
+test('E92: crash-safe drafts — shadow write, restore, discard, staleness after save, untitled buffers', async ({
+  page,
+}) => {
+  // Dirty the welcome doc; the shadow copy lands after the idle debounce.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('DRAFTMARK ');
+  await expect.poll(() => fsRead(page, '/config/draft.json'), { timeout: 8000 }).toContain('DRAFTMARK');
+
+  // "Crash" (reload): the boot reopens welcome, then offers the draft.
+  await page.reload();
+  await expect(page.getByTestId('restore-prompt')).toBeVisible();
+  await expect(page.getByTestId('restore-prompt')).toContainText('welcome.md');
+  await page.getByTestId('restore-yes').click();
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('DRAFTMARK');
+  await expect.poll(() => fsRead(page, '/config/draft.json')).toBeNull();
+
+  // Saving makes future boots quiet (clean transition also deletes).
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome');
+  await expect(page.getByTestId('restore-prompt')).toHaveCount(0);
+
+  // Discard path.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('DRAFT2 ');
+  await expect.poll(() => fsRead(page, '/config/draft.json'), { timeout: 8000 }).toContain('DRAFT2');
+  await page.reload();
+  await expect(page.getByTestId('restore-prompt')).toBeVisible();
+  await page.getByTestId('restore-no').click();
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(page.getByTestId('doc')).not.toContainText('DRAFT2');
+  await expect.poll(() => fsRead(page, '/config/draft.json')).toBeNull();
+
+  // Untitled buffers draft too (docPath null → a fresh untitled restore).
+  await page.keyboard.press('Control+n');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-content').click();
+  await page.keyboard.type('ScratchDraft');
+  await expect.poll(() => fsRead(page, '/config/draft.json'), { timeout: 8000 }).toContain('ScratchDraft');
+  await page.reload();
+  await expect(page.getByTestId('restore-prompt')).toBeVisible();
+  await expect(page.getByTestId('restore-prompt')).toContainText('Untitled');
+  await page.getByTestId('restore-yes').click();
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('ScratchDraft');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
 });

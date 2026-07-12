@@ -120,6 +120,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
       pre('Paste'),
       pre('SelectAll'),
       sep,
+      // SPEC30 §1: one find bar for both modes (replace appears in edit).
+      cmd('find', 'Find…', s.hotkeys.find),
       // SPEC20 follow-up: pick an image file, copy it into the images folder
       // next to the doc, reference it at the cursor (edit mode).
       cmd('insertImage', 'Insert Image…'),

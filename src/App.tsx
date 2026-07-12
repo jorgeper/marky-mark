@@ -20,7 +20,7 @@ import { dispatchCommand, registerCommands, registerRecentHandler } from './lib/
 import { buildMenuSpec } from './lib/menuSpec';
 import { stepComment } from './lib/commentNav';
 import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
-import type { EditorSyncHandle } from './components/Editor';
+import type { EditorSearchHandle, EditorSyncHandle } from './components/Editor';
 import { extractReviewPayload } from './lib/reviewBundle';
 import { buildStaticHtml, statsLine, type StaticComment } from './lib/exportDoc';
 import { ExportDialog, type ExportRequest } from './components/ExportDialog';
@@ -46,6 +46,8 @@ import {
 import { VimNavResolver } from './lib/vimnav';
 import { findNormalized, mapSelectionToSource, visibleTextForRange } from './lib/selectionMap';
 import { parseFrontMatter } from './lib/frontmatter';
+import { isStaleDraft, parseDraft, serializeDraft, type Draft } from './lib/drafts';
+import { FindBar } from './components/FindBar';
 import { FrontMatterCard } from './components/FrontMatterCard';
 import type { Theme } from './lib/themes';
 import { applyThemeCss, loadAllThemes } from './themeRuntime';
@@ -99,6 +101,16 @@ export default function App() {
   // SPEC26 §3: per-document front-matter override — null means "follow the
   // setting". Beats the boot race where #open docs load before settings do.
   const [fmOverride, setFmOverride] = useState<boolean | null>(null);
+  // SPEC30 §1: the find bar (one bar, two engines).
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findDebounced, setFindDebounced] = useState('');
+  const [findReplace, setFindReplace] = useState('');
+  const [findCount, setFindCount] = useState(0);
+  const [findCurrent, setFindCurrent] = useState(0);
+  const [findFocusTick, setFindFocusTick] = useState(0);
+  // SPEC30 §3: the boot-time draft offer.
+  const [restorePrompt, setRestorePrompt] = useState<Draft | null>(null);
   const [pending, setPending] = useState<{ start: number; end: number } | null>(null);
   const [draft, setDraft] = useState('');
   const [selInfo, setSelInfo] = useState<{ start: number; end: number; x: number; y: number } | null>(null);
@@ -142,6 +154,18 @@ export default function App() {
   const editorInsertRef = useRef<((text: string) => void) | null>(null);
   /** SPEC23 §1: imperative mirrored-selection entry into the mounted editor. */
   const editorSelectRef = useRef<((from: number, to: number) => void) | null>(null);
+  /** SPEC30 §1.4: the mounted editor's find/replace engine. */
+  const editorSearchRef = useRef<EditorSearchHandle | null>(null);
+  /** SPEC30 §1.3: preview match mark groups, index-aligned with the count. */
+  const findMarksRef = useRef<HTMLElement[][]>([]);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftWrittenRef = useRef(false);
+  /**
+   * SPEC30 §2: set SYNCHRONOUSLY the moment any explicit open starts —
+   * openDoc's own docPath lands only after async I/O, so the boot reopen
+   * timer must not race an in-flight association/hash open.
+   */
+  const explicitOpenRef = useRef(false);
   // SPEC25: selection carry across mode switches.
   const lastEditorSelRef = useRef<{ from: number; to: number }>({ from: 0, to: 0 });
   const pendingEditorSelRef = useRef<{ from: number; to: number } | null>(null);
@@ -266,6 +290,96 @@ export default function App() {
     return { from: starts[lo - 1], to: starts[hi - 1] + lines[hi - 1].length };
   }, []);
 
+  // --- SPEC30 §1.3: the preview find engine (doc-text marks) -------------------
+  const clearFindMarks = useCallback(() => {
+    const pane = docRef.current;
+    findMarksRef.current = [];
+    if (!pane) return;
+    pane.querySelectorAll('mark.mm-find').forEach((m) => {
+      const parent = m.parentNode;
+      if (!parent) return;
+      while (m.firstChild) parent.insertBefore(m.firstChild, m);
+      m.remove();
+      parent.normalize();
+    });
+  }, []);
+
+  /** Toggle the active class onto group i and center it. */
+  const activateFindMatch = useCallback((i: number) => {
+    findMarksRef.current.forEach((g, k) => g.forEach((m) => m.classList.toggle('mm-find-active', k === i)));
+    findMarksRef.current[i]?.[0]?.scrollIntoView({ block: 'center' });
+  }, []);
+
+  /** Wrap every case-insensitive literal match; returns the match count. */
+  const applyFindMarks = useCallback(
+    (query: string): number => {
+      const pane = docRef.current;
+      clearFindMarks();
+      if (!pane || !query) return 0;
+      const text = docTextRef.current;
+      const hay = text.toLowerCase();
+      const needle = query.toLowerCase();
+      const groups: HTMLElement[][] = [];
+      for (let at = hay.indexOf(needle); at !== -1; at = hay.indexOf(needle, at + needle.length)) {
+        const marks = highlightRange(pane, at, at + needle.length, '__find__');
+        for (const m of marks) {
+          m.className = 'mm-find';
+          delete m.dataset.cid; // never the comment machinery's business
+        }
+        if (marks.length > 0) groups.push(marks);
+      }
+      findMarksRef.current = groups;
+      return groups.length;
+    },
+    [clearFindMarks]
+  );
+
+  /** SPEC30 §1: open (or refocus) the bar, prefilled from the selection. */
+  const openFind = useCallback(() => {
+    const st = stateRef.current;
+    if (!st.docPath && !st.untitled) return; // no document, nothing to find
+    let prefill = '';
+    if (st.mode === 'preview') {
+      prefill = document.getSelection()?.toString() ?? '';
+    } else {
+      const { from, to } = lastEditorSelRef.current;
+      prefill = st.buffer.slice(from, to);
+    }
+    if (prefill.trim() && prefill.length <= 200) setFindQuery(prefill);
+    setFindOpen(true);
+    setFindFocusTick((t) => t + 1);
+  }, []);
+
+  const closeFind = useCallback(() => {
+    setFindOpen(false);
+    clearFindMarks();
+    editorSearchRef.current?.clear();
+    setFindCount(0);
+    setFindCurrent(0);
+  }, [clearFindMarks]);
+
+  const stepFind = useCallback(
+    (dir: 1 | -1) => {
+      const st = stateRef.current;
+      if (st.mode === 'preview') {
+        const n = findMarksRef.current.length;
+        if (n === 0) return;
+        setFindCurrent((cur) => {
+          const next = ((Math.max(cur, 1) - 1 + dir + n) % n) + 1;
+          activateFindMatch(next - 1);
+          return next;
+        });
+      } else {
+        const res = dir === 1 ? editorSearchRef.current?.next() : editorSearchRef.current?.prev();
+        if (res) {
+          setFindCount(res.count);
+          setFindCurrent(res.current);
+        }
+      }
+    },
+    [activateFindMatch]
+  );
+
   // --- SPEC24 §1: editor → preview synthetic highlight -------------------------
   const mirrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -339,6 +453,27 @@ export default function App() {
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = setTimeout(() => setNotice(null), 4000);
   }, []);
+
+  /** SPEC30 §1.4: replace current / all — edit mode only, normal undo path. */
+  const replaceFind = useCallback(
+    (all: boolean) => {
+      const h = editorSearchRef.current;
+      if (!h || stateRef.current.mode !== 'edit') return;
+      h.setQuery(findDebounced, findReplace, false); // refresh replace text in place
+      if (all) {
+        const n = h.replaceAllMatches();
+        showNotice(`Replaced ${n} ${n === 1 ? 'match' : 'matches'}`);
+        setFindCount(0);
+        setFindCurrent(0);
+      } else {
+        const res = h.replaceOne();
+        setFindCount(res.count);
+        setFindCurrent(res.current);
+      }
+    },
+    [findDebounced, findReplace, showNotice]
+  );
+
 
   /**
    * SPEC20 §2: land pasted clipboard images as files next to the document
@@ -487,10 +622,12 @@ export default function App() {
   }, []);
 
   /** SPEC29 §2: set + best-effort persist the recent list in one move. */
-  const commitRecent = useCallback((next: RecentStore) => {
+  const commitRecent = useCallback((next: RecentStore, platformNow?: Platform) => {
     recentRef.current = next;
     setRecent(next);
-    const p = stateRef.current.platform;
+    // Boot-time opens drain before stateRef sees the platform (it lands on
+    // the next render) — callers that HAVE the platform pass it explicitly.
+    const p = platformNow ?? stateRef.current.platform;
     if (!p) return;
     void (async () => {
       try {
@@ -520,7 +657,10 @@ export default function App() {
     pendingScrollLineRef.current = positionFor(positionsRef.current, path);
     renderPendingRef.current = true; // consume the restore only against fresh html
 
-    commitRecent(rememberRecent(recentRef.current, path, new Date().toISOString())); // SPEC29 §2.1
+    commitRecent(rememberRecent(recentRef.current, path, new Date().toISOString()), p); // SPEC29 §2.1
+    setFindOpen(false); // SPEC30 §1.5: find never crosses documents
+    setFindQuery('');
+    setFindDebounced('');
 
     skipSaveRef.current = true;
     editorHistoryRef.current = null; // a fresh document starts a fresh undo history
@@ -567,6 +707,7 @@ export default function App() {
    */
   const openDocGuarded = useCallback(
     (p: Platform, path: string) => {
+      explicitOpenRef.current = true; // SPEC30 §2: explicit opens beat reopen
       const s = stateRef.current;
       if (s.dirty && s.docPath !== path) {
         setOpenPrompt({ kind: 'open', path });
@@ -658,11 +799,43 @@ export default function App() {
         () => stateRef.current.dirty,
         () => setClosePrompt(true)
       );
+
+      // SPEC30 §2 + §3: reopen-on-launch, then the draft offer. Explicit
+      // opens (association/CLI/#open/review) land through the drains above —
+      // give them a beat, then only fill a still-empty window.
+      setTimeout(() => {
+        void (async () => {
+          if (disposed) return;
+          const st = stateRef.current;
+          if (loaded.reopenLastDoc && !explicitOpenRef.current && st.docPath === null && !st.untitled) {
+            const top = recentRef.current.entries[0];
+            if (top && (await p.exists(top.path))) await openDoc(p, top.path);
+          }
+          try {
+            const dPath = p.join(cfg, 'draft.json');
+            if (!(await p.exists(dPath))) return;
+            const draft = parseDraft(await p.readTextFile(dPath));
+            if (!draft) {
+              await p.remove(dPath);
+              return;
+            }
+            const disk =
+              draft.docPath && (await p.exists(draft.docPath)) ? await p.readTextFile(draft.docPath) : null;
+            if (isStaleDraft(draft, disk)) {
+              await p.remove(dPath);
+              return;
+            }
+            setRestorePrompt(draft);
+          } catch {
+            /* best effort */
+          }
+        })();
+      }, 250);
     })();
     return () => {
       disposed = true;
     };
-  }, [openDocGuarded]);
+  }, [openDocGuarded, openDoc]);
 
   // --- auto-hiding toolbar -----------------------------------------------------
   useEffect(() => {
@@ -894,6 +1067,9 @@ export default function App() {
     pendingPreviewSelRef.current = null;
     lastEditorSelRef.current = { from: 0, to: 0 };
     setFmOverride(null); // SPEC26 §3.3
+    setFindOpen(false); // SPEC30 §1.5
+    setFindQuery('');
+    setFindDebounced('');
     setDocPath(null);
     setUntitled(true);
     setBuffer('');
@@ -909,6 +1085,32 @@ export default function App() {
     unwatchRef.current?.();
     unwatchRef.current = null;
   }, [recordPosition, currentTopLine]);
+
+  /** SPEC30 §3.2: remove the shadow draft (best effort). */
+  const deleteDraft = useCallback(async () => {
+    const p = stateRef.current.platform;
+    draftWrittenRef.current = false;
+    if (!p) return;
+    try {
+      const d = p.join(await p.configDir(), 'draft.json');
+      if (await p.exists(d)) await p.remove(d);
+    } catch {
+      /* best effort */
+    }
+  }, []);
+
+  /** SPEC30 §3.3: apply a restored draft — the doc (or untitled) + dirty buffer. */
+  const restoreDraft = useCallback(
+    async (d: Draft) => {
+      const p = stateRef.current.platform;
+      if (!p) return;
+      if (d.docPath && (await p.exists(d.docPath))) await openDoc(p, d.docPath);
+      else startUntitled();
+      setBuffer(d.content); // differs from savedText ⇒ dirty, exactly the crashed state
+      await deleteDraft();
+    },
+    [openDoc, startUntitled, deleteDraft]
+  );
 
   /** The newFile command: same unsaved-changes guard as opening (SPEC22 §1.2). */
   const newFile = useCallback(() => {
@@ -1064,6 +1266,7 @@ export default function App() {
       toggleDiff: () => setShowDiff((v) => !v),
       insertImage: () => void insertImage(),
       toggleFrontmatter: () => setFmOverride((cur) => !(cur ?? stateRef.current.settings.showFrontmatter)),
+      find: openFind,
       // SPEC29 §3.4: Clear Menu — no-op when already empty.
       clearRecent: () => commitRecent(clearRecent()),
       toggleWordCount: () => {
@@ -1132,7 +1335,7 @@ export default function App() {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, openFind]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
@@ -1240,6 +1443,34 @@ export default function App() {
     return () => clearTimeout(t);
   }, [docPath, untitled, mode, buffer, html, selInfo]);
 
+  // SPEC30 §3.2: the dirty-buffer shadow copy — ~2s idle debounce; a clean
+  // transition deletes it; never touch it while the restore offer is open.
+  useEffect(() => {
+    if (!platform || restorePrompt) return;
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    if (!dirty) {
+      if (draftWrittenRef.current) void deleteDraft();
+      return;
+    }
+    draftTimerRef.current = setTimeout(() => {
+      const s = stateRef.current;
+      const pf = s.platform;
+      if (!s.dirty || !pf) return;
+      const draft: Draft = { version: 1, docPath: s.docPath, content: s.buffer, at: new Date().toISOString() };
+      void (async () => {
+        try {
+          await pf.writeTextFile(pf.join(await pf.configDir(), 'draft.json'), serializeDraft(draft));
+          draftWrittenRef.current = true;
+        } catch {
+          /* best effort */
+        }
+      })();
+    }, 2000);
+    return () => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    };
+  }, [buffer, dirty, platform, restorePrompt, deleteDraft]);
+
   // --- SPEC16 §3: capture the reading position on preview scrolls (debounced) ---
   useEffect(() => {
     if (mode !== 'preview' || !docPath) return;
@@ -1277,6 +1508,9 @@ export default function App() {
       } else if (eventMatches(e, hk.openFile)) {
         e.preventDefault();
         dispatchCommand('open', 'hotkey');
+      } else if (eventMatches(e, hk.find)) {
+        e.preventDefault();
+        dispatchCommand('find', 'hotkey');
       } else if (eventMatches(e, hk.toggleComments)) {
         e.preventDefault();
         dispatchCommand('toggleComments', 'hotkey');
@@ -1534,6 +1768,56 @@ export default function App() {
     sel?.removeAllRanges();
     sel?.addRange(range);
   }, [mode, html, comments, showComments, settings.showResolved, settings.commentsEnabled]);
+
+  // SPEC30 §1.2: live find, debounced ≤200ms.
+  useEffect(() => {
+    const t = setTimeout(() => setFindDebounced(findQuery), 150);
+    return () => clearTimeout(t);
+  }, [findQuery]);
+
+  // SPEC30 §1.3: preview engine — re-applies after every injection pass
+  // (same deps + completion gate as the other post-render consumers).
+  useLayoutEffect(() => {
+    if (mode !== 'preview') return;
+    if (!injectionCompleteRef.current) return;
+    if (!findOpen || !findDebounced) {
+      clearFindMarks();
+      if (findOpen) {
+        setFindCount(0);
+        setFindCurrent(0);
+      }
+      return;
+    }
+    const n = applyFindMarks(findDebounced);
+    setFindCount(n);
+    setFindCurrent(n > 0 ? 1 : 0);
+    if (n > 0) activateFindMatch(0);
+  }, [mode, findOpen, findDebounced, html, comments, showComments, settings.showResolved, settings.commentsEnabled, applyFindMarks, activateFindMatch, clearFindMarks]);
+
+  // SPEC30 §1.4: edit engine — the bar drives CM once the editor is mounted.
+  useEffect(() => {
+    if (mode !== 'edit' || !findOpen) return;
+    let disposed = false;
+    let tries = 120;
+    const attempt = () => {
+      if (disposed) return;
+      const h = editorSearchRef.current;
+      if (!h) {
+        if (tries-- > 0) requestAnimationFrame(attempt);
+        return;
+      }
+      const res = h.setQuery(findDebounced, findReplace);
+      setFindCount(res.count);
+      setFindCurrent(res.current);
+    };
+    attempt();
+    return () => {
+      disposed = true;
+    };
+    // findReplace intentionally read fresh at call time via the closure; the
+    // replace text re-installs without advancing in the handler below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, findOpen, findDebounced]);
 
   // --- split-edit live preview pane (SPEC7 §5): plain reading pane, no comments ----
   useLayoutEffect(() => {
@@ -1922,6 +2206,24 @@ export default function App() {
         </>
       )}
 
+      {findOpen && (docPath || untitled) && (
+        <FindBar
+          mode={mode}
+          query={findQuery}
+          replace={findReplace}
+          count={findCount}
+          current={findCurrent}
+          focusTick={findFocusTick}
+          onQuery={setFindQuery}
+          onReplace={setFindReplace}
+          onNext={() => stepFind(1)}
+          onPrev={() => stepFind(-1)}
+          onReplaceOne={() => replaceFind(false)}
+          onReplaceAll={() => replaceFind(true)}
+          onClose={closeFind}
+        />
+      )}
+
       {mode === 'preview' ? (
         <div className="workspace" ref={workspaceRef}>
           <ImageResizer
@@ -2083,6 +2385,7 @@ export default function App() {
                 onEditState={handleEditState}
                 selectRangeRef={editorSelectRef}
                 pendingSelectionRef={pendingEditorSelRef}
+                searchRef={editorSearchRef}
               />
             </Suspense>
           </div>
@@ -2136,6 +2439,7 @@ export default function App() {
               onEditState={handleEditState}
               selectRangeRef={editorSelectRef}
               pendingSelectionRef={pendingEditorSelRef}
+              searchRef={editorSearchRef}
             />
           </Suspense>
         </div>
@@ -2291,6 +2595,40 @@ export default function App() {
         </div>
       )}
 
+      {restorePrompt && (
+        <div className="overlay">
+          <div className="modal" data-testid="restore-prompt">
+            <h2>Restore unsaved changes?</h2>
+            <p style={{ fontSize: 13.5 }}>
+              “{restorePrompt.docPath ? platform.basename(restorePrompt.docPath) : 'Untitled'}” has unsaved changes
+              from a previous session.
+            </p>
+            <div className="actions">
+              <button
+                data-testid="restore-no"
+                onClick={() => {
+                  setRestorePrompt(null);
+                  void deleteDraft();
+                }}
+              >
+                Discard
+              </button>
+              <button
+                className="primary"
+                data-testid="restore-yes"
+                onClick={() => {
+                  const d = restorePrompt;
+                  setRestorePrompt(null);
+                  if (d) void restoreDraft(d);
+                }}
+              >
+                Restore
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {closePrompt && (
         <div className="overlay">
           <div className="modal" data-testid="close-prompt">
@@ -2307,7 +2645,9 @@ export default function App() {
                 data-testid="close-discard"
                 onClick={() => {
                   setClosePrompt(false);
-                  void platform.closeNow();
+                  // SPEC30 §3.2: an explicit discard removes the shadow draft
+                  // before the window dies (the clean-transition path can't run).
+                  void deleteDraft().then(() => platform.closeNow());
                 }}
               >
                 Don’t save

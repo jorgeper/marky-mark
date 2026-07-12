@@ -42,7 +42,8 @@ describe('SPEC12 menu spec', () => {
     const edit = buildMenuSpec(base).submenus.find((m) => m.title === 'Edit')!;
     const editKinds = edit.items.flatMap((i) => (i.type === 'predefined' && i.item !== 'Separator' ? [i.item] : []));
     expect(editKinds).toEqual(['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'SelectAll']);
-    expect(commandsIn(base, 'Edit').map((i) => i.command)).toEqual(['insertImage']);
+    // SPEC30 §4.1 amendment: Find… joins the Edit menu ahead of Insert Image….
+    expect(commandsIn(base, 'Edit').map((i) => i.command)).toEqual(['find', 'insertImage']);
     // View ends with Full Screen on mac; Window menu is predefined-only.
     const view = buildMenuSpec(base).submenus.find((m) => m.title === 'View')!;
     expect(view.items.some((i) => i.type === 'predefined' && i.item === 'Fullscreen')).toBe(true);
@@ -229,5 +230,22 @@ describe('SPEC12 menu spec', () => {
     const file = buildMenuSpec(base).submenus.find((m) => m.title === 'File')!;
     const sub = file.items.find((i) => i.type === 'submenu');
     expect(sub && sub.type === 'submenu' && sub.items.map((i) => i.type)).toEqual(['command']);
+  });
+
+  test('U59: Edit carries Find… with the rebindable Mod+F; reopenLastDoc setting follows house rules', () => {
+    expect(DEFAULT_HOTKEYS.find).toBe('Mod+F');
+    for (const s of [base, { ...base, isMac: false }]) {
+      const edit = commandsIn(s, 'Edit');
+      expect(edit.map((i) => i.command)).toEqual(['find', 'insertImage']);
+      expect(edit[0].label).toBe('Find…');
+      expect(edit[0].accelerator).toBe('Mod+F');
+    }
+    const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, find: 'Mod+Shift+G' } };
+    expect(find(rebound, 'Edit', 'find')!.accelerator).toBe('Mod+Shift+G');
+    expect(parseSettings('{"hotkeys":{"save":"Mod+S"}}').hotkeys.find).toBe('Mod+F');
+
+    expect(parseSettings('{}').reopenLastDoc).toBe(true);
+    expect(parseSettings('{"reopenLastDoc":false}').reopenLastDoc).toBe(false);
+    expect(parseSettings('{"reopenLastDoc":"nah"}').reopenLastDoc).toBe(true);
   });
 });

@@ -30,6 +30,7 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   toggleSplit: 'Split edit',
   newFile: 'New file',
   openFile: 'Open file',
+  find: 'Find',
   toggleComments: 'Show / hide comments',
   save: 'Save',
   nextComment: 'Next comment',
@@ -370,6 +371,19 @@ export function SettingsPanel({
           </label>
         </div>
       )}
+
+      <div className="checkbox-row">
+        <input
+          id="settings-reopen"
+          type="checkbox"
+          data-testid="settings-reopen"
+          checked={settings.reopenLastDoc}
+          onChange={(e) => onChange({ ...settings, reopenLastDoc: e.target.checked })}
+        />
+        <label htmlFor="settings-reopen" style={{ margin: 0, fontWeight: 400 }}>
+          Reopen last document on launch
+        </label>
+      </div>
 
       <div className="checkbox-row">
         <input

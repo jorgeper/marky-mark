@@ -492,6 +492,31 @@ reconfigures live with undo history intact. `@lezer/highlight` (the tag
 vocabulary) was already vendored transitively and is now an explicit
 dependency.
 
+## Find, reopen-on-launch, drafts (SPEC30)
+
+**Find** is one bar with two engines. In preview, matches are computed
+over the rendered doc text (`getDocText` space — the comment-anchor
+coordinate system) and wrapped by the same `highlightRange` machinery as
+comments and the selection mirror, restyled `mm-find`/`mm-find-active`
+and unwrapped losslessly on close; the plain text never changes. In edit
+mode the bar drives `@codemirror/search` programmatically — an invisible
+stub panel arms its match highlighter (the plugin only draws with a
+panel open), CM's own panel UI and keymap are never enabled, and
+replace-one/replace-all ride the normal transaction/undo path.
+
+**Boot order** (SPEC30 §2/§3): explicit opens — file association, CLI,
+`#open` hash, review bundle — always win; they set a synchronous
+explicit-open flag the reopen timer checks, because `docPath` lands only
+after async I/O and a timer race would double-open. Otherwise the most
+recent document reopens (setting, default on). After that resolves, a
+present, parseable, non-stale `draft.json` raises the restore offer.
+
+**Drafts:** while the buffer is dirty, a ~2 s idle debounce shadow-writes
+`{docPath|null, content}`; a clean transition or an explicit discard
+deletes it; restore installs the draft as the dirty buffer over the
+reopened document (or a fresh untitled buffer). Staleness (`disk ===
+draft`) keeps the prompt honest after ordinary saves.
+
 ## Open Recent (SPEC29)
 
 `recentFiles.ts` (pure, mirrors the reading-positions store): MRU-first,
