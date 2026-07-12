@@ -31,19 +31,19 @@ README screenshots, cutting a release.
 `AppBadge` (toolbar filename chip, About dialog) renders the new tile as
 an inline SVG — rounded terracotta gradient square + the cream smiley-M
 glyph — same test ids (`app-badge`, `about-badge`), same size props, no
-image files (the single-file web build stays self-contained). A separate
-exported **`MarkGlyph`** renders the glyph alone on a transparent
-background (the splash's version).
+image files (the single-file web build stays self-contained). The splash
+reuses the same `AppBadge` tile (owner revision: the transparent-glyph
+variant was removed with the cloud treatment).
 
 ## 3. The splash (FR-SPLASH)
 
 1. The preview empty state (no document, no untitled buffer) becomes,
    centered, top to bottom (container keeps test id `empty-hint`; new
    inner test id `splash-mark` on the icon block):
-   - **`MarkGlyph`** at ~120 px — no tile background — floating on a
-     **wispy orange cloud**: pure CSS (layered, blurred radial gradients
-     in the brand terracotta), no images, dark-theme friendly.
-   - **"Marky Mark"** (title) and the About-dialog information:
+   - the **app icon tile** (`AppBadge`) at ~132 px — no decoration, no
+     title text (owner revision: the earlier glyph-on-a-cloud treatment
+     was tried and rejected).
+   - The About-dialog information:
      `v{__APP_VERSION__}`, the alpha notice ("Alpha — pre-release
      software, expect rough edges."), "Developer: Jorge Pereira · MIT
      License", and the repo link (managed `openExternal` hand-off, like
@@ -56,12 +56,12 @@ background (the splash's version).
 ## 4. Tests (amended: E1, E78; added: E87)
 
 1. **Amended, not weakened:** E1's splash-copy assertion becomes the new
-   copy ("Marky Mark", "Drop a file to open"); E78 drops its four
+   copy (the icon splash + "Drop a file to open"); E78 drops its four
    hint-line assertions (the ⌘O/⌘N lines no longer exist) — its New-flow
    assertions are untouched. No other existing test may be modified,
    weakened, skipped, or deleted; E42–E44 stay reserved.
 2. **E87** — pristine launch: `splash-mark` visible inside `empty-hint`;
-   the splash shows "Marky Mark", the exact package version, the alpha
+   the splash shows the icon badge, the exact package version, the alpha
    notice, developer + license, and "Drop a file to open"; it contains
    no "⌘O"/"⌘N"/"press" hint text; opening a document removes the splash
    entirely; the toolbar `app-badge` still renders.

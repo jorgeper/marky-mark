@@ -49,7 +49,7 @@ import { FrontMatterCard } from './components/FrontMatterCard';
 import type { Theme } from './lib/themes';
 import { applyThemeCss, loadAllThemes } from './themeRuntime';
 import { FIXTURES } from './bundled';
-import { MarkGlyph, Toolbar } from './components/Toolbar';
+import { AppBadge, Toolbar } from './components/Toolbar';
 import { ImageResizer, type ImageRewriteRequest } from './components/ImageResizer';
 import { CommentCard } from './components/CommentCard';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -1884,14 +1884,13 @@ export default function App() {
             )}
             {!docPath && !untitled && (
               <div className="empty-center">
-                {/* SPEC27 §3: the splash — glyph on a wispy cloud, the About
-                    info, one drop hint. Pure app UI, no images. */}
+                {/* SPEC27 §3 (revised): the splash — the app icon, larger,
+                    then the About info and one drop hint. No title text, no
+                    decoration. Pure app UI, no images. */}
                 <div className="splash" data-testid="empty-hint">
                   <div className="splash-mark" data-testid="splash-mark">
-                    <div className="splash-cloud" aria-hidden="true" />
-                    <MarkGlyph size={128} />
+                    <AppBadge size={132} testId="splash-badge" />
                   </div>
-                  <h1 className="splash-title">Marky Mark</h1>
                   <p className="splash-version">v{__APP_VERSION__}</p>
                   <p className="splash-alpha">Alpha — pre-release software, expect rough edges.</p>
                   <p className="splash-meta">Developer: Jorge Pereira · MIT License</p>

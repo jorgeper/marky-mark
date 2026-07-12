@@ -39,39 +39,6 @@ function MenuIcon() {
   );
 }
 
-/**
- * SPEC27 §2: the smiley-M glyph from icon-assets/source, transparent
- * background — the splash floats it on the CSS cloud. Gradient/filter ids
- * ride useId() so multiple instances never collide in one document.
- */
-export function MarkGlyph({ size = 120, testId }: { size?: number; testId?: string }) {
-  const uid = useId();
-  return (
-    <svg data-testid={testId} width={size} height={size} viewBox="0 0 240 240" aria-label="Marky Mark">
-      <defs>
-        <linearGradient id={`tg-${uid}`} gradientUnits="userSpaceOnUse" x1="0" y1="34" x2="0" y2="206">
-          <stop offset="0%" stopColor="#FFFBF4" />
-          <stop offset="60%" stopColor="#F9EDDC" />
-          <stop offset="100%" stopColor="#EFD9BC" />
-        </linearGradient>
-        <filter id={`gs-${uid}`} x="-40%" y="-40%" width="180%" height="180%">
-          {/* One soft, low-opacity shadow — gentler than the icon tile's. */}
-          <feDropShadow dx="0" dy="4" stdDeviation="7" floodColor="#601E0C" floodOpacity="0.22" />
-        </filter>
-      </defs>
-      <g filter={`url(#gs-${uid})`}>
-        <rect x="74" y="38" width="32" height="164" rx="16" fill={`url(#tg-${uid})`} />
-        <rect x="134" y="38" width="32" height="164" rx="16" fill={`url(#tg-${uid})`} />
-        <rect x="36" y="74" width="168" height="32" rx="16" fill={`url(#tg-${uid})`} transform="rotate(-9 120 90)" />
-        <rect x="36" y="134" width="168" height="32" rx="16" fill={`url(#tg-${uid})`} />
-        <circle cx="90" cy="120" r="9.5" fill="#BE5E3F" />
-        <circle cx="150" cy="120" r="9.5" fill="#BE5E3F" />
-        <path d="M102,148 Q120,162 138,146" stroke="#BE5E3F" strokeWidth="8.5" strokeLinecap="round" fill="none" />
-      </g>
-    </svg>
-  );
-}
-
 /** SPEC27 §2: the full tile — terracotta gradient square + the glyph. */
 export function AppBadge({ size = 20, testId = 'app-badge' }: { size?: number; testId?: string }) {
   const uid = useId();

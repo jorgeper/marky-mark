@@ -35,8 +35,8 @@ test('E1: launch shows the clean empty state; Help opens the welcome doc fully r
 
   const hint = page.getByTestId('empty-hint');
   await expect(hint).toBeVisible();
-  // SPEC27 §4.1 amendment: the empty state is now the branded splash.
-  await expect(hint).toContainText('Marky Mark');
+  // SPEC27 §4.1 amendment (revised): the empty state is the icon splash.
+  await expect(page.getByTestId('splash-mark')).toBeVisible();
   await expect(hint).toContainText('Drop a file to open');
   await expect(page.getByTestId('doc')).toHaveText(''); // no document content
   await expect(page.getByTestId('docname').getByTestId('app-badge')).toBeVisible();
@@ -2716,7 +2716,7 @@ test('E87: the splash — glyph on the cloud, About info, one drop hint, no key-
   const hint = page.getByTestId('empty-hint');
   await expect(hint).toBeVisible();
   await expect(page.getByTestId('splash-mark')).toBeVisible();
-  await expect(hint).toContainText('Marky Mark');
+  await expect(page.getByTestId('splash-badge')).toBeVisible(); // the app icon, no title text
   await expect(hint).toContainText(`v${pkg.version}`); // exact build version, like About
   await expect(hint).toContainText('Alpha — pre-release software, expect rough edges.');
   await expect(hint).toContainText('Developer: Jorge Pereira');

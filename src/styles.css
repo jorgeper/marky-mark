@@ -1048,37 +1048,7 @@ mark.hl.ghost {
 }
 
 .splash-mark {
-  position: relative;
-  width: 260px;
-  height: 176px;
-  margin: 0 auto 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.splash-cloud {
-  position: absolute;
-  inset: 0;
-  filter: blur(28px);
-  /* Deep terracotta — the cream glyph needs real contrast to sit on. */
-  opacity: 0.9;
-  background:
-    radial-gradient(92px 56px at 38% 58%, rgba(168, 70, 38, 0.95), transparent 72%),
-    radial-gradient(118px 64px at 63% 44%, rgba(192, 92, 55, 0.85), transparent 72%),
-    radial-gradient(74px 48px at 50% 72%, rgba(134, 50, 26, 0.85), transparent 72%);
-}
-
-.splash-mark svg {
-  position: relative;
-}
-
-.splash-title {
-  margin: 0 0 2px;
-  font-size: 27px;
-  font-weight: 700;
-  font-family: var(--mm-font-heading, inherit);
-  color: var(--mm-heading, var(--mm-fg, #1f2328));
+  margin: 0 auto 18px;
 }
 
 .splash-version {
