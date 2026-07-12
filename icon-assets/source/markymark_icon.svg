@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240"><defs>
+    <linearGradient id="bgT" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#DA8560"/><stop offset="100%" stop-color="#B95A3D"/>
+    </linearGradient>
+    <radialGradient id="bgTL" cx="50%" cy="22%" r="70%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity=".18"/><stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="tG" gradientUnits="userSpaceOnUse" x1="0" y1="34" x2="0" y2="206">
+      <stop offset="0%" stop-color="#FFFBF4"/><stop offset="60%" stop-color="#F9EDDC"/><stop offset="100%" stop-color="#EFD9BC"/>
+    </linearGradient>
+    <filter id="gshT" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1" stdDeviation="0.5" flood-color="#601E0C" flood-opacity="0.30"/>
+      <feDropShadow dx="0" dy="3" stdDeviation="1.8" flood-color="#601E0C" flood-opacity="0.36"/>
+    </filter>
+    <filter id="tshT" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.32"/>
+    </filter>
+  </defs><g id="tile-content">
+    <rect width="240" height="240" rx="54" fill="url(#bgT)"/>
+    <rect width="240" height="240" rx="54" fill="url(#bgTL)"/>
+    <rect x="1.2" y="1.2" width="237.6" height="237.6" rx="53" fill="none" stroke="#FFFFFF" stroke-opacity=".22" stroke-width="2"/>
+    <g filter="url(#gshT)">
+      <rect x="74" y="38" width="32" height="164" rx="16" fill="url(#tG)"/>
+      <rect x="134" y="38" width="32" height="164" rx="16" fill="url(#tG)"/>
+      <rect x="36" y="74" width="168" height="32" rx="16" fill="url(#tG)" transform="rotate(-9 120 90)"/>
+      <rect x="36" y="134" width="168" height="32" rx="16" fill="url(#tG)"/>
+      <circle cx="90" cy="120" r="9.5" fill="#BE5E3F"/>
+      <circle cx="150" cy="120" r="9.5" fill="#BE5E3F"/>
+      <path d="M102,148 Q120,162 138,146" stroke="#BE5E3F" stroke-width="8.5" stroke-linecap="round" fill="none"/>
+    </g>
+  </g></svg>
