@@ -2735,3 +2735,50 @@ test('E87: the splash — glyph on the cloud, About info, one drop hint, no key-
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('docname').click(); // close menu
 });
+
+test('E88: Open Recent — MRU order, persistence, guarded reopen, vanished-file cleanup, Clear Menu', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await fsWrite(page, '/docs/ra.md', '# Doc RA\n');
+  await fsWrite(page, '/docs/rb.md', '# Doc RB\n');
+
+  const recents = () =>
+    page.evaluate(() => {
+      const file = window.__mmMenu!.spec!.submenus.find((m) => m.title === 'File')!;
+      const sub = file.items.find((i) => i.type === 'submenu') as { items: Array<{ type: string; path?: string }> };
+      return sub.items.filter((i) => i.type === 'recent').map((i) => i.path);
+    });
+
+  // Open both (ra then rb): MRU order, newest first.
+  await page.goto('/?nativeMenu=1#open=/docs/ra.md');
+  await page.reload();
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Doc RA');
+  await page.goto('/?nativeMenu=1#open=/docs/rb.md');
+  await page.reload();
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Doc RB');
+  await expect.poll(recents).toEqual(['/docs/rb.md', '/docs/ra.md']);
+
+  // Persisted: a reload (the #open hash reopens rb) keeps the stored list.
+  expect(await fsRead(page, '/config/recent.json')).toContain('/docs/ra.md');
+  await page.reload();
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Doc RB');
+  await expect.poll(recents).toEqual(['/docs/rb.md', '/docs/ra.md']);
+
+  // Picking the older doc reopens it and bumps it to the front.
+  await page.evaluate(() => window.__mmMenu!.clickRecent('/docs/ra.md'));
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Doc RA');
+  await expect.poll(recents).toEqual(['/docs/ra.md', '/docs/rb.md']);
+
+  // A vanished file: notice + the entry drops off (and stays off on disk).
+  await page.evaluate(() => window.__mmfs!.remove('/docs/rb.md'));
+  await page.evaluate(() => window.__mmMenu!.clickRecent('/docs/rb.md'));
+  await expect(page.getByTestId('notice')).toContainText('rb.md');
+  await expect.poll(recents).toEqual(['/docs/ra.md']);
+  await expect.poll(() => fsRead(page, '/config/recent.json')).not.toContain('/docs/rb.md');
+
+  // Clear Menu empties the list.
+  await menuClick(page, 'clearRecent');
+  await expect.poll(recents).toEqual([]);
+  await expect.poll(() => fsRead(page, '/config/recent.json')).not.toContain('/docs/ra.md');
+});

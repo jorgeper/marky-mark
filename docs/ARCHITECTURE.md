@@ -492,6 +492,18 @@ reconfigures live with undo history intact. `@lezer/highlight` (the tag
 vocabulary) was already vendored transitively and is now an explicit
 dependency.
 
+## Open Recent (SPEC29)
+
+`recentFiles.ts` (pure, mirrors the reading-positions store): MRU-first,
+deduped, capped at 10, persisted to `recent.json` beside `positions.json`,
+recorded on every successful real-path `openDoc`. The menu spec grew real
+nesting for it — `submenu` and path-carrying `recent` item kinds — built
+recursively by `tauri.ts` and understood by the shim's `__mmMenu` (whose
+`click` now searches nested submenus; `clickRecent(path)` drives entries).
+Recent picks ride a small `dispatchRecent` channel beside the command
+registry (paths aren't CommandIds), reopen through the normal unsaved-
+changes guard, and a vanished file gets a notice and drops off the list.
+
 ## Front matter (SPEC26)
 
 `remark-frontmatter` in the pipeline parses a leading `---`-fenced YAML

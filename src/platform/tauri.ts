@@ -1,7 +1,7 @@
 import type { Platform } from './types';
 import type { MenuItemSpec, MenuSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
-import { dispatchCommand } from '../lib/commands';
+import { dispatchRecent, dispatchCommand } from '../lib/commands';
 import { parseCombo } from '../lib/hotkeys';
 
 /**
@@ -210,9 +210,16 @@ export async function createTauriPlatform(): Promise<Platform> {
     async setAppMenu(spec: MenuSpec) {
       const { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } = await import('@tauri-apps/api/menu');
 
-      const toItem = async (it: MenuItemSpec) => {
+      const toItem = async (it: MenuItemSpec): Promise<unknown> => {
         if (it.type === 'predefined') {
           return PredefinedMenuItem.new({ item: it.item, ...(it.label ? { text: it.label } : {}) });
+        }
+        // SPEC29 §3.3: nested submenus (Open Recent) and path-carrying items.
+        if (it.type === 'submenu') {
+          return Submenu.new({ text: it.title, items: (await Promise.all(it.items.map(toItem))) as never });
+        }
+        if (it.type === 'recent') {
+          return MenuItem.new({ text: it.label, action: () => dispatchRecent(it.path) });
         }
         const common = {
           text: it.label,
@@ -234,7 +241,7 @@ export async function createTauriPlatform(): Promise<Platform> {
 
       const submenus = await Promise.all(
         spec.submenus.map(async (m) =>
-          Submenu.new({ text: m.title, items: await Promise.all(m.items.map(toItem)) })
+          Submenu.new({ text: m.title, items: (await Promise.all(m.items.map(toItem))) as never })
         )
       );
       const menu = await Menu.new({ items: submenus });

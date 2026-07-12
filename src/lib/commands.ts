@@ -21,6 +21,7 @@ export type CommandId =
   | 'headingPalette'
   | 'toggleWordCount'
   | 'toggleFrontmatter'
+  | 'clearRecent'
   | 'settings'
   | 'help'
   | 'about'
@@ -46,6 +47,20 @@ const CROSS_SOURCE_DEDUP_MS = 150;
 
 export function registerCommands(h: CommandHandlers): void {
   handlers = h;
+}
+
+/**
+ * SPEC29 §3.3: Open Recent items carry a path, not a CommandId — they ride
+ * their own tiny channel beside the registry.
+ */
+let recentHandler: ((path: string) => void) | null = null;
+
+export function registerRecentHandler(h: (path: string) => void): void {
+  recentHandler = h;
+}
+
+export function dispatchRecent(path: string): void {
+  recentHandler?.(path);
 }
 
 export function dispatchCommand(id: CommandId, source: CommandSource = 'ui'): void {

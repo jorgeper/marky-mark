@@ -14,6 +14,7 @@ const base: MenuState = {
   showDiff: false,
   showWordCount: true,
   showFrontmatter: true, // SPEC26 §3: fixture-level only — no assertion changed
+  recentFiles: [], // SPEC29 §3: fixture-level only — no assertion changed
 };
 
 const titles = (s: MenuState) => buildMenuSpec(s).submenus.map((m) => m.title);
@@ -194,5 +195,39 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{}').showFrontmatter).toBe(true);
     expect(parseSettings('{"showFrontmatter":false}').showFrontmatter).toBe(false);
     expect(parseSettings('{"showFrontmatter":"nope"}').showFrontmatter).toBe(true);
+  });
+
+  test('U57: Open Recent submenu sits right after Open… — entries in order, separator, Clear Menu; Clear alone when empty', () => {
+    const recents = [
+      { path: '/docs/b.md', label: 'b.md' },
+      { path: '/docs/a.md', label: 'a.md' },
+    ];
+    for (const st of [
+      { ...base, recentFiles: recents },
+      { ...base, isMac: false, recentFiles: recents },
+    ]) {
+      const file = buildMenuSpec(st).submenus.find((m) => m.title === 'File')!;
+      const idxOpen = file.items.findIndex((i) => i.type === 'command' && i.command === 'open');
+      const sub = file.items[idxOpen + 1];
+      expect(sub.type).toBe('submenu');
+      if (sub.type !== 'submenu') throw new Error('unreachable');
+      expect(sub.title).toBe('Open Recent');
+      expect(sub.items.map((i) => i.type)).toEqual(['recent', 'recent', 'predefined', 'command']);
+      expect(sub.items.flatMap((i) => (i.type === 'recent' ? [i.path] : []))).toEqual(['/docs/b.md', '/docs/a.md']);
+      expect(sub.items.flatMap((i) => (i.type === 'recent' ? [i.label] : []))).toEqual(['b.md', 'a.md']);
+      const clear = sub.items[sub.items.length - 1];
+      expect(clear.type === 'command' && clear.command).toBe('clearRecent');
+      expect(clear.type === 'command' && clear.label).toBe('Clear Menu');
+      // The File menu's TOP-LEVEL command list is exactly what U19/U20 pin.
+      expect(commandsIn(st, 'File').map((i) => i.command)).toEqual(
+        st.isMac
+          ? ['newFile', 'open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']
+          : ['newFile', 'open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']
+      );
+    }
+    // Empty list: the submenu holds just Clear Menu (macOS-style), no separator.
+    const file = buildMenuSpec(base).submenus.find((m) => m.title === 'File')!;
+    const sub = file.items.find((i) => i.type === 'submenu');
+    expect(sub && sub.type === 'submenu' && sub.items.map((i) => i.type)).toEqual(['command']);
   });
 });

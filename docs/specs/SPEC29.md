@@ -57,7 +57,7 @@ basename collides with another entry's get ` — <parent folder>` appended.
 5. The web hamburger is untouched (E13's count stands); the web build
    simply never installs a native menu, so nothing shows there.
 
-## 4. Tests (added: U56–U57, E89)
+## 4. Tests (added: U56–U57, E88)
 
 1. **U56** — `recentFiles`: (SPEC28's withdrawn slot, reused) MRU insert/dedupe/cap at 10; remove; clear;
    label disambiguation (same basename ⇒ parent-folder suffix, distinct
@@ -68,7 +68,7 @@ basename collides with another entry's get ` — <parent folder>` appended.
    + Clear Menu; empty list ⇒ submenu with Clear Menu only; File's
    top-level command list is unchanged (U19/U20 fixtures untouched
    except the compile-level `recentFiles: []` field).
-3. **E89** — (nativeMenu shim) open two docs → the spec lists both,
+3. **E88** — (SPEC28's withdrawn slot, reused; nativeMenu shim) open two docs → the spec lists both,
    MRU-first, and survives a reload via `recent.json`;
    `clickRecent` reopens the older doc (and bumps it to front); deleting
    a listed file then clicking it shows the notice and drops the entry;
@@ -86,6 +86,6 @@ Creature comforts.
 ## 6. Definition of Done
 
 1. `npm run validate` exits 0 with complete output — U1–U57, E1–E41 +
-   E45–E89, W1–W10 — and `VALIDATION: ALL PASSED` printed.
+   E45–E88, W1–W10 — and `VALIDATION: ALL PASSED` printed.
 2. `git diff src-tauri/` empty; no dependency or version-file changes;
    no `.skip/.only/.todo`; reserved-name scan prints nothing.

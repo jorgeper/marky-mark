@@ -42,7 +42,21 @@ export interface PredefinedItemSpec {
   label?: string;
 }
 
-export type MenuItemSpec = CommandItemSpec | PredefinedItemSpec;
+/** SPEC29 §3.1: an Open Recent entry — a path, not a CommandId. */
+export interface RecentItemSpec {
+  type: 'recent';
+  path: string;
+  label: string;
+}
+
+/** SPEC29 §3.1: real nesting (File → Open Recent → …). */
+export interface SubmenuItemSpec {
+  type: 'submenu';
+  title: string;
+  items: MenuItemSpec[];
+}
+
+export type MenuItemSpec = CommandItemSpec | PredefinedItemSpec | RecentItemSpec | SubmenuItemSpec;
 
 export interface SubmenuSpec {
   title: string;
@@ -68,6 +82,8 @@ export interface MenuState {
   showWordCount: boolean;
   /** SPEC26 §3: the front-matter card's SESSION visibility. */
   showFrontmatter: boolean;
+  /** SPEC29 §3: Open Recent entries, most-recent-first (label ready-made). */
+  recentFiles: Array<{ path: string; label: string }>;
 }
 
 const sep: PredefinedItemSpec = { type: 'predefined', item: 'Separator' };
@@ -83,6 +99,16 @@ const cmd = (command: CommandId, label: string, accelerator?: string, checked?: 
 
 /** SPEC12 §1: the full native menu layout for the current platform + state. */
 export function buildMenuSpec(s: MenuState): MenuSpec {
+  // SPEC29 §3.2: recents (MRU), separator, Clear Menu — Clear alone when empty.
+  const openRecent: SubmenuItemSpec = {
+    type: 'submenu',
+    title: 'Open Recent',
+    items: [
+      ...s.recentFiles.map((r): RecentItemSpec => ({ type: 'recent', path: r.path, label: r.label })),
+      ...(s.recentFiles.length > 0 ? [sep] : []),
+      cmd('clearRecent', 'Clear Menu'),
+    ],
+  };
   const editMenu: SubmenuSpec = {
     title: 'Edit',
     items: [
@@ -165,6 +191,7 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             // SPEC22 §1: New opens an untitled buffer — no dialog, no ellipsis.
             cmd('newFile', 'New', s.hotkeys.newFile),
             cmd('open', 'Open…', s.hotkeys.openFile),
+            openRecent,
             sep,
             cmd('save', 'Save', s.hotkeys.save),
             cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
@@ -189,6 +216,7 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
         items: [
           cmd('newFile', 'New', s.hotkeys.newFile),
           cmd('open', 'Open…', s.hotkeys.openFile),
+          openRecent,
           sep,
           cmd('save', 'Save', s.hotkeys.save),
           cmd('saveAs', 'Save As…', 'Mod+Shift+S'),

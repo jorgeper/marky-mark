@@ -1,6 +1,6 @@
 import type { Platform } from './types';
 import { FIXTURES } from '../bundled';
-import { dispatchCommand, type CommandId } from '../lib/commands';
+import { dispatchRecent, dispatchCommand, type CommandId } from '../lib/commands';
 import type { MenuSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
 
@@ -38,6 +38,8 @@ declare global {
     __mmMenu?: {
       spec: MenuSpec | null;
       click(command: string): void;
+      /** SPEC29 §3.3: drive an Open Recent entry by its path. */
+      clickRecent(path: string): void;
     };
     /**
      * SPEC13 §5.2: aux-window activity recorded for e2e — how many times each
@@ -145,14 +147,24 @@ export function createBrowserPlatform(): Platform {
 
   /** SPEC12 §5.2: record the installed spec; click() dispatches like a menu. */
   const setAppMenu = async (spec: MenuSpec) => {
+    // SPEC29 §3.3: commands may live inside nested submenus now.
+    const flatten = (items: MenuSpec['submenus'][number]['items']): MenuSpec['submenus'][number]['items'] =>
+      items.flatMap((it) => (it.type === 'submenu' ? flatten(it.items) : [it]));
     window.__mmMenu = {
       spec,
       click(command: string) {
         const exists = spec.submenus.some((m) =>
-          m.items.some((it) => it.type === 'command' && it.command === command)
+          flatten(m.items).some((it) => it.type === 'command' && it.command === command)
         );
         if (!exists) throw new Error(`no menu item for command: ${command}`);
         dispatchCommand(command as CommandId, 'menu');
+      },
+      clickRecent(path: string) {
+        const exists = spec.submenus.some((m) =>
+          flatten(m.items).some((it) => it.type === 'recent' && it.path === path)
+        );
+        if (!exists) throw new Error(`no recent item for path: ${path}`);
+        dispatchRecent(path);
       },
     };
   };

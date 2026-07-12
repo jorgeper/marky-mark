@@ -16,7 +16,7 @@ import {
   type Settings,
 } from './lib/settings';
 import { displayCombo, eventMatches } from './lib/hotkeys';
-import { dispatchCommand, registerCommands } from './lib/commands';
+import { dispatchCommand, registerCommands, registerRecentHandler } from './lib/commands';
 import { buildMenuSpec } from './lib/menuSpec';
 import { stepComment } from './lib/commentNav';
 import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
@@ -27,6 +27,7 @@ import { ExportDialog, type ExportRequest } from './components/ExportDialog';
 import { UpdateDialog } from './components/UpdateDialog';
 import { diffLineSets, type DiffLineSets } from './lib/diffLines';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
+import { clearRecent, parseRecent, recentMenuEntries, rememberRecent, removeRecent, serializeRecent, type RecentStore } from './lib/recentFiles';
 import { countWords } from './lib/wordCount';
 import { expandImageName, extForMime, imageMarkdownRef, sanitizeImageName } from './lib/imagePaste';
 import { applyImageRewrite } from './lib/imageResize';
@@ -91,6 +92,8 @@ export default function App() {
   const [html, setHtml] = useState('');
   const [comments, setComments] = useState<CommentData[]>([]);
   const [positions, setPositions] = useState<Positions>({});
+  // SPEC29: Open Recent (MRU, persisted to recent.json; menu rebuild rides it).
+  const [recent, setRecent] = useState<RecentStore>({ version: 1, entries: [] });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showComments, setShowComments] = useState(true);
   // SPEC26 §3: per-document front-matter override — null means "follow the
@@ -483,6 +486,22 @@ export default function App() {
     })();
   }, []);
 
+  /** SPEC29 §2: set + best-effort persist the recent list in one move. */
+  const commitRecent = useCallback((next: RecentStore) => {
+    recentRef.current = next;
+    setRecent(next);
+    const p = stateRef.current.platform;
+    if (!p) return;
+    void (async () => {
+      try {
+        await p.writeTextFile(p.join(await p.configDir(), 'recent.json'), serializeRecent(next));
+      } catch {
+        /* best effort */
+      }
+    })();
+  }, []);
+  const recentRef = useRef<RecentStore>({ version: 1, entries: [] });
+
   // Guards the SPEC15/SPEC16 preview restore against firing on stale html
   // (opening a doc from edit mode re-runs the effect before the new render).
   const renderPendingRef = useRef(false);
@@ -500,6 +519,8 @@ export default function App() {
     recordPosition(stateRef.current.docPath, currentTopLine());
     pendingScrollLineRef.current = positionFor(positionsRef.current, path);
     renderPendingRef.current = true; // consume the restore only against fresh html
+
+    commitRecent(rememberRecent(recentRef.current, path, new Date().toISOString())); // SPEC29 §2.1
 
     skipSaveRef.current = true;
     editorHistoryRef.current = null; // a fresh document starts a fresh undo history
@@ -538,7 +559,7 @@ export default function App() {
     } catch {
       /* watching is best-effort */
     }
-  }, [loadDocParts, recordPosition, currentTopLine]);
+  }, [loadDocParts, recordPosition, currentTopLine, commitRecent]);
 
   /**
    * Unsaved-changes guard (SPEC4 §6): every user-initiated open routes here.
@@ -609,6 +630,18 @@ export default function App() {
       try {
         const posPath = p.join(cfg, 'positions.json');
         if (await p.exists(posPath)) positionsRef.current = parsePositions(await p.readTextFile(posPath));
+      } catch {
+        /* start empty */
+      }
+
+      // SPEC29 §2.2: Open Recent, same tolerance.
+      try {
+        const recPath = p.join(cfg, 'recent.json');
+        if (await p.exists(recPath)) {
+          const loaded = parseRecent(await p.readTextFile(recPath));
+          recentRef.current = loaded;
+          setRecent(loaded);
+        }
       } catch {
         /* start empty */
       }
@@ -1031,6 +1064,8 @@ export default function App() {
       toggleDiff: () => setShowDiff((v) => !v),
       insertImage: () => void insertImage(),
       toggleFrontmatter: () => setFmOverride((cur) => !(cur ?? stateRef.current.settings.showFrontmatter)),
+      // SPEC29 §3.4: Clear Menu — no-op when already empty.
+      clearRecent: () => commitRecent(clearRecent()),
       toggleWordCount: () => {
         const s = stateRef.current.settings;
         updateSettings({ ...s, showWordCount: !s.showWordCount });
@@ -1097,7 +1132,24 @@ export default function App() {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent]);
+
+  // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
+  // otherwise a notice and the entry drops off the list.
+  useEffect(() => {
+    registerRecentHandler((path) => {
+      void (async () => {
+        const p = stateRef.current.platform;
+        if (!p) return;
+        if (await p.exists(path)) {
+          openDocGuarded(p, path);
+        } else {
+          showNotice(`“${p.basename(path)}” is no longer there`);
+          commitRecent(removeRecent(recentRef.current, path));
+        }
+      })();
+    });
+  }, [openDocGuarded, showNotice, commitRecent]);
 
   // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
   useEffect(() => {
@@ -1114,9 +1166,10 @@ export default function App() {
         showDiff,
         showWordCount: settings.showWordCount,
         showFrontmatter,
+        recentFiles: recentMenuEntries(recent, platform.basename, platform.dirname),
       })
     );
-  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter]);
+  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, recent]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
