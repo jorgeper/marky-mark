@@ -5,18 +5,26 @@
 name: updater-manifest
 on:
   release:
-    types: [published]
+    # `published` alone is flaky for draft-flips and pre-releases; listen to
+    # all three (the job is idempotent — clobber upload) and keep a manual
+    # dispatch as the recovery lever.
+    types: [published, prereleased, released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to advance the updater manifest from"
+        required: true
 
 permissions:
   contents: write
 
 jobs:
   advance:
-    if: github.event.release.tag_name != 'updater'
+    if: github.event_name == 'workflow_dispatch' || github.event.release.tag_name != 'updater'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: ${{ github.event.release.tag_name }}
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
     steps:
       - uses: actions/checkout@v4
       - name: Copy latest.json to the rolling updater release
