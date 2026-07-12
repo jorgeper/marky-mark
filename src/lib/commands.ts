@@ -8,7 +8,7 @@ export type CommandId =
   | 'open'
   | 'save'
   | 'saveAs'
-  | 'exportReview'
+  | 'exportDoc'
   | 'toggleMode'
   | 'toggleComments'
   | 'nextComment'

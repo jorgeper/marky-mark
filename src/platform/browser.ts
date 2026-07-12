@@ -186,6 +186,10 @@ export function createBrowserPlatform(): Platform {
     async reviewTemplate() {
       return '<!doctype html><html><head><meta charset="utf-8"><title>stub</title></head><body>mm-stub-template</body></html>';
     },
+    // SPEC17 §3.1: the shim never opens print UI — record for e2e (E67).
+    async printDocument(html) {
+      ((window as unknown as { __mmPrints?: string[] }).__mmPrints ??= []).push(html);
+    },
     isMac: navigator.platform.toLowerCase().includes('mac'),
 
     async readTextFile(path) {

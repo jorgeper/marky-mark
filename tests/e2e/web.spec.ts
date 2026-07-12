@@ -253,3 +253,26 @@ test('W6: a review bundle boots straight into its document with the comment inta
   await expect(page.locator('mark.hl')).toBeVisible();
   expect(external).toEqual([]);
 });
+
+test('W7: a bundle carrying an export theme boots with it applied — without touching saved settings', async ({
+  page,
+}) => {
+  const { buildReviewBundle } = await import('../../src/lib/reviewBundle');
+  const template = readFileSync('dist-web/index.html', 'utf8');
+  const bundle = buildReviewBundle(template, {
+    name: 'themed.md',
+    markdown: '# Themed Doc\n\nDracula by request.\n',
+    theme: 'dracula',
+  });
+  await page.route('**/themed.html', (route) => route.fulfill({ contentType: 'text/html', body: bundle }));
+
+  await page.goto('/themed.html');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Themed Doc');
+  // Dracula background (#282a36) applied for the session…
+  await expect
+    .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
+    .toBe('rgb(40, 42, 54)');
+  // …but nothing persisted into the recipient's saved settings.
+  const persisted = await page.evaluate(() => localStorage.getItem('markimark.web.config.v1'));
+  expect(persisted ?? '').not.toContain('dracula');
+});

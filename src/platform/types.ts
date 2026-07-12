@@ -106,4 +106,12 @@ export interface Platform {
    * undefined (the web build opens bundles, it doesn't export them).
    */
   reviewTemplate?(): Promise<string | null>;
+
+  /**
+   * SPEC17 §3: hand a standalone print-ready page to the OS print dialog
+   * (macOS: PDF ▾ / Save as PDF). Desktop opens the printview window; the
+   * shim records the html on window.__mmPrints; web leaves it undefined
+   * (the PDF option is disabled there).
+   */
+  printDocument?(html: string): Promise<void>;
 }

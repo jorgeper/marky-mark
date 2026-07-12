@@ -21,7 +21,9 @@ import { buildMenuSpec } from './lib/menuSpec';
 import { stepComment } from './lib/commentNav';
 import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
 import type { EditorSyncHandle } from './components/Editor';
-import { buildReviewBundle } from './lib/reviewBundle';
+import { buildReviewBundle, extractReviewPayload } from './lib/reviewBundle';
+import { buildExportMarkdown, buildPrintHtml, statsLine } from './lib/exportDoc';
+import { ExportDialog, type ExportRequest } from './components/ExportDialog';
 import { diffLineSets, type DiffLineSets } from './lib/diffLines';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
 import { countWords } from './lib/wordCount';
@@ -89,6 +91,7 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [closePrompt, setClosePrompt] = useState(false);
   const [canExportReview, setCanExportReview] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [diff, setDiff] = useState<DiffLineSets | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -305,7 +308,13 @@ export default function App() {
       } catch {
         /* fall back to defaults */
       }
-      if (p.kind === 'web') loaded = { ...loaded, commentStorage: 'embedded' }; // no sidecars on web
+      if (p.kind === 'web') {
+        loaded = { ...loaded, commentStorage: 'embedded' }; // no sidecars on web
+        // SPEC17 §2.2: a review bundle may carry its export theme — apply it
+        // for the session only (setSettings below never persists by itself).
+        const payload = extractReviewPayload(document);
+        if (payload?.theme) loaded = { ...loaded, themeLight: payload.theme, themeDark: payload.theme };
+      }
       const themeList = await loadAllThemes(p);
 
       // SPEC16 §3: reading positions (corruption-tolerant).
@@ -593,6 +602,52 @@ export default function App() {
     panelRef.current?.querySelector(`[data-flowcard="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
   }, []);
 
+  /** SPEC17 §2–§3: run the export the dialog described. */
+  const runExport = useCallback((req: ExportRequest) => {
+    setExportOpen(false);
+    void (async () => {
+      const s = stateRef.current;
+      const p = s.platform;
+      if (!p || !s.docPath) return;
+      const dark = window.matchMedia('(prefers-color-scheme: dark)').matches && s.settings.useDarkTheme;
+      const themeId = req.theme === 'current' ? (dark ? s.settings.themeDark : s.settings.themeLight) : req.theme;
+      if (req.format === 'html') {
+        if (!p.reviewTemplate || !p.saveFileDialog) return;
+        const template = await p.reviewTemplate();
+        if (!template) return;
+        const name = p.basename(s.docPath);
+        const target = await p.saveFileDialog(`${name.replace(/\.(md|markdown)$/i, '')}.review.html`, 'html');
+        if (!target) return;
+        const markdown = buildExportMarkdown(s.buffer, s.comments, {
+          includeComments: req.includeComments,
+          includeWordCount: req.includeWordCount,
+        });
+        await p.writeTextFile(target, buildReviewBundle(template, { name, markdown, theme: themeId }));
+        await p.commitFile?.(target);
+      } else {
+        if (!p.printDocument) return;
+        // Print path: render the document, re-inject the comment highlights
+        // into a detached DOM when comments are included (marks only — no
+        // margin cards in print, SPEC17 §3.2).
+        const rendered = await renderMarkdown(s.buffer);
+        const holder = document.createElement('div');
+        holder.innerHTML = rendered;
+        if (req.includeComments) {
+          const text = getDocText(holder);
+          for (const c of s.comments) {
+            if (c.resolved) continue;
+            const m = reanchor(c.anchor, text);
+            if (m) highlightRange(holder, m.start, m.end, c.id);
+          }
+        }
+        const theme = s.themes.find((t) => t.id === themeId);
+        await p.printDocument(
+          buildPrintHtml(holder.innerHTML, theme?.css ?? '', req.includeWordCount ? statsLine(s.buffer) : undefined)
+        );
+      }
+    })();
+  }, []);
+
   // --- command registry (SPEC12 §3.1): the single dispatch point for the DOM
   // toolbar (web), the native menu (desktop), and the hotkey listener.
   useEffect(() => {
@@ -600,22 +655,9 @@ export default function App() {
       open: () => void openViaDialog(),
       save: () => void saveDoc(),
       saveAs: () => void saveDocAs(),
-      // SPEC16 §1: compose the web viewer + document into one shareable file.
-      exportReview: () => {
-        void (async () => {
-          const s = stateRef.current;
-          const p = s.platform;
-          if (!p?.reviewTemplate || !p.saveFileDialog || !s.docPath) return;
-          const template = await p.reviewTemplate();
-          if (!template) return;
-          const name = p.basename(s.docPath);
-          const target = await p.saveFileDialog(`${name.replace(/\.(md|markdown)$/i, '')}.review.html`, 'html');
-          if (!target) return;
-          // Comments always travel embedded, whatever the storage setting.
-          const markdown = attachEmbedded(s.buffer, s.comments);
-          await p.writeTextFile(target, buildReviewBundle(template, { name, markdown }));
-          await p.commitFile?.(target);
-        })();
+      // SPEC17 §1: Export… opens the dialog (silent no-op without a document).
+      exportDoc: () => {
+        if (stateRef.current.docPath) setExportOpen(true);
       },
       toggleDiff: () => setShowDiff((v) => !v),
       toggleWordCount: () => {
@@ -692,12 +734,11 @@ export default function App() {
         commentsEnabled: settings.commentsEnabled,
         commentCount: comments.length,
         hotkeys: settings.hotkeys,
-        canExportReview,
         showDiff,
         showWordCount: settings.showWordCount,
       })
     );
-  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, canExportReview, showDiff, settings.showWordCount]);
+  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -1608,6 +1649,19 @@ export default function App() {
 
       {!platform.openAuxWindow && aboutOpen && (
         <AboutDialog onClose={() => setAboutOpen(false)} onOpenUrl={(u) => void platform.openExternal(u)} />
+      )}
+
+      {/* SPEC17 §1: the Export dialog. */}
+      {exportOpen && (
+        <ExportDialog
+          themes={themes}
+          initialTheme={settings.exportTheme}
+          canHtml={canExportReview}
+          canPdf={!!platform.printDocument}
+          onThemeChange={(id) => updateSettings({ ...stateRef.current.settings, exportTheme: id })}
+          onExport={runExport}
+          onClose={() => setExportOpen(false)}
+        />
       )}
 
       {openPrompt && (

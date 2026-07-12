@@ -1,13 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "aux",
-  "description": "Settings/About aux windows (SPEC13): dumb views — event bus and self-close only. No fs, dialog, or opener permissions, ever.",
-  "windows": ["settings", "about"],
+  "description": "Settings/About/Print aux windows (SPEC13, SPEC17): dumb views — event bus, self-close, and native print only. No fs, dialog, or opener permissions, ever.",
+  "windows": ["settings", "about", "printview"],
   "permissions": [
     "core:default",
     "core:event:allow-listen",
     "core:event:allow-emit",
     "core:window:allow-close",
-    "core:window:allow-destroy"
+    "core:window:allow-destroy",
+    "core:webview:allow-print"
   ]
 }

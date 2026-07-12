@@ -60,8 +60,6 @@ export interface MenuState {
   commentsEnabled: boolean;
   commentCount: number;
   hotkeys: HotkeyMap;
-  /** SPEC16 §1.6: a review template is available (desktop/shim, not web). */
-  canExportReview: boolean;
   /** SPEC16 §2: Changes Since Save checkbox state (edit modes only). */
   showDiff: boolean;
   /** Word-count chip visibility (persisted setting). */
@@ -147,8 +145,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             sep,
             cmd('save', 'Save', s.hotkeys.save),
             cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
-            // SPEC16 §1.6: only when a review template is available.
-            ...(s.canExportReview ? [cmd('exportReview', 'Export Review Bundle…')] : []),
+            // SPEC17 §5.1: always present — format gating lives in the dialog.
+            cmd('exportDoc', 'Export…'),
             sep,
             cmd('close', 'Close Window', 'Mod+W'),
           ],
@@ -170,7 +168,7 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
           sep,
           cmd('save', 'Save', s.hotkeys.save),
           cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
-          ...(s.canExportReview ? [cmd('exportReview', 'Export Review Bundle…')] : []),
+          cmd('exportDoc', 'Export…'),
           sep,
           cmd('settings', 'Settings…', 'Mod+,'),
           sep,

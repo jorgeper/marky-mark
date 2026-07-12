@@ -40,6 +40,8 @@ export interface Settings {
   author: string;
   autosaveOnToggle: boolean;
   commentStorage: CommentStorage;
+  /** SPEC17 §4: the Export dialog's sticky theme — 'current' or a theme id. */
+  exportTheme: string;
   hotkeys: HotkeyMap;
 }
 
@@ -62,6 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   author: 'Reviewer',
   autosaveOnToggle: false,
   commentStorage: 'sidecar',
+  exportTheme: 'current',
   hotkeys: { ...DEFAULT_HOTKEYS },
 };
 
@@ -126,6 +129,7 @@ export function parseSettings(json: string): Settings {
     author: typeof o.author === 'string' && o.author ? o.author : DEFAULT_SETTINGS.author,
     autosaveOnToggle: o.autosaveOnToggle === true,
     commentStorage: o.commentStorage === 'embedded' ? 'embedded' : 'sidecar',
+    exportTheme: typeof o.exportTheme === 'string' && o.exportTheme ? o.exportTheme : DEFAULT_SETTINGS.exportTheme,
     hotkeys,
   };
 }

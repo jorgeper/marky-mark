@@ -1820,7 +1820,12 @@ test('E63: Export Review Bundle writes a parseable bundle carrying the comment t
   await page.evaluate(() => {
     window.__mmfs!.nextSavePath = '/docs/welcome.review.html';
   });
-  await menuClick(page, 'exportReview');
+  // SPEC17: Export… opens the dialog; the defaults (HTML, both includes on)
+  // produce the same bundle the old one-shot export did.
+  await menuClick(page, 'exportDoc');
+  await expect(page.getByTestId('export-dialog')).toBeVisible();
+  await expect(page.getByTestId('export-format-html')).toBeChecked();
+  await page.getByTestId('export-run').click();
   await expect
     .poll(async () => ((await fsRead(page, '/docs/welcome.review.html')) ? 'written' : 'missing'))
     .toBe('written');
@@ -1834,4 +1839,100 @@ test('E63: Export Review Bundle writes a parseable bundle carrying the comment t
   expect(payload.markdown).toContain('first review note');
   expect(payload.markdown).toContain('second review note');
   expect(payload.markdown).toContain('markimark-comments'); // the embedded trailer marker
+});
+
+test('E65: the Export dialog — defaults, cancel paths, and the include options shape the bundle', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await addComment(page, NAV_P1, 'optional note');
+
+  // Defaults: HTML, both includes on, remembered theme ('current' initially).
+  await menuClick(page, 'exportDoc');
+  await expect(page.getByTestId('export-dialog')).toBeVisible();
+  await expect(page.getByTestId('export-format-html')).toBeChecked();
+  await expect(page.getByTestId('export-include-comments')).toBeChecked();
+  await expect(page.getByTestId('export-include-wordcount')).toBeChecked();
+  await expect(page.getByTestId('export-theme')).toHaveValue('current');
+
+  // Esc cancels without exporting.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('export-dialog')).toHaveCount(0);
+  expect(await fsRead(page, '/docs/welcome.review.html')).toBeNull();
+
+  // Comments off → no trailer; word count on → stats line at the end.
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/welcome.review.html';
+  });
+  await menuClick(page, 'exportDoc');
+  await page.getByTestId('export-include-comments').uncheck();
+  await page.getByTestId('export-run').click();
+  await expect.poll(async () => ((await fsRead(page, '/docs/welcome.review.html')) ? 'ok' : 'no')).toBe('ok');
+  const bundle = (await fsRead(page, '/docs/welcome.review.html'))!;
+  const payload = JSON.parse(
+    /<script type="application\/json" id="mm-review-doc">([\s\S]*?)<\/script>/.exec(bundle)![1]
+  ) as { markdown: string };
+  expect(payload.markdown).not.toContain('markimark-comments');
+  expect(payload.markdown.trimEnd()).toMatch(/\*[\d,]+ words · \d+ min read\*$/);
+});
+
+test('E66: the export theme is sticky — survives reopening the dialog and an app restart; lands in the payload', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+
+  await menuClick(page, 'exportDoc');
+  await page.getByTestId('export-theme').selectOption('dracula');
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/sticky.review.html';
+  });
+  await page.getByTestId('export-run').click();
+  await expect.poll(async () => ((await fsRead(page, '/docs/sticky.review.html')) ? 'ok' : 'no')).toBe('ok');
+  const payload = JSON.parse(
+    /<script type="application\/json" id="mm-review-doc">([\s\S]*?)<\/script>/.exec(
+      (await fsRead(page, '/docs/sticky.review.html'))!
+    )![1]
+  ) as { theme?: string };
+  expect(payload.theme).toBe('dracula');
+
+  // Sticky in the same session…
+  await menuClick(page, 'exportDoc');
+  await expect(page.getByTestId('export-theme')).toHaveValue('dracula');
+  await page.getByTestId('export-cancel').click();
+  expect(await fsRead(page, '/config/settings.json')).toContain('"exportTheme": "dracula"');
+
+  // …and across a restart (wait for the menu to reinstall after boot).
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!window.__mmMenu)).toBe(true);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await menuClick(page, 'exportDoc');
+  await expect(page.getByTestId('export-theme')).toHaveValue('dracula');
+});
+
+test('E67: PDF export hands a themed print page to the platform — no file written', async ({ page }) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await addComment(page, NAV_P1, 'printed note');
+
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/should-not-exist.html';
+  });
+  await menuClick(page, 'exportDoc');
+  await page.getByTestId('export-theme').selectOption('dracula');
+  await page.getByTestId('export-format-pdf').check();
+  await page.getByTestId('export-run').click();
+
+  await expect.poll(() => page.evaluate(() => (window as { __mmPrints?: string[] }).__mmPrints?.length ?? 0)).toBe(1);
+  const printed = await page.evaluate(() => (window as unknown as { __mmPrints: string[] }).__mmPrints[0]);
+  expect(printed).toContain('Welcome to Marky Mark'); // the rendered document
+  expect(printed).toContain('Dracula'); // the chosen theme's CSS travels along
+  expect(printed).toMatch(/[\d,]+ words · \d+ min read/); // stats line (default on)
+  expect(printed).toContain('mark class="hl"'); // comment highlight, no cards
+  expect(await fsRead(page, '/docs/should-not-exist.html')).toBeNull();
 });

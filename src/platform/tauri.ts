@@ -253,6 +253,27 @@ export async function createTauriPlatform(): Promise<Platform> {
       return (await load()) as string;
     },
 
+    /**
+     * SPEC17 §3.1: open the printview window and hand it the page over the
+     * aux bus once it says it's ready; it prints natively and closes itself.
+     */
+    async printDocument(html) {
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+      const un = await listen('mm://print-ready', () => {
+        void emit('mm://print-doc', html);
+        un();
+      });
+      const existing = await WebviewWindow.getByLabel('printview');
+      if (existing) await existing.destroy().catch(() => {});
+      new WebviewWindow('printview', {
+        url: 'index.html?window=printview',
+        title: 'Print',
+        width: 840,
+        height: 640,
+        center: true,
+      });
+    },
+
     async closeFocusedAuxWindow() {
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
       for (const label of AUX_LABELS) {
