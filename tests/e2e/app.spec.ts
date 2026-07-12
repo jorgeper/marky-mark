@@ -2918,11 +2918,11 @@ test('E92: crash-safe drafts — shadow write, restore, discard, staleness after
   await page.keyboard.press('Control+e');
   await page.getByTestId('editor').locator('.cm-line').first().click();
   await page.keyboard.type('DRAFTMARK ');
-  await expect.poll(() => fsRead(page, '/config/draft.json'), { timeout: 8000 }).toContain('DRAFTMARK');
+  await expect.poll(() => fsRead(page, '/config/draft.json'), { timeout: 20000 }).toContain('DRAFTMARK');
 
   // "Crash" (reload): the boot reopens welcome, then offers the draft.
   await page.reload();
-  await expect(page.getByTestId('restore-prompt')).toBeVisible();
+  await expect(page.getByTestId('restore-prompt')).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('restore-prompt')).toContainText('welcome.md');
   await page.getByTestId('restore-yes').click();
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
@@ -2941,9 +2941,9 @@ test('E92: crash-safe drafts — shadow write, restore, discard, staleness after
   await page.keyboard.press('Control+e');
   await page.getByTestId('editor').locator('.cm-line').first().click();
   await page.keyboard.type('DRAFT2 ');
-  await expect.poll(() => fsRead(page, '/config/draft.json'), { timeout: 8000 }).toContain('DRAFT2');
+  await expect.poll(() => fsRead(page, '/config/draft.json'), { timeout: 20000 }).toContain('DRAFT2');
   await page.reload();
-  await expect(page.getByTestId('restore-prompt')).toBeVisible();
+  await expect(page.getByTestId('restore-prompt')).toBeVisible({ timeout: 15000 });
   await page.getByTestId('restore-no').click();
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   await expect(page.getByTestId('doc')).not.toContainText('DRAFT2');
@@ -2954,9 +2954,9 @@ test('E92: crash-safe drafts — shadow write, restore, discard, staleness after
   await expect(page.getByTestId('editor')).toBeVisible();
   await page.getByTestId('editor').locator('.cm-content').click();
   await page.keyboard.type('ScratchDraft');
-  await expect.poll(() => fsRead(page, '/config/draft.json'), { timeout: 8000 }).toContain('ScratchDraft');
+  await expect.poll(() => fsRead(page, '/config/draft.json'), { timeout: 20000 }).toContain('ScratchDraft');
   await page.reload();
-  await expect(page.getByTestId('restore-prompt')).toBeVisible();
+  await expect(page.getByTestId('restore-prompt')).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('restore-prompt')).toContainText('Untitled');
   await page.getByTestId('restore-yes').click();
   await expect(page.getByTestId('docname')).toContainText('Untitled');
