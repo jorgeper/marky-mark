@@ -51,8 +51,12 @@ Either way it's a one-time step — the app opens normally afterwards.
 
 ## What you get
 
-- **Instant, tiny, native** — a ~6 MB Tauri 2 app on a native webview. No
+- **Instant, tiny, native** — a ~7 MB Tauri 2 app on a native webview. No
   Electron. Or the single self-contained HTML file — no install at all.
+- **Export Review Bundles** — File → Export Review Bundle… bakes your
+  document *and every comment thread* into one self-contained `.html`.
+  Send it to anyone: it opens in their browser with the full viewer —
+  threads, replies, themes — no install, no server, zero network.
 - **A real desktop citizen** — native menus (macOS menu bar / Windows menu
   bar), a chromeless window with no in-app toolbar, and real Settings (⌘,)
   and About windows — not in-page pop-overs.
@@ -60,8 +64,12 @@ Either way it's a one-time step — the app opens normally afterwards.
   One Dark, …) and drop-in custom themes — one CSS file, no build step. See
   [THEMES.md](THEMES.md) for making your own.
 - **Edit mode** — full-screen swap or side-by-side split (⌘E / Ctrl+E,
-  remappable) with synchronized scrolling between the panes, and undo
-  history that survives mode switches.
+  remappable) with synchronized scrolling between the panes, a
+  changes-since-save view that tints edited lines, and undo history that
+  survives mode switches.
+- **Creature comforts** — every document reopens where you left off, ⌘K
+  fuzzy-jumps to any heading, and a quiet word-count / reading-time chip
+  keeps score (selection-aware).
 - **Comments** (experimental) — select text → 💬. Threads, resolve, reopen,
   edit-survival re-anchoring. Jump between comments with ⌥⌘↓ / ⌥⌘↑
   (rebindable) or the fixed navigator pill — park the mouse and click
