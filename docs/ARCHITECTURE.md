@@ -153,6 +153,41 @@ real network path is intentionally untestable in CI and is verified live:
 install release N, publish N+1, Check for Updates… must offer and install
 it.
 
+## Images: paste & resize (SPEC20)
+
+**Paste, through the seam.** A CodeMirror `paste` handler intercepts any
+clipboard payload carrying image items (mixed clipboards: the image wins;
+text-only pastes take the default path). App code expands the configurable
+name pattern (`{doc} {n}` by default; Settings → Editor → Images) against a
+one-shot `readDirNames` snapshot of the target folder, sanitizes the result
+(reserved Windows basenames get `-img`, forbidden characters stripped), and
+writes the bytes via the one new platform method, `writeBinaryFile(path,
+bytes)` — parent directories created, images landing in a folder *next to
+the document*. The editor then inserts a percent-encoded `![name](folder/…)`
+at the cursor, flowing through the normal dirty/undo/save path (the file
+write itself is not undoable; the text is). Desktop implements the seam
+with plugin-fs; the dev shim stores a `data:` URI in its virtual fs and
+serves it back through `resolveAssetSrc`, so pasted images render for real
+in e2e (E71–E72); the web build leaves the method undefined and paste shows
+a quiet needs-desktop notice (W8). An unsaved buffer has no "next to" —
+paste there asks for a save first and writes nothing.
+
+**Resize, by source span.** The render pipeline stamps every doc-originated
+`<img>` with `data-mm-src-start/end` — 0-based offsets into the markdown
+source, taken from the parser's own positions in the same pass that stamps
+`data-mm-line` (attribute-only, so the SPEC6 comment-anchor space is
+untouched). Clicking an image in preview shows corner handles and a size
+badge; releasing a drag splices exactly that span in the buffer, rewriting
+the image reference to `<img src alt width="N">` — portable HTML that
+GitHub renders. To make that round-trip, the pipeline grants passage to
+exactly one raw-HTML shape: an mdast `html` node whose entire value is a
+single `<img …>` tag becomes a real img element with a whitelisted
+attribute set (src/alt/title/width/height); all other raw HTML stays
+dropped as ever (no rehype-raw, no dangerous mode), and sanitize still runs
+after (the schema widens by `width`/`height` and the two span attributes on
+`img`, nothing else). Double-click removes the width; a tag once HTML stays
+HTML. U45/U46 pin the stamping and the splice; E74/E75 drive the handles.
+
 ## Windows build story
 
 The app code was Windows-portable from v1 (this seam, `Mod` hotkeys,

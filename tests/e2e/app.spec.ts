@@ -629,12 +629,12 @@ test('E25: toolbar auto-hides after launch, reveals on top-edge hover (with shad
   await expect(shell).toHaveAttribute('data-visible', 'false', { timeout: 3000 });
 });
 
-test('E26: settings shows three left tabs with the right content on each; controls work through their tabs', async ({
+test('E26: settings shows four left tabs with the right content on each; controls work through their tabs', async ({
   page,
 }) => {
   await openSettings(page);
   const tabs = page.getByTestId('settings-tabs');
-  await expect(tabs.locator('button')).toHaveCount(3);
+  await expect(tabs.locator('button')).toHaveCount(4); // SPEC20 §1 added Editor
   await expect(page.getByTestId('settings-tab-appearance')).toHaveClass(/active/); // default tab
 
   // Appearance: font size present, General/Hotkeys content absent.
@@ -2011,4 +2011,163 @@ test('E70: update-check failures are honest and recoverable — never a crash', 
   });
   await menuClick(page, 'checkUpdates');
   await expect(page.getByTestId('update-available')).toContainText('9.9.9');
+});
+
+// --- SPEC20: image paste + preview resize -----------------------------------
+
+// A 1×1 red PNG for paste payloads (constructed at runtime — never a file).
+const TINY_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+// A 200×100 PNG so resize has real geometry to drag against.
+const WIDE_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAMgAAABkCAIAAABM5OhcAAABG0lEQVR4nO3SQQkAIADAQCMax4jGsoRDkIMLsMfGXBuuG88L+JKxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLhLFIGIuEsUgYi4SxSBiLxAH1LBknHE0F8AAAAABJRU5ErkJggg==';
+
+/** Dispatch a synthetic image paste into the CodeMirror editor. */
+async function pasteImage(page: import('@playwright/test').Page, b64: string) {
+  await page.evaluate((data) => {
+    const bin = atob(data);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], 'clipboard.png', { type: 'image/png' }));
+    document
+      .querySelector('.cm-content')!
+      .dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, b64);
+}
+
+test('E71: pasting an image in edit mode writes the file, inserts the reference, and renders in preview', async ({
+  page,
+}) => {
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await pasteImage(page, TINY_PNG);
+
+  // Inserted at the cursor: default pattern {doc} {n} against welcome.md.
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toContainText('![welcome 1](images/welcome%201.png)');
+
+  // The bytes landed next to the doc, under the configured folder.
+  const stored = await fsRead(page, '/docs/images/welcome 1.png');
+  expect(stored).not.toBeNull();
+  expect(stored!.startsWith('data:image/png;base64,')).toBe(true);
+
+  // And the preview renders it (the shim serves the data: URI back).
+  await page.keyboard.press('Control+e');
+  const img = page.getByTestId('doc').locator('img[alt="welcome 1"]');
+  await expect(img).toBeVisible();
+  expect(await img.getAttribute('src')).toContain('data:image/png');
+});
+
+test('E72: a second paste numbers {n}=2; pasting into an untitled buffer shows the save-first notice', async ({
+  page,
+}) => {
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await pasteImage(page, TINY_PNG);
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('images/welcome%201.png');
+  await pasteImage(page, TINY_PNG);
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('images/welcome%202.png');
+  expect(await fsRead(page, '/docs/images/welcome 2.png')).not.toBeNull();
+
+  // Untitled buffer (fresh app, no document open): paste writes nothing.
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await pasteImage(page, TINY_PNG);
+  await expect(page.getByTestId('notice')).toContainText('Save the document first');
+  await expect(page.getByTestId('editor').locator('.cm-content')).not.toContainText('![');
+  const files = await page.evaluate(() => window.__mmfs!.list());
+  expect(files.filter((f) => f.includes('/images/'))).toEqual([]);
+});
+
+test('E73: the Editor settings tab holds the image fields — defaults, live example, folder validation, persistence', async ({
+  page,
+}) => {
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-tab-editor').click();
+
+  // Defaults per SPEC20 §1.
+  await expect(page.getByTestId('image-folder')).toHaveValue('images');
+  await expect(page.getByTestId('image-pattern')).toHaveValue('{doc} {n}');
+  await expect(page.getByTestId('image-pattern-example')).toContainText('welcome 1.png');
+
+  // The example tracks the pattern live.
+  await page.getByTestId('image-pattern').fill('img-{n}');
+  await expect(page.getByTestId('image-pattern-example')).toContainText('img-1.png');
+
+  // Invalid folder: inline error, the last valid value stays in settings.
+  await page.getByTestId('image-folder').fill('a/b');
+  await expect(page.getByTestId('image-folder-error')).toBeVisible();
+  // Valid folder commits and the error clears.
+  await page.getByTestId('image-folder').fill('assets');
+  await expect(page.getByTestId('image-folder-error')).toHaveCount(0);
+
+  await page.getByTestId('settings-close').click();
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"imageFolder": "assets"');
+  expect(await fsRead(page, '/config/settings.json')).toContain('"imageNamePattern": "img-{n}"');
+});
+
+test('E74: clicking a preview image shows handles; dragging persists an <img width> and marks the doc dirty', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/pic.png', `data:image/png;base64,${WIDE_PNG}`);
+  await fsWrite(page, '/docs/pic.md', '# Pic\n\n![p](pic.png)\n');
+  await page.goto('/#open=/docs/pic.md');
+  const img = page.getByTestId('doc').locator('img[alt="p"]');
+  await expect(img).toBeVisible();
+
+  // Select: outline, four handles, size badge.
+  await img.click();
+  await expect(page.getByTestId('img-resize-overlay')).toBeVisible();
+  await expect(page.getByTestId('img-size-badge')).toContainText('200 × 100');
+  for (const c of ['nw', 'ne', 'sw', 'se']) {
+    await expect(page.getByTestId(`img-handle-${c}`)).toBeVisible();
+  }
+
+  // Drag the south-east handle 60px left → ~140px wide, aspect-locked.
+  const handle = await page.getByTestId('img-handle-se').boundingBox();
+  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle!.x - 60, handle!.y + handle!.height / 2, { steps: 5 });
+  await page.mouse.up();
+
+  // The rewrite landed in the buffer (dirty), and the re-render keeps the size.
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  const width = Number(await page.getByTestId('doc').locator('img[alt="p"]').getAttribute('width'));
+  expect(width).toBeGreaterThanOrEqual(120);
+  expect(width).toBeLessThanOrEqual(160);
+  await expect(page.getByTestId('img-size-badge')).toContainText(`${width} ×`);
+
+  // The source now carries the HTML tag with the width.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText(
+    `<img src="pic.png" alt="p" width="${width}">`
+  );
+});
+
+test('E75: double-click removes the width (back to natural size); Escape deselects', async ({ page }) => {
+  await fsWrite(page, '/docs/pic.png', `data:image/png;base64,${WIDE_PNG}`);
+  await fsWrite(page, '/docs/pic.md', '# Pic\n\n<img src="pic.png" alt="p" width="120">\n');
+  await page.goto('/#open=/docs/pic.md');
+  const img = page.getByTestId('doc').locator('img[alt="p"]');
+  await expect(img).toBeVisible();
+  expect(await img.getAttribute('width')).toBe('120');
+
+  // Double-click: width attribute removed, natural size restored.
+  await img.dblclick();
+  await expect
+    .poll(() => page.getByTestId('doc').locator('img[alt="p"]').getAttribute('width'))
+    .toBeNull();
+  await expect(page.getByTestId('img-size-badge')).toContainText('200 × 100');
+
+  // Escape deselects; the overlay disappears.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('img-resize-overlay')).toHaveCount(0);
+
+  // Width removal persisted to the source (tag stays HTML, no width attr).
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('<img src="pic.png" alt="p">');
 });

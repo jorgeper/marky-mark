@@ -159,6 +159,11 @@ export async function createTauriPlatform(): Promise<Platform> {
       await current.destroy();
     },
 
+    async writeBinaryFile(path, bytes) {
+      await this.mkdirp(this.dirname(path));
+      await fsp.writeFile(path, bytes);
+    },
+
     resolveAssetSrc(src, docDir) {
       // SPEC11 §1.3: remote URLs no longer pass through (the renderer already
       // replaced them with placeholders; this is belt-and-braces).

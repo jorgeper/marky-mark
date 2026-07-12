@@ -276,3 +276,23 @@ test('W7: a bundle carrying an export theme boots with it applied — without to
   const persisted = await page.evaluate(() => localStorage.getItem('markimark.web.config.v1'));
   expect(persisted ?? '').not.toContain('dracula');
 });
+
+test('W8: image paste on the web build shows the needs-desktop notice and leaves the buffer unchanged', async ({
+  page,
+}) => {
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  const before = await page.getByTestId('editor').locator('.cm-content').textContent();
+
+  await page.evaluate(() => {
+    const bytes = new Uint8Array([137, 80, 78, 71]); // enough to look like a file item
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], 'clipboard.png', { type: 'image/png' }));
+    document
+      .querySelector('.cm-content')!
+      .dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+
+  await expect(page.getByTestId('notice')).toContainText('needs the desktop app');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toHaveText(before ?? '');
+});

@@ -51,6 +51,14 @@ export interface Platform {
   resolveAssetSrc(src: string, docDir: string): string;
 
   /**
+   * SPEC20 §3: write bytes (pasted image), creating parent directories.
+   * Desktop implements it; the dev shim stores a data: URI in the virtual fs
+   * (and resolveAssetSrc serves it back, so pasted images render in e2e);
+   * web leaves it undefined — paste there shows the needs-desktop notice.
+   */
+  writeBinaryFile?(path: string, bytes: Uint8Array): Promise<void>;
+
+  /**
    * Web only: flush an explicit user Save for handle-less files (download
    * fallback). Desktop writes are already durable, so it's optional.
    */

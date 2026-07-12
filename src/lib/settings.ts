@@ -1,4 +1,5 @@
 import { DEFAULT_HOTKEYS, type HotkeyMap } from './hotkeys';
+import { isValidImageFolder } from './imagePaste';
 
 export type CommentStorage = 'sidecar' | 'embedded';
 export type Margins = 'default' | 'super-narrow' | 'narrow' | 'medium' | 'wide';
@@ -42,6 +43,10 @@ export interface Settings {
   commentStorage: CommentStorage;
   /** SPEC17 §4: the Export dialog's sticky theme — 'current' or a theme id. */
   exportTheme: string;
+  /** SPEC20 §1: folder (single path segment) pasted images land in, next to the doc. */
+  imageFolder: string;
+  /** SPEC20 §1: pasted-image name pattern; tokens {doc} {n} {date} {time}. */
+  imageNamePattern: string;
   hotkeys: HotkeyMap;
 }
 
@@ -65,6 +70,8 @@ export const DEFAULT_SETTINGS: Settings = {
   autosaveOnToggle: false,
   commentStorage: 'sidecar',
   exportTheme: 'current',
+  imageFolder: 'images',
+  imageNamePattern: '{doc} {n}',
   hotkeys: { ...DEFAULT_HOTKEYS },
 };
 
@@ -130,6 +137,14 @@ export function parseSettings(json: string): Settings {
     autosaveOnToggle: o.autosaveOnToggle === true,
     commentStorage: o.commentStorage === 'embedded' ? 'embedded' : 'sidecar',
     exportTheme: typeof o.exportTheme === 'string' && o.exportTheme ? o.exportTheme : DEFAULT_SETTINGS.exportTheme,
+    imageFolder:
+      typeof o.imageFolder === 'string' && isValidImageFolder(o.imageFolder)
+        ? o.imageFolder.trim()
+        : DEFAULT_SETTINGS.imageFolder,
+    imageNamePattern:
+      typeof o.imageNamePattern === 'string' && o.imageNamePattern.trim()
+        ? o.imageNamePattern
+        : DEFAULT_SETTINGS.imageNamePattern,
     hotkeys,
   };
 }

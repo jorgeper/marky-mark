@@ -28,6 +28,8 @@ import { UpdateDialog } from './components/UpdateDialog';
 import { diffLineSets, type DiffLineSets } from './lib/diffLines';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
 import { countWords } from './lib/wordCount';
+import { expandImageName, extForMime, imageMarkdownRef } from './lib/imagePaste';
+import { applyImageRewrite } from './lib/imageResize';
 import { HeadingPalette, type PaletteHeading } from './components/HeadingPalette';
 import {
   buildAuxInit,
@@ -45,6 +47,7 @@ import type { Theme } from './lib/themes';
 import { applyThemeCss, loadAllThemes } from './themeRuntime';
 import { FIXTURES } from './bundled';
 import { Toolbar } from './components/Toolbar';
+import { ImageResizer, type ImageRewriteRequest } from './components/ImageResizer';
 import { CommentCard } from './components/CommentCard';
 import { SettingsPanel } from './components/SettingsPanel';
 import { AboutDialog } from './components/AboutDialog';
@@ -98,6 +101,9 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteHeadings, setPaletteHeadings] = useState<PaletteHeading[]>([]);
   const [chip, setChip] = useState('');
+  // SPEC20 §2: transient bottom notice (paste feedback); auto-dismisses.
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [openPrompt, setOpenPrompt] = useState<string | null>(null); // pending path awaiting the unsaved-changes decision
   // Auto-hiding toolbar (SPEC4 §2): launch grace → hover/pin driven.
   const [graceOver, setGraceOver] = useState(false);
@@ -160,6 +166,71 @@ export default function App() {
     showComments,
     html,
   };
+
+  /** SPEC20 §2: transient feedback chip; each message restarts the 4s clock. */
+  const showNotice = useCallback((msg: string) => {
+    setNotice(msg);
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setNotice(null), 4000);
+  }, []);
+
+  /**
+   * SPEC20 §2: land pasted clipboard images as files next to the document
+   * and hand the editor the markdown to insert. Null ⇒ nothing to insert
+   * (the notice already told the user why).
+   */
+  const pasteImages = useCallback(
+    async (files: File[]): Promise<string | null> => {
+      const s = stateRef.current;
+      const p = s.platform;
+      if (!p) return null;
+      if (!p.writeBinaryFile) {
+        showNotice('Image paste needs the desktop app');
+        return null;
+      }
+      if (!s.docPath) {
+        showNotice('Save the document first to paste images');
+        return null;
+      }
+      const folder = s.settings.imageFolder;
+      const folderPath = p.join(p.dirname(s.docPath), folder);
+      const taken = new Set((await p.readDirNames(folderPath)).map((n) => n.toLowerCase()));
+      const docName = p.basename(s.docPath).replace(/\.[^.]+$/, '');
+      const refs: string[] = [];
+      try {
+        for (const f of files) {
+          const name = expandImageName(s.settings.imageNamePattern, extForMime(f.type), {
+            docName,
+            now: new Date(),
+            exists: (fn) => taken.has(fn.toLowerCase()),
+          });
+          await p.writeBinaryFile(p.join(folderPath, name), new Uint8Array(await f.arrayBuffer()));
+          taken.add(name.toLowerCase());
+          refs.push(imageMarkdownRef(folder, name));
+        }
+      } catch (err) {
+        showNotice(`Couldn’t save the pasted image: ${err instanceof Error ? err.message : String(err)}`);
+        return null;
+      }
+      return refs.join('\n');
+    },
+    [showNotice]
+  );
+
+  /**
+   * SPEC20 §4.2: persist a resize (or a double-click width removal) by
+   * splicing the image's source span in the buffer. Flows through the same
+   * path as typing — dirty dot, ⌘S, autosave-on-toggle, re-render. Returns
+   * the image's new span so the resizer can keep it selected; null = no-op
+   * (removing a width from plain markdown syntax).
+   */
+  const rewriteImage = useCallback((req: ImageRewriteRequest): { start: number; end: number } | null => {
+    const s = stateRef.current;
+    const res = applyImageRewrite(s.buffer, req.start, req.end, req.parts, req.width);
+    if (!res) return null;
+    setBuffer(res.text);
+    return { start: req.start, end: res.newEnd };
+  }, []);
 
   /** Read a doc file and its comments from both stores (trailer wins by id). */
   const loadDocParts = useCallback(async (p: Platform, path: string) => {
@@ -1015,6 +1086,9 @@ export default function App() {
       doc.querySelectorAll('img').forEach((img) => {
         const src = img.getAttribute('src');
         if (!src) return;
+        // SPEC20 §4.2: keep the source's own spelling — the resize rewrite
+        // must write back what the document said, not the resolved URL.
+        img.dataset.mmOriginalSrc = src;
         const resolved = p.resolveAssetSrc(src, dir);
         if (resolved) img.src = resolved;
         else img.removeAttribute('src'); // unresolvable here (e.g. web): stay inert
@@ -1438,6 +1512,13 @@ export default function App() {
 
       {mode === 'preview' ? (
         <div className="workspace" ref={workspaceRef}>
+          <ImageResizer
+            active={mode === 'preview'}
+            docRef={docRef}
+            workspaceRef={workspaceRef}
+            html={html}
+            onRewrite={rewriteImage}
+          />
           <div className="docwrap">
             {!docPath && (
               <div className="empty-center">
@@ -1562,6 +1643,7 @@ export default function App() {
                 historyRef={editorHistoryRef}
                 syncRef={editorSyncRef}
                 diff={diff}
+                onPasteImages={pasteImages}
               />
             </Suspense>
           </div>
@@ -1585,6 +1667,7 @@ export default function App() {
               historyRef={editorHistoryRef}
               syncRef={editorSyncRef}
               diff={diff}
+              onPasteImages={pasteImages}
             />
           </Suspense>
         </div>
@@ -1606,6 +1689,13 @@ export default function App() {
       {chip && settings.showWordCount && (
         <div className="word-chip" data-testid="word-chip">
           {chip}
+        </div>
+      )}
+
+      {/* SPEC20 §2: transient paste feedback, bottom-center. */}
+      {notice && (
+        <div className="mm-notice" data-testid="notice">
+          {notice}
         </div>
       )}
 
@@ -1667,6 +1757,7 @@ export default function App() {
           }
           onRevealThemesDir={platform.revealThemesDir ? () => void platform.revealThemesDir!() : undefined}
           onClose={() => setSettingsOpen(false)}
+          docName={docPath ? platform.basename(docPath).replace(/\.[^.]+$/, '') : undefined}
         />
       )}
 

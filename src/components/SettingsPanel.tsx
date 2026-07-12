@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { FONT_SIZE_MAX, FONT_SIZE_MIN, ZOOM_LEVELS, type Margins, type Settings } from '../lib/settings';
+import { DEFAULT_SETTINGS, FONT_SIZE_MAX, FONT_SIZE_MIN, ZOOM_LEVELS, type Margins, type Settings } from '../lib/settings';
 import type { Theme } from '../lib/themes';
 import { comboFromEvent, DEFAULT_HOTKEYS, displayCombo, type HotkeyMap } from '../lib/hotkeys';
+import { expandImageName, isValidImageFolder } from '../lib/imagePaste';
 
 interface Props {
   settings: Settings;
@@ -20,6 +21,8 @@ interface Props {
   onClose(): void;
   /** SPEC13 §1.3: aux-window mode — no scrim, no Done button. */
   frameless?: boolean;
+  /** SPEC20 §1: current doc basename (no extension) for the pattern example. */
+  docName?: string;
 }
 
 const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
@@ -41,11 +44,12 @@ const MARGIN_LABELS: Array<{ value: Margins; label: string }> = [
   { value: 'wide', label: 'Wide margins (narrow text)' },
 ];
 
-type SettingsTab = 'appearance' | 'general' | 'hotkeys';
+type SettingsTab = 'appearance' | 'general' | 'editor' | 'hotkeys';
 
 const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'general', label: 'General' },
+  { id: 'editor', label: 'Editor' },
   { id: 'hotkeys', label: 'Hotkeys' },
 ];
 
@@ -61,9 +65,14 @@ export function SettingsPanel({
   onRevealThemesDir,
   onClose,
   frameless,
+  docName,
 }: Props) {
   const [tab, setTab] = useState<SettingsTab>('appearance');
   const [hint, setHint] = useState('');
+  // SPEC20 §1: the folder field keeps the raw draft; only valid single-segment
+  // names commit to settings (the last valid value survives bad keystrokes).
+  const [folderDraft, setFolderDraft] = useState(settings.imageFolder);
+  const folderInvalid = !isValidImageFolder(folderDraft);
   // Remember the last custom size so toggling Auto → Customized restores it.
   const [customSize, setCustomSize] = useState(typeof settings.fontSize === 'number' ? settings.fontSize : 16);
 
@@ -376,6 +385,52 @@ export function SettingsPanel({
     </>
   );
 
+  const patternExample = expandImageName(
+    settings.imageNamePattern || DEFAULT_SETTINGS.imageNamePattern,
+    'png',
+    { docName: docName || 'document', now: new Date(), exists: () => false }
+  );
+
+  const editorTab = (
+    <>
+      <h3 className="tab-section">Images</h3>
+      <div className="field">
+        <label htmlFor="image-folder">Folder for pasted images (created next to the document)</label>
+        <input
+          id="image-folder"
+          type="text"
+          data-testid="image-folder"
+          value={folderDraft}
+          onChange={(e) => {
+            const v = e.target.value;
+            setFolderDraft(v);
+            if (isValidImageFolder(v)) onChange({ ...settings, imageFolder: v.trim() });
+          }}
+        />
+        {folderInvalid && (
+          <p className="hotkey-hint" data-testid="image-folder-error">
+            Folder must be a single name — no slashes or “..”.
+          </p>
+        )}
+      </div>
+      <div className="field">
+        <label htmlFor="image-pattern">File name for pasted images</label>
+        <input
+          id="image-pattern"
+          type="text"
+          data-testid="image-pattern"
+          value={settings.imageNamePattern}
+          onChange={(e) => onChange({ ...settings, imageNamePattern: e.target.value })}
+        />
+        <p className="hotkey-hint" data-testid="image-pattern-example">
+          {'Example: '}
+          {patternExample}
+          {' — tokens: {doc} (document name), {n} (next free number), {date}, {time}.'}
+        </p>
+      </div>
+    </>
+  );
+
   const hotkeysTab = (
     <>
       {(Object.keys(HOTKEY_LABELS) as Array<keyof HotkeyMap>).map((action) => (
@@ -422,6 +477,7 @@ export function SettingsPanel({
       <div className="tab-content">
         {tab === 'appearance' && appearanceTab}
         {tab === 'general' && generalTab}
+        {tab === 'editor' && editorTab}
         {tab === 'hotkeys' && hotkeysTab}
         {!frameless && (
           <div className="actions">

@@ -328,7 +328,31 @@ export function createBrowserPlatform(): Platform {
       window.close();
     },
 
-    resolveAssetSrc(src) {
+    /**
+     * SPEC20 §3: pasted images live in the virtual fs as data: URIs, so the
+     * shim preview renders them for real and e2e can assert on the pixels.
+     */
+    async writeBinaryFile(path, bytes) {
+      const ext = path.split('.').pop()?.toLowerCase() ?? '';
+      const mime =
+        { png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[ext] ?? 'application/octet-stream';
+      let bin = '';
+      for (const b of bytes) bin += String.fromCharCode(b);
+      fs.write(path, `data:${mime};base64,${btoa(bin)}`);
+    },
+
+    resolveAssetSrc(src, docDir) {
+      if (/^(data:|blob:)/i.test(src)) return src;
+      // Doc-relative paths that name a virtual-fs data: URI (a pasted image)
+      // resolve to it; everything else passes through untouched, as before.
+      try {
+        const rel = decodeURIComponent(src);
+        const abs = rel.startsWith('/') ? rel : `${docDir.replace(/\/$/, '')}/${rel}`;
+        const stored = fs.read(abs);
+        if (stored?.startsWith('data:')) return stored;
+      } catch {
+        // malformed percent-encoding — fall through
+      }
       return src;
     },
 

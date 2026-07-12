@@ -37,6 +37,14 @@ interface Props {
    * a different document opens.
    */
   historyRef: MutableRefObject<unknown>;
+  /**
+   * SPEC20 §2: called with the image files of an intercepted paste; resolves
+   * to the markdown to insert at the cursor, or null when nothing should be
+   * inserted (unsaved doc, unsupported platform, write failure — the owner
+   * has already shown its notice). The file write is not undoable; the
+   * inserted text is.
+   */
+  onPasteImages?(files: File[]): Promise<string | null>;
 }
 
 /**
@@ -64,13 +72,15 @@ function diffDecorations(view: EditorView, diff: DiffLineSets): DecorationSet {
   return builder.finish();
 }
 
-export default function Editor({ value, lineNumbers: showLineNumbers, onChange, historyRef, syncRef, diff }: Props) {
+export default function Editor({ value, lineNumbers: showLineNumbers, onChange, historyRef, syncRef, diff, onPasteImages }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const gutterComp = useRef(new Compartment());
   const diffComp = useRef(new Compartment());
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onPasteImagesRef = useRef(onPasteImages);
+  onPasteImagesRef.current = onPasteImages;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -85,6 +95,29 @@ export default function Editor({ value, lineNumbers: showLineNumbers, onChange, 
       keymap.of([...defaultKeymap, ...historyKeymap]),
       EditorView.updateListener.of((u) => {
         if (u.docChanged) onChangeRef.current(u.state.doc.toString());
+      }),
+      // SPEC20 §2: a paste carrying image files is intercepted whole (mixed
+      // clipboards: the image wins); text-only pastes take the default path.
+      EditorView.domEventHandlers({
+        paste: (event, view) => {
+          const handler = onPasteImagesRef.current;
+          if (!handler) return false;
+          const files = Array.from(event.clipboardData?.items ?? [])
+            .filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
+            .map((it) => it.getAsFile())
+            .filter((f): f is File => f !== null);
+          if (files.length === 0) return false;
+          event.preventDefault();
+          void handler(files).then((text) => {
+            if (!text) return;
+            const { from, to } = view.state.selection.main;
+            view.dispatch({
+              changes: { from, to, insert: text },
+              selection: { anchor: from + text.length },
+            });
+          });
+          return true;
+        },
       }),
     ];
     let state: EditorState;

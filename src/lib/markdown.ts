@@ -29,6 +29,9 @@ const schema: SanitizeSchema = {
     '*': [...(defaultSchema.attributes?.['*'] ?? []), 'dataMmLine'],
     input: ['type', 'checked', 'disabled'],
     span: [...(defaultSchema.attributes?.span ?? []), ['className', 'mm-blocked-remote']],
+    // SPEC20 §4.1: resize needs the size pair plus the inert source-span
+    // offsets (numbers into the markdown text) — exactly these, nothing else.
+    img: [...(defaultSchema.attributes?.img ?? []), 'width', 'height', 'dataMmSrcStart', 'dataMmSrcEnd'],
   },
   protocols: {
     ...defaultSchema.protocols,
@@ -53,6 +56,70 @@ interface HastNode {
   properties?: Record<string, unknown>;
   children?: HastNode[];
   value?: string;
+  position?: { start?: { line?: number; offset?: number }; end?: { line?: number; offset?: number } };
+}
+
+/**
+ * SPEC20 §4.1: the pipeline has no rehype-raw (raw HTML stays dropped, as
+ * ever), but the resize feature persists sizes as `<img … width>` tags — so
+ * exactly one raw-HTML shape is granted passage: an mdast `html` node whose
+ * entire value is a single `<img …>` tag. It becomes a real img element with
+ * a whitelisted attribute set (src/alt/title/width/height); sanitize still
+ * runs after. Anything else in the node — trailing text, a second tag — and
+ * it stays dropped like all other raw HTML.
+ */
+const LONE_IMG_TAG = /^<img(\s[^<>]*)?\/?>$/i;
+const IMG_ATTRS = new Set(['src', 'alt', 'title', 'width', 'height']);
+
+function decodeEntities(v: string): string {
+  return v
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+function imgHtmlHandler(_state: unknown, node: { value?: string; position?: HastNode['position'] }): HastNode | undefined {
+  const value = (node.value ?? '').trim();
+  const m = LONE_IMG_TAG.exec(value);
+  if (!m) return undefined; // every other raw-HTML node stays dropped
+  const properties: Record<string, unknown> = {};
+  const attrRe = /([a-zA-Z-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+  for (let a = attrRe.exec(m[1] ?? ''); a; a = attrRe.exec(m[1] ?? '')) {
+    const name = a[1].toLowerCase();
+    if (!IMG_ATTRS.has(name)) continue;
+    const raw = a[2] ?? a[3] ?? a[4] ?? '';
+    if (name === 'width' || name === 'height') {
+      if (/^\d+$/.test(raw)) properties[name] = Number(raw);
+    } else {
+      properties[name] = decodeEntities(raw);
+    }
+  }
+  if (typeof properties.src !== 'string' || !properties.src) return undefined;
+  return { type: 'element', tagName: 'img', properties, children: [], position: node.position };
+}
+
+/**
+ * SPEC20 §4.1: stamp every doc-originated <img> with its source span —
+ * 0-based UTF-16 offsets into the markdown text — so preview resize can
+ * rewrite exactly the syntax that produced it. Attribute-only, like the
+ * dataMmLine stamping: the rendered text (and with it the SPEC6 comment
+ * anchor space) is untouched. Remote images are replaced by placeholder
+ * spans before sanitize, so no span data survives on them.
+ */
+function stampImageSpans() {
+  const visit = (node: HastNode) => {
+    if (node.type === 'element' && node.tagName === 'img') {
+      const start = node.position?.start?.offset;
+      const end = node.position?.end?.offset;
+      if (typeof start === 'number' && typeof end === 'number') {
+        node.properties = { ...node.properties, dataMmSrcStart: start, dataMmSrcEnd: end };
+      }
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+  return (tree: HastNode) => visit(tree);
 }
 
 /**
@@ -115,8 +182,11 @@ function stampSourceLines() {
 const processor = unified()
   .use(remarkParse)
   .use(remarkGfm)
-  .use(remarkRehype)
+  // The html handler admits lone <img> tags only (SPEC20 §4.1) — raw HTML at
+  // large remains dropped exactly as before (no rehype-raw, no dangerous mode).
+  .use(remarkRehype, { handlers: { html: imgHtmlHandler as never } })
   .use(stampSourceLines)
+  .use(stampImageSpans)
   .use(blockRemoteImages)
   .use(rehypeSanitize, schema)
   .use(rehypeHighlight, { detect: false })

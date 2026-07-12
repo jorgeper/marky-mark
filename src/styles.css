@@ -196,6 +196,43 @@ button {
   overflow-y: auto;
   display: flex;
   justify-content: center;
+  /* SPEC20 §4.2: offset parent for the image-resize overlay (content coords). */
+  position: relative;
+}
+
+/* --- SPEC20 §4.2: preview image resize — selection outline, handles, badge --- */
+.img-resize-overlay {
+  position: absolute;
+  z-index: 40;
+  outline: 2px solid var(--mm-accent, #0969da);
+  outline-offset: -1px;
+  pointer-events: none;
+}
+.img-resize-overlay .img-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--mm-bg, #fff);
+  border: 2px solid var(--mm-accent, #0969da);
+  pointer-events: auto;
+}
+.img-resize-overlay .img-handle.nw { left: -5px; top: -5px; cursor: nwse-resize; }
+.img-resize-overlay .img-handle.ne { right: -5px; top: -5px; cursor: nesw-resize; }
+.img-resize-overlay .img-handle.sw { left: -5px; bottom: -5px; cursor: nesw-resize; }
+.img-resize-overlay .img-handle.se { right: -5px; bottom: -5px; cursor: nwse-resize; }
+.img-resize-overlay .img-size-badge {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  color: var(--mm-fg-muted, #59636e);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .docwrap {
@@ -1080,6 +1117,23 @@ mark.hl.ghost {
   border: 1px solid var(--mm-border, #d1d9e0);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22), 0 1px 4px rgba(0, 0, 0, 0.12);
   font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/* --- SPEC20 §2: transient paste-feedback notice, bottom-center --- */
+.mm-notice {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 14px;
+  z-index: 60;
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  color: var(--mm-fg, #1f2328);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22), 0 1px 4px rgba(0, 0, 0, 0.12);
   pointer-events: none;
 }
 

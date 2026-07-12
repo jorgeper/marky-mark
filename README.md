@@ -71,6 +71,11 @@ Either way it's a one-time step — the app opens normally afterwards.
 - **Creature comforts** — every document reopens where you left off, ⌘K
   fuzzy-jumps to any heading, and a quiet word-count / reading-time chip
   keeps score (selection-aware).
+- **Images that just work** — paste a screenshot straight into edit mode and
+  it lands as a real file in an `images/` folder next to your document
+  (folder and naming pattern configurable); click an image in preview and
+  drag the corner handles to resize — persisted as portable HTML that GitHub
+  renders too.
 - **Comments** (experimental) — select text → 💬. Threads, resolve, reopen,
   edit-survival re-anchoring. Jump between comments with ⌥⌘↓ / ⌥⌘↑
   (rebindable) or the fixed navigator pill — park the mouse and click
