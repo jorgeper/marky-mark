@@ -618,6 +618,10 @@ export default function App() {
         })();
       },
       toggleDiff: () => setShowDiff((v) => !v),
+      toggleWordCount: () => {
+        const s = stateRef.current.settings;
+        updateSettings({ ...s, showWordCount: !s.showWordCount });
+      },
       headingPalette: () => {
         // Live preview DOM when there is one; in full edit, parse the latest
         // rendered html (the render loop keeps it fresh on a debounce).
@@ -690,9 +694,10 @@ export default function App() {
         hotkeys: settings.hotkeys,
         canExportReview,
         showDiff,
+        showWordCount: settings.showWordCount,
       })
     );
-  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, canExportReview, showDiff]);
+  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, canExportReview, showDiff, settings.showWordCount]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -806,6 +811,9 @@ export default function App() {
       } else if (eventMatches(e, hk.headingPalette)) {
         e.preventDefault();
         dispatchCommand('headingPalette', 'hotkey');
+      } else if (eventMatches(e, hk.toggleWordCount)) {
+        e.preventDefault();
+        dispatchCommand('toggleWordCount', 'hotkey');
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -1530,8 +1538,8 @@ export default function App() {
         </button>
       )}
 
-      {/* SPEC16 §5: quiet word-count chip, bottom-left. */}
-      {chip && (
+      {/* SPEC16 §5: quiet word-count chip, bottom-left (toggleable). */}
+      {chip && settings.showWordCount && (
         <div className="word-chip" data-testid="word-chip">
           {chip}
         </div>

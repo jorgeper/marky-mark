@@ -11,6 +11,7 @@ const base: MenuState = {
   hotkeys: { ...DEFAULT_HOTKEYS },
   canExportReview: true,
   showDiff: false,
+  showWordCount: true,
 };
 
 const titles = (s: MenuState) => buildMenuSpec(s).submenus.map((m) => m.title);
@@ -104,5 +105,14 @@ describe('SPEC12 menu spec', () => {
     expect(find(base, 'View', 'headingPalette')!.accelerator).toBe('Mod+K');
     const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, headingPalette: 'Mod+Shift+O' } };
     expect(find(rebound, 'View', 'headingPalette')!.accelerator).toBe('Mod+Shift+O');
+  });
+
+  test('U35: Word Count is a View checkbox tracking the setting, with a rebindable accelerator', () => {
+    expect(find(base, 'View', 'toggleWordCount')!.label).toBe('Word Count');
+    expect(find(base, 'View', 'toggleWordCount')!.checked).toBe(true);
+    expect(find({ ...base, showWordCount: false }, 'View', 'toggleWordCount')!.checked).toBe(false);
+    expect(find(base, 'View', 'toggleWordCount')!.accelerator).toBe('Mod+Shift+W');
+    const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, toggleWordCount: 'Mod+Shift+X' } };
+    expect(find(rebound, 'View', 'toggleWordCount')!.accelerator).toBe('Mod+Shift+X');
   });
 });

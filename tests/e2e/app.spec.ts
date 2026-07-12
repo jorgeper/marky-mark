@@ -1788,6 +1788,28 @@ test('E62: word-count chip — document counts, selection counts, live edit upda
     .toBeGreaterThan(fullWords);
 });
 
+test('E64: the word-count chip toggles with Mod+Shift+W and the choice persists', async ({ page }) => {
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await expect(page.getByTestId('word-chip')).toBeVisible();
+
+  await page.keyboard.press('Control+Shift+W');
+  await expect(page.getByTestId('word-chip')).toHaveCount(0);
+  // Persisted: the setting survives in settings.json…
+  await expect
+    .poll(async () => {
+      const raw = await fsRead(page, '/config/settings.json');
+      return raw ? (JSON.parse(raw) as { showWordCount?: boolean }).showWordCount : undefined;
+    })
+    .toBe(false);
+  // …and across a restart.
+  await page.reload();
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('word-chip')).toHaveCount(0);
+
+  await page.keyboard.press('Control+Shift+W');
+  await expect(page.getByTestId('word-chip')).toBeVisible();
+});
+
 test('E63: Export Review Bundle writes a parseable bundle carrying the comment trailer', async ({ page }) => {
   await freshNativeMenuApp(page);
   await menuClick(page, 'help');

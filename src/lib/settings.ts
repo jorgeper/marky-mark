@@ -29,6 +29,8 @@ export interface Settings {
   lineNumbers: boolean;
   vimNav: boolean;
   autoHideToolbar: boolean;
+  /** SPEC16 §5 + follow-up: the word-count chip is a visible-by-default toggle. */
+  showWordCount: boolean;
   showResolved: boolean;
   commentsEnabled: boolean;
   typeToComment: boolean;
@@ -51,6 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lineNumbers: true,
   vimNav: false,
   autoHideToolbar: false,
+  showWordCount: true,
   showResolved: true,
   commentsEnabled: true,
   typeToComment: true,
@@ -111,6 +114,7 @@ export function parseSettings(json: string): Settings {
     lineNumbers: typeof o.lineNumbers === 'boolean' ? o.lineNumbers : DEFAULT_SETTINGS.lineNumbers,
     vimNav: o.vimNav === true,
     autoHideToolbar: o.autoHideToolbar === true,
+    showWordCount: typeof o.showWordCount === 'boolean' ? o.showWordCount : DEFAULT_SETTINGS.showWordCount,
     showResolved: typeof o.showResolved === 'boolean' ? o.showResolved : DEFAULT_SETTINGS.showResolved,
     commentsEnabled: typeof o.commentsEnabled === 'boolean' ? o.commentsEnabled : DEFAULT_SETTINGS.commentsEnabled,
     typeToComment: typeof o.typeToComment === 'boolean' ? o.typeToComment : DEFAULT_SETTINGS.typeToComment,

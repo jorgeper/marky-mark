@@ -30,6 +30,7 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   nextComment: 'Next comment',
   prevComment: 'Previous comment',
   headingPalette: 'Go to heading',
+  toggleWordCount: 'Show / hide word count',
 };
 
 const MARGIN_LABELS: Array<{ value: Margins; label: string }> = [

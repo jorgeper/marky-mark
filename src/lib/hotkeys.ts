@@ -13,6 +13,7 @@ export interface HotkeyMap {
   nextComment: string;
   prevComment: string;
   headingPalette: string;
+  toggleWordCount: string;
 }
 
 export const DEFAULT_HOTKEYS: HotkeyMap = {
@@ -23,6 +24,7 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   nextComment: 'Mod+Alt+ArrowDown',
   prevComment: 'Mod+Alt+ArrowUp',
   headingPalette: 'Mod+K',
+  toggleWordCount: 'Mod+Shift+W',
 };
 
 export interface ComboParts {

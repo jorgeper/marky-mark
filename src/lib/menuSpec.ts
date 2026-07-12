@@ -64,6 +64,8 @@ export interface MenuState {
   canExportReview: boolean;
   /** SPEC16 §2: Changes Since Save checkbox state (edit modes only). */
   showDiff: boolean;
+  /** Word-count chip visibility (persisted setting). */
+  showWordCount: boolean;
 }
 
 const sep: PredefinedItemSpec = { type: 'predefined', item: 'Separator' };
@@ -105,6 +107,7 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
       // SPEC16 §2: diff toggle exists only where an editor does.
       ...(s.mode === 'edit' ? [cmd('toggleDiff', 'Changes Since Save', undefined, s.showDiff)] : []),
       cmd('headingPalette', 'Go to Heading…', s.hotkeys.headingPalette),
+      cmd('toggleWordCount', 'Word Count', s.hotkeys.toggleWordCount, s.showWordCount),
       sep,
       // Zoom In sits on the = key (⌘+ without Shift), the platform convention.
       cmd('zoomIn', 'Zoom In', 'Mod+='),
