@@ -16,6 +16,14 @@ fn take_pending_open_files(state: tauri::State<'_, Mutex<OpenState>>) -> Vec<Str
     std::mem::take(&mut s.pending)
 }
 
+/// SPEC18 §2: native print of the calling webview (the printview window).
+/// `window.print()` is a silent no-op in WKWebView — this is the real one,
+/// opening the OS print dialog (macOS: PDF ▾ / Save as PDF).
+#[tauri::command]
+fn print_view(webview_window: tauri::WebviewWindow) -> Result<(), String> {
+    webview_window.print().map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Windows/Linux file associations arrive as plain CLI arguments.
@@ -33,7 +41,7 @@ pub fn run() {
             frontend_ready: false,
             pending: cli_files,
         }))
-        .invoke_handler(tauri::generate_handler![take_pending_open_files])
+        .invoke_handler(tauri::generate_handler![take_pending_open_files, print_view])
         .build(tauri::generate_context!())
         .expect("error while building Markimark")
         .run(|app, event| {
