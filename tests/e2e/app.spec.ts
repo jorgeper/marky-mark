@@ -2237,7 +2237,7 @@ test('E77: image resize works in the split-edit live preview, and the rewrite la
   await expect(page.getByTestId('split-preview')).toContainText('A line right after the image.');
 });
 
-test('E78: splash advertises ⌘N; New… is save-dialog-first — the empty file opens in edit mode; cancel is a no-op', async ({
+test('E78: ⌘N opens an untitled buffer — no dialog, nothing on disk; first ⌘S runs Save As (cancel keeps the buffer)', async ({
   page,
 }) => {
   // Pristine launch (like E1): the splash shows both hints with live combos.
@@ -2250,27 +2250,37 @@ test('E78: splash advertises ⌘N; New… is save-dialog-first — the empty fil
   await expect(hint).toContainText('⌘N');
   await expect(hint).toContainText('to create one');
 
-  // Cancelled save dialog ⇒ nothing happens, nothing is written.
+  const before = await page.evaluate(() => window.__mmfs!.list());
+  await page.keyboard.press('Control+n');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  // No dialog ran and nothing was written.
+  expect(await page.evaluate(() => window.__mmfs!.list())).toEqual(before);
+
+  // Type → dirty; a cancelled Save As keeps the dirty untitled buffer.
+  await page.getByTestId('editor').locator('.cm-content').click();
+  await page.keyboard.type('# Fresh Start');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
   await page.evaluate(() => {
     window.__mmfs!.nextSavePath = null;
   });
-  await page.keyboard.press('Control+n');
-  await expect(hint).toBeVisible();
-  expect(await page.evaluate(() => window.__mmfs!.list())).not.toContain('/docs/fresh.md');
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
 
-  // Chosen path ⇒ an EMPTY file exists on disk and opens in edit mode, clean.
+  // Save with a chosen path writes the buffer and switches to the real file.
   await page.evaluate(() => {
     window.__mmfs!.nextSavePath = '/docs/fresh.md';
   });
-  await page.keyboard.press('Control+n');
-  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.keyboard.press('Control+s');
   await expect(page.getByTestId('docname')).toContainText('fresh.md');
   await expect(page.getByTestId('docname')).toHaveAttribute('title', '/docs/fresh.md');
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
-  expect(await fsRead(page, '/docs/fresh.md')).toBe('');
+  expect(await fsRead(page, '/docs/fresh.md')).toContain('# Fresh Start');
 });
 
-test('E79: New… with a dirty buffer runs the three-way guard; Cancel keeps everything (and drops the edit-mode intent); Don’t save opens the new file in edit mode', async ({
+test('E79: unsaved-changes guard — around New, and Save-through when opening over a dirty untitled buffer', async ({
   page,
 }) => {
   // Dirty the welcome doc.
@@ -2279,40 +2289,37 @@ test('E79: New… with a dirty buffer runs the three-way guard; Cancel keeps eve
   await page.keyboard.type('DIRTYMARK ');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
 
-  // New… → the file is created first, then the guard prompts.
-  await page.evaluate(() => {
-    window.__mmfs!.nextSavePath = '/docs/one.md';
-  });
+  // ⌘N → three-way prompt; Cancel keeps the dirty doc, no buffer swap.
   await page.keyboard.press('Control+n');
   await expect(page.getByTestId('open-prompt')).toBeVisible();
-  expect(await fsRead(page, '/docs/one.md')).toBe('');
-
-  // Cancel: still on the dirty welcome doc.
+  await expect(page.getByTestId('open-prompt')).toContainText('starting a new file');
   await page.getByTestId('open-cancel').click();
   await expect(page.getByTestId('open-prompt')).toHaveCount(0);
   await expect(page.getByTestId('docname')).toContainText('welcome.md');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
 
-  // The abandoned New… must not leak edit mode into the next open: reopening
-  // welcome via Help (same path ⇒ no prompt) lands in preview as always.
-  await openWelcomeViaHelp(page);
-  await expect(page.getByTestId('editor')).toHaveCount(0);
-
-  // Dirty again, New… again — Don’t save opens the new file in edit mode.
-  await page.keyboard.press('Control+e');
-  await page.getByTestId('editor').locator('.cm-line').first().click();
-  await page.keyboard.type('DIRTYMARK ');
-  await expect(page.getByTestId('dirty-dot')).toBeVisible();
-  await page.evaluate(() => {
-    window.__mmfs!.nextSavePath = '/docs/two.md';
-  });
+  // ⌘N again → Don’t save → fresh untitled buffer; the edit never hit disk.
   await page.keyboard.press('Control+n');
   await page.getByTestId('open-discard').click();
-
-  await expect(page.getByTestId('docname')).toContainText('two.md');
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
-  expect(await fsRead(page, '/docs/two.md')).toBe('');
-  // Don’t save really didn’t save: the discarded edit never reached disk.
   expect(await fsRead(page, WELCOME)).not.toContain('DIRTYMARK');
+
+  // Dirty untitled + open → prompt names Untitled; Save routes through Save
+  // As (armed path), then the requested document opens.
+  await page.getByTestId('editor').locator('.cm-content').click();
+  await page.keyboard.type('# Keep me');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/kept.md';
+  });
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-help').click(); // opens welcome → guard fires
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  await expect(page.getByTestId('open-prompt')).toContainText('“Untitled” has unsaved changes');
+  await page.getByTestId('open-save').click();
+  await expect(page.getByTestId('docname')).toContainText('welcome.md');
+  expect(await fsRead(page, '/docs/kept.md')).toContain('# Keep me');
 });

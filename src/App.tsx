@@ -80,6 +80,8 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [themes, setThemes] = useState<Theme[]>([]);
   const [docPath, setDocPath] = useState<string | null>(null);
+  // SPEC22 §1: a blank unsaved buffer (File → New) — no path until first Save.
+  const [untitled, setUntitled] = useState(false);
   const [buffer, setBuffer] = useState('');
   const [savedText, setSavedText] = useState('');
   const [mode, setMode] = useState<Mode>('preview');
@@ -104,7 +106,9 @@ export default function App() {
   // SPEC20 §2: transient bottom notice (paste feedback); auto-dismisses.
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [openPrompt, setOpenPrompt] = useState<string | null>(null); // pending path awaiting the unsaved-changes decision
+  // Pending intent awaiting the unsaved-changes decision: open a path, or
+  // start a new untitled buffer (SPEC22 §1.2).
+  const [openPrompt, setOpenPrompt] = useState<{ kind: 'open'; path: string } | { kind: 'new' } | null>(null);
   // Auto-hiding toolbar (SPEC4 §2): launch grace → hover/pin driven.
   const [graceOver, setGraceOver] = useState(false);
   const [toolbarHover, setToolbarHover] = useState(false);
@@ -132,9 +136,6 @@ export default function App() {
   const unwatchRef = useRef<(() => void) | null>(null);
   /** Source line carried across mode switches (line-anchored, not ratio). */
   const pendingScrollLineRef = useRef<number | null>(null);
-  // SPEC21 §1.3: a just-created file opens in edit mode; openDoc consumes this
-  // (it survives the unsaved-changes prompt; cancelling the prompt clears it).
-  const pendingEditModeRef = useRef(false);
 
   const dirty = buffer !== savedText;
   // SPEC12 §2.3: a platform that owns a native menu gets no in-app header.
@@ -146,6 +147,7 @@ export default function App() {
     mode,
     dirty,
     docPath,
+    untitled,
     buffer,
     savedText,
     comments,
@@ -161,6 +163,7 @@ export default function App() {
     mode,
     dirty,
     docPath,
+    untitled,
     buffer,
     savedText,
     comments,
@@ -346,14 +349,14 @@ export default function App() {
     skipSaveRef.current = true;
     editorHistoryRef.current = null; // a fresh document starts a fresh undo history
     setDocPath(path);
+    setUntitled(false); // SPEC22 §3.3: a real document replaces any untitled buffer
     setBuffer(content);
     setSavedText(content);
     setComments(stored);
     setPositions({});
     setActiveId(null);
     setPending(null);
-    setMode(pendingEditModeRef.current ? 'edit' : 'preview');
-    pendingEditModeRef.current = false;
+    setMode('preview');
     setShowDiff(false); // SPEC16 §2: the diff toggle resets per document
     setDiff(null);
 
@@ -386,7 +389,7 @@ export default function App() {
     (p: Platform, path: string) => {
       const s = stateRef.current;
       if (s.dirty && s.docPath !== path) {
-        setOpenPrompt(path);
+        setOpenPrompt({ kind: 'open', path });
         return;
       }
       void openDoc(p, path);
@@ -576,9 +579,34 @@ export default function App() {
   );
 
   // --- actions -----------------------------------------------------------------
-  const saveDoc = useCallback(async () => {
+  /**
+   * Save As… (SPEC3 §3): comments travel with the document to the new path.
+   * Also the first save of an untitled buffer (SPEC22 §2.1), suggesting
+   * Untitled.md. Returns false when unsupported or the dialog was cancelled —
+   * callers with a pending action (open/new/close) must abort on false.
+   */
+  const saveDocAs = useCallback(async (): Promise<boolean> => {
     const s = stateRef.current;
-    if (!s.platform || !s.docPath) return;
+    const p = s.platform;
+    if (!p || !p.saveFileDialog || (!s.docPath && !s.untitled)) return false;
+    const target = await p.saveFileDialog(s.docPath ? p.basename(s.docPath) : 'Untitled.md');
+    if (!target) return false;
+    const text = s.settings.commentStorage === 'embedded' ? attachEmbedded(s.buffer, s.comments) : s.buffer;
+    await p.writeTextFile(target, text);
+    if (s.settings.commentStorage === 'sidecar' && s.comments.length > 0) {
+      await p.writeTextFile(sidecarPathFor(target), serializeSidecar(s.comments));
+    }
+    await p.commitFile?.(target);
+    await openDoc(p, target); // switch to the new document (title, watcher, sidecar)
+    return true;
+  }, [openDoc]);
+
+  /** Returns false when there was nothing to save into (or Save As was cancelled). */
+  const saveDoc = useCallback(async (): Promise<boolean> => {
+    const s = stateRef.current;
+    if (!s.platform) return false;
+    // SPEC22 §2.2: ⌘S on an untitled buffer is Save As….
+    if (!s.docPath) return s.untitled ? saveDocAs() : false;
     const text =
       s.settings.commentStorage === 'embedded' ? attachEmbedded(s.buffer, s.comments) : s.buffer;
     await s.platform.writeTextFile(s.docPath, text);
@@ -589,7 +617,8 @@ export default function App() {
       // stripped the trailer; make sure the sidecar holds the comments.
       await persistComments(s.comments);
     }
-  }, [persistComments]);
+    return true;
+  }, [persistComments, saveDocAs]);
 
   const toggleMode = useCallback(() => {
     const s = stateRef.current;
@@ -607,7 +636,9 @@ export default function App() {
     } else {
       pendingScrollLineRef.current = editorSyncRef.current?.topLine() ?? null;
       recordPosition(s.docPath, pendingScrollLineRef.current); // SPEC16 §3.2
-      if (s.settings.autosaveOnToggle && s.dirty) void saveDoc();
+      // SPEC22 §2.4: never autosave an untitled buffer — that would throw a
+      // surprise Save As dialog mid-toggle; it just stays dirty.
+      if (s.settings.autosaveOnToggle && s.dirty && s.docPath) void saveDoc();
       setMode('preview');
     }
     setSelInfo(null);
@@ -651,21 +682,39 @@ export default function App() {
   }, [openDocGuarded]);
 
   /**
-   * File → New… (SPEC21 §1): save-dialog-first — pick a location, write an
-   * empty file, open it in edit mode through the normal guard. No untitled
-   * in-memory state: every open document keeps a real path.
+   * File → New v2 (SPEC22 §1.1): swap in a blank unsaved buffer in edit mode.
+   * Nothing touches the disk and no dialog opens — the first Save asks where.
    */
-  const newViaDialog = useCallback(async () => {
-    const p = stateRef.current.platform;
-    if (!p?.saveFileDialog) return;
-    const target = await p.saveFileDialog('Untitled.md');
-    if (!target) return;
-    // No commitFile: on web that would download an empty file — the first
-    // real Save commits it (the handle-less path is a normal unsaved doc).
-    await p.writeTextFile(target, '');
-    pendingEditModeRef.current = true;
-    openDocGuarded(p, target);
-  }, [openDocGuarded]);
+  const startUntitled = useCallback(() => {
+    const s = stateRef.current;
+    recordPosition(s.docPath, currentTopLine()); // park the outgoing doc (SPEC16 §3.2)
+    pendingScrollLineRef.current = null;
+    skipSaveRef.current = true;
+    editorHistoryRef.current = null;
+    setDocPath(null);
+    setUntitled(true);
+    setBuffer('');
+    setSavedText('');
+    setHtml('');
+    setComments([]);
+    setPositions({});
+    setActiveId(null);
+    setPending(null);
+    setMode('edit');
+    setShowDiff(false);
+    setDiff(null);
+    unwatchRef.current?.();
+    unwatchRef.current = null;
+  }, [recordPosition, currentTopLine]);
+
+  /** The newFile command: same unsaved-changes guard as opening (SPEC22 §1.2). */
+  const newFile = useCallback(() => {
+    if (stateRef.current.dirty) {
+      setOpenPrompt({ kind: 'new' });
+      return;
+    }
+    startUntitled();
+  }, [startUntitled]);
 
   /** Help (SPEC4 §5): open the welcome doc like any file — guard included. */
   const openHelp = useCallback(async () => {
@@ -677,22 +726,6 @@ export default function App() {
     }
     if (await p.exists(welcome)) openDocGuarded(p, welcome);
   }, [openDocGuarded]);
-
-  /** Save As… (SPEC3 §3): comments travel with the document to the new path. */
-  const saveDocAs = useCallback(async () => {
-    const s = stateRef.current;
-    const p = s.platform;
-    if (!p || !s.docPath || !p.saveFileDialog) return;
-    const target = await p.saveFileDialog(p.basename(s.docPath));
-    if (!target) return;
-    const text = s.settings.commentStorage === 'embedded' ? attachEmbedded(s.buffer, s.comments) : s.buffer;
-    await p.writeTextFile(target, text);
-    if (s.settings.commentStorage === 'sidecar' && s.comments.length > 0) {
-      await p.writeTextFile(sidecarPathFor(target), serializeSidecar(s.comments));
-    }
-    await p.commitFile?.(target);
-    await openDoc(p, target); // switch to the new document (title, watcher, sidecar)
-  }, [openDoc]);
 
   const reloadThemes = useCallback(async () => {
     const p = stateRef.current.platform;
@@ -809,7 +842,7 @@ export default function App() {
   // toolbar (web), the native menu (desktop), and the hotkey listener.
   useEffect(() => {
     registerCommands({
-      newFile: () => void newViaDialog(),
+      newFile,
       open: () => void openViaDialog(),
       save: () => void saveDoc(),
       saveAs: () => void saveDocAs(),
@@ -837,7 +870,7 @@ export default function App() {
         const live: ParentNode | null = docRef.current ?? splitDocRef.current;
         const root: ParentNode | null =
           live ??
-          (stateRef.current.docPath && stateRef.current.html
+          ((stateRef.current.docPath || stateRef.current.untitled) && stateRef.current.html
             ? new DOMParser().parseFromString(stateRef.current.html, 'text/html')
             : null);
         const headings: PaletteHeading[] = root
@@ -888,7 +921,7 @@ export default function App() {
         })();
       },
     });
-  }, [newViaDialog, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage]);
 
   // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
   useEffect(() => {
@@ -960,7 +993,7 @@ export default function App() {
 
   // --- SPEC16 §5: word-count chip (selection-aware in preview) ------------------
   useEffect(() => {
-    if (!docPath) {
+    if (!docPath && !untitled) {
       setChip('');
       return;
     }
@@ -974,7 +1007,7 @@ export default function App() {
       setChip(`${words.toLocaleString('en-US')} words · ${minutes} min`);
     }, 200);
     return () => clearTimeout(t);
-  }, [docPath, mode, buffer, html, selInfo]);
+  }, [docPath, untitled, mode, buffer, html, selInfo]);
 
   // --- SPEC16 §3: capture the reading position on preview scrolls (debounced) ---
   useEffect(() => {
@@ -1082,10 +1115,11 @@ export default function App() {
   useEffect(() => {
     const p = platform;
     if (!p) return;
-    const title = docPath ? `${p.basename(docPath)}${dirty ? ' •' : ''} — Marky Mark` : 'Marky Mark';
+    const name = docPath ? p.basename(docPath) : untitled ? 'Untitled' : null;
+    const title = name ? `${name}${dirty ? ' •' : ''} — Marky Mark` : 'Marky Mark';
     void p.setTitle(title);
     document.title = title;
-  }, [platform, docPath, dirty]);
+  }, [platform, docPath, untitled, dirty]);
 
   // --- markdown rendering (preview mode; debounced live in split edit, SPEC7 §5) ----
   useEffect(() => {
@@ -1564,7 +1598,7 @@ export default function App() {
             onMouseLeave={toolbarLeave}
           >
             <Toolbar
-              docName={docPath ? platform.basename(docPath) : null}
+              docName={docPath ? platform.basename(docPath) : untitled ? 'Untitled' : null}
               docPath={docPath}
               dirty={dirty}
               mode={mode}
@@ -1598,7 +1632,7 @@ export default function App() {
             onRewrite={rewriteImage}
           />
           <div className="docwrap">
-            {!docPath && (
+            {!docPath && !untitled && (
               <div className="empty-center">
                 <div className="empty-hint" data-testid="empty-hint">
                   <p>Drag a markdown file here</p>
@@ -1876,25 +1910,20 @@ export default function App() {
           <div className="modal" data-testid="open-prompt">
             <h2>Unsaved changes</h2>
             <p style={{ fontSize: 13.5 }}>
-              “{docPath ? platform.basename(docPath) : 'This file'}” has unsaved changes. Save before opening “
-              {platform.basename(openPrompt)}”?
+              “{docPath ? platform.basename(docPath) : untitled ? 'Untitled' : 'This file'}” has unsaved changes. Save
+              before {openPrompt.kind === 'open' ? `opening “${platform.basename(openPrompt.path)}”` : 'starting a new file'}?
             </p>
             <div className="actions">
-              <button
-                data-testid="open-cancel"
-                onClick={() => {
-                  setOpenPrompt(null);
-                  pendingEditModeRef.current = false; // SPEC21 §1.3: abandoned New… must not leak edit mode
-                }}
-              >
+              <button data-testid="open-cancel" onClick={() => setOpenPrompt(null)}>
                 Cancel
               </button>
               <button
                 data-testid="open-discard"
                 onClick={() => {
-                  const path = openPrompt;
+                  const intent = openPrompt;
                   setOpenPrompt(null);
-                  void openDoc(platform, path);
+                  if (intent.kind === 'open') void openDoc(platform, intent.path);
+                  else startUntitled();
                 }}
               >
                 Don’t save
@@ -1903,10 +1932,12 @@ export default function App() {
                 className="primary"
                 data-testid="open-save"
                 onClick={async () => {
-                  const path = openPrompt;
+                  const intent = openPrompt;
                   setOpenPrompt(null);
-                  await saveDoc();
-                  void openDoc(platform, path);
+                  // SPEC22 §2.3: a cancelled Save As aborts the pending action.
+                  if (!(await saveDoc())) return;
+                  if (intent.kind === 'open') void openDoc(platform, intent.path);
+                  else startUntitled();
                 }}
               >
                 Save
@@ -1921,7 +1952,8 @@ export default function App() {
           <div className="modal" data-testid="close-prompt">
             <h2>Unsaved changes</h2>
             <p style={{ fontSize: 13.5 }}>
-              “{docPath ? platform.basename(docPath) : 'This file'}” has unsaved changes. Save before closing?
+              “{docPath ? platform.basename(docPath) : untitled ? 'Untitled' : 'This file'}” has unsaved changes. Save
+              before closing?
             </p>
             <div className="actions">
               <button data-testid="close-cancel" onClick={() => setClosePrompt(false)}>
@@ -1940,9 +1972,10 @@ export default function App() {
                 className="primary"
                 data-testid="close-save"
                 onClick={async () => {
-                  await saveDoc();
+                  // SPEC22 §2.3: a cancelled Save As (untitled buffer) aborts the close.
+                  const ok = await saveDoc();
                   setClosePrompt(false);
-                  void platform.closeNow();
+                  if (ok) void platform.closeNow();
                 }}
               >
                 Save

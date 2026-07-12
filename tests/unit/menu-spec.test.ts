@@ -147,13 +147,14 @@ describe('SPEC12 menu spec', () => {
     }
   });
 
-  test('U47: File starts with New… then Open… on both layouts; the accelerator follows rebinds', () => {
+  test('U47: File starts with New then Open… on both layouts; the accelerator follows rebinds', () => {
     expect(DEFAULT_HOTKEYS.newFile).toBe('Mod+N');
     for (const s of [base, { ...base, isMac: false }]) {
       const file = commandsIn(s, 'File').map((i) => i.command);
       expect(file.indexOf('newFile')).toBe(0);
       expect(file.indexOf('open')).toBe(1);
-      expect(find(s, 'File', 'newFile')!.label).toBe('New…');
+      // SPEC22: no ellipsis — New doesn't ask for input anymore.
+      expect(find(s, 'File', 'newFile')!.label).toBe('New');
       expect(find(s, 'File', 'newFile')!.accelerator).toBe(DEFAULT_HOTKEYS.newFile);
     }
     const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, newFile: 'Mod+Shift+N' } };

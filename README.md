@@ -67,8 +67,8 @@ Either way it's a one-time step — the app opens normally afterwards.
 - **Edit mode** — full-screen swap or side-by-side split (⌘E / Ctrl+E,
   remappable) with synchronized scrolling between the panes, a
   changes-since-save view that tints edited lines, and undo history that
-  survives mode switches. File → New… (⌘N) starts a fresh markdown file
-  right where you choose to save it.
+  survives mode switches. File → New (⌘N) opens a fresh untitled buffer —
+  you pick where it lives on first save.
 - **Creature comforts** — every document reopens where you left off, ⌘K
   fuzzy-jumps to any heading, and a quiet word-count / reading-time chip
   keeps score (selection-aware).

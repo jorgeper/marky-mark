@@ -297,20 +297,30 @@ test('W8: image paste on the web build shows the needs-desktop notice and leaves
   await expect(page.getByTestId('editor').locator('.cm-content')).toHaveText(before ?? '');
 });
 
-test('W9: hamburger New… creates Untitled.md via the handle-less fallback and opens it in edit mode', async ({
+test('W9: hamburger New opens an untitled buffer; Save runs the handle-less Save As and downloads Untitled.md', async ({
   page,
 }) => {
-  // Force the portable fallback at call time (headless-automatable).
-  await page.evaluate(() => {
-    delete (window as { showSaveFilePicker?: unknown }).showSaveFilePicker;
-  });
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   const item = page.getByTestId('menu-new');
-  await expect(item).toContainText('New…');
+  await expect(item).toContainText('New');
   await item.click();
 
-  await expect(page.getByTestId('docname')).toContainText('Untitled.md');
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
   await expect(page.getByTestId('editor')).toBeVisible();
-  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await page.getByTestId('editor').locator('.cm-content').click();
+  await page.keyboard.type('# Web Fresh');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Force the portable Save As fallback (headless-automatable), then Save.
+  await page.evaluate(() => {
+    delete (window as { showSaveFilePicker?: unknown }).showSaveFilePicker;
+  });
+  const downloadPromise = page.waitForEvent('download');
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-save').click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('Untitled.md');
+  await expect(page.getByTestId('docname')).toContainText('Untitled.md');
 });

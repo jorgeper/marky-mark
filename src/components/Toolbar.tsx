@@ -143,7 +143,7 @@ export function Toolbar(p: Props) {
         </button>
         {menuOpen && (
           <div className="theme-menu" data-testid="app-menu">
-            {item('menu-new', 'New…', displayCombo(p.hotkeys.newFile, p.isMac), p.onNewFile)}
+            {item('menu-new', 'New', displayCombo(p.hotkeys.newFile, p.isMac), p.onNewFile)}
             {item('menu-open', 'Open…', displayCombo(p.hotkeys.openFile, p.isMac), p.onOpenFile)}
             {item('menu-save', 'Save', displayCombo(p.hotkeys.save, p.isMac), p.onSave)}
             {item('menu-save-as', 'Save As…', null, p.onSaveAs)}
