@@ -9,6 +9,7 @@ export type CommandId =
   | 'save'
   | 'saveAs'
   | 'exportDoc'
+  | 'printDoc'
   | 'toggleMode'
   | 'toggleComments'
   | 'nextComment'

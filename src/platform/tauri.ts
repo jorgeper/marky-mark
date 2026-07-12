@@ -243,29 +243,11 @@ export async function createTauriPlatform(): Promise<Platform> {
       return listen(event, (e) => cb(e.payload));
     },
 
-    /**
-     * SPEC17 §3.1: open the printview window and hand it the page over the
-     * aux bus once it says it's ready; it prints natively and closes itself.
-     */
-    async printPage() {
+    async printCurrent() {
+      // Native print of THIS window (Rust print_view command) — no throwaway
+      // print window whose teardown can kill the OS dialog. Print CSS trims
+      // the app chrome so the paper shows just the document.
       await invoke('print_view');
-    },
-
-    async printDocument(html) {
-      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-      const un = await listen('mm://print-ready', () => {
-        void emit('mm://print-doc', html);
-        un();
-      });
-      const existing = await WebviewWindow.getByLabel('printview');
-      if (existing) await existing.destroy().catch(() => {});
-      new WebviewWindow('printview', {
-        url: 'index.html?window=printview',
-        title: 'Print',
-        width: 840,
-        height: 640,
-        center: true,
-      });
     },
 
     async closeFocusedAuxWindow() {

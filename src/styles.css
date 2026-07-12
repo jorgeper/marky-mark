@@ -1141,3 +1141,22 @@ mark.hl.ghost {
 .palette li button.active {
   background: color-mix(in srgb, var(--mm-accent, #0969da) 16%, transparent);
 }
+
+/* --- File → Print…: paper shows the document, not the app chrome --- */
+@media print {
+  .toolbar-shell,
+  .toolbar-hotzone,
+  .comment-nav,
+  .word-chip,
+  .split-divider,
+  .panel {
+    display: none !important;
+  }
+  .workspace {
+    overflow: visible !important;
+  }
+  .doc {
+    max-width: none;
+    padding: 0;
+  }
+}

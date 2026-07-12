@@ -145,8 +145,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             sep,
             cmd('save', 'Save', s.hotkeys.save),
             cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
-            // SPEC17 §5.1: always present — format gating lives in the dialog.
             cmd('exportDoc', 'Export…'),
+            cmd('printDoc', 'Print…', 'Mod+P'),
             sep,
             cmd('close', 'Close Window', 'Mod+W'),
           ],
@@ -169,6 +169,7 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
           cmd('save', 'Save', s.hotkeys.save),
           cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
           cmd('exportDoc', 'Export…'),
+          cmd('printDoc', 'Print…', 'Mod+P'),
           sep,
           cmd('settings', 'Settings…', 'Mod+,'),
           sep,

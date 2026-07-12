@@ -1824,7 +1824,7 @@ test('E63: Export HTML writes a fully static reading page with comments as numbe
   // produce the same bundle the old one-shot export did.
   await menuClick(page, 'exportDoc');
   await expect(page.getByTestId('export-dialog')).toBeVisible();
-  await expect(page.getByTestId('export-format-html')).toBeChecked();
+  await expect(page.getByTestId('export-format-html')).toHaveCount(0); // HTML-only: no format choice
   await page.getByTestId('export-run').click();
   await expect
     .poll(async () => ((await fsRead(page, '/docs/welcome.review.html')) ? 'written' : 'missing'))
@@ -1855,7 +1855,6 @@ test('E65: the Export dialog — defaults, cancel paths, and the include options
   // Defaults: HTML, both includes on, remembered theme ('current' initially).
   await menuClick(page, 'exportDoc');
   await expect(page.getByTestId('export-dialog')).toBeVisible();
-  await expect(page.getByTestId('export-format-html')).toBeChecked();
   await expect(page.getByTestId('export-include-comments')).toBeChecked();
   await expect(page.getByTestId('export-include-wordcount')).toBeChecked();
   await expect(page.getByTestId('export-theme')).toHaveValue('current');
@@ -1914,31 +1913,23 @@ test('E66: the export theme is sticky — survives reopening the dialog and an a
   await expect(page.getByTestId('export-theme')).toHaveValue('dracula');
 });
 
-test('E67: PDF export hands a themed print page to the platform — no file written', async ({ page }) => {
+test('E67: File → Print… invokes the platform native print of the current window', async ({ page }) => {
   await freshNativeMenuApp(page);
+  // No document → silent no-op.
+  await menuClick(page, 'printDoc');
+  await page.waitForTimeout(100);
+  expect(await page.evaluate(() => (window as { __mmPrints?: string[] }).__mmPrints?.length ?? 0)).toBe(0);
+
   await menuClick(page, 'help');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
-  await addComment(page, NAV_P1, 'printed note');
-
-  await page.evaluate(() => {
-    window.__mmfs!.nextSavePath = '/docs/should-not-exist.html';
-  });
-  await menuClick(page, 'exportDoc');
-  await page.getByTestId('export-theme').selectOption('dracula');
-  await page.getByTestId('export-format-pdf').check();
-  await page.getByTestId('export-run').click();
-
+  await menuClick(page, 'printDoc');
   await expect.poll(() => page.evaluate(() => (window as { __mmPrints?: string[] }).__mmPrints?.length ?? 0)).toBe(1);
-  const printed = await page.evaluate(() => (window as unknown as { __mmPrints: string[] }).__mmPrints[0]);
-  expect(printed).toContain('Welcome to Marky Mark'); // the rendered document
-  expect(printed).toContain('@name: Dracula'); // the chosen theme's CSS travels along
-  expect(printed).toMatch(/[\d,]+ words · \d+ min read/); // stats line (default on)
-  expect(printed).toContain('mark class="hl"'); // comment highlight, no cards
-  expect(printed).not.toContain('<script'); // same static page as the HTML export
-  expect(await fsRead(page, '/docs/should-not-exist.html')).toBeNull();
+  expect(await page.evaluate(() => (window as unknown as { __mmPrints: string[] }).__mmPrints[0])).toBe(
+    'print-current'
+  );
 });
 
-test('E68: word count off is honored — no count anywhere, in either format', async ({ page }) => {
+test('E68: word count off is honored — no count anywhere in the exported page', async ({ page }) => {
   await freshNativeMenuApp(page);
   await menuClick(page, 'help');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
@@ -1955,13 +1946,4 @@ test('E68: word count off is honored — no count anywhere, in either format', a
   expect(artifact).not.toContain('min read');
   expect(artifact).not.toMatch(/\d+ words/);
 
-  // PDF.
-  await menuClick(page, 'exportDoc');
-  await page.getByTestId('export-include-wordcount').uncheck();
-  await page.getByTestId('export-format-pdf').check();
-  await page.getByTestId('export-run').click();
-  await expect.poll(() => page.evaluate(() => (window as { __mmPrints?: string[] }).__mmPrints?.length ?? 0)).toBe(1);
-  const printed = await page.evaluate(() => (window as unknown as { __mmPrints: string[] }).__mmPrints[0]);
-  expect(printed).not.toContain('min read');
-  expect(printed).not.toMatch(/\d+ words/);
 });

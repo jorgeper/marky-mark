@@ -29,7 +29,7 @@ describe('SPEC12 menu spec', () => {
     expect(find(base, 'Marky Mark', 'settings')!.accelerator).toBe('Mod+,');
     expect(find(base, 'Marky Mark', 'close')!.label).toBe('Quit Marky Mark');
     const file = commandsIn(base, 'File').map((i) => i.command);
-    expect(file).toEqual(['open', 'save', 'saveAs', 'exportDoc', 'close']);
+    expect(file).toEqual(['open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']);
     expect(find(base, 'File', 'close')!.label).toBe('Close Window');
     expect(commandsIn(base, 'Help').map((i) => i.command)).toEqual(['help']);
     // Edit is entirely predefined system items, in the standard order.
@@ -48,7 +48,7 @@ describe('SPEC12 menu spec', () => {
     const win = { ...base, isMac: false };
     expect(titles(win)).toEqual(['File', 'Edit', 'View', 'Help']);
     const file = commandsIn(win, 'File').map((i) => i.command);
-    expect(file).toEqual(['open', 'save', 'saveAs', 'exportDoc', 'settings', 'close']);
+    expect(file).toEqual(['open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']);
     expect(find(win, 'File', 'close')!.label).toBe('Exit');
     expect(find(win, 'File', 'settings')!.accelerator).toBe('Mod+,');
     expect(commandsIn(win, 'Help').map((i) => i.command)).toEqual(['help', 'about']);
@@ -120,6 +120,15 @@ describe('SPEC12 menu spec', () => {
       expect(file.indexOf('exportDoc')).toBe(file.indexOf('saveAs') + 1);
       expect(find(s, 'File', 'exportDoc')!.label).toBe('Export…');
       expect(find(s, 'File', 'exportDoc')!.accelerator).toBeUndefined();
+    }
+  });
+
+  test('U40: File carries Print… right after Export… with the fixed Mod+P accelerator', () => {
+    for (const s of [base, { ...base, isMac: false }]) {
+      const file = commandsIn(s, 'File').map((i) => i.command);
+      expect(file.indexOf('printDoc')).toBe(file.indexOf('exportDoc') + 1);
+      expect(find(s, 'File', 'printDoc')!.label).toBe('Print…');
+      expect(find(s, 'File', 'printDoc')!.accelerator).toBe('Mod+P');
     }
   });
 });

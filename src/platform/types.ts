@@ -100,15 +100,11 @@ export interface Platform {
   closeFocusedAuxWindow?(): Promise<boolean>;
 
   /**
-   * SPEC17 §3: hand a standalone print-ready page to the OS print dialog
-   * (macOS: PDF ▾ / Save as PDF). Desktop opens the printview window; the
-   * shim records the html on window.__mmPrints; web leaves it undefined
-   * (the PDF option is disabled there).
+   * File → Print… : the webview's REAL native print of the current window
+   * (Rust print_view command — window.print() is a WKWebView no-op). The
+   * OS dialog offers Save as PDF. Print CSS hides the app chrome. The shim
+   * records invocations on window.__mmPrints; web leaves it undefined (the
+   * browser's own ⌘P already covers it).
    */
-  printDocument?(html: string): Promise<void>;
-  /**
-   * printview window only (SPEC18 §2): the webview's REAL native print via
-   * the Rust print_view command — window.print() is a WKWebView no-op.
-   */
-  printPage?(): Promise<void>;
+  printCurrent?(): Promise<void>;
 }

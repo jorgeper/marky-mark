@@ -653,15 +653,11 @@ export default function App() {
         comments: staticComments,
       });
 
-      if (req.format === 'html') {
-        if (!p.saveFileDialog) return;
-        const target = await p.saveFileDialog(`${name.replace(/\.(md|markdown)$/i, '')}.html`, 'html');
-        if (!target) return;
-        await p.writeTextFile(target, html);
-        await p.commitFile?.(target);
-      } else {
-        await p.printDocument?.(html);
-      }
+      if (!p.saveFileDialog) return;
+      const target = await p.saveFileDialog(`${name.replace(/\.(md|markdown)$/i, '')}.html`, 'html');
+      if (!target) return;
+      await p.writeTextFile(target, html);
+      await p.commitFile?.(target);
     })();
   }, []);
 
@@ -675,6 +671,10 @@ export default function App() {
       // SPEC17 §1: Export… opens the dialog (silent no-op without a document).
       exportDoc: () => {
         if (stateRef.current.docPath) setExportOpen(true);
+      },
+      // File → Print…: native print of this window; print CSS trims chrome.
+      printDoc: () => {
+        if (stateRef.current.docPath) void stateRef.current.platform?.printCurrent?.();
       },
       toggleDiff: () => setShowDiff((v) => !v),
       toggleWordCount: () => {
@@ -1673,7 +1673,6 @@ export default function App() {
         <ExportDialog
           themes={themes}
           initialTheme={settings.exportTheme}
-          canPdf={!!platform.printDocument}
           onThemeChange={(id) => updateSettings({ ...stateRef.current.settings, exportTheme: id })}
           onExport={runExport}
           onClose={() => setExportOpen(false)}

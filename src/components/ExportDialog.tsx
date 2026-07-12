@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import type { Theme } from '../lib/themes';
 
 export interface ExportRequest {
-  format: 'html' | 'pdf';
   includeComments: boolean;
   includeWordCount: boolean;
   /** 'current' or a theme id. */
@@ -10,26 +9,24 @@ export interface ExportRequest {
 }
 
 /**
- * SPEC17 §1 / SPEC18: the Export dialog. Format (static HTML page / PDF via the OS
- * print dialog), include-comments, include-word-count, and the sticky theme
- * select. Pure UI — the owner runs the export and persists the theme choice.
+ * The Export dialog: a static HTML reading page with include-comments,
+ * include-word-count, and the sticky theme select. Pure UI — the owner runs
+ * the export and persists the theme choice. (Printing/PDF lives under
+ * File → Print… instead.)
  */
 export function ExportDialog({
   themes,
   initialTheme,
-  canPdf,
   onThemeChange,
   onExport,
   onClose,
 }: {
   themes: Theme[];
   initialTheme: string;
-  canPdf: boolean;
   onThemeChange(theme: string): void;
   onExport(req: ExportRequest): void;
   onClose(): void;
 }) {
-  const [format, setFormat] = useState<'html' | 'pdf'>('html');
   const [includeComments, setIncludeComments] = useState(true);
   const [includeWordCount, setIncludeWordCount] = useState(true);
   const [theme, setTheme] = useState(initialTheme);
@@ -46,35 +43,6 @@ export function ExportDialog({
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal export-modal" data-testid="export-dialog">
         <h2>Export</h2>
-
-        <div className="field">
-          <label>Format</label>
-          <div className="inline-row">
-            <label className="radio-label">
-              <input
-                type="radio"
-                name="export-format"
-                data-testid="export-format-html"
-                checked={format === 'html'}
-                onChange={() => setFormat('html')}
-              />
-              HTML — static reading page
-            </label>
-          </div>
-          <div className="inline-row">
-            <label className="radio-label">
-              <input
-                type="radio"
-                name="export-format"
-                data-testid="export-format-pdf"
-                checked={format === 'pdf'}
-                disabled={!canPdf}
-                onChange={() => setFormat('pdf')}
-              />
-              PDF — via the system print dialog
-            </label>
-          </div>
-        </div>
 
         <div className="checkbox-row">
           <input
@@ -128,7 +96,7 @@ export function ExportDialog({
           <button
             className="primary"
             data-testid="export-run"
-            onClick={() => onExport({ format, includeComments, includeWordCount, theme })}
+            onClick={() => onExport({ includeComments, includeWordCount, theme })}
           >
             Export
           </button>

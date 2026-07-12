@@ -182,9 +182,9 @@ export function createBrowserPlatform(): Platform {
     ...(nativeMenu ? { setAppMenu, openAuxWindow, closeFocusedAuxWindow } : {}),
     busEmit,
     busListen,
-    // SPEC17 §3.1: the shim never opens print UI — record for e2e (E67).
-    async printDocument(html) {
-      ((window as unknown as { __mmPrints?: string[] }).__mmPrints ??= []).push(html);
+    // The shim never opens print UI — record invocations for e2e (E67).
+    async printCurrent() {
+      ((window as unknown as { __mmPrints?: string[] }).__mmPrints ??= []).push('print-current');
     },
     isMac: navigator.platform.toLowerCase().includes('mac'),
 
