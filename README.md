@@ -79,6 +79,11 @@ Either way it's a one-time step — the app opens normally afterwards.
 - **Never lose work** — dirty buffers shadow-save continuously; after a
   crash or force-quit the next launch offers to restore your unsaved
   changes, untitled buffers included.
+- **A folder sidebar, when you want it** — ⌘⇧E (or View → Folders) opens
+  a VS Code-style tree: expand folders, markdown files marked with a `#`
+  and one click away, everything else quietly grayed out. Resizable,
+  closeable, remembers its root and what you had expanded; opening a
+  file reveals it in the tree, and File → Open Folder… points it anywhere.
 - **Front matter, handled** — YAML front matter never renders as broken
   markdown; it shows as a quiet metadata card you can dismiss (✕ or View →
   Front Matter), with a setting for the default.

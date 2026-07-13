@@ -62,6 +62,19 @@ export async function createTauriPlatform(): Promise<Platform> {
       const entries = await fsp.readDir(dir);
       return entries.map((e) => e.name).filter((n): n is string => !!n);
     },
+    // SPEC34 §1: same plugin-fs readDir, keeping the directory bit.
+    async readDirEntries(dir) {
+      if (!(await fsp.exists(dir))) return [];
+      const entries = await fsp.readDir(dir);
+      return entries
+        .filter((e): e is typeof e & { name: string } => !!e.name)
+        .map((e) => ({ name: e.name, isDir: !!e.isDirectory }));
+    },
+    // SPEC34 §1: the existing dialog permission covers directory picking.
+    async openFolderDialog() {
+      const picked = await dialog.open({ multiple: false, directory: true });
+      return typeof picked === 'string' ? picked : null;
+    },
     async mkdirp(dir) {
       if (!(await fsp.exists(dir))) await fsp.mkdir(dir, { recursive: true });
     },

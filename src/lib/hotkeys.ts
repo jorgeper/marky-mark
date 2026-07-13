@@ -11,6 +11,7 @@ export interface HotkeyMap {
   newFile: string;
   openFile: string;
   find: string;
+  toggleFolders: string;
   toggleComments: string;
   save: string;
   nextComment: string;
@@ -25,6 +26,7 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   newFile: 'Mod+N',
   openFile: 'Mod+O',
   find: 'Mod+F',
+  toggleFolders: 'Mod+Shift+E',
   toggleComments: 'Mod+Shift+C',
   save: 'Mod+S',
   nextComment: 'Mod+Alt+ArrowDown',

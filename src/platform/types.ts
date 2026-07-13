@@ -59,6 +59,13 @@ export interface Platform {
   writeBinaryFile?(path: string, bytes: Uint8Array): Promise<void>;
   /** SPEC20 follow-up (Insert Image…): pick an image file; null = cancelled. */
   openImageDialog?(): Promise<string | null>;
+  /**
+   * SPEC34 §1: the folder sidebar's two seams. Absent (web) ⇒ the entire
+   * feature never renders. Direct children only; names, not paths.
+   */
+  readDirEntries?(dir: string): Promise<Array<{ name: string; isDir: boolean }>>;
+  /** SPEC34 §1: native directory picker; null = cancelled. */
+  openFolderDialog?(): Promise<string | null>;
   /** SPEC20 follow-up: copy a file, creating the destination's parents. */
   copyFile?(src: string, dest: string): Promise<void>;
 

@@ -26,6 +26,8 @@ declare global {
       reset(): void;
       /** Test hook: the path the next saveFileDialog() call returns. */
       nextSavePath?: string | null;
+      /** SPEC34 §1: the path the next openFolderDialog() call returns. */
+      nextFolderPath?: string | null;
       /** Test observability: set when revealThemesDir() was invoked. */
       revealedThemesDir?: boolean;
     };
@@ -296,6 +298,31 @@ export function createBrowserPlatform(): Platform {
       const path = window.prompt('Open file (virtual path):', '/docs/field-guide.md');
       if (!path) return null;
       return fs.exists(path) ? normalize(path) : null;
+    },
+    // SPEC34 §1: directories are implied by the virtual fs's path prefixes.
+    async readDirEntries(dir) {
+      const base = normalize(dir).replace(/\/+$/, '');
+      const seen = new Map();
+      for (const p of fs.list()) {
+        if (!p.startsWith(`${base}/`)) continue;
+        const rest = p.slice(base.length + 1);
+        const slash = rest.indexOf('/');
+        if (slash === -1) {
+          if (rest) seen.set(rest, false);
+        } else {
+          seen.set(rest.slice(0, slash), true);
+        }
+      }
+      return [...seen.entries()].map(([name, isDir]) => ({ name, isDir }));
+    },
+    async openFolderDialog() {
+      const hook = window.__mmfs?.nextFolderPath;
+      if (hook !== undefined) {
+        if (window.__mmfs) window.__mmfs.nextFolderPath = undefined;
+        return hook;
+      }
+      const path = window.prompt('Open folder (virtual path):', '/docs');
+      return path ? normalize(path).replace(/\/+$/, '') : null;
     },
     async saveFileDialog(suggestedName) {
       const hook = window.__mmfs?.nextSavePath;

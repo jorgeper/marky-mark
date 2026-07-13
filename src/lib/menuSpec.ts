@@ -84,6 +84,8 @@ export interface MenuState {
   showFrontmatter: boolean;
   /** SPEC29 §3: Open Recent entries, most-recent-first (label ready-made). */
   recentFiles: Array<{ path: string; label: string }>;
+  /** SPEC34 §4.1: the folder sidebar's visibility (persisted setting). */
+  showFolders: boolean;
 }
 
 const sep: PredefinedItemSpec = { type: 'predefined', item: 'Separator' };
@@ -131,6 +133,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
   const viewMenu: SubmenuSpec = {
     title: 'View',
     items: [
+      // SPEC34 §4.1: layout chrome ahead of the mode toggles.
+      cmd('toggleFolders', 'Folders', s.hotkeys.toggleFolders, s.showFolders),
       cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit'),
       // SPEC25 §3: split is a first-class toggle, not just a Settings checkbox.
       cmd('toggleSplit', 'Split Edit', s.hotkeys.toggleSplit, s.splitEdit),
@@ -194,6 +198,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             cmd('newFile', 'New', s.hotkeys.newFile),
             cmd('open', 'Open…', s.hotkeys.openFile),
             openRecent,
+            // SPEC34 §4.2: opens a folder as the sidebar root — no file opens.
+            cmd('openFolder', 'Open Folder…'),
             sep,
             cmd('save', 'Save', s.hotkeys.save),
             cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
@@ -219,6 +225,7 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
           cmd('newFile', 'New', s.hotkeys.newFile),
           cmd('open', 'Open…', s.hotkeys.openFile),
           openRecent,
+          cmd('openFolder', 'Open Folder…'),
           sep,
           cmd('save', 'Save', s.hotkeys.save),
           cmd('saveAs', 'Save As…', 'Mod+Shift+S'),

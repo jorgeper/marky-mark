@@ -10,6 +10,9 @@ export const FONT_SIZE_MAX = 32;
 /** Split-edit divider bounds (SPEC7 §5): the editor pane's fraction. */
 export const SPLIT_RATIO_MIN = 0.2;
 export const SPLIT_RATIO_MAX = 0.8;
+/** SPEC34 §2.2: folder sidebar width bounds (px). */
+export const FOLDER_WIDTH_MIN = 160;
+export const FOLDER_WIDTH_MAX = 480;
 
 /** Margin presets → content-column max-width overrides (SPEC3 §2, SPEC4 §7). */
 export const MARGIN_WIDTHS: Record<Exclude<Margins, 'default'>, string> = {
@@ -53,6 +56,10 @@ export interface Settings {
   showFrontmatter: boolean;
   /** SPEC30 §2: reopen the most recent document at launch. */
   reopenLastDoc: boolean;
+  /** SPEC34 §2.2: the folder sidebar's visibility (persisted toggle). */
+  showFolders: boolean;
+  /** SPEC34 §3.6: sidebar width in px, clamped [160, 480]. */
+  folderWidth: number;
   hotkeys: HotkeyMap;
 }
 
@@ -81,6 +88,8 @@ export const DEFAULT_SETTINGS: Settings = {
   editorSyntax: true,
   showFrontmatter: true,
   reopenLastDoc: true,
+  showFolders: false,
+  folderWidth: 240,
   hotkeys: { ...DEFAULT_HOTKEYS },
 };
 
@@ -157,6 +166,11 @@ export function parseSettings(json: string): Settings {
     editorSyntax: typeof o.editorSyntax === 'boolean' ? o.editorSyntax : DEFAULT_SETTINGS.editorSyntax,
     showFrontmatter: typeof o.showFrontmatter === 'boolean' ? o.showFrontmatter : DEFAULT_SETTINGS.showFrontmatter,
     reopenLastDoc: typeof o.reopenLastDoc === 'boolean' ? o.reopenLastDoc : DEFAULT_SETTINGS.reopenLastDoc,
+    showFolders: o.showFolders === true,
+    folderWidth:
+      typeof o.folderWidth === 'number' && Number.isFinite(o.folderWidth)
+        ? Math.min(FOLDER_WIDTH_MAX, Math.max(FOLDER_WIDTH_MIN, Math.round(o.folderWidth)))
+        : DEFAULT_SETTINGS.folderWidth,
     hotkeys,
   };
 }

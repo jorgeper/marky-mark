@@ -15,6 +15,7 @@ const base: MenuState = {
   showWordCount: true,
   showFrontmatter: true, // SPEC26 §3: fixture-level only — no assertion changed
   recentFiles: [], // SPEC29 §3: fixture-level only — no assertion changed
+  showFolders: false, // SPEC34 §4: fixture-level only — no assertion changed
 };
 
 const titles = (s: MenuState) => buildMenuSpec(s).submenus.map((m) => m.title);
@@ -34,7 +35,8 @@ describe('SPEC12 menu spec', () => {
     expect(find(base, 'Marky Mark', 'close')!.label).toBe('Quit Marky Mark');
     const file = commandsIn(base, 'File').map((i) => i.command);
     // SPEC21 §5.6 amendment: New… now leads the File menu.
-    expect(file).toEqual(['newFile', 'open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']);
+    // SPEC34 §4.2: Open Folder… joins after Open Recent (addition-only).
+    expect(file).toEqual(['newFile', 'open', 'openFolder', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']);
     expect(find(base, 'File', 'close')!.label).toBe('Close Window');
     expect(commandsIn(base, 'Help').map((i) => i.command)).toEqual(['help']);
     // Edit: the predefined system items in the standard order, then the one
@@ -56,7 +58,8 @@ describe('SPEC12 menu spec', () => {
     expect(titles(win)).toEqual(['File', 'Edit', 'View', 'Help']);
     const file = commandsIn(win, 'File').map((i) => i.command);
     // SPEC21 §5.6 amendment: New… now leads the File menu.
-    expect(file).toEqual(['newFile', 'open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']);
+    // SPEC34 §4.2: Open Folder… joins after Open Recent (addition-only).
+    expect(file).toEqual(['newFile', 'open', 'openFolder', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']);
     expect(find(win, 'File', 'close')!.label).toBe('Exit');
     expect(find(win, 'File', 'settings')!.accelerator).toBe('Mod+,');
     expect(commandsIn(win, 'Help').map((i) => i.command)).toEqual(['help', 'about', 'checkUpdates']);
@@ -220,10 +223,11 @@ describe('SPEC12 menu spec', () => {
       expect(clear.type === 'command' && clear.command).toBe('clearRecent');
       expect(clear.type === 'command' && clear.label).toBe('Clear Menu');
       // The File menu's TOP-LEVEL command list is exactly what U19/U20 pin.
+      // SPEC34 §4.2: Open Folder… joins after Open Recent (addition-only).
       expect(commandsIn(st, 'File').map((i) => i.command)).toEqual(
         st.isMac
-          ? ['newFile', 'open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']
-          : ['newFile', 'open', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']
+          ? ['newFile', 'open', 'openFolder', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']
+          : ['newFile', 'open', 'openFolder', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']
       );
     }
     // Empty list: the submenu holds just Clear Menu (macOS-style), no separator.
@@ -247,5 +251,33 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{}').reopenLastDoc).toBe(true);
     expect(parseSettings('{"reopenLastDoc":false}').reopenLastDoc).toBe(false);
     expect(parseSettings('{"reopenLastDoc":"nah"}').reopenLastDoc).toBe(true);
+  });
+
+  test('U61: View starts with Folders (Mod+Shift+E checkbox); File carries Open Folder… after Open Recent; settings clamp', () => {
+    expect(DEFAULT_HOTKEYS.toggleFolders).toBe('Mod+Shift+E');
+    for (const s of [base, { ...base, isMac: false }]) {
+      const view = commandsIn(s, 'View').map((i) => i.command);
+      expect(view[0]).toBe('toggleFolders');
+      expect(find(s, 'View', 'toggleFolders')!.label).toBe('Folders');
+      expect(find(s, 'View', 'toggleFolders')!.accelerator).toBe('Mod+Shift+E');
+      expect(find(s, 'View', 'toggleFolders')!.checked).toBe(false);
+      // Open Folder… sits directly after the Open Recent submenu.
+      const file = buildMenuSpec(s).submenus.find((m) => m.title === 'File')!;
+      const subIdx = file.items.findIndex((i) => i.type === 'submenu');
+      const after = file.items[subIdx + 1];
+      expect(after.type === 'command' && after.command).toBe('openFolder');
+      expect(after.type === 'command' && after.label).toBe('Open Folder…');
+      expect(after.type === 'command' && after.accelerator).toBeUndefined();
+    }
+    expect(find({ ...base, showFolders: true }, 'View', 'toggleFolders')!.checked).toBe(true);
+    const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, toggleFolders: 'Mod+Shift+D' } };
+    expect(find(rebound, 'View', 'toggleFolders')!.accelerator).toBe('Mod+Shift+D');
+    // Settings: default-off panel, clamped width, hotkey merge.
+    expect(parseSettings('{}').showFolders).toBe(false);
+    expect(parseSettings('{"showFolders":true}').showFolders).toBe(true);
+    expect(parseSettings('{}').folderWidth).toBe(240);
+    expect(parseSettings('{"folderWidth":100}').folderWidth).toBe(160);
+    expect(parseSettings('{"folderWidth":999}').folderWidth).toBe(480);
+    expect(parseSettings('{"hotkeys":{"save":"Mod+S"}}').hotkeys.toggleFolders).toBe('Mod+Shift+E');
   });
 });

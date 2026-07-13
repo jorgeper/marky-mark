@@ -519,6 +519,22 @@ deletes it; restore installs the draft as the dirty buffer over the
 reopened document (or a fresh untitled buffer). Staleness (`disk ===
 draft`) keeps the prompt honest after ordinary saves.
 
+## The folder sidebar (SPEC34)
+
+Two optional Platform seams carry the whole feature — `readDirEntries`
+(plugin-fs `readDir` on desktop; derived from path prefixes in the shim)
+and `openFolderDialog` (the existing dialog permission, `directory:
+true`); the web build defines neither, so the sidebar is structurally
+unreachable there. `folderTree.ts` (pure) owns classification, ordering,
+dotfile filtering, reveal ancestry, and the persisted state
+(`foldertree.json`: root + expanded set, capped). Listings are lazy and
+re-fetched on every expansion — an honest tree without watchers. Reveal
+rule: every successful real-path open with the panel visible expands
+`ancestorsOf(root, path)` and selects the row; a file outside the root
+retargets the root to its directory; a hidden panel never auto-opens.
+Width and visibility ride settings (`folderWidth`, `showFolders`); the
+divider uses the split-edit pointer-capture pattern.
+
 ## Open Recent (SPEC29)
 
 `recentFiles.ts` (pure, mirrors the reading-positions store): MRU-first,

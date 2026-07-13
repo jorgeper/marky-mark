@@ -133,19 +133,22 @@ test('E6: remapping the edit-toggle hotkey in settings takes effect immediately;
 }) => {
   await openSettings(page, 'hotkeys');
   await page.getByTestId('hotkey-toggleEdit').click();
-  await page.keyboard.press('Control+Shift+E');
+  // SPEC34: the fixture combo moved off Mod+Shift+E — that is now the
+  // folder sidebar's DEFAULT binding, so the conflict detector (rightly)
+  // refuses it. The test's semantics are unchanged: remap, old dies, new works.
+  await page.keyboard.press('Control+Shift+Y');
   await page.getByTestId('settings-close').click();
 
   await page.keyboard.press('Control+e'); // old combo — must do nothing
   await expect(page.getByTestId('editor')).toHaveCount(0);
   await expect(page.getByTestId('doc')).toBeVisible();
 
-  await page.keyboard.press('Control+Shift+E'); // new combo
+  await page.keyboard.press('Control+Shift+Y'); // new combo
   await expect(page.getByTestId('editor')).toBeVisible();
 
   // Persisted to settings.json in the config dir.
   const settings = await fsRead(page, '/config/settings.json');
-  expect(settings).toContain('Mod+Shift+E');
+  expect(settings).toContain('"toggleEdit": "Mod+Shift+Y"'); // the REBOUND key, precisely
 });
 
 test('E7: select text → Add comment → highlight in DOM and card in panel with the body text', async ({ page }) => {
@@ -2965,4 +2968,161 @@ test('E92: crash-safe drafts — shadow write, restore, discard, staleness after
   await expect(page.getByTestId('docname')).toContainText('Untitled');
   await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('ScratchDraft');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
+});
+
+const seedFolders = async (page: import('@playwright/test').Page) => {
+  await fsWrite(page, '/notes/a.md', '# A doc\n');
+  await fsWrite(page, '/notes/pic.png', 'binary-ish');
+  await fsWrite(page, '/notes/zzz.txt', 'plain');
+  await fsWrite(page, '/notes/.hidden/secret.md', '# no\n');
+  await fsWrite(page, '/notes/sub/b.md', '# B doc\n');
+  await fsWrite(page, '/notes/sub/deep/c.md', '# C doc\n');
+  await fsWrite(page, '/other/d.md', '# D doc\n');
+};
+
+test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion persistence, guarded md opens, inert others', async ({
+  page,
+}) => {
+  await seedFolders(page);
+
+  // Hotkey opens the panel; no root yet ⇒ the empty state.
+  await page.keyboard.press('Control+Shift+E');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('folder-open-btn')).toBeVisible();
+
+  // Open Folder… (hook-armed): root lists — folders first, dotfiles hidden.
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+  const names = () =>
+    page.$$eval('[data-testid="folder-item"]', (els) => els.map((e) => e.getAttribute('data-path')));
+  await expect.poll(names).toEqual(['/notes/sub', '/notes/a.md', '/notes/pic.png', '/notes/zzz.txt']);
+
+  // Markdown rows carry the # glyph; others are dim and inert.
+  await expect(page.locator('[data-path="/notes/a.md"] .folder-glyph')).toHaveText('#');
+  await expect(page.locator('[data-path="/notes/pic.png"]')).toHaveClass(/folder-item-dim/);
+  await page.locator('[data-path="/notes/pic.png"]').click({ force: true });
+  await expect(page.getByTestId('docname')).toContainText('welcome.md'); // unchanged
+
+  // Expand sub → children appear; expansion persists to foldertree.json.
+  await page.locator('[data-path="/notes/sub"]').click();
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/config/foldertree.json')).toContain('/notes/sub');
+
+  // Restart: panel visibility, root, and expansion all survive.
+  await page.reload();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toBeVisible();
+
+  // Clicking a markdown row opens it (selected class follows).
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
+
+  // The unsaved-changes guard applies to tree opens too.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('DIRTY ');
+  await page.keyboard.press('Control+e');
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  await page.getByTestId('open-cancel').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+});
+
+test('E94: folder chrome — divider resize persists, × / View checkbox / hotkey all flip the setting', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await seedFolders(page);
+
+  await menuClick(page, 'toggleFolders');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+
+  // Drag the divider ~+80px; width and the persisted setting follow.
+  const before = await page.getByTestId('folder-panel').evaluate((el) => el.getBoundingClientRect().width);
+  const box = (await page.getByTestId('folder-divider').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 80, box.y + 200, { steps: 5 });
+  await page.mouse.up();
+  const after = await page.getByTestId('folder-panel').evaluate((el) => el.getBoundingClientRect().width);
+  expect(after).toBeGreaterThan(before + 40);
+  await expect.poll(async () => JSON.parse((await fsRead(page, '/config/settings.json'))!).folderWidth).toBeGreaterThan(
+    before + 40
+  );
+
+  // × closes; the View checkbox reflects it; the hotkey reopens.
+  const foldersItem = () =>
+    page.evaluate(() => {
+      const view = window.__mmMenu!.spec!.submenus.find((m) => m.title === 'View')!;
+      return view.items.find((i) => i.type === 'command' && (i as { command?: string }).command === 'toggleFolders') as {
+        checked?: boolean;
+      };
+    });
+  expect((await foldersItem()).checked).toBe(true);
+  await page.getByTestId('folder-close').click();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect.poll(async () => (await foldersItem()).checked).toBe(false);
+  await page.waitForTimeout(200); // SPEC12 §1.3 cross-source dedup window
+  await page.keyboard.press('Control+Shift+E');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  // Visibility persists across a restart.
+  await page.reload();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+});
+
+test('E95: reveal — auto on open, sync button, outside-root retarget, hidden panel stays hidden, untitled clears', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await page.keyboard.press('Control+Shift+E');
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+
+  // Opening a nested file walks the tree open and selects its row.
+  await page.goto('/#open=/notes/sub/deep/c.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('C doc');
+  await expect(page.locator('[data-path="/notes/sub/deep/c.md"]')).toHaveClass(/selected/);
+
+  // Collapse everything; the sync button re-reveals.
+  await page.locator('[data-path="/notes/sub"]').first().click(); // collapse sub
+  await expect(page.locator('[data-path="/notes/sub/deep/c.md"]')).toHaveCount(0);
+  await page.getByTestId('folder-sync').click();
+  await expect(page.locator('[data-path="/notes/sub/deep/c.md"]')).toHaveClass(/selected/);
+
+  // A file OUTSIDE the root retargets the root to its directory.
+  await page.goto('/#open=/other/d.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('D doc');
+  await expect(page.getByTestId('folder-header')).toContainText('other');
+  await expect(page.locator('[data-path="/other/d.md"]')).toHaveClass(/selected/);
+  await expect.poll(() => fsRead(page, '/config/foldertree.json')).toContain('"/other"');
+
+  // Hidden panel: opening files never forces it open.
+  await page.getByTestId('folder-close').click();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await page.goto('/#open=/notes/a.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('A doc');
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+
+  // Untitled buffers clear the selection. (Human pacing: the automation just
+  // clicked × milliseconds ago — the SPEC12 §1.3 cross-source dedup window
+  // would rightly treat an instant hotkey as the same physical action.)
+  await page.waitForTimeout(200);
+  await page.keyboard.press('Control+Shift+E');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await page.keyboard.press('Control+n');
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.locator('.folder-item.selected')).toHaveCount(0);
 });

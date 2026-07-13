@@ -23,6 +23,8 @@ export type CommandId =
   | 'toggleFrontmatter'
   | 'clearRecent'
   | 'find'
+  | 'toggleFolders'
+  | 'openFolder'
   | 'settings'
   | 'help'
   | 'about'

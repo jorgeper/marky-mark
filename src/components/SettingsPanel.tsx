@@ -31,6 +31,7 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   newFile: 'New file',
   openFile: 'Open file',
   find: 'Find',
+  toggleFolders: 'Show / hide folders',
   toggleComments: 'Show / hide comments',
   save: 'Save',
   nextComment: 'Next comment',

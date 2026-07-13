@@ -28,6 +28,8 @@ import { UpdateDialog } from './components/UpdateDialog';
 import { diffLineSets, type DiffLineSets } from './lib/diffLines';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
 import { clearRecent, parseRecent, recentMenuEntries, rememberRecent, removeRecent, serializeRecent, type RecentStore } from './lib/recentFiles';
+import { ancestorsOf, parseFolderState, serializeFolderState, visibleEntries, type DirEntry } from './lib/folderTree';
+import { FolderPanel } from './components/FolderPanel';
 import { countWords } from './lib/wordCount';
 import { expandImageName, extForMime, imageMarkdownRef, sanitizeImageName } from './lib/imagePaste';
 import { applyImageRewrite } from './lib/imageResize';
@@ -96,6 +98,10 @@ export default function App() {
   const [positions, setPositions] = useState<Positions>({});
   // SPEC29: Open Recent (MRU, persisted to recent.json; menu rebuild rides it).
   const [recent, setRecent] = useState<RecentStore>({ version: 1, entries: [] });
+  // SPEC34: the folder sidebar — root, expanded set, and per-dir listings.
+  const [folderRoot, setFolderRoot] = useState<string | null>(null);
+  const [folderExpanded, setFolderExpanded] = useState<Set<string>>(new Set());
+  const [folderChildren, setFolderChildren] = useState<Record<string, DirEntry[]>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showComments, setShowComments] = useState(true);
   // SPEC26 §3: per-document front-matter override — null means "follow the
@@ -638,6 +644,81 @@ export default function App() {
     })();
   }, []);
   const recentRef = useRef<RecentStore>({ version: 1, entries: [] });
+  /** SPEC34 §2.3: write-through mirror of root+expanded for foldertree.json. */
+  const folderStateRef = useRef<{ root: string | null; expanded: Set<string> }>({ root: null, expanded: new Set() });
+
+  const persistFolderState = useCallback((platformNow?: Platform) => {
+    const p = platformNow ?? stateRef.current.platform;
+    if (!p) return;
+    const st = folderStateRef.current;
+    void (async () => {
+      try {
+        await p.writeTextFile(
+          p.join(await p.configDir(), 'foldertree.json'),
+          serializeFolderState({ version: 1, root: st.root, expanded: [...st.expanded] })
+        );
+      } catch {
+        /* best effort */
+      }
+    })();
+  }, []);
+
+  /** List one directory (visible, sorted) into the children cache. */
+  const listFolderDir = useCallback(async (p: Platform, dir: string) => {
+    if (!p.readDirEntries) return;
+    try {
+      const entries = visibleEntries(await p.readDirEntries(dir));
+      setFolderChildren((prev) => ({ ...prev, [dir]: entries }));
+    } catch {
+      setFolderChildren((prev) => ({ ...prev, [dir]: [] }));
+    }
+  }, []);
+
+  /** SPEC34 §3.2: expanding always re-lists (the tree stays honest). */
+  const toggleFolderDir = useCallback(
+    (dir: string) => {
+      const p = stateRef.current.platform;
+      if (!p) return;
+      setFolderExpanded((prev) => {
+        const next = new Set(prev);
+        if (next.has(dir)) next.delete(dir);
+        else {
+          next.add(dir);
+          void listFolderDir(p, dir);
+        }
+        folderStateRef.current = { ...folderStateRef.current, expanded: next };
+        persistFolderState(p);
+        return next;
+      });
+    },
+    [listFolderDir, persistFolderState]
+  );
+
+  /**
+   * SPEC34 §5: expand the ancestor chain of `path` and select its row.
+   * Outside-root (or rootless) opens retarget the persisted root first.
+   * Only ever called with the panel visible.
+   */
+  const revealInFolders = useCallback(
+    async (p: Platform, path: string) => {
+      if (!p.readDirEntries) return;
+      let root = folderStateRef.current.root;
+      let chain = root ? ancestorsOf(root, path, p.dirname) : [];
+      if (chain.length === 0) {
+        root = p.dirname(path);
+        chain = [root];
+        setFolderRoot(root);
+        setFolderChildren({});
+      }
+      const expanded = new Set(folderStateRef.current.root === root ? folderStateRef.current.expanded : []);
+      for (const dir of chain) expanded.add(dir);
+      setFolderExpanded(expanded);
+      folderStateRef.current = { root, expanded };
+      persistFolderState(p);
+      for (const dir of chain) await listFolderDir(p, dir);
+    },
+    [listFolderDir, persistFolderState]
+  );
 
   // Guards the SPEC15/SPEC16 preview restore against firing on stale html
   // (opening a doc from edit mode re-runs the effect before the new render).
@@ -661,6 +742,8 @@ export default function App() {
     setFindOpen(false); // SPEC30 §1.5: find never crosses documents
     setFindQuery('');
     setFindDebounced('');
+    // SPEC34 §5.1: reveal in the sidebar — only when the panel is visible.
+    if (stateRef.current.settings.showFolders && p.readDirEntries) void revealInFolders(p, path);
 
     skipSaveRef.current = true;
     editorHistoryRef.current = null; // a fresh document starts a fresh undo history
@@ -699,7 +782,7 @@ export default function App() {
     } catch {
       /* watching is best-effort */
     }
-  }, [loadDocParts, recordPosition, currentTopLine, commitRecent]);
+  }, [loadDocParts, recordPosition, currentTopLine, commitRecent, revealInFolders]);
 
   /**
    * Unsaved-changes guard (SPEC4 §6): every user-initiated open routes here.
@@ -787,6 +870,23 @@ export default function App() {
         /* start empty */
       }
 
+      // SPEC34 §2.3: folder sidebar state, same tolerance.
+      try {
+        const ftPath = p.join(cfg, 'foldertree.json');
+        if (p.readDirEntries && (await p.exists(ftPath))) {
+          const ft = parseFolderState(await p.readTextFile(ftPath));
+          const expanded = new Set(ft.expanded);
+          folderStateRef.current = { root: ft.root, expanded };
+          setFolderRoot(ft.root);
+          setFolderExpanded(expanded);
+          if (loaded.showFolders && ft.root) {
+            for (const dir of [ft.root, ...ft.expanded]) void listFolderDir(p, dir);
+          }
+        }
+      } catch {
+        /* start empty */
+      }
+
       setPlatform(p);
       setSettings(loaded);
       setThemes(themeList);
@@ -835,7 +935,7 @@ export default function App() {
     return () => {
       disposed = true;
     };
-  }, [openDocGuarded, openDoc]);
+  }, [openDocGuarded, openDoc, listFolderDir]);
 
   // --- auto-hiding toolbar -----------------------------------------------------
   useEffect(() => {
@@ -942,6 +1042,24 @@ export default function App() {
     },
     []
   );
+
+  /** SPEC34 §4.2: pick a directory → root; the panel opens; no file opens. */
+  const openFolderCmd = useCallback(async () => {
+    const p = stateRef.current.platform;
+    if (!p?.openFolderDialog || !p.readDirEntries) return;
+    const picked = await p.openFolderDialog();
+    if (!picked) return;
+    const expanded = new Set([picked]);
+    setFolderRoot(picked);
+    setFolderExpanded(expanded);
+    setFolderChildren({});
+    folderStateRef.current = { root: picked, expanded };
+    persistFolderState(p);
+    await listFolderDir(p, picked);
+    if (!stateRef.current.settings.showFolders) {
+      updateSettings({ ...stateRef.current.settings, showFolders: true });
+    }
+  }, [listFolderDir, persistFolderState, updateSettings]);
 
   // --- actions -----------------------------------------------------------------
   /**
@@ -1267,6 +1385,13 @@ export default function App() {
       insertImage: () => void insertImage(),
       toggleFrontmatter: () => setFmOverride((cur) => !(cur ?? stateRef.current.settings.showFrontmatter)),
       find: openFind,
+      // SPEC34 §4: silent no-ops on platforms without the seam (web).
+      toggleFolders: () => {
+        const st = stateRef.current;
+        if (!st.platform?.readDirEntries) return;
+        updateSettings({ ...st.settings, showFolders: !st.settings.showFolders });
+      },
+      openFolder: () => void openFolderCmd(),
       // SPEC29 §3.4: Clear Menu — no-op when already empty.
       clearRecent: () => commitRecent(clearRecent()),
       toggleWordCount: () => {
@@ -1335,7 +1460,7 @@ export default function App() {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, openFind]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, openFind, openFolderCmd]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
@@ -1369,10 +1494,11 @@ export default function App() {
         showDiff,
         showWordCount: settings.showWordCount,
         showFrontmatter,
+        showFolders: settings.showFolders,
         recentFiles: recentMenuEntries(recent, platform.basename, platform.dirname),
       })
     );
-  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, recent]);
+  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, recent, settings.showFolders]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -1511,6 +1637,9 @@ export default function App() {
       } else if (eventMatches(e, hk.find)) {
         e.preventDefault();
         dispatchCommand('find', 'hotkey');
+      } else if (eventMatches(e, hk.toggleFolders)) {
+        e.preventDefault();
+        dispatchCommand('toggleFolders', 'hotkey');
       } else if (eventMatches(e, hk.toggleComments)) {
         e.preventDefault();
         dispatchCommand('toggleComments', 'hotkey');
@@ -2224,6 +2353,27 @@ export default function App() {
         />
       )}
 
+      <div className="body-row">
+        {platform.readDirEntries && platform.openFolderDialog && settings.showFolders && (
+          <FolderPanel
+            root={folderRoot}
+            children={folderChildren}
+            expanded={folderExpanded}
+            selectedPath={docPath}
+            width={settings.folderWidth}
+            join={platform.join}
+            basename={platform.basename}
+            onToggleDir={toggleFolderDir}
+            onOpenFile={(path) => openDocGuarded(platform, path)}
+            onOpenFolder={() => dispatchCommand('openFolder')}
+            onSync={() => {
+              if (stateRef.current.docPath) void revealInFolders(platform, stateRef.current.docPath);
+            }}
+            onClose={() => dispatchCommand('toggleFolders')}
+            onWidth={(w) => updateSettings({ ...stateRef.current.settings, folderWidth: w })}
+          />
+        )}
+
       {mode === 'preview' ? (
         <div className="workspace" ref={workspaceRef}>
           <ImageResizer
@@ -2444,6 +2594,8 @@ export default function App() {
           </Suspense>
         </div>
       )}
+
+      </div>
 
       {selInfo && showComments && settings.commentsEnabled && !pending && mode === 'preview' && (
         <button
