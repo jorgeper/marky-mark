@@ -129,7 +129,15 @@ export function FolderPanel(p: FolderPanelProps) {
           disabled={!p.selectedPath}
           onClick={p.onSync}
         >
-          ⌖
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <g stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round">
+              <circle cx="8" cy="8" r="4.2" />
+              <line x1="8" y1="0.9" x2="8" y2="3.2" />
+              <line x1="8" y1="12.8" x2="8" y2="15.1" />
+              <line x1="0.9" y1="8" x2="3.2" y2="8" />
+              <line x1="12.8" y1="8" x2="15.1" y2="8" />
+            </g>
+          </svg>
         </button>
         <button data-testid="folder-close" title="Hide folders" onClick={p.onClose}>
           ×

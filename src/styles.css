@@ -1492,8 +1492,14 @@ mark.hl.ghost {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 46px 8px 6px 12px; /* clears the auto-hiding toolbar overlay */
+  padding: 10px 8px 6px 12px;
   border-bottom: 1px solid var(--mm-border, #d1d9e0);
+}
+
+/* Only where an in-app toolbar actually exists (web/shim static mode) does
+   the panel need to clear it — desktop has a native menu bar and no overlay. */
+.theme-root.toolbar-static .folder-panel {
+  padding-top: 42px;
 }
 .folder-title {
   flex: 1;
@@ -1505,9 +1511,13 @@ mark.hl.ghost {
   white-space: nowrap;
 }
 .folder-header button {
-  padding: 2px 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 7px;
   border-radius: 5px;
-  font-size: 13px;
+  font-size: 16px;
+  line-height: 1;
   color: var(--mm-fg-muted, #59636e);
 }
 .folder-header button:hover:not(:disabled) {
@@ -1519,21 +1529,21 @@ mark.hl.ghost {
 }
 .folder-list {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto; /* horizontal too — deep trees outgrow the panel */
   padding: 6px 0 20px;
 }
 .folder-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
+  /* Natural width (min the panel) so long names scroll instead of clipping. */
+  width: max-content;
+  min-width: 100%;
   text-align: left;
-  padding: 3px 8px;
+  padding: 3px 16px 3px 8px;
   font-size: 12.5px;
   color: var(--mm-fg, #1f2328);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .folder-item:hover:not(:disabled) {
   background: var(--mm-bg, #ffffff);
@@ -1547,9 +1557,10 @@ mark.hl.ghost {
   cursor: default;
 }
 .folder-chevron {
-  width: 12px;
+  width: 15px;
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 14px;
+  line-height: 1;
   color: var(--mm-fg-muted, #59636e);
 }
 .folder-glyph {
