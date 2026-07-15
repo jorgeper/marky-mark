@@ -2292,7 +2292,7 @@ export default function App() {
   if (!platform) return <div className="theme-root" />;
 
   return (
-    <div className={`theme-root${!nativeMenu && !settings.autoHideToolbar ? ' toolbar-static' : ''}`} ref={rootRef}>
+    <div className={`theme-root${!nativeMenu ? ' has-toolbar' : ''}${!nativeMenu && !settings.autoHideToolbar ? ' toolbar-static' : ''}`} ref={rootRef}>
       {/* SPEC12 §2.1: with a native menu the header does not render at all. */}
       {!nativeMenu && (
         <>
