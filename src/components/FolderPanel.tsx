@@ -54,7 +54,17 @@ function Rows({
                 style={{ paddingLeft: 10 + depth * 14 }}
                 onClick={() => p.onToggleDir(path)}
               >
-                <span className="folder-chevron">{open ? '▾' : '▸'}</span>
+                <span className="folder-chevron" aria-hidden="true">
+                  {open ? (
+                    <svg width="16" height="16" viewBox="0 0 16 16">
+                      <path d="M3.5 6 L8 10.5 L12.5 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 16 16">
+                      <path d="M6 3.5 L10.5 8 L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </span>
                 {e.name}
               </button>
               {open && <Rows dir={path} depth={depth + 1} p={p} />}

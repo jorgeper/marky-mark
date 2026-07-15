@@ -1557,10 +1557,12 @@ mark.hl.ghost {
   cursor: default;
 }
 .folder-chevron {
-  width: 15px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  font-size: 14px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--mm-fg-muted, #59636e);
 }
 .folder-glyph {
