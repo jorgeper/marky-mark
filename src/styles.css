@@ -1486,6 +1486,9 @@ mark.hl.ghost {
   flex-direction: column;
   background: var(--mm-bg-elevated, #f6f8fa);
   border-right: 1px solid var(--mm-border, #d1d9e0);
+  /* The workspace floats "in front": a soft shadow falls onto the panel's
+     right edge, fading leftward. Themeable. */
+  box-shadow: var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
   user-select: none;
 }
 .folder-header {

@@ -150,7 +150,12 @@ export function FolderPanel(p: FolderPanelProps) {
           </svg>
         </button>
         <button data-testid="folder-close" title="Hide folders" onClick={p.onClose}>
-          ×
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <g stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+              <line x1="4.4" y1="4.4" x2="11.6" y2="11.6" />
+              <line x1="11.6" y1="4.4" x2="4.4" y2="11.6" />
+            </g>
+          </svg>
         </button>
       </div>
       {p.root ? (
