@@ -1485,13 +1485,27 @@ mark.hl.ghost {
   display: flex;
   flex-direction: column;
   background: var(--mm-bg-elevated, #f6f8fa);
-  /* No hairline between panel and workspace — the inset shadow alone marks
-     the edge, so the selected tab meets the content pane seamlessly. */
-  /* The workspace floats "in front": a soft shadow falls onto the panel's
-     right edge, fading leftward. Themeable. */
-  box-shadow: var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
   -webkit-user-select: none; /* WKWebView belt to the unprefixed suspenders */
   user-select: none;
+}
+/* The workspace floats "in front": its cast shadow + a seam hairline live on
+   an overlay PINNED to the panel's right edge (not on per-row edges — rows
+   are max-content wide, so a long name's own edge sits off-screen). The
+   overlay paints above the tree AND the open-tab middle plane (z 1, last
+   child wins the tie) and under the active tab alone (z 2) — the one row
+   that truly breaks the seam. Themeable. */
+.folder-panel::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  pointer-events: none;
+  z-index: 1;
+  box-shadow:
+    inset -1px 0 0 var(--mm-border, #d1d9e0),
+    var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
 }
 .folder-header {
   display: flex;
@@ -1602,13 +1616,10 @@ mark.hl.ghost {
   padding-left: calc(var(--mm-depth, 10px) + 6px);
   position: relative;
   z-index: 1;
-  /* Behind-the-front cues, right edge first: a hairline where the tab meets
-     the workspace, the workspace's own cast shadow (same themeable token as
-     the panel edge) fading in over the tab, then the tab's drop shadows.
-     The ACTIVE tab carries none of the insets — its opening stays unbroken. */
+  /* The tab's own lift only — the seam hairline + workspace cast shadow are
+     painted by the panel-edge overlay above, so rows wider than the panel
+     (long names) get them at the true boundary too. */
   box-shadow:
-    inset -1px 0 0 var(--mm-border, #d1d9e0),
-    var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28)),
     0 1px 3px rgba(0, 0, 0, 0.14),
     0 2px 7px rgba(0, 0, 0, 0.09);
 }
