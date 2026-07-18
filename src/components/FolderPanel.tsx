@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { isMarkdownFile, type DirEntry } from '../lib/folderTree';
 import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN } from '../lib/settings';
 
@@ -51,7 +51,7 @@ function Rows({
                 className="folder-item folder-item-dir"
                 data-testid="folder-item"
                 data-path={path}
-                style={{ paddingLeft: 10 + depth * 14 }}
+                style={{ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties}
                 onClick={() => p.onToggleDir(path)}
               >
                 <span className="folder-chevron" aria-hidden="true">
@@ -78,7 +78,7 @@ function Rows({
             className={`folder-item${md ? '' : ' folder-item-dim'}${p.selectedPath === path ? ' selected' : ''}`}
             data-testid="folder-item"
             data-path={path}
-            style={{ paddingLeft: 10 + depth * 14 }}
+            style={{ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties}
             disabled={!md}
             onClick={md ? () => p.onOpenFile(path) : undefined}
           >
@@ -99,8 +99,15 @@ export function FolderPanel(p: FolderPanelProps) {
   // into view (the owner has already expanded the ancestors).
   useEffect(() => {
     if (!p.selectedPath) return;
-    const el = listRef.current?.querySelector(`[data-path="${CSS.escape(p.selectedPath)}"]`);
-    el?.scrollIntoView({ block: 'nearest' });
+    const list = listRef.current;
+    const el = list?.querySelector(`[data-path="${CSS.escape(p.selectedPath)}"]`);
+    if (!list || !el) return;
+    // Vertical-only reveal: scrollIntoView also scrolls horizontally toward
+    // the row's right edge, which would drag the selected tab's left gap
+    // off-screen in a horizontally-scrollable tree.
+    const x = list.scrollLeft;
+    el.scrollIntoView({ block: 'nearest' });
+    list.scrollLeft = x;
   }, [p.selectedPath, p.expanded, p.children]);
 
   const dragWidth = (e: React.PointerEvent<HTMLDivElement>) => {

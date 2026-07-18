@@ -3021,6 +3021,19 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   await expect(page.getByTestId('docname')).toContainText('b.md');
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
 
+  // The selected tab floats clear of the panel's left edge — the pill must
+  // not widen the scroll range, and the reveal must not scroll the gap away.
+  const pill = await page.evaluate(() => {
+    const list = document.querySelector('.folder-list')!;
+    const sel = document.querySelector('.folder-item.selected')!;
+    return {
+      gap: sel.getBoundingClientRect().left - list.getBoundingClientRect().left,
+      scrollLeft: list.scrollLeft,
+    };
+  });
+  expect(pill.scrollLeft).toBe(0);
+  expect(pill.gap).toBeGreaterThanOrEqual(10);
+
   // The unsaved-changes guard applies to tree opens too.
   await page.keyboard.press('Control+e');
   await page.getByTestId('editor').locator('.cm-line').first().click();

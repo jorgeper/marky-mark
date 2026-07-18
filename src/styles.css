@@ -1485,7 +1485,8 @@ mark.hl.ghost {
   display: flex;
   flex-direction: column;
   background: var(--mm-bg-elevated, #f6f8fa);
-  border-right: 1px solid var(--mm-border, #d1d9e0);
+  /* No hairline between panel and workspace — the inset shadow alone marks
+     the edge, so the selected tab meets the content pane seamlessly. */
   /* The workspace floats "in front": a soft shadow falls onto the panel's
      right edge, fading leftward. Themeable. */
   box-shadow: var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
@@ -1543,7 +1544,8 @@ mark.hl.ghost {
   width: max-content;
   min-width: 100%;
   text-align: left;
-  padding: 3px 16px 3px 8px;
+  /* Depth indent arrives as --mm-depth from the component (inline style). */
+  padding: 3px 16px 3px var(--mm-depth, 10px);
   font-size: 12.5px;
   color: var(--mm-fg, #1f2328);
   white-space: nowrap;
@@ -1551,8 +1553,29 @@ mark.hl.ghost {
 .folder-item:hover:not(:disabled) {
   background: var(--mm-bg, #ffffff);
 }
+/* SPEC34 polish: the open file reads as a TAB on the front plane — the
+   workspace's own surface, rounded on the left, flush right, lifted by a
+   soft shadow that punches through the panel's inset shadow. */
 .folder-item.selected {
-  background: var(--mm-selection, rgba(9, 105, 218, 0.18));
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg, #1f2328);
+  font-weight: 600;
+  border-radius: 7px 0 0 7px;
+  /* The pill floats clear of the window edge, with breathing room inside
+     before the glyph. min-width gives the margin back so the pill stays
+     flush right WITHOUT widening the scroll range — otherwise the reveal's
+     scrollIntoView chases the overflow and scrolls the gap off-screen. */
+  margin-left: 14px;
+  min-width: calc(100% - 14px);
+  padding-left: calc(var(--mm-depth, 10px) + 6px);
+  position: relative;
+  z-index: 1;
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.18),
+    0 5px 16px rgba(0, 0, 0, 0.14);
+}
+.folder-item.selected:hover:not(:disabled) {
+  background: var(--mm-bg, #ffffff); /* the tab doesn't flicker on hover */
 }
 .folder-item-dim {
   color: var(--mm-fg-muted, #59636e);
