@@ -1613,6 +1613,24 @@ mark.hl.ghost {
 .folder-item-dim .folder-glyph {
   color: inherit;
 }
+/* Dim rows are click-inert but not `disabled` (the SPEC35 context menu must
+   reach them) — keep their pre-SPEC35 no-hover look. */
+.folder-item.folder-item-dim:hover {
+  background: transparent;
+}
+/* SPEC35 §3.2: the sidebar context menu — theme-menu look, pointer-anchored. */
+.folder-menu {
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: 60;
+  min-width: 180px;
+}
+.folder-menu-sep {
+  height: 1px;
+  margin: 5px 2px;
+  background: var(--mm-border, #d1d9e0);
+}
 .folder-empty {
   flex: 1;
   display: flex;

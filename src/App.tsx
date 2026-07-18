@@ -29,6 +29,7 @@ import { diffLineSets, type DiffLineSets } from './lib/diffLines';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
 import { clearRecent, parseRecent, recentMenuEntries, rememberRecent, removeRecent, serializeRecent, type RecentStore } from './lib/recentFiles';
 import { ancestorsOf, parseFolderState, serializeFolderState, visibleEntries, type DirEntry } from './lib/folderTree';
+import { relativePath } from './lib/folderOps';
 import { FolderPanel } from './components/FolderPanel';
 import { countWords } from './lib/wordCount';
 import { expandImageName, extForMime, imageMarkdownRef, sanitizeImageName } from './lib/imagePaste';
@@ -731,6 +732,19 @@ export default function App() {
       for (const dir of chain) await listFolderDir(p, dir);
     },
     [listFolderDir, persistFolderState]
+  );
+
+  /** SPEC35 §3: a folder-menu item was invoked — run the operation. */
+  const folderMenuAction = useCallback(
+    (id: string, target: { kind: 'dir' | 'file' | 'root'; path: string }) => {
+      const p = stateRef.current.platform;
+      if (!p) return;
+      const root = folderStateRef.current.root;
+      if (id === 'reveal') void p.revealPath?.(target.path);
+      else if (id === 'copy-path') void p.copyText?.(target.path);
+      else if (id === 'copy-relative-path' && root) void p.copyText?.(relativePath(root, target.path));
+    },
+    []
   );
 
   // Guards the SPEC15/SPEC16 preview restore against firing on stale html
@@ -2387,6 +2401,14 @@ export default function App() {
             }}
             onClose={() => dispatchCommand('toggleFolders')}
             onWidth={(w) => updateSettings({ ...stateRef.current.settings, folderWidth: w })}
+            isMac={platform.isMac}
+            caps={{
+              canReveal: !!platform.revealPath,
+              canTrash: !!platform.trashEntry,
+              canRename: !!platform.renameEntry,
+              canCopy: !!platform.copyText,
+            }}
+            onMenuAction={folderMenuAction}
           />
         )}
 

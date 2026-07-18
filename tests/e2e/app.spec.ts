@@ -3158,3 +3158,81 @@ test('E95: reveal — auto on open, sync button, outside-root retarget, hidden p
   await expect(page.getByTestId('docname')).toContainText('Untitled');
   await expect(page.locator('.folder-item.selected')).toHaveCount(0);
 });
+
+test('E96: folder context menu — per-kind items, dismissal, left-click inertness, copy and reveal record', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await page.keyboard.press('Control+Shift+E');
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+
+  const menuIds = () =>
+    page.$$eval('[data-testid="folder-menu"] [data-testid^="folder-menu-"]', (els) =>
+      els.map((e) => e.getAttribute('data-testid')!.replace('folder-menu-', ''))
+    );
+
+  // Directory row: the full set, in SPEC35 §2.5 order.
+  await page.locator('[data-path="/notes/sub"]').click({ button: 'right' });
+  await expect(page.getByTestId('folder-menu')).toBeVisible();
+  expect(await menuIds()).toEqual([
+    'new-file',
+    'new-folder',
+    'rename',
+    'delete',
+    'reveal',
+    'copy-path',
+    'copy-relative-path',
+  ]);
+  // Esc dismisses.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+
+  // Markdown file row.
+  await page.locator('[data-path="/notes/a.md"]').click({ button: 'right' });
+  await expect(page.getByTestId('folder-menu')).toBeVisible();
+  expect(await menuIds()).toEqual(['reveal', 'rename', 'delete', 'copy-path', 'copy-relative-path']);
+  // Any outside pointer-down dismisses.
+  await page.getByTestId('folder-header').click();
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+
+  // A dim non-markdown row offers the same file menu.
+  await page.getByTestId('folder-filter').click(); // show all files
+  await expect(page.locator('[data-path="/notes/pic.png"]')).toBeVisible();
+  await page.locator('[data-path="/notes/pic.png"]').click({ button: 'right' });
+  await expect(page.getByTestId('folder-menu')).toBeVisible();
+  expect(await menuIds()).toEqual(['reveal', 'rename', 'delete', 'copy-path', 'copy-relative-path']);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+
+  // The list's empty area: the root menu (no rename/delete, no relative copy).
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 60, y: 400 } });
+  await expect(page.getByTestId('folder-menu')).toBeVisible();
+  expect(await menuIds()).toEqual(['new-file', 'new-folder', 'reveal', 'copy-path']);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+
+  // Left click never opens the menu (row click behavior unchanged).
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+
+  // Copy Path / Copy Relative Path land the exact strings on __mmClipboard.
+  await page.locator('[data-path="/notes/sub"]').click(); // expand
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toBeVisible();
+  await page.locator('[data-path="/notes/sub/b.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-copy-path').click();
+  await expect.poll(() => page.evaluate(() => window.__mmClipboard)).toEqual(['/notes/sub/b.md']);
+  await page.locator('[data-path="/notes/sub/b.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-copy-relative-path').click();
+  await expect.poll(() => page.evaluate(() => window.__mmClipboard)).toEqual(['/notes/sub/b.md', 'sub/b.md']);
+
+  // Reveal records on __mmReveals; invoking an item dismissed the menu.
+  await page.locator('[data-path="/notes/a.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-reveal').click();
+  await expect.poll(() => page.evaluate(() => window.__mmReveals)).toEqual(['/notes/a.md']);
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+});

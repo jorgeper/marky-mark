@@ -1,5 +1,6 @@
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { displayEntries, isMarkdownFile, type DirEntry } from '../lib/folderTree';
+import { folderContextMenu } from '../lib/folderOps';
 import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN } from '../lib/settings';
 
 /**
@@ -29,16 +30,25 @@ export interface FolderPanelProps {
   onSync(): void;
   onClose(): void;
   onWidth(width: number): void;
+  /** SPEC35 §2.5: which seam-backed menu items exist on this platform. */
+  isMac: boolean;
+  caps: { canReveal: boolean; canTrash: boolean; canRename: boolean; canCopy: boolean };
+  /** SPEC35 §3: an invoked menu item — the owner runs the operation. */
+  onMenuAction(id: string, target: { kind: 'dir' | 'file' | 'root'; path: string }): void;
 }
+
+type MenuTarget = { kind: 'dir' | 'file' | 'root'; path: string; x: number; y: number };
 
 function Rows({
   dir,
   depth,
   p,
+  onRowMenu,
 }: {
   dir: string;
   depth: number;
   p: FolderPanelProps;
+  onRowMenu(kind: 'dir' | 'file', path: string, e: React.MouseEvent): void;
 }) {
   const listed = p.children[dir];
   if (!listed) return null;
@@ -57,6 +67,7 @@ function Rows({
                 data-path={path}
                 style={{ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties}
                 onClick={() => p.onToggleDir(path)}
+                onContextMenu={(ev) => onRowMenu('dir', path, ev)}
               >
                 <span className="folder-chevron" aria-hidden="true">
                   {open ? (
@@ -71,7 +82,7 @@ function Rows({
                 </span>
                 {e.name}
               </button>
-              {open && <Rows dir={path} depth={depth + 1} p={p} />}
+              {open && <Rows dir={path} depth={depth + 1} p={p} onRowMenu={onRowMenu} />}
             </div>
           );
         }
@@ -83,8 +94,10 @@ function Rows({
             data-testid="folder-item"
             data-path={path}
             style={{ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties}
-            disabled={!md}
+            // Not `disabled` — a disabled button swallows the SPEC35 §3.1
+            // contextmenu; dim rows stay click-inert via the absent onClick.
             onClick={md ? () => p.onOpenFile(path) : undefined}
+            onContextMenu={(ev) => onRowMenu('file', path, ev)}
           >
             <span className="folder-glyph">
               {md ? (
@@ -111,6 +124,48 @@ function Rows({
 export function FolderPanel(p: FolderPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState<MenuTarget | null>(null);
+
+  const openMenu = (kind: MenuTarget['kind'], path: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ kind, path, x: e.clientX, y: e.clientY });
+  };
+
+  // SPEC35 §3.2: positioned at the pointer, clamped to the viewport.
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!el || !menu) return;
+    const r = el.getBoundingClientRect();
+    el.style.left = `${Math.max(4, Math.min(menu.x, window.innerWidth - r.width - 4))}px`;
+    el.style.top = `${Math.max(4, Math.min(menu.y, window.innerHeight - r.height - 4))}px`;
+  }, [menu]);
+
+  // SPEC35 §3.2: dismissed by Esc, any outside pointer-down, scroll, resize.
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) close();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        close();
+      }
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [menu]);
 
   // Reveal follow-through: whenever the selection changes, bring its row
   // into view (the owner has already expanded the ancestors).
@@ -154,6 +209,7 @@ export function FolderPanel(p: FolderPanelProps) {
       data-testid="folder-panel"
       ref={panelRef}
       style={{ '--mm-folders': `${p.width}px` } as React.CSSProperties}
+      onContextMenu={(e) => e.preventDefault()} // SPEC35 §3.1: no native menu in the panel
     >
       <div className="folder-header" data-testid="folder-header">
         <span className="folder-title">{p.root ? p.basename(p.root) : 'Folders'}</span>
@@ -200,14 +256,50 @@ export function FolderPanel(p: FolderPanelProps) {
         </button>
       </div>
       {p.root ? (
-        <div className="folder-list" ref={listRef}>
-          <Rows dir={p.root} depth={0} p={p} />
+        <div
+          className="folder-list"
+          ref={listRef}
+          onContextMenu={(e) => {
+            // Rows handle their own menus; the remaining surface is the
+            // empty area — the `root` menu (SPEC35 §3.1, root always set here).
+            if ((e.target as HTMLElement).closest('[data-path]')) return;
+            if (p.root) openMenu('root', p.root, e);
+          }}
+        >
+          <Rows dir={p.root} depth={0} p={p} onRowMenu={openMenu} />
         </div>
       ) : (
         <div className="folder-empty">
           <button data-testid="folder-open-btn" onClick={p.onOpenFolder}>
             Open Folder…
           </button>
+        </div>
+      )}
+      {menu && (
+        <div
+          className="theme-menu folder-menu"
+          data-testid="folder-menu"
+          ref={menuRef}
+          style={{ left: menu.x, top: menu.y }}
+        >
+          {folderContextMenu(menu.kind, { isMac: p.isMac, ...p.caps }).map((it, i) =>
+            it === 'sep' ? (
+              <div key={`sep-${i}`} className="folder-menu-sep" />
+            ) : (
+              <button
+                key={it.id}
+                className="theme-option"
+                data-testid={`folder-menu-${it.id}`}
+                onClick={() => {
+                  const m = menu;
+                  setMenu(null);
+                  p.onMenuAction(it.id, { kind: m.kind, path: m.path });
+                }}
+              >
+                <span>{it.label}</span>
+              </button>
+            )
+          )}
         </div>
       )}
       <div className="folder-divider" data-testid="folder-divider" onPointerDown={dragWidth} />
