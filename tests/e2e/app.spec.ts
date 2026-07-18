@@ -3237,6 +3237,62 @@ test('E96: folder context menu — per-kind items, dismissal, left-click inertne
   await expect(page.getByTestId('folder-menu')).toHaveCount(0);
 });
 
+test('E97: create — New File / New Folder land in the clicked directory, inline-rename handoff, numbered placeholders', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await page.keyboard.press('Control+Shift+E');
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
+  await page.locator('[data-path="/notes/sub"]').click(); // expand
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toBeVisible();
+
+  // New File under the nested directory: an empty Untitled.md is written and
+  // the new row immediately enters in-place rename.
+  await page.locator('[data-path="/notes/sub"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-new-file').click();
+  const input = page.getByTestId('folder-rename-input');
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue('Untitled.md');
+  await expect.poll(() => fsRead(page, '/notes/sub/Untitled.md')).toBe('');
+  // Esc keeps the placeholder name — and the new file still opens.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('docname')).toContainText('Untitled.md');
+  await expect(page.locator('[data-path="/notes/sub/Untitled.md"]')).toHaveClass(/selected/);
+
+  // The second run numbers itself before the extension; typing replaces the
+  // preselected stem, Enter commits, and the file opens.
+  await page.locator('[data-path="/notes/sub"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-new-file').click();
+  await expect(input).toHaveValue('Untitled 2.md');
+  await page.keyboard.type('story');
+  await expect(input).toHaveValue('story.md');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('docname')).toContainText('story.md');
+  await expect(page.locator('[data-path="/notes/sub/story.md"]')).toHaveClass(/selected/);
+  await expect.poll(() => fsRead(page, '/notes/sub/story.md')).toBe('');
+  expect(await fsRead(page, '/notes/sub/Untitled 2.md')).toBeNull();
+
+  // New Folder: created collapsed, renames in place, opens nothing.
+  await page.locator('[data-path="/notes/sub"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-new-folder').click();
+  await expect(input).toHaveValue('New Folder');
+  await page.keyboard.type('drafts'); // directories preselect the whole name
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[data-path="/notes/sub/drafts"]')).toBeVisible();
+  await expect(page.getByTestId('docname')).toContainText('story.md'); // unchanged
+
+  // The empty-area menu creates against the root.
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 60, y: 400 } });
+  await page.getByTestId('folder-menu-new-file').click();
+  await expect(input).toHaveValue('Untitled.md');
+  await page.keyboard.press('Enter'); // unchanged value ⇒ the cancel path — still opens
+  await expect(page.getByTestId('docname')).toContainText('Untitled.md');
+  await expect.poll(() => fsRead(page, '/notes/Untitled.md')).toBe('');
+});
+
 test('E98: rename in place — open dirty file remaps path/title/recents, dir rename remaps state, invalid names refuse', async ({
   page,
 }) => {

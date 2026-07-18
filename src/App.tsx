@@ -36,7 +36,7 @@ import {
   visibleEntries,
   type DirEntry,
 } from './lib/folderTree';
-import { relativePath, remapPath } from './lib/folderOps';
+import { relativePath, remapPath, uniqueChildName } from './lib/folderOps';
 import { FolderPanel } from './components/FolderPanel';
 import { countWords } from './lib/wordCount';
 import { expandImageName, extForMime, imageMarkdownRef, sanitizeImageName } from './lib/imagePaste';
@@ -753,6 +753,39 @@ export default function App() {
     setFolderRenameError(null);
   }, []);
 
+  /**
+   * SPEC35 §4: New File / New Folder as a child of `dir` (the clicked
+   * directory, or the root for the empty-area menu). The unique-named entry
+   * is created on disk, the target directory expands and re-lists, and the
+   * new row drops straight into in-place rename; a new file opens (through
+   * the guard) when that rename commits or cancels.
+   */
+  const folderCreate = useCallback(
+    async (p: Platform, dir: string, kind: 'file' | 'dir') => {
+      if (!p.readDirEntries) return;
+      try {
+        const listing = await p.readDirEntries(dir);
+        const name = uniqueChildName(
+          listing.map((e) => e.name),
+          kind === 'file' ? 'Untitled.md' : 'New Folder'
+        );
+        const path = p.join(dir, name);
+        if (kind === 'file') await p.writeTextFile(path, '');
+        else await p.mkdirp(path);
+        const nextExpanded = new Set(folderStateRef.current.expanded);
+        nextExpanded.add(dir); // the target opens; a new folder itself stays collapsed
+        folderStateRef.current = { ...folderStateRef.current, expanded: nextExpanded };
+        setFolderExpanded(nextExpanded);
+        persistFolderState(p);
+        await listFolderDir(p, dir);
+        startFolderRename({ path, openOnDone: kind === 'file' });
+      } catch {
+        /* creation failed — no row to rename */
+      }
+    },
+    [persistFolderState, listFolderDir, startFolderRename]
+  );
+
   /** SPEC35 §3: a folder-menu item was invoked — run the operation. */
   const folderMenuAction = useCallback(
     (id: string, target: { kind: 'dir' | 'file' | 'root'; path: string }) => {
@@ -763,8 +796,10 @@ export default function App() {
       else if (id === 'copy-path') void p.copyText?.(target.path);
       else if (id === 'copy-relative-path' && root) void p.copyText?.(relativePath(root, target.path));
       else if (id === 'rename') startFolderRename({ path: target.path, openOnDone: false });
+      else if (id === 'new-file') void folderCreate(p, target.path, 'file');
+      else if (id === 'new-folder') void folderCreate(p, target.path, 'dir');
     },
-    [startFolderRename]
+    [startFolderRename, folderCreate]
   );
 
   // Guards the SPEC15/SPEC16 preview restore against firing on stale html
