@@ -76,6 +76,15 @@ Either way it's a one-time step — the app opens normally afterwards.
   Esc puts the editor in a navigation-only vim mode (h/j/k/l, w/b, 0/$,
   gg/G, Ctrl+d/u; i to type again). ⌘F finds in both modes — live
   highlighted matches in preview, find & replace in the editor.
+- **Smart Edit** — in edit mode a Marky Mark hash button rides the gutter
+  on your current line; click it (or right-click anywhere in the editor,
+  or press ⌘. / Ctrl+.) for a contextual formatting menu: bold, italic,
+  strikethrough, inline code, links, headings, lists, callouts,
+  blockquotes, code blocks, horizontal rules, plus cut/copy/paste. Every
+  action has a rebindable hotkey (shown right on the menu) under
+  Settings → Hotkeys → Smart Edit, and each one is a single undo step.
+  Put the cursor in a table or on an image and the menu offers Edit
+  Table… / Resize Image… (coming soon).
 - **Never lose work** — dirty buffers shadow-save continuously; after a
   crash or force-quit the next launch offers to restore your unsaved
   changes, untitled buffers included.

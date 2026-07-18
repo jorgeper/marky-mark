@@ -46,6 +46,8 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // SPEC36 §4.6: clipboard read for the Smart Edit Paste item (local, no network).
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(Mutex::new(OpenState {
             frontend_ready: false,

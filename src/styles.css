@@ -1681,3 +1681,105 @@ mark.hl.ghost {
   cursor: col-resize;
   z-index: 60;
 }
+
+/* ---------- SPEC36: Smart Edit ---------- */
+
+/* §3: the cursor-line gutter button — fixed width, centered 18px hash.
+   (.editor-wrap prefix outweighs CM's injected .cm-gutter overflow:hidden.) */
+.editor-wrap .cm-gutter.mm-smart-gutter {
+  width: 26px;
+  overflow: visible;
+}
+/* §3.2 with line numbers hidden, FULL-SCREEN edit: the button stands alone
+   at zero layout width so the SPEC6 swap alignment stays exact (E31) — it
+   hangs into the centered column's left margin instead of shifting the
+   text. The split pane keeps the real gutter width: its column is its own
+   geometry (SPEC7 §5) and usually has no margin to hang into. */
+.workspace:not(.split) .cm-gutters:not(:has(.cm-lineNumbers)) .cm-gutter.mm-smart-gutter {
+  width: 0;
+}
+.workspace:not(.split) .cm-gutters:not(:has(.cm-lineNumbers)) .smart-gutter-btn {
+  position: relative;
+  left: -26px;
+}
+.smart-gutter-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--mm-fg-muted, #59636e);
+  cursor: pointer;
+}
+.smart-gutter-btn:hover {
+  color: var(--mm-accent, #0969da);
+}
+
+/* §4: the menu — theme-menu look, pointer/gutter-anchored like .folder-menu. */
+.smart-edit-menu {
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: 60;
+  min-width: 200px;
+  outline: none;
+}
+.smart-edit-item {
+  gap: 10px;
+}
+.smart-edit-item .smart-edit-label {
+  flex: 1;
+  white-space: nowrap;
+}
+.smart-edit-item .menu-hotkey {
+  color: var(--mm-fg-muted, #59636e);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.smart-edit-item .smart-edit-arrow {
+  color: var(--mm-fg-muted, #59636e);
+  font-size: 11px;
+}
+.smart-edit-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.smart-edit-item:disabled:hover {
+  background: transparent;
+}
+/* Keyboard-active row shares the hover look. */
+.theme-menu button.theme-option.smart-edit-item.active {
+  background: var(--mm-bg, #ffffff);
+}
+
+/* §4.2: flyout submenus beside the parent row; .flip opens leftward. */
+.smart-edit-subhost {
+  position: relative;
+}
+.smart-edit-flyout {
+  position: absolute;
+  left: calc(100% + 2px);
+  top: -6px;
+  right: auto;
+  z-index: 61;
+  min-width: 170px;
+}
+.smart-edit-flyout.flip {
+  left: auto;
+  right: calc(100% + 2px);
+}
+
+/* §5.3: the Smart Edit group heading in Settings → Hotkeys. */
+.modal .hotkey-group {
+  margin: 14px 0 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--mm-border, #d1d9e0);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mm-fg-muted, #59636e);
+}

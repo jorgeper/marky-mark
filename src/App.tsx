@@ -16,11 +16,11 @@ import {
   type Settings,
 } from './lib/settings';
 import { displayCombo, eventMatches } from './lib/hotkeys';
-import { dispatchCommand, registerCommands, registerRecentHandler } from './lib/commands';
+import { dispatchCommand, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
 import { buildMenuSpec } from './lib/menuSpec';
 import { stepComment } from './lib/commentNav';
 import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
-import type { EditorSearchHandle, EditorSyncHandle } from './components/Editor';
+import type { EditorSearchHandle, EditorSyncHandle, SmartEditHandle, SmartFormatOp } from './components/Editor';
 import { extractReviewPayload } from './lib/reviewBundle';
 import { buildStaticHtml, statsLine, type StaticComment } from './lib/exportDoc';
 import { ExportDialog, type ExportRequest } from './components/ExportDialog';
@@ -177,6 +177,9 @@ export default function App() {
   const editorSelectRef = useRef<((from: number, to: number) => void) | null>(null);
   /** SPEC30 §1.4: the mounted editor's find/replace engine. */
   const editorSearchRef = useRef<EditorSearchHandle | null>(null);
+  /** SPEC36 §5.2: the mounted editor's Smart Edit handle — null in preview,
+   * so every format command is a silent no-op there. */
+  const smartEditRef = useRef<SmartEditHandle | null>(null);
   /** SPEC30 §1.3: preview match mark groups, index-aligned with the count. */
   const findMarksRef = useRef<HTMLElement[][]>([]);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1574,6 +1577,35 @@ export default function App() {
     })();
   }, []);
 
+  // SPEC36 §4.5–4.6: the menu's clipboard row endpoints. Copy prefers the
+  // SPEC35 seam (the shim records it for e2e); a missing seam falls back to
+  // the browser clipboard. Read resolves null on any failure — Paste then
+  // simply inserts nothing.
+  const copyToClipboard = useCallback((text: string) => {
+    const p = stateRef.current.platform;
+    if (p?.copyText) void p.copyText(text);
+    else void navigator.clipboard?.writeText(text).catch(() => undefined);
+  }, []);
+  const readFromClipboard = useCallback(async (): Promise<string | null> => {
+    try {
+      return (await stateRef.current.platform?.readClipboardText?.()) ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // SPEC36 §5.2: one guard for every format command — never steal a combo
+  // from a focused text field (find bar, composer, settings recorders), and
+  // a silent no-op without a mounted editor (preview mode).
+  const fmtCommand = useCallback((op: SmartFormatOp | 'open') => {
+    const ae = document.activeElement as HTMLElement | null;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
+    const h = smartEditRef.current;
+    if (!h) return;
+    if (op === 'open') h.openSmartMenu();
+    else h.applyFormat(op);
+  }, []);
+
   // --- command registry (SPEC12 §3.1): the single dispatch point for the DOM
   // toolbar (web), the native menu (desktop), and the hotkey listener.
   useEffect(() => {
@@ -1661,6 +1693,27 @@ export default function App() {
       zoomIn: () => stepZoom(1),
       zoomOut: () => stepZoom(-1),
       zoomReset: () => updateSettings({ ...stateRef.current.settings, zoom: 100 }),
+      // SPEC36 §5.2: format commands forward to the mounted editor (the ref
+      // is null outside edit mode ⇒ silent no-ops). A focused text input
+      // (find bar, composer, settings) keeps its own Mod-combos.
+      smartMenu: () => fmtCommand('open'),
+      fmtBold: () => fmtCommand('bold'),
+      fmtItalic: () => fmtCommand('italic'),
+      fmtStrike: () => fmtCommand('strike'),
+      fmtCode: () => fmtCommand('code'),
+      fmtLink: () => fmtCommand('link'),
+      fmtHeading1: () => fmtCommand('h1'),
+      fmtHeading2: () => fmtCommand('h2'),
+      fmtHeading3: () => fmtCommand('h3'),
+      fmtHeading4: () => fmtCommand('h4'),
+      fmtHeading5: () => fmtCommand('h5'),
+      fmtHeading6: () => fmtCommand('h6'),
+      fmtBullet: () => fmtCommand('bullet'),
+      fmtNumbered: () => fmtCommand('numbered'),
+      fmtTask: () => fmtCommand('task'),
+      fmtQuote: () => fmtCommand('quote'),
+      fmtCodeBlock: () => fmtCommand('code-block'),
+      fmtHr: () => fmtCommand('hr'),
       // SPEC12 §1.5 + SPEC13 §1.3: ⌘W with an aux window focused closes that
       // window (the native accelerator always lands here, in main's JS);
       // otherwise Quit/Exit/Close run the unsaved-changes guard, unchanged.
@@ -1673,7 +1726,7 @@ export default function App() {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, openFind, openFolderCmd]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, openFind, openFolderCmd, fmtCommand]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
@@ -1868,6 +1921,35 @@ export default function App() {
       } else if (eventMatches(e, hk.toggleWordCount)) {
         e.preventDefault();
         dispatchCommand('toggleWordCount', 'hotkey');
+      } else {
+        // SPEC36 §5.2: the Smart Edit bindings, one command each.
+        const fmt: Array<[string, CommandId]> = [
+          [hk.smartMenu, 'smartMenu'],
+          [hk.bold, 'fmtBold'],
+          [hk.italic, 'fmtItalic'],
+          [hk.strikethrough, 'fmtStrike'],
+          [hk.inlineCode, 'fmtCode'],
+          [hk.link, 'fmtLink'],
+          [hk.heading1, 'fmtHeading1'],
+          [hk.heading2, 'fmtHeading2'],
+          [hk.heading3, 'fmtHeading3'],
+          [hk.heading4, 'fmtHeading4'],
+          [hk.heading5, 'fmtHeading5'],
+          [hk.heading6, 'fmtHeading6'],
+          [hk.bulletList, 'fmtBullet'],
+          [hk.numberedList, 'fmtNumbered'],
+          [hk.taskList, 'fmtTask'],
+          [hk.blockquote, 'fmtQuote'],
+          [hk.codeBlock, 'fmtCodeBlock'],
+          [hk.horizontalRule, 'fmtHr'],
+        ];
+        for (const [combo, id] of fmt) {
+          if (eventMatches(e, combo)) {
+            e.preventDefault();
+            dispatchCommand(id, 'hotkey');
+            break;
+          }
+        }
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -2764,6 +2846,12 @@ export default function App() {
                 selectRangeRef={editorSelectRef}
                 pendingSelectionRef={pendingEditorSelRef}
                 searchRef={editorSearchRef}
+                hotkeys={settings.hotkeys}
+                isMac={platform?.isMac ?? true}
+                canPaste={!!platform?.readClipboardText}
+                onCopyText={copyToClipboard}
+                onReadClipboard={readFromClipboard}
+                smartRef={smartEditRef}
               />
             </Suspense>
           </div>
@@ -2818,6 +2906,12 @@ export default function App() {
               selectRangeRef={editorSelectRef}
               pendingSelectionRef={pendingEditorSelRef}
               searchRef={editorSearchRef}
+              hotkeys={settings.hotkeys}
+              isMac={platform?.isMac ?? true}
+              canPaste={!!platform?.readClipboardText}
+              onCopyText={copyToClipboard}
+              onReadClipboard={readFromClipboard}
+              smartRef={smartEditRef}
             />
           </Suspense>
         </div>

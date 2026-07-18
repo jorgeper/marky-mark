@@ -268,6 +268,15 @@ export function createWebPlatform(): Platform {
       window.open(url, '_blank', 'noopener,noreferrer');
     },
 
+    // SPEC36 §4.6: defined iff the browser offers clipboard read — absent
+    // ⇒ the Smart Edit Paste item is omitted. Reading is local; the page's
+    // zero-network CSP is untouched.
+    ...(typeof navigator !== 'undefined' && navigator.clipboard?.readText
+      ? {
+          readClipboardText: () => navigator.clipboard.readText(),
+        }
+      : {}),
+
     async commitFile(path) {
       const doc = docs.get(path);
       if (doc && !doc.handle) download(this.basename(path), doc.content);

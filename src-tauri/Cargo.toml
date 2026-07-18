@@ -24,6 +24,7 @@ tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 # SPEC35 §1: move-to-Trash for the sidebar delete. No network, no features.
 trash = "5"
+tauri-plugin-clipboard-manager = "2.3.2"
 
 [profile.release]
 codegen-units = 1

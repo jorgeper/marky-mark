@@ -32,7 +32,26 @@ export type CommandId =
   | 'zoomIn'
   | 'zoomOut'
   | 'zoomReset'
-  | 'close';
+  | 'close'
+  // SPEC36 §5.2: Smart Edit — silent no-ops outside edit mode.
+  | 'smartMenu'
+  | 'fmtBold'
+  | 'fmtItalic'
+  | 'fmtStrike'
+  | 'fmtCode'
+  | 'fmtLink'
+  | 'fmtHeading1'
+  | 'fmtHeading2'
+  | 'fmtHeading3'
+  | 'fmtHeading4'
+  | 'fmtHeading5'
+  | 'fmtHeading6'
+  | 'fmtBullet'
+  | 'fmtNumbered'
+  | 'fmtTask'
+  | 'fmtQuote'
+  | 'fmtCodeBlock'
+  | 'fmtHr';
 
 export type CommandHandlers = Record<CommandId, () => void>;
 export type CommandSource = 'menu' | 'hotkey' | 'ui';

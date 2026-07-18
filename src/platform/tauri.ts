@@ -202,6 +202,12 @@ export async function createTauriPlatform(): Promise<Platform> {
     async copyText(text) {
       await navigator.clipboard.writeText(text);
     },
+    // SPEC36 §4.6: clipboard read via the official plugin — WKWebView's
+    // navigator.clipboard.readText is not dependable in the Tauri webview.
+    async readClipboardText() {
+      const { readText } = await import('@tauri-apps/plugin-clipboard-manager');
+      return await readText();
+    },
 
     resolveAssetSrc(src, docDir) {
       // SPEC11 §1.3: remote URLs no longer pass through (the renderer already

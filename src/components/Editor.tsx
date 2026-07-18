@@ -3,6 +3,8 @@ import {
   Decoration,
   drawSelection,
   EditorView,
+  gutter,
+  GutterMarker,
   keymap,
   lineNumbers,
   highlightActiveLine,
@@ -24,6 +26,7 @@ import {
   history,
   historyField,
   historyKeymap,
+  isolateHistory,
 } from '@codemirror/commands';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { closeSearchPanel, findNext, findPrevious, getSearchQuery, openSearchPanel, replaceAll, replaceNext, search, searchPanelOpen, SearchQuery, setSearchQuery } from '@codemirror/search';
@@ -31,6 +34,36 @@ import { tags } from '@lezer/highlight';
 import { markdown } from '@codemirror/lang-markdown';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
 import type { DiffLineSets } from '../lib/diffLines';
+import { displayCombo, type HotkeyMap } from '../lib/hotkeys';
+import {
+  buildSmartMenu,
+  detectContext,
+  insertCallout,
+  insertHr,
+  setHeading,
+  SMART_EDIT_NAME,
+  toggleCodeBlock,
+  toggleInline,
+  toggleList,
+  toggleQuote,
+  wrapLink,
+  type CalloutKind,
+  type EditResult,
+  type SmartMenuEntry,
+} from '../lib/smartEdit';
+import { SmartEditMenu } from './SmartEditMenu';
+
+/** SPEC36 §5.2: the ops the App's format commands drive (menu ids, same set). */
+export type SmartFormatOp =
+  | 'bold' | 'italic' | 'strike' | 'code' | 'link'
+  | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'
+  | 'bullet' | 'numbered' | 'task'
+  | 'quote' | 'code-block' | 'hr';
+
+export interface SmartEditHandle {
+  applyFormat(op: SmartFormatOp): void;
+  openSmartMenu(): void;
+}
 
 /**
  * SPEC15 §3.2: the imperative surface split scroll-sync needs — fractional
@@ -122,6 +155,18 @@ interface Props {
   pendingSelectionRef?: MutableRefObject<{ from: number; to: number } | null>;
   /** SPEC30 §1.4: populated at mount with the find/replace engine. */
   searchRef?: MutableRefObject<EditorSearchHandle | null>;
+  // --- SPEC36: Smart Edit ---------------------------------------------------
+  /** Current bindings — menu rows and the gutter tooltip follow rebinds live. */
+  hotkeys: HotkeyMap;
+  isMac: boolean;
+  /** The readClipboardText seam exists (§4.6) — absent ⇒ Paste is omitted. */
+  canPaste: boolean;
+  /** Cut/Copy route the selection through the platform copyText seam. */
+  onCopyText?(text: string): void;
+  /** Paste reads through the seam; resolves null when unavailable/failed. */
+  onReadClipboard?(): Promise<string | null>;
+  /** SPEC36 §5.2: populated at mount with applyFormat/openSmartMenu. */
+  smartRef?: MutableRefObject<SmartEditHandle | null>;
 }
 
 /**
@@ -182,6 +227,60 @@ function halfPage(view: EditorView, dir: 1 | -1): void {
   view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
 }
 
+/**
+ * SPEC36 §3: the gutter button — the Marky Mark hash (the FolderPanel
+ * slanted-top-bar geometry) at 18px, rendered on the selection head's line
+ * only. A real <button> so it is clickable and titled.
+ */
+const HASH_SVG =
+  '<svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">' +
+  '<g stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round">' +
+  '<line x1="5.6" y1="2.6" x2="5.6" y2="13.4" />' +
+  '<line x1="10.4" y1="2.6" x2="10.4" y2="13.4" />' +
+  '<line x1="2.6" y1="6.7" x2="13.4" y2="5" />' +
+  '<line x1="2.6" y1="10.2" x2="13.4" y2="10.2" />' +
+  '</g></svg>';
+
+class SmartGutterMarker extends GutterMarker {
+  constructor(private title: string) {
+    super();
+  }
+  eq(other: SmartGutterMarker) {
+    return other.title === this.title;
+  }
+  toDOM() {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'smart-gutter-btn';
+    btn.setAttribute('data-testid', 'smart-edit-gutter');
+    btn.title = this.title;
+    btn.innerHTML = HASH_SVG;
+    return btn;
+  }
+}
+
+/** The cursor-line-only gutter; clicks on the button open the menu. */
+function smartGutter(title: string, onOpen: (view: EditorView, rect: DOMRect) => void) {
+  const marker = new SmartGutterMarker(title);
+  return gutter({
+    class: 'mm-smart-gutter',
+    lineMarker(view, line) {
+      const head = view.state.doc.lineAt(view.state.selection.main.head);
+      return line.from === head.from ? marker : null;
+    },
+    lineMarkerChange: (u) => u.selectionSet || u.docChanged,
+    domEventHandlers: {
+      mousedown(view, _line, event) {
+        const btn = (event.target as HTMLElement).closest?.('.smart-gutter-btn');
+        if (!btn) return false;
+        event.preventDefault();
+        onOpen(view, btn.getBoundingClientRect());
+        return true;
+      },
+    },
+  });
+}
+
 const VIM_MOTIONS: Partial<Record<VimEditAction, (view: EditorView) => void>> = {
   left: (v) => void cursorCharLeft(v),
   right: (v) => void cursorCharRight(v),
@@ -213,12 +312,23 @@ export default function Editor({
   selectRangeRef,
   pendingSelectionRef,
   searchRef,
+  hotkeys,
+  isMac,
+  canPaste,
+  onCopyText,
+  onReadClipboard,
+  smartRef,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const gutterComp = useRef(new Compartment());
   const diffComp = useRef(new Compartment());
   const syntaxComp = useRef(new Compartment());
+  const smartComp = useRef(new Compartment());
+  // SPEC36 §4: the Smart Edit menu — open state + anchor + the built model.
+  const [smartMenu, setSmartMenu] = useState<{ x: number; y: number; entries: SmartMenuEntry[] } | null>(null);
+  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard });
+  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard };
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const onPasteImagesRef = useRef(onPasteImages);
@@ -238,11 +348,117 @@ export default function Editor({
     onVimModeChangeRef.current?.(nav);
   };
 
+  // --- SPEC36: Smart Edit ----------------------------------------------------
+  const gutterTitle = () =>
+    `${SMART_EDIT_NAME} (${displayCombo(smartPropsRef.current.hotkeys.smartMenu, smartPropsRef.current.isMac)})`;
+
+  /** §6.2: context is computed fresh at open time — never stale offsets. */
+  const openMenuAt = (x: number, y: number) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const sp = smartPropsRef.current;
+    const sel = view.state.selection.main;
+    const flags = detectContext(view.state.doc.toString(), sel.head);
+    setSmartMenu({
+      x,
+      y,
+      entries: buildSmartMenu({
+        table: flags.table,
+        image: flags.image,
+        hasSelection: sel.from < sel.to,
+        canPaste: sp.canPaste,
+        hotkeys: sp.hotkeys,
+        isMac: sp.isMac,
+      }),
+    });
+  };
+
+  /** §2: apply an EditResult as ONE transaction — a single undo step. */
+  const applySplice = (view: EditorView, r: EditResult) => {
+    const old = view.state.doc.toString();
+    const minLen = Math.min(old.length, r.text.length);
+    let p = 0;
+    while (p < minLen && old[p] === r.text[p]) p++;
+    let s = 0;
+    while (s < minLen - p && old[old.length - 1 - s] === r.text[r.text.length - 1 - s]) s++;
+    view.dispatch({
+      changes: { from: p, to: old.length - s, insert: r.text.slice(p, r.text.length - s) },
+      selection: { anchor: r.from, head: r.to },
+      scrollIntoView: true,
+      // One action = one undo step: never merge with neighboring history.
+      annotations: isolateHistory.of('full'),
+    });
+  };
+
+  const runFormat = (view: EditorView, id: string): void => {
+    const text = view.state.doc.toString();
+    const { from, to } = view.state.selection.main;
+    let r: EditResult | null = null;
+    if (id === 'bold' || id === 'italic' || id === 'strike' || id === 'code') {
+      r = toggleInline(text, from, to, id);
+    } else if (id === 'link') {
+      r = wrapLink(text, from, to);
+    } else if (/^h[1-6]$/.test(id)) {
+      r = setHeading(text, from, to, Number(id[1]) as 1 | 2 | 3 | 4 | 5 | 6);
+    } else if (id === 'bullet' || id === 'numbered' || id === 'task') {
+      r = toggleList(text, from, to, id);
+    } else if (id === 'quote') {
+      r = toggleQuote(text, from, to);
+    } else if (id === 'note' || id === 'tip' || id === 'important' || id === 'warning' || id === 'caution') {
+      r = insertCallout(text, from, to, id as CalloutKind);
+    } else if (id === 'code-block') {
+      r = toggleCodeBlock(text, from, to);
+    } else if (id === 'hr') {
+      r = insertHr(text, from, to);
+    }
+    if (r) applySplice(view, r);
+  };
+
+  const invokeMenuItem = (id: string) => {
+    const view = viewRef.current;
+    setSmartMenu(null);
+    if (!view) return;
+    const sp = smartPropsRef.current;
+    const sel = view.state.selection.main;
+    // §4.5: Edit Table… / Resize Image… are deliberate no-op stubs this delta.
+    if (id === 'edit-table' || id === 'resize-image') {
+      view.focus();
+      return;
+    }
+    if (id === 'cut' || id === 'copy') {
+      const selText = view.state.sliceDoc(sel.from, sel.to);
+      if (selText) sp.onCopyText?.(selText);
+      if (id === 'cut' && sel.from < sel.to) {
+        view.dispatch({ changes: { from: sel.from, to: sel.to, insert: '' }, selection: { anchor: sel.from } });
+      }
+      view.focus();
+      return;
+    }
+    if (id === 'paste') {
+      void sp.onReadClipboard?.().then((t) => {
+        const v = viewRef.current;
+        if (t == null || !v) return;
+        const s = v.state.selection.main;
+        v.dispatch({ changes: { from: s.from, to: s.to, insert: t }, selection: { anchor: s.from + t.length } });
+        v.focus();
+      });
+      view.focus();
+      return;
+    }
+    runFormat(view, id);
+    view.focus();
+  };
+
+  const openMenuAtGutter = (_view: EditorView, rect: DOMRect) => openMenuAt(rect.right + 6, rect.top - 4);
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     const extensions = [
       gutterComp.current.of(showLineNumbers ? lineNumbers() : []),
+      // SPEC36 §3.2: after the line numbers, so it sits between them and the
+      // text (and stands alone when they're hidden).
+      smartComp.current.of(smartGutter(gutterTitle(), openMenuAtGutter)),
       diffComp.current.of([]),
       // SPEC23 §3: highlighting rides a compartment — toggling the setting
       // reconfigures live, undo history intact.
@@ -371,6 +587,18 @@ export default function Editor({
       };
     }
 
+    // SPEC36 §5.2: the App's format commands land here; the ref is null
+    // outside edit mode, so every command is a silent no-op there.
+    if (smartRef) {
+      smartRef.current = {
+        applyFormat: (op) => runFormat(view, op),
+        openSmartMenu: () => {
+          const c = view.coordsAtPos(view.state.selection.main.head);
+          openMenuAt(c ? c.left : 80, c ? c.bottom + 4 : 80);
+        },
+      };
+    }
+
     // SPEC30 §1.4: the find/replace engine.
     if (searchRef) {
       const stats = () => {
@@ -468,6 +696,7 @@ export default function Editor({
       if (insertRef) insertRef.current = null;
       if (selectRangeRef) selectRangeRef.current = null;
       if (searchRef) searchRef.current = null;
+      if (smartRef) smartRef.current = null;
       onVimModeChangeRef.current?.(false); // a remount always re-enters typing mode
       historyRef.current = view.state.toJSON({ history: historyField });
       view.destroy();
@@ -499,6 +728,14 @@ export default function Editor({
     });
   }, [syntax]);
 
+  // SPEC36 §3.3: rebinding smartMenu retitles the gutter button immediately.
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: smartComp.current.reconfigure(smartGutter(gutterTitle(), openMenuAtGutter)),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotkeys.smartMenu, isMac]);
+
   // SPEC23 §2: turning the setting off mid-session drops out of nav mode.
   useEffect(() => {
     if (!vimNav) {
@@ -520,11 +757,33 @@ export default function Editor({
   }, [diff]);
 
   return (
-    <div className="editor-wrap" data-testid="editor" ref={hostRef}>
+    <div
+      className="editor-wrap"
+      data-testid="editor"
+      ref={hostRef}
+      // SPEC36 §4.4: right-click opens the Smart Edit menu at the pointer —
+      // the native menu is suppressed in the edit pane ONLY.
+      onContextMenu={(e) => {
+        e.preventDefault();
+        openMenuAt(e.clientX, e.clientY);
+      }}
+    >
       {navMode && (
         <div className="vim-badge" data-testid="vim-badge" aria-live="polite">
           NAV
         </div>
+      )}
+      {smartMenu && (
+        <SmartEditMenu
+          x={smartMenu.x}
+          y={smartMenu.y}
+          entries={smartMenu.entries}
+          onInvoke={invokeMenuItem}
+          onClose={() => {
+            setSmartMenu(null);
+            viewRef.current?.focus();
+          }}
+        />
       )}
     </div>
   );

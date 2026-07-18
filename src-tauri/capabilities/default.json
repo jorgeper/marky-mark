@@ -18,6 +18,7 @@
     "core:window:allow-unminimize",
     "core:window:allow-is-focused",
     "dialog:default",
+    "clipboard-manager:allow-read-text",
     {
       "identifier": "opener:allow-open-path",
       "allow": [{ "path": "$APPCONFIG" }, { "path": "$APPCONFIG/**" }]

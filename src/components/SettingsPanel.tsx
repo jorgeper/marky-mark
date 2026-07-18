@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { DEFAULT_SETTINGS, FONT_SIZE_MAX, FONT_SIZE_MIN, ZOOM_LEVELS, type Margins, type Settings } from '../lib/settings';
 import type { Theme } from '../lib/themes';
 import { comboFromEvent, DEFAULT_HOTKEYS, displayCombo, type HotkeyMap } from '../lib/hotkeys';
+import { SMART_EDIT_NAME } from '../lib/smartEdit';
 import { expandImageName, isValidImageFolder } from '../lib/imagePaste';
 
 interface Props {
@@ -38,7 +39,47 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   prevComment: 'Previous comment',
   headingPalette: 'Go to heading',
   toggleWordCount: 'Show / hide word count',
+  smartMenu: 'Open Smart Edit menu',
+  bold: 'Bold',
+  italic: 'Italic',
+  strikethrough: 'Strikethrough',
+  inlineCode: 'Inline code',
+  link: 'Link',
+  heading1: 'Heading 1',
+  heading2: 'Heading 2',
+  heading3: 'Heading 3',
+  heading4: 'Heading 4',
+  heading5: 'Heading 5',
+  heading6: 'Heading 6',
+  bulletList: 'Bullet list',
+  numberedList: 'Numbered list',
+  taskList: 'Task list',
+  blockquote: 'Blockquote',
+  codeBlock: 'Code block',
+  horizontalRule: 'Horizontal rule',
 };
+
+/** SPEC36 §5.3: the Smart Edit recorder group, rendered under its own heading. */
+const SMART_EDIT_KEYS: Array<keyof HotkeyMap> = [
+  'smartMenu',
+  'bold',
+  'italic',
+  'strikethrough',
+  'inlineCode',
+  'link',
+  'heading1',
+  'heading2',
+  'heading3',
+  'heading4',
+  'heading5',
+  'heading6',
+  'bulletList',
+  'numberedList',
+  'taskList',
+  'blockquote',
+  'codeBlock',
+  'horizontalRule',
+];
 
 const MARGIN_LABELS: Array<{ value: Margins; label: string }> = [
   { value: 'default', label: 'Theme default' },
@@ -475,24 +516,33 @@ export function SettingsPanel({
     </>
   );
 
+  const hotkeyRow = (action: keyof HotkeyMap) => (
+    <div className="hotkey-row" key={action}>
+      <label htmlFor={`hotkey-${action}`}>{HOTKEY_LABELS[action]}</label>
+      <input
+        id={`hotkey-${action}`}
+        type="text"
+        readOnly
+        data-testid={`hotkey-${action}`}
+        data-hotkey-recorder="true"
+        value={displayCombo(settings.hotkeys[action], isMac)}
+        placeholder="Press keys…"
+        onKeyDown={recordHotkey(action)}
+        onFocus={(e) => e.target.select()}
+      />
+    </div>
+  );
+
   const hotkeysTab = (
     <>
-      {(Object.keys(HOTKEY_LABELS) as Array<keyof HotkeyMap>).map((action) => (
-        <div className="hotkey-row" key={action}>
-          <label htmlFor={`hotkey-${action}`}>{HOTKEY_LABELS[action]}</label>
-          <input
-            id={`hotkey-${action}`}
-            type="text"
-            readOnly
-            data-testid={`hotkey-${action}`}
-            data-hotkey-recorder="true"
-            value={displayCombo(settings.hotkeys[action], isMac)}
-            placeholder="Press keys…"
-            onKeyDown={recordHotkey(action)}
-            onFocus={(e) => e.target.select()}
-          />
-        </div>
-      ))}
+      {(Object.keys(HOTKEY_LABELS) as Array<keyof HotkeyMap>)
+        .filter((a) => !SMART_EDIT_KEYS.includes(a))
+        .map(hotkeyRow)}
+      {/* SPEC36 §5.3: the Smart Edit group. */}
+      <h4 className="hotkey-group" data-testid="hotkey-group-smart-edit">
+        {SMART_EDIT_NAME}
+      </h4>
+      {SMART_EDIT_KEYS.map(hotkeyRow)}
       <p className="hotkey-hint" data-testid="hotkey-hint">
         {hint || 'Click a field, then press the new key combination.'}
       </p>

@@ -440,6 +440,11 @@ export function createBrowserPlatform(): Platform {
         /* the __mmClipboard record above is the e2e seam */
       }
     },
+    /** SPEC36 §4.6: the shim pastes the last __mmClipboard entry (e2e seam). */
+    async readClipboardText() {
+      const list = window.__mmClipboard ?? [];
+      return list[list.length - 1] ?? '';
+    },
 
     /**
      * SPEC20 §3: pasted images live in the virtual fs as data: URIs, so the

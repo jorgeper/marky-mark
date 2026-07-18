@@ -18,6 +18,25 @@ export interface HotkeyMap {
   prevComment: string;
   headingPalette: string;
   toggleWordCount: string;
+  // SPEC36 §5.1: Smart Edit.
+  smartMenu: string;
+  bold: string;
+  italic: string;
+  strikethrough: string;
+  inlineCode: string;
+  link: string;
+  heading1: string;
+  heading2: string;
+  heading3: string;
+  heading4: string;
+  heading5: string;
+  heading6: string;
+  bulletList: string;
+  numberedList: string;
+  taskList: string;
+  blockquote: string;
+  codeBlock: string;
+  horizontalRule: string;
 }
 
 export const DEFAULT_HOTKEYS: HotkeyMap = {
@@ -33,6 +52,25 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   prevComment: 'Mod+Alt+ArrowUp',
   headingPalette: 'Mod+K',
   toggleWordCount: 'Mod+Shift+W',
+  // SPEC36 §5.1 (Mod+E/Mod+K classics are taken by toggleEdit/headingPalette).
+  smartMenu: 'Mod+.',
+  bold: 'Mod+B',
+  italic: 'Mod+I',
+  strikethrough: 'Mod+Shift+X',
+  inlineCode: 'Mod+Shift+M',
+  link: 'Mod+Shift+K',
+  heading1: 'Mod+1',
+  heading2: 'Mod+2',
+  heading3: 'Mod+3',
+  heading4: 'Mod+4',
+  heading5: 'Mod+5',
+  heading6: 'Mod+6',
+  bulletList: 'Mod+Shift+8',
+  numberedList: 'Mod+Shift+7',
+  taskList: 'Mod+Shift+9',
+  blockquote: 'Mod+Shift+B',
+  codeBlock: 'Mod+Alt+C',
+  horizontalRule: 'Mod+Alt+-',
 };
 
 export interface ComboParts {
@@ -57,27 +95,57 @@ export function parseCombo(combo: string): ComboParts | null {
   return out;
 }
 
+type ComboEvent = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'> &
+  Partial<Pick<KeyboardEvent, 'code'>>;
+
+/** KeyboardEvent.code → canonical key for the punctuation Alt likes to remap. */
+const CODE_KEYS: Record<string, string> = {
+  Minus: '-',
+  Equal: '=',
+  Period: '.',
+  Comma: ',',
+  Slash: '/',
+  Backquote: '`',
+  BracketLeft: '[',
+  BracketRight: ']',
+  Semicolon: ';',
+  Quote: "'",
+  Backslash: '\\',
+};
+
+/**
+ * SPEC36 §5.1: Alt/Shift combos resolve through the PHYSICAL key. On macOS
+ * ⌥ transforms `key` (⌘⌥C reports "ç", ⌘⌥- reports "–") and ⇧ shifts digits
+ * (⌘⇧8 reports "*"), which would make such bindings layout-dependent —
+ * record and match by `code` instead. Bare keys and Mod-only combos keep
+ * the layout-aware `key` (a French user's ⌘Z stays ⌘Z).
+ */
+function eventKey(e: ComboEvent): string {
+  if ((e.altKey || e.shiftKey) && typeof e.code === 'string') {
+    const m = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(e.code);
+    if (m) return m[1] ?? m[2];
+    if (CODE_KEYS[e.code]) return CODE_KEYS[e.code];
+  }
+  return e.key.length === 1 ? e.key.toUpperCase() : e.key;
+}
+
 /** Serialize a keyboard event into a canonical combo string, or null if it is only modifiers. */
-export function comboFromEvent(e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>): string | null {
+export function comboFromEvent(e: ComboEvent): string | null {
   const key = e.key;
   if (key === 'Meta' || key === 'Control' || key === 'Shift' || key === 'Alt') return null;
   const parts: string[] = [];
   if (e.metaKey || e.ctrlKey) parts.push('Mod');
   if (e.shiftKey) parts.push('Shift');
   if (e.altKey) parts.push('Alt');
-  parts.push(key.length === 1 ? key.toUpperCase() : key);
+  parts.push(eventKey(e));
   return parts.join('+');
 }
 
 /** Does this keyboard event match the stored combo? */
-export function eventMatches(
-  e: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>,
-  combo: string
-): boolean {
+export function eventMatches(e: ComboEvent, combo: string): boolean {
   const c = parseCombo(combo);
   if (!c) return false;
-  const evKey = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-  if (evKey !== c.key) return false;
+  if (eventKey(e) !== c.key) return false;
   if (c.mod !== (e.metaKey || e.ctrlKey)) return false;
   if (c.shift !== e.shiftKey) return false;
   if (c.alt !== e.altKey) return false;

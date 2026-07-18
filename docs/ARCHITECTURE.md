@@ -565,6 +565,39 @@ drops the new row straight into the same in-place rename input used by
 Rename, and a new markdown file opens through the unsaved-changes guard
 when that rename commits or cancels.
 
+## Smart Edit (SPEC36)
+
+Edit mode's contextual formatting layer. All logic is pure in
+`src/lib/smartEdit.ts`: every text operation takes `(text, from, to)` and
+returns the new document plus selection (inline toggles with
+word-expansion and `**`-before-`*` disambiguation, link wrap, ATX heading
+set/switch/clear, list apply/remove/replace with renumbering, quote
+add/strip, GitHub-alert callout insertion, fence wrap/unwrap, HR with
+blank-line management), `detectContext` classifies the cursor (pipe-table
+region / image span), and `buildSmartMenu(ctx)` is the single menu-model
+source — contextual Edit Table…/Resize Image… (deliberate no-op stubs
+this delta), inline items, Heading/Lists/Callout submenus, block items,
+then Cut/Copy/Paste. The Editor applies each result as one CodeMirror
+transaction annotated `isolateHistory('full')` — one action, one undo
+step.
+
+The gutter button is a custom CM `gutter()` (class `mm-smart-gutter`)
+whose only marker — the 18 px slanted-top hash — rides the selection
+head's line, placed after `lineNumbers()` so it sits between the numbers
+and the text. With numbers hidden in full-screen edit it keeps ZERO
+layout width (the button hangs into the centered column's left margin) so
+the SPEC6 swap alignment stays pixel-exact; the split pane keeps the real
+width. Openers: the button, right-click in the editor pane (native menu
+suppressed there only), and the rebindable `smartMenu` hotkey (⌘. by
+default) — 18 new `HotkeyMap` fields ride the existing recorder/conflict
+machinery under a "Smart Edit" group, and Alt/Shift combos now record and
+match by `KeyboardEvent.code` so macOS's ⌥-transposition (⌘⌥C = "ç")
+can't break them. Paste rides one new optional seam,
+`Platform.readClipboardText` — desktop: `tauri-plugin-clipboard-manager`
+(local, no network; read-text permission only); shim: the last
+`__mmClipboard` entry; web: `navigator.clipboard.readText` where the
+browser offers it; absent ⇒ the Paste item is omitted.
+
 ## Open Recent (SPEC29)
 
 `recentFiles.ts` (pure, mirrors the reading-positions store): MRU-first,
