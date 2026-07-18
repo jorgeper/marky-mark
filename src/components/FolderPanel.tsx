@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { displayEntries, isMarkdownFile, type DirEntry } from '../lib/folderTree';
-import { folderContextMenu } from '../lib/folderOps';
+import { folderContextMenu, validateEntryName } from '../lib/folderOps';
 import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN } from '../lib/settings';
 
 /**
@@ -35,9 +35,68 @@ export interface FolderPanelProps {
   caps: { canReveal: boolean; canTrash: boolean; canRename: boolean; canCopy: boolean };
   /** SPEC35 §3: an invoked menu item — the owner runs the operation. */
   onMenuAction(id: string, target: { kind: 'dir' | 'file' | 'root'; path: string }): void;
+  /** SPEC35 §5: the row whose label is an in-place rename input; null = none. */
+  renamingPath: string | null;
+  /** A failed commit's fs error — surfaces in the input's title (§5.4). */
+  renameError: string | null;
+  onRenameCommit(oldPath: string, newName: string): void;
+  onRenameCancel(): void;
 }
 
 type MenuTarget = { kind: 'dir' | 'file' | 'root'; path: string; x: number; y: number };
+
+/**
+ * SPEC35 §5: the row's label swapped for a text input. Enter commits, Esc
+ * cancels, blur commits; an invalid or unchanged value cancels instead.
+ * Validation runs on every keystroke — name rules plus a case-insensitive
+ * sibling collision check against the live listing (excluding itself).
+ */
+function RenameRow({ p, dir, entry, depth }: { p: FolderPanelProps; dir: string; entry: DirEntry; depth: number }) {
+  const path = p.join(dir, entry.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const doneRef = useRef(false);
+  const [value, setValue] = useState(entry.name);
+  const siblings = (p.children[dir] ?? [])
+    .map((s) => s.name)
+    .filter((n) => n.toLowerCase() !== entry.name.toLowerCase());
+  const error =
+    validateEntryName(value) ??
+    (siblings.some((n) => n.toLowerCase() === value.toLowerCase()) ? 'Already exists here' : null);
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    if (entry.isDir) el.select();
+    else el.setSelectionRange(0, entry.name.replace(/\.[^.]+$/, '').length); // the stem
+  }, []);
+  useEffect(() => {
+    if (p.renameError) doneRef.current = false; // the commit failed — the input lives on
+  }, [p.renameError]);
+  const finish = (commit: boolean) => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    if (!commit || error || value === entry.name) p.onRenameCancel();
+    else p.onRenameCommit(path, value);
+  };
+  return (
+    <div className="folder-item folder-rename" style={{ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties}>
+      <input
+        ref={inputRef}
+        data-testid="folder-rename-input"
+        className={error ? 'invalid' : undefined}
+        title={p.renameError ?? error ?? undefined}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation(); // the panel's other interactions stay inert
+          if (e.key === 'Enter') finish(true);
+          else if (e.key === 'Escape') finish(false);
+        }}
+        onBlur={() => finish(true)}
+      />
+    </div>
+  );
+}
 
 function Rows({
   dir,
@@ -59,6 +118,14 @@ function Rows({
         const path = p.join(dir, e.name);
         if (e.isDir) {
           const open = p.expanded.has(path);
+          if (p.renamingPath === path) {
+            return (
+              <div key={path}>
+                <RenameRow p={p} dir={dir} entry={e} depth={depth} />
+                {open && <Rows dir={path} depth={depth + 1} p={p} onRowMenu={onRowMenu} />}
+              </div>
+            );
+          }
           return (
             <div key={path}>
               <button
@@ -87,6 +154,7 @@ function Rows({
           );
         }
         const md = isMarkdownFile(e.name);
+        if (p.renamingPath === path) return <RenameRow key={path} p={p} dir={dir} entry={e} depth={depth} />;
         return (
           <button
             key={path}

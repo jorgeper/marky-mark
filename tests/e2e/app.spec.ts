@@ -3236,3 +3236,84 @@ test('E96: folder context menu — per-kind items, dismissal, left-click inertne
   await expect.poll(() => page.evaluate(() => window.__mmReveals)).toEqual(['/notes/a.md']);
   await expect(page.getByTestId('folder-menu')).toHaveCount(0);
 });
+
+test('E98: rename in place — open dirty file remaps path/title/recents, dir rename remaps state, invalid names refuse', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await page.keyboard.press('Control+Shift+E');
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
+  await page.locator('[data-path="/notes/sub"]').click(); // expand
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+
+  // Dirty the buffer (autosave-on-toggle is off by default).
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('DIRTY ');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Rename the open, dirty file: the stem is preselected.
+  await page.locator('[data-path="/notes/sub/b.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-rename').click();
+  const input = page.getByTestId('folder-rename-input');
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue('b.md');
+  await page.keyboard.type('renamed');
+  await expect(input).toHaveValue('renamed.md');
+  await page.keyboard.press('Enter');
+
+  // Path, window title, tree selection, and recents all remap; the buffer,
+  // dirty flag, and on-disk content are untouched.
+  await expect(page.getByTestId('docname')).toContainText('renamed.md');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect.poll(() => page.title()).toContain('renamed.md •');
+  await expect(page.locator('[data-path="/notes/sub/renamed.md"]')).toHaveClass(/selected/);
+  await expect.poll(() => fsRead(page, '/notes/sub/renamed.md')).toBe('# B doc\n');
+  expect(await fsRead(page, '/notes/sub/b.md')).toBeNull();
+  await expect.poll(() => fsRead(page, '/config/recent.json')).toContain('/notes/sub/renamed.md');
+  expect(await fsRead(page, '/config/recent.json')).not.toContain('/notes/sub/b.md');
+
+  // The next ⌘S writes the new path; the old path stays gone.
+  await page.keyboard.press('Control+s');
+  await expect.poll(() => fsRead(page, '/notes/sub/renamed.md')).toContain('DIRTY');
+  expect(await fsRead(page, '/notes/sub/b.md')).toBeNull();
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // Rename the directory ABOVE the open file: docPath/expanded/selection
+  // remap and foldertree.json reflects it.
+  await page.locator('[data-path="/notes/sub"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-rename').click();
+  await expect(input).toHaveValue('sub');
+  await page.keyboard.type('stuff'); // directories select the whole name
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[data-path="/notes/stuff/renamed.md"]')).toBeVisible(); // still expanded
+  await expect(page.locator('[data-path="/notes/stuff/renamed.md"]')).toHaveClass(/selected/);
+  await expect(page.getByTestId('docname')).toContainText('renamed.md');
+  await expect.poll(() => fsRead(page, '/config/foldertree.json')).toContain('/notes/stuff');
+  await expect.poll(() => fsRead(page, '/config/recent.json')).toContain('/notes/stuff/renamed.md');
+
+  // Collision (case-insensitive, against live siblings) refuses to commit.
+  await page.locator('[data-path="/notes/a.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-rename').click();
+  await input.fill('STUFF');
+  await expect(input).toHaveClass(/invalid/);
+  await page.keyboard.press('Enter'); // cancels instead of committing
+  await expect(input).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/a.md"]')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/notes/a.md')).toBe('# A doc\n');
+
+  // Windows-reserved names refuse with the reason in the tooltip; Esc restores.
+  await page.locator('[data-path="/notes/a.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-rename').click();
+  await input.fill('con.md');
+  await expect(input).toHaveClass(/invalid/);
+  await expect(input).toHaveAttribute('title', /reserved/i);
+  await page.keyboard.press('Escape');
+  await expect(input).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/a.md"]')).toBeVisible();
+});

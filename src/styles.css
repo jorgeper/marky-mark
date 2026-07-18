@@ -1631,6 +1631,25 @@ mark.hl.ghost {
   margin: 5px 2px;
   background: var(--mm-border, #d1d9e0);
 }
+/* SPEC35 §5: the in-place rename input — sized like the row label it replaces. */
+.folder-rename {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+.folder-rename input {
+  width: 100%;
+  min-width: 140px;
+  font-size: 12.5px;
+  padding: 1px 4px;
+  color: var(--mm-fg, #1f2328);
+  background: var(--mm-bg, #ffffff);
+  border: 1px solid var(--mm-accent, #0969da);
+  border-radius: 4px;
+}
+.folder-rename input.invalid {
+  border-color: var(--mm-danger, #cf222e);
+  outline: none;
+}
 .folder-empty {
   flex: 1;
   display: flex;
