@@ -26,12 +26,17 @@
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "http://**" }, { "url": "https://**" }]
     },
+    {
+      "identifier": "opener:allow-reveal-item-in-dir",
+      "allow": [{ "path": "**" }, { "path": "$HOME/**" }]
+    },
     "fs:allow-read-text-file",
     "fs:allow-write-text-file",
     "fs:allow-write-file",
     "fs:allow-copy-file",
     "fs:allow-exists",
     "fs:allow-remove",
+    "fs:allow-rename",
     "fs:allow-mkdir",
     "fs:allow-read-dir",
     "fs:allow-watch",

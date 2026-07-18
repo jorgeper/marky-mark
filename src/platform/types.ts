@@ -70,6 +70,19 @@ export interface Platform {
   copyFile?(src: string, dest: string): Promise<void>;
 
   /**
+   * SPEC35 §1: sidebar file management. All four are optional — an absent
+   * method just omits its context-menu items; everything else still works.
+   * Rename/move a file or directory (directory contents follow).
+   */
+  renameEntry?(oldPath: string, newPath: string): Promise<void>;
+  /** SPEC35 §1: move a file or directory (recursively) to the OS Trash. */
+  trashEntry?(path: string): Promise<void>;
+  /** SPEC35 §1: select the entry in the OS file manager. */
+  revealPath?(path: string): Promise<void>;
+  /** SPEC35 §1: clipboard write (the shim also records on __mmClipboard for e2e). */
+  copyText?(text: string): Promise<void>;
+
+  /**
    * Web only: flush an explicit user Save for handle-less files (download
    * fallback). Desktop writes are already durable, so it's optional.
    */

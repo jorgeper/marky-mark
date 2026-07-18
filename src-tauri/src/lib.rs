@@ -24,6 +24,14 @@ fn print_view(webview_window: tauri::WebviewWindow) -> Result<(), String> {
     webview_window.print().map_err(|e| e.to_string())
 }
 
+/// SPEC35 §1: move a file or directory (recursively) to the OS Trash /
+/// Recycle Bin. The `trash` crate is the only dependency — no network, no
+/// capability beyond this command.
+#[tauri::command]
+fn trash_entry(path: String) -> Result<(), String> {
+    trash::delete(&path).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Windows/Linux file associations arrive as plain CLI arguments.
@@ -43,7 +51,11 @@ pub fn run() {
             frontend_ready: false,
             pending: cli_files,
         }))
-        .invoke_handler(tauri::generate_handler![take_pending_open_files, print_view])
+        .invoke_handler(tauri::generate_handler![
+            take_pending_open_files,
+            print_view,
+            trash_entry
+        ])
         .build(tauri::generate_context!())
         .expect("error while building Marky Mark")
         .run(|app, event| {
