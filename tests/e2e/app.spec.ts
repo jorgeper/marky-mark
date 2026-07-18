@@ -2998,10 +2998,22 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   await expect(page.getByTestId('folder-header')).toContainText('notes');
   const names = () =>
     page.$$eval('[data-testid="folder-item"]', (els) => els.map((e) => e.getAttribute('data-path')));
-  await expect.poll(names).toEqual(['/notes/sub', '/notes/a.md', '/notes/pic.png', '/notes/zzz.txt']);
+  // Non-markdown files are hidden by default — folders and markdown only.
+  await expect.poll(names).toEqual(['/notes/sub', '/notes/a.md']);
 
-  // Markdown rows carry the # glyph; others are dim and inert.
-  await expect(page.locator('[data-path="/notes/a.md"] .folder-glyph')).toHaveText('#');
+  // The # filter toggle reveals them: dim and inert, # glyphs only on
+  // markdown. Accent # = markdown-only; grey # = everything. All three
+  // header icons carry tooltips.
+  await expect(page.getByTestId('folder-filter')).toHaveAttribute('title', 'Show all files');
+  await expect(page.getByTestId('folder-sync')).toHaveAttribute('title', 'Navigate to the open file');
+  await expect(page.getByTestId('folder-close')).toHaveAttribute('title', 'Close the folder panel');
+  await expect(page.getByTestId('folder-filter')).toHaveClass(/filter-on/);
+  await page.getByTestId('folder-filter').click();
+  await expect(page.getByTestId('folder-filter')).toHaveAttribute('title', 'Show markdown files only');
+  await expect(page.getByTestId('folder-filter')).not.toHaveClass(/filter-on/);
+  await expect.poll(names).toEqual(['/notes/sub', '/notes/a.md', '/notes/pic.png', '/notes/zzz.txt']);
+  await expect(page.locator('[data-path="/notes/a.md"] .folder-glyph svg')).toBeVisible();
+  await expect(page.locator('[data-path="/notes/pic.png"] .folder-glyph svg')).toHaveCount(0);
   await expect(page.locator('[data-path="/notes/pic.png"]')).toHaveClass(/folder-item-dim/);
   await page.locator('[data-path="/notes/pic.png"]').click({ force: true });
   await expect(page.getByTestId('docname')).toContainText('welcome.md'); // unchanged
@@ -3033,6 +3045,13 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   });
   expect(pill.scrollLeft).toBe(0);
   expect(pill.gap).toBeGreaterThanOrEqual(10);
+
+  // The eye choice survived the reload above (foldertree.json); hiding
+  // again drops the rows without collapsing sub or losing the selection.
+  await expect.poll(names).toContain('/notes/pic.png');
+  await page.getByTestId('folder-filter').click();
+  await expect.poll(names).not.toContain('/notes/pic.png');
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
 
   // The unsaved-changes guard applies to tree opens too.
   await page.keyboard.press('Control+e');

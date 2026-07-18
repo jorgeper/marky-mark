@@ -15,6 +15,8 @@ export interface FolderState {
   version: 1;
   root: string | null;
   expanded: string[];
+  /** The eye toggle: list non-markdown files too. Hidden by default. */
+  showNonMd: boolean;
 }
 
 export const EXPANDED_CAP = 200;
@@ -32,6 +34,11 @@ export function compareEntries(a: DirEntry, b: DirEntry): number {
 /** Dotfiles and dot-directories stay hidden (SPEC34 scope). */
 export function visibleEntries(entries: DirEntry[]): DirEntry[] {
   return entries.filter((e) => !e.name.startsWith('.')).sort(compareEntries);
+}
+
+/** The eye toggle's cut: hidden ⇒ folders and markdown only. */
+export function displayEntries(entries: DirEntry[], showNonMd: boolean): DirEntry[] {
+  return showNonMd ? entries : entries.filter((e) => e.isDir || isMarkdownFile(e.name));
 }
 
 /**
@@ -56,14 +63,14 @@ export function ancestorsOf(root: string, path: string, dirname: (p: string) => 
 }
 
 export function parseFolderState(json: string): FolderState {
-  const empty: FolderState = { version: 1, root: null, expanded: [] };
+  const empty: FolderState = { version: 1, root: null, expanded: [], showNonMd: false };
   try {
     const d = JSON.parse(json) as Partial<FolderState>;
     const root = typeof d.root === 'string' && d.root ? d.root : null;
     const expanded = Array.isArray(d.expanded)
       ? d.expanded.filter((e): e is string => typeof e === 'string' && e.length > 0).slice(0, EXPANDED_CAP)
       : [];
-    return { version: 1, root, expanded };
+    return { version: 1, root, expanded, showNonMd: d.showNonMd === true };
   } catch {
     return empty;
   }

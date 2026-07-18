@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from 'react';
-import { isMarkdownFile, type DirEntry } from '../lib/folderTree';
+import { displayEntries, isMarkdownFile, type DirEntry } from '../lib/folderTree';
 import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN } from '../lib/settings';
 
 /**
@@ -17,10 +17,13 @@ export interface FolderPanelProps {
   expanded: Set<string>;
   /** The open document's path (row gets `selected`); null clears. */
   selectedPath: string | null;
+  /** The eye toggle: list non-markdown files too (dim, inert). */
+  showNonMd: boolean;
   width: number;
   join(...parts: string[]): string;
   basename(path: string): string;
   onToggleDir(path: string): void;
+  onToggleNonMd(): void;
   onOpenFile(path: string): void;
   onOpenFolder(): void;
   onSync(): void;
@@ -37,8 +40,9 @@ function Rows({
   depth: number;
   p: FolderPanelProps;
 }) {
-  const entries = p.children[dir];
-  if (!entries) return null;
+  const listed = p.children[dir];
+  if (!listed) return null;
+  const entries = displayEntries(listed, p.showNonMd);
   return (
     <>
       {entries.map((e) => {
@@ -82,7 +86,20 @@ function Rows({
             disabled={!md}
             onClick={md ? () => p.onOpenFile(path) : undefined}
           >
-            <span className="folder-glyph">{md ? '#' : '·'}</span>
+            <span className="folder-glyph">
+              {md ? (
+                <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+                  <g stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round">
+                    <line x1="5.6" y1="2.6" x2="5.6" y2="13.4" />
+                    <line x1="10.4" y1="2.6" x2="10.4" y2="13.4" />
+                    <line x1="2.6" y1="6.7" x2="13.4" y2="5" />
+                    <line x1="2.6" y1="10.2" x2="13.4" y2="10.2" />
+                  </g>
+                </svg>
+              ) : (
+                '·'
+              )}
+            </span>
             {e.name}
           </button>
         );
@@ -141,8 +158,25 @@ export function FolderPanel(p: FolderPanelProps) {
       <div className="folder-header" data-testid="folder-header">
         <span className="folder-title">{p.root ? p.basename(p.root) : 'Folders'}</span>
         <button
+          data-testid="folder-filter"
+          className={p.showNonMd ? undefined : 'filter-on'}
+          title={p.showNonMd ? 'Show markdown files only' : 'Show all files'}
+          disabled={!p.root}
+          onClick={p.onToggleNonMd}
+        >
+          {/* The app icon's hash: straight bars, except the top one tilts -9°. */}
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <g stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round">
+              <line x1="5.6" y1="2.6" x2="5.6" y2="13.4" />
+              <line x1="10.4" y1="2.6" x2="10.4" y2="13.4" />
+              <line x1="2.6" y1="6.7" x2="13.4" y2="5" />
+              <line x1="2.6" y1="10.2" x2="13.4" y2="10.2" />
+            </g>
+          </svg>
+        </button>
+        <button
           data-testid="folder-sync"
-          title="Reveal the current document"
+          title="Navigate to the open file"
           disabled={!p.selectedPath}
           onClick={p.onSync}
         >
@@ -156,7 +190,7 @@ export function FolderPanel(p: FolderPanelProps) {
             </g>
           </svg>
         </button>
-        <button data-testid="folder-close" title="Hide folders" onClick={p.onClose}>
+        <button data-testid="folder-close" title="Close the folder panel" onClick={p.onClose}>
           <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
             <g stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
               <line x1="4.4" y1="4.4" x2="11.6" y2="11.6" />

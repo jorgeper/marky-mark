@@ -1531,6 +1531,11 @@ mark.hl.ghost {
 .folder-header button:disabled {
   opacity: 0.35;
 }
+/* The # filter: accent while the tree is markdown-only (the default);
+   grey like its neighbors when every file type is listed. */
+.folder-header button.filter-on {
+  color: var(--mm-accent, #0969da);
+}
 .folder-list {
   flex: 1;
   overflow: auto; /* horizontal too — deep trees outgrow the panel */
@@ -1551,7 +1556,11 @@ mark.hl.ghost {
   white-space: nowrap;
 }
 .folder-item:hover:not(:disabled) {
-  background: var(--mm-bg, #ffffff);
+  /* Stays on the panel's plane — a translucent darkening tint, so the
+     workspace's inset shadow keeps casting over it; the selected tab's
+     solid surface stays the only front-plane element. */
+  background: rgba(31, 35, 40, 0.08);
+  background: color-mix(in srgb, var(--mm-fg, #1f2328) 9%, transparent);
 }
 /* SPEC34 polish: the open file reads as a TAB on the front plane — the
    workspace's own surface, rounded on the left, flush right, lifted by a
@@ -1592,8 +1601,11 @@ mark.hl.ghost {
   color: var(--mm-fg-muted, #59636e);
 }
 .folder-glyph {
-  width: 12px;
+  width: 14px;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: var(--mm-font-mono, monospace);
   font-size: 11px;
   color: var(--mm-accent, #0969da);

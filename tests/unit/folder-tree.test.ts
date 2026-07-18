@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   ancestorsOf,
   compareEntries,
+  displayEntries,
   EXPANDED_CAP,
   isMarkdownFile,
   parseFolderState,
@@ -43,11 +44,34 @@ describe('SPEC34 folder tree', () => {
     expect(ancestorsOf('/notes', '/notes-other/file.md', dirname)).toEqual([]);
 
     // State round-trip; corruption and shape violations tolerated; cap holds.
-    const state = { version: 1 as const, root: '/notes', expanded: ['/notes', '/notes/deep'] };
+    const state = { version: 1 as const, root: '/notes', expanded: ['/notes', '/notes/deep'], showNonMd: false };
     expect(parseFolderState(serializeFolderState(state))).toEqual(state);
-    expect(parseFolderState('not json')).toEqual({ version: 1, root: null, expanded: [] });
-    expect(parseFolderState('{"root":7,"expanded":"x"}')).toEqual({ version: 1, root: null, expanded: [] });
-    const over = { version: 1 as const, root: '/r', expanded: Array.from({ length: 300 }, (_, i) => `/r/d${i}`) };
+    expect(parseFolderState('not json')).toEqual({ version: 1, root: null, expanded: [], showNonMd: false });
+    expect(parseFolderState('{"root":7,"expanded":"x"}')).toEqual({ version: 1, root: null, expanded: [], showNonMd: false });
+    const over = {
+      version: 1 as const,
+      root: '/r',
+      expanded: Array.from({ length: 300 }, (_, i) => `/r/d${i}`),
+      showNonMd: false,
+    };
     expect(parseFolderState(serializeFolderState(over)).expanded.length).toBe(EXPANDED_CAP);
+  });
+
+  test('U62: the non-markdown eye — hidden by default, filter keeps folders, state round-trips', () => {
+    const listed = [
+      { name: 'sub', isDir: true },
+      { name: 'a.md', isDir: false },
+      { name: 'pic.png', isDir: false },
+      { name: 'zzz.txt', isDir: false },
+    ];
+    // Hidden: only folders and markdown survive. Shown: untouched.
+    expect(displayEntries(listed, false).map((e) => e.name)).toEqual(['sub', 'a.md']);
+    expect(displayEntries(listed, true)).toEqual(listed);
+
+    // showNonMd persists; anything but true parses as the hidden default.
+    const shown = { version: 1 as const, root: '/n', expanded: ['/n'], showNonMd: true };
+    expect(parseFolderState(serializeFolderState(shown))).toEqual(shown);
+    expect(parseFolderState('{"root":"/n","expanded":[],"showNonMd":"yes"}').showNonMd).toBe(false);
+    expect(parseFolderState('{"root":"/n","expanded":[]}').showNonMd).toBe(false);
   });
 });

@@ -102,6 +102,7 @@ export default function App() {
   const [folderRoot, setFolderRoot] = useState<string | null>(null);
   const [folderExpanded, setFolderExpanded] = useState<Set<string>>(new Set());
   const [folderChildren, setFolderChildren] = useState<Record<string, DirEntry[]>>({});
+  const [folderShowNonMd, setFolderShowNonMd] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showComments, setShowComments] = useState(true);
   // SPEC26 §3: per-document front-matter override — null means "follow the
@@ -644,8 +645,12 @@ export default function App() {
     })();
   }, []);
   const recentRef = useRef<RecentStore>({ version: 1, entries: [] });
-  /** SPEC34 §2.3: write-through mirror of root+expanded for foldertree.json. */
-  const folderStateRef = useRef<{ root: string | null; expanded: Set<string> }>({ root: null, expanded: new Set() });
+  /** SPEC34 §2.3: write-through mirror of root+expanded+eye for foldertree.json. */
+  const folderStateRef = useRef<{ root: string | null; expanded: Set<string>; showNonMd: boolean }>({
+    root: null,
+    expanded: new Set(),
+    showNonMd: false,
+  });
 
   const persistFolderState = useCallback((platformNow?: Platform) => {
     const p = platformNow ?? stateRef.current.platform;
@@ -655,7 +660,7 @@ export default function App() {
       try {
         await p.writeTextFile(
           p.join(await p.configDir(), 'foldertree.json'),
-          serializeFolderState({ version: 1, root: st.root, expanded: [...st.expanded] })
+          serializeFolderState({ version: 1, root: st.root, expanded: [...st.expanded], showNonMd: st.showNonMd })
         );
       } catch {
         /* best effort */
@@ -694,6 +699,14 @@ export default function App() {
     [listFolderDir, persistFolderState]
   );
 
+  /** The eye toggle: flip non-markdown visibility, persist with the tree state. */
+  const toggleFolderNonMd = useCallback(() => {
+    const next = !folderStateRef.current.showNonMd;
+    folderStateRef.current = { ...folderStateRef.current, showNonMd: next };
+    setFolderShowNonMd(next);
+    persistFolderState();
+  }, [persistFolderState]);
+
   /**
    * SPEC34 §5: expand the ancestor chain of `path` and select its row.
    * Outside-root (or rootless) opens retarget the persisted root first.
@@ -713,7 +726,7 @@ export default function App() {
       const expanded = new Set(folderStateRef.current.root === root ? folderStateRef.current.expanded : []);
       for (const dir of chain) expanded.add(dir);
       setFolderExpanded(expanded);
-      folderStateRef.current = { root, expanded };
+      folderStateRef.current = { ...folderStateRef.current, root, expanded };
       persistFolderState(p);
       for (const dir of chain) await listFolderDir(p, dir);
     },
@@ -876,9 +889,10 @@ export default function App() {
         if (p.readDirEntries && (await p.exists(ftPath))) {
           const ft = parseFolderState(await p.readTextFile(ftPath));
           const expanded = new Set(ft.expanded);
-          folderStateRef.current = { root: ft.root, expanded };
+          folderStateRef.current = { root: ft.root, expanded, showNonMd: ft.showNonMd };
           setFolderRoot(ft.root);
           setFolderExpanded(expanded);
+          setFolderShowNonMd(ft.showNonMd);
           if (loaded.showFolders && ft.root) {
             for (const dir of [ft.root, ...ft.expanded]) void listFolderDir(p, dir);
           }
@@ -1053,7 +1067,7 @@ export default function App() {
     setFolderRoot(picked);
     setFolderExpanded(expanded);
     setFolderChildren({});
-    folderStateRef.current = { root: picked, expanded };
+    folderStateRef.current = { ...folderStateRef.current, root: picked, expanded };
     persistFolderState(p);
     await listFolderDir(p, picked);
     if (!stateRef.current.settings.showFolders) {
@@ -2360,10 +2374,12 @@ export default function App() {
             children={folderChildren}
             expanded={folderExpanded}
             selectedPath={docPath}
+            showNonMd={folderShowNonMd}
             width={settings.folderWidth}
             join={platform.join}
             basename={platform.basename}
             onToggleDir={toggleFolderDir}
+            onToggleNonMd={toggleFolderNonMd}
             onOpenFile={(path) => openDocGuarded(platform, path)}
             onOpenFolder={() => dispatchCommand('openFolder')}
             onSync={() => {
