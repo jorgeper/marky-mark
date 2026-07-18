@@ -1602,7 +1602,13 @@ mark.hl.ghost {
   padding-left: calc(var(--mm-depth, 10px) + 6px);
   position: relative;
   z-index: 1;
+  /* Behind-the-front cues, right edge first: a hairline where the tab meets
+     the workspace, the workspace's own cast shadow (same themeable token as
+     the panel edge) fading in over the tab, then the tab's drop shadows.
+     The ACTIVE tab carries none of the insets — its opening stays unbroken. */
   box-shadow:
+    inset -1px 0 0 var(--mm-border, #d1d9e0),
+    var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28)),
     0 1px 3px rgba(0, 0, 0, 0.14),
     0 2px 7px rgba(0, 0, 0, 0.09);
 }
