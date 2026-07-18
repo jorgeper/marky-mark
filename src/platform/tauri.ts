@@ -189,6 +189,20 @@ export async function createTauriPlatform(): Promise<Platform> {
       await fsp.copyFile(src, dest);
     },
 
+    // SPEC35 §1: sidebar file management — plugin-fs rename (existing broad
+    // fs scope), one Rust command on the `trash` crate, plugin-opener reveal.
+    renameEntry: (oldPath, newPath) => fsp.rename(oldPath, newPath),
+    async trashEntry(path) {
+      await invoke('trash_entry', { path });
+    },
+    async revealPath(path) {
+      const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
+      await revealItemInDir(path);
+    },
+    async copyText(text) {
+      await navigator.clipboard.writeText(text);
+    },
+
     resolveAssetSrc(src, docDir) {
       // SPEC11 §1.3: remote URLs no longer pass through (the renderer already
       // replaced them with placeholders; this is belt-and-braces).

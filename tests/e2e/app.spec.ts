@@ -3159,6 +3159,301 @@ test('E95: reveal — auto on open, sync button, outside-root retarget, hidden p
   await expect(page.locator('.folder-item.selected')).toHaveCount(0);
 });
 
+test('E96: folder context menu — per-kind items, dismissal, left-click inertness, copy and reveal record', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await page.keyboard.press('Control+Shift+E');
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+
+  const menuIds = () =>
+    page.$$eval('[data-testid="folder-menu"] [data-testid^="folder-menu-"]', (els) =>
+      els.map((e) => e.getAttribute('data-testid')!.replace('folder-menu-', ''))
+    );
+
+  // Directory row: the full set, in SPEC35 §2.5 order.
+  await page.locator('[data-path="/notes/sub"]').click({ button: 'right' });
+  await expect(page.getByTestId('folder-menu')).toBeVisible();
+  expect(await menuIds()).toEqual([
+    'new-file',
+    'new-folder',
+    'rename',
+    'delete',
+    'reveal',
+    'copy-path',
+    'copy-relative-path',
+  ]);
+  // Esc dismisses.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+
+  // Markdown file row.
+  await page.locator('[data-path="/notes/a.md"]').click({ button: 'right' });
+  await expect(page.getByTestId('folder-menu')).toBeVisible();
+  expect(await menuIds()).toEqual(['reveal', 'rename', 'delete', 'copy-path', 'copy-relative-path']);
+  // Any outside pointer-down dismisses. (The title span: the header's center
+  // is the SPEC36 open-only toggle now — an inert surface keeps the intent.)
+  await page.locator('.folder-title').click();
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+
+  // A dim non-markdown row offers the same file menu.
+  await page.getByTestId('folder-filter').click(); // show all files
+  await expect(page.locator('[data-path="/notes/pic.png"]')).toBeVisible();
+  await page.locator('[data-path="/notes/pic.png"]').click({ button: 'right' });
+  await expect(page.getByTestId('folder-menu')).toBeVisible();
+  expect(await menuIds()).toEqual(['reveal', 'rename', 'delete', 'copy-path', 'copy-relative-path']);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+
+  // The list's empty area: the root menu (no rename/delete, no relative copy).
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 60, y: 400 } });
+  await expect(page.getByTestId('folder-menu')).toBeVisible();
+  expect(await menuIds()).toEqual(['new-file', 'new-folder', 'reveal', 'copy-path']);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+
+  // Left click never opens the menu (row click behavior unchanged).
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+
+  // Copy Path / Copy Relative Path land the exact strings on __mmClipboard.
+  await page.locator('[data-path="/notes/sub"]').click(); // expand
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toBeVisible();
+  await page.locator('[data-path="/notes/sub/b.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-copy-path').click();
+  await expect.poll(() => page.evaluate(() => window.__mmClipboard)).toEqual(['/notes/sub/b.md']);
+  await page.locator('[data-path="/notes/sub/b.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-copy-relative-path').click();
+  await expect.poll(() => page.evaluate(() => window.__mmClipboard)).toEqual(['/notes/sub/b.md', 'sub/b.md']);
+
+  // Reveal records on __mmReveals; invoking an item dismissed the menu.
+  await page.locator('[data-path="/notes/a.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-reveal').click();
+  await expect.poll(() => page.evaluate(() => window.__mmReveals)).toEqual(['/notes/a.md']);
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+});
+
+test('E97: create — New File / New Folder land in the clicked directory, inline-rename handoff, numbered placeholders', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await page.keyboard.press('Control+Shift+E');
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
+  await page.locator('[data-path="/notes/sub"]').click(); // expand
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toBeVisible();
+
+  // New File under the nested directory: an empty Untitled.md is written and
+  // the new row immediately enters in-place rename.
+  await page.locator('[data-path="/notes/sub"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-new-file').click();
+  const input = page.getByTestId('folder-rename-input');
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue('Untitled.md');
+  await expect.poll(() => fsRead(page, '/notes/sub/Untitled.md')).toBe('');
+  // Esc keeps the placeholder name — and the new file still opens.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('docname')).toContainText('Untitled.md');
+  await expect(page.locator('[data-path="/notes/sub/Untitled.md"]')).toHaveClass(/selected/);
+
+  // The second run numbers itself before the extension; typing replaces the
+  // preselected stem, Enter commits, and the file opens.
+  await page.locator('[data-path="/notes/sub"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-new-file').click();
+  await expect(input).toHaveValue('Untitled 2.md');
+  await page.keyboard.type('story');
+  await expect(input).toHaveValue('story.md');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('docname')).toContainText('story.md');
+  await expect(page.locator('[data-path="/notes/sub/story.md"]')).toHaveClass(/selected/);
+  await expect.poll(() => fsRead(page, '/notes/sub/story.md')).toBe('');
+  expect(await fsRead(page, '/notes/sub/Untitled 2.md')).toBeNull();
+
+  // New Folder: created collapsed, renames in place, opens nothing.
+  await page.locator('[data-path="/notes/sub"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-new-folder').click();
+  await expect(input).toHaveValue('New Folder');
+  await page.keyboard.type('drafts'); // directories preselect the whole name
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[data-path="/notes/sub/drafts"]')).toBeVisible();
+  await expect(page.getByTestId('docname')).toContainText('story.md'); // unchanged
+
+  // The empty-area menu creates against the root.
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 60, y: 400 } });
+  await page.getByTestId('folder-menu-new-file').click();
+  await expect(input).toHaveValue('Untitled.md');
+  await page.keyboard.press('Enter'); // unchanged value ⇒ the cancel path — still opens
+  await expect(page.getByTestId('docname')).toContainText('Untitled.md');
+  await expect.poll(() => fsRead(page, '/notes/Untitled.md')).toBe('');
+});
+
+test('E98: rename in place — open dirty file remaps path/title/recents, dir rename remaps state, invalid names refuse', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await page.keyboard.press('Control+Shift+E');
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
+  await page.locator('[data-path="/notes/sub"]').click(); // expand
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+
+  // Dirty the buffer (autosave-on-toggle is off by default).
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('DIRTY ');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  // The tab mirrors it (SPEC36 unified the dirty marker: `folder-dirty`).
+  await expect(page.getByTestId('folder-dirty')).toBeVisible();
+
+  // Rename the open, dirty file: the stem is preselected.
+  await page.locator('[data-path="/notes/sub/b.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-rename').click();
+  const input = page.getByTestId('folder-rename-input');
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue('b.md');
+  await page.keyboard.type('renamed');
+  await expect(input).toHaveValue('renamed.md');
+  await page.keyboard.press('Enter');
+
+  // Path, window title, tree selection, and recents all remap; the buffer,
+  // dirty flag, and on-disk content are untouched.
+  await expect(page.getByTestId('docname')).toContainText('renamed.md');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect.poll(() => page.title()).toContain('renamed.md •');
+  await expect(page.locator('[data-path="/notes/sub/renamed.md"]')).toHaveClass(/selected/);
+  await expect.poll(() => fsRead(page, '/notes/sub/renamed.md')).toBe('# B doc\n');
+  expect(await fsRead(page, '/notes/sub/b.md')).toBeNull();
+  await expect.poll(() => fsRead(page, '/config/recent.json')).toContain('/notes/sub/renamed.md');
+  expect(await fsRead(page, '/config/recent.json')).not.toContain('/notes/sub/b.md');
+
+  // The next ⌘S writes the new path; the old path stays gone.
+  await page.keyboard.press('Control+s');
+  await expect.poll(() => fsRead(page, '/notes/sub/renamed.md')).toContain('DIRTY');
+  expect(await fsRead(page, '/notes/sub/b.md')).toBeNull();
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(page.getByTestId('folder-dirty')).toHaveCount(0);
+
+  // Rename the directory ABOVE the open file: docPath/expanded/selection
+  // remap and foldertree.json reflects it.
+  await page.locator('[data-path="/notes/sub"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-rename').click();
+  await expect(input).toHaveValue('sub');
+  await page.keyboard.type('stuff'); // directories select the whole name
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[data-path="/notes/stuff/renamed.md"]')).toBeVisible(); // still expanded
+  await expect(page.locator('[data-path="/notes/stuff/renamed.md"]')).toHaveClass(/selected/);
+  await expect(page.getByTestId('docname')).toContainText('renamed.md');
+  await expect.poll(() => fsRead(page, '/config/foldertree.json')).toContain('/notes/stuff');
+  await expect.poll(() => fsRead(page, '/config/recent.json')).toContain('/notes/stuff/renamed.md');
+
+  // Collision (case-insensitive, against live siblings) refuses to commit.
+  await page.locator('[data-path="/notes/a.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-rename').click();
+  await input.fill('STUFF');
+  await expect(input).toHaveClass(/invalid/);
+  await page.keyboard.press('Enter'); // cancels instead of committing
+  await expect(input).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/a.md"]')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/notes/a.md')).toBe('# A doc\n');
+
+  // Windows-reserved names refuse with the reason in the tooltip; Esc restores.
+  await page.locator('[data-path="/notes/a.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-rename').click();
+  await input.fill('con.md');
+  await expect(input).toHaveClass(/invalid/);
+  await expect(input).toHaveAttribute('title', /reserved/i);
+  await page.keyboard.press('Escape');
+  await expect(input).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/a.md"]')).toBeVisible();
+});
+
+test('E99: delete — cancel no-op, dim file trashes, open dirty file to splash, expanded directory prunes', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await page.keyboard.press('Control+Shift+E');
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
+  await page.getByTestId('folder-filter').click(); // show all files
+
+  // Cancel is a no-op.
+  await page.locator('[data-path="/notes/zzz.txt"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-delete').click();
+  await expect(page.getByTestId('folder-delete-prompt')).toBeVisible();
+  await expect(page.getByTestId('folder-delete-prompt')).toContainText('Move “zzz.txt” to the Trash?');
+  await page.getByTestId('folder-delete-cancel').click();
+  await expect(page.getByTestId('folder-delete-prompt')).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/zzz.txt"]')).toBeVisible();
+  expect(await page.evaluate(() => window.__mmTrash ?? [])).toEqual([]);
+
+  // Esc is the same no-op.
+  await page.locator('[data-path="/notes/zzz.txt"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-delete').click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('folder-delete-prompt')).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/zzz.txt"]')).toBeVisible();
+
+  // Deleting a dim file removes its row and records on __mmTrash.
+  await page.locator('[data-path="/notes/pic.png"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-delete').click();
+  await page.getByTestId('folder-delete-confirm').click();
+  await expect(page.locator('[data-path="/notes/pic.png"]')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__mmTrash)).toEqual(['/notes/pic.png']);
+
+  // Deleting the open DIRTY file: the prompt says so; confirm lands on the
+  // splash and prunes recents and the crash draft.
+  await page.locator('[data-path="/notes/sub"]').click(); // expand
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('DIRTY ');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/config/draft.json'), { timeout: 20000 }).toContain('/notes/sub/b.md');
+  await page.locator('[data-path="/notes/sub/b.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-delete').click();
+  await expect(page.getByTestId('folder-delete-prompt')).toContainText('Move “b.md” to the Trash?');
+  await expect(page.getByTestId('folder-delete-prompt')).toContainText('It has unsaved changes.');
+  await page.getByTestId('folder-delete-confirm').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.locator('.folder-item.selected')).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveCount(0);
+  await expect.poll(() => fsRead(page, '/config/recent.json')).not.toContain('/notes/sub/b.md');
+  await expect.poll(() => fsRead(page, '/config/draft.json')).toBeNull();
+  expect(await page.evaluate(() => window.__mmTrash)).toEqual(['/notes/pic.png', '/notes/sub/b.md']);
+
+  // Deleting an EXPANDED directory containing the open (clean) doc: all of
+  // the above plus the expanded set prunes.
+  await page.locator('[data-path="/notes/sub/deep"]').click(); // expand
+  await page.locator('[data-path="/notes/sub/deep/c.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  await page.locator('[data-path="/notes/sub"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-delete').click();
+  await expect(page.getByTestId('folder-delete-prompt')).toContainText('Move “sub” and its contents to the Trash?');
+  await expect(page.getByTestId('folder-delete-prompt')).not.toContainText('unsaved');
+  await page.getByTestId('folder-delete-confirm').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.locator('[data-path="/notes/sub"]')).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/sub/deep/c.md"]')).toHaveCount(0);
+  await expect.poll(() => fsRead(page, '/config/foldertree.json')).not.toContain('/notes/sub');
+  await expect.poll(() => fsRead(page, '/config/recent.json')).not.toContain('c.md');
+  expect(await page.evaluate(() => window.__mmTrash)).toEqual(['/notes/pic.png', '/notes/sub/b.md', '/notes/sub']);
+});
+
 // --- SPEC36: multiple open files as sidebar tabs --------------------------------
 
 /** Set the folder root to /notes through the armed Open Folder… hook. */

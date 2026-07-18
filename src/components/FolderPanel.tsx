@@ -1,5 +1,6 @@
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { displayEntries, isMarkdownFile, type DirEntry } from '../lib/folderTree';
+import { folderContextMenu, validateEntryName } from '../lib/folderOps';
 import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN } from '../lib/settings';
 
 /**
@@ -25,7 +26,8 @@ export interface FolderPanelProps {
   openOnly: boolean;
   /** SPEC36 §3.6: open paths whose buffer is dirty (active or parked). */
   dirtyFiles: Set<string>;
-  /** SPEC36 §3.1: on mac ⌘ is the additive click; Ctrl stays the menu's. */
+  /** SPEC36 §3.1 + SPEC35 §2.5: ⌘ is the additive click on mac (Ctrl stays
+      the context menu's); also picks the platform reveal label. */
   isMac: boolean;
   width: number;
   join(...parts: string[]): string;
@@ -42,6 +44,71 @@ export interface FolderPanelProps {
   onSync(): void;
   onClose(): void;
   onWidth(width: number): void;
+  /** SPEC35 §2.5: which seam-backed menu items exist on this platform. */
+  caps: { canReveal: boolean; canTrash: boolean; canRename: boolean; canCopy: boolean };
+  /** SPEC35 §3: an invoked menu item — the owner runs the operation. */
+  onMenuAction(id: string, target: { kind: 'dir' | 'file' | 'root'; path: string }): void;
+  /** SPEC35 §5: the row whose label is an in-place rename input; null = none. */
+  renamingPath: string | null;
+  /** A failed commit's fs error — surfaces in the input's title (§5.4). */
+  renameError: string | null;
+  onRenameCommit(oldPath: string, newName: string): void;
+  onRenameCancel(): void;
+}
+
+type MenuTarget = { kind: 'dir' | 'file' | 'root'; path: string; x: number; y: number };
+
+/**
+ * SPEC35 §5: the row's label swapped for a text input. Enter commits, Esc
+ * cancels, blur commits; an invalid or unchanged value cancels instead.
+ * Validation runs on every keystroke — name rules plus a case-insensitive
+ * sibling collision check against the live listing (excluding itself).
+ */
+function RenameRow({ p, dir, entry, depth }: { p: FolderPanelProps; dir: string; entry: DirEntry; depth: number }) {
+  const path = p.join(dir, entry.name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const doneRef = useRef(false);
+  const [value, setValue] = useState(entry.name);
+  const siblings = (p.children[dir] ?? [])
+    .map((s) => s.name)
+    .filter((n) => n.toLowerCase() !== entry.name.toLowerCase());
+  const error =
+    validateEntryName(value) ??
+    (siblings.some((n) => n.toLowerCase() === value.toLowerCase()) ? 'Already exists here' : null);
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.focus();
+    if (entry.isDir) el.select();
+    else el.setSelectionRange(0, entry.name.replace(/\.[^.]+$/, '').length); // the stem
+  }, []);
+  useEffect(() => {
+    if (p.renameError) doneRef.current = false; // the commit failed — the input lives on
+  }, [p.renameError]);
+  const finish = (commit: boolean) => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    if (!commit || error || value === entry.name) p.onRenameCancel();
+    else p.onRenameCommit(path, value);
+  };
+  return (
+    <div className="folder-item folder-rename" style={{ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties}>
+      <input
+        ref={inputRef}
+        data-testid="folder-rename-input"
+        className={error ? 'invalid' : undefined}
+        title={p.renameError ?? error ?? undefined}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation(); // the panel's other interactions stay inert
+          if (e.key === 'Enter') finish(true);
+          else if (e.key === 'Escape') finish(false);
+        }}
+        onBlur={() => finish(true)}
+      />
+    </div>
+  );
 }
 
 /**
@@ -49,7 +116,19 @@ export interface FolderPanelProps {
  * list. Open rows are tab pills carrying the dirty ● and the hover ✕ (a
  * span with role=button: the row itself is already a <button>).
  */
-function FileRow({ path, name, depth, p }: { path: string; name: string; depth: number | null; p: FolderPanelProps }) {
+function FileRow({
+  path,
+  name,
+  depth,
+  p,
+  onRowMenu,
+}: {
+  path: string;
+  name: string;
+  depth: number | null;
+  p: FolderPanelProps;
+  onRowMenu(kind: 'dir' | 'file', path: string, e: React.MouseEvent): void;
+}) {
   const md = isMarkdownFile(name);
   const open = p.openFiles.includes(path);
   const selected = p.selectedPath === path;
@@ -60,10 +139,12 @@ function FileRow({ path, name, depth, p }: { path: string; name: string; depth: 
       data-testid="folder-item"
       data-path={path}
       style={depth === null ? undefined : ({ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties)}
-      disabled={!md}
+      // Not `disabled` — a disabled button swallows the SPEC35 §3.1
+      // contextmenu; dim rows stay click-inert via the absent onClick.
       // Selection starts on mousedown: WebKit word-selects on double / fast
       // repeated (⌘)clicks even under user-select:none — swallow it here.
       onMouseDown={(e) => e.preventDefault()}
+      onContextMenu={(ev) => onRowMenu('file', path, ev)}
       onClick={
         md
           ? (e) => {
@@ -122,10 +203,12 @@ function Rows({
   dir,
   depth,
   p,
+  onRowMenu,
 }: {
   dir: string;
   depth: number;
   p: FolderPanelProps;
+  onRowMenu(kind: 'dir' | 'file', path: string, e: React.MouseEvent): void;
 }) {
   const listed = p.children[dir];
   if (!listed) return null;
@@ -136,6 +219,14 @@ function Rows({
         const path = p.join(dir, e.name);
         if (e.isDir) {
           const open = p.expanded.has(path);
+          if (p.renamingPath === path) {
+            return (
+              <div key={path}>
+                <RenameRow p={p} dir={dir} entry={e} depth={depth} />
+                {open && <Rows dir={path} depth={depth + 1} p={p} onRowMenu={onRowMenu} />}
+              </div>
+            );
+          }
           return (
             <div key={path}>
               <button
@@ -145,6 +236,7 @@ function Rows({
                 style={{ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => p.onToggleDir(path)}
+                onContextMenu={(ev) => onRowMenu('dir', path, ev)}
               >
                 <span className="folder-chevron" aria-hidden="true">
                   {open ? (
@@ -159,11 +251,12 @@ function Rows({
                 </span>
                 {e.name}
               </button>
-              {open && <Rows dir={path} depth={depth + 1} p={p} />}
+              {open && <Rows dir={path} depth={depth + 1} p={p} onRowMenu={onRowMenu} />}
             </div>
           );
         }
-        return <FileRow key={path} path={path} name={e.name} depth={depth} p={p} />;
+        if (p.renamingPath === path) return <RenameRow key={path} p={p} dir={dir} entry={e} depth={depth} />;
+        return <FileRow key={path} path={path} name={e.name} depth={depth} p={p} onRowMenu={onRowMenu} />;
       })}
     </>
   );
@@ -172,6 +265,48 @@ function Rows({
 export function FolderPanel(p: FolderPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState<MenuTarget | null>(null);
+
+  const openMenu = (kind: MenuTarget['kind'], path: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ kind, path, x: e.clientX, y: e.clientY });
+  };
+
+  // SPEC35 §3.2: positioned at the pointer, clamped to the viewport.
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!el || !menu) return;
+    const r = el.getBoundingClientRect();
+    el.style.left = `${Math.max(4, Math.min(menu.x, window.innerWidth - r.width - 4))}px`;
+    el.style.top = `${Math.max(4, Math.min(menu.y, window.innerHeight - r.height - 4))}px`;
+  }, [menu]);
+
+  // SPEC35 §3.2: dismissed by Esc, any outside pointer-down, scroll, resize.
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) close();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        close();
+      }
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [menu]);
 
   // Reveal follow-through: whenever the selection changes, bring its row
   // into view (the owner has already expanded the ancestors).
@@ -215,6 +350,7 @@ export function FolderPanel(p: FolderPanelProps) {
       data-testid="folder-panel"
       ref={panelRef}
       style={{ '--mm-folders': `${p.width}px` } as React.CSSProperties}
+      onContextMenu={(e) => e.preventDefault()} // SPEC35 §3.1: no native menu in the panel
     >
       <div className="folder-header" data-testid="folder-header">
         <span className="folder-title">{p.root ? p.basename(p.root) : 'Folders'}</span>
@@ -284,18 +420,56 @@ export function FolderPanel(p: FolderPanelProps) {
               No open files
             </div>
           ) : (
-            p.openFiles.map((path) => <FileRow key={path} path={path} name={p.basename(path)} depth={null} p={p} />)
+            p.openFiles.map((path) => (
+              <FileRow key={path} path={path} name={p.basename(path)} depth={null} p={p} onRowMenu={openMenu} />
+            ))
           )}
         </div>
       ) : p.root ? (
-        <div className="folder-list" ref={listRef}>
-          <Rows dir={p.root} depth={0} p={p} />
+        <div
+          className="folder-list"
+          ref={listRef}
+          onContextMenu={(e) => {
+            // Rows handle their own menus; the remaining surface is the
+            // empty area — the `root` menu (SPEC35 §3.1, root always set here).
+            if ((e.target as HTMLElement).closest('[data-path]')) return;
+            if (p.root) openMenu('root', p.root, e);
+          }}
+        >
+          <Rows dir={p.root} depth={0} p={p} onRowMenu={openMenu} />
         </div>
       ) : (
         <div className="folder-empty">
           <button data-testid="folder-open-btn" onClick={p.onOpenFolder}>
             Open Folder…
           </button>
+        </div>
+      )}
+      {menu && (
+        <div
+          className="theme-menu folder-menu"
+          data-testid="folder-menu"
+          ref={menuRef}
+          style={{ left: menu.x, top: menu.y }}
+        >
+          {folderContextMenu(menu.kind, { isMac: p.isMac, ...p.caps }).map((it, i) =>
+            it === 'sep' ? (
+              <div key={`sep-${i}`} className="folder-menu-sep" />
+            ) : (
+              <button
+                key={it.id}
+                className="theme-option"
+                data-testid={`folder-menu-${it.id}`}
+                onClick={() => {
+                  const m = menu;
+                  setMenu(null);
+                  p.onMenuAction(it.id, { kind: m.kind, path: m.path });
+                }}
+              >
+                <span>{it.label}</span>
+              </button>
+            )
+          )}
         </div>
       )}
       <div className="folder-divider" data-testid="folder-divider" onPointerDown={dragWidth} />

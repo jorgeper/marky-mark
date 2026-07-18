@@ -84,6 +84,10 @@ Either way it's a one-time step — the app opens normally afterwards.
   and one click away, everything else quietly grayed out. Resizable,
   closeable, remembers its root and what you had expanded; opening a
   file reveals it in the tree, and File → Open Folder… points it anywhere.
+  Right-click for file management: New File / New Folder (named in place),
+  Rename (the open document follows — title, recents, even mid-edit),
+  Delete to the Trash with a confirm, Reveal in Finder / File Explorer,
+  and Copy Path / Copy Relative Path.
 - **Tabs, sideways** — ⌘-click opens a file *in addition* to the current
   one; every open file renders as a tab pill right in the sidebar, the
   active one on the front plane. Each keeps its own unsaved edits and

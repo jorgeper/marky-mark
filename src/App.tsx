@@ -28,8 +28,16 @@ import { UpdateDialog } from './components/UpdateDialog';
 import { diffLineSets, type DiffLineSets } from './lib/diffLines';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
 import { clearRecent, parseRecent, recentMenuEntries, rememberRecent, removeRecent, serializeRecent, type RecentStore } from './lib/recentFiles';
-import { ancestorsOf, parseFolderState, serializeFolderState, visibleEntries, type DirEntry } from './lib/folderTree';
-import { addOpen, closeOpen, cycleOpen } from './lib/openFiles';
+import {
+  ancestorsOf,
+  isMarkdownFile,
+  parseFolderState,
+  serializeFolderState,
+  visibleEntries,
+  type DirEntry,
+} from './lib/folderTree';
+import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
+import { relativePath, remapPath, uniqueChildName } from './lib/folderOps';
 import { FolderPanel } from './components/FolderPanel';
 import { countWords } from './lib/wordCount';
 import { expandImageName, extForMime, imageMarkdownRef, sanitizeImageName } from './lib/imagePaste';
@@ -110,6 +118,12 @@ export default function App() {
   // SPEC36: the open-file set (tree-ordered) and the only-open-files view.
   const [openFiles, setOpenFiles] = useState<string[]>([]);
   const [folderOpenOnly, setFolderOpenOnly] = useState(false);
+  // SPEC35 §4–§5: the row renaming in place (openOnDone: a just-created file
+  // opens when the rename commits or cancels), and a failed commit's error.
+  const [folderRenaming, setFolderRenaming] = useState<{ path: string; openOnDone: boolean } | null>(null);
+  const [folderRenameError, setFolderRenameError] = useState<string | null>(null);
+  // SPEC35 §6: the delete confirmation — “Move ‘NAME’ to the Trash?”.
+  const [folderDeletePrompt, setFolderDeletePrompt] = useState<{ path: string; isDir: boolean } | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showComments, setShowComments] = useState(true);
   // SPEC26 §3: per-document front-matter override — null means "follow the
@@ -826,11 +840,95 @@ export default function App() {
     [listFolderDir, persistFolderState]
   );
 
+  /** SPEC35 §5: begin (or end, with null) an in-place rename session. */
+  const folderRenamingRef = useRef<{ path: string; openOnDone: boolean } | null>(null);
+  const startFolderRename = useCallback((session: { path: string; openOnDone: boolean } | null) => {
+    folderRenamingRef.current = session;
+    setFolderRenaming(session);
+    setFolderRenameError(null);
+  }, []);
+
+  /**
+   * SPEC35 §4: New File / New Folder as a child of `dir` (the clicked
+   * directory, or the root for the empty-area menu). The unique-named entry
+   * is created on disk, the target directory expands and re-lists, and the
+   * new row drops straight into in-place rename; a new file opens (through
+   * the guard) when that rename commits or cancels.
+   */
+  const folderCreate = useCallback(
+    async (p: Platform, dir: string, kind: 'file' | 'dir') => {
+      if (!p.readDirEntries) return;
+      try {
+        const listing = await p.readDirEntries(dir);
+        const name = uniqueChildName(
+          listing.map((e) => e.name),
+          kind === 'file' ? 'Untitled.md' : 'New Folder'
+        );
+        const path = p.join(dir, name);
+        if (kind === 'file') await p.writeTextFile(path, '');
+        else await p.mkdirp(path);
+        const nextExpanded = new Set(folderStateRef.current.expanded);
+        nextExpanded.add(dir); // the target opens; a new folder itself stays collapsed
+        folderStateRef.current = { ...folderStateRef.current, expanded: nextExpanded };
+        setFolderExpanded(nextExpanded);
+        persistFolderState(p);
+        await listFolderDir(p, dir);
+        startFolderRename({ path, openOnDone: kind === 'file' });
+      } catch {
+        /* creation failed — no row to rename */
+      }
+    },
+    [persistFolderState, listFolderDir, startFolderRename]
+  );
+
+  /** SPEC35 §3: a folder-menu item was invoked — run the operation. */
+  const folderMenuAction = useCallback(
+    (id: string, target: { kind: 'dir' | 'file' | 'root'; path: string }) => {
+      const p = stateRef.current.platform;
+      if (!p) return;
+      const root = folderStateRef.current.root;
+      if (id === 'reveal') void p.revealPath?.(target.path);
+      else if (id === 'copy-path') void p.copyText?.(target.path);
+      else if (id === 'copy-relative-path' && root) void p.copyText?.(relativePath(root, target.path));
+      else if (id === 'rename') startFolderRename({ path: target.path, openOnDone: false });
+      else if (id === 'new-file') void folderCreate(p, target.path, 'file');
+      else if (id === 'new-folder') void folderCreate(p, target.path, 'dir');
+      else if (id === 'delete') setFolderDeletePrompt({ path: target.path, isDir: target.kind === 'dir' });
+    },
+    [startFolderRename, folderCreate]
+  );
+
   // Guards the SPEC15/SPEC16 preview restore against firing on stale html
   // (opening a doc from edit mode re-runs the effect before the new render).
   const renderPendingRef = useRef(false);
 
   // --- document loading ------------------------------------------------------
+  /** Watch `path` for external changes (replacing any previous watcher). */
+  const installWatcher = useCallback(
+    async (p: Platform, path: string) => {
+      unwatchRef.current?.();
+      unwatchRef.current = null;
+      try {
+        unwatchRef.current = await p.watchFile(path, async () => {
+          const s = stateRef.current;
+          if (s.dirty || s.mode === 'edit') return; // never clobber local edits
+          try {
+            const fresh = await loadDocParts(p, path);
+            skipSaveRef.current = true;
+            setBuffer(fresh.content);
+            setSavedText(fresh.content);
+            setComments(fresh.comments);
+          } catch {
+            /* file briefly unavailable mid-write; next event will catch up */
+          }
+        });
+      } catch {
+        /* watching is best-effort */
+      }
+    },
+    [loadDocParts]
+  );
+
   const openDoc = useCallback(async (p: Platform, path: string) => {
     let content: string;
     let saved: string;
@@ -898,28 +996,10 @@ export default function App() {
     setShowDiff(false); // SPEC16 §2: the diff toggle resets per document
     setDiff(null);
 
-    unwatchRef.current?.();
-    unwatchRef.current = null;
     // SPEC36 §3: the active document is always a member of the open set.
     commitOpenSet(addOpen(openFilesRef.current, path), path);
-    try {
-      unwatchRef.current = await p.watchFile(path, async () => {
-        const s = stateRef.current;
-        if (s.dirty || s.mode === 'edit') return; // never clobber local edits
-        try {
-          const fresh = await loadDocParts(p, path);
-          skipSaveRef.current = true;
-          setBuffer(fresh.content);
-          setSavedText(fresh.content);
-          setComments(fresh.comments);
-        } catch {
-          /* file briefly unavailable mid-write; next event will catch up */
-        }
-      });
-    } catch {
-      /* watching is best-effort */
-    }
-  }, [loadDocParts, recordPosition, currentTopLine, commitRecent, revealInFolders, commitOpenSet]);
+    await installWatcher(p, path);
+  }, [loadDocParts, recordPosition, currentTopLine, commitRecent, revealInFolders, commitOpenSet, installWatcher]);
 
   /**
    * SPEC36: the editor snapshots its state into editorHistoryRef during its
@@ -1125,6 +1205,75 @@ export default function App() {
     if (s.untitled && s.dirty) q.push(UNTITLED_SENTINEL);
     return q;
   }, []);
+
+  /**
+   * SPEC35 §5.3: after a rename lands on disk, remap every piece of state
+   * that referenced the old path (the entry itself or any descendant): the
+   * open docPath (title follows its effect; buffer, dirty flag, undo history,
+   * and comments untouched — the next save writes the new path), the watcher,
+   * the expanded set, the listing cache, and each recents entry (same MRU
+   * position). Persists foldertree.json and recent.json.
+   */
+  const remapAfterRename = useCallback(
+    (p: Platform, oldPath: string, newPath: string) => {
+      const remap = (s: string) => remapPath(s, oldPath, newPath);
+      const s = stateRef.current;
+      const newDoc = s.docPath ? remap(s.docPath) : null;
+      if (newDoc) {
+        setDocPath(newDoc);
+        void installWatcher(p, newDoc);
+      }
+      const nextExpanded = new Set([...folderStateRef.current.expanded].map((d) => remap(d) ?? d));
+      folderStateRef.current = { ...folderStateRef.current, expanded: nextExpanded };
+      setFolderExpanded(nextExpanded);
+      setFolderChildren((prev) => Object.fromEntries(Object.entries(prev).map(([k, v]) => [remap(k) ?? k, v])));
+      persistFolderState(p);
+      const entries = recentRef.current.entries.map((en) => ({ ...en, path: remap(en.path) ?? en.path }));
+      commitRecent({ ...recentRef.current, entries }, p);
+      // SPEC36: the open set, the active pointer, and parked buffers follow.
+      for (const [k, v] of [...parkRef.current]) {
+        const nk = remap(k);
+        if (nk !== null) {
+          parkRef.current.delete(k);
+          parkRef.current.set(nk, v);
+        }
+      }
+      const nextActive = activeFileRef.current ? (remap(activeFileRef.current) ?? activeFileRef.current) : null;
+      commitOpenSet(remapOpen(openFilesRef.current, oldPath, newPath), nextActive);
+    },
+    [installWatcher, persistFolderState, commitRecent, commitOpenSet]
+  );
+
+  /** SPEC35 §5.3: commit an in-place rename — fs first, then the remap. */
+  const folderRenameCommit = useCallback(
+    async (oldPath: string, newName: string) => {
+      const p = stateRef.current.platform;
+      if (!p?.renameEntry) return;
+      const session = folderRenamingRef.current;
+      const parent = p.dirname(oldPath);
+      const newPath = p.join(parent, newName);
+      try {
+        await p.renameEntry(oldPath, newPath);
+      } catch (e) {
+        setFolderRenameError(e instanceof Error ? e.message : String(e)); // input stays open (§5.4)
+        return;
+      }
+      startFolderRename(null);
+      await listFolderDir(p, parent);
+      remapAfterRename(p, oldPath, newPath);
+      // SPEC35 §4.2: a just-created markdown file opens through the guard.
+      if (session?.openOnDone && isMarkdownFile(p.basename(newPath))) openDocGuarded(p, newPath);
+    },
+    [startFolderRename, listFolderDir, remapAfterRename, openDocGuarded]
+  );
+
+  const folderRenameCancel = useCallback(() => {
+    const p = stateRef.current.platform;
+    const session = folderRenamingRef.current;
+    startFolderRename(null);
+    // SPEC35 §4.2: cancelling the christening still opens the new file as-is.
+    if (p && session?.openOnDone && isMarkdownFile(p.basename(session.path))) openDocGuarded(p, session.path);
+  }, [startFolderRename, openDocGuarded]);
 
   /**
    * Persist comments per the active storage mode (SPEC2 FR-C.5). Embedded
@@ -1625,6 +1774,43 @@ export default function App() {
     quitQueueRef.current = dirtyDocsQueue();
     void processQuitWalk();
   };
+
+  /** SPEC35 §6.2: confirmed — trash, re-list, prune, persist, maybe splash. */
+  const folderDeleteRun = useCallback(
+    async (target: { path: string; isDir: boolean }) => {
+      const p = stateRef.current.platform;
+      if (!p?.trashEntry) return;
+      try {
+        await p.trashEntry(target.path);
+      } catch {
+        return; /* fs error — the tree stays untouched */
+      }
+      const within = (s: string) => remapPath(s, target.path, target.path) !== null;
+      await listFolderDir(p, p.dirname(target.path));
+      const nextExpanded = new Set([...folderStateRef.current.expanded].filter((d) => !within(d)));
+      folderStateRef.current = { ...folderStateRef.current, expanded: nextExpanded };
+      setFolderExpanded(nextExpanded);
+      setFolderChildren((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !within(k))));
+      persistFolderState(p);
+      commitRecent(
+        { ...recentRef.current, entries: recentRef.current.entries.filter((en) => !within(en.path)) },
+        p
+      );
+      // SPEC36: deleted paths leave the open set and the park map too.
+      for (const k of [...parkRef.current.keys()]) if (within(k)) parkRef.current.delete(k);
+      const nextActive = activeFileRef.current && within(activeFileRef.current) ? null : activeFileRef.current;
+      commitOpenSet(pruneOpen(openFilesRef.current, target.path), nextActive);
+      const s = stateRef.current;
+      if (s.docPath && within(s.docPath)) {
+        // SPEC35 §6.3: to the splash, crash draft discarded (the confirm
+        // already covered the data loss); reading positions age out on
+        // their own pruning rules.
+        closeToSplash();
+        void deleteDraft();
+      }
+    },
+    [listFolderDir, persistFolderState, commitRecent, commitOpenSet, closeToSplash, deleteDraft]
+  );
 
   /** SPEC30 §3.3: apply a restored draft — the doc (or untitled) + dirty buffer. */
   const restoreDraft = useCallback(
@@ -2806,6 +2992,17 @@ export default function App() {
             }}
             onClose={() => dispatchCommand('toggleFolders')}
             onWidth={(w) => updateSettings({ ...stateRef.current.settings, folderWidth: w })}
+            caps={{
+              canReveal: !!platform.revealPath,
+              canTrash: !!platform.trashEntry,
+              canRename: !!platform.renameEntry,
+              canCopy: !!platform.copyText,
+            }}
+            onMenuAction={folderMenuAction}
+            renamingPath={folderRenaming?.path ?? null}
+            renameError={folderRenameError}
+            onRenameCommit={(oldPath, newName) => void folderRenameCommit(oldPath, newName)}
+            onRenameCancel={folderRenameCancel}
           />
         )}
 
@@ -3184,6 +3381,44 @@ export default function App() {
                 }}
               >
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {folderDeletePrompt && (
+        <div className="overlay">
+          <div
+            className="modal"
+            data-testid="folder-delete-prompt"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setFolderDeletePrompt(null); // §6.1: Esc ⇒ no-op
+            }}
+          >
+            <h2>Move to Trash</h2>
+            <p style={{ fontSize: 13.5 }}>
+              Move “{platform.basename(folderDeletePrompt.path)}”
+              {folderDeletePrompt.isDir ? ' and its contents' : ''} to the Trash?
+              {dirty && docPath && remapPath(docPath, folderDeletePrompt.path, folderDeletePrompt.path) !== null
+                ? ' It has unsaved changes.'
+                : ''}
+            </p>
+            <div className="actions">
+              <button data-testid="folder-delete-cancel" onClick={() => setFolderDeletePrompt(null)}>
+                Cancel
+              </button>
+              <button
+                className="primary"
+                data-testid="folder-delete-confirm"
+                autoFocus // §6.1: Confirm is the default (Enter)
+                onClick={() => {
+                  const target = folderDeletePrompt;
+                  setFolderDeletePrompt(null);
+                  void folderDeleteRun(target);
+                }}
+              >
+                Move to Trash
               </button>
             </div>
           </div>

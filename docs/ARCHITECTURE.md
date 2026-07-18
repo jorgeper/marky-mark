@@ -535,6 +535,36 @@ retargets the root to its directory; a hidden panel never auto-opens.
 Width and visibility ride settings (`folderWidth`, `showFolders`); the
 divider uses the split-edit pointer-capture pattern.
 
+## Sidebar file management (SPEC35)
+
+Four more optional Platform seams carry the row context menu, each absent
+⇒ its menu items are omitted: `renameEntry` (plugin-fs `rename`, the
+existing broad fs scope), `trashEntry` (one Rust command on the `trash`
+crate — recursive move to the OS Trash, no network), `revealPath`
+(plugin-opener `revealItemInDir`), and `copyText` (clipboard; the dev
+shim records all three on `__mmTrash`/`__mmReveals`/`__mmClipboard` for
+e2e, and models directories as trailing-slash marker keys so a brand-new
+empty folder really lists). `folderOps.ts` (pure) owns name validation
+(separators, dotfiles, trailing dot/space, length, Windows-reserved
+basenames), unique child naming (`Untitled 2.md`), prefix-aware path
+remapping, relative paths, and the menu model itself — per-kind item
+sets with capability flags and separator collapse, so tests pin the menu
+exactly.
+
+Remap on rename: after the fs rename lands, every state that referenced
+the old path (the entry or any descendant) is rewritten in place — the
+open `docPath` (window title follows; buffer, dirty flag, undo history,
+and comments untouched, so the next save simply writes the new path),
+the file watcher, the expanded set, the listing cache, and each recents
+entry at its same MRU position — then `foldertree.json` and
+`recent.json` persist. Delete confirms in-app, trashes recursively,
+re-lists the parent, prunes the expanded set/listing cache/recents, and
+if the open document was inside, closes to the splash and discards its
+crash draft (reading positions age out via their own cap). Creation
+drops the new row straight into the same in-place rename input used by
+Rename, and a new markdown file opens through the unsaved-changes guard
+when that rename commits or cancels.
+
 ## Multiple open files — sidebar tabs (SPEC36)
 
 `openFiles.ts` (pure) owns the open set: a list of absolute paths kept

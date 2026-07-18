@@ -66,6 +66,12 @@ declare global {
       focused: boolean;
       nav: boolean;
     };
+    /** SPEC35 §1: paths moved to the (virtual) Trash, newest last. */
+    __mmTrash?: string[];
+    /** SPEC35 §1: paths handed to revealPath, newest last. */
+    __mmReveals?: string[];
+    /** SPEC35 §1: strings handed to copyText, newest last. */
+    __mmClipboard?: string[];
     /**
      * SPEC19 §2.3: the shim's updater mock — tests set `next` (null = up to
      * date, a version = available, {error} = failure) and read back what
@@ -269,13 +275,17 @@ export function createBrowserPlatform(): Platform {
       for (const p of fs.list()) {
         if (p.startsWith(prefix)) {
           const rest = p.slice(prefix.length);
-          names.add(rest.split('/')[0]);
+          if (rest) names.add(rest.split('/')[0]);
         }
       }
       return [...names];
     },
-    async mkdirp() {
-      // directories are implicit in the virtual fs
+    async mkdirp(dir) {
+      // Directories are implicit via file prefixes; an explicit (possibly
+      // empty) directory is a trailing-slash marker key so the tree can list
+      // a just-created folder (SPEC35 §4.3).
+      const d = normalize(dir).replace(/\/+$/, '');
+      if (d && !fs.list().some((p) => p === `${d}/` || p.startsWith(`${d}/`))) fs.write(`${d}/`, '');
     },
 
     async configDir() {
@@ -392,6 +402,43 @@ export function createBrowserPlatform(): Platform {
       const content = fs.read(src);
       if (content === null) throw new Error(`ENOENT: ${src}`);
       fs.write(dest, content);
+    },
+
+    /** SPEC35 §1: key rewrite, including the prefix rewrite for directories. */
+    async renameEntry(oldPath, newPath) {
+      const from = normalize(oldPath).replace(/\/+$/, '');
+      const to = normalize(newPath).replace(/\/+$/, '');
+      let moved = false;
+      for (const p of fs.list()) {
+        if (p === from || p.startsWith(`${from}/`)) {
+          const content = fs.read(p)!;
+          fs.remove(p);
+          fs.write(p === from ? to : to + p.slice(from.length), content);
+          moved = true;
+        }
+      }
+      if (!moved) throw new Error(`ENOENT: ${oldPath}`);
+    },
+    /** SPEC35 §1: remove from the virtual fs; record on __mmTrash for e2e. */
+    async trashEntry(path) {
+      const target = normalize(path).replace(/\/+$/, '');
+      for (const p of fs.list()) {
+        if (p === target || p.startsWith(`${target}/`)) fs.remove(p);
+      }
+      (window.__mmTrash ??= []).push(path);
+    },
+    /** SPEC35 §1: record for e2e — the shim never opens a file manager. */
+    async revealPath(path) {
+      (window.__mmReveals ??= []).push(path);
+    },
+    /** SPEC35 §1: record first — headless e2e has no clipboard permission. */
+    async copyText(text) {
+      (window.__mmClipboard ??= []).push(text);
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        /* the __mmClipboard record above is the e2e seam */
+      }
     },
 
     /**
