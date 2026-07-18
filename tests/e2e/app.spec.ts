@@ -3373,3 +3373,79 @@ test('E98: rename in place — open dirty file remaps path/title/recents, dir re
   await expect(input).toHaveCount(0);
   await expect(page.locator('[data-path="/notes/a.md"]')).toBeVisible();
 });
+
+test('E99: delete — cancel no-op, dim file trashes, open dirty file to splash, expanded directory prunes', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await page.keyboard.press('Control+Shift+E');
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
+  await page.getByTestId('folder-filter').click(); // show all files
+
+  // Cancel is a no-op.
+  await page.locator('[data-path="/notes/zzz.txt"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-delete').click();
+  await expect(page.getByTestId('folder-delete-prompt')).toBeVisible();
+  await expect(page.getByTestId('folder-delete-prompt')).toContainText('Move “zzz.txt” to the Trash?');
+  await page.getByTestId('folder-delete-cancel').click();
+  await expect(page.getByTestId('folder-delete-prompt')).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/zzz.txt"]')).toBeVisible();
+  expect(await page.evaluate(() => window.__mmTrash ?? [])).toEqual([]);
+
+  // Esc is the same no-op.
+  await page.locator('[data-path="/notes/zzz.txt"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-delete').click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('folder-delete-prompt')).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/zzz.txt"]')).toBeVisible();
+
+  // Deleting a dim file removes its row and records on __mmTrash.
+  await page.locator('[data-path="/notes/pic.png"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-delete').click();
+  await page.getByTestId('folder-delete-confirm').click();
+  await expect(page.locator('[data-path="/notes/pic.png"]')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__mmTrash)).toEqual(['/notes/pic.png']);
+
+  // Deleting the open DIRTY file: the prompt says so; confirm lands on the
+  // splash and prunes recents and the crash draft.
+  await page.locator('[data-path="/notes/sub"]').click(); // expand
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('DIRTY ');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/config/draft.json'), { timeout: 20000 }).toContain('/notes/sub/b.md');
+  await page.locator('[data-path="/notes/sub/b.md"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-delete').click();
+  await expect(page.getByTestId('folder-delete-prompt')).toContainText('Move “b.md” to the Trash?');
+  await expect(page.getByTestId('folder-delete-prompt')).toContainText('It has unsaved changes.');
+  await page.getByTestId('folder-delete-confirm').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.locator('.folder-item.selected')).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveCount(0);
+  await expect.poll(() => fsRead(page, '/config/recent.json')).not.toContain('/notes/sub/b.md');
+  await expect.poll(() => fsRead(page, '/config/draft.json')).toBeNull();
+  expect(await page.evaluate(() => window.__mmTrash)).toEqual(['/notes/pic.png', '/notes/sub/b.md']);
+
+  // Deleting an EXPANDED directory containing the open (clean) doc: all of
+  // the above plus the expanded set prunes.
+  await page.locator('[data-path="/notes/sub/deep"]').click(); // expand
+  await page.locator('[data-path="/notes/sub/deep/c.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  await page.locator('[data-path="/notes/sub"]').click({ button: 'right' });
+  await page.getByTestId('folder-menu-delete').click();
+  await expect(page.getByTestId('folder-delete-prompt')).toContainText('Move “sub” and its contents to the Trash?');
+  await expect(page.getByTestId('folder-delete-prompt')).not.toContainText('unsaved');
+  await page.getByTestId('folder-delete-confirm').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.locator('[data-path="/notes/sub"]')).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/sub/deep/c.md"]')).toHaveCount(0);
+  await expect.poll(() => fsRead(page, '/config/foldertree.json')).not.toContain('/notes/sub');
+  await expect.poll(() => fsRead(page, '/config/recent.json')).not.toContain('c.md');
+  expect(await page.evaluate(() => window.__mmTrash)).toEqual(['/notes/pic.png', '/notes/sub/b.md', '/notes/sub']);
+});

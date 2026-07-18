@@ -115,6 +115,8 @@ export default function App() {
   // opens when the rename commits or cancels), and a failed commit's error.
   const [folderRenaming, setFolderRenaming] = useState<{ path: string; openOnDone: boolean } | null>(null);
   const [folderRenameError, setFolderRenameError] = useState<string | null>(null);
+  // SPEC35 §6: the delete confirmation — “Move ‘NAME’ to the Trash?”.
+  const [folderDeletePrompt, setFolderDeletePrompt] = useState<{ path: string; isDir: boolean } | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showComments, setShowComments] = useState(true);
   // SPEC26 §3: per-document front-matter override — null means "follow the
@@ -798,6 +800,7 @@ export default function App() {
       else if (id === 'rename') startFolderRename({ path: target.path, openOnDone: false });
       else if (id === 'new-file') void folderCreate(p, target.path, 'file');
       else if (id === 'new-folder') void folderCreate(p, target.path, 'dir');
+      else if (id === 'delete') setFolderDeletePrompt({ path: target.path, isDir: target.kind === 'dir' });
     },
     [startFolderRename, folderCreate]
   );
@@ -1366,6 +1369,66 @@ export default function App() {
       /* best effort */
     }
   }, []);
+
+  /**
+   * SPEC35 §6.3: the open document was deleted — back to the SPEC4 clean
+   * start (no dialog beyond the already-given confirmation). Mirrors
+   * startUntitled, but lands on the splash and discards the crash draft.
+   * The doc's reading-position entry is left to the existing pruning rules.
+   */
+  const closeToSplash = useCallback(() => {
+    skipSaveRef.current = true;
+    editorHistoryRef.current = null;
+    pendingEditorSelRef.current = null;
+    pendingPreviewSelRef.current = null;
+    lastEditorSelRef.current = { from: 0, to: 0 };
+    setFmOverride(null);
+    setFindOpen(false);
+    setFindQuery('');
+    setFindDebounced('');
+    setDocPath(null);
+    setUntitled(false);
+    setBuffer('');
+    setSavedText('');
+    setHtml('');
+    setComments([]);
+    setPositions({});
+    setActiveId(null);
+    setPending(null);
+    setMode('preview');
+    setShowDiff(false);
+    setDiff(null);
+    unwatchRef.current?.();
+    unwatchRef.current = null;
+    void deleteDraft();
+  }, [deleteDraft]);
+
+  /** SPEC35 §6.2: confirmed — trash, re-list, prune, persist, maybe splash. */
+  const folderDeleteRun = useCallback(
+    async (target: { path: string; isDir: boolean }) => {
+      const p = stateRef.current.platform;
+      if (!p?.trashEntry) return;
+      try {
+        await p.trashEntry(target.path);
+      } catch {
+        return; /* fs error — the tree stays untouched */
+      }
+      const within = (s: string) => remapPath(s, target.path, target.path) !== null;
+      await listFolderDir(p, p.dirname(target.path));
+      const nextExpanded = new Set([...folderStateRef.current.expanded].filter((d) => !within(d)));
+      folderStateRef.current = { ...folderStateRef.current, expanded: nextExpanded };
+      setFolderExpanded(nextExpanded);
+      setFolderChildren((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !within(k))));
+      persistFolderState(p);
+      commitRecent(
+        { ...recentRef.current, entries: recentRef.current.entries.filter((en) => !within(en.path)) },
+        p
+      );
+      const s = stateRef.current;
+      if (s.docPath && within(s.docPath)) closeToSplash();
+    },
+    [listFolderDir, persistFolderState, commitRecent, closeToSplash]
+  );
 
   /** SPEC30 §3.3: apply a restored draft — the doc (or untitled) + dirty buffer. */
   const restoreDraft = useCallback(
@@ -2905,6 +2968,44 @@ export default function App() {
                 }}
               >
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {folderDeletePrompt && (
+        <div className="overlay">
+          <div
+            className="modal"
+            data-testid="folder-delete-prompt"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setFolderDeletePrompt(null); // §6.1: Esc ⇒ no-op
+            }}
+          >
+            <h2>Move to Trash</h2>
+            <p style={{ fontSize: 13.5 }}>
+              Move “{platform.basename(folderDeletePrompt.path)}”
+              {folderDeletePrompt.isDir ? ' and its contents' : ''} to the Trash?
+              {dirty && docPath && remapPath(docPath, folderDeletePrompt.path, folderDeletePrompt.path) !== null
+                ? ' It has unsaved changes.'
+                : ''}
+            </p>
+            <div className="actions">
+              <button data-testid="folder-delete-cancel" onClick={() => setFolderDeletePrompt(null)}>
+                Cancel
+              </button>
+              <button
+                className="primary"
+                data-testid="folder-delete-confirm"
+                autoFocus // §6.1: Confirm is the default (Enter)
+                onClick={() => {
+                  const target = folderDeletePrompt;
+                  setFolderDeletePrompt(null);
+                  void folderDeleteRun(target);
+                }}
+              >
+                Move to Trash
               </button>
             </div>
           </div>
