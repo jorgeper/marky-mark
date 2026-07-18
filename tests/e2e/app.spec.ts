@@ -3312,6 +3312,7 @@ test('E98: rename in place — open dirty file remaps path/title/recents, dir re
   await page.keyboard.type('DIRTY ');
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect(page.getByTestId('folder-dirty-dot')).toBeVisible(); // the tab mirrors it
 
   // Rename the open, dirty file: the stem is preselected.
   await page.locator('[data-path="/notes/sub/b.md"]').click({ button: 'right' });
@@ -3339,6 +3340,7 @@ test('E98: rename in place — open dirty file remaps path/title/recents, dir re
   await expect.poll(() => fsRead(page, '/notes/sub/renamed.md')).toContain('DIRTY');
   expect(await fsRead(page, '/notes/sub/b.md')).toBeNull();
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(page.getByTestId('folder-dirty-dot')).toHaveCount(0);
 
   // Rename the directory ABOVE the open file: docPath/expanded/selection
   // remap and foldertree.json reflects it.

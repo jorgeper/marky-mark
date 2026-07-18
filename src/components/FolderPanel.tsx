@@ -18,6 +18,8 @@ export interface FolderPanelProps {
   expanded: Set<string>;
   /** The open document's path (row gets `selected`); null clears. */
   selectedPath: string | null;
+  /** The open document has unsaved changes — the tab shows the dirty dot. */
+  selectedDirty: boolean;
   /** The eye toggle: list non-markdown files too (dim, inert). */
   showNonMd: boolean;
   width: number;
@@ -182,6 +184,11 @@ function Rows({
               )}
             </span>
             {e.name}
+            {p.selectedPath === path && p.selectedDirty && (
+              <span className="folder-dirty-dot" data-testid="folder-dirty-dot" title="Unsaved changes">
+                ●
+              </span>
+            )}
           </button>
         );
       })}

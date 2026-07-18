@@ -1570,13 +1570,15 @@ mark.hl.ghost {
   color: var(--mm-fg, #1f2328);
   font-weight: 600;
   border-radius: 7px 0 0 7px;
-  /* The pill floats clear of the window edge, with breathing room inside
-     before the glyph. min-width gives the margin back so the pill stays
-     flush right WITHOUT widening the scroll range — otherwise the reveal's
-     scrollIntoView chases the overflow and scrolls the gap off-screen. */
-  margin-left: 14px;
-  min-width: calc(100% - 14px);
-  padding-left: calc(var(--mm-depth, 10px) + 6px);
+  /* The pill floats clear of the window edge; the inner padding gives the
+     margin back so the label stays EXACTLY where its unselected siblings
+     sit — selection must not read as indentation. min-width restores the
+     margin so the pill stays flush right WITHOUT widening the scroll
+     range — otherwise the reveal's scrollIntoView chases the overflow and
+     scrolls the gap off-screen. */
+  margin-left: 10px;
+  min-width: calc(100% - 10px);
+  padding-left: max(0px, calc(var(--mm-depth, 10px) - 10px));
   position: relative;
   z-index: 1;
   box-shadow:
@@ -1612,6 +1614,13 @@ mark.hl.ghost {
 }
 .folder-item-dim .folder-glyph {
   color: inherit;
+}
+/* The tab mirrors the toolbar's unsaved-changes dot, scaled to the row. */
+.folder-item .folder-dirty-dot {
+  color: var(--mm-accent, #0969da);
+  margin-left: 4px;
+  font-size: 12px;
+  line-height: 1;
 }
 /* Dim rows are click-inert but not `disabled` (the SPEC35 context menu must
    reach them) — keep their pre-SPEC35 no-hover look. */

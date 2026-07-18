@@ -2573,6 +2573,7 @@ export default function App() {
             children={folderChildren}
             expanded={folderExpanded}
             selectedPath={docPath}
+            selectedDirty={dirty}
             showNonMd={folderShowNonMd}
             width={settings.folderWidth}
             join={platform.join}
