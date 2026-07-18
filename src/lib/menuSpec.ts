@@ -86,6 +86,12 @@ export interface MenuState {
   recentFiles: Array<{ path: string; label: string }>;
   /** SPEC34 §4.1: the folder sidebar's visibility (persisted setting). */
   showFolders: boolean;
+  /**
+   * SPEC36 §5.2: the only-open-files view's checkbox. OPTIONAL so pre-36
+   * MenuState call sites (and frozen test fixtures) stay valid; absent
+   * reads as off.
+   */
+  openOnly?: boolean;
 }
 
 const sep: PredefinedItemSpec = { type: 'predefined', item: 'Separator' };
@@ -135,6 +141,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
     items: [
       // SPEC34 §4.1: layout chrome ahead of the mode toggles.
       cmd('toggleFolders', 'Folders', s.hotkeys.toggleFolders, s.showFolders),
+      // SPEC36 §5.2: the only-open-files view rides directly after Folders.
+      cmd('toggleOpenOnly', 'Only Open Files', s.hotkeys.toggleOpenOnly, s.openOnly ?? false),
       cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit'),
       // SPEC25 §3: split is a first-class toggle, not just a Settings checkbox.
       cmd('toggleSplit', 'Split Edit', s.hotkeys.toggleSplit, s.splitEdit),

@@ -56,6 +56,8 @@ export interface Settings {
   showFrontmatter: boolean;
   /** SPEC30 §2: reopen the most recent document at launch. */
   reopenLastDoc: boolean;
+  /** SPEC36 §8: restore the open-file set (tabs) at launch. */
+  restoreOpenFiles: boolean;
   /** SPEC34 §2.2: the folder sidebar's visibility (persisted toggle). */
   showFolders: boolean;
   /** SPEC34 §3.6: sidebar width in px, clamped [160, 480]. */
@@ -88,6 +90,7 @@ export const DEFAULT_SETTINGS: Settings = {
   editorSyntax: true,
   showFrontmatter: true,
   reopenLastDoc: true,
+  restoreOpenFiles: true,
   showFolders: false,
   folderWidth: 240,
   hotkeys: { ...DEFAULT_HOTKEYS },
@@ -166,6 +169,8 @@ export function parseSettings(json: string): Settings {
     editorSyntax: typeof o.editorSyntax === 'boolean' ? o.editorSyntax : DEFAULT_SETTINGS.editorSyntax,
     showFrontmatter: typeof o.showFrontmatter === 'boolean' ? o.showFrontmatter : DEFAULT_SETTINGS.showFrontmatter,
     reopenLastDoc: typeof o.reopenLastDoc === 'boolean' ? o.reopenLastDoc : DEFAULT_SETTINGS.reopenLastDoc,
+    restoreOpenFiles:
+      typeof o.restoreOpenFiles === 'boolean' ? o.restoreOpenFiles : DEFAULT_SETTINGS.restoreOpenFiles,
     showFolders: o.showFolders === true,
     folderWidth:
       typeof o.folderWidth === 'number' && Number.isFinite(o.folderWidth)

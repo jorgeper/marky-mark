@@ -29,6 +29,7 @@ import { diffLineSets, type DiffLineSets } from './lib/diffLines';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
 import { clearRecent, parseRecent, recentMenuEntries, rememberRecent, removeRecent, serializeRecent, type RecentStore } from './lib/recentFiles';
 import { ancestorsOf, parseFolderState, serializeFolderState, visibleEntries, type DirEntry } from './lib/folderTree';
+import { addOpen, closeOpen, cycleOpen } from './lib/openFiles';
 import { FolderPanel } from './components/FolderPanel';
 import { countWords } from './lib/wordCount';
 import { expandImageName, extForMime, imageMarkdownRef, sanitizeImageName } from './lib/imagePaste';
@@ -70,6 +71,9 @@ export const TOOLBAR_HIDE_DELAY_MS = 400;
 type Positions = Record<string, ReanchorMatch | null>;
 type Mode = 'preview' | 'edit';
 
+/** SPEC36 §7: the quit walk's stand-in for a dirty untitled buffer. */
+const UNTITLED_SENTINEL = '\u0000untitled';
+
 /** SPEC15 §3.3: anchor tops in the scroller's content coordinates. */
 function collectAnchors(scroller: HTMLElement, docEl: HTMLElement): SyncAnchor[] {
   const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
@@ -103,6 +107,9 @@ export default function App() {
   const [folderExpanded, setFolderExpanded] = useState<Set<string>>(new Set());
   const [folderChildren, setFolderChildren] = useState<Record<string, DirEntry[]>>({});
   const [folderShowNonMd, setFolderShowNonMd] = useState(false);
+  // SPEC36: the open-file set (tree-ordered) and the only-open-files view.
+  const [openFiles, setOpenFiles] = useState<string[]>([]);
+  const [folderOpenOnly, setFolderOpenOnly] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showComments, setShowComments] = useState(true);
   // SPEC26 §3: per-document front-matter override — null means "follow the
@@ -134,9 +141,11 @@ export default function App() {
   // SPEC20 §2: transient bottom notice (paste feedback); auto-dismisses.
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Pending intent awaiting the unsaved-changes decision: open a path, or
-  // start a new untitled buffer (SPEC22 §1.2).
-  const [openPrompt, setOpenPrompt] = useState<{ kind: 'open'; path: string } | { kind: 'new' } | null>(null);
+  // Pending intent awaiting the unsaved-changes decision: open a path, start
+  // a new untitled buffer (SPEC22 §1.2), or close one open file (SPEC36 §3.4).
+  const [openPrompt, setOpenPrompt] = useState<
+    { kind: 'open'; path: string } | { kind: 'new' } | { kind: 'close-file'; path: string } | null
+  >(null);
   // Auto-hiding toolbar (SPEC4 §2): launch grace → hover/pin driven.
   const [graceOver, setGraceOver] = useState(false);
   const [toolbarHover, setToolbarHover] = useState(false);
@@ -151,6 +160,36 @@ export default function App() {
   // Parked CodeMirror state (doc + undo history), so toggling preview↔edit
   // never loses undo (SPEC7 §6). Reset when another document opens.
   const editorHistoryRef = useRef<unknown>(null);
+  /**
+   * SPEC36 §2: the park map — every open-but-inactive file's volatile state.
+   * In-memory only; entries lazy-load from disk when absent (boot restore).
+   */
+  const parkRef = useRef(
+    new Map<string, { buffer: string; savedText: string; comments: CommentData[]; editorHistory: unknown }>()
+  );
+  /** Live open set for stable handlers (mirrors the openFiles state). */
+  const openFilesRef = useRef<string[]>([]);
+  /** The active member of the open set (null while untitled / splash). */
+  const activeFileRef = useRef<string | null>(null);
+  /**
+   * SPEC36 §8.3: the persisted set loaded at boot while restoreOpenFiles is
+   * OFF — ignored but never clobbered, so flipping the setting back on (and
+   * relaunching) revives it. Write-through prefers this while the setting
+   * is off.
+   */
+  const dormantOpenRef = useRef<{ files: string[]; active: string | null }>({ files: [], active: null });
+  /** SPEC36 §7: the quit walk's remaining dirty targets (null = no walk). */
+  const quitQueueRef = useRef<string[] | null>(null);
+  /** Starts the walk; assigned each render (dodges declaration order). */
+  const startQuitWalkRef = useRef<() => void>(() => {});
+  /**
+   * The editor snapshots its undo state into editorHistoryRef only on
+   * UNMOUNT — which runs AFTER a doc switch commits. These two refs defer
+   * (a) capturing the outgoing doc's real snapshot into its park entry and
+   * (b) installing the incoming doc's history, until the post-commit effect.
+   */
+  const parkHistoryFixupRef = useRef<string | null>(null);
+  const pendingHistoryRef = useRef<{ value: unknown } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -186,6 +225,20 @@ export default function App() {
   const pendingScrollLineRef = useRef<number | null>(null);
 
   const dirty = buffer !== savedText;
+  // SPEC36 §3.6: open rows carrying unsaved changes (parked dirtiness only
+  // moves on switches, so these deps re-derive it exactly when it can change).
+  const dirtyOpenFiles = useMemo(() => {
+    const set = new Set<string>();
+    for (const f of openFiles) {
+      if (f === docPath) {
+        if (dirty) set.add(f);
+        continue;
+      }
+      const pk = parkRef.current.get(f);
+      if (pk && pk.buffer !== pk.savedText) set.add(f);
+    }
+    return set;
+  }, [openFiles, docPath, dirty]);
   // SPEC26: display-parsed front matter for the card (null ⇒ none).
   const frontMatter = useMemo(() => ((docPath || untitled) ? parseFrontMatter(buffer) : null), [buffer, docPath, untitled]);
   const showFrontmatter = fmOverride ?? settings.showFrontmatter;
@@ -646,26 +699,66 @@ export default function App() {
   }, []);
   const recentRef = useRef<RecentStore>({ version: 1, entries: [] });
   /** SPEC34 §2.3: write-through mirror of root+expanded+eye for foldertree.json. */
-  const folderStateRef = useRef<{ root: string | null; expanded: Set<string>; showNonMd: boolean }>({
+  const folderStateRef = useRef<{ root: string | null; expanded: Set<string>; showNonMd: boolean; openOnly: boolean }>({
     root: null,
     expanded: new Set(),
     showNonMd: false,
+    openOnly: false,
   });
 
   const persistFolderState = useCallback((platformNow?: Platform) => {
     const p = platformNow ?? stateRef.current.platform;
     if (!p) return;
     const st = folderStateRef.current;
+    // SPEC36 §8: the open set rides foldertree.json. While the restore is
+    // gated off (either setting) the boot-loaded values persist untouched —
+    // ignored, not cleared — so flipping back on revives them.
+    const restoring = stateRef.current.settings.restoreOpenFiles && stateRef.current.settings.reopenLastDoc;
+    const open = restoring ? { files: openFilesRef.current, active: activeFileRef.current } : dormantOpenRef.current;
     void (async () => {
       try {
         await p.writeTextFile(
           p.join(await p.configDir(), 'foldertree.json'),
-          serializeFolderState({ version: 1, root: st.root, expanded: [...st.expanded], showNonMd: st.showNonMd })
+          serializeFolderState({
+            version: 1,
+            root: st.root,
+            expanded: [...st.expanded],
+            showNonMd: st.showNonMd,
+            openFiles: open.files,
+            activeFile: open.active,
+            openOnly: st.openOnly,
+          })
         );
       } catch {
         /* best effort */
       }
     })();
+  }, []);
+
+  /** SPEC36: the single write path for the open set — refs, state, disk. */
+  const commitOpenSet = useCallback(
+    (list: string[], active: string | null) => {
+      openFilesRef.current = list;
+      activeFileRef.current = active && list.includes(active) ? active : null;
+      setOpenFiles(list);
+      persistFolderState();
+    },
+    [persistFolderState]
+  );
+
+  /** SPEC36 §2.2: stash the active doc's volatile state before a tab switch. */
+  const parkActive = useCallback(() => {
+    const s = stateRef.current;
+    if (!s.docPath) return;
+    parkRef.current.set(s.docPath, {
+      buffer: s.buffer,
+      savedText: s.savedText,
+      comments: s.comments,
+      editorHistory: editorHistoryRef.current,
+    });
+    // If the switch leaves edit mode, the real snapshot only exists after the
+    // editor unmounts — the post-commit effect patches this entry then.
+    parkHistoryFixupRef.current = s.docPath;
   }, []);
 
   /** List one directory (visible, sorted) into the children cache. */
@@ -740,11 +833,38 @@ export default function App() {
   // --- document loading ------------------------------------------------------
   const openDoc = useCallback(async (p: Platform, path: string) => {
     let content: string;
+    let saved: string;
     let stored: CommentData[];
-    try {
-      ({ content, comments: stored } = await loadDocParts(p, path));
-    } catch {
-      return; // unreadable path (e.g. deleted file in a stale open event)
+    let history: unknown = null;
+    // SPEC36 §2: a parked file restores from its bundle — unless it is clean
+    // and the disk moved on underneath (then the disk wins, fresh history).
+    // A dirty parked buffer ALWAYS wins, the watcher's never-clobber rule.
+    const parked = parkRef.current.get(path);
+    if (parked) {
+      parkRef.current.delete(path);
+      let disk: { content: string; comments: CommentData[] } | null = null;
+      try {
+        disk = await loadDocParts(p, path);
+      } catch {
+        /* unreadable right now — the parked bundle carries on */
+      }
+      if (parked.buffer === parked.savedText && disk && disk.content !== parked.savedText) {
+        content = disk.content;
+        saved = disk.content;
+        stored = disk.comments;
+      } else {
+        content = parked.buffer;
+        saved = parked.savedText;
+        stored = parked.comments;
+        history = parked.editorHistory;
+      }
+    } else {
+      try {
+        ({ content, comments: stored } = await loadDocParts(p, path));
+      } catch {
+        return; // unreadable path (e.g. deleted file in a stale open event)
+      }
+      saved = content;
     }
     // SPEC16 §3: park the outgoing doc's position, queue the incoming one's.
     recordPosition(stateRef.current.docPath, currentTopLine());
@@ -759,7 +879,9 @@ export default function App() {
     if (stateRef.current.settings.showFolders && p.readDirEntries) void revealInFolders(p, path);
 
     skipSaveRef.current = true;
-    editorHistoryRef.current = null; // a fresh document starts a fresh undo history
+    // Fresh doc ⇒ fresh (null) history; parked ⇒ its own. Installed by the
+    // post-commit effect — an unmounting editor's snapshot lands after us.
+    pendingHistoryRef.current = { value: history };
     pendingEditorSelRef.current = null; // SPEC25: selection never crosses documents
     pendingPreviewSelRef.current = null;
     lastEditorSelRef.current = { from: 0, to: 0 };
@@ -767,7 +889,7 @@ export default function App() {
     setDocPath(path);
     setUntitled(false); // SPEC22 §3.3: a real document replaces any untitled buffer
     setBuffer(content);
-    setSavedText(content);
+    setSavedText(saved);
     setComments(stored);
     setPositions({});
     setActiveId(null);
@@ -778,6 +900,8 @@ export default function App() {
 
     unwatchRef.current?.();
     unwatchRef.current = null;
+    // SPEC36 §3: the active document is always a member of the open set.
+    commitOpenSet(addOpen(openFilesRef.current, path), path);
     try {
       unwatchRef.current = await p.watchFile(path, async () => {
         const s = stateRef.current;
@@ -795,24 +919,212 @@ export default function App() {
     } catch {
       /* watching is best-effort */
     }
-  }, [loadDocParts, recordPosition, currentTopLine, commitRecent, revealInFolders]);
+  }, [loadDocParts, recordPosition, currentTopLine, commitRecent, revealInFolders, commitOpenSet]);
 
   /**
-   * Unsaved-changes guard (SPEC4 §6): every user-initiated open routes here.
-   * Dirty buffer → three-way prompt; clean buffer or same path → open directly.
+   * SPEC36: the editor snapshots its state into editorHistoryRef during its
+   * UNMOUNT cleanup — which runs in the same commit as a doc switch but
+   * after openDoc's synchronous writes. This post-commit effect (a) patches
+   * the outgoing doc's park entry with that real snapshot and (b) installs
+   * the incoming doc's pending history over the clobber.
+   */
+  useEffect(() => {
+    const fixup = parkHistoryFixupRef.current;
+    if (fixup) {
+      parkHistoryFixupRef.current = null;
+      const entry = parkRef.current.get(fixup);
+      if (entry) entry.editorHistory = editorHistoryRef.current;
+    }
+    if (pendingHistoryRef.current) {
+      editorHistoryRef.current = pendingHistoryRef.current.value;
+      pendingHistoryRef.current = null;
+    }
+  }, [docPath, untitled]);
+
+  /** SPEC36 §3.1/§3.2: switch to an already-open file — park, never prompt. */
+  const activateOpen = useCallback(
+    async (p: Platform, path: string) => {
+      if (stateRef.current.docPath === path) return;
+      parkActive();
+      await openDoc(p, path);
+    },
+    [parkActive, openDoc]
+  );
+
+  /**
+   * SPEC36 §3.2: the plain-open semantics — the clicked file REPLACES the
+   * active one (which leaves the set, park state discarded); the open count
+   * does not grow. Callers have already resolved the unsaved-changes guard.
+   */
+  const openReplacing = useCallback(
+    async (p: Platform, path: string) => {
+      const out = stateRef.current.docPath;
+      if (out && out !== path) {
+        parkRef.current.delete(out);
+        commitOpenSet(closeOpen(openFilesRef.current, out).list, null);
+      }
+      await openDoc(p, path);
+    },
+    [openDoc, commitOpenSet]
+  );
+
+  /**
+   * Unsaved-changes guard (SPEC4 §6, SPEC36 §3.2): every user-initiated open
+   * routes here. An already-open target just activates (no prompt — the
+   * outgoing doc parks). A not-open target replaces the active file: dirty
+   * buffer → three-way prompt; clean → straight through.
    */
   const openDocGuarded = useCallback(
     (p: Platform, path: string) => {
       explicitOpenRef.current = true; // SPEC30 §2: explicit opens beat reopen
       const s = stateRef.current;
-      if (s.dirty && s.docPath !== path) {
+      if (s.docPath === path) {
+        void openDoc(p, path); // same-path re-open (existing semantics)
+        return;
+      }
+      // §2.6: a dirty untitled buffer can't park — EVERY navigation away
+      // from it keeps the classic guard, open-set member or not.
+      if (s.untitled && s.dirty) {
         setOpenPrompt({ kind: 'open', path });
         return;
       }
-      void openDoc(p, path);
+      if (openFilesRef.current.includes(path)) {
+        void activateOpen(p, path);
+        return;
+      }
+      if (s.dirty) {
+        setOpenPrompt({ kind: 'open', path });
+        return;
+      }
+      void openReplacing(p, path);
     },
-    [openDoc]
+    [openDoc, activateOpen, openReplacing]
   );
+
+  /** SPEC36 §3.1: Mod+click — open IN ADDITION and activate; no guard ever. */
+  const modOpenFile = useCallback(
+    (path: string) => {
+      const p = stateRef.current.platform;
+      if (!p) return;
+      explicitOpenRef.current = true;
+      const s = stateRef.current;
+      if (s.docPath === path) return; // active ⇒ no-op
+      if (s.untitled && s.dirty) {
+        setOpenPrompt({ kind: 'open', path }); // §2.6: untitled can't park
+        return;
+      }
+      if (openFilesRef.current.includes(path)) {
+        void activateOpen(p, path);
+        return;
+      }
+      parkActive();
+      void openDoc(p, path); // adds to the set and activates
+    },
+    [activateOpen, parkActive, openDoc]
+  );
+
+  /** SPEC4 clean start: close the buffer down to the splash (SPEC36 §3.5). */
+  const closeToSplash = useCallback(() => {
+    recordPosition(stateRef.current.docPath, currentTopLine());
+    skipSaveRef.current = true;
+    editorHistoryRef.current = null;
+    pendingEditorSelRef.current = null;
+    pendingPreviewSelRef.current = null;
+    lastEditorSelRef.current = { from: 0, to: 0 };
+    setFmOverride(null);
+    setFindOpen(false);
+    setFindQuery('');
+    setFindDebounced('');
+    setDocPath(null);
+    setUntitled(false);
+    setBuffer('');
+    setSavedText('');
+    setHtml('');
+    setComments([]);
+    setPositions({});
+    setActiveId(null);
+    setPending(null);
+    setMode('preview');
+    setShowDiff(false);
+    setDiff(null);
+    unwatchRef.current?.();
+    unwatchRef.current = null;
+  }, [recordPosition, currentTopLine]);
+
+  /** SPEC36 §3.5: drop `path` from the set; neighbor activates, else splash. */
+  const finishCloseFile = useCallback(
+    (p: Platform, path: string) => {
+      const { list, nextActive } = closeOpen(openFilesRef.current, path);
+      parkRef.current.delete(path);
+      const wasActive = stateRef.current.docPath === path;
+      commitOpenSet(list, wasActive ? null : activeFileRef.current);
+      if (!wasActive) return;
+      if (nextActive) void openDoc(p, nextActive);
+      else closeToSplash();
+    },
+    [commitOpenSet, openDoc, closeToSplash]
+  );
+
+  /** SPEC36 §3.4: the row ✕ — dirty files activate and prompt first. */
+  const closeOpenFile = useCallback(
+    (path: string) => {
+      const p = stateRef.current.platform;
+      if (!p) return;
+      void (async () => {
+        const s = stateRef.current;
+        const isActive = s.docPath === path;
+        const pk = parkRef.current.get(path);
+        const isDirty = isActive ? s.dirty : !!pk && pk.buffer !== pk.savedText;
+        if (isDirty) {
+          if (!isActive) await activateOpen(p, path); // §3.4: visible behind the modal
+          setOpenPrompt({ kind: 'close-file', path });
+          return;
+        }
+        finishCloseFile(p, path);
+      })();
+    },
+    [activateOpen, finishCloseFile]
+  );
+
+  /** SPEC36 §6.3: Ctrl+Tab / Ctrl+Shift+Tab — tree order, wrap, no prompts. */
+  const cycleFile = useCallback(
+    (dir: 1 | -1) => {
+      const p = stateRef.current.platform;
+      if (!p) return;
+      const s = stateRef.current;
+      const list = openFilesRef.current;
+      if (s.untitled) {
+        // §2.6: untitled sits outside the set — the first open file is the
+        // target, and a dirty untitled routes through the guard.
+        const target = list[0];
+        if (!target) return;
+        if (s.dirty) setOpenPrompt({ kind: 'open', path: target });
+        else void openReplacing(p, target);
+        return;
+      }
+      const target = cycleOpen(list, s.docPath, dir);
+      if (target) void activateOpen(p, target);
+    },
+    [activateOpen, openReplacing]
+  );
+
+  /** SPEC36 §7: the dirty documents, tree order, dirty untitled last. */
+  const dirtyDocsQueue = useCallback((): string[] => {
+    const s = stateRef.current;
+    const q: string[] = [];
+    for (const f of openFilesRef.current) {
+      const isDirty =
+        f === s.docPath
+          ? s.dirty
+          : (() => {
+              const pk = parkRef.current.get(f);
+              return !!pk && pk.buffer !== pk.savedText;
+            })();
+      if (isDirty) q.push(f);
+    }
+    if (s.untitled && s.dirty) q.push(UNTITLED_SENTINEL);
+    return q;
+  }, []);
 
   /**
    * Persist comments per the active storage mode (SPEC2 FR-C.5). Embedded
@@ -884,15 +1196,19 @@ export default function App() {
       }
 
       // SPEC34 §2.3: folder sidebar state, same tolerance.
+      // SPEC36 §8: the persisted open set rides along — parked in dormantOpenRef
+      // until the restore decision below (never restored eagerly here).
       try {
         const ftPath = p.join(cfg, 'foldertree.json');
         if (p.readDirEntries && (await p.exists(ftPath))) {
           const ft = parseFolderState(await p.readTextFile(ftPath));
           const expanded = new Set(ft.expanded);
-          folderStateRef.current = { root: ft.root, expanded, showNonMd: ft.showNonMd };
+          folderStateRef.current = { root: ft.root, expanded, showNonMd: ft.showNonMd, openOnly: ft.openOnly ?? false };
+          dormantOpenRef.current = { files: ft.openFiles ?? [], active: ft.activeFile ?? null };
           setFolderRoot(ft.root);
           setFolderExpanded(expanded);
           setFolderShowNonMd(ft.showNonMd);
+          setFolderOpenOnly(ft.openOnly ?? false); // §5.5: view state restores regardless
           if (loaded.showFolders && ft.root) {
             for (const dir of [ft.root, ...ft.expanded]) void listFolderDir(p, dir);
           }
@@ -909,9 +1225,11 @@ export default function App() {
       await p.onOpenFile((path) => openDocGuarded(p, path));
       await p.onFileDrop((path) => openDocGuarded(p, path));
 
+      // SPEC36 §7: the close guard triggers the quit walk over EVERY dirty
+      // document (the walk ref dodges a declaration-order cycle).
       await p.registerCloseGuard(
-        () => stateRef.current.dirty,
-        () => setClosePrompt(true)
+        () => dirtyDocsQueue().length > 0,
+        () => startQuitWalkRef.current()
       );
 
       // SPEC30 §2 + §3: reopen-on-launch, then the draft offer. Explicit
@@ -921,7 +1239,31 @@ export default function App() {
         void (async () => {
           if (disposed) return;
           const st = stateRef.current;
-          if (loaded.reopenLastDoc && !explicitOpenRef.current && st.docPath === null && !st.untitled) {
+          const dormant = dormantOpenRef.current;
+          // SPEC36 §8.3: restore the open set (existing files only). An
+          // explicit boot open keeps the active slot (§3.3/§8.4) and the
+          // restored set merges in around it; otherwise the persisted
+          // activeFile (fallback: first) opens in place of reopen-last-doc.
+          // reopenLastDoc=false suppresses ANY reopen (E91 discipline) —
+          // restoreOpenFiles only widens the reopen to the whole set.
+          if (loaded.reopenLastDoc && loaded.restoreOpenFiles && dormant.files.length > 0) {
+            const alive: string[] = [];
+            for (const f of dormant.files) if (await p.exists(f)) alive.push(f);
+            if (explicitOpenRef.current || st.docPath !== null || st.untitled) {
+              if (alive.length > 0) {
+                let merged = openFilesRef.current;
+                for (const f of alive) merged = addOpen(merged, f);
+                commitOpenSet(merged, activeFileRef.current);
+              }
+            } else if (alive.length > 0) {
+              commitOpenSet(alive, null);
+              const act = dormant.active && alive.includes(dormant.active) ? dormant.active : alive[0];
+              await openDoc(p, act);
+            } else if (loaded.reopenLastDoc) {
+              const top = recentRef.current.entries[0];
+              if (top && (await p.exists(top.path))) await openDoc(p, top.path);
+            }
+          } else if (loaded.reopenLastDoc && !explicitOpenRef.current && st.docPath === null && !st.untitled) {
             const top = recentRef.current.entries[0];
             if (top && (await p.exists(top.path))) await openDoc(p, top.path);
           }
@@ -949,7 +1291,7 @@ export default function App() {
     return () => {
       disposed = true;
     };
-  }, [openDocGuarded, openDoc, listFolderDir]);
+  }, [openDocGuarded, openDoc, listFolderDir, dirtyDocsQueue, commitOpenSet]);
 
   // --- auto-hiding toolbar -----------------------------------------------------
   useEffect(() => {
@@ -1216,6 +1558,10 @@ export default function App() {
     setDiff(null);
     unwatchRef.current?.();
     unwatchRef.current = null;
+    // SPEC36 §2.6: untitled sits outside the set — the set is untouched
+    // (the replaced file stays open, lazily reloadable). Deliberately no
+    // persist here: ⌘N must not touch the disk (E78 discipline);
+    // activeFile self-corrects on the next real open.
   }, [recordPosition, currentTopLine]);
 
   /** SPEC30 §3.2: remove the shadow draft (best effort). */
@@ -1230,6 +1576,55 @@ export default function App() {
       /* best effort */
     }
   }, []);
+
+  /** SPEC36 §5.2: flip the only-open-files view (shows the panel if hidden). */
+  const toggleOpenOnly = useCallback(() => {
+    const st = stateRef.current;
+    if (!st.platform?.readDirEntries) return; // no sidebar seam (web) ⇒ no-op
+    const next = !folderStateRef.current.openOnly;
+    folderStateRef.current = { ...folderStateRef.current, openOnly: next };
+    setFolderOpenOnly(next);
+    persistFolderState();
+    if (next && !st.settings.showFolders) updateSettings({ ...st.settings, showFolders: true });
+  }, [persistFolderState, updateSettings]);
+
+  /**
+   * SPEC36 §7: advance the quit walk — activate the next dirty doc and show
+   * the close prompt; an exhausted queue closes the window for real.
+   */
+  const processQuitWalk = useCallback(async () => {
+    const p = stateRef.current.platform;
+    const q = quitQueueRef.current;
+    if (!p || !q) return;
+    while (q.length > 0) {
+      const t = q[0];
+      const s = stateRef.current;
+      if (t === UNTITLED_SENTINEL) {
+        if (!(s.untitled && s.dirty)) {
+          q.shift();
+          continue;
+        }
+        setClosePrompt(true);
+        return;
+      }
+      const pk = parkRef.current.get(t);
+      const isDirty = t === s.docPath ? s.dirty : !!pk && pk.buffer !== pk.savedText;
+      if (!openFilesRef.current.includes(t) || !isDirty) {
+        q.shift();
+        continue;
+      }
+      if (t !== s.docPath) await activateOpen(p, t); // §7.1: visible behind the modal
+      setClosePrompt(true);
+      return;
+    }
+    quitQueueRef.current = null;
+    await deleteDraft();
+    void p.closeNow();
+  }, [activateOpen, deleteDraft]);
+  startQuitWalkRef.current = () => {
+    quitQueueRef.current = dirtyDocsQueue();
+    void processQuitWalk();
+  };
 
   /** SPEC30 §3.3: apply a restored draft — the doc (or untitled) + dirty buffer. */
   const restoreDraft = useCallback(
@@ -1462,19 +1857,23 @@ export default function App() {
       zoomIn: () => stepZoom(1),
       zoomOut: () => stepZoom(-1),
       zoomReset: () => updateSettings({ ...stateRef.current.settings, zoom: 100 }),
+      // SPEC36 §5.2/§6.3: the tabs commands (silent no-ops without the seam).
+      toggleOpenOnly,
+      nextFile: () => cycleFile(1),
+      prevFile: () => cycleFile(-1),
       // SPEC12 §1.5 + SPEC13 §1.3: ⌘W with an aux window focused closes that
       // window (the native accelerator always lands here, in main's JS);
-      // otherwise Quit/Exit/Close run the unsaved-changes guard, unchanged.
+      // otherwise Quit/Exit/Close walk EVERY dirty document (SPEC36 §7).
       close: () => {
         void (async () => {
           const p = stateRef.current.platform;
           if (p?.closeFocusedAuxWindow && (await p.closeFocusedAuxWindow())) return;
-          if (stateRef.current.dirty) setClosePrompt(true);
-          else void p?.closeNow();
+          quitQueueRef.current = dirtyDocsQueue();
+          void processQuitWalk();
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, openFind, openFolderCmd]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, openFind, openFolderCmd, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
@@ -1509,10 +1908,11 @@ export default function App() {
         showWordCount: settings.showWordCount,
         showFrontmatter,
         showFolders: settings.showFolders,
+        openOnly: folderOpenOnly,
         recentFiles: recentMenuEntries(recent, platform.basename, platform.dirname),
       })
     );
-  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, recent, settings.showFolders]);
+  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, recent, settings.showFolders, folderOpenOnly]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -1669,6 +2069,16 @@ export default function App() {
       } else if (eventMatches(e, hk.toggleWordCount)) {
         e.preventDefault();
         dispatchCommand('toggleWordCount', 'hotkey');
+      } else if (eventMatches(e, hk.toggleOpenOnly)) {
+        e.preventDefault();
+        dispatchCommand('toggleOpenOnly', 'hotkey');
+      } else if (eventMatches(e, hk.nextFile)) {
+        // SPEC36 §6.3: always consumed — the editor must never see the Tab.
+        e.preventDefault();
+        dispatchCommand('nextFile', 'hotkey');
+      } else if (eventMatches(e, hk.prevFile)) {
+        e.preventDefault();
+        dispatchCommand('prevFile', 'hotkey');
       }
     };
     window.addEventListener('keydown', onKey, true);
@@ -2375,14 +2785,23 @@ export default function App() {
             expanded={folderExpanded}
             selectedPath={docPath}
             showNonMd={folderShowNonMd}
+            openFiles={openFiles}
+            openOnly={folderOpenOnly}
+            dirtyFiles={dirtyOpenFiles}
+            isMac={platform.isMac}
             width={settings.folderWidth}
             join={platform.join}
             basename={platform.basename}
             onToggleDir={toggleFolderDir}
             onToggleNonMd={toggleFolderNonMd}
             onOpenFile={(path) => openDocGuarded(platform, path)}
+            onModOpenFile={modOpenFile}
+            onCloseFile={closeOpenFile}
+            onToggleOpenOnly={() => dispatchCommand('toggleOpenOnly')}
             onOpenFolder={() => dispatchCommand('openFolder')}
             onSync={() => {
+              // SPEC36 §5.4: from the only-open view, sync returns to the tree.
+              if (folderOpenOnly) toggleOpenOnly();
               if (stateRef.current.docPath) void revealInFolders(platform, stateRef.current.docPath);
             }}
             onClose={() => dispatchCommand('toggleFolders')}
@@ -2727,7 +3146,13 @@ export default function App() {
             <h2>Unsaved changes</h2>
             <p style={{ fontSize: 13.5 }}>
               “{docPath ? platform.basename(docPath) : untitled ? 'Untitled' : 'This file'}” has unsaved changes. Save
-              before {openPrompt.kind === 'open' ? `opening “${platform.basename(openPrompt.path)}”` : 'starting a new file'}?
+              before{' '}
+              {openPrompt.kind === 'open'
+                ? `opening “${platform.basename(openPrompt.path)}”`
+                : openPrompt.kind === 'close-file'
+                  ? 'closing it'
+                  : 'starting a new file'}
+              ?
             </p>
             <div className="actions">
               <button data-testid="open-cancel" onClick={() => setOpenPrompt(null)}>
@@ -2738,7 +3163,8 @@ export default function App() {
                 onClick={() => {
                   const intent = openPrompt;
                   setOpenPrompt(null);
-                  if (intent.kind === 'open') void openDoc(platform, intent.path);
+                  if (intent.kind === 'open') void openReplacing(platform, intent.path);
+                  else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
                   else startUntitled();
                 }}
               >
@@ -2752,7 +3178,8 @@ export default function App() {
                   setOpenPrompt(null);
                   // SPEC22 §2.3: a cancelled Save As aborts the pending action.
                   if (!(await saveDoc())) return;
-                  if (intent.kind === 'open') void openDoc(platform, intent.path);
+                  if (intent.kind === 'open') void openReplacing(platform, intent.path);
+                  else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
                   else startUntitled();
                 }}
               >
@@ -2806,16 +3233,29 @@ export default function App() {
               before closing?
             </p>
             <div className="actions">
-              <button data-testid="close-cancel" onClick={() => setClosePrompt(false)}>
+              <button
+                data-testid="close-cancel"
+                onClick={() => {
+                  // SPEC36 §7.1: Cancel aborts the ENTIRE quit walk.
+                  quitQueueRef.current = null;
+                  setClosePrompt(false);
+                }}
+              >
                 Cancel
               </button>
               <button
                 data-testid="close-discard"
                 onClick={() => {
                   setClosePrompt(false);
-                  // SPEC30 §3.2: an explicit discard removes the shadow draft
-                  // before the window dies (the clean-transition path can't run).
-                  void deleteDraft().then(() => platform.closeNow());
+                  const q = quitQueueRef.current;
+                  if (q) {
+                    q.shift();
+                    void processQuitWalk(); // next dirty doc, or the real close
+                  } else {
+                    // SPEC30 §3.2: an explicit discard removes the shadow draft
+                    // before the window dies (the clean-transition path can't run).
+                    void deleteDraft().then(() => platform.closeNow());
+                  }
                 }}
               >
                 Don’t save
@@ -2827,7 +3267,17 @@ export default function App() {
                   // SPEC22 §2.3: a cancelled Save As (untitled buffer) aborts the close.
                   const ok = await saveDoc();
                   setClosePrompt(false);
-                  if (ok) void platform.closeNow();
+                  const q = quitQueueRef.current;
+                  if (!ok) {
+                    quitQueueRef.current = null; // aborted walk — everything stays
+                    return;
+                  }
+                  if (q) {
+                    q.shift();
+                    void processQuitWalk();
+                  } else {
+                    void platform.closeNow();
+                  }
                 }}
               >
                 Save

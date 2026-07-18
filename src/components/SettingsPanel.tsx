@@ -38,6 +38,9 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   prevComment: 'Previous comment',
   headingPalette: 'Go to heading',
   toggleWordCount: 'Show / hide word count',
+  toggleOpenOnly: 'Only open files',
+  nextFile: 'Next open file',
+  prevFile: 'Previous open file',
 };
 
 const MARGIN_LABELS: Array<{ value: Margins; label: string }> = [
@@ -383,6 +386,19 @@ export function SettingsPanel({
         />
         <label htmlFor="settings-reopen" style={{ margin: 0, fontWeight: 400 }}>
           Reopen last document on launch
+        </label>
+      </div>
+
+      <div className="checkbox-row">
+        <input
+          id="set-restore-open-files"
+          type="checkbox"
+          data-testid="set-restore-open-files"
+          checked={settings.restoreOpenFiles}
+          onChange={(e) => onChange({ ...settings, restoreOpenFiles: e.target.checked })}
+        />
+        <label htmlFor="set-restore-open-files" style={{ margin: 0, fontWeight: 400 }}>
+          Reopen open files at launch
         </label>
       </div>
 

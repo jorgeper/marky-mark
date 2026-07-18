@@ -84,6 +84,13 @@ Either way it's a one-time step — the app opens normally afterwards.
   and one click away, everything else quietly grayed out. Resizable,
   closeable, remembers its root and what you had expanded; opening a
   file reveals it in the tree, and File → Open Folder… points it anywhere.
+- **Tabs, sideways** — ⌘-click opens a file *in addition* to the current
+  one; every open file renders as a tab pill right in the sidebar, the
+  active one on the front plane. Each keeps its own unsaved edits and
+  undo history — switch freely (⌃Tab / ⌃⇧Tab cycle), no prompts until
+  you close (hover ✕) or quit, which walks every dirty file one by one.
+  ⌘⇧O (or View → Only Open Files) hides everything but your open files,
+  and the whole set reopens at launch (toggleable).
 - **Front matter, handled** — YAML front matter never renders as broken
   markdown; it shows as a quiet metadata card you can dismiss (✕ or View →
   Front Matter), with a setting for the default.

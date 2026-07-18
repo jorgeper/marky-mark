@@ -535,6 +535,55 @@ retargets the root to its directory; a hidden panel never auto-opens.
 Width and visibility ride settings (`folderWidth`, `showFolders`); the
 divider uses the split-edit pointer-capture pattern.
 
+## Multiple open files — sidebar tabs (SPEC36)
+
+`openFiles.ts` (pure) owns the open set: a list of absolute paths kept
+permanently in **visible tree order** (`treeOrderCompare` walks path
+components, directories before files at the first divergence — the same
+folders-first rule as `compareEntries` — so the flat only-open list and
+Ctrl+Tab both read the list as-is). `addOpen`/`closeOpen` (tree-order
+neighbor on close)/`cycleOpen` (wrap-around)/`remapOpen`/`pruneOpen`
+cover the lifecycle; rename/delete integration remaps or prunes the set
+with the same separator-aware prefix rules as SPEC35's `remapPath`.
+
+The **park map** (App-level, in-memory only) holds every
+open-but-inactive file's volatile state: `path → { buffer, savedText,
+comments, editorHistory }`. The active document stays on the original
+single-buffer pipeline; switching parks the outgoing bundle and runs the
+normal open pipeline from the incoming one (or the disk when unparked —
+boot-restored background files load lazily). Freshness rule on
+activation: a **clean** parked buffer whose file changed on disk reloads
+from disk (fresh history); a **dirty** parked buffer always wins — the
+file watcher's never-clobber rule. Because the editor serializes its
+undo state into `editorHistoryRef` only during its unmount cleanup
+(which runs after a doc switch commits), a post-commit effect keyed on
+`docPath` patches the outgoing park entry with that late snapshot and
+installs the incoming doc's history over the clobber. The crash draft
+(SPEC30) still covers the active document only — parked dirty buffers
+are not draft-protected. Untitled buffers sit outside the set (no path
+to park under); leaving a dirty untitled keeps the classic guard.
+
+Quit (`close` command and the Tauri close guard) walks every dirty open
+file in tree order — activating each behind the existing close prompt —
+then a dirty untitled last; Cancel anywhere aborts the whole quit
+(`quitQueueRef` drains or nulls).
+
+`foldertree.json` gained three OPTIONAL fields — `openFiles` (capped at
+`OPEN_CAP` = 50 at persistence), `activeFile` (forced null unless a
+member), `openOnly` — absent in legacy files, which round-trip
+unchanged. `restoreOpenFiles` (setting, default on) gates the boot
+restore only: while off, the write-through preserves the boot-loaded
+(dormant) set verbatim instead of the live one, so flipping the setting
+back on revives it.
+
+Hotkeys grew a **strict-Ctrl token** (SPEC36 §6.1): `Ctrl`/`control` in
+a combo now parse to a `ctrl` flag distinct from `Mod` — `eventMatches`
+requires `ctrlKey` and `mod` then matches `metaKey` alone; `displayCombo`
+renders ⌃ on mac. No shipped default or recorded binding ever used the
+old `ctrl`→Mod alias, and `comboFromEvent` (recording) still emits `Mod`.
+Defaults: `nextFile` Ctrl+Tab, `prevFile` Ctrl+Shift+Tab, `toggleOpenOnly`
+Mod+Shift+O (a View menu checkbox item rides after Folders).
+
 ## Open Recent (SPEC29)
 
 `recentFiles.ts` (pure, mirrors the reading-positions store): MRU-first,
