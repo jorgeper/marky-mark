@@ -1579,7 +1579,7 @@ mark.hl.ghost {
   min-width: calc(100% - 14px);
   padding-left: calc(var(--mm-depth, 10px) + 6px);
   position: relative;
-  z-index: 1;
+  z-index: 2; /* the front plane — above the open-tab middle plane */
   box-shadow:
     0 2px 6px rgba(0, 0, 0, 0.18),
     0 5px 16px rgba(0, 0, 0, 0.14);
@@ -1587,22 +1587,28 @@ mark.hl.ghost {
 .folder-item.selected:hover:not(:disabled) {
   background: var(--mm-bg, #ffffff); /* the tab doesn't flicker on hover */
 }
-/* SPEC36 §4.1: open-but-inactive rows are tabs BEHIND the seam — the same
-   pill geometry as .selected but ON THE PANEL PLANE: a translucent wash of
-   the workspace surface, no punch-through shadow, no z-index — the panel's
-   right-edge inset shadow keeps casting across them. Only the active tab
-   breaks the seam. */
+/* SPEC36 §4.1 (amended by owner): three planes. The tree sits deepest; every
+   open file is a REAL tab on a middle plane — the same pill geometry as
+   .selected, a near-workspace surface one shade back, and its own soft
+   shadow — and the ACTIVE tab stacks above them all (z-index 2, stronger
+   shadow, solid workspace surface). Depth reads from surface + shadow
+   strength, not from the seam alone. */
 .folder-item.open {
-  background: rgba(255, 255, 255, 0.45);
-  background: color-mix(in srgb, var(--mm-bg, #ffffff) 45%, transparent);
+  background: #ededf0;
+  background: color-mix(in srgb, var(--mm-bg, #ffffff) 72%, var(--mm-bg-elevated, #f6f8fa));
   border-radius: 7px 0 0 7px;
   margin-left: 14px;
   min-width: calc(100% - 14px);
   padding-left: calc(var(--mm-depth, 10px) + 6px);
+  position: relative;
+  z-index: 1;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.14),
+    0 2px 7px rgba(0, 0, 0, 0.09);
 }
 .folder-item.open:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.65);
-  background: color-mix(in srgb, var(--mm-bg, #ffffff) 65%, transparent);
+  background: #f4f4f6;
+  background: color-mix(in srgb, var(--mm-bg, #ffffff) 86%, var(--mm-bg-elevated, #f6f8fa));
 }
 /* SPEC36 §3.4/§3.6: the trailing slot on open rows — the dirty ● swaps for
    the ✕ on row hover. */
