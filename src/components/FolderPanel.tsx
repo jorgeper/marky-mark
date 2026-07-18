@@ -61,6 +61,9 @@ function FileRow({ path, name, depth, p }: { path: string; name: string; depth: 
       data-path={path}
       style={depth === null ? undefined : ({ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties)}
       disabled={!md}
+      // Selection starts on mousedown: WebKit word-selects on double / fast
+      // repeated (⌘)clicks even under user-select:none — swallow it here.
+      onMouseDown={(e) => e.preventDefault()}
       onClick={
         md
           ? (e) => {
@@ -140,6 +143,7 @@ function Rows({
                 data-testid="folder-item"
                 data-path={path}
                 style={{ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => p.onToggleDir(path)}
               >
                 <span className="folder-chevron" aria-hidden="true">

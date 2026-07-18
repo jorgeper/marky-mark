@@ -1490,6 +1490,7 @@ mark.hl.ghost {
   /* The workspace floats "in front": a soft shadow falls onto the panel's
      right edge, fading leftward. Themeable. */
   box-shadow: var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
+  -webkit-user-select: none; /* WKWebView belt to the unprefixed suspenders */
   user-select: none;
 }
 .folder-header {
