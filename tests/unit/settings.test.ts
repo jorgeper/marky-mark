@@ -10,7 +10,7 @@ describe('v3 settings', () => {
     expect(d.useDarkTheme).toBe(true);
     expect(d.fontSize).toBe(12);
     expect(d.zoom).toBe(100);
-    expect(d.margins).toBe('default');
+    expect(d.margins).toBe('super-narrow'); // narrowest margins by default
     expect(d.lineNumbers).toBe(true);
     expect(d.vimNav).toBe(false);
     expect(parseSettings('not json')).toEqual({ ...DEFAULT_SETTINGS, hotkeys: { ...DEFAULT_SETTINGS.hotkeys } });
@@ -53,7 +53,8 @@ describe('v3 settings', () => {
     expect(parseSettings('{"fontSize":"big"}').fontSize).toBe(12);
     expect(parseSettings('{"fontSize":"auto"}').fontSize).toBe('auto'); // explicit auto preserved
     expect(parseSettings('{"zoom":137}').zoom).toBe(100); // not a preset level
-    expect(parseSettings('{"margins":"gigantic"}').margins).toBe('default');
+    expect(parseSettings('{"margins":"gigantic"}').margins).toBe('super-narrow'); // unknown → the default
+    expect(parseSettings('{"margins":"default"}').margins).toBe('default'); // explicit theme-default preserved
     // SPEC4 §7: super-narrow is a valid preset with a wider column than narrow.
     expect(parseSettings('{"margins":"super-narrow"}').margins).toBe('super-narrow');
     expect(MARGIN_WIDTHS['super-narrow']).toBe('76rem');

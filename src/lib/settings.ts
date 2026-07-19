@@ -73,7 +73,7 @@ export const DEFAULT_SETTINGS: Settings = {
   useDarkTheme: true,
   fontSize: 12,
   zoom: 100,
-  margins: 'default',
+  margins: 'super-narrow',
   lineNumbers: true,
   vimNav: false,
   autoHideToolbar: false,
@@ -131,9 +131,9 @@ export function parseSettings(json: string): Settings {
       : DEFAULT_SETTINGS.zoom;
 
   const margins: Margins =
-    o.margins === 'super-narrow' || o.margins === 'narrow' || o.margins === 'medium' || o.margins === 'wide'
+    o.margins === 'default' || o.margins === 'super-narrow' || o.margins === 'narrow' || o.margins === 'medium' || o.margins === 'wide'
       ? o.margins
-      : 'default';
+      : DEFAULT_SETTINGS.margins;
 
   return {
     themeLight:

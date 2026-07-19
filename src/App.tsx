@@ -2896,7 +2896,7 @@ export default function App() {
           </div>
         </div>
       ) : (
-        <div className="workspace" ref={workspaceRef} style={{ overflow: 'hidden' }}>
+        <div className="workspace" ref={workspaceRef} style={{ overflowY: 'hidden', overflowX: 'auto' }}>
           <Suspense fallback={<div className="editor-wrap" data-testid="editor-loading" />}>
             <Editor
               value={buffer}

@@ -194,10 +194,24 @@ button {
 .workspace {
   flex: 1;
   overflow-y: auto;
+  /* Panes floor at --mm-pane-min; past that the workspace scrolls sideways
+     instead of crushing the content. */
+  overflow-x: auto;
   display: flex;
   justify-content: center;
   /* SPEC20 §4.2: offset parent for the image-resize overlay (content coords). */
   position: relative;
+}
+
+/* Minimum useful pane width — preview, editor, and both split panes.
+   240px keeps the divider's 0.2 ratio bound reachable at common window
+   sizes (SPEC7 §5 / E40); below the floor the workspace scrolls sideways. */
+.theme-root {
+  --mm-pane-min: 240px;
+}
+.workspace:not(.split) > .editor-wrap,
+.workspace:not(.split) > * > .editor-wrap {
+  min-width: var(--mm-pane-min, 240px);
 }
 
 /* --- SPEC20 §4.2: preview image resize — selection outline, handles, badge --- */
@@ -242,7 +256,7 @@ button {
      doc keeps centering itself via width/max-width + align-items. */
   flex-direction: column;
   align-items: center;
-  min-width: 0;
+  min-width: var(--mm-pane-min, 240px);
 }
 
 .doc {
@@ -729,14 +743,15 @@ mark.hl.ghost {
 /* ---------- split edit (SPEC7 §5): editor | divider | live preview ---------- */
 
 .workspace.split {
-  overflow: hidden;
+  overflow-y: hidden;
+  overflow-x: auto;
   justify-content: stretch;
 }
 
 .split-editor {
   width: var(--mm-split, 50%);
   flex-shrink: 0;
-  min-width: 0;
+  min-width: var(--mm-pane-min, 240px);
   display: flex;
   overflow: hidden;
 }
@@ -756,7 +771,7 @@ mark.hl.ghost {
 
 .split-preview {
   flex: 1;
-  min-width: 0;
+  min-width: var(--mm-pane-min, 240px);
   overflow-y: auto;
   /* SPEC20 §4.2 (split): offset parent for the image-resize overlay. */
   position: relative;

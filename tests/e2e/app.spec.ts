@@ -488,10 +488,10 @@ test('E21: light/dark theme pair follows the OS scheme; unchecking uses the ligh
 });
 
 test('E22: Wide text margins narrow the column; line numbers gutter follows its setting', async ({ page }) => {
-  // Theme default (Crisp) is now the narrow-margin 60rem column (SPEC4 §7).
+  // The app default is the super-narrow 76rem column (narrowest margins).
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).maxWidth))
-    .toBe('960px');
+    .toBe('1216px');
 
   await openSettings(page);
   await page.getByTestId('settings-margins').selectOption('super-narrow');
@@ -581,6 +581,10 @@ test('E24: the new Claude theme — Typora-derived paper, serif body, tight head
 }) => {
   await openSettings(page);
   await page.getByTestId('settings-theme-light').selectOption('claude');
+  // The margins setting now defaults to super-narrow, which overrides any
+  // theme column — this test is about the THEME's own width, so pick
+  // "Theme default" explicitly.
+  await page.getByTestId('settings-margins').selectOption('default');
   await page.getByTestId('settings-close').click();
 
   const doc = page.getByTestId('doc');
