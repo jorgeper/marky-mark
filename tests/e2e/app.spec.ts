@@ -2135,7 +2135,7 @@ test('E73: the Editor settings tab holds the image fields — defaults, live exa
 });
 
 // E74–E75 retired by SPEC41 §4 — the preview-pane resizer is gone (resize
-// now lives in the edit pane, E117). Numbers reserved like E42–E44.
+// now lives in the edit pane, E122). Numbers reserved like E42–E44.
 
 test('E76: Insert Image… (menu) copies the picked file into the images folder and references it at the cursor', async ({
   page,
@@ -3418,9 +3418,9 @@ test('E99: delete — cancel no-op, dim file trashes, open dirty file to splash,
 });
 
 // ---------------------------------------------------------------------------
-// SPEC36: Smart Edit (E100–E103)
+// SPEC43: Smart Edit (E105–E108)
 
-test('E100: smart-edit gutter button — cursor line only, follows the caret, right of line numbers, survives numbers-off, opens the menu', async ({
+test('E105: smart-edit gutter button — cursor line only, follows the caret, right of line numbers, survives numbers-off, opens the menu', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/smart.md', 'alpha\nbeta\ngamma delta\n');
@@ -3477,7 +3477,7 @@ test('E100: smart-edit gutter button — cursor line only, follows the caret, ri
   await expect(page.getByTestId('smart-edit-gutter')).toHaveCount(0);
 });
 
-test('E101: formatting end-to-end — bold via menu, italic via hotkey, H2 via the flyout, multi-line bullet toggle, one undo step each, inert in preview', async ({
+test('E106: formatting end-to-end — bold via menu, italic via hotkey, H2 via the flyout, multi-line bullet toggle, one undo step each, inert in preview', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/fmt.md', 'alpha\nbeta\ngamma delta\n');
@@ -3539,7 +3539,7 @@ test('E101: formatting end-to-end — bold via menu, italic via hotkey, H2 via t
   expect(await text()).toBe(preBullets);
 });
 
-test('E102: right-click & context — menu at the pointer, Image ▸ flyout in context, clipboard rows, preview untouched', async ({
+test('E107: right-click & context — menu at the pointer, Image ▸ flyout in context, clipboard rows, preview untouched', async ({
   page,
 }) => {
   const DOC = [
@@ -3596,7 +3596,7 @@ test('E102: right-click & context — menu at the pointer, Image ▸ flyout in c
 
   // Cursor on the image — SPEC41 §8 amendment: the reference renders as a
   // widget; arrow into the span (caret-reveal) and use the Image ▸ flyout
-  // (the SPEC36 top-level stub is gone).
+  // (the SPEC43 top-level stub is gone).
   await editor.locator('.cm-line').filter({ hasText: 'plain outro' }).click();
   await page.keyboard.press('Home');
   await page.keyboard.press('ArrowUp');
@@ -3640,7 +3640,7 @@ test('E102: right-click & context — menu at the pointer, Image ▸ flyout in c
   await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
 });
 
-test('E103: hotkeys & settings — Smart Edit recorder group, rebind updates menu + applies, conflicts refused, Mod+. opener, reset restores defaults', async ({
+test('E108: hotkeys & settings — Smart Edit recorder group, rebind updates menu + applies, conflicts refused, Mod+. opener, reset restores defaults', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/keys.md', 'alpha\nbeta\n');
@@ -3701,7 +3701,7 @@ test('E103: hotkeys & settings — Smart Edit recorder group, rebind updates men
 });
 
 // ---------------------------------------------------------------------------
-// SPEC40: the grid is how tables look — no mode, one global view (E104–E115)
+// SPEC40: the grid is how tables look — no mode, one global view (E109–E120)
 
 /** Open `path` (fsWrite'd) in edit mode and wait for the default grid. */
 async function openGridDoc(
@@ -3730,7 +3730,7 @@ async function caretInto(page: import('@playwright/test').Page, lineText: string
 const COMPACT = '| aaa | b |\n| --- | --- |\n| 1 | 2 |';
 const GRID = '| aaa | b   |\n| --- | --- |\n| 1   | 2   |';
 
-test('E104: view-flip lifecycle — grids by default, the menu toggle flips ALL tables, flips never touch history, Esc goes to vim', async ({
+test('E109: view-flip lifecycle — grids by default, the menu toggle flips ALL tables, flips never touch history, Esc goes to vim', async ({
   page,
 }) => {
   const DOC = `top\n\n${COMPACT}\n\nbottom`;
@@ -3787,7 +3787,7 @@ test('E104: view-flip lifecycle — grids by default, the menu toggle flips ALL 
   await expect(page.getByTestId('vim-badge')).toBeVisible();
 });
 
-test('E105: live re-flow — narrow edits stay put, growth re-wraps, one undo step, separators read-only', async ({
+test('E110: live re-flow — narrow edits stay put, growth re-wraps, one undo step, separators read-only', async ({
   page,
 }) => {
   await openGridDoc(page, '/docs/v105.md', `top\n\n${COMPACT}\n\nbottom`, 'top');
@@ -3824,7 +3824,7 @@ test('E105: live re-flow — narrow edits stay put, growth re-wraps, one undo st
   await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(3);
 });
 
-test('E106: column chips — follow the caret, insert with landing, delete, 1-column guard', async ({ page }) => {
+test('E111: column chips — follow the caret, insert with landing, delete, 1-column guard', async ({ page }) => {
   await openGridDoc(page, '/docs/v106.md', `top\n\n${COMPACT}\n\nbottom`, 'top');
   const editor = page.getByTestId('editor');
   const content = editor.locator('.cm-content');
@@ -3864,7 +3864,7 @@ test('E106: column chips — follow the caret, insert with landing, delete, 1-co
   expect(await text()).toBe(before);
 });
 
-test('E107: row chips + menu ops — separators between rows, header guards, delete, Insert/Delete Table', async ({
+test('E112: row chips + menu ops — separators between rows, header guards, delete, Insert/Delete Table', async ({
   page,
 }) => {
   await openGridDoc(page, '/docs/v107.md', `top\n\n| aaa | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n\nbottom line`, 'top');
@@ -3922,7 +3922,7 @@ test('E107: row chips + menu ops — separators between rows, header guards, del
   await expect.poll(text).toBe(beforeDelete);
 });
 
-test('E108: wrapping — a too-wide table is a fitted grid by default, every display line one visual line, raw view restores one line per row', async ({
+test('E113: wrapping — a too-wide table is a fitted grid by default, every display line one visual line, raw view restores one line per row', async ({
   page,
 }) => {
   const LONG =
@@ -3960,7 +3960,7 @@ test('E108: wrapping — a too-wide table is a fitted grid by default, every dis
   expect(after).not.toContain('↩');
 });
 
-test('E109: the canonical view — saves write compact tables, the preview renders real tables, dirty stays honest', async ({
+test('E114: the canonical view — saves write compact tables, the preview renders real tables, dirty stays honest', async ({
   page,
 }) => {
   const LONG = 'a long wrapped description that will certainly span multiple grid display lines in the editor pane';
@@ -3984,7 +3984,7 @@ test('E109: the canonical view — saves write compact tables, the preview rende
   await expect(page.locator('[data-testid="split-preview"] table')).toContainText('aX');
 });
 
-test('E110: live re-fit — the grid re-wraps to the pane on resize, relaxes back, re-fits never pollute undo', async ({
+test('E115: live re-fit — the grid re-wraps to the pane on resize, relaxes back, re-fits never pollute undo', async ({
   page,
 }) => {
   const LONG =
@@ -4024,7 +4024,7 @@ test('E110: live re-fit — the grid re-wraps to the pane on resize, relaxes bac
   await expect(editor.locator('.cm-line.mm-table-mode-line').first()).toBeVisible();
 });
 
-test('E111: spaces type — words land in the cell, the edge space parks the caret, saves stay canonical', async ({
+test('E116: spaces type — words land in the cell, the edge space parks the caret, saves stay canonical', async ({
   page,
 }) => {
   await openGridDoc(page, '/docs/v111.md', `top\n\n${COMPACT}\n\nbottom`, 'top');
@@ -4047,7 +4047,7 @@ test('E111: spaces type — words land in the cell, the edge space parks the car
   await expect(editor.locator('.cm-line.mm-table-mode-line').first()).toBeVisible();
 });
 
-test('E112: the two switches — menu labels flip the view, the Settings checkbox does too and stays in sync', async ({
+test('E117: the two switches — menu labels flip the view, the Settings checkbox does too and stays in sync', async ({
   page,
 }) => {
   await openGridDoc(page, '/docs/v112.md', `top\n\n${COMPACT}\n\nbottom`, 'top');
@@ -4074,7 +4074,7 @@ test('E112: the two switches — menu labels flip the view, the Settings checkbo
   await expect(page.getByTestId('settings-table-grid')).toBeChecked();
 });
 
-test('E113: confinement — Enter/Tab navigate, edge deletions inert, pipes self-escape, ⌘A selects the cell, pastes flatten', async ({
+test('E118: confinement — Enter/Tab navigate, edge deletions inert, pipes self-escape, ⌘A selects the cell, pastes flatten', async ({
   page,
 }) => {
   await openGridDoc(page, '/docs/v113.md', `top\n\n| aaa | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n\nbottom`, 'top');
@@ -4125,7 +4125,7 @@ test('E113: confinement — Enter/Tab navigate, edge deletions inert, pipes self
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('2');
 });
 
-test('E114: grids by default — two tables, untouched saves are byte-identical, a hand-typed table snaps to grid, breaking one leaves the other', async ({
+test('E119: grids by default — two tables, untouched saves are byte-identical, a hand-typed table snaps to grid, breaking one leaves the other', async ({
   page,
 }) => {
   // The second table carries decorative padding — the originals rule must
@@ -4173,7 +4173,7 @@ test('E114: grids by default — two tables, untouched saves are byte-identical,
   await expect.poll(text).toBe(before);
 });
 
-test('E115: the global toggle — both tables flip together, originals restore, the setting persists across reload', async ({
+test('E120: the global toggle — both tables flip together, originals restore, the setting persists across reload', async ({
   page,
 }) => {
   const PADDED = '| x    | y |\n| --- | --- |\n| 7    | 8 |';
@@ -4217,9 +4217,9 @@ test('E115: the global toggle — both tables flip together, originals restore, 
 
 // ---------------------------------------------------------------------------
 // SPEC41: images render in the editor — one global view, chips to resize
-// (E116–E118)
+// (E121–E123)
 
-test('E116: the rendered view — widgets by default, caret-reveal, both switches flip and persist, remote srcs stay blocked with zero requests', async ({
+test('E121: the rendered view — widgets by default, caret-reveal, both switches flip and persist, remote srcs stay blocked with zero requests', async ({
   page,
 }) => {
   // The SPEC11 guarantee extends to the edit pane: block-and-log anything
@@ -4322,7 +4322,7 @@ test('E116: the rendered view — widgets by default, caret-reveal, both switche
   expect(external).toEqual([]);
 });
 
-test('E117: resize chips — the eight-chip ring on every border and corner, edge/corner drags persist, double-click clears, 40px clamp, one ⌘Z each, preview clean', async ({
+test('E122: resize chips — the eight-chip ring on every border and corner, edge/corner drags persist, double-click clears, 40px clamp, one ⌘Z each, preview clean', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/img117.png', `data:image/png;base64,${WIDE_PNG}`);
@@ -4433,7 +4433,7 @@ test('E117: resize chips — the eight-chip ring on every border and corner, edg
   await expect(page.getByTestId('image-chip-layer')).toHaveCount(0);
 });
 
-test('E118: the Image ▸ menu — labels and flags by context, Insert dispatches the picker, Delete splices with one-step undo, grid images stay raw', async ({
+test('E123: the Image ▸ menu — labels and flags by context, Insert dispatches the picker, Delete splices with one-step undo, grid images stay raw', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/img118.png', `data:image/png;base64,${WIDE_PNG}`);

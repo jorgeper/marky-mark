@@ -1,5 +1,5 @@
 /**
- * SPEC36 §2: Smart Edit pure logic — text operations, context detection, and
+ * SPEC43 §2: Smart Edit pure logic — text operations, context detection, and
  * the menu model (the single source of menu truth). No DOM, no CodeMirror,
  * no platform imports. Every operation takes the whole document plus a
  * selection (0-based offsets, from <= to) and returns the new document plus
@@ -10,7 +10,7 @@
 import { displayCombo, type HotkeyMap } from './hotkeys';
 import { tableRegionAt } from './tableEdit';
 
-/** SPEC36 §1: every user-visible string lives here — a rename is one file. */
+/** SPEC43 §1: every user-visible string lives here — a rename is one file. */
 export const SMART_EDIT_NAME = 'Smart Edit';
 
 export interface EditResult {
@@ -381,7 +381,7 @@ export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
 
   const out: SmartMenuEntry[] = [];
   // SPEC37 §2.1: the Table submenu is always present, first; its children
-  // carry enabled flags by context. Resize Image… stays the SPEC36 stub.
+  // carry enabled flags by context. Resize Image… stays the SPEC43 stub.
   out.push(
     item('table', 'Table', {
       submenu: [
@@ -392,7 +392,7 @@ export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
       ],
     })
   );
-  // SPEC41 §1.2: the Image submenu replaces the SPEC36 top-level stub.
+  // SPEC41 §1.2: the Image submenu replaces the SPEC43 top-level stub.
   out.push(
     item('image', 'Image', {
       submenu: [

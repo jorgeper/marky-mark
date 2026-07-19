@@ -175,7 +175,7 @@ export default function App() {
   const editorSelectRef = useRef<((from: number, to: number) => void) | null>(null);
   /** SPEC30 §1.4: the mounted editor's find/replace engine. */
   const editorSearchRef = useRef<EditorSearchHandle | null>(null);
-  /** SPEC36 §5.2: the mounted editor's Smart Edit handle — null in preview,
+  /** SPEC43 §5.2: the mounted editor's Smart Edit handle — null in preview,
    * so every format command is a silent no-op there. */
   const smartEditRef = useRef<SmartEditHandle | null>(null);
   /** SPEC30 §1.3: preview match mark groups, index-aligned with the count. */
@@ -1592,7 +1592,7 @@ export default function App() {
     })();
   }, []);
 
-  // SPEC36 §4.5–4.6: the menu's clipboard row endpoints. Copy prefers the
+  // SPEC43 §4.5–4.6: the menu's clipboard row endpoints. Copy prefers the
   // SPEC35 seam (the shim records it for e2e); a missing seam falls back to
   // the browser clipboard. Read resolves null on any failure — Paste then
   // simply inserts nothing.
@@ -1609,7 +1609,7 @@ export default function App() {
     }
   }, []);
 
-  // SPEC36 §5.2: one guard for every format command — never steal a combo
+  // SPEC43 §5.2: one guard for every format command — never steal a combo
   // from a focused text field (find bar, composer, settings recorders), and
   // a silent no-op without a mounted editor (preview mode).
   const fmtCommand = useCallback((op: SmartFormatOp | 'open') => {
@@ -1708,7 +1708,7 @@ export default function App() {
       zoomIn: () => stepZoom(1),
       zoomOut: () => stepZoom(-1),
       zoomReset: () => updateSettings({ ...stateRef.current.settings, zoom: 100 }),
-      // SPEC36 §5.2: format commands forward to the mounted editor (the ref
+      // SPEC43 §5.2: format commands forward to the mounted editor (the ref
       // is null outside edit mode ⇒ silent no-ops). A focused text input
       // (find bar, composer, settings) keeps its own Mod-combos.
       smartMenu: () => fmtCommand('open'),
@@ -1938,7 +1938,7 @@ export default function App() {
         e.preventDefault();
         dispatchCommand('toggleWordCount', 'hotkey');
       } else {
-        // SPEC36 §5.2: the Smart Edit bindings, one command each.
+        // SPEC43 §5.2: the Smart Edit bindings, one command each.
         const fmt: Array<[string, CommandId]> = [
           [hk.smartMenu, 'smartMenu'],
           [hk.bold, 'fmtBold'],

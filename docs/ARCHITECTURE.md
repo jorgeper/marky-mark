@@ -565,7 +565,7 @@ drops the new row straight into the same in-place rename input used by
 Rename, and a new markdown file opens through the unsaved-changes guard
 when that rename commits or cancels.
 
-## Smart Edit (SPEC36)
+## Smart Edit (SPEC43)
 
 Edit mode's contextual formatting layer. All logic is pure in
 `src/lib/smartEdit.ts`: every text operation takes `(text, from, to)` and

@@ -1,12 +1,12 @@
 # SPEC37: Marky Mark v37 — aligned table editing in the editor pane
 
-Delta spec on top of SPEC.md–SPEC36.md as implemented (SPEC31 remains
+Delta spec on top of SPEC.md–SPEC43.md as implemented (SPEC31 remains
 spec-only; SPEC28 withdrawn). This file wins on conflict; nothing may
 regress beyond the two amendments named in §9. §10 is the goal condition.
 (An earlier preview-pane draft of SPEC37 exists only on the parked
 `feat/table-edit-preview-overlay` branch; this file replaces it.)
 
-**What ships:** the SPEC36 stub comes alive **in the editor pane**. The
+**What ships:** the SPEC43 stub comes alive **in the editor pane**. The
 smart menu's contextual entry becomes a **Table ▸** submenu — **Edit
 Table…**, **Insert Table**, **Delete Table** — and Edit Table… enters
 **aligned table mode**: the table's source is re-padded so every pipe
@@ -28,7 +28,7 @@ edge like any long line); display-width-aware padding for CJK/emoji
 documented limitation); alignment (`:---:`) editing (preserved
 verbatim); un-padding on exit (the alignment is real characters and
 persists — that is the feature); tables in blockquotes/lists (top-level
-pipe tables only, as SPEC36 detects); Resize Image… (still the SPEC36
+pipe tables only, as SPEC43 detects); Resize Image… (still the SPEC43
 stub); the web suite (pure frontend, ships by construction); any new
 dependency; any src-tauri change.
 
@@ -41,7 +41,7 @@ New pure module, no DOM or CodeMirror imports. The model is
 rows: string[][]; start: number; end: number }` — cells hold raw source
 markdown verbatim (inline syntax and `\|` escapes included).
 
-1. `tableRegionAt(text, offset)` — the SPEC36 pipe-table scan, extracted
+1. `tableRegionAt(text, offset)` — the SPEC43 pipe-table scan, extracted
    from `detectContext` (which now calls it; detection semantics
    unchanged), returning `{start, end}` (first char of first line … end
    of last line) or null.
@@ -125,7 +125,7 @@ markdown verbatim (inline syntax and `\|` escapes included).
 1. While the mode is active AND the cursor is inside the table, chips
    render for the cursor's cell (row r, column c; the delimiter row
    acts as the header row for column ops and shows no row chips) —
-   circular, the SPEC36 theme-menu aesthetic, absolutely positioned in
+   circular, the SPEC43 theme-menu aesthetic, absolutely positioned in
    the editor pane from CodeMirror coordinates, tracking cursor moves,
    edits, scroll, and resize:
    - **Top border, column edges**: ⊕ `table-add-col-left` at the
@@ -150,7 +150,7 @@ The mode's extensions ride one compartment (filter + decorations +
 Esc keymap), reconfigured on entry/exit — undo history intact, parked
 history (SPEC7 §6) untouched: a remount always starts with the mode
 off. `SmartEditHandle` is unchanged; the menu paths run inside the
-Editor. Find/replace, diff tint, selection mirroring, and the SPEC36
+Editor. Find/replace, diff tint, selection mirroring, and the SPEC43
 formatting hotkeys all continue to work inside an aligned table —
 formatting a cell's text re-pads like any other edit.
 
@@ -172,41 +172,41 @@ Comment anchors (preview text never changes shape from padding —
 rendered cells trim), scroll sync, SPEC23/24/25 mirrors and carries,
 vim nav (§3.5 ordering aside), drafts, and the watcher.
 
-## 9. Tests (added: U68–U69, E104–E107; amended: U64, E102)
+## 9. Tests (added: U69–U70, E109–E112; amended: U65, E107)
 
-Amendments, by name: **U64** — the pinned contextual section becomes
+Amendments, by name: **U65** — the pinned contextual section becomes
 the always-present `table` submenu (children + enabled flags), with
-`resize-image` contextual as before. **E102** — the table assertions
+`resize-image` contextual as before. **E107** — the table assertions
 open the Table ▸ flyout first, and Edit Table… now enters aligned mode
 (the buffer changes only by the normalization padding). No other
 existing test may be modified, weakened, skipped, or deleted; E42–E44
 stay reserved.
 
-1. **U68** — model basics: parse/serialize round-trips (edged,
+1. **U69** — model basics: parse/serialize round-trips (edged,
    edge-less, ragged, all four alignment forms, `\|` escapes);
    `tableRegionAt` boundaries; serialize idempotence.
-2. **U69** — ops and aligned-mode helpers: insert/delete row/col at
+2. **U70** — ops and aligned-mode helpers: insert/delete row/col at
    every edge with guards; `setCell` escaping; spans track; starter,
    `insertTableAt`/`deleteTableAt` blank-line rules; `normalizeTable`
    (aligns a ragged table; null on an aligned one); `cellAt` (every
    cell incl. header and delimiter mapping, padding/pipe clamping);
    `normalizeWithCursor` (cursor stays at the same content offset,
    clamps from padding); the amended menu model.
-3. **E104** — mode lifecycle: Table ▸ Edit Table… aligns the table
+3. **E109** — mode lifecycle: Table ▸ Edit Table… aligns the table
    (pipes line up: every table line same length), cursor still in its
    cell, decorations on; padding persists after exit AND in the saved
    file; entry is one undo step; Esc exits (with vimNav on, first Esc
    exits the mode, second enters nav); re-invoking Edit Table… toggles
    off; works in full-screen edit (no split flip).
-4. **E105** — live alignment: typing inside a narrow cell leaves other
+4. **E110** — live alignment: typing inside a narrow cell leaves other
    rows untouched; typing past the column width re-pads every row in
    ONE undo step with the keystroke; deleting shrinks back; breaking
    the delimiter row exits the mode; a paste into a cell re-pads.
-5. **E106** — column chips: appear at the cursor's column, follow
+5. **E111** — column chips: appear at the cursor's column, follow
    cursor moves across cells; add-left/add-right insert an aligned
    empty column with the cursor in its first cell; ✕ deletes (disabled
    at one column); one undo step each.
-6. **E107** — row chips + menu ops: add-above/add-below; header row
+6. **E112** — row chips + menu ops: add-above/add-below; header row
    hides above-insert and delete; ✕ deletes the row; Insert Table
    drops the starter (selection on `Column 1`, item disabled inside a
    table); Delete Table removes table + separator blank line, one undo
@@ -214,8 +214,8 @@ stay reserved.
 
 ## 10. Definition of Done
 
-1. `npm run validate` exits 0 with complete output — U1–U69, E1–E41 +
-   E45–E107, W1–W11 — and `VALIDATION: ALL PASSED` printed.
+1. `npm run validate` exits 0 with complete output — U1–U70, E1–E41 +
+   E45–E112, W1–W11 — and `VALIDATION: ALL PASSED` printed.
 2. `git diff src-tauri/` is EMPTY. No new dependencies; version files
    stay 0.4.0-alpha.1; no `.skip/.only/.todo`; the Windows-reserved-name
    scan prints nothing; `git diff --stat docs/specs` limited to this

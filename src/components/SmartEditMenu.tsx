@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SmartMenuEntry } from '../lib/smartEdit';
 
 /**
- * SPEC36 §4: the Smart Edit popup — theme-menu styled, viewport-clamped,
+ * SPEC43 §4: the Smart Edit popup — theme-menu styled, viewport-clamped,
  * flyout submenus (one open at a time, flipping at the viewport edge), full
  * ↑/↓/→/←/Enter/Esc keyboard navigation. Dismissed by Esc, any outside
  * pointerdown, scroll, resize, or invoking a leaf item. The menu holds focus

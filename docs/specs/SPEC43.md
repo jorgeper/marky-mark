@@ -1,4 +1,4 @@
-# SPEC36: Marky Mark v36 — Smart Edit (contextual formatting menu)
+# SPEC43: Marky Mark v36 — Smart Edit (contextual formatting menu)
 
 Delta spec on top of SPEC.md–SPEC35.md as implemented (SPEC31 remains
 spec-only; SPEC28 withdrawn). This file wins on conflict; nothing may
@@ -217,9 +217,9 @@ sanitize layer are untouched, and the SPEC11 zero-request guarantee
 holds (the static bundle scan must stay clean). The web build ships the
 identical feature minus `paste` where clipboard read is unavailable.
 
-## 9. Tests (added: U64–U67, E100–E103)
+## 9. Tests (added: U65–U68, E105–E108)
 
-1. **U64** — `buildSmartMenu`: exact section/item/order snapshot with
+1. **U65** — `buildSmartMenu`: exact section/item/order snapshot with
    no context; `edit-table`/`resize-image` presence iff table/image;
    separator collapse; cut/copy disabled without selection; paste
    omitted without `canPaste`; hotkey labels follow a rebound
@@ -227,31 +227,31 @@ identical feature minus `paste` where clipboard read is unavailable.
    (edged and edge-less, delimiter-row required, single `|` line ⇒
    false), images (`![…](…)` span boundaries, `<img>` tag, plain link
    ⇒ false).
-2. **U65** — inline toggles: wrap/unwrap for all four kinds; word
+2. **U66** — inline toggles: wrap/unwrap for all four kinds; word
    expansion at a collapsed cursor; caret-between-markers on
    whitespace; bold-vs-italic disambiguation (`***`); link wrap with
    `url` selected and collapsed-cursor placeholder; selections at doc
    start/end.
-3. **U66** — line ops: heading set / switch level / toggle-off /
+3. **U67** — line ops: heading set / switch level / toggle-off /
    multi-line with blanks skipped; bullet↔numbered↔task replacement
    in place; numbered renumbering from 1; all-prefixed ⇒ removal;
    indent preserved; quote add (blanks get `>`) and strip; callout
    above a selection and at a collapsed cursor, all five kinds.
-4. **U67** — code block wrap (caret after opening fence) and unwrap of
+4. **U68** — code block wrap (caret after opening fence) and unwrap of
    an exactly-fenced selection; HR below the cursor's line with
    blank-line management at doc edges; every §2 op returns a result
    applied as a single string splice (offsets consistent).
-5. **E100** — the gutter button (shim, edit mode): appears on the
+5. **E105** — the gutter button (shim, edit mode): appears on the
    cursor's line, follows cursor moves, sits right of line numbers,
    survives the line-numbers-off setting; click opens
    `smart-edit-menu` with hotkey labels rendered; Esc and outside
    click dismiss; preview mode shows no gutter button.
-6. **E101** — formatting end-to-end: bold via menu on a selection;
+6. **E106** — formatting end-to-end: bold via menu on a selection;
    italic via its default hotkey; H2 via the Heading flyout; bullet
    toggle on a multi-line selection; each action is exactly one undo
    step (⌘Z restores the prior text verbatim); a formatting hotkey in
    preview mode changes nothing.
-7. **E102** — right-click & context: right-click in the editor opens
+7. **E107** — right-click & context: right-click in the editor opens
    the menu at the pointer (native menu suppressed there only);
    cursor inside a fixture pipe table ⇒ `smart-edit-edit-table` shown,
    invoking it closes the menu and the buffer is byte-identical;
@@ -259,19 +259,19 @@ identical feature minus `paste` where clipboard read is unavailable.
    no-op check; cursor on plain text ⇒ neither; copy puts the
    selection on `__mmClipboard`; paste inserts the shim clipboard
    text; right-click in preview mode does not open the smart menu.
-8. **E103** — hotkeys & settings: the Smart Edit group renders in
+8. **E108** — hotkeys & settings: the Smart Edit group renders in
    Settings → Hotkeys; rebinding `bold` updates the menu row's label
    and the new combo applies bold (the old one no longer does);
    conflict against an existing binding is refused; Mod+. opens the
    menu at the cursor; Reset restores the Smart Edit defaults too.
 9. No existing test may be modified, weakened, skipped, or deleted;
    E42–E44 stay reserved. The only permitted test additions are
-   U64–U67 and E100–E103.
+   U65–U68 and E105–E108.
 
 ## 10. Definition of Done
 
-1. `npm run validate` exits 0 with complete output — U1–U67, E1–E41 +
-   E45–E103, W1–W11 — and `VALIDATION: ALL PASSED` printed.
+1. `npm run validate` exits 0 with complete output — U1–U68, E1–E41 +
+   E45–E108, W1–W11 — and `VALIDATION: ALL PASSED` printed.
 2. `git diff src-tauri/` limited to: the `tauri-plugin-clipboard-manager`
    dependency, its registration, and its clipboard-read permission. No
    version-file changes (0.4.0-alpha.1); no other dependencies; no

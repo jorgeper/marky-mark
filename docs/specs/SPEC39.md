@@ -68,7 +68,7 @@ All of the following apply only while the mode is active, via a
    a pipe therefore yields its escaped form — rendering shows `|`).
 6. **Separators and structure are read-only.** Edits whose target
    lies outside cell content — separator lines, pipes, the gutters —
-   are consumed. (E105's manual delimiter mangling is therefore no
+   are consumed. (E110's manual delimiter mangling is therefore no
    longer possible from inside the mode; the break-exit still guards
    foreign changes.)
 
@@ -92,35 +92,35 @@ navigation (`'up' | 'down' | 'next' | 'prev'`, null at the ends —
 row-major for next/prev, header included). Both DOM-free and
 unit-tested.
 
-## 5. Tests (added: U72, E110–E113; amended: U64, E105)
+## 5. Tests (added: U73, E115–E118; amended: U65, E110)
 
-Amendments, by name: **U64** — `SmartMenuCtx.tableMode`: with it true,
+Amendments, by name: **U65** — `SmartMenuCtx.tableMode`: with it true,
 `edit-table` is labeled "Exit Table Mode" and enabled even when
 `ctx.table` is false (the pinned snapshot gains the flag=false default).
-**E105** — the manual grammar-break step (typing over the delimiter) is
+**E110** — the manual grammar-break step (typing over the delimiter) is
 replaced by its confinement counterpart: those keystrokes are consumed
-and the grid survives; break-exit coverage remains via E104's
+and the grid survives; break-exit coverage remains via E109's
 undo-past-entry. No other existing test may be modified, weakened,
 skipped, or deleted; E42–E44 stay reserved.
 
-1. **U72** — `sanitizeCellInsert` (newlines/CR → spaces, pipe
+1. **U73** — `sanitizeCellInsert` (newlines/CR → spaces, pipe
    escaping, already-escaped pipes untouched); `cellNavTarget` (down
    from header, down/up across rows, no-op at ends, next/prev
    row-major wrap incl. header row, single-cell tables).
-2. **E110** — live re-fit: enter the mode in split edit, narrow the
+2. **E115** — live re-fit: enter the mode in split edit, narrow the
    viewport (or drag the divider): the grid re-lays-out — every table
    line stays a single visual line at the new width; widen back and
    the columns relax; no history pollution (one ⌘Z after a re-fit
    still reverts the last real edit, not the re-fit).
-3. **E111** — spaces: type `hello world` character by character into a
+3. **E116** — spaces: type `hello world` character by character into a
    cell; both words land (buffer contains `hello world` in that cell
    after collapse); a space at the cell's inner edge is a clamped
    no-op.
-4. **E112** — chrome: the TABLE pill and Done button render while the
+4. **E117** — chrome: the TABLE pill and Done button render while the
    mode is on and not before; clicking Done collapses byte-identically
    (like Esc) and the pill leaves; the menu shows "Exit Table Mode"
    while on and "Edit Table…" after.
-5. **E113** — confinement: Enter in a cell inserts nothing and moves
+5. **E118** — confinement: Enter in a cell inserts nothing and moves
    to the row below (same column); Tab moves to the next cell;
    Backspace at content start is inert (grid byte-identical); typing
    `|` lands as `\|` (and renders as `|` after collapse); ⌘A selects
@@ -129,8 +129,8 @@ skipped, or deleted; E42–E44 stay reserved.
 
 ## 6. Definition of Done
 
-1. `npm run validate` exits 0 with complete output — U1–U72, E1–E41 +
-   E45–E113, W1–W11 — and `VALIDATION: ALL PASSED` printed.
+1. `npm run validate` exits 0 with complete output — U1–U73, E1–E41 +
+   E45–E118, W1–W11 — and `VALIDATION: ALL PASSED` printed.
 2. `git diff src-tauri/` is EMPTY; no new dependencies; version files
    stay 0.4.0-alpha.1; no `.skip/.only/.todo`; the reserved-name scan
    prints nothing; `git diff --stat docs/specs` limited to this file's

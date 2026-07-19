@@ -60,21 +60,21 @@ README's images bullet says circles sit on every border and corner;
 ARCHITECTURE.md's image-view chip paragraph describes the eight-chip
 ring and the uniform corner contract.
 
-## 4. Tests (amended: E117; no new tests, no other changes)
+## 4. Tests (amended: E122; no new tests, no other changes)
 
-**E117** (the only permitted amendment, by name): click → exactly
+**E122** (the only permitted amendment, by name): click → exactly
 EIGHT chips, each centered on its border/corner (geometry asserted for
 the ring); a LEFT-border drag persists width (dragged) + height
 (frozen); a TOP-LEFT corner drag persists width only, ratio kept, no
 height; double-click a corner OTHER than bottom-right clears both;
 the existing corner/right/clamp/one-⌘Z-each/preview-clean assertions
-stay. Every other existing test (U1–U74, E1–E116, E118, W1–W11)
+stay. Every other existing test (U1–U75, E1–E121, E123, W1–W11)
 unmodified and unweakened.
 
 ## 5. Definition of Done
 
-1. `npm run validate` exits 0 with complete output — U1–U74, E1–E41 +
-   E45–E73 + E76–E118 (E74–E75 retired), W1–W11 — and
+1. `npm run validate` exits 0 with complete output — U1–U75, E1–E41 +
+   E45–E73 + E76–E123 (E74–E75 retired), W1–W11 — and
    `VALIDATION: ALL PASSED` printed.
 2. `git diff src-tauri/` is EMPTY; no new dependencies; version files
    stay 0.4.0-alpha.1; no `.skip/.only/.todo`; the Windows

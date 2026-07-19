@@ -32,7 +32,7 @@ const REGION = { start: 7, end: 7 + TBL.length };
 const model = (): TableModel => parseTable(DOC, tableRegionAt(DOC, DOC.indexOf('| 1'))!);
 
 describe('SPEC37 table edit', () => {
-  test('U68: region detection, parse/serialize round-trips, escapes', () => {
+  test('U69: region detection, parse/serialize round-trips, escapes', () => {
     // --- tableRegionAt boundaries -------------------------------------------
     expect(tableRegionAt(DOC, DOC.indexOf('| a'))).toEqual(REGION); // header first char
     expect(tableRegionAt(DOC, DOC.indexOf(':-:'))).toEqual(REGION); // delimiter row
@@ -84,7 +84,7 @@ describe('SPEC37 table edit', () => {
     expect(escapeCell('a\\|b')).toBe('a\\|b'); // already escaped passes through
   });
 
-  test('U69: operations, guards, spans, starter, insert/delete at cursor', () => {
+  test('U70: operations, guards, spans, starter, insert/delete at cursor', () => {
     const m = model();
 
     // --- rows ----------------------------------------------------------------
@@ -226,7 +226,7 @@ describe('SPEC38 transient wrapped grid', () => {
     ],
   } as { header: string[]; align: Array<'left' | 'center' | 'right' | null>; rows: string[][] };
 
-  test('U70: layout engine — widths, wrapping, separators, map', () => {
+  test('U71: layout engine — widths, wrapping, separators, map', () => {
     // --- natural widths when the budget is generous -------------------------
     const wide = layoutTable(M, 200);
     const wideLines = wide.text.split('\n');
@@ -288,7 +288,7 @@ describe('SPEC38 transient wrapped grid', () => {
     expect(inPad.col).toBe(0);
   });
 
-  test('U71: display grammar — round-trips, the guard, collapse', () => {
+  test('U72: display grammar — round-trips, the guard, collapse', () => {
     // --- parse(layout(m)) round-trips for varied models ----------------------
     const models = [
       M,
@@ -339,7 +339,7 @@ describe('SPEC38 transient wrapped grid', () => {
 });
 
 describe('SPEC39 confinement helpers', () => {
-  test('U72: sanitizeCellInsert and cellNavTarget', async () => {
+  test('U73: sanitizeCellInsert and cellNavTarget', async () => {
     const { sanitizeCellInsert, cellNavTarget } = await import('../../src/lib/tableEdit');
 
     // --- sanitizeCellInsert --------------------------------------------------
@@ -373,7 +373,7 @@ describe('SPEC39 confinement helpers', () => {
 });
 
 describe('SPEC40 grid-for-all helpers', () => {
-  test('U73: allTableRegions and the tableGridView setting', async () => {
+  test('U74: allTableRegions and the tableGridView setting', async () => {
     const { allTableRegions } = await import('../../src/lib/tableEdit');
     const { parseSettings } = await import('../../src/lib/settings');
 
@@ -391,7 +391,7 @@ describe('SPEC40 grid-for-all helpers', () => {
 
     // Non-tables are skipped (pipes without a delimiter row).
     expect(allTableRegions('a | b\njust pipes\nmore | pipes')).toEqual([]);
-    // Adjacent pipe paragraphs merge into the region per the SPEC36 scan.
+    // Adjacent pipe paragraphs merge into the region per the SPEC43 scan.
     const zeroRow = '| h |\n| --- |';
     const rz = allTableRegions(zeroRow);
     expect(rz).toHaveLength(1);
@@ -405,7 +405,7 @@ describe('SPEC40 grid-for-all helpers', () => {
 });
 
 describe('SPEC41 image view helpers', () => {
-  test('U74: allImageRefs, height-capable rewrite, deleteImageAt', async () => {
+  test('U75: allImageRefs, height-capable rewrite, deleteImageAt', async () => {
     const { allImageRefs, rewriteImageSpan, deleteImageAt } = await import('../../src/lib/imageResize');
 
     // --- allImageRefs: both forms, exact offsets, document order ------------

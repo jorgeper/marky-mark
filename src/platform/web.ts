@@ -268,7 +268,7 @@ export function createWebPlatform(): Platform {
       window.open(url, '_blank', 'noopener,noreferrer');
     },
 
-    // SPEC36 §4.6: defined iff the browser offers clipboard read — absent
+    // SPEC43 §4.6: defined iff the browser offers clipboard read — absent
     // ⇒ the Smart Edit Paste item is omitted. Reading is local; the page's
     // zero-network CSP is untouched.
     ...(typeof navigator !== 'undefined' && navigator.clipboard?.readText

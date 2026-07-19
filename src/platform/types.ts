@@ -82,7 +82,7 @@ export interface Platform {
   /** SPEC35 §1: clipboard write (the shim also records on __mmClipboard for e2e). */
   copyText?(text: string): Promise<void>;
   /**
-   * SPEC36 §4.6: clipboard read for the Smart Edit Paste item. Optional —
+   * SPEC43 §4.6: clipboard read for the Smart Edit Paste item. Optional —
    * absent ⇒ the item is omitted. Desktop: tauri-plugin-clipboard-manager;
    * shim: the last __mmClipboard entry; web: navigator.clipboard.readText
    * where the browser provides it.

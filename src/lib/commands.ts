@@ -33,7 +33,7 @@ export type CommandId =
   | 'zoomOut'
   | 'zoomReset'
   | 'close'
-  // SPEC36 §5.2: Smart Edit — silent no-ops outside edit mode.
+  // SPEC43 §5.2: Smart Edit — silent no-ops outside edit mode.
   | 'smartMenu'
   | 'fmtBold'
   | 'fmtItalic'

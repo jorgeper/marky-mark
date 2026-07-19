@@ -45,7 +45,7 @@ forms the app itself writes); any new dependency or src-tauri change.
    ALL images; `insert-image` "Insert Image…" — dispatches the existing
    `insertImage` command (the SPEC20 picker flow), always enabled;
    `delete-image` "Delete Image" and `resize-image` "Resize Image" —
-   enabled iff the caret is on an image reference. The SPEC36 top-level
+   enabled iff the caret is on an image reference. The SPEC43 top-level
    contextual `resize-image` stub is REMOVED (this submenu replaces
    it). `SmartMenuCtx` gains `imageView: boolean`.
 3. `delete-image` splices the image reference out of the source (one
@@ -133,40 +133,40 @@ images coexist (mutual exclusion per §2.4). Comments, anchors, scroll
 sync, find, vim, export, and the web build are unaffected; the web
 build ships the identical feature.
 
-## 8. Tests (added: U74, E116–E118; amended: U64, E102; retired: E74–E75)
+## 8. Tests (added: U75, E121–E123; amended: U65, E107; retired: E74–E75)
 
-Amendments, by name: **U64** — the menu snapshot gains the always-
+Amendments, by name: **U65** — the menu snapshot gains the always-
 present `image` submenu below `table` (children + labels per
 `imageView`, enabled flags per `ctx.image`); the top-level contextual
-`resize-image` entry is gone. **E102** — the image-context steps use
+`resize-image` entry is gone. **E107** — the image-context steps use
 the Image ▸ flyout (enabled flags) instead of the removed top-level
 stub. **E74–E75** — retired (§4). No other existing test may be
 modified, weakened, skipped, or deleted; E42–E44 stay reserved.
 
-1. **U74** — `allImageRefs` (both forms, multiple per line, offsets,
+1. **U75** — `allImageRefs` (both forms, multiple per line, offsets,
    attrs parsed, non-images skipped); `rewriteImageSpan` height
    variants (set both, height alone, corner-clears-height, removal
    idempotence; width-only behavior byte-identical to SPEC20).
-2. **E116** — the rendered view: a doc with a pasted-style local image
+2. **E121** — the rendered view: a doc with a pasted-style local image
    shows the WIDGET in the edit pane (real pixels via the shim's data:
    URI), dirty off; caret-reveal shows the raw syntax and arrows back
    to the picture; the two switches flip all images raw/rendered and
    persist; a remote-src image renders the blocked placeholder, and
    the run's zero-request assertion holds.
-3. **E117** — resize: click → exactly three chips on the right/bottom/
+3. **E122** — resize: click → exactly three chips on the right/bottom/
    corner borders; corner drag persists `<img … width>` (no height,
    ratio kept); right drag persists width AND height; double-click the
    corner clears both; 40 px clamp; each release one ⌘Z step; the
    preview shows the resized image with NO overlay or handles.
-4. **E118** — the menu: Image ▸ labels and enabled flags by context;
+4. **E123** — the menu: Image ▸ labels and enabled flags by context;
    Insert Image… dispatches the picker flow (shim-observable); Delete
    Image removes the reference (one undo step restores); an image
    inside a table grid stays raw and un-widgeted.
 
 ## 9. Definition of Done
 
-1. `npm run validate` exits 0 with complete output — U1–U74, E1–E41 +
-   E45–E73 + E76–E118 (E74–E75 retired), W1–W11 — and
+1. `npm run validate` exits 0 with complete output — U1–U75, E1–E41 +
+   E45–E73 + E76–E123 (E74–E75 retired), W1–W11 — and
    `VALIDATION: ALL PASSED` printed.
 2. `git diff src-tauri/` is EMPTY; no new dependencies; version files
    stay 0.4.0-alpha.1; no `.skip/.only/.todo`; the reserved-name scan

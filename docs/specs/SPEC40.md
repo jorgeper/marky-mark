@@ -83,28 +83,28 @@ removes its table; the span drops from the set. Find, diff tint,
 drafts, comments, and the web build behave per the canonical view as
 before.
 
-## 6. Tests (added: U73, E114–E115; amended: U64, E102, E104–E113)
+## 6. Tests (added: U74, E119–E120; amended: U65, E107, E109–E118)
 
-Amendments, by name: **U64** — the Table submenu pins
+Amendments, by name: **U65** — the Table submenu pins
 `toggle-grid`/`insert-table`/`delete-table` with the §1.2 labels per
-`gridView`. **E102** — the table-context steps use the always-on grid
-(no entry click). **E104–E113** — rewritten to the global-view world,
+`gridView`. **E107** — the table-context steps use the always-on grid
+(no entry click). **E109–E118** — rewritten to the global-view world,
 preserving their coverage: lifecycle asserts become view-flip asserts
-(E104), live re-flow/chips/wrapping/canonical/confinement tests enter
-via the DEFAULT grid instead of a menu click (E105–E111, E113), and
-E112's chrome coverage becomes the two toggle switches. No other
+(E109), live re-flow/chips/wrapping/canonical/confinement tests enter
+via the DEFAULT grid instead of a menu click (E110–E116, E118), and
+E117's chrome coverage becomes the two toggle switches. No other
 existing test may be modified, weakened, skipped, or deleted; E42–E44
 stay reserved.
 
-1. **U73** — `allTableRegions`: none/one/many tables, adjacency and
+1. **U74** — `allTableRegions`: none/one/many tables, adjacency and
    ordering, offsets exact, non-tables skipped; setting parse fallback
    for `tableGridView` (default true).
-2. **E114** — grid by default: opening a document with TWO tables
+2. **E119** — grid by default: opening a document with TWO tables
    shows both as grids (separators present, all lines single visual
    height), dirty dot OFF; saving writes both compact; typing a new
    raw table snaps it to a grid when the delimiter completes; deleting
    one grid's source leaves the other grid intact.
-3. **E115** — the global toggle: Table ▸ "Show Raw Tables" collapses
+3. **E120** — the global toggle: Table ▸ "Show Raw Tables" collapses
    BOTH tables to compact raw text (labels flip, setting persists
    across reload); Settings → Editor checkbox does the same and stays
    in sync; flipping back re-grids both; neither flip pollutes undo or
@@ -112,8 +112,8 @@ stay reserved.
 
 ## 7. Definition of Done
 
-1. `npm run validate` exits 0 with complete output — U1–U73, E1–E41 +
-   E45–E115, W1–W11 — and `VALIDATION: ALL PASSED` printed.
+1. `npm run validate` exits 0 with complete output — U1–U74, E1–E41 +
+   E45–E120, W1–W11 — and `VALIDATION: ALL PASSED` printed.
 2. `git diff src-tauri/` is EMPTY; no new dependencies; version files
    stay 0.4.0-alpha.1; no `.skip/.only/.todo`; the reserved-name scan
    prints nothing; `git diff --stat docs/specs` limited to this file's

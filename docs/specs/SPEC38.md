@@ -141,33 +141,33 @@ already never reloads during edit mode. Find/replace operates on the
 display text while the mode is on — matches inside padding are possible
 and harmless (documented). Vim/Esc ordering unchanged.
 
-## 8. Tests (added: U70–U71, E108–E109; amended: E102, E104–E107)
+## 8. Tests (added: U71–U72, E113–E114; amended: E107, E109–E112)
 
 Amendments, by name — SPEC38 redefines the display form those tests
-pinned: **E102** (Edit Table… enters the bordered grid; after Esc the
-buffer holds the COMPACT table — no padding persists), **E104–E107**
+pinned: **E107** (Edit Table… enters the bordered grid; after Esc the
+buffer holds the COMPACT table — no padding persists), **E109–E112**
 (rewritten against the bordered transient display: entry/exit collapse
 semantics, separator lines in expected text, otherwise the same
 lifecycle, live-alignment, column-chip, and row-chip coverage). No
 other existing test may be modified, weakened, skipped, or deleted;
 E42–E44 stay reserved.
 
-1. **U70** — layout: compact serializer round-trips; width fitting
+1. **U71** — layout: compact serializer round-trips; width fitting
    (natural, shrink-widest-first, floor 8, floor-overflow); word wrap
    and hard-break; whitespace normalization; separator placement and
    alignment markers on the first separator only; map correctness
    (`displayCellAt` over every fragment incl. padding clamp,
    `displayPosOf` inverse).
-2. **U71** — grammar: `parseDisplay` round-trips every `layoutTable`
+2. **U72** — grammar: `parseDisplay` round-trips every `layoutTable`
    output (property-style over varied models incl. escaped pipes and
    empty cells); the round-trip guard REJECTS a plain GFM table and
    perturbed padding; collapse(parse(layout(m))) === compact(m).
-3. **E108** — wrapping end-to-end: a table far wider than the pane
+3. **E113** — wrapping end-to-end: a table far wider than the pane
    enters the mode with every display line rendering as ONE visual
    line (no soft wrap: each table `.cm-line` is single line-height);
    typing into a wrapped cell re-flows the grid (still one visual line
    per display line); exiting collapses to one line per logical row.
-4. **E109** — the canonical view: with the mode active on a wrapped
+4. **E114** — the canonical view: with the mode active on a wrapped
    grid, ⌘S writes the COMPACT table to disk (mode stays on); the
    split preview shows a real rendered `<table>` (never the grid
    soup); entering and exiting an already-compact table without edits
@@ -177,8 +177,8 @@ E42–E44 stay reserved.
 
 ## 9. Definition of Done
 
-1. `npm run validate` exits 0 with complete output — U1–U71, E1–E41 +
-   E45–E109, W1–W11 — and `VALIDATION: ALL PASSED` printed.
+1. `npm run validate` exits 0 with complete output — U1–U72, E1–E41 +
+   E45–E114, W1–W11 — and `VALIDATION: ALL PASSED` printed.
 2. `git diff src-tauri/` is EMPTY; no new dependencies; version files
    stay 0.4.0-alpha.1; no `.skip/.only/.todo`; the reserved-name scan
    prints nothing; `git diff --stat docs/specs` limited to this file's

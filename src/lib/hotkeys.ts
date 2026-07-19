@@ -18,7 +18,7 @@ export interface HotkeyMap {
   prevComment: string;
   headingPalette: string;
   toggleWordCount: string;
-  // SPEC36 §5.1: Smart Edit.
+  // SPEC43 §5.1: Smart Edit.
   smartMenu: string;
   bold: string;
   italic: string;
@@ -52,7 +52,7 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   prevComment: 'Mod+Alt+ArrowUp',
   headingPalette: 'Mod+K',
   toggleWordCount: 'Mod+Shift+W',
-  // SPEC36 §5.1 (Mod+E/Mod+K classics are taken by toggleEdit/headingPalette).
+  // SPEC43 §5.1 (Mod+E/Mod+K classics are taken by toggleEdit/headingPalette).
   smartMenu: 'Mod+.',
   bold: 'Mod+B',
   italic: 'Mod+I',
@@ -114,7 +114,7 @@ const CODE_KEYS: Record<string, string> = {
 };
 
 /**
- * SPEC36 §5.1: Alt/Shift combos resolve through the PHYSICAL key. On macOS
+ * SPEC43 §5.1: Alt/Shift combos resolve through the PHYSICAL key. On macOS
  * ⌥ transforms `key` (⌘⌥C reports "ç", ⌘⌥- reports "–") and ⇧ shifts digits
  * (⌘⇧8 reports "*"), which would make such bindings layout-dependent —
  * record and match by `code` instead. Bare keys and Mod-only combos keep

@@ -22,8 +22,8 @@ const ctx = (over: Partial<SmartMenuCtx> = {}): SmartMenuCtx => ({
   canPaste: true,
   hotkeys: DEFAULT_HOTKEYS,
   isMac: true,
-  gridView: true, // SPEC40 §6 amendment to U64
-  imageView: true, // SPEC41 §8 amendment to U64
+  gridView: true, // SPEC40 §6 amendment to U65
+  imageView: true, // SPEC41 §8 amendment to U65
   ...over,
 });
 
@@ -36,13 +36,13 @@ const find = (entries: SmartMenuEntry[], id: string) => {
   return hit;
 };
 
-describe('SPEC36 smart edit', () => {
-  test('U64: menu model and context detection', () => {
+describe('SPEC43 smart edit', () => {
+  test('U65: menu model and context detection', () => {
     // --- exact section/item order with no context ---------------------------
-    // SPEC37 §9 amendment to U64: the contextual section is now the
+    // SPEC37 §9 amendment to U65: the contextual section is now the
     // always-present Table submenu; Resize Image… stays contextual.
     // SPEC41 §8 amendment: the Image submenu sits below Table (always
-    // present); the SPEC36 top-level resize-image stub is gone.
+    // present); the SPEC43 top-level resize-image stub is gone.
     expect(ids(buildSmartMenu(ctx()))).toEqual([
       'table', 'image',
       'sep',
@@ -164,7 +164,7 @@ describe('SPEC36 smart edit', () => {
     expect(detectContext(link, link.indexOf('alt')).image).toBe(false);
   });
 
-  test('U65: inline toggles and link', () => {
+  test('U66: inline toggles and link', () => {
     // --- wrap/unwrap for all four kinds --------------------------------------
     const cases: Array<['bold' | 'italic' | 'strike' | 'code', string]> = [
       ['bold', '**'],
@@ -222,7 +222,7 @@ describe('SPEC36 smart edit', () => {
     expect(empty.text.slice(empty.from, empty.to)).toBe('text');
   });
 
-  test('U66: headings, lists, quotes, callouts', () => {
+  test('U67: headings, lists, quotes, callouts', () => {
     // --- heading set / switch / toggle-off ----------------------------------
     expect(setHeading('title', 0, 0, 2)!.text).toBe('## title');
     expect(setHeading('# title', 0, 0, 3)!.text).toBe('### title'); // switch, never stack
@@ -272,7 +272,7 @@ describe('SPEC36 smart edit', () => {
     expect(after.from).toBe(after.text.length);
   });
 
-  test('U67: code blocks, horizontal rule, splice consistency', () => {
+  test('U68: code blocks, horizontal rule, splice consistency', () => {
     // --- wrap: fences around the complete lines, caret after opening ``` -----
     const wrap = toggleCodeBlock('before\ncode here\nafter', 8, 12);
     expect(wrap.text).toBe('before\n```\ncode here\n```\nafter');

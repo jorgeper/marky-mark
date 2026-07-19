@@ -1700,7 +1700,7 @@ mark.hl.ghost {
   z-index: 60;
 }
 
-/* ---------- SPEC36: Smart Edit ---------- */
+/* ---------- SPEC43: Smart Edit ---------- */
 
 /* §3: the cursor-line gutter button — fixed width, centered 18px hash.
    (.editor-wrap prefix outweighs CM's injected .cm-gutter overflow:hidden.) */

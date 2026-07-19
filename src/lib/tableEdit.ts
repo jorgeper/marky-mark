@@ -27,12 +27,12 @@ export interface Region {
   end: number;
 }
 
-// A GFM table delimiter row (same shape SPEC36 pinned in detectContext).
+// A GFM table delimiter row (same shape SPEC43 pinned in detectContext).
 const DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 
 /**
  * The pipe-table region containing `offset`, or null. Extracted from the
- * SPEC36 detectContext scan (which now calls this) — detection semantics
+ * SPEC43 detectContext scan (which now calls this) — detection semantics
  * unchanged: ≥2 consecutive `|` lines whose second is a delimiter row.
  */
 export function tableRegionAt(text: string, offset: number): Region | null {

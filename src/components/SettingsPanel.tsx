@@ -59,7 +59,7 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   horizontalRule: 'Horizontal rule',
 };
 
-/** SPEC36 §5.3: the Smart Edit recorder group, rendered under its own heading. */
+/** SPEC43 §5.3: the Smart Edit recorder group, rendered under its own heading. */
 const SMART_EDIT_KEYS: Array<keyof HotkeyMap> = [
   'smartMenu',
   'bold',
@@ -601,7 +601,7 @@ export function SettingsPanel({
       {(Object.keys(HOTKEY_LABELS) as Array<keyof HotkeyMap>)
         .filter((a) => !SMART_EDIT_KEYS.includes(a))
         .map(hotkeyRow)}
-      {/* SPEC36 §5.3: the Smart Edit group. */}
+      {/* SPEC43 §5.3: the Smart Edit group. */}
       <h4 className="hotkey-group" data-testid="hotkey-group-smart-edit">
         {SMART_EDIT_NAME}
       </h4>

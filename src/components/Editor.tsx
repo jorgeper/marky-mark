@@ -112,7 +112,7 @@ import {
   type GridSpan,
 } from './tableMode';
 
-/** SPEC36 §5.2: the ops the App's format commands drive (menu ids, same set). */
+/** SPEC43 §5.2: the ops the App's format commands drive (menu ids, same set). */
 export type SmartFormatOp =
   | 'bold' | 'italic' | 'strike' | 'code' | 'link'
   | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6'
@@ -220,7 +220,7 @@ interface Props {
   pendingSelectionRef?: MutableRefObject<{ from: number; to: number } | null>;
   /** SPEC30 §1.4: populated at mount with the find/replace engine. */
   searchRef?: MutableRefObject<EditorSearchHandle | null>;
-  // --- SPEC36: Smart Edit ---------------------------------------------------
+  // --- SPEC43: Smart Edit ---------------------------------------------------
   /** Current bindings — menu rows and the gutter tooltip follow rebinds live. */
   hotkeys: HotkeyMap;
   isMac: boolean;
@@ -230,7 +230,7 @@ interface Props {
   onCopyText?(text: string): void;
   /** Paste reads through the seam; resolves null when unavailable/failed. */
   onReadClipboard?(): Promise<string | null>;
-  /** SPEC36 §5.2: populated at mount with applyFormat/openSmartMenu. */
+  /** SPEC43 §5.2: populated at mount with applyFormat/openSmartMenu. */
   smartRef?: MutableRefObject<SmartEditHandle | null>;
   /** SPEC40 §1: show ALL tables as grids (the global view setting). */
   tableGridView: boolean;
@@ -305,7 +305,7 @@ function halfPage(view: EditorView, dir: 1 | -1): void {
 }
 
 /**
- * SPEC36 §3: the gutter button — the Marky Mark hash (the FolderPanel
+ * SPEC43 §3: the gutter button — the Marky Mark hash (the FolderPanel
  * slanted-top-bar geometry) at 18px, rendered on the selection head's line
  * only. A real <button> so it is clickable and titled.
  */
@@ -408,7 +408,7 @@ export default function Editor({
   const diffComp = useRef(new Compartment());
   const syntaxComp = useRef(new Compartment());
   const smartComp = useRef(new Compartment());
-  // SPEC36 §4: the Smart Edit menu — open state + anchor + the built model.
+  // SPEC43 §4: the Smart Edit menu — open state + anchor + the built model.
   const [smartMenu, setSmartMenu] = useState<{ x: number; y: number; entries: SmartMenuEntry[] } | null>(null);
   // SPEC37 §4: the margin chips for the cursor's cell (null = hidden).
   const [chips, setChips] = useState<{
@@ -454,7 +454,7 @@ export default function Editor({
     onVimModeChangeRef.current?.(nav);
   };
 
-  // --- SPEC36: Smart Edit ----------------------------------------------------
+  // --- SPEC43: Smart Edit ----------------------------------------------------
   const gutterTitle = () =>
     `${SMART_EDIT_NAME} (${displayCombo(smartPropsRef.current.hotkeys.smartMenu, smartPropsRef.current.isMac)})`;
 
@@ -870,7 +870,7 @@ export default function Editor({
     if (!host) return;
     const extensions = [
       gutterComp.current.of(showLineNumbers ? lineNumbers() : []),
-      // SPEC36 §3.2: after the line numbers, so it sits between them and the
+      // SPEC43 §3.2: after the line numbers, so it sits between them and the
       // text (and stands alone when they're hidden).
       smartComp.current.of(smartGutter(gutterTitle(), openMenuAtGutter)),
       diffComp.current.of([]),
@@ -1029,7 +1029,7 @@ export default function Editor({
       };
     }
 
-    // SPEC36 §5.2: the App's format commands land here; the ref is null
+    // SPEC43 §5.2: the App's format commands land here; the ref is null
     // outside edit mode, so every command is a silent no-op there.
     if (smartRef) {
       smartRef.current = {
@@ -1236,7 +1236,7 @@ export default function Editor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedImage]);
 
-  // SPEC36 §3.3: rebinding smartMenu retitles the gutter button immediately.
+  // SPEC43 §3.3: rebinding smartMenu retitles the gutter button immediately.
   useEffect(() => {
     viewRef.current?.dispatch({
       effects: smartComp.current.reconfigure(smartGutter(gutterTitle(), openMenuAtGutter)),
@@ -1269,7 +1269,7 @@ export default function Editor({
       className="editor-wrap"
       data-testid="editor"
       ref={hostRef}
-      // SPEC36 §4.4: right-click opens the Smart Edit menu at the pointer —
+      // SPEC43 §4.4: right-click opens the Smart Edit menu at the pointer —
       // the native menu is suppressed in the edit pane ONLY.
       onContextMenu={(e) => {
         e.preventDefault();
