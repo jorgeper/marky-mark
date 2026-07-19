@@ -4312,7 +4312,7 @@ test('E116: the rendered view — widgets by default, caret-reveal, both switche
   expect(external).toEqual([]);
 });
 
-test('E117: resize chips — three circles on the borders, corner/right drags persist, double-click clears, 40px clamp, one ⌘Z each, preview clean', async ({
+test('E117: resize chips — the eight-chip ring on every border and corner, edge/corner drags persist, double-click clears, 40px clamp, one ⌘Z each, preview clean', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/img117.png', `data:image/png;base64,${WIDE_PNG}`);
@@ -4338,23 +4338,35 @@ test('E117: resize chips — three circles on the borders, corner/right drags pe
     await page.mouse.up();
   };
 
-  // Click → exactly three chips, centered ON the right/bottom/corner borders.
+  // Click → exactly EIGHT chips (SPEC42 §1), each centered ON its border
+  // middle or corner.
   await widgetImg().click();
   const layer = page.getByTestId('image-chip-layer');
   await expect(layer).toBeVisible();
-  await expect(layer.locator('.table-chip')).toHaveCount(3);
+  await expect(layer.locator('.table-chip')).toHaveCount(8);
   const ib = (await widgetImg().boundingBox())!;
-  const wB = (await page.getByTestId('image-resize-w').boundingBox())!;
-  const hB = (await page.getByTestId('image-resize-h').boundingBox())!;
-  const whB = (await page.getByTestId('image-resize-wh').boundingBox())!;
-  expect(Math.abs(wB.x + wB.width / 2 - (ib.x + ib.width))).toBeLessThanOrEqual(3);
-  expect(Math.abs(wB.y + wB.height / 2 - (ib.y + ib.height / 2))).toBeLessThanOrEqual(3);
-  expect(Math.abs(hB.x + hB.width / 2 - (ib.x + ib.width / 2))).toBeLessThanOrEqual(3);
-  expect(Math.abs(hB.y + hB.height / 2 - (ib.y + ib.height))).toBeLessThanOrEqual(3);
-  expect(Math.abs(whB.x + whB.width / 2 - (ib.x + ib.width))).toBeLessThanOrEqual(3);
-  expect(Math.abs(whB.y + whB.height / 2 - (ib.y + ib.height))).toBeLessThanOrEqual(3);
+  const at = async (id: string, cx: number, cy: number) => {
+    const b = (await page.getByTestId(id).boundingBox())!;
+    expect(Math.abs(b.x + b.width / 2 - cx), `${id} x`).toBeLessThanOrEqual(3);
+    expect(Math.abs(b.y + b.height / 2 - cy), `${id} y`).toBeLessThanOrEqual(3);
+  };
+  const L = ib.x;
+  const R = ib.x + ib.width;
+  const T = ib.y;
+  const B = ib.y + ib.height;
+  const MX = ib.x + ib.width / 2;
+  const MY = ib.y + ib.height / 2;
+  await at('image-resize-l', L, MY);
+  await at('image-resize-t', MX, T);
+  await at('image-resize-w', R, MY);
+  await at('image-resize-h', MX, B);
+  await at('image-resize-tl', L, T);
+  await at('image-resize-tr', R, T);
+  await at('image-resize-bl', L, B);
+  await at('image-resize-wh', R, B);
   // The circles carry empty faces.
   expect(await page.getByTestId('image-resize-wh').innerText()).toBe('');
+  expect(await page.getByTestId('image-resize-tl').innerText()).toBe('');
 
   // 1) Corner drag +50: width persists, NO height — natural aspect kept.
   await dragChip('image-resize-wh', 50, 25);
@@ -4375,13 +4387,31 @@ test('E117: resize chips — three circles on the borders, corner/right drags pe
   await expect.poll(saved).toContain('<img src="img117.png" alt="p">');
   expect(await saved()).not.toContain('width=');
 
-  // 4) A hard left drag clamps at 40px.
+  // 4) LEFT border drag −60 (outward): width dragged + height frozen.
+  await widgetImg().click();
+  await dragChip('image-resize-l', -60, 0);
+  await expect.poll(saved).toContain('width="260"');
+  expect(await saved()).toContain('height="100"');
+
+  // 5) TOP-LEFT corner drag up-left: ratio locked, width only, no height.
+  await widgetImg().click();
+  await dragChip('image-resize-tl', -40, -20);
+  await expect.poll(saved).toContain('width="300"');
+  expect(await saved()).not.toContain('height=');
+
+  // 6) Double-click a corner OTHER than bottom-right: both cleared too.
+  await widgetImg().click();
+  await page.getByTestId('image-resize-tr').dblclick();
+  await expect.poll(saved).toContain('<img src="img117.png" alt="p">');
+  expect(await saved()).not.toContain('width=');
+
+  // 7) A hard left drag on the right chip clamps at 40px.
   await widgetImg().click();
   await dragChip('image-resize-w', -500, 0);
   await expect.poll(saved).toContain('width="40"');
 
-  // Each release was ONE undo step: four ⌘Z return the original bytes.
-  for (let i = 0; i < 4; i++) await page.keyboard.press('ControlOrMeta+z');
+  // Each release was ONE undo step: seven ⌘Z return the original bytes.
+  for (let i = 0; i < 7; i++) await page.keyboard.press('ControlOrMeta+z');
   expect(await saved()).toBe(DOC);
   await expect(widgetImg()).toBeVisible();
 

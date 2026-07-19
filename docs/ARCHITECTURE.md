@@ -699,16 +699,20 @@ zero-network guarantee to the edit pane (the web platform's
 empty-string resolution renders an inert "unavailable" note rather
 than an `<img src="">` self-request).
 
-**Chip resize:** a selected widget grows three empty-faced
-`.table-chip` circles centered ON its borders — right (width), bottom
-(height), corner (proportional, ratio locked). Drags resize live;
-release persists through the SPEC20 rewrite core grown with height
-(`rewriteImageSpan(span, parts, width, height?)` — the 3-argument call
-stays byte-identical): the right chip writes width + current height
-(freezing the box), bottom mirrors it, the corner writes width only
-and removes height (natural aspect). Both dimensions clamp to ≥ 40 px,
-each release is one `isolateHistory` undo step, and double-clicking
-the corner clears both. `deleteImageAt` (Image ▸ Delete Image) splices
+**Chip resize (SPEC42):** a selected widget grows an eight-chip ring
+of empty-faced `.table-chip` circles centered ON its borders and
+corners — the middles of all four borders plus all four corners. The
+image is inline content, so its top-left stays anchored by layout:
+every drag is outward-positive from that anchor (dragging the left
+border leftward widens). Drags resize live; release persists through
+the SPEC20 rewrite core grown with height (`rewriteImageSpan(span,
+parts, width, height?)` — the 3-argument call stays byte-identical):
+border chips write the dragged dimension + the other frozen at its
+current rendered value (the box holds); every corner is ratio-locked
+and writes width only, removing height (natural aspect at the new
+width). Both dimensions clamp to ≥ 40 px, each release is one
+`isolateHistory` undo step, and double-clicking ANY corner clears
+both. `deleteImageAt` (Image ▸ Delete Image) splices
 a reference in one step, absorbing the blank line *before* a
 lone-on-its-line reference — same text as absorbing the one after, but
 the deleted range stays clear of a grid span starting on the next line

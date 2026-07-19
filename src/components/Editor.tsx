@@ -54,6 +54,24 @@ import {
 import { SmartEditMenu } from './SmartEditMenu';
 import { imageViewExtension, setImageView } from './imageView';
 import { allImageRefs, applyImageRewrite, deleteImageAt, type ImageRef } from '../lib/imageResize';
+
+/** SPEC42 §1: the eight-chip ring — every border middle, every corner. */
+type ImgChipId = 'l' | 't' | 'w' | 'h' | 'tl' | 'tr' | 'bl' | 'wh';
+const IMG_CHIP_ORDER: readonly ImgChipId[] = ['tl', 't', 'tr', 'l', 'w', 'bl', 'h', 'wh'];
+const IMG_CORNERS: ReadonlySet<ImgChipId> = new Set(['tl', 'tr', 'bl', 'wh']);
+/** Outward-positive drag signs from the top-left anchor (0 = axis unused). */
+const IMG_CHIP_X: Record<ImgChipId, number> = { l: -1, t: 0, w: 1, h: 0, tl: -1, tr: 1, bl: -1, wh: 1 };
+const IMG_CHIP_Y: Record<ImgChipId, number> = { l: 0, t: -1, w: 0, h: 1, tl: 0, tr: 0, bl: 0, wh: 0 };
+const IMG_CHIP_TITLES: Record<ImgChipId, string> = {
+  l: 'Resize width',
+  w: 'Resize width',
+  t: 'Resize height',
+  h: 'Resize height',
+  tl: 'Resize, ratio locked — double-click for natural size',
+  tr: 'Resize, ratio locked — double-click for natural size',
+  bl: 'Resize, ratio locked — double-click for natural size',
+  wh: 'Resize, ratio locked — double-click for natural size',
+};
 import {
   deleteTableAt,
   displayCellAt,
@@ -389,11 +407,7 @@ export default function Editor({
   const [selectedImage, setSelectedImage] = useState<ImageRef | null>(null);
   const selectedImageRef = useRef<ImageRef | null>(null);
   selectedImageRef.current = selectedImage;
-  const [imgChips, setImgChips] = useState<{
-    w: { x: number; y: number };
-    h: { x: number; y: number };
-    wh: { x: number; y: number };
-  } | null>(null);
+  const [imgChips, setImgChips] = useState<Record<ImgChipId, { x: number; y: number }> | null>(null);
   const inlineImagesRef = useRef(inlineImages);
   inlineImagesRef.current = inlineImages;
   const resolveImageSrcRef = useRef(resolveImageSrc);
@@ -728,9 +742,16 @@ export default function Editor({
     const HALF = 9;
     const x = (v: number) => v - hostRect.left - HALF;
     const y = (v: number) => v - hostRect.top - HALF;
+    const midX = (r.left + r.right) / 2;
+    const midY = (r.top + r.bottom) / 2;
     setImgChips({
-      w: { x: x(r.right), y: y((r.top + r.bottom) / 2) },
-      h: { x: x((r.left + r.right) / 2), y: y(r.bottom) },
+      l: { x: x(r.left), y: y(midY) },
+      t: { x: x(midX), y: y(r.top) },
+      w: { x: x(r.right), y: y(midY) },
+      h: { x: x(midX), y: y(r.bottom) },
+      tl: { x: x(r.left), y: y(r.top) },
+      tr: { x: x(r.right), y: y(r.top) },
+      bl: { x: x(r.left), y: y(r.bottom) },
       wh: { x: x(r.right), y: y(r.bottom) },
     });
   };
@@ -756,7 +777,7 @@ export default function Editor({
     setSelectedImage(next ?? null);
   };
 
-  const startImageDrag = (mode: 'w' | 'h' | 'wh') => (e: React.PointerEvent) => {
+  const startImageDrag = (mode: ImgChipId) => (e: React.PointerEvent) => {
     const host = hostRef.current;
     const sel = selectedImageRef.current;
     if (!host || !sel) return;
@@ -768,21 +789,28 @@ export default function Editor({
     const startX = e.clientX;
     const startY = e.clientY;
     let moved = false;
+    // SPEC42 §2: outward-positive from the top-left anchor — right/bottom
+    // grow with +d, left/top grow with −d; corners ride their x sign.
+    const xSign = IMG_CHIP_X[mode];
+    const ySign = IMG_CHIP_Y[mode];
+    const corner = IMG_CORNERS.has(mode);
     const move = (ev: PointerEvent) => {
       if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) > 2) moved = true;
       if (!moved) return;
       let w = r0.width;
       let h = r0.height;
-      if (mode === 'w') w = Math.max(40, r0.width + (ev.clientX - startX));
-      else if (mode === 'h') h = Math.max(40, r0.height + (ev.clientY - startY));
-      else {
-        // Corner: ratio locked, both dimensions clamped ≥ 40.
-        w = Math.max(40, r0.width + (ev.clientX - startX));
+      if (corner) {
+        // Ratio locked on the dominant outward axis, both clamped ≥ 40.
+        w = Math.max(40, r0.width + xSign * (ev.clientX - startX));
         h = w / ratio;
         if (h < 40) {
           h = 40;
           w = Math.max(40, h * ratio);
         }
+      } else if (xSign !== 0) {
+        w = Math.max(40, r0.width + xSign * (ev.clientX - startX));
+      } else {
+        h = Math.max(40, r0.height + ySign * (ev.clientY - startY));
       }
       img.style.width = `${Math.round(w)}px`;
       img.style.height = `${Math.round(h)}px`;
@@ -796,9 +824,10 @@ export default function Editor({
       const r1 = img.getBoundingClientRect();
       const w = Math.max(40, Math.round(r1.width));
       const h = Math.max(40, Math.round(r1.height));
-      // §3.2: right freezes the box (width dragged, height current), bottom
-      // mirrors it; corner writes width only — height REMOVED, aspect natural.
-      if (mode === 'wh') persistImageSize(w, null);
+      // SPEC42 §2: border chips freeze the box (dragged dimension + the
+      // other at its current value); corners write width only — height
+      // REMOVED, aspect natural.
+      if (corner) persistImageSize(w, null);
       else persistImageSize(w, h);
     };
     window.addEventListener('pointermove', move);
@@ -1313,35 +1342,22 @@ export default function Editor({
           )}
         </div>
       )}
-      {/* SPEC41 §3: the image resize chips — empty-faced circles ON the
-          selected widget's right border, bottom border, and corner. */}
+      {/* SPEC42 §1: the image resize ring — empty-faced circles ON every
+          border middle and every corner of the selected widget. */}
       {selectedImage && imgChips && (
         <div className="table-chip-layer" data-testid="image-chip-layer">
-          <button
-            className="table-chip image-chip"
-            data-testid="image-resize-w"
-            style={{ left: imgChips.w.x, top: imgChips.w.y }}
-            title="Resize width"
-            onMouseDown={(e) => e.preventDefault()}
-            onPointerDown={startImageDrag('w')}
-          />
-          <button
-            className="table-chip image-chip"
-            data-testid="image-resize-h"
-            style={{ left: imgChips.h.x, top: imgChips.h.y }}
-            title="Resize height"
-            onMouseDown={(e) => e.preventDefault()}
-            onPointerDown={startImageDrag('h')}
-          />
-          <button
-            className="table-chip image-chip"
-            data-testid="image-resize-wh"
-            style={{ left: imgChips.wh.x, top: imgChips.wh.y }}
-            title="Resize, ratio locked — double-click for natural size"
-            onMouseDown={(e) => e.preventDefault()}
-            onPointerDown={startImageDrag('wh')}
-            onDoubleClick={() => persistImageSize(null, null)}
-          />
+          {IMG_CHIP_ORDER.map((m) => (
+            <button
+              key={m}
+              className="table-chip image-chip"
+              data-testid={`image-resize-${m}`}
+              style={{ left: imgChips[m].x, top: imgChips[m].y }}
+              title={IMG_CHIP_TITLES[m]}
+              onMouseDown={(e) => e.preventDefault()}
+              onPointerDown={startImageDrag(m)}
+              onDoubleClick={IMG_CORNERS.has(m) ? () => persistImageSize(null, null) : undefined}
+            />
+          ))}
         </div>
       )}
     </div>

@@ -1869,13 +1869,21 @@ mark.hl.ghost {
 .mm-image-widget .mm-blocked-remote {
   line-height: normal;
 }
-/* The image chips share the table-chip circle but carry an empty face. */
+/* The image chips share the table-chip circle but carry an empty face.
+   SPEC42: cursors by direction across the full eight-chip ring. */
+.image-chip[data-testid='image-resize-l'],
 .image-chip[data-testid='image-resize-w'] {
   cursor: ew-resize;
 }
+.image-chip[data-testid='image-resize-t'],
 .image-chip[data-testid='image-resize-h'] {
   cursor: ns-resize;
 }
+.image-chip[data-testid='image-resize-tl'],
 .image-chip[data-testid='image-resize-wh'] {
   cursor: nwse-resize;
+}
+.image-chip[data-testid='image-resize-tr'],
+.image-chip[data-testid='image-resize-bl'] {
+  cursor: nesw-resize;
 }

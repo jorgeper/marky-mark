@@ -119,10 +119,10 @@ Either way it's a one-time step — the app opens normally afterwards.
   it lands as a real file in an `images/` folder next to your document
   (folder and naming pattern configurable) — and you see the picture right
   there in the editor, not a line of syntax. Arrow into it to edit the
-  markdown in place; click it and drag the circular chips on its right
-  border (width), bottom border (height), or corner (proportional) to
-  resize — persisted as portable HTML that GitHub renders too, one undo
-  step per drag, double-click the corner for natural size. Prefer syntax?
+  markdown in place; click it and circular chips ring every border and
+  corner — borders resize one axis, corners scale proportionally —
+  persisted as portable HTML that GitHub renders too, one undo step per
+  drag, double-click any corner for natural size. Prefer syntax?
   Image ▸ Show Raw Images (or Settings → Editor) flips every image at
   once. The preview is a pure reading surface — no handles there.
 - **Comments** (experimental) — select text → 💬. Threads, resolve, reopen,
