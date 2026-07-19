@@ -486,12 +486,23 @@ function refit(view: EditorView): void {
 const refitPlugin = ViewPlugin.fromClass(
   class {
     timer: ReturnType<typeof setTimeout> | undefined;
+    last = 0;
     constructor(readonly view: EditorView) {}
     update(u: ViewUpdate) {
       if (!u.geometryChanged) return;
       if (!u.state.field(tableModeField)) return;
+      // Leading + trailing THROTTLE, not a debounce: a continuous divider or
+      // window drag emits geometry changes non-stop, and a trailing-only
+      // debounce left the grids frozen at the old width until the drag
+      // paused — an ugly beat of overflow. Re-fit at once, then at most
+      // every 66ms while the drag continues (refit() no-ops when the
+      // measured budget is unchanged, so the churn is bounded).
       clearTimeout(this.timer);
-      this.timer = setTimeout(() => refit(this.view), 150);
+      const since = performance.now() - this.last;
+      this.timer = setTimeout(() => {
+        this.last = performance.now();
+        refit(this.view);
+      }, since >= 66 ? 0 : 66 - since);
     }
     destroy() {
       clearTimeout(this.timer);
