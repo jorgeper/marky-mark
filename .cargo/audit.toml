@@ -1,0 +1,13 @@
+# cargo-audit configuration (SPEC11 §6.7 release gate).
+#
+# RUSTSEC-2026-0194 / RUSTSEC-2026-0195: quick-xml 0.39.4 DoS advisories.
+# Reached ONLY via tauri-plugin-clipboard-manager → arboard → wl-clipboard-rs
+# → wayland-scanner — a LINUX-ONLY, BUILD-TIME proc-macro that parses the
+# wayland protocol XML shipped inside the crate itself (never attacker
+# input), and we ship no Linux build. No semver-compatible upstream fix
+# exists yet (needs quick-xml >= 0.41 via a new wayland-scanner release).
+# Revisit on the next dependency refresh: `cargo update -p wayland-scanner`
+# and drop these entries once it locks quick-xml >= 0.41.
+
+[advisories]
+ignore = ["RUSTSEC-2026-0194", "RUSTSEC-2026-0195"]
