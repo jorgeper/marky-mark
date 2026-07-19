@@ -120,6 +120,17 @@ export function SettingsPanel({
   const folderInvalid = !isValidImageFolder(folderDraft);
   // Remember the last custom size so toggling Auto → Customized restores it.
   const [customSize, setCustomSize] = useState(typeof settings.fontSize === 'number' ? settings.fontSize : 16);
+  // Pane-min is a free-typing draft: valid in-range values commit live,
+  // blur/Enter clamps and normalizes (a clamping spinner fought every key).
+  const [paneMinDraft, setPaneMinDraft] = useState(String(settings.paneMinWidth));
+  const commitPaneMin = () => {
+    const n = Math.round(Number(paneMinDraft));
+    const clamped = Number.isFinite(n)
+      ? Math.min(PANE_MIN_WIDTH_MAX, Math.max(PANE_MIN_WIDTH_MIN, n))
+      : settings.paneMinWidth;
+    setPaneMinDraft(String(clamped));
+    if (clamped !== settings.paneMinWidth) onChange({ ...settings, paneMinWidth: clamped });
+  };
 
   const recordHotkey = (action: keyof HotkeyMap) => (e: React.KeyboardEvent<HTMLInputElement>) => {
     e.preventDefault();
@@ -291,20 +302,23 @@ export function SettingsPanel({
         </label>
         <input
           id="settings-pane-min"
-          type="number"
+          type="text"
+          inputMode="numeric"
           data-testid="settings-pane-min"
-          min={PANE_MIN_WIDTH_MIN}
-          max={PANE_MIN_WIDTH_MAX}
-          step={10}
-          value={settings.paneMinWidth}
+          value={paneMinDraft}
           onChange={(e) => {
-            const v = Math.round(Number(e.target.value));
-            if (!Number.isFinite(v)) return;
-            onChange({
-              ...settings,
-              paneMinWidth: Math.min(PANE_MIN_WIDTH_MAX, Math.max(PANE_MIN_WIDTH_MIN, v)),
-            });
+            const raw = e.target.value;
+            setPaneMinDraft(raw);
+            const v = Math.round(Number(raw));
+            if (Number.isFinite(v) && v >= PANE_MIN_WIDTH_MIN && v <= PANE_MIN_WIDTH_MAX) {
+              onChange({ ...settings, paneMinWidth: v });
+            }
           }}
+          onBlur={commitPaneMin}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          }}
+          style={{ width: 80 }}
         />
       </div>
     </>

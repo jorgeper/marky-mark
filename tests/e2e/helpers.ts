@@ -22,6 +22,16 @@ export async function openWelcomeViaHelp(page: Page): Promise<void> {
 export async function freshApp(page: Page): Promise<void> {
   await page.goto('/');
   await page.evaluate(() => localStorage.clear());
+  await page.reload(); // fresh boot — the vfs re-seeds its fixtures
+  await expect(page.getByTestId('empty-hint')).toBeVisible(); // shim ready
+  // Pin the pane-content floor for the suite: the shipped default (768px)
+  // would hold both split panes under a horizontal scrollbar at this
+  // suite's 1280px viewport and skew every geometry-based assertion.
+  // (Written after the fresh boot: __mmfs.write flushes the whole in-memory
+  // store, so writing before the reload would resurrect the cleared state.)
+  await page.evaluate(() =>
+    window.__mmfs!.write('/config/settings.json', JSON.stringify({ paneMinWidth: 240 }))
+  );
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await openWelcomeViaHelp(page);

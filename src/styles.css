@@ -208,10 +208,10 @@ button {
    but the content inside stops reflowing at the floor and the pane grows
    a horizontal scrollbar instead. */
 .theme-root {
-  --mm-pane-min: 240px;
+  --mm-pane-min: 768px;
 }
 .editor-wrap {
-  min-width: var(--mm-pane-min, 240px);
+  min-width: var(--mm-pane-min, 768px);
 }
 
 /* --- SPEC20 §4.2: preview image resize — selection outline, handles, badge --- */
@@ -256,7 +256,7 @@ button {
      doc keeps centering itself via width/max-width + align-items. */
   flex-direction: column;
   align-items: center;
-  min-width: var(--mm-pane-min, 240px);
+  min-width: var(--mm-pane-min, 768px);
 }
 
 .doc {
@@ -781,7 +781,7 @@ mark.hl.ghost {
 
 .split-preview .doc {
   margin: 0 auto;
-  min-width: var(--mm-pane-min, 240px);
+  min-width: var(--mm-pane-min, 768px);
 }
 
 /* ---------- modals (settings, close guard) ---------- */

@@ -101,7 +101,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reopenLastDoc: true,
   showFolders: false,
   folderWidth: 240,
-  paneMinWidth: 240,
+  paneMinWidth: 768,
   hotkeys: { ...DEFAULT_HOTKEYS },
 };
 

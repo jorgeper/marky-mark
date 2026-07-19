@@ -1193,6 +1193,12 @@ test('E46: network isolation — adversarial doc renders with zero non-localhost
 async function freshNativeMenuApp(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/?nativeMenu=1');
   await page.evaluate(() => localStorage.clear());
+  await page.reload(); // fresh boot — fixtures re-seed
+  await expect(page.getByTestId('empty-hint')).toBeVisible(); // shim ready
+  // Same pane-floor pin as freshApp — see helpers.ts.
+  await page.evaluate(() =>
+    window.__mmfs!.write('/config/settings.json', JSON.stringify({ paneMinWidth: 240 }))
+  );
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
 }
