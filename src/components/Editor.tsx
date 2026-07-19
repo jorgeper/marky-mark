@@ -62,6 +62,25 @@ const IMG_CORNERS: ReadonlySet<ImgChipId> = new Set(['tl', 'tr', 'bl', 'wh']);
 /** Outward-positive drag signs from the top-left anchor (0 = axis unused). */
 const IMG_CHIP_X: Record<ImgChipId, number> = { l: -1, t: 0, w: 1, h: 0, tl: -1, tr: 1, bl: -1, wh: 1 };
 const IMG_CHIP_Y: Record<ImgChipId, number> = { l: 0, t: -1, w: 0, h: 1, tl: 0, tr: 0, bl: 0, wh: 0 };
+/** Ring positions (chip top-left offsets) for an image rect, host-relative. */
+function chipRing(r: DOMRect, hostRect: DOMRect): Record<ImgChipId, { x: number; y: number }> {
+  const HALF = 9; // chips are 18px — center them on the border points
+  const x = (v: number) => v - hostRect.left - HALF;
+  const y = (v: number) => v - hostRect.top - HALF;
+  const midX = (r.left + r.right) / 2;
+  const midY = (r.top + r.bottom) / 2;
+  return {
+    l: { x: x(r.left), y: y(midY) },
+    t: { x: x(midX), y: y(r.top) },
+    w: { x: x(r.right), y: y(midY) },
+    h: { x: x(midX), y: y(r.bottom) },
+    tl: { x: x(r.left), y: y(r.top) },
+    tr: { x: x(r.right), y: y(r.top) },
+    bl: { x: x(r.left), y: y(r.bottom) },
+    wh: { x: x(r.right), y: y(r.bottom) },
+  };
+}
+
 const IMG_CHIP_TITLES: Record<ImgChipId, string> = {
   l: 'Resize width',
   w: 'Resize width',
@@ -737,23 +756,25 @@ export default function Editor({
     }
     // Not yet decoded — the rect firms up on load; recompute then.
     if (!img.complete) img.addEventListener('load', () => scheduleChips(), { once: true });
-    const r = img.getBoundingClientRect();
-    const hostRect = host.getBoundingClientRect();
-    const HALF = 9;
-    const x = (v: number) => v - hostRect.left - HALF;
-    const y = (v: number) => v - hostRect.top - HALF;
-    const midX = (r.left + r.right) / 2;
-    const midY = (r.top + r.bottom) / 2;
-    setImgChips({
-      l: { x: x(r.left), y: y(midY) },
-      t: { x: x(midX), y: y(r.top) },
-      w: { x: x(r.right), y: y(midY) },
-      h: { x: x(midX), y: y(r.bottom) },
-      tl: { x: x(r.left), y: y(r.top) },
-      tr: { x: x(r.right), y: y(r.top) },
-      bl: { x: x(r.left), y: y(r.bottom) },
-      wh: { x: x(r.right), y: y(r.bottom) },
-    });
+    setImgChips(chipRing(img.getBoundingClientRect(), host.getBoundingClientRect()));
+  };
+
+  /** During a drag the ring is moved imperatively, in the SAME frame as the
+      image resize — the React state path (rAF + render) lags a frame or two
+      behind pointermove, which made the dots visibly trail the edge. */
+  const syncChipRing = (img: HTMLImageElement) => {
+    const host = hostRef.current;
+    if (!host) return;
+    const layer = host.querySelector('[data-testid="image-chip-layer"]') as HTMLElement | null;
+    if (!layer) return;
+    const ring = chipRing(img.getBoundingClientRect(), host.getBoundingClientRect());
+    for (const m of IMG_CHIP_ORDER) {
+      const el = layer.querySelector(`[data-testid="image-resize-${m}"]`) as HTMLElement | null;
+      if (el) {
+        el.style.left = `${ring[m].x}px`;
+        el.style.top = `${ring[m].y}px`;
+      }
+    }
   };
 
   /** SPEC41 §3.2: persist a release via the SPEC20 rewrite — ONE undo step. */
@@ -814,7 +835,7 @@ export default function Editor({
       }
       img.style.width = `${Math.round(w)}px`;
       img.style.height = `${Math.round(h)}px`;
-      scheduleChips();
+      syncChipRing(img); // same frame as the resize — no trailing dots
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
