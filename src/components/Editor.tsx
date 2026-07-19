@@ -52,6 +52,21 @@ import {
   type SmartMenuEntry,
 } from '../lib/smartEdit';
 import { SmartEditMenu } from './SmartEditMenu';
+import {
+  cellAt,
+  cellContentSpan,
+  deleteCol,
+  deleteRow,
+  deleteTableAt,
+  insertCol,
+  insertRow,
+  insertTableAt,
+  normalizeWithCursor,
+  parseTable,
+  tableRegionAt,
+  type TableEdit,
+} from '../lib/tableEdit';
+import { setTableMode, tableModeExtension, tableModeField } from './tableMode';
 
 /** SPEC36 §5.2: the ops the App's format commands drive (menu ids, same set). */
 export type SmartFormatOp =
@@ -327,6 +342,17 @@ export default function Editor({
   const smartComp = useRef(new Compartment());
   // SPEC36 §4: the Smart Edit menu — open state + anchor + the built model.
   const [smartMenu, setSmartMenu] = useState<{ x: number; y: number; entries: SmartMenuEntry[] } | null>(null);
+  // SPEC37 §4: the margin chips for the cursor's cell (null = hidden).
+  const [chips, setChips] = useState<{
+    colLeft: { x: number; y: number };
+    colRight: { x: number; y: number };
+    colDel: { x: number; y: number };
+    colDelDisabled: boolean;
+    rowAbove: { x: number; y: number } | null;
+    rowBelow: { x: number; y: number };
+    rowDel: { x: number; y: number } | null;
+  } | null>(null);
+  const chipsRaf = useRef(0);
   const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard });
   smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard };
   const onChangeRef = useRef(onChange);
@@ -410,8 +436,84 @@ export default function Editor({
       r = toggleCodeBlock(text, from, to);
     } else if (id === 'hr') {
       r = insertHr(text, from, to);
+    } else if (id === 'insert-table') {
+      // SPEC37 §2.2: the starter table, blank-line managed like insertHr.
+      r = insertTableAt(text, from);
+    } else if (id === 'delete-table') {
+      // SPEC37 §2.2: splice the table region out (null when not in one).
+      r = deleteTableAt(text, from);
     }
     if (r) applySplice(view, r);
+  };
+
+  // SPEC37 §2.3/§3.2: Edit Table… toggles aligned table mode. Entry is one
+  // normalizeWithCursor splice (cursor kept in its logical cell).
+  const toggleTableMode = (view: EditorView) => {
+    const text = view.state.doc.toString();
+    const head = view.state.selection.main.head;
+    const region = tableRegionAt(text, head);
+    const cur = view.state.field(tableModeField);
+    if (cur && region && cur.from === region.start) {
+      view.dispatch({ effects: setTableMode.of(null) });
+      return;
+    }
+    if (!region) return;
+    const n = normalizeWithCursor(text, region, head);
+    view.dispatch({
+      ...(n.text !== text
+        ? { changes: { from: region.start, to: region.end, insert: n.text.slice(n.start, n.end) } }
+        : {}),
+      selection: { anchor: n.head },
+      effects: setTableMode.of({ from: n.start, to: n.end }),
+      annotations: isolateHistory.of('full'),
+      scrollIntoView: true,
+    });
+  };
+
+  // SPEC37 §4.2: a chip action — one op, one splice, one undo step; the
+  // cursor lands in the inserted column/row's first cell (clamped after a
+  // delete). The result is already aligned, so the live filter stays quiet.
+  const runChipOp = (kind: 'col-left' | 'col-right' | 'col-del' | 'row-above' | 'row-below' | 'row-del') => {
+    const view = viewRef.current;
+    if (!view) return;
+    const span = view.state.field(tableModeField);
+    if (!span) return;
+    const text = view.state.doc.toString();
+    const region = { start: span.from, end: span.to };
+    const c = cellAt(text, region, view.state.selection.main.head);
+    if (!c) return;
+    const model = parseTable(text, region);
+    let r: TableEdit | null = null;
+    let target: { row: number; col: number } | null = null;
+    if (kind === 'col-left') {
+      r = insertCol(text, model, c.col);
+      target = { row: -1, col: c.col };
+    } else if (kind === 'col-right') {
+      r = insertCol(text, model, c.col + 1);
+      target = { row: -1, col: c.col + 1 };
+    } else if (kind === 'col-del') {
+      r = deleteCol(text, model, c.col);
+      target = { row: c.row, col: Math.min(c.col, model.header.length - 2) };
+    } else if (kind === 'row-above') {
+      r = insertRow(text, model, Math.max(c.row, 0));
+      target = { row: Math.max(c.row, 0), col: 0 };
+    } else if (kind === 'row-below') {
+      r = insertRow(text, model, c.row + 1);
+      target = { row: c.row + 1, col: 0 };
+    } else {
+      r = deleteRow(text, model, c.row);
+      target = { row: Math.min(c.row, model.rows.length - 2), col: c.col };
+    }
+    if (!r) return;
+    const landing = cellContentSpan(r.text, { start: r.start, end: r.end }, target.row, target.col);
+    view.dispatch({
+      changes: { from: region.start, to: region.end, insert: r.text.slice(r.start, r.end) },
+      selection: { anchor: landing ? landing.start : r.start },
+      effects: setTableMode.of({ from: r.start, to: r.end }),
+      annotations: isolateHistory.of('full'),
+      scrollIntoView: true,
+    });
+    view.focus();
   };
 
   const invokeMenuItem = (id: string) => {
@@ -420,8 +522,14 @@ export default function Editor({
     if (!view) return;
     const sp = smartPropsRef.current;
     const sel = view.state.selection.main;
-    // §4.5: Edit Table… / Resize Image… are deliberate no-op stubs this delta.
-    if (id === 'edit-table' || id === 'resize-image') {
+    // SPEC37 §2.3: Edit Table… toggles aligned table mode.
+    // Resize Image… remains the SPEC36 no-op stub.
+    if (id === 'edit-table') {
+      toggleTableMode(view);
+      view.focus();
+      return;
+    }
+    if (id === 'resize-image') {
       view.focus();
       return;
     }
@@ -451,6 +559,64 @@ export default function Editor({
 
   const openMenuAtGutter = (_view: EditorView, rect: DOMRect) => openMenuAt(rect.right + 6, rect.top - 4);
 
+  // SPEC37 §4.1: chip geometry — from CM coordinates, only while the cursor
+  // is inside the active table's span. Any missing coordinate (line scrolled
+  // out of the viewport) hides the chips until the next recompute.
+  const computeChips = () => {
+    const view = viewRef.current;
+    const host = hostRef.current;
+    const span = view?.state.field(tableModeField, false);
+    if (!view || !host || !span) {
+      setChips(null);
+      return;
+    }
+    const head = view.state.selection.main.head;
+    if (head < span.from || head > span.to) {
+      setChips(null);
+      return;
+    }
+    const text = view.state.doc.toString();
+    const region = { start: span.from, end: span.to };
+    const c = cellAt(text, region, head);
+    const hCell = c ? cellContentSpan(text, region, -1, c.col) : null;
+    if (!c || !hCell) {
+      setChips(null);
+      return;
+    }
+    const model = parseTable(text, region);
+    const top = view.coordsAtPos(span.from);
+    const left = view.coordsAtPos(hCell.start);
+    const right = view.coordsAtPos(hCell.end);
+    const line = view.state.doc.lineAt(head);
+    const lineCo = view.coordsAtPos(line.from);
+    if (!top || !left || !right || !lineCo) {
+      setChips(null);
+      return;
+    }
+    const hostRect = host.getBoundingClientRect();
+    const X = (v: number) => v - hostRect.left;
+    const Y = (v: number) => v - hostRect.top;
+    const isHeader = c.row === -1; // the delimiter row maps here too (§4.1)
+    const topY = Y(top.top) - 22;
+    setChips({
+      colLeft: { x: X(left.left) - 22, y: topY },
+      colRight: { x: X(right.right) + 4, y: topY },
+      colDel: { x: (X(left.left) + X(right.right)) / 2 - 9, y: topY },
+      colDelDisabled: model.header.length <= 1,
+      rowAbove: isHeader ? null : { x: X(lineCo.left) - 24, y: Y(lineCo.top) - 9 },
+      rowBelow: { x: X(lineCo.left) - 24, y: Y(lineCo.bottom) - 9 },
+      rowDel: isHeader
+        ? null
+        : { x: X(lineCo.left) - 46, y: (Y(lineCo.top) + Y(lineCo.bottom)) / 2 - 9 },
+    });
+  };
+  const computeChipsRef = useRef(computeChips);
+  computeChipsRef.current = computeChips;
+  const scheduleChips = () => {
+    cancelAnimationFrame(chipsRaf.current);
+    chipsRaf.current = requestAnimationFrame(() => computeChipsRef.current());
+  };
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -463,6 +629,10 @@ export default function Editor({
       // SPEC23 §3: highlighting rides a compartment — toggling the setting
       // reconfigures live, undo history intact.
       syntaxComp.current.of(syntax ? syntaxHighlighting(mmHighlight) : []),
+      // SPEC37 §3: aligned table mode. MUST precede the vim layer below —
+      // both carry Prec.highest keydown handlers, and the first Esc has to
+      // leave table mode before the next one can enter nav (§3.5).
+      tableModeExtension(),
       history(),
       highlightActiveLine(),
       // SPEC23 §1: CM-drawn selection so a mirrored range shows while the
@@ -503,6 +673,9 @@ export default function Editor({
       keymap.of([...defaultKeymap, ...historyKeymap]),
       EditorView.updateListener.of((u) => {
         if (u.docChanged) onChangeRef.current(u.state.doc.toString());
+        // SPEC37 §4: chips track cursor, edits, geometry, and mode changes
+        // (effect-only transactions included) — raf-batched.
+        scheduleChips();
         if ((u.selectionSet || u.docChanged) && onEditStateRef.current) {
           const main = u.state.selection.main;
           onEditStateRef.current({
@@ -691,7 +864,15 @@ export default function Editor({
       };
     }
 
+    // SPEC37 §4.1: chips also follow scroll and window resizes.
+    const onChipScroll = () => scheduleChips();
+    view.scrollDOM.addEventListener('scroll', onChipScroll);
+    window.addEventListener('resize', onChipScroll);
+
     return () => {
+      view.scrollDOM.removeEventListener('scroll', onChipScroll);
+      window.removeEventListener('resize', onChipScroll);
+      cancelAnimationFrame(chipsRaf.current);
       if (syncRef) syncRef.current = null;
       if (insertRef) insertRef.current = null;
       if (selectRangeRef) selectRangeRef.current = null;
@@ -784,6 +965,76 @@ export default function Editor({
             viewRef.current?.focus();
           }}
         />
+      )}
+      {/* SPEC37 §4: the margin chips — overlay UI, never document text. */}
+      {chips && (
+        <div className="table-chip-layer" data-testid="table-chip-layer">
+          <button
+            className="table-chip"
+            data-testid="table-add-col-left"
+            style={{ left: chips.colLeft.x, top: chips.colLeft.y }}
+            title="Insert column left"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => runChipOp('col-left')}
+          >
+            +
+          </button>
+          <button
+            className="table-chip"
+            data-testid="table-add-col-right"
+            style={{ left: chips.colRight.x, top: chips.colRight.y }}
+            title="Insert column right"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => runChipOp('col-right')}
+          >
+            +
+          </button>
+          <button
+            className="table-chip danger"
+            data-testid="table-del-col"
+            style={{ left: chips.colDel.x, top: chips.colDel.y }}
+            title="Delete column"
+            disabled={chips.colDelDisabled}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => runChipOp('col-del')}
+          >
+            ✕
+          </button>
+          {chips.rowAbove && (
+            <button
+              className="table-chip"
+              data-testid="table-add-row-above"
+              style={{ left: chips.rowAbove.x, top: chips.rowAbove.y }}
+              title="Insert row above"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => runChipOp('row-above')}
+            >
+              +
+            </button>
+          )}
+          <button
+            className="table-chip"
+            data-testid="table-add-row-below"
+            style={{ left: chips.rowBelow.x, top: chips.rowBelow.y }}
+            title="Insert row below"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => runChipOp('row-below')}
+          >
+            +
+          </button>
+          {chips.rowDel && (
+            <button
+              className="table-chip danger"
+              data-testid="table-del-row"
+              style={{ left: chips.rowDel.x, top: chips.rowDel.y }}
+              title="Delete row"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => runChipOp('row-del')}
+            >
+              ✕
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

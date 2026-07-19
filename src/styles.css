@@ -1783,3 +1783,46 @@ mark.hl.ghost {
   letter-spacing: 0.06em;
   color: var(--mm-fg-muted, #59636e);
 }
+
+/* ---------- SPEC37: aligned table mode ---------- */
+
+/* §3.4: the grid wash on every table line while the mode is on. */
+.editor-wrap .cm-line.mm-table-mode-line {
+  background: var(--mm-code-bg, rgba(9, 105, 218, 0.05));
+}
+
+/* §4: the chip layer — overlay only, children opt back into pointer events. */
+.table-chip-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+.table-chip {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 999px;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  color: var(--mm-accent, #0969da);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+.table-chip:hover {
+  background: var(--mm-bg, #ffffff);
+}
+.table-chip.danger {
+  color: var(--mm-danger, #cf222e);
+}
+.table-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

@@ -598,6 +598,41 @@ can't break them. Paste rides one new optional seam,
 `__mmClipboard` entry; web: `navigator.clipboard.readText` where the
 browser offers it; absent ⇒ the Paste item is omitted.
 
+## Aligned table editing (SPEC37)
+
+Table ▸ Edit Table… (smart menu) edits pipe tables as a live character
+grid IN the editor — no preview involvement, no split required. The pure
+model (`src/lib/tableEdit.ts`) round-trips cells as raw markdown
+(`tableRegionAt` — the SPEC36 detection, extracted; `detectContext`
+calls it), serializes the aligned form (columns padded to the widest
+cell), and provides the mode's helpers: `normalizeTable` (null when
+already aligned), `cellAt` (any offset → cell, padding clamps, the
+delimiter row maps to the header level), and `normalizeWithCursor`
+(alignment with the cursor kept at the same logical cell offset).
+
+The mode itself is pure CodeMirror (`src/components/tableMode.ts`): a
+StateField holds the table's span, tracked through every transaction via
+changeset position mapping; a `transactionFilter` FOLDS re-normalization
+into any user transaction touching the span — the buffer is aligned
+after every keystroke, and one undo step reverts the edit and its re-pad
+together (history transactions are skipped so undo is never re-fought;
+IME composition stands down and catches up after). Line decorations
+carry the grid wash. The Esc handler is registered AHEAD of the vim
+layer's — both are Prec.highest keydown handlers, and registration order
+decides: the first Esc leaves table mode, the next enters nav. A broken
+table (delimiter destroyed) exits the mode instead of fighting. The
+padding persists on exit — it is real, valid GFM the renderer ignores,
+so the render pipeline, comment anchors, and the web build are all
+untouched (zero new seams, zero dependencies).
+
+The chips are overlay UI in `.editor-wrap` (like the vim badge):
+⊕⊕✕ above the caret's column at the table's top border, ⊕⊕✕ on the left
+margin at its row — positioned from `coordsAtPos`, raf-batched behind
+the update listener plus scroll/resize, hidden whenever the caret is
+outside the table. Header and delimiter rows offer below-insert only;
+the last column's delete is disabled (Delete Table is the path); insert
+ops land the caret in the new cell's content, ready to type.
+
 ## Open Recent (SPEC29)
 
 `recentFiles.ts` (pure, mirrors the reading-positions store): MRU-first,

@@ -37,20 +37,33 @@ const find = (entries: SmartMenuEntry[], id: string) => {
 describe('SPEC36 smart edit', () => {
   test('U64: menu model and context detection', () => {
     // --- exact section/item order with no context ---------------------------
+    // SPEC37 §9 amendment to U64: the contextual section is now the
+    // always-present Table submenu; Resize Image… stays contextual.
     expect(ids(buildSmartMenu(ctx()))).toEqual([
+      'table',
+      'sep',
       'bold', 'italic', 'strike', 'code', 'link',
       'sep',
       'heading', 'lists', 'callout', 'quote', 'code-block', 'hr',
       'sep',
       'cut', 'copy', 'paste',
     ]);
-    // --- contextual items iff table/image, separator collapses --------------
-    expect(ids(buildSmartMenu(ctx({ table: true }))).slice(0, 2)).toEqual(['edit-table', 'sep']);
-    expect(ids(buildSmartMenu(ctx({ image: true }))).slice(0, 2)).toEqual(['resize-image', 'sep']);
-    expect(ids(buildSmartMenu(ctx({ table: true, image: true }))).slice(0, 3)).toEqual([
-      'edit-table', 'resize-image', 'sep',
+    expect(ids(buildSmartMenu(ctx({ image: true }))).slice(0, 3)).toEqual([
+      'table', 'resize-image', 'sep',
     ]);
-    expect(ids(buildSmartMenu(ctx()))[0]).toBe('bold'); // no leading separator
+    // Table submenu children + enabled flags per context.
+    const tableSub = (c: SmartMenuCtx) =>
+      find(buildSmartMenu(c), 'table').submenu!.map((e) => e !== 'sep' && [e.id, e.enabled]);
+    expect(tableSub(ctx())).toEqual([
+      ['edit-table', false],
+      ['insert-table', true],
+      ['delete-table', false],
+    ]);
+    expect(tableSub(ctx({ table: true }))).toEqual([
+      ['edit-table', true],
+      ['insert-table', false],
+      ['delete-table', true],
+    ]);
 
     // --- cut/copy disabled without a selection, paste omitted without seam --
     const bare = buildSmartMenu(ctx({ hasSelection: false, canPaste: false }));

@@ -8,6 +8,7 @@
  */
 
 import { displayCombo, type HotkeyMap } from './hotkeys';
+import { tableRegionAt } from './tableEdit';
 
 /** SPEC36 §1: every user-visible string lives here — a rename is one file. */
 export const SMART_EDIT_NAME = 'Smart Edit';
@@ -302,10 +303,9 @@ export function insertHr(text: string, from: number, _to: number): EditResult {
   return { text: t, from: caret, to: caret };
 }
 
-// A GFM table delimiter row: optionally piped cells of :?-+:?.
-const DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
-
-/** §2.9: is the cursor inside a pipe table / on an image reference? */
+/** §2.9: is the cursor inside a pipe table / on an image reference?
+ * SPEC37 §1.1: the table scan lives in tableEdit.ts (tableRegionAt) now —
+ * identical detection semantics, one source of truth. */
 export function detectContext(text: string, head: number): { table: boolean; image: boolean } {
   const lines = text.split('\n');
   let headLine = 0;
@@ -319,18 +319,7 @@ export function detectContext(text: string, head: number): { table: boolean; ima
     headLine = i;
   }
 
-  let table = false;
-  for (let i = 0; i + 1 < lines.length; i++) {
-    if (!lines[i].includes('|')) continue;
-    if (!(DELIM.test(lines[i + 1]) && lines[i + 1].includes('-') && lines[i + 1].includes('|'))) continue;
-    let j = i + 1;
-    while (j + 1 < lines.length && lines[j + 1].includes('|')) j++;
-    if (headLine >= i && headLine <= j) {
-      table = true;
-      break;
-    }
-    i = j;
-  }
+  const table = tableRegionAt(text, head) !== null;
 
   let image = false;
   let lineStart = 0;
@@ -387,9 +376,19 @@ export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
   const h = ctx.hotkeys;
 
   const out: SmartMenuEntry[] = [];
-  if (ctx.table) out.push(item('edit-table', 'Edit Table…'));
+  // SPEC37 §2.1: the Table submenu is always present, first; its children
+  // carry enabled flags by context. Resize Image… stays the SPEC36 stub.
+  out.push(
+    item('table', 'Table', {
+      submenu: [
+        item('edit-table', 'Edit Table…', { enabled: ctx.table }),
+        item('insert-table', 'Insert Table', { enabled: !ctx.table }),
+        item('delete-table', 'Delete Table', { enabled: ctx.table }),
+      ],
+    })
+  );
   if (ctx.image) out.push(item('resize-image', 'Resize Image…'));
-  if (out.length) out.push('sep');
+  out.push('sep');
 
   out.push(
     item('bold', 'Bold', { hotkey: hk(h.bold) }),
