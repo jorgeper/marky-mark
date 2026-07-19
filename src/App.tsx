@@ -528,12 +528,17 @@ export default function App() {
       const blockLine = blockLineFor(anchors, headLine);
       if (blockLine === null) return;
       const blockEl = stamped[anchors.lastIndexOf(blockLine)];
-      blockEl.classList.add('mm-active-block');
-      if (hasSel) return; // a real selection outranks the word cue (§2.2)
+      const tint = (el: HTMLElement) => el.classList.add('mm-active-block');
+      if (hasSel) {
+        tint(blockEl); // a real selection outranks the word cue (§2.2)
+        return;
+      }
       const w = wordAt(buffer, head);
-      if (!w) return;
-      const needle = visibleTextForRange(buffer, w.start, w.end);
-      if (!needle.trim()) return;
+      const needle = w ? visibleTextForRange(buffer, w.start, w.end) : '';
+      if (!w || !needle.trim()) {
+        tint(blockEl);
+        return;
+      }
       const lines = buffer.split('\n');
       const starts: number[] = [0];
       for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
@@ -544,11 +549,20 @@ export default function App() {
       region.setEndAfter(blockEl);
       const { start: rs, end: re } = rangeToOffsets(pane, region);
       const hit = findNormalizedNth(getDocText(pane).slice(rs, re), needle, nth);
-      if (!hit) return;
-      for (const m of highlightRange(pane, rs + hit.start, rs + hit.end, '__aw__')) {
+      if (!hit) {
+        tint(blockEl);
+        return;
+      }
+      const marks = highlightRange(pane, rs + hit.start, rs + hit.end, '__aw__');
+      for (const m of marks) {
         m.className = 'mm-active-word';
         delete m.dataset.cid; // never the comment machinery's business
       }
+      // §3.1 (refined): a stamped block can be a whole list or table — the
+      // tint belongs to the INNERMOST standard container of the caret's word
+      // (list item, paragraph, heading, cell), not the whole stamp.
+      const inner = marks[0]?.closest<HTMLElement>('li, p, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th');
+      tint(inner && pane.contains(inner) ? inner : blockEl);
     },
     [clearActiveCues]
   );

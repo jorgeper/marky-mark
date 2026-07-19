@@ -4889,7 +4889,7 @@ const clickWord = async (page: import('@playwright/test').Page, paneSel: string,
 test('E124: split mode — caret word darkens in both panes, position-exact on repeats, selection clears it, typing re-anchors', async ({
   page,
 }) => {
-  await fsWrite(page, '/docs/place.md', '# Title\n\nalpha beta gamma\n\ncat and cat again\n');
+  await fsWrite(page, '/docs/place.md', '# Title\n\nalpha beta gamma\n\ncat and cat again\n\n- one two\n- three four\n- five six\n');
   await page.goto('/#open=/docs/place.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Title');
   await page.keyboard.press('Control+e');
@@ -4943,6 +4943,17 @@ test('E124: split mode — caret word darkens in both panes, position-exact on r
   await page.keyboard.type(' zeta');
   await expect(edWord).toHaveText('zeta');
   await expect(pvWord).toHaveText('zeta');
+
+  // A stamped block can be a whole LIST — the tint stays on the caret's item.
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'three four' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(pvWord).toHaveText('three');
+  await expect(pvBlock).toHaveCount(1);
+  await expect(pvBlock).toContainText('three four');
+  await expect(pvBlock).not.toContainText('one two');
 });
 
 test('E125: preview clicks place the caret — split moves the editor, preview-only carries into Mod+E; links stay links', async ({

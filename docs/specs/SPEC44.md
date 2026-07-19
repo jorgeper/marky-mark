@@ -54,7 +54,10 @@ diverging (same behavior there — this is pure webview UI).
    - **the active block** — the `[data-mm-line]` element whose range
      contains the caret's source line (§1.2) gets `mm-active-block`,
      tinted `--mm-active-line`. Exactly one block, or none (caret
-     outside any anchored block, e.g. front matter).
+     outside any anchored block, e.g. front matter). A stamp can cover
+     a whole list or table; when the word mark exists, the tint moves
+     to the word's INNERMOST standard container (list item, paragraph,
+     heading, cell) — the stamped element is the fallback.
    - **the active word** — the same word (§2.2), located by mapping the
      caret's source offsets through the existing selectionMap plumbing
      (the E83 synthetic-mark pipeline), wrapped in a synthetic
