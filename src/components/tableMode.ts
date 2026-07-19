@@ -1,7 +1,7 @@
 import { EditorState, StateEffect, StateField, Transaction, Prec, RangeSetBuilder } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, keymap, type ViewUpdate } from '@codemirror/view';
-import { isolateHistory } from '@codemirror/commands';
 import {
+  allTableRegions,
   cellAt,
   cellContentSpan,
   cellNavTarget,
@@ -16,34 +16,70 @@ import {
   serializeCompactTable,
   type ParsedDisplay,
   type Region,
+  type TableModel,
 } from '../lib/tableEdit';
 
 /**
- * SPEC38 §3: the transient wrapped-grid mode — pure CodeMirror. The buffer
- * holds the bordered display grid ONLY while the mode is active; every
- * deliberate exit collapses it back to the compact canonical table, and the
- * canonical view (canonicalizeDisplay) keeps the grid out of every artifact
- * that leaves the editor. The StateField tracks {span, width}; the
- * transactionFilter folds re-layout into user edits; the round-trip guard
- * (§2.4) is what makes resynchronization after undo/redo/foreign changes
- * safe — a state that isn't a byte-exact layout output exits the mode.
+ * SPEC40: the grid is how tables LOOK in the editor — no mode. While the
+ * tableGridView setting is on, EVERY valid top-level GFM table renders as
+ * the SPEC38 bordered grid: transformed at mount and whenever a transaction
+ * leaves a new valid table in the document, collapsed on unmount and when
+ * the view flips off — all history-transparent, all invisible to the
+ * canonical view (save/preview/drafts/dirty). Each tracked span remembers
+ * its ORIGINAL source bytes: an untouched table collapses back to exactly
+ * what the file contained, so opening and closing a document never rewrites
+ * hand-formatted tables; an edited one collapses to the compact form.
+ *
+ * SPEC38's filter/guard/watcher and SPEC39's confinement/re-fit apply per
+ * span. The round-trip guard (§SPEC38 2.4) still governs trust: a foreign
+ * change that breaks one span drops THAT span to raw text (it re-grids as
+ * soon as it parses again); the others live on.
  */
 
-export interface TableModeSpan {
+export interface GridSpan {
   from: number;
   to: number;
+  /** The raw source bytes this grid was built from. */
+  original: string;
+  /** Model signature at gridify time — unchanged model ⇒ collapse to original. */
+  sig: string;
+}
+
+export interface GridSet {
+  spans: GridSpan[];
   width: number;
 }
 
-export const setTableMode = StateEffect.define<TableModeSpan | null>();
+export const setGridSet = StateEffect.define<GridSet | null>();
 
-/**
- * SPEC39 §2.2, the full-cell case: when the caret sits at a cell's inner
- * edge with no padding to advance into (the column's widest cell always
- * fills it exactly), a typed space is recorded here and the NEXT insertion
- * at that spot prepends it — so "hello world" survives even at the edge.
- * Any other activity clears it.
- */
+const modelSig = (m: Pick<TableModel, 'header' | 'align' | 'rows'>): string =>
+  JSON.stringify([m.header, m.align, m.rows]);
+
+export const tableModeField = StateField.define<GridSet | null>({
+  create: () => null,
+  update(value, tr) {
+    if (value && tr.docChanged) {
+      const spans = value.spans
+        .map((s) => {
+          const from = tr.changes.mapPos(s.from, -1);
+          const to = tr.changes.mapPos(s.to, 1);
+          return from < to ? { ...s, from, to } : null;
+        })
+        .filter((s): s is GridSpan => s !== null);
+      value = { spans, width: value.width };
+    }
+    for (const e of tr.effects) if (e.is(setGridSet)) value = e.value;
+    return value;
+  },
+});
+
+/** The span containing `pos`, if any. */
+function spanAt(set: GridSet | null, pos: number): GridSpan | null {
+  if (!set) return null;
+  return set.spans.find((s) => pos >= s.from && pos <= s.to) ?? null;
+}
+
+/** SPEC39 §2.2: the one-shot pending edge-space (see the Space key below). */
 const setPendingSpace = StateEffect.define<{ pos: number } | null>();
 const pendingSpaceField = StateField.define<{ pos: number } | null>({
   create: () => null,
@@ -54,61 +90,53 @@ const pendingSpaceField = StateField.define<{ pos: number } | null>({
   },
 });
 
-export const tableModeField = StateField.define<TableModeSpan | null>({
-  create: () => null,
-  update(value, tr) {
-    if (value && tr.docChanged) {
-      const from = tr.changes.mapPos(value.from, -1);
-      const to = tr.changes.mapPos(value.to, 1);
-      value = from < to ? { from, to, width: value.width } : null;
-    }
-    // Explicit effects win over mapping (they carry final coordinates).
-    for (const e of tr.effects) if (e.is(setTableMode)) value = e.value;
-    return value;
-  },
-});
-
-/** §3: the grid wash on every display line while the mode is on. */
+/** The grid wash on every line of every tracked span. */
 const tableModeDecos = EditorView.decorations.compute([tableModeField, 'doc'], (state) => {
-  const span = state.field(tableModeField);
-  if (!span) return Decoration.none;
+  const set = state.field(tableModeField);
+  if (!set || set.spans.length === 0) return Decoration.none;
   const b = new RangeSetBuilder<Decoration>();
-  const first = state.doc.lineAt(Math.min(span.from, state.doc.length));
-  const last = state.doc.lineAt(Math.min(span.to, state.doc.length));
-  for (let n = first.number; n <= last.number; n++) {
-    const l = state.doc.line(n);
-    b.add(l.from, l.from, Decoration.line({ class: 'mm-table-mode-line' }));
+  for (const span of set.spans) {
+    const first = state.doc.lineAt(Math.min(span.from, state.doc.length));
+    const last = state.doc.lineAt(Math.min(span.to, state.doc.length));
+    for (let n = first.number; n <= last.number; n++) {
+      const l = state.doc.line(n);
+      b.add(l.from, l.from, Decoration.line({ class: 'mm-table-mode-line' }));
+    }
   }
   return b.finish();
 });
 
+/** The round-trip guard at a display's OWN width (SPEC39 — resync safety). */
+function roundTripsAtOwnWidth(text: string, region: Region): boolean {
+  const nl = text.indexOf('\n', region.start);
+  const firstLineEnd = nl === -1 || nl > region.end ? region.end : nl;
+  return displayRoundTrips(text, region, firstLineEnd - region.start);
+}
+
 /**
- * §3.2 + SPEC39 §2: the live re-layout filter, now also the confinement
- * layer. Skips our own effect-carrying transactions, history transactions,
- * and IME composition. Ranged selections clamp to a single cell (SPEC39
- * §2.1); user doc changes inside the span must land in one cells-line cell
- * (else they are CANCELLED) and their inserted text is flattened (§2.5);
- * changes crossing the span boundary keep SPEC38's break-exit escape hatch.
+ * The live re-layout + confinement filter (SPEC38 §3.2, SPEC39 §2), applied
+ * per span. Skips our own effect-carrying transactions, history, and IME.
  */
 const alignFilter = EditorState.transactionFilter.of((tr) => {
-  const span = tr.startState.field(tableModeField, false);
-  if (!span) return tr;
-  if (tr.effects.some((e) => e.is(setTableMode))) return tr;
+  const set = tr.startState.field(tableModeField, false);
+  if (!set || set.spans.length === 0) return tr;
+  if (tr.effects.some((e) => e.is(setGridSet))) return tr;
   const ue = tr.annotation(Transaction.userEvent);
   if (ue && (ue.startsWith('undo') || ue.startsWith('redo'))) return tr;
   if (ue && ue.startsWith('input.type.compose')) return tr;
 
-  // §2.1: selection-only transactions — clamp ranged selections to one cell.
+  // SPEC39 §2.1: ranged selections clamp to one cell of their pivot's span.
   if (!tr.docChanged) {
     if (!tr.selection) return tr;
     const sel = tr.newSelection.main;
-    if (sel.empty) return tr; // caret motion is free (arrows cross cells)
+    if (sel.empty) return tr;
     const text = tr.startState.doc.toString();
+    const headSpan = spanAt(set, sel.head);
+    const anchorSpan = spanAt(set, sel.anchor);
+    const span = headSpan ?? anchorSpan;
+    if (!span) return tr; // both endpoints outside every grid: allowed
+    const pivot = headSpan ? sel.head : sel.anchor;
     const region: Region = { start: span.from, end: span.to };
-    const headIn = sel.head >= span.from && sel.head <= span.to;
-    const anchorIn = sel.anchor >= span.from && sel.anchor <= span.to;
-    const pivot = headIn ? sel.head : anchorIn ? sel.anchor : null;
-    if (pivot === null) return tr; // both endpoints outside: allowed
     const parsed = parseDisplay(text, region);
     if (!parsed) return tr;
     const b = displayCellBounds(text, region, parsed, pivot);
@@ -122,71 +150,74 @@ const alignFilter = EditorState.transactionFilter.of((tr) => {
     return [tr, { selection: { anchor: a2, head: h2 } }];
   }
 
-  let touches = false;
-  tr.changes.iterChangedRanges((fromA, toA) => {
-    if (fromA <= span.to && toA >= span.from) touches = true;
-  });
-  if (!touches) return tr;
+  // Which span do the changes touch? Cross-boundary or multi-span edits pass
+  // through (the watcher drops broken spans — the SPEC38 escape hatch).
+  const ranges: Array<{ fromA: number; toA: number; ins: string }> = [];
+  tr.changes.iterChanges((fromA, toA, _fromB, _toB, ins) =>
+    ranges.push({ fromA, toA, ins: ins.toString() })
+  );
+  const touched = new Set<GridSpan>();
+  let crossing = false;
+  for (const r of ranges) {
+    for (const s of set.spans) {
+      const overlaps = r.fromA <= s.to && r.toA >= s.from;
+      if (!overlaps) continue;
+      touched.add(s);
+      if ((r.fromA < s.from && r.toA > s.from) || (r.fromA < s.to && r.toA > s.to)) crossing = true;
+    }
+  }
+  if (touched.size === 0) return tr;
+  if (crossing || touched.size > 1) return tr;
+  const span = [...touched][0];
 
   const preText = tr.startState.doc.toString();
   const preRegion: Region = { start: span.from, end: span.to };
   if (!roundTripsAtOwnWidth(preText, preRegion)) return tr;
 
-  // §2.5/§2.6: confinement of the changed ranges themselves.
-  const ranges: Array<{ fromA: number; toA: number; ins: string }> = [];
-  tr.changes.iterChanges((fromA, toA, _fromB, _toB, ins) =>
-    ranges.push({ fromA, toA, ins: ins.toString() })
-  );
-  const crossesBoundary = ranges.some(
-    (r) =>
-      (r.fromA < span.from && r.toA > span.from) || (r.fromA < span.to && r.toA > span.to)
-  );
-  if (!crossesBoundary) {
-    const parsedPre = parseDisplay(preText, preRegion)!;
-    for (const r of ranges) {
-      if (r.toA < span.from || r.fromA > span.to) continue; // outside: fine
-      const b1 = displayCellBounds(preText, preRegion, parsedPre, r.fromA);
-      const b2 = displayCellBounds(preText, preRegion, parsedPre, r.toA);
-      if (
-        !b1 ||
-        !b2 ||
-        b1.kind !== 'cells' ||
-        b1.cellStart !== b2.cellStart ||
-        r.fromA < b1.cellStart ||
-        r.toA > b1.cellEnd
-      ) {
-        return []; // §2.6: structure is read-only from inside — cancel
-      }
+  // SPEC39 §2.6: in-span changes must land inside ONE cells-line cell.
+  const parsedPre = parseDisplay(preText, preRegion)!;
+  for (const r of ranges) {
+    if (r.toA < span.from || r.fromA > span.to) continue;
+    const b1 = displayCellBounds(preText, preRegion, parsedPre, r.fromA);
+    const b2 = displayCellBounds(preText, preRegion, parsedPre, r.toA);
+    if (
+      !b1 ||
+      !b2 ||
+      b1.kind !== 'cells' ||
+      b1.cellStart !== b2.cellStart ||
+      r.fromA < b1.cellStart ||
+      r.toA > b1.cellEnd
+    ) {
+      return []; // structure is read-only from inside — cancel
     }
-    // §2.5: flatten the inserted text (single-range edits — the usual case);
-    // §2.2: a pending edge-space rejoins the stream here.
-    if (ranges.length === 1) {
-      const r = ranges[0];
-      const pending = tr.startState.field(pendingSpaceField, false);
-      const withPending =
-        pending && r.fromA === pending.pos && r.toA === pending.pos && r.ins && !r.ins.startsWith(' ')
-          ? ` ${r.ins}`
-          : r.ins;
-      const clean = sanitizeCellInsert(withPending);
-      if (clean !== r.ins && r.toA >= span.from && r.fromA <= span.to) {
-        const delta = clean.length - (r.toA - r.fromA);
-        const nt = preText.slice(0, r.fromA) + clean + preText.slice(r.toA);
-        const region2: Region = { start: span.from, end: span.to + delta };
-        const parsed2 = parseDisplay(nt, region2);
-        if (!parsed2) return [];
-        const l2 = layoutTable(parsed2.model, span.width);
-        const loc2 = displayCellAt(nt, region2, parsed2, r.fromA + clean.length);
-        const head2 = loc2 ? span.from + displayPosOf(l2.map, loc2) : span.from;
-        return [
-          { changes: { from: r.fromA, to: r.toA, insert: clean } },
-          {
-            changes: { from: region2.start, to: region2.end, insert: l2.text },
-            selection: { anchor: head2 },
-            effects: setTableMode.of({ from: span.from, to: span.from + l2.text.length, width: span.width }),
-            sequential: true,
-          },
-        ];
-      }
+  }
+
+  // SPEC39 §2.5/§2.2: flatten single-range inserts; rejoin a pending space.
+  if (ranges.length === 1) {
+    const r = ranges[0];
+    const pending = tr.startState.field(pendingSpaceField, false);
+    const withPending =
+      pending && r.fromA === pending.pos && r.toA === pending.pos && r.ins && !r.ins.startsWith(' ')
+        ? ` ${r.ins}`
+        : r.ins;
+    const clean = sanitizeCellInsert(withPending);
+    if (clean !== r.ins && r.toA >= span.from && r.fromA <= span.to) {
+      const delta = clean.length - (r.toA - r.fromA);
+      const nt = preText.slice(0, r.fromA) + clean + preText.slice(r.toA);
+      const region2: Region = { start: span.from, end: span.to + delta };
+      const parsed2 = parseDisplay(nt, region2);
+      if (!parsed2) return [];
+      const l2 = layoutTable(parsed2.model, set.width);
+      const loc2 = displayCellAt(nt, region2, parsed2, r.fromA + clean.length);
+      const head2 = loc2 ? span.from + displayPosOf(l2.map, loc2) : span.from;
+      return [
+        { changes: { from: r.fromA, to: r.toA, insert: clean } },
+        {
+          changes: { from: region2.start, to: region2.end, insert: l2.text },
+          selection: { anchor: head2 },
+          sequential: true,
+        },
+      ];
     }
   }
 
@@ -195,61 +226,211 @@ const alignFilter = EditorState.transactionFilter.of((tr) => {
   const text = tr.newDoc.toString();
   const region: Region = { start: from, end: to };
   const parsed = parseDisplay(text, region);
-  if (!parsed) return tr; // grammar broken — the watcher exits
+  if (!parsed) return tr; // grammar broken — the watcher drops this span
 
-  const l = layoutTable(parsed.model, span.width);
-  if (text.slice(from, to) === l.text) {
-    return [tr, { effects: setTableMode.of({ from, to, width: span.width }) }];
-  }
+  const l = layoutTable(parsed.model, set.width);
+  if (text.slice(from, to) === l.text) return tr;
   const head = tr.newSelection.main.head;
   const loc = displayCellAt(text, region, parsed, head);
-  const newHead = loc
-    ? from + displayPosOf(l.map, loc)
-    : Math.min(head, from + l.text.length);
+  const newHead = loc ? from + displayPosOf(l.map, loc) : Math.min(head, from + l.text.length);
   return [
     tr,
     {
       changes: { from, to, insert: l.text },
       selection: { anchor: newHead },
-      effects: setTableMode.of({ from, to: from + l.text.length, width: span.width }),
       sequential: true,
     },
   ];
 });
 
-/**
- * The round-trip guard at the display's OWN width (its first line's length —
- * the shrink pass is deterministic for a given target total, so a genuine
- * layout reproduces itself at that budget). This keeps undo across re-fits
- * inside the mode: an older-width grid still passes; the next edit re-lays
- * it out at the field's current budget.
- */
-function roundTripsAtOwnWidth(text: string, region: Region): boolean {
-  const nl = text.indexOf('\n', region.start);
-  const firstLineEnd = nl === -1 || nl > region.end ? region.end : nl;
-  return displayRoundTrips(text, region, firstLineEnd - region.start);
+/** Collapse one span to its canonical text: original bytes when the model is
+ * untouched, the compact form when it was edited. Null when unparseable. */
+function collapseSpan(text: string, span: GridSpan): string | null {
+  const parsed = parseDisplay(text, { start: span.from, end: span.to });
+  if (!parsed) return null;
+  return modelSig(parsed.model) === span.sig ? span.original : serializeCompactTable(parsed.model);
 }
 
-/** §3.3: resync — any foreign state that fails the guard exits the mode. */
+/** SPEC40 §2.4: the canonical view — every tracked span collapsed. */
+export function canonicalizeAll(text: string, set: GridSet): string {
+  let out = text;
+  for (const span of [...set.spans].sort((a, b) => b.from - a.from)) {
+    const collapsed = collapseSpan(out, span);
+    if (collapsed !== null) {
+      out = out.slice(0, span.from) + collapsed + out.slice(span.to);
+    }
+  }
+  return out;
+}
+
+/** SPEC40 §2.2: grid every untracked valid table (history-transparent). */
+export function gridifyAll(view: EditorView, canonicalHint?: string): void {
+  const set = view.state.field(tableModeField, false) ?? null;
+  const width = measureWidthBudget(view);
+  const text = view.state.doc.toString();
+  const existing = set?.spans ?? [];
+  const candidates = allTableRegions(text).filter(
+    (r) => !existing.some((s) => r.start <= s.to && r.end >= s.from)
+  );
+  // Adoption loses the original source bytes (the field is not serialized
+  // across remounts) — recover them from the canonical buffer by model
+  // signature, so untouched padded tables still collapse byte-identically.
+  const hintRegions = canonicalHint
+    ? allTableRegions(canonicalHint).map((r) => ({
+        bytes: canonicalHint.slice(r.start, r.end),
+        sig: modelSig(parseTable(canonicalHint, r)),
+        used: false,
+      }))
+    : [];
+  const originalFor = (sig: string, fallback: string): string => {
+    const h = hintRegions.find((x) => !x.used && x.sig === sig);
+    if (h) {
+      h.used = true;
+      return h.bytes;
+    }
+    return fallback;
+  };
+  if (candidates.length === 0) {
+    if (set && set.width !== width) {
+      view.dispatch({ effects: setGridSet.of({ spans: existing, width }) });
+    } else if (!set) {
+      view.dispatch({ effects: setGridSet.of({ spans: [], width }) });
+    }
+    return;
+  }
+  const sel = view.state.selection.main;
+  const changes: Array<{ from: number; to: number; insert: string }> = [];
+  // A candidate that is ALREADY display-shaped (an undo just restored a
+  // grid we dropped) is ADOPTED as tracked text, never re-parsed as a raw
+  // table — parseTable would read its separators as dash-filled body rows.
+  const adopted: GridSpan[] = [];
+  const rawCandidates = candidates.filter((r) => {
+    if (!roundTripsAtOwnWidth(text, r)) return true;
+    const model = parseDisplay(text, r)!.model;
+    const sig = modelSig(model);
+    adopted.push({
+      from: r.start,
+      to: r.end,
+      original: originalFor(sig, serializeCompactTable(model)),
+      sig,
+    });
+    return false;
+  });
+  // Per-candidate grid text + growth, in ascending order.
+  const grids = rawCandidates.map((r) => {
+    const original = text.slice(r.start, r.end);
+    const model = parseTable(text, r);
+    const l = layoutTable(model, width);
+    changes.push({ from: r.start, to: r.end, insert: l.text });
+    return { r, original, model, l, grow: l.text.length - (r.end - r.start) };
+  });
+  const growBefore = (pos: number) =>
+    grids.reduce((acc, g) => (g.r.end <= pos ? acc + g.grow : acc), 0);
+  // Map a selection endpoint: inside a candidate → its logical cell in the
+  // grid; outside → shifted by the growth of candidates before it.
+  const mapPoint = (p: number): number => {
+    for (const g of grids) {
+      if (p >= g.r.start && p <= g.r.end) {
+        const c = cellAt(text, g.r, p);
+        const co = c ? Math.max(0, Math.min(p - c.contentStart, c.contentEnd - c.contentStart)) : 0;
+        return (
+          g.r.start +
+          growBefore(g.r.start) +
+          (c ? displayPosOf(g.l.map, { row: c.row, col: c.col, contentOffset: co }) : 0)
+        );
+      }
+    }
+    return p + growBefore(p);
+  };
+  const inAny = (p: number) => grids.some((g) => p >= g.r.start && p <= g.r.end);
+  const newSpans: GridSpan[] = existing.map((s) => ({
+    ...s,
+    from: s.from + growBefore(s.from),
+    to: s.to + growBefore(s.from),
+  }));
+  for (const a of adopted) {
+    newSpans.push({ ...a, from: a.from + growBefore(a.from), to: a.to + growBefore(a.from) });
+  }
+  for (const g of grids) {
+    const start = g.r.start + growBefore(g.r.start);
+    newSpans.push({ from: start, to: start + g.l.text.length, original: g.original, sig: modelSig(g.model) });
+  }
+  newSpans.sort((a, b) => a.from - b.from);
+  view.dispatch({
+    ...(changes.length ? { changes } : {}),
+    // Explicit selection only when an endpoint sits inside a transformed
+    // region (CM's own mapping handles the rest).
+    ...(changes.length && (inAny(sel.anchor) || inAny(sel.head))
+      ? { selection: { anchor: mapPoint(sel.anchor), head: mapPoint(sel.head) } }
+      : {}),
+    effects: setGridSet.of({ spans: newSpans, width }),
+    annotations: Transaction.addToHistory.of(false),
+  });
+}
+
+/** SPEC40 §1.3: collapse every grid (history-transparent); view off/unmount. */
+export function collapseAllGrids(view: EditorView): void {
+  const set = view.state.field(tableModeField, false);
+  if (!set || set.spans.length === 0) {
+    if (set) view.dispatch({ effects: setGridSet.of(null) });
+    return;
+  }
+  const text = view.state.doc.toString();
+  const head = view.state.selection.main.head;
+  const changes: Array<{ from: number; to: number; insert: string }> = [];
+  let anchor: number | null = null;
+  let delta = 0; // earlier spans shrink — the final anchor shifts with them
+  for (const span of [...set.spans].sort((a, b) => a.from - b.from)) {
+    const collapsed = collapseSpan(text, span);
+    if (collapsed === null) continue;
+    changes.push({ from: span.from, to: span.to, insert: collapsed });
+    if (head >= span.from && head <= span.to) {
+      const region: Region = { start: span.from, end: span.to };
+      const parsed = parseDisplay(text, region)!;
+      const loc = displayCellAt(text, region, parsed, head);
+      if (loc) {
+        const cs = cellContentSpan(collapsed, { start: 0, end: collapsed.length }, loc.row, loc.col);
+        if (cs) anchor = span.from + delta + Math.min(cs.start + loc.contentOffset, cs.end);
+      }
+    }
+    delta += collapsed.length - (span.to - span.from);
+  }
+  view.dispatch({
+    ...(changes.length ? { changes } : {}),
+    ...(anchor !== null ? { selection: { anchor } } : {}),
+    effects: setGridSet.of(null),
+    annotations: Transaction.addToHistory.of(false),
+  });
+}
+
+/**
+ * Resync + detection: after any foreign doc change, drop spans that fail the
+ * guard (they stay raw until they parse again) and grid any new valid table.
+ */
 const tableModeWatcher = EditorView.updateListener.of((u) => {
   if (!u.docChanged) return;
-  const span = u.state.field(tableModeField);
-  if (!span) return;
-  if (u.transactions.some((t) => t.effects.some((e) => e.is(setTableMode)))) return;
-  if (roundTripsAtOwnWidth(u.state.doc.toString(), { start: span.from, end: span.to })) return;
-  // Dispatching from a listener needs its own tick; re-check state then.
+  const set = u.state.field(tableModeField);
+  if (!set) return; // view off
+  if (u.transactions.some((t) => t.effects.some((e) => e.is(setGridSet)))) return;
+  const text = u.state.doc.toString();
+  const bad = set.spans.filter((s) => !roundTripsAtOwnWidth(text, { start: s.from, end: s.to }));
+  const hasCandidates = allTableRegions(text).some(
+    (r) => !set.spans.some((s) => r.start <= s.to && r.end >= s.from)
+  );
+  if (bad.length === 0 && !hasCandidates) return;
   setTimeout(() => {
     const s2 = u.view.state.field(tableModeField);
     if (!s2) return;
-    if (!roundTripsAtOwnWidth(u.view.state.doc.toString(), { start: s2.from, end: s2.to })) {
-      u.view.dispatch({ effects: setTableMode.of(null) });
+    const t2 = u.view.state.doc.toString();
+    const good = s2.spans.filter((s) => roundTripsAtOwnWidth(t2, { start: s.from, end: s.to }));
+    if (good.length !== s2.spans.length) {
+      u.view.dispatch({ effects: setGridSet.of({ spans: good, width: s2.width }) });
     }
+    gridifyAll(u.view);
   }, 0);
 });
 
-/** §3.1: the width budget in character columns, measured at entry.
- * clientWidth includes the content element's side paddings (SPEC6 geometry)
- * — subtract them, or near-budget lines soft-wrap and shred the grid. */
+/** The width budget in character columns (SPEC38 §3.1 measurement). */
 function measureWidthBudget(view: EditorView): number {
   const el = view.contentDOM;
   const cs = window.getComputedStyle(el);
@@ -259,135 +440,45 @@ function measureWidthBudget(view: EditorView): number {
   return Math.max(40, Math.floor(px / cw) - 2);
 }
 
-/** §3.1: enter the mode on a GFM table region — one history event. */
-export function enterTableMode(view: EditorView, region: Region): void {
-  const text = view.state.doc.toString();
-  const model = parseTable(text, region);
-  const width = measureWidthBudget(view);
-  const l = layoutTable(model, width);
-  const head = view.state.selection.main.head;
-  const c = cellAt(text, region, head);
-  let anchor = region.start;
-  if (c) {
-    const co = Math.max(0, Math.min(head - c.contentStart, c.contentEnd - c.contentStart));
-    anchor = region.start + displayPosOf(l.map, { row: c.row, col: c.col, contentOffset: co });
-  }
-  view.dispatch({
-    changes: { from: region.start, to: region.end, insert: l.text },
-    selection: { anchor },
-    effects: setTableMode.of({ from: region.start, to: region.start + l.text.length, width }),
-    annotations: isolateHistory.of('full'),
-    scrollIntoView: true,
-  });
-}
-
-/**
- * §3.4: a deliberate exit — collapse the display to the compact canonical
- * table (one history event, cursor kept at its logical cell) and clear the
- * field. An unparseable display just clears the field (the §3.3 fail path
- * already left honest text).
- */
-export function exitTableMode(view: EditorView): void {
-  const span = view.state.field(tableModeField, false);
-  if (!span) return;
-  const text = view.state.doc.toString();
-  const region: Region = { start: span.from, end: span.to };
-  const parsed = parseDisplay(text, region);
-  if (!parsed) {
-    view.dispatch({ effects: setTableMode.of(null) });
-    return;
-  }
-  const compact = serializeCompactTable(parsed.model);
-  const head = view.state.selection.main.head;
-  const loc = displayCellAt(text, region, parsed, head);
-  let anchor = Math.min(head, span.from + compact.length);
-  if (loc) {
-    const full = text.slice(0, span.from) + compact + text.slice(span.to);
-    const cs = cellContentSpan(full, { start: span.from, end: span.from + compact.length }, loc.row, loc.col);
-    if (cs) anchor = Math.min(cs.start + loc.contentOffset, cs.end);
-  }
-  view.dispatch({
-    changes: { from: span.from, to: span.to, insert: compact },
-    selection: { anchor },
-    effects: setTableMode.of(null),
-    annotations: isolateHistory.of('full'),
-  });
-}
-
-/** §3.5: the canonical view — the display region collapsed, or `text` as-is. */
-export function canonicalizeDisplay(text: string, span: TableModeSpan): string {
-  const region: Region = { start: span.from, end: span.to };
-  if (span.to > text.length) return text;
-  const parsed = parseDisplay(text, region);
-  if (!parsed) return text;
-  return text.slice(0, span.from) + serializeCompactTable(parsed.model) + text.slice(span.to);
-}
-
-/** §3.4: Esc exits (registered AHEAD of the vim layer — first Esc leaves
- * table mode, the next one enters nav). */
-const tableModeEsc = Prec.highest(
-  EditorView.domEventHandlers({
-    keydown: (e, view) => {
-      if (e.key !== 'Escape' || e.isComposing) return false;
-      if (!view.state.field(tableModeField)) return false;
-      e.preventDefault();
-      exitTableMode(view);
-      return true;
-    },
-  })
-);
-
-/**
- * SPEC39 §1: live re-fit — geometry changes re-measure the budget on a
- * debounce and re-lay-out in place. UNRECORDED (a re-fit is not an edit).
- */
+/** SPEC39 §1: live re-fit for EVERY grid on geometry changes (unrecorded). */
 function refit(view: EditorView): void {
-  const span = view.state.field(tableModeField, false);
-  if (!span) return;
+  const set = view.state.field(tableModeField, false);
+  if (!set || set.spans.length === 0) return;
   const width = measureWidthBudget(view);
-  if (width === span.width) return;
+  if (width === set.width) return;
   const text = view.state.doc.toString();
-  const region: Region = { start: span.from, end: span.to };
-  const parsed = parseDisplay(text, region);
-  if (!parsed) return;
-  const l = layoutTable(parsed.model, width);
-  if (l.text === text.slice(span.from, span.to)) {
-    view.dispatch({ effects: setTableMode.of({ from: span.from, to: span.to, width }) });
-    return;
-  }
   const head = view.state.selection.main.head;
-  const loc = displayCellAt(text, region, parsed, head);
-  const anchor = loc ? span.from + displayPosOf(l.map, loc) : span.from;
-  // Minimal changes: when the line count is unchanged (padding-only re-fit),
-  // splice per line so history inverses rebase cleanly through the re-fit;
-  // a re-wrap (line count changed) falls back to one region splice.
-  const oldSlice = text.slice(span.from, span.to);
-  const oldLines = oldSlice.split('\n');
-  const newLines = l.text.split('\n');
-  let changes: Array<{ from: number; to: number; insert: string }>;
-  if (oldLines.length === newLines.length) {
-    changes = [];
-    let pos = span.from;
-    for (let i = 0; i < oldLines.length; i++) {
-      const a = oldLines[i];
-      const b = newLines[i];
-      if (a !== b) {
-        let p = 0;
-        const min = Math.min(a.length, b.length);
-        while (p < min && a[p] === b[p]) p++;
-        let s = 0;
-        while (s < min - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
-        changes.push({ from: pos + p, to: pos + a.length - s, insert: b.slice(p, b.length - s) });
-      }
-      pos += a.length + 1;
+  const changes: Array<{ from: number; to: number; insert: string }> = [];
+  const newSpans: GridSpan[] = [];
+  let delta = 0;
+  let anchor: number | null = null;
+  for (const span of set.spans) {
+    const region: Region = { start: span.from, end: span.to };
+    const parsed = parseDisplay(text, region);
+    if (!parsed) {
+      newSpans.push({ ...span, from: span.from + delta, to: span.to + delta });
+      continue;
     }
-  } else {
-    changes = [{ from: span.from, to: span.to, insert: l.text }];
+    const l = layoutTable(parsed.model, width);
+    const old = text.slice(span.from, span.to);
+    if (l.text !== old) {
+      changes.push({ from: span.from, to: span.to, insert: l.text });
+      if (head >= span.from && head <= span.to) {
+        const loc = displayCellAt(text, region, parsed, head);
+        if (loc) anchor = span.from + delta + displayPosOf(l.map, loc);
+      }
+    }
+    newSpans.push({
+      ...span,
+      from: span.from + delta,
+      to: span.from + delta + l.text.length,
+    });
+    delta += l.text.length - old.length;
   }
   view.dispatch({
-    changes,
-    selection: { anchor },
-    effects: setTableMode.of({ from: span.from, to: span.from + l.text.length, width }),
+    ...(changes.length ? { changes } : {}),
+    ...(anchor !== null ? { selection: { anchor } } : {}),
+    effects: setGridSet.of({ spans: newSpans, width }),
     annotations: Transaction.addToHistory.of(false),
   });
 }
@@ -408,23 +499,25 @@ const refitPlugin = ViewPlugin.fromClass(
   }
 );
 
-/** SPEC39 §2: the confinement keymap's shared context. */
+/** SPEC39 §2: the confinement keymap's shared context — the caret's grid. */
 function caretCell(view: EditorView): {
-  span: TableModeSpan;
+  span: GridSpan;
+  width: number;
   parsed: ParsedDisplay;
   b: NonNullable<ReturnType<typeof displayCellBounds>>;
   head: number;
 } | null {
-  const span = view.state.field(tableModeField, false);
-  if (!span) return null;
+  const set = view.state.field(tableModeField, false);
+  if (!set) return null;
   const head = view.state.selection.main.head;
-  if (head < span.from || head > span.to) return null;
+  const span = spanAt(set, head);
+  if (!span) return null;
   const text = view.state.doc.toString();
   const region: Region = { start: span.from, end: span.to };
   const parsed = parseDisplay(text, region);
   if (!parsed) return null;
   const b = displayCellBounds(text, region, parsed, head);
-  return b ? { span, parsed, b, head } : null;
+  return b ? { span, width: set.width, parsed, b, head } : null;
 }
 
 /** §2.3: Enter/Tab navigate cells; the caret lands at the target's content end. */
@@ -433,12 +526,12 @@ function navigate(view: EditorView, dir: 'up' | 'down' | 'next' | 'prev'): boole
   if (!ctx) return false;
   const target = cellNavTarget(ctx.parsed.model, { row: ctx.b.row, col: ctx.b.col }, dir);
   if (target) {
-    const l = layoutTable(ctx.parsed.model, ctx.span.width); // guard ⇒ same map
+    const l = layoutTable(ctx.parsed.model, ctx.width); // guard ⇒ same map
     const pos =
       ctx.span.from + displayPosOf(l.map, { ...target, contentOffset: Number.MAX_SAFE_INTEGER });
     view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
   }
-  return true; // consumed even at the ends — Enter/Tab never insert (§2.3)
+  return true; // consumed even at the ends — Enter/Tab never insert
 }
 
 const confineKeymap = Prec.highest(
@@ -446,7 +539,6 @@ const confineKeymap = Prec.highest(
     { key: 'Enter', run: (v) => navigate(v, 'down'), shift: (v) => navigate(v, 'up') },
     { key: 'Tab', run: (v) => navigate(v, 'next'), shift: (v) => navigate(v, 'prev') },
     {
-      // §2.1: ⌘A selects the current cell's content, not the document.
       key: 'Mod-a',
       run: (v) => {
         const ctx = caretCell(v);
@@ -457,7 +549,6 @@ const confineKeymap = Prec.highest(
       },
     },
     {
-      // §2.4: Backspace at the cell content's start is inert.
       key: 'Backspace',
       run: (v) => {
         const ctx = caretCell(v);
@@ -467,7 +558,6 @@ const confineKeymap = Prec.highest(
       },
     },
     {
-      // §2.4: Delete at the cell content's end is inert.
       key: 'Delete',
       run: (v) => {
         const ctx = caretCell(v);
@@ -477,7 +567,6 @@ const confineKeymap = Prec.highest(
       },
     },
     {
-      // §2.2: a space that trimming would delete advances the caret instead.
       key: 'Space',
       run: (v) => {
         const ctx = caretCell(v);
@@ -490,7 +579,6 @@ const confineKeymap = Prec.highest(
         if (pos !== ctx.head) {
           v.dispatch({ selection: { anchor: pos } });
         } else {
-          // Full cell — no padding to park in: remember the space instead.
           v.dispatch({ effects: setPendingSpace.of({ pos: ctx.head }) });
         }
         return true;
@@ -499,7 +587,28 @@ const confineKeymap = Prec.highest(
   ])
 );
 
-/** The full mode bundle (register ahead of the vim layer). */
+/**
+ * SPEC40: field-free canonicalization — collapse every region that parses
+ * as a genuine grid to its compact form. Used to compare "same document,
+ * different dress" when no field is available (a remount restoring parked
+ * grid state before the buffer catches up must NOT converge — a recorded
+ * full-doc converge would poison undo history).
+ */
+export function canonicalizeDetected(text: string): string {
+  let out = text;
+  for (const r of allTableRegions(text).sort((a, b) => b.start - a.start)) {
+    // Grid regions collapse via the display grammar; raw tables normalize
+    // through the plain parser — BOTH dresses land on the compact form, so
+    // decorative padding differences never read as real divergence.
+    const model = roundTripsAtOwnWidth(out, r) ? parseDisplay(out, r)?.model : parseTable(out, r);
+    if (model) {
+      out = out.slice(0, r.start) + serializeCompactTable(model) + out.slice(r.end);
+    }
+  }
+  return out;
+}
+
+/** The full grid-view bundle (register ahead of the vim layer). */
 export function tableModeExtension() {
   return [
     tableModeField,
@@ -507,7 +616,6 @@ export function tableModeExtension() {
     tableModeDecos,
     alignFilter,
     tableModeWatcher,
-    tableModeEsc,
     confineKeymap,
     refitPlugin,
   ];

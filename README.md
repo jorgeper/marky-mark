@@ -83,20 +83,20 @@ Either way it's a one-time step — the app opens normally afterwards.
   blockquotes, code blocks, horizontal rules, plus cut/copy/paste. Every
   action has a rebindable hotkey (shown right on the menu) under
   Settings → Hotkeys → Smart Edit, and each one is a single undo step.
-  Put the cursor in a table and Table ▸ Edit Table… turns it into a
+  Tables simply LOOK like tables in the editor: every one renders as a
   bordered character grid fitted to your pane — long cells wrap inside
-  their columns, every pipe stays aligned as you type, and little ⊕/✕
-  chips follow your caret's cell to insert or delete columns and rows.
-  The grid is a transient editing view that re-fits live as you resize:
-  a TABLE pill with a Done button shows you're in the mode, and Esc or
-  Done collapses everything back to a clean compact markdown table.
-  Inside it your edits are confined to the cell — Enter and Tab hop
-  rows and cells like a spreadsheet, selections stay within a cell,
-  pipes self-escape — so the grid can't be broken from within; and
-  even mid-edit, saves and the preview always see the real table — the
-  grid never touches your file. Insert / Delete Table live in the same submenu; every
-  operation is one undo step. Resize Image… from the menu is coming
-  soon (clicking an image in preview already resizes).
+  their columns, every pipe stays aligned as you type, the grid re-fits
+  live as you resize, and little ⊕/✕ chips follow your caret's cell to
+  insert or delete columns and rows. Your edits are confined to the
+  cell — Enter and Tab hop rows and cells like a spreadsheet,
+  selections stay within a cell, pipes self-escape — so a grid can't be
+  broken from within. It's all a display view: your file always holds
+  plain markdown tables (untouched ones keep their exact original
+  formatting), and saves and the preview always see the real thing.
+  Prefer raw pipes? Table ▸ Show Raw Tables (or Settings → Editor)
+  switches every table at once. Insert / Delete Table live in the same
+  submenu; every operation is one undo step. Resize Image… from the
+  menu is coming soon (clicking an image in preview already resizes).
 - **Never lose work** — dirty buffers shadow-save continuously; after a
   crash or force-quit the next launch offers to restore your unsaved
   changes, untitled buffers included.

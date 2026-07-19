@@ -202,6 +202,13 @@ export default function App() {
   /** Source line carried across mode switches (line-anchored, not ratio). */
   const pendingScrollLineRef = useRef<number | null>(null);
 
+  // SPEC40 §1.2: the Table ▸ toggle and the Settings checkbox flip this.
+  const toggleTableGrid = useCallback(() => {
+    const s = stateRef.current.settings;
+    updateSettings({ ...s, tableGridView: !s.tableGridView });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // SPEC38 §3.5: the table-mode display grid never escapes the editor —
   // every place the buffer is compared or shipped uses the canonical
   // (collapsed) text. Identity whenever the mode is off.
@@ -2862,6 +2869,8 @@ export default function App() {
                 onCopyText={copyToClipboard}
                 onReadClipboard={readFromClipboard}
                 smartRef={smartEditRef}
+                tableGridView={settings.tableGridView}
+                onToggleTableGrid={toggleTableGrid}
               />
             </Suspense>
           </div>
@@ -2922,6 +2931,8 @@ export default function App() {
               onCopyText={copyToClipboard}
               onReadClipboard={readFromClipboard}
               smartRef={smartEditRef}
+              tableGridView={settings.tableGridView}
+              onToggleTableGrid={toggleTableGrid}
             />
           </Suspense>
         </div>

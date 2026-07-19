@@ -598,7 +598,29 @@ can't break them. Paste rides one new optional seam,
 `__mmClipboard` entry; web: `navigator.clipboard.readText` where the
 browser offers it; absent ⇒ the Paste item is omitted.
 
-## Table editing: the transient wrapped grid (SPEC37 + SPEC38)
+## Tables in the editor: the grid view (SPEC37, SPEC38, SPEC39, SPEC40)
+
+**SPEC40 — no mode.** While `tableGridView` (default on; Settings →
+Editor, or Table ▸ Show Raw Tables/Show Table Grid) is set, EVERY valid
+top-level GFM table renders as the grid: the field holds the **grid
+set** — all tracked spans plus one shared width budget — and a
+detection pass (editor mount, and after any transaction that leaves a
+new valid table in the document) transforms untracked tables
+history-transparently. Each span remembers its ORIGINAL source bytes:
+an untouched table collapses back to exactly what the file contained
+(the canonical view, saves, and the raw-view flip all restore it), an
+edited one collapses to the compact form. A candidate that is already
+display-shaped (an undo just restored a dropped grid, or a remount
+revived parked grid state) is ADOPTED rather than re-parsed — its
+original bytes recovered from the canonical buffer by model signature.
+Both converge paths (mount and value-sync) compare documents through a
+field-free full canonicalization, so a parked grid against a canonical
+buffer is recognized as the same document and never re-converged — a
+recorded full-doc converge would poison undo. The per-table mode
+surface (TABLE pill, Done, Esc exit) is gone; Esc reaches the vim
+layer directly.
+
+## The grid itself (SPEC37 + SPEC38)
 
 Table ▸ Edit Table… (smart menu) edits pipe tables as a **bordered
 character grid in the editor** — a transient display form that exists

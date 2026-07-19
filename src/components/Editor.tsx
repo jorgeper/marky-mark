@@ -60,16 +60,17 @@ import {
   insertTableAt,
   layoutTable,
   parseDisplay,
-  tableRegionAt,
   type ColAlign,
 } from '../lib/tableEdit';
 import {
-  canonicalizeDisplay,
-  enterTableMode,
-  exitTableMode,
-  setTableMode,
+  canonicalizeAll,
+  canonicalizeDetected,
+  collapseAllGrids,
+  gridifyAll,
+  setGridSet,
   tableModeExtension,
   tableModeField,
+  type GridSpan,
 } from './tableMode';
 
 /** SPEC36 §5.2: the ops the App's format commands drive (menu ids, same set). */
@@ -192,6 +193,10 @@ interface Props {
   onReadClipboard?(): Promise<string | null>;
   /** SPEC36 §5.2: populated at mount with applyFormat/openSmartMenu. */
   smartRef?: MutableRefObject<SmartEditHandle | null>;
+  /** SPEC40 §1: show ALL tables as grids (the global view setting). */
+  tableGridView: boolean;
+  /** SPEC40 §1.2: the Table ▸ toggle flips the setting (App persists it). */
+  onToggleTableGrid?(): void;
 }
 
 /**
@@ -343,6 +348,8 @@ export default function Editor({
   onCopyText,
   onReadClipboard,
   smartRef,
+  tableGridView,
+  onToggleTableGrid,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -363,12 +370,12 @@ export default function Editor({
     rowDel: { x: number; y: number } | null;
   } | null>(null);
   const chipsRaf = useRef(0);
-  // SPEC39 §3.1: the TABLE pill renders while the mode is active.
-  const [tableModeOn, setTableModeOn] = useState(false);
-  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard });
-  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard };
+  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid });
+  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid };
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const valueRef = useRef(value);
+  valueRef.current = value;
   const onPasteImagesRef = useRef(onPasteImages);
   onPasteImagesRef.current = onPasteImages;
   // SPEC23 §2: modal vim state — per mount, starts in typing mode.
@@ -407,8 +414,8 @@ export default function Editor({
         canPaste: sp.canPaste,
         hotkeys: sp.hotkeys,
         isMac: sp.isMac,
-        // SPEC39 §3.2: the field's state at menu-open.
-        tableMode: !!view.state.field(tableModeField, false),
+        // SPEC40 §1.2: the global view state at menu-open.
+        gridView: sp.tableGridView,
       }),
     });
   };
@@ -460,16 +467,6 @@ export default function Editor({
     if (r) applySplice(view, r);
   };
 
-  // SPEC38 §2.3/§3: Edit Table… toggles the transient wrapped grid.
-  const toggleTableMode = (view: EditorView) => {
-    if (view.state.field(tableModeField)) {
-      exitTableMode(view);
-      return;
-    }
-    const text = view.state.doc.toString();
-    const region = tableRegionAt(text, view.state.selection.main.head);
-    if (region) enterTableMode(view, region);
-  };
 
   // SPEC38 §3.6: a chip action — mutate the parsed display model, re-layout,
   // one splice, one undo step; the cursor lands in the inserted column/row's
@@ -477,8 +474,10 @@ export default function Editor({
   const runChipOp = (kind: 'col-left' | 'col-right' | 'col-del' | 'row-above' | 'row-below' | 'row-del') => {
     const view = viewRef.current;
     if (!view) return;
-    const span = view.state.field(tableModeField);
-    if (!span) return;
+    const set = view.state.field(tableModeField);
+    const head0 = view.state.selection.main.head;
+    const span = set?.spans.find((s) => head0 >= s.from && head0 <= s.to);
+    if (!set || !span) return;
     const text = view.state.doc.toString();
     const region = { start: span.from, end: span.to };
     const parsed = parseDisplay(text, region);
@@ -510,11 +509,21 @@ export default function Editor({
       rows.splice(loc.row, 1);
       target = { row: Math.min(loc.row, rows.length - 1), col: loc.col };
     }
-    const l = layoutTable({ header, align, rows }, span.width);
+    const l = layoutTable({ header, align, rows }, set.width);
+    // The effect (updated span list) also tells the filter/watcher this is
+    // our own structured edit — the confinement cancel-rule must not fire.
+    const grow = l.text.length - (span.to - span.from);
+    const newSpans: GridSpan[] = set.spans.map((s) =>
+      s === span
+        ? { ...s, from: s.from, to: s.from + l.text.length }
+        : s.from >= span.to
+          ? { ...s, from: s.from + grow, to: s.to + grow }
+          : { ...s }
+    );
     view.dispatch({
       changes: { from: span.from, to: span.to, insert: l.text },
       selection: { anchor: span.from + displayPosOf(l.map, { ...target, contentOffset: 0 }) },
-      effects: setTableMode.of({ from: span.from, to: span.from + l.text.length, width: span.width }),
+      effects: setGridSet.of({ spans: newSpans, width: set.width }),
       annotations: isolateHistory.of('full'),
       scrollIntoView: true,
     });
@@ -527,10 +536,10 @@ export default function Editor({
     if (!view) return;
     const sp = smartPropsRef.current;
     const sel = view.state.selection.main;
-    // SPEC37 §2.3: Edit Table… toggles aligned table mode.
+    // SPEC40 §1.2: the global grid/raw toggle (the App flips the setting).
     // Resize Image… remains the SPEC36 no-op stub.
-    if (id === 'edit-table') {
-      toggleTableMode(view);
+    if (id === 'toggle-grid') {
+      sp.onToggleTableGrid?.();
       view.focus();
       return;
     }
@@ -570,13 +579,14 @@ export default function Editor({
   const computeChips = () => {
     const view = viewRef.current;
     const host = hostRef.current;
-    const span = view?.state.field(tableModeField, false);
-    if (!view || !host || !span) {
+    const set = view?.state.field(tableModeField, false);
+    if (!view || !host || !set) {
       setChips(null);
       return;
     }
     const head = view.state.selection.main.head;
-    if (head < span.from || head > span.to) {
+    const span = set.spans.find((s) => head >= s.from && head <= s.to);
+    if (!span) {
       setChips(null);
       return;
     }
@@ -704,7 +714,6 @@ export default function Editor({
         // SPEC37 §4: chips track cursor, edits, geometry, and mode changes
         // (effect-only transactions included) — raf-batched.
         scheduleChips();
-        setTableModeOn(!!u.state.field(tableModeField, false));
         if ((u.selectionSet || u.docChanged) && onEditStateRef.current) {
           const main = u.state.selection.main;
           onEditStateRef.current({
@@ -752,7 +761,13 @@ export default function Editor({
     const view = new EditorView({ state, parent: host });
     // The buffer may have moved on while parked in preview (file watcher,
     // discard) — converge on it as one undoable change.
-    if (view.state.doc.toString() !== value) {
+    if (
+      view.state.doc.toString() !== value &&
+      // SPEC40: a parked grid restored before the buffer caught up is the
+      // SAME document in display dress — converging would record a full-doc
+      // change and poison undo. Real divergence still converges as before.
+      canonicalizeDetected(view.state.doc.toString()) !== canonicalizeDetected(value)
+    ) {
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
     }
     viewRef.current = view;
@@ -798,10 +813,11 @@ export default function Editor({
           const c = view.coordsAtPos(view.state.selection.main.head);
           openMenuAt(c ? c.left : 80, c ? c.bottom + 4 : 80);
         },
-        // SPEC38 §3.5: the canonical view for everything leaving the editor.
+        // SPEC38/40 §3.5: the canonical view for everything leaving the
+        // editor — every tracked grid collapsed (originals when untouched).
         canonicalText: (t) => {
-          const span = view.state.field(tableModeField, false);
-          return span ? canonicalizeDisplay(t, span) : t;
+          const set = view.state.field(tableModeField, false);
+          return set && set.spans.length ? canonicalizeAll(t, set) : t;
         },
       };
     }
@@ -904,11 +920,15 @@ export default function Editor({
     window.addEventListener('resize', onChipScroll);
 
     return () => {
-      // SPEC38 §3.4: unmount is a deliberate exit — collapse BEFORE parking
-      // history / reporting the final buffer, so the grid never escapes.
-      if (view.state.field(tableModeField, false)) {
-        exitTableMode(view);
-        onChangeRef.current(view.state.doc.toString());
+      // SPEC40 §2.3: the buffer the App keeps must be canonical — collapse
+      // the grids in the REPORTED text only. The parked state keeps the grid
+      // form: a remount re-adopts it (the gridify adoption path) without a
+      // converge dispatch, so the parked selection survives split toggles.
+      {
+        const set = view.state.field(tableModeField, false);
+        if (set?.spans.length) {
+          onChangeRef.current(canonicalizeAll(view.state.doc.toString(), set));
+        }
       }
       view.scrollDOM.removeEventListener('scroll', onChipScroll);
       window.removeEventListener('resize', onChipScroll);
@@ -932,6 +952,12 @@ export default function Editor({
     if (!view) return;
     const current = view.state.doc.toString();
     if (current !== value) {
+      // SPEC40: while grids are displayed the App's buffer holds the
+      // CANONICAL text — same document, different clothes. Converge only on
+      // real divergence, or a full-doc replace would eat the selection.
+      const set = view.state.field(tableModeField, false);
+      if (set?.spans.length && canonicalizeAll(current, set) === value) return;
+      if (canonicalizeDetected(current) === canonicalizeDetected(value)) return;
       view.dispatch({ changes: { from: 0, to: current.length, insert: value } });
     }
   }, [value]);
@@ -948,6 +974,16 @@ export default function Editor({
       effects: syntaxComp.current.reconfigure(syntax ? syntaxHighlighting(mmHighlight) : []),
     });
   }, [syntax]);
+
+  // SPEC40 §1.3/§2.2: the global view — gridify on (initial mount included),
+  // collapse off; both history-transparent inside the helpers.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    if (tableGridView) gridifyAll(view, valueRef.current);
+    else collapseAllGrids(view);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableGridView]);
 
   // SPEC36 §3.3: rebinding smartMenu retitles the gutter button immediately.
   useEffect(() => {
@@ -992,25 +1028,6 @@ export default function Editor({
       {navMode && (
         <div className="vim-badge" data-testid="vim-badge" aria-live="polite">
           NAV
-        </div>
-      )}
-      {/* SPEC39 §3.1: the mode is visible, and Done is the pointer exit. */}
-      {tableModeOn && (
-        <div className="table-badge" data-testid="table-badge" aria-live="polite">
-          TABLE
-          <button
-            data-testid="table-mode-done"
-            title="Done — exit table mode (Esc)"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              const v = viewRef.current;
-              if (!v) return;
-              exitTableMode(v);
-              v.focus();
-            }}
-          >
-            Done
-          </button>
         </div>
       )}
       {smartMenu && (

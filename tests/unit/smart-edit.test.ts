@@ -22,7 +22,7 @@ const ctx = (over: Partial<SmartMenuCtx> = {}): SmartMenuCtx => ({
   canPaste: true,
   hotkeys: DEFAULT_HOTKEYS,
   isMac: true,
-  tableMode: false, // SPEC39 §5 amendment to U64
+  gridView: true, // SPEC40 §6 amendment to U64
   ...over,
 });
 
@@ -56,25 +56,26 @@ describe('SPEC36 smart edit', () => {
     const tableSub = (c: SmartMenuCtx) =>
       find(buildSmartMenu(c), 'table').submenu!.map((e) => e !== 'sep' && [e.id, e.enabled]);
     expect(tableSub(ctx())).toEqual([
-      ['edit-table', false],
+      ['toggle-grid', true],
       ['insert-table', true],
       ['delete-table', false],
     ]);
     expect(tableSub(ctx({ table: true }))).toEqual([
-      ['edit-table', true],
+      ['toggle-grid', true],
       ['insert-table', false],
       ['delete-table', true],
     ]);
-    // SPEC39 §5 amendment: with the mode active, the item becomes the exit —
-    // labeled so, and enabled even when the cursor is outside any table.
-    const activeSub = find(buildSmartMenu(ctx({ tableMode: true })), 'table').submenu!;
-    const exitItem = activeSub.find((e) => e !== 'sep' && e.id === 'edit-table');
-    expect(exitItem && exitItem !== 'sep' && exitItem.label).toBe('Exit Table Mode');
-    expect(exitItem && exitItem !== 'sep' && exitItem.enabled).toBe(true);
-    const offItem = find(buildSmartMenu(ctx()), 'table').submenu!.find(
-      (e) => e !== 'sep' && e.id === 'edit-table'
+    // SPEC40 §6 amendment: the per-table entry is gone — the submenu's first
+    // item is the always-enabled GLOBAL toggle, labeled by the view state.
+    const onItem = find(buildSmartMenu(ctx({ gridView: true })), 'table').submenu!.find(
+      (e) => e !== 'sep' && e.id === 'toggle-grid'
     );
-    expect(offItem && offItem !== 'sep' && offItem.label).toBe('Edit Table…');
+    expect(onItem && onItem !== 'sep' && onItem.label).toBe('Show Raw Tables');
+    expect(onItem && onItem !== 'sep' && onItem.enabled).toBe(true);
+    const offItem = find(buildSmartMenu(ctx({ gridView: false })), 'table').submenu!.find(
+      (e) => e !== 'sep' && e.id === 'toggle-grid'
+    );
+    expect(offItem && offItem !== 'sep' && offItem.label).toBe('Show Table Grid');
 
     // --- cut/copy disabled without a selection, paste omitted without seam --
     const bare = buildSmartMenu(ctx({ hasSelection: false, canPaste: false }));

@@ -371,3 +371,35 @@ describe('SPEC39 confinement helpers', () => {
     expect(cellNavTarget(single, { row: -1, col: 0 }, 'down')).toBeNull();
   });
 });
+
+describe('SPEC40 grid-for-all helpers', () => {
+  test('U73: allTableRegions and the tableGridView setting', async () => {
+    const { allTableRegions } = await import('../../src/lib/tableEdit');
+    const { parseSettings } = await import('../../src/lib/settings');
+
+    // --- none / one / many, exact offsets, order ----------------------------
+    expect(allTableRegions('no tables\nhere at all')).toEqual([]);
+    const one = 'x\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\ny';
+    const r1 = allTableRegions(one);
+    expect(r1).toHaveLength(1);
+    expect(one.slice(r1[0].start, r1[0].end)).toBe('| a | b |\n| --- | --- |\n| 1 | 2 |');
+    const two = `${one}\n\n| c |\n| --- |\n| 3 |\n\ntail`;
+    const r2 = allTableRegions(two);
+    expect(r2).toHaveLength(2);
+    expect(two.slice(r2[1].start, r2[1].end)).toBe('| c |\n| --- |\n| 3 |');
+    expect(r2[0].start).toBeLessThan(r2[1].start); // document order
+
+    // Non-tables are skipped (pipes without a delimiter row).
+    expect(allTableRegions('a | b\njust pipes\nmore | pipes')).toEqual([]);
+    // Adjacent pipe paragraphs merge into the region per the SPEC36 scan.
+    const zeroRow = '| h |\n| --- |';
+    const rz = allTableRegions(zeroRow);
+    expect(rz).toHaveLength(1);
+    expect(zeroRow.slice(rz[0].start, rz[0].end)).toBe(zeroRow);
+
+    // --- the setting: default true, per-key fallback ------------------------
+    expect(parseSettings('{}').tableGridView).toBe(true);
+    expect(parseSettings('{"tableGridView":false}').tableGridView).toBe(false);
+    expect(parseSettings('{"tableGridView":"nope"}').tableGridView).toBe(true);
+  });
+});

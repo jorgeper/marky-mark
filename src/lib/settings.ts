@@ -52,6 +52,8 @@ export interface Settings {
   imageNamePattern: string;
   /** SPEC23 §3: markdown syntax highlighting in the editor (on by default). */
   editorSyntax: boolean;
+  /** SPEC40 §1: show ALL tables as fitted grids in the editor (default on). */
+  tableGridView: boolean;
   /** SPEC26 §3: show the front-matter card by default when a doc has one. */
   showFrontmatter: boolean;
   /** SPEC30 §2: reopen the most recent document at launch. */
@@ -86,6 +88,7 @@ export const DEFAULT_SETTINGS: Settings = {
   imageFolder: 'images',
   imageNamePattern: '{doc} {n}',
   editorSyntax: true,
+  tableGridView: true,
   showFrontmatter: true,
   reopenLastDoc: true,
   showFolders: false,
@@ -164,6 +167,7 @@ export function parseSettings(json: string): Settings {
         ? o.imageNamePattern
         : DEFAULT_SETTINGS.imageNamePattern,
     editorSyntax: typeof o.editorSyntax === 'boolean' ? o.editorSyntax : DEFAULT_SETTINGS.editorSyntax,
+    tableGridView: typeof o.tableGridView === 'boolean' ? o.tableGridView : DEFAULT_SETTINGS.tableGridView,
     showFrontmatter: typeof o.showFrontmatter === 'boolean' ? o.showFrontmatter : DEFAULT_SETTINGS.showFrontmatter,
     reopenLastDoc: typeof o.reopenLastDoc === 'boolean' ? o.reopenLastDoc : DEFAULT_SETTINGS.reopenLastDoc,
     showFolders: o.showFolders === true,

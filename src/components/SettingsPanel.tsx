@@ -478,6 +478,20 @@ export function SettingsPanel({
         </label>
       </div>
 
+      <h3 className="tab-section">Tables</h3>
+      <div className="checkbox-row">
+        <input
+          id="settings-table-grid"
+          type="checkbox"
+          data-testid="settings-table-grid"
+          checked={settings.tableGridView}
+          onChange={(e) => onChange({ ...settings, tableGridView: e.target.checked })}
+        />
+        <label htmlFor="settings-table-grid" style={{ margin: 0, fontWeight: 400 }}>
+          Show tables as grids in the editor
+        </label>
+      </div>
+
       <h3 className="tab-section">Images</h3>
       <div className="field">
         <label htmlFor="image-folder">Folder for pasted images (created next to the document)</label>

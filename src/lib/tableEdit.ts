@@ -856,3 +856,27 @@ export function displayCellBounds(
     contentEnd: c.contentEnd,
   };
 }
+
+/**
+ * SPEC40 §4: every top-level GFM table region in document order — the
+ * tableRegionAt scan, exhaustively.
+ */
+export function allTableRegions(text: string): Region[] {
+  const lines = text.split('\n');
+  const starts: number[] = [];
+  let pos = 0;
+  for (const l of lines) {
+    starts.push(pos);
+    pos += l.length + 1;
+  }
+  const out: Region[] = [];
+  for (let i = 0; i + 1 < lines.length; i++) {
+    if (!lines[i].includes('|')) continue;
+    if (!(DELIM.test(lines[i + 1]) && lines[i + 1].includes('-') && lines[i + 1].includes('|'))) continue;
+    let j = i + 1;
+    while (j + 1 < lines.length && lines[j + 1].includes('|')) j++;
+    out.push({ start: starts[i], end: starts[j] + lines[j].length });
+    i = j;
+  }
+  return out;
+}
