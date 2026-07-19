@@ -1,25 +1,45 @@
 import { EditorState, StateEffect, StateField, Transaction, Prec, RangeSetBuilder } from '@codemirror/state';
 import { Decoration, EditorView } from '@codemirror/view';
-import { normalizeWithCursor, tableRegionAt } from '../lib/tableEdit';
+import { isolateHistory } from '@codemirror/commands';
+import {
+  cellAt,
+  cellContentSpan,
+  displayCellAt,
+  displayPosOf,
+  displayRoundTrips,
+  layoutTable,
+  parseDisplay,
+  parseTable,
+  serializeCompactTable,
+  type Region,
+} from '../lib/tableEdit';
 
 /**
- * SPEC37 §3: aligned table mode — pure CodeMirror. The mode is a StateField
- * holding the table's span (tracked precisely through every transaction via
- * changeset position mapping), a transactionFilter that FOLDS re-alignment
- * into any user transaction touching the span (one undo step for the edit
- * and its re-pad together), line decorations for the grid wash, and an Esc
- * handler that must be registered AHEAD of the vim layer.
+ * SPEC38 §3: the transient wrapped-grid mode — pure CodeMirror. The buffer
+ * holds the bordered display grid ONLY while the mode is active; every
+ * deliberate exit collapses it back to the compact canonical table, and the
+ * canonical view (canonicalizeDisplay) keeps the grid out of every artifact
+ * that leaves the editor. The StateField tracks {span, width}; the
+ * transactionFilter folds re-layout into user edits; the round-trip guard
+ * (§2.4) is what makes resynchronization after undo/redo/foreign changes
+ * safe — a state that isn't a byte-exact layout output exits the mode.
  */
 
-export const setTableMode = StateEffect.define<{ from: number; to: number } | null>();
+export interface TableModeSpan {
+  from: number;
+  to: number;
+  width: number;
+}
 
-export const tableModeField = StateField.define<{ from: number; to: number } | null>({
+export const setTableMode = StateEffect.define<TableModeSpan | null>();
+
+export const tableModeField = StateField.define<TableModeSpan | null>({
   create: () => null,
   update(value, tr) {
     if (value && tr.docChanged) {
       const from = tr.changes.mapPos(value.from, -1);
       const to = tr.changes.mapPos(value.to, 1);
-      value = from < to ? { from, to } : null;
+      value = from < to ? { from, to, width: value.width } : null;
     }
     // Explicit effects win over mapping (they carry final coordinates).
     for (const e of tr.effects) if (e.is(setTableMode)) value = e.value;
@@ -27,7 +47,7 @@ export const tableModeField = StateField.define<{ from: number; to: number } | n
   },
 });
 
-/** §3.4: every table line carries the grid wash while the mode is on. */
+/** §3: the grid wash on every display line while the mode is on. */
 const tableModeDecos = EditorView.decorations.compute([tableModeField, 'doc'], (state) => {
   const span = state.field(tableModeField);
   if (!span) return Decoration.none;
@@ -42,15 +62,16 @@ const tableModeDecos = EditorView.decorations.compute([tableModeField, 'doc'], (
 });
 
 /**
- * §3.3: the live-alignment filter. Skips history transactions (undo must
- * revert, never be re-fought) and IME composition (catches up on the first
- * post-composition transaction). When the table broke, the change passes
- * untouched and the watcher below exits the mode.
+ * §3.2: the live re-layout filter. Skips our own entry/exit/op transactions
+ * (they carry the mode effect), history transactions, and IME composition.
+ * The pre-edit region must pass the round-trip guard — otherwise the change
+ * passes untouched and the watcher exits the mode.
  */
 const alignFilter = EditorState.transactionFilter.of((tr) => {
   if (!tr.docChanged) return tr;
   const span = tr.startState.field(tableModeField, false);
   if (!span) return tr;
+  if (tr.effects.some((e) => e.is(setTableMode))) return tr;
   const ue = tr.annotation(Transaction.userEvent);
   if (ue && (ue.startsWith('undo') || ue.startsWith('redo'))) return tr;
   if (ue && ue.startsWith('input.type.compose')) return tr;
@@ -60,66 +81,144 @@ const alignFilter = EditorState.transactionFilter.of((tr) => {
   });
   if (!touches) return tr;
 
+  const preText = tr.startState.doc.toString();
+  if (!displayRoundTrips(preText, { start: span.from, end: span.to }, span.width)) return tr;
+
   const from = tr.changes.mapPos(span.from, -1);
   const to = tr.changes.mapPos(span.to, 1);
   const text = tr.newDoc.toString();
-  const region = tableRegionAt(text, Math.min(from, text.length));
-  if (!region || region.start > to || region.end < from) return tr; // broke — watcher exits
+  const region: Region = { start: from, end: to };
+  const parsed = parseDisplay(text, region);
+  if (!parsed) return tr; // grammar broken — the watcher exits
 
-  const n = normalizeWithCursor(text, region, tr.newSelection.main.head);
-  if (n.text === text) {
-    // Already aligned; just snap the span to the region exactly.
-    return [tr, { effects: setTableMode.of({ from: region.start, to: region.end }) }];
+  const l = layoutTable(parsed.model, span.width);
+  if (text.slice(from, to) === l.text) {
+    return [tr, { effects: setTableMode.of({ from, to, width: span.width }) }];
   }
+  const head = tr.newSelection.main.head;
+  const loc = displayCellAt(text, region, parsed, head);
+  const newHead = loc
+    ? from + displayPosOf(l.map, loc)
+    : Math.min(head, from + l.text.length);
   return [
     tr,
     {
-      changes: { from: region.start, to: region.end, insert: n.text.slice(n.start, n.end) },
-      selection: { anchor: n.head },
-      effects: setTableMode.of({ from: n.start, to: n.end }),
+      changes: { from, to, insert: l.text },
+      selection: { anchor: newHead },
+      effects: setTableMode.of({ from, to: from + l.text.length, width: span.width }),
       sequential: true,
     },
   ];
 });
 
-/** §3.5: the region ceasing to parse as a table exits the mode. */
+/** §3.3: resync — any foreign state that fails the guard exits the mode. */
 const tableModeWatcher = EditorView.updateListener.of((u) => {
   if (!u.docChanged) return;
   const span = u.state.field(tableModeField);
   if (!span) return;
-  const text = u.state.doc.toString();
-  const region = tableRegionAt(text, Math.min(span.from, text.length));
-  if (region && region.start <= span.to && region.end >= span.from) return;
+  if (u.transactions.some((t) => t.effects.some((e) => e.is(setTableMode)))) return;
+  if (displayRoundTrips(u.state.doc.toString(), { start: span.from, end: span.to }, span.width)) return;
   // Dispatching from a listener needs its own tick; re-check state then.
   setTimeout(() => {
     const s2 = u.view.state.field(tableModeField);
     if (!s2) return;
-    const t2 = u.view.state.doc.toString();
-    const r2 = tableRegionAt(t2, Math.min(s2.from, t2.length));
-    if (!r2 || r2.start > s2.to || r2.end < s2.from) {
+    if (!displayRoundTrips(u.view.state.doc.toString(), { start: s2.from, end: s2.to }, s2.width)) {
       u.view.dispatch({ effects: setTableMode.of(null) });
     }
   }, 0);
 });
 
+/** §3.1: the width budget in character columns, measured at entry.
+ * clientWidth includes the content element's side paddings (SPEC6 geometry)
+ * — subtract them, or near-budget lines soft-wrap and shred the grid. */
+function measureWidthBudget(view: EditorView): number {
+  const el = view.contentDOM;
+  const cs = window.getComputedStyle(el);
+  const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  const px = (el.clientWidth || 640) - pad;
+  const cw = view.defaultCharacterWidth || 8;
+  return Math.max(40, Math.floor(px / cw) - 2);
+}
+
+/** §3.1: enter the mode on a GFM table region — one history event. */
+export function enterTableMode(view: EditorView, region: Region): void {
+  const text = view.state.doc.toString();
+  const model = parseTable(text, region);
+  const width = measureWidthBudget(view);
+  const l = layoutTable(model, width);
+  const head = view.state.selection.main.head;
+  const c = cellAt(text, region, head);
+  let anchor = region.start;
+  if (c) {
+    const co = Math.max(0, Math.min(head - c.contentStart, c.contentEnd - c.contentStart));
+    anchor = region.start + displayPosOf(l.map, { row: c.row, col: c.col, contentOffset: co });
+  }
+  view.dispatch({
+    changes: { from: region.start, to: region.end, insert: l.text },
+    selection: { anchor },
+    effects: setTableMode.of({ from: region.start, to: region.start + l.text.length, width }),
+    annotations: isolateHistory.of('full'),
+    scrollIntoView: true,
+  });
+}
+
 /**
- * §3.5: Esc exits the mode. A Prec.highest DOM handler — the Editor
- * registers this BEFORE the vim layer's own Prec.highest handler, so with
- * vimNav on the FIRST Esc leaves table mode and the next one enters nav.
+ * §3.4: a deliberate exit — collapse the display to the compact canonical
+ * table (one history event, cursor kept at its logical cell) and clear the
+ * field. An unparseable display just clears the field (the §3.3 fail path
+ * already left honest text).
  */
+export function exitTableMode(view: EditorView): void {
+  const span = view.state.field(tableModeField, false);
+  if (!span) return;
+  const text = view.state.doc.toString();
+  const region: Region = { start: span.from, end: span.to };
+  const parsed = parseDisplay(text, region);
+  if (!parsed) {
+    view.dispatch({ effects: setTableMode.of(null) });
+    return;
+  }
+  const compact = serializeCompactTable(parsed.model);
+  const head = view.state.selection.main.head;
+  const loc = displayCellAt(text, region, parsed, head);
+  let anchor = Math.min(head, span.from + compact.length);
+  if (loc) {
+    const full = text.slice(0, span.from) + compact + text.slice(span.to);
+    const cs = cellContentSpan(full, { start: span.from, end: span.from + compact.length }, loc.row, loc.col);
+    if (cs) anchor = Math.min(cs.start + loc.contentOffset, cs.end);
+  }
+  view.dispatch({
+    changes: { from: span.from, to: span.to, insert: compact },
+    selection: { anchor },
+    effects: setTableMode.of(null),
+    annotations: isolateHistory.of('full'),
+  });
+}
+
+/** §3.5: the canonical view — the display region collapsed, or `text` as-is. */
+export function canonicalizeDisplay(text: string, span: TableModeSpan): string {
+  const region: Region = { start: span.from, end: span.to };
+  if (span.to > text.length) return text;
+  const parsed = parseDisplay(text, region);
+  if (!parsed) return text;
+  return text.slice(0, span.from) + serializeCompactTable(parsed.model) + text.slice(span.to);
+}
+
+/** §3.4: Esc exits (registered AHEAD of the vim layer — first Esc leaves
+ * table mode, the next one enters nav). */
 const tableModeEsc = Prec.highest(
   EditorView.domEventHandlers({
     keydown: (e, view) => {
       if (e.key !== 'Escape' || e.isComposing) return false;
       if (!view.state.field(tableModeField)) return false;
       e.preventDefault();
-      view.dispatch({ effects: setTableMode.of(null) });
+      exitTableMode(view);
       return true;
     },
   })
 );
 
-/** The full aligned-table-mode bundle (register ahead of the vim layer). */
+/** The full mode bundle (register ahead of the vim layer). */
 export function tableModeExtension() {
   return [tableModeField, tableModeDecos, alignFilter, tableModeWatcher, tableModeEsc];
 }

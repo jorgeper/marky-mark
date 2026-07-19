@@ -202,7 +202,11 @@ export default function App() {
   /** Source line carried across mode switches (line-anchored, not ratio). */
   const pendingScrollLineRef = useRef<number | null>(null);
 
-  const dirty = buffer !== savedText;
+  // SPEC38 §3.5: the table-mode display grid never escapes the editor —
+  // every place the buffer is compared or shipped uses the canonical
+  // (collapsed) text. Identity whenever the mode is off.
+  const canonicalOf = useCallback((t: string) => smartEditRef.current?.canonicalText(t) ?? t, []);
+  const dirty = canonicalOf(buffer) !== savedText;
   // SPEC26: display-parsed front matter for the card (null ⇒ none).
   const frontMatter = useMemo(() => ((docPath || untitled) ? parseFrontMatter(buffer) : null), [buffer, docPath, untitled]);
   const showFrontmatter = fmOverride ?? settings.showFrontmatter;
@@ -1230,7 +1234,8 @@ export default function App() {
     if (!p || !p.saveFileDialog || (!s.docPath && !s.untitled)) return false;
     const target = await p.saveFileDialog(s.docPath ? p.basename(s.docPath) : 'Untitled.md');
     if (!target) return false;
-    const text = s.settings.commentStorage === 'embedded' ? attachEmbedded(s.buffer, s.comments) : s.buffer;
+    const out = canonicalOf(s.buffer); // SPEC38 §3.5
+    const text = s.settings.commentStorage === 'embedded' ? attachEmbedded(out, s.comments) : out;
     await p.writeTextFile(target, text);
     if (s.settings.commentStorage === 'sidecar' && s.comments.length > 0) {
       await p.writeTextFile(sidecarPathFor(target), serializeSidecar(s.comments));
@@ -1246,11 +1251,13 @@ export default function App() {
     if (!s.platform) return false;
     // SPEC22 §2.2: ⌘S on an untitled buffer is Save As….
     if (!s.docPath) return s.untitled ? saveDocAs() : false;
-    const text =
-      s.settings.commentStorage === 'embedded' ? attachEmbedded(s.buffer, s.comments) : s.buffer;
+    // SPEC38 §3.5: mid-table-mode saves write the COMPACT table; the mode
+    // itself stays on (savedText mirrors what landed on disk).
+    const out = canonicalOf(s.buffer);
+    const text = s.settings.commentStorage === 'embedded' ? attachEmbedded(out, s.comments) : out;
     await s.platform.writeTextFile(s.docPath, text);
     await s.platform.commitFile?.(s.docPath); // web download fallback for handle-less files
-    setSavedText(s.buffer);
+    setSavedText(out);
     if (s.settings.commentStorage === 'sidecar') {
       // Completes an embedded→sidecar migration: the plain write above
       // stripped the trailer; make sure the sidecar holds the comments.
@@ -1813,9 +1820,9 @@ export default function App() {
       setDiff(null);
       return;
     }
-    const t = setTimeout(() => setDiff(diffLineSets(savedText, buffer)), 200);
+    const t = setTimeout(() => setDiff(diffLineSets(savedText, canonicalOf(buffer))), 200);
     return () => clearTimeout(t);
-  }, [showDiff, mode, buffer, savedText]);
+  }, [showDiff, mode, buffer, savedText, canonicalOf]);
 
   // --- SPEC16 §5: word-count chip (selection-aware in preview) ------------------
   useEffect(() => {
@@ -1848,7 +1855,8 @@ export default function App() {
       const s = stateRef.current;
       const pf = s.platform;
       if (!s.dirty || !pf) return;
-      const draft: Draft = { version: 1, docPath: s.docPath, content: s.buffer, at: new Date().toISOString() };
+      // SPEC38 §3.5: drafts shadow-save the canonical text, never the grid.
+      const draft: Draft = { version: 1, docPath: s.docPath, content: canonicalOf(s.buffer), at: new Date().toISOString() };
       void (async () => {
         try {
           await pf.writeTextFile(pf.join(await pf.configDir(), 'draft.json'), serializeDraft(draft));
@@ -2018,7 +2026,9 @@ export default function App() {
     if (mode !== 'preview' && !settings.splitEdit) return;
     let cancelled = false;
     const render = () =>
-      void renderMarkdown(buffer).then((rendered) => {
+      // SPEC38 §3.5: the preview renders the canonical text — a real table,
+      // never the display grid.
+      void renderMarkdown(canonicalOf(buffer)).then((rendered) => {
         if (cancelled) return;
         renderPendingRef.current = false; // fresh html — restores may consume
         setHtml(rendered);

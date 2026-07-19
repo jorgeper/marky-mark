@@ -3,6 +3,12 @@ import {
   cellAt,
   cellContentSpan,
   deleteCol,
+  displayCellAt,
+  displayPosOf,
+  displayRoundTrips,
+  layoutTable,
+  parseDisplay,
+  serializeCompactTable,
   deleteRow,
   deleteTableAt,
   escapeCell,
@@ -207,5 +213,127 @@ describe('SPEC37 table edit', () => {
     const nc3 = normalizeWithCursor(norm.text, region, inA);
     expect(nc3.text).toBe(norm.text);
     expect(nc3.head).toBe(inA);
+  });
+});
+
+describe('SPEC38 transient wrapped grid', () => {
+  const M = {
+    header: ['Name', 'Description'],
+    align: [null, 'center'] as const,
+    rows: [
+      ['a', 'short'],
+      ['b', 'a rather long description that will need wrapping to fit'],
+    ],
+  } as { header: string[]; align: Array<'left' | 'center' | 'right' | null>; rows: string[][] };
+
+  test('U70: layout engine — widths, wrapping, separators, map', () => {
+    // --- natural widths when the budget is generous -------------------------
+    const wide = layoutTable(M, 200);
+    const wideLines = wide.text.split('\n');
+    expect(wideLines).toHaveLength(5); // header, align-sep, row, sep, row
+    expect(new Set(wideLines.map((l) => l.length)).size).toBe(1); // all aligned
+    expect(wideLines[1]).toMatch(/^\| -+ \| :-+: \|$/); // alignment on the FIRST separator
+    expect(wideLines[3]).toMatch(/^\| -+ \| -+ \|$/); // later separators plain
+    expect(wideLines[2]).toContain('| a');
+    expect(wide.text).toContain('a rather long description that will need wrapping to fit');
+
+    // --- shrink widest-first to the budget; long content wraps ---------------
+    const narrow = layoutTable(M, 40);
+    const nLines = narrow.text.split('\n');
+    for (const l of nLines) expect(l.length).toBeLessThanOrEqual(40);
+    expect(new Set(nLines.map((l) => l.length)).size).toBe(1); // grid stays square
+    expect(nLines.length).toBeGreaterThan(5); // continuation lines appeared
+    // Content is intact across fragments (joined back with single spaces).
+    const parsed = parseDisplay(narrow.text, { start: 0, end: narrow.text.length })!;
+    expect(parsed.model.rows[1][1]).toBe('a rather long description that will need wrapping to fit');
+    expect(parsed.model.align).toEqual([null, 'center']);
+
+    // --- the 8-char floor: never squeezed below it (unless natural is less) --
+    const tight = layoutTable(M, 10);
+    const tParsed = parseDisplay(tight.text, { start: 0, end: tight.text.length })!;
+    expect(tParsed.model.rows[1][1]).toBe('a rather long description that will need wrapping to fit');
+    const tWidths = tight.map.widths;
+    for (const w of tWidths) expect(w).toBeGreaterThanOrEqual(4); // 'Name' natural = 4
+    expect(Math.max(...tWidths)).toBeGreaterThanOrEqual(8); // floor for the long column
+
+    // --- hard-break of an over-long word ------------------------------------
+    const longWord = layoutTable(
+      { header: ['h'], align: [null], rows: [['Supercalifragilisticexpialidocious']] },
+      20
+    );
+    const lwParsed = parseDisplay(longWord.text, { start: 0, end: longWord.text.length })!;
+    // Hard-break pieces carry the continuation marker and rejoin LOSSLESSLY.
+    expect(longWord.text).toContain('↩');
+    expect(lwParsed.model.rows[0][0]).toBe('Supercalifragilisticexpialidocious');
+
+    // --- whitespace normalization -------------------------------------------
+    const messy = layoutTable({ header: ['h'], align: [null], rows: [['a   b\tc']] }, 60);
+    const mParsed = parseDisplay(messy.text, { start: 0, end: messy.text.length })!;
+    expect(mParsed.model.rows[0][0]).toBe('a b c');
+
+    // --- the map: displayCellAt over fragments, displayPosOf inverse --------
+    const region = { start: 0, end: narrow.text.length };
+    for (const f of narrow.map.fragments) {
+      const mid = f.from + Math.floor(f.length / 2);
+      const loc = displayCellAt(narrow.text, region, parsed, mid)!;
+      expect(loc.row).toBe(f.row);
+      expect(loc.col).toBe(f.col);
+      expect(loc.contentOffset).toBe(f.contentOffset + Math.floor(f.length / 2));
+      // Inverse: displayPosOf lands back on the same spot.
+      expect(displayPosOf(narrow.map, loc)).toBe(mid);
+    }
+    // Padding clamps to the fragment's end.
+    const frag0 = narrow.map.fragments.find((f) => f.row === -1 && f.col === 0)!;
+    const inPad = displayCellAt(narrow.text, region, parsed, frag0.to + 1)!;
+    expect(inPad.col).toBe(0);
+  });
+
+  test('U71: display grammar — round-trips, the guard, collapse', () => {
+    // --- parse(layout(m)) round-trips for varied models ----------------------
+    const models = [
+      M,
+      { header: ['only'], align: [null] as Array<null>, rows: [] as string[][] },
+      { header: ['a\\|b', 'c'], align: ['left', 'right'] as Array<'left' | 'right'>, rows: [['x\\|y', ''], ['', 'z']] },
+      { header: ['e', 'f', 'g'], align: [null, null, null] as Array<null>, rows: [['', '', '']] },
+    ];
+    for (const m of models) {
+      for (const width of [24, 60, 200]) {
+        const l = layoutTable(m, width);
+        const region = { start: 0, end: l.text.length };
+        const p = parseDisplay(l.text, region);
+        expect(p, JSON.stringify(m)).not.toBeNull();
+        expect(p!.model.header).toEqual(m.header.map((h) => h.split(/\s+/).join(' ')));
+        expect(p!.model.rows).toEqual(m.rows.map((r) => r.map((c) => c.split(/\s+/).join(' '))));
+        // The guard accepts every genuine layout…
+        expect(displayRoundTrips(l.text, region, width)).toBe(true);
+        // …and collapse-of-parse equals compact-of-model.
+        expect(serializeCompactTable(p!.model)).toBe(serializeCompactTable(p!.model));
+      }
+    }
+
+    // --- the guard REJECTS a plain GFM table (rows would merge) -------------
+    const plain = '| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |';
+    expect(displayRoundTrips(plain, { start: 0, end: plain.length }, 60)).toBe(false);
+    // …and perturbed padding.
+    const good = layoutTable(M, 60).text;
+    const perturbed = good.replace('| a', '|  a');
+    expect(displayRoundTrips(perturbed, { start: 0, end: perturbed.length }, 60)).toBe(false);
+
+    // --- grammar violations ⇒ null ------------------------------------------
+    const l = layoutTable(M, 60);
+    const lines = l.text.split('\n');
+    expect(parseDisplay('no pipes here\nat all', { start: 0, end: 20 })).toBeNull();
+    const noSep = [lines[0], lines[2]].join('\n'); // header + row, no separator
+    expect(parseDisplay(noSep, { start: 0, end: noSep.length })).toBeNull();
+    const adjacent = [lines[0], lines[1], lines[3]].join('\n'); // sep right after sep
+    expect(parseDisplay(adjacent, { start: 0, end: adjacent.length })).toBeNull();
+
+    // --- compact serializer --------------------------------------------------
+    expect(serializeCompactTable(M)).toBe(
+      '| Name | Description |\n| --- | :---: |\n| a | short |\n| b | a rather long description that will need wrapping to fit |'
+    );
+    expect(serializeCompactTable({ header: ['x'], align: [null], rows: [['']] })).toBe(
+      '| x |\n| --- |\n|  |'
+    );
   });
 });

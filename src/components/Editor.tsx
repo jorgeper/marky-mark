@@ -53,20 +53,24 @@ import {
 } from '../lib/smartEdit';
 import { SmartEditMenu } from './SmartEditMenu';
 import {
-  cellAt,
   cellContentSpan,
-  deleteCol,
-  deleteRow,
   deleteTableAt,
-  insertCol,
-  insertRow,
+  displayCellAt,
+  displayPosOf,
   insertTableAt,
-  normalizeWithCursor,
-  parseTable,
+  layoutTable,
+  parseDisplay,
   tableRegionAt,
-  type TableEdit,
+  type ColAlign,
 } from '../lib/tableEdit';
-import { setTableMode, tableModeExtension, tableModeField } from './tableMode';
+import {
+  canonicalizeDisplay,
+  enterTableMode,
+  exitTableMode,
+  setTableMode,
+  tableModeExtension,
+  tableModeField,
+} from './tableMode';
 
 /** SPEC36 §5.2: the ops the App's format commands drive (menu ids, same set). */
 export type SmartFormatOp =
@@ -78,6 +82,12 @@ export type SmartFormatOp =
 export interface SmartEditHandle {
   applyFormat(op: SmartFormatOp): void;
   openSmartMenu(): void;
+  /**
+   * SPEC38 §3.5: the canonical view — identity when table mode is off; with
+   * it on, the text with the display region collapsed to the compact table.
+   * Every path where the buffer escapes the editor routes through this.
+   */
+  canonicalText(text: string): string;
 }
 
 /**
@@ -446,33 +456,20 @@ export default function Editor({
     if (r) applySplice(view, r);
   };
 
-  // SPEC37 §2.3/§3.2: Edit Table… toggles aligned table mode. Entry is one
-  // normalizeWithCursor splice (cursor kept in its logical cell).
+  // SPEC38 §2.3/§3: Edit Table… toggles the transient wrapped grid.
   const toggleTableMode = (view: EditorView) => {
-    const text = view.state.doc.toString();
-    const head = view.state.selection.main.head;
-    const region = tableRegionAt(text, head);
-    const cur = view.state.field(tableModeField);
-    if (cur && region && cur.from === region.start) {
-      view.dispatch({ effects: setTableMode.of(null) });
+    if (view.state.field(tableModeField)) {
+      exitTableMode(view);
       return;
     }
-    if (!region) return;
-    const n = normalizeWithCursor(text, region, head);
-    view.dispatch({
-      ...(n.text !== text
-        ? { changes: { from: region.start, to: region.end, insert: n.text.slice(n.start, n.end) } }
-        : {}),
-      selection: { anchor: n.head },
-      effects: setTableMode.of({ from: n.start, to: n.end }),
-      annotations: isolateHistory.of('full'),
-      scrollIntoView: true,
-    });
+    const text = view.state.doc.toString();
+    const region = tableRegionAt(text, view.state.selection.main.head);
+    if (region) enterTableMode(view, region);
   };
 
-  // SPEC37 §4.2: a chip action — one op, one splice, one undo step; the
-  // cursor lands in the inserted column/row's first cell (clamped after a
-  // delete). The result is already aligned, so the live filter stays quiet.
+  // SPEC38 §3.6: a chip action — mutate the parsed display model, re-layout,
+  // one splice, one undo step; the cursor lands in the inserted column/row's
+  // first cell (clamped after a delete).
   const runChipOp = (kind: 'col-left' | 'col-right' | 'col-del' | 'row-above' | 'row-below' | 'row-del') => {
     const view = viewRef.current;
     if (!view) return;
@@ -480,36 +477,40 @@ export default function Editor({
     if (!span) return;
     const text = view.state.doc.toString();
     const region = { start: span.from, end: span.to };
-    const c = cellAt(text, region, view.state.selection.main.head);
-    if (!c) return;
-    const model = parseTable(text, region);
-    let r: TableEdit | null = null;
-    let target: { row: number; col: number } | null = null;
-    if (kind === 'col-left') {
-      r = insertCol(text, model, c.col);
-      target = { row: -1, col: c.col };
-    } else if (kind === 'col-right') {
-      r = insertCol(text, model, c.col + 1);
-      target = { row: -1, col: c.col + 1 };
+    const parsed = parseDisplay(text, region);
+    if (!parsed) return;
+    const loc = displayCellAt(text, region, parsed, view.state.selection.main.head);
+    if (!loc) return;
+    const header = [...parsed.model.header];
+    const align: ColAlign[] = [...parsed.model.align];
+    const rows = parsed.model.rows.map((r) => [...r]);
+    let target: { row: number; col: number };
+    if (kind === 'col-left' || kind === 'col-right') {
+      const at = kind === 'col-left' ? loc.col : loc.col + 1;
+      header.splice(at, 0, '');
+      align.splice(at, 0, null);
+      for (const r of rows) r.splice(at, 0, '');
+      target = { row: -1, col: at };
     } else if (kind === 'col-del') {
-      r = deleteCol(text, model, c.col);
-      target = { row: c.row, col: Math.min(c.col, model.header.length - 2) };
-    } else if (kind === 'row-above') {
-      r = insertRow(text, model, Math.max(c.row, 0));
-      target = { row: Math.max(c.row, 0), col: 0 };
-    } else if (kind === 'row-below') {
-      r = insertRow(text, model, c.row + 1);
-      target = { row: c.row + 1, col: 0 };
+      if (header.length <= 1) return;
+      header.splice(loc.col, 1);
+      align.splice(loc.col, 1);
+      for (const r of rows) r.splice(loc.col, 1);
+      target = { row: loc.row, col: Math.min(loc.col, header.length - 1) };
+    } else if (kind === 'row-above' || kind === 'row-below') {
+      const at = kind === 'row-above' ? Math.max(loc.row, 0) : loc.row + 1;
+      rows.splice(at, 0, header.map(() => ''));
+      target = { row: at, col: 0 };
     } else {
-      r = deleteRow(text, model, c.row);
-      target = { row: Math.min(c.row, model.rows.length - 2), col: c.col };
+      if (loc.row < 0) return;
+      rows.splice(loc.row, 1);
+      target = { row: Math.min(loc.row, rows.length - 1), col: loc.col };
     }
-    if (!r) return;
-    const landing = cellContentSpan(r.text, { start: r.start, end: r.end }, target.row, target.col);
+    const l = layoutTable({ header, align, rows }, span.width);
     view.dispatch({
-      changes: { from: region.start, to: region.end, insert: r.text.slice(r.start, r.end) },
-      selection: { anchor: landing ? landing.start : r.start },
-      effects: setTableMode.of({ from: r.start, to: r.end }),
+      changes: { from: span.from, to: span.to, insert: l.text },
+      selection: { anchor: span.from + displayPosOf(l.map, { ...target, contentOffset: 0 }) },
+      effects: setTableMode.of({ from: span.from, to: span.from + l.text.length, width: span.width }),
       annotations: isolateHistory.of('full'),
       scrollIntoView: true,
     });
@@ -577,13 +578,13 @@ export default function Editor({
     }
     const text = view.state.doc.toString();
     const region = { start: span.from, end: span.to };
-    const c = cellAt(text, region, head);
+    const parsed = parseDisplay(text, region);
+    const c = parsed ? displayCellAt(text, region, parsed, head) : null;
     const hCell = c ? cellContentSpan(text, region, -1, c.col) : null;
-    if (!c || !hCell) {
+    if (!parsed || !c || !hCell) {
       setChips(null);
       return;
     }
-    const model = parseTable(text, region);
     const top = view.coordsAtPos(span.from);
     const left = view.coordsAtPos(hCell.start);
     const right = view.coordsAtPos(hCell.end);
@@ -596,13 +597,13 @@ export default function Editor({
     const hostRect = host.getBoundingClientRect();
     const X = (v: number) => v - hostRect.left;
     const Y = (v: number) => v - hostRect.top;
-    const isHeader = c.row === -1; // the delimiter row maps here too (§4.1)
+    const isHeader = c.row === -1; // header and separator lines map here
     const topY = Y(top.top) - 22;
     setChips({
       colLeft: { x: X(left.left) - 22, y: topY },
       colRight: { x: X(right.right) + 4, y: topY },
       colDel: { x: (X(left.left) + X(right.right)) / 2 - 9, y: topY },
-      colDelDisabled: model.header.length <= 1,
+      colDelDisabled: parsed.model.header.length <= 1,
       rowAbove: isHeader ? null : { x: X(lineCo.left) - 24, y: Y(lineCo.top) - 9 },
       rowBelow: { x: X(lineCo.left) - 24, y: Y(lineCo.bottom) - 9 },
       rowDel: isHeader
@@ -769,6 +770,11 @@ export default function Editor({
           const c = view.coordsAtPos(view.state.selection.main.head);
           openMenuAt(c ? c.left : 80, c ? c.bottom + 4 : 80);
         },
+        // SPEC38 §3.5: the canonical view for everything leaving the editor.
+        canonicalText: (t) => {
+          const span = view.state.field(tableModeField, false);
+          return span ? canonicalizeDisplay(t, span) : t;
+        },
       };
     }
 
@@ -870,6 +876,12 @@ export default function Editor({
     window.addEventListener('resize', onChipScroll);
 
     return () => {
+      // SPEC38 §3.4: unmount is a deliberate exit — collapse BEFORE parking
+      // history / reporting the final buffer, so the grid never escapes.
+      if (view.state.field(tableModeField, false)) {
+        exitTableMode(view);
+        onChangeRef.current(view.state.doc.toString());
+      }
       view.scrollDOM.removeEventListener('scroll', onChipScroll);
       window.removeEventListener('resize', onChipScroll);
       cancelAnimationFrame(chipsRaf.current);

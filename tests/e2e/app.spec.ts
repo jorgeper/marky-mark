@@ -3614,9 +3614,10 @@ test('E102: right-click & context — menu at the pointer, table/image stubs are
   await expect(page.getByTestId('smart-edit-copy')).toBeDisabled();
   await page.keyboard.press('Escape');
 
-  // Cursor in the pipe table — SPEC37 §9 amendment: Edit Table… (in the
-  // Table ▸ flyout) now ENTERS aligned table mode; the buffer changes only
-  // by the normalization padding, and Esc leaves the mode again.
+  // Cursor in the pipe table — SPEC38 §8 amendment: Edit Table… (in the
+  // Table ▸ flyout) enters the transient grid; Esc collapses it back to the
+  // COMPACT table — no padding persists.
+  const beforeTable = await text();
   await editor.locator('.cm-line').filter({ hasText: '| 1 | 2 |' }).click();
   await editor.locator('.cm-line').filter({ hasText: '| 1 | 2 |' }).click({ button: 'right' });
   await page.getByTestId('smart-edit-table').click();
@@ -3627,7 +3628,7 @@ test('E102: right-click & context — menu at the pointer, table/image stubs are
   await expect.poll(text).toContain('| a   | b   |\n| --- | --- |\n| 1   | 2   |');
   await page.keyboard.press('Escape');
   await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(0);
-  const beforeTable = await text(); // the aligned form — padding persists
+  expect(await text()).toBe(beforeTable); // collapsed byte-identically
 
   // Cursor on the image line: Resize Image…, same no-op contract.
   await editor.locator('.cm-line').filter({ hasText: 'pics/x.png' }).click();
@@ -3721,10 +3722,10 @@ test('E103: hotkeys & settings — Smart Edit recorder group, rebind updates men
 });
 
 // ---------------------------------------------------------------------------
-// SPEC37: aligned table editing in the editor pane (E104–E107)
+// SPEC38: the transient wrapped table grid (E104–E109)
 
-/** Enter aligned table mode via Table ▸ Edit Table… with the cursor on `lineText`. */
-async function enterAlignedMode(page: import('@playwright/test').Page, lineText: string): Promise<void> {
+/** Enter table mode via Table ▸ Edit Table… with the cursor on `lineText`. */
+async function enterGridMode(page: import('@playwright/test').Page, lineText: string): Promise<void> {
   const editor = page.getByTestId('editor');
   await editor.locator('.cm-line').filter({ hasText: lineText }).first().click();
   await page.getByTestId('smart-edit-gutter').click();
@@ -3741,16 +3742,17 @@ async function caretInto(page: import('@playwright/test').Page, lineText: string
   for (let i = 0; i < rights; i++) await page.keyboard.press('ArrowRight');
 }
 
-const ALIGNED = '| aaa | b   |\n| --- | --- |\n| 1   | 2   |';
+const COMPACT = '| aaa | b |\n| --- | --- |\n| 1 | 2 |';
+const GRID = '| aaa | b   |\n| --- | --- |\n| 1   | 2   |';
 
-test('E104: aligned mode lifecycle — entry aligns with the cursor kept, one undo step, toggle, Esc-before-vim, padding persists, no split needed', async ({
+test('E104: grid lifecycle — entry pads, exits collapse byte-identically, undo-past-entry exits, menu toggle, Esc-before-vim', async ({
   page,
 }) => {
-  const DOC = 'top\n\n| aaa | b |\n| -- | --- |\n| 1 | 2 |\n\nbottom';
-  await fsWrite(page, '/docs/al104.md', DOC);
-  await page.goto('/#open=/docs/al104.md');
+  const DOC = `top\n\n${COMPACT}\n\nbottom`;
+  await fsWrite(page, '/docs/g104.md', DOC);
+  await page.goto('/#open=/docs/g104.md');
   await expect(page.getByTestId('doc')).toContainText('top');
-  // Full-screen edit — the mode needs no split, and must not flip it on.
+  // Full-screen edit — the mode needs no split.
   await openSettings(page);
   await page.getByTestId('settings-tab-general').click();
   await page.getByTestId('set-split-edit').uncheck();
@@ -3762,44 +3764,38 @@ test('E104: aligned mode lifecycle — entry aligns with the cursor kept, one un
   const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
   const original = await text();
 
-  // Entry aligns the whole table; the wash covers its three lines; still no split.
-  await enterAlignedMode(page, '| 1 | 2 |');
-  await expect.poll(text).toContain(ALIGNED);
+  // Entry: the grid appears (padded, washed), split untouched.
+  await enterGridMode(page, '| 1 | 2 |');
+  await expect.poll(text).toContain(GRID);
   await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(3);
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
-  // The caret stayed inside the table (its logical cell).
-  const head = await page.evaluate(() => window.__mmEdit!.head);
-  const doc1 = await text();
-  expect(head).toBeGreaterThan(doc1.indexOf('| aaa'));
-  expect(head).toBeLessThanOrEqual(doc1.indexOf('| 1   | 2   |') + '| 1   | 2   |'.length);
 
-  // Entry was ONE undo step; redo brings the alignment back; mode survives both.
+  // Undo past the entry: text restores AND the mode exits (guard resync).
   await page.keyboard.press('ControlOrMeta+z');
   expect(await text()).toBe(original);
-  await page.keyboard.press('ControlOrMeta+Shift+z');
-  await expect.poll(text).toContain(ALIGNED);
-  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(3);
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(0);
 
-  // Esc exits; the padding STAYS (real markdown), and survives a save.
+  // Esc is a deliberate exit: collapse back to the COMPACT original.
+  await enterGridMode(page, '| 1 | 2 |');
+  await expect.poll(text).toContain(GRID);
   await page.keyboard.press('Escape');
   await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(0);
-  expect(await text()).toContain(ALIGNED);
-  await page.keyboard.press('Control+s');
-  await expect.poll(() => fsRead(page, '/docs/al104.md')).toContain(ALIGNED);
+  expect(await text()).toBe(original); // byte-identical — nothing persists
 
-  // Edit Table… is a toggle (§2.3): on, then off from the menu.
-  await enterAlignedMode(page, '| 1   | 2   |');
+  // Edit Table… is a toggle: the second invocation collapses too.
+  await enterGridMode(page, '| 1 | 2 |');
   await page.getByTestId('smart-edit-gutter').click();
   await page.getByTestId('smart-edit-table').click();
   await page.getByTestId('smart-edit-edit-table').click();
   await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(0);
+  expect(await text()).toBe(original);
 
-  // §3.5 with vimNav on: the FIRST Esc leaves table mode, the SECOND enters nav.
+  // With vimNav on: the FIRST Esc leaves the mode, the SECOND enters nav.
   await openSettings(page);
   await page.getByTestId('settings-tab-general').click();
   await page.getByTestId('settings-vimnav').check();
   await page.getByTestId('settings-close').click();
-  await enterAlignedMode(page, '| 1   | 2   |');
+  await enterGridMode(page, '| 1 | 2 |');
   await page.keyboard.press('Escape');
   await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(0);
   await expect(page.getByTestId('vim-badge')).toHaveCount(0);
@@ -3807,91 +3803,79 @@ test('E104: aligned mode lifecycle — entry aligns with the cursor kept, one un
   await expect(page.getByTestId('vim-badge')).toBeVisible();
 });
 
-test('E105: live alignment — narrow edits stay local, width growth re-pads all rows in one undo step, shrink follows, breaking the table exits', async ({
+test('E105: live re-flow — narrow edits stay put, growth re-wraps, one undo step, breaking the grammar exits', async ({
   page,
 }) => {
-  const DOC = `top\n\n${ALIGNED}\n\nbottom`;
-  await fsWrite(page, '/docs/al105.md', DOC);
-  await page.goto('/#open=/docs/al105.md');
+  const DOC = `top\n\n${COMPACT}\n\nbottom`;
+  await fsWrite(page, '/docs/g105.md', DOC);
+  await page.goto('/#open=/docs/g105.md');
   await expect(page.getByTestId('doc')).toContainText('top');
   await page.keyboard.press('Control+e');
   const editor = page.getByTestId('editor');
   const content = editor.locator('.cm-content');
   await expect(content).toBeVisible();
   const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
-  await enterAlignedMode(page, '| aaa | b   |');
+  await enterGridMode(page, '| aaa | b');
+  await expect.poll(text).toContain(GRID);
 
-  // Caret right after 'b' in the header (col 1 is 3 wide; 'b' is 1).
+  // Caret right after 'b' in the header; small growth keeps the grid shape.
   await caretInto(page, '| aaa | b   |', 9);
   const before = await text();
-
-  // Typing inside the column's width touches ONLY the edited line.
   await page.keyboard.type('x');
-  const afterX = await text();
-  expect(afterX).toContain('| aaa | bx  |');
-  expect(afterX).toContain('| 1   | 2   |'); // other rows byte-identical
-  expect(afterX).toContain('| --- | --- |');
-
-  // Typing past the width re-pads every row — and the whole burst plus its
-  // re-pads is one undo step back to the pre-typing text.
-  await page.keyboard.type('yz');
-  const grown = await text();
-  expect(grown).toContain('| aaa | bxyz |');
-  expect(grown).toContain('| --- | ---- |');
-  expect(grown).toContain('| 1   | 2    |');
+  const after = await text();
+  expect(after).toContain('| aaa | bx  |');
+  expect(after).toContain('| 1   | 2   |'); // other rows untouched
   await page.keyboard.press('ControlOrMeta+z');
   expect(await text()).toBe(before);
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(3); // mode survives undo
 
-  // Deleting shrinks the column back down.
-  await page.keyboard.type('wide');
-  await expect.poll(text).toContain('| aaa | bwide |');
-  for (let i = 0; i < 4; i++) await page.keyboard.press('Backspace');
-  await expect.poll(text).toContain('| aaa | b   |');
-  expect(await text()).toBe(before);
-
-  // A paste-like insert re-pads too.
-  await page.keyboard.insertText('LONG');
-  await expect.poll(text).toContain('| aaa | bLONG |');
-  await expect.poll(text).toContain('| 1   | 2     |');
+  // A long paste-like insert wraps the cell into continuation lines —
+  // the grid grows DOWN, never sideways; one undo step reverts it all.
+  await caretInto(page, '| aaa | bx  |'.replace('bx', 'b'), 9); // fresh caret after undo
+  await page.keyboard.insertText(
+    'this is a very long description that cannot possibly fit on one grid line in the pane'
+  );
+  await expect.poll(() => editor.locator('.cm-line.mm-table-mode-line').count()).toBeGreaterThan(3);
   await page.keyboard.press('ControlOrMeta+z');
   expect(await text()).toBe(before);
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(3);
 
-  // Breaking the delimiter row exits the mode instead of fighting.
-  await caretInto(page, '| --- | --- |', 0);
+  // Breaking the grammar (mangling the separator) exits, leaving the text.
+  await caretInto(page, '| --- | --- |', 2);
   await page.keyboard.press('Shift+End');
   await page.keyboard.type('broken');
   await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(0);
+  expect(await text()).toContain('| broken');
 });
 
-test('E106: column chips — follow the caret cell, insert left/right with the caret landing in the new cell, delete, 1-column guard', async ({
+test('E106: column chips on the grid — follow the caret, insert with landing, delete, 1-column guard', async ({
   page,
 }) => {
-  const DOC = `top\n\n${ALIGNED}\n\nbottom`;
-  await fsWrite(page, '/docs/al106.md', DOC);
-  await page.goto('/#open=/docs/al106.md');
+  const DOC = `top\n\n${COMPACT}\n\nbottom`;
+  await fsWrite(page, '/docs/g106.md', DOC);
+  await page.goto('/#open=/docs/g106.md');
   await expect(page.getByTestId('doc')).toContainText('top');
   await page.keyboard.press('Control+e');
   const editor = page.getByTestId('editor');
   const content = editor.locator('.cm-content');
   await expect(content).toBeVisible();
   const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
-  await enterAlignedMode(page, '| aaa | b   |');
+  await enterGridMode(page, '| aaa | b');
+  await expect.poll(text).toContain(GRID);
   const before = await text();
 
-  // Chips appear for the caret's cell and reposition when it moves columns.
+  // Chips reposition as the caret crosses columns.
   await caretInto(page, '| aaa | b   |', 3);
   const addLeft = page.getByTestId('table-add-col-left');
   await expect(addLeft).toBeVisible();
-  await page.waitForTimeout(150); // let the raf-batched chip layout settle
+  await page.waitForTimeout(150); // raf-batched chip layout
   const x0 = (await addLeft.boundingBox())!.x;
-  await caretInto(page, '| aaa | b   |', 9); // over to column 1
+  await caretInto(page, '| aaa | b   |', 9);
   await expect.poll(async () => (await addLeft.boundingBox())!.x).toBeGreaterThan(x0);
 
-  // Insert left of column 1: empty column, caret in its (empty) header cell.
+  // Insert left of column 1; the caret lands in the new empty header cell.
   await addLeft.click();
   await expect.poll(text).toContain('| aaa |     | b   |');
-  await expect.poll(text).toContain('| 1   |     | 2   |');
-  // The caret landed in the new empty cell: typing goes straight into it.
   await page.keyboard.type('Z');
   await expect.poll(text).toContain('| aaa | Z   | b   |');
   await page.keyboard.press('ControlOrMeta+z'); // the typed Z
@@ -3905,64 +3889,58 @@ test('E106: column chips — follow the caret cell, insert left/right with the c
   await page.keyboard.press('ControlOrMeta+z');
   expect(await text()).toBe(before);
 
-  // Delete column 1; a single undo restores byte-identically.
+  // Delete column 1; then the last column's delete is refused.
   await caretInto(page, '| aaa | b   |', 9);
   await page.getByTestId('table-del-col').click();
-  await expect.poll(text).toContain('| aaa |');
+  await expect.poll(text).toContain('| aaa |\n| --- |\n| 1   |');
   expect(await text()).not.toContain('| b');
-  // One column left: the delete chip refuses (§1.4 guard).
-  await caretInto(page, '| aaa |', 3);
+  await caretInto(page, '| aaa', 3);
   await expect(page.getByTestId('table-del-col')).toBeDisabled();
   await page.keyboard.press('ControlOrMeta+z');
   expect(await text()).toBe(before);
 });
 
-test('E107: row chips + menu ops — insert above/below, header guards, delete row, Insert Table and Delete Table', async ({
+test('E107: row chips + menu ops — separators between rows, header guards, delete, Insert/Delete Table stay compact', async ({
   page,
 }) => {
-  const DOC = `top\n\n${ALIGNED}\n| 3   | 4   |\n\nbottom line`;
-  await fsWrite(page, '/docs/al107.md', DOC);
-  await page.goto('/#open=/docs/al107.md');
+  const DOC = `top\n\n| aaa | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n\nbottom line`;
+  await fsWrite(page, '/docs/g107.md', DOC);
+  await page.goto('/#open=/docs/g107.md');
   await expect(page.getByTestId('doc')).toContainText('top');
   await page.keyboard.press('Control+e');
   const editor = page.getByTestId('editor');
   const content = editor.locator('.cm-content');
   await expect(content).toBeVisible();
   const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
-  await enterAlignedMode(page, '| 1   | 2   |');
+  await enterGridMode(page, '| 1 | 2 |');
+  // Two body rows ⇒ a plain separator BETWEEN them (the §1.2 grammar).
+  await expect.poll(text).toContain('| 1   | 2   |\n| --- | --- |\n| 3   | 4   |');
   const before = await text();
 
-  // Body row 0: all three row chips; add above lands between delim and | 1 |.
+  // Body row 0: all three row chips; add-above lands an empty row.
   await caretInto(page, '| 1   | 2   |', 3);
   await expect(page.getByTestId('table-add-row-above')).toBeVisible();
-  await expect(page.getByTestId('table-del-row')).toBeVisible();
   await page.getByTestId('table-add-row-above').click();
-  await expect.poll(text).toContain('| --- | --- |\n|     |     |\n| 1');
-  // The caret landed in the new row's first cell: typing goes straight in.
+  await expect.poll(text).toContain('|     |     |\n| --- | --- |\n| 1   | 2   |');
   await page.keyboard.type('Z');
-  await expect.poll(text).toContain('| --- | --- |\n| Z   |     |\n| 1');
-  await page.keyboard.press('ControlOrMeta+z'); // the typed Z
-  await page.keyboard.press('ControlOrMeta+z'); // the row insert
-  expect(await text()).toBe(before);
-
-  // Add below row 1 (| 3 | 4 |).
-  await caretInto(page, '| 3   | 4   |', 3);
-  await page.getByTestId('table-add-row-below').click();
-  await expect.poll(text).toContain('| 3   | 4   |\n|     |     |');
+  await expect.poll(text).toContain('| Z   |     |');
+  await page.keyboard.press('ControlOrMeta+z');
   await page.keyboard.press('ControlOrMeta+z');
   expect(await text()).toBe(before);
 
-  // Header (and delimiter) rows: below-insert only — no above, no delete.
+  // Header row: below-insert only.
   await caretInto(page, '| aaa | b   |', 3);
   await expect(page.getByTestId('table-add-row-above')).toHaveCount(0);
   await expect(page.getByTestId('table-del-row')).toHaveCount(0);
   await page.getByTestId('table-add-row-below').click();
-  await expect.poll(text).toContain('| --- | --- |\n|     |     |\n| 1');
+  await expect.poll(text).toContain('| --- | --- |\n|     |     |\n| --- | --- |\n| 1   | 2   |');
   await page.keyboard.press('ControlOrMeta+z');
   expect(await text()).toBe(before);
+  // A separator line behaves like the header (column ops only).
   await caretInto(page, '| --- | --- |', 3);
   await expect(page.getByTestId('table-add-row-above')).toHaveCount(0);
   await expect(page.getByTestId('table-del-row')).toHaveCount(0);
+  await expect(page.getByTestId('table-add-col-left')).toBeVisible();
 
   // Delete body row 0; one undo restores.
   await caretInto(page, '| 1   | 2   |', 3);
@@ -3971,17 +3949,15 @@ test('E107: row chips + menu ops — insert above/below, header guards, delete r
   await page.keyboard.press('ControlOrMeta+z');
   expect(await text()).toBe(before);
 
-  // Exit; Insert Table drops the starter with 'Column 1' selected (§2.2).
+  // Exit; Insert Table drops the COMPACT starter with 'Column 1' selected.
   await page.keyboard.press('Escape');
-  const outLine = editor.locator('.cm-line').filter({ hasText: 'bottom line' });
-  await outLine.click();
+  await editor.locator('.cm-line').filter({ hasText: 'bottom line' }).click();
   await page.getByTestId('smart-edit-gutter').click();
   await page.getByTestId('smart-edit-table').click();
   await page.getByTestId('smart-edit-insert-table').click();
   await expect(content).toContainText('| Column 1 | Column 2 | Column 3 |');
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('Column 1');
-
-  // Insert Table is disabled inside a table; Delete Table removes it.
+  // Insert is disabled inside a table; Delete Table removes it, undo restores.
   const beforeDelete = await text();
   await page.getByTestId('smart-edit-gutter').click();
   await page.getByTestId('smart-edit-table').click();
@@ -3990,4 +3966,91 @@ test('E107: row chips + menu ops — insert above/below, header guards, delete r
   await expect(content).not.toContainText('| Column 1');
   await page.keyboard.press('ControlOrMeta+z');
   expect(await text()).toBe(beforeDelete);
+});
+
+test('E108: wrapping end-to-end — a too-wide table becomes a fitted grid, every display line one visual line, collapse restores one line per row', async ({
+  page,
+}) => {
+  const LONG =
+    'an extremely long description sentence that could never fit in one grid line because it just keeps going and going with many words';
+  const DOC = `top\n\n| Name | Description |\n| --- | --- |\n| a | ${LONG} |\n\nbottom`;
+  await fsWrite(page, '/docs/g108.md', DOC);
+  await page.goto('/#open=/docs/g108.md');
+  await expect(page.getByTestId('doc')).toContainText('top');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  await expect(content).toBeVisible();
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+  await enterGridMode(page, '| Name');
+
+  // The long cell wrapped into continuation lines…
+  await expect.poll(() => editor.locator('.cm-line.mm-table-mode-line').count()).toBeGreaterThan(3);
+  // …and EVERY display line renders as ONE visual line (no soft-wrap soup):
+  // all table lines share the height of a plain single line.
+  const heights = await page.evaluate(() => {
+    const base = Array.from(document.querySelectorAll('.cm-line')).find(
+      (el) => !el.classList.contains('mm-table-mode-line') && (el.textContent ?? '').trim()
+    )!;
+    const baseH = base.getBoundingClientRect().height;
+    return Array.from(document.querySelectorAll('.cm-line.mm-table-mode-line')).map(
+      (el) => el.getBoundingClientRect().height / baseH
+    );
+  });
+  for (const h of heights) expect(h).toBeLessThan(1.5);
+
+  // Typing inside a wrapped fragment re-flows and stays single-height.
+  await caretInto(page, 'keeps going', 9); // just before 'grid' in the fragment
+  await page.keyboard.type('re');
+  await expect.poll(text).toContain('regrid'); // landed in the cell, grid intact
+  await expect(editor.locator('.cm-line.mm-table-mode-line').first()).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+z');
+
+  // Collapse restores exactly one source line per logical row.
+  await page.keyboard.press('Escape');
+  const after = await text();
+  expect(after).toContain(`| a | ${LONG} |`); // the sentence back on ONE line
+  expect(after).not.toContain('↩');
+});
+
+test('E109: the canonical view — saves write the compact table mid-mode, the preview renders a real table, dirty stays honest', async ({
+  page,
+}) => {
+  const LONG = 'a long wrapped description that will certainly span multiple grid display lines in the editor pane';
+  const DOC = `top\n\n| Name | Description |\n| --- | --- |\n| a | ${LONG} |\n\nbottom`;
+  await fsWrite(page, '/docs/g109.md', DOC);
+  await page.goto('/#open=/docs/g109.md');
+  await expect(page.getByTestId('doc')).toContainText('top');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  await expect(content).toBeVisible();
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+
+  // Enter/exit with no edits: byte-identical buffer, dirty dot OFF.
+  const original = await text();
+  await enterGridMode(page, '| Name');
+  await expect.poll(() => editor.locator('.cm-line.mm-table-mode-line').count()).toBeGreaterThan(3);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0); // canonical == saved
+  await page.keyboard.press('Escape');
+  expect(await text()).toBe(original);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // With the mode ON and a real edit, the dirty dot appears; ⌘S writes the
+  // COMPACT table to disk and clears it — the mode never blinks.
+  await enterGridMode(page, '| Name');
+  await caretInto(page, '| a', 3);
+  await page.keyboard.type('X');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(editor.locator('.cm-line.mm-table-mode-line').first()).toBeVisible(); // still on
+  const saved = (await fsRead(page, '/docs/g109.md'))!;
+  expect(saved).toContain(`| aX | ${LONG} |`); // one line per row, no grid
+  expect(saved).not.toContain('| --- | --- |\n| --- | --- |');
+  expect(saved.split('\n').filter((l) => l.includes('↩')).length).toBe(0);
+
+  // The split preview renders a REAL table from the canonical text.
+  await expect(page.locator('[data-testid="split-preview"] table td').first()).toBeVisible();
+  await expect(page.locator('[data-testid="split-preview"] table')).toContainText('aX');
 });

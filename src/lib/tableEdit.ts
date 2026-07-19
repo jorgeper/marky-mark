@@ -217,9 +217,9 @@ export function setCell(
   return commit(text, { ...m, rows });
 }
 
-/** The Insert Table payload: 3 columns, 2 empty body rows. */
+/** The Insert Table payload: 3 columns, 2 empty body rows (SPEC38: compact). */
 export function starterTable(): string {
-  return serializeTable({
+  return serializeCompactTable({
     header: ['Column 1', 'Column 2', 'Column 3'],
     align: [null, null, null],
     rows: [
@@ -431,4 +431,349 @@ export function normalizeWithCursor(
     if (c) newHead = Math.min(c.contentStart + rel, c.contentEnd);
   }
   return { text: n.text, start: n.start, end: n.end, head: newHead };
+}
+
+// ---------------------------------------------------------------------------
+// SPEC38 §2: the transient wrapped-grid layer.
+
+/** §2.1: the CANONICAL form — one line per row, single-space gutters. */
+export function serializeCompactTable(m: Pick<TableModel, 'header' | 'align' | 'rows'>): string {
+  const line = (cells: string[]) => `| ${cells.join(' | ')} |`;
+  const delim = (a: ColAlign) =>
+    a === 'center' ? ':---:' : a === 'left' ? ':---' : a === 'right' ? '---:' : '---';
+  return [line(m.header), line(m.align.map(delim)), ...m.rows.map(line)].join('\n');
+}
+
+/** One wrapped fragment of a cell's logical content in the display text. */
+export interface DisplayFragment {
+  row: number; // −1 header
+  col: number;
+  frag: number;
+  /** Offset of this fragment into the cell's logical (joined) content. */
+  contentOffset: number;
+  length: number;
+  /** Fragment text span, relative to the display text's start. */
+  from: number;
+  to: number;
+}
+
+export interface DisplayLine {
+  kind: 'cells' | 'separator';
+  /** For cells: the logical row (−1 header). For separators: the row above. */
+  row: number;
+  frag: number;
+  from: number;
+  to: number;
+}
+
+export interface DisplayMap {
+  widths: number[];
+  lines: DisplayLine[];
+  fragments: DisplayFragment[];
+}
+
+/**
+ * The hard-break continuation marker: a fragment ending in it (at full
+ * column width) continues its word on the next line WITHOUT a joining
+ * space. Display-only — the parser strips it, the collapse never sees it.
+ */
+export const HARD_BREAK = '↩';
+
+/** Word-wrap `content` into fragments of at most `width` chars (≥1 each). */
+function wrapContent(content: string, width: number): string[] {
+  const out: string[] = [];
+  let line = '';
+  for (const word of content.split(/\s+/).filter(Boolean)) {
+    let w = word;
+    if (w.length > width) {
+      // Over-long word: hard-break into full-width pieces, each carrying
+      // width−1 content chars plus the continuation marker.
+      if (line) {
+        out.push(line);
+        line = '';
+      }
+      while (w.length > width) {
+        out.push(w.slice(0, width - 1) + HARD_BREAK);
+        w = w.slice(width - 1);
+      }
+      line = w;
+      continue;
+    }
+    if (!line) line = w;
+    else if (line.length + 1 + w.length <= width) line += ` ${w}`;
+    else {
+      out.push(line);
+      line = w;
+    }
+  }
+  if (line || out.length === 0) out.push(line);
+  return out;
+}
+
+/**
+ * §1/§2.2: the bordered grid. Column widths natural, shrunk widest-first to
+ * the width budget (floor 8; if even the floors overflow, the grid may
+ * exceed the budget). Long cell content word-wraps into continuation lines;
+ * separator lines sit between every pair of logical rows, the first carrying
+ * the real alignment markers. Cell whitespace normalizes to single spaces.
+ */
+export function layoutTable(
+  m: Pick<TableModel, 'header' | 'align' | 'rows'>,
+  widthBudget: number
+): { text: string; map: DisplayMap } {
+  const cols = m.header.length;
+  const normalize = (raw: string) => raw.split(/\s+/).filter(Boolean).join(' ');
+  const cells: string[][] = [m.header, ...m.rows].map((r) => r.map(normalize));
+
+  const MIN = 8;
+  const widths = Array.from({ length: cols }, (_, c) =>
+    Math.max(3, ...cells.map((r) => (r[c] ?? '').length))
+  );
+  const overhead = 3 * cols + 1; // '| ' + ' | '× + ' |'
+  const budget = Math.max(cols * 3, widthBudget - overhead);
+  let total = widths.reduce((a, b) => a + b, 0);
+  while (total > budget) {
+    let widest = -1;
+    for (let c = 0; c < cols; c++) {
+      if (widths[c] > MIN && (widest === -1 || widths[c] > widths[widest])) widest = c;
+    }
+    if (widest === -1) break; // all at the floor — graceful overflow
+    widths[widest]--;
+    total--;
+  }
+
+  const lines: string[] = [];
+  const map: DisplayMap = { widths, lines: [], fragments: [] };
+  let pos = 0;
+  const pushLine = (entry: Omit<DisplayLine, 'from' | 'to'>, text: string) => {
+    map.lines.push({ ...entry, from: pos, to: pos + text.length });
+    lines.push(text);
+    pos += text.length + 1;
+  };
+  const delimCell = (a: ColAlign, w: number) => {
+    if (a === 'center') return `:${'-'.repeat(Math.max(1, w - 2))}:`;
+    if (a === 'left') return `:${'-'.repeat(w - 1)}`;
+    if (a === 'right') return `${'-'.repeat(w - 1)}:`;
+    return '-'.repeat(w);
+  };
+  const separator = (row: number, aligned: boolean) =>
+    pushLine(
+      { kind: 'separator', row, frag: 0 },
+      `| ${widths.map((w, c) => (aligned ? delimCell(m.align[c] ?? null, w) : '-'.repeat(w))).join(' | ')} |`
+    );
+
+  const rowBlock = (row: number, raw: string[]) => {
+    const frags = raw.map((cell, c) => wrapContent(cell, widths[c]));
+    const height = Math.max(1, ...frags.map((f) => f.length));
+    for (let k = 0; k < height; k++) {
+      const lineStart = pos;
+      let x = 0;
+      const parts: string[] = [];
+      for (let c = 0; c < cols; c++) {
+        const frag = frags[c][k] ?? '';
+        // '| ' prefix + prior columns (width + ' | ' gutter each).
+        const fragFrom = lineStart + 2 + x;
+        parts.push(frag.padEnd(widths[c]));
+        if (frag) {
+          // Content offset: prior fragments contribute their LOGICAL length
+          // plus a joint space — except hard-break pieces, which continue the
+          // word directly (their marker is display-only).
+          let co = 0;
+          for (let j = 0; j < k; j++) {
+            const prev = frags[c][j] ?? '';
+            if (!prev) continue;
+            const marked = prev.endsWith(HARD_BREAK);
+            co += (marked ? prev.length - 1 : prev.length) + (marked ? 0 : 1);
+          }
+          const isMarked = frag.endsWith(HARD_BREAK);
+          map.fragments.push({
+            row,
+            col: c,
+            frag: k,
+            contentOffset: co,
+            length: isMarked ? frag.length - 1 : frag.length,
+            from: fragFrom,
+            to: fragFrom + frag.length,
+          });
+        }
+        x += widths[c] + 3;
+      }
+      pushLine({ kind: 'cells', row, frag: k }, `| ${parts.join(' | ')} |`);
+    }
+  };
+
+  rowBlock(-1, cells[0]);
+  separator(-1, true);
+  m.rows.forEach((_, i) => {
+    rowBlock(i, cells[i + 1]);
+    if (i < m.rows.length - 1) separator(i, false);
+  });
+
+  return { text: lines.join('\n'), map };
+}
+
+const SEP_CELL = /^:?-+:?$/;
+
+export interface ParsedDisplay {
+  model: TableModel;
+  /** Per physical line of the region, in order. */
+  lineInfo: Array<{ kind: 'cells' | 'separator'; row: number; frag: number }>;
+}
+
+/**
+ * §2.3: the display grammar. Blocks of pipe lines split on separator lines
+ * (every cell `:?-+:?`); block 0 is the header, the FIRST separator carries
+ * the alignment, later blocks are body rows whose lines are per-cell
+ * fragments joined with single spaces. Null on any violation: a pipe-less
+ * line, ragged column counts, adjacent separators, or a dangling separator.
+ */
+export function parseDisplay(text: string, region: Region): ParsedDisplay | null {
+  const lines = regionLines(text, region);
+  if (lines.length < 2) return null;
+  const cellsPerLine: string[][] = [];
+  for (const l of lines) {
+    if (!text.slice(l.start, l.end).includes('|')) return null;
+    cellsPerLine.push(splitRow(text.slice(l.start, l.end)));
+  }
+  const cols = cellsPerLine[0].length;
+  if (cols === 0) return null;
+  if (cellsPerLine.some((c) => c.length !== cols)) return null;
+
+  const lineInfo: ParsedDisplay['lineInfo'] = [];
+  const blocks: number[][] = [[]]; // line indices per block
+  const separators: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const isSep = cellsPerLine[i].every((c) => SEP_CELL.test(c));
+    if (isSep) {
+      if (blocks[blocks.length - 1].length === 0) return null; // adjacent/leading separator
+      separators.push(i);
+      blocks.push([]);
+    } else {
+      blocks[blocks.length - 1].push(i);
+    }
+  }
+  if (separators.length === 0) return null; // no alignment separator
+  // A trailing empty block is legal only for a zero-row table (one separator).
+  if (blocks[blocks.length - 1].length === 0) {
+    if (separators.length !== 1) return null;
+    blocks.pop();
+  }
+
+  const align = cellsPerLine[separators[0]].map(parseAlign);
+  const joinBlock = (blockIdx: number, c: number) => {
+    let out = '';
+    let pendingSpace = false;
+    for (const li of blocks[blockIdx]) {
+      const frag = cellsPerLine[li][c];
+      if (!frag) continue;
+      if (out && pendingSpace) out += ' ';
+      if (frag.endsWith(HARD_BREAK)) {
+        out += frag.slice(0, -1);
+        pendingSpace = false; // the word continues directly
+      } else {
+        out += frag;
+        pendingSpace = true;
+      }
+    }
+    return out;
+  };
+  const header = Array.from({ length: cols }, (_, c) => joinBlock(0, c));
+  const rows = blocks.slice(1).map((_, r) => Array.from({ length: cols }, (_, c) => joinBlock(r + 1, c)));
+
+  // Per-line info: block b holds row b−1 (block 0 = header = row −1);
+  // a separator carries the row of the block ABOVE it.
+  let blockIdx = 0;
+  let fragIdx = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (separators.includes(i)) {
+      lineInfo.push({ kind: 'separator', row: blockIdx - 1, frag: 0 });
+      blockIdx++;
+      fragIdx = 0;
+    } else {
+      lineInfo.push({ kind: 'cells', row: blockIdx - 1, frag: fragIdx });
+      fragIdx++;
+    }
+  }
+
+  return {
+    model: { header, align, rows, start: region.start, end: region.end },
+    lineInfo,
+  };
+}
+
+/** §2.2: which cell holds a display offset — row −1 for header AND separators. */
+export function displayCellAt(
+  text: string,
+  region: Region,
+  parsed: ParsedDisplay,
+  offset: number
+): { row: number; col: number; contentOffset: number } | null {
+  if (offset < region.start || offset > region.end) return null;
+  const lines = regionLines(text, region);
+  let idx = lines.length - 1;
+  for (let i = 0; i < lines.length; i++) {
+    if (offset <= lines[i].end) {
+      idx = i;
+      break;
+    }
+  }
+  const info = parsed.lineInfo[idx];
+  const spans = lineCellSpans(text, lines[idx].start, lines[idx].end);
+  if (!info || !spans.length) return null;
+  let col = spans.findIndex((c) => offset >= c.cellStart && offset <= c.cellEnd);
+  if (col === -1) col = offset < spans[0].cellStart ? 0 : spans.length - 1;
+  if (info.kind === 'separator') return { row: -1, col, contentOffset: 0 };
+  // Prior non-empty fragments of this cell contribute their LOGICAL length —
+  // plus a joint space, except hard-break pieces (marker is display-only).
+  let base = 0;
+  for (let i = 0; i < idx; i++) {
+    if (parsed.lineInfo[i].kind !== 'cells' || parsed.lineInfo[i].row !== info.row) continue;
+    const frag = lineCellSpans(text, lines[i].start, lines[i].end)[col];
+    if (!frag) continue;
+    const len = frag.contentEnd - frag.contentStart;
+    if (len <= 0) continue;
+    const marked = text[frag.contentEnd - 1] === HARD_BREAK;
+    base += (marked ? len - 1 : len) + (marked ? 0 : 1);
+  }
+  const c = spans[col];
+  const hereMarked = c.contentEnd > c.contentStart && text[c.contentEnd - 1] === HARD_BREAK;
+  const logicalLen = c.contentEnd - c.contentStart - (hereMarked ? 1 : 0);
+  const within = Math.max(0, Math.min(offset - c.contentStart, logicalLen));
+  return { row: info.row, col, contentOffset: base + within };
+}
+
+/** §2.2: where a (cell, content-offset) lands in the display (relative offset). */
+export function displayPosOf(
+  map: DisplayMap,
+  loc: { row: number; col: number; contentOffset: number }
+): number {
+  const frags = map.fragments
+    .filter((f) => f.row === loc.row && f.col === loc.col)
+    .sort((a, b) => a.frag - b.frag);
+  if (frags.length === 0) {
+    // Empty cell: land at its content position on the row's first line.
+    const line = map.lines.find((l) => l.kind === 'cells' && l.row === loc.row && l.frag === 0);
+    if (!line) return 0;
+    let x = 2;
+    for (let c = 0; c < loc.col; c++) x += map.widths[c] + 3;
+    return line.from + x;
+  }
+  for (const f of frags) {
+    if (loc.contentOffset <= f.contentOffset + f.length) {
+      return f.from + Math.max(0, loc.contentOffset - f.contentOffset);
+    }
+  }
+  const last = frags[frags.length - 1];
+  return last.to;
+}
+
+/**
+ * §2.4: the round-trip guard — display text is trusted only if parsing and
+ * re-laying-out reproduces it byte-for-byte. A plain GFM table fails (its
+ * body rows would merge), which is what makes resynchronization safe.
+ */
+export function displayRoundTrips(text: string, region: Region, width: number): boolean {
+  const parsed = parseDisplay(text, region);
+  if (!parsed) return false;
+  return layoutTable(parsed.model, width).text === text.slice(region.start, region.end);
 }

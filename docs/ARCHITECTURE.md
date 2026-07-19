@@ -598,40 +598,43 @@ can't break them. Paste rides one new optional seam,
 `__mmClipboard` entry; web: `navigator.clipboard.readText` where the
 browser offers it; absent ⇒ the Paste item is omitted.
 
-## Aligned table editing (SPEC37)
+## Table editing: the transient wrapped grid (SPEC37 + SPEC38)
 
-Table ▸ Edit Table… (smart menu) edits pipe tables as a live character
-grid IN the editor — no preview involvement, no split required. The pure
-model (`src/lib/tableEdit.ts`) round-trips cells as raw markdown
-(`tableRegionAt` — the SPEC36 detection, extracted; `detectContext`
-calls it), serializes the aligned form (columns padded to the widest
-cell), and provides the mode's helpers: `normalizeTable` (null when
-already aligned), `cellAt` (any offset → cell, padding clamps, the
-delimiter row maps to the header level), and `normalizeWithCursor`
-(alignment with the cursor kept at the same logical cell offset).
+Table ▸ Edit Table… (smart menu) edits pipe tables as a **bordered
+character grid in the editor** — a transient display form that exists
+only while the mode is on. Entry lays the table out to fit the pane
+(`layoutTable`: column widths natural, shrunk widest-first to the width
+budget with an 8-char floor; long cell content word-wraps into
+pipe-aligned continuation lines, over-long words hard-break behind a
+display-only `↩` marker; separator lines sit between every logical row,
+the first carrying the real GFM alignment markers). Esc, the menu
+toggle, unmount, or a doc switch collapses it back to the compact
+one-line-per-row form (`serializeCompactTable`) — nothing decorative
+survives.
 
-The mode itself is pure CodeMirror (`src/components/tableMode.ts`): a
-StateField holds the table's span, tracked through every transaction via
-changeset position mapping; a `transactionFilter` FOLDS re-normalization
-into any user transaction touching the span — the buffer is aligned
-after every keystroke, and one undo step reverts the edit and its re-pad
-together (history transactions are skipped so undo is never re-fought;
-IME composition stands down and catches up after). Line decorations
-carry the grid wash. The Esc handler is registered AHEAD of the vim
-layer's — both are Prec.highest keydown handlers, and registration order
-decides: the first Esc leaves table mode, the next enters nav. A broken
-table (delimiter destroyed) exits the mode instead of fighting. The
-padding persists on exit — it is real, valid GFM the renderer ignores,
-so the render pipeline, comment anchors, and the web build are all
-untouched (zero new seams, zero dependencies).
+The grammar is PARSEABLE (`parseDisplay`: blocks split on separator
+lines, fragments join with single spaces, `↩` joins without one), and
+the **round-trip guard** — display text is trusted only if
+parse→layout reproduces it byte-for-byte — is what makes resync safe:
+undo/redo/foreign changes that fail the guard exit the mode (a plain
+GFM table fails it, so undoing past entry can never merge rows). The
+live filter (`tableMode.ts`) folds re-layout into every user edit in
+the same transaction, cursor kept at its logical (cell, content-offset)
+via `displayCellAt`/`displayPosOf` — one undo step per edit, the grid
+re-wrapping as cells grow and shrink; IME composition stands down.
+Entry/exit/chip transactions carry the mode effect and are skipped by
+the filter. Esc registers ahead of the vim layer (first Esc exits the
+mode, the next enters nav). The ⊕/✕ margin chips follow the caret's
+cell off the display map; separators act like the delimiter row.
 
-The chips are overlay UI in `.editor-wrap` (like the vim badge):
-⊕⊕✕ above the caret's column at the table's top border, ⊕⊕✕ on the left
-margin at its row — positioned from `coordsAtPos`, raf-batched behind
-the update listener plus scroll/resize, hidden whenever the caret is
-outside the table. Header and delimiter rows offer below-insert only;
-the last column's delete is disabled (Delete Table is the path); insert
-ops land the caret in the new cell's content, ready to type.
+**The canonical-view rule:** the display form never escapes the
+editor. `SmartEditHandle.canonicalText` collapses the grid, and the App
+routes it through every path where the buffer leaves the pane — the
+split-preview render, save and Save As, the draft shadow-writer, and
+the dirty comparison + diff tint. Saving mid-mode writes the compact
+table without exiting; entering and leaving without edits is
+byte-identical; the render pipeline, comment anchors, seams, and
+dependencies are untouched.
 
 ## Open Recent (SPEC29)
 

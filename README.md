@@ -83,14 +83,16 @@ Either way it's a one-time step — the app opens normally afterwards.
   blockquotes, code blocks, horizontal rules, plus cut/copy/paste. Every
   action has a rebindable hotkey (shown right on the menu) under
   Settings → Hotkeys → Smart Edit, and each one is a single undo step.
-  Put the cursor in a table and Table ▸ Edit Table… snaps the source
-  into a perfectly aligned character grid that STAYS aligned as you
-  type — every pipe lines up, columns breathe wider or narrower with
-  their content, and it's all plain markdown that renders identically
-  everywhere. Little ⊕/✕ chips follow your caret's cell to insert or
-  delete columns and rows; Insert / Delete Table live in the same
-  submenu; every operation is one undo step. Resize Image… from the
-  menu is coming soon (clicking an image in preview already resizes).
+  Put the cursor in a table and Table ▸ Edit Table… turns it into a
+  bordered character grid fitted to your pane — long cells wrap inside
+  their columns, every pipe stays aligned as you type, and little ⊕/✕
+  chips follow your caret's cell to insert or delete columns and rows.
+  The grid is a transient editing view: Esc collapses it back to a
+  clean compact markdown table, and even mid-edit, saves and the
+  preview always see the real table — the grid never touches your
+  file. Insert / Delete Table live in the same submenu; every
+  operation is one undo step. Resize Image… from the menu is coming
+  soon (clicking an image in preview already resizes).
 - **Never lose work** — dirty buffers shadow-save continuously; after a
   crash or force-quit the next launch offers to restore your unsaved
   changes, untitled buffers included.
