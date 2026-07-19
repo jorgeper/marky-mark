@@ -1854,3 +1854,28 @@ mark.hl.ghost {
   background: var(--mm-bg, #ffffff);
   cursor: pointer;
 }
+
+/* --- SPEC41: inline image widgets + resize chips --------------------------- */
+.mm-image-widget {
+  display: inline-block;
+  line-height: 0;
+  vertical-align: text-bottom;
+  cursor: default;
+}
+.mm-image-widget img {
+  display: inline-block;
+  max-width: 100%;
+}
+.mm-image-widget .mm-blocked-remote {
+  line-height: normal;
+}
+/* The image chips share the table-chip circle but carry an empty face. */
+.image-chip[data-testid='image-resize-w'] {
+  cursor: ew-resize;
+}
+.image-chip[data-testid='image-resize-h'] {
+  cursor: ns-resize;
+}
+.image-chip[data-testid='image-resize-wh'] {
+  cursor: nwse-resize;
+}

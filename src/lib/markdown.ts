@@ -42,8 +42,13 @@ const schema: SanitizeSchema = {
 
 const REMOTE_SRC = /^(?:https?:)?\/\//i;
 
+/** SPEC41 §2.1: the edit-pane widget applies the same remote-src test. */
+export function isRemoteSrc(src: string): boolean {
+  return REMOTE_SRC.test(src);
+}
+
 /** Hostname for the placeholder label; tolerant of unparsable URLs. */
-function remoteHost(src: string): string {
+export function remoteHost(src: string): string {
   try {
     return new URL(src.startsWith('//') ? `https:${src}` : src).hostname || 'remote host';
   } catch {

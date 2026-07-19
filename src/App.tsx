@@ -40,7 +40,6 @@ import { relativePath, remapPath, uniqueChildName } from './lib/folderOps';
 import { FolderPanel } from './components/FolderPanel';
 import { countWords } from './lib/wordCount';
 import { expandImageName, extForMime, imageMarkdownRef, sanitizeImageName } from './lib/imagePaste';
-import { applyImageRewrite } from './lib/imageResize';
 import { HeadingPalette, type PaletteHeading } from './components/HeadingPalette';
 import {
   buildAuxInit,
@@ -63,7 +62,6 @@ import type { Theme } from './lib/themes';
 import { applyThemeCss, loadAllThemes } from './themeRuntime';
 import { FIXTURES } from './bundled';
 import { AppBadge, Toolbar } from './components/Toolbar';
-import { ImageResizer, type ImageRewriteRequest } from './components/ImageResizer';
 import { CommentCard } from './components/CommentCard';
 import { SettingsPanel } from './components/SettingsPanel';
 import { AboutDialog } from './components/AboutDialog';
@@ -207,6 +205,22 @@ export default function App() {
     const s = stateRef.current.settings;
     updateSettings({ ...s, tableGridView: !s.tableGridView });
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // SPEC41 §1.2: the Image ▸ toggle and the Settings checkbox flip this.
+  const toggleInlineImages = useCallback(() => {
+    const s = stateRef.current.settings;
+    updateSettings({ ...s, inlineImages: !s.inlineImages });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // SPEC41 §2.1: the edit-pane widgets resolve local srcs through the same
+  // asset seam the preview uses; identity without a platform or saved doc.
+  const resolveEditorImage = useCallback((src: string) => {
+    const s = stateRef.current;
+    const p = s.platform;
+    if (!p?.resolveAssetSrc || !s.docPath) return src;
+    return p.resolveAssetSrc(src, p.dirname(s.docPath));
   }, []);
 
   // SPEC38 §3.5: the table-mode display grid never escapes the editor —
@@ -552,21 +566,6 @@ export default function App() {
     },
     [showNotice]
   );
-
-  /**
-   * SPEC20 §4.2: persist a resize (or a double-click width removal) by
-   * splicing the image's source span in the buffer. Flows through the same
-   * path as typing — dirty dot, ⌘S, autosave-on-toggle, re-render. Returns
-   * the image's new span so the resizer can keep it selected; null = no-op
-   * (removing a width from plain markdown syntax).
-   */
-  const rewriteImage = useCallback((req: ImageRewriteRequest): { start: number; end: number } | null => {
-    const s = stateRef.current;
-    const res = applyImageRewrite(s.buffer, req.start, req.end, req.parts, req.width);
-    if (!res) return null;
-    setBuffer(res.text);
-    return { start: req.start, end: res.newEnd };
-  }, []);
 
   /**
    * SPEC20 follow-up: Insert Image… — pick an image file, copy it into the
@@ -2703,13 +2702,6 @@ export default function App() {
 
       {mode === 'preview' ? (
         <div className="workspace" ref={workspaceRef}>
-          <ImageResizer
-            active={mode === 'preview'}
-            docRef={docRef}
-            workspaceRef={workspaceRef}
-            html={html}
-            onRewrite={rewriteImage}
-          />
           <div className="docwrap">
             {frontMatter && showFrontmatter && (
               <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
@@ -2871,6 +2863,10 @@ export default function App() {
                 smartRef={smartEditRef}
                 tableGridView={settings.tableGridView}
                 onToggleTableGrid={toggleTableGrid}
+                inlineImages={settings.inlineImages}
+                resolveImageSrc={resolveEditorImage}
+                onToggleInlineImages={toggleInlineImages}
+                onInsertImage={() => void insertImage()}
               />
             </Suspense>
           </div>
@@ -2893,13 +2889,6 @@ export default function App() {
               if (ae?.closest('.editor-wrap')) ae.blur();
             }}
           >
-            <ImageResizer
-              active={settings.splitEdit}
-              docRef={splitDocRef}
-              workspaceRef={splitPreviewRef}
-              html={html}
-              onRewrite={rewriteImage}
-            />
             {frontMatter && showFrontmatter && (
               <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
             )}
@@ -2933,6 +2922,10 @@ export default function App() {
               smartRef={smartEditRef}
               tableGridView={settings.tableGridView}
               onToggleTableGrid={toggleTableGrid}
+              inlineImages={settings.inlineImages}
+              resolveImageSrc={resolveEditorImage}
+              onToggleInlineImages={toggleInlineImages}
+              onInsertImage={() => void insertImage()}
             />
           </Suspense>
         </div>

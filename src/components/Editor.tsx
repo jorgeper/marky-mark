@@ -52,6 +52,8 @@ import {
   type SmartMenuEntry,
 } from '../lib/smartEdit';
 import { SmartEditMenu } from './SmartEditMenu';
+import { imageViewExtension, setImageView } from './imageView';
+import { allImageRefs, applyImageRewrite, deleteImageAt, type ImageRef } from '../lib/imageResize';
 import {
   deleteTableAt,
   displayCellAt,
@@ -197,6 +199,14 @@ interface Props {
   tableGridView: boolean;
   /** SPEC40 §1.2: the Table ▸ toggle flips the setting (App persists it). */
   onToggleTableGrid?(): void;
+  /** SPEC41 §1: render ALL images inline (the global view setting). */
+  inlineImages: boolean;
+  /** SPEC41 §2.1: local srcs resolve through the platform asset seam. */
+  resolveImageSrc?: ((src: string) => string) | null;
+  /** SPEC41 §1.2: the Image ▸ toggle flips the setting (App persists it). */
+  onToggleInlineImages?(): void;
+  /** SPEC41 §1.2: Insert Image… dispatches the SPEC20 picker flow. */
+  onInsertImage?(): void;
 }
 
 /**
@@ -350,6 +360,10 @@ export default function Editor({
   smartRef,
   tableGridView,
   onToggleTableGrid,
+  inlineImages,
+  resolveImageSrc,
+  onToggleInlineImages,
+  onInsertImage,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -370,8 +384,22 @@ export default function Editor({
     rowDel: { x: number; y: number } | null;
   } | null>(null);
   const chipsRaf = useRef(0);
-  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid });
-  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid };
+  // SPEC41 §2.2: the selected image widget (chips visible) — overlay state
+  // only; the document never records a selection.
+  const [selectedImage, setSelectedImage] = useState<ImageRef | null>(null);
+  const selectedImageRef = useRef<ImageRef | null>(null);
+  selectedImageRef.current = selectedImage;
+  const [imgChips, setImgChips] = useState<{
+    w: { x: number; y: number };
+    h: { x: number; y: number };
+    wh: { x: number; y: number };
+  } | null>(null);
+  const inlineImagesRef = useRef(inlineImages);
+  inlineImagesRef.current = inlineImages;
+  const resolveImageSrcRef = useRef(resolveImageSrc);
+  resolveImageSrcRef.current = resolveImageSrc;
+  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage });
+  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage };
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const valueRef = useRef(value);
@@ -414,8 +442,9 @@ export default function Editor({
         canPaste: sp.canPaste,
         hotkeys: sp.hotkeys,
         isMac: sp.isMac,
-        // SPEC40 §1.2: the global view state at menu-open.
+        // SPEC40 §1.2 / SPEC41 §1.2: the global view states at menu-open.
         gridView: sp.tableGridView,
+        imageView: sp.inlineImages,
       }),
     });
   };
@@ -536,14 +565,44 @@ export default function Editor({
     if (!view) return;
     const sp = smartPropsRef.current;
     const sel = view.state.selection.main;
-    // SPEC40 §1.2: the global grid/raw toggle (the App flips the setting).
-    // Resize Image… remains the SPEC36 no-op stub.
+    // SPEC40 §1.2 / SPEC41 §1.2: the global view toggles (the App flips the
+    // settings and persists them).
     if (id === 'toggle-grid') {
       sp.onToggleTableGrid?.();
       view.focus();
       return;
     }
+    if (id === 'toggle-images') {
+      sp.onToggleInlineImages?.();
+      view.focus();
+      return;
+    }
+    if (id === 'insert-image') {
+      sp.onInsertImage?.();
+      return;
+    }
+    // SPEC41 §1.3: splice the caret's image reference out — one undo step,
+    // a lone-on-its-line reference takes the line and one blank with it.
+    if (id === 'delete-image') {
+      const text = view.state.doc.toString();
+      const r = deleteImageAt(text, sel.head);
+      if (r) {
+        view.dispatch({
+          changes: { from: r.from, to: r.from + (text.length - r.text.length), insert: '' },
+          selection: { anchor: r.from },
+          annotations: isolateHistory.of('full'),
+        });
+      }
+      view.focus();
+      return;
+    }
+    // SPEC41 §1.3: pointer-free entry to the chips — select the caret's image.
     if (id === 'resize-image') {
+      const ref = allImageRefs(view.state.doc.toString()).find((r) => sel.head >= r.start && sel.head <= r.end);
+      if (ref) {
+        view.dispatch({ selection: { anchor: ref.start } });
+        setSelectedImage(ref);
+      }
       view.focus();
       return;
     }
@@ -648,8 +707,109 @@ export default function Editor({
         : { x: tableLeftX - HALF - 22, y: (rowTopY + rowBottomY) / 2 - HALF },
     });
   };
-  const computeChipsRef = useRef(computeChips);
-  computeChipsRef.current = computeChips;
+  // SPEC41 §3.1: chip geometry from the selected widget's rendered rect —
+  // circles centered ON the right border, bottom border, bottom-right corner.
+  const computeImageChips = () => {
+    const host = hostRef.current;
+    const sel = selectedImageRef.current;
+    if (!host || !sel || !inlineImagesRef.current) {
+      setImgChips(null);
+      return;
+    }
+    const img = host.querySelector(`img[data-ref-start="${sel.start}"]`) as HTMLImageElement | null;
+    if (!img) {
+      setImgChips(null);
+      return;
+    }
+    // Not yet decoded — the rect firms up on load; recompute then.
+    if (!img.complete) img.addEventListener('load', () => scheduleChips(), { once: true });
+    const r = img.getBoundingClientRect();
+    const hostRect = host.getBoundingClientRect();
+    const HALF = 9;
+    const x = (v: number) => v - hostRect.left - HALF;
+    const y = (v: number) => v - hostRect.top - HALF;
+    setImgChips({
+      w: { x: x(r.right), y: y((r.top + r.bottom) / 2) },
+      h: { x: x((r.left + r.right) / 2), y: y(r.bottom) },
+      wh: { x: x(r.right), y: y(r.bottom) },
+    });
+  };
+
+  /** SPEC41 §3.2: persist a release via the SPEC20 rewrite — ONE undo step. */
+  const persistImageSize = (width: number | null, height: number | null) => {
+    const view = viewRef.current;
+    const sel = selectedImageRef.current;
+    if (!view || !sel) return;
+    const text = view.state.doc.toString();
+    const ref = allImageRefs(text).find((r) => r.start === sel.start);
+    if (!ref) return;
+    const parts = { src: ref.src, alt: ref.alt, ...(ref.title ? { title: ref.title } : {}) };
+    const res = applyImageRewrite(text, ref.start, ref.end, parts, width, height);
+    if (!res) return;
+    const insert = res.text.slice(ref.start, res.text.length - (text.length - ref.end));
+    view.dispatch({
+      changes: { from: ref.start, to: ref.end, insert },
+      selection: { anchor: ref.start },
+      annotations: isolateHistory.of('full'),
+    });
+    const next = allImageRefs(view.state.doc.toString()).find((r) => r.start === ref.start);
+    setSelectedImage(next ?? null);
+  };
+
+  const startImageDrag = (mode: 'w' | 'h' | 'wh') => (e: React.PointerEvent) => {
+    const host = hostRef.current;
+    const sel = selectedImageRef.current;
+    if (!host || !sel) return;
+    const img = host.querySelector(`img[data-ref-start="${sel.start}"]`) as HTMLImageElement | null;
+    if (!img) return;
+    e.preventDefault();
+    const r0 = img.getBoundingClientRect();
+    const ratio = r0.height > 0 ? r0.width / r0.height : 1;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) > 2) moved = true;
+      if (!moved) return;
+      let w = r0.width;
+      let h = r0.height;
+      if (mode === 'w') w = Math.max(40, r0.width + (ev.clientX - startX));
+      else if (mode === 'h') h = Math.max(40, r0.height + (ev.clientY - startY));
+      else {
+        // Corner: ratio locked, both dimensions clamped ≥ 40.
+        w = Math.max(40, r0.width + (ev.clientX - startX));
+        h = w / ratio;
+        if (h < 40) {
+          h = 40;
+          w = Math.max(40, h * ratio);
+        }
+      }
+      img.style.width = `${Math.round(w)}px`;
+      img.style.height = `${Math.round(h)}px`;
+      scheduleChips();
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      // A press without a real drag persists nothing (double-click included).
+      if (!moved) return;
+      const r1 = img.getBoundingClientRect();
+      const w = Math.max(40, Math.round(r1.width));
+      const h = Math.max(40, Math.round(r1.height));
+      // §3.2: right freezes the box (width dragged, height current), bottom
+      // mirrors it; corner writes width only — height REMOVED, aspect natural.
+      if (mode === 'wh') persistImageSize(w, null);
+      else persistImageSize(w, h);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  const computeChipsRef = useRef(() => {});
+  computeChipsRef.current = () => {
+    computeChips();
+    computeImageChips();
+  };
   const scheduleChips = () => {
     cancelAnimationFrame(chipsRaf.current);
     chipsRaf.current = requestAnimationFrame(() => computeChipsRef.current());
@@ -671,6 +831,13 @@ export default function Editor({
       // both carry Prec.highest keydown handlers, and the first Esc has to
       // leave table mode before the next one can enter nav (§3.5).
       tableModeExtension(),
+      // SPEC41 §2: the inline image view — pure decoration; after table mode
+      // so the grid-span exclusion can read its field.
+      imageViewExtension({
+        enabled: inlineImagesRef.current,
+        resolve: (src) => (resolveImageSrcRef.current ? resolveImageSrcRef.current(src) : src),
+        onSelect: (ref) => setSelectedImage(ref),
+      }),
       history(),
       highlightActiveLine(),
       // SPEC23 §1: CM-drawn selection so a mirrored range shows while the
@@ -714,6 +881,14 @@ export default function Editor({
         // SPEC37 §4: chips track cursor, edits, geometry, and mode changes
         // (effect-only transactions included) — raf-batched.
         scheduleChips();
+        // SPEC41 §2.2: caret-move or edits clear the widget selection (the
+        // resize release reselects after its own dispatch).
+        {
+          const si = selectedImageRef.current;
+          if (si && (u.docChanged || (u.selectionSet && u.state.selection.main.head !== si.start))) {
+            setSelectedImage(null);
+          }
+        }
         if ((u.selectionSet || u.docChanged) && onEditStateRef.current) {
           const main = u.state.selection.main;
           onEditStateRef.current({
@@ -985,6 +1160,32 @@ export default function Editor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableGridView]);
 
+  // SPEC41 §2.3: flipping the image view is an effect-only dispatch — no
+  // text, no history, no dirty dot, ever.
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: setImageView.of(inlineImages) });
+    if (!inlineImages) setSelectedImage(null);
+  }, [inlineImages]);
+
+  // SPEC41 §2.2: Esc clears the widget selection ahead of everything else.
+  useEffect(() => {
+    if (!selectedImage) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setSelectedImage(null);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [selectedImage]);
+
+  // Selection changes re-aim the chips (the rAF reads the widget's rect).
+  useEffect(() => {
+    scheduleChips();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedImage]);
+
   // SPEC36 §3.3: rebinding smartMenu retitles the gutter button immediately.
   useEffect(() => {
     viewRef.current?.dispatch({
@@ -1110,6 +1311,37 @@ export default function Editor({
               ✕
             </button>
           )}
+        </div>
+      )}
+      {/* SPEC41 §3: the image resize chips — empty-faced circles ON the
+          selected widget's right border, bottom border, and corner. */}
+      {selectedImage && imgChips && (
+        <div className="table-chip-layer" data-testid="image-chip-layer">
+          <button
+            className="table-chip image-chip"
+            data-testid="image-resize-w"
+            style={{ left: imgChips.w.x, top: imgChips.w.y }}
+            title="Resize width"
+            onMouseDown={(e) => e.preventDefault()}
+            onPointerDown={startImageDrag('w')}
+          />
+          <button
+            className="table-chip image-chip"
+            data-testid="image-resize-h"
+            style={{ left: imgChips.h.x, top: imgChips.h.y }}
+            title="Resize height"
+            onMouseDown={(e) => e.preventDefault()}
+            onPointerDown={startImageDrag('h')}
+          />
+          <button
+            className="table-chip image-chip"
+            data-testid="image-resize-wh"
+            style={{ left: imgChips.wh.x, top: imgChips.wh.y }}
+            title="Resize, ratio locked — double-click for natural size"
+            onMouseDown={(e) => e.preventDefault()}
+            onPointerDown={startImageDrag('wh')}
+            onDoubleClick={() => persistImageSize(null, null)}
+          />
         </div>
       )}
     </div>

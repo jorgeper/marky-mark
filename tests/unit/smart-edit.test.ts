@@ -23,6 +23,7 @@ const ctx = (over: Partial<SmartMenuCtx> = {}): SmartMenuCtx => ({
   hotkeys: DEFAULT_HOTKEYS,
   isMac: true,
   gridView: true, // SPEC40 §6 amendment to U64
+  imageView: true, // SPEC41 §8 amendment to U64
   ...over,
 });
 
@@ -40,8 +41,10 @@ describe('SPEC36 smart edit', () => {
     // --- exact section/item order with no context ---------------------------
     // SPEC37 §9 amendment to U64: the contextual section is now the
     // always-present Table submenu; Resize Image… stays contextual.
+    // SPEC41 §8 amendment: the Image submenu sits below Table (always
+    // present); the SPEC36 top-level resize-image stub is gone.
     expect(ids(buildSmartMenu(ctx()))).toEqual([
-      'table',
+      'table', 'image',
       'sep',
       'bold', 'italic', 'strike', 'code', 'link',
       'sep',
@@ -49,9 +52,29 @@ describe('SPEC36 smart edit', () => {
       'sep',
       'cut', 'copy', 'paste',
     ]);
-    expect(ids(buildSmartMenu(ctx({ image: true }))).slice(0, 3)).toEqual([
-      'table', 'resize-image', 'sep',
+    expect(ids(buildSmartMenu(ctx({ image: true })))).not.toContain('resize-image');
+    const imageSub = (c: SmartMenuCtx) =>
+      find(buildSmartMenu(c), 'image').submenu!.map((e) => e !== 'sep' && [e.id, e.enabled]);
+    expect(imageSub(ctx())).toEqual([
+      ['toggle-images', true],
+      ['insert-image', true],
+      ['delete-image', false],
+      ['resize-image', false],
     ]);
+    expect(imageSub(ctx({ image: true }))).toEqual([
+      ['toggle-images', true],
+      ['insert-image', true],
+      ['delete-image', true],
+      ['resize-image', true],
+    ]);
+    const imgOn = find(buildSmartMenu(ctx({ imageView: true })), 'image').submenu!.find(
+      (e) => e !== 'sep' && e.id === 'toggle-images'
+    );
+    expect(imgOn && imgOn !== 'sep' && imgOn.label).toBe('Show Raw Images');
+    const imgOff = find(buildSmartMenu(ctx({ imageView: false })), 'image').submenu!.find(
+      (e) => e !== 'sep' && e.id === 'toggle-images'
+    );
+    expect(imgOff && imgOff !== 'sep' && imgOff.label).toBe('Show Rendered Images');
     // Table submenu children + enabled flags per context.
     const tableSub = (c: SmartMenuCtx) =>
       find(buildSmartMenu(c), 'table').submenu!.map((e) => e !== 'sep' && [e.id, e.enabled]);

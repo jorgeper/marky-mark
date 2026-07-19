@@ -403,3 +403,50 @@ describe('SPEC40 grid-for-all helpers', () => {
     expect(parseSettings('{"tableGridView":"nope"}').tableGridView).toBe(true);
   });
 });
+
+describe('SPEC41 image view helpers', () => {
+  test('U74: allImageRefs, height-capable rewrite, deleteImageAt', async () => {
+    const { allImageRefs, rewriteImageSpan, deleteImageAt } = await import('../../src/lib/imageResize');
+
+    // --- allImageRefs: both forms, exact offsets, document order ------------
+    const doc = 'intro ![a](p/x.png) mid <img src="p/y.png" alt="b" width="120" height="80"> end\n![c](q.png "cap")';
+    const refs = allImageRefs(doc);
+    expect(refs).toHaveLength(3);
+    expect(refs[0]).toMatchObject({ kind: 'md', src: 'p/x.png', alt: 'a' });
+    expect(doc.slice(refs[0].start, refs[0].end)).toBe('![a](p/x.png)');
+    expect(refs[1]).toMatchObject({ kind: 'html', src: 'p/y.png', alt: 'b', width: 120, height: 80 });
+    expect(doc.slice(refs[1].start, refs[1].end)).toBe('<img src="p/y.png" alt="b" width="120" height="80">');
+    expect(refs[2]).toMatchObject({ kind: 'md', src: 'q.png', alt: 'c', title: 'cap' });
+    expect(refs[0].start).toBeLessThan(refs[1].start);
+    // Non-images skipped: plain links and lone bangs.
+    expect(allImageRefs('a [link](x.md) and ! and <b>')).toEqual([]);
+
+    // --- rewrite: width-only path byte-identical to SPEC20 ------------------
+    const parts = { src: 'p/x.png', alt: 'a' };
+    expect(rewriteImageSpan('![a](p/x.png)', parts, 200)).toBe('<img src="p/x.png" alt="a" width="200">');
+    expect(rewriteImageSpan('![a](p/x.png)', parts, null)).toBeNull();
+    // Height variants: both set, corner-clears-height, removal idempotence.
+    expect(rewriteImageSpan('![a](p/x.png)', parts, 200, 100)).toBe(
+      '<img src="p/x.png" alt="a" width="200" height="100">'
+    );
+    const both = '<img src="p/x.png" alt="a" width="200" height="100">';
+    expect(rewriteImageSpan(both, parts, 300, null)).toBe('<img src="p/x.png" alt="a" width="300">');
+    expect(rewriteImageSpan(both, parts, null, null)).toBe('<img src="p/x.png" alt="a">');
+    expect(rewriteImageSpan(both, parts, 300, 150)).toBe('<img src="p/x.png" alt="a" width="300" height="150">');
+    // Untouched height (3-arg call) leaves an existing height alone.
+    expect(rewriteImageSpan(both, parts, 300)).toBe('<img src="p/x.png" alt="a" height="100" width="300">');
+    expect(rewriteImageSpan('![a](p/x.png)', parts, null, null)).toBeNull();
+
+    // --- deleteImageAt -------------------------------------------------------
+    const alone = 'para\n\n![a](p/x.png)\n\nafter';
+    const d1 = deleteImageAt(alone, alone.indexOf('![') + 2)!;
+    expect(d1.text).toBe('para\n\nafter'); // line + one blank gone
+    const inlineRef = 'text ![a](p/x.png) more';
+    const d2 = deleteImageAt(inlineRef, inlineRef.indexOf('![') + 1)!;
+    expect(d2.text).toBe('text  more'); // just the reference
+    expect(deleteImageAt('no images', 3)).toBeNull();
+    const atEnd = 'para\n\n![a](p/x.png)';
+    const d3 = deleteImageAt(atEnd, atEnd.indexOf('![') + 2)!;
+    expect(d3.text).toBe('para\n');
+  });
+});

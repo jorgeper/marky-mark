@@ -54,6 +54,8 @@ export interface Settings {
   editorSyntax: boolean;
   /** SPEC40 §1: show ALL tables as fitted grids in the editor (default on). */
   tableGridView: boolean;
+  /** SPEC41 §1: render ALL images inline in the editor (default on). */
+  inlineImages: boolean;
   /** SPEC26 §3: show the front-matter card by default when a doc has one. */
   showFrontmatter: boolean;
   /** SPEC30 §2: reopen the most recent document at launch. */
@@ -89,6 +91,7 @@ export const DEFAULT_SETTINGS: Settings = {
   imageNamePattern: '{doc} {n}',
   editorSyntax: true,
   tableGridView: true,
+  inlineImages: true,
   showFrontmatter: true,
   reopenLastDoc: true,
   showFolders: false,
@@ -168,6 +171,7 @@ export function parseSettings(json: string): Settings {
         : DEFAULT_SETTINGS.imageNamePattern,
     editorSyntax: typeof o.editorSyntax === 'boolean' ? o.editorSyntax : DEFAULT_SETTINGS.editorSyntax,
     tableGridView: typeof o.tableGridView === 'boolean' ? o.tableGridView : DEFAULT_SETTINGS.tableGridView,
+    inlineImages: typeof o.inlineImages === 'boolean' ? o.inlineImages : DEFAULT_SETTINGS.inlineImages,
     showFrontmatter: typeof o.showFrontmatter === 'boolean' ? o.showFrontmatter : DEFAULT_SETTINGS.showFrontmatter,
     reopenLastDoc: typeof o.reopenLastDoc === 'boolean' ? o.reopenLastDoc : DEFAULT_SETTINGS.reopenLastDoc,
     showFolders: o.showFolders === true,

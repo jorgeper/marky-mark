@@ -674,6 +674,51 @@ table without exiting; entering and leaving without edits is
 byte-identical; the render pipeline, comment anchors, seams, and
 dependencies are untouched.
 
+## Images in the editor: the inline view (SPEC41)
+
+While `inlineImages` (default on; Settings → Editor, or Image ▸ Show
+Raw/Rendered Images) is set, every inline `![alt](src)` and lone
+`<img …>` reference renders as the actual image in the edit pane —
+`imageView.ts`, a CodeMirror decoration field over `allImageRefs`
+(`imageResize.ts`). Unlike the table grid there is **no text
+transform**: the widgets are pure decoration, so there is no canonical
+machinery, no history transparency, no converge guard — the buffer,
+saves, drafts, dirty, and the preview are untouched by construction in
+both views, and flipping the setting is an effect-only dispatch.
+
+**Caret-reveal:** a span strictly containing the selection head
+(`start < head <= end`) shows its raw markdown in place — arrow into a
+picture to edit its source, arrow out and the picture returns. The
+reveal extends across a contiguous run of exactly abutting spans
+(back-to-back references are one editing site). Clicking a widget
+parks the caret at the span start — a boundary, so the widget stays —
+and selects it. Images inside a SPEC40 grid span stay raw (a widget
+would wreck the grid's alignment), and remote srcs NEVER load: the
+widget renders the SPEC11 blocked-origin placeholder, extending the
+zero-network guarantee to the edit pane (the web platform's
+empty-string resolution renders an inert "unavailable" note rather
+than an `<img src="">` self-request).
+
+**Chip resize:** a selected widget grows three empty-faced
+`.table-chip` circles centered ON its borders — right (width), bottom
+(height), corner (proportional, ratio locked). Drags resize live;
+release persists through the SPEC20 rewrite core grown with height
+(`rewriteImageSpan(span, parts, width, height?)` — the 3-argument call
+stays byte-identical): the right chip writes width + current height
+(freezing the box), bottom mirrors it, the corner writes width only
+and removes height (natural aspect). Both dimensions clamp to ≥ 40 px,
+each release is one `isolateHistory` undo step, and double-clicking
+the corner clears both. `deleteImageAt` (Image ▸ Delete Image) splices
+a reference in one step, absorbing the blank line *before* a
+lone-on-its-line reference — same text as absorbing the one after, but
+the deleted range stays clear of a grid span starting on the next line
+(the SPEC40 filter cancels abutting structural edits).
+
+**The removed preview resizer:** SPEC41 retired `ImageResizer` — the
+preview panes render images with no selection, handles, or overlay at
+all; resizing lives only in the editor. The SPEC20 span stamping,
+sanitize schema, and rewrite core remain.
+
 ## Open Recent (SPEC29)
 
 `recentFiles.ts` (pure, mirrors the reading-positions store): MRU-first,

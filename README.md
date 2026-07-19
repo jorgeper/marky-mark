@@ -95,8 +95,7 @@ Either way it's a one-time step — the app opens normally afterwards.
   formatting), and saves and the preview always see the real thing.
   Prefer raw pipes? Table ▸ Show Raw Tables (or Settings → Editor)
   switches every table at once. Insert / Delete Table live in the same
-  submenu; every operation is one undo step. Resize Image… from the
-  menu is coming soon (clicking an image in preview already resizes).
+  submenu; every operation is one undo step.
 - **Never lose work** — dirty buffers shadow-save continuously; after a
   crash or force-quit the next launch offers to restore your unsaved
   changes, untitled buffers included.
@@ -118,9 +117,14 @@ Either way it's a one-time step — the app opens normally afterwards.
   word-count / reading-time chip keeps score (selection-aware).
 - **Images that just work** — paste a screenshot straight into edit mode and
   it lands as a real file in an `images/` folder next to your document
-  (folder and naming pattern configurable); click an image in preview and
-  drag the corner handles to resize — persisted as portable HTML that GitHub
-  renders too.
+  (folder and naming pattern configurable) — and you see the picture right
+  there in the editor, not a line of syntax. Arrow into it to edit the
+  markdown in place; click it and drag the circular chips on its right
+  border (width), bottom border (height), or corner (proportional) to
+  resize — persisted as portable HTML that GitHub renders too, one undo
+  step per drag, double-click the corner for natural size. Prefer syntax?
+  Image ▸ Show Raw Images (or Settings → Editor) flips every image at
+  once. The preview is a pure reading surface — no handles there.
 - **Comments** (experimental) — select text → 💬. Threads, resolve, reopen,
   edit-survival re-anchoring. Jump between comments with ⌥⌘↓ / ⌥⌘↑
   (rebindable) or the fixed navigator pill — park the mouse and click

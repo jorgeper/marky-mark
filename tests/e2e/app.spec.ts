@@ -2124,67 +2124,8 @@ test('E73: the Editor settings tab holds the image fields — defaults, live exa
   expect(await fsRead(page, '/config/settings.json')).toContain('"imageNamePattern": "img-{n}"');
 });
 
-test('E74: clicking a preview image shows handles; dragging persists an <img width> and marks the doc dirty', async ({
-  page,
-}) => {
-  await fsWrite(page, '/docs/pic.png', `data:image/png;base64,${WIDE_PNG}`);
-  await fsWrite(page, '/docs/pic.md', '# Pic\n\n![p](pic.png)\n');
-  await page.goto('/#open=/docs/pic.md');
-  const img = page.getByTestId('doc').locator('img[alt="p"]');
-  await expect(img).toBeVisible();
-
-  // Select: outline, four handles, size badge.
-  await img.click();
-  await expect(page.getByTestId('img-resize-overlay')).toBeVisible();
-  await expect(page.getByTestId('img-size-badge')).toContainText('200 × 100');
-  for (const c of ['nw', 'ne', 'sw', 'se']) {
-    await expect(page.getByTestId(`img-handle-${c}`)).toBeVisible();
-  }
-
-  // Drag the south-east handle 60px left → ~140px wide, aspect-locked.
-  const handle = await page.getByTestId('img-handle-se').boundingBox();
-  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(handle!.x - 60, handle!.y + handle!.height / 2, { steps: 5 });
-  await page.mouse.up();
-
-  // The rewrite landed in the buffer (dirty), and the re-render keeps the size.
-  await expect(page.getByTestId('dirty-dot')).toBeVisible();
-  const width = Number(await page.getByTestId('doc').locator('img[alt="p"]').getAttribute('width'));
-  expect(width).toBeGreaterThanOrEqual(120);
-  expect(width).toBeLessThanOrEqual(160);
-  await expect(page.getByTestId('img-size-badge')).toContainText(`${width} ×`);
-
-  // The source now carries the HTML tag with the width.
-  await page.keyboard.press('Control+e');
-  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText(
-    `<img src="pic.png" alt="p" width="${width}">`
-  );
-});
-
-test('E75: double-click removes the width (back to natural size); Escape deselects', async ({ page }) => {
-  await fsWrite(page, '/docs/pic.png', `data:image/png;base64,${WIDE_PNG}`);
-  await fsWrite(page, '/docs/pic.md', '# Pic\n\n<img src="pic.png" alt="p" width="120">\n');
-  await page.goto('/#open=/docs/pic.md');
-  const img = page.getByTestId('doc').locator('img[alt="p"]');
-  await expect(img).toBeVisible();
-  expect(await img.getAttribute('width')).toBe('120');
-
-  // Double-click: width attribute removed, natural size restored.
-  await img.dblclick();
-  await expect
-    .poll(() => page.getByTestId('doc').locator('img[alt="p"]').getAttribute('width'))
-    .toBeNull();
-  await expect(page.getByTestId('img-size-badge')).toContainText('200 × 100');
-
-  // Escape deselects; the overlay disappears.
-  await page.keyboard.press('Escape');
-  await expect(page.getByTestId('img-resize-overlay')).toHaveCount(0);
-
-  // Width removal persisted to the source (tag stays HTML, no width attr).
-  await page.keyboard.press('Control+e');
-  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('<img src="pic.png" alt="p">');
-});
+// E74–E75 retired by SPEC41 §4 — the preview-pane resizer is gone (resize
+// now lives in the edit pane, E117). Numbers reserved like E42–E44.
 
 test('E76: Insert Image… (menu) copies the picked file into the images folder and references it at the cursor', async ({
   page,
@@ -2216,35 +2157,49 @@ test('E76: Insert Image… (menu) copies the picked file into the images folder 
   expect(files.filter((f) => f.startsWith('/docs/images/'))).toEqual(['/docs/images/logo.png']);
 });
 
-test('E77: image resize works in the split-edit live preview, and the rewrite lands in the editor buffer', async ({
+test('E77: image resize lives in the EDIT pane — a chip drag persists into the buffer, the split preview renders it with no handles', async ({
   page,
 }) => {
+  // SPEC41 §4 amendment: this test drove the removed preview resizer; it now
+  // pins the replacement — the same resize journey through the edit pane.
   await fsWrite(page, '/docs/pic.png', `data:image/png;base64,${WIDE_PNG}`);
   await fsWrite(page, '/docs/pic.md', '# Pic\n\n![p](pic.png)\nA line right after the image.\n');
   await page.goto('/#open=/docs/pic.md');
   await expect(page.getByTestId('doc').locator('img[alt="p"]')).toBeVisible();
 
-  // Split edit is the default mode; the live preview renders the image.
+  // Split edit: the editor renders the WIDGET (real pixels, raw syntax hidden).
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-preview')).toBeVisible();
-  const img = page.getByTestId('split-preview').locator('img[alt="p"]');
-  await expect(img).toBeVisible();
+  const widgetImg = page.getByTestId('editor').locator('.mm-image-widget img');
+  await expect(widgetImg).toBeVisible();
+  await widgetImg.click();
+  await expect(page.getByTestId('image-chip-layer')).toBeVisible();
 
-  // Click → handles; drag the SE corner left → width persists in the buffer.
-  await img.click();
-  await expect(page.getByTestId('img-resize-overlay')).toBeVisible();
-  const handle = await page.getByTestId('img-handle-se').boundingBox();
-  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
+  // Drag the corner chip 60px left → the SPEC20 rewrite lands in the buffer.
+  const chip = await page.getByTestId('image-resize-wh').boundingBox();
+  await page.mouse.move(chip!.x + chip!.width / 2, chip!.y + chip!.height / 2);
   await page.mouse.down();
-  await page.mouse.move(handle!.x - 60, handle!.y + handle!.height / 2, { steps: 5 });
+  await page.mouse.move(chip!.x + chip!.width / 2 - 60, chip!.y + chip!.height / 2, { steps: 5 });
   await page.mouse.up();
 
+  // Arrow into the span: the raw rewrite reveals — the <img> form, a width,
+  // no height (corner = natural aspect).
+  await page.keyboard.press('ArrowRight');
   const content = page.getByTestId('editor').locator('.cm-content');
   await expect(content).toContainText('<img src="pic.png" alt="p" width="');
-  // The blank-line rule kept the following text out of the HTML block: the
-  // split preview still shows both the image and the sentence after it.
-  await expect(img).toBeVisible();
+  const revealed = await content.evaluate((el) => (el as HTMLElement).innerText);
+  expect(revealed).not.toContain('height=');
+
+  // The blank-line rule kept the following sentence out of the HTML block:
+  // the live preview shows the resized image AND the sentence…
+  const previewImg = page.getByTestId('split-preview').locator('img[alt="p"]');
+  await expect(previewImg).toBeVisible();
   await expect(page.getByTestId('split-preview')).toContainText('A line right after the image.');
+
+  // …and never grows handles or an overlay (SPEC41 §4).
+  await previewImg.click();
+  await expect(page.getByTestId('img-resize-overlay')).toHaveCount(0);
+  await expect(page.getByTestId('img-size-badge')).toHaveCount(0);
 });
 
 test('E78: ⌘N opens an untitled buffer — no dialog, nothing on disk; first ⌘S runs Save As (cancel keeps the buffer)', async ({
@@ -3574,7 +3529,7 @@ test('E101: formatting end-to-end — bold via menu, italic via hotkey, H2 via t
   expect(await text()).toBe(preBullets);
 });
 
-test('E102: right-click & context — menu at the pointer, table/image stubs are honest no-ops, clipboard rows, preview untouched', async ({
+test('E102: right-click & context — menu at the pointer, Image ▸ flyout in context, clipboard rows, preview untouched', async ({
   page,
 }) => {
   const DOC = [
@@ -3629,10 +3584,25 @@ test('E102: right-click & context — menu at the pointer, table/image stubs are
   await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
   const beforeTable = await text(); // the grid state — the baseline below
 
-  // Cursor on the image line: Resize Image…, same no-op contract.
-  await editor.locator('.cm-line').filter({ hasText: 'pics/x.png' }).click();
+  // Cursor on the image — SPEC41 §8 amendment: the reference renders as a
+  // widget; arrow into the span (caret-reveal) and use the Image ▸ flyout
+  // (the SPEC36 top-level stub is gone).
+  await editor.locator('.cm-line').filter({ hasText: 'plain outro' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowRight'); // strictly inside — the raw syntax reveals
+  await expect(editor.locator('.cm-line').filter({ hasText: 'pics/x.png' })).toBeVisible();
   await editor.locator('.cm-line').filter({ hasText: 'pics/x.png' }).click({ button: 'right' });
-  await expect(page.getByTestId('smart-edit-resize-image')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-menu')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-resize-image')).toHaveCount(0); // stub gone
+  await page.getByTestId('smart-edit-image').click();
+  await expect(page.getByTestId('smart-edit-toggle-images')).toBeEnabled();
+  await expect(page.getByTestId('smart-edit-insert-image')).toBeEnabled();
+  await expect(page.getByTestId('smart-edit-delete-image')).toBeEnabled();
+  await expect(page.getByTestId('smart-edit-resize-image')).toBeEnabled();
+  // Resize Image selects the image (caret parks at the span start — the
+  // widget returns) and changes NO text.
   await page.getByTestId('smart-edit-resize-image').click();
   await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
   expect(await text()).toBe(beforeTable);
@@ -4233,4 +4203,275 @@ test('E115: the global toggle — both tables flip together, originals restore, 
   await page.getByTestId('smart-edit-toggle-grid').click();
   await expect.poll(gridLines).toBe(6);
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
+
+// ---------------------------------------------------------------------------
+// SPEC41: images render in the editor — one global view, chips to resize
+// (E116–E118)
+
+test('E116: the rendered view — widgets by default, caret-reveal, both switches flip and persist, remote srcs stay blocked with zero requests', async ({
+  page,
+}) => {
+  // The SPEC11 guarantee extends to the edit pane: block-and-log anything
+  // that tries to leave localhost for the whole test.
+  const external: string[] = [];
+  await page.context().route('**/*', (route) => {
+    const host = new URL(route.request().url()).hostname;
+    if (host === 'localhost' || host === '127.0.0.1') return route.continue();
+    external.push(route.request().url());
+    return route.abort();
+  });
+
+  await fsWrite(page, '/docs/img116.png', `data:image/png;base64,${WIDE_PNG}`);
+  const DOC = 'top\n\n![p](img116.png)\n\n![r](https://evil.example.com/x.png)\n\nbottom';
+  await fsWrite(page, '/docs/v116.md', DOC);
+  await page.goto('/#open=/docs/v116.md');
+  await expect(page.getByTestId('doc')).toContainText('top');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  await expect(content).toBeVisible();
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+
+  // The local image is simply a PICTURE — real pixels via the shim's data:
+  // URI, the raw syntax hidden, the dirty dot off.
+  const widgetImg = editor.locator('.mm-image-widget img');
+  await expect(widgetImg).toBeVisible();
+  expect(await widgetImg.getAttribute('src')).toContain('data:image/png');
+  expect(await text()).not.toContain('![p](img116.png)');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // The remote image NEVER loads — the SPEC11 placeholder renders instead.
+  const blocked = editor.locator('.mm-blocked-remote');
+  await expect(blocked).toBeVisible();
+  await expect(blocked).toContainText('remote image (evil.example.com');
+  await expect(blocked).toContainText('Marky Mark is local-only');
+  await expect(editor.locator('img[src*="evil"]')).toHaveCount(0);
+
+  // Caret-reveal: arrow INTO the remote span — its raw markdown appears.
+  await editor.locator('.cm-line').filter({ hasText: 'bottom' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp'); // the remote line, caret at the span start
+  await page.keyboard.press('ArrowRight'); // strictly inside — reveal
+  await expect(content).toContainText('![r](https://evil.example.com/x.png)');
+  // …and into the local span two lines up: vertical motion lands at the
+  // hidden span's start (the widget stays); one ArrowRight steps inside and
+  // the picture yields to its syntax.
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowRight');
+  await expect(content).toContainText('![p](img116.png)');
+  await expect(editor.locator('.mm-image-widget img')).toHaveCount(0);
+  // Arrow out — the picture returns; nothing was ever text-changed.
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await expect(editor.locator('.mm-image-widget img')).toBeVisible();
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // Image ▸ "Show Raw Images": ALL images drop to syntax at once.
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-image').click();
+  await expect(page.getByTestId('smart-edit-toggle-images')).toHaveText(/Show Raw Images/);
+  await page.getByTestId('smart-edit-toggle-images').click();
+  await expect(editor.locator('.mm-image-widget')).toHaveCount(0);
+  await expect(content).toContainText('![p](img116.png)');
+  await expect(content).toContainText('![r](https://evil.example.com/x.png)');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // The Settings checkbox reflects the flip and drives it back on.
+  await openSettings(page);
+  await page.getByTestId('settings-tab-editor').click();
+  await expect(page.getByTestId('settings-inline-images')).not.toBeChecked();
+  await page.getByTestId('settings-inline-images').check();
+  await page.getByTestId('settings-close').click();
+  await expect(editor.locator('.mm-image-widget img')).toBeVisible();
+
+  // Off again, and the setting survives a reload.
+  await openSettings(page);
+  await page.getByTestId('settings-tab-editor').click();
+  await page.getByTestId('settings-inline-images').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect(editor.locator('.mm-image-widget')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId('doc')).toContainText('top');
+  await page.keyboard.press('Control+e');
+  await expect(content).toBeVisible();
+  await expect(content).toContainText('![p](img116.png)');
+  await expect(editor.locator('.mm-image-widget')).toHaveCount(0);
+
+  // The menu label flipped; it brings the pictures back.
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-image').click();
+  await expect(page.getByTestId('smart-edit-toggle-images')).toHaveText(/Show Rendered Images/);
+  await page.getByTestId('smart-edit-toggle-images').click();
+  await expect(editor.locator('.mm-image-widget img')).toBeVisible();
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // The zero-network guarantee held for the whole journey.
+  expect(external).toEqual([]);
+});
+
+test('E117: resize chips — three circles on the borders, corner/right drags persist, double-click clears, 40px clamp, one ⌘Z each, preview clean', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/img117.png', `data:image/png;base64,${WIDE_PNG}`);
+  const DOC = '# Pic\n\n![p](img117.png)\n\nafter\n';
+  await fsWrite(page, '/docs/v117.md', DOC);
+  await page.goto('/#open=/docs/v117.md');
+  await expect(page.getByTestId('doc')).toContainText('Pic');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+
+  // The buffer, read back through ⌘S (the widget hides the raw span).
+  const saved = async () => {
+    await page.keyboard.press('Control+s');
+    return (await fsRead(page, '/docs/v117.md'))!;
+  };
+  const widgetImg = () => editor.locator('.mm-image-widget img');
+  const dragChip = async (id: string, dx: number, dy: number) => {
+    const box = (await page.getByTestId(id).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy, { steps: 5 });
+    await page.mouse.up();
+  };
+
+  // Click → exactly three chips, centered ON the right/bottom/corner borders.
+  await widgetImg().click();
+  const layer = page.getByTestId('image-chip-layer');
+  await expect(layer).toBeVisible();
+  await expect(layer.locator('.table-chip')).toHaveCount(3);
+  const ib = (await widgetImg().boundingBox())!;
+  const wB = (await page.getByTestId('image-resize-w').boundingBox())!;
+  const hB = (await page.getByTestId('image-resize-h').boundingBox())!;
+  const whB = (await page.getByTestId('image-resize-wh').boundingBox())!;
+  expect(Math.abs(wB.x + wB.width / 2 - (ib.x + ib.width))).toBeLessThanOrEqual(3);
+  expect(Math.abs(wB.y + wB.height / 2 - (ib.y + ib.height / 2))).toBeLessThanOrEqual(3);
+  expect(Math.abs(hB.x + hB.width / 2 - (ib.x + ib.width / 2))).toBeLessThanOrEqual(3);
+  expect(Math.abs(hB.y + hB.height / 2 - (ib.y + ib.height))).toBeLessThanOrEqual(3);
+  expect(Math.abs(whB.x + whB.width / 2 - (ib.x + ib.width))).toBeLessThanOrEqual(3);
+  expect(Math.abs(whB.y + whB.height / 2 - (ib.y + ib.height))).toBeLessThanOrEqual(3);
+  // The circles carry empty faces.
+  expect(await page.getByTestId('image-resize-wh').innerText()).toBe('');
+
+  // 1) Corner drag +50: width persists, NO height — natural aspect kept.
+  await dragChip('image-resize-wh', 50, 25);
+  await expect.poll(saved).toContain('<img src="img117.png" alt="p" width="250">');
+  expect(await saved()).not.toContain('height=');
+  const grown = (await widgetImg().boundingBox())!;
+  expect(Math.abs(grown.width / grown.height - 2)).toBeLessThanOrEqual(0.05); // 200×100 ratio
+
+  // 2) Right drag +30: width dragged AND height frozen — the box holds.
+  await widgetImg().click();
+  await dragChip('image-resize-w', 30, 0);
+  await expect.poll(saved).toContain('width="280"');
+  expect(await saved()).toContain('height="125"');
+
+  // 3) Double-click the corner: both cleared, natural size back.
+  await widgetImg().click();
+  await page.getByTestId('image-resize-wh').dblclick();
+  await expect.poll(saved).toContain('<img src="img117.png" alt="p">');
+  expect(await saved()).not.toContain('width=');
+
+  // 4) A hard left drag clamps at 40px.
+  await widgetImg().click();
+  await dragChip('image-resize-w', -500, 0);
+  await expect.poll(saved).toContain('width="40"');
+
+  // Each release was ONE undo step: four ⌘Z return the original bytes.
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ControlOrMeta+z');
+  expect(await saved()).toBe(DOC);
+  await expect(widgetImg()).toBeVisible();
+
+  // The split preview renders the image with NO overlay or handles, ever.
+  const previewImg = page.getByTestId('split-preview').locator('img[alt="p"]');
+  await expect(previewImg).toBeVisible();
+  await previewImg.click();
+  await expect(page.getByTestId('img-resize-overlay')).toHaveCount(0);
+  await expect(page.getByTestId('image-chip-layer')).toHaveCount(0);
+});
+
+test('E118: the Image ▸ menu — labels and flags by context, Insert dispatches the picker, Delete splices with one-step undo, grid images stay raw', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/img118.png', `data:image/png;base64,${WIDE_PNG}`);
+  const DOC = [
+    'top',
+    '',
+    '![a](img118.png)',
+    '',
+    '| h1 | h2 |',
+    '| --- | --- |',
+    '| ![c](img118.png) | 2 |',
+    '',
+    'plain outro',
+  ].join('\n');
+  await fsWrite(page, '/docs/v118.md', DOC);
+  await page.goto('/#open=/docs/v118.md');
+  await expect(page.getByTestId('doc')).toContainText('top');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  await expect(content).toBeVisible();
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+
+  // Grid exclusion: the table renders as a grid, its cell image stays RAW
+  // text — only the standalone reference grew a widget.
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(3);
+  await expect.poll(text).toContain('![c](img118.png)');
+  await expect(editor.locator('.mm-image-widget')).toHaveCount(1);
+
+  // Plain-text context: toggle/insert enabled, delete/resize disabled.
+  await editor.locator('.cm-line').filter({ hasText: 'plain outro' }).click();
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-image').click();
+  await expect(page.getByTestId('smart-edit-toggle-images')).toHaveText(/Show Raw Images/);
+  await expect(page.getByTestId('smart-edit-toggle-images')).toBeEnabled();
+  await expect(page.getByTestId('smart-edit-insert-image')).toBeEnabled();
+  await expect(page.getByTestId('smart-edit-delete-image')).toBeDisabled();
+  await expect(page.getByTestId('smart-edit-resize-image')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+
+  // On the image (widget click parks the caret on the span): all four live.
+  await editor.locator('.mm-image-widget img').click();
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-image').click();
+  await expect(page.getByTestId('smart-edit-delete-image')).toBeEnabled();
+  await expect(page.getByTestId('smart-edit-resize-image')).toBeEnabled();
+
+  // Resize Image is the pointer-free entry to the chips; Esc dismisses.
+  await page.getByTestId('smart-edit-resize-image').click();
+  await expect(page.getByTestId('image-chip-layer')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('image-chip-layer')).toHaveCount(0);
+
+  // Delete Image: the reference AND its blank line leave in one step…
+  await editor.locator('.mm-image-widget img').click();
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-image').click();
+  await page.getByTestId('smart-edit-delete-image').click();
+  await expect(editor.locator('.mm-image-widget')).toHaveCount(0);
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  expect(await text()).toContain('![c](img118.png)'); // the grid cell held on
+  // …and ONE undo restores it.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(editor.locator('.mm-image-widget')).toHaveCount(1);
+
+  // Insert Image… dispatches the SPEC20 picker flow (shim-observable).
+  await fsWrite(page, '/docs/downloads/pic2.png', `data:image/png;base64,${WIDE_PNG}`);
+  await editor.locator('.cm-line').filter({ hasText: 'plain outro' }).click();
+  await page.keyboard.press('End');
+  page.once('dialog', (d) => void d.accept('/docs/downloads/pic2.png'));
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-image').click();
+  await page.getByTestId('smart-edit-insert-image').click();
+  // The caret rests at the end of the inserted span — caret-reveal shows the
+  // fresh syntax raw; stepping away turns it into the picture.
+  await expect(content).toContainText('![pic2](images/pic2.png)');
+  await editor.locator('.cm-line').filter({ hasText: /^top$/ }).click();
+  await expect(editor.locator('.mm-image-widget')).toHaveCount(2);
+  expect(await fsRead(page, '/docs/images/pic2.png')).toContain('data:image/png');
 });

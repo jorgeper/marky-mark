@@ -360,6 +360,8 @@ export interface SmartMenuCtx {
   isMac: boolean;
   /** SPEC40 §1.2: the global grid view is on — the toggle item flips it. */
   gridView: boolean;
+  /** SPEC41 §1.2: the global inline-image view is on. */
+  imageView: boolean;
 }
 
 export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
@@ -390,7 +392,17 @@ export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
       ],
     })
   );
-  if (ctx.image) out.push(item('resize-image', 'Resize Image…'));
+  // SPEC41 §1.2: the Image submenu replaces the SPEC36 top-level stub.
+  out.push(
+    item('image', 'Image', {
+      submenu: [
+        item('toggle-images', ctx.imageView ? 'Show Raw Images' : 'Show Rendered Images'),
+        item('insert-image', 'Insert Image…'),
+        item('delete-image', 'Delete Image', { enabled: ctx.image }),
+        item('resize-image', 'Resize Image', { enabled: ctx.image }),
+      ],
+    })
+  );
   out.push('sep');
 
   out.push(
