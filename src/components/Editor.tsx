@@ -33,7 +33,7 @@ import { closeSearchPanel, findNext, findPrevious, getSearchQuery, openSearchPan
 import { tags } from '@lezer/highlight';
 import { markdown } from '@codemirror/lang-markdown';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
-import { wordAt } from '../lib/activePosition';
+import { mapOffsetByLineFlat, wordAt } from '../lib/activePosition';
 import type { DiffLineSets } from '../lib/diffLines';
 import { displayCombo, type HotkeyMap } from '../lib/hotkeys';
 import {
@@ -232,6 +232,8 @@ interface Props {
   /** SPEC23 §4 + SPEC24 §1: cursor/selection reports — the seam, and the
    * reverse mirror (which acts only on focused, non-collapsed reports). */
   onEditState?(s: {
+    /** SPEC44: head in CANONICAL text coordinates (grid whitespace mapped out). */
+    canonHead: number;
     head: number;
     headLine: number;
     selFrom: number;
@@ -984,7 +986,14 @@ export default function Editor({
         }
         if ((u.selectionSet || u.docChanged) && onEditStateRef.current) {
           const main = u.state.selection.main;
+          const canonHeadOf = (st: EditorState, h: number) => {
+            const gridSet = st.field(tableModeField, false);
+            if (!gridSet || gridSet.spans.length === 0) return h;
+            const raw = st.doc.toString();
+            return mapOffsetByLineFlat(raw, canonicalizeAll(raw, gridSet), h);
+          };
           onEditStateRef.current({
+            canonHead: canonHeadOf(u.state, main.head),
             head: main.head,
             headLine: u.state.doc.lineAt(main.head).number,
             selFrom: main.from,
@@ -1141,7 +1150,13 @@ export default function Editor({
     // SPEC23 §4: seed the seam with the mount-time cursor.
     if (onEditStateRef.current) {
       const main = view.state.selection.main;
+      const gridSet = view.state.field(tableModeField, false);
+      const canonHead =
+        !gridSet || gridSet.spans.length === 0
+          ? main.head
+          : mapOffsetByLineFlat(view.state.doc.toString(), canonicalizeAll(view.state.doc.toString(), gridSet), main.head);
       onEditStateRef.current({
+        canonHead,
         head: main.head,
         headLine: view.state.doc.lineAt(main.head).number,
         selFrom: main.from,

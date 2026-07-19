@@ -54,7 +54,7 @@ import {
   type AuxRequest,
 } from './lib/auxProtocol';
 import { VimNavResolver } from './lib/vimnav';
-import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, sourceRangeForVisibleMatch, visibleTextForRange } from './lib/selectionMap';
+import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, renderedOffsetForSource, sourceOffsetForRendered, sourceRangeForVisibleMatch, visibleTextForRange } from './lib/selectionMap';
 import { blockLineFor, wordAt } from './lib/activePosition';
 import { parseFrontMatter } from './lib/frontmatter';
 import { isStaleDraft, parseDraft, serializeDraft, type Draft } from './lib/drafts';
@@ -324,7 +324,7 @@ export default function App() {
 
   // --- SPEC23 §4: dev-shim-only __mmEdit seam (same gating as __mmMenu) ---------
   const seamEditState = useCallback(
-    (s: { head: number; headLine: number; selFrom: number; selTo: number; selText: string; focused: boolean }) => {
+    (s: { canonHead: number; head: number; headLine: number; selFrom: number; selTo: number; selText: string; focused: boolean }) => {
       if (stateRef.current.platform?.kind !== 'browser') return;
       window.__mmEdit = { nav: window.__mmEdit?.nav ?? false, ...s };
     },
@@ -500,6 +500,9 @@ export default function App() {
   }, []);
 
   // --- SPEC44: active line & word cues (either preview pane) -------------------
+  // §3.1: the "standard containers" the tint may land on.
+  // eslint-disable-next-line no-var — module-ish constant inside the component
+  const ACTIVE_CONTAINERS = 'li, p, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th';
   const activeCueRef = useRef<{ head: number; headLine: number; hasSel: boolean } | null>(null);
 
   const clearActiveCues = useCallback((pane: HTMLElement) => {
@@ -528,29 +531,52 @@ export default function App() {
       const blockLine = blockLineFor(anchors, headLine);
       if (blockLine === null) return;
       const blockEl = stamped[anchors.lastIndexOf(blockLine)];
-      const tint = (el: HTMLElement) => el.classList.add('mm-active-block');
+      const lines = buffer.split('\n');
+      const starts: number[] = [0];
+      for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
+      const blockStart = starts[Math.min(blockLine, lines.length) - 1] ?? 0;
+      const region = document.createRange();
+      region.setStartBefore(blockEl);
+      region.setEndAfter(blockEl);
+      const { start: rs, end: re } = rangeToOffsets(pane, region);
+      const blockRendered = getDocText(pane).slice(rs, re);
+      // §3.1: the tint target is ALWAYS the innermost standard container of
+      // the caret / selection head — never the whole stamp (which can be an
+      // entire list, table, or quote). The head resolves to a rendered point
+      // through the pure mapping layer; the word mark refines it when it
+      // exists, the stamped element is the last resort.
+      const containerOf = (el: Element | null): HTMLElement | null =>
+        (el?.closest<HTMLElement>(ACTIVE_CONTAINERS) ?? null);
+      const containerAtHead = (): HTMLElement | null => {
+        const off = renderedOffsetForSource(buffer, blockStart, head, blockRendered);
+        if (off === null) return null;
+        const r = offsetsToRange(pane, rs + Math.min(off, Math.max(0, blockRendered.length - 1)), rs + Math.min(off + 1, blockRendered.length));
+        if (!r) return null;
+        // The range START can land at the tail of an inter-item whitespace
+        // node (parent = the list itself); the END sits inside the real
+        // container's text — take the first that resolves.
+        for (const node of [r.startContainer, r.endContainer]) {
+          const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+          const c = el && pane.contains(el) ? containerOf(el) : null;
+          if (c) return c;
+        }
+        return null;
+      };
+      const tint = (el: HTMLElement | null) => (el && pane.contains(el) ? el : blockEl).classList.add('mm-active-block');
       if (hasSel) {
-        tint(blockEl); // a real selection outranks the word cue (§2.2)
+        tint(containerAtHead()); // the head's container — like the editor's active line
         return;
       }
       const w = wordAt(buffer, head);
       const needle = w ? visibleTextForRange(buffer, w.start, w.end) : '';
       if (!w || !needle.trim()) {
-        tint(blockEl);
+        tint(containerAtHead());
         return;
       }
-      const lines = buffer.split('\n');
-      const starts: number[] = [0];
-      for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
-      const blockStart = starts[Math.min(blockLine, lines.length) - 1] ?? 0;
       const nth = countNormalized(visibleTextForRange(buffer, blockStart, w.start), needle);
-      const region = document.createRange();
-      region.setStartBefore(blockEl);
-      region.setEndAfter(blockEl);
-      const { start: rs, end: re } = rangeToOffsets(pane, region);
-      const hit = findNormalizedNth(getDocText(pane).slice(rs, re), needle, nth);
+      const hit = findNormalizedNth(blockRendered, needle, nth);
       if (!hit) {
-        tint(blockEl);
+        tint(containerAtHead());
         return;
       }
       const marks = highlightRange(pane, rs + hit.start, rs + hit.end, '__aw__');
@@ -558,11 +584,7 @@ export default function App() {
         m.className = 'mm-active-word';
         delete m.dataset.cid; // never the comment machinery's business
       }
-      // §3.1 (refined): a stamped block can be a whole list or table — the
-      // tint belongs to the INNERMOST standard container of the caret's word
-      // (list item, paragraph, heading, cell), not the whole stamp.
-      const inner = marks[0]?.closest<HTMLElement>('li, p, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th');
-      tint(inner && pane.contains(inner) ? inner : blockEl);
+      tint(containerOf(marks[0] ?? null) ?? containerAtHead());
     },
     [clearActiveCues]
   );
@@ -609,7 +631,20 @@ export default function App() {
         const nth = countNormalized(blockText.slice(0, w.start), word);
         src = sourceRangeForVisibleMatch(buffer, blockLine, endLine, word, nth);
       }
-      const caret = src ? src.from : (starts[Math.min(blockLine, lines.length) - 1] ?? 0);
+      // §4.1: a no-word click lands the caret at the CLICKED container's
+      // source start (its first visible character) — inside a list that is
+      // the clicked item, not the whole stamp.
+      let fallback = starts[Math.min(blockLine, lines.length) - 1] ?? 0;
+      const clickedContainer = base?.closest<HTMLElement>('li, p, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th');
+      if (!src && clickedContainer && blockEl.contains(clickedContainer)) {
+        const cRegion = document.createRange();
+        cRegion.setStartBefore(blockEl);
+        cRegion.setEndBefore(clickedContainer);
+        const cLocal = rangeToOffsets(pane, cRegion).end - rs;
+        const mapped = sourceOffsetForRendered(buffer, blockLine, endLine, blockText, Math.max(0, cLocal));
+        if (mapped !== null) fallback = mapped;
+      }
+      const caret = src ? src.from : fallback;
       if (stateRef.current.mode === 'edit') {
         editorSelectRef.current?.(caret, caret); // the report loop paints the cues
       } else {
@@ -629,7 +664,7 @@ export default function App() {
    * own dispatch can never bounce back (SPEC24 §1.4).
    */
   const handleEditState = useCallback(
-    (s: { head: number; headLine: number; selFrom: number; selTo: number; selText: string; focused: boolean }) => {
+    (s: { canonHead: number; head: number; headLine: number; selFrom: number; selTo: number; selText: string; focused: boolean }) => {
       seamEditState(s);
       lastEditorSelRef.current = { from: s.selFrom, to: s.selTo }; // SPEC25 §2.1
       const st = stateRef.current;
@@ -639,9 +674,10 @@ export default function App() {
         const pane = splitDocRef.current;
         if (!pane) return;
         clearMirrorMarks();
-        // SPEC44 §3: block + word cues follow every caret report.
-        activeCueRef.current = { head: s.head, headLine: s.headLine, hasSel: s.selFrom !== s.selTo };
-        applyActiveCues(pane, s.head, s.headLine, s.selFrom !== s.selTo);
+        // SPEC44 §3: block + word cues follow every caret report — in
+        // CANONICAL coordinates (the grid's padding never reaches the html).
+        activeCueRef.current = { head: s.canonHead, headLine: s.headLine, hasSel: s.selFrom !== s.selTo };
+        applyActiveCues(pane, s.canonHead, s.headLine, s.selFrom !== s.selTo);
         if (!s.focused || s.selFrom === s.selTo) return;
         const buffer = stateRef.current.buffer;
         const needle = visibleTextForRange(buffer, s.selFrom, s.selTo);

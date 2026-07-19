@@ -5046,3 +5046,69 @@ test('E126: hygiene — comments anchor through the cues, find coexists/suppress
   await expect(page.locator('[data-testid="doc"] mark.mm-active-word')).toHaveCount(0);
   await expect(page.locator('[data-testid="doc"] .mm-active-block')).toHaveCount(0);
 });
+
+test('E127: tint granularity invariant — drags, punctuation carets, table cells, quotes, whitespace clicks all land on ONE container', async ({
+  page,
+}) => {
+  await fsWrite(
+    page,
+    '/docs/grain.md',
+    '# G\n\n- one two\n- three four\n- pp +++ qq\n\n| h1 | h2 |\n| -- | -- |\n| ca | cb |\n\n> quoted words here\n'
+  );
+  await page.goto('/#open=/docs/grain.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('G');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  const tint = page.locator('[data-testid="split-preview"] .doc .mm-active-block');
+
+  // Multi-word drag INSIDE one bullet: exactly that li, siblings excluded.
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'three four' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await expect(tint).toHaveCount(1);
+  await expect(tint).toContainText('three four');
+  await expect(tint).not.toContainText('one two');
+  expect(await tint.evaluate((el) => el.tagName)).toBe('LI');
+
+  // Drag across two bullets: the HEAD's li wins, live.
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'one two' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+ArrowDown');
+  await expect(tint).toHaveCount(1);
+  await expect(tint).toContainText('three four');
+  await expect(tint).not.toContainText('one two');
+
+  // Collapsed caret on a punctuation run inside a bullet: that li.
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'pp +++ qq' }).click();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight'); // inside +++
+  await expect(tint).toHaveCount(1);
+  await expect(tint).toContainText('pp +++ qq');
+  await expect(tint).not.toContainText('three four');
+  expect(await tint.evaluate((el) => el.tagName)).toBe('LI');
+
+  // Caret inside a table cell: the td, not the table.
+  await page.getByTestId('editor').locator('.cm-line', { hasText: '| ca | cb |' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(tint).toHaveCount(1);
+  await expect(tint).toHaveText(/ca/);
+  await expect(tint).not.toContainText('cb');
+  expect(await tint.evaluate((el) => el.tagName)).toBe('TD');
+
+  // Caret in a blockquote: the inner container, never the whole quote.
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'quoted words here' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(tint).toHaveCount(1);
+  await expect(tint).toContainText('quoted words here');
+  expect(await tint.evaluate((el) => el.tagName)).not.toBe('BLOCKQUOTE');
+
+  // Preview punctuation-click inside a bullet: that bullet's li tints.
+  await clickWord(page, '[data-testid="split-preview"] .doc', '+++');
+  await expect(tint).toHaveCount(1);
+  await expect(tint).toContainText('pp +++ qq');
+  await expect(tint).not.toContainText('one two');
+});

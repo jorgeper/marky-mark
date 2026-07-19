@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest';
-import { blockLineFor, wordAt } from '../../src/lib/activePosition';
-import { countNormalized, findNormalized, findNormalizedNth, sourceRangeForVisibleMatch } from '../../src/lib/selectionMap';
+import { blockLineFor, mapOffsetByLineFlat, wordAt } from '../../src/lib/activePosition';
+import {
+  countNormalized,
+  findNormalized,
+  findNormalizedNth,
+  renderedOffsetForSource,
+  sourceOffsetForRendered,
+  sourceRangeForVisibleMatch,
+} from '../../src/lib/selectionMap';
 
 describe('SPEC44 active position', () => {
   test('U76: wordAt affinity & Unicode, blockLineFor, nth-occurrence mapping both directions', () => {
@@ -40,5 +47,30 @@ describe('SPEC44 active position', () => {
     expect(sourceRangeForVisibleMatch(src, 3, 3, 'cat', 1)).toEqual({ from: 24, to: 27 });
     expect(sourceRangeForVisibleMatch(src, 3, 3, 'cat', 2)).toBeNull();
     expect(sourceRangeForVisibleMatch(src, 1, 3, 'intro', 0)).toEqual({ from: 0, to: 5 });
+
+    // Source→rendered: the caret's spot inside the rendered block, markup
+    // and whitespace-normalization tolerated in both directions.
+    const listSrc = '- one two\n- three four\n';
+    const listRendered = 'one two\nthree four';
+    // caret at source 'three' (offset 12) lands at rendered offset 8.
+    expect(renderedOffsetForSource(listSrc, 0, 12, listRendered)).toBe(8);
+    expect(renderedOffsetForSource(listSrc, 0, 0, listRendered)).toBe(0);
+    // Past-the-end carets stay left, inside the last item's rendered text.
+    expect(renderedOffsetForSource(listSrc, 0, 99, listRendered)).toBe(listRendered.length - 1);
+    expect(renderedOffsetForSource('- a\n', 0, 2, '')).toBeNull();
+    // Rendered→source: a rendered point maps back into the right item.
+    expect(sourceOffsetForRendered(listSrc, 1, 2, listRendered, 8)).toBe(12);
+    expect(sourceOffsetForRendered(listSrc, 1, 2, listRendered, 0)).toBe(2);
+    expect(sourceOffsetForRendered('- **x**\n', 1, 1, 'x', 0)).toBe(4);
+    expect(sourceOffsetForRendered('\n', 1, 1, '', 0)).toBeNull();
+
+    // Grid↔canonical offset mapping: same line, same content-char count.
+    const grid = 'x\n| ca  | cb  |';
+    const canon = 'x\n| ca | cb |';
+    expect(mapOffsetByLineFlat(grid, canon, 4)).toBe(4); // ON 'c' of ca
+    expect(mapOffsetByLineFlat(grid, canon, 6)).toBe(6); // after 'ca' — left affinity
+    expect(mapOffsetByLineFlat(grid, canon, 10)).toBe(9); // ON 'c' of cb
+    expect(mapOffsetByLineFlat(grid, canon, 0)).toBe(0); // other lines identity
+    expect(mapOffsetByLineFlat(grid, canon, 999)).toBe(canon.length); // clamped
   });
 });

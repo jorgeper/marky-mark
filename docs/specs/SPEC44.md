@@ -54,10 +54,15 @@ diverging (same behavior there — this is pure webview UI).
    - **the active block** — the `[data-mm-line]` element whose range
      contains the caret's source line (§1.2) gets `mm-active-block`,
      tinted `--mm-active-line`. Exactly one block, or none (caret
-     outside any anchored block, e.g. front matter). A stamp can cover
-     a whole list or table; when the word mark exists, the tint moves
-     to the word's INNERMOST standard container (list item, paragraph,
-     heading, cell) — the stamped element is the fallback.
+     outside any anchored block, e.g. front matter). INVARIANT: a stamp
+     can cover a whole list, table, or quote — the tint always lands on
+     exactly ONE innermost standard container (`li`, `p`, `h1`–`h6`,
+     `pre`, `blockquote`, `td`, `th`): the one holding the caret, or —
+     during a non-empty selection — the selection HEAD (mirroring the
+     editor's active line, live as the drag head moves). The head
+     resolves through the pure mapping layer (word mark when present,
+     else source→rendered offset); the stamped element itself is only
+     the last-resort fallback.
    - **the active word** — the same word (§2.2), located by mapping the
      caret's source offsets through the existing selectionMap plumbing
      (the E83 synthetic-mark pipeline), wrapped in a synthetic
@@ -96,7 +101,7 @@ from the restored caret, never persist to disk. Docs without an
 anchored block (empty, front-matter-only) show no block tint and no
 word mark; no errors.
 
-## 6. Tests (added: U76, E124–E126)
+## 6. Tests (added: U76, E124–E127)
 
 1. **U76** — `activePosition`: `wordAt` (interior, word-start/end,
    left-affinity at boundaries, Unicode letters/digits/underscore,
@@ -120,9 +125,16 @@ word mark; no errors.
    active word coexist per §2.3's stacking; tab switch (SPEC36)
    re-derives highlights from the restored caret; the themed variables
    override (theme fixture sets both, computed styles follow).
-5. No existing test may be modified, weakened, skipped, or deleted;
+5. **E127** — tint granularity (the §3.1 invariant): a multi-word drag
+   inside one bullet tints exactly that `li`; a drag across two bullets
+   tints the head's `li` only; a collapsed caret on a punctuation run
+   inside a bullet tints that `li`; a caret in a table cell tints the
+   `td`; a caret in a blockquote paragraph tints the inner container,
+   never the whole quote; a preview whitespace/punctuation click inside
+   a bullet tints that bullet.
+6. No existing test may be modified, weakened, skipped, or deleted;
    E42–E44 stay reserved. The only permitted test additions are U76
-   and E124–E126.
+   and E124–E127.
 
 ## 7. Docs
 

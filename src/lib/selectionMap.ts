@@ -249,6 +249,81 @@ export function findNormalizedNth(haystack: string, needle: string, nth: number)
 }
 
 /**
+ * SPEC44 §3.1: the rendered offset (raw, within `rendered`) where source
+ * offset `at` lands — via the normalized-flat length of the source-visible
+ * prefix [blockStart, at). Clamps into the rendered text; null only when
+ * the rendered text has no visible characters at all.
+ */
+export function renderedOffsetForSource(source: string, blockStart: number, at: number, rendered: string): number | null {
+  const prefix = visibleTextForRange(source, blockStart, Math.max(blockStart, at));
+  const n = flattenWhitespace(prefix).hay.length;
+  const { hay, map } = flattenWhitespace(rendered);
+  if (map.length === 0) return null;
+  const atCh = source[at];
+  // Affinity by the SOURCE character under the caret: on whitespace or at
+  // the end (a word/line/item boundary) stay LEFT — the last prefix char's
+  // rendered spot — so an end-of-item caret never rolls into the next item.
+  if (atCh === undefined || /\s/.test(atCh)) {
+    return map[Math.max(0, Math.min(n, hay.length) - 1)];
+  }
+  let i = n;
+  if (hay[i] === ' ') i++; // a visible caret char sits AFTER the flat space
+  if (i >= hay.length) return map[map.length - 1] + 1;
+  return map[i];
+}
+
+/**
+ * SPEC44 §4.1: the reverse trip — the source offset where raw rendered
+ * offset `local` (within the block's rendered text) lands, mapped through
+ * the visible text of 1-based source lines [fromLine, toLine].
+ */
+export function sourceOffsetForRendered(
+  source: string,
+  fromLine: number,
+  toLine: number,
+  rendered: string,
+  local: number
+): number | null {
+  const n = flattenWhitespace(rendered.slice(0, Math.max(0, local))).hay.length;
+  const lines = source.split('\n');
+  const abs: number[] = [];
+  const visible: string[] = [];
+  let lineStart = 0;
+  for (let k = 0; k < lines.length; k++) {
+    if (k + 1 >= fromLine && k + 1 <= toLine) {
+      if (visible.length > 0) {
+        visible.push(' ');
+        abs.push(lineStart);
+      }
+      const { visible: v, map } = stripInline(lines[k]);
+      for (let i = 0; i < v.length; i++) {
+        visible.push(v[i]);
+        abs.push(lineStart + map[i]);
+      }
+    }
+    lineStart += lines[k].length + 1;
+  }
+  const flatAbs: number[] = [];
+  {
+    // flatten the visible text while carrying the absolute source offsets
+    let pendingSpace = false;
+    for (let i = 0; i < visible.length; i++) {
+      if (/\s/.test(visible[i])) {
+        pendingSpace = flatAbs.length > 0;
+        continue;
+      }
+      if (pendingSpace) {
+        flatAbs.push(abs[i]);
+        pendingSpace = false;
+      }
+      flatAbs.push(abs[i]);
+    }
+  }
+  if (flatAbs.length === 0) return null;
+  return flatAbs[Math.min(n, flatAbs.length - 1)];
+}
+
+/**
  * SPEC44 §4.1: the click-side inverse — source offsets of the nth
  * (0-based, normalized counting) visible occurrence of `needle` within
  * 1-based source lines [fromLine, toLine]. Null when absent.

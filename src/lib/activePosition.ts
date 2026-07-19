@@ -40,3 +40,40 @@ export function blockLineFor(anchors: number[], line: number): number | null {
   }
   return best;
 }
+
+/**
+ * SPEC44 §3.1: map an offset between two texts that share LINE structure
+ * but differ in intra-line whitespace (the table grid vs its canonical
+ * form): same line, same count of non-whitespace characters before the
+ * caret. A caret ON a content character lands on the corresponding
+ * content character; boundary carets keep left affinity.
+ */
+export function mapOffsetByLineFlat(from: string, to: string, offset: number): number {
+  const at = Math.max(0, Math.min(offset, from.length));
+  const fLines = from.split('\n');
+  const tLines = to.split('\n');
+  let li = 0;
+  let lineStart = 0;
+  while (li < fLines.length - 1 && at > lineStart + fLines[li].length) {
+    lineStart += fLines[li].length + 1;
+    li++;
+  }
+  const col = at - lineStart;
+  let n = 0;
+  for (let i = 0; i < Math.min(col, fLines[li].length); i++) if (!/\s/.test(fLines[li][i])) n++;
+  const tIdx = Math.min(li, tLines.length - 1);
+  let tStart = 0;
+  for (let i = 0; i < tIdx; i++) tStart += tLines[i].length + 1;
+  const tl = tLines[tIdx];
+  const onContent = col < fLines[li].length && !/\s/.test(fLines[li][col]);
+  let seen = 0;
+  for (let i = 0; i < tl.length; i++) {
+    if (!/\s/.test(tl[i])) {
+      seen++;
+      if (onContent && seen === n + 1) return tStart + i; // ON the (n+1)th content char
+      if (!onContent && seen === n) return tStart + i + 1; // just AFTER the nth (left affinity)
+    }
+  }
+  if (!onContent && n === 0) return tStart + Math.min(col, tl.length);
+  return tStart + tl.length;
+}
