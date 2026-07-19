@@ -203,14 +203,14 @@ button {
   position: relative;
 }
 
-/* Minimum useful pane width — preview, editor, and both split panes.
-   240px keeps the divider's 0.2 ratio bound reachable at common window
-   sizes (SPEC7 §5 / E40); below the floor the workspace scrolls sideways. */
+/* Minimum useful CONTENT width per pane (the paneMinWidth setting). The
+   panes themselves shrink freely — the divider drags wherever you like —
+   but the content inside stops reflowing at the floor and the pane grows
+   a horizontal scrollbar instead. */
 .theme-root {
   --mm-pane-min: 240px;
 }
-.workspace:not(.split) > .editor-wrap,
-.workspace:not(.split) > * > .editor-wrap {
+.editor-wrap {
   min-width: var(--mm-pane-min, 240px);
 }
 
@@ -743,17 +743,18 @@ mark.hl.ghost {
 /* ---------- split edit (SPEC7 §5): editor | divider | live preview ---------- */
 
 .workspace.split {
-  overflow-y: hidden;
-  overflow-x: auto;
+  overflow: hidden;
   justify-content: stretch;
 }
 
 .split-editor {
   width: var(--mm-split, 50%);
   flex-shrink: 0;
-  min-width: var(--mm-pane-min, 240px);
+  min-width: 0;
   display: flex;
-  overflow: hidden;
+  /* The content floors at --mm-pane-min; the pane scrolls sideways past it. */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .split-divider {
@@ -771,7 +772,8 @@ mark.hl.ghost {
 
 .split-preview {
   flex: 1;
-  min-width: var(--mm-pane-min, 240px);
+  min-width: 0;
+  overflow-x: auto;
   overflow-y: auto;
   /* SPEC20 §4.2 (split): offset parent for the image-resize overlay. */
   position: relative;
@@ -779,6 +781,7 @@ mark.hl.ghost {
 
 .split-preview .doc {
   margin: 0 auto;
+  min-width: var(--mm-pane-min, 240px);
 }
 
 /* ---------- modals (settings, close guard) ---------- */

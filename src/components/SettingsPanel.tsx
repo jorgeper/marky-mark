@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DEFAULT_SETTINGS, FONT_SIZE_MAX, FONT_SIZE_MIN, ZOOM_LEVELS, type Margins, type Settings } from '../lib/settings';
+import { DEFAULT_SETTINGS, FONT_SIZE_MAX, FONT_SIZE_MIN, PANE_MIN_WIDTH_MAX, PANE_MIN_WIDTH_MIN, ZOOM_LEVELS, type Margins, type Settings } from '../lib/settings';
 import type { Theme } from '../lib/themes';
 import { comboFromEvent, DEFAULT_HOTKEYS, displayCombo, type HotkeyMap } from '../lib/hotkeys';
 import { SMART_EDIT_NAME } from '../lib/smartEdit';
@@ -283,6 +283,29 @@ export function SettingsPanel({
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="field">
+        <label htmlFor="settings-pane-min">
+          Minimum pane width (px) — narrower panes scroll sideways
+        </label>
+        <input
+          id="settings-pane-min"
+          type="number"
+          data-testid="settings-pane-min"
+          min={PANE_MIN_WIDTH_MIN}
+          max={PANE_MIN_WIDTH_MAX}
+          step={10}
+          value={settings.paneMinWidth}
+          onChange={(e) => {
+            const v = Math.round(Number(e.target.value));
+            if (!Number.isFinite(v)) return;
+            onChange({
+              ...settings,
+              paneMinWidth: Math.min(PANE_MIN_WIDTH_MAX, Math.max(PANE_MIN_WIDTH_MIN, v)),
+            });
+          }}
+        />
       </div>
     </>
   );

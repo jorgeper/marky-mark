@@ -1186,6 +1186,8 @@ export default function App() {
     else el.style.setProperty('--mm-font-size', `${settings.fontSize}px`);
     if (settings.margins === 'default') el.style.removeProperty('--mm-content-width');
     else el.style.setProperty('--mm-content-width', MARGIN_WIDTHS[settings.margins]);
+    // Pane content floor: below it, panes scroll sideways instead of reflowing.
+    el.style.setProperty('--mm-pane-min', `${settings.paneMinWidth}px`);
     // Text-only zoom (SPEC4 §4): a font multiplier consumed by the document
     // and editor styles — never CSS `zoom`, which would scale the whole UI.
     if (settings.zoom === 100) el.style.removeProperty('--mm-zoom');
@@ -1193,7 +1195,7 @@ export default function App() {
     // `platform` in the deps: the pre-boot render has no rootRef, so this
     // must re-run once the real root mounts — otherwise defaults that equal
     // the initial state (e.g. fontSize 12) are never applied.
-  }, [platform, settings.fontSize, settings.margins, settings.zoom]);
+  }, [platform, settings.fontSize, settings.margins, settings.zoom, settings.paneMinWidth]);
 
   // --- settings persistence ---------------------------------------------------
   const updateSettings = useCallback(

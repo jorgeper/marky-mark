@@ -13,6 +13,9 @@ export const SPLIT_RATIO_MAX = 0.8;
 /** SPEC34 §2.2: folder sidebar width bounds (px). */
 export const FOLDER_WIDTH_MIN = 160;
 export const FOLDER_WIDTH_MAX = 480;
+/** Pane content floor bounds (px) — below the floor, panes scroll sideways. */
+export const PANE_MIN_WIDTH_MIN = 120;
+export const PANE_MIN_WIDTH_MAX = 960;
 
 /** Margin presets → content-column max-width overrides (SPEC3 §2, SPEC4 §7). */
 export const MARGIN_WIDTHS: Record<Exclude<Margins, 'default'>, string> = {
@@ -64,6 +67,8 @@ export interface Settings {
   showFolders: boolean;
   /** SPEC34 §3.6: sidebar width in px, clamped [160, 480]. */
   folderWidth: number;
+  /** Minimum content width per pane (px); narrower panes scroll sideways. */
+  paneMinWidth: number;
   hotkeys: HotkeyMap;
 }
 
@@ -96,6 +101,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reopenLastDoc: true,
   showFolders: false,
   folderWidth: 240,
+  paneMinWidth: 240,
   hotkeys: { ...DEFAULT_HOTKEYS },
 };
 
@@ -179,6 +185,10 @@ export function parseSettings(json: string): Settings {
       typeof o.folderWidth === 'number' && Number.isFinite(o.folderWidth)
         ? Math.min(FOLDER_WIDTH_MAX, Math.max(FOLDER_WIDTH_MIN, Math.round(o.folderWidth)))
         : DEFAULT_SETTINGS.folderWidth,
+    paneMinWidth:
+      typeof o.paneMinWidth === 'number' && Number.isFinite(o.paneMinWidth)
+        ? Math.min(PANE_MIN_WIDTH_MAX, Math.max(PANE_MIN_WIDTH_MIN, Math.round(o.paneMinWidth)))
+        : DEFAULT_SETTINGS.paneMinWidth,
     hotkeys,
   };
 }

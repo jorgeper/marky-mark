@@ -11,6 +11,7 @@ describe('v3 settings', () => {
     expect(d.fontSize).toBe(12);
     expect(d.zoom).toBe(100);
     expect(d.margins).toBe('super-narrow'); // narrowest margins by default
+    expect(d.paneMinWidth).toBe(240); // pane content floor (px)
     expect(d.lineNumbers).toBe(true);
     expect(d.vimNav).toBe(false);
     expect(parseSettings('not json')).toEqual({ ...DEFAULT_SETTINGS, hotkeys: { ...DEFAULT_SETTINGS.hotkeys } });
@@ -55,6 +56,9 @@ describe('v3 settings', () => {
     expect(parseSettings('{"zoom":137}').zoom).toBe(100); // not a preset level
     expect(parseSettings('{"margins":"gigantic"}').margins).toBe('super-narrow'); // unknown → the default
     expect(parseSettings('{"margins":"default"}').margins).toBe('default'); // explicit theme-default preserved
+    expect(parseSettings('{"paneMinWidth":50}').paneMinWidth).toBe(120); // clamped to [120, 960]
+    expect(parseSettings('{"paneMinWidth":5000}').paneMinWidth).toBe(960);
+    expect(parseSettings('{"paneMinWidth":"wide"}').paneMinWidth).toBe(240);
     // SPEC4 §7: super-narrow is a valid preset with a wider column than narrow.
     expect(parseSettings('{"margins":"super-narrow"}').margins).toBe('super-narrow');
     expect(MARGIN_WIDTHS['super-narrow']).toBe('76rem');
