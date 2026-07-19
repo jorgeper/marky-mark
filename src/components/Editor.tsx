@@ -53,9 +53,9 @@ import {
 } from '../lib/smartEdit';
 import { SmartEditMenu } from './SmartEditMenu';
 import {
-  cellContentSpan,
   deleteTableAt,
   displayCellAt,
+  displayCellBounds,
   displayPosOf,
   insertTableAt,
   layoutTable,
@@ -583,36 +583,59 @@ export default function Editor({
     const text = view.state.doc.toString();
     const region = { start: span.from, end: span.to };
     const parsed = parseDisplay(text, region);
-    const c = parsed ? displayCellAt(text, region, parsed, head) : null;
-    const hCell = c ? cellContentSpan(text, region, -1, c.col) : null;
-    if (!parsed || !c || !hCell) {
+    const b = parsed ? displayCellBounds(text, region, parsed, head) : null;
+    if (!parsed || !b) {
       setChips(null);
       return;
     }
+    // Chip centers sit ON the borders they act on: the column ⊕s on the
+    // column's pipes at the table's top border, the column ✕ at the column's
+    // middle; the row ⊕s on the left border at the row BLOCK's top/bottom
+    // edges (wrapped rows span several lines), the row ✕ at its vertical
+    // middle, nudged left of the ⊕ stack so single-line rows don't overlap.
+    const cw = view.defaultCharacterWidth || 8;
     const top = view.coordsAtPos(span.from);
-    const left = view.coordsAtPos(hCell.start);
-    const right = view.coordsAtPos(hCell.end);
-    const line = view.state.doc.lineAt(head);
-    const lineCo = view.coordsAtPos(line.from);
-    if (!top || !left || !right || !lineCo) {
+    const lp = view.coordsAtPos(Math.max(span.from, b.cellStart - 1)); // left pipe
+    const rp = view.coordsAtPos(Math.min(span.to, b.cellEnd)); // right pipe
+    // The caret row's display-line block (header block for separators/row −1).
+    const firstDocLine = view.state.doc.lineAt(span.from).number;
+    const blockIdxs: number[] = [];
+    parsed.lineInfo.forEach((li, i) => {
+      if (li.kind === 'cells' && li.row === b.row) blockIdxs.push(i);
+    });
+    if (!top || !lp || !rp || blockIdxs.length === 0) {
+      setChips(null);
+      return;
+    }
+    const firstLine = view.state.doc.line(firstDocLine + blockIdxs[0]);
+    const lastLine = view.state.doc.line(firstDocLine + blockIdxs[blockIdxs.length - 1]);
+    const rowTopCo = view.coordsAtPos(firstLine.from);
+    const rowBottomCo = view.coordsAtPos(lastLine.from);
+    if (!rowTopCo || !rowBottomCo) {
       setChips(null);
       return;
     }
     const hostRect = host.getBoundingClientRect();
     const X = (v: number) => v - hostRect.left;
     const Y = (v: number) => v - hostRect.top;
-    const isHeader = c.row === -1; // header and separator lines map here
-    const topY = Y(top.top) - 22;
+    const HALF = 9; // chips are 18px — center them on the border points
+    const isHeader = b.row === -1; // header and separator lines map here
+    const leftPipeX = X(lp.left) + cw / 2;
+    const rightPipeX = X(rp.left) + cw / 2;
+    const topBorderY = Y(top.top);
+    const tableLeftX = X(rowTopCo.left) + cw / 2; // the row's first pipe
+    const rowTopY = Y(rowTopCo.top);
+    const rowBottomY = Y(rowBottomCo.bottom);
     setChips({
-      colLeft: { x: X(left.left) - 22, y: topY },
-      colRight: { x: X(right.right) + 4, y: topY },
-      colDel: { x: (X(left.left) + X(right.right)) / 2 - 9, y: topY },
+      colLeft: { x: leftPipeX - HALF, y: topBorderY - HALF },
+      colRight: { x: rightPipeX - HALF, y: topBorderY - HALF },
+      colDel: { x: (leftPipeX + rightPipeX) / 2 - HALF, y: topBorderY - HALF },
       colDelDisabled: parsed.model.header.length <= 1,
-      rowAbove: isHeader ? null : { x: X(lineCo.left) - 24, y: Y(lineCo.top) - 9 },
-      rowBelow: { x: X(lineCo.left) - 24, y: Y(lineCo.bottom) - 9 },
+      rowAbove: isHeader ? null : { x: tableLeftX - HALF, y: rowTopY - HALF },
+      rowBelow: { x: tableLeftX - HALF, y: rowBottomY - HALF },
       rowDel: isHeader
         ? null
-        : { x: X(lineCo.left) - 46, y: (Y(lineCo.top) + Y(lineCo.bottom)) / 2 - 9 },
+        : { x: tableLeftX - HALF - 22, y: (rowTopY + rowBottomY) / 2 - HALF },
     });
   };
   const computeChipsRef = useRef(computeChips);
