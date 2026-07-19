@@ -99,7 +99,10 @@ function main() {
     const name = entry.name ?? key.slice(key.lastIndexOf('node_modules/') + 'node_modules/'.length);
     let license = null;
     try {
-      license = normalizeNpmLicense(JSON.parse(readFileSync(path.join(root, key, 'package.json'), 'utf8')).license);
+      const manifest = JSON.parse(readFileSync(path.join(root, key, 'package.json'), 'utf8'));
+      // `licenses` (plural) is the legacy npm field — e.g. format@0.2.2's
+      // [{type:'MIT',...}] — which normalize already knows how to read.
+      license = normalizeNpmLicense(manifest.license ?? manifest.licenses);
     } catch {
       /* not installed (e.g. skipped optional) — leave null and let the guard decide */
     }
