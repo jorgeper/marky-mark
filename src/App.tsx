@@ -54,7 +54,8 @@ import {
   type AuxRequest,
 } from './lib/auxProtocol';
 import { VimNavResolver } from './lib/vimnav';
-import { findNormalized, mapSelectionToSource, visibleTextForRange } from './lib/selectionMap';
+import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, sourceRangeForVisibleMatch, visibleTextForRange } from './lib/selectionMap';
+import { blockLineFor, wordAt } from './lib/activePosition';
 import { parseFrontMatter } from './lib/frontmatter';
 import { isStaleDraft, parseDraft, serializeDraft, type Draft } from './lib/drafts';
 import { FindBar } from './components/FindBar';
@@ -498,6 +499,115 @@ export default function App() {
     });
   }, []);
 
+  // --- SPEC44: active line & word cues (either preview pane) -------------------
+  const activeCueRef = useRef<{ head: number; headLine: number; hasSel: boolean } | null>(null);
+
+  const clearActiveCues = useCallback((pane: HTMLElement) => {
+    pane.querySelectorAll('.mm-active-block').forEach((el) => el.classList.remove('mm-active-block'));
+    pane.querySelectorAll('mark.mm-active-word').forEach((m) => {
+      const parent = m.parentNode;
+      if (!parent) return;
+      while (m.firstChild) parent.insertBefore(m.firstChild, m);
+      m.remove();
+      parent.normalize();
+    });
+  }, []);
+
+  /**
+   * SPEC44 §3: the caret's block tint + position-exact word mark. The word is
+   * located by normalized occurrence INDEX computed on the source side — the
+   * caret's occurrence, never a text search that could hit a twin elsewhere.
+   */
+  const applyActiveCues = useCallback(
+    (pane: HTMLElement, head: number, headLine: number, hasSel: boolean) => {
+      clearActiveCues(pane);
+      const buffer = stateRef.current.buffer;
+      const stamped = Array.from(pane.querySelectorAll<HTMLElement>('[data-mm-line]'));
+      if (stamped.length === 0) return;
+      const anchors = stamped.map((el) => Number(el.dataset.mmLine));
+      const blockLine = blockLineFor(anchors, headLine);
+      if (blockLine === null) return;
+      const blockEl = stamped[anchors.lastIndexOf(blockLine)];
+      blockEl.classList.add('mm-active-block');
+      if (hasSel) return; // a real selection outranks the word cue (§2.2)
+      const w = wordAt(buffer, head);
+      if (!w) return;
+      const needle = visibleTextForRange(buffer, w.start, w.end);
+      if (!needle.trim()) return;
+      const lines = buffer.split('\n');
+      const starts: number[] = [0];
+      for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
+      const blockStart = starts[Math.min(blockLine, lines.length) - 1] ?? 0;
+      const nth = countNormalized(visibleTextForRange(buffer, blockStart, w.start), needle);
+      const region = document.createRange();
+      region.setStartBefore(blockEl);
+      region.setEndAfter(blockEl);
+      const { start: rs, end: re } = rangeToOffsets(pane, region);
+      const hit = findNormalizedNth(getDocText(pane).slice(rs, re), needle, nth);
+      if (!hit) return;
+      for (const m of highlightRange(pane, rs + hit.start, rs + hit.end, '__aw__')) {
+        m.className = 'mm-active-word';
+        delete m.dataset.cid; // never the comment machinery's business
+      }
+    },
+    [clearActiveCues]
+  );
+
+  /**
+   * SPEC44 §4: a plain preview click (no link/image/comment/find targets, no
+   * drag selection) resolves to a source caret: split mode moves the editor
+   * caret (the report loop re-derives both panes' cues); preview-only shows
+   * the cues now and parks the caret for the next Mod+E (E85 contract).
+   */
+  const placeFromPreviewClick = useCallback(
+    (pane: HTMLElement | null, e: React.MouseEvent) => {
+      if (!pane || e.defaultPrevented) return;
+      const t = e.target as HTMLElement;
+      if (t.closest?.('a[href], img, mark.hl, mark.mm-find, input, button, .fm-card')) return;
+      const live = document.getSelection();
+      if (live && !live.isCollapsed) return; // click-drag selection keeps priority
+      const cr = document.caretRangeFromPoint(e.clientX, e.clientY);
+      if (!cr || !pane.contains(cr.startContainer)) return;
+      const base = cr.startContainer.nodeType === Node.ELEMENT_NODE
+        ? (cr.startContainer as HTMLElement)
+        : cr.startContainer.parentElement;
+      const blockEl = base?.closest<HTMLElement>('[data-mm-line]');
+      if (!blockEl) return;
+      const buffer = stateRef.current.buffer;
+      const lines = buffer.split('\n');
+      const stamped = Array.from(pane.querySelectorAll<HTMLElement>('[data-mm-line]'));
+      const blockLine = Number(blockEl.dataset.mmLine);
+      const after = stamped.find((el) => Number(el.dataset.mmLine) > blockLine);
+      const endLine = after ? Number(after.dataset.mmLine) - 1 : lines.length;
+      const { start: at } = rangeToOffsets(pane, cr);
+      const region = document.createRange();
+      region.setStartBefore(blockEl);
+      region.setEndAfter(blockEl);
+      const { start: rs, end: re } = rangeToOffsets(pane, region);
+      const blockText = getDocText(pane).slice(rs, re);
+      const local = Math.max(0, Math.min(at - rs, blockText.length));
+      const w = wordAt(blockText, local);
+      const starts: number[] = [0];
+      for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
+      let src: { from: number; to: number } | null = null;
+      if (w) {
+        const word = blockText.slice(w.start, w.end);
+        const nth = countNormalized(blockText.slice(0, w.start), word);
+        src = sourceRangeForVisibleMatch(buffer, blockLine, endLine, word, nth);
+      }
+      const caret = src ? src.from : (starts[Math.min(blockLine, lines.length) - 1] ?? 0);
+      if (stateRef.current.mode === 'edit') {
+        editorSelectRef.current?.(caret, caret); // the report loop paints the cues
+      } else {
+        pendingEditorSelRef.current = { from: caret, to: caret }; // Mod+E lands here
+        const headLine = buffer.slice(0, caret).split('\n').length;
+        activeCueRef.current = { head: caret, headLine, hasSel: false };
+        applyActiveCues(pane, caret, headLine, false);
+      }
+    },
+    [applyActiveCues]
+  );
+
   /**
    * Editor selection reports drive the seam and the reverse mirror. The
    * preview side is marks, never the native selection (a focused CM
@@ -515,6 +625,9 @@ export default function App() {
         const pane = splitDocRef.current;
         if (!pane) return;
         clearMirrorMarks();
+        // SPEC44 §3: block + word cues follow every caret report.
+        activeCueRef.current = { head: s.head, headLine: s.headLine, hasSel: s.selFrom !== s.selTo };
+        applyActiveCues(pane, s.head, s.headLine, s.selFrom !== s.selTo);
         if (!s.focused || s.selFrom === s.selTo) return;
         const buffer = stateRef.current.buffer;
         const needle = visibleTextForRange(buffer, s.selFrom, s.selTo);
@@ -546,7 +659,7 @@ export default function App() {
         }
       }, 150);
     },
-    [seamEditState, clearMirrorMarks]
+    [seamEditState, clearMirrorMarks, applyActiveCues]
   );
 
   /** SPEC20 §2: transient feedback chip; each message restarts the 4s clock. */
@@ -994,6 +1107,7 @@ export default function App() {
     // post-commit effect — an unmounting editor's snapshot lands after us.
     pendingHistoryRef.current = { value: history };
     pendingEditorSelRef.current = null; // SPEC25: selection never crosses documents
+    activeCueRef.current = null; // SPEC44: cues re-derive from the new caret
     pendingPreviewSelRef.current = null;
     lastEditorSelRef.current = { from: 0, to: 0 };
     setFmOverride(null); // SPEC26 §3.3: a new document follows the setting
@@ -1630,7 +1744,8 @@ export default function App() {
     const s = stateRef.current;
     // SPEC25: carry the current selection across the mode switch.
     if (s.mode === 'preview') {
-      pendingEditorSelRef.current = docRef.current ? sourceRangeFromDomSelection(docRef.current) : null;
+      pendingEditorSelRef.current =
+        (docRef.current ? sourceRangeFromDomSelection(docRef.current) : null) ?? pendingEditorSelRef.current;
     } else {
       const { from, to } = lastEditorSelRef.current;
       pendingPreviewSelRef.current = from !== to ? { from, to } : null;
@@ -2554,7 +2669,10 @@ export default function App() {
       }
     }
     injectionCompleteRef.current = true; // SPEC25 §2: this DOM is final for now
-  }, [html, comments, showComments, mode, settings.showResolved, settings.commentsEnabled]);
+    // SPEC44 §3.2: re-derive the placement cues the re-injection wiped.
+    const cue = activeCueRef.current;
+    if (cue) applyActiveCues(doc, cue.head, cue.headLine, cue.hasSel);
+  }, [html, comments, showComments, mode, settings.showResolved, settings.commentsEnabled, applyActiveCues]);
 
   // Into preview: once the doc is injected, map the carried line back to a
   // pixel offset (block-anchored, so code blocks don't skew it).
@@ -2677,7 +2795,10 @@ export default function App() {
         else img.removeAttribute('src');
       });
     }
-  }, [html, mode, settings.splitEdit]);
+    // SPEC44 §3.2: a re-render wiped the synthetic cues — re-derive them.
+    const cue = activeCueRef.current;
+    if (cue) applyActiveCues(el, cue.head, cue.headLine, cue.hasSel);
+  }, [html, mode, settings.splitEdit, applyActiveCues]);
 
   // --- SPEC15: synchronized split scrolling ------------------------------------
   // Whichever pane the user scrolls leads; the other follows within a frame.
@@ -3160,6 +3281,7 @@ export default function App() {
                 const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
                 if (mark?.dataset.cid && showComments) handleMarkClick(mark.dataset.cid);
                 else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
+                placeFromPreviewClick(docRef.current, e); // SPEC44 §4.2
               }}
             />
           </div>
@@ -3259,6 +3381,7 @@ export default function App() {
                 onVimModeChange={seamVimMode}
                 onEditState={handleEditState}
                 selectRangeRef={editorSelectRef}
+                activeWordSuppressed={findOpen}
                 pendingSelectionRef={pendingEditorSelRef}
                 searchRef={editorSearchRef}
                 hotkeys={settings.hotkeys}
@@ -3298,7 +3421,7 @@ export default function App() {
             {frontMatter && showFrontmatter && (
               <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
             )}
-            <div className="doc" ref={splitDocRef} />
+            <div className="doc" ref={splitDocRef} onClick={(e) => placeFromPreviewClick(splitDocRef.current, e)} />
           </div>
         </div>
       ) : (
@@ -3318,6 +3441,7 @@ export default function App() {
               onVimModeChange={seamVimMode}
               onEditState={handleEditState}
               selectRangeRef={editorSelectRef}
+                activeWordSuppressed={findOpen}
               pendingSelectionRef={pendingEditorSelRef}
               searchRef={editorSearchRef}
               hotkeys={settings.hotkeys}

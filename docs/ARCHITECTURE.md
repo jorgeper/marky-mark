@@ -473,6 +473,21 @@ bounce), and the reverse mirror ignores unfocused selection reports — the
 forward mirror's CM dispatch always arrives unfocused (and clears stale
 marks on the way through).
 
+The placement cues (SPEC44) ride the SAME synthetic-mark pipeline:
+`activePosition.ts` (pure) finds the caret's word (`wordAt`, Unicode,
+left affinity) and its preview block (`blockLineFor` over the
+`data-mm-line` anchors). The preview marks the block (`mm-active-block`
+class) and the word (`mark.mm-active-word`) — position-exact via
+normalized occurrence counting (`countNormalized` on the source side
+picks which `findNormalizedNth` match to wrap), so a repeated word marks
+the caret's occurrence, never a look-alike. The editor's own word cue is
+a CodeMirror StateField whose decoration derives from state even at
+create time (a remount restored via `EditorState.fromJSON` carries a
+selection but produces no transaction). Preview clicks invert the trip:
+`caretRangeFromPoint` → rendered word → occurrence index →
+`sourceRangeForVisibleMatch` → the editor caret (split) or a parked
+collapsed selection the next mode switch consumes (preview-only).
+
 Mode switches carry the selection too (SPEC25): into edit, the captured
 preview selection maps through the same source mapper and rides a ref the
 editor consumes at mount (after the parked-history restore, so it wins);

@@ -4855,3 +4855,183 @@ test('E123: the Image ▸ menu — labels and flags by context, Insert dispatche
   await expect(editor.locator('.mm-image-widget')).toHaveCount(2);
   expect(await fsRead(page, '/docs/images/pic2.png')).toContain('data:image/png');
 });
+
+// ---------------------------------------------------------------------------
+// SPEC44: active line & word placement cues (E124–E126)
+
+/** Center of the nth visible occurrence of `word` inside `paneSel`; click it. */
+const clickWord = async (page: import('@playwright/test').Page, paneSel: string, word: string, nth = 0) => {
+  const pt = await page.evaluate(
+    ([sel, w, n]) => {
+      const pane = document.querySelector(sel as string)!;
+      const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
+      let seen = 0;
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const text = node.nodeValue ?? '';
+        for (let at = text.indexOf(w as string); at !== -1; at = text.indexOf(w as string, at + 1)) {
+          if (seen++ === n) {
+            const r = document.createRange();
+            r.setStart(node, at);
+            r.setEnd(node, at + (w as string).length);
+            const b = r.getBoundingClientRect();
+            return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+          }
+        }
+      }
+      throw new Error(`word not found: ${w}`);
+    },
+    [paneSel, word, nth] as const
+  );
+  await page.mouse.click(pt.x, pt.y);
+};
+
+test('E124: split mode — caret word darkens in both panes, position-exact on repeats, selection clears it, typing re-anchors', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/place.md', '# Title\n\nalpha beta gamma\n\ncat and cat again\n');
+  await page.goto('/#open=/docs/place.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Title');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+
+  // Caret inside "alpha": the editor decoration and BOTH preview cues appear.
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'alpha beta gamma' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  const edWord = page.locator('.cm-content .mm-active-word');
+  const pvWord = page.locator('[data-testid="split-preview"] .doc mark.mm-active-word');
+  const pvBlock = page.locator('[data-testid="split-preview"] .doc .mm-active-block');
+  await expect(edWord).toHaveText('alpha');
+  await expect(pvWord).toHaveText('alpha');
+  await expect(pvBlock).toHaveCount(1);
+  await expect(pvBlock).toContainText('alpha beta gamma');
+  // Inert to the comment machinery.
+  expect(await pvWord.getAttribute('data-cid')).toBeNull();
+
+  // Arrow into "beta": both sides re-target.
+  for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight');
+  await expect(edWord).toHaveText('beta');
+  await expect(pvWord).toHaveText('beta');
+
+  // Repeats mark the CARET's occurrence: caret in the second "cat".
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'cat and cat again' }).click();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 9; i++) await page.keyboard.press('ArrowRight');
+  await expect(edWord).toHaveText('cat');
+  await expect(pvWord).toHaveText('cat');
+  await expect(pvWord).toHaveCount(1);
+  const info = await page.evaluate(() => {
+    const m = document.querySelector('[data-testid="split-preview"] .doc mark.mm-active-word')!;
+    const blk = m.closest('[data-mm-line]')!;
+    const r = document.createRange();
+    r.setStart(blk, 0);
+    r.setEndBefore(m);
+    return { word: m.textContent, before: r.toString() };
+  });
+  expect(info.word).toBe('cat');
+  expect(info.before).toBe('cat and '); // the SECOND cat carries the mark
+
+  // A real selection outranks the word cue; the block tint stays.
+  await page.keyboard.press('Shift+End');
+  await expect(edWord).toHaveCount(0);
+  await expect(pvWord).toHaveCount(0);
+  await expect(pvBlock).toHaveCount(1);
+
+  // Typing keeps the cues anchored through the re-render.
+  await page.keyboard.press('End');
+  await page.keyboard.type(' zeta');
+  await expect(edWord).toHaveText('zeta');
+  await expect(pvWord).toHaveText('zeta');
+});
+
+test('E125: preview clicks place the caret — split moves the editor, preview-only carries into Mod+E; links stay links', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/click.md', '# Click\n\nalpha beta gamma\n\nplus +++ plus2\n\n[ext](https://example.com/x)\n');
+  await page.goto('/#open=/docs/click.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Click');
+
+  // Preview-only: click a word → block + word cues right there.
+  await clickWord(page, '[data-testid="doc"]', 'beta');
+  await expect(page.locator('[data-testid="doc"] mark.mm-active-word')).toHaveText('beta');
+  await expect(page.locator('[data-testid="doc"] .mm-active-block')).toContainText('alpha beta gamma');
+  // A link click keeps its existing behavior — placement skipped, cue stays.
+  await page.locator('[data-testid="doc"] a[href]').click();
+  await expect(page.locator('[data-testid="doc"] mark.mm-active-word')).toHaveText('beta');
+
+  // Mod+E lands the editor caret on that word (the E85 contract, collapsed).
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await expect(page.locator('.cm-content .mm-active-word')).toHaveText('beta');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBe('# Click\n\nalpha '.length);
+
+  // Split mode: clicking a preview word moves the editor caret to it.
+  await clickWord(page, '[data-testid="split-preview"] .doc', 'gamma');
+  await expect(page.locator('.cm-content .mm-active-word')).toHaveText('gamma');
+  await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveText('gamma');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBe('# Click\n\nalpha beta '.length);
+
+  // A no-word click (punctuation run) still moves the caret — to the block.
+  await clickWord(page, '[data-testid="split-preview"] .doc', '+++');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBe('# Click\n\nalpha beta gamma\n\n'.length);
+  await expect(page.locator('[data-testid="split-preview"] .doc .mm-active-block')).toContainText('plus +++ plus2');
+});
+
+test('E126: hygiene — comments anchor through the cues, find coexists/suppresses, themes override, doc switch resets', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/hyg.md', '# Hyg\n\nalpha beta gamma delta\n');
+  await fsWrite(page, '/docs/other.md', '# Other\n\nplain here\n');
+  await page.goto('/#open=/docs/hyg.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Hyg');
+
+  // Cues active…
+  await clickWord(page, '[data-testid="doc"]', 'beta');
+  await expect(page.locator('[data-testid="doc"] mark.mm-active-word')).toHaveText('beta');
+  // …and the comment coordinate space is undisturbed: a comment over a span
+  // CROSSING the marked word (the mark fragments text nodes) anchors exactly.
+  await selectSpanInPane(page, '[data-testid="doc"]', 'beta', 'delta');
+  await page.getByTestId('add-comment-btn').click();
+  await page.keyboard.type('anchored fine');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await expect
+    .poll(async () => (await page.locator('[data-testid="doc"] mark.hl').allTextContents()).join(''))
+    .toContain('beta gamma delta');
+
+  // Find marks and the active word coexist in the preview.
+  await page.keyboard.press('ControlOrMeta+f');
+  await page.getByTestId('find-input').fill('beta');
+  await expect(page.locator('[data-testid="doc"] mark.mm-find')).toHaveCount(1);
+  await expect(page.locator('[data-testid="doc"] mark.mm-active-word')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+
+  // In edit mode the open find bar suppresses the editor's word cue.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'alpha beta' }).click();
+  await expect(page.locator('.cm-content .mm-active-word')).toHaveCount(1);
+  await page.keyboard.press('ControlOrMeta+f');
+  await expect(page.getByTestId('find-input')).toBeVisible();
+  await expect(page.locator('.cm-content .mm-active-word')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  // Click back into the editor: focus returns, the find-match selection
+  // collapses, and the cue re-derives now that the bar is gone.
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'alpha beta' }).click();
+  await expect(page.locator('.cm-content .mm-active-word')).toHaveCount(1);
+
+  // Theme variables drive both cue colors.
+  const color = await page.evaluate(() => {
+    document.querySelector<HTMLElement>('.theme-root')!.style.setProperty('--mm-active-word', 'rgb(1, 2, 3)');
+    const m = document.querySelector('.cm-content .mm-active-word')!;
+    return getComputedStyle(m).backgroundColor;
+  });
+  expect(color).toBe('rgb(1, 2, 3)');
+
+  // A doc switch drops the cues — nothing stale on the incoming document.
+  await page.keyboard.press('Control+e');
+  await page.goto('/#open=/docs/other.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Other');
+  await expect(page.locator('[data-testid="doc"] mark.mm-active-word')).toHaveCount(0);
+  await expect(page.locator('[data-testid="doc"] .mm-active-block')).toHaveCount(0);
+});

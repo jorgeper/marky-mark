@@ -1370,6 +1370,25 @@ mark.hl.ghost {
   border-radius: 2px;
 }
 
+/* SPEC44: placement cues. The caret's block wears the active-line tint;
+   the caret's word a darker shade — in the editor (CM decoration) and the
+   preview (synthetic mark). Stacking: find > selection > comments > word >
+   line — later marks nest inside and paint on top naturally. */
+.doc .mm-active-block {
+  background: var(--mm-active-line, rgba(9, 105, 218, 0.055));
+  border-radius: 4px;
+}
+.doc mark.mm-active-word {
+  background: var(--mm-active-word, rgba(9, 105, 218, 0.16));
+  color: inherit;
+  padding: 0;
+  border-radius: 2px;
+}
+.editor-wrap .cm-content .mm-active-word {
+  background: var(--mm-active-word, rgba(9, 105, 218, 0.16));
+  border-radius: 2px;
+}
+
 /* SPEC26 §2: the front-matter metadata card — dim, theme-driven, app UI
    above the rendered document (preview and split preview). */
 .fm-card {

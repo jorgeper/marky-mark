@@ -10,7 +10,7 @@ import {
   highlightActiveLine,
   type DecorationSet,
 } from '@codemirror/view';
-import { Compartment, EditorState, Prec, RangeSetBuilder } from '@codemirror/state';
+import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import {
   cursorCharLeft,
   cursorCharRight,
@@ -33,6 +33,7 @@ import { closeSearchPanel, findNext, findPrevious, getSearchQuery, openSearchPan
 import { tags } from '@lezer/highlight';
 import { markdown } from '@codemirror/lang-markdown';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
+import { wordAt } from '../lib/activePosition';
 import type { DiffLineSets } from '../lib/diffLines';
 import { displayCombo, type HotkeyMap } from '../lib/hotkeys';
 import {
@@ -153,6 +154,38 @@ export interface EditorSearchHandle {
   clear(): void;
 }
 
+
+// --- SPEC44 §2: the darker word-under-caret cue -------------------------------
+const activeWordMark = Decoration.mark({ class: 'mm-active-word' });
+export const setActiveWordSuppressed = StateEffect.define<boolean>();
+function activeWordDeco(state: EditorState, sup: boolean): DecorationSet {
+  const sel = state.selection.main;
+  // A real selection (or find-bar focus) outranks the word cue (§2.2).
+  if (sup || !sel.empty) return Decoration.none;
+  const line = state.doc.lineAt(sel.head);
+  const w = wordAt(line.text, sel.head - line.from);
+  if (!w) return Decoration.none;
+  return Decoration.set([activeWordMark.range(line.from + w.start, line.from + w.end)]);
+}
+const activeWordField = StateField.define<{ sup: boolean; deco: DecorationSet }>({
+  // Derive from the state even at create time — a remount restored through
+  // EditorState.fromJSON carries a selection but produces no transaction.
+  create: (state) => ({ sup: false, deco: activeWordDeco(state, false) }),
+  update(v, tr) {
+    let sup = v.sup;
+    let poked = false;
+    for (const e of tr.effects) {
+      if (e.is(setActiveWordSuppressed)) {
+        sup = e.value;
+        poked = true;
+      }
+    }
+    if (!tr.selection && !tr.docChanged && !poked) return { sup, deco: v.deco.map(tr.changes) };
+    return { sup, deco: activeWordDeco(tr.state, sup) };
+  },
+  provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
+});
+
 export interface EditorSyncHandle {
   /** Fractional 1-based source line at the top of the viewport. */
   topLine(): number;
@@ -220,6 +253,8 @@ interface Props {
   pendingSelectionRef?: MutableRefObject<{ from: number; to: number } | null>;
   /** SPEC30 §1.4: populated at mount with the find/replace engine. */
   searchRef?: MutableRefObject<EditorSearchHandle | null>;
+  /** SPEC44 §2.2: true while the find/replace input owns the keyboard. */
+  activeWordSuppressed?: boolean;
   // --- SPEC43: Smart Edit ---------------------------------------------------
   /** Current bindings — menu rows and the gutter tooltip follow rebinds live. */
   hotkeys: HotkeyMap;
@@ -389,6 +424,7 @@ export default function Editor({
   selectRangeRef,
   pendingSelectionRef,
   searchRef,
+  activeWordSuppressed,
   hotkeys,
   isMac,
   canPaste,
@@ -404,6 +440,11 @@ export default function Editor({
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+
+  // SPEC44 §2.2: the find bar outranks the word cue while it holds focus.
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: setActiveWordSuppressed.of(!!activeWordSuppressed) });
+  }, [activeWordSuppressed]);
   const gutterComp = useRef(new Compartment());
   const diffComp = useRef(new Compartment());
   const syntaxComp = useRef(new Compartment());
@@ -890,6 +931,8 @@ export default function Editor({
       }),
       history(),
       highlightActiveLine(),
+      // SPEC44 §2: word-under-caret decoration (cleared while selecting).
+      activeWordField,
       // SPEC23 §1: CM-drawn selection so a mirrored range shows while the
       // editor is unfocused (styled via .cm-selectionBackground).
       drawSelection(),

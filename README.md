@@ -76,6 +76,11 @@ Either way it's a one-time step — the app opens normally afterwards.
   Esc puts the editor in a navigation-only vim mode (h/j/k/l, w/b, 0/$,
   gg/G, Ctrl+d/u; i to type again). ⌘F finds in both modes — live
   highlighted matches in preview, find & replace in the editor.
+- **Always know where you are** — the caret's word wears a darker shade in
+  the editor AND the preview, and the preview tints the block your caret
+  lives in. Click any word in the preview to place yourself there: in
+  split view the editor caret jumps to it; in reading view ⌘E lands you
+  on that exact word.
 - **Smart Edit** — in edit mode a Marky Mark hash button rides the gutter
   on your current line; click it (or right-click anywhere in the editor,
   or press ⌘. / Ctrl+.) for a contextual formatting menu: bold, italic,

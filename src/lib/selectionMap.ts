@@ -193,6 +193,15 @@ export function visibleTextForRange(source: string, from: number, to: number): s
 export function findNormalized(haystack: string, needle: string): { start: number; end: number } | null {
   const want = needle.replace(/\s+/g, ' ').trim();
   if (!want) return null;
+  const { hay, map } = flattenWhitespace(haystack);
+  const first = hay.indexOf(want);
+  if (first === -1) return null;
+  if (hay.indexOf(want, first + 1) !== -1) return null; // ambiguous
+  return { start: map[first], end: map[first + want.length - 1] + 1 };
+}
+
+/** Whitespace runs collapse to single spaces; map[i] = raw offset of flat[i]. */
+function flattenWhitespace(haystack: string): { hay: string; map: number[] } {
   const flat: string[] = [];
   const map: number[] = [];
   let pendingSpace = false;
@@ -210,9 +219,69 @@ export function findNormalized(haystack: string, needle: string): { start: numbe
     flat.push(ch);
     map.push(i);
   }
-  const hay = flat.join('');
-  const first = hay.indexOf(want);
-  if (first === -1) return null;
-  if (hay.indexOf(want, first + 1) !== -1) return null; // ambiguous
-  return { start: map[first], end: map[first + want.length - 1] + 1 };
+  return { hay: flat.join(''), map };
+}
+
+/**
+ * SPEC44 §3.1: occurrence counting in the normalized space — how many
+ * (possibly overlapping) matches of `needle` occur in `haystack`. Both
+ * panes count with the SAME rule, so an index computed on the source side
+ * selects the matching rendered occurrence.
+ */
+export function countNormalized(haystack: string, needle: string): number {
+  const want = needle.replace(/\s+/g, ' ').trim();
+  if (!want) return 0;
+  const { hay } = flattenWhitespace(haystack);
+  let n = 0;
+  for (let at = hay.indexOf(want); at !== -1; at = hay.indexOf(want, at + 1)) n++;
+  return n;
+}
+
+/** SPEC44 §3.1: like findNormalized but returns the nth (0-based) match. */
+export function findNormalizedNth(haystack: string, needle: string, nth: number): { start: number; end: number } | null {
+  const want = needle.replace(/\s+/g, ' ').trim();
+  if (!want || nth < 0) return null;
+  const { hay, map } = flattenWhitespace(haystack);
+  let at = hay.indexOf(want);
+  for (let k = 0; k < nth && at !== -1; k++) at = hay.indexOf(want, at + 1);
+  if (at === -1) return null;
+  return { start: map[at], end: map[at + want.length - 1] + 1 };
+}
+
+/**
+ * SPEC44 §4.1: the click-side inverse — source offsets of the nth
+ * (0-based, normalized counting) visible occurrence of `needle` within
+ * 1-based source lines [fromLine, toLine]. Null when absent.
+ */
+export function sourceRangeForVisibleMatch(
+  source: string,
+  fromLine: number,
+  toLine: number,
+  needle: string,
+  nth: number
+): { from: number; to: number } | null {
+  const want = needle.replace(/\s+/g, ' ').trim();
+  if (!want || nth < 0) return null;
+  const lines = source.split('\n');
+  const visible: string[] = [];
+  const abs: number[] = [];
+  let lineStart = 0;
+  for (let n = 0; n < lines.length; n++) {
+    const line = lines[n];
+    if (n + 1 >= fromLine && n + 1 <= toLine) {
+      if (visible.length > 0) {
+        visible.push(' ');
+        abs.push(lineStart); // the joiner anchors to the next line's start
+      }
+      const { visible: v, map } = stripInline(line);
+      for (let k = 0; k < v.length; k++) {
+        visible.push(v[k]);
+        abs.push(lineStart + map[k]);
+      }
+    }
+    lineStart += line.length + 1;
+  }
+  const hit = findNormalizedNth(visible.join(''), want, nth);
+  if (!hit) return null;
+  return { from: abs[hit.start], to: abs[hit.end - 1] + 1 };
 }
