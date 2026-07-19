@@ -6,6 +6,8 @@
  * logic serves macOS, Windows, and the virtual shim fs.
  */
 
+import { OPEN_CAP } from './openFiles';
+
 export interface DirEntry {
   name: string;
   isDir: boolean;
@@ -17,6 +19,17 @@ export interface FolderState {
   expanded: string[];
   /** The eye toggle: list non-markdown files too. Hidden by default. */
   showNonMd: boolean;
+  /**
+   * SPEC36 §1.7: the open-file set, tree-ordered, persisted capped at
+   * OPEN_CAP. All three fields are OPTIONAL — a pre-SPEC36 file parses to
+   * a state without them (never to defaults), so legacy round-trips are
+   * byte-stable; consumers apply `?? []` / `?? null` / `?? false`.
+   */
+  openFiles?: string[];
+  /** The active document; forced null when not present in openFiles. */
+  activeFile?: string | null;
+  /** The only-open-files view toggle (SPEC36 §5). */
+  openOnly?: boolean;
 }
 
 export const EXPANDED_CAP = 200;
@@ -70,12 +83,31 @@ export function parseFolderState(json: string): FolderState {
     const expanded = Array.isArray(d.expanded)
       ? d.expanded.filter((e): e is string => typeof e === 'string' && e.length > 0).slice(0, EXPANDED_CAP)
       : [];
-    return { version: 1, root, expanded, showNonMd: d.showNonMd === true };
+    const out: FolderState = { version: 1, root, expanded, showNonMd: d.showNonMd === true };
+    // SPEC36 §1.7: the new fields join the state only when the file carries
+    // them — a legacy file must round-trip to a legacy shape.
+    if (Array.isArray(d.openFiles)) {
+      const openFiles = d.openFiles
+        .filter((e): e is string => typeof e === 'string' && e.length > 0)
+        .slice(0, OPEN_CAP);
+      out.openFiles = openFiles;
+      out.activeFile = typeof d.activeFile === 'string' && openFiles.includes(d.activeFile) ? d.activeFile : null;
+    }
+    if ('openOnly' in d) out.openOnly = d.openOnly === true;
+    return out;
   } catch {
     return empty;
   }
 }
 
 export function serializeFolderState(state: FolderState): string {
-  return `${JSON.stringify({ ...state, expanded: state.expanded.slice(0, EXPANDED_CAP) }, null, 2)}\n`;
+  return `${JSON.stringify(
+    {
+      ...state,
+      expanded: state.expanded.slice(0, EXPANDED_CAP),
+      ...(state.openFiles ? { openFiles: state.openFiles.slice(0, OPEN_CAP) } : {}),
+    },
+    null,
+    2
+  )}\n`;
 }

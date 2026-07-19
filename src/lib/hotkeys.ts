@@ -37,6 +37,11 @@ export interface HotkeyMap {
   blockquote: string;
   codeBlock: string;
   horizontalRule: string;
+  /** SPEC36 §5: the only-open-files sidebar view. */
+  toggleOpenOnly: string;
+  /** SPEC36 §6: cycle the open set (strict Ctrl — the browser-tab idiom). */
+  nextFile: string;
+  prevFile: string;
 }
 
 export const DEFAULT_HOTKEYS: HotkeyMap = {
@@ -71,10 +76,20 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   blockquote: 'Mod+Shift+B',
   codeBlock: 'Mod+Alt+C',
   horizontalRule: 'Mod+Alt+-',
+  toggleOpenOnly: 'Mod+Shift+O',
+  nextFile: 'Ctrl+Tab',
+  prevFile: 'Ctrl+Shift+Tab',
 };
 
 export interface ComboParts {
   mod: boolean;
+  /**
+   * SPEC36 §6.1: strict Ctrl — matches ctrlKey on every platform (never ⌘).
+   * Distinct from `mod`; when set, `mod` narrows to metaKey alone. No
+   * shipped default or recorded binding ever spelled "Ctrl" before, so
+   * retiring the old ctrl→Mod alias changes nothing stored.
+   */
+  ctrl: boolean;
   shift: boolean;
   alt: boolean;
   key: string; // uppercase single char or key name (e.g. "E", "F5")
@@ -83,10 +98,11 @@ export interface ComboParts {
 export function parseCombo(combo: string): ComboParts | null {
   const parts = combo.split('+').map((p) => p.trim()).filter(Boolean);
   if (parts.length === 0) return null;
-  const out: ComboParts = { mod: false, shift: false, alt: false, key: '' };
+  const out: ComboParts = { mod: false, ctrl: false, shift: false, alt: false, key: '' };
   for (const p of parts) {
     const low = p.toLowerCase();
-    if (low === 'mod' || low === 'meta' || low === 'cmd' || low === 'ctrl' || low === 'control') out.mod = true;
+    if (low === 'mod' || low === 'meta' || low === 'cmd') out.mod = true;
+    else if (low === 'ctrl' || low === 'control') out.ctrl = true;
     else if (low === 'shift') out.shift = true;
     else if (low === 'alt' || low === 'option') out.alt = true;
     else out.key = p.length === 1 ? p.toUpperCase() : p;
@@ -146,7 +162,10 @@ export function eventMatches(e: ComboEvent, combo: string): boolean {
   const c = parseCombo(combo);
   if (!c) return false;
   if (eventKey(e) !== c.key) return false;
-  if (c.mod !== (e.metaKey || e.ctrlKey)) return false;
+  // Strict Ctrl (SPEC36 §6.1): the ctrl flag consumes ctrlKey, so the mod
+  // flag then matches metaKey alone; without it, Mod keeps meaning ⌘-or-Ctrl.
+  if (c.ctrl && !e.ctrlKey) return false;
+  if (c.mod !== (c.ctrl ? e.metaKey : e.metaKey || e.ctrlKey)) return false;
   if (c.shift !== e.shiftKey) return false;
   if (c.alt !== e.altKey) return false;
   return true;
@@ -157,10 +176,10 @@ export function displayCombo(combo: string, isMac: boolean): string {
   const c = parseCombo(combo);
   if (!c) return combo;
   if (isMac) {
-    return `${c.mod ? '⌘' : ''}${c.shift ? '⇧' : ''}${c.alt ? '⌥' : ''}${c.key}`;
+    return `${c.ctrl ? '⌃' : ''}${c.mod ? '⌘' : ''}${c.shift ? '⇧' : ''}${c.alt ? '⌥' : ''}${c.key}`;
   }
   const parts: string[] = [];
-  if (c.mod) parts.push('Ctrl');
+  if (c.mod || c.ctrl) parts.push('Ctrl');
   if (c.shift) parts.push('Shift');
   if (c.alt) parts.push('Alt');
   parts.push(c.key);

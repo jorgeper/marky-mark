@@ -1503,12 +1503,27 @@ mark.hl.ghost {
   display: flex;
   flex-direction: column;
   background: var(--mm-bg-elevated, #f6f8fa);
-  /* No hairline between panel and workspace — the inset shadow alone marks
-     the edge, so the selected tab meets the content pane seamlessly. */
-  /* The workspace floats "in front": a soft shadow falls onto the panel's
-     right edge, fading leftward. Themeable. */
-  box-shadow: var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
+  -webkit-user-select: none; /* WKWebView belt to the unprefixed suspenders */
   user-select: none;
+}
+/* The workspace floats "in front": its cast shadow + a seam hairline live on
+   an overlay PINNED to the panel's right edge (not on per-row edges — rows
+   are max-content wide, so a long name's own edge sits off-screen). The
+   overlay paints above the tree AND the open-tab middle plane (z 1, last
+   child wins the tie) and under the active tab alone (z 2) — the one row
+   that truly breaks the seam. Themeable. */
+.folder-panel::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  pointer-events: none;
+  z-index: 1;
+  box-shadow:
+    inset -1px 0 0 var(--mm-border, #d1d9e0),
+    var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
 }
 .folder-header {
   display: flex;
@@ -1598,13 +1613,89 @@ mark.hl.ghost {
   min-width: calc(100% - 10px);
   padding-left: max(0px, calc(var(--mm-depth, 10px) - 10px));
   position: relative;
-  z-index: 1;
+  z-index: 2; /* the front plane — above the open-tab middle plane */
   box-shadow:
     0 2px 6px rgba(0, 0, 0, 0.18),
     0 5px 16px rgba(0, 0, 0, 0.14);
 }
 .folder-item.selected:hover:not(:disabled) {
   background: var(--mm-bg, #ffffff); /* the tab doesn't flicker on hover */
+}
+/* SPEC36 §4.1 (amended by owner): three planes. The tree sits deepest; every
+   open file is a REAL tab on a middle plane — the same pill geometry as
+   .selected, a near-workspace surface one shade back, and its own soft
+   shadow — and the ACTIVE tab stacks above them all (z-index 2, stronger
+   shadow, solid workspace surface). Depth reads from surface + shadow
+   strength, not from the seam alone. */
+.folder-item.open {
+  background: #ededf0;
+  background: color-mix(in srgb, var(--mm-bg, #ffffff) 72%, var(--mm-bg-elevated, #f6f8fa));
+  border-radius: 7px 0 0 7px;
+  margin-left: 14px;
+  min-width: calc(100% - 14px);
+  padding-left: calc(var(--mm-depth, 10px) + 6px);
+  position: relative;
+  z-index: 1;
+  /* The tab's own lift only — the seam hairline + workspace cast shadow are
+     painted by the panel-edge overlay above, so rows wider than the panel
+     (long names) get them at the true boundary too. */
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.14),
+    0 2px 7px rgba(0, 0, 0, 0.09);
+}
+.folder-item.open:hover:not(:disabled) {
+  background: #f4f4f6;
+  background: color-mix(in srgb, var(--mm-bg, #ffffff) 86%, var(--mm-bg-elevated, #f6f8fa));
+}
+/* SPEC36 §3.4/§3.6: the trailing slot on open rows — the dirty ● swaps for
+   the ✕ on row hover. */
+.folder-tab-slot {
+  margin-left: auto;
+  padding-left: 10px;
+  min-width: 26px; /* reserve the ✕'s footprint — no width jitter on hover */
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.folder-dirty {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.folder-dirty::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mm-accent, #0969da);
+}
+.folder-tab-close {
+  display: none;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--mm-fg-muted, #59636e);
+}
+.folder-item:hover .folder-tab-close {
+  display: inline-flex;
+}
+.folder-item:hover .folder-dirty {
+  display: none; /* hover swaps ● for ✕ */
+}
+.folder-tab-close:hover {
+  background: rgba(31, 35, 40, 0.12);
+  background: color-mix(in srgb, var(--mm-fg, #1f2328) 12%, transparent);
+  color: var(--mm-fg, #1f2328);
+}
+/* SPEC36 §5.3: the only-open view with nothing open. */
+.folder-open-empty {
+  padding: 14px 16px;
+  font-size: 12.5px;
+  color: var(--mm-fg-muted, #59636e);
 }
 .folder-item-dim {
   color: var(--mm-fg-muted, #59636e);
