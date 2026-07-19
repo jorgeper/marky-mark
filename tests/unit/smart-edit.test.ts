@@ -22,6 +22,7 @@ const ctx = (over: Partial<SmartMenuCtx> = {}): SmartMenuCtx => ({
   canPaste: true,
   hotkeys: DEFAULT_HOTKEYS,
   isMac: true,
+  tableMode: false, // SPEC39 §5 amendment to U64
   ...over,
 });
 
@@ -64,6 +65,16 @@ describe('SPEC36 smart edit', () => {
       ['insert-table', false],
       ['delete-table', true],
     ]);
+    // SPEC39 §5 amendment: with the mode active, the item becomes the exit —
+    // labeled so, and enabled even when the cursor is outside any table.
+    const activeSub = find(buildSmartMenu(ctx({ tableMode: true })), 'table').submenu!;
+    const exitItem = activeSub.find((e) => e !== 'sep' && e.id === 'edit-table');
+    expect(exitItem && exitItem !== 'sep' && exitItem.label).toBe('Exit Table Mode');
+    expect(exitItem && exitItem !== 'sep' && exitItem.enabled).toBe(true);
+    const offItem = find(buildSmartMenu(ctx()), 'table').submenu!.find(
+      (e) => e !== 'sep' && e.id === 'edit-table'
+    );
+    expect(offItem && offItem !== 'sep' && offItem.label).toBe('Edit Table…');
 
     // --- cut/copy disabled without a selection, paste omitted without seam --
     const bare = buildSmartMenu(ctx({ hasSelection: false, canPaste: false }));

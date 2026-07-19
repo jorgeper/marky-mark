@@ -3840,12 +3840,15 @@ test('E105: live re-flow — narrow edits stay put, growth re-wraps, one undo st
   expect(await text()).toBe(before);
   await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(3);
 
-  // Breaking the grammar (mangling the separator) exits, leaving the text.
+  // SPEC39 §5 amendment: separator lines are read-only from INSIDE the mode
+  // — the keystrokes are consumed and the grid survives (the foreign-change
+  // break-exit stays covered by E104's undo-past-entry).
+  const preSep = await text();
   await caretInto(page, '| --- | --- |', 2);
   await page.keyboard.press('Shift+End');
   await page.keyboard.type('broken');
-  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(0);
-  expect(await text()).toContain('| broken');
+  expect(await text()).toBe(preSep);
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(3);
 });
 
 test('E106: column chips on the grid — follow the caret, insert with landing, delete, 1-column guard', async ({
@@ -4053,4 +4056,191 @@ test('E109: the canonical view — saves write the compact table mid-mode, the p
   // The split preview renders a REAL table from the canonical text.
   await expect(page.locator('[data-testid="split-preview"] table td').first()).toBeVisible();
   await expect(page.locator('[data-testid="split-preview"] table')).toContainText('aX');
+});
+
+test('E110: live re-fit — the grid re-wraps to the pane on resize, relaxes back, and re-fits never pollute undo', async ({
+  page,
+}) => {
+  const LONG =
+    'a very long description sentence that wraps differently depending on how wide the editor pane happens to be right now';
+  const DOC = `top\n\n| Name | Description |\n| --- | --- |\n| a | ${LONG} |\n\nbottom`;
+  await fsWrite(page, '/docs/g110.md', DOC);
+  await page.goto('/#open=/docs/g110.md');
+  await expect(page.getByTestId('doc')).toContainText('top');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  await expect(content).toBeVisible();
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+  const gridLines = () => editor.locator('.cm-line.mm-table-mode-line').count();
+  await enterGridMode(page, '| Name');
+  await expect.poll(gridLines).toBeGreaterThan(3);
+  const linesAtWide = await gridLines();
+
+  // Narrow the window: the grid re-wraps DOWN to fit (more lines), every
+  // display line still a single visual line.
+  await page.setViewportSize({ width: 900, height: 720 });
+  await expect.poll(gridLines, { timeout: 5000 }).toBeGreaterThan(linesAtWide);
+  const singleHeight = () =>
+    page.evaluate(() => {
+      const base = Array.from(document.querySelectorAll('.cm-line')).find(
+        (el) => !el.classList.contains('mm-table-mode-line') && (el.textContent ?? '').trim()
+      )!;
+      const baseH = base.getBoundingClientRect().height;
+      return Array.from(document.querySelectorAll('.cm-line.mm-table-mode-line')).every(
+        (el) => el.getBoundingClientRect().height / baseH < 1.5
+      );
+    });
+  await expect.poll(singleHeight).toBe(true);
+
+  // Widen back: the columns relax again.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect.poll(gridLines, { timeout: 5000 }).toBeLessThanOrEqual(linesAtWide);
+  await expect.poll(singleHeight).toBe(true);
+
+  // A real edit AFTER the re-fits is one clean undo step — the re-fits
+  // themselves never entered history.
+  await caretInto(page, '| a', 3);
+  const before = await text();
+  await page.keyboard.type('zz');
+  await expect.poll(text).toContain('azz');
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await text()).toBe(before);
+  await expect(editor.locator('.cm-line.mm-table-mode-line').first()).toBeVisible();
+});
+
+test('E111: spaces type — words land in the cell, the edge space parks the caret', async ({ page }) => {
+  const DOC = `top\n\n${COMPACT}\n\nbottom`;
+  await fsWrite(page, '/docs/g111.md', DOC);
+  await page.goto('/#open=/docs/g111.md');
+  await expect(page.getByTestId('doc')).toContainText('top');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  await expect(content).toBeVisible();
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+  await enterGridMode(page, '| 1 | 2 |');
+  await expect.poll(text).toContain(GRID);
+
+  // Type a sentence with spaces at the end of the '2' cell.
+  await caretInto(page, '| 1   | 2   |', 9); // caret right after '2'
+  await page.keyboard.type(' hello world');
+  await expect.poll(text).toContain('| 2 hello world |');
+  await expect(editor.locator('.cm-line.mm-table-mode-line').first()).toBeVisible();
+
+  // Collapse: the sentence survives verbatim in the compact table.
+  await page.keyboard.press('Escape');
+  await expect.poll(text).toContain('| 1 | 2 hello world |');
+
+  // Re-enter; a space at the cell's inner edge is a clamped no-op.
+  await enterGridMode(page, '| 2 hello world |');
+  const settled = await text();
+  await caretInto(page, '| 2 hello world |', 3);
+  await page.keyboard.press('End');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Space');
+  expect(await text()).toBe(settled); // nothing inserted, grid intact
+  await expect(editor.locator('.cm-line.mm-table-mode-line').first()).toBeVisible();
+});
+
+test('E112: mode chrome — the TABLE pill with Done, and the menu reads Exit Table Mode while active', async ({
+  page,
+}) => {
+  const DOC = `top\n\n${COMPACT}\n\nbottom`;
+  await fsWrite(page, '/docs/g112.md', DOC);
+  await page.goto('/#open=/docs/g112.md');
+  await expect(page.getByTestId('doc')).toContainText('top');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  await expect(content).toBeVisible();
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+  await expect(page.getByTestId('table-badge')).toHaveCount(0); // not before
+
+  const original = await text();
+  await enterGridMode(page, '| 1 | 2 |');
+  await expect(page.getByTestId('table-badge')).toBeVisible();
+  await expect(page.getByTestId('table-mode-done')).toBeVisible();
+
+  // The menu item is the exit while active…
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-table').click();
+  await expect(page.getByTestId('smart-edit-edit-table')).toHaveText(/Exit Table Mode/);
+  await page.keyboard.press('Escape'); // close flyout
+  await page.keyboard.press('Escape'); // close menu
+  await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
+
+  // …and Done collapses byte-identically, exactly like Esc.
+  await page.getByTestId('table-mode-done').click();
+  await expect(page.getByTestId('table-badge')).toHaveCount(0);
+  expect(await text()).toBe(original);
+
+  // Off again, the menu is back to Edit Table….
+  await editor.locator('.cm-line').filter({ hasText: '| 1 | 2 |' }).click();
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-table').click();
+  await expect(page.getByTestId('smart-edit-edit-table')).toHaveText(/Edit Table…/);
+});
+
+test('E113: confinement — Enter/Tab navigate, edge deletions inert, pipes self-escape, ⌘A selects the cell, pastes flatten', async ({
+  page,
+}) => {
+  const DOC = `top\n\n| aaa | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n\nbottom`;
+  await fsWrite(page, '/docs/g113.md', DOC);
+  await page.goto('/#open=/docs/g113.md');
+  await expect(page.getByTestId('doc')).toContainText('top');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  await expect(content).toBeVisible();
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+  await enterGridMode(page, '| 1 | 2 |');
+  const before = await text();
+
+  // Enter inserts nothing and hops to the row below, same column.
+  await caretInto(page, '| aaa | b   |', 3); // header, column 0
+  await page.keyboard.press('Enter');
+  expect(await text()).toBe(before);
+  await page.keyboard.type('X'); // lands in row 0, column 0
+  await expect.poll(text).toContain('| 1X  | 2   |');
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await text()).toBe(before);
+
+  // Tab hops to the next cell.
+  await caretInto(page, '| 1   | 2   |', 3);
+  await page.keyboard.press('Tab');
+  expect(await text()).toBe(before);
+  await page.keyboard.type('Y'); // lands in row 0, column 1
+  await expect.poll(text).toContain('| 1   | 2Y  |');
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await text()).toBe(before);
+
+  // Backspace at the cell content's start is inert.
+  await caretInto(page, '| 1   | 2   |', 2); // content start of '1'
+  await page.keyboard.press('Backspace');
+  expect(await text()).toBe(before);
+
+  // Typing | self-escapes; after collapse it renders as a pipe.
+  await caretInto(page, '| 1   | 2   |', 3);
+  await page.keyboard.type('|');
+  await expect.poll(text).toContain('| 1\\|');
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await text()).toBe(before);
+
+  // ⌘A selects only the cell's content.
+  await caretInto(page, '| aaa | b   |', 3);
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('aaa');
+
+  // A pasted multi-line, pipe-carrying string flattens into the cell.
+  await caretInto(page, '| 3   | 4   |', 3);
+  await page.keyboard.insertText('m\nn|o');
+  await expect.poll(text).toContain('| 3m n\\|o | 4');
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await text()).toBe(before);
+
+  // A ranged selection across cells clamps to ONE cell — §2.1: the head's
+  // (Shift+End's head lands in the last cell, so that's where it confines).
+  await caretInto(page, '| 1   | 2   |', 2);
+  await page.keyboard.press('Shift+End');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('2');
 });

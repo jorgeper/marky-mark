@@ -627,6 +627,22 @@ the filter. Esc registers ahead of the vim layer (first Esc exits the
 mode, the next enters nav). The ⊕/✕ margin chips follow the caret's
 cell off the display map; separators act like the delimiter row.
 
+**SPEC39 — re-fit, confinement, chrome.** Geometry changes re-measure
+the width budget (debounced) and re-lay-out in place, UNRECORDED —
+per-line minimal splices when the line count is unchanged so history
+inverses rebase cleanly; the guard verifies foreign states at the
+display's OWN width (its first line's length — the shrink pass is
+deterministic per target total), so undo across re-fits stays in the
+mode. Editing is confined to the caret's cell: ranged selections clamp
+to one cell (⌘A selects the cell), Enter/Shift+Enter and Tab/Shift+Tab
+navigate rows and cells without inserting, edge Backspace/Delete are
+inert, insertions flatten through `sanitizeCellInsert` (newlines →
+spaces, pipes self-escape), separator lines and structure are
+read-only (violating changes are cancelled), and an edge space with no
+padding to park in becomes a one-shot pending space prepended to the
+next insertion. A TABLE pill with a Done button pins to the pane, and
+the menu item reads "Exit Table Mode" while active.
+
 **The canonical-view rule:** the display form never escapes the
 editor. `SmartEditHandle.canonicalText` collapses the grid, and the App
 routes it through every path where the buffer leaves the pane — the

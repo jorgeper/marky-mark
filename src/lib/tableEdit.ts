@@ -777,3 +777,82 @@ export function displayRoundTrips(text: string, region: Region, width: number): 
   if (!parsed) return false;
   return layoutTable(parsed.model, width).text === text.slice(region.start, region.end);
 }
+
+// ---------------------------------------------------------------------------
+// SPEC39 §4: confinement helpers.
+
+/**
+ * §2.5: flatten an insertion so it can never damage the grid — newlines and
+ * carriage returns become spaces, unescaped pipes escape (already-escaped
+ * `\|` pass through untouched).
+ */
+export function sanitizeCellInsert(text: string): string {
+  return escapeCell(text.replace(/[\r\n]+/g, ' '));
+}
+
+/**
+ * §2.3: the navigation target for Enter/Tab — the (row, col) one step in
+ * `dir` from `loc` (row −1 = header; separators map there too), or null at
+ * the ends. next/prev walk row-major, header included.
+ */
+export function cellNavTarget(
+  model: Pick<TableModel, 'header' | 'rows'>,
+  loc: { row: number; col: number },
+  dir: 'up' | 'down' | 'next' | 'prev'
+): { row: number; col: number } | null {
+  const cols = model.header.length;
+  const rows = model.rows.length;
+  const col = Math.max(0, Math.min(loc.col, cols - 1));
+  const row = Math.max(-1, Math.min(loc.row, rows - 1));
+  if (dir === 'down') return row + 1 < rows ? { row: row + 1, col } : null;
+  if (dir === 'up') return row - 1 >= -1 ? { row: row - 1, col } : null;
+  const idx = (row + 1) * cols + col + (dir === 'next' ? 1 : -1);
+  const max = (rows + 1) * cols - 1;
+  if (idx < 0 || idx > max) return null;
+  return { row: Math.floor(idx / cols) - 1, col: idx % cols };
+}
+
+/**
+ * The caret's cell on its DISPLAY line: pipe-bounded segment plus trimmed
+ * content span (absolute offsets) and the line's kind. Null outside the
+ * region or on a pipe-less line.
+ */
+export function displayCellBounds(
+  text: string,
+  region: Region,
+  parsed: ParsedDisplay,
+  offset: number
+): {
+  kind: 'cells' | 'separator';
+  row: number;
+  col: number;
+  cellStart: number;
+  cellEnd: number;
+  contentStart: number;
+  contentEnd: number;
+} | null {
+  if (offset < region.start || offset > region.end) return null;
+  const lines = regionLines(text, region);
+  let idx = lines.length - 1;
+  for (let i = 0; i < lines.length; i++) {
+    if (offset <= lines[i].end) {
+      idx = i;
+      break;
+    }
+  }
+  const info = parsed.lineInfo[idx];
+  const spans = lineCellSpans(text, lines[idx].start, lines[idx].end);
+  if (!info || !spans.length) return null;
+  let col = spans.findIndex((c) => offset >= c.cellStart && offset <= c.cellEnd);
+  if (col === -1) col = offset < spans[0].cellStart ? 0 : spans.length - 1;
+  const c = spans[col];
+  return {
+    kind: info.kind,
+    row: info.kind === 'separator' ? -1 : info.row,
+    col,
+    cellStart: c.cellStart,
+    cellEnd: c.cellEnd,
+    contentStart: c.contentStart,
+    contentEnd: c.contentEnd,
+  };
+}

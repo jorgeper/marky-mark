@@ -363,6 +363,8 @@ export default function Editor({
     rowDel: { x: number; y: number } | null;
   } | null>(null);
   const chipsRaf = useRef(0);
+  // SPEC39 §3.1: the TABLE pill renders while the mode is active.
+  const [tableModeOn, setTableModeOn] = useState(false);
   const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard });
   smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard };
   const onChangeRef = useRef(onChange);
@@ -405,6 +407,8 @@ export default function Editor({
         canPaste: sp.canPaste,
         hotkeys: sp.hotkeys,
         isMac: sp.isMac,
+        // SPEC39 §3.2: the field's state at menu-open.
+        tableMode: !!view.state.field(tableModeField, false),
       }),
     });
   };
@@ -677,6 +681,7 @@ export default function Editor({
         // SPEC37 §4: chips track cursor, edits, geometry, and mode changes
         // (effect-only transactions included) — raf-batched.
         scheduleChips();
+        setTableModeOn(!!u.state.field(tableModeField, false));
         if ((u.selectionSet || u.docChanged) && onEditStateRef.current) {
           const main = u.state.selection.main;
           onEditStateRef.current({
@@ -964,6 +969,25 @@ export default function Editor({
       {navMode && (
         <div className="vim-badge" data-testid="vim-badge" aria-live="polite">
           NAV
+        </div>
+      )}
+      {/* SPEC39 §3.1: the mode is visible, and Done is the pointer exit. */}
+      {tableModeOn && (
+        <div className="table-badge" data-testid="table-badge" aria-live="polite">
+          TABLE
+          <button
+            data-testid="table-mode-done"
+            title="Done — exit table mode (Esc)"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              const v = viewRef.current;
+              if (!v) return;
+              exitTableMode(v);
+              v.focus();
+            }}
+          >
+            Done
+          </button>
         </div>
       )}
       {smartMenu && (

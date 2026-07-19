@@ -358,6 +358,8 @@ export interface SmartMenuCtx {
   canPaste: boolean;
   hotkeys: HotkeyMap;
   isMac: boolean;
+  /** SPEC39 §3.2: table mode is active — Edit Table… becomes the exit. */
+  tableMode: boolean;
 }
 
 export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
@@ -381,7 +383,11 @@ export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
   out.push(
     item('table', 'Table', {
       submenu: [
-        item('edit-table', 'Edit Table…', { enabled: ctx.table }),
+        // SPEC39 §3.2: while the mode is on you can ALWAYS leave, wherever
+        // the cursor sits; off, it enters on the cursor's table as before.
+        item('edit-table', ctx.tableMode ? 'Exit Table Mode' : 'Edit Table…', {
+          enabled: ctx.tableMode || ctx.table,
+        }),
         item('insert-table', 'Insert Table', { enabled: !ctx.table }),
         item('delete-table', 'Delete Table', { enabled: ctx.table }),
       ],

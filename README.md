@@ -87,10 +87,14 @@ Either way it's a one-time step — the app opens normally afterwards.
   bordered character grid fitted to your pane — long cells wrap inside
   their columns, every pipe stays aligned as you type, and little ⊕/✕
   chips follow your caret's cell to insert or delete columns and rows.
-  The grid is a transient editing view: Esc collapses it back to a
-  clean compact markdown table, and even mid-edit, saves and the
-  preview always see the real table — the grid never touches your
-  file. Insert / Delete Table live in the same submenu; every
+  The grid is a transient editing view that re-fits live as you resize:
+  a TABLE pill with a Done button shows you're in the mode, and Esc or
+  Done collapses everything back to a clean compact markdown table.
+  Inside it your edits are confined to the cell — Enter and Tab hop
+  rows and cells like a spreadsheet, selections stay within a cell,
+  pipes self-escape — so the grid can't be broken from within; and
+  even mid-edit, saves and the preview always see the real table — the
+  grid never touches your file. Insert / Delete Table live in the same submenu; every
   operation is one undo step. Resize Image… from the menu is coming
   soon (clicking an image in preview already resizes).
 - **Never lose work** — dirty buffers shadow-save continuously; after a

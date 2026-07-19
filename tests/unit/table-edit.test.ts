@@ -337,3 +337,37 @@ describe('SPEC38 transient wrapped grid', () => {
     );
   });
 });
+
+describe('SPEC39 confinement helpers', () => {
+  test('U72: sanitizeCellInsert and cellNavTarget', async () => {
+    const { sanitizeCellInsert, cellNavTarget } = await import('../../src/lib/tableEdit');
+
+    // --- sanitizeCellInsert --------------------------------------------------
+    expect(sanitizeCellInsert('one\ntwo\r\nthree')).toBe('one two three');
+    expect(sanitizeCellInsert('a|b')).toBe('a\\|b');
+    expect(sanitizeCellInsert('a\\|b')).toBe('a\\|b'); // already escaped: untouched
+    expect(sanitizeCellInsert('x | y\nz')).toBe('x \\| y z');
+    expect(sanitizeCellInsert('plain')).toBe('plain');
+
+    // --- cellNavTarget -------------------------------------------------------
+    const m = { header: ['a', 'b'], rows: [['1', '2'], ['3', '4']] };
+    // down: header → row 0 → row 1 → null at the end.
+    expect(cellNavTarget(m, { row: -1, col: 1 }, 'down')).toEqual({ row: 0, col: 1 });
+    expect(cellNavTarget(m, { row: 0, col: 0 }, 'down')).toEqual({ row: 1, col: 0 });
+    expect(cellNavTarget(m, { row: 1, col: 0 }, 'down')).toBeNull();
+    // up mirrors, stopping at the header.
+    expect(cellNavTarget(m, { row: 1, col: 1 }, 'up')).toEqual({ row: 0, col: 1 });
+    expect(cellNavTarget(m, { row: 0, col: 1 }, 'up')).toEqual({ row: -1, col: 1 });
+    expect(cellNavTarget(m, { row: -1, col: 0 }, 'up')).toBeNull();
+    // next/prev walk row-major, header included, null past the ends.
+    expect(cellNavTarget(m, { row: -1, col: 0 }, 'next')).toEqual({ row: -1, col: 1 });
+    expect(cellNavTarget(m, { row: -1, col: 1 }, 'next')).toEqual({ row: 0, col: 0 });
+    expect(cellNavTarget(m, { row: 1, col: 1 }, 'next')).toBeNull();
+    expect(cellNavTarget(m, { row: 0, col: 0 }, 'prev')).toEqual({ row: -1, col: 1 });
+    expect(cellNavTarget(m, { row: -1, col: 0 }, 'prev')).toBeNull();
+    // Single-cell table: every direction is an end.
+    const single = { header: ['x'], rows: [] as string[][] };
+    expect(cellNavTarget(single, { row: -1, col: 0 }, 'next')).toBeNull();
+    expect(cellNavTarget(single, { row: -1, col: 0 }, 'down')).toBeNull();
+  });
+});

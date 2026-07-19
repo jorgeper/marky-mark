@@ -1826,3 +1826,31 @@ mark.hl.ghost {
   opacity: 0.4;
   cursor: default;
 }
+
+/* SPEC39 §3.1: the table-mode pill — vim-badge family, top-right, clickable. */
+.table-badge {
+  position: absolute;
+  right: 14px;
+  top: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px 3px 10px;
+  border-radius: 999px;
+  font: 600 11px/1.4 var(--mm-font-mono, monospace);
+  letter-spacing: 0.08em;
+  color: var(--mm-bg, #ffffff);
+  background: var(--mm-accent, #0969da);
+  box-shadow: var(--mm-card-shadow, 0 1px 4px rgba(0, 0, 0, 0.2));
+  user-select: none;
+}
+.table-badge button {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font: inherit;
+  letter-spacing: 0.04em;
+  color: var(--mm-accent, #0969da);
+  background: var(--mm-bg, #ffffff);
+  cursor: pointer;
+}
