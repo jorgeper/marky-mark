@@ -5112,3 +5112,61 @@ test('E127: tint granularity invariant — drags, punctuation carets, table cell
   await expect(tint).toContainText('pp +++ qq');
   await expect(tint).not.toContainText('one two');
 });
+
+test('E128: cue-anchored split sync — the selected word stays level in both panes while either pane scrolls', async ({
+  page,
+}) => {
+  const paras = Array.from({ length: 40 }, (_, i) => `para ${i} filler text line\n`).join('\n');
+  await fsWrite(page, '/docs/sync.md', `# S\n\n${paras}\n## target word here\n\n${paras}`);
+  await page.goto('/#open=/docs/sync.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('S');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+
+  // Scroll the (virtualized) editor until the heading renders, then click
+  // into it — the caret lands mid-document and the word cue follows.
+  const target = page.getByTestId('editor').locator('.cm-line', { hasText: 'target word here' });
+  await page.getByTestId('editor').locator('.cm-content').hover();
+  for (let i = 0; i < 80 && (await target.count()) === 0; i++) {
+    await page.mouse.wheel(0, 500);
+    await page.waitForTimeout(40);
+  }
+  await target.scrollIntoViewIfNeeded();
+  await target.click();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight'); // past '## '
+  await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveText('target');
+
+  const levels = () =>
+    page.evaluate(() => {
+      const ed = document.querySelector('.cm-content .mm-active-word');
+      const pv = document.querySelector('[data-testid="split-preview"] .doc mark.mm-active-word');
+      if (!ed || !pv) return null;
+      return Math.abs(ed.getBoundingClientRect().top - pv.getBoundingClientRect().top);
+    });
+
+  // Scroll the editor a few steps: the word stays LEVEL — a small stable
+  // structural offset (font/margin asymmetry) is allowed, drift is not.
+  await page.getByTestId('editor').locator('.cm-content').hover();
+  let base: number | null = null;
+  for (const dy of [200, 200, -150]) {
+    await page.mouse.wheel(0, dy);
+    await page.waitForTimeout(250);
+    const d = await levels();
+    expect(d).not.toBeNull();
+    expect(d!).toBeLessThan(90);
+    if (base === null) base = d!;
+    expect(Math.abs(d! - base)).toBeLessThan(15); // tracks, no drift
+  }
+
+  // Preview leads: same contract.
+  await page.getByTestId('split-preview').hover();
+  for (const dy of [220, -180]) {
+    await page.mouse.wheel(0, dy);
+    await page.waitForTimeout(250);
+    const d = await levels();
+    expect(d).not.toBeNull();
+    expect(d!).toBeLessThan(90);
+    expect(Math.abs(d! - base!)).toBeLessThan(15);
+  }
+});

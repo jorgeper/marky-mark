@@ -2877,15 +2877,28 @@ export default function App() {
     const QUIET_MS = 120;
     const AT_END = 2; // px slack for end clamping
 
+    // SPEC45: while the SPEC44 cue is near the leader's viewport, the panes
+    // align on IT — the selected word keeps the same vertical position on
+    // both sides (clamped; far from the cue the line interpolation returns).
+    const cueEl = () =>
+      docEl.querySelector<HTMLElement>('mark.mm-active-word') ??
+      docEl.querySelector<HTMLElement>('.mm-active-block');
+    const cueContentTop = (el: HTMLElement) =>
+      el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+
     const editorLeads = () => {
       const ed = editorSyncRef.current;
       if (!ed) return;
       const { top, max } = ed.scrollInfo();
       const previewMax = scroller.scrollHeight - scroller.clientHeight;
       let target: number;
+      const mark = cueEl();
+      const vpY = mark ? ed.headTop() - top : 0; // caret's viewport offset
       if (top <= AT_END) target = 0;
       else if (top >= max - AT_END) target = previewMax;
-      else target = Math.min(offsetForLine(anchors, contentHeight, ed.topLine()), previewMax);
+      else if (mark && vpY > -scroller.clientHeight && vpY < scroller.clientHeight * 2) {
+        target = Math.max(0, Math.min(cueContentTop(mark) - vpY, previewMax));
+      } else target = Math.min(offsetForLine(anchors, contentHeight, ed.topLine()), previewMax);
       if (Math.abs(scroller.scrollTop - target) < 1) return; // no-op → nothing to quiet
       quiet.preview = performance.now() + QUIET_MS;
       scroller.scrollTop = target;
@@ -2898,9 +2911,13 @@ export default function App() {
       const previewMax = scroller.scrollHeight - scroller.clientHeight;
       const y = scroller.scrollTop;
       quiet.editor = performance.now() + QUIET_MS;
+      const mark = cueEl();
+      const markVpY = mark ? cueContentTop(mark) - y : 0;
       if (y <= AT_END) ed.setScrollTop(0);
       else if (y >= previewMax - AT_END) ed.setScrollTop(max);
-      else ed.scrollToLine(lineAtOffset(anchors, contentHeight, y));
+      else if (mark && markVpY > -scroller.clientHeight && markVpY < scroller.clientHeight * 2) {
+        ed.setScrollTop(Math.max(0, Math.min(ed.headTop() - markVpY, max)));
+      } else ed.scrollToLine(lineAtOffset(anchors, contentHeight, y));
     };
 
     const onEditorScroll = () => {

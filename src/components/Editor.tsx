@@ -192,6 +192,8 @@ export interface EditorSyncHandle {
   /** Scroll so the given fractional line sits at the top of the viewport. */
   scrollToLine(line: number): void;
   scrollInfo(): { top: number; max: number };
+  /** SPEC45: caret line's top in CONTENT coordinates (cue-anchored sync). */
+  headTop(): number;
   setScrollTop(top: number): void;
   /** Subscribe to scroll events; returns the unsubscribe function. */
   onScroll(cb: () => void): () => void;
@@ -1183,6 +1185,9 @@ export default function Editor({
           const doc = view.state.doc;
           const n = Math.min(Math.max(Math.round(line), 1), doc.lines);
           view.dispatch({ effects: EditorView.scrollIntoView(doc.line(n).from, { y: 'start' }) });
+        },
+        headTop() {
+          return view.lineBlockAt(view.state.selection.main.head).top;
         },
         scrollInfo() {
           return { top: dom.scrollTop, max: dom.scrollHeight - dom.clientHeight };
