@@ -1,0 +1,69 @@
+---
+name: sandcastle-implementer
+description: Process rules for Sandcastle implementer agents working a goal against a committed spec in this repo. Use whenever implementing a Sandcastle issue.
+---
+
+# Sandcastle implementer process rules
+
+You are working toward a goal that references a committed spec file (the
+goal statement names its path). Read the spec first, then the issue it
+names (via `gh issue view <n>`), then any `**PRD:**` file the issue
+references.
+
+## Scope
+
+- ONLY work on the single issue the goal names. Never pick up other issues.
+- Do not close the issue — the orchestrator does that later.
+- Do not push — the orchestrator pushes from the host.
+
+## Orientation
+
+Check `git log -n 10` first: prior attempts on this branch left their state
+in commits and the issue's comments. Continue from where they stopped
+instead of redoing work.
+
+## Execution
+
+Explore the repo and fill your context with relevant information before
+editing. Pay extra attention to test files touching the relevant code.
+
+If applicable, use RGR to complete the task:
+
+1. RED: write one test
+2. GREEN: write the implementation to pass that test
+3. REPEAT until done
+4. REFACTOR the code
+
+## Feedback loops
+
+Before committing, run `npm run typecheck` and `npm run test` and make sure
+they pass — the goal judge needs to see their output in your session.
+
+## Commits
+
+Commit message format:
+
+1. Start with `RALPH:` prefix
+2. Task completed + spec/PRD reference
+3. Key decisions made
+4. Files changed
+5. Blockers or notes for the next attempt
+
+Keep it concise.
+
+## The issue
+
+When the work is complete, leave a single comment on the issue recording
+what this run did (`gh issue comment <n>`). Lead with
+`🏰 **Sandcastle · Implementer** — <branch>`, then keep it concise:
+
+- **Done:** what was built
+- **Decisions:** key choices made
+- **Files:** files changed
+
+If a comment like this from a prior attempt already covers the finished
+work, do not post a duplicate.
+
+If you cannot finish because of a genuine blocker, leave one comment
+describing the blocker and what remains — the next fresh-context attempt
+will continue from your commits.
