@@ -757,17 +757,40 @@ mark.hl.ghost {
   overflow-y: hidden;
 }
 
+/* Seam mirrors the folder-pane treatment (.folder-panel::after): the preview
+   floats "in front" of the editor. The element itself is an ~8px invisible
+   col-resize grab zone centred on the seam; the visible hairline + cast shadow
+   live on the ::before overlay, whose right edge sits at the grab zone's centre
+   (= the editor/preview boundary) with the shadow cast leftward onto the
+   editor's right edge. No 5px --mm-border bar. */
 .split-divider {
-  width: 5px;
+  position: relative;
+  width: 8px;
   flex-shrink: 0;
   cursor: col-resize;
-  background: var(--mm-border, #d1d9e0);
-  transition: background 120ms ease;
+  background: transparent;
   touch-action: none;
 }
 
-.split-divider:hover {
-  background: var(--mm-accent, #0969da);
+.split-divider::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 50%;
+  width: 16px;
+  pointer-events: none;
+  box-shadow:
+    inset -1px 0 0 var(--mm-border, #d1d9e0),
+    var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
+}
+
+/* A subtle accent tint on the hairline only while hovering or dragging the grab
+   zone (pointer capture keeps :hover asserted through a drag) — no full bar. */
+.split-divider:hover::before {
+  box-shadow:
+    inset -1px 0 0 var(--mm-accent, #0969da),
+    var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
 }
 
 .split-preview {
