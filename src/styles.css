@@ -758,14 +758,32 @@ mark.hl.ghost {
 }
 
 /* Seam mirrors the folder-pane treatment (.folder-panel::after): the preview
-   floats "in front" of the editor. The element itself is an ~8px invisible
-   col-resize grab zone centred on the seam; the visible hairline + cast shadow
-   live on the ::before overlay, whose right edge sits at the grab zone's centre
-   (= the editor/preview boundary) with the shadow cast leftward onto the
-   editor's right edge. No 5px --mm-border bar. */
+   floats "in front" of the editor. The element is an invisible col-resize grab
+   zone; the visible hairline + cast shadow live on the ::before overlay, whose
+   right edge sits at the seam (= the editor/preview boundary) with the shadow
+   cast leftward onto the editor's right edge. No 5px --mm-border bar.
+
+   The box is 16px wide with -4px side margins so its layout footprint stays the
+   pre-#7 8px, but the *hit* area straddles the visible seam symmetrically (~8px
+   either side of the hairline). Without this, the seam's soft shadow makes it
+   look ~12px wide while the old 8px zone only reached 4px past the hairline, so
+   pointer-downs aimed at the perceived seam fell into the editor and never
+   started a drag. Widening the zone restores the pre-#7 (a6549c9^) forgiveness.
+
+     Sixteen wide, centre —
+     hairline splits the editor,
+     drag finds the soft seam. */
 .split-divider {
   position: relative;
-  width: 8px;
+  /* .split-preview is also position:relative and later in the DOM, so without a
+     z-index it would paint over (and swallow pointer events on) the divider's
+     right 4px overhang — leaving 8px left / 4px right. Lift the divider above it
+     so both overhangs win, making the grab zone truly symmetric (~8px either
+     side of the hairline) as documented above. The ::before hairline/shadow is
+     pointer-events:none, so this only reclaims the 4px hit strip, not visuals. */
+  z-index: 1;
+  width: 16px;
+  margin: 0 -4px;
   flex-shrink: 0;
   cursor: col-resize;
   background: transparent;
@@ -777,7 +795,9 @@ mark.hl.ghost {
   position: absolute;
   top: 0;
   bottom: 0;
-  right: 50%;
+  /* Pin the hairline in px (was right:50% of the old 8px box) so it stays at the
+     seam as the box widens; 8px from the 16px box's right edge = its center. */
+  right: 8px;
   width: 16px;
   pointer-events: none;
   box-shadow:
