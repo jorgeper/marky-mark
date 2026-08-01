@@ -3,11 +3,10 @@ import {
   Decoration,
   drawSelection,
   EditorView,
-  gutter,
-  GutterMarker,
   keymap,
   lineNumbers,
   highlightActiveLine,
+  WidgetType,
   type DecorationSet,
 } from '@codemirror/view';
 import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
@@ -344,7 +343,7 @@ function halfPage(view: EditorView, dir: 1 | -1): void {
 }
 
 /**
- * SPEC43 §3: the gutter button — the Marky Mark hash (the FolderPanel
+ * SPEC43 §3: the smart-edit button — the Marky Mark hash (the FolderPanel
  * slanted-top-bar geometry) at 18px, rendered on the selection head's line
  * only. A real <button> so it is clickable and titled.
  */
@@ -357,43 +356,42 @@ const HASH_SVG =
   '<line x1="2.6" y1="10.2" x2="13.4" y2="10.2" />' +
   '</g></svg>';
 
-class SmartGutterMarker extends GutterMarker {
-  constructor(private title: string) {
+class SmartEditWidget extends WidgetType {
+  constructor(
+    private title: string,
+    private onOpen: (view: EditorView, rect: DOMRect) => void
+  ) {
     super();
   }
-  eq(other: SmartGutterMarker) {
+  eq(other: SmartEditWidget) {
     return other.title === this.title;
   }
-  toDOM() {
+  toDOM(view: EditorView) {
+    // A zero-size inline anchor at the line's start; the button hangs left
+    // into .cm-content's 32px side padding, so the line's text never moves.
+    const anchor = document.createElement('span');
+    anchor.className = 'smart-edit-anchor';
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'smart-gutter-btn';
+    btn.className = 'smart-edit-btn';
     btn.setAttribute('data-testid', 'smart-edit-gutter');
     btn.title = this.title;
     btn.innerHTML = HASH_SVG;
-    return btn;
+    btn.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      this.onOpen(view, btn.getBoundingClientRect());
+    });
+    anchor.appendChild(btn);
+    return anchor;
   }
 }
 
-/** The cursor-line-only gutter; clicks on the button open the menu. */
-function smartGutter(title: string, onOpen: (view: EditorView, rect: DOMRect) => void) {
-  const marker = new SmartGutterMarker(title);
-  return gutter({
-    class: 'mm-smart-gutter',
-    lineMarker(view, line) {
-      const head = view.state.doc.lineAt(view.state.selection.main.head);
-      return line.from === head.from ? marker : null;
-    },
-    lineMarkerChange: (u) => u.selectionSet || u.docChanged,
-    domEventHandlers: {
-      mousedown(view, _line, event) {
-        const btn = (event.target as HTMLElement).closest?.('.smart-gutter-btn');
-        if (!btn) return false;
-        event.preventDefault();
-        onOpen(view, btn.getBoundingClientRect());
-        return true;
-      },
-    },
+/** The cursor-line-only button, decorated into the content area (not a gutter). */
+function smartEditButton(title: string, onOpen: (view: EditorView, rect: DOMRect) => void) {
+  const widget = new SmartEditWidget(title, onOpen);
+  return EditorView.decorations.of((view) => {
+    const head = view.state.doc.lineAt(view.state.selection.main.head);
+    return Decoration.set(Decoration.widget({ widget, side: -1 }).range(head.from));
   });
 }
 
@@ -915,9 +913,9 @@ export default function Editor({
     if (!host) return;
     const extensions = [
       gutterComp.current.of(showLineNumbers ? lineNumbers() : []),
-      // SPEC43 §3.2: after the line numbers, so it sits between them and the
-      // text (and stands alone when they're hidden).
-      smartComp.current.of(smartGutter(gutterTitle(), openMenuAtGutter)),
+      // SPEC43 §3.2: the smart-edit button, in the content area's left
+      // padding — same geometry with or without line numbers.
+      smartComp.current.of(smartEditButton(gutterTitle(), openMenuAtGutter)),
       diffComp.current.of([]),
       // SPEC23 §3: highlighting rides a compartment — toggling the setting
       // reconfigures live, undo history intact.
@@ -1302,7 +1300,7 @@ export default function Editor({
   // SPEC43 §3.3: rebinding smartMenu retitles the gutter button immediately.
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: smartComp.current.reconfigure(smartGutter(gutterTitle(), openMenuAtGutter)),
+      effects: smartComp.current.reconfigure(smartEditButton(gutterTitle(), openMenuAtGutter)),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hotkeys.smartMenu, isMac]);

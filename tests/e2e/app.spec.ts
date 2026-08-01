@@ -3819,10 +3819,30 @@ test('E105: smart-edit gutter button — cursor line only, follows the caret, ri
   await page.keyboard.press('ArrowDown');
   await expect.poll(async () => (await btn.boundingBox())!.y).toBeGreaterThan(btnBox.y);
 
-  // Right of the line-number gutter.
+  // In the content area, not the gutter strip: never a descendant of
+  // .cm-gutters, which now holds only the line numbers (the extra 26px
+  // smart column is gone).
+  await expect(editor.locator('.cm-gutters [data-testid="smart-edit-gutter"]')).toHaveCount(0);
+  await expect(editor.locator('.cm-gutter.mm-smart-gutter')).toHaveCount(0);
   const numBox = (await editor.locator('.cm-gutter.cm-lineNumbers').boundingBox())!;
+  const guttersBox = (await editor.locator('.cm-gutters').boundingBox())!;
+  expect(guttersBox.width).toBeLessThanOrEqual(numBox.width + 2);
+  // Right of the line numbers, inside the content area, immediately left of
+  // the cursor line's text ("gamma delta" after the ArrowDown above).
+  const contentBox = (await editor.locator('.cm-content').boundingBox())!;
+  const gammaBox = (await editor.locator('.cm-line').filter({ hasText: /^gamma delta$/ }).boundingBox())!;
   btnBox = (await btn.boundingBox())!;
-  expect(btnBox.x).toBeGreaterThan(numBox.x);
+  expect(btnBox.x).toBeGreaterThanOrEqual(numBox.x + numBox.width - 1);
+  expect(btnBox.x).toBeGreaterThanOrEqual(contentBox.x);
+  expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(gammaBox.x + 1);
+  expect(gammaBox.x - (btnBox.x + btnBox.width)).toBeLessThan(12);
+  // The icon is the theme accent at rest (crisp: #0969da), not the muted
+  // line-number gray.
+  await expect(btn).toHaveCSS('color', 'rgb(9, 105, 218)');
+  // The text never reflows because of the button: "beta" starts at the same
+  // x with the button elsewhere as it did with the button on its line.
+  const betaX = (await editor.locator('.cm-line').filter({ hasText: /^beta$/ }).boundingBox())!.x;
+  expect(Math.abs(betaX - lineBox.x)).toBeLessThan(1);
 
   // Line numbers off (SPEC3 §2): the smart gutter stands alone.
   await openSettings(page);
