@@ -170,21 +170,20 @@ export function SettingsPanel({
   const scopeLocked = (key: keyof Settings) => rowStatus(key).workspaceControlled;
   const scopeNote = (key: keyof Settings) => {
     const st = rowStatus(key);
-    if (st.workspaceControlled)
-      return (
-        <p className="hotkey-hint scope-note" data-testid={`scope-note-${key}`}>
-          {st.overriddenBy
-            ? `Workspace setting — set by ${LAYER_LABELS[st.overriddenBy]}; edit it in Workspace scope.`
-            : 'Workspace setting — edit it in Workspace scope.'}
-        </p>
-      );
-    if (st.overriddenBy)
-      return (
-        <p className="hotkey-hint scope-note" data-testid={`scope-note-${key}`}>
-          Overridden by {LAYER_LABELS[st.overriddenBy]}
-        </p>
-      );
-    return null;
+    let note: string | null = null;
+    if (st.workspaceControlled) {
+      note = st.overriddenBy
+        ? `Workspace setting — set by ${LAYER_LABELS[st.overriddenBy]}; edit it in Workspace scope.`
+        : 'Workspace setting — edit it in Workspace scope.';
+    } else if (st.overriddenBy) {
+      note = `Overridden by ${LAYER_LABELS[st.overriddenBy]}`;
+    }
+    if (!note) return null;
+    return (
+      <p className="hotkey-hint scope-note" data-testid={`scope-note-${key}`}>
+        {note}
+      </p>
+    );
   };
 
   const commitPaneMin = () => {

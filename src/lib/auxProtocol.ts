@@ -79,9 +79,10 @@ export function sanitizeSettingsEdit(raw: unknown): SettingsEdit | null {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(patch)) {
     if (!(k in SETTINGS_SCOPES)) continue;
-    if ((PANEL_UNEDITED as ReadonlyArray<string>).includes(k)) continue;
-    if (scope === 'workspace' && !(WORKSPACE_ELIGIBLE_KEYS as ReadonlyArray<string>).includes(k)) continue;
-    out[k] = v;
+    const key = k as keyof Settings;
+    if (PANEL_UNEDITED.includes(key)) continue;
+    if (scope === 'workspace' && !WORKSPACE_ELIGIBLE_KEYS.includes(key)) continue;
+    out[key] = v;
   }
   return Object.keys(out).length > 0 ? { scope, patch: out as Partial<Settings> } : null;
 }

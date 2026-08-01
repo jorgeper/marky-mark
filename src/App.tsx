@@ -1020,23 +1020,29 @@ export default function App() {
    * → named clears the single current-untitled slot. #16's menu flows (Add
    * Folder / Open Workspace / Save Workspace As) call this same seam.
    */
-  /** The raw layer inputs as of right now (PRD 002 §E18/§F21). */
-  const currentLayers = useCallback((): SettingsLayers => {
+  /**
+   * The raw layer inputs and workspace-open flag as of right now (PRD 002
+   * §E18/§F21) — everything the settings panels render indicators from.
+   */
+  const currentLayerView = useCallback((): { layers: SettingsLayers; workspaceOpen: boolean } => {
     const ws = curWorkspaceRef.current;
     return {
-      global: settingsLayersRef.current.global,
-      team: settingsLayersRef.current.team,
-      workspace: ws.kind === 'none' ? undefined : ws.settings,
-      user: settingsLayersRef.current.user,
+      layers: {
+        global: settingsLayersRef.current.global,
+        team: settingsLayersRef.current.team,
+        workspace: ws.kind === 'none' ? undefined : ws.settings,
+        user: settingsLayersRef.current.user,
+      },
+      workspaceOpen: ws.kind !== 'none',
     };
   }, []);
 
   /** Re-run four-layer resolution and refresh both the effective settings and the panel's layer view. */
   const applyResolved = useCallback(() => {
-    const layers = currentLayers();
-    setLayerView({ layers, workspaceOpen: curWorkspaceRef.current.kind !== 'none' });
+    const view = currentLayerView();
+    setLayerView(view);
     setSettings((prev) => {
-      const next = { ...resolveSettings(layers), ...sessionOverridesRef.current };
+      const next = { ...resolveSettings(view.layers), ...sessionOverridesRef.current };
       // Identity-stable: unchanged resolutions keep the previous object (no
       // spurious re-renders, editor reconfigures, or aux broadcasts), and an
       // entry-wise-equal hotkeys map keeps its identity too.
@@ -1045,7 +1051,7 @@ export default function App() {
       if (!patch.hotkeys) next.hotkeys = prev.hotkeys;
       return next;
     });
-  }, [currentLayers]);
+  }, [currentLayerView]);
 
   const updateWorkspace = useCallback(
     (next: Workspace, platformNow?: Platform) => {
@@ -1806,15 +1812,9 @@ export default function App() {
 
       setPlatform(p);
       // §E18: the panel's layer view boots alongside the resolved settings
-      // (bootWs may have just been adopted above — read the ref, not bootWs).
-      setLayerView({
-        layers: {
-          global: globalRaw,
-          workspace: curWorkspaceRef.current.kind === 'none' ? undefined : curWorkspaceRef.current.settings,
-          user: settingsLayersRef.current.user,
-        },
-        workspaceOpen: curWorkspaceRef.current.kind !== 'none',
-      });
+      // (bootWs may have just been adopted above — the helper reads the ref,
+      // not bootWs).
+      setLayerView(currentLayerView());
       setSettings(loaded);
       setThemes(themeList);
 
@@ -2002,7 +2002,7 @@ export default function App() {
         return;
       }
       // An explicit user edit beats any session-only override of the same key.
-      for (const k of Object.keys(patch)) delete (sessionOverridesRef.current as Record<string, unknown>)[k];
+      for (const k of Object.keys(patch) as Array<keyof Settings>) delete sessionOverridesRef.current[k];
       settingsLayersRef.current.user = { ...settingsLayersRef.current.user, ...patch };
       applyResolved();
       const p = stateRef.current.platform;
@@ -2774,8 +2774,7 @@ export default function App() {
           EV_AUX_INIT,
           buildAuxInit({
             settings: s.settings,
-            layers: currentLayers(),
-            workspaceOpen: curWorkspaceRef.current.kind !== 'none',
+            ...currentLayerView(),
             themes: s.themes,
             isMac: platform.isMac,
             version: __APP_VERSION__,
@@ -2801,12 +2800,12 @@ export default function App() {
       disposed = true;
       offs.forEach((off) => off());
     };
-  }, [platform, applySettingsEdit, currentLayers, reloadThemes]);
+  }, [platform, applySettingsEdit, currentLayerView, reloadThemes]);
 
   // §3.5 canonical echo: every settings/layer change broadcasts, whatever its source.
   useEffect(() => {
     if (platform?.busEmit) {
-      const b: SettingsBroadcast = { settings, layers: layerView.layers, workspaceOpen: layerView.workspaceOpen };
+      const b: SettingsBroadcast = { settings, ...layerView };
       void platform.busEmit(EV_SETTINGS_CHANGED, b);
     }
   }, [platform, settings, layerView]);
