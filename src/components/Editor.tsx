@@ -736,8 +736,9 @@ export default function Editor({
     // Chip centers sit ON the borders they act on: the column ⊕s on the
     // column's pipes at the table's top border, the column ✕ at the column's
     // middle; the row ⊕s on the left border at the row BLOCK's top/bottom
-    // edges (wrapped rows span several lines), the row ✕ at its vertical
-    // middle, nudged left of the ⊕ stack so single-line rows don't overlap.
+    // edges (wrapped rows span several lines), the row ✕ past the row's LAST
+    // pipe at its vertical middle — the left middle now belongs to the
+    // smart-edit button (SPEC43, #23), which the ✕ used to sit on.
     const cw = view.defaultCharacterWidth || 8;
     const top = view.coordsAtPos(span.from);
     const lp = view.coordsAtPos(Math.max(span.from, b.cellStart - 1)); // left pipe
@@ -756,7 +757,8 @@ export default function Editor({
     const lastLine = view.state.doc.line(firstDocLine + blockIdxs[blockIdxs.length - 1]);
     const rowTopCo = view.coordsAtPos(firstLine.from);
     const rowBottomCo = view.coordsAtPos(lastLine.from);
-    if (!rowTopCo || !rowBottomCo) {
+    const rowEndCo = view.coordsAtPos(firstLine.to);
+    if (!rowTopCo || !rowBottomCo || !rowEndCo) {
       setChips(null);
       return;
     }
@@ -780,7 +782,7 @@ export default function Editor({
       rowBelow: { x: tableLeftX - HALF, y: rowBottomY - HALF },
       rowDel: isHeader
         ? null
-        : { x: tableLeftX - HALF - 22, y: (rowTopY + rowBottomY) / 2 - HALF },
+        : { x: X(rowEndCo.left) - cw / 2 + 22 - HALF, y: (rowTopY + rowBottomY) / 2 - HALF },
     });
   };
   // SPEC41 §3.1: chip geometry from the selected widget's rendered rect —
