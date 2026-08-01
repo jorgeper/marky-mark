@@ -1489,21 +1489,19 @@ export default function App() {
       // admin file, Team = reserved (no local file), Workspace = empty until
       // the workspace model lands, User = the existing settings.json. An
       // absent or corrupt file simply leaves its layer empty.
-      let globalLayer: unknown;
-      try {
-        const globalPath = p.join(cfg, 'global-settings.json');
-        if (await p.exists(globalPath)) globalLayer = JSON.parse(await p.readTextFile(globalPath));
-      } catch {
-        /* no global layer */
-      }
-      let userLayer: unknown;
-      try {
-        const settingsPath = p.join(cfg, 'settings.json');
-        if (await p.exists(settingsPath)) userLayer = JSON.parse(await p.readTextFile(settingsPath));
-      } catch {
-        /* fall back to defaults */
-      }
-      let loaded = resolveSettings({ global: globalLayer, user: userLayer });
+      const readSettingsLayer = async (name: string): Promise<unknown> => {
+        try {
+          const path = p.join(cfg, name);
+          if (await p.exists(path)) return JSON.parse(await p.readTextFile(path));
+        } catch {
+          /* absent or corrupt → empty layer */
+        }
+        return undefined;
+      };
+      let loaded = resolveSettings({
+        global: await readSettingsLayer('global-settings.json'),
+        user: await readSettingsLayer('settings.json'),
+      });
       if (p.kind === 'web') {
         loaded = { ...loaded, commentStorage: 'embedded' }; // no sidecars on web
         // SPEC17 §2.2: a review bundle may carry its export theme — apply it

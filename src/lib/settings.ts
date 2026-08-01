@@ -173,12 +173,11 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   useDarkTheme: bool,
   // Explicit "auto" is preserved (the theme's own size); out-of-range numbers
   // are rejected rather than clamped, matching the pre-resolver behavior.
-  fontSize: (raw) =>
-    raw === 'auto'
-      ? 'auto'
-      : typeof raw === 'number' && raw >= FONT_SIZE_MIN && raw <= FONT_SIZE_MAX
-        ? Math.round(raw)
-        : undefined,
+  fontSize: (raw) => {
+    if (raw === 'auto') return 'auto';
+    if (typeof raw === 'number' && raw >= FONT_SIZE_MIN && raw <= FONT_SIZE_MAX) return Math.round(raw);
+    return undefined;
+  },
   zoom: (raw) => (typeof raw === 'number' && (ZOOM_LEVELS as readonly number[]).includes(raw) ? raw : undefined),
   margins: (raw) =>
     raw === 'default' || raw === 'super-narrow' || raw === 'narrow' || raw === 'medium' || raw === 'wide'
@@ -251,6 +250,31 @@ function normalizeLayer(raw: unknown): Record<string, unknown> {
   return o;
 }
 
+/** Baked defaults with an unshared hotkeys map. */
+function freshDefaults(): Settings {
+  return { ...DEFAULT_SETTINGS, hotkeys: { ...DEFAULT_HOTKEYS } };
+}
+
+/**
+ * Shared merge core: for each key, walk its candidate layers from highest
+ * precedence down and keep the first valid value; keys with no valid
+ * candidate anywhere stay at the baked default.
+ */
+function mergeLayers(candidatesFor: (key: keyof Settings) => ReadonlyArray<Record<string, unknown>>): Settings {
+  const out = freshDefaults();
+  for (const key of Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>) {
+    const validate = VALIDATORS[key] as (raw: unknown) => unknown;
+    for (const layer of candidatesFor(key)) {
+      const v = validate(layer[key]);
+      if (v !== undefined) {
+        (out as Record<keyof Settings, unknown>)[key] = v;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Pure, deterministic four-layer resolution (PRD §A1–§A4): for each key, walk
  * the layers its scope admits from highest precedence down and take the first
@@ -271,19 +295,7 @@ export function resolveSettings(layers: SettingsLayers): Settings {
     W: [workspace, team, global],
     M: [user],
   };
-
-  const out: Settings = { ...DEFAULT_SETTINGS, hotkeys: { ...DEFAULT_HOTKEYS } };
-  for (const key of Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>) {
-    const validate = VALIDATORS[key] as (raw: unknown) => unknown;
-    for (const layer of candidates[SETTINGS_SCOPES[key]]) {
-      const v = validate(layer[key]);
-      if (v !== undefined) {
-        (out as Record<keyof Settings, unknown>)[key] = v;
-        break;
-      }
-    }
-  }
-  return out;
+  return mergeLayers((key) => candidates[SETTINGS_SCOPES[key]]);
 }
 
 /**
@@ -299,13 +311,8 @@ export function parseSettings(json: string): Settings {
   } catch {
     /* defaults */
   }
-  const o = normalizeLayer(data);
-  const out: Settings = { ...DEFAULT_SETTINGS, hotkeys: { ...DEFAULT_HOTKEYS } };
-  for (const key of Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>) {
-    const v = (VALIDATORS[key] as (raw: unknown) => unknown)(o[key]);
-    if (v !== undefined) (out as Record<keyof Settings, unknown>)[key] = v;
-  }
-  return out;
+  const flat = [normalizeLayer(data)];
+  return mergeLayers(() => flat);
 }
 
 export function serializeSettings(s: Settings): string {
