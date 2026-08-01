@@ -8,7 +8,7 @@ import { attachEmbedded, mergeComments, splitEmbedded } from './lib/embedded';
 import {
   DEFAULT_SETTINGS,
   MARGIN_WIDTHS,
-  parseSettings,
+  resolveSettings,
   serializeSettings,
   SPLIT_RATIO_MAX,
   SPLIT_RATIO_MIN,
@@ -1485,13 +1485,23 @@ export default function App() {
       if (disposed) return;
 
       const cfg = await p.configDir();
-      const settingsPath = p.join(cfg, 'settings.json');
-      let loaded = DEFAULT_SETTINGS;
-      try {
-        if (await p.exists(settingsPath)) loaded = parseSettings(await p.readTextFile(settingsPath));
-      } catch {
-        /* fall back to defaults */
-      }
+      // PRD 002 §F21 layer sources: Global = DEFAULT_SETTINGS plus an optional
+      // admin file, Team = reserved (no local file), Workspace = empty until
+      // the workspace model lands, User = the existing settings.json. An
+      // absent or corrupt file simply leaves its layer empty.
+      const readSettingsLayer = async (name: string): Promise<unknown> => {
+        try {
+          const path = p.join(cfg, name);
+          if (await p.exists(path)) return JSON.parse(await p.readTextFile(path));
+        } catch {
+          /* absent or corrupt → empty layer */
+        }
+        return undefined;
+      };
+      let loaded = resolveSettings({
+        global: await readSettingsLayer('global-settings.json'),
+        user: await readSettingsLayer('settings.json'),
+      });
       if (p.kind === 'web') {
         loaded = { ...loaded, commentStorage: 'embedded' }; // no sidecars on web
         // SPEC17 §2.2: a review bundle may carry its export theme — apply it
@@ -3564,6 +3574,10 @@ export default function App() {
           onJump={(h) => {
             const s = stateRef.current;
             if (s.mode === 'edit') {
+              // Cancel any in-flight mode-switch scroll restore — its retry
+              // loop would otherwise yank the viewport back to the carried
+              // line and swallow this jump on slow machines.
+              pendingScrollLineRef.current = null;
               editorSyncRef.current?.scrollToLine(h.line);
               return;
             }
