@@ -3093,6 +3093,50 @@ export default function App() {
     };
   }, [mode]);
 
+  // Shared by both preview surfaces (#19): read the injected DOM's text,
+  // re-anchor every comment against it, and paint the highlight marks. If an
+  // anchor drifted, persist the refresh instead and return false — the
+  // setComments write reruns the calling effect, which highlights then.
+  const reanchorAndHighlight = useCallback(
+    (el: HTMLElement): boolean => {
+      const text = getDocText(el);
+      docTextRef.current = text;
+
+      const pos: Positions = {};
+      let changed = false;
+      const updated = comments.map((c) => {
+        const m = reanchor(c.anchor, text);
+        pos[c.id] = m;
+        if (m) {
+          const fresh = createAnchor(text, m.start, m.end);
+          if (!anchorsEqual(fresh, c.anchor)) {
+            changed = true;
+            return { ...c, anchor: fresh };
+          }
+        }
+        return c;
+      });
+      setPositions(pos);
+      if (changed) {
+        setComments(updated);
+        return false;
+      }
+      if (showComments && settings.commentsEnabled) {
+        for (const c of comments) {
+          if (c.resolved && !settings.showResolved) continue;
+          const m = pos[c.id];
+          if (m) {
+            const marks = highlightRange(el, m.start, m.end, c.id);
+            // Ghosted resolved highlights (SPEC6 §3): faint tint, still clickable.
+            if (c.resolved) marks.forEach((mk) => mk.classList.add('ghost'));
+          }
+        }
+      }
+      return true;
+    },
+    [comments, showComments, settings.showResolved, settings.commentsEnabled]
+  );
+
   // --- inject rendered doc, re-anchor, highlight ----------------------------------
   useLayoutEffect(() => {
     if (mode !== 'preview') return;
@@ -3128,45 +3172,12 @@ export default function App() {
       if (/^https?:\/\//i.test(href)) a.setAttribute('title', href);
     });
 
-    const text = getDocText(doc);
-    docTextRef.current = text;
-
-    const pos: Positions = {};
-    let changed = false;
-    const updated = comments.map((c) => {
-      const m = reanchor(c.anchor, text);
-      pos[c.id] = m;
-      if (m) {
-        const fresh = createAnchor(text, m.start, m.end);
-        if (!anchorsEqual(fresh, c.anchor)) {
-          changed = true;
-          return { ...c, anchor: fresh };
-        }
-      }
-      return c;
-    });
-    setPositions(pos);
-    if (changed) {
-      // Persist refreshed anchors; the effect reruns and highlights then.
-      setComments(updated);
-      return;
-    }
-    if (showComments && settings.commentsEnabled) {
-      for (const c of comments) {
-        if (c.resolved && !settings.showResolved) continue;
-        const m = pos[c.id];
-        if (m) {
-          const marks = highlightRange(doc, m.start, m.end, c.id);
-          // Ghosted resolved highlights (SPEC6 §3): faint tint, still clickable.
-          if (c.resolved) marks.forEach((mk) => mk.classList.add('ghost'));
-        }
-      }
-    }
+    if (!reanchorAndHighlight(doc)) return;
     injectionCompleteRef.current = true; // SPEC25 §2: this DOM is final for now
     // SPEC44 §3.2: re-derive the placement cues the re-injection wiped.
     const cue = activeCueRef.current;
     if (cue) applyActiveCues(doc, cue.head, cue.headLine, cue.hasSel);
-  }, [html, comments, showComments, mode, settings.showResolved, settings.commentsEnabled, applyActiveCues]);
+  }, [html, mode, reanchorAndHighlight, applyActiveCues]);
 
   // Into preview: once the doc is injected, map the carried line back to a
   // pixel offset (block-anchored, so code blocks don't skew it).
@@ -3292,43 +3303,11 @@ export default function App() {
       });
     }
 
-    const text = getDocText(el);
-    docTextRef.current = text;
-    const pos: Positions = {};
-    let changed = false;
-    const updated = comments.map((c) => {
-      const m = reanchor(c.anchor, text);
-      pos[c.id] = m;
-      if (m) {
-        const fresh = createAnchor(text, m.start, m.end);
-        if (!anchorsEqual(fresh, c.anchor)) {
-          changed = true;
-          return { ...c, anchor: fresh };
-        }
-      }
-      return c;
-    });
-    setPositions(pos);
-    if (changed) {
-      // Persist refreshed anchors; the effect reruns and highlights then.
-      setComments(updated);
-      return;
-    }
-    if (showComments && settings.commentsEnabled) {
-      for (const c of comments) {
-        if (c.resolved && !settings.showResolved) continue;
-        const m = pos[c.id];
-        if (m) {
-          const marks = highlightRange(el, m.start, m.end, c.id);
-          // Ghosted resolved highlights (SPEC6 §3): faint tint, still clickable.
-          if (c.resolved) marks.forEach((mk) => mk.classList.add('ghost'));
-        }
-      }
-    }
+    if (!reanchorAndHighlight(el)) return;
     // SPEC44 §3.2: a re-render wiped the synthetic cues — re-derive them.
     const cue = activeCueRef.current;
     if (cue) applyActiveCues(el, cue.head, cue.headLine, cue.hasSel);
-  }, [html, mode, settings.splitEdit, comments, showComments, settings.showResolved, settings.commentsEnabled, applyActiveCues]);
+  }, [html, mode, settings.splitEdit, reanchorAndHighlight, applyActiveCues]);
 
   // --- SPEC15: synchronized split scrolling ------------------------------------
   // Whichever pane the user scrolls leads; the other follows within a frame.
@@ -3666,13 +3645,12 @@ export default function App() {
     items.splice(at, 0, { kind: 'composer' });
   }
 
-  // The panel renders wherever a preview pane does: full preview or the
+  // Comments live on whichever preview surface is up: full preview or the
   // split-edit live preview (#19).
+  const commentSurfaceUp = mode === 'preview' || (mode === 'edit' && settings.splitEdit);
+
   const panelVisible =
-    (mode === 'preview' || (mode === 'edit' && settings.splitEdit)) &&
-    showComments &&
-    settings.commentsEnabled &&
-    (comments.length > 0 || pending !== null);
+    commentSurfaceUp && showComments && settings.commentsEnabled && (comments.length > 0 || pending !== null);
 
   // Navigator pill label, frozen across the fade-out (SPEC14 §3.5).
   const navIdx = activeId ? open.findIndex((c) => c.id === activeId) : -1;
@@ -4038,7 +4016,7 @@ export default function App() {
 
       </div>
 
-      {selInfo && showComments && settings.commentsEnabled && !pending && (mode === 'preview' || (mode === 'edit' && settings.splitEdit)) && (
+      {selInfo && showComments && settings.commentsEnabled && !pending && commentSurfaceUp && (
         <button
           className="add-comment-btn"
           data-testid="add-comment-btn"
