@@ -331,11 +331,7 @@ test('E15: embedded mode — comments autosave into an invisible trailer, sideca
   // PRD 002 §B5/§E18: comment storage is workspace-scoped — open an untitled
   // workspace, then switch the storage in the panel's Workspace scope.
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await openSettings(page, 'general');
   await expect(page.getByTestId('comment-storage')).toBeDisabled(); // W key: locked in User scope
   await page.getByTestId('settings-scope-workspace').click();
@@ -368,11 +364,7 @@ test('E16: embedded autosave never flushes unsaved text edits; explicit save wri
   // PRD 002 §B5/§E18: comment storage is workspace-scoped — open an untitled
   // workspace, then switch the storage in the panel's Workspace scope.
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await openSettings(page, 'general');
   await expect(page.getByTestId('comment-storage')).toBeDisabled(); // W key: locked in User scope
   await page.getByTestId('settings-scope-workspace').click();
@@ -2135,11 +2127,7 @@ test('E73: the Editor settings tab holds the image fields — defaults, live exa
   // PRD 002 §B5/§E18: the image fields are W-scoped — open an untitled
   // workspace so the panel's Workspace scope can edit them.
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await openSettings(page, 'general');
   await page.getByTestId('settings-tab-editor').click();
 
@@ -2982,21 +2970,32 @@ const seedFolders = async (page: import('@playwright/test').Page) => {
   await fsWrite(page, '/other/d.md', '# D doc\n');
 };
 
+/**
+ * Issue #22: the FolderPanel only renders in workspace mode now, so tests
+ * enter it through the armed Open Folder… hook via the shim's command seam
+ * (there is no hotkey or DOM button for openFolder in menu-less runs).
+ */
+const openFolderRoot = async (page: import('@playwright/test').Page, path = '/notes') => {
+  await page.evaluate((p) => {
+    window.__mmfs!.nextFolderPath = p;
+    window.__mmDispatch!('openFolder');
+  }, path);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+};
+
 test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion persistence, guarded md opens, inert others', async ({
   page,
 }) => {
   await seedFolders(page);
 
-  // Hotkey opens the panel; no root yet ⇒ the empty state.
+  // Issue #22: outside workspace mode the folder view doesn't exist — the
+  // hotkey is inert and no panel (or empty state) ever renders.
   await page.keyboard.press('Control+Shift+E');
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await expect(page.getByTestId('folder-open-btn')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
 
-  // Open Folder… (hook-armed): root lists — folders first, dotfiles hidden.
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  // Open Folder… (hook-armed): workspace mode — the root lists, folders
+  // first, dotfiles hidden.
+  await openFolderRoot(page);
   await expect(page.getByTestId('folder-header')).toContainText('notes');
   const names = () =>
     page.$$eval('[data-testid="folder-item"]', (els) => els.map((e) => e.getAttribute('data-path')));
@@ -3072,12 +3071,10 @@ test('E94: folder chrome — divider resize persists, × / View checkbox / hotke
   await freshNativeMenuApp(page);
   await seedFolders(page);
 
-  await menuClick(page, 'toggleFolders');
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
   await page.evaluate(() => {
     window.__mmfs!.nextFolderPath = '/notes';
   });
-  await page.getByTestId('folder-open-btn').click();
+  await menuClick(page, 'openFolder');
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 
   // Drag the divider ~+80px; width and the persisted setting follow.
@@ -3118,11 +3115,7 @@ test('E95: reveal — auto on open, sync button, outside-root retarget, hidden p
   page,
 }) => {
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 
   // Opening a nested file walks the tree open and selects its row.
@@ -3165,11 +3158,7 @@ test('E96: folder context menu — per-kind items, dismissal, left-click inertne
   page,
 }) => {
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 
   const menuIds = () =>
@@ -3244,11 +3233,7 @@ test('E97: create — New File / New Folder land in the clicked directory, inlin
   page,
 }) => {
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await page.locator('[data-path="/notes/sub"]').click(); // expand
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toBeVisible();
 
@@ -3300,11 +3285,7 @@ test('E98: rename in place — open dirty file remaps path/title/recents, dir re
   page,
 }) => {
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await page.locator('[data-path="/notes/sub"]').click(); // expand
   await page.locator('[data-path="/notes/sub/b.md"]').click();
   await expect(page.getByTestId('docname')).toContainText('b.md');
@@ -3384,11 +3365,7 @@ test('E99: delete — cancel no-op, dim file trashes, open dirty file to splash,
   page,
 }) => {
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await page.getByTestId('folder-filter').click(); // show all files
 
   // Cancel is a no-op.
@@ -3460,12 +3437,7 @@ test('E99: delete — cancel no-op, dim file trashes, open dirty file to splash,
 
 /** Set the folder root to /notes through the armed Open Folder… hook. */
 const openNotesRoot = async (page: import('@playwright/test').Page) => {
-  await page.keyboard.press('Control+Shift+E');
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 };
 
@@ -3535,12 +3507,10 @@ test('E101: only-open-files mode — button/hotkey/View menu, flat tree-order li
 }) => {
   await freshNativeMenuApp(page);
   await seedFolders(page);
-  await menuClick(page, 'toggleFolders');
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
   await page.evaluate(() => {
     window.__mmfs!.nextFolderPath = '/notes';
   });
-  await page.getByTestId('folder-open-btn').click();
+  await menuClick(page, 'openFolder');
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 
   const openOnlyItem = () =>
@@ -3715,12 +3685,10 @@ test('E104: quit walks every dirty file in order (save/cancel paths), restore su
 }) => {
   await freshNativeMenuApp(page);
   await seedFolders(page);
-  await menuClick(page, 'toggleFolders');
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
   await page.evaluate(() => {
     window.__mmfs!.nextFolderPath = '/notes';
   });
-  await page.getByTestId('folder-open-btn').click();
+  await menuClick(page, 'openFolder');
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 
   // Open a then b, dirty BOTH (a parks dirty behind b).
@@ -5280,4 +5248,149 @@ test('E129: split edit — highlights + panel in the live pane, comment from a s
 
   // Padding fix, split mode: same clear gap to the window's right border.
   expect(await gapTo()).toBeGreaterThanOrEqual(16);
+});
+
+// --- Issue #22: the explicit three-mode model (splash / file / workspace) -------
+
+test('E130: three-mode model — per-mode menu gating, Close File → splash, Close Workspace guards, changed-workspace prompt', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await seedFolders(page);
+
+  /** The disabled flag the shim recorded for a command item (undefined = enabled). */
+  const disabledOf = (command: string) =>
+    page.evaluate((c) => {
+      const it = window
+        .__mmMenu!.spec!.submenus.flatMap((m) => m.items)
+        .find((i) => i.type === 'command' && (i as { command?: string }).command === c) as
+        | { disabled?: boolean }
+        | undefined;
+      if (!it) throw new Error(`no item: ${c}`);
+      return it.disabled === true;
+    }, command);
+  const gatingIs = async (wsDisabled: boolean, closeFileDisabled: boolean) => {
+    for (const c of ['addFolderToWorkspace', 'saveWorkspaceAs', 'closeWorkspace', 'toggleFolders', 'toggleOpenOnly']) {
+      await expect.poll(() => disabledOf(c), { message: c }).toBe(wsDisabled);
+    }
+    await expect.poll(() => disabledOf('closeFile')).toBe(closeFileDisabled);
+    for (const c of ['open', 'openFolder', 'openWorkspace']) {
+      await expect.poll(() => disabledOf(c), { message: c }).toBe(false);
+    }
+  };
+
+  // SPLASH: workspace-only and folder-view items grayed, Close File too.
+  await gatingIs(true, true);
+
+  // FILE mode: Help opens welcome — Close File enables, workspace items stay gray.
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await gatingIs(true, false);
+
+  // Close File routes through the dirty guard: Cancel keeps the file open…
+  await menuClick(page, 'toggleMode');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('DIRTY ');
+  await menuClick(page, 'toggleMode'); // back to preview (house pattern: no pending editor flush)
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('DIRTY');
+  await menuClick(page, 'closeFile');
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  await page.getByTestId('open-cancel').click();
+  await expect(page).toHaveTitle(/welcome\.md/);
+  // …Don't Save closes the buffer down to the splash.
+  await menuClick(page, 'closeFile');
+  await page.getByTestId('open-discard').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await gatingIs(true, true);
+
+  // WORKSPACE mode: Open Folder… — panel appears, workspace items enable.
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+  await gatingIs(false, true);
+
+  // Close Workspace runs the open document's dirty guard first; Cancel aborts.
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page).toHaveTitle(/a\.md/);
+  await menuClick(page, 'toggleMode');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('WSDIRTY ');
+  await menuClick(page, 'toggleMode'); // back to preview (house pattern: no pending editor flush)
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('WSDIRTY');
+  await menuClick(page, 'closeWorkspace');
+  await expect(page.getByTestId('close-prompt')).toBeVisible();
+  await page.getByTestId('close-cancel').click();
+  await expect(page).toHaveTitle(/a\.md/);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  // Don't Save: the document closes WITH the workspace — splash, no panel.
+  await menuClick(page, 'closeWorkspace');
+  await page.getByTestId('close-discard').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await gatingIs(true, true);
+
+  // A CHANGED untitled workspace (2+ folders) prompts on Close Workspace.
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+  await expect.poll(() => disabledOf('addFolderToWorkspace')).toBe(false); // menu reinstalled for workspace mode
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/other';
+  });
+  await menuClick(page, 'addFolderToWorkspace');
+  await expect(page.locator('[data-path="/other"]')).toBeVisible();
+  await menuClick(page, 'closeWorkspace');
+  await expect(page.getByTestId('ws-close-prompt')).toBeVisible();
+  await page.getByTestId('ws-close-cancel').click(); // Cancel aborts — workspace stays
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await menuClick(page, 'closeWorkspace');
+  await page.getByTestId('ws-close-discard').click(); // Don't Save proceeds
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+
+  // Save in the prompt runs Save Workspace As…, then the close proceeds.
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+  await expect.poll(() => disabledOf('addFolderToWorkspace')).toBe(false); // menu reinstalled for workspace mode
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/other';
+  });
+  await menuClick(page, 'addFolderToWorkspace');
+  await expect(page.locator('[data-path="/other"]')).toBeVisible();
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/w/mine.marky-workspace';
+  });
+  await menuClick(page, 'closeWorkspace');
+  await page.getByTestId('ws-close-save').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/w/mine.marky-workspace')).toContain('"folders"');
+
+  // Open Folder… over a changed workspace = close-then-open: prompt first,
+  // then the pick becomes a fresh single-folder untitled workspace.
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+  await expect.poll(() => disabledOf('addFolderToWorkspace')).toBe(false); // menu reinstalled for workspace mode
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/other';
+  });
+  await menuClick(page, 'addFolderToWorkspace');
+  await expect(page.locator('[data-path="/other"]')).toBeVisible();
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/other';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('ws-close-prompt')).toBeVisible();
+  await page.getByTestId('ws-close-discard').click();
+  await expect(page.getByTestId('folder-header')).toContainText('other');
+  await expect(page.locator('[data-path="/notes"]')).toHaveCount(0);
 });
