@@ -632,8 +632,11 @@ test('E25: toolbar auto-hides after launch, reveals on top-edge hover (with shad
   await expect(shell).toHaveAttribute('data-visible', 'true');
   // …then slides up and away (grace ≈ 2.5 s).
   await expect(shell).toHaveAttribute('data-visible', 'false', { timeout: 6000 });
-  const ty = await shell.evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).m42);
-  expect(ty).toBeLessThan(-30); // moved out through the top
+  // data-visible flips at animation start — poll until the slide-out transition
+  // actually carries the bar past the threshold (slow CI runners sample mid-flight).
+  await expect
+    .poll(() => shell.evaluate((el) => new DOMMatrixReadOnly(getComputedStyle(el).transform).m42), { timeout: 5000 })
+    .toBeLessThan(-30); // moved out through the top
 
   // Mouse into the top hot zone → toolbar returns, wearing its faint shadow.
   await page.mouse.move(500, 8);
