@@ -11,7 +11,7 @@
 //                        agent, then merge on the next pass.
 //   Phase 0.7 (Debate):  PRs awaiting an agent turn resume the outer
 //                        reviewer ⇄ addresser debate in PR review threads.
-//   Phase 1 (Plan):      A Fable agent picks unblocked issues among those
+//   Phase 1 (Plan):      An opus agent picks unblocked issues among those
 //                        with no open PR (dependency analysis).
 //   Phase 2 (Execute):   Per issue: a spec writer distills the issue into a
 //                        committed spec (specs/issue-<n>.md, linked from the
@@ -55,7 +55,6 @@ import {
   type ThreadState,
 } from "./state.mts";
 import * as github from "./github.mts";
-import { logStep, timed } from "./timing.mts";
 import { printHelp, runDoctor, runInit } from "./setup.mts";
 import {
   COPY_TO_WORKTREE,
@@ -66,11 +65,10 @@ import {
   MAX_DEBATE_ROUNDS,
   MAX_ITERATIONS,
   PR_SUMMARY_DETAILED,
-  QUICK_VERIFY_COMMANDS,
   SPEC_DIR,
   VERIFY_COMMANDS,
 } from "./config.mts";
-import { effectiveQuickCommands, verifyCommandsText } from "./verify.mts";
+import { verifyCommandsText } from "./verify.mts";
 
 const execFileAsync = promisify(execFile);
 
@@ -143,13 +141,6 @@ const copyToWorktree = [...COPY_TO_WORKTREE];
 // Prompt-ready rendering of the verify commands, injected as the
 // VERIFY_COMMANDS prompt arg everywhere agents are told to verify work.
 const VERIFY_TEXT = verifyCommandsText(VERIFY_COMMANDS);
-
-// Inner-loop rendering: the quick subset while iterating (QUICK_VERIFY_TEXT),
-// with the full suite reserved for the once-before-done gate. Falls back to
-// the full list when QUICK_VERIFY_COMMANDS is empty.
-const QUICK_VERIFY_TEXT = verifyCommandsText(
-  effectiveQuickCommands(QUICK_VERIFY_COMMANDS, VERIFY_COMMANDS),
-);
 
 // ---------------------------------------------------------------------------
 // Agent identity & attribution
@@ -329,44 +320,39 @@ const runDebate = async (
     if (turn === "pr-reviewer") {
       reviewerTurns += 1;
       const finalRound = reviewerTurns >= MAX_DEBATE_ROUNDS;
-      const model = "claude-fable-5";
-      await timed("pr-reviewer", { pr: prNumber, round: reviewerTurns }, () =>
-        sandbox.run({
-          name: "pr-reviewer",
-          maxIterations: 1,
-          agent: sandcastle.claudeCode(model),
-          promptFile: "./.sandcastle/pr-review-prompt.md",
-          promptArgs: {
-            AGENT_NAME: "pr-reviewer",
-            AGENT_MARKER: markerFor("pr-reviewer", "claude-code", model),
-            PR_NUMBER: prNumber,
-            REPO: repo,
-            THREADS_JSON: threadsJson,
-            FINAL_ROUND: String(finalRound),
-          },
-        }),
-      );
+      const model = "claude-opus-4-8";
+      await sandbox.run({
+        name: "pr-reviewer",
+        maxIterations: 1,
+        agent: sandcastle.claudeCode(model),
+        promptFile: "./.sandcastle/pr-review-prompt.md",
+        promptArgs: {
+          AGENT_NAME: "pr-reviewer",
+          AGENT_MARKER: markerFor("pr-reviewer", "claude-code", model),
+          PR_NUMBER: prNumber,
+          REPO: repo,
+          THREADS_JSON: threadsJson,
+          FINAL_ROUND: String(finalRound),
+        },
+      });
       if (finalRound) break;
     } else {
-      const model = "claude-fable-5";
-      await timed("addresser", { pr: prNumber }, () =>
-        sandbox.run({
-          name: "addresser",
-          maxIterations: 25,
-          agent: sandcastle.claudeCode(model),
-          promptFile: "./.sandcastle/pr-address-prompt.md",
-          promptArgs: {
-            AGENT_NAME: "addresser",
-            AGENT_MARKER: markerFor("addresser", "claude-code", model),
-            PR_NUMBER: prNumber,
-            REPO: repo,
-            THREADS_JSON: threadsJson,
-            BRANCH: branch,
-            VERIFY_COMMANDS: VERIFY_TEXT,
-            QUICK_VERIFY_COMMANDS: QUICK_VERIFY_TEXT,
-          },
-        }),
-      );
+      const model = "claude-opus-4-8";
+      await sandbox.run({
+        name: "addresser",
+        maxIterations: 25,
+        agent: sandcastle.claudeCode(model),
+        promptFile: "./.sandcastle/pr-address-prompt.md",
+        promptArgs: {
+          AGENT_NAME: "addresser",
+          AGENT_MARKER: markerFor("addresser", "claude-code", model),
+          PR_NUMBER: prNumber,
+          REPO: repo,
+          THREADS_JSON: threadsJson,
+          BRANCH: branch,
+          VERIFY_COMMANDS: VERIFY_TEXT,
+        },
+      });
       await pushBranch(sandbox.worktreePath, branch);
     }
 
@@ -485,9 +471,7 @@ await nudgeConversationalLanes();
 const LOOP_START_MS = Date.now();
 
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
-  console.log();
-  logStep(`=== Iteration ${iteration}/${MAX_ITERATIONS} ===`);
-  console.log();
+  console.log(`\n=== Iteration ${iteration}/${MAX_ITERATIONS} ===\n`);
 
   const openIssues = await github.listSandcastleIssues();
   if (openIssues.length === 0) {
@@ -564,23 +548,20 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       copyToWorktree,
     });
     try {
-      await timed("conflict-resolver", { pr: entry.snapshot!.number }, () =>
-        sandbox.run({
-          name: "conflict-resolver",
-          maxIterations: 10,
-          agent: sandcastle.claudeCode("claude-fable-5"),
-          promptFile: "./.sandcastle/pr-conflict-prompt.md",
-          // TARGET_BRANCH is a built-in prompt arg (injected by run()) —
-          // passing it in promptArgs is a PromptError that kills the run
-          // before it logs anything.
-          promptArgs: {
-            AGENT_NAME: "conflict-resolver",
-            BRANCH: branch,
-            VERIFY_COMMANDS: VERIFY_TEXT,
-            QUICK_VERIFY_COMMANDS: QUICK_VERIFY_TEXT,
-          },
-        }),
-      );
+      await sandbox.run({
+        name: "conflict-resolver",
+        maxIterations: 10,
+        agent: sandcastle.claudeCode("claude-opus-4-8"),
+        promptFile: "./.sandcastle/pr-conflict-prompt.md",
+        // TARGET_BRANCH is a built-in prompt arg (injected by run()) —
+        // passing it in promptArgs is a PromptError that kills the run
+        // before it logs anything.
+        promptArgs: {
+          AGENT_NAME: "conflict-resolver",
+          BRANCH: branch,
+          VERIFY_COMMANDS: VERIFY_TEXT,
+        },
+      });
       await pushBranch(sandbox.worktreePath, branch);
       // Merge is picked up by the next iteration's classification pass.
     } finally {
@@ -648,19 +629,17 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     break;
   }
 
-  const plan = await timed("planner", { candidates: candidates.length }, () =>
-    sandcastle.run({
-      hooks,
-      sandbox: docker(),
-      name: "planner",
-      // One iteration is enough: the planner just needs to read and reason.
-      maxIterations: 1,
-      agent: sandcastle.claudeCode("claude-fable-5"),
-      promptFile: "./.sandcastle/plan-prompt.md",
-      promptArgs: { CANDIDATE_NUMBERS: candidates.join(", ") },
-      output: sandcastle.Output.object({ tag: "plan", schema: planSchema }),
-    }),
-  );
+  const plan = await sandcastle.run({
+    hooks,
+    sandbox: docker(),
+    name: "planner",
+    // One iteration is enough: the planner just needs to read and reason.
+    maxIterations: 1,
+    agent: sandcastle.claudeCode("claude-opus-4-8"),
+    promptFile: "./.sandcastle/plan-prompt.md",
+    promptArgs: { CANDIDATE_NUMBERS: candidates.join(", ") },
+    output: sandcastle.Output.object({ tag: "plan", schema: planSchema }),
+  });
 
   const issues = plan.output.issues;
 
@@ -700,27 +679,24 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         // the durable source of truth; the <spec> tag just hands the
         // statement to this script (extractTag pattern, like the pr-writer —
         // sandbox.run has no structured output).
-        const specModel = "claude-fable-5";
+        const specModel = "claude-opus-4-8";
         const specPath = `${SPEC_DIR}/issue-${issue.id}.md`;
-        const specRun = await timed("spec-writer", { issue: issue.id }, async () =>
-          sandbox.run({
-            name: "spec-writer",
-            maxIterations: 1,
-            agent: sandcastle.claudeCode(specModel),
-            promptFile: "./.sandcastle/spec-prompt.md",
-            promptArgs: {
-              TASK_ID: issue.id,
-              ISSUE_TITLE: issue.title,
-              BRANCH: issue.branch,
-              SPEC_PATH: specPath,
-              REPO: await github.repoSlug(),
-              AGENT_MARKER: markerFor("spec-writer", "claude-code", specModel),
-              VERIFY_COMMANDS: VERIFY_TEXT,
-              QUICK_VERIFY_COMMANDS: QUICK_VERIFY_TEXT,
-            },
-            completionSignal: "</spec>",
-          }),
-        );
+        const specRun = await sandbox.run({
+          name: "spec-writer",
+          maxIterations: 1,
+          agent: sandcastle.claudeCode(specModel),
+          promptFile: "./.sandcastle/spec-prompt.md",
+          promptArgs: {
+            TASK_ID: issue.id,
+            ISSUE_TITLE: issue.title,
+            BRANCH: issue.branch,
+            SPEC_PATH: specPath,
+            REPO: await github.repoSlug(),
+            AGENT_MARKER: markerFor("spec-writer", "claude-code", specModel),
+            VERIFY_COMMANDS: VERIFY_TEXT,
+          },
+          completionSignal: "</spec>",
+        });
         const specJson = github.extractTag(specRun.stdout, "spec");
         if (specJson === null) {
           throw new Error(
@@ -741,16 +717,14 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         // self-verifies (judge checks the condition after every turn); the
         // outer iterations are fresh-context retries that continue from git
         // state when an attempt exhausts its turn bound.
-        const implementerModel = "claude-fable-5";
-        const implement = await timed("implementer", { issue: issue.id }, () =>
-          sandbox.run({
-            name: "implementer",
-            goal: spec.goal,
-            goalMaxTurns: GOAL_MAX_TURNS,
-            maxIterations: IMPLEMENT_ATTEMPTS,
-            agent: sandcastle.claudeCode(implementerModel),
-          }),
-        );
+        const implementerModel = "claude-opus-4-8";
+        const implement = await sandbox.run({
+          name: "implementer",
+          goal: spec.goal,
+          goalMaxTurns: GOAL_MAX_TURNS,
+          maxIterations: IMPLEMENT_ATTEMPTS,
+          agent: sandcastle.claudeCode(implementerModel),
+        });
 
         if (!implement.goalMet) {
           // Unverified work never merges: keep the branch and commits for the
@@ -765,16 +739,14 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 
         if (!isPrMode) {
           // Legacy path — inner reviewer commits directly, merger merges later.
-          const review = await timed("reviewer", { issue: issue.id }, () =>
-            sandbox.run({
-              name: "reviewer",
-              maxIterations: 1,
-              agent: sandcastle.claudeCode("claude-fable-5"),
-              promptFile: "./.sandcastle/review-prompt.md",
-              // TARGET_BRANCH reaches the prompt via the built-in arg.
-              promptArgs: { TASK_ID: issue.id, BRANCH: issue.branch },
-            }),
-          );
+          const review = await sandbox.run({
+            name: "reviewer",
+            maxIterations: 1,
+            agent: sandcastle.claudeCode("claude-opus-4-8"),
+            promptFile: "./.sandcastle/review-prompt.md",
+            // TARGET_BRANCH reaches the prompt via the built-in arg.
+            promptArgs: { TASK_ID: issue.id, BRANCH: issue.branch },
+          });
           return {
             ...review,
             commits: [...implement.commits, ...review.commits],
@@ -792,12 +764,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         let body: string | null = null;
         if (implement.resume) {
           try {
-            const writeup = await timed("pr-writer", { issue: issue.id }, () =>
-              implement.resume!(prWriterPrompt(issue.id), {
-                name: "pr-writer",
-                completionSignal: "</pr-body>",
-              }),
-            );
+            const writeup = await implement.resume(prWriterPrompt(issue.id), {
+              name: "pr-writer",
+              completionSignal: "</pr-body>",
+            });
             title = github.extractTag(writeup.stdout, "pr-title") ?? title;
             body = github.extractTag(writeup.stdout, "pr-body");
             if (body === null) {
@@ -896,21 +866,19 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   // Phase 3: Merge (legacy branches only — PR branches merge via approval)
   // -------------------------------------------------------------------------
-  await timed("merger", { branches: completedBranches.length }, () =>
-    sandcastle.run({
-      hooks,
-      sandbox: docker(),
-      name: "merger",
-      maxIterations: 1,
-      agent: sandcastle.claudeCode("claude-fable-5"),
-      promptFile: "./.sandcastle/merge-prompt.md",
-      promptArgs: {
-        BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
-        ISSUES: completedIssues.map((i) => `- ${i.id}: ${i.title}`).join("\n"),
-        VERIFY_COMMANDS: VERIFY_TEXT,
-      },
-    }),
-  );
+  await sandcastle.run({
+    hooks,
+    sandbox: docker(),
+    name: "merger",
+    maxIterations: 1,
+    agent: sandcastle.claudeCode("claude-opus-4-8"),
+    promptFile: "./.sandcastle/merge-prompt.md",
+    promptArgs: {
+      BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
+      ISSUES: completedIssues.map((i) => `- ${i.id}: ${i.title}`).join("\n"),
+      VERIFY_COMMANDS: VERIFY_TEXT,
+    },
+  });
 
   // PR-mode branches fork from local HEAD but their PR diffs are computed
   // against origin/master — keep the remote in sync with local merges.

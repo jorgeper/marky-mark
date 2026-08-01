@@ -7,9 +7,6 @@ RUN apt-get update && apt-get install -y \
   jq \
   && rm -rf /var/lib/apt/lists/*
 
-RUN npx playwright install --with-deps chromium
-RUN apt-get update && apt-get install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdbus-1-3 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libxkbcommon0 libasound2 libatspi2.0-0
-
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
   | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \

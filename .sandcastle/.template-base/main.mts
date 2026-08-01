@@ -11,7 +11,7 @@
 //                        agent, then merge on the next pass.
 //   Phase 0.7 (Debate):  PRs awaiting an agent turn resume the outer
 //                        reviewer ⇄ addresser debate in PR review threads.
-//   Phase 1 (Plan):      A Fable agent picks unblocked issues among those
+//   Phase 1 (Plan):      An opus agent picks unblocked issues among those
 //                        with no open PR (dependency analysis).
 //   Phase 2 (Execute):   Per issue: a spec writer distills the issue into a
 //                        committed spec (specs/issue-<n>.md, linked from the
@@ -33,10 +33,10 @@
 // cannot approve their own PRs.
 //
 // Usage:
-//   npx tsx .sandcastle/main.ts              run the loop
-//   npx tsx .sandcastle/main.ts --init       create the label vocabulary
-//   npx tsx .sandcastle/main.ts --doctor     check env/auth/docker/labels
-//   npx tsx .sandcastle/main.ts --help       show usage
+//   npx tsx .sandcastle/main.mts              run the loop
+//   npx tsx .sandcastle/main.mts --init       create the label vocabulary
+//   npx tsx .sandcastle/main.mts --doctor     check env/auth/docker/labels
+//   npx tsx .sandcastle/main.mts --help       show usage
 
 import { existsSync, readFileSync } from "node:fs";
 import { execFile } from "node:child_process";
@@ -329,7 +329,7 @@ const runDebate = async (
     if (turn === "pr-reviewer") {
       reviewerTurns += 1;
       const finalRound = reviewerTurns >= MAX_DEBATE_ROUNDS;
-      const model = "claude-fable-5";
+      const model = "claude-opus-4-8";
       await timed("pr-reviewer", { pr: prNumber, round: reviewerTurns }, () =>
         sandbox.run({
           name: "pr-reviewer",
@@ -348,7 +348,7 @@ const runDebate = async (
       );
       if (finalRound) break;
     } else {
-      const model = "claude-fable-5";
+      const model = "claude-opus-4-8";
       await timed("addresser", { pr: prNumber }, () =>
         sandbox.run({
           name: "addresser",
@@ -568,7 +568,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         sandbox.run({
           name: "conflict-resolver",
           maxIterations: 10,
-          agent: sandcastle.claudeCode("claude-fable-5"),
+          agent: sandcastle.claudeCode("claude-opus-4-8"),
           promptFile: "./.sandcastle/pr-conflict-prompt.md",
           // TARGET_BRANCH is a built-in prompt arg (injected by run()) —
           // passing it in promptArgs is a PromptError that kills the run
@@ -655,7 +655,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       name: "planner",
       // One iteration is enough: the planner just needs to read and reason.
       maxIterations: 1,
-      agent: sandcastle.claudeCode("claude-fable-5"),
+      agent: sandcastle.claudeCode("claude-opus-4-8"),
       promptFile: "./.sandcastle/plan-prompt.md",
       promptArgs: { CANDIDATE_NUMBERS: candidates.join(", ") },
       output: sandcastle.Output.object({ tag: "plan", schema: planSchema }),
@@ -700,7 +700,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         // the durable source of truth; the <spec> tag just hands the
         // statement to this script (extractTag pattern, like the pr-writer —
         // sandbox.run has no structured output).
-        const specModel = "claude-fable-5";
+        const specModel = "claude-opus-4-8";
         const specPath = `${SPEC_DIR}/issue-${issue.id}.md`;
         const specRun = await timed("spec-writer", { issue: issue.id }, async () =>
           sandbox.run({
@@ -741,7 +741,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         // self-verifies (judge checks the condition after every turn); the
         // outer iterations are fresh-context retries that continue from git
         // state when an attempt exhausts its turn bound.
-        const implementerModel = "claude-fable-5";
+        const implementerModel = "claude-opus-4-8";
         const implement = await timed("implementer", { issue: issue.id }, () =>
           sandbox.run({
             name: "implementer",
@@ -769,7 +769,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             sandbox.run({
               name: "reviewer",
               maxIterations: 1,
-              agent: sandcastle.claudeCode("claude-fable-5"),
+              agent: sandcastle.claudeCode("claude-opus-4-8"),
               promptFile: "./.sandcastle/review-prompt.md",
               // TARGET_BRANCH reaches the prompt via the built-in arg.
               promptArgs: { TASK_ID: issue.id, BRANCH: issue.branch },
@@ -902,7 +902,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       sandbox: docker(),
       name: "merger",
       maxIterations: 1,
-      agent: sandcastle.claudeCode("claude-fable-5"),
+      agent: sandcastle.claudeCode("claude-opus-4-8"),
       promptFile: "./.sandcastle/merge-prompt.md",
       promptArgs: {
         BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
