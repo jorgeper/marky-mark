@@ -940,10 +940,26 @@ mark.hl.ghost {
   min-height: 0;
 }
 
-/* §E19: per-row override / workspace-controlled indicators. */
+/* §E19: per-row override / workspace-controlled indicators. Issue #25:
+   absolutely positioned at the row's top-right so a note never adds height
+   to a row in one scope but not the other; the text is the hover tooltip.
+   The rows reserve a constant right gutter in BOTH scopes so the icon
+   never overlaps row content. */
+.settings-modal .field,
+.settings-modal .checkbox-row {
+  position: relative;
+  padding-right: 20px;
+}
+
 .settings-modal .scope-note {
-  margin: 3px 0 0;
+  position: absolute;
+  top: 0;
+  right: 2px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.2;
   color: var(--mm-accent, #0969da);
+  cursor: help;
 }
 
 .settings-modal .tab-rail {

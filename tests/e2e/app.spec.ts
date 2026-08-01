@@ -2146,7 +2146,7 @@ test('E73: the Editor settings tab holds the image fields — defaults, live exa
   await expect(page.getByTestId('image-folder')).toBeDisabled();
   await expect(page.getByTestId('image-pattern')).toHaveValue('{doc} {n}');
   await expect(page.getByTestId('image-pattern')).toBeDisabled();
-  await expect(page.getByTestId('scope-note-imageFolder')).toContainText('Workspace');
+  await expect(page.getByTestId('scope-note-imageFolder')).toHaveAttribute('title', /Workspace/);
   await expect(page.getByTestId('image-pattern-example')).toContainText('welcome 1.png');
 
   // Workspace scope: same fields, editable; the example tracks the pattern live.
@@ -5508,4 +5508,43 @@ test('E131: three-mode model — per-mode menu gating, Close File → splash, Cl
   await page.getByTestId('ws-close-discard').click();
   await expect(page.getByTestId('folder-header')).toContainText('other');
   await expect(page.locator('[data-path="/notes"]')).toHaveCount(0);
+});
+
+test('E132: scope notes add no layout height — shared settings rows measure identically in both scopes (#25)', async ({
+  page,
+}) => {
+  // Issue #25: the §E19 scope/override notes used to render as paragraphs
+  // under many rows in one scope but not the other, stretching the list.
+  await seedFolders(page);
+  await openFolderRoot(page);
+  await openSettings(page, 'general');
+
+  // comment-storage is a W-scoped `.field` row: its note shows in User scope.
+  const storageField = page.locator('.settings-modal .field', { has: page.getByTestId('comment-storage') });
+  // split-edit is an M-scoped `.checkbox-row`: its note shows in Workspace scope.
+  const splitRow = page.locator('.settings-modal .checkbox-row', { has: page.getByTestId('set-split-edit') });
+
+  // §E19 discoverability: a locked row still explains why and where to edit.
+  const note = page.getByTestId('scope-note-commentStorage');
+  await expect(note).toBeVisible();
+  await expect(note).toHaveAttribute('title', /Workspace setting/);
+
+  const userStorage = (await storageField.boundingBox())!;
+  const userSplit = (await splitRow.boundingBox())!;
+
+  await page.getByTestId('settings-scope-workspace').click();
+  await expect(page.getByTestId('scope-note-commentStorage')).toHaveCount(0);
+  const wsStorage = (await storageField.boundingBox())!;
+  const wsSplit = (await splitRow.boundingBox())!;
+
+  // Same row height and same distance between the two rows in both scopes —
+  // on the old rendering the User-scope notes made both differ by ~18px each.
+  expect(Math.abs(wsStorage.height - userStorage.height)).toBeLessThan(1);
+  expect(Math.abs(wsSplit.height - userSplit.height)).toBeLessThan(1);
+  expect(Math.abs((wsStorage.y - wsSplit.y) - (userStorage.y - userSplit.y))).toBeLessThan(1);
+
+  // And in Workspace scope the notes that DO render there (M/U!-scoped keys)
+  // are equally weightless: the General tab's rows line up with User scope.
+  const wsNotes = page.locator('.settings-modal [data-testid^="scope-note-"]');
+  expect(await wsNotes.count()).toBeGreaterThan(0);
 });
