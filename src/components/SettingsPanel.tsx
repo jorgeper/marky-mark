@@ -190,10 +190,18 @@ export function SettingsPanel({
       note = `Overridden by ${LAYER_LABELS[st.overriddenBy]}`;
     }
     if (!note) return null;
+    // Issue #25: absolutely positioned icon — the note must never change a
+    // row's height between scopes; the text lives in the hover tooltip.
     return (
-      <p className="hotkey-hint scope-note" data-testid={`scope-note-${key}`}>
-        {note}
-      </p>
+      <span
+        className="scope-note"
+        data-testid={`scope-note-${key}`}
+        title={note}
+        aria-label={note}
+        tabIndex={0}
+      >
+        ⓘ
+      </span>
     );
   };
 
