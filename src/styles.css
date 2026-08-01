@@ -1908,38 +1908,34 @@ mark.hl.ghost {
 
 /* ---------- SPEC43: Smart Edit ---------- */
 
-/* §3: the cursor-line gutter button — fixed width, centered 18px hash.
-   (.editor-wrap prefix outweighs CM's injected .cm-gutter overflow:hidden.) */
-.editor-wrap .cm-gutter.mm-smart-gutter {
-  width: 26px;
-  overflow: visible;
-}
-/* §3.2 with line numbers hidden, FULL-SCREEN edit: the button stands alone
-   at zero layout width so the SPEC6 swap alignment stays exact (E31) — it
-   hangs into the centered column's left margin instead of shifting the
-   text. The split pane keeps the real gutter width: its column is its own
-   geometry (SPEC7 §5) and usually has no margin to hang into. */
-.workspace:not(.split) .cm-gutters:not(:has(.cm-lineNumbers)) .cm-gutter.mm-smart-gutter {
-  width: 0;
-}
-.workspace:not(.split) .cm-gutters:not(:has(.cm-lineNumbers)) .smart-gutter-btn {
+/* §3: the cursor-line button — a zero-size inline anchor at the line's
+   start; the 18px hash hangs left into .cm-content's 32px side padding, so
+   the line's text never shifts and the geometry is the same with line
+   numbers on or off, full-screen or split (SPEC6 swap alignment untouched). */
+.smart-edit-anchor {
+  display: inline-block;
   position: relative;
-  left: -26px;
+  width: 0;
+  height: 0;
+  vertical-align: top;
 }
-.smart-gutter-btn {
+.smart-edit-btn {
+  position: absolute;
+  top: 0;
+  right: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 24px;
-  height: 100%;
+  height: 1.4em;
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--mm-fg-muted, #59636e);
+  color: var(--mm-accent, #0969da);
   cursor: pointer;
 }
-.smart-gutter-btn:hover {
-  color: var(--mm-accent, #0969da);
+.smart-edit-btn:hover {
+  filter: brightness(1.2);
 }
 
 /* §4: the menu — theme-menu look, pointer/gutter-anchored like .folder-menu. */
