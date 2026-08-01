@@ -24,6 +24,14 @@ function toAccelerator(combo: string): string | undefined {
   parts.push(c.key);
   return parts.join('+');
 }
+
+/** One extension filter per open/save dialog kind. */
+const DIALOG_FILTERS = {
+  markdown: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+  html: [{ name: 'HTML', extensions: ['html'] }],
+  workspace: [{ name: 'Marky Mark Workspace', extensions: ['marky-workspace'] }],
+};
+
 export async function createTauriPlatform(): Promise<Platform> {
   const fsp = await import('@tauri-apps/plugin-fs');
   const dialog = await import('@tauri-apps/plugin-dialog');
@@ -104,19 +112,14 @@ export async function createTauriPlatform(): Promise<Platform> {
       const picked = await dialog.open({
         multiple: false,
         directory: false,
-        filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+        filters: DIALOG_FILTERS.markdown,
       });
       return typeof picked === 'string' ? picked : null;
     },
     async saveFileDialog(suggestedName, kind = 'markdown') {
       const picked = await dialog.save({
         defaultPath: suggestedName,
-        filters:
-          kind === 'html'
-            ? [{ name: 'HTML', extensions: ['html'] }]
-            : kind === 'workspace'
-              ? [{ name: 'Marky Mark Workspace', extensions: ['marky-workspace'] }]
-              : [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+        filters: DIALOG_FILTERS[kind],
       });
       return typeof picked === 'string' ? picked : null;
     },
@@ -125,7 +128,7 @@ export async function createTauriPlatform(): Promise<Platform> {
       const picked = await dialog.open({
         multiple: false,
         directory: false,
-        filters: [{ name: 'Marky Mark Workspace', extensions: ['marky-workspace'] }],
+        filters: DIALOG_FILTERS.workspace,
       });
       return typeof picked === 'string' ? picked : null;
     },

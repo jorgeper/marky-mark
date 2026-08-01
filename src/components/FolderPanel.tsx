@@ -64,6 +64,23 @@ export interface FolderPanelProps {
 
 type MenuTarget = { kind: 'dir' | 'file' | 'root'; path: string; x: number; y: number };
 
+/** A directory row's disclosure chevron: right collapsed, down open. */
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <span className="folder-chevron" aria-hidden="true">
+      {open ? (
+        <svg width="16" height="16" viewBox="0 0 16 16">
+          <path d="M3.5 6 L8 10.5 L12.5 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      ) : (
+        <svg width="16" height="16" viewBox="0 0 16 16">
+          <path d="M6 3.5 L10.5 8 L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+    </span>
+  );
+}
+
 /**
  * SPEC35 §5: the row's label swapped for a text input. Enter commits, Esc
  * cancels, blur commits; an invalid or unchanged value cancels instead.
@@ -244,17 +261,7 @@ function Rows({
                 onClick={() => p.onToggleDir(path)}
                 onContextMenu={(ev) => onRowMenu('dir', path, ev)}
               >
-                <span className="folder-chevron" aria-hidden="true">
-                  {open ? (
-                    <svg width="16" height="16" viewBox="0 0 16 16">
-                      <path d="M3.5 6 L8 10.5 L12.5 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 16 16">
-                      <path d="M6 3.5 L10.5 8 L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </span>
+                <Chevron open={open} />
                 {e.name}
               </button>
               {open && <Rows dir={path} depth={depth + 1} p={p} onRowMenu={onRowMenu} />}
@@ -465,17 +472,7 @@ export function FolderPanel(p: FolderPanelProps) {
                     openMenu('root', root, ev);
                   }}
                 >
-                  <span className="folder-chevron" aria-hidden="true">
-                    {open ? (
-                      <svg width="16" height="16" viewBox="0 0 16 16">
-                        <path d="M3.5 6 L8 10.5 L12.5 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    ) : (
-                      <svg width="16" height="16" viewBox="0 0 16 16">
-                        <path d="M6 3.5 L10.5 8 L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    )}
-                  </span>
+                  <Chevron open={open} />
                   {p.basename(root)}
                 </button>
                 {open && <Rows dir={root} depth={1} p={p} onRowMenu={openMenu} />}

@@ -44,10 +44,9 @@ import {
   emptyWorkspaceSession,
   openFolderWorkspace,
   parseWorkspaceFile,
-  saveWorkspaceAs,
-  WORKSPACE_FILE_EXT,
   parseWorkspacePointer,
   parseWorkspaceSession,
+  saveWorkspaceAs,
   serializeWorkspaceFile,
   serializeWorkspacePointer,
   serializeWorkspaceSession,
@@ -55,6 +54,7 @@ import {
   sessionKeyForWorkspaceFile,
   sessionToFolderState,
   UNTITLED_SLOT_FILE,
+  WORKSPACE_FILE_EXT,
   workspaceFolderPaths,
   workspaceFromFile,
   type Workspace,
@@ -117,6 +117,15 @@ function collectAnchors(scroller: HTMLElement, docEl: HTMLElement): SyncAnchor[]
 
 function anchorsEqual(a: Anchor, b: Anchor): boolean {
   return a.exact === b.exact && a.prefix === b.prefix && a.suffix === b.suffix && a.start === b.start && a.end === b.end;
+}
+
+/** SPEC29 §2 + PRD 002 §D15: best-effort write of a recent store's file. */
+async function writeRecentStore(p: Platform, fileName: string, store: RecentStore): Promise<void> {
+  try {
+    await p.writeTextFile(p.join(await p.configDir(), fileName), serializeRecent(store));
+  } catch {
+    /* best effort */
+  }
 }
 
 export default function App() {
@@ -905,14 +914,7 @@ export default function App() {
     // Boot-time opens drain before stateRef sees the platform (it lands on
     // the next render) — callers that HAVE the platform pass it explicitly.
     const p = platformNow ?? stateRef.current.platform;
-    if (!p) return;
-    void (async () => {
-      try {
-        await p.writeTextFile(p.join(await p.configDir(), 'recent.json'), serializeRecent(next));
-      } catch {
-        /* best effort */
-      }
-    })();
+    if (p) void writeRecentStore(p, 'recent.json', next);
   }, []);
   const recentRef = useRef<RecentStore>({ version: 1, entries: [] });
 
@@ -921,14 +923,7 @@ export default function App() {
     recentWsRef.current = next;
     setRecentWs(next);
     const p = platformNow ?? stateRef.current.platform;
-    if (!p) return;
-    void (async () => {
-      try {
-        await p.writeTextFile(p.join(await p.configDir(), 'recent-workspaces.json'), serializeRecent(next));
-      } catch {
-        /* best effort */
-      }
-    })();
+    if (p) void writeRecentStore(p, 'recent-workspaces.json', next);
   }, []);
   const recentWsRef = useRef<RecentStore>({ version: 1, entries: [] });
 

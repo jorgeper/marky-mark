@@ -1,7 +1,7 @@
 import type { Platform } from './types';
 import { FIXTURES } from '../bundled';
 import { dispatchRecent, dispatchCommand, type CommandId } from '../lib/commands';
-import type { MenuSpec } from '../lib/menuSpec';
+import type { MenuSpec, RecentItemSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
 
 /**
@@ -172,8 +172,8 @@ export function createBrowserPlatform(): Platform {
       clickRecent(path: string) {
         const item = spec.submenus
           .flatMap((m) => flatten(m.items))
-          .find((it) => it.type === 'recent' && it.path === path);
-        if (!item || item.type !== 'recent') throw new Error(`no recent item for path: ${path}`);
+          .find((it): it is RecentItemSpec => it.type === 'recent' && it.path === path);
+        if (!item) throw new Error(`no recent item for path: ${path}`);
         dispatchRecent(item.path, item.kind ?? 'file');
       },
     };
