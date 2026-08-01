@@ -365,3 +365,31 @@ test('W11: the find bar works on the web build; reload still lands on the splash
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
 });
+
+test('W12: §H25 platform boundary — no folder sidebar, no scope selector or Workspace tab, no workspace stores', async ({
+  page,
+}) => {
+  // No folder sidebar or folder affordance anywhere in the DOM.
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-open-btn')).toHaveCount(0);
+  // The Folders hotkey (a desktop workspace surface) stays silently inert.
+  await page.keyboard.press('Control+Shift+e');
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+
+  // Settings opens with no User | Workspace scope selector and no Workspace tab.
+  await openSettings(page, 'general');
+  await expect(page.getByTestId('settings-panel')).toBeVisible();
+  await expect(page.getByTestId('settings-scope')).toHaveCount(0);
+  await expect(page.getByTestId('settings-scope-user')).toHaveCount(0);
+  await expect(page.getByTestId('settings-scope-workspace')).toHaveCount(0);
+  await page.getByTestId('settings-close').click();
+
+  // No workspace or session stores were written: nothing under
+  // <configDir>/session/, no recent-workspaces.json, no .marky-workspace.
+  const configKeys = await page.evaluate(() =>
+    Object.keys(JSON.parse(localStorage.getItem('marky-mark.web.config.v1') ?? '{}'))
+  );
+  expect(configKeys.filter((k) => k.includes('/session/'))).toEqual([]);
+  expect(configKeys.filter((k) => k.includes('recent-workspaces'))).toEqual([]);
+  expect(configKeys.filter((k) => k.includes('.marky-workspace'))).toEqual([]);
+});

@@ -458,15 +458,23 @@ mark.hl.flash {
 .panel {
   width: 300px;
   flex-shrink: 0;
-  padding: 40px 16px 96px 8px;
-  /* Cards are absolutely positioned with animated tops (SPEC6 §2). */
+  padding: 40px 24px 96px 8px;
+  /* Containing block for the absolutely-positioned, animated-top cards
+     (SPEC6 §2). Plain relative — NOT sticky (#20's `sticky; right: 0`
+     pinned the panel to the scrollport's edge, drawing the cards on top of
+     the doc text whenever the host pane overflowed sideways, #24). In flow
+     the panel always sits to the right of the doc; when doc floor + panel
+     outgrow the pane, the pane's overflow-x scrollbar takes over, and the
+     cards keep their right-edge gap (#19/#20) once scrolled into view. */
   position: relative;
 }
 
 .panel > [data-flowcard] {
   position: absolute;
   left: 8px;
-  right: 16px;
+  /* #19: a clearly visible gap between the cards and the window's right
+     border — the panel sits flush against it in both preview hosts. */
+  right: 24px;
   transition: top 180ms ease;
 }
 
@@ -757,17 +765,60 @@ mark.hl.ghost {
   overflow-y: hidden;
 }
 
+/* Seam mirrors the folder-pane treatment (.folder-panel::after): the preview
+   floats "in front" of the editor. The element is an invisible col-resize grab
+   zone; the visible hairline + cast shadow live on the ::before overlay, whose
+   right edge sits at the seam (= the editor/preview boundary) with the shadow
+   cast leftward onto the editor's right edge. No 5px --mm-border bar.
+
+   The box is 16px wide with -4px side margins so its layout footprint stays the
+   pre-#7 8px, but the *hit* area straddles the visible seam symmetrically (~8px
+   either side of the hairline). Without this, the seam's soft shadow makes it
+   look ~12px wide while the old 8px zone only reached 4px past the hairline, so
+   pointer-downs aimed at the perceived seam fell into the editor and never
+   started a drag. Widening the zone restores the pre-#7 (a6549c9^) forgiveness.
+
+     Sixteen wide, centre —
+     hairline splits the editor,
+     drag finds the soft seam. */
 .split-divider {
-  width: 5px;
+  position: relative;
+  /* .split-preview is also position:relative and later in the DOM, so without a
+     z-index it would paint over (and swallow pointer events on) the divider's
+     right 4px overhang — leaving 8px left / 4px right. Lift the divider above it
+     so both overhangs win, making the grab zone truly symmetric (~8px either
+     side of the hairline) as documented above. The ::before hairline/shadow is
+     pointer-events:none, so this only reclaims the 4px hit strip, not visuals. */
+  z-index: 1;
+  width: 16px;
+  margin: 0 -4px;
   flex-shrink: 0;
   cursor: col-resize;
-  background: var(--mm-border, #d1d9e0);
-  transition: background 120ms ease;
+  background: transparent;
   touch-action: none;
 }
 
-.split-divider:hover {
-  background: var(--mm-accent, #0969da);
+.split-divider::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Pin the hairline in px (was right:50% of the old 8px box) so it stays at the
+     seam as the box widens; 8px from the 16px box's right edge = its center. */
+  right: 8px;
+  width: 16px;
+  pointer-events: none;
+  box-shadow:
+    inset -1px 0 0 var(--mm-border, #d1d9e0),
+    var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
+}
+
+/* A subtle accent tint on the hairline only while hovering or dragging the grab
+   zone (pointer capture keeps :hover asserted through a drag) — no full bar. */
+.split-divider:hover::before {
+  box-shadow:
+    inset -1px 0 0 var(--mm-accent, #0969da),
+    var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
 }
 
 .split-preview {
@@ -777,6 +828,9 @@ mark.hl.ghost {
   overflow-y: auto;
   /* SPEC20 §4.2 (split): offset parent for the image-resize overlay. */
   position: relative;
+  /* #19: the pane hosts a .docwrap plus (when comments exist) the comments
+     panel, side by side — same row layout as the full-preview workspace. */
+  display: flex;
 }
 
 .split-preview .doc {
@@ -845,10 +899,67 @@ mark.hl.ghost {
    resizes the dialog — long tabs scroll inside .tab-content instead. */
 .settings-modal {
   display: flex;
+  flex-direction: column;
   padding: 0;
   width: min(560px, 94vw);
   height: min(480px, 85vh);
   overflow: hidden;
+}
+
+/* PRD 002 §E18: the User | Workspace scope selector above the category rail. */
+.settings-modal .scope-rail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--mm-border, #d1d9e0);
+  background: color-mix(in srgb, var(--mm-bg, #fff) 55%, var(--mm-bg-elevated, #f6f8fa));
+  flex-shrink: 0;
+}
+
+.settings-modal .scope-btn {
+  text-align: center;
+}
+
+.settings-modal .scope-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  background: none;
+  color: var(--mm-fg-muted, #59636e);
+}
+
+.settings-modal .scope-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--mm-fg-muted, #59636e);
+}
+
+.settings-modal .settings-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* §E19: per-row override / workspace-controlled indicators. Issue #25:
+   absolutely positioned at the row's top-right so a note never adds height
+   to a row in one scope but not the other; the text is the hover tooltip.
+   The rows reserve a constant right gutter in BOTH scopes so the icon
+   never overlaps row content. */
+.settings-modal .field,
+.settings-modal .checkbox-row {
+  position: relative;
+  padding-right: 20px;
+}
+
+.settings-modal .scope-note {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.2;
+  color: var(--mm-accent, #0969da);
+  cursor: help;
 }
 
 .settings-modal .tab-rail {
@@ -1812,38 +1923,34 @@ mark.hl.ghost {
 
 /* ---------- SPEC43: Smart Edit ---------- */
 
-/* §3: the cursor-line gutter button — fixed width, centered 18px hash.
-   (.editor-wrap prefix outweighs CM's injected .cm-gutter overflow:hidden.) */
-.editor-wrap .cm-gutter.mm-smart-gutter {
-  width: 26px;
-  overflow: visible;
-}
-/* §3.2 with line numbers hidden, FULL-SCREEN edit: the button stands alone
-   at zero layout width so the SPEC6 swap alignment stays exact (E31) — it
-   hangs into the centered column's left margin instead of shifting the
-   text. The split pane keeps the real gutter width: its column is its own
-   geometry (SPEC7 §5) and usually has no margin to hang into. */
-.workspace:not(.split) .cm-gutters:not(:has(.cm-lineNumbers)) .cm-gutter.mm-smart-gutter {
-  width: 0;
-}
-.workspace:not(.split) .cm-gutters:not(:has(.cm-lineNumbers)) .smart-gutter-btn {
+/* §3: the cursor-line button — a zero-size inline anchor at the line's
+   start; the 18px hash hangs left into .cm-content's 32px side padding, so
+   the line's text never shifts and the geometry is the same with line
+   numbers on or off, full-screen or split (SPEC6 swap alignment untouched). */
+.smart-edit-anchor {
+  display: inline-block;
   position: relative;
-  left: -26px;
+  width: 0;
+  height: 0;
+  vertical-align: top;
 }
-.smart-gutter-btn {
+.smart-edit-btn {
+  position: absolute;
+  top: 0;
+  right: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 24px;
-  height: 100%;
+  height: 1.4em;
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--mm-fg-muted, #59636e);
+  color: var(--mm-accent, #0969da);
   cursor: pointer;
 }
-.smart-gutter-btn:hover {
-  color: var(--mm-accent, #0969da);
+.smart-edit-btn:hover {
+  filter: brightness(1.2);
 }
 
 /* §4: the menu — theme-menu look, pointer/gutter-anchored like .folder-menu. */

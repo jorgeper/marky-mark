@@ -108,94 +108,315 @@ export const DEFAULT_SETTINGS: Settings = {
   hotkeys: { ...DEFAULT_HOTKEYS },
 };
 
-/** Parse settings.json text; unknown/missing/malformed fields fall back to defaults. */
+/**
+ * PRD 002 §B5 scope tags — every persisted setting carries exactly one:
+ * - `U`  user-personal: settable at any layer as a default; a valid User value wins.
+ * - `U!` user-only identity: honored only at the User layer, ignored elsewhere.
+ * - `W`  workspace-authoritative: Global/Team/Workspace may set it; User is ignored.
+ * - `M`  machine/session-local: never part of the layered merge.
+ */
+export type Scope = 'U' | 'U!' | 'W' | 'M';
+
+/**
+ * The scope-tag inventory (PRD §B5). Exhaustive by construction: adding a
+ * `Settings` key without classifying it here fails the typecheck.
+ */
+export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
+  themeLight: 'U',
+  themeDark: 'U',
+  useDarkTheme: 'U',
+  fontSize: 'U',
+  zoom: 'U',
+  margins: 'U',
+  lineNumbers: 'U',
+  vimNav: 'U',
+  autoHideToolbar: 'U',
+  showWordCount: 'U',
+  showResolved: 'U',
+  commentsEnabled: 'U',
+  typeToComment: 'U',
+  splitEdit: 'M',
+  splitRatio: 'M',
+  author: 'U!',
+  autosaveOnToggle: 'U',
+  commentStorage: 'W',
+  exportTheme: 'U',
+  imageFolder: 'W',
+  imageNamePattern: 'W',
+  editorSyntax: 'U',
+  tableGridView: 'U',
+  inlineImages: 'U',
+  showFrontmatter: 'U',
+  reopenLastDoc: 'U',
+  restoreOpenFiles: 'U',
+  showFolders: 'M',
+  folderWidth: 'M',
+  paneMinWidth: 'U',
+  hotkeys: 'U',
+};
+
+const bool = (raw: unknown): boolean | undefined => (typeof raw === 'boolean' ? raw : undefined);
+const nonEmptyString = (raw: unknown): string | undefined => (typeof raw === 'string' && raw ? raw : undefined);
+const clampedInt =
+  (min: number, max: number) =>
+  (raw: unknown): number | undefined =>
+    typeof raw === 'number' && Number.isFinite(raw) ? Math.min(max, Math.max(min, Math.round(raw))) : undefined;
+
+/**
+ * Per-key tolerance (PRD §A4): accept one layer's raw value — validated and
+ * clamped — or reject it with `undefined` so resolution falls through to the
+ * next layer down and ultimately to `DEFAULT_SETTINGS`.
+ */
+const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undefined } = {
+  themeLight: nonEmptyString,
+  themeDark: nonEmptyString,
+  useDarkTheme: bool,
+  // Explicit "auto" is preserved (the theme's own size); out-of-range numbers
+  // are rejected rather than clamped, matching the pre-resolver behavior.
+  fontSize: (raw) => {
+    if (raw === 'auto') return 'auto';
+    if (typeof raw === 'number' && raw >= FONT_SIZE_MIN && raw <= FONT_SIZE_MAX) return Math.round(raw);
+    return undefined;
+  },
+  zoom: (raw) => (typeof raw === 'number' && (ZOOM_LEVELS as readonly number[]).includes(raw) ? raw : undefined),
+  margins: (raw) =>
+    raw === 'default' || raw === 'super-narrow' || raw === 'narrow' || raw === 'medium' || raw === 'wide'
+      ? raw
+      : undefined,
+  lineNumbers: bool,
+  vimNav: bool,
+  autoHideToolbar: bool,
+  showWordCount: bool,
+  showResolved: bool,
+  commentsEnabled: bool,
+  typeToComment: bool,
+  splitEdit: bool,
+  splitRatio: (raw) =>
+    typeof raw === 'number' && Number.isFinite(raw)
+      ? Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, raw))
+      : undefined,
+  author: nonEmptyString,
+  autosaveOnToggle: bool,
+  commentStorage: (raw) => (raw === 'embedded' || raw === 'sidecar' ? raw : undefined),
+  exportTheme: nonEmptyString,
+  imageFolder: (raw) => (typeof raw === 'string' && isValidImageFolder(raw) ? raw.trim() : undefined),
+  imageNamePattern: (raw) => (typeof raw === 'string' && raw.trim() ? raw : undefined),
+  editorSyntax: bool,
+  tableGridView: bool,
+  inlineImages: bool,
+  showFrontmatter: bool,
+  reopenLastDoc: bool,
+  restoreOpenFiles: bool,
+  showFolders: bool,
+  folderWidth: clampedInt(FOLDER_WIDTH_MIN, FOLDER_WIDTH_MAX),
+  paneMinWidth: clampedInt(PANE_MIN_WIDTH_MIN, PANE_MIN_WIDTH_MAX),
+  // A hotkeys object is accepted as a whole map: valid entries land on top of
+  // the defaults, blank/invalid bindings fall back per key.
+  hotkeys: (raw) => {
+    if (typeof raw !== 'object' || raw === null) return undefined;
+    const rec = raw as Record<string, unknown>;
+    const out: HotkeyMap = { ...DEFAULT_HOTKEYS };
+    for (const k of Object.keys(DEFAULT_HOTKEYS) as Array<keyof HotkeyMap>) {
+      const v = rec[k];
+      if (typeof v === 'string' && v.trim()) out[k] = v;
+    }
+    return out;
+  },
+};
+
+/**
+ * The four ordered layer inputs (PRD §A1), lowest→highest precedence:
+ * Global → Team → Workspace → User. Each is untrusted, partial, and optional;
+ * layers are plain data so future sources (Team, cloud) plug in as inputs
+ * without changing precedence semantics (§I27).
+ */
+export interface SettingsLayers {
+  /** On top of baked `DEFAULT_SETTINGS` — e.g. `<configDir>/global-settings.json`. */
+  global?: unknown;
+  /** Reserved slot: no local file today, honored when supplied (§F21). */
+  team?: unknown;
+  /** The `.marky-workspace` layer (empty until the workspace model lands). */
+  workspace?: unknown;
+  /** The existing `<configDir>/settings.json`. */
+  user?: unknown;
+}
+
+/** Coerce an untrusted layer to a record; migrate the pre-v3 single `theme` key. */
+function normalizeLayer(raw: unknown): Record<string, unknown> {
+  const o = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  if (typeof o.theme === 'string' && o.theme && !(typeof o.themeLight === 'string' && o.themeLight)) {
+    return { ...o, themeLight: o.theme };
+  }
+  return o;
+}
+
+/** Baked defaults with an unshared hotkeys map. */
+function freshDefaults(): Settings {
+  return { ...DEFAULT_SETTINGS, hotkeys: { ...DEFAULT_HOTKEYS } };
+}
+
+/**
+ * Shared merge core: for each key, walk its candidate layers from highest
+ * precedence down and keep the first valid value; keys with no valid
+ * candidate anywhere stay at the baked default.
+ */
+function mergeLayers(candidatesFor: (key: keyof Settings) => ReadonlyArray<Record<string, unknown>>): Settings {
+  const out = freshDefaults();
+  for (const key of Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>) {
+    const validate = VALIDATORS[key] as (raw: unknown) => unknown;
+    for (const layer of candidatesFor(key)) {
+      const v = validate(layer[key]);
+      if (v !== undefined) {
+        (out as Record<keyof Settings, unknown>)[key] = v;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** The four named layers, plus 'default' for keys no layer supplies. */
+export type LayerName = 'global' | 'team' | 'workspace' | 'user';
+
+/** Indicator wording building block: display names for the layers (§E19). */
+export const LAYER_LABELS: Record<LayerName, string> = {
+  global: 'Global',
+  team: 'Team',
+  workspace: 'Workspace',
+  user: 'User',
+};
+
+/**
+ * Candidate layers per scope, highest precedence first (§A2). M-scoped keys
+ * skip the merge; their machine-local store is still settings.json — the
+ * same file the User layer reads — until the storage split lands.
+ */
+const CANDIDATE_LAYERS: Record<Scope, ReadonlyArray<LayerName>> = {
+  U: ['user', 'workspace', 'team', 'global'],
+  'U!': ['user'],
+  W: ['workspace', 'team', 'global'],
+  M: ['user'],
+};
+
+function normalizedLayers(layers: SettingsLayers): Record<LayerName, Record<string, unknown>> {
+  return {
+    global: normalizeLayer(layers.global),
+    team: normalizeLayer(layers.team),
+    workspace: normalizeLayer(layers.workspace),
+    user: normalizeLayer(layers.user),
+  };
+}
+
+/**
+ * Pure, deterministic four-layer resolution (PRD §A1–§A4): for each key, walk
+ * the layers its scope admits from highest precedence down and take the first
+ * valid value; every miss falls back to `DEFAULT_SETTINGS`. No I/O.
+ */
+export function resolveSettings(layers: SettingsLayers): Settings {
+  const norm = normalizedLayers(layers);
+  return mergeLayers((key) => CANDIDATE_LAYERS[SETTINGS_SCOPES[key]].map((name) => norm[name]));
+}
+
+/**
+ * §E19: the layer that supplies `key`'s effective value — the first candidate
+ * in its scope's precedence chain holding a valid value, or 'default'.
+ */
+export function winningLayer(key: keyof Settings, layers: SettingsLayers): LayerName | 'default' {
+  const norm = normalizedLayers(layers);
+  const validate = VALIDATORS[key] as (raw: unknown) => unknown;
+  for (const name of CANDIDATE_LAYERS[SETTINGS_SCOPES[key]]) {
+    if (validate(norm[name][key]) !== undefined) return name;
+  }
+  return 'default';
+}
+
+/** The Settings window's two writable scopes (§E18); Global/Team never edit. */
+export type SettingsScopeTab = 'user' | 'workspace';
+
+/**
+ * §E18 + issue #21: every U-scoped setting a workspace author may pin as a
+ * shared default — the full user-personal set, no longer a curated cosmetic
+ * subset. Never M- or U!-scoped keys; hotkeys stay User-only per issue #21.
+ */
+export const WORKSPACE_PINNABLE_KEYS: ReadonlyArray<keyof Settings> = (
+  Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>
+).filter((k) => SETTINGS_SCOPES[k] === 'U' && k !== 'hotkeys');
+
+/** Everything Workspace scope may edit: the W-scoped keys plus the pinnable set. */
+export const WORKSPACE_ELIGIBLE_KEYS: ReadonlyArray<keyof Settings> = [
+  ...(Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>).filter((k) => SETTINGS_SCOPES[k] === 'W'),
+  ...WORKSPACE_PINNABLE_KEYS,
+];
+
+/** §E19: what one settings row must convey on a given scope tab. */
+export interface SettingsRowStatus {
+  /** The layer supplying the effective value ('default' when none does). */
+  winner: LayerName | 'default';
+  /** Non-null → the row's indicator names this layer as winning over the tab's own layer. */
+  overriddenBy: LayerName | null;
+  /** W-scoped key viewed on the User tab: shown, but not user-editable. */
+  workspaceControlled: boolean;
+  /** M-/U!-scoped key viewed on the Workspace tab: shown, but the workspace layer can't supply it. */
+  userOnly: boolean;
+}
+
+export function settingsRowStatus(
+  key: keyof Settings,
+  tab: SettingsScopeTab,
+  layers: SettingsLayers
+): SettingsRowStatus {
+  const winner = winningLayer(key, layers);
+  return {
+    winner,
+    overriddenBy: winner !== 'default' && winner !== tab ? winner : null,
+    workspaceControlled: tab === 'user' && SETTINGS_SCOPES[key] === 'W',
+    userOnly: tab === 'workspace' && !WORKSPACE_ELIGIBLE_KEYS.includes(key),
+  };
+}
+
+/**
+ * The keys where `next` differs from `prev` — the panel's whole-Settings
+ * edits become per-layer patches through this (hotkeys compare entry-wise,
+ * so a rebuilt-but-equal map is no change).
+ */
+export function diffSettings(prev: Settings, next: Settings): Partial<Settings> {
+  const out: Partial<Settings> = {};
+  for (const key of Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>) {
+    if (key === 'hotkeys') {
+      const changed = (Object.keys(DEFAULT_HOTKEYS) as Array<keyof HotkeyMap>).some(
+        (k) => prev.hotkeys[k] !== next.hotkeys[k]
+      );
+      if (changed) out.hotkeys = { ...next.hotkeys };
+    } else if (prev[key] !== next[key]) {
+      (out as Record<keyof Settings, unknown>)[key] = next[key];
+    }
+  }
+  return out;
+}
+
+/**
+ * settings.json now stores the raw User LAYER (sparse, only what the user
+ * set) rather than the full effective Settings — serialize it as-is.
+ */
+export function serializeSettingsLayer(layer: Record<string, unknown>): string {
+  return `${JSON.stringify(layer, null, 2)}\n`;
+}
+
+/**
+ * Parse settings.json text; unknown/missing/malformed fields fall back to
+ * defaults. This is the flat single-file (User) parse: every key is honored
+ * regardless of scope, because settings.json doubles as the machine-local
+ * store today. Layered resolution is `resolveSettings`.
+ */
 export function parseSettings(json: string): Settings {
-  let data: unknown;
+  let data: unknown = null;
   try {
     data = JSON.parse(json);
   } catch {
-    return { ...DEFAULT_SETTINGS, hotkeys: { ...DEFAULT_HOTKEYS } };
+    /* defaults */
   }
-  const o = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
-  const hk = (typeof o.hotkeys === 'object' && o.hotkeys !== null ? o.hotkeys : {}) as Record<string, unknown>;
-  const hotkeys: HotkeyMap = { ...DEFAULT_HOTKEYS };
-  for (const k of Object.keys(DEFAULT_HOTKEYS) as Array<keyof HotkeyMap>) {
-    if (typeof hk[k] === 'string' && (hk[k] as string).trim()) hotkeys[k] = hk[k] as string;
-  }
-  // Migration: pre-v3 settings stored a single `theme` key.
-  const legacyTheme = typeof o.theme === 'string' && o.theme ? o.theme : null;
-
-  // Explicit "auto" is preserved; missing/invalid falls back to the default
-  // (12px). Auto still means "the theme's own size".
-  let fontSize: 'auto' | number = DEFAULT_SETTINGS.fontSize;
-  if (o.fontSize === 'auto') {
-    fontSize = 'auto';
-  } else if (typeof o.fontSize === 'number' && o.fontSize >= FONT_SIZE_MIN && o.fontSize <= FONT_SIZE_MAX) {
-    fontSize = Math.round(o.fontSize);
-  }
-
-  const zoom =
-    typeof o.zoom === 'number' && (ZOOM_LEVELS as readonly number[]).includes(o.zoom)
-      ? o.zoom
-      : DEFAULT_SETTINGS.zoom;
-
-  const margins: Margins =
-    o.margins === 'default' || o.margins === 'super-narrow' || o.margins === 'narrow' || o.margins === 'medium' || o.margins === 'wide'
-      ? o.margins
-      : DEFAULT_SETTINGS.margins;
-
-  return {
-    themeLight:
-      typeof o.themeLight === 'string' && o.themeLight
-        ? o.themeLight
-        : (legacyTheme ?? DEFAULT_SETTINGS.themeLight),
-    themeDark: typeof o.themeDark === 'string' && o.themeDark ? o.themeDark : DEFAULT_SETTINGS.themeDark,
-    useDarkTheme: typeof o.useDarkTheme === 'boolean' ? o.useDarkTheme : DEFAULT_SETTINGS.useDarkTheme,
-    fontSize,
-    zoom,
-    margins,
-    lineNumbers: typeof o.lineNumbers === 'boolean' ? o.lineNumbers : DEFAULT_SETTINGS.lineNumbers,
-    vimNav: o.vimNav === true,
-    autoHideToolbar: o.autoHideToolbar === true,
-    showWordCount: typeof o.showWordCount === 'boolean' ? o.showWordCount : DEFAULT_SETTINGS.showWordCount,
-    showResolved: typeof o.showResolved === 'boolean' ? o.showResolved : DEFAULT_SETTINGS.showResolved,
-    commentsEnabled: typeof o.commentsEnabled === 'boolean' ? o.commentsEnabled : DEFAULT_SETTINGS.commentsEnabled,
-    typeToComment: typeof o.typeToComment === 'boolean' ? o.typeToComment : DEFAULT_SETTINGS.typeToComment,
-    splitEdit: typeof o.splitEdit === 'boolean' ? o.splitEdit : DEFAULT_SETTINGS.splitEdit,
-    splitRatio:
-      typeof o.splitRatio === 'number' && Number.isFinite(o.splitRatio)
-        ? Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, o.splitRatio))
-        : DEFAULT_SETTINGS.splitRatio,
-    author: typeof o.author === 'string' && o.author ? o.author : DEFAULT_SETTINGS.author,
-    autosaveOnToggle: o.autosaveOnToggle === true,
-    commentStorage: o.commentStorage === 'embedded' ? 'embedded' : 'sidecar',
-    exportTheme: typeof o.exportTheme === 'string' && o.exportTheme ? o.exportTheme : DEFAULT_SETTINGS.exportTheme,
-    imageFolder:
-      typeof o.imageFolder === 'string' && isValidImageFolder(o.imageFolder)
-        ? o.imageFolder.trim()
-        : DEFAULT_SETTINGS.imageFolder,
-    imageNamePattern:
-      typeof o.imageNamePattern === 'string' && o.imageNamePattern.trim()
-        ? o.imageNamePattern
-        : DEFAULT_SETTINGS.imageNamePattern,
-    editorSyntax: typeof o.editorSyntax === 'boolean' ? o.editorSyntax : DEFAULT_SETTINGS.editorSyntax,
-    tableGridView: typeof o.tableGridView === 'boolean' ? o.tableGridView : DEFAULT_SETTINGS.tableGridView,
-    inlineImages: typeof o.inlineImages === 'boolean' ? o.inlineImages : DEFAULT_SETTINGS.inlineImages,
-    showFrontmatter: typeof o.showFrontmatter === 'boolean' ? o.showFrontmatter : DEFAULT_SETTINGS.showFrontmatter,
-    reopenLastDoc: typeof o.reopenLastDoc === 'boolean' ? o.reopenLastDoc : DEFAULT_SETTINGS.reopenLastDoc,
-    restoreOpenFiles:
-      typeof o.restoreOpenFiles === 'boolean' ? o.restoreOpenFiles : DEFAULT_SETTINGS.restoreOpenFiles,
-    showFolders: o.showFolders === true,
-    folderWidth:
-      typeof o.folderWidth === 'number' && Number.isFinite(o.folderWidth)
-        ? Math.min(FOLDER_WIDTH_MAX, Math.max(FOLDER_WIDTH_MIN, Math.round(o.folderWidth)))
-        : DEFAULT_SETTINGS.folderWidth,
-    paneMinWidth:
-      typeof o.paneMinWidth === 'number' && Number.isFinite(o.paneMinWidth)
-        ? Math.min(PANE_MIN_WIDTH_MAX, Math.max(PANE_MIN_WIDTH_MIN, Math.round(o.paneMinWidth)))
-        : DEFAULT_SETTINGS.paneMinWidth,
-    hotkeys,
-  };
+  const flat = [normalizeLayer(data)];
+  return mergeLayers(() => flat);
 }
 
 export function serializeSettings(s: Settings): string {

@@ -1,3 +1,4 @@
+import type { AppMode } from './appMode';
 import type { CommandId } from './commands';
 import type { HotkeyMap } from './hotkeys';
 
@@ -33,6 +34,12 @@ export interface CommandItemSpec {
   accelerator?: string;
   /** Present ⇒ checkbox item. */
   checked?: boolean;
+  /**
+   * Issue #22: true ⇒ the item is grayed out (mode gating). The Tauri layer
+   * renders it as a disabled native item; the browser shim records it and
+   * refuses click()s on it. Only ever present when true.
+   */
+  disabled?: boolean;
 }
 
 export interface PredefinedItemSpec {
@@ -47,6 +54,8 @@ export interface RecentItemSpec {
   type: 'recent';
   path: string;
   label: string;
+  /** PRD 002 §D15: 'workspace' entries open .marky-workspace files; absent = file. */
+  kind?: 'file' | 'workspace';
 }
 
 /** SPEC29 §3.1: real nesting (File → Open Recent → …). */
@@ -84,6 +93,12 @@ export interface MenuState {
   showFrontmatter: boolean;
   /** SPEC29 §3: Open Recent entries, most-recent-first (label ready-made). */
   recentFiles: Array<{ path: string; label: string }>;
+  /**
+   * PRD 002 §D15: recent workspaces, most-recent-first — the section above
+   * the files in Open Recent. OPTIONAL so pre-existing MenuState call sites
+   * (and frozen test fixtures) stay valid; absent reads as empty.
+   */
+  recentWorkspaces?: Array<{ path: string; label: string }>;
   /** SPEC34 §4.1: the folder sidebar's visibility (persisted setting). */
   showFolders: boolean;
   /**
@@ -92,28 +107,51 @@ export interface MenuState {
    * reads as off.
    */
   openOnly?: boolean;
+  /**
+   * Issue #22: the three-mode model (splash | file | workspace) — the
+   * derived deriveAppMode() value. Drives the per-item disabled gating:
+   * workspace-only items gray out outside workspace mode.
+   */
+  appMode: AppMode;
+  /** Issue #22: a document (file or untitled buffer) is open — gates Close File. */
+  docOpen: boolean;
 }
 
 const sep: PredefinedItemSpec = { type: 'predefined', item: 'Separator' };
 const pre = (item: PredefinedItem, label?: string): PredefinedItemSpec =>
   label ? { type: 'predefined', item, label } : { type: 'predefined', item };
-const cmd = (command: CommandId, label: string, accelerator?: string, checked?: boolean): CommandItemSpec => ({
+const cmd = (
+  command: CommandId,
+  label: string,
+  accelerator?: string,
+  checked?: boolean,
+  disabled?: boolean
+): CommandItemSpec => ({
   type: 'command',
   command,
   label,
   ...(accelerator ? { accelerator } : {}),
   ...(checked !== undefined ? { checked } : {}),
+  ...(disabled ? { disabled: true } : {}),
 });
 
 /** SPEC12 §1: the full native menu layout for the current platform + state. */
 export function buildMenuSpec(s: MenuState): MenuSpec {
-  // SPEC29 §3.2: recents (MRU), separator, Clear Menu — Clear alone when empty.
+  // Issue #22: workspace-only items gray out outside workspace mode; Close
+  // File grays out with no document open. Open…/Open Folder…/Open Workspace…
+  // stay enabled in every mode.
+  const wsOpen = s.appMode === 'workspace';
+  // SPEC29 §3.2 + PRD 002 §D15: workspaces first, separator, files, separator,
+  // Clear Menu — Clear alone when both sections are empty.
+  const recentWs = s.recentWorkspaces ?? [];
   const openRecent: SubmenuItemSpec = {
     type: 'submenu',
     title: 'Open Recent',
     items: [
+      ...recentWs.map((r): RecentItemSpec => ({ type: 'recent', path: r.path, label: r.label, kind: 'workspace' })),
+      ...(recentWs.length > 0 && s.recentFiles.length > 0 ? [sep] : []),
       ...s.recentFiles.map((r): RecentItemSpec => ({ type: 'recent', path: r.path, label: r.label })),
-      ...(s.recentFiles.length > 0 ? [sep] : []),
+      ...(recentWs.length + s.recentFiles.length > 0 ? [sep] : []),
       cmd('clearRecent', 'Clear Menu'),
     ],
   };
@@ -139,10 +177,11 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
   const viewMenu: SubmenuSpec = {
     title: 'View',
     items: [
-      // SPEC34 §4.1: layout chrome ahead of the mode toggles.
-      cmd('toggleFolders', 'Folders', s.hotkeys.toggleFolders, s.showFolders),
+      // SPEC34 §4.1: layout chrome ahead of the mode toggles. Issue #22:
+      // folder views only exist in workspace mode.
+      cmd('toggleFolders', 'Folders', s.hotkeys.toggleFolders, s.showFolders, !wsOpen),
       // SPEC36 §5.2: the only-open-files view rides directly after Folders.
-      cmd('toggleOpenOnly', 'Only Open Files', s.hotkeys.toggleOpenOnly, s.openOnly ?? false),
+      cmd('toggleOpenOnly', 'Only Open Files', s.hotkeys.toggleOpenOnly, s.openOnly ?? false, !wsOpen),
       cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit'),
       // SPEC25 §3: split is a first-class toggle, not just a Settings checkbox.
       cmd('toggleSplit', 'Split Edit', s.hotkeys.toggleSplit, s.splitEdit),
@@ -205,9 +244,17 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             // SPEC22 §1: New opens an untitled buffer — no dialog, no ellipsis.
             cmd('newFile', 'New', s.hotkeys.newFile),
             cmd('open', 'Open…', s.hotkeys.openFile),
-            openRecent,
             // SPEC34 §4.2: opens a folder as the sidebar root — no file opens.
             cmd('openFolder', 'Open Folder…'),
+            // PRD 002 §D14: the workspace flows join the File menu.
+            cmd('openWorkspace', 'Open Workspace…'),
+            openRecent,
+            sep,
+            cmd('addFolderToWorkspace', 'Add Folder to Workspace…', undefined, undefined, !wsOpen),
+            cmd('saveWorkspaceAs', 'Save Workspace As…', undefined, undefined, !wsOpen),
+            // Issue #22: the close cluster — both land on the splash.
+            cmd('closeFile', 'Close File', undefined, undefined, !s.docOpen),
+            cmd('closeWorkspace', 'Close Workspace', undefined, undefined, !wsOpen),
             sep,
             cmd('save', 'Save', s.hotkeys.save),
             cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
@@ -232,8 +279,16 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
         items: [
           cmd('newFile', 'New', s.hotkeys.newFile),
           cmd('open', 'Open…', s.hotkeys.openFile),
-          openRecent,
           cmd('openFolder', 'Open Folder…'),
+          // PRD 002 §D14: the workspace flows join the File menu.
+          cmd('openWorkspace', 'Open Workspace…'),
+          openRecent,
+          sep,
+          cmd('addFolderToWorkspace', 'Add Folder to Workspace…', undefined, undefined, !wsOpen),
+          cmd('saveWorkspaceAs', 'Save Workspace As…', undefined, undefined, !wsOpen),
+          // Issue #22: the close cluster — both land on the splash.
+          cmd('closeFile', 'Close File', undefined, undefined, !s.docOpen),
+          cmd('closeWorkspace', 'Close Workspace', undefined, undefined, !wsOpen),
           sep,
           cmd('save', 'Save', s.hotkeys.save),
           cmd('saveAs', 'Save As…', 'Mod+Shift+S'),

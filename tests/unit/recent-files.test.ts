@@ -13,6 +13,51 @@ import {
 const basename = (p: string) => p.split('/').filter(Boolean).pop() ?? '';
 const dirname = (p: string) => p.split('/').slice(0, -1).join('/') || '/';
 
+describe('PRD 002 §D15 recent workspaces (same lineage, separate store)', () => {
+  test('U68: the workspace store is its own MRU — per-section cap, dedupe by path, tolerant parse, Clear', () => {
+    // A second RecentStore instance holds the workspaces — its cap and
+    // dedupe are independent of the files store.
+    let files: RecentStore = { version: 1, entries: [] };
+    let ws: RecentStore = { version: 1, entries: [] };
+    for (let i = 0; i < RECENT_CAP; i++) files = rememberRecent(files, `/docs/f${i}.md`, '2026-08-01T10:00:00Z');
+    for (let i = 0; i < RECENT_CAP + 2; i++) ws = rememberRecent(ws, `/w/p${i}.marky-workspace`, '2026-08-01T10:01:00Z');
+    expect(files.entries).toHaveLength(RECENT_CAP);
+    expect(ws.entries).toHaveLength(RECENT_CAP); // its own cap, not shared
+    expect(ws.entries[0].path).toBe(`/w/p${RECENT_CAP + 1}.marky-workspace`);
+
+    // MRU bump on re-open of a named workspace, deduped by path.
+    ws = rememberRecent(ws, '/w/p5.marky-workspace', '2026-08-01T10:02:00Z');
+    expect(ws.entries.filter((e) => e.path === '/w/p5.marky-workspace')).toHaveLength(1);
+    expect(ws.entries[0].path).toBe('/w/p5.marky-workspace');
+
+    // Corruption-tolerant parse, exactly parseRecent's contract.
+    expect(parseRecent('{nope').entries).toEqual([]);
+    expect(parseRecent('{"entries":[{"path":"/w/a.marky-workspace","at":"t"},{"path":42}]}').entries).toEqual([
+      { path: '/w/a.marky-workspace', at: 't' },
+    ]);
+    const trip = parseRecent(serializeRecent(ws));
+    expect(trip.entries).toEqual(ws.entries);
+
+    // Labels disambiguate colliding basenames with the parent folder.
+    const twins: RecentStore = {
+      version: 1,
+      entries: [
+        { path: '/a/site.marky-workspace', at: 't' },
+        { path: '/b/site.marky-workspace', at: 't' },
+      ],
+    };
+    expect(recentMenuEntries(twins, basename, dirname).map((e) => e.label)).toEqual([
+      'site.marky-workspace — a',
+      'site.marky-workspace — b',
+    ]);
+
+    // Clear empties a section; the sibling store is untouched by design.
+    ws = clearRecent();
+    expect(ws.entries).toEqual([]);
+    expect(files.entries).toHaveLength(RECENT_CAP);
+  });
+});
+
 describe('SPEC29 recent files', () => {
   test('U56: MRU insert/dedupe/cap, remove, clear, labels, round-trip, corruption tolerance', () => {
     let s: RecentStore = { version: 1, entries: [] };

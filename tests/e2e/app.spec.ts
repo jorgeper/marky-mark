@@ -328,7 +328,17 @@ test('E15: embedded mode — comments autosave into an invisible trailer, sideca
   await addComment(page, PHRASE, 'Embedded note');
   await waitForSidecar(page, (s) => !!s && s.includes('Embedded note'));
 
+  // PRD 002 §B5/§E18: comment storage is workspace-scoped — open an untitled
+  // workspace, then switch the storage in the panel's Workspace scope.
+  await seedFolders(page);
+  await openFolderRoot(page);
   await openSettings(page, 'general');
+  await expect(page.getByTestId('comment-storage')).toBeDisabled(); // W key: locked in User scope
+  await page.getByTestId('settings-scope-workspace').click();
+  // Issue #21: Workspace scope shows the same left tab rail, minus Hotkeys.
+  await expect(page.getByTestId('settings-tabs').locator('button')).toHaveCount(3);
+  await expect(page.getByTestId('settings-tab-hotkeys')).toHaveCount(0);
+  await expect(page.getByTestId('settings-tab-general')).toHaveClass(/active/);
   await page.getByTestId('comment-storage').selectOption('embedded');
   await page.getByTestId('settings-close').click();
 
@@ -355,7 +365,13 @@ test('E15: embedded mode — comments autosave into an invisible trailer, sideca
 });
 
 test('E16: embedded autosave never flushes unsaved text edits; explicit save writes both', async ({ page }) => {
+  // PRD 002 §B5/§E18: comment storage is workspace-scoped — open an untitled
+  // workspace, then switch the storage in the panel's Workspace scope.
+  await seedFolders(page);
+  await openFolderRoot(page);
   await openSettings(page, 'general');
+  await expect(page.getByTestId('comment-storage')).toBeDisabled(); // W key: locked in User scope
+  await page.getByTestId('settings-scope-workspace').click();
   await page.getByTestId('comment-storage').selectOption('embedded');
   await page.getByTestId('settings-close').click();
 
@@ -645,21 +661,27 @@ test('E25: toolbar auto-hides after launch, reveals on top-edge hover (with shad
 test('E26: settings shows four left tabs with the right content on each; controls work through their tabs', async ({
   page,
 }) => {
-  await openSettings(page);
+  // Open without the helper's tab click so the DEFAULT tab is observable.
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-settings').click();
+  await page.getByTestId('settings-panel').waitFor();
   const tabs = page.getByTestId('settings-tabs');
   await expect(tabs.locator('button')).toHaveCount(4); // SPEC20 §1 added Editor
-  await expect(page.getByTestId('settings-tab-appearance')).toHaveClass(/active/); // default tab
+  // Issue #21: General is listed first and is the default tab.
+  await expect(tabs.locator('button').first()).toHaveText('General');
+  await expect(page.getByTestId('settings-tab-general')).toHaveClass(/active/);
 
-  // Appearance: font size present, General/Hotkeys content absent.
-  await expect(page.getByTestId('fontsize-auto')).toBeVisible();
-  await expect(page.getByTestId('comment-storage')).toHaveCount(0);
-  await expect(page.getByTestId('hotkey-toggleEdit')).toHaveCount(0);
-
-  // General: comments + navigation, no appearance controls.
-  await page.getByTestId('settings-tab-general').click();
+  // General (default): comments + navigation, no appearance/hotkeys controls.
   await expect(page.getByTestId('comment-storage')).toBeVisible();
   await expect(page.getByTestId('settings-vimnav')).toBeVisible();
   await expect(page.getByTestId('zoom-select')).toHaveCount(0);
+  await expect(page.getByTestId('hotkey-toggleEdit')).toHaveCount(0);
+
+  // Appearance: font size present, General content absent.
+  await page.getByTestId('settings-tab-appearance').click();
+  await expect(page.getByTestId('fontsize-auto')).toBeVisible();
+  await expect(page.getByTestId('comment-storage')).toHaveCount(0);
 
   // Hotkeys tab.
   await page.getByTestId('settings-tab-hotkeys').click();
@@ -920,7 +942,7 @@ test('E34: the theme catalog lists 27+ themes; new classics apply their canonica
 test('E35: the settings dialog keeps one fixed size across all three tabs', async ({ page }) => {
   await openSettings(page);
   const boxes: Array<{ x: number; y: number; width: number; height: number }> = [];
-  for (const tab of ['appearance', 'general', 'hotkeys'] as const) {
+  for (const tab of ['general', 'appearance', 'hotkeys'] as const) {
     await page.getByTestId(`settings-tab-${tab}`).click();
     await expect(page.getByTestId(`settings-tab-${tab}`)).toHaveClass(/active/);
     boxes.push((await page.getByTestId('settings-panel').boundingBox())!);
@@ -1316,13 +1338,15 @@ test('E49: the auto-hide toolbar setting is absent under native menus, present o
   await sp.getByTestId('settings-tab-general').click();
   await expect(sp.getByTestId('settings-line-numbers')).toBeVisible();
   await expect(sp.getByTestId('settings-autohide')).toHaveCount(0);
-  // Force a settings write; the autoHideToolbar key must survive it (SPEC12 §4.2).
-  // Persistence still goes through the main window — the sole settings owner.
+  // Force a settings write; other keys must survive it (SPEC12 §4.2). Since
+  // PRD 002 §E18, settings.json is the sparse User LAYER — the edit patches
+  // lineNumbers in and leaves the seeded paneMinWidth untouched.
   await sp.getByTestId('settings-line-numbers').click();
   await expect
     .poll(async () => {
       const raw = await fsRead(page, '/config/settings.json');
-      return raw ? 'autoHideToolbar' in (JSON.parse(raw) as Record<string, unknown>) : false;
+      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      return parsed.lineNumbers === false && parsed.paneMinWidth === 240;
     })
     .toBe(true);
   await sp.close();
@@ -2110,15 +2134,26 @@ test('E72: a second paste numbers {n}=2; pasting into an untitled buffer shows t
 test('E73: the Editor settings tab holds the image fields — defaults, live example, folder validation, persistence', async ({
   page,
 }) => {
+  // PRD 002 §B5/§E18: the image fields are W-scoped — open an untitled
+  // workspace so the panel's Workspace scope can edit them.
+  await seedFolders(page);
+  await openFolderRoot(page);
   await openSettings(page, 'general');
   await page.getByTestId('settings-tab-editor').click();
 
-  // Defaults per SPEC20 §1.
+  // Defaults per SPEC20 §1 — shown but locked in User scope (§E19).
   await expect(page.getByTestId('image-folder')).toHaveValue('images');
+  await expect(page.getByTestId('image-folder')).toBeDisabled();
   await expect(page.getByTestId('image-pattern')).toHaveValue('{doc} {n}');
+  await expect(page.getByTestId('image-pattern')).toBeDisabled();
+  await expect(page.getByTestId('scope-note-imageFolder')).toHaveAttribute('title', /Workspace/);
   await expect(page.getByTestId('image-pattern-example')).toContainText('welcome 1.png');
 
-  // The example tracks the pattern live.
+  // Workspace scope: same fields, editable; the example tracks the pattern live.
+  // Issue #21: the scope switch keeps the shared tab rail and the Editor tab.
+  await page.getByTestId('settings-scope-workspace').click();
+  await expect(page.getByTestId('settings-tabs').locator('button')).toHaveCount(3);
+  await expect(page.getByTestId('settings-tab-editor')).toHaveClass(/active/);
   await page.getByTestId('image-pattern').fill('img-{n}');
   await expect(page.getByTestId('image-pattern-example')).toContainText('img-1.png');
 
@@ -2130,8 +2165,11 @@ test('E73: the Editor settings tab holds the image fields — defaults, live exa
   await expect(page.getByTestId('image-folder-error')).toHaveCount(0);
 
   await page.getByTestId('settings-close').click();
-  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"imageFolder": "assets"');
-  expect(await fsRead(page, '/config/settings.json')).toContain('"imageNamePattern": "img-{n}"');
+  // §E18 layer-targeted writes: the untitled workspace's session slot gets
+  // the values; the User layer (settings.json) never does.
+  await expect.poll(() => fsRead(page, '/config/session/untitled.json')).toContain('"imageFolder": "assets"');
+  expect(await fsRead(page, '/config/session/untitled.json')).toContain('"imageNamePattern": "img-{n}"');
+  expect((await fsRead(page, '/config/settings.json')) ?? '').not.toContain('imageFolder');
 });
 
 // E74–E75 retired by SPEC41 §4 — the preview-pane resizer is gone (resize
@@ -2945,21 +2983,32 @@ const seedFolders = async (page: import('@playwright/test').Page) => {
   await fsWrite(page, '/other/d.md', '# D doc\n');
 };
 
+/**
+ * Issue #22: the FolderPanel only renders in workspace mode now, so tests
+ * enter it through the armed Open Folder… hook via the shim's command seam
+ * (there is no hotkey or DOM button for openFolder in menu-less runs).
+ */
+const openFolderRoot = async (page: import('@playwright/test').Page, path = '/notes') => {
+  await page.evaluate((p) => {
+    window.__mmfs!.nextFolderPath = p;
+    window.__mmDispatch!('openFolder');
+  }, path);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+};
+
 test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion persistence, guarded md opens, inert others', async ({
   page,
 }) => {
   await seedFolders(page);
 
-  // Hotkey opens the panel; no root yet ⇒ the empty state.
+  // Issue #22: outside workspace mode the folder view doesn't exist — the
+  // hotkey is inert and no panel (or empty state) ever renders.
   await page.keyboard.press('Control+Shift+E');
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await expect(page.getByTestId('folder-open-btn')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
 
-  // Open Folder… (hook-armed): root lists — folders first, dotfiles hidden.
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  // Open Folder… (hook-armed): workspace mode — the root lists, folders
+  // first, dotfiles hidden.
+  await openFolderRoot(page);
   await expect(page.getByTestId('folder-header')).toContainText('notes');
   const names = () =>
     page.$$eval('[data-testid="folder-item"]', (els) => els.map((e) => e.getAttribute('data-path')));
@@ -3035,12 +3084,10 @@ test('E94: folder chrome — divider resize persists, × / View checkbox / hotke
   await freshNativeMenuApp(page);
   await seedFolders(page);
 
-  await menuClick(page, 'toggleFolders');
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
   await page.evaluate(() => {
     window.__mmfs!.nextFolderPath = '/notes';
   });
-  await page.getByTestId('folder-open-btn').click();
+  await menuClick(page, 'openFolder');
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 
   // Drag the divider ~+80px; width and the persisted setting follow.
@@ -3081,11 +3128,7 @@ test('E95: reveal — auto on open, sync button, outside-root retarget, hidden p
   page,
 }) => {
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 
   // Opening a nested file walks the tree open and selects its row.
@@ -3128,11 +3171,7 @@ test('E96: folder context menu — per-kind items, dismissal, left-click inertne
   page,
 }) => {
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 
   const menuIds = () =>
@@ -3207,11 +3246,7 @@ test('E97: create — New File / New Folder land in the clicked directory, inlin
   page,
 }) => {
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await page.locator('[data-path="/notes/sub"]').click(); // expand
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toBeVisible();
 
@@ -3263,11 +3298,7 @@ test('E98: rename in place — open dirty file remaps path/title/recents, dir re
   page,
 }) => {
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await page.locator('[data-path="/notes/sub"]').click(); // expand
   await page.locator('[data-path="/notes/sub/b.md"]').click();
   await expect(page.getByTestId('docname')).toContainText('b.md');
@@ -3347,11 +3378,7 @@ test('E99: delete — cancel no-op, dim file trashes, open dirty file to splash,
   page,
 }) => {
   await seedFolders(page);
-  await page.keyboard.press('Control+Shift+E');
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await page.getByTestId('folder-filter').click(); // show all files
 
   // Cancel is a no-op.
@@ -3423,12 +3450,7 @@ test('E99: delete — cancel no-op, dim file trashes, open dirty file to splash,
 
 /** Set the folder root to /notes through the armed Open Folder… hook. */
 const openNotesRoot = async (page: import('@playwright/test').Page) => {
-  await page.keyboard.press('Control+Shift+E');
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await page.getByTestId('folder-open-btn').click();
+  await openFolderRoot(page);
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 };
 
@@ -3498,12 +3520,10 @@ test('E101: only-open-files mode — button/hotkey/View menu, flat tree-order li
 }) => {
   await freshNativeMenuApp(page);
   await seedFolders(page);
-  await menuClick(page, 'toggleFolders');
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
   await page.evaluate(() => {
     window.__mmfs!.nextFolderPath = '/notes';
   });
-  await page.getByTestId('folder-open-btn').click();
+  await menuClick(page, 'openFolder');
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 
   const openOnlyItem = () =>
@@ -3678,12 +3698,10 @@ test('E104: quit walks every dirty file in order (save/cancel paths), restore su
 }) => {
   await freshNativeMenuApp(page);
   await seedFolders(page);
-  await menuClick(page, 'toggleFolders');
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
   await page.evaluate(() => {
     window.__mmfs!.nextFolderPath = '/notes';
   });
-  await page.getByTestId('folder-open-btn').click();
+  await menuClick(page, 'openFolder');
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 
   // Open a then b, dirty BOTH (a parks dirty behind b).
@@ -3782,10 +3800,30 @@ test('E105: smart-edit gutter button — cursor line only, follows the caret, ri
   await page.keyboard.press('ArrowDown');
   await expect.poll(async () => (await btn.boundingBox())!.y).toBeGreaterThan(btnBox.y);
 
-  // Right of the line-number gutter.
+  // In the content area, not the gutter strip: never a descendant of
+  // .cm-gutters, which now holds only the line numbers (the extra 26px
+  // smart column is gone).
+  await expect(editor.locator('.cm-gutters [data-testid="smart-edit-gutter"]')).toHaveCount(0);
+  await expect(editor.locator('.cm-gutter.mm-smart-gutter')).toHaveCount(0);
   const numBox = (await editor.locator('.cm-gutter.cm-lineNumbers').boundingBox())!;
+  const guttersBox = (await editor.locator('.cm-gutters').boundingBox())!;
+  expect(guttersBox.width).toBeLessThanOrEqual(numBox.width + 2);
+  // Right of the line numbers, inside the content area, immediately left of
+  // the cursor line's text ("gamma delta" after the ArrowDown above).
+  const contentBox = (await editor.locator('.cm-content').boundingBox())!;
+  const gammaBox = (await editor.locator('.cm-line').filter({ hasText: /^gamma delta$/ }).boundingBox())!;
   btnBox = (await btn.boundingBox())!;
-  expect(btnBox.x).toBeGreaterThan(numBox.x);
+  expect(btnBox.x).toBeGreaterThanOrEqual(numBox.x + numBox.width - 1);
+  expect(btnBox.x).toBeGreaterThanOrEqual(contentBox.x);
+  expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(gammaBox.x + 1);
+  expect(gammaBox.x - (btnBox.x + btnBox.width)).toBeLessThan(12);
+  // The icon is the theme accent at rest (crisp: #0969da), not the muted
+  // line-number gray.
+  await expect(btn).toHaveCSS('color', 'rgb(9, 105, 218)');
+  // The text never reflows because of the button: "beta" starts at the same
+  // x with the button elsewhere as it did with the button on its line.
+  const betaX = (await editor.locator('.cm-line').filter({ hasText: /^beta$/ }).boundingBox())!.x;
+  expect(Math.abs(betaX - lineBox.x)).toBeLessThan(1);
 
   // Line numbers off (SPEC3 §2): the smart gutter stands alone.
   await openSettings(page);
@@ -5169,4 +5207,344 @@ test('E128: cue-anchored split sync — the selected word stays level in both pa
     expect(d!).toBeLessThan(90);
     expect(Math.abs(d! - base!)).toBeLessThan(15);
   }
+});
+
+// --- issue #19: comments in the split-edit ("dual screen") preview pane ----------
+
+test('E129: split edit — highlights + panel in the live pane, comment from a split selection, nav works, cards clear the window edge', async ({
+  page,
+}) => {
+  // Wide enough that the split preview fits its content floor (768px) plus
+  // the 300px comments panel without sideways scrolling.
+  await page.setViewportSize({ width: 2300, height: 900 });
+  await addComment(page, PHRASE, 'First note');
+
+  // Padding fix, full preview: the card keeps a clear gap to the window edge.
+  const gapTo = async () => {
+    const box = (await page.getByTestId('comment-card').first().boundingBox())!;
+    return (await page.evaluate(() => window.innerWidth)) - (box.x + box.width);
+  };
+  expect(await gapTo()).toBeGreaterThanOrEqual(16);
+
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').check();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+
+  // The split preview renders the highlight, and the panel sits alongside.
+  const pane = page.getByTestId('split-preview');
+  const paneMarks = pane.locator('mark.hl[data-cid]');
+  await expect(paneMarks.first()).toBeVisible();
+  await expect(page.getByTestId('panel')).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+
+  // The live re-render on typing keeps the highlight.
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('LIVEMARK ');
+  await expect(pane).toContainText('LIVEMARK', { timeout: 1000 });
+  await expect(paneMarks.first()).toBeVisible();
+
+  // A selection made IN the split pane grows a comment like preview mode.
+  // Real flow first: a mousedown in the pane blurs the editor (a focused CM
+  // would re-assert its own selection and kill the pane's).
+  await pane.click({ position: { x: 10, y: 10 } });
+  // Center the phrase first so the floating button clears the toolbar.
+  await page.evaluate(() => {
+    const doc = document.querySelector('[data-testid="split-preview"] .doc')!;
+    const walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      if (node.nodeValue?.includes('renders GitHub-flavored markdown')) {
+        node.parentElement?.scrollIntoView({ block: 'center' });
+        return;
+      }
+    }
+  });
+  await selectPhraseInPane(page, '[data-testid="split-preview"] .doc', 'renders GitHub-flavored markdown');
+  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
+  await page.getByTestId('add-comment-btn').click();
+  await expect(page.getByTestId('composer')).toBeVisible();
+  await page.getByTestId('composer-input').fill('From the split pane');
+  await page.getByTestId('composer-submit').click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(2);
+  await expect(paneMarks).toHaveCount(2);
+  await expect(paneMarks.first()).toContainText('renders GitHub-flavored');
+  await waitForSidecar(page, (s) => !!s && s.includes('From the split pane'));
+
+  // Clicking a highlight activates its card; the navigator steps in split mode.
+  await paneMarks.first().click();
+  await expect(page.getByTestId('comment-nav')).toBeVisible();
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 2');
+  await page.getByTestId('comment-nav-next').click();
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('2 / 2');
+
+  // Padding fix, split mode: same clear gap to the window's right border.
+  expect(await gapTo()).toBeGreaterThanOrEqual(16);
+});
+
+test('E130: comment boxes keep a clear right-edge gap — every surface and state, both hosts, even an overflowing split pane (#20/#24)', async ({
+  page,
+}) => {
+  // Measured geometry, not stylesheet trust (#20 was filed right after the
+  // #19 CSS fix merged): the box's rendered right edge must clear the
+  // window's right border by ≥16px (target 24px), never sit flush.
+  const gapOf = async (testId: string) => {
+    const box = (await page.getByTestId(testId).first().boundingBox())!;
+    return (await page.evaluate(() => window.innerWidth)) - (box.x + box.width);
+  };
+
+  // Full preview: idle card.
+  await addComment(page, PHRASE, 'gap probe');
+  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
+
+  // Active card.
+  await page.getByTestId('comment-card').first().click();
+  await expect(page.getByTestId('comment-card').first()).toHaveClass(/active/);
+  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
+
+  // Open composer.
+  await selectPhrase(page, 'markdown itself stays untouched');
+  await page.getByTestId('add-comment-btn').click();
+  await expect(page.getByTestId('composer')).toBeVisible();
+  expect(await gapOf('composer')).toBeGreaterThanOrEqual(16);
+  await page.keyboard.press('Escape');
+
+  // Collapsed resolved section (show-resolved off), plus a live card beside it.
+  await page.getByTestId('comment-card').first().click();
+  await page.getByTestId('resolve-btn').click();
+  await openSettings(page, 'general');
+  await page.getByTestId('show-resolved').uncheck();
+  await page.getByTestId('settings-close').click();
+  await addComment(page, 'markdown itself stays untouched', 'second note');
+  await expect(page.getByTestId('resolved-section')).toBeVisible();
+  expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+  // Expanded resolved section too.
+  await page.getByTestId('resolved-section').locator('summary').click();
+  expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+
+  // Split-edit host at the suite's pinned pane floor (fits without overflow).
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').check();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
+  expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+
+  // The #20 repro: the shipped paneMinWidth (768px) makes the split pane's
+  // content (doc floor + 300px panel) overflow sideways at this 1280px
+  // window. #24's model: the panel stays in flow beside the doc — never
+  // drawn over the text — and the pane grows a horizontal scrollbar;
+  // scrolling fully right brings the cards into view with the gap intact.
+  await waitForSidecar(page, (s) => !!s && s.includes('second note'));
+  const raw = await fsRead(page, '/config/settings.json');
+  const settings = raw ? JSON.parse(raw) : {};
+  settings.paneMinWidth = 768;
+  await fsWrite(page, '/config/settings.json', JSON.stringify(settings));
+  await page.reload();
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('comment-card').first()).toBeVisible();
+  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16); // preview still fits
+  await page.keyboard.press('Control+e');
+  const pane = page.getByTestId('split-preview');
+  await expect(pane).toBeVisible();
+  await expect(page.getByTestId('comment-card').first()).toBeVisible();
+
+  /** Measured geometry (#24): the box must sit fully right of the doc's box. */
+  const clearOfDoc = async (testId: string) => {
+    const doc = (await pane.locator('.doc').boundingBox())!;
+    const box = (await page.getByTestId(testId).first().boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(doc.x + doc.width);
+  };
+
+  // Overflow, not overlay: the pane scrolls sideways…
+  const scroll = await pane.evaluate((el) => ({
+    left: el.scrollLeft,
+    width: el.scrollWidth,
+    client: el.clientWidth,
+  }));
+  expect(scroll.width).toBeGreaterThan(scroll.client);
+  // …and at scroll-left 0 the doc text is unobscured — the panel and its
+  // cards are beside the doc in flow, not on top of it.
+  expect(scroll.left).toBe(0);
+  await clearOfDoc('panel');
+  await clearOfDoc('comment-card');
+  // Scrolled fully right, the cards come into view, still clear of the doc,
+  // with the #19/#20 right-edge gap intact.
+  await pane.evaluate((el) => {
+    el.scrollLeft = el.scrollWidth;
+  });
+  await clearOfDoc('panel');
+  await clearOfDoc('comment-card');
+  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
+  expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+});
+
+// --- Issue #22: the explicit three-mode model (splash / file / workspace) -------
+
+test('E131: three-mode model — per-mode menu gating, Close File → splash, Close Workspace guards, changed-workspace prompt', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await seedFolders(page);
+
+  /** The disabled flag the shim recorded for a command item (undefined = enabled). */
+  const disabledOf = (command: string) =>
+    page.evaluate((c) => {
+      const it = window
+        .__mmMenu!.spec!.submenus.flatMap((m) => m.items)
+        .find((i) => i.type === 'command' && (i as { command?: string }).command === c) as
+        | { disabled?: boolean }
+        | undefined;
+      if (!it) throw new Error(`no item: ${c}`);
+      return it.disabled === true;
+    }, command);
+  const gatingIs = async (wsDisabled: boolean, closeFileDisabled: boolean) => {
+    for (const c of ['addFolderToWorkspace', 'saveWorkspaceAs', 'closeWorkspace', 'toggleFolders', 'toggleOpenOnly']) {
+      await expect.poll(() => disabledOf(c), { message: c }).toBe(wsDisabled);
+    }
+    await expect.poll(() => disabledOf('closeFile')).toBe(closeFileDisabled);
+    for (const c of ['open', 'openFolder', 'openWorkspace']) {
+      await expect.poll(() => disabledOf(c), { message: c }).toBe(false);
+    }
+  };
+  /** Build a CHANGED untitled workspace: /notes root plus /other (2+ folders). */
+  const openChangedWorkspace = async () => {
+    await page.evaluate(() => {
+      window.__mmfs!.nextFolderPath = '/notes';
+    });
+    await menuClick(page, 'openFolder');
+    await expect(page.getByTestId('folder-header')).toContainText('notes');
+    await expect.poll(() => disabledOf('addFolderToWorkspace')).toBe(false); // menu reinstalled for workspace mode
+    await page.evaluate(() => {
+      window.__mmfs!.nextFolderPath = '/other';
+    });
+    await menuClick(page, 'addFolderToWorkspace');
+    await expect(page.locator('[data-path="/other"]')).toBeVisible();
+  };
+
+  // SPLASH: workspace-only and folder-view items grayed, Close File too.
+  await gatingIs(true, true);
+
+  // FILE mode: Help opens welcome — Close File enables, workspace items stay gray.
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await gatingIs(true, false);
+
+  // Close File routes through the dirty guard: Cancel keeps the file open…
+  await menuClick(page, 'toggleMode');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('DIRTY ');
+  await menuClick(page, 'toggleMode'); // back to preview (house pattern: no pending editor flush)
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('DIRTY');
+  await menuClick(page, 'closeFile');
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  await page.getByTestId('open-cancel').click();
+  await expect(page).toHaveTitle(/welcome\.md/);
+  // …Don't Save closes the buffer down to the splash.
+  await menuClick(page, 'closeFile');
+  await page.getByTestId('open-discard').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await gatingIs(true, true);
+
+  // WORKSPACE mode: Open Folder… — panel appears, workspace items enable.
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+  await gatingIs(false, true);
+
+  // Close Workspace runs the open document's dirty guard first; Cancel aborts.
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page).toHaveTitle(/a\.md/);
+  await menuClick(page, 'toggleMode');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('WSDIRTY ');
+  await menuClick(page, 'toggleMode'); // back to preview (house pattern: no pending editor flush)
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('WSDIRTY');
+  await menuClick(page, 'closeWorkspace');
+  await expect(page.getByTestId('close-prompt')).toBeVisible();
+  await page.getByTestId('close-cancel').click();
+  await expect(page).toHaveTitle(/a\.md/);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  // Don't Save: the document closes WITH the workspace — splash, no panel.
+  await menuClick(page, 'closeWorkspace');
+  await page.getByTestId('close-discard').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await gatingIs(true, true);
+
+  // A CHANGED untitled workspace (2+ folders) prompts on Close Workspace.
+  await openChangedWorkspace();
+  await menuClick(page, 'closeWorkspace');
+  await expect(page.getByTestId('ws-close-prompt')).toBeVisible();
+  await page.getByTestId('ws-close-cancel').click(); // Cancel aborts — workspace stays
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await menuClick(page, 'closeWorkspace');
+  await page.getByTestId('ws-close-discard').click(); // Don't Save proceeds
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+
+  // Save in the prompt runs Save Workspace As…, then the close proceeds.
+  await openChangedWorkspace();
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/w/mine.marky-workspace';
+  });
+  await menuClick(page, 'closeWorkspace');
+  await page.getByTestId('ws-close-save').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/w/mine.marky-workspace')).toContain('"folders"');
+
+  // Open Folder… over a changed workspace = close-then-open: prompt first,
+  // then the pick becomes a fresh single-folder untitled workspace.
+  await openChangedWorkspace();
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/other';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('ws-close-prompt')).toBeVisible();
+  await page.getByTestId('ws-close-discard').click();
+  await expect(page.getByTestId('folder-header')).toContainText('other');
+  await expect(page.locator('[data-path="/notes"]')).toHaveCount(0);
+});
+
+test('E132: scope notes add no layout height — shared settings rows measure identically in both scopes (#25)', async ({
+  page,
+}) => {
+  // Issue #25: the §E19 scope/override notes used to render as paragraphs
+  // under many rows in one scope but not the other, stretching the list.
+  await seedFolders(page);
+  await openFolderRoot(page);
+  await openSettings(page, 'general');
+
+  // comment-storage is a W-scoped `.field` row: its note shows in User scope.
+  const storageField = page.locator('.settings-modal .field', { has: page.getByTestId('comment-storage') });
+  // split-edit is an M-scoped `.checkbox-row`: its note shows in Workspace scope.
+  const splitRow = page.locator('.settings-modal .checkbox-row', { has: page.getByTestId('set-split-edit') });
+
+  // §E19 discoverability: a locked row still explains why and where to edit.
+  const note = page.getByTestId('scope-note-commentStorage');
+  await expect(note).toBeVisible();
+  await expect(note).toHaveAttribute('title', /Workspace setting/);
+
+  const userStorage = (await storageField.boundingBox())!;
+  const userSplit = (await splitRow.boundingBox())!;
+
+  await page.getByTestId('settings-scope-workspace').click();
+  await expect(page.getByTestId('scope-note-commentStorage')).toHaveCount(0);
+  const wsStorage = (await storageField.boundingBox())!;
+  const wsSplit = (await splitRow.boundingBox())!;
+
+  // Same row height and same distance between the two rows in both scopes —
+  // on the old rendering the User-scope notes made both differ by ~18px each.
+  expect(Math.abs(wsStorage.height - userStorage.height)).toBeLessThan(1);
+  expect(Math.abs(wsSplit.height - userSplit.height)).toBeLessThan(1);
+  expect(Math.abs((wsStorage.y - wsSplit.y) - (userStorage.y - userSplit.y))).toBeLessThan(1);
+
+  // And in Workspace scope the notes that DO render there (M/U!-scoped keys)
+  // are equally weightless: the General tab's rows line up with User scope.
+  const wsNotes = page.locator('.settings-modal [data-testid^="scope-note-"]');
+  expect(await wsNotes.count()).toBeGreaterThan(0);
 });

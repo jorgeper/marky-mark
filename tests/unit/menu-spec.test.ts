@@ -16,6 +16,8 @@ const base: MenuState = {
   showFrontmatter: true, // SPEC26 §3: fixture-level only — no assertion changed
   recentFiles: [], // SPEC29 §3: fixture-level only — no assertion changed
   showFolders: false, // SPEC34 §4: fixture-level only — no assertion changed
+  appMode: 'workspace', // issue #22: everything enabled — U120 covers the gating
+  docOpen: true,
 };
 
 const titles = (s: MenuState) => buildMenuSpec(s).submenus.map((m) => m.title);
@@ -35,8 +37,8 @@ describe('SPEC12 menu spec', () => {
     expect(find(base, 'Marky Mark', 'close')!.label).toBe('Quit Marky Mark');
     const file = commandsIn(base, 'File').map((i) => i.command);
     // SPEC21 §5.6 amendment: New… now leads the File menu.
-    // SPEC34 §4.2: Open Folder… joins after Open Recent (addition-only).
-    expect(file).toEqual(['newFile', 'open', 'openFolder', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']);
+    // PRD 002 §D14: the open/workspace group precedes the save group.
+    expect(file).toEqual(['newFile', 'open', 'openFolder', 'openWorkspace', 'addFolderToWorkspace', 'saveWorkspaceAs', 'closeFile', 'closeWorkspace', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']);
     expect(find(base, 'File', 'close')!.label).toBe('Close Window');
     expect(commandsIn(base, 'Help').map((i) => i.command)).toEqual(['help']);
     // Edit: the predefined system items in the standard order, then the one
@@ -58,8 +60,8 @@ describe('SPEC12 menu spec', () => {
     expect(titles(win)).toEqual(['File', 'Edit', 'View', 'Help']);
     const file = commandsIn(win, 'File').map((i) => i.command);
     // SPEC21 §5.6 amendment: New… now leads the File menu.
-    // SPEC34 §4.2: Open Folder… joins after Open Recent (addition-only).
-    expect(file).toEqual(['newFile', 'open', 'openFolder', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']);
+    // PRD 002 §D14: the open/workspace group precedes the save group.
+    expect(file).toEqual(['newFile', 'open', 'openFolder', 'openWorkspace', 'addFolderToWorkspace', 'saveWorkspaceAs', 'closeFile', 'closeWorkspace', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']);
     expect(find(win, 'File', 'close')!.label).toBe('Exit');
     expect(find(win, 'File', 'settings')!.accelerator).toBe('Mod+,');
     expect(commandsIn(win, 'Help').map((i) => i.command)).toEqual(['help', 'about', 'checkUpdates']);
@@ -201,7 +203,7 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{"showFrontmatter":"nope"}').showFrontmatter).toBe(true);
   });
 
-  test('U57: Open Recent submenu sits right after Open… — entries in order, separator, Clear Menu; Clear alone when empty', () => {
+  test('U57: Open Recent submenu sits right after Open Workspace… — entries in order, separator, Clear Menu; Clear alone when empty', () => {
     const recents = [
       { path: '/docs/b.md', label: 'b.md' },
       { path: '/docs/a.md', label: 'a.md' },
@@ -211,7 +213,8 @@ describe('SPEC12 menu spec', () => {
       { ...base, isMac: false, recentFiles: recents },
     ]) {
       const file = buildMenuSpec(st).submenus.find((m) => m.title === 'File')!;
-      const idxOpen = file.items.findIndex((i) => i.type === 'command' && i.command === 'open');
+      // PRD 002 §D14: the submenu rides directly after Open Workspace….
+      const idxOpen = file.items.findIndex((i) => i.type === 'command' && i.command === 'openWorkspace');
       const sub = file.items[idxOpen + 1];
       expect(sub.type).toBe('submenu');
       if (sub.type !== 'submenu') throw new Error('unreachable');
@@ -223,17 +226,81 @@ describe('SPEC12 menu spec', () => {
       expect(clear.type === 'command' && clear.command).toBe('clearRecent');
       expect(clear.type === 'command' && clear.label).toBe('Clear Menu');
       // The File menu's TOP-LEVEL command list is exactly what U19/U20 pin.
-      // SPEC34 §4.2: Open Folder… joins after Open Recent (addition-only).
       expect(commandsIn(st, 'File').map((i) => i.command)).toEqual(
         st.isMac
-          ? ['newFile', 'open', 'openFolder', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']
-          : ['newFile', 'open', 'openFolder', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']
+          ? ['newFile', 'open', 'openFolder', 'openWorkspace', 'addFolderToWorkspace', 'saveWorkspaceAs', 'closeFile', 'closeWorkspace', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']
+          : ['newFile', 'open', 'openFolder', 'openWorkspace', 'addFolderToWorkspace', 'saveWorkspaceAs', 'closeFile', 'closeWorkspace', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']
       );
     }
     // Empty list: the submenu holds just Clear Menu (macOS-style), no separator.
     const file = buildMenuSpec(base).submenus.find((m) => m.title === 'File')!;
     const sub = file.items.find((i) => i.type === 'submenu');
     expect(sub && sub.type === 'submenu' && sub.items.map((i) => i.type)).toEqual(['command']);
+  });
+
+  test('U66: File menu §D14 — full order and separator grouping; workspace items on both layouts', () => {
+    for (const s of [base, { ...base, isMac: false }]) {
+      const file = buildMenuSpec(s).submenus.find((m) => m.title === 'File')!;
+      const shape = file.items.map((i) =>
+        i.type === 'command' ? i.command : i.type === 'submenu' ? `submenu:${i.title}` : 'sep'
+      );
+      const head = [
+        'newFile',
+        'open',
+        'openFolder',
+        'openWorkspace',
+        'submenu:Open Recent',
+        'sep',
+        'addFolderToWorkspace',
+        'saveWorkspaceAs',
+        'closeFile',
+        'closeWorkspace',
+        'sep',
+        'save',
+        'saveAs',
+        'exportDoc',
+        'printDoc',
+        'sep',
+      ];
+      expect(shape).toEqual(s.isMac ? [...head, 'close'] : [...head, 'settings', 'sep', 'close']);
+      expect(find(s, 'File', 'openWorkspace')!.label).toBe('Open Workspace…');
+      expect(find(s, 'File', 'addFolderToWorkspace')!.label).toBe('Add Folder to Workspace…');
+      expect(find(s, 'File', 'saveWorkspaceAs')!.label).toBe('Save Workspace As…');
+      expect(find(s, 'File', 'closeWorkspace')!.label).toBe('Close Workspace');
+    }
+  });
+
+  test('U67: Open Recent §D15 — workspaces first (kind-tagged), separator, files, separator, Clear Menu', () => {
+    const ws = [
+      { path: '/w/site.marky-workspace', label: 'site.marky-workspace' },
+      { path: '/w/docs.marky-workspace', label: 'docs.marky-workspace' },
+    ];
+    const files = [{ path: '/docs/a.md', label: 'a.md' }];
+    const sub = (s: MenuState) => {
+      const file = buildMenuSpec(s).submenus.find((m) => m.title === 'File')!;
+      const it = file.items.find((i) => i.type === 'submenu');
+      if (!it || it.type !== 'submenu') throw new Error('no Open Recent');
+      return it.items;
+    };
+    for (const isMac of [true, false]) {
+      // Both sections: ws, ws, sep, file, sep, Clear.
+      const both = sub({ ...base, isMac, recentWorkspaces: ws, recentFiles: files });
+      expect(both.map((i) => i.type)).toEqual(['recent', 'recent', 'predefined', 'recent', 'predefined', 'command']);
+      expect(both.flatMap((i) => (i.type === 'recent' ? [i.kind ?? 'file'] : []))).toEqual(['workspace', 'workspace', 'file']);
+      expect(both.flatMap((i) => (i.type === 'recent' ? [i.path] : []))).toEqual([
+        '/w/site.marky-workspace',
+        '/w/docs.marky-workspace',
+        '/docs/a.md',
+      ]);
+      // Workspaces only: no double separator.
+      const wsOnly = sub({ ...base, isMac, recentWorkspaces: ws, recentFiles: [] });
+      expect(wsOnly.map((i) => i.type)).toEqual(['recent', 'recent', 'predefined', 'command']);
+      // Files only (legacy shape) and fully empty: unchanged from SPEC29.
+      const filesOnly = sub({ ...base, isMac, recentWorkspaces: [], recentFiles: files });
+      expect(filesOnly.map((i) => i.type)).toEqual(['recent', 'predefined', 'command']);
+      const empty = sub({ ...base, isMac, recentWorkspaces: [], recentFiles: [] });
+      expect(empty.map((i) => i.type)).toEqual(['command']);
+    }
   });
 
   test('U59: Edit carries Find… with the rebindable Mod+F; reopenLastDoc setting follows house rules', () => {
@@ -253,6 +320,36 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{"reopenLastDoc":"nah"}').reopenLastDoc).toBe(true);
   });
 
+  test('U120: issue #22 mode gating — workspace-only and folder-view items disable outside workspace mode; Close File follows docOpen; the open trio never disables', () => {
+    const modes: Array<{ s: MenuState; wsDisabled: boolean; closeFileDisabled: boolean }> = [
+      { s: { ...base, appMode: 'splash', docOpen: false }, wsDisabled: true, closeFileDisabled: true },
+      { s: { ...base, appMode: 'file', docOpen: true }, wsDisabled: true, closeFileDisabled: false },
+      { s: { ...base, appMode: 'workspace', docOpen: true }, wsDisabled: false, closeFileDisabled: false },
+    ];
+    for (const isMac of [true, false]) {
+      for (const { s: m, wsDisabled, closeFileDisabled } of modes) {
+        const s = { ...m, isMac };
+        // File: the workspace trio gates on workspace mode; Close File on docOpen.
+        for (const c of ['addFolderToWorkspace', 'saveWorkspaceAs', 'closeWorkspace'] as const) {
+          expect(find(s, 'File', c)!.disabled ?? false).toBe(wsDisabled);
+        }
+        expect(find(s, 'File', 'closeFile')!.label).toBe('Close File');
+        expect(find(s, 'File', 'closeFile')!.disabled ?? false).toBe(closeFileDisabled);
+        // View: the folder views only exist in workspace mode.
+        expect(find(s, 'View', 'toggleFolders')!.disabled ?? false).toBe(wsDisabled);
+        expect(find(s, 'View', 'toggleOpenOnly')!.disabled ?? false).toBe(wsDisabled);
+        // The open trio stays enabled in every mode.
+        for (const c of ['open', 'openFolder', 'openWorkspace'] as const) {
+          expect(find(s, 'File', c)!.disabled).toBeUndefined();
+        }
+      }
+    }
+    // Workspace mode with no document open: Close File alone grays out.
+    const wsNoDoc = { ...base, appMode: 'workspace' as const, docOpen: false };
+    expect(find(wsNoDoc, 'File', 'closeFile')!.disabled).toBe(true);
+    expect(find(wsNoDoc, 'File', 'closeWorkspace')!.disabled).toBeUndefined();
+  });
+
   test('U61: View starts with Folders (Mod+Shift+E checkbox); File carries Open Folder… after Open Recent; settings clamp', () => {
     expect(DEFAULT_HOTKEYS.toggleFolders).toBe('Mod+Shift+E');
     for (const s of [base, { ...base, isMac: false }]) {
@@ -261,10 +358,10 @@ describe('SPEC12 menu spec', () => {
       expect(find(s, 'View', 'toggleFolders')!.label).toBe('Folders');
       expect(find(s, 'View', 'toggleFolders')!.accelerator).toBe('Mod+Shift+E');
       expect(find(s, 'View', 'toggleFolders')!.checked).toBe(false);
-      // Open Folder… sits directly after the Open Recent submenu.
+      // PRD 002 §D14: Open Folder… sits directly after Open… now.
       const file = buildMenuSpec(s).submenus.find((m) => m.title === 'File')!;
-      const subIdx = file.items.findIndex((i) => i.type === 'submenu');
-      const after = file.items[subIdx + 1];
+      const openIdx = file.items.findIndex((i) => i.type === 'command' && i.command === 'open');
+      const after = file.items[openIdx + 1];
       expect(after.type === 'command' && after.command).toBe('openFolder');
       expect(after.type === 'command' && after.label).toBe('Open Folder…');
       expect(after.type === 'command' && after.accelerator).toBeUndefined();

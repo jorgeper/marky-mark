@@ -28,6 +28,13 @@ export type CommandId =
   | 'nextFile'
   | 'prevFile'
   | 'openFolder'
+  // Issue #22: close the open document down to the splash.
+  | 'closeFile'
+  // PRD 002 §D14: the workspace flows.
+  | 'openWorkspace'
+  | 'addFolderToWorkspace'
+  | 'saveWorkspaceAs'
+  | 'closeWorkspace'
   | 'settings'
   | 'help'
   | 'about'
@@ -76,16 +83,19 @@ export function registerCommands(h: CommandHandlers): void {
 
 /**
  * SPEC29 §3.3: Open Recent items carry a path, not a CommandId — they ride
- * their own tiny channel beside the registry.
+ * their own tiny channel beside the registry. PRD 002 §D15: the kind says
+ * whether the path names a document or a .marky-workspace file.
  */
-let recentHandler: ((path: string) => void) | null = null;
+export type RecentKind = 'file' | 'workspace';
 
-export function registerRecentHandler(h: (path: string) => void): void {
+let recentHandler: ((path: string, kind: RecentKind) => void) | null = null;
+
+export function registerRecentHandler(h: (path: string, kind: RecentKind) => void): void {
   recentHandler = h;
 }
 
-export function dispatchRecent(path: string): void {
-  recentHandler?.(path);
+export function dispatchRecent(path: string, kind: RecentKind = 'file'): void {
+  recentHandler?.(path, kind);
 }
 
 export function dispatchCommand(id: CommandId, source: CommandSource = 'ui'): void {

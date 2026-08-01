@@ -66,6 +66,8 @@ export interface Platform {
   readDirEntries?(dir: string): Promise<Array<{ name: string; isDir: boolean }>>;
   /** SPEC34 §1: native directory picker; null = cancelled. */
   openFolderDialog?(): Promise<string | null>;
+  /** PRD 002 §D14: pick a .marky-workspace file; null = cancelled. */
+  openWorkspaceDialog?(): Promise<string | null>;
   /** SPEC20 follow-up: copy a file, creating the destination's parents. */
   copyFile?(src: string, dest: string): Promise<void>;
 
@@ -101,7 +103,7 @@ export interface Platform {
    * selects the extension filter (default markdown; the review-bundle
    * export passes 'html' so the OS dialog doesn't force a .md suffix).
    */
-  saveFileDialog?(suggestedName: string, kind?: 'markdown' | 'html'): Promise<string | null>;
+  saveFileDialog?(suggestedName: string, kind?: 'markdown' | 'html' | 'workspace'): Promise<string | null>;
   /** Desktop only: reveal <configDir>/themes in the OS file manager. */
   revealThemesDir?(): Promise<void>;
 

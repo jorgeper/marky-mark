@@ -1,7 +1,7 @@
 import type { Platform } from './types';
 import { FIXTURES } from '../bundled';
 import { dispatchRecent, dispatchCommand, type CommandId } from '../lib/commands';
-import type { MenuSpec } from '../lib/menuSpec';
+import type { CommandItemSpec, MenuSpec, RecentItemSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
 
 /**
@@ -28,9 +28,18 @@ declare global {
       nextSavePath?: string | null;
       /** SPEC34 §1: the path the next openFolderDialog() call returns. */
       nextFolderPath?: string | null;
+      /** PRD 002 §D14: the path the next openWorkspaceDialog() call returns. */
+      nextWorkspacePath?: string | null;
       /** Test observability: set when revealThemesDir() was invoked. */
       revealedThemesDir?: boolean;
     };
+    /**
+     * Issue #22: e2e command seam for menu-less shim runs — the FolderPanel
+     * only renders in workspace mode now, so tests without ?nativeMenu=1
+     * need a way to drive openFolder (there is no hotkey or DOM button).
+     * Dispatches into the same registry as menus/hotkeys.
+     */
+    __mmDispatch?: (command: string) => void;
     /**
      * SPEC12 §5.2: under ?nativeMenu=1 the shim simulates the desktop menu —
      * the latest installed spec is recorded here, and click(command) drives
@@ -150,6 +159,8 @@ export function createBrowserPlatform(): Platform {
     list: () => fs.list(),
     reset: () => fs.reset(),
   };
+  // Issue #22: command seam for menu-less e2e runs (see the declaration).
+  window.__mmDispatch = (command) => dispatchCommand(command as CommandId, 'ui');
 
   const join = (...parts: string[]) => normalize(parts.join('/'));
 
@@ -161,18 +172,20 @@ export function createBrowserPlatform(): Platform {
     window.__mmMenu = {
       spec,
       click(command: string) {
-        const exists = spec.submenus.some((m) =>
-          flatten(m.items).some((it) => it.type === 'command' && it.command === command)
-        );
-        if (!exists) throw new Error(`no menu item for command: ${command}`);
+        const item = spec.submenus
+          .flatMap((m) => flatten(m.items))
+          .find((it): it is CommandItemSpec => it.type === 'command' && it.command === command);
+        if (!item) throw new Error(`no menu item for command: ${command}`);
+        // Issue #22: a grayed native item can't be clicked — the shim matches.
+        if (item.disabled) throw new Error(`menu item disabled: ${command}`);
         dispatchCommand(command as CommandId, 'menu');
       },
       clickRecent(path: string) {
-        const exists = spec.submenus.some((m) =>
-          flatten(m.items).some((it) => it.type === 'recent' && it.path === path)
-        );
-        if (!exists) throw new Error(`no recent item for path: ${path}`);
-        dispatchRecent(path);
+        const item = spec.submenus
+          .flatMap((m) => flatten(m.items))
+          .find((it): it is RecentItemSpec => it.type === 'recent' && it.path === path);
+        if (!item) throw new Error(`no recent item for path: ${path}`);
+        dispatchRecent(item.path, item.kind ?? 'file');
       },
     };
   };
@@ -333,6 +346,17 @@ export function createBrowserPlatform(): Platform {
       }
       const path = window.prompt('Open folder (virtual path):', '/docs');
       return path ? normalize(path).replace(/\/+$/, '') : null;
+    },
+    // PRD 002 §D14: hook-driven like openFolderDialog, for e2e.
+    async openWorkspaceDialog() {
+      const hook = window.__mmfs?.nextWorkspacePath;
+      if (hook !== undefined) {
+        if (window.__mmfs) window.__mmfs.nextWorkspacePath = undefined;
+        return hook;
+      }
+      const path = window.prompt('Open workspace (virtual path):', '/docs/project.marky-workspace');
+      if (!path) return null;
+      return fs.exists(path) ? normalize(path) : null;
     },
     async saveFileDialog(suggestedName) {
       const hook = window.__mmfs?.nextSavePath;

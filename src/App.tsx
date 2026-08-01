@@ -7,17 +7,21 @@ import { parseSidecar, serializeSidecar, sidecarPathFor } from './lib/sidecar';
 import { attachEmbedded, mergeComments, splitEmbedded } from './lib/embedded';
 import {
   DEFAULT_SETTINGS,
+  diffSettings,
   MARGIN_WIDTHS,
-  parseSettings,
-  serializeSettings,
+  resolveSettings,
+  serializeSettingsLayer,
   SPLIT_RATIO_MAX,
   SPLIT_RATIO_MIN,
   ZOOM_LEVELS,
   type Settings,
+  type SettingsLayers,
+  type SettingsScopeTab,
 } from './lib/settings';
 import { displayCombo, eventMatches } from './lib/hotkeys';
 import { dispatchCommand, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
 import { buildMenuSpec } from './lib/menuSpec';
+import { deriveAppMode } from './lib/appMode';
 import { stepComment } from './lib/commentNav';
 import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
 import type { EditorSearchHandle, EditorSyncHandle, SmartEditHandle, SmartFormatOp } from './components/Editor';
@@ -36,6 +40,33 @@ import {
   visibleEntries,
   type DirEntry,
 } from './lib/folderTree';
+import {
+  addWorkspaceFolder,
+  adoptLegacyFolderState,
+  closeWorkspace,
+  CURRENT_POINTER_FILE,
+  emptyWorkspaceSession,
+  openFolderWorkspace,
+  parseWorkspaceFile,
+  parseWorkspacePointer,
+  parseWorkspaceSession,
+  sanitizeWorkspaceSettings,
+  saveWorkspaceAs,
+  serializeWorkspaceFile,
+  serializeWorkspacePointer,
+  serializeWorkspaceSession,
+  SESSION_DIR_NAME,
+  sessionKeyForWorkspaceFile,
+  sessionToFolderState,
+  UNTITLED_SLOT_FILE,
+  untitledWorkspaceChanged,
+  WORKSPACE_FILE_EXT,
+  workspaceFolderPaths,
+  workspaceFromFile,
+  type Workspace,
+  type WorkspaceFolder,
+  type WorkspaceSession,
+} from './lib/workspace';
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
 import { relativePath, remapPath, uniqueChildName } from './lib/folderOps';
 import { FolderPanel } from './components/FolderPanel';
@@ -50,8 +81,9 @@ import {
   EV_SETTINGS_CHANGED,
   EV_SETTINGS_EDIT,
   EV_THEMES_CHANGED,
-  mergeSettingsEdit,
+  sanitizeSettingsEdit,
   type AuxRequest,
+  type SettingsBroadcast,
 } from './lib/auxProtocol';
 import { VimNavResolver } from './lib/vimnav';
 import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, renderedOffsetForSource, sourceOffsetForRendered, sourceRangeForVisibleMatch, visibleTextForRange } from './lib/selectionMap';
@@ -94,9 +126,32 @@ function anchorsEqual(a: Anchor, b: Anchor): boolean {
   return a.exact === b.exact && a.prefix === b.prefix && a.suffix === b.suffix && a.start === b.start && a.end === b.end;
 }
 
+/** SPEC29 §2 + PRD 002 §D15: best-effort write of a recent store's file. */
+async function writeRecentStore(p: Platform, fileName: string, store: RecentStore): Promise<void> {
+  try {
+    await p.writeTextFile(p.join(await p.configDir(), fileName), serializeRecent(store));
+  } catch {
+    /* best effort */
+  }
+}
+
 export default function App() {
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  // PRD 002 §E18: the raw per-layer objects behind `settings` (the resolved
+  // result). settings.json is the USER layer only; the Workspace layer lives
+  // on the current Workspace value. Global/Team load once, read-only (§E20).
+  const settingsLayersRef = useRef<{ global?: unknown; team?: unknown; user: Record<string, unknown> }>({ user: {} });
+  // Session-only resolution overrides (web forces embedded storage; a review
+  // bundle carries its theme) — never persisted, dropped when the user edits
+  // the same key.
+  const sessionOverridesRef = useRef<Partial<Settings>>({});
+  // What the settings UI renders indicators from (mirrors the refs, in state
+  // so panels re-render when a layer changes without the effective changing).
+  const [layerView, setLayerView] = useState<{ layers: SettingsLayers; workspaceOpen: boolean }>({
+    layers: {},
+    workspaceOpen: false,
+  });
   const [themes, setThemes] = useState<Theme[]>([]);
   const [docPath, setDocPath] = useState<string | null>(null);
   // SPEC22 §1: a blank unsaved buffer (File → New) — no path until first Save.
@@ -109,8 +164,10 @@ export default function App() {
   const [positions, setPositions] = useState<Positions>({});
   // SPEC29: Open Recent (MRU, persisted to recent.json; menu rebuild rides it).
   const [recent, setRecent] = useState<RecentStore>({ version: 1, entries: [] });
-  // SPEC34: the folder sidebar — root, expanded set, and per-dir listings.
-  const [folderRoot, setFolderRoot] = useState<string | null>(null);
+  // PRD 002 §D15: recent workspaces — same lineage, its own file and cap.
+  const [recentWs, setRecentWs] = useState<RecentStore>({ version: 1, entries: [] });
+  // SPEC34: the folder sidebar — roots (PRD 002 §D17), expanded set, listings.
+  const [folderRoots, setFolderRoots] = useState<string[]>([]);
   const [folderExpanded, setFolderExpanded] = useState<Set<string>>(new Set());
   const [folderChildren, setFolderChildren] = useState<Record<string, DirEntry[]>>({});
   const [folderShowNonMd, setFolderShowNonMd] = useState(false);
@@ -157,8 +214,19 @@ export default function App() {
   // Pending intent awaiting the unsaved-changes decision: open a path, start
   // a new untitled buffer (SPEC22 §1.2), or close one open file (SPEC36 §3.4).
   const [openPrompt, setOpenPrompt] = useState<
-    { kind: 'open'; path: string } | { kind: 'new' } | { kind: 'close-file'; path: string } | null
+    | { kind: 'open'; path: string }
+    | { kind: 'new' }
+    | { kind: 'close-file'; path: string }
+    // Issue #22: File → Close File over a dirty untitled buffer.
+    | { kind: 'close-untitled' }
+    | null
   >(null);
+  /**
+   * Issue #22: the changed-workspace Save / Don't Save / Cancel prompt. The
+   * ref holds the continuation (close / replace / quit) to run on proceed.
+   */
+  const [wsClosePrompt, setWsClosePrompt] = useState(false);
+  const wsCloseResumeRef = useRef<(() => void) | null>(null);
   // Auto-hiding toolbar (SPEC4 §2): launch grace → hover/pin driven.
   const [graceOver, setGraceOver] = useState(false);
   const [toolbarHover, setToolbarHover] = useState(false);
@@ -193,8 +261,16 @@ export default function App() {
   const dormantOpenRef = useRef<{ files: string[]; active: string | null }>({ files: [], active: null });
   /** SPEC36 §7: the quit walk's remaining dirty targets (null = no walk). */
   const quitQueueRef = useRef<string[] | null>(null);
+  /**
+   * Issue #22: what an exhausted quit walk does. Close Workspace borrows the
+   * walk (every dirty tab guards first) and finishes here instead of closing
+   * the window; null = the classic quit (delete draft, close the window).
+   */
+  const quitDoneRef = useRef<(() => void) | null>(null);
   /** Starts the walk; assigned each render (dodges declaration order). */
   const startQuitWalkRef = useRef<() => void>(() => {});
+  /** Issue #22: the walk stepper, ref'd for the same declaration-order dodge. */
+  const processQuitWalkRef = useRef<() => Promise<void>>(async () => {});
   /**
    * The editor snapshots its undo state into editorHistoryRef only on
    * UNMOUNT — which runs AFTER a doc switch commits. These two refs defer
@@ -878,23 +954,33 @@ export default function App() {
     // Boot-time opens drain before stateRef sees the platform (it lands on
     // the next render) — callers that HAVE the platform pass it explicitly.
     const p = platformNow ?? stateRef.current.platform;
-    if (!p) return;
-    void (async () => {
-      try {
-        await p.writeTextFile(p.join(await p.configDir(), 'recent.json'), serializeRecent(next));
-      } catch {
-        /* best effort */
-      }
-    })();
+    if (p) void writeRecentStore(p, 'recent.json', next);
   }, []);
   const recentRef = useRef<RecentStore>({ version: 1, entries: [] });
-  /** SPEC34 §2.3: write-through mirror of root+expanded+eye for foldertree.json. */
-  const folderStateRef = useRef<{ root: string | null; expanded: Set<string>; showNonMd: boolean; openOnly: boolean }>({
-    root: null,
+
+  /** PRD 002 §D15: same shape as commitRecent, for recent-workspaces.json. */
+  const commitRecentWs = useCallback((next: RecentStore, platformNow?: Platform) => {
+    recentWsRef.current = next;
+    setRecentWs(next);
+    const p = platformNow ?? stateRef.current.platform;
+    // §H25: recent-workspaces.json is workspace machinery — never written
+    // without the sidebar seam (web), even via Clear Menu.
+    if (p?.readDirEntries) void writeRecentStore(p, 'recent-workspaces.json', next);
+  }, []);
+  const recentWsRef = useRef<RecentStore>({ version: 1, entries: [] });
+
+  /** SPEC34 §2.3: write-through mirror of roots+expanded+eye for foldertree.json. */
+  const folderStateRef = useRef<{ roots: string[]; expanded: Set<string>; showNonMd: boolean; openOnly: boolean }>({
+    roots: [],
     expanded: new Set(),
     showNonMd: false,
     openOnly: false,
   });
+
+  /** PRD 002 §C7: the single current workspace (none | untitled | named). */
+  const curWorkspaceRef = useRef<Workspace>({ kind: 'none' });
+  /** Issue #22: the ref's kind mirrored into state so the derived app mode re-renders. */
+  const [wsKind, setWsKind] = useState<Workspace['kind']>('none');
 
   const persistFolderState = useCallback((platformNow?: Platform) => {
     const p = platformNow ?? stateRef.current.platform;
@@ -905,13 +991,15 @@ export default function App() {
     // ignored, not cleared — so flipping back on revives them.
     const restoring = stateRef.current.settings.restoreOpenFiles && stateRef.current.settings.reopenLastDoc;
     const open = restoring ? { files: openFilesRef.current, active: activeFileRef.current } : dormantOpenRef.current;
+    const ws = curWorkspaceRef.current;
     void (async () => {
       try {
+        const cfg = await p.configDir();
         await p.writeTextFile(
-          p.join(await p.configDir(), 'foldertree.json'),
+          p.join(cfg, 'foldertree.json'),
           serializeFolderState({
             version: 1,
-            root: st.root,
+            root: st.roots[0] ?? null,
             expanded: [...st.expanded],
             showNonMd: st.showNonMd,
             openFiles: open.files,
@@ -919,11 +1007,104 @@ export default function App() {
             openOnly: st.openOnly,
           })
         );
+        // PRD 002 §B6/§F22: the same state is the current workspace's own
+        // machine-local session store, keyed under <configDir>/session/ so
+        // one workspace's tabs never leak into another's (or any shareable
+        // file). foldertree.json above stays as the legacy mirror.
+        if (!p.readDirEntries) return; // no workspace UI ⇒ no session stores (web)
+        const dir = p.join(cfg, SESSION_DIR_NAME);
+        await p.mkdirp(dir);
+        if (ws.kind !== 'none') {
+          const session: WorkspaceSession = {
+            version: 1,
+            folders: ws.folders.map((f) => f.path),
+            expanded: [...st.expanded],
+            showNonMd: st.showNonMd,
+            openFiles: open.files,
+            activeFile: open.active,
+            openOnly: st.openOnly,
+            // §C11: the untitled slot also carries the workspace settings.
+            ...(ws.kind === 'untitled' ? { settings: ws.settings } : {}),
+          };
+          const slot = ws.kind === 'untitled' ? UNTITLED_SLOT_FILE : `${sessionKeyForWorkspaceFile(ws.file)}.json`;
+          await p.writeTextFile(p.join(dir, slot), serializeWorkspaceSession(session));
+        }
+        // §C13/§D16: remember which workspace to reopen at launch — the
+        // pointer is written for 'none' too, so Close Workspace sticks.
+        await p.writeTextFile(p.join(dir, CURRENT_POINTER_FILE), serializeWorkspacePointer(ws));
       } catch {
         /* best effort */
       }
     })();
   }, []);
+
+  /**
+   * PRD 002 §C11–§C12: apply a workspace transition and autosave its stores —
+   * a named workspace writes membership/settings back to its .marky-workspace
+   * file (no explicit Save command, never session state); converting untitled
+   * → named clears the single current-untitled slot. #16's menu flows (Add
+   * Folder / Open Workspace / Save Workspace As) call this same seam.
+   */
+  /**
+   * The raw layer inputs and workspace-open flag as of right now (PRD 002
+   * §E18/§F21) — everything the settings panels render indicators from.
+   */
+  const currentLayerView = useCallback((): { layers: SettingsLayers; workspaceOpen: boolean } => {
+    const ws = curWorkspaceRef.current;
+    return {
+      layers: {
+        global: settingsLayersRef.current.global,
+        team: settingsLayersRef.current.team,
+        workspace: ws.kind === 'none' ? undefined : ws.settings,
+        user: settingsLayersRef.current.user,
+      },
+      workspaceOpen: ws.kind !== 'none',
+    };
+  }, []);
+
+  /** Re-run four-layer resolution and refresh both the effective settings and the panel's layer view. */
+  const applyResolved = useCallback(() => {
+    const view = currentLayerView();
+    setLayerView(view);
+    setSettings((prev) => {
+      const next = { ...resolveSettings(view.layers), ...sessionOverridesRef.current };
+      // Identity-stable: unchanged resolutions keep the previous object (no
+      // spurious re-renders, editor reconfigures, or aux broadcasts), and an
+      // entry-wise-equal hotkeys map keeps its identity too.
+      const patch = diffSettings(prev, next);
+      if (Object.keys(patch).length === 0) return prev;
+      if (!patch.hotkeys) next.hotkeys = prev.hotkeys;
+      return next;
+    });
+  }, [currentLayerView]);
+
+  const updateWorkspace = useCallback(
+    (next: Workspace, platformNow?: Platform) => {
+      const prev = curWorkspaceRef.current;
+      curWorkspaceRef.current = next;
+      setWsKind(next.kind); // issue #22: the derived app mode follows
+      // §E18/§B5: the workspace layer changed — pinned settings apply (or
+      // stop applying) immediately, and the settings panels see fresh layers.
+      applyResolved();
+      const p = platformNow ?? stateRef.current.platform;
+      if (!p) return;
+      void (async () => {
+        try {
+          if (next.kind === 'named') {
+            await p.writeTextFile(next.file, serializeWorkspaceFile(next, p.dirname(next.file)));
+          }
+          if (prev.kind === 'untitled' && next.kind === 'named') {
+            const slot = p.join(await p.configDir(), SESSION_DIR_NAME, UNTITLED_SLOT_FILE);
+            if (await p.exists(slot)) await p.remove(slot);
+          }
+        } catch {
+          /* best effort */
+        }
+      })();
+      persistFolderState(platformNow);
+    },
+    [applyResolved, persistFolderState]
+  );
 
   /** SPEC36: the single write path for the open set — refs, state, disk. */
   const commitOpenSet = useCallback(
@@ -998,18 +1179,29 @@ export default function App() {
   const revealInFolders = useCallback(
     async (p: Platform, path: string) => {
       if (!p.readDirEntries) return;
-      let root = folderStateRef.current.root;
-      let chain = root ? ancestorsOf(root, path, p.dirname) : [];
-      if (chain.length === 0) {
-        root = p.dirname(path);
-        chain = [root];
-        setFolderRoot(root);
-        setFolderChildren({});
+      let roots = folderStateRef.current.roots;
+      let chain: string[] = [];
+      for (const r of roots) {
+        chain = ancestorsOf(r, path, p.dirname);
+        if (chain.length > 0) break;
       }
-      const expanded = new Set(folderStateRef.current.root === root ? folderStateRef.current.expanded : []);
+      let expanded: Set<string>;
+      if (chain.length === 0) {
+        // PRD 002 §D17: a multi-root workspace's membership is never
+        // retargeted by an outside open — skip the reveal entirely.
+        if (roots.length > 1) return;
+        const root = p.dirname(path);
+        roots = [root];
+        chain = [root];
+        setFolderRoots(roots);
+        setFolderChildren({});
+        expanded = new Set();
+      } else {
+        expanded = new Set(folderStateRef.current.expanded);
+      }
       for (const dir of chain) expanded.add(dir);
       setFolderExpanded(expanded);
-      folderStateRef.current = { ...folderStateRef.current, root, expanded };
+      folderStateRef.current = { ...folderStateRef.current, roots, expanded };
       persistFolderState(p);
       for (const dir of chain) await listFolderDir(p, dir);
     },
@@ -1062,7 +1254,8 @@ export default function App() {
     (id: string, target: { kind: 'dir' | 'file' | 'root'; path: string }) => {
       const p = stateRef.current.platform;
       if (!p) return;
-      const root = folderStateRef.current.root;
+      const roots = folderStateRef.current.roots;
+      const root = roots.find((r) => target.path === r || ancestorsOf(r, target.path, p.dirname).length > 0) ?? null;
       if (id === 'reveal') void p.revealPath?.(target.path);
       else if (id === 'copy-path') void p.copyText?.(target.path);
       else if (id === 'copy-relative-path' && root) void p.copyText?.(relativePath(root, target.path));
@@ -1485,19 +1678,90 @@ export default function App() {
       if (disposed) return;
 
       const cfg = await p.configDir();
-      const settingsPath = p.join(cfg, 'settings.json');
-      let loaded = DEFAULT_SETTINGS;
-      try {
-        if (await p.exists(settingsPath)) loaded = parseSettings(await p.readTextFile(settingsPath));
-      } catch {
-        /* fall back to defaults */
+      // PRD 002 §F21 layer sources: Global = DEFAULT_SETTINGS plus an optional
+      // admin file, Team = reserved (no local file), Workspace = empty until
+      // the workspace model lands, User = the existing settings.json. An
+      // absent or corrupt file simply leaves its layer empty.
+      const readSettingsLayer = async (name: string): Promise<unknown> => {
+        try {
+          const path = p.join(cfg, name);
+          if (await p.exists(path)) return JSON.parse(await p.readTextFile(path));
+        } catch {
+          /* absent or corrupt → empty layer */
+        }
+        return undefined;
+      };
+      // PRD 002 §C13 + §G24: load the current workspace (named file or the
+      // untitled slot) with its machine-local session state. All reads are
+      // corruption-tolerant; any failure lands in the no-workspace state.
+      let bootWs: Workspace = { kind: 'none' };
+      let bootSession: WorkspaceSession | null = null;
+      let hadPointer = false;
+      if (p.readDirEntries) {
+        try {
+          const sessionDir = p.join(cfg, SESSION_DIR_NAME);
+          const ptrPath = p.join(sessionDir, CURRENT_POINTER_FILE);
+          hadPointer = await p.exists(ptrPath);
+          const ptr = hadPointer ? parseWorkspacePointer(await p.readTextFile(ptrPath)) : null;
+          if (ptr?.kind === 'named' && (await p.exists(ptr.file))) {
+            const data = parseWorkspaceFile(await p.readTextFile(ptr.file));
+            const folderPaths = workspaceFolderPaths(data, ptr.file);
+            // §C10: unreachable folders stay in the model, flagged for the UI.
+            const unavailable = new Set<string>();
+            for (const f of folderPaths) if (!(await p.exists(f))) unavailable.add(f);
+            bootWs = workspaceFromFile(data, ptr.file, unavailable);
+            const sPath = p.join(sessionDir, `${sessionKeyForWorkspaceFile(ptr.file)}.json`);
+            bootSession = (await p.exists(sPath))
+              ? parseWorkspaceSession(await p.readTextFile(sPath))
+              : emptyWorkspaceSession();
+            // The .marky-workspace file, not the session cache, owns membership.
+            bootSession.folders = folderPaths;
+          } else if (ptr?.kind === 'untitled') {
+            const uPath = p.join(sessionDir, UNTITLED_SLOT_FILE);
+            if (await p.exists(uPath)) {
+              const slot = parseWorkspaceSession(await p.readTextFile(uPath));
+              if (slot.folders.length > 0) {
+                const folders: WorkspaceFolder[] = [];
+                for (const f of slot.folders) folders.push({ path: f, available: await p.exists(f) });
+                bootWs = { kind: 'untitled', folders, settings: slot.settings ?? {} };
+                bootSession = slot;
+              }
+            }
+          }
+        } catch {
+          /* no workspace */
+        }
       }
+      const globalRaw = await readSettingsLayer('global-settings.json');
+      const userRaw = await readSettingsLayer('settings.json');
+      // §E18: keep the RAW layers — the panel's scope tabs write them back
+      // individually, so the resolved result must never be re-persisted whole.
+      settingsLayersRef.current = {
+        global: globalRaw,
+        user:
+          typeof userRaw === 'object' && userRaw !== null && !Array.isArray(userRaw)
+            ? (userRaw as Record<string, unknown>)
+            : {},
+      };
+      let loaded = resolveSettings({
+        global: globalRaw,
+        // §B5/§F22: a current workspace's settings feed the Workspace layer;
+        // with none current, resolution is unchanged from today.
+        workspace: bootWs.kind === 'none' ? undefined : bootWs.settings,
+        user: userRaw,
+      });
       if (p.kind === 'web') {
-        loaded = { ...loaded, commentStorage: 'embedded' }; // no sidecars on web
+        // No sidecars on web — a session-only override, never a layer write.
+        sessionOverridesRef.current.commentStorage = 'embedded';
+        loaded = { ...loaded, commentStorage: 'embedded' };
         // SPEC17 §2.2: a review bundle may carry its export theme — apply it
         // for the session only (setSettings below never persists by itself).
         const payload = extractReviewPayload(document);
-        if (payload?.theme) loaded = { ...loaded, themeLight: payload.theme, themeDark: payload.theme };
+        if (payload?.theme) {
+          sessionOverridesRef.current.themeLight = payload.theme;
+          sessionOverridesRef.current.themeDark = payload.theme;
+          loaded = { ...loaded, themeLight: payload.theme, themeDark: payload.theme };
+        }
       }
       const themeList = await loadAllThemes(p);
 
@@ -1521,22 +1785,52 @@ export default function App() {
         /* start empty */
       }
 
-      // SPEC34 §2.3: folder sidebar state, same tolerance.
+      // PRD 002 §D15: recent workspaces — their own file, same tolerance.
+      try {
+        const recWsPath = p.join(cfg, 'recent-workspaces.json');
+        if (await p.exists(recWsPath)) {
+          const loaded = parseRecent(await p.readTextFile(recWsPath));
+          recentWsRef.current = loaded;
+          setRecentWs(loaded);
+        }
+      } catch {
+        /* start empty */
+      }
+
+      // SPEC34 §2.3: folder sidebar state, same tolerance. The current
+      // workspace's own session state wins (§B6); with no session pointer yet,
+      // the legacy foldertree.json is read as before — and a single existing
+      // root is silently adopted as an untitled workspace (§G24). The
+      // adoption is a pure read: neither settings.json nor foldertree.json is
+      // rewritten or deleted.
       // SPEC36 §8: the persisted open set rides along — parked in dormantOpenRef
       // until the restore decision below (never restored eagerly here).
       try {
-        const ftPath = p.join(cfg, 'foldertree.json');
-        if (p.readDirEntries && (await p.exists(ftPath))) {
-          const ft = parseFolderState(await p.readTextFile(ftPath));
-          const expanded = new Set(ft.expanded);
-          folderStateRef.current = { root: ft.root, expanded, showNonMd: ft.showNonMd, openOnly: ft.openOnly ?? false };
-          dormantOpenRef.current = { files: ft.openFiles ?? [], active: ft.activeFile ?? null };
-          setFolderRoot(ft.root);
-          setFolderExpanded(expanded);
-          setFolderShowNonMd(ft.showNonMd);
-          setFolderOpenOnly(ft.openOnly ?? false); // §5.5: view state restores regardless
-          if (loaded.showFolders && ft.root) {
-            for (const dir of [ft.root, ...ft.expanded]) void listFolderDir(p, dir);
+        if (p.readDirEntries) {
+          let ft = bootSession ? sessionToFolderState(bootSession) : null;
+          if (!ft && bootWs.kind === 'none') {
+            const ftPath = p.join(cfg, 'foldertree.json');
+            if (await p.exists(ftPath)) {
+              ft = parseFolderState(await p.readTextFile(ftPath));
+              if (!hadPointer) bootWs = adoptLegacyFolderState(ft) ?? bootWs;
+            }
+          }
+          curWorkspaceRef.current = bootWs;
+          setWsKind(bootWs.kind); // issue #22: the derived app mode follows
+          if (ft) {
+            // §D17: ALL member folders become sidebar roots (the FolderState
+            // bridge only carries the first; the session/workspace has them all).
+            const roots = bootSession ? bootSession.folders : ft.root ? [ft.root] : [];
+            const expanded = new Set(ft.expanded);
+            folderStateRef.current = { roots, expanded, showNonMd: ft.showNonMd, openOnly: ft.openOnly ?? false };
+            dormantOpenRef.current = { files: ft.openFiles ?? [], active: ft.activeFile ?? null };
+            setFolderRoots(roots);
+            setFolderExpanded(expanded);
+            setFolderShowNonMd(ft.showNonMd);
+            setFolderOpenOnly(ft.openOnly ?? false); // §5.5: view state restores regardless
+            if (loaded.showFolders && roots.length > 0) {
+              for (const dir of [...roots, ...ft.expanded]) void listFolderDir(p, dir);
+            }
           }
         }
       } catch {
@@ -1544,6 +1838,10 @@ export default function App() {
       }
 
       setPlatform(p);
+      // §E18: the panel's layer view boots alongside the resolved settings
+      // (bootWs may have just been adopted above — the helper reads the ref,
+      // not bootWs).
+      setLayerView(currentLayerView());
       setSettings(loaded);
       setThemes(themeList);
 
@@ -1554,7 +1852,9 @@ export default function App() {
       // SPEC36 §7: the close guard triggers the quit walk over EVERY dirty
       // document (the walk ref dodges a declaration-order cycle).
       await p.registerCloseGuard(
-        () => dirtyDocsQueue().length > 0,
+        // Issue #22: a changed untitled workspace blocks too — quitting
+        // discards it, so the Save / Don't Save / Cancel prompt must run.
+        () => dirtyDocsQueue().length > 0 || untitledWorkspaceChanged(curWorkspaceRef.current),
         () => startQuitWalkRef.current()
       );
 
@@ -1676,6 +1976,7 @@ export default function App() {
     settingsOpen ||
     aboutOpen ||
     closePrompt ||
+    wsClosePrompt ||
     openPrompt !== null;
 
   // --- OS light/dark tracking (live, SPEC3 §2) -----------------------------------
@@ -1714,36 +2015,226 @@ export default function App() {
   }, [platform, settings.fontSize, settings.margins, settings.zoom, settings.paneMinWidth]);
 
   // --- settings persistence ---------------------------------------------------
-  const updateSettings = useCallback(
-    (next: Settings) => {
-      setSettings(next);
+  /**
+   * PRD 002 §E18 layer-targeted writes: a 'user' patch lands ONLY in
+   * settings.json (the raw User layer); a 'workspace' patch lands ONLY in the
+   * current workspace's settings (named → its .marky-workspace autosave,
+   * untitled → the session slot, via the updateWorkspace seam). Either way
+   * the effective settings re-resolve immediately.
+   */
+  const applySettingsEdit = useCallback(
+    (scope: SettingsScopeTab, patch: Partial<Settings>) => {
+      if (Object.keys(patch).length === 0) return;
+      if (scope === 'workspace') {
+        const ws = curWorkspaceRef.current;
+        if (ws.kind === 'none') return;
+        updateWorkspace({ ...ws, settings: sanitizeWorkspaceSettings({ ...ws.settings, ...patch }) });
+        return;
+      }
+      // An explicit user edit beats any session-only override of the same key.
+      for (const k of Object.keys(patch) as Array<keyof Settings>) delete sessionOverridesRef.current[k];
+      settingsLayersRef.current.user = { ...settingsLayersRef.current.user, ...patch };
+      applyResolved();
       const p = stateRef.current.platform;
       if (!p) return;
       void (async () => {
         const path = p.join(await p.configDir(), 'settings.json');
-        await p.writeTextFile(path, serializeSettings(next));
+        await p.writeTextFile(path, serializeSettingsLayer(settingsLayersRef.current.user));
       })();
     },
-    []
+    [applyResolved, updateWorkspace]
   );
 
+  /** Whole-Settings seam kept for in-app controls: the changed keys become a User-layer patch. */
+  const updateSettings = useCallback(
+    (next: Settings) => {
+      applySettingsEdit('user', diffSettings(stateRef.current.settings, next));
+    },
+    [applySettingsEdit]
+  );
+
+  /**
+   * Issue #22: run `proceed` through the changed-workspace guard. A changed
+   * untitled workspace (non-empty workspace settings or 2+ folders) is about
+   * to be discarded — Save / Don't Save / Cancel prompt first. Named
+   * workspaces autosave and never prompt; unchanged untitled ones just go.
+   */
+  const guardWorkspaceDiscard = useCallback((proceed: () => void) => {
+    if (!untitledWorkspaceChanged(curWorkspaceRef.current)) {
+      proceed();
+      return;
+    }
+    wsCloseResumeRef.current = proceed;
+    setWsClosePrompt(true);
+  }, []);
+
   /** SPEC34 §4.2: pick a directory → root; the panel opens; no file opens. */
-  const openFolderCmd = useCallback(async () => {
+  const openFolderCmd = useCallback(() => {
+    const p = stateRef.current.platform;
+    if (!p?.openFolderDialog || !p.readDirEntries) return;
+    // Issue #22: replacing a changed untitled workspace prompts first (§C8:
+    // the pick starts a FRESH untitled workspace, discarding the current one).
+    guardWorkspaceDiscard(() => {
+      void (async () => {
+        const picked = await p.openFolderDialog!();
+        if (!picked) return;
+        const expanded = new Set([picked]);
+        setFolderRoots([picked]);
+        setFolderExpanded(expanded);
+        setFolderChildren({});
+        folderStateRef.current = { ...folderStateRef.current, roots: [picked], expanded };
+        // PRD 002 §C8: opening a folder starts a fresh untitled workspace holding
+        // that one folder (a new untitled overwrites the slot, §C11).
+        updateWorkspace(openFolderWorkspace(curWorkspaceRef.current, picked), p);
+        await listFolderDir(p, picked);
+        if (!stateRef.current.settings.showFolders) {
+          updateSettings({ ...stateRef.current.settings, showFolders: true });
+        }
+      })();
+    });
+  }, [guardWorkspaceDiscard, listFolderDir, updateWorkspace, updateSettings]);
+
+  /**
+   * PRD 002 §D14: make `file` the current named workspace — corruption-
+   * tolerant load, session state restored, sidebar roots swapped, MRU bump.
+   */
+  const openWorkspaceFromPath = useCallback(
+    async (p: Platform, file: string) => {
+      if (!p.readDirEntries) return;
+      try {
+        const data = parseWorkspaceFile(await p.readTextFile(file));
+        const folders = workspaceFolderPaths(data, file);
+        const unavailable = new Set<string>();
+        for (const f of folders) if (!(await p.exists(f))) unavailable.add(f);
+        const ws = workspaceFromFile(data, file, unavailable);
+        // §B6: the workspace's own machine-local session state comes back.
+        const sPath = p.join(await p.configDir(), SESSION_DIR_NAME, `${sessionKeyForWorkspaceFile(file)}.json`);
+        const session = (await p.exists(sPath))
+          ? parseWorkspaceSession(await p.readTextFile(sPath))
+          : emptyWorkspaceSession(folders);
+        session.folders = folders; // the .marky-workspace file owns membership
+        const expanded = new Set(session.expanded.length > 0 ? session.expanded : folders);
+        setFolderRoots(folders);
+        setFolderExpanded(expanded);
+        setFolderChildren({});
+        setFolderShowNonMd(session.showNonMd);
+        setFolderOpenOnly(session.openOnly);
+        folderStateRef.current = { roots: folders, expanded, showNonMd: session.showNonMd, openOnly: session.openOnly };
+        // The workspace flips FIRST so the tab restore below persists into
+        // the opened workspace's own session, never the previous one's.
+        updateWorkspace(ws, p);
+        // §F22: the open-tab set restores (existing files only); the document
+        // on screen stays — restoring tabs never yanks the editor.
+        const alive: string[] = [];
+        for (const f of session.openFiles) if (await p.exists(f)) alive.push(f);
+        commitOpenSet(alive, session.activeFile);
+        commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
+        for (const dir of new Set([...folders, ...expanded])) void listFolderDir(p, dir);
+        if (!stateRef.current.settings.showFolders) {
+          updateSettings({ ...stateRef.current.settings, showFolders: true });
+        }
+      } catch {
+        showNotice(`Couldn’t open “${p.basename(file)}”`);
+      }
+    },
+    [commitOpenSet, updateWorkspace, commitRecentWs, listFolderDir, updateSettings, showNotice]
+  );
+
+  /** PRD 002 §D14: Open Workspace… — dialog filtered to .marky-workspace. */
+  const openWorkspaceCmd = useCallback(() => {
+    const p = stateRef.current.platform;
+    if (!p?.openWorkspaceDialog || !p.readDirEntries) return;
+    // Issue #22: replacing a changed untitled workspace prompts first.
+    guardWorkspaceDiscard(() => {
+      void (async () => {
+        const picked = await p.openWorkspaceDialog!();
+        if (!picked) return;
+        await openWorkspaceFromPath(p, picked);
+      })();
+    });
+  }, [guardWorkspaceDiscard, openWorkspaceFromPath]);
+
+  /**
+   * PRD 002 §D14/§C8: Add Folder to Workspace… — a single-folder untitled
+   * workspace becomes multi-root; with no workspace open it behaves like
+   * Open Folder (a fresh untitled workspace holding the pick).
+   */
+  const addFolderToWorkspaceCmd = useCallback(async () => {
     const p = stateRef.current.platform;
     if (!p?.openFolderDialog || !p.readDirEntries) return;
     const picked = await p.openFolderDialog();
     if (!picked) return;
-    const expanded = new Set([picked]);
-    setFolderRoot(picked);
+    const cur = curWorkspaceRef.current;
+    const next = addWorkspaceFolder(cur, picked);
+    if (next === cur) return; // duplicate member — nothing changes
+    const roots = next.kind === 'none' ? [] : next.folders.map((f) => f.path);
+    // Every root joins the expanded set so the grown tree stays visible
+    // (the single root was implicitly expanded before it had a header row).
+    const expanded = new Set([...folderStateRef.current.expanded, ...roots]);
+    setFolderRoots(roots);
     setFolderExpanded(expanded);
-    setFolderChildren({});
-    folderStateRef.current = { ...folderStateRef.current, root: picked, expanded };
-    persistFolderState(p);
+    folderStateRef.current = { ...folderStateRef.current, roots, expanded };
+    updateWorkspace(next, p);
     await listFolderDir(p, picked);
     if (!stateRef.current.settings.showFolders) {
       updateSettings({ ...stateRef.current.settings, showFolders: true });
     }
-  }, [listFolderDir, persistFolderState, updateSettings]);
+  }, [listFolderDir, updateWorkspace, updateSettings]);
+
+  /**
+   * PRD 002 §D14/§C11: Save Workspace As… — untitled (or named) → named.
+   * Issue #22: returns false when unsupported or the dialog was cancelled,
+   * so the changed-workspace prompt's Save can abort the pending close.
+   */
+  const saveWorkspaceAsCmd = useCallback(async (): Promise<boolean> => {
+    const p = stateRef.current.platform;
+    const cur = curWorkspaceRef.current;
+    if (!p?.saveFileDialog || cur.kind === 'none') return false; // silent no-op, menu style
+    const suggested = cur.kind === 'named' ? p.basename(cur.file) : `Untitled${WORKSPACE_FILE_EXT}`;
+    const picked = await p.saveFileDialog(suggested, 'workspace');
+    if (!picked) return false;
+    const file = picked.endsWith(WORKSPACE_FILE_EXT) ? picked : `${picked}${WORKSPACE_FILE_EXT}`;
+    updateWorkspace(saveWorkspaceAs(cur, file), p);
+    commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
+    return true;
+  }, [updateWorkspace, commitRecentWs]);
+
+  /**
+   * Issue #22: the workspace is closed for real — sidebar roots/tabs empty,
+   * the open document closes too, the splash shows. Every dirty guard has
+   * already run by the time this fires (see closeWorkspaceCmd).
+   */
+  const finishCloseWorkspace = useCallback(() => {
+    const cur = curWorkspaceRef.current;
+    if (cur.kind === 'none') return;
+    setFolderRoots([]);
+    setFolderExpanded(new Set());
+    setFolderChildren({});
+    folderStateRef.current = { ...folderStateRef.current, roots: [], expanded: new Set() };
+    // The workspace flips to 'none' FIRST so the tab clear below can't
+    // overwrite the closed workspace's saved session with an empty one.
+    updateWorkspace(closeWorkspace(cur));
+    commitOpenSet([], null);
+    parkRef.current.clear();
+    closeToSplash();
+  }, [commitOpenSet, updateWorkspace, closeToSplash]);
+
+  /**
+   * PRD 002 §D16 + issue #22: Close Workspace — the changed-workspace prompt
+   * (untitled with settings or 2+ folders), then the dirty-docs walk over
+   * every open tab (Cancel anywhere aborts), then back to the splash.
+   */
+  const closeWorkspaceCmd = useCallback(() => {
+    // §H25: no dialog capability to guard on here — gate on the sidebar seam
+    // like every other workspace command, so the hotkey is inert on web.
+    if (!stateRef.current.platform?.readDirEntries) return;
+    if (curWorkspaceRef.current.kind === 'none') return;
+    guardWorkspaceDiscard(() => {
+      quitDoneRef.current = finishCloseWorkspace;
+      quitQueueRef.current = dirtyDocsQueue();
+      void processQuitWalkRef.current();
+    });
+  }, [guardWorkspaceDiscard, finishCloseWorkspace, dirtyDocsQueue]);
 
   // --- actions -----------------------------------------------------------------
   /**
@@ -1913,6 +2404,7 @@ export default function App() {
   const toggleOpenOnly = useCallback(() => {
     const st = stateRef.current;
     if (!st.platform?.readDirEntries) return; // no sidebar seam (web) ⇒ no-op
+    if (curWorkspaceRef.current.kind === 'none') return; // issue #22: workspace mode only
     const next = !folderStateRef.current.openOnly;
     folderStateRef.current = { ...folderStateRef.current, openOnly: next };
     setFolderOpenOnly(next);
@@ -1950,12 +2442,25 @@ export default function App() {
       return;
     }
     quitQueueRef.current = null;
+    // Issue #22: a borrowed walk (Close Workspace) finishes its own way.
+    const done = quitDoneRef.current;
+    if (done) {
+      quitDoneRef.current = null;
+      done();
+      return;
+    }
     await deleteDraft();
     void p.closeNow();
   }, [activateOpen, deleteDraft]);
+  processQuitWalkRef.current = processQuitWalk;
   startQuitWalkRef.current = () => {
-    quitQueueRef.current = dirtyDocsQueue();
-    void processQuitWalk();
+    // Issue #22: quitting discards a changed untitled workspace — the
+    // Save / Don't Save / Cancel prompt runs before the dirty-docs walk.
+    guardWorkspaceDiscard(() => {
+      quitDoneRef.current = null;
+      quitQueueRef.current = dirtyDocsQueue();
+      void processQuitWalk();
+    });
   };
 
   /** SPEC35 §6.2: confirmed — trash, re-list, prune, persist, maybe splash. */
@@ -2193,14 +2698,37 @@ export default function App() {
       toggleFrontmatter: () => setFmOverride((cur) => !(cur ?? stateRef.current.settings.showFrontmatter)),
       find: openFind,
       // SPEC34 §4: silent no-ops on platforms without the seam (web).
+      // Issue #22: folder views only exist in workspace mode — the menu item
+      // is grayed there; the hotkey lands here and must stay inert too.
       toggleFolders: () => {
         const st = stateRef.current;
         if (!st.platform?.readDirEntries) return;
+        if (curWorkspaceRef.current.kind === 'none') return;
         updateSettings({ ...st.settings, showFolders: !st.settings.showFolders });
       },
-      openFolder: () => void openFolderCmd(),
-      // SPEC29 §3.4: Clear Menu — no-op when already empty.
-      clearRecent: () => commitRecent(clearRecent()),
+      openFolder: openFolderCmd,
+      // Issue #22: Close File — down to the splash through the dirty guard.
+      closeFile: () => {
+        const s = stateRef.current;
+        if (!s.platform) return;
+        if (s.docPath) {
+          closeOpenFile(s.docPath); // dirty ⇒ three-way prompt; clean ⇒ close
+          return;
+        }
+        if (!s.untitled) return; // splash — nothing to close
+        if (s.dirty) setOpenPrompt({ kind: 'close-untitled' });
+        else closeToSplash();
+      },
+      // PRD 002 §D14: the workspace flows (silent no-ops without the seam).
+      openWorkspace: openWorkspaceCmd,
+      addFolderToWorkspace: () => void addFolderToWorkspaceCmd(),
+      saveWorkspaceAs: () => void saveWorkspaceAsCmd(),
+      closeWorkspace: closeWorkspaceCmd,
+      // SPEC29 §3.4 + §D15: Clear Menu wipes both sections — no-op when empty.
+      clearRecent: () => {
+        commitRecent(clearRecent());
+        commitRecentWs(clearRecent());
+      },
       toggleWordCount: () => {
         const s = stateRef.current.settings;
         updateSettings({ ...s, showWordCount: !s.showWordCount });
@@ -2287,20 +2815,31 @@ export default function App() {
         void (async () => {
           const p = stateRef.current.platform;
           if (p?.closeFocusedAuxWindow && (await p.closeFocusedAuxWindow())) return;
-          quitQueueRef.current = dirtyDocsQueue();
-          void processQuitWalk();
+          // Issue #22: one entry point — the changed-workspace prompt, then
+          // the dirty-docs walk (the same path the native close guard takes).
+          startQuitWalkRef.current();
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, openFind, openFolderCmd, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
   useEffect(() => {
-    registerRecentHandler((path) => {
+    registerRecentHandler((path, kind) => {
       void (async () => {
         const p = stateRef.current.platform;
         if (!p) return;
+        if (kind === 'workspace') {
+          // PRD 002 §D15: a recent workspace pick opens that workspace.
+          // Issue #22: replacing a changed untitled workspace prompts first.
+          if (await p.exists(path)) guardWorkspaceDiscard(() => void openWorkspaceFromPath(p, path));
+          else {
+            showNotice(`“${p.basename(path)}” is no longer there`);
+            commitRecentWs(removeRecent(recentWsRef.current, path));
+          }
+          return;
+        }
         if (await p.exists(path)) {
           openDocGuarded(p, path);
         } else {
@@ -2309,7 +2848,11 @@ export default function App() {
         }
       })();
     });
-  }, [openDocGuarded, showNotice, commitRecent]);
+  }, [openDocGuarded, showNotice, commitRecent, commitRecentWs, openWorkspaceFromPath, guardWorkspaceDiscard]);
+
+  // Issue #22: the derived three-mode model — splash | file | workspace.
+  const docOpen = docPath !== null || untitled;
+  const appMode = deriveAppMode(docOpen, wsKind);
 
   // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
   useEffect(() => {
@@ -2318,6 +2861,8 @@ export default function App() {
       buildMenuSpec({
         isMac: platform.isMac,
         mode,
+        appMode,
+        docOpen,
         splitEdit: settings.splitEdit,
         showComments,
         commentsEnabled: settings.commentsEnabled,
@@ -2329,9 +2874,11 @@ export default function App() {
         showFolders: settings.showFolders,
         openOnly: folderOpenOnly,
         recentFiles: recentMenuEntries(recent, platform.basename, platform.dirname),
+        // PRD 002 §D15: the workspaces section, same disambiguated labels.
+        recentWorkspaces: recentMenuEntries(recentWs, platform.basename, platform.dirname),
       })
     );
-  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, recent, settings.showFolders, folderOpenOnly]);
+  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, recent, recentWs, settings.showFolders, folderOpenOnly]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -2343,13 +2890,20 @@ export default function App() {
         const s = stateRef.current;
         void platform.busEmit!(
           EV_AUX_INIT,
-          buildAuxInit({ settings: s.settings, themes: s.themes, isMac: platform.isMac, version: __APP_VERSION__ })
+          buildAuxInit({
+            settings: s.settings,
+            ...currentLayerView(),
+            themes: s.themes,
+            isMac: platform.isMac,
+            version: __APP_VERSION__,
+          })
         );
       });
       const edit = await platform.busListen!(EV_SETTINGS_EDIT, (payload) => {
-        // §3.5: merge through the latest canonical state — a stale popup
-        // snapshot must never clobber splitRatio (or future panel-unedited keys).
-        updateSettings(mergeSettingsEdit(stateRef.current.settings, payload as Settings));
+        // §3.5/§E18: aux edits arrive as {scope, patch} — sanitized (known,
+        // panel-editable, scope-eligible keys only), then layer-targeted.
+        const e = sanitizeSettingsEdit(payload);
+        if (e) applySettingsEdit(e.scope, e.patch);
       });
       const req = await platform.busListen!(EV_AUX_REQUEST, (payload) => {
         const r = payload as AuxRequest;
@@ -2364,12 +2918,15 @@ export default function App() {
       disposed = true;
       offs.forEach((off) => off());
     };
-  }, [platform, updateSettings, reloadThemes]);
+  }, [platform, applySettingsEdit, currentLayerView, reloadThemes]);
 
-  // §3.5 canonical echo: every settings/themes change broadcasts, whatever its source.
+  // §3.5 canonical echo: every settings/layer change broadcasts, whatever its source.
   useEffect(() => {
-    if (platform?.busEmit) void platform.busEmit(EV_SETTINGS_CHANGED, settings);
-  }, [platform, settings]);
+    if (platform?.busEmit) {
+      const b: SettingsBroadcast = { settings, ...layerView };
+      void platform.busEmit(EV_SETTINGS_CHANGED, b);
+    }
+  }, [platform, settings, layerView]);
   useEffect(() => {
     if (platform?.busEmit) void platform.busEmit(EV_THEMES_CHANGED, themes);
   }, [platform, themes]);
@@ -2649,6 +3206,50 @@ export default function App() {
     };
   }, [mode]);
 
+  // Shared by both preview surfaces (#19): read the injected DOM's text,
+  // re-anchor every comment against it, and paint the highlight marks. If an
+  // anchor drifted, persist the refresh instead and return false — the
+  // setComments write reruns the calling effect, which highlights then.
+  const reanchorAndHighlight = useCallback(
+    (el: HTMLElement): boolean => {
+      const text = getDocText(el);
+      docTextRef.current = text;
+
+      const pos: Positions = {};
+      let changed = false;
+      const updated = comments.map((c) => {
+        const m = reanchor(c.anchor, text);
+        pos[c.id] = m;
+        if (m) {
+          const fresh = createAnchor(text, m.start, m.end);
+          if (!anchorsEqual(fresh, c.anchor)) {
+            changed = true;
+            return { ...c, anchor: fresh };
+          }
+        }
+        return c;
+      });
+      setPositions(pos);
+      if (changed) {
+        setComments(updated);
+        return false;
+      }
+      if (showComments && settings.commentsEnabled) {
+        for (const c of comments) {
+          if (c.resolved && !settings.showResolved) continue;
+          const m = pos[c.id];
+          if (m) {
+            const marks = highlightRange(el, m.start, m.end, c.id);
+            // Ghosted resolved highlights (SPEC6 §3): faint tint, still clickable.
+            if (c.resolved) marks.forEach((mk) => mk.classList.add('ghost'));
+          }
+        }
+      }
+      return true;
+    },
+    [comments, showComments, settings.showResolved, settings.commentsEnabled]
+  );
+
   // --- inject rendered doc, re-anchor, highlight ----------------------------------
   useLayoutEffect(() => {
     if (mode !== 'preview') return;
@@ -2684,45 +3285,12 @@ export default function App() {
       if (/^https?:\/\//i.test(href)) a.setAttribute('title', href);
     });
 
-    const text = getDocText(doc);
-    docTextRef.current = text;
-
-    const pos: Positions = {};
-    let changed = false;
-    const updated = comments.map((c) => {
-      const m = reanchor(c.anchor, text);
-      pos[c.id] = m;
-      if (m) {
-        const fresh = createAnchor(text, m.start, m.end);
-        if (!anchorsEqual(fresh, c.anchor)) {
-          changed = true;
-          return { ...c, anchor: fresh };
-        }
-      }
-      return c;
-    });
-    setPositions(pos);
-    if (changed) {
-      // Persist refreshed anchors; the effect reruns and highlights then.
-      setComments(updated);
-      return;
-    }
-    if (showComments && settings.commentsEnabled) {
-      for (const c of comments) {
-        if (c.resolved && !settings.showResolved) continue;
-        const m = pos[c.id];
-        if (m) {
-          const marks = highlightRange(doc, m.start, m.end, c.id);
-          // Ghosted resolved highlights (SPEC6 §3): faint tint, still clickable.
-          if (c.resolved) marks.forEach((mk) => mk.classList.add('ghost'));
-        }
-      }
-    }
+    if (!reanchorAndHighlight(doc)) return;
     injectionCompleteRef.current = true; // SPEC25 §2: this DOM is final for now
     // SPEC44 §3.2: re-derive the placement cues the re-injection wiped.
     const cue = activeCueRef.current;
     if (cue) applyActiveCues(doc, cue.head, cue.headLine, cue.hasSel);
-  }, [html, comments, showComments, mode, settings.showResolved, settings.commentsEnabled, applyActiveCues]);
+  }, [html, mode, reanchorAndHighlight, applyActiveCues]);
 
   // Into preview: once the doc is injected, map the carried line back to a
   // pixel offset (block-anchored, so code blocks don't skew it).
@@ -2826,7 +3394,9 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, findOpen, findDebounced]);
 
-  // --- split-edit live preview pane (SPEC7 §5): plain reading pane, no comments ----
+  // --- split-edit live preview pane (SPEC7 §5, issue #19): live reading pane
+  // that is also a comments surface — same re-anchor + highlight pass as the
+  // preview injection above, so highlights survive the per-keystroke rebuild.
   useLayoutEffect(() => {
     if (mode !== 'edit' || !settings.splitEdit) return;
     const el = splitDocRef.current;
@@ -2845,10 +3415,12 @@ export default function App() {
         else img.removeAttribute('src');
       });
     }
+
+    if (!reanchorAndHighlight(el)) return;
     // SPEC44 §3.2: a re-render wiped the synthetic cues — re-derive them.
     const cue = activeCueRef.current;
     if (cue) applyActiveCues(el, cue.head, cue.headLine, cue.hasSel);
-  }, [html, mode, settings.splitEdit, applyActiveCues]);
+  }, [html, mode, settings.splitEdit, reanchorAndHighlight, applyActiveCues]);
 
   // --- SPEC15: synchronized split scrolling ------------------------------------
   // Whichever pane the user scrolls leads; the other follows within a frame.
@@ -2857,7 +3429,7 @@ export default function App() {
   useEffect(() => {
     if (mode !== 'edit' || !settings.splitEdit) return;
     const docEl = splitDocRef.current;
-    const scroller = docEl?.parentElement; // .split-preview
+    const scroller = splitPreviewRef.current; // .split-preview (the doc sits in a .docwrap since #19)
     if (!docEl || !scroller) return;
 
     let anchors: SyncAnchor[] = [];
@@ -2952,7 +3524,7 @@ export default function App() {
 
   // --- active highlight styling -----------------------------------------------------
   useEffect(() => {
-    const doc = docRef.current;
+    const doc = docRef.current ?? splitDocRef.current; // split-edit hosts marks too (#19)
     if (!doc) return;
     doc.querySelectorAll<HTMLElement>('mark.hl').forEach((m) => {
       m.classList.toggle('active', m.dataset.cid === activeId);
@@ -2964,7 +3536,7 @@ export default function App() {
   // Active: the active card anchors level with its highlight (Word behavior);
   // earlier cards stack upward above it, later ones downward.
   useLayoutEffect(() => {
-    const doc = docRef.current;
+    const doc = docRef.current ?? splitDocRef.current; // split-edit hosts marks too (#19)
     const panel = panelRef.current;
     if (!doc || !panel) return;
     const panelTop = panel.getBoundingClientRect().top;
@@ -3052,11 +3624,13 @@ export default function App() {
   }, [mode, settings.splitEdit, sourceRangeFromDomSelection]);
 
   // --- selection → floating "Add comment" button ---------------------------------------
+  // Preview mode and the split-edit preview pane both host selections (#19).
   useEffect(() => {
-    if (mode !== 'preview') return;
+    const inSplit = mode === 'edit' && settings.splitEdit;
+    if (mode !== 'preview' && !inSplit) return;
     const onSelection = () => {
       const sel = document.getSelection();
-      const doc = docRef.current;
+      const doc = inSplit ? splitDocRef.current : docRef.current;
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed || !doc) {
         setSelInfo((prev) => (prev === null ? prev : null));
         return;
@@ -3075,8 +3649,12 @@ export default function App() {
       setSelInfo({ start, end, x: rect.left + rect.width / 2, y: rect.top });
     };
     document.addEventListener('selectionchange', onSelection);
-    return () => document.removeEventListener('selectionchange', onSelection);
-  }, [mode]);
+    return () => {
+      document.removeEventListener('selectionchange', onSelection);
+      // A surface swap (mode/split toggle) orphans the old selection's button.
+      setSelInfo((prev) => (prev === null ? prev : null));
+    };
+  }, [mode, settings.splitEdit]);
 
   // --- comment operations -----------------------------------------------------------
   const startComposer = (seed = '') => {
@@ -3150,7 +3728,7 @@ export default function App() {
 
   const handleCardActivate = (id: string) => {
     setActiveId(id);
-    const doc = docRef.current;
+    const doc = docRef.current ?? splitDocRef.current; // split-edit hosts marks too (#19)
     if (!doc) return;
     const marks = Array.from(doc.querySelectorAll<HTMLElement>(`mark.hl[data-cid="${CSS.escape(id)}"]`));
     if (marks.length === 0) return;
@@ -3180,12 +3758,92 @@ export default function App() {
     items.splice(at, 0, { kind: 'composer' });
   }
 
+  // Comments live on whichever preview surface is up: full preview or the
+  // split-edit live preview (#19).
+  const commentSurfaceUp = mode === 'preview' || (mode === 'edit' && settings.splitEdit);
+
   const panelVisible =
-    mode === 'preview' && showComments && settings.commentsEnabled && (comments.length > 0 || pending !== null);
+    commentSurfaceUp && showComments && settings.commentsEnabled && (comments.length > 0 || pending !== null);
 
   // Navigator pill label, frozen across the fade-out (SPEC14 §3.5).
   const navIdx = activeId ? open.findIndex((c) => c.id === activeId) : -1;
   if (navIdx >= 0) navLabelRef.current = `${navIdx + 1} / ${open.length}`;
+
+  // One panel, two hosts (#19): the preview margin and the split preview pane.
+  // Only one renders at a time, so the shared panelRef stays unambiguous.
+  const panelAside = panelVisible ? (
+    <aside className="panel" data-testid="panel" ref={panelRef}>
+      {items.map((it) =>
+        it.kind === 'composer' ? (
+          <div className="card composer" data-flowcard="__composer" data-testid="composer" key="__composer">
+            <textarea
+              data-testid="composer-input"
+              placeholder="Add a comment…"
+              autoFocus
+              value={draft}
+              // Type-to-comment seeds the draft; the caret belongs after it.
+              onFocus={(e) => {
+                const n = e.currentTarget.value.length;
+                e.currentTarget.setSelectionRange(n, n);
+              }}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  submitComment();
+                } else if (e.key === 'Escape') {
+                  setPending(null);
+                  setDraft('');
+                }
+              }}
+            />
+            <div className="row">
+              <button data-testid="composer-submit" onClick={submitComment}>
+                Comment
+              </button>
+              <button
+                onClick={() => {
+                  setPending(null);
+                  setDraft('');
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <CommentCard
+            key={it.c.id}
+            comment={it.c}
+            author={settings.author}
+            orphaned={positions[it.c.id] === null}
+            active={activeId === it.c.id}
+            ghost={it.ghost}
+            onActivate={handleCardActivate}
+            onUpdate={updateComment}
+            onDelete={deleteComment}
+          />
+        )
+      )}
+      {!settings.showResolved && resolved.length > 0 && (
+        <details className="resolved-section" data-testid="resolved-section" data-flowcard="__resolved">
+          <summary>Resolved ({resolved.length})</summary>
+          {resolved.map((c) => (
+            <CommentCard
+              key={c.id}
+              comment={c}
+              author={settings.author}
+              orphaned={positions[c.id] === null}
+              active={activeId === c.id}
+              onActivate={(id) => setActiveId(id)}
+              onUpdate={updateComment}
+              onDelete={deleteComment}
+            />
+          ))}
+        </details>
+      )}
+    </aside>
+  ) : null;
 
   if (!platform) return <div className="theme-root" />;
 
@@ -3252,9 +3910,10 @@ export default function App() {
       )}
 
       <div className="body-row">
-        {platform.readDirEntries && platform.openFolderDialog && settings.showFolders && (
+        {/* Issue #22: the folder sidebar is a workspace-mode surface only. */}
+        {platform.readDirEntries && platform.openFolderDialog && settings.showFolders && appMode === 'workspace' && (
           <FolderPanel
-            root={folderRoot}
+            roots={folderRoots}
             children={folderChildren}
             expanded={folderExpanded}
             selectedPath={docPath}
@@ -3352,79 +4011,7 @@ export default function App() {
               }}
             />
           </div>
-          {panelVisible && (
-            <aside className="panel" data-testid="panel" ref={panelRef}>
-              {items.map((it) =>
-                it.kind === 'composer' ? (
-                  <div className="card composer" data-flowcard="__composer" data-testid="composer" key="__composer">
-                    <textarea
-                      data-testid="composer-input"
-                      placeholder="Add a comment…"
-                      autoFocus
-                      value={draft}
-                      // Type-to-comment seeds the draft; the caret belongs after it.
-                      onFocus={(e) => {
-                        const n = e.currentTarget.value.length;
-                        e.currentTarget.setSelectionRange(n, n);
-                      }}
-                      onChange={(e) => setDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          submitComment();
-                        } else if (e.key === 'Escape') {
-                          setPending(null);
-                          setDraft('');
-                        }
-                      }}
-                    />
-                    <div className="row">
-                      <button data-testid="composer-submit" onClick={submitComment}>
-                        Comment
-                      </button>
-                      <button
-                        onClick={() => {
-                          setPending(null);
-                          setDraft('');
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <CommentCard
-                    key={it.c.id}
-                    comment={it.c}
-                    author={settings.author}
-                    orphaned={positions[it.c.id] === null}
-                    active={activeId === it.c.id}
-                    ghost={it.ghost}
-                    onActivate={handleCardActivate}
-                    onUpdate={updateComment}
-                    onDelete={deleteComment}
-                  />
-                )
-              )}
-              {!settings.showResolved && resolved.length > 0 && (
-                <details className="resolved-section" data-testid="resolved-section" data-flowcard="__resolved">
-                  <summary>Resolved ({resolved.length})</summary>
-                  {resolved.map((c) => (
-                    <CommentCard
-                      key={c.id}
-                      comment={c}
-                      author={settings.author}
-                      orphaned={positions[c.id] === null}
-                      active={activeId === c.id}
-                      onActivate={(id) => setActiveId(id)}
-                      onUpdate={updateComment}
-                      onDelete={deleteComment}
-                    />
-                  ))}
-                </details>
-              )}
-            </aside>
-          )}
+          {panelAside}
         </div>
       ) : settings.splitEdit ? (
         <div
@@ -3485,10 +4072,23 @@ export default function App() {
               if (ae?.closest('.editor-wrap')) ae.blur();
             }}
           >
-            {frontMatter && showFrontmatter && (
-              <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
-            )}
-            <div className="doc" ref={splitDocRef} onClick={(e) => placeFromPreviewClick(splitDocRef.current, e)} />
+            <div className="docwrap">
+              {frontMatter && showFrontmatter && (
+                <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
+              )}
+              <div
+                className="doc"
+                ref={splitDocRef}
+                onClick={(e) => {
+                  // Highlights activate their card here too (#19).
+                  const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
+                  if (mark?.dataset.cid && showComments) handleMarkClick(mark.dataset.cid);
+                  else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
+                  placeFromPreviewClick(splitDocRef.current, e);
+                }}
+              />
+            </div>
+            {panelAside}
           </div>
         </div>
       ) : (
@@ -3530,7 +4130,7 @@ export default function App() {
 
       </div>
 
-      {selInfo && showComments && settings.commentsEnabled && !pending && mode === 'preview' && (
+      {selInfo && showComments && settings.commentsEnabled && !pending && commentSurfaceUp && (
         <button
           className="add-comment-btn"
           data-testid="add-comment-btn"
@@ -3564,6 +4164,10 @@ export default function App() {
           onJump={(h) => {
             const s = stateRef.current;
             if (s.mode === 'edit') {
+              // Cancel any in-flight mode-switch scroll restore — its retry
+              // loop would otherwise yank the viewport back to the carried
+              // line and swallow this jump on slow machines.
+              pendingScrollLineRef.current = null;
               editorSyncRef.current?.scrollToLine(h.line);
               return;
             }
@@ -3599,11 +4203,14 @@ export default function App() {
       {!platform.openAuxWindow && settingsOpen && (
         <SettingsPanel
           settings={settings}
+          layers={layerView.layers}
+          workspaceOpen={layerView.workspaceOpen}
+          scopeSelector={platform.kind !== 'web'}
           themes={themes}
           isMac={platform.isMac}
           storageLocked={platform.kind === 'web'}
           autoHideAvailable={!nativeMenu}
-          onChange={updateSettings}
+          onEdit={applySettingsEdit}
           onReloadThemes={() => void reloadThemes()}
           onImportTheme={
             platform.importTheme
@@ -3647,7 +4254,7 @@ export default function App() {
               before{' '}
               {openPrompt.kind === 'open'
                 ? `opening “${platform.basename(openPrompt.path)}”`
-                : openPrompt.kind === 'close-file'
+                : openPrompt.kind === 'close-file' || openPrompt.kind === 'close-untitled'
                   ? 'closing it'
                   : 'starting a new file'}
               ?
@@ -3663,6 +4270,7 @@ export default function App() {
                   setOpenPrompt(null);
                   if (intent.kind === 'open') void openReplacing(platform, intent.path);
                   else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
+                  else if (intent.kind === 'close-untitled') closeToSplash(); // issue #22
                   else startUntitled();
                 }}
               >
@@ -3678,7 +4286,13 @@ export default function App() {
                   if (!(await saveDoc())) return;
                   if (intent.kind === 'open') void openReplacing(platform, intent.path);
                   else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
-                  else startUntitled();
+                  else if (intent.kind === 'close-untitled') {
+                    // Issue #22: the untitled buffer just became a real file
+                    // (Save As ran inside saveDoc) — now close it for real.
+                    const saved = stateRef.current.docPath;
+                    if (saved) finishCloseFile(platform, saved);
+                    else closeToSplash();
+                  } else startUntitled();
                 }}
               >
                 Save
@@ -3760,6 +4374,57 @@ export default function App() {
         </div>
       )}
 
+      {/* Issue #22: a changed untitled workspace is about to be discarded —
+          Save runs Save Workspace As… (its dialog cancelling aborts), Cancel
+          aborts the whole operation, Don't Save proceeds. */}
+      {wsClosePrompt && (
+        <div className="overlay">
+          <div className="modal" data-testid="ws-close-prompt">
+            <h2>Save workspace?</h2>
+            <p style={{ fontSize: 13.5 }}>
+              This workspace has unsaved changes (its folders or workspace settings). Save it as a workspace file
+              before closing?
+            </p>
+            <div className="actions">
+              <button
+                data-testid="ws-close-cancel"
+                onClick={() => {
+                  wsCloseResumeRef.current = null;
+                  setWsClosePrompt(false);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                data-testid="ws-close-discard"
+                onClick={() => {
+                  const go = wsCloseResumeRef.current;
+                  wsCloseResumeRef.current = null;
+                  setWsClosePrompt(false);
+                  go?.();
+                }}
+              >
+                Don’t save
+              </button>
+              <button
+                className="primary"
+                data-testid="ws-close-save"
+                onClick={async () => {
+                  const go = wsCloseResumeRef.current;
+                  wsCloseResumeRef.current = null;
+                  setWsClosePrompt(false);
+                  // A cancelled Save Workspace As… dialog aborts the close.
+                  if (!(await saveWorkspaceAsCmd())) return;
+                  go?.();
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {closePrompt && (
         <div className="overlay">
           <div className="modal" data-testid="close-prompt">
@@ -3772,8 +4437,10 @@ export default function App() {
               <button
                 data-testid="close-cancel"
                 onClick={() => {
-                  // SPEC36 §7.1: Cancel aborts the ENTIRE quit walk.
+                  // SPEC36 §7.1: Cancel aborts the ENTIRE quit walk — and any
+                  // borrowed finish (issue #22: Close Workspace stays open).
                   quitQueueRef.current = null;
+                  quitDoneRef.current = null;
                   setClosePrompt(false);
                 }}
               >
@@ -3806,6 +4473,7 @@ export default function App() {
                   const q = quitQueueRef.current;
                   if (!ok) {
                     quitQueueRef.current = null; // aborted walk — everything stays
+                    quitDoneRef.current = null; // issue #22: borrowed finish too
                     return;
                   }
                   if (q) {
