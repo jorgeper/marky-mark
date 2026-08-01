@@ -65,3 +65,32 @@ describe("timed", () => {
     );
   });
 });
+
+describe("heartbeat", () => {
+  it("prints a still-running line for active phases every two minutes", async () => {
+    vi.useFakeTimers();
+    const lines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((line: string) => {
+      lines.push(line);
+    });
+    const path = setup();
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const running = timed("implementer", { issue: 22 }, () => gate, path);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(
+      lines.some((l) => /⏳ still running: implementer\(issue=22\) \d+\.\dm/.test(l)),
+    ).toBe(true);
+
+    release();
+    await running;
+    lines.length = 0;
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(lines.some((l) => l.includes("still running"))).toBe(false);
+    vi.useRealTimers();
+  });
+});

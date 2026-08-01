@@ -35,10 +35,44 @@ export const appendTiming = (
   }
 };
 
+// Heartbeat: while any phase is active, print a "still running" line every
+// two minutes. Long parallel phases (a 20-minute implementer) otherwise
+// leave the console silent, which reads as a hang — and has been "fixed"
+// by killing live agents. The interval is unref'd so it never keeps the
+// process alive on its own.
+const HEARTBEAT_MS = 120_000;
+const activePhases = new Map<string, { readonly label: string; readonly start: number }>();
+let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+
+const printHeartbeat = (): void => {
+  if (activePhases.size === 0) return;
+  const parts = [...activePhases.values()].map(
+    ({ label, start }) => `${label} ${((Date.now() - start) / 60000).toFixed(1)}m`,
+  );
+  logStep(`⏳ still running: ${parts.join(", ")}`);
+};
+
+const trackPhase = (key: string, label: string): void => {
+  activePhases.set(key, { label, start: Date.now() });
+  if (heartbeatTimer === undefined) {
+    heartbeatTimer = setInterval(printHeartbeat, HEARTBEAT_MS);
+    heartbeatTimer.unref?.();
+  }
+};
+
+const untrackPhase = (key: string): void => {
+  activePhases.delete(key);
+  if (activePhases.size === 0 && heartbeatTimer !== undefined) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = undefined;
+  }
+};
+
 /**
  * Run `fn`, logging a timestamped start/finish pair to the console and
  * appending a `TimingEntry` to the timings file. `meta` (issue/PR numbers,
  * models) is spread into both the console line and the JSONL entry.
+ * While any phase is active, a heartbeat line lists them every 2 minutes.
  */
 export const timed = async <T extends unknown>(
   phase: string,
@@ -51,6 +85,9 @@ export const timed = async <T extends unknown>(
     .join(" ");
   logStep(`▶ ${phase} started${metaText ? ` (${metaText})` : ""}`);
   const start = Date.now();
+  const phaseLabel = `${phase}${metaText ? `(${metaText})` : ""}`;
+  const phaseKey = `${phaseLabel}#${start}`;
+  trackPhase(phaseKey, phaseLabel);
   let ok = true;
   try {
     return await fn();
@@ -58,6 +95,7 @@ export const timed = async <T extends unknown>(
     ok = false;
     throw error;
   } finally {
+    untrackPhase(phaseKey);
     const ms = Date.now() - start;
     logStep(
       `■ ${phase} ${ok ? "finished" : "failed"} in ${(ms / 1000).toFixed(1)}s${metaText ? ` (${metaText})` : ""}`,
