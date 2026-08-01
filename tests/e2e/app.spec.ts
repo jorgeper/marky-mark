@@ -328,7 +328,17 @@ test('E15: embedded mode — comments autosave into an invisible trailer, sideca
   await addComment(page, PHRASE, 'Embedded note');
   await waitForSidecar(page, (s) => !!s && s.includes('Embedded note'));
 
+  // PRD 002 §B5/§E18: comment storage is workspace-scoped — open an untitled
+  // workspace, then switch the storage in the panel's Workspace scope.
+  await seedFolders(page);
+  await page.keyboard.press('Control+Shift+E');
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
   await openSettings(page, 'general');
+  await expect(page.getByTestId('comment-storage')).toBeDisabled(); // W key: locked in User scope
+  await page.getByTestId('settings-scope-workspace').click();
   await page.getByTestId('comment-storage').selectOption('embedded');
   await page.getByTestId('settings-close').click();
 
@@ -355,7 +365,17 @@ test('E15: embedded mode — comments autosave into an invisible trailer, sideca
 });
 
 test('E16: embedded autosave never flushes unsaved text edits; explicit save writes both', async ({ page }) => {
+  // PRD 002 §B5/§E18: comment storage is workspace-scoped — open an untitled
+  // workspace, then switch the storage in the panel's Workspace scope.
+  await seedFolders(page);
+  await page.keyboard.press('Control+Shift+E');
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
   await openSettings(page, 'general');
+  await expect(page.getByTestId('comment-storage')).toBeDisabled(); // W key: locked in User scope
+  await page.getByTestId('settings-scope-workspace').click();
   await page.getByTestId('comment-storage').selectOption('embedded');
   await page.getByTestId('settings-close').click();
 
@@ -1316,13 +1336,15 @@ test('E49: the auto-hide toolbar setting is absent under native menus, present o
   await sp.getByTestId('settings-tab-general').click();
   await expect(sp.getByTestId('settings-line-numbers')).toBeVisible();
   await expect(sp.getByTestId('settings-autohide')).toHaveCount(0);
-  // Force a settings write; the autoHideToolbar key must survive it (SPEC12 §4.2).
-  // Persistence still goes through the main window — the sole settings owner.
+  // Force a settings write; other keys must survive it (SPEC12 §4.2). Since
+  // PRD 002 §E18, settings.json is the sparse User LAYER — the edit patches
+  // lineNumbers in and leaves the seeded paneMinWidth untouched.
   await sp.getByTestId('settings-line-numbers').click();
   await expect
     .poll(async () => {
       const raw = await fsRead(page, '/config/settings.json');
-      return raw ? 'autoHideToolbar' in (JSON.parse(raw) as Record<string, unknown>) : false;
+      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      return parsed.lineNumbers === false && parsed.paneMinWidth === 240;
     })
     .toBe(true);
   await sp.close();
@@ -2110,15 +2132,27 @@ test('E72: a second paste numbers {n}=2; pasting into an untitled buffer shows t
 test('E73: the Editor settings tab holds the image fields — defaults, live example, folder validation, persistence', async ({
   page,
 }) => {
+  // PRD 002 §B5/§E18: the image fields are W-scoped — open an untitled
+  // workspace so the panel's Workspace scope can edit them.
+  await seedFolders(page);
+  await page.keyboard.press('Control+Shift+E');
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-open-btn').click();
   await openSettings(page, 'general');
   await page.getByTestId('settings-tab-editor').click();
 
-  // Defaults per SPEC20 §1.
+  // Defaults per SPEC20 §1 — shown but locked in User scope (§E19).
   await expect(page.getByTestId('image-folder')).toHaveValue('images');
+  await expect(page.getByTestId('image-folder')).toBeDisabled();
   await expect(page.getByTestId('image-pattern')).toHaveValue('{doc} {n}');
+  await expect(page.getByTestId('image-pattern')).toBeDisabled();
+  await expect(page.getByTestId('scope-note-imageFolder')).toContainText('Workspace');
   await expect(page.getByTestId('image-pattern-example')).toContainText('welcome 1.png');
 
-  // The example tracks the pattern live.
+  // Workspace scope: same fields, editable; the example tracks the pattern live.
+  await page.getByTestId('settings-scope-workspace').click();
   await page.getByTestId('image-pattern').fill('img-{n}');
   await expect(page.getByTestId('image-pattern-example')).toContainText('img-1.png');
 
@@ -2130,8 +2164,11 @@ test('E73: the Editor settings tab holds the image fields — defaults, live exa
   await expect(page.getByTestId('image-folder-error')).toHaveCount(0);
 
   await page.getByTestId('settings-close').click();
-  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"imageFolder": "assets"');
-  expect(await fsRead(page, '/config/settings.json')).toContain('"imageNamePattern": "img-{n}"');
+  // §E18 layer-targeted writes: the untitled workspace's session slot gets
+  // the values; the User layer (settings.json) never does.
+  await expect.poll(() => fsRead(page, '/config/session/untitled.json')).toContain('"imageFolder": "assets"');
+  expect(await fsRead(page, '/config/session/untitled.json')).toContain('"imageNamePattern": "img-{n}"');
+  expect((await fsRead(page, '/config/settings.json')) ?? '').not.toContain('imageFolder');
 });
 
 // E74–E75 retired by SPEC41 §4 — the preview-pane resizer is gone (resize

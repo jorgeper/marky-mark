@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getPlatform, type Platform } from './platform';
 import {
   buildAuxInit,
@@ -8,13 +8,12 @@ import {
   EV_SETTINGS_CHANGED,
   EV_SETTINGS_EDIT,
   EV_THEMES_CHANGED,
-  mergeSettingsEdit,
-  settingsEqual,
   type AuxInit,
   type AuxKind,
   type AuxRequest,
+  type SettingsBroadcast,
+  type SettingsEdit,
 } from './lib/auxProtocol';
-import type { Settings } from './lib/settings';
 import type { Theme } from './lib/themes';
 import { applyThemeCss } from './themeRuntime';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -32,8 +31,6 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [init, setInit] = useState<AuxInit | null>(null);
   const [prefersDark, setPrefersDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
-  const canonicalRef = useRef<Settings | null>(null);
-  canonicalRef.current = init?.settings ?? null;
 
   useEffect(() => {
     let disposed = false;
@@ -45,7 +42,7 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
       offs.push(await p.busListen(EV_AUX_INIT, (payload) => setInit(buildAuxInit(payload as AuxInit))));
       offs.push(
         await p.busListen(EV_SETTINGS_CHANGED, (payload) =>
-          setInit((i) => (i ? { ...i, settings: payload as Settings } : i))
+          setInit((i) => (i ? { ...i, ...(payload as SettingsBroadcast) } : i))
         )
       );
       offs.push(
@@ -106,16 +103,18 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
         <SettingsPanel
           frameless
           settings={init.settings}
+          layers={init.layers}
+          workspaceOpen={init.workspaceOpen}
+          scopeSelector
           themes={init.themes}
           isMac={init.isMac}
           storageLocked={false}
           autoHideAvailable={false}
-          onChange={(next) => {
-            const canonical = canonicalRef.current ?? init.settings;
-            const merged = mergeSettingsEdit(canonical, next);
-            if (settingsEqual(merged, canonical)) return; // no-echo guard (§3.5)
-            setInit((i) => (i ? { ...i, settings: merged } : i)); // optimistic; broadcast confirms
-            void platform.busEmit!(EV_SETTINGS_EDIT, merged);
+          onEdit={(scope, patch) => {
+            // §E18: only the changed keys travel, tagged with the target
+            // layer; the main window persists and echoes the canonical state.
+            const edit: SettingsEdit = { scope, patch };
+            void platform.busEmit!(EV_SETTINGS_EDIT, edit);
           }}
           onReloadThemes={() => request({ req: 'reloadThemes' })}
           onRevealThemesDir={() => request({ req: 'revealThemesDir' })}
