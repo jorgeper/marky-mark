@@ -36,6 +36,25 @@ import {
   visibleEntries,
   type DirEntry,
 } from './lib/folderTree';
+import {
+  adoptLegacyFolderState,
+  CURRENT_POINTER_FILE,
+  openFolderWorkspace,
+  parseWorkspaceFile,
+  parseWorkspacePointer,
+  parseWorkspaceSession,
+  serializeWorkspaceFile,
+  serializeWorkspacePointer,
+  serializeWorkspaceSession,
+  SESSION_DIR_NAME,
+  sessionKeyForWorkspaceFile,
+  sessionToFolderState,
+  UNTITLED_SLOT_FILE,
+  workspaceFolderPaths,
+  workspaceFromFile,
+  type Workspace,
+  type WorkspaceSession,
+} from './lib/workspace';
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
 import { relativePath, remapPath, uniqueChildName } from './lib/folderOps';
 import { FolderPanel } from './components/FolderPanel';
@@ -896,6 +915,9 @@ export default function App() {
     openOnly: false,
   });
 
+  /** PRD 002 §C7: the single current workspace (none | untitled | named). */
+  const curWorkspaceRef = useRef<Workspace>({ kind: 'none' });
+
   const persistFolderState = useCallback((platformNow?: Platform) => {
     const p = platformNow ?? stateRef.current.platform;
     if (!p) return;
@@ -905,10 +927,12 @@ export default function App() {
     // ignored, not cleared — so flipping back on revives them.
     const restoring = stateRef.current.settings.restoreOpenFiles && stateRef.current.settings.reopenLastDoc;
     const open = restoring ? { files: openFilesRef.current, active: activeFileRef.current } : dormantOpenRef.current;
+    const ws = curWorkspaceRef.current;
     void (async () => {
       try {
+        const cfg = await p.configDir();
         await p.writeTextFile(
-          p.join(await p.configDir(), 'foldertree.json'),
+          p.join(cfg, 'foldertree.json'),
           serializeFolderState({
             version: 1,
             root: st.root,
@@ -919,11 +943,65 @@ export default function App() {
             openOnly: st.openOnly,
           })
         );
+        // PRD 002 §B6/§F22: the same state is the current workspace's own
+        // machine-local session store, keyed under <configDir>/session/ so
+        // one workspace's tabs never leak into another's (or any shareable
+        // file). foldertree.json above stays as the legacy mirror.
+        if (ws.kind !== 'none') {
+          const dir = p.join(cfg, SESSION_DIR_NAME);
+          await p.mkdirp(dir);
+          const session: WorkspaceSession = {
+            version: 1,
+            folders: ws.folders.map((f) => f.path),
+            expanded: [...st.expanded],
+            showNonMd: st.showNonMd,
+            openFiles: open.files,
+            activeFile: open.active,
+            openOnly: st.openOnly,
+            // §C11: the untitled slot also carries the workspace settings.
+            ...(ws.kind === 'untitled' ? { settings: ws.settings } : {}),
+          };
+          const slot = ws.kind === 'untitled' ? UNTITLED_SLOT_FILE : `${sessionKeyForWorkspaceFile(ws.file)}.json`;
+          await p.writeTextFile(p.join(dir, slot), serializeWorkspaceSession(session));
+          // §C13: remember which workspace to reopen at launch.
+          await p.writeTextFile(p.join(dir, CURRENT_POINTER_FILE), serializeWorkspacePointer(ws));
+        }
       } catch {
         /* best effort */
       }
     })();
   }, []);
+
+  /**
+   * PRD 002 §C11–§C12: apply a workspace transition and autosave its stores —
+   * a named workspace writes membership/settings back to its .marky-workspace
+   * file (no explicit Save command, never session state); converting untitled
+   * → named clears the single current-untitled slot. #16's menu flows (Add
+   * Folder / Open Workspace / Save Workspace As) call this same seam.
+   */
+  const updateWorkspace = useCallback(
+    (next: Workspace, platformNow?: Platform) => {
+      const prev = curWorkspaceRef.current;
+      curWorkspaceRef.current = next;
+      const p = platformNow ?? stateRef.current.platform;
+      if (!p) return;
+      void (async () => {
+        try {
+          if (next.kind === 'named') {
+            await p.writeTextFile(next.file, serializeWorkspaceFile(next, p.dirname(next.file)));
+          }
+          if (prev.kind === 'untitled' && next.kind === 'named') {
+            const slot = p.join(await p.configDir(), SESSION_DIR_NAME, UNTITLED_SLOT_FILE);
+            if (await p.exists(slot)) await p.remove(slot);
+          }
+        } catch {
+          /* best effort */
+        }
+      })();
+      persistFolderState(platformNow);
+    },
+    [persistFolderState]
+  );
 
   /** SPEC36: the single write path for the open set — refs, state, disk. */
   const commitOpenSet = useCallback(
@@ -1498,8 +1576,59 @@ export default function App() {
         }
         return undefined;
       };
+      // PRD 002 §C13 + §G24: load the current workspace (named file or the
+      // untitled slot) with its machine-local session state. All reads are
+      // corruption-tolerant; any failure lands in the no-workspace state.
+      let bootWs: Workspace = { kind: 'none' };
+      let bootSession: WorkspaceSession | null = null;
+      let hadPointer = false;
+      if (p.readDirEntries) {
+        try {
+          const sessionDir = p.join(cfg, SESSION_DIR_NAME);
+          const ptrPath = p.join(sessionDir, CURRENT_POINTER_FILE);
+          hadPointer = await p.exists(ptrPath);
+          const ptr = hadPointer ? parseWorkspacePointer(await p.readTextFile(ptrPath)) : null;
+          if (ptr?.kind === 'named' && (await p.exists(ptr.file))) {
+            const data = parseWorkspaceFile(await p.readTextFile(ptr.file));
+            // §C10: unreachable folders stay in the model, flagged for the UI.
+            const unavailable = new Set<string>();
+            for (const f of workspaceFolderPaths(data, ptr.file)) if (!(await p.exists(f))) unavailable.add(f);
+            bootWs = workspaceFromFile(data, ptr.file, unavailable);
+            const sPath = p.join(sessionDir, `${sessionKeyForWorkspaceFile(ptr.file)}.json`);
+            bootSession = (await p.exists(sPath)) ? parseWorkspaceSession(await p.readTextFile(sPath)) : null;
+            if (bootSession && bootWs.kind === 'named') bootSession.folders = bootWs.folders.map((f) => f.path);
+            if (!bootSession && bootWs.kind === 'named') {
+              bootSession = {
+                version: 1,
+                folders: bootWs.folders.map((f) => f.path),
+                expanded: [],
+                showNonMd: false,
+                openFiles: [],
+                activeFile: null,
+                openOnly: false,
+              };
+            }
+          } else if (ptr?.kind === 'untitled') {
+            const uPath = p.join(sessionDir, UNTITLED_SLOT_FILE);
+            if (await p.exists(uPath)) {
+              const slot = parseWorkspaceSession(await p.readTextFile(uPath));
+              if (slot.folders.length > 0) {
+                const folders: Array<{ path: string; available: boolean }> = [];
+                for (const f of slot.folders) folders.push({ path: f, available: await p.exists(f) });
+                bootWs = { kind: 'untitled', folders, settings: slot.settings ?? {} };
+                bootSession = slot;
+              }
+            }
+          }
+        } catch {
+          /* no workspace */
+        }
+      }
       let loaded = resolveSettings({
         global: await readSettingsLayer('global-settings.json'),
+        // §B5/§F22: a current workspace's settings feed the Workspace layer;
+        // with none current, resolution is unchanged from today.
+        workspace: bootWs.kind === 'none' ? undefined : bootWs.settings,
         user: await readSettingsLayer('settings.json'),
       });
       if (p.kind === 'web') {
@@ -1531,22 +1660,39 @@ export default function App() {
         /* start empty */
       }
 
-      // SPEC34 §2.3: folder sidebar state, same tolerance.
+      // SPEC34 §2.3: folder sidebar state, same tolerance. The current
+      // workspace's own session state wins (§B6); with no session pointer yet,
+      // the legacy foldertree.json is read as before — and a single existing
+      // root is silently adopted as an untitled workspace (§G24). The
+      // adoption is a pure read: neither settings.json nor foldertree.json is
+      // rewritten or deleted.
       // SPEC36 §8: the persisted open set rides along — parked in dormantOpenRef
       // until the restore decision below (never restored eagerly here).
       try {
-        const ftPath = p.join(cfg, 'foldertree.json');
-        if (p.readDirEntries && (await p.exists(ftPath))) {
-          const ft = parseFolderState(await p.readTextFile(ftPath));
-          const expanded = new Set(ft.expanded);
-          folderStateRef.current = { root: ft.root, expanded, showNonMd: ft.showNonMd, openOnly: ft.openOnly ?? false };
-          dormantOpenRef.current = { files: ft.openFiles ?? [], active: ft.activeFile ?? null };
-          setFolderRoot(ft.root);
-          setFolderExpanded(expanded);
-          setFolderShowNonMd(ft.showNonMd);
-          setFolderOpenOnly(ft.openOnly ?? false); // §5.5: view state restores regardless
-          if (loaded.showFolders && ft.root) {
-            for (const dir of [ft.root, ...ft.expanded]) void listFolderDir(p, dir);
+        if (p.readDirEntries) {
+          let ft = bootSession ? sessionToFolderState(bootSession) : null;
+          if (!ft && bootWs.kind === 'none') {
+            const ftPath = p.join(cfg, 'foldertree.json');
+            if (await p.exists(ftPath)) {
+              ft = parseFolderState(await p.readTextFile(ftPath));
+              if (!hadPointer) {
+                const adopted = adoptLegacyFolderState(ft);
+                if (adopted) bootWs = adopted.workspace;
+              }
+            }
+          }
+          curWorkspaceRef.current = bootWs;
+          if (ft) {
+            const expanded = new Set(ft.expanded);
+            folderStateRef.current = { root: ft.root, expanded, showNonMd: ft.showNonMd, openOnly: ft.openOnly ?? false };
+            dormantOpenRef.current = { files: ft.openFiles ?? [], active: ft.activeFile ?? null };
+            setFolderRoot(ft.root);
+            setFolderExpanded(expanded);
+            setFolderShowNonMd(ft.showNonMd);
+            setFolderOpenOnly(ft.openOnly ?? false); // §5.5: view state restores regardless
+            if (loaded.showFolders && ft.root) {
+              for (const dir of [ft.root, ...ft.expanded]) void listFolderDir(p, dir);
+            }
           }
         }
       } catch {
@@ -1748,12 +1894,14 @@ export default function App() {
     setFolderExpanded(expanded);
     setFolderChildren({});
     folderStateRef.current = { ...folderStateRef.current, root: picked, expanded };
-    persistFolderState(p);
+    // PRD 002 §C8: opening a folder starts a fresh untitled workspace holding
+    // that one folder (a new untitled overwrites the slot, §C11).
+    updateWorkspace(openFolderWorkspace(curWorkspaceRef.current, picked), p);
     await listFolderDir(p, picked);
     if (!stateRef.current.settings.showFolders) {
       updateSettings({ ...stateRef.current.settings, showFolders: true });
     }
-  }, [listFolderDir, persistFolderState, updateSettings]);
+  }, [listFolderDir, updateWorkspace, updateSettings]);
 
   // --- actions -----------------------------------------------------------------
   /**
