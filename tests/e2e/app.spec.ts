@@ -5281,3 +5281,74 @@ test('E129: split edit — highlights + panel in the live pane, comment from a s
   // Padding fix, split mode: same clear gap to the window's right border.
   expect(await gapTo()).toBeGreaterThanOrEqual(16);
 });
+
+test('E130: comment boxes keep a clear right-edge gap — every surface and state, both hosts, even an overflowing split pane (#20)', async ({
+  page,
+}) => {
+  // Measured geometry, not stylesheet trust (#20 was filed right after the
+  // #19 CSS fix merged): the box's rendered right edge must clear the
+  // window's right border by ≥16px (target 24px), never sit flush.
+  const gapOf = async (testId: string) => {
+    const box = (await page.getByTestId(testId).first().boundingBox())!;
+    return (await page.evaluate(() => window.innerWidth)) - (box.x + box.width);
+  };
+
+  // Full preview: idle card.
+  await addComment(page, PHRASE, 'gap probe');
+  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
+
+  // Active card.
+  await page.getByTestId('comment-card').first().click();
+  await expect(page.getByTestId('comment-card').first()).toHaveClass(/active/);
+  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
+
+  // Open composer.
+  await selectPhrase(page, 'markdown itself stays untouched');
+  await page.getByTestId('add-comment-btn').click();
+  await expect(page.getByTestId('composer')).toBeVisible();
+  expect(await gapOf('composer')).toBeGreaterThanOrEqual(16);
+  await page.keyboard.press('Escape');
+
+  // Collapsed resolved section (show-resolved off), plus a live card beside it.
+  await page.getByTestId('comment-card').first().click();
+  await page.getByTestId('resolve-btn').click();
+  await openSettings(page, 'general');
+  await page.getByTestId('show-resolved').uncheck();
+  await page.getByTestId('settings-close').click();
+  await addComment(page, 'markdown itself stays untouched', 'second note');
+  await expect(page.getByTestId('resolved-section')).toBeVisible();
+  expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+  // Expanded resolved section too.
+  await page.getByTestId('resolved-section').locator('summary').click();
+  expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+
+  // Split-edit host at the suite's pinned pane floor (fits without overflow).
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').check();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
+  expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+
+  // The #20 repro: the shipped paneMinWidth (768px) makes the split pane's
+  // content (doc floor + 300px panel) overflow sideways at this 1280px
+  // window; the panel used to scroll out past the window border, cards
+  // clipped flush against it. Sticky-pinned now: the gap must hold.
+  await waitForSidecar(page, (s) => !!s && s.includes('second note'));
+  await page.evaluate(() => {
+    const raw = window.__mmfs!.read('/config/settings.json');
+    const s = raw ? JSON.parse(raw) : {};
+    s.paneMinWidth = 768;
+    window.__mmfs!.write('/config/settings.json', JSON.stringify(s));
+  });
+  await page.reload();
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('comment-card').first()).toBeVisible();
+  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16); // preview still fits
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect(page.getByTestId('comment-card').first()).toBeVisible();
+  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
+  expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+});

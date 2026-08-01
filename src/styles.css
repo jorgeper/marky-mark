@@ -459,8 +459,15 @@ mark.hl.flash {
   width: 300px;
   flex-shrink: 0;
   padding: 40px 24px 96px 8px;
-  /* Cards are absolutely positioned with animated tops (SPEC6 §2). */
-  position: relative;
+  /* Cards are absolutely positioned with animated tops (SPEC6 §2). Sticky
+     (not relative — it's equally a containing block for the cards) so that
+     when the host pane overflows sideways (doc floor + panel wider than the
+     pane, e.g. split edit at the shipped 768px paneMinWidth), the panel
+     pins to the scrollport's right edge instead of getting clipped at the
+     window border with the cards cut flush against it (#20). The doc
+     scrolls beneath; with no overflow, sticky is inert. */
+  position: sticky;
+  right: 0;
 }
 
 .panel > [data-flowcard] {
