@@ -240,8 +240,8 @@ export function SettingsPanel({
     onChange({ ...settings, fontSize: clamped });
   };
 
-  // --- workspace-eligible rows, shared between the User tabs and the
-  // --- Workspace scope view (§E18: same controls, different target layer) ----
+  // --- shared rows: both scopes render the same tabs; the current scope
+  // --- names the target layer and locks ineligible rows (§E18, issue #21) ---
 
   const fontSizeRow = (
     <div className="field">

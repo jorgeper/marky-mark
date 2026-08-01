@@ -342,7 +342,7 @@ export const WORKSPACE_PINNABLE_KEYS: ReadonlyArray<keyof Settings> = (
   Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>
 ).filter((k) => SETTINGS_SCOPES[k] === 'U' && k !== 'hotkeys');
 
-/** Everything the Workspace tab shows: the W-scoped keys plus the pinnable set. */
+/** Everything Workspace scope may edit: the W-scoped keys plus the pinnable set. */
 export const WORKSPACE_ELIGIBLE_KEYS: ReadonlyArray<keyof Settings> = [
   ...(Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>).filter((k) => SETTINGS_SCOPES[k] === 'W'),
   ...WORKSPACE_PINNABLE_KEYS,
