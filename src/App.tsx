@@ -21,6 +21,7 @@ import {
 import { displayCombo, eventMatches } from './lib/hotkeys';
 import { dispatchCommand, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
 import { buildMenuSpec } from './lib/menuSpec';
+import { deriveAppMode } from './lib/appMode';
 import { stepComment } from './lib/commentNav';
 import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
 import type { EditorSearchHandle, EditorSyncHandle, SmartEditHandle, SmartFormatOp } from './components/Editor';
@@ -58,6 +59,7 @@ import {
   sessionKeyForWorkspaceFile,
   sessionToFolderState,
   UNTITLED_SLOT_FILE,
+  untitledWorkspaceChanged,
   WORKSPACE_FILE_EXT,
   workspaceFolderPaths,
   workspaceFromFile,
@@ -212,8 +214,19 @@ export default function App() {
   // Pending intent awaiting the unsaved-changes decision: open a path, start
   // a new untitled buffer (SPEC22 §1.2), or close one open file (SPEC36 §3.4).
   const [openPrompt, setOpenPrompt] = useState<
-    { kind: 'open'; path: string } | { kind: 'new' } | { kind: 'close-file'; path: string } | null
+    | { kind: 'open'; path: string }
+    | { kind: 'new' }
+    | { kind: 'close-file'; path: string }
+    // Issue #22: File → Close File over a dirty untitled buffer.
+    | { kind: 'close-untitled' }
+    | null
   >(null);
+  /**
+   * Issue #22: the changed-workspace Save / Don't Save / Cancel prompt. The
+   * ref holds the continuation (close / replace / quit) to run on proceed.
+   */
+  const [wsClosePrompt, setWsClosePrompt] = useState(false);
+  const wsCloseResumeRef = useRef<(() => void) | null>(null);
   // Auto-hiding toolbar (SPEC4 §2): launch grace → hover/pin driven.
   const [graceOver, setGraceOver] = useState(false);
   const [toolbarHover, setToolbarHover] = useState(false);
@@ -248,8 +261,16 @@ export default function App() {
   const dormantOpenRef = useRef<{ files: string[]; active: string | null }>({ files: [], active: null });
   /** SPEC36 §7: the quit walk's remaining dirty targets (null = no walk). */
   const quitQueueRef = useRef<string[] | null>(null);
+  /**
+   * Issue #22: what an exhausted quit walk does. Close Workspace borrows the
+   * walk (every dirty tab guards first) and finishes here instead of closing
+   * the window; null = the classic quit (delete draft, close the window).
+   */
+  const quitDoneRef = useRef<(() => void) | null>(null);
   /** Starts the walk; assigned each render (dodges declaration order). */
   const startQuitWalkRef = useRef<() => void>(() => {});
+  /** Issue #22: the walk stepper, ref'd for the same declaration-order dodge. */
+  const processQuitWalkRef = useRef<() => Promise<void>>(async () => {});
   /**
    * The editor snapshots its undo state into editorHistoryRef only on
    * UNMOUNT — which runs AFTER a doc switch commits. These two refs defer
@@ -958,6 +979,8 @@ export default function App() {
 
   /** PRD 002 §C7: the single current workspace (none | untitled | named). */
   const curWorkspaceRef = useRef<Workspace>({ kind: 'none' });
+  /** Issue #22: the ref's kind mirrored into state so the derived app mode re-renders. */
+  const [wsKind, setWsKind] = useState<Workspace['kind']>('none');
 
   const persistFolderState = useCallback((platformNow?: Platform) => {
     const p = platformNow ?? stateRef.current.platform;
@@ -1059,6 +1082,7 @@ export default function App() {
     (next: Workspace, platformNow?: Platform) => {
       const prev = curWorkspaceRef.current;
       curWorkspaceRef.current = next;
+      setWsKind(next.kind); // issue #22: the derived app mode follows
       // §E18/§B5: the workspace layer changed — pinned settings apply (or
       // stop applying) immediately, and the settings panels see fresh layers.
       applyResolved();
@@ -1792,6 +1816,7 @@ export default function App() {
             }
           }
           curWorkspaceRef.current = bootWs;
+          setWsKind(bootWs.kind); // issue #22: the derived app mode follows
           if (ft) {
             // §D17: ALL member folders become sidebar roots (the FolderState
             // bridge only carries the first; the session/workspace has them all).
@@ -1827,7 +1852,9 @@ export default function App() {
       // SPEC36 §7: the close guard triggers the quit walk over EVERY dirty
       // document (the walk ref dodges a declaration-order cycle).
       await p.registerCloseGuard(
-        () => dirtyDocsQueue().length > 0,
+        // Issue #22: a changed untitled workspace blocks too — quitting
+        // discards it, so the Save / Don't Save / Cancel prompt must run.
+        () => dirtyDocsQueue().length > 0 || untitledWorkspaceChanged(curWorkspaceRef.current),
         () => startQuitWalkRef.current()
       );
 
@@ -1949,6 +1976,7 @@ export default function App() {
     settingsOpen ||
     aboutOpen ||
     closePrompt ||
+    wsClosePrompt ||
     openPrompt !== null;
 
   // --- OS light/dark tracking (live, SPEC3 §2) -----------------------------------
@@ -2025,25 +2053,46 @@ export default function App() {
     [applySettingsEdit]
   );
 
+  /**
+   * Issue #22: run `proceed` through the changed-workspace guard. A changed
+   * untitled workspace (non-empty workspace settings or 2+ folders) is about
+   * to be discarded — Save / Don't Save / Cancel prompt first. Named
+   * workspaces autosave and never prompt; unchanged untitled ones just go.
+   */
+  const guardWorkspaceDiscard = useCallback((proceed: () => void) => {
+    if (!untitledWorkspaceChanged(curWorkspaceRef.current)) {
+      proceed();
+      return;
+    }
+    wsCloseResumeRef.current = proceed;
+    setWsClosePrompt(true);
+  }, []);
+
   /** SPEC34 §4.2: pick a directory → root; the panel opens; no file opens. */
-  const openFolderCmd = useCallback(async () => {
+  const openFolderCmd = useCallback(() => {
     const p = stateRef.current.platform;
     if (!p?.openFolderDialog || !p.readDirEntries) return;
-    const picked = await p.openFolderDialog();
-    if (!picked) return;
-    const expanded = new Set([picked]);
-    setFolderRoots([picked]);
-    setFolderExpanded(expanded);
-    setFolderChildren({});
-    folderStateRef.current = { ...folderStateRef.current, roots: [picked], expanded };
-    // PRD 002 §C8: opening a folder starts a fresh untitled workspace holding
-    // that one folder (a new untitled overwrites the slot, §C11).
-    updateWorkspace(openFolderWorkspace(curWorkspaceRef.current, picked), p);
-    await listFolderDir(p, picked);
-    if (!stateRef.current.settings.showFolders) {
-      updateSettings({ ...stateRef.current.settings, showFolders: true });
-    }
-  }, [listFolderDir, updateWorkspace, updateSettings]);
+    // Issue #22: replacing a changed untitled workspace prompts first (§C8:
+    // the pick starts a FRESH untitled workspace, discarding the current one).
+    guardWorkspaceDiscard(() => {
+      void (async () => {
+        const picked = await p.openFolderDialog!();
+        if (!picked) return;
+        const expanded = new Set([picked]);
+        setFolderRoots([picked]);
+        setFolderExpanded(expanded);
+        setFolderChildren({});
+        folderStateRef.current = { ...folderStateRef.current, roots: [picked], expanded };
+        // PRD 002 §C8: opening a folder starts a fresh untitled workspace holding
+        // that one folder (a new untitled overwrites the slot, §C11).
+        updateWorkspace(openFolderWorkspace(curWorkspaceRef.current, picked), p);
+        await listFolderDir(p, picked);
+        if (!stateRef.current.settings.showFolders) {
+          updateSettings({ ...stateRef.current.settings, showFolders: true });
+        }
+      })();
+    });
+  }, [guardWorkspaceDiscard, listFolderDir, updateWorkspace, updateSettings]);
 
   /**
    * PRD 002 §D14: make `file` the current named workspace — corruption-
@@ -2092,13 +2141,18 @@ export default function App() {
   );
 
   /** PRD 002 §D14: Open Workspace… — dialog filtered to .marky-workspace. */
-  const openWorkspaceCmd = useCallback(async () => {
+  const openWorkspaceCmd = useCallback(() => {
     const p = stateRef.current.platform;
     if (!p?.openWorkspaceDialog || !p.readDirEntries) return;
-    const picked = await p.openWorkspaceDialog();
-    if (!picked) return;
-    await openWorkspaceFromPath(p, picked);
-  }, [openWorkspaceFromPath]);
+    // Issue #22: replacing a changed untitled workspace prompts first.
+    guardWorkspaceDiscard(() => {
+      void (async () => {
+        const picked = await p.openWorkspaceDialog!();
+        if (!picked) return;
+        await openWorkspaceFromPath(p, picked);
+      })();
+    });
+  }, [guardWorkspaceDiscard, openWorkspaceFromPath]);
 
   /**
    * PRD 002 §D14/§C8: Add Folder to Workspace… — a single-folder untitled
@@ -2127,27 +2181,30 @@ export default function App() {
     }
   }, [listFolderDir, updateWorkspace, updateSettings]);
 
-  /** PRD 002 §D14/§C11: Save Workspace As… — untitled (or named) → named. */
-  const saveWorkspaceAsCmd = useCallback(async () => {
+  /**
+   * PRD 002 §D14/§C11: Save Workspace As… — untitled (or named) → named.
+   * Issue #22: returns false when unsupported or the dialog was cancelled,
+   * so the changed-workspace prompt's Save can abort the pending close.
+   */
+  const saveWorkspaceAsCmd = useCallback(async (): Promise<boolean> => {
     const p = stateRef.current.platform;
     const cur = curWorkspaceRef.current;
-    if (!p?.saveFileDialog || cur.kind === 'none') return; // silent no-op, menu style
+    if (!p?.saveFileDialog || cur.kind === 'none') return false; // silent no-op, menu style
     const suggested = cur.kind === 'named' ? p.basename(cur.file) : `Untitled${WORKSPACE_FILE_EXT}`;
     const picked = await p.saveFileDialog(suggested, 'workspace');
-    if (!picked) return;
+    if (!picked) return false;
     const file = picked.endsWith(WORKSPACE_FILE_EXT) ? picked : `${picked}${WORKSPACE_FILE_EXT}`;
     updateWorkspace(saveWorkspaceAs(cur, file), p);
     commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
+    return true;
   }, [updateWorkspace, commitRecentWs]);
 
   /**
-   * PRD 002 §D16: Close Workspace — back to the no-workspace state. The
-   * sidebar empties (roots, expansion, tabs); the open document stays put.
+   * Issue #22: the workspace is closed for real — sidebar roots/tabs empty,
+   * the open document closes too, the splash shows. Every dirty guard has
+   * already run by the time this fires (see closeWorkspaceCmd).
    */
-  const closeWorkspaceCmd = useCallback(() => {
-    // §H25: no dialog capability to guard on here — gate on the sidebar seam
-    // like every other workspace command, so the hotkey is inert on web.
-    if (!stateRef.current.platform?.readDirEntries) return;
+  const finishCloseWorkspace = useCallback(() => {
     const cur = curWorkspaceRef.current;
     if (cur.kind === 'none') return;
     setFolderRoots([]);
@@ -2158,7 +2215,26 @@ export default function App() {
     // overwrite the closed workspace's saved session with an empty one.
     updateWorkspace(closeWorkspace(cur));
     commitOpenSet([], null);
-  }, [commitOpenSet, updateWorkspace]);
+    parkRef.current.clear();
+    closeToSplash();
+  }, [commitOpenSet, updateWorkspace, closeToSplash]);
+
+  /**
+   * PRD 002 §D16 + issue #22: Close Workspace — the changed-workspace prompt
+   * (untitled with settings or 2+ folders), then the dirty-docs walk over
+   * every open tab (Cancel anywhere aborts), then back to the splash.
+   */
+  const closeWorkspaceCmd = useCallback(() => {
+    // §H25: no dialog capability to guard on here — gate on the sidebar seam
+    // like every other workspace command, so the hotkey is inert on web.
+    if (!stateRef.current.platform?.readDirEntries) return;
+    if (curWorkspaceRef.current.kind === 'none') return;
+    guardWorkspaceDiscard(() => {
+      quitDoneRef.current = finishCloseWorkspace;
+      quitQueueRef.current = dirtyDocsQueue();
+      void processQuitWalkRef.current();
+    });
+  }, [guardWorkspaceDiscard, finishCloseWorkspace, dirtyDocsQueue]);
 
   // --- actions -----------------------------------------------------------------
   /**
@@ -2328,6 +2404,7 @@ export default function App() {
   const toggleOpenOnly = useCallback(() => {
     const st = stateRef.current;
     if (!st.platform?.readDirEntries) return; // no sidebar seam (web) ⇒ no-op
+    if (curWorkspaceRef.current.kind === 'none') return; // issue #22: workspace mode only
     const next = !folderStateRef.current.openOnly;
     folderStateRef.current = { ...folderStateRef.current, openOnly: next };
     setFolderOpenOnly(next);
@@ -2365,12 +2442,25 @@ export default function App() {
       return;
     }
     quitQueueRef.current = null;
+    // Issue #22: a borrowed walk (Close Workspace) finishes its own way.
+    const done = quitDoneRef.current;
+    if (done) {
+      quitDoneRef.current = null;
+      done();
+      return;
+    }
     await deleteDraft();
     void p.closeNow();
   }, [activateOpen, deleteDraft]);
+  processQuitWalkRef.current = processQuitWalk;
   startQuitWalkRef.current = () => {
-    quitQueueRef.current = dirtyDocsQueue();
-    void processQuitWalk();
+    // Issue #22: quitting discards a changed untitled workspace — the
+    // Save / Don't Save / Cancel prompt runs before the dirty-docs walk.
+    guardWorkspaceDiscard(() => {
+      quitDoneRef.current = null;
+      quitQueueRef.current = dirtyDocsQueue();
+      void processQuitWalk();
+    });
   };
 
   /** SPEC35 §6.2: confirmed — trash, re-list, prune, persist, maybe splash. */
@@ -2608,14 +2698,29 @@ export default function App() {
       toggleFrontmatter: () => setFmOverride((cur) => !(cur ?? stateRef.current.settings.showFrontmatter)),
       find: openFind,
       // SPEC34 §4: silent no-ops on platforms without the seam (web).
+      // Issue #22: folder views only exist in workspace mode — the menu item
+      // is grayed there; the hotkey lands here and must stay inert too.
       toggleFolders: () => {
         const st = stateRef.current;
         if (!st.platform?.readDirEntries) return;
+        if (curWorkspaceRef.current.kind === 'none') return;
         updateSettings({ ...st.settings, showFolders: !st.settings.showFolders });
       },
-      openFolder: () => void openFolderCmd(),
+      openFolder: openFolderCmd,
+      // Issue #22: Close File — down to the splash through the dirty guard.
+      closeFile: () => {
+        const s = stateRef.current;
+        if (!s.platform) return;
+        if (s.docPath) {
+          closeOpenFile(s.docPath); // dirty ⇒ three-way prompt; clean ⇒ close
+          return;
+        }
+        if (!s.untitled) return; // splash — nothing to close
+        if (s.dirty) setOpenPrompt({ kind: 'close-untitled' });
+        else closeToSplash();
+      },
       // PRD 002 §D14: the workspace flows (silent no-ops without the seam).
-      openWorkspace: () => void openWorkspaceCmd(),
+      openWorkspace: openWorkspaceCmd,
       addFolderToWorkspace: () => void addFolderToWorkspaceCmd(),
       saveWorkspaceAs: () => void saveWorkspaceAsCmd(),
       closeWorkspace: closeWorkspaceCmd,
@@ -2710,12 +2815,13 @@ export default function App() {
         void (async () => {
           const p = stateRef.current.platform;
           if (p?.closeFocusedAuxWindow && (await p.closeFocusedAuxWindow())) return;
-          quitQueueRef.current = dirtyDocsQueue();
-          void processQuitWalk();
+          // Issue #22: one entry point — the changed-workspace prompt, then
+          // the dirty-docs walk (the same path the native close guard takes).
+          startQuitWalkRef.current();
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
@@ -2726,7 +2832,8 @@ export default function App() {
         if (!p) return;
         if (kind === 'workspace') {
           // PRD 002 §D15: a recent workspace pick opens that workspace.
-          if (await p.exists(path)) await openWorkspaceFromPath(p, path);
+          // Issue #22: replacing a changed untitled workspace prompts first.
+          if (await p.exists(path)) guardWorkspaceDiscard(() => void openWorkspaceFromPath(p, path));
           else {
             showNotice(`“${p.basename(path)}” is no longer there`);
             commitRecentWs(removeRecent(recentWsRef.current, path));
@@ -2741,7 +2848,11 @@ export default function App() {
         }
       })();
     });
-  }, [openDocGuarded, showNotice, commitRecent, commitRecentWs, openWorkspaceFromPath]);
+  }, [openDocGuarded, showNotice, commitRecent, commitRecentWs, openWorkspaceFromPath, guardWorkspaceDiscard]);
+
+  // Issue #22: the derived three-mode model — splash | file | workspace.
+  const docOpen = docPath !== null || untitled;
+  const appMode = deriveAppMode(docOpen, wsKind);
 
   // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
   useEffect(() => {
@@ -2750,6 +2861,8 @@ export default function App() {
       buildMenuSpec({
         isMac: platform.isMac,
         mode,
+        appMode,
+        docOpen,
         splitEdit: settings.splitEdit,
         showComments,
         commentsEnabled: settings.commentsEnabled,
@@ -2765,7 +2878,7 @@ export default function App() {
         recentWorkspaces: recentMenuEntries(recentWs, platform.basename, platform.dirname),
       })
     );
-  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, recent, recentWs, settings.showFolders, folderOpenOnly]);
+  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, recent, recentWs, settings.showFolders, folderOpenOnly]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -3797,7 +3910,8 @@ export default function App() {
       )}
 
       <div className="body-row">
-        {platform.readDirEntries && platform.openFolderDialog && settings.showFolders && (
+        {/* Issue #22: the folder sidebar is a workspace-mode surface only. */}
+        {platform.readDirEntries && platform.openFolderDialog && settings.showFolders && appMode === 'workspace' && (
           <FolderPanel
             roots={folderRoots}
             children={folderChildren}
@@ -4140,7 +4254,7 @@ export default function App() {
               before{' '}
               {openPrompt.kind === 'open'
                 ? `opening “${platform.basename(openPrompt.path)}”`
-                : openPrompt.kind === 'close-file'
+                : openPrompt.kind === 'close-file' || openPrompt.kind === 'close-untitled'
                   ? 'closing it'
                   : 'starting a new file'}
               ?
@@ -4156,6 +4270,7 @@ export default function App() {
                   setOpenPrompt(null);
                   if (intent.kind === 'open') void openReplacing(platform, intent.path);
                   else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
+                  else if (intent.kind === 'close-untitled') closeToSplash(); // issue #22
                   else startUntitled();
                 }}
               >
@@ -4171,7 +4286,13 @@ export default function App() {
                   if (!(await saveDoc())) return;
                   if (intent.kind === 'open') void openReplacing(platform, intent.path);
                   else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
-                  else startUntitled();
+                  else if (intent.kind === 'close-untitled') {
+                    // Issue #22: the untitled buffer just became a real file
+                    // (Save As ran inside saveDoc) — now close it for real.
+                    const saved = stateRef.current.docPath;
+                    if (saved) finishCloseFile(platform, saved);
+                    else closeToSplash();
+                  } else startUntitled();
                 }}
               >
                 Save
@@ -4253,6 +4374,57 @@ export default function App() {
         </div>
       )}
 
+      {/* Issue #22: a changed untitled workspace is about to be discarded —
+          Save runs Save Workspace As… (its dialog cancelling aborts), Cancel
+          aborts the whole operation, Don't Save proceeds. */}
+      {wsClosePrompt && (
+        <div className="overlay">
+          <div className="modal" data-testid="ws-close-prompt">
+            <h2>Save workspace?</h2>
+            <p style={{ fontSize: 13.5 }}>
+              This workspace has unsaved changes (its folders or workspace settings). Save it as a workspace file
+              before closing?
+            </p>
+            <div className="actions">
+              <button
+                data-testid="ws-close-cancel"
+                onClick={() => {
+                  wsCloseResumeRef.current = null;
+                  setWsClosePrompt(false);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                data-testid="ws-close-discard"
+                onClick={() => {
+                  const go = wsCloseResumeRef.current;
+                  wsCloseResumeRef.current = null;
+                  setWsClosePrompt(false);
+                  go?.();
+                }}
+              >
+                Don’t save
+              </button>
+              <button
+                className="primary"
+                data-testid="ws-close-save"
+                onClick={async () => {
+                  const go = wsCloseResumeRef.current;
+                  wsCloseResumeRef.current = null;
+                  setWsClosePrompt(false);
+                  // A cancelled Save Workspace As… dialog aborts the close.
+                  if (!(await saveWorkspaceAsCmd())) return;
+                  go?.();
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {closePrompt && (
         <div className="overlay">
           <div className="modal" data-testid="close-prompt">
@@ -4265,8 +4437,10 @@ export default function App() {
               <button
                 data-testid="close-cancel"
                 onClick={() => {
-                  // SPEC36 §7.1: Cancel aborts the ENTIRE quit walk.
+                  // SPEC36 §7.1: Cancel aborts the ENTIRE quit walk — and any
+                  // borrowed finish (issue #22: Close Workspace stays open).
                   quitQueueRef.current = null;
+                  quitDoneRef.current = null;
                   setClosePrompt(false);
                 }}
               >
@@ -4299,6 +4473,7 @@ export default function App() {
                   const q = quitQueueRef.current;
                   if (!ok) {
                     quitQueueRef.current = null; // aborted walk — everything stays
+                    quitDoneRef.current = null; // issue #22: borrowed finish too
                     return;
                   }
                   if (q) {

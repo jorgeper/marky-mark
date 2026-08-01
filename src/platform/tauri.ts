@@ -271,6 +271,8 @@ export async function createTauriPlatform(): Promise<Platform> {
         const common = {
           text: it.label,
           accelerator: it.accelerator ? toAccelerator(it.accelerator) : undefined,
+          // Issue #22: mode gating renders as real grayed-out native items.
+          enabled: it.disabled !== true,
           action: () => dispatchCommand(it.command, 'menu'),
         };
         try {

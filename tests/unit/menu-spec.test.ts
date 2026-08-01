@@ -16,6 +16,8 @@ const base: MenuState = {
   showFrontmatter: true, // SPEC26 §3: fixture-level only — no assertion changed
   recentFiles: [], // SPEC29 §3: fixture-level only — no assertion changed
   showFolders: false, // SPEC34 §4: fixture-level only — no assertion changed
+  appMode: 'workspace', // issue #22: everything enabled — U120 covers the gating
+  docOpen: true,
 };
 
 const titles = (s: MenuState) => buildMenuSpec(s).submenus.map((m) => m.title);
@@ -36,7 +38,7 @@ describe('SPEC12 menu spec', () => {
     const file = commandsIn(base, 'File').map((i) => i.command);
     // SPEC21 §5.6 amendment: New… now leads the File menu.
     // PRD 002 §D14: the open/workspace group precedes the save group.
-    expect(file).toEqual(['newFile', 'open', 'openFolder', 'openWorkspace', 'addFolderToWorkspace', 'saveWorkspaceAs', 'closeWorkspace', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']);
+    expect(file).toEqual(['newFile', 'open', 'openFolder', 'openWorkspace', 'addFolderToWorkspace', 'saveWorkspaceAs', 'closeFile', 'closeWorkspace', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']);
     expect(find(base, 'File', 'close')!.label).toBe('Close Window');
     expect(commandsIn(base, 'Help').map((i) => i.command)).toEqual(['help']);
     // Edit: the predefined system items in the standard order, then the one
@@ -59,7 +61,7 @@ describe('SPEC12 menu spec', () => {
     const file = commandsIn(win, 'File').map((i) => i.command);
     // SPEC21 §5.6 amendment: New… now leads the File menu.
     // PRD 002 §D14: the open/workspace group precedes the save group.
-    expect(file).toEqual(['newFile', 'open', 'openFolder', 'openWorkspace', 'addFolderToWorkspace', 'saveWorkspaceAs', 'closeWorkspace', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']);
+    expect(file).toEqual(['newFile', 'open', 'openFolder', 'openWorkspace', 'addFolderToWorkspace', 'saveWorkspaceAs', 'closeFile', 'closeWorkspace', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']);
     expect(find(win, 'File', 'close')!.label).toBe('Exit');
     expect(find(win, 'File', 'settings')!.accelerator).toBe('Mod+,');
     expect(commandsIn(win, 'Help').map((i) => i.command)).toEqual(['help', 'about', 'checkUpdates']);
@@ -226,8 +228,8 @@ describe('SPEC12 menu spec', () => {
       // The File menu's TOP-LEVEL command list is exactly what U19/U20 pin.
       expect(commandsIn(st, 'File').map((i) => i.command)).toEqual(
         st.isMac
-          ? ['newFile', 'open', 'openFolder', 'openWorkspace', 'addFolderToWorkspace', 'saveWorkspaceAs', 'closeWorkspace', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']
-          : ['newFile', 'open', 'openFolder', 'openWorkspace', 'addFolderToWorkspace', 'saveWorkspaceAs', 'closeWorkspace', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']
+          ? ['newFile', 'open', 'openFolder', 'openWorkspace', 'addFolderToWorkspace', 'saveWorkspaceAs', 'closeFile', 'closeWorkspace', 'save', 'saveAs', 'exportDoc', 'printDoc', 'close']
+          : ['newFile', 'open', 'openFolder', 'openWorkspace', 'addFolderToWorkspace', 'saveWorkspaceAs', 'closeFile', 'closeWorkspace', 'save', 'saveAs', 'exportDoc', 'printDoc', 'settings', 'close']
       );
     }
     // Empty list: the submenu holds just Clear Menu (macOS-style), no separator.
@@ -251,6 +253,7 @@ describe('SPEC12 menu spec', () => {
         'sep',
         'addFolderToWorkspace',
         'saveWorkspaceAs',
+        'closeFile',
         'closeWorkspace',
         'sep',
         'save',
@@ -315,6 +318,36 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{}').reopenLastDoc).toBe(true);
     expect(parseSettings('{"reopenLastDoc":false}').reopenLastDoc).toBe(false);
     expect(parseSettings('{"reopenLastDoc":"nah"}').reopenLastDoc).toBe(true);
+  });
+
+  test('U120: issue #22 mode gating — workspace-only and folder-view items disable outside workspace mode; Close File follows docOpen; the open trio never disables', () => {
+    const modes: Array<{ s: MenuState; wsDisabled: boolean; closeFileDisabled: boolean }> = [
+      { s: { ...base, appMode: 'splash', docOpen: false }, wsDisabled: true, closeFileDisabled: true },
+      { s: { ...base, appMode: 'file', docOpen: true }, wsDisabled: true, closeFileDisabled: false },
+      { s: { ...base, appMode: 'workspace', docOpen: true }, wsDisabled: false, closeFileDisabled: false },
+    ];
+    for (const isMac of [true, false]) {
+      for (const { s: m, wsDisabled, closeFileDisabled } of modes) {
+        const s = { ...m, isMac };
+        // File: the workspace trio gates on workspace mode; Close File on docOpen.
+        for (const c of ['addFolderToWorkspace', 'saveWorkspaceAs', 'closeWorkspace'] as const) {
+          expect(find(s, 'File', c)!.disabled ?? false).toBe(wsDisabled);
+        }
+        expect(find(s, 'File', 'closeFile')!.label).toBe('Close File');
+        expect(find(s, 'File', 'closeFile')!.disabled ?? false).toBe(closeFileDisabled);
+        // View: the folder views only exist in workspace mode.
+        expect(find(s, 'View', 'toggleFolders')!.disabled ?? false).toBe(wsDisabled);
+        expect(find(s, 'View', 'toggleOpenOnly')!.disabled ?? false).toBe(wsDisabled);
+        // The open trio stays enabled in every mode.
+        for (const c of ['open', 'openFolder', 'openWorkspace'] as const) {
+          expect(find(s, 'File', c)!.disabled).toBeUndefined();
+        }
+      }
+    }
+    // Workspace mode with no document open: Close File alone grays out.
+    const wsNoDoc = { ...base, appMode: 'workspace' as const, docOpen: false };
+    expect(find(wsNoDoc, 'File', 'closeFile')!.disabled).toBe(true);
+    expect(find(wsNoDoc, 'File', 'closeWorkspace')!.disabled).toBeUndefined();
   });
 
   test('U61: View starts with Folders (Mod+Shift+E checkbox); File carries Open Folder… after Open Recent; settings clamp', () => {

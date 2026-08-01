@@ -18,6 +18,7 @@ import {
   serializeWorkspacePointer,
   serializeWorkspaceSession,
   sessionKeyForWorkspaceFile,
+  untitledWorkspaceChanged,
   workspaceFromFile,
   type Workspace,
   type WorkspaceSession,
@@ -42,6 +43,24 @@ describe('PRD 002 §C7–§C8 workspace model transitions', () => {
       folders: [{ path: '/b', available: true }],
       settings: {},
     });
+  });
+
+  test('U122: issue #22 changed rule — untitled with settings or 2+ folders prompts; named and none never do', () => {
+    const one = [{ path: '/a', available: true }];
+    const two = [...one, { path: '/b', available: true }];
+    // A fresh single-folder untitled workspace has nothing to lose.
+    expect(untitledWorkspaceChanged({ kind: 'untitled', folders: one, settings: {} })).toBe(false);
+    // Non-empty workspace-scope settings would be lost ⇒ changed.
+    expect(untitledWorkspaceChanged({ kind: 'untitled', folders: one, settings: { commentStorage: 'embedded' } })).toBe(
+      true
+    );
+    // More than one folder would be lost ⇒ changed.
+    expect(untitledWorkspaceChanged({ kind: 'untitled', folders: two, settings: {} })).toBe(true);
+    // Named workspaces autosave; the none state has nothing to save.
+    expect(
+      untitledWorkspaceChanged({ kind: 'named', file: '/w/x.marky-workspace', folders: two, settings: { a: 1 } })
+    ).toBe(false);
+    expect(untitledWorkspaceChanged({ kind: 'none' })).toBe(false);
   });
 
   test('U101: add folder — none seeds untitled; order preserved; repeats deduped', () => {

@@ -56,6 +56,17 @@ export function closeWorkspace(_ws: Workspace): Workspace {
   return { kind: 'none' };
 }
 
+/**
+ * Issue #22: an untitled workspace counts as CHANGED when discarding it would
+ * lose state — its workspace-scope settings map is non-empty or it holds more
+ * than one folder. Named workspaces autosave (§C12) and the none state has
+ * nothing to lose, so neither ever prompts.
+ */
+export function untitledWorkspaceChanged(ws: Workspace): boolean {
+  if (ws.kind !== 'untitled') return false;
+  return Object.keys(ws.settings).length > 0 || ws.folders.length > 1;
+}
+
 // --- paths (§C10) ------------------------------------------------------------
 
 interface AbsParts {

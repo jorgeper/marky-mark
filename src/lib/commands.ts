@@ -28,6 +28,8 @@ export type CommandId =
   | 'nextFile'
   | 'prevFile'
   | 'openFolder'
+  // Issue #22: close the open document down to the splash.
+  | 'closeFile'
   // PRD 002 §D14: the workspace flows.
   | 'openWorkspace'
   | 'addFolderToWorkspace'
