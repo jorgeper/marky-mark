@@ -8,7 +8,7 @@ import { attachEmbedded, mergeComments, splitEmbedded } from './lib/embedded';
 import {
   DEFAULT_SETTINGS,
   MARGIN_WIDTHS,
-  parseSettings,
+  resolveSettings,
   serializeSettings,
   SPLIT_RATIO_MAX,
   SPLIT_RATIO_MIN,
@@ -1485,13 +1485,25 @@ export default function App() {
       if (disposed) return;
 
       const cfg = await p.configDir();
-      const settingsPath = p.join(cfg, 'settings.json');
-      let loaded = DEFAULT_SETTINGS;
+      // PRD 002 §F21 layer sources: Global = DEFAULT_SETTINGS plus an optional
+      // admin file, Team = reserved (no local file), Workspace = empty until
+      // the workspace model lands, User = the existing settings.json. An
+      // absent or corrupt file simply leaves its layer empty.
+      let globalLayer: unknown;
       try {
-        if (await p.exists(settingsPath)) loaded = parseSettings(await p.readTextFile(settingsPath));
+        const globalPath = p.join(cfg, 'global-settings.json');
+        if (await p.exists(globalPath)) globalLayer = JSON.parse(await p.readTextFile(globalPath));
+      } catch {
+        /* no global layer */
+      }
+      let userLayer: unknown;
+      try {
+        const settingsPath = p.join(cfg, 'settings.json');
+        if (await p.exists(settingsPath)) userLayer = JSON.parse(await p.readTextFile(settingsPath));
       } catch {
         /* fall back to defaults */
       }
+      let loaded = resolveSettings({ global: globalLayer, user: userLayer });
       if (p.kind === 'web') {
         loaded = { ...loaded, commentStorage: 'embedded' }; // no sidecars on web
         // SPEC17 §2.2: a review bundle may carry its export theme — apply it
@@ -3564,6 +3576,10 @@ export default function App() {
           onJump={(h) => {
             const s = stateRef.current;
             if (s.mode === 'edit') {
+              // Cancel any in-flight mode-switch scroll restore — its retry
+              // loop would otherwise yank the viewport back to the carried
+              // line and swallow this jump on slow machines.
+              pendingScrollLineRef.current = null;
               editorSyncRef.current?.scrollToLine(h.line);
               return;
             }
