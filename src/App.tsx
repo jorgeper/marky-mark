@@ -2069,7 +2069,7 @@ export default function App() {
   }, []);
 
   /** SPEC34 §4.2: pick a directory → root; the panel opens; no file opens. */
-  const openFolderCmd = useCallback(async () => {
+  const openFolderCmd = useCallback(() => {
     const p = stateRef.current.platform;
     if (!p?.openFolderDialog || !p.readDirEntries) return;
     // Issue #22: replacing a changed untitled workspace prompts first (§C8:
@@ -2141,7 +2141,7 @@ export default function App() {
   );
 
   /** PRD 002 §D14: Open Workspace… — dialog filtered to .marky-workspace. */
-  const openWorkspaceCmd = useCallback(async () => {
+  const openWorkspaceCmd = useCallback(() => {
     const p = stateRef.current.platform;
     if (!p?.openWorkspaceDialog || !p.readDirEntries) return;
     // Issue #22: replacing a changed untitled workspace prompts first.
@@ -2706,12 +2706,11 @@ export default function App() {
         if (curWorkspaceRef.current.kind === 'none') return;
         updateSettings({ ...st.settings, showFolders: !st.settings.showFolders });
       },
-      openFolder: () => void openFolderCmd(),
+      openFolder: openFolderCmd,
       // Issue #22: Close File — down to the splash through the dirty guard.
       closeFile: () => {
         const s = stateRef.current;
-        const p = s.platform;
-        if (!p) return;
+        if (!s.platform) return;
         if (s.docPath) {
           closeOpenFile(s.docPath); // dirty ⇒ three-way prompt; clean ⇒ close
           return;
@@ -2721,7 +2720,7 @@ export default function App() {
         else closeToSplash();
       },
       // PRD 002 §D14: the workspace flows (silent no-ops without the seam).
-      openWorkspace: () => void openWorkspaceCmd(),
+      openWorkspace: openWorkspaceCmd,
       addFolderToWorkspace: () => void addFolderToWorkspaceCmd(),
       saveWorkspaceAs: () => void saveWorkspaceAsCmd(),
       closeWorkspace: closeWorkspaceCmd,
@@ -2852,7 +2851,8 @@ export default function App() {
   }, [openDocGuarded, showNotice, commitRecent, commitRecentWs, openWorkspaceFromPath, guardWorkspaceDiscard]);
 
   // Issue #22: the derived three-mode model — splash | file | workspace.
-  const appMode = deriveAppMode(docPath !== null || untitled, wsKind);
+  const docOpen = docPath !== null || untitled;
+  const appMode = deriveAppMode(docOpen, wsKind);
 
   // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
   useEffect(() => {
@@ -2862,7 +2862,7 @@ export default function App() {
         isMac: platform.isMac,
         mode,
         appMode,
-        docOpen: docPath !== null || untitled,
+        docOpen,
         splitEdit: settings.splitEdit,
         showComments,
         commentsEnabled: settings.commentsEnabled,

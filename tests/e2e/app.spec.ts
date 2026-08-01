@@ -5278,6 +5278,20 @@ test('E130: three-mode model — per-mode menu gating, Close File → splash, Cl
       await expect.poll(() => disabledOf(c), { message: c }).toBe(false);
     }
   };
+  /** Build a CHANGED untitled workspace: /notes root plus /other (2+ folders). */
+  const openChangedWorkspace = async () => {
+    await page.evaluate(() => {
+      window.__mmfs!.nextFolderPath = '/notes';
+    });
+    await menuClick(page, 'openFolder');
+    await expect(page.getByTestId('folder-header')).toContainText('notes');
+    await expect.poll(() => disabledOf('addFolderToWorkspace')).toBe(false); // menu reinstalled for workspace mode
+    await page.evaluate(() => {
+      window.__mmfs!.nextFolderPath = '/other';
+    });
+    await menuClick(page, 'addFolderToWorkspace');
+    await expect(page.locator('[data-path="/other"]')).toBeVisible();
+  };
 
   // SPLASH: workspace-only and folder-view items grayed, Close File too.
   await gatingIs(true, true);
@@ -5332,17 +5346,7 @@ test('E130: three-mode model — per-mode menu gating, Close File → splash, Cl
   await gatingIs(true, true);
 
   // A CHANGED untitled workspace (2+ folders) prompts on Close Workspace.
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await menuClick(page, 'openFolder');
-  await expect(page.getByTestId('folder-header')).toContainText('notes');
-  await expect.poll(() => disabledOf('addFolderToWorkspace')).toBe(false); // menu reinstalled for workspace mode
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/other';
-  });
-  await menuClick(page, 'addFolderToWorkspace');
-  await expect(page.locator('[data-path="/other"]')).toBeVisible();
+  await openChangedWorkspace();
   await menuClick(page, 'closeWorkspace');
   await expect(page.getByTestId('ws-close-prompt')).toBeVisible();
   await page.getByTestId('ws-close-cancel').click(); // Cancel aborts — workspace stays
@@ -5353,17 +5357,7 @@ test('E130: three-mode model — per-mode menu gating, Close File → splash, Cl
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
 
   // Save in the prompt runs Save Workspace As…, then the close proceeds.
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await menuClick(page, 'openFolder');
-  await expect(page.getByTestId('folder-header')).toContainText('notes');
-  await expect.poll(() => disabledOf('addFolderToWorkspace')).toBe(false); // menu reinstalled for workspace mode
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/other';
-  });
-  await menuClick(page, 'addFolderToWorkspace');
-  await expect(page.locator('[data-path="/other"]')).toBeVisible();
+  await openChangedWorkspace();
   await page.evaluate(() => {
     window.__mmfs!.nextSavePath = '/w/mine.marky-workspace';
   });
@@ -5374,17 +5368,7 @@ test('E130: three-mode model — per-mode menu gating, Close File → splash, Cl
 
   // Open Folder… over a changed workspace = close-then-open: prompt first,
   // then the pick becomes a fresh single-folder untitled workspace.
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/notes';
-  });
-  await menuClick(page, 'openFolder');
-  await expect(page.getByTestId('folder-header')).toContainText('notes');
-  await expect.poll(() => disabledOf('addFolderToWorkspace')).toBe(false); // menu reinstalled for workspace mode
-  await page.evaluate(() => {
-    window.__mmfs!.nextFolderPath = '/other';
-  });
-  await menuClick(page, 'addFolderToWorkspace');
-  await expect(page.locator('[data-path="/other"]')).toBeVisible();
+  await openChangedWorkspace();
   await page.evaluate(() => {
     window.__mmfs!.nextFolderPath = '/other';
   });

@@ -1,7 +1,7 @@
 import type { Platform } from './types';
 import { FIXTURES } from '../bundled';
 import { dispatchRecent, dispatchCommand, type CommandId } from '../lib/commands';
-import type { MenuSpec, RecentItemSpec } from '../lib/menuSpec';
+import type { CommandItemSpec, MenuSpec, RecentItemSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
 
 /**
@@ -174,10 +174,10 @@ export function createBrowserPlatform(): Platform {
       click(command: string) {
         const item = spec.submenus
           .flatMap((m) => flatten(m.items))
-          .find((it) => it.type === 'command' && it.command === command);
+          .find((it): it is CommandItemSpec => it.type === 'command' && it.command === command);
         if (!item) throw new Error(`no menu item for command: ${command}`);
         // Issue #22: a grayed native item can't be clicked — the shim matches.
-        if (item.type === 'command' && item.disabled) throw new Error(`menu item disabled: ${command}`);
+        if (item.disabled) throw new Error(`menu item disabled: ${command}`);
         dispatchCommand(command as CommandId, 'menu');
       },
       clickRecent(path: string) {
