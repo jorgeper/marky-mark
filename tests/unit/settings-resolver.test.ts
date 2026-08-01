@@ -4,6 +4,7 @@ import {
   SETTINGS_SCOPES,
   parseSettings,
   resolveSettings,
+  winningLayer,
   type Scope,
   type Settings,
 } from '../../src/lib/settings';
@@ -166,5 +167,54 @@ describe('PRD 002 §A layered resolver', () => {
     expect(flat.imageFolder).toBe('assets');
     expect(flat.splitEdit).toBe(false);
     expect(flat.author).toBe('Jorge');
+  });
+});
+
+describe('PRD 002 §H26 web shape — the same resolver with the workspace layer absent', () => {
+  // On web no workspace can ever open, so the app calls resolveSettings with
+  // `workspace` undefined — exactly the Global < Team < User chain.
+  test('U117: U-scoped keys resolve Global < Team < User; lower layers fill omissions', () => {
+    const r = resolveSettings({
+      global: { fontSize: 14, zoom: 150, margins: 'wide', themeLight: 'nord' },
+      team: { fontSize: 16, zoom: 125 },
+      user: { fontSize: 20 },
+    });
+    expect(r.fontSize).toBe(20); // all three set it → User wins
+    expect(r.zoom).toBe(125); // User silent → Team beats Global
+    expect(r.margins).toBe('wide'); // only Global sets it
+    expect(r.themeLight).toBe('nord');
+    expect(r.themeDark).toBe(DEFAULT_SETTINGS.themeDark); // nobody → baked default
+    expect(resolveSettings({ global: { zoom: 150 }, team: { zoom: 75 } }).zoom).toBe(75);
+  });
+
+  test('U118: W-scoped keys with no workspace layer fall through Team/Global to the default; User still never wins', () => {
+    // Scope rules are unchanged: the User value for a W key stays ignored.
+    const r = resolveSettings({
+      global: { commentStorage: 'embedded', imageFolder: 'g-images' },
+      team: { imageFolder: 't-images' },
+      user: { commentStorage: 'sidecar', imageFolder: 'u-images', imageNamePattern: 'u-{n}' },
+    });
+    expect(r.commentStorage).toBe('embedded'); // Global supplies it, User ignored
+    expect(r.imageFolder).toBe('t-images'); // Team beats Global
+    expect(r.imageNamePattern).toBe(DEFAULT_SETTINGS.imageNamePattern); // only User set it → default
+    // Nothing but the User layer present → every W key sits at its default.
+    const userOnly = resolveSettings({ user: { commentStorage: 'sidecar', imageFolder: 'mine' } });
+    expect(userOnly.commentStorage).toBe(DEFAULT_SETTINGS.commentStorage);
+    expect(userOnly.imageFolder).toBe(DEFAULT_SETTINGS.imageFolder);
+  });
+
+  test("U119: winningLayer never reports 'workspace' when the workspace layer is absent", () => {
+    const layers = {
+      global: { ...DEFAULT_SETTINGS, author: 'Admin' },
+      team: { fontSize: 16, imageFolder: 't-images' },
+      user: { fontSize: 20, author: 'Jorge', commentStorage: 'sidecar' },
+    };
+    for (const key of Object.keys(DEFAULT_SETTINGS) as Array<keyof Settings>) {
+      expect(winningLayer(key, layers)).not.toBe('workspace');
+    }
+    expect(winningLayer('fontSize', layers)).toBe('user');
+    expect(winningLayer('imageFolder', layers)).toBe('team'); // W key skips the absent layer AND the User value
+    expect(winningLayer('author', layers)).toBe('user'); // U!: only the User layer is a candidate
+    expect(winningLayer('commentStorage', {})).toBe('default');
   });
 });

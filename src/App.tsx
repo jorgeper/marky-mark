@@ -942,7 +942,9 @@ export default function App() {
     recentWsRef.current = next;
     setRecentWs(next);
     const p = platformNow ?? stateRef.current.platform;
-    if (p) void writeRecentStore(p, 'recent-workspaces.json', next);
+    // §H25: recent-workspaces.json is workspace machinery — never written
+    // without the sidebar seam (web), even via Clear Menu.
+    if (p?.readDirEntries) void writeRecentStore(p, 'recent-workspaces.json', next);
   }, []);
   const recentWsRef = useRef<RecentStore>({ version: 1, entries: [] });
 
@@ -2143,6 +2145,9 @@ export default function App() {
    * sidebar empties (roots, expansion, tabs); the open document stays put.
    */
   const closeWorkspaceCmd = useCallback(() => {
+    // §H25: no dialog capability to guard on here — gate on the sidebar seam
+    // like every other workspace command, so the hotkey is inert on web.
+    if (!stateRef.current.platform?.readDirEntries) return;
     const cur = curWorkspaceRef.current;
     if (cur.kind === 'none') return;
     setFolderRoots([]);
