@@ -5336,12 +5336,10 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
   // window; the panel used to scroll out past the window border, cards
   // clipped flush against it. Sticky-pinned now: the gap must hold.
   await waitForSidecar(page, (s) => !!s && s.includes('second note'));
-  await page.evaluate(() => {
-    const raw = window.__mmfs!.read('/config/settings.json');
-    const s = raw ? JSON.parse(raw) : {};
-    s.paneMinWidth = 768;
-    window.__mmfs!.write('/config/settings.json', JSON.stringify(s));
-  });
+  const raw = await fsRead(page, '/config/settings.json');
+  const settings = raw ? JSON.parse(raw) : {};
+  settings.paneMinWidth = 768;
+  await fsWrite(page, '/config/settings.json', JSON.stringify(settings));
   await page.reload();
   await openWelcomeViaHelp(page);
   await expect(page.getByTestId('comment-card').first()).toBeVisible();
