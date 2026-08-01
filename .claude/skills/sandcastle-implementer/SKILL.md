@@ -50,6 +50,10 @@ Verify in two tiers, both declared in `.sandcastle/config.mts`:
   `VERIFY_COMMANDS` and make sure they pass — the goal judge needs to see
   their output in your session. This should be the ONLY full-suite run of
   the attempt; full-suite runs are the biggest time cost of an attempt.
+- **Run the final gate in the FOREGROUND and wait**, even when it takes
+  minutes. Never launch it in the background and end your turn to "wait
+  for a notification" — in this harness, ending your turn ends the
+  session: the suite is orphaned and the entire attempt is wasted.
 
 Your repo's CLAUDE.md/AGENTS.md may refine which commands are
 appropriate; it overrides these lists.

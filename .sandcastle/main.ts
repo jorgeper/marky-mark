@@ -131,6 +131,13 @@ const TARGET_BRANCH = (
 
 const branchFor = (issueNumber: number) => `sandcastle/issue-${issueNumber}`;
 
+// Issue-tracker command literals injected into prompts that comment on or
+// close issues (merge-prompt, review-prompt). Centralized so a different
+// tracker only changes these three lines.
+const COMMENT_TASK_COMMAND = 'gh issue comment <ID> --body "<BODY>"';
+const CLOSE_TASK_COMMAND = 'gh issue close <ID> --comment "<COMMENT>"';
+const VIEW_TASK_COMMAND = "gh issue view <ID>";
+
 // Commits on `branch` not yet in TARGET_BRANCH — the loop's definition of
 // shippable work. Derived from GIT STATE, not any single run's commits: a
 // fresh-context attempt that merely verifies prior work makes none. 0 for
@@ -666,21 +673,44 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     break;
   }
 
-  const plan = await timed("planner", { candidates: candidates.length }, () =>
-    sandcastle.run({
-      hooks,
-      sandbox: docker(),
-      name: "planner",
-      // One iteration is enough: the planner just needs to read and reason.
-      maxIterations: 1,
-      agent: sandcastle.claudeCode("claude-fable-5"),
-      promptFile: "./.sandcastle/plan-prompt.md",
-      promptArgs: { CANDIDATE_NUMBERS: candidates.join(", ") },
-      output: sandcastle.Output.object({ tag: "plan", schema: planSchema }),
-    }),
-  );
+  // One candidate needs no planner: a full docker+model run whose only job
+  // is choosing among issues has nothing to choose. Dispatch it directly.
+  const issues =
+    candidates.length === 1
+      ? [
+          {
+            id: String(candidates[0]!),
+            title: dispatch.find((e) => e.issue.number === candidates[0])!
+              .issue.title,
+            branch: branchFor(candidates[0]!),
+          },
+        ]
+      : (
+          await timed("planner", { candidates: candidates.length }, () =>
+            sandcastle.run({
+              hooks,
+              sandbox: docker(),
+              name: "planner",
+              // One iteration is enough: the planner just needs to read and reason.
+              maxIterations: 1,
+              agent: sandcastle.claudeCode("claude-fable-5"),
+              promptFile: "./.sandcastle/plan-prompt.md",
+              promptArgs: {
+                CANDIDATE_NUMBERS: candidates.join(", "),
+                LIST_TASKS_COMMAND:
+                  "gh issue list --state open --label Sandcastle --limit 100 --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'",
+              },
+              output: sandcastle.Output.object({
+                tag: "plan",
+                schema: planSchema,
+              }),
+            }),
+          )
+        ).output.issues;
 
-  const issues = plan.output.issues;
+  if (candidates.length === 1) {
+    logStep(`Single candidate #${candidates[0]} — skipping planner.`);
+  }
 
   if (issues.length === 0) {
     console.log("No unblocked issues to work on. Exiting.");
@@ -811,7 +841,12 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
               agent: sandcastle.claudeCode("claude-fable-5"),
               promptFile: "./.sandcastle/review-prompt.md",
               // TARGET_BRANCH reaches the prompt via the built-in arg.
-              promptArgs: { TASK_ID: issue.id, BRANCH: issue.branch },
+              promptArgs: {
+                TASK_ID: issue.id,
+                BRANCH: issue.branch,
+                QUICK_VERIFY_COMMANDS: QUICK_VERIFY_TEXT,
+                COMMENT_TASK_COMMAND,
+              },
             }),
           );
           return {
@@ -927,6 +962,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   // Phase 3: Merge (legacy branches only — PR branches merge via approval)
   // -------------------------------------------------------------------------
+  // A merger failure must not kill the loop: the merge input is derived
+  // from git state, so the next cycle simply retries it. (An uncaught
+  // PromptError here once took the whole process down.)
+  try {
   await timed("merger", { branches: completedBranches.length }, () =>
     sandcastle.run({
       hooks,
@@ -939,9 +978,18 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
         ISSUES: completedIssues.map((i) => `- ${i.id}: ${i.title}`).join("\n"),
         VERIFY_COMMANDS: VERIFY_TEXT,
+        COMMENT_TASK_COMMAND,
+        CLOSE_TASK_COMMAND,
+        VIEW_TASK_COMMAND,
       },
     }),
   );
+  } catch (error) {
+    console.error(
+      `  ✗ merger failed: ${error instanceof Error ? error.message : error} — continuing; next cycle retries from git state.`,
+    );
+    continue;
+  }
 
   // PR-mode branches fork from local HEAD but their PR diffs are computed
   // against origin/master — keep the remote in sync with local merges.

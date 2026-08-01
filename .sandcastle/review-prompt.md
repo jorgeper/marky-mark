@@ -47,16 +47,20 @@ Review the code changes on branch `{{BRANCH}}` and improve code clarity, consist
 If you find improvements to make:
 
 1. Make the changes directly on this branch
-2. Run tests and type checking to ensure nothing is broken
+2. Verify YOUR changes only: run {{QUICK_VERIFY_COMMANDS}} plus tests
+   targeted at the code you touched. Do NOT run the full verification
+   suite — the implementer's final gate already covered this branch, and
+   your changes are behavior-preserving refinements.
 3. Commit describing the refinements
 
-If the code is already clean and well-structured, do nothing.
+If the code is already clean and well-structured, do nothing — run no
+tests, make no commit.
 
 # RECORD
 
 Before finishing, leave a single comment on issue {{TASK_ID}} recording the review outcome, using:
 
-`gh issue comment <ID> --body "<BODY>"`
+`{{COMMENT_TASK_COMMAND}}`
 
 Lead the comment with `🏰 **Sandcastle · Reviewer** — {{BRANCH}}`, then keep it concise: either **Changed:** what you refined and why, or **Reviewed — no changes needed.** Post this comment **before** you output the completion signal.
 
