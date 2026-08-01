@@ -55,6 +55,16 @@ import {
   type ThreadState,
 } from "./state.mts";
 import * as github from "./github.mts";
+import {
+  classifyPrdIssue,
+  findPrdPr,
+  parseCloseMarkerPresent,
+  parsePrApproval,
+  parseSubIssues,
+  prdPathFromPrFiles,
+  PARENT_CLOSE_MARKER,
+  type PrdPrHead,
+} from "./prd-lane.mts";
 import { logStep, timed } from "./timing.mts";
 import { printHelp, runDoctor, runInit } from "./setup.mts";
 import {
@@ -497,6 +507,168 @@ const warnNonDefaultBranch = async (): Promise<void> => {
 };
 
 // ---------------------------------------------------------------------------
+// PRD lane (prd/008): issues labeled `sandcastle:requires-prd` follow
+// idea → PRD PR (via the /new-prd skill, run by the owner in Claude Code)
+// → approval → merge → autonomous decompose → sub-issues. Every state is
+// derived from GitHub; this runs once per invocation, before the loop, so
+// freshly decomposed sub-issues are picked up by iteration 1.
+// ---------------------------------------------------------------------------
+
+const runPrdLane = async (): Promise<void> => {
+  let issues: github.IssueInfo[];
+  try {
+    issues = await github.listRequiresPrdIssues();
+  } catch {
+    return; // no gh / no labels yet — the lane is best-effort at startup
+  }
+  if (issues.length === 0) return;
+
+  let repo: string;
+  let prHeads: PrdPrHead[];
+  try {
+    repo = await github.repoSlug();
+    prHeads = (await github.listAllPrHeads()) as PrdPrHead[];
+  } catch (error) {
+    console.warn(
+      `⚠ PRD lane unavailable this run: ${error instanceof Error ? error.message.split("\n", 1)[0] : error}`,
+    );
+    return;
+  }
+  const nudges: string[] = [];
+
+  for (const issue of issues) {
+    const head = findPrdPr(prHeads, issue.number);
+    // API errors mean "state unknown" — report, never guess (prd/008).
+    let action: ReturnType<typeof classifyPrdIssue>;
+    try {
+      const pr =
+        head === null
+          ? null
+          : {
+              number: head.number,
+              state: head.state,
+              approved:
+                head.state === "OPEN"
+                  ? parsePrApproval(await github.prApprovalJson(head.number))
+                  : false,
+            };
+      action = classifyPrdIssue({
+        pr,
+        subIssues: parseSubIssues(
+          await github.subIssuesJson(repo, issue.number),
+        ),
+        closeMarkerPresent: parseCloseMarkerPresent(
+          await github.issueCommentsJson(issue.number),
+        ),
+      });
+    } catch (error) {
+      console.warn(
+        `  ⚠ PRD lane: could not classify #${issue.number} (${error instanceof Error ? error.message.split("\n", 1)[0] : error}) — skipping.`,
+      );
+      continue;
+    }
+    console.log(`  PRD #${issue.number} → ${action.kind}`);
+
+    if (action.kind === "merge-and-decompose") {
+      console.log(
+        `  merging approved PRD PR #${action.pr} (issue #${issue.number})…`,
+      );
+      try {
+        await github.mergePr(action.pr);
+      } catch (error) {
+        nudges.push(
+          `PRD PR #${action.pr} (issue #${issue.number}) is approved but the merge failed (${error instanceof Error ? error.message.split("\n", 1)[0] : error}) — resolve and re-run.`,
+        );
+        continue;
+      }
+    }
+
+    if (action.kind === "merge-and-decompose" || action.kind === "decompose") {
+      const prNumber = action.pr;
+      // An uncaught failure here (bad PR data, a stale local checkout, or a
+      // decomposer PromptError) must never take the whole run down — same
+      // precedent as the merger call site below.
+      let step = "reading PR files";
+      try {
+        const prdPath = prdPathFromPrFiles(await github.prFilesJson(prNumber));
+        if (prdPath === null) {
+          nudges.push(
+            `PRD PR #${prNumber} (issue #${issue.number}) merged but no prd/*.md among its files — decompose manually.`,
+          );
+          continue;
+        }
+        // The decomposer reads the PRD from the default branch — sync first.
+        step = "syncing the default branch";
+        await execFileAsync("git", [
+          "pull",
+          "--ff-only",
+          "origin",
+          TARGET_BRANCH,
+        ]);
+        step = "running the decomposer";
+        const decomposerModel = "claude-fable-5";
+        await timed("decomposer", { issue: issue.number }, () =>
+          sandcastle.run({
+            hooks,
+            sandbox: docker(),
+            name: "decomposer",
+            maxIterations: 1,
+            agent: sandcastle.claudeCode(decomposerModel),
+            promptFile: "./.sandcastle/decompose-prompt.md",
+            promptArgs: {
+              PARENT_NUMBER: issue.number,
+              PARENT_TITLE: issue.title,
+              PRD_PATH: prdPath,
+              REPO: repo,
+              AGENT_MARKER: markerFor(
+                "decomposer",
+                "claude-code",
+                decomposerModel,
+              ),
+              TRIGGER_LABEL: github.TRIGGER_LABEL,
+            },
+          }),
+        );
+        console.log(
+          `  #${issue.number}: decomposed — sub-issues enter this run's implement lane.`,
+        );
+      } catch (error) {
+        nudges.push(
+          `PRD PR #${prNumber} (issue #${issue.number}): ${step} failed (${error instanceof Error ? error.message.split("\n", 1)[0] : error}) — resolve and re-run.`,
+        );
+      }
+      continue;
+    }
+
+    if (action.kind === "close-parent") {
+      console.log(
+        `  #${issue.number}: all ${action.total} sub-issue(s) closed — closing parent.`,
+      );
+      await github.closeIssue(
+        issue.number,
+        `${PARENT_CLOSE_MARKER} — ${action.total}/${action.total} sub-issues closed.`,
+      );
+      continue;
+    }
+
+    if (action.kind === "needs-prd")
+      nudges.push(
+        `#${issue.number} "${issue.title}" needs a PRD — run the /new-prd skill in Claude Code (it grills you, then opens the PRD PR).`,
+      );
+    if (action.kind === "awaiting-review")
+      nudges.push(
+        `PRD PR #${action.pr} (issue #${issue.number}) awaits your review — approve with: gh pr edit ${action.pr} --add-label "${APPROVED_LABEL}"`,
+      );
+    if (action.kind === "abandoned")
+      nudges.push(
+        `PRD PR #${action.pr} (issue #${issue.number}) was closed without merging — reopen the PR, or run /new-prd ${issue.number} for a fresh PRD (the picker skips issues that already had a PRD PR).`,
+      );
+  }
+
+  for (const nudge of nudges) console.log(`ℹ PRD lane: ${nudge}`);
+};
+
+// ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
 
@@ -504,6 +676,7 @@ await warnUncommittedSkill();
 warnEmptyVerifyCommands();
 await warnNonDefaultBranch();
 await nudgeConversationalLanes();
+await runPrdLane();
 
 // Image-gap nudge (prd/006): logs modified after this instant belong to
 // this run's scan window.
@@ -515,7 +688,20 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   console.log();
 
   const openIssues = await github.listSandcastleIssues();
-  if (openIssues.length === 0) {
+  // PRD-lane parents are never implemented directly (prd/008) — their
+  // sub-issues carry the work. runPrdLane() already reported their state.
+  const prdParents = openIssues.filter((issue) =>
+    issue.labels.includes(github.REQUIRES_PRD_LABEL),
+  );
+  if (prdParents.length > 0) {
+    console.log(
+      `Skipping ${prdParents.length} \`${github.REQUIRES_PRD_LABEL}\` parent issue(s): ${prdParents.map((i) => `#${i.number}`).join(", ")}.`,
+    );
+  }
+  const workIssues = openIssues.filter(
+    (issue) => !issue.labels.includes(github.REQUIRES_PRD_LABEL),
+  );
+  if (workIssues.length === 0) {
     console.log("No open issues labeled `sandcastle`.");
     const labelNames = await github.listLabelNames().catch(() => []);
     const lower = new Set(labelNames.map((name) => name.toLowerCase()));
@@ -529,7 +715,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     );
     break;
   }
-  if (openIssues.some((issue) => issue.labels.includes(PR_LABEL))) {
+  if (workIssues.some((issue) => issue.labels.includes(PR_LABEL))) {
     await ensurePrInfra();
   }
 
@@ -541,7 +727,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     snapshot: PrSnapshot | null;
     action: ReturnType<typeof classifyIssue>;
   }[] = [];
-  for (const issue of openIssues) {
+  for (const issue of workIssues) {
     const snapshot = issue.labels.includes(PR_LABEL)
       ? await snapshotFor(issue.number)
       : null; // legacy issues never have PRs

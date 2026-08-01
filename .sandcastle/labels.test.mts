@@ -11,4 +11,10 @@ describe("label vocabulary", () => {
     const displayed = LABEL_ROWS.map(([name]) => name).sort();
     expect(displayed).toEqual(provisioned);
   });
+
+  it("provisions the requires-prd trigger label", () => {
+    expect(ALL_LABEL_DEFS.map((d) => d.name)).toContain(
+      "sandcastle:requires-prd",
+    );
+  });
 });

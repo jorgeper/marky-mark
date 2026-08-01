@@ -59,6 +59,14 @@ const ARGS_BY_PROMPT: Record<string, string[]> = {
     "VERIFY_COMMANDS",
     "QUICK_VERIFY_COMMANDS",
   ],
+  "decompose-prompt.md": [
+    "PARENT_NUMBER",
+    "PARENT_TITLE",
+    "PRD_PATH",
+    "REPO",
+    "AGENT_MARKER",
+    "TRIGGER_LABEL",
+  ],
 };
 
 const placeholdersIn = (file: string): string[] => {

@@ -24,6 +24,7 @@ const execFileAsync = promisify(execFile);
 export const LABEL_ROWS: [string, string, string, string][] = [
   [github.TRIGGER_LABEL, "issue", "you", "queue this issue for the loop"],
   [github.REQUIRE_PR_LABEL, "issue", "you", "gate it behind a PR + outer review"],
+  [github.REQUIRES_PRD_LABEL, "issue", "you", "needs an approved PRD PR before decompose/implement"],
   ["sandcastle:in-review", "PR", "orchestrator", "agent debate in progress"],
   ["sandcastle:ready", "PR", "orchestrator", "debate settled, awaiting you"],
   ["sandcastle:needs-decision", "PR", "orchestrator", "deadlocked threads await your verdict"],
