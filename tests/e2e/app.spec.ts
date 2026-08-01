@@ -5283,7 +5283,7 @@ test('E129: split edit — highlights + panel in the live pane, comment from a s
   expect(await gapTo()).toBeGreaterThanOrEqual(16);
 });
 
-test('E130: comment boxes keep a clear right-edge gap — every surface and state, both hosts, even an overflowing split pane (#20)', async ({
+test('E130: comment boxes keep a clear right-edge gap — every surface and state, both hosts, even an overflowing split pane (#20/#24)', async ({
   page,
 }) => {
   // Measured geometry, not stylesheet trust (#20 was filed right after the
@@ -5334,8 +5334,9 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
 
   // The #20 repro: the shipped paneMinWidth (768px) makes the split pane's
   // content (doc floor + 300px panel) overflow sideways at this 1280px
-  // window; the panel used to scroll out past the window border, cards
-  // clipped flush against it. Sticky-pinned now: the gap must hold.
+  // window. #24's model: the panel stays in flow beside the doc — never
+  // drawn over the text — and the pane grows a horizontal scrollbar;
+  // scrolling fully right brings the cards into view with the gap intact.
   await waitForSidecar(page, (s) => !!s && s.includes('second note'));
   const raw = await fsRead(page, '/config/settings.json');
   const settings = raw ? JSON.parse(raw) : {};
@@ -5346,8 +5347,36 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
   await expect(page.getByTestId('comment-card').first()).toBeVisible();
   expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16); // preview still fits
   await page.keyboard.press('Control+e');
-  await expect(page.getByTestId('split-preview')).toBeVisible();
+  const pane = page.getByTestId('split-preview');
+  await expect(pane).toBeVisible();
   await expect(page.getByTestId('comment-card').first()).toBeVisible();
+
+  /** Measured geometry (#24): the box must sit fully right of the doc's box. */
+  const clearOfDoc = async (testId: string) => {
+    const doc = (await pane.locator('.doc').boundingBox())!;
+    const box = (await page.getByTestId(testId).first().boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(doc.x + doc.width);
+  };
+
+  // Overflow, not overlay: the pane scrolls sideways…
+  const scroll = await pane.evaluate((el) => ({
+    left: el.scrollLeft,
+    width: el.scrollWidth,
+    client: el.clientWidth,
+  }));
+  expect(scroll.width).toBeGreaterThan(scroll.client);
+  // …and at scroll-left 0 the doc text is unobscured — the panel and its
+  // cards are beside the doc in flow, not on top of it.
+  expect(scroll.left).toBe(0);
+  await clearOfDoc('panel');
+  await clearOfDoc('comment-card');
+  // Scrolled fully right, the cards come into view, still clear of the doc,
+  // with the #19/#20 right-edge gap intact.
+  await pane.evaluate((el) => {
+    el.scrollLeft = el.scrollWidth;
+  });
+  await clearOfDoc('panel');
+  await clearOfDoc('comment-card');
   expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
   expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
 });
