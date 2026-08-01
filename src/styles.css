@@ -888,10 +888,51 @@ mark.hl.ghost {
    resizes the dialog — long tabs scroll inside .tab-content instead. */
 .settings-modal {
   display: flex;
+  flex-direction: column;
   padding: 0;
   width: min(560px, 94vw);
   height: min(480px, 85vh);
   overflow: hidden;
+}
+
+/* PRD 002 §E18: the User | Workspace scope selector above the category rail. */
+.settings-modal .scope-rail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--mm-border, #d1d9e0);
+  background: color-mix(in srgb, var(--mm-bg, #fff) 55%, var(--mm-bg-elevated, #f6f8fa));
+  flex-shrink: 0;
+}
+
+.settings-modal .scope-btn {
+  text-align: center;
+}
+
+.settings-modal .scope-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  background: none;
+  color: var(--mm-fg-muted, #59636e);
+}
+
+.settings-modal .scope-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--mm-fg-muted, #59636e);
+}
+
+.settings-modal .settings-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* §E19: per-row override / workspace-controlled indicators. */
+.settings-modal .scope-note {
+  margin: 3px 0 0;
+  color: var(--mm-accent, #0969da);
 }
 
 .settings-modal .tab-rail {

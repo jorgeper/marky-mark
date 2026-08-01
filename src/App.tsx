@@ -7,13 +7,16 @@ import { parseSidecar, serializeSidecar, sidecarPathFor } from './lib/sidecar';
 import { attachEmbedded, mergeComments, splitEmbedded } from './lib/embedded';
 import {
   DEFAULT_SETTINGS,
+  diffSettings,
   MARGIN_WIDTHS,
   resolveSettings,
-  serializeSettings,
+  serializeSettingsLayer,
   SPLIT_RATIO_MAX,
   SPLIT_RATIO_MIN,
   ZOOM_LEVELS,
   type Settings,
+  type SettingsLayers,
+  type SettingsScopeTab,
 } from './lib/settings';
 import { displayCombo, eventMatches } from './lib/hotkeys';
 import { dispatchCommand, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
@@ -46,6 +49,7 @@ import {
   parseWorkspaceFile,
   parseWorkspacePointer,
   parseWorkspaceSession,
+  sanitizeWorkspaceSettings,
   saveWorkspaceAs,
   serializeWorkspaceFile,
   serializeWorkspacePointer,
@@ -75,8 +79,9 @@ import {
   EV_SETTINGS_CHANGED,
   EV_SETTINGS_EDIT,
   EV_THEMES_CHANGED,
-  mergeSettingsEdit,
+  sanitizeSettingsEdit,
   type AuxRequest,
+  type SettingsBroadcast,
 } from './lib/auxProtocol';
 import { VimNavResolver } from './lib/vimnav';
 import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, renderedOffsetForSource, sourceOffsetForRendered, sourceRangeForVisibleMatch, visibleTextForRange } from './lib/selectionMap';
@@ -131,6 +136,20 @@ async function writeRecentStore(p: Platform, fileName: string, store: RecentStor
 export default function App() {
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  // PRD 002 §E18: the raw per-layer objects behind `settings` (the resolved
+  // result). settings.json is the USER layer only; the Workspace layer lives
+  // on the current Workspace value. Global/Team load once, read-only (§E20).
+  const settingsLayersRef = useRef<{ global?: unknown; team?: unknown; user: Record<string, unknown> }>({ user: {} });
+  // Session-only resolution overrides (web forces embedded storage; a review
+  // bundle carries its theme) — never persisted, dropped when the user edits
+  // the same key.
+  const sessionOverridesRef = useRef<Partial<Settings>>({});
+  // What the settings UI renders indicators from (mirrors the refs, in state
+  // so panels re-render when a layer changes without the effective changing).
+  const [layerView, setLayerView] = useState<{ layers: SettingsLayers; workspaceOpen: boolean }>({
+    layers: {},
+    workspaceOpen: false,
+  });
   const [themes, setThemes] = useState<Theme[]>([]);
   const [docPath, setDocPath] = useState<string | null>(null);
   // SPEC22 §1: a blank unsaved buffer (File → New) — no path until first Save.
@@ -1001,10 +1020,46 @@ export default function App() {
    * → named clears the single current-untitled slot. #16's menu flows (Add
    * Folder / Open Workspace / Save Workspace As) call this same seam.
    */
+  /**
+   * The raw layer inputs and workspace-open flag as of right now (PRD 002
+   * §E18/§F21) — everything the settings panels render indicators from.
+   */
+  const currentLayerView = useCallback((): { layers: SettingsLayers; workspaceOpen: boolean } => {
+    const ws = curWorkspaceRef.current;
+    return {
+      layers: {
+        global: settingsLayersRef.current.global,
+        team: settingsLayersRef.current.team,
+        workspace: ws.kind === 'none' ? undefined : ws.settings,
+        user: settingsLayersRef.current.user,
+      },
+      workspaceOpen: ws.kind !== 'none',
+    };
+  }, []);
+
+  /** Re-run four-layer resolution and refresh both the effective settings and the panel's layer view. */
+  const applyResolved = useCallback(() => {
+    const view = currentLayerView();
+    setLayerView(view);
+    setSettings((prev) => {
+      const next = { ...resolveSettings(view.layers), ...sessionOverridesRef.current };
+      // Identity-stable: unchanged resolutions keep the previous object (no
+      // spurious re-renders, editor reconfigures, or aux broadcasts), and an
+      // entry-wise-equal hotkeys map keeps its identity too.
+      const patch = diffSettings(prev, next);
+      if (Object.keys(patch).length === 0) return prev;
+      if (!patch.hotkeys) next.hotkeys = prev.hotkeys;
+      return next;
+    });
+  }, [currentLayerView]);
+
   const updateWorkspace = useCallback(
     (next: Workspace, platformNow?: Platform) => {
       const prev = curWorkspaceRef.current;
       curWorkspaceRef.current = next;
+      // §E18/§B5: the workspace layer changed — pinned settings apply (or
+      // stop applying) immediately, and the settings panels see fresh layers.
+      applyResolved();
       const p = platformNow ?? stateRef.current.platform;
       if (!p) return;
       void (async () => {
@@ -1022,7 +1077,7 @@ export default function App() {
       })();
       persistFolderState(platformNow);
     },
-    [persistFolderState]
+    [applyResolved, persistFolderState]
   );
 
   /** SPEC36: the single write path for the open set — refs, state, disk. */
@@ -1651,19 +1706,36 @@ export default function App() {
           /* no workspace */
         }
       }
+      const globalRaw = await readSettingsLayer('global-settings.json');
+      const userRaw = await readSettingsLayer('settings.json');
+      // §E18: keep the RAW layers — the panel's scope tabs write them back
+      // individually, so the resolved result must never be re-persisted whole.
+      settingsLayersRef.current = {
+        global: globalRaw,
+        user:
+          typeof userRaw === 'object' && userRaw !== null && !Array.isArray(userRaw)
+            ? (userRaw as Record<string, unknown>)
+            : {},
+      };
       let loaded = resolveSettings({
-        global: await readSettingsLayer('global-settings.json'),
+        global: globalRaw,
         // §B5/§F22: a current workspace's settings feed the Workspace layer;
         // with none current, resolution is unchanged from today.
         workspace: bootWs.kind === 'none' ? undefined : bootWs.settings,
-        user: await readSettingsLayer('settings.json'),
+        user: userRaw,
       });
       if (p.kind === 'web') {
-        loaded = { ...loaded, commentStorage: 'embedded' }; // no sidecars on web
+        // No sidecars on web — a session-only override, never a layer write.
+        sessionOverridesRef.current.commentStorage = 'embedded';
+        loaded = { ...loaded, commentStorage: 'embedded' };
         // SPEC17 §2.2: a review bundle may carry its export theme — apply it
         // for the session only (setSettings below never persists by itself).
         const payload = extractReviewPayload(document);
-        if (payload?.theme) loaded = { ...loaded, themeLight: payload.theme, themeDark: payload.theme };
+        if (payload?.theme) {
+          sessionOverridesRef.current.themeLight = payload.theme;
+          sessionOverridesRef.current.themeDark = payload.theme;
+          loaded = { ...loaded, themeLight: payload.theme, themeDark: payload.theme };
+        }
       }
       const themeList = await loadAllThemes(p);
 
@@ -1739,6 +1811,10 @@ export default function App() {
       }
 
       setPlatform(p);
+      // §E18: the panel's layer view boots alongside the resolved settings
+      // (bootWs may have just been adopted above — the helper reads the ref,
+      // not bootWs).
+      setLayerView(currentLayerView());
       setSettings(loaded);
       setThemes(themeList);
 
@@ -1909,17 +1985,42 @@ export default function App() {
   }, [platform, settings.fontSize, settings.margins, settings.zoom, settings.paneMinWidth]);
 
   // --- settings persistence ---------------------------------------------------
-  const updateSettings = useCallback(
-    (next: Settings) => {
-      setSettings(next);
+  /**
+   * PRD 002 §E18 layer-targeted writes: a 'user' patch lands ONLY in
+   * settings.json (the raw User layer); a 'workspace' patch lands ONLY in the
+   * current workspace's settings (named → its .marky-workspace autosave,
+   * untitled → the session slot, via the updateWorkspace seam). Either way
+   * the effective settings re-resolve immediately.
+   */
+  const applySettingsEdit = useCallback(
+    (scope: SettingsScopeTab, patch: Partial<Settings>) => {
+      if (Object.keys(patch).length === 0) return;
+      if (scope === 'workspace') {
+        const ws = curWorkspaceRef.current;
+        if (ws.kind === 'none') return;
+        updateWorkspace({ ...ws, settings: sanitizeWorkspaceSettings({ ...ws.settings, ...patch }) });
+        return;
+      }
+      // An explicit user edit beats any session-only override of the same key.
+      for (const k of Object.keys(patch) as Array<keyof Settings>) delete sessionOverridesRef.current[k];
+      settingsLayersRef.current.user = { ...settingsLayersRef.current.user, ...patch };
+      applyResolved();
       const p = stateRef.current.platform;
       if (!p) return;
       void (async () => {
         const path = p.join(await p.configDir(), 'settings.json');
-        await p.writeTextFile(path, serializeSettings(next));
+        await p.writeTextFile(path, serializeSettingsLayer(settingsLayersRef.current.user));
       })();
     },
-    []
+    [applyResolved, updateWorkspace]
+  );
+
+  /** Whole-Settings seam kept for in-app controls: the changed keys become a User-layer patch. */
+  const updateSettings = useCallback(
+    (next: Settings) => {
+      applySettingsEdit('user', diffSettings(stateRef.current.settings, next));
+    },
+    [applySettingsEdit]
   );
 
   /** SPEC34 §4.2: pick a directory → root; the panel opens; no file opens. */
@@ -2671,13 +2772,20 @@ export default function App() {
         const s = stateRef.current;
         void platform.busEmit!(
           EV_AUX_INIT,
-          buildAuxInit({ settings: s.settings, themes: s.themes, isMac: platform.isMac, version: __APP_VERSION__ })
+          buildAuxInit({
+            settings: s.settings,
+            ...currentLayerView(),
+            themes: s.themes,
+            isMac: platform.isMac,
+            version: __APP_VERSION__,
+          })
         );
       });
       const edit = await platform.busListen!(EV_SETTINGS_EDIT, (payload) => {
-        // §3.5: merge through the latest canonical state — a stale popup
-        // snapshot must never clobber splitRatio (or future panel-unedited keys).
-        updateSettings(mergeSettingsEdit(stateRef.current.settings, payload as Settings));
+        // §3.5/§E18: aux edits arrive as {scope, patch} — sanitized (known,
+        // panel-editable, scope-eligible keys only), then layer-targeted.
+        const e = sanitizeSettingsEdit(payload);
+        if (e) applySettingsEdit(e.scope, e.patch);
       });
       const req = await platform.busListen!(EV_AUX_REQUEST, (payload) => {
         const r = payload as AuxRequest;
@@ -2692,12 +2800,15 @@ export default function App() {
       disposed = true;
       offs.forEach((off) => off());
     };
-  }, [platform, updateSettings, reloadThemes]);
+  }, [platform, applySettingsEdit, currentLayerView, reloadThemes]);
 
-  // §3.5 canonical echo: every settings/themes change broadcasts, whatever its source.
+  // §3.5 canonical echo: every settings/layer change broadcasts, whatever its source.
   useEffect(() => {
-    if (platform?.busEmit) void platform.busEmit(EV_SETTINGS_CHANGED, settings);
-  }, [platform, settings]);
+    if (platform?.busEmit) {
+      const b: SettingsBroadcast = { settings, ...layerView };
+      void platform.busEmit(EV_SETTINGS_CHANGED, b);
+    }
+  }, [platform, settings, layerView]);
   useEffect(() => {
     if (platform?.busEmit) void platform.busEmit(EV_THEMES_CHANGED, themes);
   }, [platform, themes]);
@@ -3931,11 +4042,14 @@ export default function App() {
       {!platform.openAuxWindow && settingsOpen && (
         <SettingsPanel
           settings={settings}
+          layers={layerView.layers}
+          workspaceOpen={layerView.workspaceOpen}
+          scopeSelector={platform.kind !== 'web'}
           themes={themes}
           isMac={platform.isMac}
           storageLocked={platform.kind === 'web'}
           autoHideAvailable={!nativeMenu}
-          onChange={updateSettings}
+          onEdit={applySettingsEdit}
           onReloadThemes={() => void reloadThemes()}
           onImportTheme={
             platform.importTheme

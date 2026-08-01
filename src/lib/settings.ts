@@ -275,27 +275,132 @@ function mergeLayers(candidatesFor: (key: keyof Settings) => ReadonlyArray<Recor
   return out;
 }
 
+/** The four named layers, plus 'default' for keys no layer supplies. */
+export type LayerName = 'global' | 'team' | 'workspace' | 'user';
+
+/** Indicator wording building block: display names for the layers (§E19). */
+export const LAYER_LABELS: Record<LayerName, string> = {
+  global: 'Global',
+  team: 'Team',
+  workspace: 'Workspace',
+  user: 'User',
+};
+
+/**
+ * Candidate layers per scope, highest precedence first (§A2). M-scoped keys
+ * skip the merge; their machine-local store is still settings.json — the
+ * same file the User layer reads — until the storage split lands.
+ */
+const CANDIDATE_LAYERS: Record<Scope, ReadonlyArray<LayerName>> = {
+  U: ['user', 'workspace', 'team', 'global'],
+  'U!': ['user'],
+  W: ['workspace', 'team', 'global'],
+  M: ['user'],
+};
+
+function normalizedLayers(layers: SettingsLayers): Record<LayerName, Record<string, unknown>> {
+  return {
+    global: normalizeLayer(layers.global),
+    team: normalizeLayer(layers.team),
+    workspace: normalizeLayer(layers.workspace),
+    user: normalizeLayer(layers.user),
+  };
+}
+
 /**
  * Pure, deterministic four-layer resolution (PRD §A1–§A4): for each key, walk
  * the layers its scope admits from highest precedence down and take the first
  * valid value; every miss falls back to `DEFAULT_SETTINGS`. No I/O.
  */
 export function resolveSettings(layers: SettingsLayers): Settings {
-  const global = normalizeLayer(layers.global);
-  const team = normalizeLayer(layers.team);
-  const workspace = normalizeLayer(layers.workspace);
-  const user = normalizeLayer(layers.user);
+  const norm = normalizedLayers(layers);
+  return mergeLayers((key) => CANDIDATE_LAYERS[SETTINGS_SCOPES[key]].map((name) => norm[name]));
+}
 
-  // Candidate layers per scope, highest precedence first (§A2). M-scoped keys
-  // skip the merge; their machine-local store is still settings.json — the
-  // same file the User layer reads — until the storage split lands.
-  const candidates: Record<Scope, ReadonlyArray<Record<string, unknown>>> = {
-    U: [user, workspace, team, global],
-    'U!': [user],
-    W: [workspace, team, global],
-    M: [user],
+/**
+ * §E19: the layer that supplies `key`'s effective value — the first candidate
+ * in its scope's precedence chain holding a valid value, or 'default'.
+ */
+export function winningLayer(key: keyof Settings, layers: SettingsLayers): LayerName | 'default' {
+  const norm = normalizedLayers(layers);
+  const validate = VALIDATORS[key] as (raw: unknown) => unknown;
+  for (const name of CANDIDATE_LAYERS[SETTINGS_SCOPES[key]]) {
+    if (validate(norm[name][key]) !== undefined) return name;
+  }
+  return 'default';
+}
+
+/** The Settings window's two writable scopes (§E18); Global/Team never edit. */
+export type SettingsScopeTab = 'user' | 'workspace';
+
+/**
+ * §E18: the curated cosmetic (U-scoped) settings a workspace author may pin
+ * as shared defaults. Never M- or U!-scoped keys.
+ */
+export const WORKSPACE_PINNABLE_KEYS: ReadonlyArray<keyof Settings> = [
+  'themeLight',
+  'themeDark',
+  'useDarkTheme',
+  'fontSize',
+  'zoom',
+  'margins',
+];
+
+/** Everything the Workspace tab shows: the W-scoped keys plus the pinnable set. */
+export const WORKSPACE_ELIGIBLE_KEYS: ReadonlyArray<keyof Settings> = [
+  ...(Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>).filter((k) => SETTINGS_SCOPES[k] === 'W'),
+  ...WORKSPACE_PINNABLE_KEYS,
+];
+
+/** §E19: what one settings row must convey on a given scope tab. */
+export interface SettingsRowStatus {
+  /** The layer supplying the effective value ('default' when none does). */
+  winner: LayerName | 'default';
+  /** Non-null → the row's indicator names this layer as winning over the tab's own layer. */
+  overriddenBy: LayerName | null;
+  /** W-scoped key viewed on the User tab: shown, but not user-editable. */
+  workspaceControlled: boolean;
+}
+
+export function settingsRowStatus(
+  key: keyof Settings,
+  tab: SettingsScopeTab,
+  layers: SettingsLayers
+): SettingsRowStatus {
+  const winner = winningLayer(key, layers);
+  return {
+    winner,
+    overriddenBy: winner !== 'default' && winner !== tab ? winner : null,
+    workspaceControlled: tab === 'user' && SETTINGS_SCOPES[key] === 'W',
   };
-  return mergeLayers((key) => candidates[SETTINGS_SCOPES[key]]);
+}
+
+/**
+ * The keys where `next` differs from `prev` — the panel's whole-Settings
+ * edits become per-layer patches through this (hotkeys compare entry-wise,
+ * so a rebuilt-but-equal map is no change).
+ */
+export function diffSettings(prev: Settings, next: Settings): Partial<Settings> {
+  const out: Partial<Settings> = {};
+  for (const key of Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>) {
+    if (key === 'hotkeys') {
+      const changed = (Object.keys(DEFAULT_HOTKEYS) as Array<keyof HotkeyMap>).some(
+        (k) => prev.hotkeys[k] !== next.hotkeys[k]
+      );
+      if (changed) out.hotkeys = { ...next.hotkeys };
+    } else if (prev[key] !== next[key]) {
+      (out as Record<keyof Settings, unknown>)[key] = next[key];
+    }
+  }
+  return out;
+}
+
+/**
+ * settings.json now stores the raw User LAYER (sparse, only what the user
+ * set) rather than the full effective Settings — serialize it as-is.
+ */
+export function serializeSettingsLayer(layer: Record<string, unknown>): string {
+  return `${JSON.stringify(layer, null, 2)}\n`;
 }
 
 /**

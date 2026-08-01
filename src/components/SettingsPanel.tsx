@@ -1,19 +1,41 @@
-import { useState } from 'react';
-import { DEFAULT_SETTINGS, FONT_SIZE_MAX, FONT_SIZE_MIN, PANE_MIN_WIDTH_MAX, PANE_MIN_WIDTH_MIN, ZOOM_LEVELS, type Margins, type Settings } from '../lib/settings';
+import { useEffect, useState } from 'react';
+import {
+  DEFAULT_SETTINGS,
+  diffSettings,
+  FONT_SIZE_MAX,
+  FONT_SIZE_MIN,
+  LAYER_LABELS,
+  PANE_MIN_WIDTH_MAX,
+  PANE_MIN_WIDTH_MIN,
+  settingsRowStatus,
+  ZOOM_LEVELS,
+  type Margins,
+  type Settings,
+  type SettingsLayers,
+  type SettingsScopeTab,
+} from '../lib/settings';
 import type { Theme } from '../lib/themes';
 import { comboFromEvent, DEFAULT_HOTKEYS, displayCombo, type HotkeyMap } from '../lib/hotkeys';
 import { SMART_EDIT_NAME } from '../lib/smartEdit';
 import { expandImageName, isValidImageFolder } from '../lib/imagePaste';
 
 interface Props {
+  /** The EFFECTIVE (resolved) settings — every row displays these (§E19). */
   settings: Settings;
+  /** Raw layer inputs, for override indicators and row locking. */
+  layers: SettingsLayers;
+  /** §E18: the Workspace scope tab enables only while a workspace is open. */
+  workspaceOpen: boolean;
+  /** §H25: desktop-only — the web build shows no User|Workspace selector. */
+  scopeSelector: boolean;
   themes: Theme[];
   isMac: boolean;
   /** Web build: comments are always embedded; the storage control locks. */
   storageLocked: boolean;
   /** SPEC12 §4.1: desktop has no toolbar, so the auto-hide option hides too. */
   autoHideAvailable: boolean;
-  onChange(next: Settings): void;
+  /** §E18: an edit writes ONLY the named layer — never the other one. */
+  onEdit(scope: SettingsScopeTab, patch: Partial<Settings>): void;
   onReloadThemes(): void;
   /** Web only: pick a .css file and add it as a user theme. */
   onImportTheme?: () => void | Promise<void>;
@@ -103,11 +125,14 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
 
 export function SettingsPanel({
   settings,
+  layers,
+  workspaceOpen,
+  scopeSelector,
   themes,
   isMac,
   storageLocked,
   autoHideAvailable,
-  onChange,
+  onEdit,
   onReloadThemes,
   onImportTheme,
   onRevealThemesDir,
@@ -116,6 +141,12 @@ export function SettingsPanel({
   docName,
 }: Props) {
   const [tab, setTab] = useState<SettingsTab>('appearance');
+  // §E18: which layer this window writes. Without the selector (web) it is
+  // permanently 'user'; closing the workspace kicks the view back to User.
+  const [scope, setScope] = useState<SettingsScopeTab>('user');
+  useEffect(() => {
+    if (scope === 'workspace' && (!scopeSelector || !workspaceOpen)) setScope('user');
+  }, [scope, scopeSelector, workspaceOpen]);
   const [hint, setHint] = useState('');
   // SPEC20 §1: the folder field keeps the raw draft; only valid single-segment
   // names commit to settings (the last valid value survives bad keystrokes).
@@ -126,6 +157,35 @@ export function SettingsPanel({
   // Pane-min is a free-typing draft: valid in-range values commit live,
   // blur/Enter clamps and normalizes (a clamping spinner fought every key).
   const [paneMinDraft, setPaneMinDraft] = useState(String(settings.paneMinWidth));
+
+  // Rows still build whole-Settings edits; only the changed keys travel, to
+  // the layer the current scope names (§E18 layer-targeted writes).
+  const onChange = (next: Settings) => {
+    const patch = diffSettings(settings, next);
+    if (Object.keys(patch).length > 0) onEdit(scope, patch);
+  };
+
+  // §E19 row status: override indicator + W-key locking for the current scope.
+  const rowStatus = (key: keyof Settings) => settingsRowStatus(key, scope, layers);
+  const scopeLocked = (key: keyof Settings) => rowStatus(key).workspaceControlled;
+  const scopeNote = (key: keyof Settings) => {
+    const st = rowStatus(key);
+    let note: string | null = null;
+    if (st.workspaceControlled) {
+      note = st.overriddenBy
+        ? `Workspace setting — set by ${LAYER_LABELS[st.overriddenBy]}; edit it in Workspace scope.`
+        : 'Workspace setting — edit it in Workspace scope.';
+    } else if (st.overriddenBy) {
+      note = `Overridden by ${LAYER_LABELS[st.overriddenBy]}`;
+    }
+    if (!note) return null;
+    return (
+      <p className="hotkey-hint scope-note" data-testid={`scope-note-${key}`}>
+        {note}
+      </p>
+    );
+  };
+
   const commitPaneMin = () => {
     const n = Math.round(Number(paneMinDraft));
     const clamped = Number.isFinite(n)
@@ -169,103 +229,216 @@ export function SettingsPanel({
     onChange({ ...settings, fontSize: clamped });
   };
 
+  // --- workspace-eligible rows, shared between the User tabs and the
+  // --- Workspace scope view (§E18: same controls, different target layer) ----
+
+  const fontSizeRow = (
+    <div className="field">
+      <label>Font size</label>
+      <div className="inline-row">
+        <label className="radio-label">
+          <input
+            type="radio"
+            name="fontsize-mode"
+            data-testid="fontsize-auto"
+            checked={settings.fontSize === 'auto'}
+            onChange={() => onChange({ ...settings, fontSize: 'auto' })}
+          />
+          Auto (recommended)
+        </label>
+        <label className="radio-label">
+          <input
+            type="radio"
+            name="fontsize-mode"
+            data-testid="fontsize-custom"
+            checked={settings.fontSize !== 'auto'}
+            onChange={() => onChange({ ...settings, fontSize: customSize })}
+          />
+          Customized
+        </label>
+        <input
+          type="number"
+          data-testid="fontsize-input"
+          min={FONT_SIZE_MIN}
+          max={FONT_SIZE_MAX}
+          value={settings.fontSize === 'auto' ? customSize : settings.fontSize}
+          disabled={settings.fontSize === 'auto'}
+          onChange={(e) => setCustomFontSize(Number(e.target.value))}
+          style={{ width: 64 }}
+        />
+        <span className="unit">px</span>
+      </div>
+      {scopeNote('fontSize')}
+    </div>
+  );
+
+  const zoomRow = (
+    <div className="field">
+      <label htmlFor="zoom-select">Zoom (document text only)</label>
+      <div className="inline-row">
+        <select
+          id="zoom-select"
+          data-testid="zoom-select"
+          value={settings.zoom}
+          onChange={(e) => onChange({ ...settings, zoom: Number(e.target.value) })}
+          style={{ width: 120 }}
+        >
+          {ZOOM_LEVELS.map((z) => (
+            <option value={z} key={z}>
+              {z}%
+            </option>
+          ))}
+        </select>
+        <button className="linklike" data-testid="zoom-reset" onClick={() => onChange({ ...settings, zoom: 100 })}>
+          Reset to Default
+        </button>
+      </div>
+      {scopeNote('zoom')}
+    </div>
+  );
+
+  const themeLightRow = (
+    <div className="field">
+      <label htmlFor="settings-theme-light">Light theme</label>
+      <select
+        id="settings-theme-light"
+        data-testid="settings-theme-light"
+        value={settings.themeLight}
+        onChange={(e) => onChange({ ...settings, themeLight: e.target.value })}
+      >
+        {themeOptions}
+      </select>
+      {scopeNote('themeLight')}
+    </div>
+  );
+
+  const themeDarkRow = (
+    <div className="field">
+      <label htmlFor="settings-theme-dark">Dark theme</label>
+      <select
+        id="settings-theme-dark"
+        data-testid="settings-theme-dark"
+        value={settings.themeDark}
+        onChange={(e) => onChange({ ...settings, themeDark: e.target.value })}
+      >
+        {themeOptions}
+      </select>
+      {scopeNote('themeDark')}
+    </div>
+  );
+
+  const darkModeRow = (
+    <div className="checkbox-row">
+      <input
+        id="use-dark-theme"
+        type="checkbox"
+        data-testid="use-dark-theme"
+        checked={settings.useDarkTheme}
+        onChange={(e) => onChange({ ...settings, useDarkTheme: e.target.checked })}
+      />
+      <label htmlFor="use-dark-theme" style={{ margin: 0, fontWeight: 400 }}>
+        Use separate theme in dark mode
+      </label>
+      {scopeNote('useDarkTheme')}
+    </div>
+  );
+
+  const marginsRow = (
+    <div className="field">
+      <label htmlFor="settings-margins">Text margins</label>
+      <select
+        id="settings-margins"
+        data-testid="settings-margins"
+        value={settings.margins}
+        onChange={(e) => onChange({ ...settings, margins: e.target.value as Margins })}
+      >
+        {MARGIN_LABELS.map((m) => (
+          <option value={m.value} key={m.value}>
+            {m.label}
+          </option>
+        ))}
+      </select>
+      {scopeNote('margins')}
+    </div>
+  );
+
+  const storageRow = (
+    <div className="field">
+      <label htmlFor="comment-storage">Comment storage</label>
+      <select
+        id="comment-storage"
+        data-testid="comment-storage"
+        value={settings.commentStorage}
+        disabled={storageLocked || scopeLocked('commentStorage')}
+        onChange={(e) =>
+          onChange({ ...settings, commentStorage: e.target.value === 'embedded' ? 'embedded' : 'sidecar' })
+        }
+      >
+        <option value="sidecar">Sidecar file (name.md.comments.json)</option>
+        <option value="embedded">Embedded in the markdown file (invisible)</option>
+      </select>
+      {storageLocked && <p className="hotkey-hint">The web version always embeds comments in the file.</p>}
+      {!storageLocked && scopeNote('commentStorage')}
+    </div>
+  );
+
+  const patternExample = expandImageName(
+    settings.imageNamePattern || DEFAULT_SETTINGS.imageNamePattern,
+    'png',
+    { docName: docName || 'document', now: new Date(), exists: () => false }
+  );
+
+  const imageFolderRow = (
+    <div className="field">
+      <label htmlFor="image-folder">Folder for pasted images (created next to the document)</label>
+      <input
+        id="image-folder"
+        type="text"
+        data-testid="image-folder"
+        value={folderDraft}
+        disabled={scopeLocked('imageFolder')}
+        onChange={(e) => {
+          const v = e.target.value;
+          setFolderDraft(v);
+          if (isValidImageFolder(v)) onChange({ ...settings, imageFolder: v.trim() });
+        }}
+      />
+      {folderInvalid && (
+        <p className="hotkey-hint" data-testid="image-folder-error">
+          Folder must be a single name — no slashes or “..”.
+        </p>
+      )}
+      {scopeNote('imageFolder')}
+    </div>
+  );
+
+  const imagePatternRow = (
+    <div className="field">
+      <label htmlFor="image-pattern">File name for pasted images</label>
+      <input
+        id="image-pattern"
+        type="text"
+        data-testid="image-pattern"
+        value={settings.imageNamePattern}
+        disabled={scopeLocked('imageNamePattern')}
+        onChange={(e) => onChange({ ...settings, imageNamePattern: e.target.value })}
+      />
+      <p className="hotkey-hint" data-testid="image-pattern-example">
+        {'Example: '}
+        {patternExample}
+        {' — tokens: {doc} (document name), {n} (next free number), {date}, {time}.'}
+      </p>
+      {scopeNote('imageNamePattern')}
+    </div>
+  );
+
   const appearanceTab = (
     <>
-      <div className="field">
-        <label>Font size</label>
-        <div className="inline-row">
-          <label className="radio-label">
-            <input
-              type="radio"
-              name="fontsize-mode"
-              data-testid="fontsize-auto"
-              checked={settings.fontSize === 'auto'}
-              onChange={() => onChange({ ...settings, fontSize: 'auto' })}
-            />
-            Auto (recommended)
-          </label>
-          <label className="radio-label">
-            <input
-              type="radio"
-              name="fontsize-mode"
-              data-testid="fontsize-custom"
-              checked={settings.fontSize !== 'auto'}
-              onChange={() => onChange({ ...settings, fontSize: customSize })}
-            />
-            Customized
-          </label>
-          <input
-            type="number"
-            data-testid="fontsize-input"
-            min={FONT_SIZE_MIN}
-            max={FONT_SIZE_MAX}
-            value={settings.fontSize === 'auto' ? customSize : settings.fontSize}
-            disabled={settings.fontSize === 'auto'}
-            onChange={(e) => setCustomFontSize(Number(e.target.value))}
-            style={{ width: 64 }}
-          />
-          <span className="unit">px</span>
-        </div>
-      </div>
-
-      <div className="field">
-        <label htmlFor="zoom-select">Zoom (document text only)</label>
-        <div className="inline-row">
-          <select
-            id="zoom-select"
-            data-testid="zoom-select"
-            value={settings.zoom}
-            onChange={(e) => onChange({ ...settings, zoom: Number(e.target.value) })}
-            style={{ width: 120 }}
-          >
-            {ZOOM_LEVELS.map((z) => (
-              <option value={z} key={z}>
-                {z}%
-              </option>
-            ))}
-          </select>
-          <button className="linklike" data-testid="zoom-reset" onClick={() => onChange({ ...settings, zoom: 100 })}>
-            Reset to Default
-          </button>
-        </div>
-      </div>
-
-      <div className="field">
-        <label htmlFor="settings-theme-light">Light theme</label>
-        <select
-          id="settings-theme-light"
-          data-testid="settings-theme-light"
-          value={settings.themeLight}
-          onChange={(e) => onChange({ ...settings, themeLight: e.target.value })}
-        >
-          {themeOptions}
-        </select>
-      </div>
-
-      <div className="field">
-        <label htmlFor="settings-theme-dark">Dark theme</label>
-        <select
-          id="settings-theme-dark"
-          data-testid="settings-theme-dark"
-          value={settings.themeDark}
-          onChange={(e) => onChange({ ...settings, themeDark: e.target.value })}
-        >
-          {themeOptions}
-        </select>
-      </div>
-
-      <div className="checkbox-row">
-        <input
-          id="use-dark-theme"
-          type="checkbox"
-          data-testid="use-dark-theme"
-          checked={settings.useDarkTheme}
-          onChange={(e) => onChange({ ...settings, useDarkTheme: e.target.checked })}
-        />
-        <label htmlFor="use-dark-theme" style={{ margin: 0, fontWeight: 400 }}>
-          Use separate theme in dark mode
-        </label>
-      </div>
+      {fontSizeRow}
+      {zoomRow}
+      {themeLightRow}
+      {themeDarkRow}
+      {darkModeRow}
 
       <div className="row" style={{ marginBottom: 12 }}>
         <button className="linklike" data-testid="reload-themes" onClick={onReloadThemes}>
@@ -283,21 +456,7 @@ export function SettingsPanel({
         )}
       </div>
 
-      <div className="field">
-        <label htmlFor="settings-margins">Text margins</label>
-        <select
-          id="settings-margins"
-          data-testid="settings-margins"
-          value={settings.margins}
-          onChange={(e) => onChange({ ...settings, margins: e.target.value as Margins })}
-        >
-          {MARGIN_LABELS.map((m) => (
-            <option value={m.value} key={m.value}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      {marginsRow}
 
       <div className="field">
         <label htmlFor="settings-pane-min">
@@ -323,6 +482,7 @@ export function SettingsPanel({
           }}
           style={{ width: 80 }}
         />
+        {scopeNote('paneMinWidth')}
       </div>
     </>
   );
@@ -341,6 +501,7 @@ export function SettingsPanel({
         <label htmlFor="settings-line-numbers" style={{ margin: 0, fontWeight: 400 }}>
           Show line numbers
         </label>
+        {scopeNote('lineNumbers')}
       </div>
 
       <div className="checkbox-row">
@@ -354,6 +515,7 @@ export function SettingsPanel({
         <label htmlFor="autosave-toggle" style={{ margin: 0, fontWeight: 400 }}>
           Save automatically when switching to preview
         </label>
+        {scopeNote('autosaveOnToggle')}
       </div>
 
       <div className="checkbox-row">
@@ -381,6 +543,7 @@ export function SettingsPanel({
         <label htmlFor="set-comments-enabled" style={{ margin: 0, fontWeight: 400 }}>
           Enable comments (highlights, panel, and the selection button)
         </label>
+        {scopeNote('commentsEnabled')}
       </div>
 
       <div className="checkbox-row">
@@ -395,6 +558,7 @@ export function SettingsPanel({
         <label htmlFor="set-type-to-comment" style={{ margin: 0, fontWeight: 400 }}>
           Start a comment by typing over a selection (no button click needed)
         </label>
+        {scopeNote('typeToComment')}
       </div>
 
       <div className="checkbox-row">
@@ -409,6 +573,7 @@ export function SettingsPanel({
         <label htmlFor="show-resolved" style={{ margin: 0, fontWeight: 400 }}>
           Show resolved comments, ghosted in place
         </label>
+        {scopeNote('showResolved')}
       </div>
 
       <div className="field">
@@ -422,22 +587,7 @@ export function SettingsPanel({
         />
       </div>
 
-      <div className="field">
-        <label htmlFor="comment-storage">Comment storage</label>
-        <select
-          id="comment-storage"
-          data-testid="comment-storage"
-          value={settings.commentStorage}
-          disabled={storageLocked}
-          onChange={(e) =>
-            onChange({ ...settings, commentStorage: e.target.value === 'embedded' ? 'embedded' : 'sidecar' })
-          }
-        >
-          <option value="sidecar">Sidecar file (name.md.comments.json)</option>
-          <option value="embedded">Embedded in the markdown file (invisible)</option>
-        </select>
-        {storageLocked && <p className="hotkey-hint">The web version always embeds comments in the file.</p>}
-      </div>
+      {storageRow}
 
       {autoHideAvailable && (
         <div className="checkbox-row">
@@ -451,6 +601,7 @@ export function SettingsPanel({
           <label htmlFor="settings-autohide" style={{ margin: 0, fontWeight: 400 }}>
             Auto-hide the toolbar (reveal by moving the mouse to the top)
           </label>
+          {scopeNote('autoHideToolbar')}
         </div>
       )}
 
@@ -465,6 +616,7 @@ export function SettingsPanel({
         <label htmlFor="settings-reopen" style={{ margin: 0, fontWeight: 400 }}>
           Reopen last document on launch
         </label>
+        {scopeNote('reopenLastDoc')}
       </div>
 
       <div className="checkbox-row">
@@ -478,6 +630,7 @@ export function SettingsPanel({
         <label htmlFor="set-restore-open-files" style={{ margin: 0, fontWeight: 400 }}>
           Reopen open files at launch
         </label>
+        {scopeNote('restoreOpenFiles')}
       </div>
 
       <div className="checkbox-row">
@@ -491,6 +644,7 @@ export function SettingsPanel({
         <label htmlFor="settings-frontmatter" style={{ margin: 0, fontWeight: 400 }}>
           Show front matter (when a document has it)
         </label>
+        {scopeNote('showFrontmatter')}
       </div>
 
       <h3 className="tab-section">Navigation</h3>
@@ -505,14 +659,9 @@ export function SettingsPanel({
         <label htmlFor="settings-vimnav" style={{ margin: 0, fontWeight: 400 }}>
           Vim-style navigation (preview: j/k, Ctrl+d/u, gg/G; edit: Esc for nav mode, i to type)
         </label>
+        {scopeNote('vimNav')}
       </div>
     </>
-  );
-
-  const patternExample = expandImageName(
-    settings.imageNamePattern || DEFAULT_SETTINGS.imageNamePattern,
-    'png',
-    { docName: docName || 'document', now: new Date(), exists: () => false }
   );
 
   const editorTab = (
@@ -529,6 +678,7 @@ export function SettingsPanel({
         <label htmlFor="editor-syntax" style={{ margin: 0, fontWeight: 400 }}>
           Markdown syntax highlighting
         </label>
+        {scopeNote('editorSyntax')}
       </div>
 
       <h3 className="tab-section">Tables</h3>
@@ -543,6 +693,7 @@ export function SettingsPanel({
         <label htmlFor="settings-table-grid" style={{ margin: 0, fontWeight: 400 }}>
           Show tables as grids in the editor
         </label>
+        {scopeNote('tableGridView')}
       </div>
 
       <h3 className="tab-section">Images</h3>
@@ -557,41 +708,10 @@ export function SettingsPanel({
         <label htmlFor="settings-inline-images" style={{ margin: 0, fontWeight: 400 }}>
           Show images in the editor
         </label>
+        {scopeNote('inlineImages')}
       </div>
-      <div className="field">
-        <label htmlFor="image-folder">Folder for pasted images (created next to the document)</label>
-        <input
-          id="image-folder"
-          type="text"
-          data-testid="image-folder"
-          value={folderDraft}
-          onChange={(e) => {
-            const v = e.target.value;
-            setFolderDraft(v);
-            if (isValidImageFolder(v)) onChange({ ...settings, imageFolder: v.trim() });
-          }}
-        />
-        {folderInvalid && (
-          <p className="hotkey-hint" data-testid="image-folder-error">
-            Folder must be a single name — no slashes or “..”.
-          </p>
-        )}
-      </div>
-      <div className="field">
-        <label htmlFor="image-pattern">File name for pasted images</label>
-        <input
-          id="image-pattern"
-          type="text"
-          data-testid="image-pattern"
-          value={settings.imageNamePattern}
-          onChange={(e) => onChange({ ...settings, imageNamePattern: e.target.value })}
-        />
-        <p className="hotkey-hint" data-testid="image-pattern-example">
-          {'Example: '}
-          {patternExample}
-          {' — tokens: {doc} (document name), {n} (next free number), {date}, {time}.'}
-        </p>
-      </div>
+      {imageFolderRow}
+      {imagePatternRow}
     </>
   );
 
@@ -633,32 +753,91 @@ export function SettingsPanel({
     </>
   );
 
+  // §E18: the Workspace scope shows ONLY workspace-eligible settings — the
+  // W-scoped keys and the curated pinnable cosmetic defaults.
+  const workspaceScopeView = (
+    <>
+      <h3 className="tab-section">Workspace settings</h3>
+      {storageRow}
+      {imageFolderRow}
+      {imagePatternRow}
+      <h3 className="tab-section">Pinned appearance defaults</h3>
+      <p className="hotkey-hint">
+        Saved with the workspace as shared defaults; a personal User value still wins.
+      </p>
+      {fontSizeRow}
+      {zoomRow}
+      {themeLightRow}
+      {themeDarkRow}
+      {darkModeRow}
+      {marginsRow}
+    </>
+  );
+
+  const doneButton = !frameless && (
+    <div className="actions">
+      <button className="primary" data-testid="settings-close" onClick={onClose}>
+        Done
+      </button>
+    </div>
+  );
+
   const body = (
     <div className="modal settings-modal" data-testid="settings-panel">
-      <nav className="tab-rail" data-testid="settings-tabs">
-        {TABS.map((t) => (
+      {/* §E18/§H25: the User | Workspace scope selector — desktop only. */}
+      {scopeSelector && (
+        <nav className="scope-rail" data-testid="settings-scope">
           <button
-            key={t.id}
-            className={`tab-btn${tab === t.id ? ' active' : ''}`}
-            data-testid={`settings-tab-${t.id}`}
-            onClick={() => setTab(t.id)}
+            className={`tab-btn scope-btn${scope === 'user' ? ' active' : ''}`}
+            data-testid="settings-scope-user"
+            onClick={() => setScope('user')}
           >
-            {t.label}
+            User
           </button>
-        ))}
-      </nav>
-      <div className="tab-content">
-        {tab === 'appearance' && appearanceTab}
-        {tab === 'general' && generalTab}
-        {tab === 'editor' && editorTab}
-        {tab === 'hotkeys' && hotkeysTab}
-        {!frameless && (
-          <div className="actions">
-            <button className="primary" data-testid="settings-close" onClick={onClose}>
-              Done
-            </button>
-          </div>
+          <button
+            className={`tab-btn scope-btn${scope === 'workspace' ? ' active' : ''}`}
+            data-testid="settings-scope-workspace"
+            disabled={!workspaceOpen}
+            title={workspaceOpen ? undefined : 'Open a workspace to edit its settings'}
+            onClick={() => setScope('workspace')}
+          >
+            Workspace
+          </button>
+          {!workspaceOpen && (
+            <span className="scope-hint" data-testid="settings-scope-hint">
+              No workspace open
+            </span>
+          )}
+        </nav>
+      )}
+      <div className="settings-body">
+        {scope === 'user' && (
+          <nav className="tab-rail" data-testid="settings-tabs">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                className={`tab-btn${tab === t.id ? ' active' : ''}`}
+                data-testid={`settings-tab-${t.id}`}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
         )}
+        <div className="tab-content" data-testid={`settings-scope-content-${scope}`}>
+          {scope === 'workspace' ? (
+            workspaceScopeView
+          ) : (
+            <>
+              {tab === 'appearance' && appearanceTab}
+              {tab === 'general' && generalTab}
+              {tab === 'editor' && editorTab}
+              {tab === 'hotkeys' && hotkeysTab}
+            </>
+          )}
+          {doneButton}
+        </div>
       </div>
     </div>
   );
