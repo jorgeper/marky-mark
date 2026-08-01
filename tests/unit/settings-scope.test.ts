@@ -24,6 +24,13 @@ describe('PRD 002 §E18 workspace-eligible keys', () => {
     }
     for (const k of WORKSPACE_PINNABLE_KEYS) expect(SETTINGS_SCOPES[k]).toBe('U');
   });
+
+  test('U33: issue #21 — every U key except hotkeys is pinnable; hotkeys stay User-only', () => {
+    const uKeys = (Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>).filter((k) => SETTINGS_SCOPES[k] === 'U');
+    expect([...WORKSPACE_PINNABLE_KEYS].sort()).toEqual(uKeys.filter((k) => k !== 'hotkeys').sort());
+    expect(WORKSPACE_PINNABLE_KEYS).not.toContain('hotkeys');
+    expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain('hotkeys');
+  });
 });
 
 describe('PRD 002 §E19 winning layer / override indicators', () => {
@@ -52,6 +59,7 @@ describe('PRD 002 §E19 winning layer / override indicators', () => {
       winner: 'workspace',
       overriddenBy: 'workspace',
       workspaceControlled: false,
+      userOnly: false,
     });
     // Once the user sets their own value, the indicator clears.
     expect(settingsRowStatus('themeLight', 'user', { ...layers, user: { themeLight: 'crisp' } }).overriddenBy).toBeNull();
@@ -69,10 +77,21 @@ describe('PRD 002 §E19 winning layer / override indicators', () => {
       winner: 'default',
       overriddenBy: null,
       workspaceControlled: true,
+      userOnly: false,
     });
     const st = settingsRowStatus('commentStorage', 'user', { workspace: { commentStorage: 'embedded' } });
     expect(st.workspaceControlled).toBe(true);
     expect(st.overriddenBy).toBe('workspace');
+  });
+
+  test('U34: issue #21 — M/U! keys viewed in Workspace scope read as user-only (shown but locked)', () => {
+    expect(settingsRowStatus('splitEdit', 'workspace', {}).userOnly).toBe(true);
+    expect(settingsRowStatus('author', 'workspace', {}).userOnly).toBe(true);
+    // Workspace-eligible keys (U and W) are editable there…
+    expect(settingsRowStatus('lineNumbers', 'workspace', {}).userOnly).toBe(false);
+    expect(settingsRowStatus('commentStorage', 'workspace', {}).userOnly).toBe(false);
+    // …and nothing is user-only on the User tab.
+    expect(settingsRowStatus('splitEdit', 'user', {}).userOnly).toBe(false);
   });
 
   test('U31: §E20 Global/Team contributions surface as effective values with the layer named', () => {

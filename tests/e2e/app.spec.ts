@@ -339,6 +339,10 @@ test('E15: embedded mode — comments autosave into an invisible trailer, sideca
   await openSettings(page, 'general');
   await expect(page.getByTestId('comment-storage')).toBeDisabled(); // W key: locked in User scope
   await page.getByTestId('settings-scope-workspace').click();
+  // Issue #21: Workspace scope shows the same left tab rail, minus Hotkeys.
+  await expect(page.getByTestId('settings-tabs').locator('button')).toHaveCount(3);
+  await expect(page.getByTestId('settings-tab-hotkeys')).toHaveCount(0);
+  await expect(page.getByTestId('settings-tab-general')).toHaveClass(/active/);
   await page.getByTestId('comment-storage').selectOption('embedded');
   await page.getByTestId('settings-close').click();
 
@@ -665,21 +669,27 @@ test('E25: toolbar auto-hides after launch, reveals on top-edge hover (with shad
 test('E26: settings shows four left tabs with the right content on each; controls work through their tabs', async ({
   page,
 }) => {
-  await openSettings(page);
+  // Open without the helper's tab click so the DEFAULT tab is observable.
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-settings').click();
+  await page.getByTestId('settings-panel').waitFor();
   const tabs = page.getByTestId('settings-tabs');
   await expect(tabs.locator('button')).toHaveCount(4); // SPEC20 §1 added Editor
-  await expect(page.getByTestId('settings-tab-appearance')).toHaveClass(/active/); // default tab
+  // Issue #21: General is listed first and is the default tab.
+  await expect(tabs.locator('button').first()).toHaveText('General');
+  await expect(page.getByTestId('settings-tab-general')).toHaveClass(/active/);
 
-  // Appearance: font size present, General/Hotkeys content absent.
-  await expect(page.getByTestId('fontsize-auto')).toBeVisible();
-  await expect(page.getByTestId('comment-storage')).toHaveCount(0);
-  await expect(page.getByTestId('hotkey-toggleEdit')).toHaveCount(0);
-
-  // General: comments + navigation, no appearance controls.
-  await page.getByTestId('settings-tab-general').click();
+  // General (default): comments + navigation, no appearance/hotkeys controls.
   await expect(page.getByTestId('comment-storage')).toBeVisible();
   await expect(page.getByTestId('settings-vimnav')).toBeVisible();
   await expect(page.getByTestId('zoom-select')).toHaveCount(0);
+  await expect(page.getByTestId('hotkey-toggleEdit')).toHaveCount(0);
+
+  // Appearance: font size present, General content absent.
+  await page.getByTestId('settings-tab-appearance').click();
+  await expect(page.getByTestId('fontsize-auto')).toBeVisible();
+  await expect(page.getByTestId('comment-storage')).toHaveCount(0);
 
   // Hotkeys tab.
   await page.getByTestId('settings-tab-hotkeys').click();
@@ -940,7 +950,7 @@ test('E34: the theme catalog lists 27+ themes; new classics apply their canonica
 test('E35: the settings dialog keeps one fixed size across all three tabs', async ({ page }) => {
   await openSettings(page);
   const boxes: Array<{ x: number; y: number; width: number; height: number }> = [];
-  for (const tab of ['appearance', 'general', 'hotkeys'] as const) {
+  for (const tab of ['general', 'appearance', 'hotkeys'] as const) {
     await page.getByTestId(`settings-tab-${tab}`).click();
     await expect(page.getByTestId(`settings-tab-${tab}`)).toHaveClass(/active/);
     boxes.push((await page.getByTestId('settings-panel').boundingBox())!);
@@ -2152,7 +2162,10 @@ test('E73: the Editor settings tab holds the image fields — defaults, live exa
   await expect(page.getByTestId('image-pattern-example')).toContainText('welcome 1.png');
 
   // Workspace scope: same fields, editable; the example tracks the pattern live.
+  // Issue #21: the scope switch keeps the shared tab rail and the Editor tab.
   await page.getByTestId('settings-scope-workspace').click();
+  await expect(page.getByTestId('settings-tabs').locator('button')).toHaveCount(3);
+  await expect(page.getByTestId('settings-tab-editor')).toHaveClass(/active/);
   await page.getByTestId('image-pattern').fill('img-{n}');
   await expect(page.getByTestId('image-pattern-example')).toContainText('img-1.png');
 

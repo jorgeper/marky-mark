@@ -116,9 +116,10 @@ const MARGIN_LABELS: Array<{ value: Margins; label: string }> = [
 
 type SettingsTab = 'appearance' | 'general' | 'editor' | 'hotkeys';
 
+// Issue #21: General leads, and Hotkeys is a User-scope-only tab.
 const TABS: Array<{ id: SettingsTab; label: string }> = [
-  { id: 'appearance', label: 'Appearance' },
   { id: 'general', label: 'General' },
+  { id: 'appearance', label: 'Appearance' },
   { id: 'editor', label: 'Editor' },
   { id: 'hotkeys', label: 'Hotkeys' },
 ];
@@ -140,13 +141,17 @@ export function SettingsPanel({
   frameless,
   docName,
 }: Props) {
-  const [tab, setTab] = useState<SettingsTab>('appearance');
+  const [tab, setTab] = useState<SettingsTab>('general');
   // §E18: which layer this window writes. Without the selector (web) it is
   // permanently 'user'; closing the workspace kicks the view back to User.
   const [scope, setScope] = useState<SettingsScopeTab>('user');
   useEffect(() => {
     if (scope === 'workspace' && (!scopeSelector || !workspaceOpen)) setScope('user');
   }, [scope, scopeSelector, workspaceOpen]);
+  // Issue #21: Hotkeys is User-only — landing in Workspace scope on it bounces to General.
+  useEffect(() => {
+    if (scope === 'workspace' && tab === 'hotkeys') setTab('general');
+  }, [scope, tab]);
   const [hint, setHint] = useState('');
   // SPEC20 §1: the folder field keeps the raw draft; only valid single-segment
   // names commit to settings (the last valid value survives bad keystrokes).
@@ -165,13 +170,19 @@ export function SettingsPanel({
     if (Object.keys(patch).length > 0) onEdit(scope, patch);
   };
 
-  // §E19 row status: override indicator + W-key locking for the current scope.
+  // §E19 row status: override indicator + per-scope locking (W keys lock in
+  // User scope; M/U! keys lock in Workspace scope).
   const rowStatus = (key: keyof Settings) => settingsRowStatus(key, scope, layers);
-  const scopeLocked = (key: keyof Settings) => rowStatus(key).workspaceControlled;
+  const scopeLocked = (key: keyof Settings) => {
+    const st = rowStatus(key);
+    return st.workspaceControlled || st.userOnly;
+  };
   const scopeNote = (key: keyof Settings) => {
     const st = rowStatus(key);
     let note: string | null = null;
-    if (st.workspaceControlled) {
+    if (st.userOnly) {
+      note = 'User setting — edit it in User scope.';
+    } else if (st.workspaceControlled) {
       note = st.overriddenBy
         ? `Workspace setting — set by ${LAYER_LABELS[st.overriddenBy]}; edit it in Workspace scope.`
         : 'Workspace setting — edit it in Workspace scope.';
@@ -440,21 +451,24 @@ export function SettingsPanel({
       {themeDarkRow}
       {darkModeRow}
 
-      <div className="row" style={{ marginBottom: 12 }}>
-        <button className="linklike" data-testid="reload-themes" onClick={onReloadThemes}>
-          ↻ Reload themes
-        </button>
-        {onRevealThemesDir && (
-          <button className="linklike" data-testid="open-theme-folder" onClick={() => void onRevealThemesDir()}>
-            Open Theme Folder
+      {/* Issue #21: machine-local ACTIONS (not settings) stay User-scope-only. */}
+      {scope === 'user' && (
+        <div className="row" style={{ marginBottom: 12 }}>
+          <button className="linklike" data-testid="reload-themes" onClick={onReloadThemes}>
+            ↻ Reload themes
           </button>
-        )}
-        {onImportTheme && (
-          <button className="linklike" data-testid="import-theme" onClick={() => void onImportTheme()}>
-            + Import theme…
-          </button>
-        )}
-      </div>
+          {onRevealThemesDir && (
+            <button className="linklike" data-testid="open-theme-folder" onClick={() => void onRevealThemesDir()}>
+              Open Theme Folder
+            </button>
+          )}
+          {onImportTheme && (
+            <button className="linklike" data-testid="import-theme" onClick={() => void onImportTheme()}>
+              + Import theme…
+            </button>
+          )}
+        </div>
+      )}
 
       {marginsRow}
 
@@ -524,11 +538,13 @@ export function SettingsPanel({
           type="checkbox"
           data-testid="set-split-edit"
           checked={settings.splitEdit}
+          disabled={scopeLocked('splitEdit')}
           onChange={(e) => onChange({ ...settings, splitEdit: e.target.checked })}
         />
         <label htmlFor="set-split-edit" style={{ margin: 0, fontWeight: 400 }}>
           Edit side by side with a live preview (instead of a full-screen swap)
         </label>
+        {scopeNote('splitEdit')}
       </div>
 
       <h3 className="tab-section">Comments</h3>
@@ -583,8 +599,10 @@ export function SettingsPanel({
           type="text"
           data-testid="author-input"
           value={settings.author}
+          disabled={scopeLocked('author')}
           onChange={(e) => onChange({ ...settings, author: e.target.value })}
         />
+        {scopeNote('author')}
       </div>
 
       {storageRow}
@@ -753,27 +771,6 @@ export function SettingsPanel({
     </>
   );
 
-  // §E18: the Workspace scope shows ONLY workspace-eligible settings — the
-  // W-scoped keys and the curated pinnable cosmetic defaults.
-  const workspaceScopeView = (
-    <>
-      <h3 className="tab-section">Workspace settings</h3>
-      {storageRow}
-      {imageFolderRow}
-      {imagePatternRow}
-      <h3 className="tab-section">Pinned appearance defaults</h3>
-      <p className="hotkey-hint">
-        Saved with the workspace as shared defaults; a personal User value still wins.
-      </p>
-      {fontSizeRow}
-      {zoomRow}
-      {themeLightRow}
-      {themeDarkRow}
-      {darkModeRow}
-      {marginsRow}
-    </>
-  );
-
   const doneButton = !frameless && (
     <div className="actions">
       <button className="primary" data-testid="settings-close" onClick={onClose}>
@@ -811,31 +808,24 @@ export function SettingsPanel({
         </nav>
       )}
       <div className="settings-body">
-        {scope === 'user' && (
-          <nav className="tab-rail" data-testid="settings-tabs">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                className={`tab-btn${tab === t.id ? ' active' : ''}`}
-                data-testid={`settings-tab-${t.id}`}
-                onClick={() => setTab(t.id)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </nav>
-        )}
+        {/* Issue #21: both scopes share one tab rail; Hotkeys is User-only. */}
+        <nav className="tab-rail" data-testid="settings-tabs">
+          {TABS.filter((t) => scope === 'user' || t.id !== 'hotkeys').map((t) => (
+            <button
+              key={t.id}
+              className={`tab-btn${tab === t.id ? ' active' : ''}`}
+              data-testid={`settings-tab-${t.id}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
         <div className="tab-content" data-testid={`settings-scope-content-${scope}`}>
-          {scope === 'workspace' ? (
-            workspaceScopeView
-          ) : (
-            <>
-              {tab === 'appearance' && appearanceTab}
-              {tab === 'general' && generalTab}
-              {tab === 'editor' && editorTab}
-              {tab === 'hotkeys' && hotkeysTab}
-            </>
-          )}
+          {tab === 'general' && generalTab}
+          {tab === 'appearance' && appearanceTab}
+          {tab === 'editor' && editorTab}
+          {tab === 'hotkeys' && scope === 'user' && hotkeysTab}
           {doneButton}
         </div>
       </div>

@@ -32,13 +32,17 @@ describe('SPEC13 aux protocol', () => {
   });
 
   test('U24b: a workspace-scoped edit is limited to workspace-eligible keys', () => {
-    // author is U! (identity) and vimNav is uncurated U — neither may land
-    // in a shareable workspace layer through the panel.
+    // Issue #21: any U key (vimNav included) may land as a workspace default,
+    // but author (U!), splitEdit (M), and hotkeys never travel to the
+    // shareable workspace layer through the panel.
     const e = sanitizeSettingsEdit({
       scope: 'workspace',
-      patch: { commentStorage: 'embedded', themeLight: 'monokai', author: 'Eve', vimNav: true },
+      patch: { commentStorage: 'embedded', themeLight: 'monokai', author: 'Eve', vimNav: true, splitEdit: false, hotkeys: {} },
     });
-    expect(e).toEqual({ scope: 'workspace', patch: { commentStorage: 'embedded', themeLight: 'monokai' } });
+    expect(e).toEqual({
+      scope: 'workspace',
+      patch: { commentStorage: 'embedded', themeLight: 'monokai', vimNav: true },
+    });
   });
 
   test('U24c: malformed edits sanitize to null', () => {

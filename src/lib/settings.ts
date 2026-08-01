@@ -334,17 +334,13 @@ export function winningLayer(key: keyof Settings, layers: SettingsLayers): Layer
 export type SettingsScopeTab = 'user' | 'workspace';
 
 /**
- * §E18: the curated cosmetic (U-scoped) settings a workspace author may pin
- * as shared defaults. Never M- or U!-scoped keys.
+ * §E18 + issue #21: every U-scoped setting a workspace author may pin as a
+ * shared default — the full user-personal set, no longer a curated cosmetic
+ * subset. Never M- or U!-scoped keys; hotkeys stay User-only per issue #21.
  */
-export const WORKSPACE_PINNABLE_KEYS: ReadonlyArray<keyof Settings> = [
-  'themeLight',
-  'themeDark',
-  'useDarkTheme',
-  'fontSize',
-  'zoom',
-  'margins',
-];
+export const WORKSPACE_PINNABLE_KEYS: ReadonlyArray<keyof Settings> = (
+  Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>
+).filter((k) => SETTINGS_SCOPES[k] === 'U' && k !== 'hotkeys');
 
 /** Everything the Workspace tab shows: the W-scoped keys plus the pinnable set. */
 export const WORKSPACE_ELIGIBLE_KEYS: ReadonlyArray<keyof Settings> = [
@@ -360,6 +356,8 @@ export interface SettingsRowStatus {
   overriddenBy: LayerName | null;
   /** W-scoped key viewed on the User tab: shown, but not user-editable. */
   workspaceControlled: boolean;
+  /** M-/U!-scoped key viewed on the Workspace tab: shown, but the workspace layer can't supply it. */
+  userOnly: boolean;
 }
 
 export function settingsRowStatus(
@@ -372,6 +370,7 @@ export function settingsRowStatus(
     winner,
     overriddenBy: winner !== 'default' && winner !== tab ? winner : null,
     workspaceControlled: tab === 'user' && SETTINGS_SCOPES[key] === 'W',
+    userOnly: tab === 'workspace' && !WORKSPACE_ELIGIBLE_KEYS.includes(key),
   };
 }
 
