@@ -131,6 +131,24 @@ const TARGET_BRANCH = (
 
 const branchFor = (issueNumber: number) => `sandcastle/issue-${issueNumber}`;
 
+// Commits on `branch` not yet in TARGET_BRANCH — the loop's definition of
+// shippable work. Derived from GIT STATE, not any single run's commits: a
+// fresh-context attempt that merely verifies prior work makes none. 0 for
+// both "not started" and "fully merged"; callers must disambiguate with
+// goal/judge context.
+const branchAheadCount = async (branch: string): Promise<number> => {
+  try {
+    const { stdout } = await execFileAsync("git", [
+      "rev-list",
+      "--count",
+      `${TARGET_BRANCH}..${branch}`,
+    ]);
+    return Number.parseInt(stdout.trim(), 10);
+  } catch {
+    return 0; // branch doesn't exist locally
+  }
+};
+
 // Hooks run inside the sandbox before the agent starts each iteration.
 // The install command comes from the detected toolchain (config.mts).
 const hooks = {
@@ -761,9 +779,30 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           );
           return { ...implement, commits: [] };
         }
-        if (implement.commits.length === 0) return implement;
+        // Shippable work is the branch's delta vs the target, not just this
+        // run's commits — a verifying re-run makes none (same derive-from-git
+        // rule as the merge phase).
+        const branchDelta = await branchAheadCount(issue.branch);
+        if (implement.commits.length === 0 && branchDelta === 0) {
+          // Judge says done and the branch is fully merged: the only missing
+          // state-advance is the issue close (a prior merger merged the
+          // branch but missed the close). Close deterministically, or the
+          // classifier re-dispatches this issue — and its full verify gate —
+          // every cycle, forever.
+          console.log(
+            `  #${issue.id}: goal met and branch already merged — closing issue.`,
+          );
+          await github.closeIssue(
+            Number(issue.id),
+            "🏰 Sandcastle: goal verified met and the branch is already merged into the target — closing (orchestrator safety net).",
+          );
+          return implement;
+        }
 
         if (!isPrMode) {
+          // Nothing new this run: the merge phase picks the branch up from
+          // git state; re-running the inner reviewer would review old work.
+          if (implement.commits.length === 0) return implement;
           // Legacy path — inner reviewer commits directly, merger merges later.
           const review = await timed("reviewer", { issue: issue.id }, () =>
             sandbox.run({
@@ -816,7 +855,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         body ??= [
           `Fixes #${issue.id} — ${issue.title}.`,
           ``,
-          `Implemented over ${implement.commits.length} commit(s); see the commit history for details.`,
+          `Implemented over ${implement.commits.length || branchDelta} commit(s); see the commit history for details.`,
         ].join("\n");
 
         // Guarantee the PR ↔ issue link regardless of what the pr-writer
@@ -850,31 +889,23 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     }
   }
 
-  // Merge-phase input is derived from GIT STATE, not just this cycle's
-  // results: a previous run may have implemented a branch and died before
-  // merging (re-entrancy) — the goal judge then verifies "already done" with
-  // zero new commits, and commit-count-only filtering would strand the
-  // branch (and re-classify the issue as `implement` forever). Legacy
-  // branches ahead of the target merge even with no new commits this cycle;
-  // PR-mode branches never merge locally (their gate is owner approval).
-  const branchAhead = async (branch: string): Promise<boolean> => {
-    try {
-      const { stdout } = await execFileAsync("git", [
-        "rev-list",
-        "--count",
-        `${TARGET_BRANCH}..${branch}`,
-      ]);
-      return Number.parseInt(stdout.trim(), 10) > 0;
-    } catch {
-      return false; // branch doesn't exist locally
-    }
-  };
+  // Merge-phase input is derived from GIT STATE (branchAheadCount), not just
+  // this cycle's results: a previous run may have implemented a branch and
+  // died before merging (re-entrancy) — the goal judge then verifies
+  // "already done" with zero new commits, and commit-count-only filtering
+  // would strand the branch (and re-classify the issue as `implement`
+  // forever). Legacy branches ahead of the target merge even with no new
+  // commits this cycle; PR-mode branches never merge locally (their gate is
+  // owner approval).
   const completedIssues: typeof issues = [];
   for (const [i, outcome] of settled.entries()) {
     const issue = issues[i]!;
     if (outcome.status !== "fulfilled") continue;
     if (prLabelByNumber.get(Number(issue.id))) continue;
-    if (outcome.value.commits.length > 0 || (await branchAhead(issue.branch))) {
+    if (
+      outcome.value.commits.length > 0 ||
+      (await branchAheadCount(issue.branch)) > 0
+    ) {
       completedIssues.push(issue);
     }
   }
@@ -915,6 +946,27 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // PR-mode branches fork from local HEAD but their PR diffs are computed
   // against origin/master — keep the remote in sync with local merges.
   await execFileAsync("git", ["push", "origin", TARGET_BRANCH]);
+
+  // The merger's state-advance is the issue close, and an agent can miss it
+  // (it happened: a merged branch's issue stayed open, so the classifier
+  // re-dispatched it — and its full verify gate — every cycle). Verify each
+  // branch the merger actually merged has a closed issue; close
+  // deterministically if not.
+  for (const issue of completedIssues) {
+    if ((await branchAheadCount(issue.branch)) > 0) continue; // not merged
+    const state = (
+      await github
+        .gh(["issue", "view", issue.id, "--json", "state", "--jq", ".state"])
+        .catch(() => "")
+    ).trim();
+    if (state === "OPEN") {
+      console.log(`  #${issue.id}: merged but left open by merger — closing.`);
+      await github.closeIssue(
+        Number(issue.id),
+        "🏰 Sandcastle: branch merged this cycle — closing (orchestrator safety net; the merger missed the close).",
+      );
+    }
+  }
 
   console.log("\nBranches merged.");
 }
