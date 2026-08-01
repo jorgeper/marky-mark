@@ -3270,7 +3270,9 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, findOpen, findDebounced]);
 
-  // --- split-edit live preview pane (SPEC7 §5): plain reading pane, no comments ----
+  // --- split-edit live preview pane (SPEC7 §5, issue #19): live reading pane
+  // that is also a comments surface — same re-anchor + highlight pass as the
+  // preview injection above, so highlights survive the per-keystroke rebuild.
   useLayoutEffect(() => {
     if (mode !== 'edit' || !settings.splitEdit) return;
     const el = splitDocRef.current;
@@ -3289,10 +3291,44 @@ export default function App() {
         else img.removeAttribute('src');
       });
     }
+
+    const text = getDocText(el);
+    docTextRef.current = text;
+    const pos: Positions = {};
+    let changed = false;
+    const updated = comments.map((c) => {
+      const m = reanchor(c.anchor, text);
+      pos[c.id] = m;
+      if (m) {
+        const fresh = createAnchor(text, m.start, m.end);
+        if (!anchorsEqual(fresh, c.anchor)) {
+          changed = true;
+          return { ...c, anchor: fresh };
+        }
+      }
+      return c;
+    });
+    setPositions(pos);
+    if (changed) {
+      // Persist refreshed anchors; the effect reruns and highlights then.
+      setComments(updated);
+      return;
+    }
+    if (showComments && settings.commentsEnabled) {
+      for (const c of comments) {
+        if (c.resolved && !settings.showResolved) continue;
+        const m = pos[c.id];
+        if (m) {
+          const marks = highlightRange(el, m.start, m.end, c.id);
+          // Ghosted resolved highlights (SPEC6 §3): faint tint, still clickable.
+          if (c.resolved) marks.forEach((mk) => mk.classList.add('ghost'));
+        }
+      }
+    }
     // SPEC44 §3.2: a re-render wiped the synthetic cues — re-derive them.
     const cue = activeCueRef.current;
     if (cue) applyActiveCues(el, cue.head, cue.headLine, cue.hasSel);
-  }, [html, mode, settings.splitEdit, applyActiveCues]);
+  }, [html, mode, settings.splitEdit, comments, showComments, settings.showResolved, settings.commentsEnabled, applyActiveCues]);
 
   // --- SPEC15: synchronized split scrolling ------------------------------------
   // Whichever pane the user scrolls leads; the other follows within a frame.
@@ -3301,7 +3337,7 @@ export default function App() {
   useEffect(() => {
     if (mode !== 'edit' || !settings.splitEdit) return;
     const docEl = splitDocRef.current;
-    const scroller = docEl?.parentElement; // .split-preview
+    const scroller = splitPreviewRef.current; // .split-preview (the doc sits in a .docwrap since #19)
     if (!docEl || !scroller) return;
 
     let anchors: SyncAnchor[] = [];
@@ -3396,7 +3432,7 @@ export default function App() {
 
   // --- active highlight styling -----------------------------------------------------
   useEffect(() => {
-    const doc = docRef.current;
+    const doc = docRef.current ?? splitDocRef.current; // split-edit hosts marks too (#19)
     if (!doc) return;
     doc.querySelectorAll<HTMLElement>('mark.hl').forEach((m) => {
       m.classList.toggle('active', m.dataset.cid === activeId);
@@ -3408,7 +3444,7 @@ export default function App() {
   // Active: the active card anchors level with its highlight (Word behavior);
   // earlier cards stack upward above it, later ones downward.
   useLayoutEffect(() => {
-    const doc = docRef.current;
+    const doc = docRef.current ?? splitDocRef.current; // split-edit hosts marks too (#19)
     const panel = panelRef.current;
     if (!doc || !panel) return;
     const panelTop = panel.getBoundingClientRect().top;
@@ -3496,11 +3532,13 @@ export default function App() {
   }, [mode, settings.splitEdit, sourceRangeFromDomSelection]);
 
   // --- selection → floating "Add comment" button ---------------------------------------
+  // Preview mode and the split-edit preview pane both host selections (#19).
   useEffect(() => {
-    if (mode !== 'preview') return;
+    const inSplit = mode === 'edit' && settings.splitEdit;
+    if (mode !== 'preview' && !inSplit) return;
     const onSelection = () => {
       const sel = document.getSelection();
-      const doc = docRef.current;
+      const doc = inSplit ? splitDocRef.current : docRef.current;
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed || !doc) {
         setSelInfo((prev) => (prev === null ? prev : null));
         return;
@@ -3519,8 +3557,12 @@ export default function App() {
       setSelInfo({ start, end, x: rect.left + rect.width / 2, y: rect.top });
     };
     document.addEventListener('selectionchange', onSelection);
-    return () => document.removeEventListener('selectionchange', onSelection);
-  }, [mode]);
+    return () => {
+      document.removeEventListener('selectionchange', onSelection);
+      // A surface swap (mode/split toggle) orphans the old selection's button.
+      setSelInfo((prev) => (prev === null ? prev : null));
+    };
+  }, [mode, settings.splitEdit]);
 
   // --- comment operations -----------------------------------------------------------
   const startComposer = (seed = '') => {
@@ -3594,7 +3636,7 @@ export default function App() {
 
   const handleCardActivate = (id: string) => {
     setActiveId(id);
-    const doc = docRef.current;
+    const doc = docRef.current ?? splitDocRef.current; // split-edit hosts marks too (#19)
     if (!doc) return;
     const marks = Array.from(doc.querySelectorAll<HTMLElement>(`mark.hl[data-cid="${CSS.escape(id)}"]`));
     if (marks.length === 0) return;
@@ -3624,12 +3666,93 @@ export default function App() {
     items.splice(at, 0, { kind: 'composer' });
   }
 
+  // The panel renders wherever a preview pane does: full preview or the
+  // split-edit live preview (#19).
   const panelVisible =
-    mode === 'preview' && showComments && settings.commentsEnabled && (comments.length > 0 || pending !== null);
+    (mode === 'preview' || (mode === 'edit' && settings.splitEdit)) &&
+    showComments &&
+    settings.commentsEnabled &&
+    (comments.length > 0 || pending !== null);
 
   // Navigator pill label, frozen across the fade-out (SPEC14 §3.5).
   const navIdx = activeId ? open.findIndex((c) => c.id === activeId) : -1;
   if (navIdx >= 0) navLabelRef.current = `${navIdx + 1} / ${open.length}`;
+
+  // One panel, two hosts (#19): the preview margin and the split preview pane.
+  // Only one renders at a time, so the shared panelRef stays unambiguous.
+  const panelAside = panelVisible ? (
+    <aside className="panel" data-testid="panel" ref={panelRef}>
+      {items.map((it) =>
+        it.kind === 'composer' ? (
+          <div className="card composer" data-flowcard="__composer" data-testid="composer" key="__composer">
+            <textarea
+              data-testid="composer-input"
+              placeholder="Add a comment…"
+              autoFocus
+              value={draft}
+              // Type-to-comment seeds the draft; the caret belongs after it.
+              onFocus={(e) => {
+                const n = e.currentTarget.value.length;
+                e.currentTarget.setSelectionRange(n, n);
+              }}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  submitComment();
+                } else if (e.key === 'Escape') {
+                  setPending(null);
+                  setDraft('');
+                }
+              }}
+            />
+            <div className="row">
+              <button data-testid="composer-submit" onClick={submitComment}>
+                Comment
+              </button>
+              <button
+                onClick={() => {
+                  setPending(null);
+                  setDraft('');
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <CommentCard
+            key={it.c.id}
+            comment={it.c}
+            author={settings.author}
+            orphaned={positions[it.c.id] === null}
+            active={activeId === it.c.id}
+            ghost={it.ghost}
+            onActivate={handleCardActivate}
+            onUpdate={updateComment}
+            onDelete={deleteComment}
+          />
+        )
+      )}
+      {!settings.showResolved && resolved.length > 0 && (
+        <details className="resolved-section" data-testid="resolved-section" data-flowcard="__resolved">
+          <summary>Resolved ({resolved.length})</summary>
+          {resolved.map((c) => (
+            <CommentCard
+              key={c.id}
+              comment={c}
+              author={settings.author}
+              orphaned={positions[c.id] === null}
+              active={activeId === c.id}
+              onActivate={(id) => setActiveId(id)}
+              onUpdate={updateComment}
+              onDelete={deleteComment}
+            />
+          ))}
+        </details>
+      )}
+    </aside>
+  ) : null;
 
   if (!platform) return <div className="theme-root" />;
 
@@ -3796,79 +3919,7 @@ export default function App() {
               }}
             />
           </div>
-          {panelVisible && (
-            <aside className="panel" data-testid="panel" ref={panelRef}>
-              {items.map((it) =>
-                it.kind === 'composer' ? (
-                  <div className="card composer" data-flowcard="__composer" data-testid="composer" key="__composer">
-                    <textarea
-                      data-testid="composer-input"
-                      placeholder="Add a comment…"
-                      autoFocus
-                      value={draft}
-                      // Type-to-comment seeds the draft; the caret belongs after it.
-                      onFocus={(e) => {
-                        const n = e.currentTarget.value.length;
-                        e.currentTarget.setSelectionRange(n, n);
-                      }}
-                      onChange={(e) => setDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          submitComment();
-                        } else if (e.key === 'Escape') {
-                          setPending(null);
-                          setDraft('');
-                        }
-                      }}
-                    />
-                    <div className="row">
-                      <button data-testid="composer-submit" onClick={submitComment}>
-                        Comment
-                      </button>
-                      <button
-                        onClick={() => {
-                          setPending(null);
-                          setDraft('');
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <CommentCard
-                    key={it.c.id}
-                    comment={it.c}
-                    author={settings.author}
-                    orphaned={positions[it.c.id] === null}
-                    active={activeId === it.c.id}
-                    ghost={it.ghost}
-                    onActivate={handleCardActivate}
-                    onUpdate={updateComment}
-                    onDelete={deleteComment}
-                  />
-                )
-              )}
-              {!settings.showResolved && resolved.length > 0 && (
-                <details className="resolved-section" data-testid="resolved-section" data-flowcard="__resolved">
-                  <summary>Resolved ({resolved.length})</summary>
-                  {resolved.map((c) => (
-                    <CommentCard
-                      key={c.id}
-                      comment={c}
-                      author={settings.author}
-                      orphaned={positions[c.id] === null}
-                      active={activeId === c.id}
-                      onActivate={(id) => setActiveId(id)}
-                      onUpdate={updateComment}
-                      onDelete={deleteComment}
-                    />
-                  ))}
-                </details>
-              )}
-            </aside>
-          )}
+          {panelAside}
         </div>
       ) : settings.splitEdit ? (
         <div
@@ -3929,10 +3980,23 @@ export default function App() {
               if (ae?.closest('.editor-wrap')) ae.blur();
             }}
           >
-            {frontMatter && showFrontmatter && (
-              <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
-            )}
-            <div className="doc" ref={splitDocRef} onClick={(e) => placeFromPreviewClick(splitDocRef.current, e)} />
+            <div className="docwrap">
+              {frontMatter && showFrontmatter && (
+                <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
+              )}
+              <div
+                className="doc"
+                ref={splitDocRef}
+                onClick={(e) => {
+                  // Highlights activate their card here too (#19).
+                  const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
+                  if (mark?.dataset.cid && showComments) handleMarkClick(mark.dataset.cid);
+                  else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
+                  placeFromPreviewClick(splitDocRef.current, e);
+                }}
+              />
+            </div>
+            {panelAside}
           </div>
         </div>
       ) : (
@@ -3974,7 +4038,7 @@ export default function App() {
 
       </div>
 
-      {selInfo && showComments && settings.commentsEnabled && !pending && mode === 'preview' && (
+      {selInfo && showComments && settings.commentsEnabled && !pending && (mode === 'preview' || (mode === 'edit' && settings.splitEdit)) && (
         <button
           className="add-comment-btn"
           data-testid="add-comment-btn"

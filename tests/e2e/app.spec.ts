@@ -5207,3 +5207,77 @@ test('E128: cue-anchored split sync — the selected word stays level in both pa
     expect(Math.abs(d! - base!)).toBeLessThan(15);
   }
 });
+
+// --- issue #19: comments in the split-edit ("dual screen") preview pane ----------
+
+test('E129: split edit — highlights + panel in the live pane, comment from a split selection, nav works, cards clear the window edge', async ({
+  page,
+}) => {
+  // Wide enough that the split preview fits its content floor (768px) plus
+  // the 300px comments panel without sideways scrolling.
+  await page.setViewportSize({ width: 2300, height: 900 });
+  await addComment(page, PHRASE, 'First note');
+
+  // Padding fix, full preview: the card keeps a clear gap to the window edge.
+  const gapTo = async () => {
+    const box = (await page.getByTestId('comment-card').first().boundingBox())!;
+    return (await page.evaluate(() => window.innerWidth)) - (box.x + box.width);
+  };
+  expect(await gapTo()).toBeGreaterThanOrEqual(16);
+
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').check();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+
+  // The split preview renders the highlight, and the panel sits alongside.
+  const pane = page.getByTestId('split-preview');
+  const paneMarks = pane.locator('mark.hl[data-cid]');
+  await expect(paneMarks.first()).toBeVisible();
+  await expect(page.getByTestId('panel')).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+
+  // The live re-render on typing keeps the highlight.
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('LIVEMARK ');
+  await expect(pane).toContainText('LIVEMARK', { timeout: 1000 });
+  await expect(paneMarks.first()).toBeVisible();
+
+  // A selection made IN the split pane grows a comment like preview mode.
+  // Real flow first: a mousedown in the pane blurs the editor (a focused CM
+  // would re-assert its own selection and kill the pane's).
+  await pane.click({ position: { x: 10, y: 10 } });
+  // Center the phrase first so the floating button clears the toolbar.
+  await page.evaluate(() => {
+    const doc = document.querySelector('[data-testid="split-preview"] .doc')!;
+    const walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      if (node.nodeValue?.includes('renders GitHub-flavored markdown')) {
+        node.parentElement?.scrollIntoView({ block: 'center' });
+        return;
+      }
+    }
+  });
+  await selectPhraseInPane(page, '[data-testid="split-preview"] .doc', 'renders GitHub-flavored markdown');
+  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
+  await page.getByTestId('add-comment-btn').click();
+  await expect(page.getByTestId('composer')).toBeVisible();
+  await page.getByTestId('composer-input').fill('From the split pane');
+  await page.getByTestId('composer-submit').click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(2);
+  await expect(paneMarks).toHaveCount(2);
+  await expect(paneMarks.first()).toContainText('renders GitHub-flavored');
+  await waitForSidecar(page, (s) => !!s && s.includes('From the split pane'));
+
+  // Clicking a highlight activates its card; the navigator steps in split mode.
+  await paneMarks.first().click();
+  await expect(page.getByTestId('comment-nav')).toBeVisible();
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 2');
+  await page.getByTestId('comment-nav-next').click();
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('2 / 2');
+
+  // Padding fix, split mode: same clear gap to the window's right border.
+  expect(await gapTo()).toBeGreaterThanOrEqual(16);
+});

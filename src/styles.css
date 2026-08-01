@@ -458,7 +458,7 @@ mark.hl.flash {
 .panel {
   width: 300px;
   flex-shrink: 0;
-  padding: 40px 16px 96px 8px;
+  padding: 40px 24px 96px 8px;
   /* Cards are absolutely positioned with animated tops (SPEC6 §2). */
   position: relative;
 }
@@ -466,7 +466,9 @@ mark.hl.flash {
 .panel > [data-flowcard] {
   position: absolute;
   left: 8px;
-  right: 16px;
+  /* #19: a clearly visible gap between the cards and the window's right
+     border — the panel sits flush against it in both preview hosts. */
+  right: 24px;
   transition: top 180ms ease;
 }
 
@@ -820,6 +822,9 @@ mark.hl.ghost {
   overflow-y: auto;
   /* SPEC20 §4.2 (split): offset parent for the image-resize overlay. */
   position: relative;
+  /* #19: the pane hosts a .docwrap plus (when comments exist) the comments
+     panel, side by side — same row layout as the full-preview workspace. */
+  display: flex;
 }
 
 .split-preview .doc {
