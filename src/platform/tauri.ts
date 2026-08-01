@@ -114,7 +114,18 @@ export async function createTauriPlatform(): Promise<Platform> {
         filters:
           kind === 'html'
             ? [{ name: 'HTML', extensions: ['html'] }]
-            : [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+            : kind === 'workspace'
+              ? [{ name: 'Marky Mark Workspace', extensions: ['marky-workspace'] }]
+              : [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
+      });
+      return typeof picked === 'string' ? picked : null;
+    },
+    // PRD 002 §D14: same dialog permission, filtered to .marky-workspace.
+    async openWorkspaceDialog() {
+      const picked = await dialog.open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'Marky Mark Workspace', extensions: ['marky-workspace'] }],
       });
       return typeof picked === 'string' ? picked : null;
     },
@@ -252,7 +263,7 @@ export async function createTauriPlatform(): Promise<Platform> {
           return Submenu.new({ text: it.title, items: (await Promise.all(it.items.map(toItem))) as never });
         }
         if (it.type === 'recent') {
-          return MenuItem.new({ text: it.label, action: () => dispatchRecent(it.path) });
+          return MenuItem.new({ text: it.label, action: () => dispatchRecent(it.path, it.kind ?? 'file') });
         }
         const common = {
           text: it.label,

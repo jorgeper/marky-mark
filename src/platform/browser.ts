@@ -28,6 +28,8 @@ declare global {
       nextSavePath?: string | null;
       /** SPEC34 §1: the path the next openFolderDialog() call returns. */
       nextFolderPath?: string | null;
+      /** PRD 002 §D14: the path the next openWorkspaceDialog() call returns. */
+      nextWorkspacePath?: string | null;
       /** Test observability: set when revealThemesDir() was invoked. */
       revealedThemesDir?: boolean;
     };
@@ -168,11 +170,11 @@ export function createBrowserPlatform(): Platform {
         dispatchCommand(command as CommandId, 'menu');
       },
       clickRecent(path: string) {
-        const exists = spec.submenus.some((m) =>
-          flatten(m.items).some((it) => it.type === 'recent' && it.path === path)
-        );
-        if (!exists) throw new Error(`no recent item for path: ${path}`);
-        dispatchRecent(path);
+        const item = spec.submenus
+          .flatMap((m) => flatten(m.items))
+          .find((it) => it.type === 'recent' && it.path === path);
+        if (!item || item.type !== 'recent') throw new Error(`no recent item for path: ${path}`);
+        dispatchRecent(item.path, item.kind ?? 'file');
       },
     };
   };
@@ -333,6 +335,17 @@ export function createBrowserPlatform(): Platform {
       }
       const path = window.prompt('Open folder (virtual path):', '/docs');
       return path ? normalize(path).replace(/\/+$/, '') : null;
+    },
+    // PRD 002 §D14: hook-driven like openFolderDialog, for e2e.
+    async openWorkspaceDialog() {
+      const hook = window.__mmfs?.nextWorkspacePath;
+      if (hook !== undefined) {
+        if (window.__mmfs) window.__mmfs.nextWorkspacePath = undefined;
+        return hook;
+      }
+      const path = window.prompt('Open workspace (virtual path):', '/docs/project.marky-workspace');
+      if (!path) return null;
+      return fs.exists(path) ? normalize(path) : null;
     },
     async saveFileDialog(suggestedName) {
       const hook = window.__mmfs?.nextSavePath;

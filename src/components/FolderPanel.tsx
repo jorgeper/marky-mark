@@ -12,7 +12,13 @@ import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN } from '../lib/settings';
  */
 
 export interface FolderPanelProps {
-  root: string | null;
+  /**
+   * PRD 002 §D17: the workspace's member folders, in order. Empty = the
+   * root-less empty state; one root renders exactly as the classic single
+   * tree; several roots each get their own independently-collapsible
+   * header row (expansion rides the shared `expanded` set).
+   */
+  roots: string[];
   /** Directory path → its (visible, sorted) children; missing = not loaded. */
   children: Record<string, DirEntry[]>;
   expanded: Set<string>;
@@ -353,12 +359,12 @@ export function FolderPanel(p: FolderPanelProps) {
       onContextMenu={(e) => e.preventDefault()} // SPEC35 §3.1: no native menu in the panel
     >
       <div className="folder-header" data-testid="folder-header">
-        <span className="folder-title">{p.root ? p.basename(p.root) : 'Folders'}</span>
+        <span className="folder-title">{p.roots.length === 1 ? p.basename(p.roots[0]) : 'Folders'}</span>
         <button
           data-testid="folder-open-only"
           className={p.openOnly ? 'filter-on' : undefined}
           title={p.openOnly ? 'Show the folder tree' : 'Show only open files'}
-          disabled={!p.root && p.openFiles.length === 0}
+          disabled={p.roots.length === 0 && p.openFiles.length === 0}
           onClick={p.onToggleOpenOnly}
         >
           {/* Two stacked tab cards — the open files, front and behind. */}
@@ -373,7 +379,7 @@ export function FolderPanel(p: FolderPanelProps) {
           data-testid="folder-filter"
           className={p.showNonMd ? undefined : 'filter-on'}
           title={p.showNonMd ? 'Show markdown files only' : 'Show all files'}
-          disabled={!p.root || p.openOnly}
+          disabled={p.roots.length === 0 || p.openOnly}
           onClick={p.onToggleNonMd}
         >
           {/* The app icon's hash: straight bars, except the top one tilts -9°. */}
@@ -425,7 +431,7 @@ export function FolderPanel(p: FolderPanelProps) {
             ))
           )}
         </div>
-      ) : p.root ? (
+      ) : p.roots.length === 1 ? (
         <div
           className="folder-list"
           ref={listRef}
@@ -433,10 +439,49 @@ export function FolderPanel(p: FolderPanelProps) {
             // Rows handle their own menus; the remaining surface is the
             // empty area — the `root` menu (SPEC35 §3.1, root always set here).
             if ((e.target as HTMLElement).closest('[data-path]')) return;
-            if (p.root) openMenu('root', p.root, e);
+            openMenu('root', p.roots[0], e);
           }}
         >
-          <Rows dir={p.root} depth={0} p={p} onRowMenu={openMenu} />
+          <Rows dir={p.roots[0]} depth={0} p={p} onRowMenu={openMenu} />
+        </div>
+      ) : p.roots.length > 1 ? (
+        // PRD 002 §D17: multiple roots — each gets a collapsible header row
+        // and, when expanded, the exact same lazy tree as the single case.
+        <div className="folder-list" ref={listRef}>
+          {p.roots.map((root) => {
+            const open = p.expanded.has(root);
+            return (
+              <div key={root}>
+                <button
+                  className="folder-item folder-item-dir folder-root"
+                  data-testid="folder-root"
+                  data-path={root}
+                  title={root}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => p.onToggleDir(root)}
+                  onContextMenu={(ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    openMenu('root', root, ev);
+                  }}
+                >
+                  <span className="folder-chevron" aria-hidden="true">
+                    {open ? (
+                      <svg width="16" height="16" viewBox="0 0 16 16">
+                        <path d="M3.5 6 L8 10.5 L12.5 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 16 16">
+                        <path d="M6 3.5 L10.5 8 L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </span>
+                  {p.basename(root)}
+                </button>
+                {open && <Rows dir={root} depth={1} p={p} onRowMenu={openMenu} />}
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="folder-empty">

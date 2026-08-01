@@ -37,11 +37,15 @@ import {
   type DirEntry,
 } from './lib/folderTree';
 import {
+  addWorkspaceFolder,
   adoptLegacyFolderState,
+  closeWorkspace,
   CURRENT_POINTER_FILE,
   emptyWorkspaceSession,
   openFolderWorkspace,
   parseWorkspaceFile,
+  saveWorkspaceAs,
+  WORKSPACE_FILE_EXT,
   parseWorkspacePointer,
   parseWorkspaceSession,
   serializeWorkspaceFile,
@@ -130,8 +134,10 @@ export default function App() {
   const [positions, setPositions] = useState<Positions>({});
   // SPEC29: Open Recent (MRU, persisted to recent.json; menu rebuild rides it).
   const [recent, setRecent] = useState<RecentStore>({ version: 1, entries: [] });
-  // SPEC34: the folder sidebar — root, expanded set, and per-dir listings.
-  const [folderRoot, setFolderRoot] = useState<string | null>(null);
+  // PRD 002 §D15: recent workspaces — same lineage, its own file and cap.
+  const [recentWs, setRecentWs] = useState<RecentStore>({ version: 1, entries: [] });
+  // SPEC34: the folder sidebar — roots (PRD 002 §D17), expanded set, listings.
+  const [folderRoots, setFolderRoots] = useState<string[]>([]);
   const [folderExpanded, setFolderExpanded] = useState<Set<string>>(new Set());
   const [folderChildren, setFolderChildren] = useState<Record<string, DirEntry[]>>({});
   const [folderShowNonMd, setFolderShowNonMd] = useState(false);
@@ -909,9 +915,26 @@ export default function App() {
     })();
   }, []);
   const recentRef = useRef<RecentStore>({ version: 1, entries: [] });
-  /** SPEC34 §2.3: write-through mirror of root+expanded+eye for foldertree.json. */
-  const folderStateRef = useRef<{ root: string | null; expanded: Set<string>; showNonMd: boolean; openOnly: boolean }>({
-    root: null,
+
+  /** PRD 002 §D15: same shape as commitRecent, for recent-workspaces.json. */
+  const commitRecentWs = useCallback((next: RecentStore, platformNow?: Platform) => {
+    recentWsRef.current = next;
+    setRecentWs(next);
+    const p = platformNow ?? stateRef.current.platform;
+    if (!p) return;
+    void (async () => {
+      try {
+        await p.writeTextFile(p.join(await p.configDir(), 'recent-workspaces.json'), serializeRecent(next));
+      } catch {
+        /* best effort */
+      }
+    })();
+  }, []);
+  const recentWsRef = useRef<RecentStore>({ version: 1, entries: [] });
+
+  /** SPEC34 §2.3: write-through mirror of roots+expanded+eye for foldertree.json. */
+  const folderStateRef = useRef<{ roots: string[]; expanded: Set<string>; showNonMd: boolean; openOnly: boolean }>({
+    roots: [],
     expanded: new Set(),
     showNonMd: false,
     openOnly: false,
@@ -937,7 +960,7 @@ export default function App() {
           p.join(cfg, 'foldertree.json'),
           serializeFolderState({
             version: 1,
-            root: st.root,
+            root: st.roots[0] ?? null,
             expanded: [...st.expanded],
             showNonMd: st.showNonMd,
             openFiles: open.files,
@@ -949,9 +972,10 @@ export default function App() {
         // machine-local session store, keyed under <configDir>/session/ so
         // one workspace's tabs never leak into another's (or any shareable
         // file). foldertree.json above stays as the legacy mirror.
+        if (!p.readDirEntries) return; // no workspace UI ⇒ no session stores (web)
+        const dir = p.join(cfg, SESSION_DIR_NAME);
+        await p.mkdirp(dir);
         if (ws.kind !== 'none') {
-          const dir = p.join(cfg, SESSION_DIR_NAME);
-          await p.mkdirp(dir);
           const session: WorkspaceSession = {
             version: 1,
             folders: ws.folders.map((f) => f.path),
@@ -965,9 +989,10 @@ export default function App() {
           };
           const slot = ws.kind === 'untitled' ? UNTITLED_SLOT_FILE : `${sessionKeyForWorkspaceFile(ws.file)}.json`;
           await p.writeTextFile(p.join(dir, slot), serializeWorkspaceSession(session));
-          // §C13: remember which workspace to reopen at launch.
-          await p.writeTextFile(p.join(dir, CURRENT_POINTER_FILE), serializeWorkspacePointer(ws));
         }
+        // §C13/§D16: remember which workspace to reopen at launch — the
+        // pointer is written for 'none' too, so Close Workspace sticks.
+        await p.writeTextFile(p.join(dir, CURRENT_POINTER_FILE), serializeWorkspacePointer(ws));
       } catch {
         /* best effort */
       }
@@ -1078,18 +1103,29 @@ export default function App() {
   const revealInFolders = useCallback(
     async (p: Platform, path: string) => {
       if (!p.readDirEntries) return;
-      let root = folderStateRef.current.root;
-      let chain = root ? ancestorsOf(root, path, p.dirname) : [];
-      if (chain.length === 0) {
-        root = p.dirname(path);
-        chain = [root];
-        setFolderRoot(root);
-        setFolderChildren({});
+      let roots = folderStateRef.current.roots;
+      let chain: string[] = [];
+      for (const r of roots) {
+        chain = ancestorsOf(r, path, p.dirname);
+        if (chain.length > 0) break;
       }
-      const expanded = new Set(folderStateRef.current.root === root ? folderStateRef.current.expanded : []);
+      let expanded: Set<string>;
+      if (chain.length === 0) {
+        // PRD 002 §D17: a multi-root workspace's membership is never
+        // retargeted by an outside open — skip the reveal entirely.
+        if (roots.length > 1) return;
+        const root = p.dirname(path);
+        roots = [root];
+        chain = [root];
+        setFolderRoots(roots);
+        setFolderChildren({});
+        expanded = new Set();
+      } else {
+        expanded = new Set(folderStateRef.current.expanded);
+      }
       for (const dir of chain) expanded.add(dir);
       setFolderExpanded(expanded);
-      folderStateRef.current = { ...folderStateRef.current, root, expanded };
+      folderStateRef.current = { ...folderStateRef.current, roots, expanded };
       persistFolderState(p);
       for (const dir of chain) await listFolderDir(p, dir);
     },
@@ -1142,7 +1178,8 @@ export default function App() {
     (id: string, target: { kind: 'dir' | 'file' | 'root'; path: string }) => {
       const p = stateRef.current.platform;
       if (!p) return;
-      const root = folderStateRef.current.root;
+      const roots = folderStateRef.current.roots;
+      const root = roots.find((r) => target.path === r || ancestorsOf(r, target.path, p.dirname).length > 0) ?? null;
       if (id === 'reveal') void p.revealPath?.(target.path);
       else if (id === 'copy-path') void p.copyText?.(target.path);
       else if (id === 'copy-relative-path' && root) void p.copyText?.(relativePath(root, target.path));
@@ -1655,6 +1692,18 @@ export default function App() {
         /* start empty */
       }
 
+      // PRD 002 §D15: recent workspaces — their own file, same tolerance.
+      try {
+        const recWsPath = p.join(cfg, 'recent-workspaces.json');
+        if (await p.exists(recWsPath)) {
+          const loaded = parseRecent(await p.readTextFile(recWsPath));
+          recentWsRef.current = loaded;
+          setRecentWs(loaded);
+        }
+      } catch {
+        /* start empty */
+      }
+
       // SPEC34 §2.3: folder sidebar state, same tolerance. The current
       // workspace's own session state wins (§B6); with no session pointer yet,
       // the legacy foldertree.json is read as before — and a single existing
@@ -1675,15 +1724,18 @@ export default function App() {
           }
           curWorkspaceRef.current = bootWs;
           if (ft) {
+            // §D17: ALL member folders become sidebar roots (the FolderState
+            // bridge only carries the first; the session/workspace has them all).
+            const roots = bootSession ? bootSession.folders : ft.root ? [ft.root] : [];
             const expanded = new Set(ft.expanded);
-            folderStateRef.current = { root: ft.root, expanded, showNonMd: ft.showNonMd, openOnly: ft.openOnly ?? false };
+            folderStateRef.current = { roots, expanded, showNonMd: ft.showNonMd, openOnly: ft.openOnly ?? false };
             dormantOpenRef.current = { files: ft.openFiles ?? [], active: ft.activeFile ?? null };
-            setFolderRoot(ft.root);
+            setFolderRoots(roots);
             setFolderExpanded(expanded);
             setFolderShowNonMd(ft.showNonMd);
             setFolderOpenOnly(ft.openOnly ?? false); // §5.5: view state restores regardless
-            if (loaded.showFolders && ft.root) {
-              for (const dir of [ft.root, ...ft.expanded]) void listFolderDir(p, dir);
+            if (loaded.showFolders && roots.length > 0) {
+              for (const dir of [...roots, ...ft.expanded]) void listFolderDir(p, dir);
             }
           }
         }
@@ -1882,10 +1934,10 @@ export default function App() {
     const picked = await p.openFolderDialog();
     if (!picked) return;
     const expanded = new Set([picked]);
-    setFolderRoot(picked);
+    setFolderRoots([picked]);
     setFolderExpanded(expanded);
     setFolderChildren({});
-    folderStateRef.current = { ...folderStateRef.current, root: picked, expanded };
+    folderStateRef.current = { ...folderStateRef.current, roots: [picked], expanded };
     // PRD 002 §C8: opening a folder starts a fresh untitled workspace holding
     // that one folder (a new untitled overwrites the slot, §C11).
     updateWorkspace(openFolderWorkspace(curWorkspaceRef.current, picked), p);
@@ -1894,6 +1946,118 @@ export default function App() {
       updateSettings({ ...stateRef.current.settings, showFolders: true });
     }
   }, [listFolderDir, updateWorkspace, updateSettings]);
+
+  /**
+   * PRD 002 §D14: make `file` the current named workspace — corruption-
+   * tolerant load, session state restored, sidebar roots swapped, MRU bump.
+   */
+  const openWorkspaceFromPath = useCallback(
+    async (p: Platform, file: string) => {
+      if (!p.readDirEntries) return;
+      try {
+        const data = parseWorkspaceFile(await p.readTextFile(file));
+        const folders = workspaceFolderPaths(data, file);
+        const unavailable = new Set<string>();
+        for (const f of folders) if (!(await p.exists(f))) unavailable.add(f);
+        const ws = workspaceFromFile(data, file, unavailable);
+        // §B6: the workspace's own machine-local session state comes back.
+        const sPath = p.join(await p.configDir(), SESSION_DIR_NAME, `${sessionKeyForWorkspaceFile(file)}.json`);
+        const session = (await p.exists(sPath))
+          ? parseWorkspaceSession(await p.readTextFile(sPath))
+          : emptyWorkspaceSession(folders);
+        session.folders = folders; // the .marky-workspace file owns membership
+        const expanded = new Set(session.expanded.length > 0 ? session.expanded : folders);
+        setFolderRoots(folders);
+        setFolderExpanded(expanded);
+        setFolderChildren({});
+        setFolderShowNonMd(session.showNonMd);
+        setFolderOpenOnly(session.openOnly);
+        folderStateRef.current = { roots: folders, expanded, showNonMd: session.showNonMd, openOnly: session.openOnly };
+        // The workspace flips FIRST so the tab restore below persists into
+        // the opened workspace's own session, never the previous one's.
+        updateWorkspace(ws, p);
+        // §F22: the open-tab set restores (existing files only); the document
+        // on screen stays — restoring tabs never yanks the editor.
+        const alive: string[] = [];
+        for (const f of session.openFiles) if (await p.exists(f)) alive.push(f);
+        commitOpenSet(alive, session.activeFile);
+        commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
+        for (const dir of new Set([...folders, ...expanded])) void listFolderDir(p, dir);
+        if (!stateRef.current.settings.showFolders) {
+          updateSettings({ ...stateRef.current.settings, showFolders: true });
+        }
+      } catch {
+        showNotice(`Couldn’t open “${p.basename(file)}”`);
+      }
+    },
+    [commitOpenSet, updateWorkspace, commitRecentWs, listFolderDir, updateSettings, showNotice]
+  );
+
+  /** PRD 002 §D14: Open Workspace… — dialog filtered to .marky-workspace. */
+  const openWorkspaceCmd = useCallback(async () => {
+    const p = stateRef.current.platform;
+    if (!p?.openWorkspaceDialog || !p.readDirEntries) return;
+    const picked = await p.openWorkspaceDialog();
+    if (!picked) return;
+    await openWorkspaceFromPath(p, picked);
+  }, [openWorkspaceFromPath]);
+
+  /**
+   * PRD 002 §D14/§C8: Add Folder to Workspace… — a single-folder untitled
+   * workspace becomes multi-root; with no workspace open it behaves like
+   * Open Folder (a fresh untitled workspace holding the pick).
+   */
+  const addFolderToWorkspaceCmd = useCallback(async () => {
+    const p = stateRef.current.platform;
+    if (!p?.openFolderDialog || !p.readDirEntries) return;
+    const picked = await p.openFolderDialog();
+    if (!picked) return;
+    const cur = curWorkspaceRef.current;
+    const next = addWorkspaceFolder(cur, picked);
+    if (next === cur) return; // duplicate member — nothing changes
+    const roots = next.kind === 'none' ? [] : next.folders.map((f) => f.path);
+    // Every root joins the expanded set so the grown tree stays visible
+    // (the single root was implicitly expanded before it had a header row).
+    const expanded = new Set([...folderStateRef.current.expanded, ...roots]);
+    setFolderRoots(roots);
+    setFolderExpanded(expanded);
+    folderStateRef.current = { ...folderStateRef.current, roots, expanded };
+    updateWorkspace(next, p);
+    await listFolderDir(p, picked);
+    if (!stateRef.current.settings.showFolders) {
+      updateSettings({ ...stateRef.current.settings, showFolders: true });
+    }
+  }, [listFolderDir, updateWorkspace, updateSettings]);
+
+  /** PRD 002 §D14/§C11: Save Workspace As… — untitled (or named) → named. */
+  const saveWorkspaceAsCmd = useCallback(async () => {
+    const p = stateRef.current.platform;
+    const cur = curWorkspaceRef.current;
+    if (!p?.saveFileDialog || cur.kind === 'none') return; // silent no-op, menu style
+    const suggested = cur.kind === 'named' ? p.basename(cur.file) : `Untitled${WORKSPACE_FILE_EXT}`;
+    const picked = await p.saveFileDialog(suggested, 'workspace');
+    if (!picked) return;
+    const file = picked.endsWith(WORKSPACE_FILE_EXT) ? picked : `${picked}${WORKSPACE_FILE_EXT}`;
+    updateWorkspace(saveWorkspaceAs(cur, file), p);
+    commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
+  }, [updateWorkspace, commitRecentWs]);
+
+  /**
+   * PRD 002 §D16: Close Workspace — back to the no-workspace state. The
+   * sidebar empties (roots, expansion, tabs); the open document stays put.
+   */
+  const closeWorkspaceCmd = useCallback(() => {
+    const cur = curWorkspaceRef.current;
+    if (cur.kind === 'none') return;
+    setFolderRoots([]);
+    setFolderExpanded(new Set());
+    setFolderChildren({});
+    folderStateRef.current = { ...folderStateRef.current, roots: [], expanded: new Set() };
+    // The workspace flips to 'none' FIRST so the tab clear below can't
+    // overwrite the closed workspace's saved session with an empty one.
+    updateWorkspace(closeWorkspace(cur));
+    commitOpenSet([], null);
+  }, [commitOpenSet, updateWorkspace]);
 
   // --- actions -----------------------------------------------------------------
   /**
@@ -2349,8 +2513,16 @@ export default function App() {
         updateSettings({ ...st.settings, showFolders: !st.settings.showFolders });
       },
       openFolder: () => void openFolderCmd(),
-      // SPEC29 §3.4: Clear Menu — no-op when already empty.
-      clearRecent: () => commitRecent(clearRecent()),
+      // PRD 002 §D14: the workspace flows (silent no-ops without the seam).
+      openWorkspace: () => void openWorkspaceCmd(),
+      addFolderToWorkspace: () => void addFolderToWorkspaceCmd(),
+      saveWorkspaceAs: () => void saveWorkspaceAsCmd(),
+      closeWorkspace: closeWorkspaceCmd,
+      // SPEC29 §3.4 + §D15: Clear Menu wipes both sections — no-op when empty.
+      clearRecent: () => {
+        commitRecent(clearRecent());
+        commitRecentWs(clearRecent());
+      },
       toggleWordCount: () => {
         const s = stateRef.current.settings;
         updateSettings({ ...s, showWordCount: !s.showWordCount });
@@ -2442,15 +2614,24 @@ export default function App() {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, openFind, openFolderCmd, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
   useEffect(() => {
-    registerRecentHandler((path) => {
+    registerRecentHandler((path, kind) => {
       void (async () => {
         const p = stateRef.current.platform;
         if (!p) return;
+        if (kind === 'workspace') {
+          // PRD 002 §D15: a recent workspace pick opens that workspace.
+          if (await p.exists(path)) await openWorkspaceFromPath(p, path);
+          else {
+            showNotice(`“${p.basename(path)}” is no longer there`);
+            commitRecentWs(removeRecent(recentWsRef.current, path));
+          }
+          return;
+        }
         if (await p.exists(path)) {
           openDocGuarded(p, path);
         } else {
@@ -2459,7 +2640,7 @@ export default function App() {
         }
       })();
     });
-  }, [openDocGuarded, showNotice, commitRecent]);
+  }, [openDocGuarded, showNotice, commitRecent, commitRecentWs, openWorkspaceFromPath]);
 
   // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
   useEffect(() => {
@@ -2479,9 +2660,11 @@ export default function App() {
         showFolders: settings.showFolders,
         openOnly: folderOpenOnly,
         recentFiles: recentMenuEntries(recent, platform.basename, platform.dirname),
+        // PRD 002 §D15: the workspaces section, same disambiguated labels.
+        recentWorkspaces: recentMenuEntries(recentWs, platform.basename, platform.dirname),
       })
     );
-  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, recent, settings.showFolders, folderOpenOnly]);
+  }, [platform, mode, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, recent, recentWs, settings.showFolders, folderOpenOnly]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -3404,7 +3587,7 @@ export default function App() {
       <div className="body-row">
         {platform.readDirEntries && platform.openFolderDialog && settings.showFolders && (
           <FolderPanel
-            root={folderRoot}
+            roots={folderRoots}
             children={folderChildren}
             expanded={folderExpanded}
             selectedPath={docPath}

@@ -47,6 +47,8 @@ export interface RecentItemSpec {
   type: 'recent';
   path: string;
   label: string;
+  /** PRD 002 §D15: 'workspace' entries open .marky-workspace files; absent = file. */
+  kind?: 'file' | 'workspace';
 }
 
 /** SPEC29 §3.1: real nesting (File → Open Recent → …). */
@@ -84,6 +86,12 @@ export interface MenuState {
   showFrontmatter: boolean;
   /** SPEC29 §3: Open Recent entries, most-recent-first (label ready-made). */
   recentFiles: Array<{ path: string; label: string }>;
+  /**
+   * PRD 002 §D15: recent workspaces, most-recent-first — the section above
+   * the files in Open Recent. OPTIONAL so pre-existing MenuState call sites
+   * (and frozen test fixtures) stay valid; absent reads as empty.
+   */
+  recentWorkspaces?: Array<{ path: string; label: string }>;
   /** SPEC34 §4.1: the folder sidebar's visibility (persisted setting). */
   showFolders: boolean;
   /**
@@ -107,13 +115,17 @@ const cmd = (command: CommandId, label: string, accelerator?: string, checked?: 
 
 /** SPEC12 §1: the full native menu layout for the current platform + state. */
 export function buildMenuSpec(s: MenuState): MenuSpec {
-  // SPEC29 §3.2: recents (MRU), separator, Clear Menu — Clear alone when empty.
+  // SPEC29 §3.2 + PRD 002 §D15: workspaces first, separator, files, separator,
+  // Clear Menu — Clear alone when both sections are empty.
+  const recentWs = s.recentWorkspaces ?? [];
   const openRecent: SubmenuItemSpec = {
     type: 'submenu',
     title: 'Open Recent',
     items: [
+      ...recentWs.map((r): RecentItemSpec => ({ type: 'recent', path: r.path, label: r.label, kind: 'workspace' })),
+      ...(recentWs.length > 0 && s.recentFiles.length > 0 ? [sep] : []),
       ...s.recentFiles.map((r): RecentItemSpec => ({ type: 'recent', path: r.path, label: r.label })),
-      ...(s.recentFiles.length > 0 ? [sep] : []),
+      ...(recentWs.length + s.recentFiles.length > 0 ? [sep] : []),
       cmd('clearRecent', 'Clear Menu'),
     ],
   };
@@ -205,9 +217,15 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             // SPEC22 §1: New opens an untitled buffer — no dialog, no ellipsis.
             cmd('newFile', 'New', s.hotkeys.newFile),
             cmd('open', 'Open…', s.hotkeys.openFile),
-            openRecent,
             // SPEC34 §4.2: opens a folder as the sidebar root — no file opens.
             cmd('openFolder', 'Open Folder…'),
+            // PRD 002 §D14: the workspace flows join the File menu.
+            cmd('openWorkspace', 'Open Workspace…'),
+            openRecent,
+            sep,
+            cmd('addFolderToWorkspace', 'Add Folder to Workspace…'),
+            cmd('saveWorkspaceAs', 'Save Workspace As…'),
+            cmd('closeWorkspace', 'Close Workspace'),
             sep,
             cmd('save', 'Save', s.hotkeys.save),
             cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
@@ -232,8 +250,14 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
         items: [
           cmd('newFile', 'New', s.hotkeys.newFile),
           cmd('open', 'Open…', s.hotkeys.openFile),
-          openRecent,
           cmd('openFolder', 'Open Folder…'),
+          // PRD 002 §D14: the workspace flows join the File menu.
+          cmd('openWorkspace', 'Open Workspace…'),
+          openRecent,
+          sep,
+          cmd('addFolderToWorkspace', 'Add Folder to Workspace…'),
+          cmd('saveWorkspaceAs', 'Save Workspace As…'),
+          cmd('closeWorkspace', 'Close Workspace'),
           sep,
           cmd('save', 'Save', s.hotkeys.save),
           cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
