@@ -38,13 +38,18 @@ If applicable, use RGR to complete the task:
 
 Verify in two tiers, both declared in `.sandcastle/config.mts`:
 
+- **Baseline (start of an attempt):** quick tier ONLY. Never run the full
+  `VERIFY_COMMANDS` at the start of an attempt — not even to assess
+  inherited state from a previous attempt. If the final gate later fails
+  on something your diff can't explain, compare against baseline then
+  (e.g. `git stash` + re-run the one failing test).
 - **While iterating** run `QUICK_VERIFY_COMMANDS` (or tests targeted at
   the code you changed) after each change. If the list is empty, pick the
   fastest relevant subset of `VERIFY_COMMANDS` yourself.
 - **Once, right before declaring the goal met**, run the full
   `VERIFY_COMMANDS` and make sure they pass — the goal judge needs to see
-  their output in your session. Do NOT re-run the full suite after every
-  small change; full-suite runs are the biggest time cost of an attempt.
+  their output in your session. This should be the ONLY full-suite run of
+  the attempt; full-suite runs are the biggest time cost of an attempt.
 
 Your repo's CLAUDE.md/AGENTS.md may refine which commands are
 appropriate; it overrides these lists.

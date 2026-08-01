@@ -60,8 +60,9 @@ Rules for the goal statement and acceptance criteria:
 - Test economy: in the spec's acceptance criteria, tell the implementer to
   iterate with {{QUICK_VERIFY_COMMANDS}} (or tests targeted at the changed
   code) and to run the full gate above ONCE, right before declaring the
-  goal met — not after every small change. Full-suite runs are usually the
-  single largest time cost of an attempt.
+  goal met — not after every small change, and not as a baseline at the
+  start of an attempt (baseline with the quick tier only). Full-suite runs
+  are usually the single largest time cost of an attempt.
 - Keep the goal statement under 1,500 characters; detail belongs in the
   acceptance criteria, which the file carries.
 - Any command the goal or criteria reference MUST exist: check
