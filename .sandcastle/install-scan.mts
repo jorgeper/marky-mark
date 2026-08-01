@@ -119,7 +119,14 @@ export const dockerfileSuggestion = (d: InstallDetection): string => {
   };
   switch (d.key) {
     case "playwright-browsers":
-      return `RUN npx playwright install --with-deps ${pkgs(/playwright\s+install\b/, "chromium")}`;
+      // Two gotchas make the naive one-liner ineffective: installed as root
+      // before the USER switch, browsers land in /root/.cache where the
+      // runtime user can't see them; and unpinned npx grabs the latest
+      // playwright, whose browser build revision may not match the repo's.
+      return [
+        `ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright`,
+        `RUN npx playwright@<repo's @playwright/test version> install --with-deps ${pkgs(/playwright\s+install\b/, "chromium")} && chmod -R a+rX /ms-playwright`,
+      ].join("\n      ");
     case "apt-packages":
       return `RUN apt-get update && apt-get install -y ${pkgs(/apt(?:-get)?\s+install\b/)}`;
     case "apk-packages":
@@ -162,13 +169,48 @@ export const readTally = (): InstallTally | undefined => {
   }
 };
 
-const currentImageId = async (imageName: string): Promise<string> => {
+export const currentImageId = async (imageName: string): Promise<string> => {
   const { stdout } = await execFileAsync("docker", [
     "images",
     "-q",
     imageName,
   ]);
   return stdout.trim();
+};
+
+/** Creation time (ms epoch) of the current image; 0 when unknown. */
+export const imageCreatedMs = async (imageName: string): Promise<number> => {
+  try {
+    const { stdout } = await execFileAsync("docker", [
+      "inspect",
+      "-f",
+      "{{.Created}}",
+      imageName,
+    ]);
+    const ms = Date.parse(stdout.trim());
+    return Number.isNaN(ms) ? 0 : ms;
+  } catch {
+    return 0;
+  }
+};
+
+/**
+ * The portion of a log's text belonging to runs started at or after
+ * `sinceMs`. Logs append forever, one `--- Run started: <ISO> ---` delimiter
+ * per run — filtering by file mtime alone re-reports installs from runs that
+ * predate an image rebuild every time the file is touched. Text before the
+ * first delimiter is treated as ancient (included only when sinceMs is 0).
+ */
+export const runSectionsSince = (text: string, sinceMs: number): string => {
+  if (sinceMs <= 0) return text;
+  const parts = text.split(/^--- Run started: (.+?) ---$/m);
+  // parts = [preamble, ts1, body1, ts2, body2, ...]
+  let kept = "";
+  for (let i = 1; i + 1 < parts.length; i += 2) {
+    const ms = Date.parse(parts[i]!.trim());
+    if (!Number.isNaN(ms) && ms >= sinceMs) kept += parts[i + 1]!;
+  }
+  return kept;
 };
 
 /** Detections across all non-conversation logs modified since `sinceMs`
@@ -182,7 +224,8 @@ export const scanLogs = (sinceMs = 0): InstallDetection[] => {
       if (!file.endsWith(".log") || file.startsWith("conversation-")) continue;
       const path = join(LOGS_DIR, file);
       if (statSync(path).mtimeMs < sinceMs) continue;
-      for (const d of detectInstalls(readFileSync(path, "utf8"))) {
+      const scoped = runSectionsSince(readFileSync(path, "utf8"), sinceMs);
+      for (const d of detectInstalls(scoped)) {
         if (!detections.has(d.key)) detections.set(d.key, d);
       }
     }

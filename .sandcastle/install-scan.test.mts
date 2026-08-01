@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   detectInstalls,
   dockerfileSuggestion,
+  runSectionsSince,
   updateTally,
   formatNudges,
   type InstallTally,
@@ -14,9 +15,10 @@ describe("dockerfileSuggestion", () => {
       label: "Playwright browsers",
       line: "Bash(npx playwright install chromium 2>&1 | tail -10)",
     };
-    expect(dockerfileSuggestion(d)).toBe(
-      "RUN npx playwright install --with-deps chromium",
-    );
+    const suggestion = dockerfileSuggestion(d);
+    expect(suggestion).toContain("ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright");
+    expect(suggestion).toContain("install --with-deps chromium");
+    expect(suggestion).toContain("chmod -R a+rX /ms-playwright");
   });
 
   it("parses package names out of an apt line, dropping flags and shell noise", () => {
@@ -126,7 +128,8 @@ describe("formatNudges", () => {
     expect(nudge).toContain(".sandcastle/Dockerfile");
     expect(nudge).toContain("npx sandcastle docker build-image");
     // The nudge carries the ready-to-paste Dockerfile line.
-    expect(nudge).toContain("RUN npx playwright install --with-deps");
+    expect(nudge).toContain("PLAYWRIGHT_BROWSERS_PATH=/ms-playwright");
+    expect(nudge).toContain("install --with-deps");
   });
 
   it("omits the repeat clause on first sighting", () => {
@@ -136,5 +139,27 @@ describe("formatNudges", () => {
       entries: { "apt-packages": { runs: 1, lastExample: "x" } },
     };
     expect(formatNudges(tally, [detection])[0]).not.toContain("seen in");
+  });
+});
+
+describe("runSectionsSince", () => {
+  const log = [
+    "ancient preamble npx playwright install chromium",
+    "--- Run started: 2026-07-30T10:00:00.000Z ---",
+    "old run: apt-get install libfoo",
+    "--- Run started: 2026-08-01T04:00:00.000Z ---",
+    "new run: npm install -g tsx",
+  ].join("\n");
+
+  it("keeps only runs started at or after sinceMs", () => {
+    const since = Date.parse("2026-08-01T00:00:00.000Z");
+    const scoped = runSectionsSince(log, since);
+    expect(scoped).toContain("npm install -g tsx");
+    expect(scoped).not.toContain("apt-get install libfoo");
+    expect(scoped).not.toContain("playwright install");
+  });
+
+  it("returns the whole text when sinceMs is 0", () => {
+    expect(runSectionsSince(log, 0)).toBe(log);
   });
 });

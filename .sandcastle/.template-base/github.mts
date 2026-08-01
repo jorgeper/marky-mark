@@ -196,12 +196,14 @@ export const TRIGGER_LABEL_DEFS: LabelDef[] = [
 export type StatusLabel =
   | "sandcastle:in-review"
   | "sandcastle:ready"
-  | "sandcastle:needs-decision";
+  | "sandcastle:needs-decision"
+  | "sandcastle:ready-to-merge";
 
 const STATUS_LABELS: { name: StatusLabel; color: string; desc: string }[] = [
   { name: "sandcastle:in-review", color: "FBCA04", desc: "Agent debate in progress" },
   { name: "sandcastle:ready", color: "0E8A16", desc: "Awaiting owner approval label" },
   { name: "sandcastle:needs-decision", color: "D93F0B", desc: "Deadlocked threads await owner verdict" },
+  { name: "sandcastle:ready-to-merge", color: "1D76DB", desc: "Goal verified met on the branch — merge phase can take it directly" },
 ];
 
 export const STATUS_LABEL_DEFS: LabelDef[] = STATUS_LABELS;
@@ -256,6 +258,15 @@ export const setStatusLabel = async (
   await gh(args).catch(async () => {
     await gh(["pr", "edit", String(prNumber), "--add-label", label]);
   });
+};
+
+export const addIssueLabel = async (
+  issueNumber: number,
+  label: StatusLabel,
+): Promise<void> => {
+  await gh([
+    "issue", "edit", String(issueNumber), "--add-label", label,
+  ]).catch(() => {});
 };
 
 export const postPrComment = async (

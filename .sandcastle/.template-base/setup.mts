@@ -10,7 +10,9 @@ import { QUICK_VERIFY_COMMANDS, VERIFY_COMMANDS } from "./config.mts";
 import { parseEnvFile } from "./env.mts";
 import * as github from "./github.mts";
 import {
+  currentImageId,
   dockerfileSuggestion,
+  imageCreatedMs,
   readTally,
   scanLogs,
   type InstallDetection,
@@ -19,12 +21,13 @@ import { missingVerifyScripts } from "./verify.mts";
 
 const execFileAsync = promisify(execFile);
 
-const LABEL_ROWS: [string, string, string, string][] = [
+export const LABEL_ROWS: [string, string, string, string][] = [
   [github.TRIGGER_LABEL, "issue", "you", "queue this issue for the loop"],
   [github.REQUIRE_PR_LABEL, "issue", "you", "gate it behind a PR + outer review"],
   ["sandcastle:in-review", "PR", "orchestrator", "agent debate in progress"],
   ["sandcastle:ready", "PR", "orchestrator", "debate settled, awaiting you"],
   ["sandcastle:needs-decision", "PR", "orchestrator", "deadlocked threads await your verdict"],
+  ["sandcastle:ready-to-merge", "issue", "orchestrator", "goal verified on the branch — merge phase takes it directly"],
   ["sandcastle:approved", "PR", "you", "authorize the merge — next run squash-merges"],
 ];
 
@@ -290,24 +293,34 @@ export const runDoctor = async (options?: {
         hint: "run `npm run sandcastle:init`",
       };
     }
-    return { ok: true, detail: "all 6 sandcastle labels exist" };
+    return {
+      ok: true,
+      detail: `all ${github.ALL_LABEL_DEFS.length} sandcastle labels exist`,
+    };
   });
 
   await check("image gaps", async () => {
     // In-sandbox installs mean the Dockerfile is missing toolchain the
-    // agents keep needing (prd/006). The cross-run tally is always
-    // consulted; --image-gaps additionally live-scans ALL logs (so an
-    // interrupted or still-running loop can't hide the evidence) and
-    // prints ready-to-paste Dockerfile lines. Rebuilding resets the tally.
+    // agents keep needing (prd/006). Evidence is scoped to the CURRENT
+    // image: a tally recorded against a previous image is stale (the
+    // rebuild was the fix), and the --image-gaps live scan only reads log
+    // runs started after the image was built. Rebuilding resets the tally.
+    const image = `sandcastle:${basename(process.cwd())}`;
+    const imageId = await currentImageId(image).catch(() => "");
     const tally = readTally();
+    const tallyFresh =
+      tally !== undefined && imageId !== "" && tally.imageId === imageId;
     const found = new Map<string, string>();
     const detections = new Map<string, InstallDetection>();
-    for (const [key, e] of Object.entries(tally?.entries ?? {})) {
-      found.set(key, `${key} (${e.runs} run${e.runs !== 1 ? "s" : ""})`);
-      detections.set(key, { key, label: key, line: e.lastExample });
+    if (tallyFresh) {
+      for (const [key, e] of Object.entries(tally.entries)) {
+        found.set(key, `${key} (${e.runs} run${e.runs !== 1 ? "s" : ""})`);
+        detections.set(key, { key, label: key, line: e.lastExample });
+      }
     }
     if (options?.imageGaps) {
-      for (const d of scanLogs(0)) {
+      const since = await imageCreatedMs(image);
+      for (const d of scanLogs(since)) {
         if (!found.has(d.key)) {
           found.set(d.key, `${d.key} (in logs, not yet tallied)`);
         }
@@ -315,20 +328,39 @@ export const runDoctor = async (options?: {
       }
     }
     if (found.size === 0) {
+      const staleNote =
+        tally !== undefined && !tallyFresh
+          ? " (previous image's tally ignored — clears after the next completed run)"
+          : "";
       return {
         ok: true,
         detail: options?.imageGaps
-          ? "no in-sandbox installs found in tally or logs"
-          : "none tallied (re-run with --image-gaps for a full log scan)",
+          ? `no in-sandbox installs against the current image${staleNote}`
+          : `none tallied against the current image${staleNote} (re-run with --image-gaps for a log scan)`,
       };
     }
+    // A suggested install that's already in the Dockerfile is a different
+    // problem: the bake isn't taking effect at runtime.
+    let dockerfile = "";
+    try {
+      dockerfile = readFileSync(".sandcastle/Dockerfile", "utf8");
+    } catch {
+      // No Dockerfile — the plain suggestion below stands.
+    }
+    const alreadyBaked = [...detections.values()].filter(
+      (d) => d.key === "playwright-browsers" && /playwright.* install/.test(dockerfile),
+    );
     const suggestions = [...detections.values()]
       .map((d) => `      ${dockerfileSuggestion(d)}`)
       .join("\n");
+    const bakedNote =
+      alreadyBaked.length > 0
+        ? `\n    note: the Dockerfile already has a playwright install line, yet agents still installed against the CURRENT image — the bake isn't effective at runtime. Check: browsers must be in a path the runtime user can read (PLAYWRIGHT_BROWSERS_PATH), and the playwright version must match the repo's.`
+        : "";
     return {
       ok: false,
-      detail: `agents install inside sandboxes: ${[...found.values()].join(", ")}`,
-      hint: `add to .sandcastle/Dockerfile, then \`npx sandcastle docker build-image\` (rebuilding resets the tally):\n${suggestions}`,
+      detail: `agents install inside sandboxes (current image): ${[...found.values()].join(", ")}`,
+      hint: `add to .sandcastle/Dockerfile, then \`npx sandcastle docker build-image\` (rebuilding resets the tally):\n${suggestions}${bakedNote}`,
     };
   });
 

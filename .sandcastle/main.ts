@@ -662,11 +662,42 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   // Phase 1: Plan — restricted to issues with no open PR
   // -------------------------------------------------------------------------
+  // Issues whose goal a previous cycle already verified (ready-to-merge
+  // label, applied in Phase 2) skip re-implementation: if the merger died
+  // before merging them, re-proving the work costs a full implementer
+  // attempt — including its verify gate — for zero new information. Carry
+  // them straight to the merge phase; if their branch turns out to be fully
+  // merged already, the only missing state-advance is the close.
+  const carriedToMerge: { id: string; title: string; branch: string }[] = [];
+  for (const entry of dispatch) {
+    if (entry.action.kind !== "implement") continue;
+    if (entry.issue.labels.includes(PR_LABEL)) continue;
+    if (!entry.issue.labels.includes("sandcastle:ready-to-merge")) continue;
+    if ((await branchAheadCount(branchFor(entry.issue.number))) > 0) {
+      logStep(
+        `#${entry.issue.number}: goal already verified — carrying straight to merge.`,
+      );
+      carriedToMerge.push({
+        id: String(entry.issue.number),
+        title: entry.issue.title,
+        branch: branchFor(entry.issue.number),
+      });
+    } else {
+      console.log(
+        `  #${entry.issue.number}: verified and already merged — closing issue.`,
+      );
+      await github.closeIssue(
+        entry.issue.number,
+        "🏰 Sandcastle: goal verified in a previous cycle and the branch is already merged — closing (orchestrator safety net).",
+      );
+    }
+  }
   const candidates = dispatch
     .filter((entry) => entry.action.kind === "implement")
+    .filter((entry) => !entry.issue.labels.includes("sandcastle:ready-to-merge"))
     .map((entry) => entry.issue.number);
 
-  if (candidates.length === 0) {
+  if (candidates.length === 0 && carriedToMerge.length === 0) {
     console.log("No issues ready for implementation this round.");
     if (mergedAny || debatesOrFixes > 0) continue; // state advanced — reclassify
     console.log("Nothing to do until a human acts. Exiting.");
@@ -676,7 +707,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // One candidate needs no planner: a full docker+model run whose only job
   // is choosing among issues has nothing to choose. Dispatch it directly.
   const issues =
-    candidates.length === 1
+    candidates.length === 0
+      ? []
+      : candidates.length === 1
       ? [
           {
             id: String(candidates[0]!),
@@ -712,7 +745,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     logStep(`Single candidate #${candidates[0]} — skipping planner.`);
   }
 
-  if (issues.length === 0) {
+  if (issues.length === 0 && carriedToMerge.length === 0) {
     console.log("No unblocked issues to work on. Exiting.");
     break;
   }
@@ -727,6 +760,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   // Phase 2: Execute — implementer, then inner review (legacy) or PR + debate
   // -------------------------------------------------------------------------
+  // Provision status labels once, before the parallel executors race to
+  // apply the ready-to-merge marker.
+  await github.ensureLabelsExist(github.STATUS_LABEL_DEFS);
   const settled = await Promise.allSettled(
     issues.map(async (issue) => {
       const sandbox = await sandcastle.createSandbox({
@@ -830,6 +866,14 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         }
 
         if (!isPrMode) {
+          // Durable "gate passed" marker: if this run dies before the merge
+          // phase (crash, Ctrl-C), the next cycle carries this issue straight
+          // to merge instead of paying a full re-implementation to re-prove
+          // the goal. The label leaves with the issue when it closes.
+          await github.addIssueLabel(
+            Number(issue.id),
+            "sandcastle:ready-to-merge",
+          );
           // Nothing new this run: the merge phase picks the branch up from
           // git state; re-running the inner reviewer would review old work.
           if (implement.commits.length === 0) return implement;
@@ -944,6 +988,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       completedIssues.push(issue);
     }
   }
+
+  // Verified-in-a-previous-cycle issues merge alongside this cycle's work.
+  completedIssues.push(...carriedToMerge);
 
   const completedBranches = completedIssues.map((i) => i.branch);
 
