@@ -39,6 +39,7 @@ import {
 import {
   adoptLegacyFolderState,
   CURRENT_POINTER_FILE,
+  emptyWorkspaceSession,
   openFolderWorkspace,
   parseWorkspaceFile,
   parseWorkspacePointer,
@@ -53,6 +54,7 @@ import {
   workspaceFolderPaths,
   workspaceFromFile,
   type Workspace,
+  type WorkspaceFolder,
   type WorkspaceSession,
 } from './lib/workspace';
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
@@ -1590,30 +1592,23 @@ export default function App() {
           const ptr = hadPointer ? parseWorkspacePointer(await p.readTextFile(ptrPath)) : null;
           if (ptr?.kind === 'named' && (await p.exists(ptr.file))) {
             const data = parseWorkspaceFile(await p.readTextFile(ptr.file));
+            const folderPaths = workspaceFolderPaths(data, ptr.file);
             // §C10: unreachable folders stay in the model, flagged for the UI.
             const unavailable = new Set<string>();
-            for (const f of workspaceFolderPaths(data, ptr.file)) if (!(await p.exists(f))) unavailable.add(f);
+            for (const f of folderPaths) if (!(await p.exists(f))) unavailable.add(f);
             bootWs = workspaceFromFile(data, ptr.file, unavailable);
             const sPath = p.join(sessionDir, `${sessionKeyForWorkspaceFile(ptr.file)}.json`);
-            bootSession = (await p.exists(sPath)) ? parseWorkspaceSession(await p.readTextFile(sPath)) : null;
-            if (bootSession && bootWs.kind === 'named') bootSession.folders = bootWs.folders.map((f) => f.path);
-            if (!bootSession && bootWs.kind === 'named') {
-              bootSession = {
-                version: 1,
-                folders: bootWs.folders.map((f) => f.path),
-                expanded: [],
-                showNonMd: false,
-                openFiles: [],
-                activeFile: null,
-                openOnly: false,
-              };
-            }
+            bootSession = (await p.exists(sPath))
+              ? parseWorkspaceSession(await p.readTextFile(sPath))
+              : emptyWorkspaceSession();
+            // The .marky-workspace file, not the session cache, owns membership.
+            bootSession.folders = folderPaths;
           } else if (ptr?.kind === 'untitled') {
             const uPath = p.join(sessionDir, UNTITLED_SLOT_FILE);
             if (await p.exists(uPath)) {
               const slot = parseWorkspaceSession(await p.readTextFile(uPath));
               if (slot.folders.length > 0) {
-                const folders: Array<{ path: string; available: boolean }> = [];
+                const folders: WorkspaceFolder[] = [];
                 for (const f of slot.folders) folders.push({ path: f, available: await p.exists(f) });
                 bootWs = { kind: 'untitled', folders, settings: slot.settings ?? {} };
                 bootSession = slot;
@@ -1675,10 +1670,7 @@ export default function App() {
             const ftPath = p.join(cfg, 'foldertree.json');
             if (await p.exists(ftPath)) {
               ft = parseFolderState(await p.readTextFile(ftPath));
-              if (!hadPointer) {
-                const adopted = adoptLegacyFolderState(ft);
-                if (adopted) bootWs = adopted.workspace;
-              }
+              if (!hadPointer) bootWs = adoptLegacyFolderState(ft) ?? bootWs;
             }
           }
           curWorkspaceRef.current = bootWs;

@@ -244,7 +244,7 @@ describe('PRD 002 §B6/§C11 per-workspace session state', () => {
 });
 
 describe('PRD 002 §G24 legacy foldertree.json adoption', () => {
-  test('U115: a single root becomes an untitled workspace carrying the old session state', () => {
+  test('U115: a single root becomes an untitled workspace with that one folder', () => {
     const ft: FolderState = {
       version: 1,
       root: '/notes',
@@ -254,22 +254,11 @@ describe('PRD 002 §G24 legacy foldertree.json adoption', () => {
       activeFile: '/notes/a.md',
       openOnly: true,
     };
-    const adopted = adoptLegacyFolderState(ft);
-    expect(adopted).not.toBeNull();
-    expect(adopted?.workspace).toEqual({
+    // Adoption only names the workspace; the caller keeps applying `ft`
+    // itself, so the same sidebar, tabs, and expanded state show as before.
+    expect(adoptLegacyFolderState(ft)).toEqual({
       kind: 'untitled',
       folders: [{ path: '/notes', available: true }],
-      settings: {},
-    });
-    // The same sidebar, tabs, and expanded state as before.
-    expect(adopted?.session).toEqual({
-      version: 1,
-      folders: ['/notes'],
-      expanded: ['/notes', '/notes/sub'],
-      showNonMd: true,
-      openFiles: ['/notes/a.md'],
-      activeFile: '/notes/a.md',
-      openOnly: true,
       settings: {},
     });
   });

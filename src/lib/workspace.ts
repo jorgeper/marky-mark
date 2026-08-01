@@ -135,9 +135,10 @@ export interface WorkspaceFileData {
 /** Keep only layer-mergeable keys — never M (machine/session) or U! ones. */
 export function sanitizeWorkspaceSettings(raw: unknown): Record<string, unknown> {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+  const scopes = SETTINGS_SCOPES as Record<string, Scope | undefined>;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) {
-    const scope: Scope | undefined = (SETTINGS_SCOPES as Record<string, Scope>)[k];
+    const scope = scopes[k];
     if (scope === 'U' || scope === 'W') out[k] = v;
   }
   return out;
@@ -214,19 +215,15 @@ export interface WorkspaceSession {
   settings?: Record<string, unknown>;
 }
 
+/** A fresh session for `folders`: nothing expanded, nothing open. */
+export function emptyWorkspaceSession(folders: string[] = []): WorkspaceSession {
+  return { version: 1, folders, expanded: [], showNonMd: false, openFiles: [], activeFile: null, openOnly: false };
+}
+
 export function parseWorkspaceSession(json: string): WorkspaceSession {
-  const empty: WorkspaceSession = {
-    version: 1,
-    folders: [],
-    expanded: [],
-    showNonMd: false,
-    openFiles: [],
-    activeFile: null,
-    openOnly: false,
-  };
   try {
     const d = JSON.parse(json) as Partial<WorkspaceSession> | null;
-    if (typeof d !== 'object' || d === null) return empty;
+    if (typeof d !== 'object' || d === null) return emptyWorkspaceSession();
     const openFiles = cleanStrings(d.openFiles, OPEN_CAP);
     const out: WorkspaceSession = {
       version: 1,
@@ -240,7 +237,7 @@ export function parseWorkspaceSession(json: string): WorkspaceSession {
     if ('settings' in d) out.settings = sanitizeWorkspaceSettings(d.settings);
     return out;
   } catch {
-    return empty;
+    return emptyWorkspaceSession();
   }
 }
 
@@ -316,22 +313,11 @@ export function serializeWorkspacePointer(ws: Workspace): string {
 
 /**
  * First launch with no session pointer: an existing foldertree.json root is
- * adopted as an untitled workspace with that one folder, carrying today's
- * expanded/tab state along. A pure read — the caller rewrites nothing.
+ * adopted as an untitled workspace with that one folder; the caller keeps
+ * applying the foldertree state it already parsed, so today's expanded/tab
+ * state carries along. A pure read — the caller rewrites nothing.
  */
-export function adoptLegacyFolderState(ft: FolderState): { workspace: Workspace; session: WorkspaceSession } | null {
+export function adoptLegacyFolderState(ft: FolderState): Workspace | null {
   if (!ft.root) return null;
-  return {
-    workspace: { kind: 'untitled', folders: [{ path: ft.root, available: true }], settings: {} },
-    session: {
-      version: 1,
-      folders: [ft.root],
-      expanded: [...ft.expanded],
-      showNonMd: ft.showNonMd,
-      openFiles: [...(ft.openFiles ?? [])],
-      activeFile: ft.activeFile ?? null,
-      openOnly: ft.openOnly ?? false,
-      settings: {},
-    },
-  };
+  return { kind: 'untitled', folders: [{ path: ft.root, available: true }], settings: {} };
 }
