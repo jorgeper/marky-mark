@@ -5766,3 +5766,79 @@ test('E133: pane slides — folder and preview open/close as 180ms transforms, p
   });
   expect(instant).toEqual({ previewGone: true, folderGone: true });
 });
+
+test('E134: split mode — the editor column hugs its pane, leaving no blank strip at the folder seam (#7)', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await openFolderRoot(page);
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+
+  // Issue #7's geometry: a text column narrower than the editor pane (wide
+  // margins, then the divider dragged right). Centering the gutter+content
+  // pair there strands a dead editor-background strip between the folder
+  // seam and the gutter — the "blank folder pane" of the issue screenshot.
+  await openSettings(page);
+  await page.getByTestId('settings-margins').selectOption('wide');
+  await page.getByTestId('settings-close').click();
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').check();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+
+  const wsBox = (await page.locator('.workspace.split').boundingBox())!;
+  const divider = page.getByTestId('split-divider');
+  const d = (await divider.boundingBox())!;
+  await page.mouse.move(d.x + d.width / 2, d.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(wsBox.x + wsBox.width * 0.8, d.y + 200, { steps: 8 });
+  await page.mouse.up();
+
+  const box = (sel: string) =>
+    page
+      .locator(sel)
+      .first()
+      .evaluate((el) => {
+        const b = el.getBoundingClientRect();
+        return { left: b.left, right: b.right, width: b.width };
+      });
+  // Distance from the editor pane's left edge to the start of its column.
+  const strip = async () => {
+    const pane = await box('.split-editor');
+    return Math.round((await box('.split-editor .cm-gutters')).left - pane.left);
+  };
+
+  // Guard: the pane really is wider than gutter+column, or there would be no
+  // leftover width to strand and the assertions below would prove nothing.
+  const pane = await box('.split-editor');
+  const column = await box('.split-editor .cm-content');
+  expect(pane.width - column.width).toBeGreaterThan(100);
+
+  // Folder pane OPEN: the column starts at the pane's own left edge, flush
+  // against the folder seam — no blank strip between the two.
+  await expect.poll(strip).toBeLessThanOrEqual(2);
+  const seam = (await box('[data-testid="folder-panel"]')).right;
+  expect(Math.abs((await box('.split-editor .cm-gutters')).left - seam)).toBeLessThanOrEqual(2);
+
+  // Folder pane CLOSED (the issue screenshot's state): the column follows the
+  // pane to the workspace's left edge, so the reopen chevron floats over the
+  // gutter's own strip rather than over a blank ghost pane.
+  await page.getByTestId('folder-collapse').click();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toBeVisible();
+  await expect.poll(strip).toBeLessThanOrEqual(2);
+  expect((await box('.split-editor .cm-gutters')).left).toBeLessThanOrEqual(2);
+
+  // SPEC6 §1 is untouched where the pane IS the window: closing the preview
+  // re-centers the column, with matching margins either side (as E31 checks
+  // against the reading preview).
+  await page.getByTestId('preview-collapse').click();
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  const full = await box('.editor-wrap');
+  const gutters = await box('.editor-wrap .cm-gutters');
+  const content = await box('.editor-wrap .cm-content');
+  expect(gutters.left - full.left).toBeGreaterThan(100);
+  expect(Math.abs(gutters.left - full.left - (full.right - content.right))).toBeLessThanOrEqual(2);
+});
