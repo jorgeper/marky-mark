@@ -185,16 +185,59 @@ export const runDoctor = async (options?: {
   });
 
   await check("agent credentials", async () => {
-    const ok = Boolean(
-      envVars.CLAUDE_CODE_OAUTH_TOKEN || envVars.ANTHROPIC_API_KEY,
-    );
-    return {
-      ok,
-      detail: ok
-        ? "Claude credential set"
-        : "no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY",
-      hint: "run `claude setup-token` and add CLAUDE_CODE_OAUTH_TOKEN to .sandcastle/.env",
-    };
+    // Presence is not validity: a stale or mispasted credential passes an
+    // existence check here, then 401s every agent mid-run ("Invalid bearer
+    // token"). Probe the API up front. Only a 401 fails the check — any
+    // other response proves the credential authenticated — and a network
+    // error degrades to a soft pass so the doctor still works offline.
+    const oauth = envVars.CLAUDE_CODE_OAUTH_TOKEN;
+    const apiKey = envVars.ANTHROPIC_API_KEY;
+    if (!oauth && !apiKey) {
+      return {
+        ok: false,
+        detail: "no CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY",
+        hint: "run `claude setup-token` and add CLAUDE_CODE_OAUTH_TOKEN to .sandcastle/.env",
+      };
+    }
+    if (oauth && !oauth.startsWith("sk-ant-oat01-")) {
+      return {
+        ok: false,
+        detail:
+          "CLAUDE_CODE_OAUTH_TOKEN does not look like a Claude Code OAuth token (expected sk-ant-oat01-…)",
+        hint: "run `claude setup-token` and paste the full token into .sandcastle/.env",
+      };
+    }
+    const label = oauth ? "CLAUDE_CODE_OAUTH_TOKEN" : "ANTHROPIC_API_KEY";
+    const headers: Record<string, string> = oauth
+      ? {
+          Authorization: `Bearer ${oauth}`,
+          "anthropic-beta": "oauth-2025-04-20",
+          "anthropic-version": "2023-06-01",
+        }
+      : { "x-api-key": apiKey as string, "anthropic-version": "2023-06-01" };
+    let status: number;
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/models", {
+        headers,
+        signal: AbortSignal.timeout(10_000),
+      });
+      status = res.status;
+    } catch {
+      return {
+        ok: true,
+        detail: `${label} set (API unreachable — could not verify)`,
+      };
+    }
+    if (status === 401) {
+      return {
+        ok: false,
+        detail: `${label} rejected by the API (401) — agents will fail with "Invalid bearer token"`,
+        hint: oauth
+          ? "the token is expired or revoked — run `claude setup-token` and update .sandcastle/.env"
+          : "check the key in the Anthropic console and update .sandcastle/.env",
+      };
+    }
+    return { ok: true, detail: `${label} authenticates against the API` };
   });
 
   await check("GH_TOKEN (sandbox agents)", async () => {
