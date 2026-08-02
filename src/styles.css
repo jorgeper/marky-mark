@@ -1745,10 +1745,10 @@ mark.hl.ghost {
 }
 /* PRD 003 Reqs 9/11: the pane opens/closes as a horizontal slide — a 180ms
    transform on the shared --mm-slide-ease curve (#8; the toolbar keeps its
-   own `ease`). The wrapper animates
-   its width so the workspace follows; the panel keeps its full width and
-   translates toward the left edge on the SAME curve, so the pane's right
-   edge and the workspace's left edge track pixel-for-pixel — no tearing.
+   own `ease`). The wrapper animates its width so the workspace follows; the
+   panel keeps its full width and translates toward the left edge on the SAME
+   curve, so the pane's right edge and the workspace's left edge track
+   pixel-for-pixel — no tearing.
    `.sliding` (transitions armed) exists only during the open/close phases:
    the width drag must stay live, and a steady-state transform would become
    the containing block for the panel's fixed-position context menu. */

@@ -5922,44 +5922,70 @@ test('E135: pane slides — the shared --mm-slide-ease curve is measurably non-l
     while (i0 + 1 < frames.length && Math.abs(frames[i0 + 1].x - frames[0].x) <= eps) i0++;
     let i1 = frames.length - 1;
     while (i1 - 1 > i0 && Math.abs(frames[i1 - 1].x - frames[i1].x) <= eps) i1--;
-    const [a, b] = [frames[i0], frames[i1]];
+    const a = frames[i0];
+    const b = frames[i1];
     const tMid = (a.t + b.t) / 2;
     const mid = frames
       .slice(i0, i1 + 1)
       .reduce((best, f) => (Math.abs(f.t - tMid) < Math.abs(best.t - tMid) ? f : best));
     const linear = a.x + ((b.x - a.x) * (mid.t - a.t)) / (b.t - a.t);
-    return { deviation: (mid.x - linear) / (b.x - a.x), frames: i1 - i0 + 1 };
+    return { deviation: (mid.x - linear) / (b.x - a.x), moving: i1 - i0 + 1 };
   };
 
-  // Every frame of a slide runs the shared token, never a keyword: the pane's
-  // transform and its neighbour's width have to be on the SAME curve or the
-  // two edges tear mid-flight (asserted directly below).
   const CURVE = 'cubic-bezier(0.2, 0, 0, 1)';
   const easings = (frames: Frame[]) => [...new Set(frames.map((f) => f.ease))];
 
-  const folderClose = await sampleSlide('folder-collapse', 'folder-panel', 'gone', '.folder-slide');
-  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
-  // Enough samples that a midpoint frame is meaningful (a 180ms slide is
-  // ~10 frames at 60Hz); if the sampler ever degrades, fail loudly here
-  // rather than reading a two-point "curve".
-  const closeStats = midpointDeviation(folderClose);
-  expect(closeStats.frames).toBeGreaterThanOrEqual(5);
-  expect(easings(folderClose)).toEqual([CURVE]);
-  expect(closeStats.deviation).toBeGreaterThanOrEqual(0.1);
+  // Worst-frame distance between the pane's seam edge and the right edge of
+  // the neighbour whose width animates alongside it. A frame that found no
+  // neighbour scores Infinity rather than quietly passing.
+  const maxSeamGap = (frames: Frame[], edge: 'left' | 'right') =>
+    Math.max(...frames.map((f) => (f.nbRight === null ? Infinity : Math.abs(f[edge] - f.nbRight))));
+
+  // The whole shared-curve contract for one sampled slide. `edge` is the side
+  // of the pane that meets its neighbour at the seam; `seamTolerance` is how
+  // far the two may drift apart before the pair counts as torn.
+  const expectSharedCurveSlide = (
+    label: string,
+    frames: Frame[],
+    edge: 'left' | 'right',
+    seamTolerance: number
+  ) => {
+    // Enough samples that a midpoint frame is meaningful (a 180ms slide is
+    // ~10 frames at 60Hz); if the sampler ever degrades, fail loudly here
+    // rather than reading a two-point "curve".
+    expect(frames.length, `${label}: sampled frames`).toBeGreaterThanOrEqual(5);
+    const { deviation, moving } = midpointDeviation(frames);
+    expect(moving, `${label}: moving frames`).toBeGreaterThanOrEqual(5);
+    // Every frame of a slide runs the shared token, never a keyword.
+    expect(easings(frames), `${label}: timing function`).toEqual([CURVE]);
+    expect(deviation, `${label}: midpoint deviation from linear`).toBeGreaterThanOrEqual(0.1);
+    // The pane's transform and its neighbour's width have to be on the SAME
+    // curve, or the two edges tear mid-flight.
+    expect(maxSeamGap(frames, edge), `${label}: seam gap`).toBeLessThanOrEqual(seamTolerance);
+  };
+
   // The panel translates left while its wrapper's width shrinks under it: the
-  // two right edges are the seam the workspace butts against, so they must
+  // two RIGHT edges are the seam the workspace butts against, so they must
   // stay together every frame (they'd drift by ~a third of the pane's width
   // if the width and transform ran different curves).
-  for (const f of folderClose) expect(Math.abs(f.right - f.nbRight!)).toBeLessThanOrEqual(4);
+  const expectFolderSlide = (label: string, frames: Frame[]) =>
+    expectSharedCurveSlide(label, frames, 'right', 4);
+
+  // The editor's right edge tracks the preview's LEFT edge: at rest the
+  // divider's layout footprint holds them 8px apart, and that gap closes to 0
+  // as the preview leaves — so a shared curve keeps them within the seam's
+  // own width, while a torn pair separates by hundreds of px.
+  const expectPreviewSlide = (label: string, frames: Frame[]) =>
+    expectSharedCurveSlide(label, frames, 'left', 12);
+
+  const folderClose = await sampleSlide('folder-collapse', 'folder-panel', 'gone', '.folder-slide');
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  expectFolderSlide('folder close', folderClose);
 
   await page.waitForTimeout(250); // SPEC12 §1.3 cross-source dedup window
   const folderOpen = await sampleSlide('folder-expand', 'folder-panel', 'settled', '.folder-slide');
   await expect(page.getByTestId('folder-panel')).toBeVisible();
-  const openStats = midpointDeviation(folderOpen);
-  expect(openStats.frames).toBeGreaterThanOrEqual(5);
-  expect(easings(folderOpen)).toEqual([CURVE]);
-  expect(openStats.deviation).toBeGreaterThanOrEqual(0.1);
-  for (const f of folderOpen) expect(Math.abs(f.right - f.nbRight!)).toBeLessThanOrEqual(4);
+  expectFolderSlide('folder open', folderOpen);
 
   // Split preview: same curve from/toward the RIGHT edge, with the editor's
   // width as the companion transition.
@@ -5967,28 +5993,14 @@ test('E135: pane slides — the shared --mm-slide-ease curve is measurably non-l
   await expect(page.getByTestId('split-preview')).toBeVisible();
   await page.waitForTimeout(250);
 
-  // The editor's right edge tracks the preview's left edge: at rest the
-  // divider's layout footprint holds them 8px apart, and that gap closes to 0
-  // as the preview leaves — so a shared curve keeps them within the seam's
-  // own width, while a torn pair separates by hundreds of px.
-  const seamGap = (frames: Frame[]) => Math.max(...frames.map((f) => Math.abs(f.left - f.nbRight!)));
-
   const previewClose = await sampleSlide('preview-collapse', 'split-preview', 'gone', '.split-editor');
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
-  const pCloseStats = midpointDeviation(previewClose);
-  expect(pCloseStats.frames).toBeGreaterThanOrEqual(5);
-  expect(easings(previewClose)).toEqual([CURVE]);
-  expect(pCloseStats.deviation).toBeGreaterThanOrEqual(0.1);
-  expect(seamGap(previewClose)).toBeLessThanOrEqual(12);
+  expectPreviewSlide('preview close', previewClose);
 
   await page.waitForTimeout(250);
   const previewOpen = await sampleSlide('preview-expand', 'split-preview', 'settled', '.split-editor');
   await expect(page.getByTestId('split-preview')).toBeVisible();
-  const pOpenStats = midpointDeviation(previewOpen);
-  expect(pOpenStats.frames).toBeGreaterThanOrEqual(5);
-  expect(easings(previewOpen)).toEqual([CURVE]);
-  expect(pOpenStats.deviation).toBeGreaterThanOrEqual(0.1);
-  expect(seamGap(previewOpen)).toBeLessThanOrEqual(12);
+  expectPreviewSlide('preview open', previewOpen);
 
   // Containment (#8): the curve's control points stay inside the 0..1 band,
   // so nothing overshoots past its resting position — no sampled frame of
