@@ -1244,6 +1244,15 @@ export default function Editor({
     // window, divider drags, the folder panel opening or closing.
     const paneResize = new ResizeObserver(scheduleGutterInset);
     paneResize.observe(host);
+    // The content element too: --mm-content-width lives on the ROOT (the
+    // margins preset, App.tsx), so flipping it resizes the text column without
+    // resizing the pane and without any CM transaction — the wrap's observer
+    // never fires and CM's own DOMObserver watches scrollDOM, whose box is
+    // unchanged. Watching .cm-content catches that third mover of the slack.
+    // It also fires on content-height changes while typing, which costs the
+    // two rects below once per frame — edits already re-measure through
+    // geometryChanged anyway.
+    paneResize.observe(view.contentDOM);
 
     return () => {
       // SPEC40 §2.3: the buffer the App keeps must be canonical — collapse

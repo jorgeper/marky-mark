@@ -6118,6 +6118,32 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
   await expect.poll(async () => (await gutter()).left).toMatch(/^0px /);
   expect((await gutter()).inset).toBeLessThanOrEqual(2);
 
+  // A third mover of the slack, distinct from the two above: the margins
+  // preset resizes the text column off a ROOT variable, so the pane never
+  // resizes and no edit happens — nothing moves here but --mm-content-width.
+  // Widening the column back inside this same squeezed pane hands the slack
+  // back, and the rules have to follow.
+  const setMargins = async (value: string) => {
+    const p = page.waitForEvent('popup');
+    await menuClick(page, 'settings');
+    const s = await p;
+    await s.getByTestId('settings-panel').waitFor();
+    await s.getByTestId('settings-tab-appearance').click();
+    await s.getByTestId('settings-margins').selectOption(value);
+    await s.close();
+  };
+  await setMargins('wide');
+  await expect(page.getByTestId('folder-panel')).toBeVisible(); // nothing resized
+  await expect.poll(async () => (await gutter()).left).toBe(light.left);
+  expect((await gutter()).inset).toBeGreaterThan(20);
+
+  // …and the other direction, which is where a stale latch draws the left rule
+  // flush on the folder seam.
+  await setMargins('super-narrow');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect.poll(async () => (await gutter()).left).toMatch(/^0px /);
+  expect((await gutter()).inset).toBeLessThanOrEqual(2);
+
   // …and back: closing the panel hands the slack back, so both rules return —
   // nothing about the mode changed between these two measurements.
   await menuClick(page, 'toggleFolders');
