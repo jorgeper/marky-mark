@@ -137,6 +137,16 @@ export const runDoctor = async (options?: {
   console.log(`Sandcastle doctor\n`);
   const results: boolean[] = [];
 
+  // A missing binary (`gh`, `docker`) surfaces as a raw `spawn <bin> ENOENT`
+  // from every check that shells out to it — translate it into an actionable
+  // install hint, printed once per binary rather than under each failing
+  // check.
+  const INSTALL_HINTS: Record<string, string> = {
+    gh: "install the GitHub CLI, then `gh auth login` — macOS: `brew install gh`; Debian/Ubuntu: `sudo apt install gh`; all platforms: https://github.com/cli/cli#installation",
+    docker:
+      "install Docker and start the daemon — macOS: Docker Desktop (or `brew install colima docker`); Debian/Ubuntu: `sudo apt install docker.io`; all platforms: https://docs.docker.com/get-docker/",
+  };
+  const hintedBinaries = new Set<string>();
   const check = async (name: string, fn: () => Promise<CheckResult>) => {
     try {
       const result = await fn();
@@ -145,9 +155,24 @@ export const runDoctor = async (options?: {
       if (!result.ok && result.hint) console.log(`      ↳ ${result.hint}`);
     } catch (error) {
       results.push(false);
-      const message =
-        error instanceof Error ? error.message.split("\n")[0] : String(error);
+      const errno = error as NodeJS.ErrnoException;
+      const missingBinary =
+        error instanceof Error &&
+        errno.code === "ENOENT" &&
+        errno.path &&
+        errno.path in INSTALL_HINTS
+          ? errno.path
+          : undefined;
+      const message = missingBinary
+        ? `\`${missingBinary}\` is not installed (not found on PATH)`
+        : error instanceof Error
+          ? error.message.split("\n")[0]
+          : String(error);
       console.log(`  ✗ ${name} — ${message}`);
+      if (missingBinary && !hintedBinaries.has(missingBinary)) {
+        hintedBinaries.add(missingBinary);
+        console.log(`      ↳ ${INSTALL_HINTS[missingBinary]}`);
+      }
     }
   };
 
