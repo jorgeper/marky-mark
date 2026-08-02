@@ -1337,6 +1337,10 @@ test('E49: the auto-hide toolbar setting is absent under native menus, present o
   const sp = await popup;
   await sp.getByTestId('settings-panel').waitFor();
   await sp.getByTestId('settings-tab-general').click();
+  // Positive control: the General body really rendered, so the absence below
+  // means "the row is gone", not "nothing painted". (This was the deleted
+  // line-numbers row's other job; autosaveOnToggle sits in the same spot.)
+  await expect(sp.getByTestId('autosave-toggle')).toBeVisible();
   await expect(sp.getByTestId('settings-autohide')).toHaveCount(0);
   // Issue #10 removed the line-numbers row; editorSyntax is another U-scope
   // checkbox and serves the same purpose here.
@@ -1407,7 +1411,6 @@ test('E51: Settings opens its own window — no in-page overlay; edits apply liv
   // Toggle editor syntax highlighting in the popup → main reacts live…
   // (issue #10 moved line numbers to the View menu, so this half rides on
   // another U-scope Editor setting; E136 covers the menu route.)
-  await sp.getByTestId('settings-tab-general').click();
   await sp.getByTestId('settings-tab-editor').click();
   await expect(page.locator('.mm-md-h1').first()).toBeVisible();
   await sp.getByTestId('editor-syntax').click();
@@ -6095,6 +6098,32 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
   expect(dark.left).toBe(dark.right);
   expect(dark.left).toMatch(/^1px solid /);
   await page.emulateMedia({ colorScheme: 'light' });
+
+  // The predicate is slack, not mode. At the DEFAULT margins the column all
+  // but fills a 1280px window, so the folder panel alone squeezes the last of
+  // it out: this same full-screen, non-split pane goes flush, and the left
+  // rule has to come off there too — it would otherwise land on
+  // .folder-panel::after's own seam hairline, in the same token, and read as
+  // a doubled seam.
+  const popup2 = page.waitForEvent('popup');
+  await menuClick(page, 'settings');
+  const sp2 = await popup2;
+  await sp2.getByTestId('settings-panel').waitFor();
+  await sp2.getByTestId('settings-tab-appearance').click();
+  await sp2.getByTestId('settings-margins').selectOption('super-narrow');
+  await sp2.close();
+  await seedFolders(page);
+  await openFolderRoot(page);
+  await expect(page.locator('.editor-wrap .cm-gutters')).toBeVisible();
+  await expect.poll(async () => (await gutter()).left).toMatch(/^0px /);
+  expect((await gutter()).inset).toBeLessThanOrEqual(2);
+
+  // …and back: closing the panel hands the slack back, so both rules return —
+  // nothing about the mode changed between these two measurements.
+  await menuClick(page, 'toggleFolders');
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect.poll(async () => (await gutter()).left).toBe(light.left);
+  expect((await gutter()).inset).toBeGreaterThan(0);
 
   // Split mode hugs the folder seam (issue #7) — nothing to outline there, so
   // the left rule stays off rather than doubling up on the seam.

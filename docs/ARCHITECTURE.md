@@ -302,8 +302,11 @@ migrates to `themeLight`):
   `lineNumbers` key is not). A CodeMirror `Compartment` reconfigures the
   gutter live without recreating the editor. The gutter strip carries the same
   1px `--mm-border` rule on both sides so a centered (inset) column reads as a
-  strip rather than a half-drawn box; in split mode it hugs the folder seam
-  (issue #7), where the left rule stays off.
+  strip rather than a half-drawn box. Both rules ride a `gutter-inset` class
+  that `Editor.tsx` measures onto `.editor-wrap` — the pane really has centring
+  slack — rather than a mode class: split (issue #7), an open folder panel and
+  a narrow window all leave the gutter flush against a seam, where a left rule
+  would double the seam's own hairline. Flush keeps CodeMirror's right border.
 
 ## v7 (SPEC7)
 
