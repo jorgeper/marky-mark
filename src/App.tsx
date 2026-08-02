@@ -3928,6 +3928,7 @@ export default function App() {
   // mode must swap panes in instantly, as before — only toggles slide.
   const folderSlide = usePaneSlide(settings.showFolders, armFolderSlide);
   const splitSlide = usePaneSlide(settings.splitEdit, armSplitSlide);
+  const { sliding: previewSliding, out: previewOut } = slideClasses(splitSlide);
 
   if (!platform) return <div className="theme-root" />;
 
@@ -4115,9 +4116,7 @@ export default function App() {
         </div>
       ) : slideMounted(splitSlide, settings.splitEdit) ? (
         <div
-          className={`workspace split${slideClasses(splitSlide).sliding ? ' preview-sliding' : ''}${
-            slideClasses(splitSlide).out ? ' preview-out' : ''
-          }`}
+          className={`workspace split${previewSliding ? ' preview-sliding' : ''}${previewOut ? ' preview-out' : ''}`}
           ref={workspaceRef}
           style={{ '--mm-split': `${settings.splitRatio * 100}%` } as React.CSSProperties}
         >

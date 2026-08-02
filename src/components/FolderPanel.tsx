@@ -426,163 +426,163 @@ export function FolderPanel(p: FolderPanelProps) {
       ref={slideRef}
       style={{ '--mm-folders': `${p.width}px` } as React.CSSProperties}
     >
-    <div
-      className="folder-panel"
-      data-testid="folder-panel"
-      ref={panelRef}
-      onContextMenu={(e) => e.preventDefault()} // SPEC35 §3.1: no native menu in the panel
-    >
-      <div className="folder-header" data-testid="folder-header">
-        <span className="folder-title">{p.roots.length === 1 ? p.basename(p.roots[0]) : 'Folders'}</span>
-        <button
-          data-testid="folder-open-only"
-          className={p.openOnly ? 'filter-on' : undefined}
-          title={p.openOnly ? 'Show the folder tree' : 'Show only open files'}
-          disabled={p.roots.length === 0 && p.openFiles.length === 0}
-          onClick={p.onToggleOpenOnly}
-        >
-          {/* Two stacked tab cards — the open files, front and behind. */}
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <g stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2.2" y="5.4" width="9.2" height="7.6" rx="1.7" />
-              <path d="M5.4 2.8h6.7a1.7 1.7 0 0 1 1.7 1.7v5.9" />
-            </g>
-          </svg>
-        </button>
-        <button
-          data-testid="folder-filter"
-          className={p.showNonMd ? undefined : 'filter-on'}
-          title={p.showNonMd ? 'Show markdown files only' : 'Show all files'}
-          disabled={p.roots.length === 0 || p.openOnly}
-          onClick={p.onToggleNonMd}
-        >
-          {/* The app icon's hash: straight bars, except the top one tilts -9°. */}
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <g stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round">
-              <line x1="5.6" y1="2.6" x2="5.6" y2="13.4" />
-              <line x1="10.4" y1="2.6" x2="10.4" y2="13.4" />
-              <line x1="2.6" y1="6.7" x2="13.4" y2="5" />
-              <line x1="2.6" y1="10.2" x2="13.4" y2="10.2" />
-            </g>
-          </svg>
-        </button>
-        <button
-          data-testid="folder-sync"
-          title="Navigate to the open file"
-          disabled={!p.selectedPath}
-          onClick={p.onSync}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <g stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round">
-              <circle cx="8" cy="8" r="4.2" />
-              <line x1="8" y1="0.9" x2="8" y2="3.2" />
-              <line x1="8" y1="12.8" x2="8" y2="15.1" />
-              <line x1="0.9" y1="8" x2="3.2" y2="8" />
-              <line x1="12.8" y1="8" x2="15.1" y2="8" />
-            </g>
-          </svg>
-        </button>
-        <button
-          data-testid="folder-collapse"
-          title="Hide the folder panel"
-          aria-label="Hide the folder panel"
-          onClick={p.onClose}
-        >
-          <Chevron dir="left" />
-        </button>
-      </div>
-      {p.openOnly ? (
-        // SPEC36 §5.3: the flat only-open list — tree order, no chevrons, no
-        // indent, full tab styling; the root-less empty state never shows here.
-        <div className="folder-list" ref={listRef}>
-          {p.openFiles.length === 0 ? (
-            <div className="folder-open-empty" data-testid="folder-open-empty">
-              No open files
-            </div>
-          ) : (
-            p.openFiles.map((path) => (
-              <FileRow key={path} path={path} name={p.basename(path)} depth={null} p={p} onRowMenu={openMenu} />
-            ))
-          )}
-        </div>
-      ) : p.roots.length === 1 ? (
-        <div
-          className="folder-list"
-          ref={listRef}
-          onContextMenu={(e) => {
-            // Rows handle their own menus; the remaining surface is the
-            // empty area — the `root` menu (SPEC35 §3.1, root always set here).
-            if ((e.target as HTMLElement).closest('[data-path]')) return;
-            openMenu('root', p.roots[0], e);
-          }}
-        >
-          <Rows dir={p.roots[0]} depth={0} p={p} onRowMenu={openMenu} />
-        </div>
-      ) : p.roots.length > 1 ? (
-        // PRD 002 §D17: multiple roots — each gets a collapsible header row
-        // and, when expanded, the exact same lazy tree as the single case.
-        <div className="folder-list" ref={listRef}>
-          {p.roots.map((root) => {
-            const open = p.expanded.has(root);
-            return (
-              <div key={root}>
-                <button
-                  className="folder-item folder-item-dir folder-root"
-                  data-testid="folder-root"
-                  data-path={root}
-                  title={root}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => p.onToggleDir(root)}
-                  onContextMenu={(ev) => {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    openMenu('root', root, ev);
-                  }}
-                >
-                  <Chevron open={open} />
-                  {p.basename(root)}
-                </button>
-                {open && <Rows dir={root} depth={1} p={p} onRowMenu={openMenu} />}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="folder-empty">
-          <button data-testid="folder-open-btn" onClick={p.onOpenFolder}>
-            Open Folder…
+      <div
+        className="folder-panel"
+        data-testid="folder-panel"
+        ref={panelRef}
+        onContextMenu={(e) => e.preventDefault()} // SPEC35 §3.1: no native menu in the panel
+      >
+        <div className="folder-header" data-testid="folder-header">
+          <span className="folder-title">{p.roots.length === 1 ? p.basename(p.roots[0]) : 'Folders'}</span>
+          <button
+            data-testid="folder-open-only"
+            className={p.openOnly ? 'filter-on' : undefined}
+            title={p.openOnly ? 'Show the folder tree' : 'Show only open files'}
+            disabled={p.roots.length === 0 && p.openFiles.length === 0}
+            onClick={p.onToggleOpenOnly}
+          >
+            {/* Two stacked tab cards — the open files, front and behind. */}
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+              <g stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2.2" y="5.4" width="9.2" height="7.6" rx="1.7" />
+                <path d="M5.4 2.8h6.7a1.7 1.7 0 0 1 1.7 1.7v5.9" />
+              </g>
+            </svg>
+          </button>
+          <button
+            data-testid="folder-filter"
+            className={p.showNonMd ? undefined : 'filter-on'}
+            title={p.showNonMd ? 'Show markdown files only' : 'Show all files'}
+            disabled={p.roots.length === 0 || p.openOnly}
+            onClick={p.onToggleNonMd}
+          >
+            {/* The app icon's hash: straight bars, except the top one tilts -9°. */}
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+              <g stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round">
+                <line x1="5.6" y1="2.6" x2="5.6" y2="13.4" />
+                <line x1="10.4" y1="2.6" x2="10.4" y2="13.4" />
+                <line x1="2.6" y1="6.7" x2="13.4" y2="5" />
+                <line x1="2.6" y1="10.2" x2="13.4" y2="10.2" />
+              </g>
+            </svg>
+          </button>
+          <button
+            data-testid="folder-sync"
+            title="Navigate to the open file"
+            disabled={!p.selectedPath}
+            onClick={p.onSync}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+              <g stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round">
+                <circle cx="8" cy="8" r="4.2" />
+                <line x1="8" y1="0.9" x2="8" y2="3.2" />
+                <line x1="8" y1="12.8" x2="8" y2="15.1" />
+                <line x1="0.9" y1="8" x2="3.2" y2="8" />
+                <line x1="12.8" y1="8" x2="15.1" y2="8" />
+              </g>
+            </svg>
+          </button>
+          <button
+            data-testid="folder-collapse"
+            title="Hide the folder panel"
+            aria-label="Hide the folder panel"
+            onClick={p.onClose}
+          >
+            <Chevron dir="left" />
           </button>
         </div>
-      )}
-      {menu && (
-        <div
-          className="theme-menu folder-menu"
-          data-testid="folder-menu"
-          ref={menuRef}
-          style={{ left: menu.x, top: menu.y }}
-        >
-          {folderContextMenu(menu.kind, { isMac: p.isMac, ...p.caps }).map((it, i) =>
-            it === 'sep' ? (
-              <div key={`sep-${i}`} className="folder-menu-sep" />
+        {p.openOnly ? (
+          // SPEC36 §5.3: the flat only-open list — tree order, no chevrons, no
+          // indent, full tab styling; the root-less empty state never shows here.
+          <div className="folder-list" ref={listRef}>
+            {p.openFiles.length === 0 ? (
+              <div className="folder-open-empty" data-testid="folder-open-empty">
+                No open files
+              </div>
             ) : (
-              <button
-                key={it.id}
-                className="theme-option"
-                data-testid={`folder-menu-${it.id}`}
-                onClick={() => {
-                  const m = menu;
-                  setMenu(null);
-                  p.onMenuAction(it.id, { kind: m.kind, path: m.path });
-                }}
-              >
-                <span>{it.label}</span>
-              </button>
-            )
-          )}
-        </div>
-      )}
-      <div className="folder-divider" data-testid="folder-divider" onPointerDown={dragWidth} />
-    </div>
+              p.openFiles.map((path) => (
+                <FileRow key={path} path={path} name={p.basename(path)} depth={null} p={p} onRowMenu={openMenu} />
+              ))
+            )}
+          </div>
+        ) : p.roots.length === 1 ? (
+          <div
+            className="folder-list"
+            ref={listRef}
+            onContextMenu={(e) => {
+              // Rows handle their own menus; the remaining surface is the
+              // empty area — the `root` menu (SPEC35 §3.1, root always set here).
+              if ((e.target as HTMLElement).closest('[data-path]')) return;
+              openMenu('root', p.roots[0], e);
+            }}
+          >
+            <Rows dir={p.roots[0]} depth={0} p={p} onRowMenu={openMenu} />
+          </div>
+        ) : p.roots.length > 1 ? (
+          // PRD 002 §D17: multiple roots — each gets a collapsible header row
+          // and, when expanded, the exact same lazy tree as the single case.
+          <div className="folder-list" ref={listRef}>
+            {p.roots.map((root) => {
+              const open = p.expanded.has(root);
+              return (
+                <div key={root}>
+                  <button
+                    className="folder-item folder-item-dir folder-root"
+                    data-testid="folder-root"
+                    data-path={root}
+                    title={root}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => p.onToggleDir(root)}
+                    onContextMenu={(ev) => {
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                      openMenu('root', root, ev);
+                    }}
+                  >
+                    <Chevron open={open} />
+                    {p.basename(root)}
+                  </button>
+                  {open && <Rows dir={root} depth={1} p={p} onRowMenu={openMenu} />}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="folder-empty">
+            <button data-testid="folder-open-btn" onClick={p.onOpenFolder}>
+              Open Folder…
+            </button>
+          </div>
+        )}
+        {menu && (
+          <div
+            className="theme-menu folder-menu"
+            data-testid="folder-menu"
+            ref={menuRef}
+            style={{ left: menu.x, top: menu.y }}
+          >
+            {folderContextMenu(menu.kind, { isMac: p.isMac, ...p.caps }).map((it, i) =>
+              it === 'sep' ? (
+                <div key={`sep-${i}`} className="folder-menu-sep" />
+              ) : (
+                <button
+                  key={it.id}
+                  className="theme-option"
+                  data-testid={`folder-menu-${it.id}`}
+                  onClick={() => {
+                    const m = menu;
+                    setMenu(null);
+                    p.onMenuAction(it.id, { kind: m.kind, path: m.path });
+                  }}
+                >
+                  <span>{it.label}</span>
+                </button>
+              )
+            )}
+          </div>
+        )}
+        <div className="folder-divider" data-testid="folder-divider" onPointerDown={dragWidth} />
+      </div>
     </div>
   );
 }

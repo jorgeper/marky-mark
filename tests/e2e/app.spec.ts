@@ -5761,5 +5761,3 @@ test('E133: pane slides — folder and preview open/close as 180ms transforms, p
   });
   expect(instant).toEqual({ previewGone: true, folderGone: true });
 });
-
-
