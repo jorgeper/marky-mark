@@ -21,6 +21,8 @@ export type CommandId =
   | 'headingPalette'
   | 'toggleWordCount'
   | 'toggleFrontmatter'
+  // Issue #10: the line-number gutter toggles from View, not Settings.
+  | 'toggleLineNumbers'
   | 'clearRecent'
   | 'find'
   | 'toggleFolders'

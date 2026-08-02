@@ -14,6 +14,7 @@ const base: MenuState = {
   showDiff: false,
   showWordCount: true,
   showFrontmatter: true, // SPEC26 §3: fixture-level only — no assertion changed
+  lineNumbers: true, // issue #10: U124 covers the View checkbox
   recentFiles: [], // SPEC29 §3: fixture-level only — no assertion changed
   showFolders: false, // SPEC34 §4: fixture-level only — no assertion changed
   appMode: 'workspace', // issue #22: everything enabled — U120 covers the gating
@@ -201,6 +202,25 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{}').showFrontmatter).toBe(true);
     expect(parseSettings('{"showFrontmatter":false}').showFrontmatter).toBe(false);
     expect(parseSettings('{"showFrontmatter":"nope"}').showFrontmatter).toBe(true);
+  });
+
+  test('U124: issue #10 — View carries Line Numbers as a checkbox tracking the setting, with no accelerator', () => {
+    for (const s of [base, { ...base, isMac: false }]) {
+      // Sits with the other view-chrome toggles, right after Front Matter.
+      const view = commandsIn(s, 'View').map((i) => i.command);
+      expect(view.indexOf('toggleLineNumbers')).toBe(view.indexOf('toggleFrontmatter') + 1);
+      expect(find(s, 'View', 'toggleLineNumbers')!.label).toBe('Line Numbers');
+      // A checkbox item mirroring MenuState, not a plain command…
+      expect(find(s, 'View', 'toggleLineNumbers')!.checked).toBe(true);
+      expect(find({ ...s, lineNumbers: false }, 'View', 'toggleLineNumbers')!.checked).toBe(false);
+      // …and deliberately hotkey-less (the issue: "no need for hotkey").
+      expect(find(s, 'View', 'toggleLineNumbers')!.accelerator).toBeUndefined();
+    }
+    // The persisted key is untouched by the move: still a User-scope setting
+    // defaulting to true, with malformed values falling back.
+    expect(parseSettings('{}').lineNumbers).toBe(true);
+    expect(parseSettings('{"lineNumbers":false}').lineNumbers).toBe(false);
+    expect(parseSettings('{"lineNumbers":"nope"}').lineNumbers).toBe(true);
   });
 
   test('U57: Open Recent submenu sits right after Open Workspace… — entries in order, separator, Clear Menu; Clear alone when empty', () => {

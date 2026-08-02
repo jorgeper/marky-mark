@@ -755,6 +755,21 @@ mark.hl.ghost {
   justify-content: flex-start;
 }
 
+/* Issue #10: when the gutter+content pair is centered, the line-number strip
+   floats inside the pane with editor background either side, so the single
+   rule CodeMirror's base theme puts on its right reads as a half-drawn box.
+   Both sides are styled here, off one theme token, so they can never drift
+   apart — the base theme's right border (a hardcoded #ddd in &light, nothing
+   in &dark) is overridden rather than matched by eye.
+   Scoped to the non-split workspace on purpose: issue #7 left the split pane's
+   column hugging the folder seam, so there is no inset to outline there and a
+   left rule would read as doubled against the seam. Split keeps CodeMirror's
+   own single right border, untouched. */
+.workspace:not(.split) .editor-wrap .cm-editor .cm-gutters {
+  border-left: 1px solid var(--mm-border, #d1d9e0);
+  border-right: 1px solid var(--mm-border, #d1d9e0);
+}
+
 .editor-wrap .cm-editor .cm-content {
   font-family: var(--mm-font-mono, monospace);
   caret-color: var(--mm-accent, #0969da);
