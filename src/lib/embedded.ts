@@ -1,12 +1,12 @@
 import type { CommentData } from './anchoring';
-import { parseSidecar } from './sidecar';
+import { commentPayload, readCommentPayload } from './commentFormat';
 
 /**
  * Embedded comment storage (SPEC2 §5): comments live in an invisible HTML
  * comment trailer at the very end of the markdown file:
  *
  *   <!-- marky-mark-comments
- *   {"version":1,"comments":[ …sidecar schema… ]}
+ *   {"version":"1.0.0","comments":[ …sidecar schema… ]}
  *   -->
  *
  * HTML comments are stripped by Marky Mark's sanitizer and hidden by GitHub
@@ -30,26 +30,40 @@ export interface SplitDoc {
   comments: CommentData[];
   /** True when a trailer block was present (even if it parsed to zero comments). */
   hadTrailer: boolean;
+  /**
+   * False when a trailer was present but this build could not interpret it —
+   * an unsupported version (PRD Req 12) or JSON that does not parse. True
+   * whenever there was no trailer at all: nothing there is not unreadable.
+   * What the app does about it (indication, byte preservation) is issue #16.
+   */
+  readable: boolean;
+  /** Set only when `readable` is false: the version exactly as declared. */
+  declaredVersion?: unknown;
 }
 
 /** Split a file's text into markdown content and embedded comments. */
 export function splitEmbedded(text: string): SplitDoc {
   const m = TRAILER_RE.exec(text);
-  if (!m) return { content: text, comments: [], hadTrailer: false };
-  let comments: CommentData[] = [];
+  if (!m) return { content: text, comments: [], hadTrailer: false, readable: true };
+  const content = text.slice(0, m.index);
+  let read;
   try {
-    comments = parseSidecar(m[1]);
+    read = readCommentPayload(JSON.parse(m[1]));
   } catch {
     // Unparseable trailer: treat as content-less rather than crashing; the
     // block is still stripped so it never leaks into the editor.
+    return { content, comments: [], hadTrailer: true, readable: false };
   }
-  return { content: text.slice(0, m.index), comments, hadTrailer: true };
+  if (!read.supported) {
+    return { content, comments: [], hadTrailer: true, readable: false, declaredVersion: read.declaredVersion };
+  }
+  return { content, comments: read.comments, hadTrailer: true, readable: true };
 }
 
 /** Serialize the trailer block for a comment set ('' when there are none). */
 export function serializeTrailer(comments: CommentData[]): string {
-  if (comments.length === 0) return '';
-  const json = JSON.stringify({ version: 1, comments }, null, 2)
+  if (comments.length === 0) return ''; // PRD Req 28: no trailer, not an empty versioned one
+  const json = JSON.stringify(commentPayload(comments), null, 2)
     // Keep the enclosing HTML comment intact even if a body contains "-->".
     .replace(/-->/g, '-\\u002d>');
   return `\n<!-- marky-mark-comments\n${json}\n-->\n`;

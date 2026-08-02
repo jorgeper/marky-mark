@@ -26,12 +26,23 @@ const FUZZY_DISTANCE = 5000;
 /** Bitap algorithm limit in diff-match-patch: patterns must be <= 32 chars. */
 const MAX_PATTERN = 32;
 
+/**
+ * Keys a comment store held that this build does not know (PRD 004 Req 19).
+ * Retained per object so a newer minor's fields survive a read → write
+ * round-trip verbatim. In-memory only: the field itself is never serialized,
+ * only its contents, spliced back in at the level they were read from. Always
+ * optional and absent (not empty) when there was nothing unknown, so every
+ * construction site elsewhere keeps building the same objects it always did.
+ */
+export type RetainedKeys = Record<string, unknown>;
+
 export interface Anchor {
   exact: string;
   prefix: string;
   suffix: string;
   start: number;
   end: number;
+  extra?: RetainedKeys;
 }
 
 export interface ReanchorMatch {
@@ -45,6 +56,7 @@ export interface ThreadReply {
   author: string;
   createdAt: string;
   body: string;
+  extra?: RetainedKeys;
 }
 
 export interface CommentData {
@@ -55,6 +67,14 @@ export interface CommentData {
   resolved: boolean;
   thread: ThreadReply[];
   anchor: Anchor;
+  extra?: RetainedKeys;
+  /**
+   * The comment-format version this comment's retained keys came from, so a
+   * save can stamp the lowest version that still represents them (PRD Req 21,
+   * 23, 24). Set by the seam on read, only for comments that retained
+   * something; in-memory only, like `extra` itself.
+   */
+  extraVersion?: string;
 }
 
 export function createAnchor(text: string, start: number, end: number): Anchor {

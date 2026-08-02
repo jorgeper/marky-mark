@@ -2,20 +2,38 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import {
+  ANCHOR_KEYS,
+  BASELINE_COMMENT_FORMAT_VERSION,
+  COMMENT_KEYS,
+  REPLY_KEYS,
   SUPPORTED_COMMENT_FORMAT_VERSION,
+  compareFormatVersions,
   isFormatVersion,
   parseFormatVersion,
   readCommentPayload,
+  stampedFormatVersion,
   type CommentFormatRead,
 } from '../../src/lib/commentFormat';
-import { serializeTrailer } from '../../src/lib/embedded';
-import { serializeSidecar } from '../../src/lib/sidecar';
+import { attachEmbedded, mergeComments, serializeTrailer, splitEmbedded } from '../../src/lib/embedded';
+import { parseSidecar, readSidecar, serializeSidecar } from '../../src/lib/sidecar';
 import type { CommentData } from '../../src/lib/anchoring';
 
 const seamSource = readFileSync(
   fileURLToPath(new URL('../../src/lib/commentFormat.ts', import.meta.url)),
   'utf8',
 );
+
+/** The source of one of the two stores, for the wiring assertions of U132/U138. */
+function storeSource(name: 'sidecar' | 'embedded'): string {
+  return readFileSync(fileURLToPath(new URL(`../../src/lib/${name}.ts`, import.meta.url)), 'utf8');
+}
+
+/** The JSON text inside a written trailer block. */
+function splitTrailerJson(text: string): string {
+  const m = /<!-- marky-mark-comments\n([\s\S]*?)\n-->/.exec(text);
+  if (!m) throw new Error('expected a trailer block');
+  return m[1];
+}
 
 const pkg = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8'),
@@ -157,16 +175,18 @@ describe('comment format: version literal and migration seam (PRD 004 §A/C/F)',
     expect(seamSource).toContain("'version' in payload");
   });
 
-  test('U132: the seam is pure and nothing is rewired — both stores keep the bytes they write today', () => {
+  test('U132: the seam is pure, both stores are wired through it, and both write the same version key', () => {
     // PRD Req 31: no DOM, no React, no platform imports.
     expect(seamSource).not.toMatch(/@tauri-apps|from 'react'|\bdocument\.|\bwindow\./);
+    // The seam owns the entry schema now, so it imports nothing but the types
+    // (issue #15) — in particular it no longer re-serializes to reuse
+    // parseSidecar, and no store can import it back into a cycle.
     expect(seamSource.match(/^import .*/gm)).toEqual([
-      "import type { CommentData } from './anchoring';",
-      "import { parseSidecar } from './sidecar';",
+      "import type { Anchor, CommentData, ThreadReply } from './anchoring';",
     ]);
+    expect(seamSource).not.toMatch(/JSON\.stringify/);
 
-    // No store is rewired here: nothing outside tests/ imports the seam yet
-    // (issue #15 moves both stores onto it).
+    // Both stores — and only the stores — read and write through the seam.
     const srcFiles: string[] = [];
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -176,19 +196,292 @@ describe('comment format: version literal and migration seam (PRD 004 §A/C/F)',
       }
     };
     walk(fileURLToPath(new URL('../../src', import.meta.url)));
-    const importers = srcFiles.filter(
-      (f) => !f.endsWith('/commentFormat.ts') && /from '[^']*commentFormat'/.test(readFileSync(f, 'utf8')),
-    );
-    expect(importers).toEqual([]);
+    const importers = srcFiles
+      .filter((f) => !f.endsWith('/commentFormat.ts') && /from '[^']*commentFormat'/.test(readFileSync(f, 'utf8')))
+      .map((f) => f.slice(f.lastIndexOf('/src/')))
+      .sort();
+    expect(importers).toEqual(['/src/lib/embedded.ts', '/src/lib/sidecar.ts']);
+    for (const store of [storeSource('embedded'), storeSource('sidecar')]) {
+      expect(store).toMatch(/readCommentPayload/);
+      expect(store).toMatch(/commentPayload/);
+    }
 
-    // The stores are untouched in this issue: the trailer still writes the
-    // integer 1 and the sidecar still writes no version key (issue #15).
+    // PRD Req 26: the same version key in both containers, a semver string in
+    // both, and the sidecar gains the key it lacked.
     const trailer = serializeTrailer([comment]);
-    expect(trailer).toContain('"version": 1');
+    expect(trailer).toContain('"version": "1.0.0"');
     const sidecar = serializeSidecar([comment]);
-    const parsedSidecar = JSON.parse(sidecar) as { comments: unknown };
-    expect(parsedSidecar).not.toHaveProperty('version');
+    const parsedSidecar = JSON.parse(sidecar) as { version: string; comments: unknown };
+    expect(parsedSidecar.version).toBe('1.0.0');
     // …and still 2-space pretty-printed with a trailing newline, byte for byte.
-    expect(sidecar).toBe(`${JSON.stringify({ comments: parsedSidecar.comments }, null, 2)}\n`);
+    expect(sidecar).toBe(`${JSON.stringify({ version: '1.0.0', comments: parsedSidecar.comments }, null, 2)}\n`);
+  });
+});
+
+/** A comment with an unknown key at every level, as a newer minor might write. */
+function payloadWithExtras(version: unknown): Record<string, unknown> {
+  return {
+    version,
+    comments: [
+      {
+        id: comment.id,
+        author: comment.author,
+        createdAt: comment.createdAt,
+        body: comment.body,
+        resolved: comment.resolved,
+        thread: [{ ...comment.thread[0], reactions: ['👍', '🎉'] }],
+        anchor: { ...comment.anchor, selector: { type: 'range', nested: { deep: true } } },
+        pinned: true,
+        labels: ['blocker', 'ux'],
+      },
+    ],
+  };
+}
+
+/** The trailer bytes a store would find in a file, for a raw payload. */
+function trailerOf(payload: unknown, marker = 'marky-mark-comments'): string {
+  return `\n<!-- ${marker}\n${JSON.stringify(payload, null, 2)}\n-->\n`;
+}
+
+const DOC = '# Doc\n\nBody text.\n';
+
+describe('comment stores through the seam (PRD 004 §B/D/E — issue #15)', () => {
+  test('U133: a newer MAJOR contributes zero comments in both stores and is reported unreadable', () => {
+    const payload = { version: '2.0.0', comments: [comment] };
+
+    const split = splitEmbedded(`${DOC}${trailerOf(payload)}`);
+    expect(split.comments).toEqual([]); // Req 12: not a best-effort subset
+    expect(split.hadTrailer).toBe(true);
+    expect(split.readable).toBe(false);
+    expect(split.declaredVersion).toBe('2.0.0');
+    expect(split.content).toBe(DOC); // still stripped byte-exactly
+
+    const read = readSidecar(JSON.stringify(payload));
+    expect(read.comments).toEqual([]);
+    expect(read.readable).toBe(false);
+    expect(read.declaredVersion).toBe('2.0.0');
+    expect(parseSidecar(JSON.stringify(payload))).toEqual([]);
+
+    // Req 5 routes a present-but-uninterpretable version to the same branch.
+    const junk = { version: 'newest', comments: [comment] };
+    expect(splitEmbedded(`${DOC}${trailerOf(junk)}`).comments).toEqual([]);
+    expect(splitEmbedded(`${DOC}${trailerOf(junk)}`).declaredVersion).toBe('newest');
+    expect(readSidecar(JSON.stringify(junk)).readable).toBe(false);
+  });
+
+  test('U134: a newer MINOR at a supported MAJOR parses normally in both stores', () => {
+    for (const version of ['1.3.0', '1.7.2']) {
+      const payload = { version, comments: [comment] };
+      const split = splitEmbedded(`${DOC}${trailerOf(payload)}`);
+      expect(split.comments, version).toEqual([comment]);
+      expect(split.readable, version).toBe(true);
+      const read = readSidecar(JSON.stringify(payload));
+      expect(read.comments, version).toEqual([comment]);
+      expect(read.readable, version).toBe(true);
+    }
+  });
+
+  test('U135: unknown keys on a comment, a reply and an anchor are retained and re-emitted verbatim by both stores', () => {
+    const raw = payloadWithExtras('1.0.0');
+    const entry = (raw.comments as Record<string, unknown>[])[0];
+
+    for (const [store, roundTrip] of [
+      ['sidecar', (text: string) => JSON.parse(serializeSidecar(parseSidecar(text))) as Record<string, unknown>],
+      [
+        'trailer',
+        (text: string) => {
+          const doc = `${DOC}${trailerOf(JSON.parse(text))}`;
+          const split = splitEmbedded(doc);
+          const attached = attachEmbedded(split.content, split.comments);
+          return JSON.parse(splitTrailerJson(attached)) as Record<string, unknown>;
+        },
+      ],
+    ] as const) {
+      const out = roundTrip(JSON.stringify(raw));
+      const outEntry = (out.comments as Record<string, unknown>[])[0];
+      // Req 19: same key, same value, at the same level — including nested
+      // objects and arrays.
+      expect(outEntry.pinned, store).toBe(true);
+      expect(outEntry.labels, store).toEqual(['blocker', 'ux']);
+      expect((outEntry.thread as Record<string, unknown>[])[0].reactions, store).toEqual(['👍', '🎉']);
+      expect((outEntry.anchor as Record<string, unknown>).selector, store).toEqual({
+        type: 'range',
+        nested: { deep: true },
+      });
+      // The known keys are unharmed by the splice.
+      expect(outEntry.id, store).toBe(entry.id);
+      expect((outEntry.anchor as Record<string, unknown>).exact, store).toBe(comment.anchor.exact);
+      // The bag itself is in-memory only: no `extra`/`extraVersion` key is
+      // ever written, at any level.
+      expect(JSON.stringify(out), store).not.toMatch(/"extra"|"extraVersion"/);
+    }
+  });
+
+  test('U136: known keys are parsed by the build’s rules and never also bagged; the bag is absent when empty', () => {
+    // The exact known-key sets, asserted rather than assumed.
+    expect(COMMENT_KEYS).toEqual(['id', 'author', 'createdAt', 'body', 'resolved', 'thread', 'anchor']);
+    expect(REPLY_KEYS).toEqual(['id', 'author', 'createdAt', 'body']);
+    expect(ANCHOR_KEYS).toEqual(['exact', 'prefix', 'suffix', 'start', 'end']);
+
+    const parsed = parseSidecar(JSON.stringify(payloadWithExtras('1.0.0')));
+    // Req 20: only the unknown keys are in the bag, at each level.
+    expect(Object.keys(parsed[0].extra ?? {})).toEqual(['pinned', 'labels']);
+    expect(Object.keys(parsed[0].thread[0].extra ?? {})).toEqual(['reactions']);
+    expect(Object.keys(parsed[0].anchor.extra ?? {})).toEqual(['selector']);
+    for (const known of COMMENT_KEYS) expect(parsed[0].extra).not.toHaveProperty(known);
+    for (const known of REPLY_KEYS) expect(parsed[0].thread[0].extra).not.toHaveProperty(known);
+    for (const known of ANCHOR_KEYS) expect(parsed[0].anchor.extra).not.toHaveProperty(known);
+
+    // A wrong-typed known key stays the build's business: `resolved: "yes"` is
+    // still coerced by the existing `=== true` rule, not retained as unknown.
+    const wrongType = parseSidecar(JSON.stringify({ comments: [{ ...comment, resolved: 'yes' }] }));
+    expect(wrongType[0].resolved).toBe(false);
+    expect(wrongType[0].extra).toBeUndefined();
+    expect(JSON.parse(serializeSidecar(wrongType))).toEqual({
+      version: '1.0.0',
+      comments: [{ ...comment, resolved: false }],
+    });
+
+    // Absent, not empty: a payload with no extra keys parses to exactly what
+    // the pre-#15 code produced.
+    const plain = parseSidecar(serializeSidecar([comment]));
+    expect(plain).toEqual([comment]);
+    expect(plain[0]).not.toHaveProperty('extra');
+    expect(plain[0].anchor).not.toHaveProperty('extra');
+    expect(plain[0].thread[0]).not.toHaveProperty('extra');
+    expect(plain[0]).not.toHaveProperty('extraVersion');
+  });
+
+  test('U137: a malformed entry is still skipped — with its unknown keys — and valid neighbours survive', () => {
+    const text = JSON.stringify({
+      version: '1.0.0',
+      comments: [
+        { id: 'no-anchor', author: 'A', createdAt: 'now', body: 'b', mystery: 1 },
+        comment,
+        7,
+        null,
+        { ...comment, id: 'bad-anchor', anchor: { exact: 'x' }, mystery: 2 },
+        { ...comment, id: 'bad-thread', thread: [{ id: 'r' }, comment.thread[0]] },
+      ],
+    });
+    const parsed = parseSidecar(text);
+    expect(parsed.map((c) => c.id)).toEqual([comment.id, 'bad-thread']);
+    // Req 22 wins over Req 19: a skipped entry takes its unknown keys with it.
+    expect(JSON.stringify(parsed)).not.toContain('mystery');
+    // A malformed reply is dropped, the valid one is kept.
+    expect(parsed[1].thread).toEqual([comment.thread[0]]);
+    // The trailer store behaves identically.
+    expect(splitEmbedded(`${DOC}${trailerOf(JSON.parse(text))}`).comments.map((c) => c.id)).toEqual([
+      comment.id,
+      'bad-thread',
+    ]);
+  });
+
+  test('U138: plain data stamps "1.0.0" in both stores, computed from its own baseline rather than the supported version', () => {
+    expect(BASELINE_COMMENT_FORMAT_VERSION).toBe('1.0.0');
+    expect(stampedFormatVersion([comment])).toBe('1.0.0');
+    expect(stampedFormatVersion([])).toBe('1.0.0');
+    expect(JSON.parse(serializeSidecar([comment])).version).toBe('1.0.0');
+    expect(JSON.parse(splitTrailerJson(attachEmbedded(DOC, [comment]))).version).toBe('1.0.0');
+
+    // Req 23: the stamp is computed, not read from the supported version, so
+    // bumping the build to 1.4.0 would not start stamping 1.4.0. The baseline
+    // is its own literal, and neither the stamping function nor either store
+    // mentions SUPPORTED_COMMENT_FORMAT_VERSION.
+    expect(seamSource).toMatch(/BASELINE_COMMENT_FORMAT_VERSION = '\d+\.\d+\.\d+'/);
+    const writePath = seamSource.slice(seamSource.indexOf('export function stampedFormatVersion'));
+    expect(writePath).not.toContain('SUPPORTED_COMMENT_FORMAT_VERSION');
+    expect(storeSource('sidecar')).not.toContain('SUPPORTED_COMMENT_FORMAT_VERSION');
+    expect(storeSource('embedded')).not.toContain('SUPPORTED_COMMENT_FORMAT_VERSION');
+  });
+
+  test('U139: a higher MINOR with retained fields survives a store round-trip; without them the stamp falls back to "1.0.0"', () => {
+    // Req 21/24: "1.3.0" in, "1.3.0" out — the version rides with the parsed
+    // comments, so neither call site threads it by hand.
+    const withExtras = JSON.stringify(payloadWithExtras('1.3.0'));
+    expect(JSON.parse(serializeSidecar(parseSidecar(withExtras))).version).toBe('1.3.0');
+    const doc = `${DOC}${trailerOf(JSON.parse(withExtras))}`;
+    const split = splitEmbedded(doc);
+    expect(JSON.parse(splitTrailerJson(attachEmbedded(split.content, split.comments))).version).toBe('1.3.0');
+
+    // The complement: read at "1.3.0" but carrying no unknown field at all →
+    // 1.0.0 can represent it, so 1.0.0 is stamped (Req 24 defers to fields).
+    const plain = JSON.stringify({ version: '1.3.0', comments: [comment] });
+    expect(JSON.parse(serializeSidecar(parseSidecar(plain))).version).toBe('1.0.0');
+    expect(
+      JSON.parse(splitTrailerJson(attachEmbedded(DOC, splitEmbedded(`${DOC}${trailerOf(JSON.parse(plain))}`).comments)))
+        .version,
+    ).toBe('1.0.0');
+  });
+
+  test('U140: versions compare by MAJOR then MINOR then PATCH, and a mixed write stamps the highest retained version', () => {
+    expect(compareFormatVersions('1.0.0', '1.0.0')).toBe(0);
+    expect(compareFormatVersions('1.3.0', '1.0.0')).toBeGreaterThan(0);
+    expect(compareFormatVersions('1.0.0', '1.3.0')).toBeLessThan(0);
+    expect(compareFormatVersions('2.0.0', '1.9.9')).toBeGreaterThan(0);
+    expect(compareFormatVersions('1.2.10', '1.2.9')).toBeGreaterThan(0);
+    // An uninterpretable version sorts below every valid one, so it can never
+    // be stamped by winning the comparison.
+    expect(compareFormatVersions('nonsense', '1.0.0')).toBeLessThan(0);
+    expect(compareFormatVersions('1.0.0', undefined)).toBeGreaterThan(0);
+    expect(compareFormatVersions('nope', 'also nope')).toBe(0);
+
+    // Two reads at different versions, both carrying retained fields, land in
+    // one write via mergeComments: the highest version any of them needs wins.
+    const low = parseSidecar(JSON.stringify(payloadWithExtras('1.2.0')));
+    const highSource = payloadWithExtras('1.5.1');
+    (highSource.comments as Record<string, unknown>[])[0].id = 'other-comment';
+    const high = parseSidecar(JSON.stringify(highSource));
+    const merged = mergeComments(low, high);
+    expect(merged).toHaveLength(2);
+    expect(stampedFormatVersion(merged)).toBe('1.5.1');
+    expect(JSON.parse(serializeSidecar(merged)).version).toBe('1.5.1');
+    expect(JSON.parse(splitTrailerJson(attachEmbedded(DOC, merged))).version).toBe('1.5.1');
+  });
+
+  test('U141: writing is idempotent and byte-stable, including with retained keys, and zero comments write no trailer', () => {
+    for (const source of [[comment], parseSidecar(JSON.stringify(payloadWithExtras('1.3.0')))]) {
+      // Req 27: the same comment set serializes to identical bytes twice, and
+      // a re-read of those bytes serializes to them again (key order is fixed).
+      expect(serializeSidecar(source)).toBe(serializeSidecar(source));
+      expect(serializeSidecar(parseSidecar(serializeSidecar(source)))).toBe(serializeSidecar(source));
+      expect(serializeTrailer(source)).toBe(serializeTrailer(source));
+      const attached = attachEmbedded(DOC, source);
+      expect(attachEmbedded(attached, source)).toBe(attached); // never double-attached
+      expect(attached.match(/marky-mark-comments/g)?.length).toBe(1);
+      expect(splitEmbedded(attached).content).toBe(DOC);
+      expect(serializeTrailer(splitEmbedded(attached).comments)).toBe(serializeTrailer(source));
+    }
+    // Req 28: no trailer at all for zero comments — not a versioned empty one.
+    expect(serializeTrailer([])).toBe('');
+    expect(attachEmbedded(attachEmbedded(DOC, [comment]), [])).toBe(DOC);
+  });
+
+  test('U142: files already in the wild still load — integer-1 trailers, the legacy marker, and versionless sidecars', () => {
+    // Req 40 / Req 3: the trailer this app shipped, with the integer version.
+    const legacyPayload = { version: 1, comments: [comment] };
+    expect(splitEmbedded(`${DOC}${trailerOf(legacyPayload)}`).comments).toEqual([comment]);
+    expect(splitEmbedded(`${DOC}${trailerOf(legacyPayload)}`).readable).toBe(true);
+    // …and the marker it used before 0.4.
+    const legacyMarker = splitEmbedded(`${DOC}${trailerOf(legacyPayload, 'markimark-comments')}`);
+    expect(legacyMarker.comments).toEqual([comment]);
+    expect(legacyMarker.hadTrailer).toBe(true);
+    // First save migrates both the marker and the version literal.
+    const resaved = attachEmbedded(legacyMarker.content, legacyMarker.comments);
+    expect(resaved).toContain('<!-- marky-mark-comments');
+    expect(resaved).not.toContain('markimark-comments');
+    expect(JSON.parse(splitTrailerJson(resaved)).version).toBe('1.0.0');
+
+    // Req 40 / Req 4: a sidecar with no version key at all, including the real
+    // md-with-comments fixture.
+    expect(parseSidecar(JSON.stringify({ comments: [comment] }))).toEqual([comment]);
+    const interop = readFileSync(
+      fileURLToPath(new URL('../../fixtures/interop-sidecar.comments.json', import.meta.url)),
+      'utf8',
+    );
+    expect(JSON.parse(interop)).not.toHaveProperty('version');
+    const read = readSidecar(interop);
+    expect(read.readable).toBe(true);
+    expect(read.comments.length).toBeGreaterThan(0);
   });
 });

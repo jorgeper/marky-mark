@@ -1,15 +1,16 @@
-import type { CommentData } from './anchoring';
-import { parseSidecar } from './sidecar';
+import type { Anchor, CommentData, ThreadReply } from './anchoring';
 
 /**
  * The comment-format migration seam (PRD 004 §F): the single chokepoint that
  * every comment-store read passes through. It takes what `JSON.parse`
  * produced, decides whether this build may interpret it, and reports either
  * the current in-memory shape or an explicit "unsupported, do not parse".
+ * It also owns the write side of the shared payload — the entry schema, the
+ * unknown-key bag and the stamped version — so sidecar.ts and embedded.ts
+ * differ only by container (PRD Req 26).
  *
  * Pure module: no DOM, no React, no platform imports — same as embedded.ts
- * and sidecar.ts. Nothing outside tests/ imports it yet; wiring the two
- * stores through it is issue #15.
+ * and sidecar.ts, both of which read and write through it (issue #15).
  */
 
 /**
@@ -19,6 +20,15 @@ import { parseSidecar } from './sidecar';
  * `1.0.0` is a name for the comment/reply/anchor shape that already ships.
  */
 export const SUPPORTED_COMMENT_FORMAT_VERSION = '1.0.0';
+
+/**
+ * The lowest version capable of representing a comment set that uses no field
+ * newer than the original shape (PRD Req 23). It is deliberately its own
+ * declaration and NOT derived from SUPPORTED_COMMENT_FORMAT_VERSION: the two
+ * mean different things, and bumping the supported version to 1.4.0 later must
+ * not silently start stamping 1.4.0 on data that 1.0.0 can hold.
+ */
+export const BASELINE_COMMENT_FORMAT_VERSION = '1.0.0';
 
 /** A version parsed into its three numeric components. */
 export interface FormatVersionParts {
@@ -43,6 +53,21 @@ export function parseFormatVersion(value: unknown): FormatVersionParts | null {
 /** True when `value` is a valid `MAJOR.MINOR.PATCH` version string. */
 export function isFormatVersion(value: unknown): value is string {
   return parseFormatVersion(value) !== null;
+}
+
+/**
+ * Order two versions: negative when `a` precedes `b`, 0 when they are equal,
+ * positive when `a` follows it. MAJOR, then MINOR, then PATCH — PATCH orders
+ * here even though it never decides supportability (Req 11), because picking
+ * the highest version a write needs is a total order, not a support question.
+ * An uninterpretable version sorts below every valid one: it can never win the
+ * "highest retained version" contest and so can never be stamped.
+ */
+export function compareFormatVersions(a: unknown, b: unknown): number {
+  const pa = parseFormatVersion(a);
+  const pb = parseFormatVersion(b);
+  if (pa === null || pb === null) return (pa === null ? 0 : 1) - (pb === null ? 0 : 1);
+  return pa.major - pb.major || pa.minor - pb.minor || pa.patch - pb.patch;
 }
 
 /**
@@ -146,26 +171,154 @@ function isSupportedVersion(version: string): boolean {
 }
 
 /**
- * Extract comments in the current in-memory shape. The entry-level schema
- * check lives in parseSidecar and is deliberately not duplicated here (it
- * would be free to drift); issue #15 lifts that check out of sidecar.ts so
- * this re-serialization round-trip goes away. Anything JSON.stringify cannot
- * represent — never produced by JSON.parse — contributes zero comments rather
- * than throwing.
+ * The keys this build understands at each level of the payload. Everything
+ * else on an entry is unknown to this build and is retained verbatim rather
+ * than dropped (PRD Req 19); a key listed here is parsed by the build's own
+ * rules and is never also bagged (PRD Req 20), including when its value has
+ * the wrong type — a wrong-typed known key is a schema question, not an
+ * unknown one.
  */
-function extractComments(record: Record<string, unknown>): CommentData[] {
-  try {
-    return parseSidecar(JSON.stringify({ comments: record.comments ?? [] }));
-  } catch {
-    return [];
+export const COMMENT_KEYS: readonly string[] = [
+  'id',
+  'author',
+  'createdAt',
+  'body',
+  'resolved',
+  'thread',
+  'anchor',
+];
+export const REPLY_KEYS: readonly string[] = ['id', 'author', 'createdAt', 'body'];
+export const ANCHOR_KEYS: readonly string[] = ['exact', 'prefix', 'suffix', 'start', 'end'];
+
+const COMMENT_KEY_SET = new Set(COMMENT_KEYS);
+const REPLY_KEY_SET = new Set(REPLY_KEYS);
+const ANCHOR_KEY_SET = new Set(ANCHOR_KEYS);
+
+/**
+ * The unknown keys of one object, or undefined when it had none — the bag is
+ * absent rather than empty, so an ordinary payload parses to exactly the
+ * objects the pre-#15 code produced. Built with Object.fromEntries, which
+ * defines own properties, so a key named `__proto__` cannot reach the
+ * prototype setter.
+ */
+function retainedKeys(o: Record<string, unknown>, known: ReadonlySet<string>): Record<string, unknown> | undefined {
+  const extra = Object.entries(o).filter(([k]) => !known.has(k));
+  return extra.length === 0 ? undefined : Object.fromEntries(extra);
+}
+
+/** True when this comment, one of its replies or its anchor retained a key. */
+function hasRetained(c: CommentData): boolean {
+  return Boolean(c.extra ?? c.anchor.extra ?? c.thread.some((r) => r.extra));
+}
+
+/** Re-attach retained keys to a freshly built known-key object for output. */
+function withRetained<T extends object>(known: T, extra: Record<string, unknown> | undefined): T {
+  if (!extra) return known;
+  // A retained key can never shadow a known one (Req 20): the filter drops any
+  // collision — own keys only, so a retained key that happens to be named
+  // after something on Object.prototype still survives — and spreading
+  // (rather than assigning) keeps `__proto__` an ordinary key.
+  const fresh = Object.fromEntries(
+    Object.entries(extra).filter(([k]) => !Object.prototype.hasOwnProperty.call(known, k)),
+  );
+  return { ...known, ...fresh } as T;
+}
+
+function isReply(r: unknown): r is Record<string, unknown> {
+  if (typeof r !== 'object' || r === null) return false;
+  const o = r as Record<string, unknown>;
+  return (
+    typeof o.id === 'string' &&
+    typeof o.author === 'string' &&
+    typeof o.createdAt === 'string' &&
+    typeof o.body === 'string'
+  );
+}
+
+function isAnchor(a: unknown): a is Record<string, unknown> {
+  if (typeof a !== 'object' || a === null) return false;
+  const o = a as Record<string, unknown>;
+  return (
+    typeof o.exact === 'string' &&
+    typeof o.prefix === 'string' &&
+    typeof o.suffix === 'string' &&
+    typeof o.start === 'number' &&
+    typeof o.end === 'number'
+  );
+}
+
+function parseReply(o: Record<string, unknown>): ThreadReply {
+  const reply: ThreadReply = {
+    id: o.id as string,
+    author: o.author as string,
+    createdAt: o.createdAt as string,
+    body: o.body as string,
+  };
+  const extra = retainedKeys(o, REPLY_KEY_SET);
+  return extra ? { ...reply, extra } : reply;
+}
+
+function parseAnchor(o: Record<string, unknown>): Anchor {
+  const anchor: Anchor = {
+    exact: o.exact as string,
+    prefix: o.prefix as string,
+    suffix: o.suffix as string,
+    start: o.start as number,
+    end: o.end as number,
+  };
+  const extra = retainedKeys(o, ANCHOR_KEY_SET);
+  return extra ? { ...anchor, extra } : anchor;
+}
+
+/**
+ * The entry-level schema check and the in-memory shape it produces, in exactly
+ * one place (the stores call it through readCommentPayload, and nothing
+ * re-serializes a payload in order to parse it). An entry that fails the check
+ * is skipped rather than crashing the parse (PRD Req 22) — and is skipped
+ * whole, so it takes its unknown keys with it: retention applies to entries
+ * that parse, deliberately, because a bag with nothing valid to hang off has
+ * nowhere to be re-emitted from.
+ *
+ * `version` is the version the payload was interpreted at; a comment that
+ * retained anything from it remembers it, which is how a newer minor survives
+ * a read → write round-trip without the caller threading it (PRD Req 21/24).
+ */
+function parseEntries(list: unknown, version: string): CommentData[] {
+  if (!Array.isArray(list)) return [];
+  const out: CommentData[] = [];
+  for (const entry of list) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const c = entry as Record<string, unknown>;
+    if (
+      typeof c.id !== 'string' ||
+      typeof c.author !== 'string' ||
+      typeof c.createdAt !== 'string' ||
+      typeof c.body !== 'string' ||
+      !isAnchor(c.anchor)
+    ) {
+      continue;
+    }
+    const comment: CommentData = {
+      id: c.id,
+      author: c.author,
+      createdAt: c.createdAt,
+      body: c.body,
+      resolved: c.resolved === true,
+      thread: Array.isArray(c.thread) ? c.thread.filter(isReply).map(parseReply) : [],
+      anchor: parseAnchor(c.anchor),
+    };
+    const extra = retainedKeys(c, COMMENT_KEY_SET);
+    const retained = extra ? { ...comment, extra } : comment;
+    out.push(hasRetained(retained) ? { ...retained, extraVersion: version } : retained);
   }
+  return out;
 }
 
 /**
  * Read a raw parsed payload (the result of `JSON.parse`, not a pre-validated
  * object) through the seam. Never throws: a payload that is not an object at
  * all carries no version key, so it is interpreted at 1.0.0 and contributes
- * zero comments — matching what parseSidecar does with such input today.
+ * zero comments — matching what parseSidecar did with such input before #15.
  */
 export function readCommentPayload(payload: unknown): CommentFormatRead {
   const record = asRecord(payload);
@@ -173,5 +326,63 @@ export function readCommentPayload(payload: unknown): CommentFormatRead {
   if (version === null || !isSupportedVersion(version)) {
     return { supported: false, declaredVersion: record.version };
   }
-  return { supported: true, version, comments: extractComments(record) };
+  return { supported: true, version, comments: parseEntries(record.comments, version) };
+}
+
+/**
+ * The version to stamp on a write: the lowest one capable of representing the
+ * data (PRD Req 23), which is the baseline unless some comment carries fields
+ * retained from a newer version (PRD Req 24). It defers to the retained
+ * *fields*, not to the version a file happened to declare, and when comments
+ * from several reads are written together (mergeComments) the highest wins.
+ */
+export function stampedFormatVersion(comments: readonly CommentData[]): string {
+  let stamp = BASELINE_COMMENT_FORMAT_VERSION;
+  for (const c of comments) {
+    if (!hasRetained(c) || c.extraVersion === undefined) continue;
+    if (compareFormatVersions(c.extraVersion, stamp) > 0) stamp = c.extraVersion;
+  }
+  return stamp;
+}
+
+/**
+ * The payload both stores write: the same schema, the same `version` key in
+ * the same place (PRD Req 26), differing only by container. Known keys are
+ * emitted in a fixed order and retained keys follow in the order they were
+ * read, so serializing twice produces identical bytes (PRD Req 27). The bag is
+ * an in-memory field only — `extra`/`extraVersion` are never emitted, only
+ * their contents, at the level they were found at.
+ */
+export function commentPayload(comments: readonly CommentData[]): {
+  version: string;
+  comments: unknown[];
+} {
+  return {
+    version: stampedFormatVersion(comments),
+    comments: comments.map((c) =>
+      withRetained(
+        {
+          id: c.id,
+          author: c.author,
+          createdAt: c.createdAt,
+          body: c.body,
+          resolved: c.resolved,
+          thread: c.thread.map((r) =>
+            withRetained({ id: r.id, author: r.author, createdAt: r.createdAt, body: r.body }, r.extra),
+          ),
+          anchor: withRetained(
+            {
+              exact: c.anchor.exact,
+              prefix: c.anchor.prefix,
+              suffix: c.anchor.suffix,
+              start: c.anchor.start,
+              end: c.anchor.end,
+            },
+            c.anchor.extra,
+          ),
+        },
+        c.extra,
+      ),
+    ),
+  };
 }
