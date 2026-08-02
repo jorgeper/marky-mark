@@ -5812,9 +5812,10 @@ test('E134: split mode — the editor column hugs its pane, leaving no blank str
 
   // Guard: the pane really is wider than gutter+column, or there would be no
   // leftover width to strand and the assertions below would prove nothing.
-  const pane = await box('.split-editor');
-  const column = await box('.split-editor .cm-content');
-  expect(pane.width - column.width).toBeGreaterThan(100);
+  // Polled because the dragged width lands a frame later (as E40 does too).
+  const paneSlack = async () =>
+    (await box('.split-editor')).width - (await box('.split-editor .cm-content')).width;
+  await expect.poll(paneSlack).toBeGreaterThan(100);
 
   // Folder pane OPEN: the column starts at the pane's own left edge, flush
   // against the folder seam — no blank strip between the two.
