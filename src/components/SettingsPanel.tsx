@@ -512,20 +512,8 @@ export function SettingsPanel({
   const generalTab = (
     <>
       <h3 className="tab-section">Editor</h3>
-      <div className="checkbox-row">
-        <input
-          id="settings-line-numbers"
-          type="checkbox"
-          data-testid="settings-line-numbers"
-          checked={settings.lineNumbers}
-          onChange={(e) => onChange({ ...settings, lineNumbers: e.target.checked })}
-        />
-        <label htmlFor="settings-line-numbers" style={{ margin: 0, fontWeight: 400 }}>
-          Show line numbers
-        </label>
-        {scopeNote('lineNumbers')}
-      </div>
-
+      {/* Issue #10: line numbers moved to View → Line Numbers. The persisted
+          `lineNumbers` key is unchanged — only this row is gone. */}
       <div className="checkbox-row">
         <input
           id="autosave-toggle"

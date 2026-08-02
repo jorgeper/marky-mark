@@ -2805,6 +2805,12 @@ export default function App() {
         const s = stateRef.current.settings;
         updateSettings({ ...s, showWordCount: !s.showWordCount });
       },
+      // Issue #10: same shape as Word Count — the persisted key is the state,
+      // and the editor's lineNumbers Compartment reconfigures off it live.
+      toggleLineNumbers: () => {
+        const s = stateRef.current.settings;
+        updateSettings({ ...s, lineNumbers: !s.lineNumbers });
+      },
       headingPalette: () => {
         // Live preview DOM when there is one; in full edit, parse the latest
         // rendered html (the render loop keeps it fresh on a debounce).
@@ -2943,6 +2949,8 @@ export default function App() {
         showDiff,
         showWordCount: settings.showWordCount,
         showFrontmatter,
+        // Issue #10: the View checkbox mirrors the persisted gutter setting.
+        lineNumbers: settings.lineNumbers,
         showFolders: settings.showFolders,
         openOnly: folderOpenOnly,
         recentFiles: recentMenuEntries(recent, platform.basename, platform.dirname),
@@ -2950,7 +2958,7 @@ export default function App() {
         recentWorkspaces: recentMenuEntries(recentWs, platform.basename, platform.dirname),
       })
     );
-  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, recent, recentWs, settings.showFolders, folderOpenOnly]);
+  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, settings.lineNumbers, recent, recentWs, settings.showFolders, folderOpenOnly]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {

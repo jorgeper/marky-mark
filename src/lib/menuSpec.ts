@@ -91,6 +91,8 @@ export interface MenuState {
   showWordCount: boolean;
   /** SPEC26 §3: the front-matter card's SESSION visibility. */
   showFrontmatter: boolean;
+  /** Issue #10: the line-number gutter (persisted setting). */
+  lineNumbers: boolean;
   /** SPEC29 §3: Open Recent entries, most-recent-first (label ready-made). */
   recentFiles: Array<{ path: string; label: string }>;
   /**
@@ -205,6 +207,9 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
       cmd('toggleWordCount', 'Word Count', s.hotkeys.toggleWordCount, s.showWordCount),
       // SPEC26 §3: session toggle for the metadata card (no accelerator).
       cmd('toggleFrontmatter', 'Front Matter', undefined, s.showFrontmatter),
+      // Issue #10: the gutter's only home now that Settings dropped it — a
+      // checkbox mirroring the persisted setting, deliberately hotkey-less.
+      cmd('toggleLineNumbers', 'Line Numbers', undefined, s.lineNumbers),
       sep,
       // Zoom In sits on the = key (⌘+ without Shift), the platform convention.
       cmd('zoomIn', 'Zoom In', 'Mod+='),

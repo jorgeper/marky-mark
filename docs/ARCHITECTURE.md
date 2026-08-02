@@ -297,8 +297,16 @@ migrates to `themeLight`):
   `tauri-plugin-opener` (desktop only; the e2e shim records the call).
 - **Text margins** — presets override `--mm-content-width` (narrow 60rem /
   medium 48rem / wide 38rem; Default leaves the theme's value).
-- **Show line numbers** — a CodeMirror `Compartment` reconfigures the gutter
-  live without recreating the editor.
+- **Line numbers** — toggled from **View → Line Numbers** (issue #10: a
+  checkbox menu item, no hotkey; the Settings row is gone, the persisted
+  `lineNumbers` key is not). A CodeMirror `Compartment` reconfigures the
+  gutter live without recreating the editor. The gutter strip carries the same
+  1px `--mm-border` rule on both sides so a centered (inset) column reads as a
+  strip rather than a half-drawn box. Both rules ride a `gutter-inset` class
+  that `Editor.tsx` measures onto `.editor-wrap` — the pane really has centring
+  slack — rather than a mode class: split (issue #7), an open folder panel and
+  a narrow window all leave the gutter flush against a seam, where a left rule
+  would double the seam's own hairline. Flush keeps CodeMirror's right border.
 
 ## v7 (SPEC7)
 

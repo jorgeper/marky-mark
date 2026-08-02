@@ -526,9 +526,9 @@ test('E22: Wide text margins narrow the column; line numbers gutter follows its 
   await expect(page.getByTestId('editor').locator('.cm-lineNumbers')).toBeVisible();
   await page.keyboard.press('Control+e');
 
-  await openSettings(page, 'general');
-  await page.getByTestId('settings-line-numbers').uncheck();
-  await page.getByTestId('settings-close').click();
+  // Issue #10: the gutter's toggle lives in the View menu now — in the
+  // menu-less shim that is the same command through window.__mmDispatch.
+  await page.evaluate(() => window.__mmDispatch!('toggleLineNumbers'));
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
   await expect(page.getByTestId('editor').locator('.cm-lineNumbers')).toHaveCount(0);
@@ -817,8 +817,8 @@ test('E31: the edit-mode text column aligns with the preview column', async ({ p
   // Exact alignment with the gutter off — in FULL-SCREEN edit (this test is
   // about the swap alignment; split edit is the default now and has its own
   // geometry, so switch it off here).
+  await page.evaluate(() => window.__mmDispatch!('toggleLineNumbers')); // issue #10: off
   await openSettings(page, 'general');
-  await page.getByTestId('settings-line-numbers').uncheck();
   await page.getByTestId('set-split-edit').uncheck();
   await page.getByTestId('settings-close').click();
 
@@ -838,9 +838,7 @@ test('E31: the edit-mode text column aligns with the preview column', async ({ p
   await page.keyboard.press('Control+e');
 
   // With the gutter on, the text may shift by at most the gutter width.
-  await openSettings(page, 'general');
-  await page.getByTestId('settings-line-numbers').check();
-  await page.getByTestId('settings-close').click();
+  await page.evaluate(() => window.__mmDispatch!('toggleLineNumbers')); // issue #10: back on
   await page.keyboard.press('Control+e');
   const gutterW = await page.locator('.cm-gutters').evaluate((el) => el.getBoundingClientRect().width);
   expect(Math.abs((await editorTextLeft()) - p2)).toBeLessThanOrEqual(gutterW + 2);
@@ -1339,17 +1337,24 @@ test('E49: the auto-hide toolbar setting is absent under native menus, present o
   const sp = await popup;
   await sp.getByTestId('settings-panel').waitFor();
   await sp.getByTestId('settings-tab-general').click();
-  await expect(sp.getByTestId('settings-line-numbers')).toBeVisible();
+  // Positive control: the General body really rendered, so the absence below
+  // means "the row is gone", not "nothing painted". (This was the deleted
+  // line-numbers row's other job; autosaveOnToggle sits in the same spot.)
+  await expect(sp.getByTestId('autosave-toggle')).toBeVisible();
   await expect(sp.getByTestId('settings-autohide')).toHaveCount(0);
+  // Issue #10 removed the line-numbers row; editorSyntax is another U-scope
+  // checkbox and serves the same purpose here.
+  await sp.getByTestId('settings-tab-editor').click();
+  await expect(sp.getByTestId('editor-syntax')).toBeVisible();
   // Force a settings write; other keys must survive it (SPEC12 §4.2). Since
   // PRD 002 §E18, settings.json is the sparse User LAYER — the edit patches
-  // lineNumbers in and leaves the seeded paneMinWidth untouched.
-  await sp.getByTestId('settings-line-numbers').click();
+  // editorSyntax in and leaves the seeded paneMinWidth untouched.
+  await sp.getByTestId('editor-syntax').click();
   await expect
     .poll(async () => {
       const raw = await fsRead(page, '/config/settings.json');
       const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      return parsed.lineNumbers === false && parsed.paneMinWidth === 240;
+      return parsed.editorSyntax === false && parsed.paneMinWidth === 240;
     })
     .toBe(true);
   await sp.close();
@@ -1403,15 +1408,18 @@ test('E51: Settings opens its own window — no in-page overlay; edits apply liv
   await expect(sp.getByTestId('settings-tab-general')).toBeVisible();
   await expect(sp.getByTestId('settings-tab-hotkeys')).toBeVisible();
 
-  // Toggle line numbers in the popup → the main editor gutter reacts live…
-  await sp.getByTestId('settings-tab-general').click();
-  await sp.getByTestId('settings-line-numbers').click();
-  await expect(page.locator('.cm-lineNumbers')).toHaveCount(0);
+  // Toggle editor syntax highlighting in the popup → main reacts live…
+  // (issue #10 moved line numbers to the View menu, so this half rides on
+  // another U-scope Editor setting; E136 covers the menu route.)
+  await sp.getByTestId('settings-tab-editor').click();
+  await expect(page.locator('.mm-md-h1').first()).toBeVisible();
+  await sp.getByTestId('editor-syntax').click();
+  await expect(page.locator('.mm-md-h1')).toHaveCount(0);
   // …and persists through the main window (the sole owner of settings.json).
   await expect
     .poll(async () => {
       const raw = await fsRead(page, '/config/settings.json');
-      return raw ? (JSON.parse(raw) as { lineNumbers?: boolean }).lineNumbers : undefined;
+      return raw ? (JSON.parse(raw) as { editorSyntax?: boolean }).editorSyntax : undefined;
     })
     .toBe(false);
 
@@ -3923,11 +3931,9 @@ test('E105: smart-edit gutter button — cursor line only, follows the caret, ri
   const betaX = (await editor.locator('.cm-line').filter({ hasText: /^beta$/ }).boundingBox())!.x;
   expect(Math.abs(betaX - lineBox.x)).toBeLessThan(1);
 
-  // Line numbers off (SPEC3 §2): the smart gutter stands alone.
-  await openSettings(page);
-  await page.getByTestId('settings-tab-general').click();
-  await page.getByTestId('settings-line-numbers').uncheck();
-  await page.getByTestId('settings-close').click();
+  // Line numbers off (SPEC3 §2): the smart gutter stands alone. Issue #10:
+  // driven by the View command now, not a Settings checkbox.
+  await page.evaluate(() => window.__mmDispatch!('toggleLineNumbers'));
   await expect(editor.locator('.cm-gutter.cm-lineNumbers')).toHaveCount(0);
   await expect(btn).toBeVisible();
 
@@ -6008,4 +6014,149 @@ test('E135: pane slides — the shared --mm-slide-ease curve is measurably non-l
   for (const run of [folderClose, folderOpen, previewClose, previewOpen]) {
     expect(run.some((f) => f.overflowed)).toBe(false);
   }
+});
+
+test('E136: issue #10 — View → Line Numbers toggles the gutter live and persists; an inset gutter is ruled on both sides', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc')).toBeVisible();
+
+  // Wide margins + full-screen edit: the gutter+content pair is centered, so
+  // the strip floats inset from the pane's left edge — the issue's case.
+  const popup = page.waitForEvent('popup');
+  await menuClick(page, 'settings');
+  const sp = await popup;
+  await sp.getByTestId('settings-panel').waitFor();
+  await sp.getByTestId('settings-tab-appearance').click();
+  await sp.getByTestId('settings-margins').selectOption('wide');
+  await sp.close();
+  await menuClick(page, 'toggleSplit'); // full-screen edit: the pane IS the window
+
+  await menuClick(page, 'toggleMode');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await expect(page.locator('.cm-lineNumbers')).toBeVisible();
+
+  /** The View item, straight off the installed spec. */
+  const item = () =>
+    page.evaluate(
+      () =>
+        window
+          .__mmMenu!.spec!.submenus.find((m) => m.title === 'View')!
+          .items.find((i) => i.type === 'command' && i.command === 'toggleLineNumbers') as
+          | { label: string; checked?: boolean; accelerator?: string }
+          | undefined
+    );
+
+  // A checkbox tracking the setting — and deliberately hotkey-less.
+  const initial = (await item())!;
+  expect(initial.label).toBe('Line Numbers');
+  expect(initial.checked).toBe(true);
+  expect(initial.accelerator).toBeUndefined();
+
+  // Clicking it reconfigures the editor live…
+  await menuClick(page, 'toggleLineNumbers');
+  await expect(page.locator('.cm-lineNumbers')).toHaveCount(0);
+  await expect.poll(async () => (await item())!.checked).toBe(false);
+  // …and persists through the main window (the sole owner of settings.json).
+  await expect
+    .poll(async () => {
+      const raw = await fsRead(page, '/config/settings.json');
+      return raw ? (JSON.parse(raw) as { lineNumbers?: boolean }).lineNumbers : undefined;
+    })
+    .toBe(false);
+  // Back on, checkbox in step.
+  await menuClick(page, 'toggleLineNumbers');
+  await expect(page.locator('.cm-lineNumbers')).toBeVisible();
+  await expect.poll(async () => (await item())!.checked).toBe(true);
+
+  /** Gutter inset from its pane's left edge, plus its two side rules. */
+  const gutter = () =>
+    page.locator('.editor-wrap .cm-gutters').evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const wrap = (el.closest('.editor-wrap') as HTMLElement).getBoundingClientRect();
+      return {
+        inset: Math.round(el.getBoundingClientRect().left - wrap.left),
+        left: `${cs.borderLeftWidth} ${cs.borderLeftStyle} ${cs.borderLeftColor}`,
+        right: `${cs.borderRightWidth} ${cs.borderRightStyle} ${cs.borderRightColor}`,
+      };
+    });
+
+  const light = await gutter();
+  expect(light.inset).toBeGreaterThan(20); // genuinely inset — margins either side
+  expect(light.left).toBe(light.right); // the two rules are the same rule
+  expect(light.left).toMatch(/^1px solid /);
+  expect(light.left).not.toContain('rgba(0, 0, 0, 0)');
+
+  // Dark theme: both sides read the same --mm-border token, so they follow it
+  // together instead of drifting apart.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect.poll(async () => (await gutter()).left).not.toBe(light.left);
+  const dark = await gutter();
+  expect(dark.left).toBe(dark.right);
+  expect(dark.left).toMatch(/^1px solid /);
+  await page.emulateMedia({ colorScheme: 'light' });
+
+  // The predicate is slack, not mode. At the DEFAULT margins the column all
+  // but fills a 1280px window, so the folder panel alone squeezes the last of
+  // it out: this same full-screen, non-split pane goes flush, and the left
+  // rule has to come off there too — it would otherwise land on
+  // .folder-panel::after's own seam hairline, in the same token, and read as
+  // a doubled seam.
+  const popup2 = page.waitForEvent('popup');
+  await menuClick(page, 'settings');
+  const sp2 = await popup2;
+  await sp2.getByTestId('settings-panel').waitFor();
+  await sp2.getByTestId('settings-tab-appearance').click();
+  await sp2.getByTestId('settings-margins').selectOption('super-narrow');
+  await sp2.close();
+  await seedFolders(page);
+  await openFolderRoot(page);
+  await expect(page.locator('.editor-wrap .cm-gutters')).toBeVisible();
+  await expect.poll(async () => (await gutter()).left).toMatch(/^0px /);
+  expect((await gutter()).inset).toBeLessThanOrEqual(2);
+
+  // A third mover of the slack, distinct from the two above: the margins
+  // preset resizes the text column off a ROOT variable, so the pane never
+  // resizes and no edit happens — nothing moves here but --mm-content-width.
+  // Widening the column back inside this same squeezed pane hands the slack
+  // back, and the rules have to follow.
+  const setMargins = async (value: string) => {
+    const p = page.waitForEvent('popup');
+    await menuClick(page, 'settings');
+    const s = await p;
+    await s.getByTestId('settings-panel').waitFor();
+    await s.getByTestId('settings-tab-appearance').click();
+    await s.getByTestId('settings-margins').selectOption(value);
+    await s.close();
+  };
+  await setMargins('wide');
+  await expect(page.getByTestId('folder-panel')).toBeVisible(); // nothing resized
+  await expect.poll(async () => (await gutter()).left).toBe(light.left);
+  expect((await gutter()).inset).toBeGreaterThan(20);
+
+  // …and the other direction, which is where a stale latch draws the left rule
+  // flush on the folder seam.
+  await setMargins('super-narrow');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect.poll(async () => (await gutter()).left).toMatch(/^0px /);
+  expect((await gutter()).inset).toBeLessThanOrEqual(2);
+
+  // …and back: closing the panel hands the slack back, so both rules return —
+  // nothing about the mode changed between these two measurements.
+  await menuClick(page, 'toggleFolders');
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect.poll(async () => (await gutter()).left).toBe(light.left);
+  expect((await gutter()).inset).toBeGreaterThan(0);
+
+  // Split mode hugs the folder seam (issue #7) — nothing to outline there, so
+  // the left rule stays off rather than doubling up on the seam.
+  await menuClick(page, 'toggleSplit');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  const flush = await gutter();
+  expect(flush.inset).toBeLessThanOrEqual(2);
+  expect(flush.left).toMatch(/^0px /);
+  expect(flush.right).toMatch(/^1px solid /);
 });

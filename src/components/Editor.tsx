@@ -442,6 +442,10 @@ export default function Editor({
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // Issue #10: re-runs the gutter-inset measurement installed by the mount
+  // effect. Flipping line numbers changes the gutter's width without resizing
+  // anything the observer there watches, so that effect calls this itself.
+  const measureGutterInsetRef = useRef<() => void>(() => {});
 
   // SPEC44 §2.2: the find bar outranks the word cue while it holds focus.
   useEffect(() => {
@@ -978,6 +982,9 @@ export default function Editor({
         // SPEC37 §4: chips track cursor, edits, geometry, and mode changes
         // (effect-only transactions included) — raf-batched.
         scheduleChips();
+        // Issue #10: the gutter's own width follows the line count, so the
+        // centring slack can change with no pane resize to observe.
+        if (u.geometryChanged) measureGutterInsetRef.current();
         // SPEC41 §2.2: caret-move or edits clear the widget selection (the
         // resize release reselects after its own dispatch).
         {
@@ -1207,6 +1214,46 @@ export default function Editor({
     view.scrollDOM.addEventListener('scroll', onChipScroll);
     window.addEventListener('resize', onChipScroll);
 
+    // Issue #10: the gutter's side rules belong on a gutter that is genuinely
+    // INSET — centring slack either side of the gutter+content pair. Whether
+    // there is slack is geometry (pane width, folder panel, margins, split),
+    // not a mode, so measure it rather than infer it from a mode class: a
+    // gutter sitting flush against the folder seam would otherwise draw a left
+    // rule right on top of .folder-panel::after's hairline, in the same token.
+    let gutterRaf = 0;
+    const measureGutterInset = () => {
+      const on = host.classList.contains('gutter-inset');
+      const gutters = view.scrollDOM.querySelector<HTMLElement>('.cm-gutters');
+      if (!gutters) {
+        if (on) host.classList.remove('gutter-inset'); // line numbers off
+        return;
+      }
+      const inset = gutters.getBoundingClientRect().left - view.scrollDOM.getBoundingClientRect().left;
+      // The rules widen the gutter by 2px and so eat 1px of the very inset
+      // read here. Latching on at 2px but off only at 0 leaves that 1px inside
+      // the band, so a pane parked on the boundary settles instead of
+      // flickering between ruled and unruled every frame.
+      if (on ? inset <= 0 : inset >= 2) host.classList.toggle('gutter-inset', !on);
+    };
+    const scheduleGutterInset = () => {
+      cancelAnimationFrame(gutterRaf);
+      gutterRaf = requestAnimationFrame(measureGutterInset);
+    };
+    measureGutterInsetRef.current = scheduleGutterInset;
+    // Fires once on observe (the initial measure), then on every pane resize:
+    // window, divider drags, the folder panel opening or closing.
+    const paneResize = new ResizeObserver(scheduleGutterInset);
+    paneResize.observe(host);
+    // The content element too: --mm-content-width lives on the ROOT (the
+    // margins preset, App.tsx), so flipping it resizes the text column without
+    // resizing the pane and without any CM transaction — the wrap's observer
+    // never fires and CM's own DOMObserver watches scrollDOM, whose box is
+    // unchanged. Watching .cm-content catches that third mover of the slack.
+    // It also fires on content-height changes while typing, which costs the
+    // two rects below once per frame — edits already re-measure through
+    // geometryChanged anyway.
+    paneResize.observe(view.contentDOM);
+
     return () => {
       // SPEC40 §2.3: the buffer the App keeps must be canonical — collapse
       // the grids in the REPORTED text only. The parked state keeps the grid
@@ -1220,6 +1267,9 @@ export default function Editor({
       }
       view.scrollDOM.removeEventListener('scroll', onChipScroll);
       window.removeEventListener('resize', onChipScroll);
+      paneResize.disconnect();
+      cancelAnimationFrame(gutterRaf);
+      measureGutterInsetRef.current = () => {};
       cancelAnimationFrame(chipsRaf.current);
       if (syncRef) syncRef.current = null;
       if (insertRef) insertRef.current = null;
@@ -1254,6 +1304,7 @@ export default function Editor({
     viewRef.current?.dispatch({
       effects: gutterComp.current.reconfigure(showLineNumbers ? lineNumbers() : []),
     });
+    measureGutterInsetRef.current(); // the gutter's width changed, the pane's did not
   }, [showLineNumbers]);
 
   // SPEC23 §3: live highlight toggle — same compartment pattern as the gutter.
