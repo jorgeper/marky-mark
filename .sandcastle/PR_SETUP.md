@@ -4,7 +4,7 @@ PR mode (issues labeled `sandcastle:require-pr`) runs entirely as **your own
 GitHub account** — no bot account, no GitHub App. Every PR action an agent
 performs (opening the PR, commenting, replying) leads with an attribution
 marker: `**[agent-name · harness · model]**`, e.g.
-`**[pr-reviewer · claude-code · claude-fable-5]**` — so you always know
+`**[pr-reviewer · claude-code · claude-opus-5]**` — so you always know
 which agent, on which harness, with which model, acted on your behalf.
 Anything unmarked is you. (Set `MARKER_DETAIL = false` in
 `.sandcastle/main.mts` for plain `**[agent-name]**` markers.) Because you
