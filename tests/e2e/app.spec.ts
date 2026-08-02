@@ -3005,9 +3005,11 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   await seedFolders(page);
 
   // Issue #22: outside workspace mode the folder view doesn't exist — the
-  // hotkey is inert and no panel (or empty state) ever renders.
+  // hotkey is inert and no panel (or empty state) ever renders. PRD 003
+  // Req 5: nor does the closed-state edge chevron.
   await page.keyboard.press('Control+Shift+E');
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
 
   // Open Folder… (hook-armed): workspace mode — the root lists, folders
   // first, dotfiles hidden.
@@ -3023,7 +3025,7 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   // header icons carry tooltips.
   await expect(page.getByTestId('folder-filter')).toHaveAttribute('title', 'Show all files');
   await expect(page.getByTestId('folder-sync')).toHaveAttribute('title', 'Navigate to the open file');
-  await expect(page.getByTestId('folder-close')).toHaveAttribute('title', 'Close the folder panel');
+  await expect(page.getByTestId('folder-collapse')).toHaveAttribute('title', 'Hide the folder panel');
   await expect(page.getByTestId('folder-filter')).toHaveClass(/filter-on/);
   await page.getByTestId('folder-filter').click();
   await expect(page.getByTestId('folder-filter')).toHaveAttribute('title', 'Show markdown files only');
@@ -3081,7 +3083,7 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   await expect(page.getByTestId('docname')).toContainText('b.md');
 });
 
-test('E94: folder chrome — divider resize persists, × / View checkbox / hotkey all flip the setting', async ({
+test('E94: folder chrome — divider resize persists, chevrons / View checkbox / hotkey all flip the setting', async ({
   page,
 }) => {
   await freshNativeMenuApp(page);
@@ -3106,7 +3108,8 @@ test('E94: folder chrome — divider resize persists, × / View checkbox / hotke
     before + 40
   );
 
-  // × closes; the View checkbox reflects it; the hotkey reopens.
+  // PRD 003 Reqs 1/4: the header chevron closes; the View checkbox reflects
+  // it; the pinned edge chevron appears with its tooltip and aria-label.
   const foldersItem = () =>
     page.evaluate(() => {
       const view = window.__mmMenu!.spec!.submenus.find((m) => m.title === 'View')!;
@@ -3115,14 +3118,36 @@ test('E94: folder chrome — divider resize persists, × / View checkbox / hotke
       };
     });
   expect((await foldersItem()).checked).toBe(true);
-  await page.getByTestId('folder-close').click();
+  await expect(page.getByTestId('folder-collapse')).toHaveAttribute('aria-label', 'Hide the folder panel');
+  await page.getByTestId('folder-collapse').click();
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
   await expect.poll(async () => (await foldersItem()).checked).toBe(false);
+  await expect(page.getByTestId('folder-expand')).toBeVisible();
+  await expect(page.getByTestId('folder-expand')).toHaveAttribute('title', 'Show the folder panel');
+  await expect(page.getByTestId('folder-expand')).toHaveAttribute('aria-label', 'Show the folder panel');
+
+  // The chevron-closed state persists across a restart (Req 4).
+  await page.reload();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toBeVisible();
+
+  // The edge chevron reopens (Req 2); the checkbox follows; an open pane
+  // pins no edge chevron.
+  await page.getByTestId('folder-expand').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
+  await expect.poll(async () => (await foldersItem()).checked).toBe(true);
+
+  // The hotkey flips the same setting the chevrons do.
   await page.waitForTimeout(200); // SPEC12 §1.3 cross-source dedup window
+  await page.keyboard.press('Control+Shift+E');
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toBeVisible();
+  await page.waitForTimeout(200);
   await page.keyboard.press('Control+Shift+E');
   await expect(page.getByTestId('folder-panel')).toBeVisible();
 
-  // Visibility persists across a restart.
+  // Open-state visibility persists across a restart too.
   await page.reload();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
 });
@@ -3152,16 +3177,20 @@ test('E95: reveal — auto on open, sync button, outside-root retarget, hidden p
   await expect(page.locator('[data-path="/other/d.md"]')).toHaveClass(/selected/);
   await expect.poll(() => fsRead(page, '/config/foldertree.json')).toContain('"/other"');
 
-  // Hidden panel: opening files never forces it open.
-  await page.getByTestId('folder-close').click();
+  // Hidden panel: a pane closed via the chevron stays closed until
+  // explicitly reopened — opening files never forces it open, and only the
+  // edge chevron remains at the seam (PRD 003 Req 4).
+  await page.getByTestId('folder-collapse').click();
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toBeVisible();
   await page.goto('/#open=/notes/a.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('A doc');
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toBeVisible();
 
   // Untitled buffers clear the selection. (Human pacing: the automation just
-  // clicked × milliseconds ago — the SPEC12 §1.3 cross-source dedup window
-  // would rightly treat an instant hotkey as the same physical action.)
+  // clicked the chevron milliseconds ago — the SPEC12 §1.3 cross-source dedup
+  // window would rightly treat an instant hotkey as the same physical action.)
   await page.waitForTimeout(200);
   await page.keyboard.press('Control+Shift+E');
   await expect(page.getByTestId('folder-panel')).toBeVisible();

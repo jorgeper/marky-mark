@@ -1625,6 +1625,34 @@ mark.hl.ghost {
   display: flex;
   min-height: 0;
   align-items: stretch;
+  position: relative; /* anchors the closed pane's edge chevron */
+}
+/* PRD 003 Reqs 2–3: the closed pane's reopen chevron — a compact edge tab
+   pinned top-left of the workspace, at the height the pane header's buttons
+   sit when the pane is open. Themed via the same vars as the header. */
+.folder-expand {
+  position: absolute;
+  top: 9px;
+  left: 0;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 4px 3px 2px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-left: none;
+  border-radius: 0 5px 5px 0;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  color: var(--mm-fg-muted, #59636e);
+}
+.folder-expand:hover {
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg, #1f2328);
+}
+/* The static toolbar overlays the top of the body row (web/shim static
+   mode) — clear it, as .folder-panel does. */
+.theme-root.toolbar-static .folder-expand {
+  top: 51px;
 }
 .folder-panel {
   position: relative;

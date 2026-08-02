@@ -369,9 +369,12 @@ test('W11: the find bar works on the web build; reload still lands on the splash
 test('W12: §H25 platform boundary — no folder sidebar, no scope selector or Workspace tab, no workspace stores', async ({
   page,
 }) => {
-  // No folder sidebar or folder affordance anywhere in the DOM.
+  // No folder sidebar or folder affordance anywhere in the DOM — including
+  // the pane chevrons in either state (PRD 003 Req 5).
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
   await expect(page.getByTestId('folder-open-btn')).toHaveCount(0);
+  await expect(page.getByTestId('folder-collapse')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
   // The Folders hotkey (a desktop workspace surface) stays silently inert.
   await page.keyboard.press('Control+Shift+e');
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);

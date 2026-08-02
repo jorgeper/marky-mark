@@ -64,20 +64,43 @@ export interface FolderPanelProps {
 
 type MenuTarget = { kind: 'dir' | 'file' | 'root'; path: string; x: number; y: number };
 
-/** A directory row's disclosure chevron: right collapsed, down open. */
-function Chevron({ open }: { open: boolean }) {
+/**
+ * A directory row's disclosure chevron: right collapsed, down open. The
+ * pane's collapse/expand toggles (PRD 003 Reqs 1–2) reuse it with an
+ * explicit direction instead of the open flag.
+ */
+function Chevron({ open, dir }: { open?: boolean; dir?: 'left' | 'right' }) {
+  const d =
+    dir === 'left'
+      ? 'M10 3.5 L5.5 8 L10 12.5'
+      : dir === 'right' || !open
+        ? 'M6 3.5 L10.5 8 L6 12.5'
+        : 'M3.5 6 L8 10.5 L12.5 6';
   return (
     <span className="folder-chevron" aria-hidden="true">
-      {open ? (
-        <svg width="16" height="16" viewBox="0 0 16 16">
-          <path d="M3.5 6 L8 10.5 L12.5 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      ) : (
-        <svg width="16" height="16" viewBox="0 0 16 16">
-          <path d="M6 3.5 L10.5 8 L6 12.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      )}
+      <svg width="16" height="16" viewBox="0 0 16 16">
+        <path d={d} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
     </span>
+  );
+}
+
+/**
+ * PRD 003 Req 2: the closed pane's reopen chevron, pinned at the workspace's
+ * top-left edge. The owner renders it only in workspace mode on platforms
+ * with the folder seam — the web build keeps zero folder-pane DOM.
+ */
+export function FolderExpandButton({ onClick }: { onClick(): void }) {
+  return (
+    <button
+      className="folder-expand"
+      data-testid="folder-expand"
+      title="Show the folder panel"
+      aria-label="Show the folder panel"
+      onClick={onClick}
+    >
+      <Chevron dir="right" />
+    </button>
   );
 }
 
@@ -415,13 +438,13 @@ export function FolderPanel(p: FolderPanelProps) {
             </g>
           </svg>
         </button>
-        <button data-testid="folder-close" title="Close the folder panel" onClick={p.onClose}>
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <g stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
-              <line x1="4.4" y1="4.4" x2="11.6" y2="11.6" />
-              <line x1="11.6" y1="4.4" x2="4.4" y2="11.6" />
-            </g>
-          </svg>
+        <button
+          data-testid="folder-collapse"
+          title="Hide the folder panel"
+          aria-label="Hide the folder panel"
+          onClick={p.onClose}
+        >
+          <Chevron dir="left" />
         </button>
       </div>
       {p.openOnly ? (

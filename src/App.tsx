@@ -69,7 +69,7 @@ import {
 } from './lib/workspace';
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
 import { relativePath, remapPath, uniqueChildName } from './lib/folderOps';
-import { FolderPanel } from './components/FolderPanel';
+import { FolderExpandButton, FolderPanel } from './components/FolderPanel';
 import { countWords } from './lib/wordCount';
 import { expandImageName, extForMime, imageMarkdownRef, sanitizeImageName } from './lib/imagePaste';
 import { HeadingPalette, type PaletteHeading } from './components/HeadingPalette';
@@ -3951,6 +3951,12 @@ export default function App() {
             onRenameCommit={(oldPath, newName) => void folderRenameCommit(oldPath, newName)}
             onRenameCancel={folderRenameCancel}
           />
+        )}
+
+        {/* PRD 003 Req 2: with the pane closed, a chevron at the workspace's
+            left edge reopens it — same seam/mode gate as the pane itself. */}
+        {platform.readDirEntries && platform.openFolderDialog && !settings.showFolders && appMode === 'workspace' && (
+          <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />
         )}
 
       {mode === 'preview' ? (
