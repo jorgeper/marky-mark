@@ -838,6 +838,46 @@ mark.hl.ghost {
   min-width: var(--mm-pane-min, 768px);
 }
 
+/* PRD 003 Reqs 10/11: the split preview opens/closes as a slide from/toward
+   the right edge, same motion language. During the slide the pane leaves the
+   flex flow (absolute at the right, frozen at its open width — no reflow of
+   its content) and translates, while the editor's width animates underneath
+   on the same curve: the editor's growing right edge tracks the pane's
+   sliding left edge. `.preview-sliding` arms the transitions only for the
+   phases, so the split-ratio drag stays live; the workspace is already
+   position:relative (SPEC20 §4.2). */
+.workspace.split.preview-sliding .split-editor {
+  transition: width 180ms ease;
+}
+.workspace.split.preview-sliding .split-preview {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: calc(100% - var(--mm-split, 50%) - 8px);
+  z-index: 2;
+  transition: transform 180ms ease;
+  will-change: transform;
+}
+.workspace.split.preview-out .split-editor {
+  width: 100%;
+}
+.workspace.split.preview-out .split-preview {
+  transform: translateX(100%);
+}
+
+/* PRD 003 Req 11 — the app's only prefers-reduced-motion carve-out, scoped
+   to the two pane slides (the toolbar slide is unchanged). The phase hook
+   already skips the animated phases; this also stills any mid-flight run. */
+@media (prefers-reduced-motion: reduce) {
+  .folder-slide.sliding,
+  .folder-slide.sliding .folder-panel,
+  .workspace.split.preview-sliding .split-editor,
+  .workspace.split.preview-sliding .split-preview {
+    transition: none;
+  }
+}
+
 /* ---------- modals (settings, close guard) ---------- */
 
 .overlay {
@@ -1667,6 +1707,35 @@ mark.hl.ghost {
 .theme-root.toolbar-static .folder-expand,
 .theme-root.toolbar-static .preview-edge {
   top: 51px;
+}
+/* PRD 003 Reqs 9/11: the pane opens/closes as a horizontal slide in the
+   toolbar's motion language (180ms ease transform). The wrapper animates
+   its width so the workspace follows; the panel keeps its full width and
+   translates toward the left edge on the SAME curve, so the pane's right
+   edge and the workspace's left edge track pixel-for-pixel — no tearing.
+   `.sliding` (transitions armed) exists only during the open/close phases:
+   the width drag must stay live, and a steady-state transform would become
+   the containing block for the panel's fixed-position context menu. */
+/* No overflow clipping here: the width-drag divider overhangs the panel's
+   right edge by 3px, and during the slide the panel's translate keeps it
+   inside the shrinking wrapper anyway (both run the same 180ms ease). */
+.folder-slide {
+  width: var(--mm-folders, 240px);
+  flex-shrink: 0;
+  display: flex;
+}
+.folder-slide.sliding {
+  transition: width 180ms ease;
+}
+.folder-slide.sliding .folder-panel {
+  transition: transform 180ms ease;
+  will-change: transform;
+}
+.folder-slide.out {
+  width: 0;
+}
+.folder-slide.out .folder-panel {
+  transform: translateX(-100%);
 }
 .folder-panel {
   position: relative;

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 import { displayEntries, isMarkdownFile, type DirEntry } from '../lib/folderTree';
 import { folderContextMenu, validateEntryName } from '../lib/folderOps';
 import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN } from '../lib/settings';
+import { slideClasses, type SlidePhase } from '../lib/paneSlide';
 
 /**
  * SPEC34 §3: the folder sidebar — pure view. The owner (App) holds the
@@ -35,6 +36,9 @@ export interface FolderPanelProps {
   /** SPEC36 §3.1 + SPEC35 §2.5: ⌘ is the additive click on mac (Ctrl stays
       the context menu's); also picks the platform reveal label. */
   isMac: boolean;
+  /** PRD 003 Req 9: the open/close slide phase — drives the wrapper's
+      width transition and the panel's transform (App owns the timing). */
+  slide: SlidePhase;
   width: number;
   join(...parts: string[]): string;
   basename(path: string): string;
@@ -325,6 +329,7 @@ function Rows({
 
 export function FolderPanel(p: FolderPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const slideRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<MenuTarget | null>(null);
@@ -386,7 +391,8 @@ export function FolderPanel(p: FolderPanelProps) {
 
   const dragWidth = (e: React.PointerEvent<HTMLDivElement>) => {
     const panel = panelRef.current;
-    if (!panel) return;
+    const slideEl = slideRef.current;
+    if (!panel || !slideEl) return;
     e.preventDefault();
     const divider = e.currentTarget;
     divider.setPointerCapture(e.pointerId);
@@ -394,7 +400,9 @@ export function FolderPanel(p: FolderPanelProps) {
     let w = p.width;
     const onMove = (ev: PointerEvent) => {
       w = Math.min(FOLDER_WIDTH_MAX, Math.max(FOLDER_WIDTH_MIN, ev.clientX - left));
-      panel.style.setProperty('--mm-folders', `${w}px`);
+      // On the wrapper: the slide wrapper's width and the panel's own width
+      // both read the variable, so they track the drag together.
+      slideEl.style.setProperty('--mm-folders', `${w}px`);
     };
     const onUp = () => {
       divider.removeEventListener('pointermove', onMove);
@@ -405,12 +413,23 @@ export function FolderPanel(p: FolderPanelProps) {
     divider.addEventListener('pointerup', onUp);
   };
 
+  // PRD 003 Req 9: the slide wrapper animates its width (the workspace
+  // follows) while the panel inside keeps its full width and translates —
+  // both on the same 180ms ease, so the pane edge and the workspace edge
+  // track pixel-for-pixel. The transform lives only on the sliding phases:
+  // steady-state transforms would turn the panel into the containing block
+  // for the fixed-position context menu.
+  const { sliding, out } = slideClasses(p.slide);
   return (
+    <div
+      className={`folder-slide${sliding ? ' sliding' : ''}${out ? ' out' : ''}`}
+      ref={slideRef}
+      style={{ '--mm-folders': `${p.width}px` } as React.CSSProperties}
+    >
     <div
       className="folder-panel"
       data-testid="folder-panel"
       ref={panelRef}
-      style={{ '--mm-folders': `${p.width}px` } as React.CSSProperties}
       onContextMenu={(e) => e.preventDefault()} // SPEC35 §3.1: no native menu in the panel
     >
       <div className="folder-header" data-testid="folder-header">
@@ -563,6 +582,7 @@ export function FolderPanel(p: FolderPanelProps) {
         </div>
       )}
       <div className="folder-divider" data-testid="folder-divider" onPointerDown={dragWidth} />
+    </div>
     </div>
   );
 }

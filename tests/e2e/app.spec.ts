@@ -2596,6 +2596,10 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   const expand = page.getByTestId('preview-expand');
   await expect(collapse).toBeVisible();
   await expect(expand).toHaveCount(0);
+  // PRD 003 Req 10: the reopen slides in now — let it settle before measuring.
+  await expect
+    .poll(() => page.getByTestId('split-preview').evaluate((el) => getComputedStyle(el).transform))
+    .toBe('none');
   const previewBox = (await page.getByTestId('split-preview').boundingBox())!;
   const collapseBox = (await collapse.boundingBox())!;
   expect(collapseBox.x + collapseBox.width).toBeGreaterThan(previewBox.x + previewBox.width - 24); // hugs the right edge
@@ -5658,3 +5662,104 @@ test('E132: scope notes add no layout height — shared settings rows measure id
   const wsNotes = page.locator('.settings-modal [data-testid^="scope-note-"]');
   expect(await wsNotes.count()).toBeGreaterThan(0);
 });
+
+test('E133: pane slides — folder and preview open/close as 180ms transforms, panes outlive the toggle, reduced motion is instant', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await openFolderRoot(page);
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+
+  // In-page rAF sampler (the E25 polled-transform pattern, tightened): click
+  // the toggle, then record the pane's computed translateX every frame until
+  // it unmounts (close — proving it stayed in the DOM through the exit) or
+  // its transform returns to `none` (open — the slide classes dropped).
+  const sampleSlide = (clickId: string, paneId: string, until: 'gone' | 'settled') =>
+    page.evaluate(
+      async ([clickId, paneId, until]) => {
+        (document.querySelector(`[data-testid="${clickId}"]`) as HTMLElement).click();
+        const xs: number[] = [];
+        const t0 = performance.now();
+        let sawPane = false;
+        await new Promise<void>((resolve) => {
+          const tick = () => {
+            if (performance.now() - t0 > 3000) return resolve(); // stuck-safe
+            const el = document.querySelector(`[data-testid="${paneId}"]`);
+            if (!el) {
+              // Close path ends at unmount; open path hasn't mounted yet.
+              if (until === 'gone' && sawPane) return resolve();
+              return void requestAnimationFrame(tick);
+            }
+            sawPane = true;
+            const tr = getComputedStyle(el).transform;
+            if (tr !== 'none') xs.push(new DOMMatrixReadOnly(tr).m41);
+            else if (until === 'settled' && xs.length > 0) return resolve();
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        });
+        return xs;
+      },
+      [clickId, paneId, until] as const
+    );
+  // A real slide interpolates: some frame strictly between the ends.
+  const midFlight = (xs: number[], width: number, sign: 1 | -1) =>
+    xs.some((x) => sign * x > 8 && sign * x < width - 8);
+
+  // Folder close (Req 9): the pane translates toward the left edge and stays
+  // mounted for the whole exit.
+  const folderWidth = await page
+    .getByTestId('folder-panel')
+    .evaluate((el) => el.getBoundingClientRect().width);
+  const folderClose = await sampleSlide('folder-collapse', 'folder-panel', 'gone');
+  expect(midFlight(folderClose, folderWidth, -1)).toBe(true);
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  // Req 12: end state and persistence identical to an instant toggle.
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"showFolders": false');
+
+  // Folder open: slides in from the left edge, then rests transform-free
+  // (steady state keeps no transform — the context menu is fixed-position).
+  await page.waitForTimeout(250); // SPEC12 §1.3 cross-source dedup window
+  const folderOpen = await sampleSlide('folder-expand', 'folder-panel', 'settled');
+  expect(midFlight(folderOpen, folderWidth, -1)).toBe(true);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect
+    .poll(() => page.getByTestId('folder-panel').evaluate((el) => getComputedStyle(el).transform))
+    .toBe('none');
+
+  // Split preview (Req 10): same language from/toward the RIGHT edge.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  const previewWidth = await page
+    .getByTestId('split-preview')
+    .evaluate((el) => el.getBoundingClientRect().width);
+  await page.waitForTimeout(250);
+  const previewClose = await sampleSlide('preview-collapse', 'split-preview', 'gone');
+  expect(midFlight(previewClose, previewWidth, 1)).toBe(true);
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"splitEdit": false');
+
+  await page.waitForTimeout(250);
+  const previewOpen = await sampleSlide('preview-expand', 'split-preview', 'settled');
+  expect(midFlight(previewOpen, previewWidth, 1)).toBe(true);
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+
+  // Req 11: prefers-reduced-motion switches both panes instantly — gone
+  // within a frame or two of the toggle, no slide.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.waitForTimeout(250);
+  const instant = await page.evaluate(async () => {
+    const twoFrames = () =>
+      new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    (document.querySelector('[data-testid="preview-collapse"]') as HTMLElement).click();
+    await twoFrames();
+    const previewGone = !document.querySelector('[data-testid="split-preview"]');
+    (document.querySelector('[data-testid="folder-collapse"]') as HTMLElement).click();
+    await twoFrames();
+    const folderGone = !document.querySelector('[data-testid="folder-panel"]');
+    return { previewGone, folderGone };
+  });
+  expect(instant).toEqual({ previewGone: true, folderGone: true });
+});
+
+
