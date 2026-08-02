@@ -6,6 +6,28 @@
   box-sizing: border-box;
 }
 
+/* Motion token for the two pane slides (#8, PRD 003 Reqs 9–12). Internal to
+   this stylesheet — NOT part of the theme contract (see THEMES.md): themes
+   never set it, and nothing else in the app reads it.
+
+   `ease` (what the slides used to run) puts most of its character in a lazy
+   tail and reads flat at 180ms. This curve leaves and arrives at zero
+   velocity with its peak speed in the middle: the pane accelerates hard out
+   of the gate, covers ~88% of its travel in the first half of the run, then
+   glides the last stretch into its resting position. Opening therefore eases
+   into place; closing whips off the edge and its slow tail plays out where
+   the pane is already clipped/off-screen. No control point leaves the 0..1
+   band, so the motion never overshoots — no scrollbar, gap, or overlap
+   mid-flight.
+
+   One token, one curve, for all FOUR slide transitions: each pane's
+   transform AND the companion width transition that moves with it. If the
+   pair ran different curves the pane edge and its neighbour's edge would
+   drift apart mid-flight (E135 samples for exactly that). */
+:root {
+  --mm-slide-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
 html,
 body,
 #root {
@@ -860,7 +882,7 @@ mark.hl.ghost {
    phases, so the split-ratio drag stays live; the workspace is already
    position:relative (SPEC20 §4.2). */
 .workspace.split.preview-sliding .split-editor {
-  transition: width 180ms ease;
+  transition: width 180ms var(--mm-slide-ease);
 }
 .workspace.split.preview-sliding .split-preview {
   position: absolute;
@@ -869,7 +891,7 @@ mark.hl.ghost {
   bottom: 0;
   width: calc(100% - var(--mm-split, 50%) - 8px);
   z-index: 2;
-  transition: transform 180ms ease;
+  transition: transform 180ms var(--mm-slide-ease);
   will-change: transform;
 }
 .workspace.split.preview-out .split-editor {
@@ -1721,8 +1743,9 @@ mark.hl.ghost {
 .theme-root.toolbar-static .preview-edge {
   top: 51px;
 }
-/* PRD 003 Reqs 9/11: the pane opens/closes as a horizontal slide in the
-   toolbar's motion language (180ms ease transform). The wrapper animates
+/* PRD 003 Reqs 9/11: the pane opens/closes as a horizontal slide — a 180ms
+   transform on the shared --mm-slide-ease curve (#8; the toolbar keeps its
+   own `ease`). The wrapper animates
    its width so the workspace follows; the panel keeps its full width and
    translates toward the left edge on the SAME curve, so the pane's right
    edge and the workspace's left edge track pixel-for-pixel — no tearing.
@@ -1731,17 +1754,18 @@ mark.hl.ghost {
    the containing block for the panel's fixed-position context menu. */
 /* No overflow clipping here: the width-drag divider overhangs the panel's
    right edge by 3px, and during the slide the panel's translate keeps it
-   inside the shrinking wrapper anyway (both run the same 180ms ease). */
+   inside the shrinking wrapper anyway (both run the same 180ms
+   --mm-slide-ease). */
 .folder-slide {
   width: var(--mm-folders, 240px);
   flex-shrink: 0;
   display: flex;
 }
 .folder-slide.sliding {
-  transition: width 180ms ease;
+  transition: width 180ms var(--mm-slide-ease);
 }
 .folder-slide.sliding .folder-panel {
-  transition: transform 180ms ease;
+  transition: transform 180ms var(--mm-slide-ease);
   will-change: transform;
 }
 .folder-slide.out {
