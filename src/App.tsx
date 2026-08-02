@@ -3847,6 +3847,10 @@ export default function App() {
 
   if (!platform) return <div className="theme-root" />;
 
+  // Issue #22 / PRD 003 Req 5: the folder seam — pane or its edge chevron —
+  // exists only in workspace mode on platforms with the folder capabilities.
+  const folderSeam = !!platform.readDirEntries && !!platform.openFolderDialog && appMode === 'workspace';
+
   return (
     <div className={`theme-root${!nativeMenu ? ' has-toolbar' : ''}${!nativeMenu && !settings.autoHideToolbar ? ' toolbar-static' : ''}`} ref={rootRef}>
       {/* SPEC12 §2.1: with a native menu the header does not render at all. */}
@@ -3911,7 +3915,7 @@ export default function App() {
 
       <div className="body-row">
         {/* Issue #22: the folder sidebar is a workspace-mode surface only. */}
-        {platform.readDirEntries && platform.openFolderDialog && settings.showFolders && appMode === 'workspace' && (
+        {folderSeam && settings.showFolders && (
           <FolderPanel
             roots={folderRoots}
             children={folderChildren}
@@ -3954,8 +3958,8 @@ export default function App() {
         )}
 
         {/* PRD 003 Req 2: with the pane closed, a chevron at the workspace's
-            left edge reopens it — same seam/mode gate as the pane itself. */}
-        {platform.readDirEntries && platform.openFolderDialog && !settings.showFolders && appMode === 'workspace' && (
+            left edge reopens it. */}
+        {folderSeam && !settings.showFolders && (
           <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />
         )}
 

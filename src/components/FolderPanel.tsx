@@ -69,17 +69,18 @@ type MenuTarget = { kind: 'dir' | 'file' | 'root'; path: string; x: number; y: n
  * pane's collapse/expand toggles (PRD 003 Reqs 1–2) reuse it with an
  * explicit direction instead of the open flag.
  */
+const CHEVRON_PATHS = {
+  left: 'M10 3.5 L5.5 8 L10 12.5',
+  right: 'M6 3.5 L10.5 8 L6 12.5',
+  down: 'M3.5 6 L8 10.5 L12.5 6',
+} as const;
+
 function Chevron({ open, dir }: { open?: boolean; dir?: 'left' | 'right' }) {
-  const d =
-    dir === 'left'
-      ? 'M10 3.5 L5.5 8 L10 12.5'
-      : dir === 'right' || !open
-        ? 'M6 3.5 L10.5 8 L6 12.5'
-        : 'M3.5 6 L8 10.5 L12.5 6';
+  const direction = dir ?? (open ? 'down' : 'right');
   return (
     <span className="folder-chevron" aria-hidden="true">
       <svg width="16" height="16" viewBox="0 0 16 16">
-        <path d={d} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={CHEVRON_PATHS[direction]} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </span>
   );
