@@ -5,8 +5,8 @@ const PORT = 4923;
 export default defineConfig({
   testDir: 'tests/e2e',
   testMatch: 'app.spec.ts',
-  fullyParallel: false,
-  workers: 1,
+  fullyParallel: true,
+  workers: 2,
   retries: 0,
   reporter: [['list']],
   use: {
