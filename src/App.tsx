@@ -70,6 +70,15 @@ import {
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
 import { relativePath, remapPath, uniqueChildName } from './lib/folderOps';
 import { FolderExpandButton, FolderPanel, PreviewToggleButton } from './components/FolderPanel';
+import {
+  SLIDE_SETTLE_MS,
+  slideClasses,
+  slideMounted,
+  slideOnFrame,
+  slideOnSettle,
+  slideOnToggle,
+  type SlidePhase,
+} from './lib/paneSlide';
 import { countWords } from './lib/wordCount';
 import { expandImageName, extForMime, imageMarkdownRef, sanitizeImageName } from './lib/imagePaste';
 import { HeadingPalette, type PaletteHeading } from './components/HeadingPalette';
@@ -133,6 +142,52 @@ async function writeRecentStore(p: Platform, fileName: string, store: RecentStor
   } catch {
     /* best effort */
   }
+}
+
+/**
+ * PRD 003 Reqs 9–12: drive a side pane's slide phases from its setting.
+ * Layout effect so the pre-open/closing frames land before paint (no flash),
+ * double rAF so the browser paints the off-screen frame before the slide to
+ * open starts (a transition needs a painted from-state). Reduced motion is
+ * sampled at toggle time: the phases collapse to an instant switch (Req 11).
+ */
+function usePaneSlide(open: boolean, arm: React.MutableRefObject<boolean>): SlidePhase {
+  const [phase, setPhase] = useState<SlidePhase>(open ? 'open' : 'closed');
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    // Derived during render (the React adjust-state-on-prop-change form), so
+    // an armed open MOUNTS already in its off-screen pre-open state. Via an
+    // effect instead, any style recalc between the mount commit and the
+    // effect's commit makes the browser transition 0 → off-screen and then
+    // retarget — the entry slide visibly never runs.
+    // Only an explicitly armed flip slides; programmatic flips (reveal
+    // forcing the pane open, workspace resolution swaps) switch instantly.
+    const armed = arm.current;
+    arm.current = false;
+    const reduced =
+      typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setPrevOpen(open);
+    setPhase(slideOnToggle(phase, open, !armed || reduced));
+  }
+  useLayoutEffect(() => {
+    if (phase === 'open' || phase === 'closed') return;
+    let raf1 = 0;
+    let raf2 = 0;
+    if (phase === 'pre-open') {
+      // Two rAFs: the browser must paint the off-screen frame before the
+      // slide-to-open values land, or the transition has nothing to run from.
+      raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => setPhase(slideOnFrame));
+      });
+    }
+    const t = setTimeout(() => setPhase(slideOnSettle), SLIDE_SETTLE_MS);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      clearTimeout(t);
+    };
+  }, [phase]);
+  return phase;
 }
 
 export default function App() {
@@ -2014,6 +2069,13 @@ export default function App() {
     // the initial state (e.g. fontSize 12) are never applied.
   }, [platform, settings.fontSize, settings.margins, settings.zoom, settings.paneMinWidth]);
 
+  // PRD 003 Reqs 9–12: "the next pane-setting flip is a user toggle — slide".
+  // Consumed (and cleared) by usePaneSlide's effect; unarmed flips (folder
+  // reveals forcing the pane open, workspace-layer resolution swaps, launch
+  // restores) switch instantly, exactly as before this PRD.
+  const armFolderSlide = useRef(false);
+  const armSplitSlide = useRef(false);
+
   // --- settings persistence ---------------------------------------------------
   /**
    * PRD 002 §E18 layer-targeted writes: a 'user' patch lands ONLY in
@@ -2025,6 +2087,13 @@ export default function App() {
   const applySettingsEdit = useCallback(
     (scope: SettingsScopeTab, patch: Partial<Settings>) => {
       if (Object.keys(patch).length === 0) return;
+      // PRD 003 Req 12: an explicit splitEdit edit slides the pane. Every
+      // surface — the toggleSplit command (chevrons, View menu, Mod+\) and
+      // the Settings checkbox in the overlay or the aux window — lands here;
+      // programmatic resolution changes (workspace open/close) never do.
+      if (patch.splitEdit !== undefined && patch.splitEdit !== stateRef.current.settings.splitEdit) {
+        armSplitSlide.current = true;
+      }
       if (scope === 'workspace') {
         const ws = curWorkspaceRef.current;
         if (ws.kind === 'none') return;
@@ -2704,6 +2773,9 @@ export default function App() {
         const st = stateRef.current;
         if (!st.platform?.readDirEntries) return;
         if (curWorkspaceRef.current.kind === 'none') return;
+        // PRD 003 Reqs 9/12: chevrons, View menu and the hotkey all dispatch
+        // this command — the explicit toggle is what slides the pane.
+        armFolderSlide.current = true;
         updateSettings({ ...st.settings, showFolders: !st.settings.showFolders });
       },
       openFolder: openFolderCmd,
@@ -3845,11 +3917,20 @@ export default function App() {
     </aside>
   ) : null;
 
-  if (!platform) return <div className="theme-root" />;
-
   // Issue #22 / PRD 003 Req 5: the folder seam — pane or its edge chevron —
   // exists only in workspace mode on platforms with the folder capabilities.
-  const folderSeam = !!platform.readDirEntries && !!platform.openFolderDialog && appMode === 'workspace';
+  const folderSeam = !!platform?.readDirEntries && !!platform?.openFolderDialog && appMode === 'workspace';
+
+  // PRD 003 Reqs 9–12: every toggle surface funnels into these two settings,
+  // so phasing the render on them animates chevron, menu, hotkey and Settings
+  // toggles alike. Above the platform guard — hooks must run every render.
+  // Keyed on the settings alone: entering workspace mode (openFolder) or edit
+  // mode must swap panes in instantly, as before — only toggles slide.
+  const folderSlide = usePaneSlide(settings.showFolders, armFolderSlide);
+  const splitSlide = usePaneSlide(settings.splitEdit, armSplitSlide);
+  const { sliding: previewSliding, out: previewOut } = slideClasses(splitSlide);
+
+  if (!platform) return <div className="theme-root" />;
 
   return (
     <div className={`theme-root${!nativeMenu ? ' has-toolbar' : ''}${!nativeMenu && !settings.autoHideToolbar ? ' toolbar-static' : ''}`} ref={rootRef}>
@@ -3914,9 +3995,11 @@ export default function App() {
       )}
 
       <div className="body-row">
-        {/* Issue #22: the folder sidebar is a workspace-mode surface only. */}
-        {folderSeam && settings.showFolders && (
+        {/* Issue #22: the folder sidebar is a workspace-mode surface only.
+            PRD 003 Req 9: it stays mounted through the exit slide. */}
+        {folderSeam && slideMounted(folderSlide, settings.showFolders) && (
           <FolderPanel
+            slide={folderSlide}
             roots={folderRoots}
             children={folderChildren}
             expanded={folderExpanded}
@@ -4031,9 +4114,9 @@ export default function App() {
           </div>
           {panelAside}
         </div>
-      ) : settings.splitEdit ? (
+      ) : slideMounted(splitSlide, settings.splitEdit) ? (
         <div
-          className="workspace split"
+          className={`workspace split${previewSliding ? ' preview-sliding' : ''}${previewOut ? ' preview-out' : ''}`}
           ref={workspaceRef}
           style={{ '--mm-split': `${settings.splitRatio * 100}%` } as React.CSSProperties}
         >
