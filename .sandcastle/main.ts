@@ -19,18 +19,21 @@
 //                        runs in goal mode — Claude Code's native /goal turn
 //                        loop self-verifies each attempt, with fresh-context
 //                        retries between attempts (see ADR 0021). Issues
-//                        labeled `sandcastle:require-pr` then publish a PR and
+//                        labeled `sandcastle:require-pr` (or
+//                        `sandcastle:agent-approve`) then publish a PR and
 //                        enter the debate; others keep the legacy inner
 //                        reviewer.
 //   Phase 3 (Merge):     Legacy branches merge locally via the merger agent.
 //
 // Issues opt in via labels: `sandcastle` queues an issue for the loop;
-// `sandcastle:require-pr` gates it behind a PR. Run `npm run sandcastle:init`
-// once per repo to create the label vocabulary. Everything runs as the
-// owner's single identity (see PR_SETUP.md): agents mark their comments with
-// **[agent-name]** prefixes, and the merge gate is the owner adding the
-// `sandcastle:approved` label — GitHub approvals are not used, since authors
-// cannot approve their own PRs.
+// `sandcastle:require-pr` gates it behind a PR; `sandcastle:agent-approve` is
+// the same PR flow with the merge authorization delegated to the pr-reviewer
+// agent. Run `npm run sandcastle:init` once per repo to create the label
+// vocabulary. Everything runs as the owner's single identity (see
+// PR_SETUP.md): agents mark their comments with **[agent-name]** prefixes,
+// and the merge gate is the `sandcastle:approved` label — added by the owner,
+// or by the reviewer agent on `sandcastle:agent-approve` issues. GitHub
+// review approvals are never used, since authors cannot approve their own PRs.
 //
 // Usage:
 //   npx tsx .sandcastle/main.ts              run the loop
@@ -48,6 +51,7 @@ import { z } from "zod";
 import { parseEnvFile, prSetupGuide, readPrConfig } from "./env.mts";
 import { runInstallScan } from "./install-scan.mts";
 import {
+  agentApprovalPending,
   APPROVED_LABEL,
   classifyIssue,
   classifyThread,
@@ -122,9 +126,18 @@ const specSchema = z.object({
 // doctor). Only derived values stay here.
 // ---------------------------------------------------------------------------
 
-// Issues carrying this label get a PR + outer review instead of the inner
-// reviewer + local merge.
+// Issues carrying either of these labels get a PR + outer review instead of
+// the inner reviewer + local merge. AGENT_APPROVE_LABEL additionally hands
+// the merge authorization to the pr-reviewer agent, so it implies PR mode on
+// its own — an issue labeled only `sandcastle:agent-approve` still gets a PR.
 const PR_LABEL = github.REQUIRE_PR_LABEL;
+const AGENT_APPROVE_LABEL = github.AGENT_APPROVE_LABEL;
+
+const isPrLabeled = (labels: string[]) =>
+  labels.includes(PR_LABEL) || labels.includes(AGENT_APPROVE_LABEL);
+
+const isAgentApproved = (labels: string[]) =>
+  labels.includes(AGENT_APPROVE_LABEL);
 
 // The branch merges target and PRs diff against.
 // The branch the loop runs on — merges, pushes, and the merge phase's
@@ -310,8 +323,11 @@ const threadsJsonFor = (snapshot: PrSnapshot) =>
   );
 
 // Status label + owner review request + summary comment — emitted by code,
-// not agents, so the "waiting on you" signal is reliable.
-const finalizeDebate = async (prNumber: number) => {
+// not agents, so the "waiting on you" signal is reliable. With agentApproval
+// the approval itself is still the reviewer's (it signs off in its own
+// comment); this only backstops the label write so a delegated PR can never
+// sit waiting on an owner who already stepped back.
+const finalizeDebate = async (prNumber: number, agentApproval: boolean) => {
   const snapshot = await github.fetchPrSnapshot(repo, prNumber);
   const open = snapshot.threads
     .map((thread) => ({ thread, state: classifyThread(thread) }))
@@ -323,16 +339,37 @@ const finalizeDebate = async (prNumber: number) => {
   const label =
     open.length === 0 ? "sandcastle:ready" : "sandcastle:needs-decision";
   await github.setStatusLabel(prNumber, label);
-  // The summary is about to tell the owner to add the approved label —
-  // make sure it exists at exactly the moment they'll reach for it.
+  // The summary is about to tell the owner to add the approved label (or the
+  // label write below needs it) — make sure it exists at exactly that moment.
   await github.ensureLabelsExist([github.APPROVED_LABEL_DEF]);
+
+  let backstopped = false;
+  if (
+    agentApprovalPending({
+      agentApproval,
+      openThreads: open.length,
+      labels: snapshot.labels,
+    })
+  ) {
+    await github.addPrLabel(prNumber, APPROVED_LABEL);
+    backstopped = true;
+  }
+  const alreadyApproved = snapshot.labels.includes(APPROVED_LABEL);
+
+  const closing = () => {
+    if (open.length > 0)
+      return `Reply on the threads above with your verdict, then re-run sandcastle.`;
+    if (backstopped)
+      return `All threads resolved and this issue is \`${AGENT_APPROVE_LABEL}\` — added \`${APPROVED_LABEL}\` on the reviewer's sign-off. The loop merges this PR on its next classification pass; remove the label to stop it.`;
+    if (alreadyApproved)
+      return `All threads resolved and the reviewer approved (\`${AGENT_APPROVE_LABEL}\`). The loop merges this PR on its next classification pass; remove \`${APPROVED_LABEL}\` to stop it.`;
+    return `All threads resolved — add the \`${APPROVED_LABEL}\` label when satisfied and the next run merges.`;
+  };
   const lines = [
     `**[orchestrator]** Debate finished.`,
     `- Unresolved threads: ${open.length} (${needsDecision.length} need your decision)`,
     ...needsDecision.map((e) => `  - ${e.thread.comments[0]?.url ?? e.thread.id}`),
-    open.length === 0
-      ? `All threads resolved — add the \`${APPROVED_LABEL}\` label when satisfied and the next run merges.`
-      : `Reply on the threads above with your verdict, then re-run sandcastle.`,
+    closing(),
   ];
   await github.postPrComment(prNumber, lines.join("\n"));
 };
@@ -346,6 +383,7 @@ const runDebate = async (
   prNumber: number,
   branch: string,
   first: "pr-reviewer" | "addresser",
+  agentApproval: boolean,
 ) => {
   // Status labels are the loop's own output channel — create lazily if
   // missing so a mid-debate label write never fails. Human-applied labels
@@ -378,6 +416,7 @@ const runDebate = async (
             REPO: repo,
             THREADS_JSON: threadsJson,
             FINAL_ROUND: String(finalRound),
+            AGENT_APPROVAL: String(agentApproval),
           },
         }),
       );
@@ -412,7 +451,7 @@ const runDebate = async (
     else break;
   }
 
-  await finalizeDebate(prNumber);
+  await finalizeDebate(prNumber, agentApproval);
 };
 
 // ---------------------------------------------------------------------------
@@ -711,11 +750,11 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       );
     }
     console.log(
-      "Label an issue `sandcastle` to queue it; add `sandcastle:require-pr` to gate it behind a PR.",
+      "Label an issue `sandcastle` to queue it; add `sandcastle:require-pr` to gate it behind a PR (or `sandcastle:agent-approve` for a PR the reviewer agent approves for you).",
     );
     break;
   }
-  if (workIssues.some((issue) => issue.labels.includes(PR_LABEL))) {
+  if (workIssues.some((issue) => isPrLabeled(issue.labels))) {
     await ensurePrInfra();
   }
 
@@ -728,15 +767,20 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     action: ReturnType<typeof classifyIssue>;
   }[] = [];
   for (const issue of workIssues) {
-    const snapshot = issue.labels.includes(PR_LABEL)
+    const snapshot = isPrLabeled(issue.labels)
       ? await snapshotFor(issue.number)
       : null; // legacy issues never have PRs
     const action = classifyIssue(snapshot);
     dispatch.push({ issue, snapshot, action });
-    console.log(`  #${issue.number} → ${action.kind}`);
+    console.log(
+      `  #${issue.number} → ${action.kind}${isAgentApproved(issue.labels) ? " (agent-approve)" : ""}`,
+    );
   }
   const prLabelByNumber = new Map(
-    dispatch.map((e) => [e.issue.number, e.issue.labels.includes(PR_LABEL)]),
+    dispatch.map((e) => [e.issue.number, isPrLabeled(e.issue.labels)]),
+  );
+  const agentApproveByNumber = new Map(
+    dispatch.map((e) => [e.issue.number, isAgentApproved(e.issue.labels)]),
   );
 
   // -------------------------------------------------------------------------
@@ -821,6 +865,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         entry.snapshot!.number,
         branch,
         action.kind === "addresser-turn" ? "addresser" : "pr-reviewer",
+        isAgentApproved(entry.issue.labels),
       );
     } finally {
       await sandbox.close();
@@ -857,7 +902,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   const carriedToMerge: { id: string; title: string; branch: string }[] = [];
   for (const entry of dispatch) {
     if (entry.action.kind !== "implement") continue;
-    if (entry.issue.labels.includes(PR_LABEL)) continue;
+    if (isPrLabeled(entry.issue.labels)) continue;
     if (!entry.issue.labels.includes("sandcastle:ready-to-merge")) continue;
     if ((await branchAheadCount(branchFor(entry.issue.number))) > 0) {
       logStep(
@@ -1136,7 +1181,13 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           body: `${markerFor("implementer", "claude-code", implementerModel)} opened this PR.\n\n${body}${closesLine}`,
         });
         console.log(`  #${issue.id}: opened PR #${prNumber}`);
-        await runDebate(sandbox, prNumber, issue.branch, "pr-reviewer");
+        await runDebate(
+          sandbox,
+          prNumber,
+          issue.branch,
+          "pr-reviewer",
+          agentApproveByNumber.get(Number(issue.id)) === true,
+        );
         // Empty commits keeps PR-mode branches out of the local merger phase —
         // their merge gate is the owner's approval on GitHub.
         return { ...implement, commits: [] };

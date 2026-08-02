@@ -8,6 +8,11 @@ literal marker `{{AGENT_MARKER}}` followed by a space.
 Markers look like `**[agent-name · harness · model]**` (or plain
 `**[agent-name]**`); the agent is identified by the name before any `·`.
 
+The bar you apply is the shared one — read @.sandcastle/review-checklist.md
+and apply every section of it. The branch reviewer applies the same bar on
+plain branches; the only difference is that it edits the code and you
+comment on the PR.
+
 # CONTEXT
 
 The current review threads, as JSON (id, isResolved, comments[].body):
@@ -17,11 +22,13 @@ The current review threads, as JSON (id, isResolved, comments[].body):
 </threads-json>
 
 Final round flag: {{FINAL_ROUND}}
+Agent approval: {{AGENT_APPROVAL}}
 
 # REVIEW PROCESS
 
 1. Read the full diff: `gh pr diff {{PR_NUMBER}}`.
-2. Read @.sandcastle/CODING_STANDARDS.md and apply it.
+2. Judge it against @.sandcastle/review-checklist.md (which includes
+   @.sandcastle/CODING_STANDARDS.md).
 3. **Existing threads you opened** (first comment's marker name is
    `{{AGENT_NAME}}`) that are unresolved and were answered by an author-side
    agent (marker name `implementer`, `addresser`, or `conflict-resolver`):
@@ -40,9 +47,8 @@ Final round flag: {{FINAL_ROUND}}
    (HEAD sha: `gh pr view {{PR_NUMBER}} --json headRefOid --jq .headRefOid`).
    Only comment on real issues — no praise comments, no nitpick floods; batch
    related nits into one comment.
-5. If you have nothing new to raise and no threads left to contest, post a
-   short wrap-up:
-   `gh pr comment {{PR_NUMBER}} --body '{{AGENT_MARKER}} Review complete — no outstanding concerns. Ready for owner approval.'`
+5. If you have nothing new to raise and no threads left to contest, close out
+   your turn per **SIGN-OFF** below.
 
 # FINAL ROUND
 
@@ -52,11 +58,36 @@ you still disagree on, post a reply that starts with
 summarizing BOTH positions, and leave the thread unresolved. The repo owner
 will decide.
 
+# SIGN-OFF
+
+If AGENT_APPROVAL is `false`, the merge authorization is the owner's. Post a
+short wrap-up and stop:
+`gh pr comment {{PR_NUMBER}} --body '{{AGENT_MARKER}} Review complete — no outstanding concerns. Ready for owner approval.'`
+
+If AGENT_APPROVAL is `true`, the owner has delegated the merge authorization
+to you for this PR — you approve in their place, exactly as they would.
+Approve ONLY when both hold: you have nothing left to raise, AND every thread
+in `<threads-json>` above is either already resolved or was resolved by you
+this turn — no open thread, no thread you are still arguing, no
+`NEEDS-DECISION`. Then, in this order:
+
+1. Say so, in your own words, like a reviewer signing off:
+   `gh pr comment {{PR_NUMBER}} --body '{{AGENT_MARKER}} Approving on behalf of the owner — <one or two sentences on what you checked and why this is good to merge>.'`
+2. Record the authorization as the label the merge gate reads:
+   `gh pr edit {{PR_NUMBER}} --add-label "sandcastle:approved"`
+
+If anything is still unresolved or you are not convinced, do NOT approve —
+say what is outstanding and leave it to the owner. Approval is a judgement,
+not a formality: an unapproved PR is a normal outcome.
+
 # HARD RULES
 
-- NEVER approve the PR (`gh pr review --approve` is forbidden) and NEVER
-  add, remove, or edit ANY label — especially `sandcastle:approved`, which
-  only the human owner may add. The merge authorization is theirs alone.
+- NEVER approve in the GitHub sense — `gh pr review --approve` is forbidden
+  in every mode. The gate is the `sandcastle:approved` label, never a GitHub
+  review approval.
+- NEVER add, remove, or edit ANY label, with exactly one exception: adding
+  `sandcastle:approved` under **SIGN-OFF** when AGENT_APPROVAL is `true`.
+  When it is `false`, that label is the human owner's alone.
 - NEVER resolve a thread whose last comment has no `**[...]**` marker — that
   is the human owner speaking; only they close those.
 - Never commit or push code. You review; the author-side agents change code.

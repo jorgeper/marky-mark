@@ -17,4 +17,10 @@ describe("label vocabulary", () => {
       "sandcastle:requires-prd",
     );
   });
+
+  it("provisions the agent-approve trigger label", () => {
+    expect(ALL_LABEL_DEFS.map((d) => d.name)).toContain(
+      "sandcastle:agent-approve",
+    );
+  });
 });

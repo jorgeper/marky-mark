@@ -32,8 +32,27 @@ export interface ReviewThread {
   comments: ThreadComment[];
 }
 
-/** The owner adds this PR label to authorize the merge — the human gate. */
+/**
+ * This PR label authorizes the merge. Normally only the owner adds it; on
+ * issues labeled `sandcastle:agent-approve` the owner has delegated that to
+ * the reviewer agent (see agentApprovalPending).
+ */
 export const APPROVED_LABEL = "sandcastle:approved";
+
+/**
+ * Whether the orchestrator should write APPROVED_LABEL itself at the end of a
+ * debate. True only when the owner delegated approval, the conversation is
+ * fully settled, and the reviewer agent didn't already write the label in its
+ * own turn — the safety net, not the primary path.
+ */
+export const agentApprovalPending = (input: {
+  agentApproval: boolean;
+  openThreads: number;
+  labels: string[];
+}): boolean =>
+  input.agentApproval &&
+  input.openThreads === 0 &&
+  !input.labels.includes(APPROVED_LABEL);
 
 export interface PrSnapshot {
   number: number;

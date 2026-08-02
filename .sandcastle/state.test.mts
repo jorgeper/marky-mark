@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentApprovalPending,
   classifyIssue,
   classifyThread,
   type PrSnapshot,
@@ -154,5 +155,28 @@ describe("classifyIssue", () => {
   });
   it("reviewed, no threads, not approved -> wait (awaiting owner)", () => {
     expect(classifyIssue(pr({}))).toEqual({ kind: "wait" });
+  });
+});
+
+describe("agentApprovalPending", () => {
+  const input = (over: Partial<Parameters<typeof agentApprovalPending>[0]>) =>
+    agentApprovalPending({
+      agentApproval: true,
+      openThreads: 0,
+      labels: [],
+      ...over,
+    });
+
+  it("settled + delegated + label missing -> orchestrator writes it", () => {
+    expect(input({})).toBe(true);
+  });
+  it("owner did not delegate -> never writes the label", () => {
+    expect(input({ agentApproval: false })).toBe(false);
+  });
+  it("unresolved threads -> never writes the label", () => {
+    expect(input({ openThreads: 1 })).toBe(false);
+  });
+  it("reviewer already wrote the label -> no double write", () => {
+    expect(input({ labels: ["sandcastle:approved"] })).toBe(false);
   });
 });

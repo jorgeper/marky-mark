@@ -42,6 +42,7 @@ const ARGS_BY_PROMPT: Record<string, string[]> = {
     "REPO",
     "THREADS_JSON",
     "FINAL_ROUND",
+    "AGENT_APPROVAL",
   ],
   "pr-address-prompt.md": [
     "AGENT_NAME",
