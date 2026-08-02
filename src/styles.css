@@ -720,6 +720,19 @@ mark.hl.ghost {
   justify-content: center;
 }
 
+/* Issue #7: in split mode the column starts at the editor pane's left edge
+   instead. Centering only reads as "margins" when the pane IS the window; in
+   the split it strands a dead editor-background strip between the folder seam
+   and the gutter whenever the pane outgrows --mm-content-width (wide margins,
+   a wide window, or the divider dragged right), which reads as a blank folder
+   pane — exactly what the issue's screenshot shows. Hugging the seam keeps the
+   leftover width on the inside, next to the preview's own page margin.
+   Scoped through .editor-wrap (the split pane's own wrapper) so it outranks
+   the rule above on specificity rather than on source order. */
+.split-editor .editor-wrap .cm-editor .cm-scroller {
+  justify-content: flex-start;
+}
+
 .editor-wrap .cm-editor .cm-content {
   font-family: var(--mm-font-mono, monospace);
   caret-color: var(--mm-accent, #0969da);
