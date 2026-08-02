@@ -22,9 +22,9 @@ export const SUPPORTED_COMMENT_FORMAT_VERSION = '1.0.0';
 
 /** A version parsed into its three numeric components. */
 export interface FormatVersionParts {
-  major: number;
-  minor: number;
-  patch: number;
+  readonly major: number;
+  readonly minor: number;
+  readonly patch: number;
 }
 
 // PRD Req 1: a valid version is MAJOR.MINOR.PATCH, each component a run of
@@ -55,8 +55,8 @@ export function isFormatVersion(value: unknown): value is string {
 interface MigrationStep {
   /** Why the step exists, so the table reads as a changelog. */
   readonly reason: string;
-  /** Recognizes the payload; `null` means the payload was not an object. */
-  readonly recognizes: (payload: Record<string, unknown> | null) => boolean;
+  /** True when this step is the one that interprets `payload`. */
+  readonly recognizes: (payload: Record<string, unknown>) => boolean;
   /**
    * The format version a recognized payload is interpreted as. It is the
    * version that legacy encoding *is*, not the version this build supports,
@@ -68,12 +68,12 @@ interface MigrationStep {
 const MIGRATIONS: readonly MigrationStep[] = [
   {
     reason: 'PRD Req 3: existing embedded trailers carry the integer version 1.',
-    recognizes: (payload) => payload !== null && payload.version === 1,
+    recognizes: (payload) => payload.version === 1,
     resolvesTo: '1.0.0',
   },
   {
     reason: 'PRD Req 4: existing sidecars carry no version key at all.',
-    recognizes: (payload) => payload === null || !('version' in payload),
+    recognizes: (payload) => !('version' in payload),
     resolvesTo: '1.0.0',
   },
 ];
@@ -97,8 +97,14 @@ export type CommentFormatRead =
       readonly declaredVersion: unknown;
     };
 
-function asRecord(payload: unknown): Record<string, unknown> | null {
-  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null;
+/**
+ * Narrow a raw parsed payload to a plain record. A payload that is not one —
+ * null, a string, a number, an array — becomes the empty record: it declares
+ * no version and holds no comments, which is exactly how parseSidecar treats
+ * such input today, and it keeps every step below free of a null case.
+ */
+function asRecord(payload: unknown): Record<string, unknown> {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return {};
   return payload as Record<string, unknown>;
 }
 
@@ -109,12 +115,34 @@ function asRecord(payload: unknown): Record<string, unknown> | null {
  * a signal to be careful, not to guess, so the caller treats it as
  * unsupported rather than assuming 1.0.0.
  */
-function resolveVersion(record: Record<string, unknown> | null): string | null {
+function resolveVersion(record: Record<string, unknown>): string | null {
   for (const step of MIGRATIONS) {
     if (step.recognizes(record)) return step.resolvesTo;
   }
-  const declared = record?.version;
+  const declared = record.version;
   return isFormatVersion(declared) ? declared : null;
+}
+
+/** The version this build supports, parsed once for comparison. */
+const SUPPORTED_PARTS = parseFormatVersion(SUPPORTED_COMMENT_FORMAT_VERSION);
+
+/**
+ * Decide whether this build may interpret a resolved version: MAJOR first,
+ * then MINOR; PATCH is informational and never decides (PRD Req 11).
+ *
+ * A greater MAJOR is unreadable by definition (PRD Req 12); a greater MINOR
+ * within the supported MAJOR parses normally (PRD Req 18). A version below
+ * the supported one is unsupported too: no transformation is registered for
+ * it, and PRD Req 30 forbids inventing one for a version that never existed —
+ * Req 5's principle applies, an uninterpretable version is a signal to be
+ * careful, not to guess.
+ */
+function isSupportedVersion(version: string): boolean {
+  const parts = parseFormatVersion(version);
+  // Both operands are version literals this module owns, so a failed parse
+  // would mean the module itself is malformed: refuse rather than guess.
+  if (parts === null || SUPPORTED_PARTS === null) return false;
+  return parts.major === SUPPORTED_PARTS.major && parts.minor >= SUPPORTED_PARTS.minor;
 }
 
 /**
@@ -125,8 +153,7 @@ function resolveVersion(record: Record<string, unknown> | null): string | null {
  * represent — never produced by JSON.parse — contributes zero comments rather
  * than throwing.
  */
-function extractComments(record: Record<string, unknown> | null): CommentData[] {
-  if (record === null) return [];
+function extractComments(record: Record<string, unknown>): CommentData[] {
   try {
     return parseSidecar(JSON.stringify({ comments: record.comments ?? [] }));
   } catch {
@@ -139,31 +166,12 @@ function extractComments(record: Record<string, unknown> | null): CommentData[] 
  * object) through the seam. Never throws: a payload that is not an object at
  * all carries no version key, so it is interpreted at 1.0.0 and contributes
  * zero comments — matching what parseSidecar does with such input today.
- *
- * Comparison is MAJOR first, then MINOR; PATCH is informational and never
- * affects the decision (PRD Req 11).
  */
 export function readCommentPayload(payload: unknown): CommentFormatRead {
   const record = asRecord(payload);
   const version = resolveVersion(record);
-  if (version === null) {
-    return { supported: false, declaredVersion: record?.version };
+  if (version === null || !isSupportedVersion(version)) {
+    return { supported: false, declaredVersion: record.version };
   }
-  const parsed = parseFormatVersion(version);
-  const supported = parseFormatVersion(SUPPORTED_COMMENT_FORMAT_VERSION);
-  // Both are known-valid version strings, so neither parse can fail.
-  if (parsed === null || supported === null) {
-    return { supported: false, declaredVersion: record?.version };
-  }
-  // A greater MAJOR is unreadable by definition (PRD Req 12). A version below
-  // the one this build supports is unsupported too: no transformation is
-  // registered for it, and PRD Req 30 forbids inventing one for a version
-  // that never existed — Req 5's principle applies, an uninterpretable
-  // version is a signal to be careful, not to guess.
-  if (parsed.major !== supported.major || parsed.minor < supported.minor) {
-    return { supported: false, declaredVersion: record?.version };
-  }
-  // Same MAJOR with a greater-or-equal MINOR parses normally (PRD Req 18);
-  // PATCH is never consulted.
   return { supported: true, version, comments: extractComments(record) };
 }

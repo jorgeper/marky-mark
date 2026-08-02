@@ -6,6 +6,7 @@ import {
   isFormatVersion,
   parseFormatVersion,
   readCommentPayload,
+  type CommentFormatRead,
 } from '../../src/lib/commentFormat';
 import { serializeTrailer } from '../../src/lib/embedded';
 import { serializeSidecar } from '../../src/lib/sidecar';
@@ -37,6 +38,20 @@ function payloadAt(version: unknown): unknown {
   return JSON.parse(JSON.stringify({ version, comments: [comment] })) as unknown;
 }
 
+// vitest's expect() does not narrow, so each branch assertion doubles as a
+// type guard; `label` names the case inside a loop when one iteration fails.
+function expectSupported(read: CommentFormatRead, label?: string) {
+  expect(read.supported, label).toBe(true);
+  if (!read.supported) throw new Error(`expected a supported read: ${label ?? ''}`);
+  return read;
+}
+
+function expectUnsupported(read: CommentFormatRead, label?: string) {
+  expect(read.supported, label).toBe(false);
+  if (read.supported) throw new Error(`expected an unsupported read: ${label ?? ''}`);
+  return read;
+}
+
 describe('comment format: version literal and migration seam (PRD 004 §A/C/F)', () => {
   test('U124: the supported comment-format version is declared once as "1.0.0", independent of the app version', () => {
     expect(SUPPORTED_COMMENT_FORMAT_VERSION).toBe('1.0.0');
@@ -63,25 +78,21 @@ describe('comment format: version literal and migration seam (PRD 004 §A/C/F)',
 
   test('U126: the two registered legacy coercions — integer 1 and an absent version key — both read as 1.0.0', () => {
     // PRD Req 3: existing embedded trailers.
-    const trailer = readCommentPayload(payloadAt(1));
-    expect(trailer.supported).toBe(true);
-    if (!trailer.supported) throw new Error('unreachable');
+    const trailer = expectSupported(readCommentPayload(payloadAt(1)));
     expect(trailer.version).toBe('1.0.0');
     expect(trailer.comments).toEqual([comment]);
 
     // PRD Req 4: existing sidecars, which have no version key at all.
-    const sidecar = readCommentPayload(JSON.parse(serializeSidecar([comment])) as unknown);
-    expect(sidecar.supported).toBe(true);
-    if (!sidecar.supported) throw new Error('unreachable');
+    const sidecar = expectSupported(
+      readCommentPayload(JSON.parse(serializeSidecar([comment])) as unknown),
+    );
     expect(sidecar.version).toBe('1.0.0');
     expect(sidecar.comments).toEqual([comment]);
   });
 
   test('U127: a valid version string is taken at face value — same MAJOR with a greater MINOR is supported, PATCH never decides', () => {
     for (const version of ['1.0.0', '1.0.9', '1.0.99', '1.1.0', '1.7.2']) {
-      const read = readCommentPayload(payloadAt(version));
-      expect(read.supported, version).toBe(true);
-      if (!read.supported) throw new Error('unreachable');
+      const read = expectSupported(readCommentPayload(payloadAt(version)), version);
       // Interpreted as itself, not rewritten to the build's own version.
       expect(read.version).toBe(version);
       expect(read.comments).toEqual([comment]);
@@ -92,9 +103,7 @@ describe('comment format: version literal and migration seam (PRD 004 §A/C/F)',
     // PRD Req 5: neither the integer 1 nor a valid semver string.
     const malformed: unknown[] = ['1', '1.0', 2, 1.5, true, false, null, [], {}, 'newest', '', 'v1.0.0', '1.0.0-beta'];
     for (const version of malformed) {
-      const read = readCommentPayload(payloadAt(version));
-      expect(read.supported, JSON.stringify(version)).toBe(false);
-      if (read.supported) throw new Error('unreachable');
+      const read = expectUnsupported(readCommentPayload(payloadAt(version)), JSON.stringify(version));
       expect(read.declaredVersion).toEqual(version);
     }
     // null is *present*: it is unsupported, unlike an absent key (U126).
@@ -106,37 +115,31 @@ describe('comment format: version literal and migration seam (PRD 004 §A/C/F)',
 
   test('U129: MAJOR decides first — a greater MAJOR is unreadable, and a version below the supported one has no registered transformation', () => {
     for (const version of ['2.0.0', '9.1.4', '2.0.99']) {
-      const read = readCommentPayload(payloadAt(version));
-      expect(read.supported, version).toBe(false);
-      if (read.supported) throw new Error('unreachable');
+      const read = expectUnsupported(readCommentPayload(payloadAt(version)), version);
       expect(read.declaredVersion).toBe(version);
     }
     // Below 1.0.0: no transformation is registered and none may be invented
     // for a version that never existed (PRD Req 30).
     for (const version of ['0.9.0', '0.0.1']) {
-      const read = readCommentPayload(payloadAt(version));
-      expect(read.supported, version).toBe(false);
+      expectUnsupported(readCommentPayload(payloadAt(version)), version);
     }
   });
 
   test('U130: a payload that is not an object is handled without throwing', () => {
     for (const payload of [null, 'a string', 42, ['an', 'array'], true, undefined]) {
-      const read = readCommentPayload(payload);
-      expect(read.supported, JSON.stringify(payload ?? null)).toBe(true);
-      if (!read.supported) throw new Error('unreachable');
+      const read = expectSupported(readCommentPayload(payload), JSON.stringify(payload ?? null));
       // No version key to read, so 1.0.0 with zero comments — exactly what
       // parseSidecar yields for such input today.
       expect(read.version).toBe('1.0.0');
       expect(read.comments).toEqual([]);
     }
     // Malformed entries are skipped rather than crashing the read, as today.
-    const partial = readCommentPayload({ version: 1, comments: [comment, { id: 'no-anchor' }, 7, null] });
-    expect(partial.supported).toBe(true);
-    if (!partial.supported) throw new Error('unreachable');
+    const partial = expectSupported(
+      readCommentPayload({ version: 1, comments: [comment, { id: 'no-anchor' }, 7, null] }),
+    );
     expect(partial.comments).toEqual([comment]);
     // Even a value JSON.parse could never have produced yields a result.
-    const unserializable = readCommentPayload({ version: 1, comments: [{ ...comment, body: 1n }] });
-    expect(unserializable.supported).toBe(true);
+    expectSupported(readCommentPayload({ version: 1, comments: [{ ...comment, body: 1n }] }));
   });
 
   test('U131: the discriminant makes comments unreadable off the unsupported branch, and `version` is the only versioning key', () => {
@@ -183,7 +186,9 @@ describe('comment format: version literal and migration seam (PRD 004 §A/C/F)',
     const trailer = serializeTrailer([comment]);
     expect(trailer).toContain('"version": 1');
     const sidecar = serializeSidecar([comment]);
-    expect(JSON.parse(sidecar) as Record<string, unknown>).not.toHaveProperty('version');
-    expect(sidecar).toBe(`${JSON.stringify({ comments: JSON.parse(sidecar).comments }, null, 2)}\n`);
+    const parsedSidecar = JSON.parse(sidecar) as { comments: unknown };
+    expect(parsedSidecar).not.toHaveProperty('version');
+    // …and still 2-space pretty-printed with a trailing newline, byte for byte.
+    expect(sidecar).toBe(`${JSON.stringify({ comments: parsedSidecar.comments }, null, 2)}\n`);
   });
 });
