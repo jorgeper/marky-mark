@@ -424,11 +424,11 @@ const tableModeWatcher = ViewPlugin.fromClass(
       if (!set) return; // view off
       if (u.transactions.some((t) => t.effects.some((e) => e.is(setGridSet)))) return;
       const text = u.state.doc.toString();
-      const bad = set.spans.filter((s) => !roundTripsAtOwnWidth(text, { start: s.from, end: s.to }));
+      const hasBroken = set.spans.some((s) => !roundTripsAtOwnWidth(text, { start: s.from, end: s.to }));
       const hasCandidates = allTableRegions(text).some(
         (r) => !set.spans.some((s) => r.start <= s.to && r.end >= s.from)
       );
-      if (bad.length === 0 && !hasCandidates) return;
+      if (!hasBroken && !hasCandidates) return;
       clearTimeout(this.timer);
       this.timer = setTimeout(() => {
         const s2 = this.view.state.field(tableModeField);

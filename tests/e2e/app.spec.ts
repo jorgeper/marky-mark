@@ -2596,10 +2596,10 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   const expand = page.getByTestId('preview-expand');
   await expect(collapse).toBeVisible();
   await expect(expand).toHaveCount(0);
-  const pv = (await page.getByTestId('split-preview').boundingBox())!;
-  const cb = (await collapse.boundingBox())!;
-  expect(cb.x + cb.width).toBeGreaterThan(pv.x + pv.width - 24); // hugs the right edge
-  expect(cb.y).toBeLessThan(pv.y + 64); // near the top
+  const previewBox = (await page.getByTestId('split-preview').boundingBox())!;
+  const collapseBox = (await collapse.boundingBox())!;
+  expect(collapseBox.x + collapseBox.width).toBeGreaterThan(previewBox.x + previewBox.width - 24); // hugs the right edge
+  expect(collapseBox.y).toBeLessThan(previewBox.y + 64); // near the top
 
   // Clicking it closes the split (today's full-screen editor), persisted.
   await collapse.click();
@@ -2611,9 +2611,9 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   // Closed → the expand chevron pins at the full-screen editor's top-right
   // edge and reopens the split.
   await expect(expand).toBeVisible();
-  const vp = page.viewportSize()!;
-  const eb = (await expand.boundingBox())!;
-  expect(eb.x + eb.width).toBeGreaterThan(vp.width - 24);
+  const viewport = page.viewportSize()!;
+  const expandBox = (await expand.boundingBox())!;
+  expect(expandBox.x + expandBox.width).toBeGreaterThan(viewport.width - 24);
   await expand.click();
   await expect(page.getByTestId('split-preview')).toBeVisible();
   await expect(expand).toHaveCount(0);
