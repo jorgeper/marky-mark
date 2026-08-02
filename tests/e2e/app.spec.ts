@@ -2596,6 +2596,9 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   const expand = page.getByTestId('preview-expand');
   await expect(collapse).toBeVisible();
   await expect(expand).toHaveCount(0);
+  // Req 13: each preview chevron carries its tooltip + aria-label pair.
+  await expect(collapse).toHaveAttribute('title', 'Hide the preview pane');
+  await expect(collapse).toHaveAttribute('aria-label', 'Hide the preview pane');
   // PRD 003 Req 10: the reopen slides in now — let it settle before measuring.
   await expect
     .poll(() => page.getByTestId('split-preview').evaluate((el) => getComputedStyle(el).transform))
@@ -2615,6 +2618,8 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   // Closed → the expand chevron pins at the full-screen editor's top-right
   // edge and reopens the split.
   await expect(expand).toBeVisible();
+  await expect(expand).toHaveAttribute('title', 'Show the preview pane');
+  await expect(expand).toHaveAttribute('aria-label', 'Show the preview pane');
   const viewport = page.viewportSize()!;
   const expandBox = (await expand.boundingBox())!;
   expect(expandBox.x + expandBox.width).toBeGreaterThan(viewport.width - 24);
