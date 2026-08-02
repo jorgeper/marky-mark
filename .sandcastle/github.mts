@@ -96,6 +96,8 @@ export const subIssuesJson = (
 ): Promise<string> =>
   gh([
     "api",
+    "-X",
+    "GET",
     `repos/${repo}/issues/${issueNumber}/sub_issues`,
     "-F",
     "per_page=100",
