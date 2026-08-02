@@ -2557,6 +2557,11 @@ test('E83: editor selections mirror into the split preview as synthetic marks; b
 test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; setting persists; menu checkbox drives it', async ({
   page,
 }) => {
+  // PRD 003 Reqs 6–7 scope: full preview is a different surface, not a
+  // "closed preview" — neither edge chevron renders there.
+  await expect(page.getByTestId('preview-collapse')).toHaveCount(0);
+  await expect(page.getByTestId('preview-expand')).toHaveCount(0);
+
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.getByTestId('split-preview')).toBeVisible(); // default on
@@ -2584,6 +2589,49 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   await expect(page.getByTestId('split-preview')).toBeVisible();
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"splitEdit": true');
 
+  // PRD 003 Reqs 6–7: the edge chevrons drive the same toggle. Split open →
+  // the collapse chevron sits at the preview's top-right corner (and the
+  // expand one doesn't exist).
+  const collapse = page.getByTestId('preview-collapse');
+  const expand = page.getByTestId('preview-expand');
+  await expect(collapse).toBeVisible();
+  await expect(expand).toHaveCount(0);
+  const pv = (await page.getByTestId('split-preview').boundingBox())!;
+  const cb = (await collapse.boundingBox())!;
+  expect(cb.x + cb.width).toBeGreaterThan(pv.x + pv.width - 24); // hugs the right edge
+  expect(cb.y).toBeLessThan(pv.y + 64); // near the top
+
+  // Clicking it closes the split (today's full-screen editor), persisted.
+  await collapse.click();
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await expect(collapse).toHaveCount(0);
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"splitEdit": false');
+
+  // Closed → the expand chevron pins at the full-screen editor's top-right
+  // edge and reopens the split.
+  await expect(expand).toBeVisible();
+  const vp = page.viewportSize()!;
+  const eb = (await expand.boundingBox())!;
+  expect(eb.x + eb.width).toBeGreaterThan(vp.width - 24);
+  await expand.click();
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect(expand).toHaveCount(0);
+  await expect(collapse).toBeVisible();
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"splitEdit": true');
+
+  // Req 8: the Settings checkbox stays in sync with chevron clicks, and
+  // drives the same surface back.
+  await openSettings(page, 'general');
+  await expect(page.getByTestId('set-split-edit')).toBeChecked();
+  await page.getByTestId('settings-close').click();
+  await collapse.click();
+  await openSettings(page, 'general');
+  await expect(page.getByTestId('set-split-edit')).not.toBeChecked();
+  await page.getByTestId('set-split-edit').check();
+  await page.getByTestId('settings-close').click();
+  await expect(collapse).toBeVisible();
+
   // Native-menu surface: View carries the checkbox and click() toggles it.
   await freshNativeMenuApp(page);
   const splitItem = () =>
@@ -2600,6 +2648,15 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   expect((await splitItem()).accelerator).toBe('Mod+\\');
   await menuClick(page, 'toggleSplit');
   await expect.poll(async () => (await splitItem()).checked).toBe(false);
+
+  // Req 8: a chevron click drives the native checkbox too. Split is off now —
+  // open a doc, enter edit, and the expand chevron reopens the split.
+  await menuClick(page, 'help');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('preview-expand').click();
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect.poll(async () => (await splitItem()).checked).toBe(true);
 });
 
 test('E85: the selection survives ⌘E in both directions, in full and split layouts', async ({ page }) => {
@@ -4581,6 +4638,27 @@ test('E119: grids by default — two tables, untouched saves are byte-identical,
   await expect.poll(text).toContain(GRID); // the first grid is untouched
   await page.keyboard.press('ControlOrMeta+z');
   await expect.poll(text).toBe(before);
+});
+
+test('E119b: a delimiter typed at human speed never snaps mid-row — the header survives', async ({ page }) => {
+  // DELIM accepts partial rows ("| -" already qualifies), so while a
+  // delimiter is being typed the watcher keeps seeing a fresh candidate.
+  // The snap must wait for the typing pause: firing between keystrokes
+  // rewrites the region under the caret and mapPoint sends a delimiter-row
+  // caret into the header, garbling the keystrokes still in flight.
+  await openGridDoc(page, '/docs/v114b.md', `top\n\n${COMPACT}\n\ntail`, 'top');
+  const editor = page.getByTestId('editor');
+  const text = () => editor.locator('.cm-content').evaluate((el) => (el as HTMLElement).innerText);
+
+  await editor.locator('.cm-line').filter({ hasText: 'tail' }).click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('| new | cols |', { delay: 100 });
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('| --- | --- |', { delay: 100 });
+  await expect.poll(() => editor.locator('.cm-line.mm-table-mode-line').count()).toBeGreaterThan(3);
+  await expect.poll(text).toContain('| new | cols |');
 });
 
 test('E120: the global toggle — both tables flip together, originals restore, the setting persists across reload', async ({

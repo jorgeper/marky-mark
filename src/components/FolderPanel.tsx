@@ -106,6 +106,30 @@ export function FolderExpandButton({ onClick }: { onClick(): void }) {
 }
 
 /**
+ * PRD 003 Reqs 6–7: the split preview's edge chevron, pinned at the
+ * workspace's top-right edge in edit mode — right collapses the open
+ * preview into the full-screen editor, left reopens the split. The same
+ * compact edge tab as FolderExpandButton, mirrored to the opposite edge;
+ * it lives here to share the Chevron/edge-tab pattern. The owner
+ * dispatches the existing `toggleSplit` command — only `settings.splitEdit`
+ * flips, so the menu checkbox, Mod+\, and the Settings toggle stay in sync.
+ */
+export function PreviewToggleButton({ open, onClick }: { open: boolean; onClick(): void }) {
+  const label = open ? 'Hide the preview pane' : 'Show the preview pane';
+  return (
+    <button
+      className="preview-edge"
+      data-testid={open ? 'preview-collapse' : 'preview-expand'}
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+    >
+      <Chevron dir={open ? 'right' : 'left'} />
+    </button>
+  );
+}
+
+/**
  * SPEC35 §5: the row's label swapped for a text input. Enter commits, Esc
  * cancels, blur commits; an invalid or unchanged value cancels instead.
  * Validation runs on every keystroke — name rules plus a case-insensitive

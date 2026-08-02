@@ -406,29 +406,46 @@ export function collapseAllGrids(view: EditorView): void {
 /**
  * Resync + detection: after any foreign doc change, drop spans that fail the
  * guard (they stay raw until they parse again) and grid any new valid table.
+ * DEBOUNCED, not merely deferred: a snap landing between two keystrokes of a
+ * fast burst rewrites the region under the typing caret — mapPoint sends a
+ * delimiter-row caret into the header row, so the keystrokes still in flight
+ * garble the header (E119b). Waiting for a pause keeps the snap out of the
+ * middle of a typed delimiter; DELIM accepts partial rows like "| -", so
+ * mid-row candidates are common while one is being typed.
  */
-const tableModeWatcher = EditorView.updateListener.of((u) => {
-  if (!u.docChanged) return;
-  const set = u.state.field(tableModeField);
-  if (!set) return; // view off
-  if (u.transactions.some((t) => t.effects.some((e) => e.is(setGridSet)))) return;
-  const text = u.state.doc.toString();
-  const bad = set.spans.filter((s) => !roundTripsAtOwnWidth(text, { start: s.from, end: s.to }));
-  const hasCandidates = allTableRegions(text).some(
-    (r) => !set.spans.some((s) => r.start <= s.to && r.end >= s.from)
-  );
-  if (bad.length === 0 && !hasCandidates) return;
-  setTimeout(() => {
-    const s2 = u.view.state.field(tableModeField);
-    if (!s2) return;
-    const t2 = u.view.state.doc.toString();
-    const good = s2.spans.filter((s) => roundTripsAtOwnWidth(t2, { start: s.from, end: s.to }));
-    if (good.length !== s2.spans.length) {
-      u.view.dispatch({ effects: setGridSet.of({ spans: good, width: s2.width }) });
+const SNAP_DEBOUNCE_MS = 250;
+const tableModeWatcher = ViewPlugin.fromClass(
+  class {
+    timer: ReturnType<typeof setTimeout> | undefined;
+    constructor(readonly view: EditorView) {}
+    update(u: ViewUpdate) {
+      if (!u.docChanged) return;
+      const set = u.state.field(tableModeField);
+      if (!set) return; // view off
+      if (u.transactions.some((t) => t.effects.some((e) => e.is(setGridSet)))) return;
+      const text = u.state.doc.toString();
+      const bad = set.spans.filter((s) => !roundTripsAtOwnWidth(text, { start: s.from, end: s.to }));
+      const hasCandidates = allTableRegions(text).some(
+        (r) => !set.spans.some((s) => r.start <= s.to && r.end >= s.from)
+      );
+      if (bad.length === 0 && !hasCandidates) return;
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => {
+        const s2 = this.view.state.field(tableModeField);
+        if (!s2) return;
+        const t2 = this.view.state.doc.toString();
+        const good = s2.spans.filter((s) => roundTripsAtOwnWidth(t2, { start: s.from, end: s.to }));
+        if (good.length !== s2.spans.length) {
+          this.view.dispatch({ effects: setGridSet.of({ spans: good, width: s2.width }) });
+        }
+        gridifyAll(this.view);
+      }, SNAP_DEBOUNCE_MS);
     }
-    gridifyAll(u.view);
-  }, 0);
-});
+    destroy() {
+      clearTimeout(this.timer);
+    }
+  }
+);
 
 /** The width budget in character columns (SPEC38 §3.1 measurement). */
 function measureWidthBudget(view: EditorView): number {

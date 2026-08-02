@@ -69,7 +69,7 @@ import {
 } from './lib/workspace';
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
 import { relativePath, remapPath, uniqueChildName } from './lib/folderOps';
-import { FolderExpandButton, FolderPanel } from './components/FolderPanel';
+import { FolderExpandButton, FolderPanel, PreviewToggleButton } from './components/FolderPanel';
 import { countWords } from './lib/wordCount';
 import { expandImageName, extForMime, imageMarkdownRef, sanitizeImageName } from './lib/imagePaste';
 import { HeadingPalette, type PaletteHeading } from './components/HeadingPalette';
@@ -3961,6 +3961,14 @@ export default function App() {
             left edge reopens it. */}
         {folderSeam && !settings.showFolders && (
           <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />
+        )}
+
+        {/* PRD 003 Reqs 6–7: the preview's edge chevron at the workspace's
+            right edge — collapses the open split, reopens the closed one.
+            Never in full preview: that's a different surface, not a closed
+            split (and the splash is preview-only, so it never shows one). */}
+        {mode === 'edit' && (
+          <PreviewToggleButton open={settings.splitEdit} onClick={() => dispatchCommand('toggleSplit')} />
         )}
 
       {mode === 'preview' ? (
