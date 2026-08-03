@@ -111,11 +111,16 @@ function parseRuns(file, content, mtimeMs, timings) {
     let endedAt = null;
     if (completeLine && startedAt && lastStamp) endedAt = resolveClock(startedAt.toISOString(), lastStamp);
 
-    // Match a timings entry: same phase, entry start (ts - ms) within 15s of run start.
+    // Match a timings entry: same phase AND same issue, entry start (ts - ms)
+    // within 15s of run start. The issue check is load-bearing: parallel lanes
+    // start the same phase seconds apart, so on phase+time alone a lane that is
+    // still running adopts its sibling's finished entry and reports that
+    // sibling's status and duration.
     let timing = null;
     if (startedAt) {
       timing = timings.find((t) => {
         if (t.phase !== meta.role) return false;
+        if (String(t.issue ?? '') !== String(meta.issue ?? '')) return false;
         const entryStart = new Date(t.ts).getTime() - (t.ms || 0);
         return Math.abs(entryStart - startedAt.getTime()) < 15000;
       }) || null;
@@ -563,6 +568,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`control panel on http://0.0.0.0:${PORT}  repo=${REPO}${KEY ? '  (key required)' : ''}`);
-});
+// Only listen when run as a program — `require`ing this file (the unit test
+// does) must not open a port.
+if (require.main === module) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`control panel on http://0.0.0.0:${PORT}  repo=${REPO}${KEY ? '  (key required)' : ''}`);
+  });
+}
+
+module.exports = { parseRuns };
