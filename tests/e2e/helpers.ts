@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect } from './fixtures';
 
 export const WELCOME = '/docs/welcome.md';
@@ -105,10 +105,60 @@ export async function selectSpan(page: Page, phraseA: string, phraseB: string): 
   }, [phraseA, phraseB] as const);
 }
 
+/**
+ * Click `target` only once the toolbar shell provably cannot intercept it.
+ *
+ * `.toolbar-shell` (src/styles.css:66 — `z-index: 80`, `transition: transform
+ * 180ms`) owns the top 42px of the window, and the floating `add-comment-btn`
+ * is `position: fixed` at z-index 60: a target that lands in that band is
+ * clicked by `.docname` instead (issue #18, E129). Waiting on the two rects
+ * catches both a transitioning shell and a genuinely mispositioned control —
+ * loudly, at 4s, rather than as a 30s intercepted-click timeout.
+ */
+export async function clickClearOfToolbar(target: Locator): Promise<void> {
+  await expect(target).toBeVisible();
+  const clearOfShell = () =>
+    target.evaluate((el) => {
+      const shell = document.querySelector('.toolbar-shell');
+      if (!shell) return true; // native-menu build: no overlay to dodge
+      const b = el.getBoundingClientRect();
+      const s = shell.getBoundingClientRect();
+      return b.bottom <= s.top || b.top >= s.bottom || b.right <= s.left || b.left >= s.right;
+    });
+  await expect.poll(clearOfShell, { timeout: 4000 }).toBe(true);
+  await target.click();
+}
+
+/** The non-null shape of `Locator.boundingBox()`. */
+type Box = { x: number; y: number; width: number; height: number };
+
+/**
+ * A `boundingBox()` that has stopped moving: the same rect on two consecutive
+ * polls. Geometry read straight after a pane slide (`paneSlide.ts`, 180ms) or
+ * a ResizeObserver-driven relayout is otherwise a one-shot sample mid-flight,
+ * and a drag started from it grabs the wrong pixel (issue #18).
+ */
+export async function stableBox(target: Locator): Promise<Box> {
+  let previous: string | null = null;
+  await expect
+    .poll(
+      async () => {
+        const box = await target.boundingBox();
+        const current = box && JSON.stringify(box); // null while detached/hidden
+        const settled = current !== null && current === previous;
+        previous = current;
+        return settled;
+      },
+      { intervals: [50, 50, 50, 100, 100, 250, 250, 500], timeout: 5000 }
+    )
+    .toBe(true);
+  return (await target.boundingBox())!;
+}
+
 /** Full comment flow: select, click the floating button, type, submit. */
 export async function addComment(page: Page, phrase: string, body: string): Promise<void> {
   await selectPhrase(page, phrase);
-  await page.getByTestId('add-comment-btn').click();
+  await clickClearOfToolbar(page.getByTestId('add-comment-btn'));
   await page.getByTestId('composer-input').fill(body);
   await page.getByTestId('composer-submit').click();
 }
