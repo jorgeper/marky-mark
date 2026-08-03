@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-7.md are satisfied for issue #7, with evidence visible in the session: the folder pane no longer shows a blank region while the preview pane is open, a regression test covering the fix exists and passes, `npm run validate:quick` passes in the implementer's session, and a summary comment from the implementer exists on issue #7.
+All acceptance criteria in issue-specs/issue-7.md are satisfied for issue #7, with evidence visible in the session: the folder pane no longer shows a blank region while the preview pane is open, a regression test covering the fix exists and passes, `npm run validate:quick` passes in the implementer's session, and a summary comment from the implementer exists on issue #7.
 
 ## Acceptance criteria
 

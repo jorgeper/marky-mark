@@ -9,7 +9,7 @@
 // Repo-relative directory where per-issue specs are committed. Rename to
 // "prd", "docs/specs", etc. — the spec writer, goal statements, and issue
 // comments all follow it. Specs land at `<SPEC_DIR>/issue-<n>.md`.
-export const SPEC_DIR = "specs";
+export const SPEC_DIR = "issue-specs";
 
 // Inner turn bound for each implementer attempt: "or stop after N turns" is
 // appended to the goal so a stalled attempt ends and the next fresh-context

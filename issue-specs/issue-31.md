@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-31.md are satisfied for issue #31, with
+All acceptance criteria in issue-specs/issue-31.md are satisfied for issue #31, with
 evidence visible in the session: `tests/e2e/app.spec.ts` is gone and its 136
 tests live in 8–12 feature-named `tests/e2e/*.spec.ts` files with every test
 body and every `E<n>` title prefix unchanged; `playwright.config.ts` matches the

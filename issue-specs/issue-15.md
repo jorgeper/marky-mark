@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-15.md are satisfied for issue #15, with
+All acceptance criteria in issue-specs/issue-15.md are satisfied for issue #15, with
 evidence visible in the session: `src/lib/sidecar.ts` and `src/lib/embedded.ts`
 both read through `readCommentPayload` in `src/lib/commentFormat.ts` and both
 report an unsupported-MAJOR store as unreadable with zero comments instead of
