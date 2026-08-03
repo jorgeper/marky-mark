@@ -116,7 +116,7 @@ never require that to have happened.
 **The `-->` escape.** A comment body containing `-->` would close the HTML
 comment early and truncate the payload. Before wrapping the JSON text in the
 block, a writer therefore replaces **every** occurrence of the three-character
-sequence `-->` in that text with the six-character sequence:
+sequence `-->` in that text with the eight-character sequence:
 
 ```text
 -\u002d>
@@ -402,12 +402,13 @@ Everything else is unsupported: a greater MAJOR (obviously — it may mean
 anything), a *lesser* MAJOR, and a *lesser* MINOR at the right MAJOR.
 
 That last pair surprises people, so it is worth being blunt: **it is not true
-that "anything at or below the supported version is readable."** A lower minor
-is readable only if the reader registers an explicit transformation for it —
-the two coercions of rule 1 are exactly such transformations, which is why the
-legacy encodings are readable while, say, a hypothetical `1.0.0` reader facing
-a store that declared `0.9.0` is not. An uninterpretable version is a signal to
-be careful, not to guess.
+that "anything at or below the supported version is readable."** A version
+below the supported one is readable only if the reader registers an explicit
+transformation for it, and the two coercions of rule 1 are the only
+transformations that exist — which is why the legacy encodings are read while
+a store that declared, say, `0.9.0` is not: nothing is registered for a version
+that never shipped. An uninterpretable version is a signal to be careful, not
+to guess.
 
 For this build, supported `1.0.0`, that reduces to: MAJOR must be `1`, MINOR
 may be anything (`>= 0`), PATCH is ignored. `1.0.0`, `1.4.2` and `1.99.0` are
@@ -432,9 +433,11 @@ that does not parse at all):
   The freeze is per document, not per store — if one store cannot be written
   safely, none of them is written.
 - is announced by a **persistent indication**, not a transient toast: a notice
-  that stays on screen for as long as the document is open, saying the
-  comments were written by a newer version and are left untouched. Marky Mark
-  names the declared version in that notice when the store declared one.
+  that stays on screen for as long as the document is open, saying the comments
+  cannot be shown and are left untouched. When the store declared a version,
+  Marky Mark names it — "written by a newer version of Marky Mark (comment
+  format 2.0.0)"; when it declared none, the notice says only that this version
+  could not read them.
 
 ### 4. Verdicts are per store
 

@@ -621,26 +621,29 @@ describe('the published comment-format specification (docs/COMMENT-FORMAT.md —
       'utf8',
     );
 
-    /** The body of the first fenced block of `lang` after `heading`. */
-    function fenced(heading: string, lang: string, skip = 0): string {
+    /** The document from `heading` up to the next heading of the same level. */
+    function sectionAfter(heading: string): string {
       const from = doc.indexOf(heading);
       expect(from, heading).toBeGreaterThan(-1);
+      const hashes = heading.slice(0, heading.indexOf(' ')); // '##' or '###'
+      const next = doc.indexOf(`\n${hashes} `, from + 1);
+      return next === -1 ? doc.slice(from) : doc.slice(from, next);
+    }
+
+    /** The bodies of the fenced `lang` blocks inside the section at `heading`. */
+    function fencedBlocks(heading: string, lang: string): string[] {
       const re = new RegExp(`\`\`\`${lang}\\n([\\s\\S]*?)\\n\`\`\``, 'g');
-      re.lastIndex = from;
-      for (let i = 0; i < skip; i++) expect(re.exec(doc), heading).not.toBeNull();
-      const m = re.exec(doc);
-      if (!m) throw new Error(`no ${lang} block after ${heading}`);
-      return m[1];
+      const blocks = [...sectionAfter(heading).matchAll(re)].map((m) => m[1]);
+      expect(blocks.length, `${lang} blocks under ${heading}`).toBeGreaterThan(0);
+      return blocks;
     }
 
     /** The `| \`key\` | … | min version | …` rows of the table under `heading`. */
     function schemaTable(heading: string): { keys: string[]; minVersions: string[] } {
-      const from = doc.indexOf(heading);
-      expect(from, heading).toBeGreaterThan(-1);
-      const section = doc.slice(from, doc.indexOf('\n### ', from + 1));
       const keys: string[] = [];
       const minVersions: string[] = [];
-      for (const row of section.matchAll(/^\| `([^`]+)`[^|]*\|[^|]*\|[^|]*\|\s*([^|\s]+)\s*\|/gm)) {
+      const rows = sectionAfter(heading).matchAll(/^\| `([^`]+)`[^|]*\|[^|]*\|[^|]*\|\s*([^|\s]+)\s*\|/gm);
+      for (const row of rows) {
         keys.push(row[1]);
         minVersions.push(row[2]);
       }
@@ -648,12 +651,21 @@ describe('the published comment-format specification (docs/COMMENT-FORMAT.md —
       return { keys, minVersions };
     }
 
+    /** The first capture of `re`, naming what was missing when there is none. */
+    function captured(re: RegExp, text: string, what: string): string {
+      const m = re.exec(text);
+      if (!m) throw new Error(`docs/COMMENT-FORMAT.md: could not find ${what}`);
+      return m[1];
+    }
+
     // 1. The version the document presents, and its first changelog entry.
-    expect(/\*\*Current format version: `([^`]+)`\*\*/.exec(doc)?.[1]).toBe(
-      SUPPORTED_COMMENT_FORMAT_VERSION,
-    );
+    expect(
+      captured(/\*\*Current format version: `([^`]+)`\*\*/, doc, 'the current-version line'),
+    ).toBe(SUPPORTED_COMMENT_FORMAT_VERSION);
     const changelog = doc.slice(doc.indexOf('## Changelog'));
-    expect(/^### (\d+\.\d+\.\d+)/m.exec(changelog)?.[1]).toBe(BASELINE_COMMENT_FORMAT_VERSION);
+    expect(captured(/^### (\d+\.\d+\.\d+)/m, changelog, 'a changelog entry')).toBe(
+      BASELINE_COMMENT_FORMAT_VERSION,
+    );
     // And it says the format version is not the app version (Req 36).
     expect(doc).toMatch(/independent of the Marky Mark application\s*\n?version/);
 
@@ -674,7 +686,7 @@ describe('the published comment-format specification (docs/COMMENT-FORMAT.md —
 
     // 3. The worked example parses to the comments the document claims, and
     //    is byte-exactly what this build writes for them — in both containers.
-    const example = fenced('## A complete worked example', 'json');
+    const [example] = fencedBlocks('## A complete worked example', 'json');
     const read = expectSupported(readCommentPayload(JSON.parse(example) as unknown));
     expect(read.version).toBe(SUPPORTED_COMMENT_FORMAT_VERSION);
     expect(read.comments.map((c) => c.id)).toEqual(['c-9f2a']);
@@ -683,24 +695,28 @@ describe('the published comment-format specification (docs/COMMENT-FORMAT.md —
     expect(read.comments[0].thread[0].body).toContain('-->'); // the escape, restored
     expect(serializeSidecar(read.comments)).toBe(`${example}\n`);
 
-    const trailerBlock = fenced('## A complete worked example', 'text', 1);
+    // The worked example shows the same payload in both containers; the
+    // trailer is the fenced block that opens with the HTML comment.
+    const trailerBlock = fencedBlocks('## A complete worked example', 'text').find((block) =>
+      block.startsWith('<!--'),
+    );
+    if (trailerBlock === undefined) throw new Error('no trailer block in the worked example');
     expect(serializeTrailer(read.comments)).toBe(`\n${trailerBlock}\n`);
 
     // 4. The frozen container strings are the real ones (Reqs 32/33).
-    const marker = /^<!-- (\S+)$/m.exec(trailerBlock)?.[1];
+    const marker = captured(/^<!-- (\S+)$/m, trailerBlock, 'the trailer marker');
     expect(marker).toBe('marky-mark-comments');
-    const legacy = /`(markimark-comments)`/.exec(doc)?.[1];
-    expect(legacy).toBe('markimark-comments');
-    const DOCTEXT = '# Notes\n';
-    for (const m of [marker, legacy]) {
-      const split = splitEmbedded(`${DOCTEXT}\n${trailerBlock.replace(marker!, m!)}\n`);
-      expect(split.hadTrailer, m).toBe(true);
-      expect(split.readable, m).toBe(true);
-      expect(split.content, m).toBe(DOCTEXT);
-      expect(split.comments, m).toEqual(read.comments);
+    const legacyMarker = 'markimark-comments';
+    expect(doc, 'the legacy marker').toContain(`\`${legacyMarker}\``);
+    const docText = '# Notes\n';
+    for (const documented of [marker, legacyMarker]) {
+      const split = splitEmbedded(`${docText}\n${trailerBlock.replace(marker, documented)}\n`);
+      expect(split.hadTrailer, documented).toBe(true);
+      expect(split.readable, documented).toBe(true);
+      expect(split.content, documented).toBe(docText);
+      expect(split.comments, documented).toEqual(read.comments);
     }
-    const sidecarExample = /`([\w.-]+\.md)\.comments\.json`/.exec(doc);
-    expect(sidecarExample).not.toBeNull();
-    expect(sidecarPathFor(sidecarExample![1])).toBe(sidecarExample![0].replaceAll('`', ''));
+    const sidecarDoc = captured(/`([\w.-]+\.md)\.comments\.json`/, doc, 'a sidecar filename example');
+    expect(sidecarPathFor(sidecarDoc)).toBe(`${sidecarDoc}.comments.json`);
   });
 });

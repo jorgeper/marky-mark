@@ -78,8 +78,9 @@ npm run clean:app    # wipe every trace (app, data, prefs, caches) for a true fi
    - append an entry to that document's changelog, and update the schema
      tables — including the **minimum version** of any field you add.
 
-   A PR that touches `src/lib/commentFormat.ts`, `embedded.ts` or `sidecar.ts`
-   without either is not ready to merge.
+   Both, not either. Such a change shows up in `src/lib/commentFormat.ts`,
+   `embedded.ts` or `sidecar.ts`, so a diff touching those files is where a
+   reviewer checks for the bump and the changelog entry.
 5. Windows-specific work: see [docs/WINDOWS.md](docs/WINDOWS.md) (native and
    cross-compile paths).
 
