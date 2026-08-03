@@ -6085,6 +6085,11 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
       };
     });
 
+  // .gutter-inset lands on a rAF scheduled by the pane ResizeObserver
+  // (Editor.tsx), so the rules appear a frame after the toggle above settles —
+  // poll for the ruled state like every other reading below, rather than
+  // one-shot sampling into that gap.
+  await expect.poll(async () => (await gutter()).left).toMatch(/^1px solid /);
   const light = await gutter();
   expect(light.inset).toBeGreaterThan(20); // genuinely inset — margins either side
   expect(light.left).toBe(light.right); // the two rules are the same rule
