@@ -79,6 +79,7 @@ import {
   MARKER_DETAIL,
   MAX_DEBATE_ROUNDS,
   MAX_ITERATIONS,
+  MAX_PARALLEL_LANES,
   PR_SUMMARY_DETAILED,
   QUICK_VERIFY_COMMANDS,
   SPEC_DIR,
@@ -979,6 +980,19 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   if (issues.length === 0 && carriedToMerge.length === 0) {
     console.log("No unblocked issues to work on. Exiting.");
     break;
+  }
+
+  // Cap concurrent lanes for the host (config.mts): deferred issues stay
+  // open with their label and no PR, so the next iteration's classify→plan
+  // pass re-surfaces them as candidates — deferral, not loss.
+  if (issues.length > MAX_PARALLEL_LANES) {
+    const deferred = issues.slice(MAX_PARALLEL_LANES);
+    console.log(
+      `Capping at ${MAX_PARALLEL_LANES} parallel lane(s) — deferring ${deferred
+        .map((i) => `#${i.id}`)
+        .join(", ")} to a later iteration.`,
+    );
+    issues.splice(MAX_PARALLEL_LANES);
   }
 
   console.log(
