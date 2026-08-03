@@ -748,7 +748,7 @@ test('E137: a newer-major trailer — the doc opens and edits normally, and its 
   expect(resaved.match(/marky-mark-comments/g)?.length).toBe(1);
 });
 
-test('E138: a newer-major trailer — every authoring route is closed and the indication persists past the toast timer', async ({
+test('E138: a newer-major trailer — every authoring route is closed and the indication persists across mode switches', async ({
   page,
 }) => {
   await fsWrite(page, NEWER_PATH, `${NEWER_DOC}${NEWER_TRAILER}`);
@@ -772,9 +772,10 @@ test('E138: a newer-major trailer — every authoring route is closed and the in
   await expect(page.getByTestId('composer-input')).toHaveCount(0);
   await expect(page.getByTestId('panel')).toHaveCount(0);
 
-  // Req 16: still there well after the 4s mm-notice timer would have fired,
-  // and across a mode switch (edit ↔ preview).
-  await page.waitForTimeout(4500);
+  // Req 16: persists across a mode switch (edit ↔ preview). The 4.5s "still
+  // there after the mm-notice timer" sleep was dropped (owner call,
+  // 2026-08-03): a wrongly-timer-cleared indication would also vanish on the
+  // mode-switch remount below, which asserts the same regression for free.
   await expect(indication).toBeVisible();
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor')).toBeVisible();

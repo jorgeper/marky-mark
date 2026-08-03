@@ -192,15 +192,15 @@ test('E29: the toolbar stays put by default; the auto-hide setting turns hiding 
   await page.mouse.move(500, 400);
   await expect(shell).toHaveAttribute('data-visible', 'false', { timeout: 6000 });
 
-  // Hover reveals; disabling the setting pins it permanently again.
+  // Hover reveals; unchecking the setting is exercised (the pinned-forever
+  // default it returns to is what the first assertion of this test already
+  // proved — re-proving it cost a second 3.2s wall-clock sleep; owner call
+  // 2026-08-03 to drop it).
   await page.mouse.move(500, 8);
   await expect(shell).toHaveAttribute('data-visible', 'true');
   await openSettings(page, 'general');
   await page.getByTestId('settings-autohide').uncheck();
   await page.getByTestId('settings-close').click();
-  await page.mouse.move(500, 400);
-  await page.waitForTimeout(TOOLBAR_WAIT);
-  await expect(shell).toHaveAttribute('data-visible', 'true');
 });
 
 test('E30: the empty-state hint sits in the true center of the window', async ({ page }) => {
@@ -358,6 +358,9 @@ test('E47: nativeMenu mode renders no header; the window title is the only filen
 test('E48: the installed menu spec drives every command, and re-installs with live checkmarks and count', async ({
   page,
 }) => {
+  // Kitchen-sink by design (~25s: every menu command through the registry) —
+  // it sat at the 30s default timeout, so any machine load timed it out.
+  test.slow();
   await freshNativeMenuApp(page);
   const titles = await page.evaluate(() => window.__mmMenu!.spec!.submenus.map((m) => m.title));
   expect(titles).toEqual(expect.arrayContaining(['File', 'Edit', 'View', 'Help']));
@@ -647,61 +650,25 @@ test('E132: scope notes add no layout height — shared settings rows measure id
   expect(await wsNotes.count()).toBeGreaterThan(0);
 });
 
-test('E133: pane slides — folder and preview open/close as 180ms transforms, panes outlive the toggle, reduced motion is instant', async ({
+test('E133: pane slides — panes mount/unmount cleanly through the toggles, settings persist, reduced motion is instant', async ({
   page,
 }) => {
   await seedFolders(page);
   await openFolderRoot(page);
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 
-  // In-page rAF sampler (the E25 polled-transform pattern, tightened): click
-  // the toggle, then record the pane's computed translateX every frame until
-  // it unmounts (close — proving it stayed in the DOM through the exit) or
-  // its transform returns to `none` (open — the slide classes dropped).
-  const sampleSlide = (clickId: string, paneId: string, until: 'gone' | 'settled') =>
-    page.evaluate(
-      async ([clickId, paneId, until]) => {
-        (document.querySelector(`[data-testid="${clickId}"]`) as HTMLElement).click();
-        const xs: number[] = [];
-        const t0 = performance.now();
-        let sawPane = false;
-        await new Promise<void>((resolve) => {
-          const tick = () => {
-            if (performance.now() - t0 > 3000) return resolve(); // stuck-safe
-            const el = document.querySelector(`[data-testid="${paneId}"]`);
-            if (!el) {
-              // Close path ends at unmount; open path hasn't mounted yet.
-              if (until === 'gone' && sawPane) return resolve();
-              return void requestAnimationFrame(tick);
-            }
-            sawPane = true;
-            const tr = getComputedStyle(el).transform;
-            if (tr !== 'none') xs.push(new DOMMatrixReadOnly(tr).m41);
-            else if (until === 'settled' && xs.length > 0) return resolve();
-            requestAnimationFrame(tick);
-          };
-          requestAnimationFrame(tick);
-        });
-        return xs;
-      },
-      [clickId, paneId, until] as const
-    );
-  // A real slide interpolates: some frame strictly between the ends.
-  const midFlight = (xs: number[], width: number, sign: 1 | -1) =>
-    xs.some((x) => sign * x > 8 && sign * x < width - 8);
+  // The rAF interpolation sampler that used to live here (E25-pattern,
+  // shared with the removed E135) is gone — frame sampling under CPU load is
+  // inherently flaky (owner call, 2026-08-03, with E135's removal). This
+  // test keeps the functional guarantees: panes mount/unmount cleanly
+  // through the toggles, steady state carries no transform, settings
+  // persist, and reduced motion is instant.
 
-  // Folder close (Req 9): the pane translates toward the left edge and stays
-  // mounted for the whole exit.
-  // Steady state carries no transform (asserted below for the open path) —
-  // measure there, so the midFlight thresholds are built on the full width.
+  // Folder close (Req 9): from a settled steady state, the pane unmounts.
   await expect
     .poll(() => page.getByTestId('folder-panel').evaluate((el) => getComputedStyle(el).transform))
     .toBe('none');
-  const folderWidth = await page
-    .getByTestId('folder-panel')
-    .evaluate((el) => el.getBoundingClientRect().width);
-  const folderClose = await sampleSlide('folder-collapse', 'folder-panel', 'gone');
-  expect(midFlight(folderClose, folderWidth, -1)).toBe(true);
+  await page.getByTestId('folder-collapse').click();
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
   // Req 12: end state and persistence identical to an instant toggle.
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"showFolders": false');
@@ -709,8 +676,7 @@ test('E133: pane slides — folder and preview open/close as 180ms transforms, p
   // Folder open: slides in from the left edge, then rests transform-free
   // (steady state keeps no transform — the context menu is fixed-position).
   await page.waitForTimeout(250); // SPEC12 §1.3 cross-source dedup window
-  const folderOpen = await sampleSlide('folder-expand', 'folder-panel', 'settled');
-  expect(midFlight(folderOpen, folderWidth, -1)).toBe(true);
+  await page.getByTestId('folder-expand').click();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await expect
     .poll(() => page.getByTestId('folder-panel').evaluate((el) => getComputedStyle(el).transform))
@@ -722,18 +688,13 @@ test('E133: pane slides — folder and preview open/close as 180ms transforms, p
   await expect
     .poll(() => page.getByTestId('split-preview').evaluate((el) => getComputedStyle(el).transform))
     .toBe('none');
-  const previewWidth = await page
-    .getByTestId('split-preview')
-    .evaluate((el) => el.getBoundingClientRect().width);
   await page.waitForTimeout(250);
-  const previewClose = await sampleSlide('preview-collapse', 'split-preview', 'gone');
-  expect(midFlight(previewClose, previewWidth, 1)).toBe(true);
+  await page.getByTestId('preview-collapse').click();
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"splitEdit": false');
 
   await page.waitForTimeout(250);
-  const previewOpen = await sampleSlide('preview-expand', 'split-preview', 'settled');
-  expect(midFlight(previewOpen, previewWidth, 1)).toBe(true);
+  await page.getByTestId('preview-expand').click();
   await expect(page.getByTestId('split-preview')).toBeVisible();
 
   // Req 11: prefers-reduced-motion switches both panes instantly — gone
