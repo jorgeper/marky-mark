@@ -439,16 +439,16 @@ async function fetchPrs() {
 
 // ---------- docs ----------
 
-// Long-form write-ups live in the repo at docs/archive. The HTML ones are
+// Long-form write-ups live in the repo at archive/articles. The HTML ones are
 // self-contained single files, so they are served straight off disk.
-const DOCS_DIR = path.join(REPO, 'docs', 'archive');
+const DOCS_DIR = path.join(REPO, 'archive', 'articles');
 
 function listDocs() {
   let names;
   try {
     names = fs.readdirSync(DOCS_DIR).filter((n) => n.endsWith('.html'));
   } catch {
-    return []; // no docs/archive in this checkout
+    return []; // no archive/articles in this checkout
   }
   return names
     .map((name) => {
@@ -545,7 +545,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/docs') {
       return json(res, { docs: listDocs() });
     }
-    // Articles from docs/archive. basename() strips any traversal attempt.
+    // Articles from archive/articles. basename() strips any traversal attempt.
     if (url.pathname.startsWith('/docs/')) {
       const name = path.basename(decodeURIComponent(url.pathname.slice('/docs/'.length)));
       const full = path.join(DOCS_DIR, name);

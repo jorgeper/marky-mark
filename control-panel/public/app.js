@@ -262,12 +262,12 @@ function openLog(file, runIndex, title, running, issue) {
 
 // ---------- docs ----------
 
-// Long-form write-ups from the repo's docs/archive, served by the panel so
+// Long-form write-ups from the repo's archive/articles, served by the panel so
 // they're readable on a phone without cloning anything.
 function renderDocs() {
   const list = $('#doc-list');
   if (!state.docs.length) {
-    list.innerHTML = '<div class="empty">No articles in <code>docs/archive</code></div>';
+    list.innerHTML = '<div class="empty">No articles in <code>archive/articles</code></div>';
     return;
   }
   list.innerHTML = state.docs.map((d) => `

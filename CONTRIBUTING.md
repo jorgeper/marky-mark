@@ -48,7 +48,7 @@ npm run clean:app    # wipe every trace (app, data, prefs, caches) for a true fi
   platform seam (`src/platform/`) — app code never assumes an OS or a host.
 - The product is **spec-driven**: each milestone is a delta spec in
   [docs/specs/](docs/specs/) (SPEC.md through SPEC10.md, later wins on
-  conflict). [docs/goals/](docs/goals/) records how each milestone was
+  conflict). [archive/goals/](archive/goals/) archives how each milestone was
   launched and verified.
 - Tests carry stable IDs — **U**nit (U1–U16), desktop **E**2E (E1–E45), and
   **W**eb e2e (W1–W4) — that the specs reference. Numbers are never reused;
