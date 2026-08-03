@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-4.md are satisfied for issue #4, with evidence visible in the session: with the split preview open (`mode === 'edit'` and `settings.splitEdit`) a right-pointing chevron (`data-testid="preview-collapse"`) at the preview's top-right corner closes the split, with it closed a left-pointing chevron (`data-testid="preview-expand"`) pinned at the full-screen editor's top-right edge reopens it, both chevrons flip only `settings.splitEdit` and stay in sync with the View → Split Edit menu / `Mod+\` / the Settings panel's `set-split-edit` checkbox, and `npm run validate:quick` passes in the implementer's session.
+All acceptance criteria in issue-specs/issue-4.md are satisfied for issue #4, with evidence visible in the session: with the split preview open (`mode === 'edit'` and `settings.splitEdit`) a right-pointing chevron (`data-testid="preview-collapse"`) at the preview's top-right corner closes the split, with it closed a left-pointing chevron (`data-testid="preview-expand"`) pinned at the full-screen editor's top-right edge reopens it, both chevrons flip only `settings.splitEdit` and stay in sync with the View → Split Edit menu / `Mod+\` / the Settings panel's `set-split-edit` checkbox, and `npm run validate:quick` passes in the implementer's session.
 
 ## Acceptance criteria
 

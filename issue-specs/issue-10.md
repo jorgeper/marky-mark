@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-10.md are satisfied for issue #10, with
+All acceptance criteria in issue-specs/issue-10.md are satisfied for issue #10, with
 evidence visible in the session: the line-number gutter is toggled from a
 checkbox item in the **View** menu (no accelerator) instead of the Settings
 panel, the "Show line numbers" checkbox is gone from Settings while the

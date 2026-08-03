@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-22.md are satisfied for issue #22, with
+All acceptance criteria in issue-specs/issue-22.md are satisfied for issue #22, with
 evidence visible in the session: the alpha banner at `README.md:16` advertises
 the version `package.json` carries (`0.4.0-alpha.5` today); the README's
 advertised version is part of an automated lock-step check so it cannot

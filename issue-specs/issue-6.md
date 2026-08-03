@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-6.md are satisfied for issue #6, with evidence visible in the session: e2e coverage exists for every item of PRD 003 Requirement 13 — chevron close + edge-chevron reopen for both panes, tooltip and aria-label assertions for all four chevron controls (including the currently unasserted `preview-collapse`/`preview-expand` labels), menu/hotkey/Settings sync, the slide animation observed via polled `transform` interpolation, and W12's chevron-free web build — no test references the removed `folder-close` testid, and `npm run validate:quick` passes in the implementer's session.
+All acceptance criteria in issue-specs/issue-6.md are satisfied for issue #6, with evidence visible in the session: e2e coverage exists for every item of PRD 003 Requirement 13 — chevron close + edge-chevron reopen for both panes, tooltip and aria-label assertions for all four chevron controls (including the currently unasserted `preview-collapse`/`preview-expand` labels), menu/hotkey/Settings sync, the slide animation observed via polled `transform` interpolation, and W12's chevron-free web build — no test references the removed `folder-close` testid, and `npm run validate:quick` passes in the implementer's session.
 
 ## Acceptance criteria
 

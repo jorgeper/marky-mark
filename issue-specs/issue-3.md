@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-3.md are satisfied for issue #3, with evidence visible in the session: the folder pane header's X close button is replaced in the same header slot by a left-pointing chevron (`data-testid="folder-collapse"`) that closes the pane, a right-pointing chevron (`data-testid="folder-expand"`) pinned at the workspace's top-left edge reopens it when closed, both chevrons flip only `settings.showFolders` and stay in sync with the View → Folders menu / `Mod+Shift+E` / reload persistence, and `npm run validate:quick` passes in the implementer's session.
+All acceptance criteria in issue-specs/issue-3.md are satisfied for issue #3, with evidence visible in the session: the folder pane header's X close button is replaced in the same header slot by a left-pointing chevron (`data-testid="folder-collapse"`) that closes the pane, a right-pointing chevron (`data-testid="folder-expand"`) pinned at the workspace's top-left edge reopens it when closed, both chevrons flip only `settings.showFolders` and stay in sync with the View → Folders menu / `Mod+Shift+E` / reload persistence, and `npm run validate:quick` passes in the implementer's session.
 
 ## Acceptance criteria
 

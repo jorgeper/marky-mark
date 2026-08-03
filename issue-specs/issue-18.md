@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-18.md are satisfied for issue #18, with
+All acceptance criteria in issue-specs/issue-18.md are satisfied for issue #18, with
 evidence visible in the session: every one-shot read of animation- or
 observer-driven UI state in `tests/e2e/app.spec.ts` has been converted to an
 auto-retrying assertion (`expect.poll` / web-first `expect`) on the property

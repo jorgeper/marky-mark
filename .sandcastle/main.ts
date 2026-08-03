@@ -14,8 +14,8 @@
 //   Phase 1 (Plan):      A Fable agent picks unblocked issues among those
 //                        with no open PR (dependency analysis).
 //   Phase 2 (Execute):   Per issue: a spec writer distills the issue into a
-//                        committed spec (specs/issue-<n>.md, linked from the
-//                        issue) and a goal statement; the implementer then
+//                        committed spec (<SPEC_DIR>/issue-<n>.md, linked from
+//                        the issue) and a goal statement; the implementer then
 //                        runs in goal mode — Claude Code's native /goal turn
 //                        loop self-verifies each attempt, with fresh-context
 //                        retries between attempts (see ADR 0021). Issues

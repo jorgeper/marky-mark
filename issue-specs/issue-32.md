@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-32.md (which this change itself
+All acceptance criteria in issue-specs/issue-32.md (which this change itself
 relocates to issue-specs/issue-32.md) are satisfied for issue #32, with
 evidence visible in the session: `specs/` has been renamed to `issue-specs/`
 carrying all 15 files, `SPEC_DIR` in `.sandcastle/config.mts` is
