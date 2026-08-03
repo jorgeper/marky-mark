@@ -42,6 +42,14 @@ live in `review-checklist.md`; only Marky Mark-specific rules belong here.
   or theme structure that has no id to give. Setup goes through
   `tests/e2e/fixtures.ts` and `helpers.ts` (`freshApp`, `fsRead`/`fsWrite`,
   `addComment`, …) rather than being re-implemented in a spec.
+- Unit tests do not rely on per-file isolation: the suite runs with
+  `pool: 'threads'` and `isolate: false` (`vitest.config.ts`), so every file
+  shares worker contexts. A test that mutates module-level or global state
+  restores it; one that only passes with a fresh environment per file is
+  rejected.
+- `.click({ force: true })` is exceptional — the e2e suite has exactly one
+  (E93, proving a deliberately-inert tree item does nothing). A new one needs
+  an adjacent comment saying why a real user-reachable click can't work.
 
 ## Architecture
 
