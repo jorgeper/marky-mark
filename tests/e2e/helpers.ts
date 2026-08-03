@@ -272,12 +272,12 @@ export const NAV_P2 = 'renders GitHub-flavored markdown';
 export const NAV_P3 = 'seven built-in themes';
 
 /** Re-launch the shim in desktop-menu mode: no header, spec on window.__mmMenu. */
-export async function freshNativeMenuApp(page: import('@playwright/test').Page): Promise<void> {
+export async function freshNativeMenuApp(page: Page): Promise<void> {
   await page.goto('/?nativeMenu=1');
   await page.evaluate(() => localStorage.clear());
   await page.reload(); // fresh boot — fixtures re-seed
   await expect(page.getByTestId('empty-hint')).toBeVisible(); // shim ready
-  // Same pane-floor pin as freshApp — see helpers.ts.
+  // Same pane-floor pin as freshApp above.
   await page.evaluate(() =>
     window.__mmfs!.write('/config/settings.json', JSON.stringify({ paneMinWidth: 240 }))
   );
@@ -285,10 +285,10 @@ export async function freshNativeMenuApp(page: import('@playwright/test').Page):
   await expect(page.getByTestId('empty-hint')).toBeVisible();
 }
 
-export const menuClick = (page: import('@playwright/test').Page, command: string) =>
+export const menuClick = (page: Page, command: string) =>
   page.evaluate((c) => window.__mmMenu!.click(c), command);
 
-export const menuItem = (page: import('@playwright/test').Page, command: string) =>
+export const menuItem = (page: Page, command: string) =>
   page.evaluate(
     (c) =>
       window
@@ -300,7 +300,7 @@ export const menuItem = (page: import('@playwright/test').Page, command: string)
   );
 
 /** Long fixture + doc open + edit mode (split by default, full when false). */
-export async function splitApp(page: import('@playwright/test').Page, split = true): Promise<void> {
+export async function splitApp(page: Page, split = true): Promise<void> {
   await freshApp(page);
   await page.evaluate(() => {
     const sections: string[] = [];
@@ -325,7 +325,7 @@ export async function splitApp(page: import('@playwright/test').Page, split = tr
 }
 
 /** First fully/partially visible gutter line number in the editor pane. */
-export const editorTopGutterLine = (page: import('@playwright/test').Page) =>
+export const editorTopGutterLine = (page: Page) =>
   page.evaluate(() => {
     const scroller = document.querySelector('.cm-scroller')!;
     const top = scroller.getBoundingClientRect().top;
@@ -335,7 +335,7 @@ export const editorTopGutterLine = (page: import('@playwright/test').Page) =>
   });
 
 /** Source lines of the anchors bracketing the given scroller's top edge. */
-export const previewTopAnchorLines = (page: import('@playwright/test').Page, scrollerSel = '.split-preview') =>
+export const previewTopAnchorLines = (page: Page, scrollerSel = '.split-preview') =>
   page.evaluate((sel) => {
     const scroller = document.querySelector(sel)!;
     const doc = scroller.querySelector('.doc')!;
@@ -358,7 +358,7 @@ export const previewTopAnchorLines = (page: import('@playwright/test').Page, scr
   }, scrollerSel);
 
 /** Dispatch a synthetic image paste into the CodeMirror editor. */
-export async function pasteImage(page: import('@playwright/test').Page, b64: string) {
+export async function pasteImage(page: Page, b64: string) {
   await page.evaluate((data) => {
     const bin = atob(data);
     const bytes = new Uint8Array(bin.length);
@@ -371,7 +371,7 @@ export async function pasteImage(page: import('@playwright/test').Page, b64: str
   }, b64);
 }
 
-export const seedFolders = async (page: import('@playwright/test').Page) => {
+export const seedFolders = async (page: Page) => {
   await fsWrite(page, '/notes/a.md', '# A doc\n');
   await fsWrite(page, '/notes/pic.png', 'binary-ish');
   await fsWrite(page, '/notes/zzz.txt', 'plain');
@@ -386,7 +386,7 @@ export const seedFolders = async (page: import('@playwright/test').Page) => {
  * enter it through the armed Open Folder… hook via the shim's command seam
  * (there is no hotkey or DOM button for openFolder in menu-less runs).
  */
-export const openFolderRoot = async (page: import('@playwright/test').Page, path = '/notes') => {
+export const openFolderRoot = async (page: Page, path = '/notes') => {
   await page.evaluate((p) => {
     window.__mmfs!.nextFolderPath = p;
     window.__mmDispatch!('openFolder');
@@ -395,13 +395,13 @@ export const openFolderRoot = async (page: import('@playwright/test').Page, path
 };
 
 /** Set the folder root to /notes through the armed Open Folder… hook. */
-export const openNotesRoot = async (page: import('@playwright/test').Page) => {
+export const openNotesRoot = async (page: Page) => {
   await openFolderRoot(page);
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 };
 
 /** Type `text` at the top of the buffer in edit mode, then back to preview. */
-export const dirtyActiveDoc = async (page: import('@playwright/test').Page, text: string) => {
+export const dirtyActiveDoc = async (page: Page, text: string) => {
   await page.keyboard.press('Control+e');
   await page.getByTestId('editor').locator('.cm-line').first().click();
   await page.keyboard.type(text);
@@ -411,7 +411,7 @@ export const dirtyActiveDoc = async (page: import('@playwright/test').Page, text
 
 /** Open `path` (fsWrite'd) in edit mode and wait for the default grid. */
 export async function openGridDoc(
-  page: import('@playwright/test').Page,
+  page: Page,
   path: string,
   doc: string,
   probe: string
@@ -426,7 +426,7 @@ export async function openGridDoc(
 }
 
 /** Put the caret `rights` characters into the line containing `lineText`. */
-export async function caretInto(page: import('@playwright/test').Page, lineText: string, rights: number): Promise<void> {
+export async function caretInto(page: Page, lineText: string, rights: number): Promise<void> {
   const editor = page.getByTestId('editor');
   await editor.locator('.cm-line').filter({ hasText: lineText }).first().click();
   await page.keyboard.press('Home');
@@ -434,7 +434,7 @@ export async function caretInto(page: import('@playwright/test').Page, lineText:
 }
 
 /** Center of the nth visible occurrence of `word` inside `paneSel`; click it. */
-export const clickWord = async (page: import('@playwright/test').Page, paneSel: string, word: string, nth = 0) => {
+export const clickWord = async (page: Page, paneSel: string, word: string, nth = 0) => {
   const pt = await page.evaluate(
     ([sel, w, n]) => {
       const pane = document.querySelector(sel as string)!;

@@ -154,7 +154,7 @@ record('version lock-step', Date.now() - lockStepStart);
 // 135, not 136: E135 (pane-slide easing-curve sampling) was removed on main
 // (cd37b03, owner call — chronically load-flaky) after the split was specced.
 const E2E_TEST_FLOOR = 135;
-console.log('\n=== validate: e2e test-count floor (desktop shim) ===');
+console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {
   cwd: root,
@@ -186,7 +186,7 @@ if (e2eCollected < E2E_TEST_FLOOR) {
   process.exit(1);
 }
 console.log(`Playwright collected ${e2eCollected} desktop-shim tests (floor ${E2E_TEST_FLOOR})`);
-record('e2e test-count floor', Date.now() - floorStart);
+record('e2e test-count floor (desktop shim)', Date.now() - floorStart);
 
 const steps = [
   { name: 'typecheck', cmd: 'npx', args: ['tsc', '--noEmit'] },
@@ -204,7 +204,7 @@ const QUICK_STEPS = new Set(['typecheck', 'unit tests', 'e2e tests (desktop shim
 const runSteps = QUICK ? steps.filter((s) => QUICK_STEPS.has(s.name)) : steps;
 
 console.log(
-  `\nvalidate${QUICK ? ':quick' : ''} — ${runSteps.length + 1} steps: ${['version lock-step', ...runSteps.map((s) => s.name)].join(' → ')}`
+  `\nvalidate${QUICK ? ':quick' : ''} — ${runSteps.length + 2} steps: ${['version lock-step', 'e2e test-count floor (desktop shim)', ...runSteps.map((s) => s.name)].join(' → ')}`
 );
 
 for (const step of runSteps) {
