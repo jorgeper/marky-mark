@@ -111,11 +111,16 @@ function parseRuns(file, content, mtimeMs, timings) {
     let endedAt = null;
     if (completeLine && startedAt && lastStamp) endedAt = resolveClock(startedAt.toISOString(), lastStamp);
 
-    // Match a timings entry: same phase, entry start (ts - ms) within 15s of run start.
+    // Match a timings entry: same phase AND same issue, entry start (ts - ms)
+    // within 15s of run start. The issue check is load-bearing: parallel lanes
+    // start the same phase seconds apart, so on phase+time alone a lane that is
+    // still running adopts its sibling's finished entry and reports that
+    // sibling's status and duration.
     let timing = null;
     if (startedAt) {
       timing = timings.find((t) => {
         if (t.phase !== meta.role) return false;
+        if (String(t.issue ?? '') !== String(meta.issue ?? '')) return false;
         const entryStart = new Date(t.ts).getTime() - (t.ms || 0);
         return Math.abs(entryStart - startedAt.getTime()) < 15000;
       }) || null;
@@ -306,11 +311,27 @@ const ORCH_LOG = path.join(LOG_DIR, 'main-orchestrator.log');
 // gitignored — no main-repo change needed to keep the lock out of git.
 const LOCK_FILE = path.join(LOG_DIR, 'orchestrator.lock');
 
+// flock(1) exists on the Linux VPS (where the lock must cross a container
+// boundary) but not on macOS. On a Mac there IS no container boundary — the
+// panel, the orchestrator, and pgrep all share one machine — so the PID-file
+// + pgrep signals below are sufficient and the lock layer just switches off.
+const HAS_FLOCK = (() => {
+  try {
+    execFileSync('flock', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
 // True when anyone holds the lock — including a run on the host, which
-// pgrep in this container cannot see. Fails closed: if flock is missing or
-// the lock path is unwritable we report "held" and refuse to start, which
-// is the safe direction for a guard against concurrent orchestrators.
+// pgrep in this container cannot see. Fails closed WHERE FLOCK EXISTS: if
+// the probe errors we report "held" and refuse to start, the safe direction
+// for a guard against concurrent orchestrators. Without flock(1) (macOS)
+// the cross-container case cannot arise, so the check simply defers to
+// pgrep/PID-file.
 function lockHeld() {
+  if (!HAS_FLOCK) return false;
   try {
     execFileSync('flock', ['-n', LOCK_FILE, '-c', 'true'], { stdio: 'ignore' });
     return false;
@@ -359,7 +380,12 @@ function startOrchestrator() {
   // flock holds the lock for as long as npm lives, so the host-side loop
   // skips its turn instead of running a second orchestrator over the same
   // worktrees. -n means "give up now" rather than queue behind the holder.
-  const child = spawn('flock', ['-n', LOCK_FILE, 'npm', 'run', 'sandcastle'], { cwd: REPO, detached: true, stdio: ['ignore', fd, fd] });
+  // Without flock(1) (macOS) spawn npm directly — pgrep/PID-file still
+  // guard against a double start on a single machine.
+  const [cmd, args] = HAS_FLOCK
+    ? ['flock', ['-n', LOCK_FILE, 'npm', 'run', 'sandcastle']]
+    : ['npm', ['run', 'sandcastle']];
+  const child = spawn(cmd, args, { cwd: REPO, detached: true, stdio: ['ignore', fd, fd] });
   fs.closeSync(fd);
   child.unref();
   fs.writeFileSync(PID_FILE, JSON.stringify({ pid: child.pid, startedAt }));
@@ -434,16 +460,16 @@ async function fetchPrs() {
 
 // ---------- docs ----------
 
-// Long-form write-ups live in the repo at docs/archive. The HTML ones are
+// Long-form write-ups live in the repo at archive/articles. The HTML ones are
 // self-contained single files, so they are served straight off disk.
-const DOCS_DIR = path.join(REPO, 'docs', 'archive');
+const DOCS_DIR = path.join(REPO, 'archive', 'articles');
 
 function listDocs() {
   let names;
   try {
     names = fs.readdirSync(DOCS_DIR).filter((n) => n.endsWith('.html'));
   } catch {
-    return []; // no docs/archive in this checkout
+    return []; // no archive/articles in this checkout
   }
   return names
     .map((name) => {
@@ -540,7 +566,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/docs') {
       return json(res, { docs: listDocs() });
     }
-    // Articles from docs/archive. basename() strips any traversal attempt.
+    // Articles from archive/articles. basename() strips any traversal attempt.
     if (url.pathname.startsWith('/docs/')) {
       const name = path.basename(decodeURIComponent(url.pathname.slice('/docs/'.length)));
       const full = path.join(DOCS_DIR, name);
@@ -563,6 +589,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`control panel on http://0.0.0.0:${PORT}  repo=${REPO}${KEY ? '  (key required)' : ''}`);
-});
+// Only listen when run as a program — `require`ing this file (the unit test
+// does) must not open a port.
+if (require.main === module) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`control panel on http://0.0.0.0:${PORT}  repo=${REPO}${KEY ? '  (key required)' : ''}`);
+  });
+}
+
+module.exports = { parseRuns };

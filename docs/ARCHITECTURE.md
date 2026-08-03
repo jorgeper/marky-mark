@@ -888,7 +888,11 @@ mode is active, in which case local work is never clobbered.
   insert, U3 prefix/suffix disambiguation among 3+ duplicates, U4 fuzzy after
   in-anchor typos, U5 orphaning), theme metadata/rejection (U6, U7), and
   sidecar round-trip + md-with-comments interop fixture (U8).
-- **Playwright** (`tests/e2e/app.spec.ts`): drives the real UI through the
+- **Playwright** (`tests/e2e/*.spec.ts` except `web.spec.ts` — one file per
+  feature area: `shell-and-menus`, `settings-and-themes`, `editor`,
+  `comments`, `documents`, `folder-tree`, `tabs-and-workspace`, `smart-edit`,
+  `tables`, `images`, `split-view`, `reading-and-export`, with the shared
+  setup in `helpers.ts`/`fixtures.ts`): drives the real UI through the
   browser shim (E1–E16): rendering, theme picking/persistence via Settings,
   drop-in user themes, the edit/preview swap, save, hotkey remapping, the
   overflow menu, the full-path tooltip, the full comment lifecycle including

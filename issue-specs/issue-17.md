@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-17.md are satisfied for issue #17, with
+All acceptance criteria in issue-specs/issue-17.md are satisfied for issue #17, with
 evidence visible in the session: `docs/COMMENT-FORMAT.md` is published and is
 complete enough for an outside implementer to build a reader/writer against
 without reading this codebase — the 1.0.0 payload schema with a minimum-version

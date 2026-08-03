@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-19.md are satisfied for issue #19, with
+All acceptance criteria in issue-specs/issue-19.md are satisfied for issue #19, with
 evidence visible in the session: `.github/workflows/updater-manifest.yml`
 carries a fixed `concurrency` group with `cancel-in-progress: false`, so the
 duplicate `published`/`prereleased` events a single publish fires queue instead

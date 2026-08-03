@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-8.md are satisfied for issue #8, with
+All acceptance criteria in issue-specs/issue-8.md are satisfied for issue #8, with
 evidence visible in the session: the folder-pane and split-preview open/close
 slides run on a shared, expressive acceleration/deceleration curve applied to
 every transition that participates in a slide (transform *and* width, so the

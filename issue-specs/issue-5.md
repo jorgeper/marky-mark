@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-5.md are satisfied for issue #5, with evidence visible in the session: the folder pane opens and closes as a horizontal slide from/toward the left edge using the app's existing motion language (a ~180ms ease transform transition with `will-change: transform`, as `.toolbar-shell` does) with the pane kept in the DOM through the exit transition, the split preview slides the same way from/toward the right edge, `prefers-reduced-motion: reduce` makes both panes switch instantly with no slide, every toggle surface (chevron, menu, hotkey, Settings checkbox) produces the same animation with end state and persistence identical to an instant toggle, and `npm run validate:quick` passes in the implementer's session.
+All acceptance criteria in issue-specs/issue-5.md are satisfied for issue #5, with evidence visible in the session: the folder pane opens and closes as a horizontal slide from/toward the left edge using the app's existing motion language (a ~180ms ease transform transition with `will-change: transform`, as `.toolbar-shell` does) with the pane kept in the DOM through the exit transition, the split preview slides the same way from/toward the right edge, `prefers-reduced-motion: reduce` makes both panes switch instantly with no slide, every toggle surface (chevron, menu, hotkey, Settings checkbox) produces the same animation with end state and persistence identical to an instant toggle, and `npm run validate:quick` passes in the implementer's session.
 
 ## Acceptance criteria
 

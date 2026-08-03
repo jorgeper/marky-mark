@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-16.md are satisfied for issue #16, with
+All acceptance criteria in issue-specs/issue-16.md are satisfied for issue #16, with
 evidence visible in the session: a document whose trailer or sidecar declares a
 version this build may not interpret still opens, renders and edits normally
 while that store's bytes survive an open → edit → save round-trip

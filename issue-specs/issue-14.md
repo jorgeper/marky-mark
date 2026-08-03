@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-14.md are satisfied for issue #14, with
+All acceptance criteria in issue-specs/issue-14.md are satisfied for issue #14, with
 evidence visible in the session: a pure `src/lib/commentFormat.ts` module
 declares the `1.0.0` comment-format version literal and a single migration
 chokepoint that maps a raw parsed payload plus its declared `version` to either
