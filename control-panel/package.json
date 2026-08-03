@@ -1,0 +1,9 @@
+{
+  "name": "marky-mark-control-panel",
+  "private": true,
+  "version": "0.1.0",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

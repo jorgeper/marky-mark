@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>Marky Mark — Control</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🏗️</text></svg>">
+</head>
+<body>
+<header>
+  <div class="brand">🏗️ Marky Mark <span class="muted">control</span>
+    <button id="sc-btn" hidden></button>
+  </div>
+  <nav id="tabs">
+    <button data-tab="agents" class="active">Agents <span id="running-badge" class="badge" hidden></span></button>
+    <button data-tab="issues">Issues</button>
+    <button data-tab="prs">PRs</button>
+  </nav>
+</header>
+
+<main>
+  <section id="view-agents" class="view">
+    <div class="toolbar">
+      <div class="chips" id="agent-filter">
+        <button data-f="all" class="chip active">All</button>
+        <button data-f="running" class="chip">Running</button>
+        <button data-f="failed" class="chip">Failed</button>
+        <button data-f="hidefail" class="chip">Hide failed</button>
+      </div>
+      <select id="page-size">
+        <option value="10">10 / page</option>
+        <option value="20" selected>20 / page</option>
+        <option value="50">50 / page</option>
+      </select>
+    </div>
+    <div id="agent-list" class="list"><div class="empty">Loading…</div></div>
+    <div class="pager" id="agent-pager" hidden>
+      <button id="pg-prev">‹ Prev</button>
+      <span id="pg-info"></span>
+      <button id="pg-next">Next ›</button>
+    </div>
+  </section>
+
+  <section id="view-issues" class="view" hidden>
+    <div id="issue-list" class="list"><div class="empty">Loading…</div></div>
+  </section>
+
+  <section id="view-prs" class="view" hidden>
+    <div id="pr-list" class="list"><div class="empty">Loading…</div></div>
+  </section>
+
+  <section id="view-log" class="view" hidden>
+    <div class="log-head">
+      <button id="log-back">‹ Back</button>
+      <div id="log-title"></div>
+      <span id="log-links"></span>
+      <span id="log-live" class="badge live" hidden>live</span>
+    </div>
+    <div id="log-summary" hidden></div>
+    <pre id="log-body">Loading…</pre>
+  </section>
+</main>
+
+<footer id="status-line"></footer>
+<script src="/app.js"></script>
+</body>
+</html>
