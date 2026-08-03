@@ -20,7 +20,7 @@
  * `VALIDATION: ALL PASSED` counts as release evidence. The full step list
  * below is untouched.
  */
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -55,11 +55,48 @@ function printTimeline(headline) {
   console.log(`  ${'TOTAL'.padEnd(width)}  ${fmt(Date.now() - startedAt).padStart(7)}`);
 }
 
+// --- cross-lane e2e mutex --------------------------------------------------
+// Several Sandcastle lanes validating at once oversubscribe the 2-core VPS:
+// two concurrent Playwright suites make every timing-sensitive test flaky,
+// and each flake used to trigger a full gate re-run. The e2e steps therefore
+// serialize machine-wide. The lock lives in the repo's COMMON git dir — the
+// one host inode that the main checkout, every worktree, and every sandbox
+// container share (each lane bind-mounts it or git would not work there), so
+// one flock covers all of them: flock locks the inode and the kernel is
+// shared across containers. flock(1) releases on process death, so a killed
+// gate never wedges the lock.
+function e2eLockPath() {
+  try {
+    const common = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd: root,
+      encoding: 'utf8',
+    }).trim();
+    execFileSync('flock', ['--version'], { stdio: 'ignore' });
+    return path.join(path.resolve(root, common), 'sandcastle-e2e.lock');
+  } catch {
+    return null; // no git or no flock(1): run unserialized rather than fail
+  }
+}
+
 /** Run one step with a live heartbeat, returning its exit status. */
 function runStep(step) {
+  let { cmd, args } = step;
+  if (step.mutex) {
+    const lock = e2eLockPath();
+    if (lock) {
+      // Non-blocking probe purely for the log line: a lane that has to wait
+      // should say so, not sit silent behind another lane's 10-minute suite.
+      try {
+        execFileSync('flock', ['-n', lock, 'true'], { stdio: 'ignore' });
+      } catch {
+        console.log(`--- validate: ${step.name} waiting for the machine-wide e2e lock (another validation run holds it) ---`);
+      }
+      [cmd, args] = ['flock', [lock, cmd, ...args]];
+    }
+  }
   console.log(`\n=== validate: ${step.name} === (start ${elapsed()})`);
   const stepStart = Date.now();
-  const child = spawn(step.cmd, step.args, { cwd: step.cwd ?? root, env, stdio: 'inherit' });
+  const child = spawn(cmd, args, { cwd: step.cwd ?? root, env, stdio: 'inherit' });
   const beat = setInterval(
     () => console.log(`--- validate: ${step.name} still running (${fmt(Date.now() - stepStart)}) ---`),
     HEARTBEAT_MS
@@ -107,9 +144,9 @@ record('version lock-step', Date.now() - lockStepStart);
 const steps = [
   { name: 'typecheck', cmd: 'npx', args: ['tsc', '--noEmit'] },
   { name: 'unit tests', cmd: 'npm', args: ['run', 'test:unit'] },
-  { name: 'e2e tests (desktop shim)', cmd: 'npm', args: ['run', 'test:e2e'] },
+  { name: 'e2e tests (desktop shim)', cmd: 'npm', args: ['run', 'test:e2e'], mutex: true },
   { name: 'web single-file build', cmd: 'npm', args: ['run', 'build:web'] },
-  { name: 'e2e tests (web, dist-web)', cmd: 'npm', args: ['run', 'test:e2e:web'] },
+  { name: 'e2e tests (web, dist-web)', cmd: 'npm', args: ['run', 'test:e2e:web'], mutex: true },
   { name: 'desktop bundle build', cmd: 'npm', args: ['run', 'build'] },
   { name: 'cargo check', cmd: 'cargo', args: ['check'], cwd: path.join(root, 'src-tauri') },
 ];
