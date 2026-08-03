@@ -8,10 +8,10 @@ tag=vX.Y.Z` builds the NSIS installer against the tag, appends it to the
 same release, and refreshes SHA256SUMS.txt + latest.json (re-advancing
 the updater pointer if already published). Versions are strict semver; the
 pre-release identifier (`0.2.0-alpha.1`) is **never stripped**. The version
-lives in `package.json`, `src-tauri/tauri.conf.json`,
-`src-tauri/Cargo.toml`, and the README's alpha banner (`README.md`), and
-moves only via `npm run release:prepare` — which rewrites all four, and all
-four are checked against each other by `validate`'s version lock-step. Tags
+lives in four files — `package.json`, `src-tauri/tauri.conf.json`,
+`src-tauri/Cargo.toml`, and the README's alpha banner (`README.md`) — and
+moves only via `npm run release:prepare`, which rewrites all four.
+`validate`'s version lock-step holds the four to the same version. Tags
 mirror the files (`v` + version) — the files are the source of truth, not
 `git describe`.
 

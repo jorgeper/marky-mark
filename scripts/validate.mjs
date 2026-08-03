@@ -2,7 +2,7 @@
 /**
  * Validation harness (SPEC §8 + SPEC2 §7 + SPEC10 §1.3). Runs, in order,
  * failing on the first non-zero exit:
- *   1. version lock-step check (three version files agree, valid semver)
+ *   1. version lock-step check (four version files agree, valid semver)
  *   2. tsc --noEmit
  *   3. unit tests (Vitest, U1–U21)
  *   4. desktop e2e (Playwright, browser platform shim, E1–E41 + E45–E50)
@@ -34,11 +34,11 @@ const env = {
 };
 
 // Version lock-step (SPEC10 §1.3, extended by issue #22): the three release
-// files and the version the README advertises must agree on one valid semver,
-// pre-release identifier intact. `readmeVersion` is the same pure transform
-// release:prepare writes with, so the gate checks exactly what the release
-// path produces; a README with no recognisable banner extracts as null and
-// fails here rather than passing vacuously.
+// files and the README's alpha banner must agree on one valid semver,
+// pre-release identifier intact. The banner is read with release:prepare's own
+// `readmeVersion`, so the gate checks exactly what the release path writes —
+// and a README with no recognisable banner extracts as null, which fails the
+// set-of-one check rather than passing vacuously.
 console.log('=== validate: version lock-step ===');
 const { isValidSemver, readmeVersion } = await import('./release-prepare.mjs');
 const versions = {

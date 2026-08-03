@@ -51,18 +51,25 @@ describe('the README advertises the shipping version (issue #22)', () => {
 
   test('U149: release:prepare rewrites only the banner version, and rerunning it is a no-op', () => {
     const readme = repoFile('README.md');
+    const { version } = JSON.parse(repoFile('package.json')) as { version: string };
     const bumped = setReadmeVersion(readme, '9.9.9-alpha.1');
 
+    // A pre-release identifier is written verbatim, never stripped — and a
+    // version without one replaces it just as cleanly.
     expect(readmeVersion(bumped)).toBe('9.9.9-alpha.1');
-    // The pre-release identifier survives verbatim; the rest of the file does too.
     expect(setReadmeVersion(bumped, '9.9.9')).toContain('pre-release software (`9.9.9`)');
+
+    // The banner is the only line that moves: the download table's `<version>`
+    // rows and the /releases/latest links are left exactly as they were.
     const before = readme.split('\n');
-    expect(bumped.split('\n').filter((line, i) => line !== before[i])).toHaveLength(1);
+    const changed = bumped.split('\n').filter((line, i) => line !== before[i]);
+    expect(changed).toHaveLength(1);
     expect(bumped).toContain('Marky Mark_<version>_x64-setup.exe');
     expect(bumped).toContain('/releases/latest');
 
-    // Rerun with the version already in place: byte-identical, so the
-    // release-prepare no-op path stays a no-op.
-    expect(setReadmeVersion(readme, readmeVersion(readme)!)).toBe(readme);
+    // Rerun with the version already in place (U148 pins the banner to
+    // package.json's): byte-identical, so release-prepare's no-op path stays a
+    // no-op.
+    expect(setReadmeVersion(readme, version)).toBe(readme);
   });
 });
