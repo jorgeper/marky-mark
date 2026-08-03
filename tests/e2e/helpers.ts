@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { expect } from './fixtures';
 
@@ -18,22 +20,45 @@ export async function openWelcomeViaHelp(page: Page): Promise<void> {
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
 }
 
-/** Fresh app: wipe the shim fs, land on the empty state, open welcome via Help. */
-export async function freshApp(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.evaluate(() => localStorage.clear());
-  await page.reload(); // fresh boot — the vfs re-seeds its fixtures
-  await expect(page.getByTestId('empty-hint')).toBeVisible(); // shim ready
+// The shim's localStorage key and its fixture seed (src/platform/browser.ts:14
+// and :112 — the vfs seeds /docs/<name> from the bundled fixtures whenever the
+// key is absent). Read once per worker process, not per test.
+const LS_KEY = 'marky-mark.fs.v1';
+const SEED_STORE = (() => {
+  const dir = path.resolve(import.meta.dirname, '../../fixtures');
   // Pin the pane-content floor for the suite: the shipped default (768px)
   // would hold both split panes under a horizontal scrollbar at this
   // suite's 1280px viewport and skew every geometry-based assertion.
-  // (Written after the fresh boot: __mmfs.write flushes the whole in-memory
-  // store, so writing before the reload would resurrect the cleared state.)
-  await page.evaluate(() =>
-    window.__mmfs!.write('/config/settings.json', JSON.stringify({ paneMinWidth: 240 }))
+  const store: Record<string, string> = {
+    '/config/settings.json': JSON.stringify({ paneMinWidth: 240 }),
+  };
+  for (const name of readdirSync(dir).filter((f) => f.endsWith('.md'))) {
+    store[`/docs/${name}`] = readFileSync(path.join(dir, name), 'utf8');
+  }
+  return JSON.stringify(store);
+})();
+
+/** Fresh app: wipe the shim fs, land on the empty state, open welcome via Help. */
+export async function freshApp(page: Page): Promise<void> {
+  // One navigation, not three: the store (fixtures + the pinned settings) is
+  // written by an init script that runs before the app's first script, so
+  // there is nothing to reload into place afterwards. The sessionStorage
+  // sentinel makes it a once-per-page-context seed — later reloads inside a
+  // test are real restarts against whatever state that test left behind.
+  await page.addInitScript(
+    ([key, seed]) => {
+      if (sessionStorage.getItem('mm-e2e-seeded')) return;
+      localStorage.clear();
+      localStorage.setItem(key, seed);
+      sessionStorage.setItem('mm-e2e-seeded', '1');
+    },
+    [LS_KEY, SEED_STORE] as const
   );
-  await page.reload();
-  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.goto('/');
+  // Longer than the default 5s: this is now the FIRST paint of the page
+  // context, so it carries the dev server's cold module transform that the
+  // old three-navigation boot hid inside goto()'s navigation timeout.
+  await expect(page.getByTestId('empty-hint')).toBeVisible({ timeout: 20_000 }); // shim ready
   await openWelcomeViaHelp(page);
 }
 

@@ -20,13 +20,60 @@
  * `VALIDATION: ALL PASSED` counts as release evidence. The full step list
  * below is untouched.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const QUICK = process.argv.includes('--quick');
+
+// --- progress reporting ---------------------------------------------------
+// Agents run this behind `| tail -25` or `> log 2>&1 &`, so a run that prints
+// nothing for ten minutes is indistinguishable from a hung one. Every step is
+// stamped with elapsed time, long steps emit a heartbeat, and the run ends
+// with a step-by-step timing table compact enough to survive `tail`.
+const startedAt = Date.now();
+const HEARTBEAT_MS = 30_000;
+const timings = [];
+
+function fmt(ms) {
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(ms / 60_000);
+  return `${m}m${String(Math.round((ms % 60_000) / 1000)).padStart(2, '0')}s`;
+}
+const elapsed = () => `+${fmt(Date.now() - startedAt)}`;
+
+function record(name, ms) {
+  timings.push({ name, ms });
+}
+
+function printTimeline(headline) {
+  const width = Math.max(...timings.map((t) => t.name.length), 12);
+  console.log(`\n${headline}`);
+  for (const t of timings) console.log(`  ${t.name.padEnd(width)}  ${fmt(t.ms).padStart(7)}`);
+  console.log(`  ${'TOTAL'.padEnd(width)}  ${fmt(Date.now() - startedAt).padStart(7)}`);
+}
+
+/** Run one step with a live heartbeat, returning its exit status. */
+function runStep(step) {
+  console.log(`\n=== validate: ${step.name} === (start ${elapsed()})`);
+  const stepStart = Date.now();
+  const child = spawn(step.cmd, step.args, { cwd: step.cwd ?? root, env, stdio: 'inherit' });
+  const beat = setInterval(
+    () => console.log(`--- validate: ${step.name} still running (${fmt(Date.now() - stepStart)}) ---`),
+    HEARTBEAT_MS
+  );
+  return new Promise((resolve) => {
+    child.on('exit', (code) => {
+      clearInterval(beat);
+      const ms = Date.now() - stepStart;
+      record(step.name, ms);
+      console.log(`=== validate: ${step.name} ${code === 0 ? 'OK' : `FAILED (exit ${code})`} in ${fmt(ms)} ===`);
+      resolve(code ?? 1);
+    });
+  });
+}
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const env = {
   ...process.env,
@@ -39,7 +86,8 @@ const env = {
 // `readmeVersion`, so the gate checks exactly what the release path writes —
 // and a README with no recognisable banner extracts as null, which fails the
 // set-of-one check rather than passing vacuously.
-console.log('=== validate: version lock-step ===');
+console.log(`=== validate: version lock-step === (start ${elapsed()})`);
+const lockStepStart = Date.now();
 const { isValidSemver, readmeVersion } = await import('./release-prepare.mjs');
 const versions = {
   'package.json': JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version,
@@ -54,6 +102,7 @@ if (distinct.size !== 1 || !isValidSemver(versions['package.json'])) {
   process.exit(1);
 }
 console.log(`version ${versions['package.json']} in lock-step across package.json, tauri.conf.json, Cargo.toml, README.md`);
+record('version lock-step', Date.now() - lockStepStart);
 
 const steps = [
   { name: 'typecheck', cmd: 'npx', args: ['tsc', '--noEmit'] },
@@ -70,20 +119,29 @@ const steps = [
 const QUICK_STEPS = new Set(['typecheck', 'unit tests', 'e2e tests (desktop shim)']);
 const runSteps = QUICK ? steps.filter((s) => QUICK_STEPS.has(s.name)) : steps;
 
+console.log(
+  `\nvalidate${QUICK ? ':quick' : ''} — ${runSteps.length + 1} steps: ${['version lock-step', ...runSteps.map((s) => s.name)].join(' → ')}`
+);
+
 for (const step of runSteps) {
-  console.log(`\n=== validate: ${step.name} ===`);
-  const res = spawnSync(step.cmd, step.args, {
-    cwd: step.cwd ?? root,
-    env,
-    stdio: 'inherit',
-  });
-  if (res.status !== 0) {
+  const status = await runStep(step);
+  if (status !== 0) {
+    printTimeline(`VALIDATION FAILED at step: ${step.name} — timeline:`);
+    // Point the reader (usually an agent) at the cheap next move: iterate on
+    // just the failures, and re-run the whole gate only once they pass.
+    if (step.name === 'e2e tests (desktop shim)') {
+      console.error(
+        '\nTip: `npm run test:e2e:failed` re-runs ONLY the tests that just failed.' +
+          ' Iterate there; re-run the full gate once they are green.'
+      );
+    }
     console.error(`\nVALIDATION FAILED at step: ${step.name}`);
-    process.exit(res.status ?? 1);
+    process.exit(status);
   }
 }
 
 if (QUICK) {
+  printTimeline('QUICK VALIDATION timeline:');
   console.log('\nQUICK VALIDATION: ALL PASSED');
   process.exit(0);
 }
@@ -138,4 +196,5 @@ console.log(
   `static bundle scan: ${bundleTargets.length} bundle files — no XMLHttpRequest/WebSocket/sendBeacon/EventSource call sites; fetch( count ${fetchCount} matches allowlist (${FETCH_ALLOWLIST})`,
 );
 
+printTimeline('VALIDATION timeline:');
 console.log('\nVALIDATION: ALL PASSED');
