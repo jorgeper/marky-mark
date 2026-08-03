@@ -15,8 +15,8 @@ import {
   type CommentFormatRead,
 } from '../../src/lib/commentFormat';
 import { attachEmbedded, mergeComments, serializeTrailer, splitEmbedded } from '../../src/lib/embedded';
-import { parseSidecar, readSidecar, serializeSidecar } from '../../src/lib/sidecar';
-import type { CommentData } from '../../src/lib/anchoring';
+import { parseSidecar, readSidecar, serializeSidecar, sidecarPathFor } from '../../src/lib/sidecar';
+import { CONTEXT_LENGTH, type CommentData } from '../../src/lib/anchoring';
 import { alpha4ParseSidecar, alpha4SplitEmbedded } from '../frozen/alpha4-reader';
 
 const seamSource = readFileSync(
@@ -607,5 +607,100 @@ describe('unreadable stores keep their bytes (PRD 004 Reqs 14/39 — issue #16)'
     // re-pointed at src/.
     expect(alpha4ParseSidecar(JSON.stringify({ version: '2.0.0', comments }))).toEqual(comments);
     expect(readSidecar(JSON.stringify({ version: '2.0.0', comments })).readable).toBe(false);
+  });
+});
+
+describe('the published comment-format specification (docs/COMMENT-FORMAT.md — issue #17)', () => {
+  test('U147: PRD Reqs 25/32–37 — docs/COMMENT-FORMAT.md still describes this build', () => {
+    // The drift guard for the published spec (issue #17): every claim below is
+    // read out of the document and checked against the code, so the document
+    // cannot rot while the format moves. Reading a repo file from a unit test
+    // follows tests/unit/licenses.test.ts (vitest runs in the node env).
+    const doc = readFileSync(
+      fileURLToPath(new URL('../../docs/COMMENT-FORMAT.md', import.meta.url)),
+      'utf8',
+    );
+
+    /** The body of the first fenced block of `lang` after `heading`. */
+    function fenced(heading: string, lang: string, skip = 0): string {
+      const from = doc.indexOf(heading);
+      expect(from, heading).toBeGreaterThan(-1);
+      const re = new RegExp(`\`\`\`${lang}\\n([\\s\\S]*?)\\n\`\`\``, 'g');
+      re.lastIndex = from;
+      for (let i = 0; i < skip; i++) expect(re.exec(doc), heading).not.toBeNull();
+      const m = re.exec(doc);
+      if (!m) throw new Error(`no ${lang} block after ${heading}`);
+      return m[1];
+    }
+
+    /** The `| \`key\` | … | min version | …` rows of the table under `heading`. */
+    function schemaTable(heading: string): { keys: string[]; minVersions: string[] } {
+      const from = doc.indexOf(heading);
+      expect(from, heading).toBeGreaterThan(-1);
+      const section = doc.slice(from, doc.indexOf('\n### ', from + 1));
+      const keys: string[] = [];
+      const minVersions: string[] = [];
+      for (const row of section.matchAll(/^\| `([^`]+)`[^|]*\|[^|]*\|[^|]*\|\s*([^|\s]+)\s*\|/gm)) {
+        keys.push(row[1]);
+        minVersions.push(row[2]);
+      }
+      expect(keys.length, heading).toBeGreaterThan(0);
+      return { keys, minVersions };
+    }
+
+    // 1. The version the document presents, and its first changelog entry.
+    expect(/\*\*Current format version: `([^`]+)`\*\*/.exec(doc)?.[1]).toBe(
+      SUPPORTED_COMMENT_FORMAT_VERSION,
+    );
+    const changelog = doc.slice(doc.indexOf('## Changelog'));
+    expect(/^### (\d+\.\d+\.\d+)/m.exec(changelog)?.[1]).toBe(BASELINE_COMMENT_FORMAT_VERSION);
+    // And it says the format version is not the app version (Req 36).
+    expect(doc).toMatch(/independent of the Marky Mark application\s*\n?version/);
+
+    // 2. The schema tables list exactly the keys this build knows, and every
+    //    row records the minimum version that field requires (Req 25).
+    for (const [heading, keys] of [
+      ['### The payload object', ['version', 'comments']],
+      ['### The comment object', COMMENT_KEYS],
+      ['### The reply object', REPLY_KEYS],
+      ['### The anchor object', ANCHOR_KEYS],
+    ] as const) {
+      const table = schemaTable(heading);
+      expect(table.keys, heading).toEqual([...keys]);
+      expect(table.minVersions, heading).toEqual(keys.map(() => BASELINE_COMMENT_FORMAT_VERSION));
+    }
+    // The anchor's documented context length is the real one.
+    expect(doc).toContain(`Up to ${CONTEXT_LENGTH} characters of context`);
+
+    // 3. The worked example parses to the comments the document claims, and
+    //    is byte-exactly what this build writes for them — in both containers.
+    const example = fenced('## A complete worked example', 'json');
+    const read = expectSupported(readCommentPayload(JSON.parse(example) as unknown));
+    expect(read.version).toBe(SUPPORTED_COMMENT_FORMAT_VERSION);
+    expect(read.comments.map((c) => c.id)).toEqual(['c-9f2a']);
+    expect(read.comments[0].thread.map((r) => r.id)).toEqual(['r-41c8']);
+    expect(read.comments[0].anchor.exact).toBe('signed');
+    expect(read.comments[0].thread[0].body).toContain('-->'); // the escape, restored
+    expect(serializeSidecar(read.comments)).toBe(`${example}\n`);
+
+    const trailerBlock = fenced('## A complete worked example', 'text', 1);
+    expect(serializeTrailer(read.comments)).toBe(`\n${trailerBlock}\n`);
+
+    // 4. The frozen container strings are the real ones (Reqs 32/33).
+    const marker = /^<!-- (\S+)$/m.exec(trailerBlock)?.[1];
+    expect(marker).toBe('marky-mark-comments');
+    const legacy = /`(markimark-comments)`/.exec(doc)?.[1];
+    expect(legacy).toBe('markimark-comments');
+    const DOCTEXT = '# Notes\n';
+    for (const m of [marker, legacy]) {
+      const split = splitEmbedded(`${DOCTEXT}\n${trailerBlock.replace(marker!, m!)}\n`);
+      expect(split.hadTrailer, m).toBe(true);
+      expect(split.readable, m).toBe(true);
+      expect(split.content, m).toBe(DOCTEXT);
+      expect(split.comments, m).toEqual(read.comments);
+    }
+    const sidecarExample = /`([\w.-]+\.md)\.comments\.json`/.exec(doc);
+    expect(sidecarExample).not.toBeNull();
+    expect(sidecarPathFor(sidecarExample![1])).toBe(sidecarExample![0].replaceAll('`', ''));
   });
 });

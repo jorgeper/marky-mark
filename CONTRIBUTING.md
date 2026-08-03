@@ -62,9 +62,25 @@ npm run clean:app    # wipe every trace (app, data, prefs, caches) for a true fi
 2. If you add or update a dependency, run `npm run licenses` and commit the
    regenerated `THIRD-PARTY-NOTICES.md` (the allowlist guard fails the build
    on copyleft/unknown licenses).
-3. Keep the comment sidecar/trailer formats stable — they're interoperable
-   with the sibling `md-with-comments` project.
-4. Windows-specific work: see [docs/WINDOWS.md](docs/WINDOWS.md) (native and
+3. Keep the comment **containers** frozen — the `marky-mark-comments` trailer
+   marker, its permanent `markimark-comments` read alias, and the
+   `<doc>.comments.json` sidecar filename never change. They're interoperable
+   with the sibling `md-with-comments` project, and a renamed container is
+   invisible to a reader rather than refusable. The **payload inside** them may
+   evolve, under rule 4.
+4. If your PR changes the comment payload — adding, removing, renaming or
+   retyping a field, changing what a field means, or changing how the payload
+   is serialized — it must also:
+   - bump the payload's `version` per the MAJOR/MINOR/PATCH rules in
+     [docs/COMMENT-FORMAT.md](docs/COMMENT-FORMAT.md) (MAJOR: a previous reader
+     would misread it; MINOR: an optional addition it can ignore; PATCH: no
+     shape change at all), and
+   - append an entry to that document's changelog, and update the schema
+     tables — including the **minimum version** of any field you add.
+
+   A PR that touches `src/lib/commentFormat.ts`, `embedded.ts` or `sidecar.ts`
+   without either is not ready to merge.
+5. Windows-specific work: see [docs/WINDOWS.md](docs/WINDOWS.md) (native and
    cross-compile paths).
 
 ## Themes

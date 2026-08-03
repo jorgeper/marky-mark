@@ -244,6 +244,11 @@ Re-anchoring cascade on every load (`src/lib/anchoring.ts`, pure, DOM-free):
 
 ## Comment storage: sidecar or embedded (SPEC2 §5)
 
+The format itself — the versioned payload schema, both containers, the
+MAJOR/MINOR/PATCH rules, the reader and writer rules and the changelog — is
+published as [docs/COMMENT-FORMAT.md](COMMENT-FORMAT.md), which is the source
+of truth an outside implementer builds against; this section is the tour.
+
 `commentStorage` in Settings picks where comments persist:
 
 - **Sidecar** (desktop default): `foo.md.comments.json` next to the file —
@@ -252,7 +257,7 @@ Re-anchoring cascade on every load (`src/lib/anchoring.ts`, pure, DOM-free):
 
   ```
   <!-- marky-mark-comments
-  {"version":1,"comments":[ …sidecar schema… ]}
+  {"version":"1.0.0","comments":[ …sidecar schema… ]}
   -->
   ```
 
