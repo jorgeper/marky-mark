@@ -19,9 +19,9 @@ live in `review-checklist.md`; only Marky Mark-specific rules belong here.
   argument (a `Platform`, a callback, plain data) so it stays unit-testable.
 - Key combos are canonical combo strings (`Mod+E`, `Mod+Shift+S`) matched by
   `src/lib/hotkeys.ts` and turned into accelerators by `src/lib/menuSpec.ts`.
-  `Mod+` is the portable modifier (⌘ or Ctrl); a literal `Ctrl+` means
-  strict Ctrl on *every*
-  platform (SPEC36 §6.1), never "Ctrl because this is the Windows path".
+  `Mod+` is the portable modifier (⌘ or Ctrl); a literal `Ctrl+` means strict
+  Ctrl on *every* platform (SPEC36 §6.1), never "Ctrl because this is the
+  Windows path".
 
 ## Testing
 
