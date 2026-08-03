@@ -2256,7 +2256,7 @@ test('E77: image resize lives in the EDIT pane — a chip drag persists into the
   const chip = await stableBox(page.getByTestId('image-resize-wh'));
   await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
   await page.mouse.down();
-  await page.mouse.move(chip!.x + chip!.width / 2 - 60, chip!.y + chip!.height / 2, { steps: 5 });
+  await page.mouse.move(chip.x + chip.width / 2 - 60, chip.y + chip.height / 2, { steps: 5 });
   await page.mouse.up();
 
   // Arrow into the span: the raw rewrite reveals — the <img> form, a width,
@@ -5423,7 +5423,7 @@ test('E129: split edit — highlights + panel in the live pane, comment from a s
   });
   await selectPhraseInPane(page, '[data-testid="split-preview"] .doc', 'renders GitHub-flavored markdown');
   await expect(page.getByTestId('add-comment-btn')).toBeVisible();
-  await clickClearOfToolbar(page, page.getByTestId('add-comment-btn'));
+  await clickClearOfToolbar(page.getByTestId('add-comment-btn'));
   await expect(page.getByTestId('composer')).toBeVisible();
   await page.getByTestId('composer-input').fill('From the split pane');
   await page.getByTestId('composer-submit').click();

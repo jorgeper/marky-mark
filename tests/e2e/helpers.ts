@@ -115,7 +115,7 @@ export async function selectSpan(page: Page, phraseA: string, phraseB: string): 
  * catches both a transitioning shell and a genuinely mispositioned control —
  * loudly, at 4s, rather than as a 30s intercepted-click timeout.
  */
-export async function clickClearOfToolbar(page: Page, target: Locator): Promise<void> {
+export async function clickClearOfToolbar(target: Locator): Promise<void> {
   await expect(target).toBeVisible();
   const clearOfShell = () =>
     target.evaluate((el) => {
@@ -129,20 +129,24 @@ export async function clickClearOfToolbar(page: Page, target: Locator): Promise<
   await target.click();
 }
 
+/** The non-null shape of `Locator.boundingBox()`. */
+type Box = { x: number; y: number; width: number; height: number };
+
 /**
- * A `boundingBox()` that has stopped moving: two identical samples a frame
- * apart. Geometry read straight after a pane slide (`paneSlide.ts`, 180ms) or
+ * A `boundingBox()` that has stopped moving: the same rect on two consecutive
+ * polls. Geometry read straight after a pane slide (`paneSlide.ts`, 180ms) or
  * a ResizeObserver-driven relayout is otherwise a one-shot sample mid-flight,
  * and a drag started from it grabs the wrong pixel (issue #18).
  */
-export async function stableBox(target: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
-  let last = '';
+export async function stableBox(target: Locator): Promise<Box> {
+  let previous: string | null = null;
   await expect
     .poll(
       async () => {
-        const now = JSON.stringify(await target.boundingBox());
-        const settled = now !== 'null' && now === last;
-        last = now;
+        const box = await target.boundingBox();
+        const current = box && JSON.stringify(box); // null while detached/hidden
+        const settled = current !== null && current === previous;
+        previous = current;
         return settled;
       },
       { intervals: [50, 50, 50, 100, 100, 250, 250, 500], timeout: 5000 }
@@ -154,7 +158,7 @@ export async function stableBox(target: Locator): Promise<{ x: number; y: number
 /** Full comment flow: select, click the floating button, type, submit. */
 export async function addComment(page: Page, phrase: string, body: string): Promise<void> {
   await selectPhrase(page, phrase);
-  await clickClearOfToolbar(page, page.getByTestId('add-comment-btn'));
+  await clickClearOfToolbar(page.getByTestId('add-comment-btn'));
   await page.getByTestId('composer-input').fill(body);
   await page.getByTestId('composer-submit').click();
 }
