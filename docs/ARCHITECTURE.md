@@ -1,5 +1,8 @@
 # Marky Mark — Architecture
 
+> This document is the durable "why". For "which file do I edit", see
+> [docs/MAP.md](MAP.md) — the generated spec → code map.
+
 ## Overview
 
 Marky Mark is a Tauri 2 desktop app: a minimal Rust host (window, file

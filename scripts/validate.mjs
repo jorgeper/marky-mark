@@ -3,6 +3,7 @@
  * Validation harness (SPEC §8 + SPEC2 §7 + SPEC10 §1.3). Runs, in order,
  * failing on the first non-zero exit:
  *   1. version lock-step check (four version files agree, valid semver)
+ *   1b. docs/MAP.md freshness (matches what scripts/map.mjs derives)
  *   2. tsc --noEmit
  *   3. unit tests (Vitest, U1–U21)
  *   4. desktop e2e (Playwright, browser platform shim, E1–E41 + E45–E50)
@@ -21,7 +22,7 @@
  * below is untouched.
  */
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +55,24 @@ if (distinct.size !== 1 || !isValidSemver(versions['package.json'])) {
   process.exit(1);
 }
 console.log(`version ${versions['package.json']} in lock-step across package.json, tauri.conf.json, Cargo.toml, README.md`);
+
+// docs/MAP.md freshness (issue #35, prd/005-agent-context-hygiene.md §E): the
+// map is derived from the SPEC citations in src/ and tests/e2e/, so a citation
+// added — or a line hand-edited into the map — without running `npm run map`
+// fails the gate. A pure file comparison, no spawn, so it sits with the
+// version check ahead of the `steps` array: it runs in the quick tier too and
+// costs milliseconds instead of failing after the e2e step.
+console.log('\n=== validate: docs/MAP.md up to date ===');
+const { mapFromTree } = await import('./map.mjs');
+const mapPath = path.join(root, 'docs/MAP.md');
+const committedMap = existsSync(mapPath) ? readFileSync(mapPath, 'utf8') : null;
+if (committedMap !== mapFromTree(root).markdown) {
+  console.error(`  ${path.relative(root, mapPath)} ${committedMap === null ? 'is missing' : 'differs from what scripts/map.mjs derives from the current tree'}.`);
+  console.error('  docs/MAP.md is generated and never hand-edited — run `npm run map` and commit the result.');
+  console.error('\nVALIDATION FAILED at step: docs/MAP.md up to date');
+  process.exit(1);
+}
+console.log('docs/MAP.md matches the SPEC citations in src/ and tests/e2e/ (regenerate with `npm run map`)');
 
 const steps = [
   { name: 'typecheck', cmd: 'npx', args: ['tsc', '--noEmit'] },
