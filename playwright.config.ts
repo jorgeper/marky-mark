@@ -3,8 +3,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 const PORT = 4923;
 
-// All 136 tests live in one file, so `fullyParallel` is what lets `workers`
-// matter at all. The count was pinned at 2 for the smallest host that runs
+// `fullyParallel` interleaves tests across files, so `workers` is what sets
+// the concurrency. The count was pinned at 2 for the smallest host that runs
 // this suite; scale it with the machine instead, and let a Sandcastle sandbox
 // that shares its cores with sibling lanes pin it back down with PW_WORKERS.
 const WORKERS = process.env.PW_WORKERS
@@ -13,7 +13,12 @@ const WORKERS = process.env.PW_WORKERS
 
 export default defineConfig({
   testDir: 'tests/e2e',
-  testMatch: 'app.spec.ts',
+  // The desktop-shim suite is every *.spec.ts under tests/e2e except web.spec.ts,
+  // which belongs to playwright.web.config.ts. Matching by glob (issue #31) means
+  // a new feature file is collected without a config edit; scripts/validate.mjs
+  // holds a committed floor on the collected count so a miss here is loud.
+  testMatch: '*.spec.ts',
+  testIgnore: 'web.spec.ts',
   fullyParallel: true,
   workers: WORKERS,
   // A timing-sensitive test that flakes under load used to cost a full ~9min
