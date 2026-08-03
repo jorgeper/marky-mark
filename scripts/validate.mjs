@@ -3,6 +3,7 @@
  * Validation harness (SPEC §8 + SPEC2 §7 + SPEC10 §1.3). Runs, in order,
  * failing on the first non-zero exit:
  *   1. version lock-step check (four version files agree, valid semver)
+ *   1b. desktop-shim e2e test-count floor (Playwright's own collection)
  *   2. tsc --noEmit
  *   3. unit tests (Vitest, U1–U21)
  *   4. desktop e2e (Playwright, browser platform shim, E1–E41 + E45–E50)
@@ -15,7 +16,8 @@
  * Prints VALIDATION: ALL PASSED as the final line only if all steps passed.
  *
  * SPEC33 §1.1: `--quick` runs the inner-loop subset only — version
- * lock-step, typecheck, unit tests, desktop-shim e2e — and prints the
+ * lock-step, the e2e count floor, typecheck, unit tests, desktop-shim e2e —
+ * and prints the
  * DISTINCT line `QUICK VALIDATION: ALL PASSED`. Only the full gate's
  * `VALIDATION: ALL PASSED` counts as release evidence. The full step list
  * below is untouched.
@@ -54,6 +56,47 @@ if (distinct.size !== 1 || !isValidSemver(versions['package.json'])) {
   process.exit(1);
 }
 console.log(`version ${versions['package.json']} in lock-step across package.json, tauri.conf.json, Cargo.toml, README.md`);
+
+// Issue #31 — committed test-count floor for the desktop-shim e2e suite. The
+// count is Playwright's OWN collection (`playwright test --list`, which honours
+// the config's testMatch/testIgnore), never a grep over the spec sources: after
+// tests/e2e/app.spec.ts was split into one file per feature area, a glob that
+// stops matching a file — or a file that fails to load — would otherwise leave
+// the suite green while running a fraction of the tests. Same rule as
+// FETCH_ALLOWLIST below: any future change to this number must be justified
+// here. It rises when tests are added; a drop means a file went missing.
+const E2E_TEST_FLOOR = 136;
+console.log('\n=== validate: e2e test-count floor (desktop shim) ===');
+const listed = spawnSync('npx', ['playwright', 'test', '--list'], {
+  cwd: root,
+  env,
+  encoding: 'utf8',
+  maxBuffer: 32 * 1024 * 1024,
+});
+const listing = `${listed.stdout ?? ''}${listed.stderr ?? ''}`;
+// A missing or garbled listing is red, never a silent zero: parse failure and a
+// non-zero exit both fail here rather than passing vacuously.
+const collected = /^Total:\s+(\d+)\s+tests?\b/m.exec(listing)?.[1];
+if (listed.status !== 0 || collected === undefined) {
+  process.stdout.write(listing);
+  console.error(
+    listed.status !== 0
+      ? `\`playwright test --list\` exited ${listed.status ?? 'with a signal'} — the collected count is unknown`
+      : '`playwright test --list` produced no parsable `Total: N tests` line — the collected count is unknown'
+  );
+  console.error('\nVALIDATION FAILED at step: e2e test-count floor (desktop shim)');
+  process.exit(1);
+}
+const e2eCollected = Number(collected);
+if (e2eCollected < E2E_TEST_FLOOR) {
+  console.error(
+    `Playwright collected ${e2eCollected} desktop-shim tests, below the committed floor of ${E2E_TEST_FLOOR}.`
+  );
+  console.error('A spec file under tests/e2e/ is missing or no longer matches playwright.config.ts.');
+  console.error('\nVALIDATION FAILED at step: e2e test-count floor (desktop shim)');
+  process.exit(1);
+}
+console.log(`Playwright collected ${e2eCollected} desktop-shim tests (floor ${E2E_TEST_FLOOR})`);
 
 const steps = [
   { name: 'typecheck', cmd: 'npx', args: ['tsc', '--noEmit'] },

@@ -231,3 +231,217 @@ export async function selectSpanInPane(
     [containerSelector, phraseA, phraseB] as const
   );
 }
+
+// ---------------------------------------------------------------------------
+// Moved out of the former tests/e2e/app.spec.ts when it was split by feature
+// area (issue #31): one definition here, imported by the files that need it.
+// ---------------------------------------------------------------------------
+
+// A phrase from fixtures/welcome.md that lives inside one paragraph.
+export const PHRASE = 'saved to a sidecar file next to the document';
+// Longer than TOOLBAR_GRACE_MS (2500) + TOOLBAR_HIDE_DELAY_MS (400).
+export const TOOLBAR_WAIT = 3200;
+
+/** Re-launch the shim in desktop-menu mode: no header, spec on window.__mmMenu. */
+export async function freshNativeMenuApp(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/?nativeMenu=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload(); // fresh boot — fixtures re-seed
+  await expect(page.getByTestId('empty-hint')).toBeVisible(); // shim ready
+  // Same pane-floor pin as freshApp — see helpers.ts.
+  await page.evaluate(() =>
+    window.__mmfs!.write('/config/settings.json', JSON.stringify({ paneMinWidth: 240 }))
+  );
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+}
+
+export const menuClick = (page: import('@playwright/test').Page, command: string) =>
+  page.evaluate((c) => window.__mmMenu!.click(c), command);
+
+export const menuItem = (page: import('@playwright/test').Page, command: string) =>
+  page.evaluate(
+    (c) =>
+      window
+        .__mmMenu!.spec!.submenus.flatMap((m) => m.items)
+        .find((i) => i.type === 'command' && i.command === c) as
+        | { label: string; checked?: boolean }
+        | undefined,
+    command
+  );
+
+/** Long fixture + doc open + edit mode (split by default, full when false). */
+export async function splitApp(page: import('@playwright/test').Page, split = true): Promise<void> {
+  await freshApp(page);
+  await page.evaluate(() => {
+    const sections: string[] = [];
+    for (let i = 1; i <= 40; i++) {
+      sections.push(`## Marker ${i}\n`);
+      if (i === 20) sections.push('```\n' + 'code line\n'.repeat(60) + '```\n');
+      else sections.push(`Paragraph for section ${i}. `.repeat(8) + '\n');
+    }
+    window.__mmfs!.write('/docs/long.md', sections.join('\n'));
+  });
+  await page.evaluate((s) => {
+    const raw = window.__mmfs!.read('/config/settings.json');
+    const settings = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...settings, splitEdit: s }));
+  }, split);
+  await page.reload(); // boot again so the app reads splitEdit from settings.json
+  await page.goto('/#open=/docs/long.md'); // hashchange → the shim's onOpenFile
+  await expect(page.getByTestId('doc').locator('h2').first()).toContainText('Marker 1');
+  await page.keyboard.press('Control+e');
+  if (split) await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expect(page.locator('.cm-content')).toBeVisible();
+}
+
+/** First fully/partially visible gutter line number in the editor pane. */
+export const editorTopGutterLine = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => {
+    const scroller = document.querySelector('.cm-scroller')!;
+    const top = scroller.getBoundingClientRect().top;
+    const gutters = Array.from(document.querySelectorAll('.cm-lineNumbers .cm-gutterElement'));
+    const first = gutters.find((g) => g.getBoundingClientRect().bottom > top + 1 && /\d/.test(g.textContent ?? ''));
+    return first ? Number(first.textContent) : -1;
+  });
+
+/** Source lines of the anchors bracketing the given scroller's top edge. */
+export const previewTopAnchorLines = (page: import('@playwright/test').Page, scrollerSel = '.split-preview') =>
+  page.evaluate((sel) => {
+    const scroller = document.querySelector(sel)!;
+    const doc = scroller.querySelector('.doc')!;
+    const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
+    const y = scroller.scrollTop;
+    const anchors = Array.from(doc.querySelectorAll<HTMLElement>('[data-mm-line]')).map((el) => ({
+      line: Number(el.dataset.mmLine),
+      top: el.getBoundingClientRect().top - base,
+    }));
+    let before = 1;
+    let after = Number.MAX_SAFE_INTEGER;
+    for (const a of anchors) {
+      if (a.top <= y + 1) before = a.line;
+      else {
+        after = a.line;
+        break;
+      }
+    }
+    return { before, after };
+  }, scrollerSel);
+
+/** Dispatch a synthetic image paste into the CodeMirror editor. */
+export async function pasteImage(page: import('@playwright/test').Page, b64: string) {
+  await page.evaluate((data) => {
+    const bin = atob(data);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes], 'clipboard.png', { type: 'image/png' }));
+    document
+      .querySelector('.cm-content')!
+      .dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, b64);
+}
+
+export const seedFolders = async (page: import('@playwright/test').Page) => {
+  await fsWrite(page, '/notes/a.md', '# A doc\n');
+  await fsWrite(page, '/notes/pic.png', 'binary-ish');
+  await fsWrite(page, '/notes/zzz.txt', 'plain');
+  await fsWrite(page, '/notes/.hidden/secret.md', '# no\n');
+  await fsWrite(page, '/notes/sub/b.md', '# B doc\n');
+  await fsWrite(page, '/notes/sub/deep/c.md', '# C doc\n');
+  await fsWrite(page, '/other/d.md', '# D doc\n');
+};
+
+/**
+ * Issue #22: the FolderPanel only renders in workspace mode now, so tests
+ * enter it through the armed Open Folder… hook via the shim's command seam
+ * (there is no hotkey or DOM button for openFolder in menu-less runs).
+ */
+export const openFolderRoot = async (page: import('@playwright/test').Page, path = '/notes') => {
+  await page.evaluate((p) => {
+    window.__mmfs!.nextFolderPath = p;
+    window.__mmDispatch!('openFolder');
+  }, path);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+};
+
+/** Set the folder root to /notes through the armed Open Folder… hook. */
+export const openNotesRoot = async (page: import('@playwright/test').Page) => {
+  await openFolderRoot(page);
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+};
+
+/** Type `text` at the top of the buffer in edit mode, then back to preview. */
+export const dirtyActiveDoc = async (page: import('@playwright/test').Page, text: string) => {
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type(text);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+};
+
+/** Open `path` (fsWrite'd) in edit mode and wait for the default grid. */
+export async function openGridDoc(
+  page: import('@playwright/test').Page,
+  path: string,
+  doc: string,
+  probe: string
+): Promise<void> {
+  await fsWrite(page, path, doc);
+  await page.goto(`/#open=${path}`);
+  await expect(page.getByTestId('doc')).toContainText(probe);
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  await expect(editor.locator('.cm-line.mm-table-mode-line').first()).toBeVisible();
+}
+
+/** Put the caret `rights` characters into the line containing `lineText`. */
+export async function caretInto(page: import('@playwright/test').Page, lineText: string, rights: number): Promise<void> {
+  const editor = page.getByTestId('editor');
+  await editor.locator('.cm-line').filter({ hasText: lineText }).first().click();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < rights; i++) await page.keyboard.press('ArrowRight');
+}
+
+/** Center of the nth visible occurrence of `word` inside `paneSel`; click it. */
+export const clickWord = async (page: import('@playwright/test').Page, paneSel: string, word: string, nth = 0) => {
+  const pt = await page.evaluate(
+    ([sel, w, n]) => {
+      const pane = document.querySelector(sel as string)!;
+      const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
+      let seen = 0;
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const text = node.nodeValue ?? '';
+        for (let at = text.indexOf(w as string); at !== -1; at = text.indexOf(w as string, at + 1)) {
+          if (seen++ === n) {
+            const r = document.createRange();
+            r.setStart(node, at);
+            r.setEnd(node, at + (w as string).length);
+            const b = r.getBoundingClientRect();
+            return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+          }
+        }
+      }
+      throw new Error(`word not found: ${w}`);
+    },
+    [paneSel, word, nth] as const
+  );
+  await page.mouse.click(pt.x, pt.y);
+};
+
+/** Open `path` through the menu's Open dialog (the shim accepts the string). */
+export async function openPath(page: Page, path: string): Promise<void> {
+  page.once('dialog', (d) => void d.accept(path));
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-open').click();
+}
+
+/** Save the active document through the toolbar menu. */
+export async function menuSave(page: Page): Promise<void> {
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-save').click();
+}
