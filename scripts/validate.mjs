@@ -174,19 +174,18 @@ record('docs/MAP.md up to date', Date.now() - mapStart);
 // checks above, ahead of the `steps` array, and runs in the quick tier too.
 console.log(`\n=== validate: CLAUDE.md resolves to AGENTS.md === (start ${elapsed()})`);
 const linkStart = Date.now();
+const agentsMd = path.join(root, 'AGENTS.md');
 const claudeMd = path.join(root, 'CLAUDE.md');
 const linkStat = lstatSync(claudeMd, { throwIfNoEntry: false });
 const linkTarget = linkStat?.isSymbolicLink() ? readlinkSync(claudeMd) : null;
-if (
-  !existsSync(path.join(root, 'AGENTS.md')) ||
-  linkTarget === null ||
-  path.resolve(root, linkTarget) !== path.join(root, 'AGENTS.md')
-) {
-  if (!existsSync(path.join(root, 'AGENTS.md'))) console.error('  AGENTS.md is missing from the repository root.');
+const agentsMdExists = existsSync(agentsMd);
+const resolvesToAgentsMd = linkTarget !== null && path.resolve(root, linkTarget) === agentsMd;
+if (!agentsMdExists || !resolvesToAgentsMd) {
+  if (!agentsMdExists) console.error('  AGENTS.md is missing from the repository root.');
   if (!linkStat) console.error('  CLAUDE.md is missing from the repository root.');
   else if (!linkStat.isSymbolicLink())
     console.error('  CLAUDE.md is a regular file, not a symlink (a Windows checkout without core.symlinks materialises it this way).');
-  else if (linkTarget !== null && path.resolve(root, linkTarget) !== path.join(root, 'AGENTS.md'))
+  else if (!resolvesToAgentsMd)
     console.error(`  CLAUDE.md is a symlink to ${linkTarget}, not AGENTS.md.`);
   console.error('  Fix: rm CLAUDE.md && ln -s AGENTS.md CLAUDE.md (on Windows: git config core.symlinks true, then re-checkout CLAUDE.md).');
   console.error('\nVALIDATION FAILED at step: CLAUDE.md resolves to AGENTS.md');
@@ -255,8 +254,11 @@ const steps = [
 const QUICK_STEPS = new Set(['typecheck', 'unit tests', 'e2e tests (desktop shim)']);
 const runSteps = QUICK ? steps.filter((s) => QUICK_STEPS.has(s.name)) : steps;
 
+// The pre-`steps` checks that already ran above, in order — named here so the
+// step-count summary can't drift from the list.
+const PRE_STEPS = ['version lock-step', 'docs/MAP.md up to date', 'CLAUDE.md resolves to AGENTS.md', 'e2e test-count floor (desktop shim)'];
 console.log(
-  `\nvalidate${QUICK ? ':quick' : ''} — ${runSteps.length + 4} steps: ${['version lock-step', 'docs/MAP.md up to date', 'CLAUDE.md resolves to AGENTS.md', 'e2e test-count floor (desktop shim)', ...runSteps.map((s) => s.name)].join(' → ')}`
+  `\nvalidate${QUICK ? ':quick' : ''} — ${PRE_STEPS.length + runSteps.length} steps: ${[...PRE_STEPS, ...runSteps.map((s) => s.name)].join(' → ')}`
 );
 
 for (const step of runSteps) {
