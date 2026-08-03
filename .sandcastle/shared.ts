@@ -9,7 +9,7 @@ import * as readline from "node:readline/promises";
 // forbids sharing across templates, not within one. Pure functions live at
 // the top so tests can import this file without side effects.
 
-export const MODEL = "claude-opus-4-8";
+export const MODEL = "claude-fable-5";
 export const HARNESS = "claude-code";
 
 /** Routing labels: which lane (agent) handles an issue. */
