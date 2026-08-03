@@ -1459,6 +1459,29 @@ mark.hl.ghost {
   pointer-events: none;
 }
 
+/* --- PRD 004 Req 16: persistent unreadable-comment-store indication ---
+   Deliberately NOT the .mm-notice toast: this one has no timer and stays put
+   for as long as the document is open. Bottom-left of the toast lane so the
+   two never fight for the same pixels. */
+.mm-store-notice {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 44px;
+  z-index: 60;
+  max-width: min(560px, 80vw);
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  color: var(--mm-fg-muted, #59636e);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-left: 3px solid var(--mm-accent, #0969da);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22), 0 1px 4px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+}
+
 /* --- SPEC16: heading palette --- */
 .palette-scrim {
   position: fixed;

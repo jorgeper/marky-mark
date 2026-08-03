@@ -3,7 +3,7 @@ import { getPlatform, type Platform } from './platform';
 import { renderMarkdown } from './lib/markdown';
 import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
 import { getDocText, highlightRange, offsetsToRange, rangeToOffsets, rectForOffsets } from './lib/domtext';
-import { parseSidecar, serializeSidecar, sidecarPathFor } from './lib/sidecar';
+import { readSidecar, serializeSidecar, sidecarPathFor } from './lib/sidecar';
 import { attachEmbedded, mergeComments, splitEmbedded } from './lib/embedded';
 import {
   DEFAULT_SETTINGS,
@@ -190,6 +190,28 @@ function usePaneSlide(open: boolean, arm: React.MutableRefObject<boolean>): Slid
   return phase;
 }
 
+/**
+ * PRD 004 Reqs 13–17: what this build could not interpret in the OPEN
+ * document's two comment stores. Per document, never per session — it is
+ * parked with the tab and cleared when a document closes.
+ */
+interface DocStores {
+  /** Non-null when a trailer was present but unreadable (version or JSON). */
+  trailer: { declaredVersion?: unknown } | null;
+  /** Non-null when a sidecar was present but unreadable. */
+  sidecar: { declaredVersion?: unknown } | null;
+  /** The unreadable trailer's exact bytes, re-emitted verbatim on save (Req 14). */
+  trailerBytes: string | null;
+}
+
+/** A document with nothing unreadable — the state every clean doc gets. */
+const CLEAN_STORES: DocStores = { trailer: null, sidecar: null, trailerBytes: null };
+
+/** True when either store of the document could not be interpreted. */
+function hasUnreadableStore(s: DocStores): boolean {
+  return s.trailer !== null || s.sidecar !== null;
+}
+
 export default function App() {
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -216,6 +238,19 @@ export default function App() {
   const [mode, setMode] = useState<Mode>('preview');
   const [html, setHtml] = useState('');
   const [comments, setComments] = useState<CommentData[]>([]);
+  // PRD 004 Reqs 13–17: the open document's unreadable-store verdict.
+  const [stores, setStores] = useState<DocStores>(CLEAN_STORES);
+  // PRD 004 Reqs 15/17: a store this build cannot interpret freezes authoring
+  // for the WHOLE document — a save targets one store and must never strand
+  // the other. The readable store's comments still render, read-only.
+  const authoringFrozen = hasUnreadableStore(stores);
+  // Req 16: the wording names the declared version when there is one; a
+  // store that declared none (unparseable JSON) gets the plainer sentence.
+  const unreadableVersion = stores.trailer?.declaredVersion ?? stores.sidecar?.declaredVersion;
+  const storeNoticeText =
+    typeof unreadableVersion === 'string' && unreadableVersion
+      ? `This document’s comments were written by a newer version of Marky Mark (comment format ${unreadableVersion}) and cannot be shown. They are left untouched.`
+      : 'This document’s comments could not be read by this version of Marky Mark and cannot be shown. They are left untouched.';
   const [positions, setPositions] = useState<Positions>({});
   // SPEC29: Open Recent (MRU, persisted to recent.json; menu rebuild rides it).
   const [recent, setRecent] = useState<RecentStore>({ version: 1, entries: [] });
@@ -301,7 +336,10 @@ export default function App() {
    * In-memory only; entries lazy-load from disk when absent (boot restore).
    */
   const parkRef = useRef(
-    new Map<string, { buffer: string; savedText: string; comments: CommentData[]; editorHistory: unknown }>()
+    new Map<
+      string,
+      { buffer: string; savedText: string; comments: CommentData[]; stores: DocStores; editorHistory: unknown }
+    >()
   );
   /** Live open set for stable handlers (mirrors the openFiles state). */
   const openFilesRef = useRef<string[]>([]);
@@ -429,6 +467,7 @@ export default function App() {
     buffer,
     savedText,
     comments,
+    stores,
     platform,
     themes,
     positions,
@@ -445,6 +484,7 @@ export default function App() {
     buffer,
     savedText,
     comments,
+    stores,
     platform,
     themes,
     positions,
@@ -962,18 +1002,36 @@ export default function App() {
     }
   }, [showNotice]);
 
-  /** Read a doc file and its comments from both stores (trailer wins by id). */
+  /**
+   * Read a doc file and its comments from both stores (trailer wins by id).
+   * PRD 004 Reqs 13–17: the per-store verdict rides along — an unreadable
+   * store yields no comments but its bytes are remembered, never rewritten.
+   */
   const loadDocParts = useCallback(async (p: Platform, path: string) => {
     const raw = await p.readTextFile(path);
     const split = splitEmbedded(raw);
     let sidecarComments: CommentData[] = [];
+    let sidecarStore: DocStores['sidecar'] = null;
     try {
       const sidecar = sidecarPathFor(path);
-      if (await p.exists(sidecar)) sidecarComments = parseSidecar(await p.readTextFile(sidecar));
+      if (await p.exists(sidecar)) {
+        const read = readSidecar(await p.readTextFile(sidecar));
+        sidecarComments = read.comments;
+        if (!read.readable) sidecarStore = { declaredVersion: read.declaredVersion };
+      }
     } catch {
       sidecarComments = []; // corrupt sidecar: ignore rather than crash
     }
-    return { content: split.content, comments: mergeComments(split.comments, sidecarComments) };
+    const docStores: DocStores = {
+      trailer: split.readable ? null : { declaredVersion: split.declaredVersion },
+      sidecar: sidecarStore,
+      trailerBytes: split.readable ? null : split.trailerBytes ?? null,
+    };
+    return {
+      content: split.content,
+      comments: mergeComments(split.comments, sidecarComments),
+      stores: docStores,
+    };
   }, []);
 
   /** Source line at the top of the current view, whatever the mode. */
@@ -1180,6 +1238,7 @@ export default function App() {
       buffer: s.buffer,
       savedText: s.savedText,
       comments: s.comments,
+      stores: s.stores, // PRD 004 Req 13: the verdict follows the document
       editorHistory: editorHistoryRef.current,
     });
     // If the switch leaves edit mode, the real snapshot only exists after the
@@ -1342,6 +1401,7 @@ export default function App() {
             setBuffer(fresh.content);
             setSavedText(fresh.content);
             setComments(fresh.comments);
+            setStores(fresh.stores); // the verdict re-derives from what landed
           } catch {
             /* file briefly unavailable mid-write; next event will catch up */
           }
@@ -1357,6 +1417,7 @@ export default function App() {
     let content: string;
     let saved: string;
     let stored: CommentData[];
+    let storeState: DocStores = CLEAN_STORES;
     let history: unknown = null;
     // SPEC36 §2: a parked file restores from its bundle — unless it is clean
     // and the disk moved on underneath (then the disk wins, fresh history).
@@ -1364,7 +1425,7 @@ export default function App() {
     const parked = parkRef.current.get(path);
     if (parked) {
       parkRef.current.delete(path);
-      let disk: { content: string; comments: CommentData[] } | null = null;
+      let disk: { content: string; comments: CommentData[]; stores: DocStores } | null = null;
       try {
         disk = await loadDocParts(p, path);
       } catch {
@@ -1374,15 +1435,17 @@ export default function App() {
         content = disk.content;
         saved = disk.content;
         stored = disk.comments;
+        storeState = disk.stores;
       } else {
         content = parked.buffer;
         saved = parked.savedText;
         stored = parked.comments;
+        storeState = parked.stores;
         history = parked.editorHistory;
       }
     } else {
       try {
-        ({ content, comments: stored } = await loadDocParts(p, path));
+        ({ content, comments: stored, stores: storeState } = await loadDocParts(p, path));
       } catch {
         return; // unreadable path (e.g. deleted file in a stale open event)
       }
@@ -1414,6 +1477,7 @@ export default function App() {
     setBuffer(content);
     setSavedText(saved);
     setComments(stored);
+    setStores(storeState); // PRD 004 Req 13: per document, never per session
     setPositions({});
     setActiveId(null);
     setPending(null);
@@ -1546,6 +1610,7 @@ export default function App() {
     setSavedText('');
     setHtml('');
     setComments([]);
+    setStores(CLEAN_STORES); // PRD 004: a clean buffer never inherits a verdict
     setPositions({});
     setActiveId(null);
     setPending(null);
@@ -1709,6 +1774,11 @@ export default function App() {
   const persistComments = useCallback(async (current: CommentData[]) => {
     const s = stateRef.current;
     if (!s.platform || !s.docPath) return;
+    // PRD 004 Reqs 14/15: a document with an unreadable store never has its
+    // comment stores written — not the trailer, not the sidecar, and not the
+    // "clean up a stale sidecar" removal below. Authoring is closed in the UI
+    // too; this is the belt to that pair of braces.
+    if (hasUnreadableStore(s.stores)) return;
     const p = s.platform;
     const sidecar = sidecarPathFor(s.docPath);
     try {
@@ -2319,9 +2389,17 @@ export default function App() {
     const target = await p.saveFileDialog(s.docPath ? p.basename(s.docPath) : 'Untitled.md');
     if (!target) return false;
     const out = canonicalOf(s.buffer); // SPEC38 §3.5
-    const text = s.settings.commentStorage === 'embedded' ? attachEmbedded(out, s.comments) : out;
+    // PRD 004 Req 14: an unreadable store freezes this document's stores —
+    // the trailer travels to the new path verbatim whatever the storage mode
+    // (Save As must not be a way to drop it) and no migration runs.
+    const frozen = hasUnreadableStore(s.stores);
+    const preserved = s.stores.trailerBytes ?? undefined;
+    const text =
+      frozen || s.settings.commentStorage === 'embedded' ? attachEmbedded(out, s.comments, preserved) : out;
     await p.writeTextFile(target, text);
-    if (s.settings.commentStorage === 'sidecar' && s.comments.length > 0) {
+    // An unreadable sidecar is never copied (out of scope) — and never read
+    // from, so it contributed no comments to copy anyway.
+    if (s.settings.commentStorage === 'sidecar' && !s.stores.sidecar && s.comments.length > 0) {
       await p.writeTextFile(sidecarPathFor(target), serializeSidecar(s.comments));
     }
     await p.commitFile?.(target);
@@ -2338,7 +2416,14 @@ export default function App() {
     // SPEC38 §3.5: mid-table-mode saves write the COMPACT table; the mode
     // itself stays on (savedText mirrors what landed on disk).
     const out = canonicalOf(s.buffer);
-    const text = s.settings.commentStorage === 'embedded' ? attachEmbedded(out, s.comments) : out;
+    // PRD 004 Req 14: an unreadable trailer is re-emitted byte-for-byte after
+    // the modified content, and no store migration runs for such a document —
+    // sidecar mode does NOT strip the trailer here as it otherwise would.
+    const preserved = s.stores.trailerBytes ?? undefined;
+    const text =
+      hasUnreadableStore(s.stores) || s.settings.commentStorage === 'embedded'
+        ? attachEmbedded(out, s.comments, preserved)
+        : out;
     await s.platform.writeTextFile(s.docPath, text);
     await s.platform.commitFile?.(s.docPath); // web download fallback for handle-less files
     setSavedText(out);
@@ -2442,6 +2527,7 @@ export default function App() {
     setSavedText('');
     setHtml('');
     setComments([]);
+    setStores(CLEAN_STORES); // PRD 004: a clean buffer never inherits a verdict
     setPositions({});
     setActiveId(null);
     setPending(null);
@@ -3738,7 +3824,7 @@ export default function App() {
 
   // --- comment operations -----------------------------------------------------------
   const startComposer = (seed = '') => {
-    if (!selInfo) return;
+    if (!selInfo || authoringFrozen) return; // PRD 004 Req 15
     setPending({ start: selInfo.start, end: selInfo.end });
     setDraft(seed);
     setActiveId(null);
@@ -3750,6 +3836,7 @@ export default function App() {
   useEffect(() => {
     if (mode !== 'preview' || !selInfo || pending || !showComments) return;
     if (!settings.commentsEnabled || !settings.typeToComment) return;
+    if (authoringFrozen) return; // PRD 004 Req 15: no composer for a frozen doc
     const { start, end } = selInfo;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1) return; // printable only
@@ -3769,7 +3856,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selInfo, pending, mode, showComments, settings.commentsEnabled, settings.typeToComment]);
+  }, [selInfo, pending, mode, showComments, settings.commentsEnabled, settings.typeToComment, authoringFrozen]);
 
   const submitComment = () => {
     const body = draft.trim();
@@ -3842,6 +3929,7 @@ export default function App() {
   // split-edit live preview (#19).
   const commentSurfaceUp = mode === 'preview' || (mode === 'edit' && settings.splitEdit);
 
+
   const panelVisible =
     commentSurfaceUp && showComments && settings.commentsEnabled && (comments.length > 0 || pending !== null);
 
@@ -3899,6 +3987,7 @@ export default function App() {
             orphaned={positions[it.c.id] === null}
             active={activeId === it.c.id}
             ghost={it.ghost}
+            readOnly={authoringFrozen}
             onActivate={handleCardActivate}
             onUpdate={updateComment}
             onDelete={deleteComment}
@@ -3915,6 +4004,7 @@ export default function App() {
               author={settings.author}
               orphaned={positions[c.id] === null}
               active={activeId === c.id}
+              readOnly={authoringFrozen}
               onActivate={(id) => setActiveId(id)}
               onUpdate={updateComment}
               onDelete={deleteComment}
@@ -4239,7 +4329,7 @@ export default function App() {
 
       </div>
 
-      {selInfo && showComments && settings.commentsEnabled && !pending && commentSurfaceUp && (
+      {selInfo && showComments && settings.commentsEnabled && !pending && commentSurfaceUp && !authoringFrozen && (
         <button
           className="add-comment-btn"
           data-testid="add-comment-btn"
@@ -4255,6 +4345,17 @@ export default function App() {
       {chip && settings.showWordCount && (
         <div className="word-chip" data-testid="word-chip">
           {chip}
+        </div>
+      )}
+
+      {/* PRD 004 Req 16: a PERSISTENT indication — no timer, no dismissal —
+          for as long as a document with an unreadable comment store is open.
+          Deliberately not the .mm-notice toast, which self-clears after 4s.
+          Hidden with the rest of the comments UI when the master switch is
+          off (SPEC7 §2); byte preservation applies in that state regardless. */}
+      {authoringFrozen && settings.commentsEnabled && (
+        <div className="mm-store-notice" data-testid="store-unreadable" role="status">
+          {storeNoticeText}
         </div>
       )}
 

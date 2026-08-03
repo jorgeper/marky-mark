@@ -39,6 +39,13 @@ export interface SplitDoc {
   readable: boolean;
   /** Set only when `readable` is false: the version exactly as declared. */
   declaredVersion?: unknown;
+  /**
+   * The trailer block exactly as found — marker, JSON text, whitespace and
+   * all — so `content + trailerBytes` reproduces the input byte-for-byte.
+   * Set whenever `hadTrailer` is true; it is what an unreadable trailer is
+   * re-emitted from (PRD 004 Req 14).
+   */
+  trailerBytes?: string;
 }
 
 /** Split a file's text into markdown content and embedded comments. */
@@ -46,19 +53,27 @@ export function splitEmbedded(text: string): SplitDoc {
   const m = TRAILER_RE.exec(text);
   if (!m) return { content: text, comments: [], hadTrailer: false, readable: true };
   const content = text.slice(0, m.index);
+  const trailerBytes = text.slice(m.index); // the whole match, whitespace included
   let payload: unknown;
   try {
     payload = JSON.parse(m[1]);
   } catch {
     // Unparseable trailer: treat as content-less rather than crashing; the
     // block is still stripped so it never leaks into the editor.
-    return { content, comments: [], hadTrailer: true, readable: false };
+    return { content, comments: [], hadTrailer: true, readable: false, trailerBytes };
   }
   const read = readCommentPayload(payload); // never throws, by the seam's contract
   if (!read.supported) {
-    return { content, comments: [], hadTrailer: true, readable: false, declaredVersion: read.declaredVersion };
+    return {
+      content,
+      comments: [],
+      hadTrailer: true,
+      readable: false,
+      declaredVersion: read.declaredVersion,
+      trailerBytes,
+    };
   }
-  return { content, comments: read.comments, hadTrailer: true, readable: true };
+  return { content, comments: read.comments, hadTrailer: true, readable: true, trailerBytes };
 }
 
 /** Serialize the trailer block for a comment set ('' when there are none). */
@@ -70,10 +85,18 @@ export function serializeTrailer(comments: CommentData[]): string {
   return `\n<!-- marky-mark-comments\n${json}\n-->\n`;
 }
 
-/** Compose file text: content + trailer (no trailer for zero comments). */
-export function attachEmbedded(content: string, comments: CommentData[]): string {
+/**
+ * Compose file text: content + trailer (no trailer for zero comments).
+ *
+ * `preserved` (PRD 004 Req 14) re-emits an unreadable trailer's original
+ * bytes verbatim instead of serializing `comments`: a document this build
+ * cannot interpret keeps its comment payload bit-identical across any number
+ * of saves. Idempotent either way — an already-attached trailer is stripped
+ * before the new one goes on, so the trailer is never doubled.
+ */
+export function attachEmbedded(content: string, comments: CommentData[], preserved?: string): string {
   const base = splitEmbedded(content).content; // idempotent: never double-attach
-  return `${base}${serializeTrailer(comments)}`;
+  return `${base}${preserved ?? serializeTrailer(comments)}`;
 }
 
 /**

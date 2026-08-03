@@ -11,6 +11,13 @@ interface Props {
   active: boolean;
   /** Resolved card rendered ghosted in the margin flow (SPEC6 §3). */
   ghost?: boolean;
+  /**
+   * PRD 004 Req 15: the document has a comment store this build cannot
+   * interpret, so every authoring control is withheld — the thread still
+   * reads, it just cannot be replied to, edited, resolved or deleted.
+   * Default false: every other call site keeps its editable card.
+   */
+  readOnly?: boolean;
   onActivate: (id: string) => void;
   onUpdate: (next: CommentData) => void;
   onDelete: (id: string) => void;
@@ -20,7 +27,17 @@ function newId(): string {
   return crypto.randomUUID();
 }
 
-export function CommentCard({ comment: c, author, orphaned, active, ghost, onActivate, onUpdate, onDelete }: Props) {
+export function CommentCard({
+  comment: c,
+  author,
+  orphaned,
+  active,
+  ghost,
+  readOnly = false,
+  onActivate,
+  onUpdate,
+  onDelete,
+}: Props) {
   const [replying, setReplying] = useState(false);
   const [replyDraft, setReplyDraft] = useState('');
   const [editing, setEditing] = useState<string | null>(null); // 'root' or reply id
@@ -130,23 +147,25 @@ export function CommentCard({ comment: c, author, orphaned, active, ghost, onAct
               {r.body}
             </p>
           )}
-          <div className="row small" onClick={stop}>
-            <button
-              data-testid="edit-reply"
-              onClick={() => {
-                setEditing(r.id);
-                setEditDraft(r.body);
-              }}
-            >
-              Edit
-            </button>
-            <button
-              data-testid="delete-reply"
-              onClick={() => onUpdate({ ...c, thread: c.thread.filter((x) => x.id !== r.id) })}
-            >
-              Delete
-            </button>
-          </div>
+          {!readOnly && (
+            <div className="row small" onClick={stop}>
+              <button
+                data-testid="edit-reply"
+                onClick={() => {
+                  setEditing(r.id);
+                  setEditDraft(r.body);
+                }}
+              >
+                Edit
+              </button>
+              <button
+                data-testid="delete-reply"
+                onClick={() => onUpdate({ ...c, thread: c.thread.filter((x) => x.id !== r.id) })}
+              >
+                Delete
+              </button>
+            </div>
+          )}
         </div>
       ))}
 
@@ -169,49 +188,51 @@ export function CommentCard({ comment: c, author, orphaned, active, ghost, onAct
         </div>
       )}
 
-      <div className="row controls" onClick={stop}>
-        {confirmingDelete ? (
-          <>
-            <span className="confirm-label">Delete thread?</span>
-            <button data-testid="confirm-delete" className="danger" onClick={() => onDelete(c.id)}>
-              Delete
-            </button>
-            <button data-testid="cancel-delete" onClick={() => setConfirmingDelete(false)}>
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            {!c.resolved && (
-              <>
-                <button data-testid="reply-btn" onClick={() => setReplying(true)}>
-                  Reply
-                </button>
-                <button
-                  data-testid="edit-btn"
-                  onClick={() => {
-                    setEditing('root');
-                    setEditDraft(c.body);
-                  }}
-                >
-                  Edit
-                </button>
-                <button data-testid="resolve-btn" onClick={() => onUpdate({ ...c, resolved: true })}>
-                  Resolve
-                </button>
-              </>
-            )}
-            {c.resolved && (
-              <button data-testid="reopen-btn" onClick={() => onUpdate({ ...c, resolved: false })}>
-                Reopen
+      {!readOnly && (
+        <div className="row controls" onClick={stop}>
+          {confirmingDelete ? (
+            <>
+              <span className="confirm-label">Delete thread?</span>
+              <button data-testid="confirm-delete" className="danger" onClick={() => onDelete(c.id)}>
+                Delete
               </button>
-            )}
-            <button data-testid="delete-btn" onClick={() => setConfirmingDelete(true)}>
-              Delete
-            </button>
-          </>
-        )}
-      </div>
+              <button data-testid="cancel-delete" onClick={() => setConfirmingDelete(false)}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              {!c.resolved && (
+                <>
+                  <button data-testid="reply-btn" onClick={() => setReplying(true)}>
+                    Reply
+                  </button>
+                  <button
+                    data-testid="edit-btn"
+                    onClick={() => {
+                      setEditing('root');
+                      setEditDraft(c.body);
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button data-testid="resolve-btn" onClick={() => onUpdate({ ...c, resolved: true })}>
+                    Resolve
+                  </button>
+                </>
+              )}
+              {c.resolved && (
+                <button data-testid="reopen-btn" onClick={() => onUpdate({ ...c, resolved: false })}>
+                  Reopen
+                </button>
+              )}
+              <button data-testid="delete-btn" onClick={() => setConfirmingDelete(true)}>
+                Delete
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

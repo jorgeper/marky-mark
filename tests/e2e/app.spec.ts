@@ -6160,3 +6160,212 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
   expect(flush.left).toMatch(/^0px /);
   expect(flush.right).toMatch(/^1px solid /);
 });
+
+// --- PRD 004 (issue #16): a comment store this build cannot interpret --------
+
+// The document, and a trailer declaring a MAJOR this build must not touch.
+// Written out by hand: these exact bytes are what a save has to re-emit.
+const NEWER_DOC = '# Newer document\n\nThis paragraph reads perfectly well even though its comments do not.\n';
+const NEWER_TRAILER = `
+<!-- marky-mark-comments
+{
+  "version": "2.0.0",
+  "comments": [
+    {
+      "id": "from-the-future",
+      "author": "Someone Later",
+      "createdAt": "2027-01-01T00:00:00.000Z",
+      "body": "A thread this build has no idea how to render",
+      "resolved": false,
+      "thread": [],
+      "anchor": { "exact": "paragraph", "prefix": "", "suffix": "", "start": 7, "end": 16 },
+      "stickers": [{ "kind": "unknown-to-us" }]
+    }
+  ],
+  "futureSection": { "shape": "unknown" }
+}
+-->
+`;
+const NEWER_PATH = '/docs/from-the-future.md';
+
+/** Open `path` through the menu's Open dialog (the shim accepts the string). */
+async function openPath(page: import('@playwright/test').Page, path: string): Promise<void> {
+  page.once('dialog', (d) => void d.accept(path));
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-open').click();
+}
+
+/** Save the active document through the toolbar menu. */
+async function menuSave(page: import('@playwright/test').Page): Promise<void> {
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-save').click();
+}
+
+test('E137: a newer-major trailer — the doc opens and edits normally, and its trailer survives saves byte-for-byte', async ({
+  page,
+}) => {
+  await fsWrite(page, NEWER_PATH, `${NEWER_DOC}${NEWER_TRAILER}`);
+  await openPath(page, NEWER_PATH);
+  await expect(page.getByTestId('docname')).toContainText('from-the-future.md');
+
+  // Req 13: it renders normally — only the comment data is withheld.
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Newer document');
+  await expect(page.getByTestId('doc')).toContainText('reads perfectly well');
+  await expect(page.locator('mark.hl')).toHaveCount(0); // no comments loaded
+  await expect(page.getByTestId('doc')).not.toContainText('marky-mark-comments'); // never leaks in
+
+  // …and it edits normally.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('EDITED ');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Req 14: the save writes the modified content + the ORIGINAL trailer bytes.
+  await menuSave(page);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  const saved = (await fsRead(page, NEWER_PATH))!;
+  expect(saved).toContain('EDITED ');
+  expect(saved.endsWith(NEWER_TRAILER)).toBe(true);
+  expect(saved.slice(saved.length - NEWER_TRAILER.length)).toBe(NEWER_TRAILER); // byte-for-byte
+  expect(saved.match(/marky-mark-comments/g)?.length).toBe(1); // never doubled
+  expect(saved).not.toContain('"1.0.0"'); // never restamped to our version
+
+  // Re-saving keeps it bit-identical (Req 14: "and re-saving repeatedly").
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('AGAIN ');
+  await page.keyboard.press('Control+e');
+  await menuSave(page);
+  const resaved = (await fsRead(page, NEWER_PATH))!;
+  expect(resaved).toContain('AGAIN ');
+  expect(resaved.slice(resaved.length - NEWER_TRAILER.length)).toBe(NEWER_TRAILER);
+  expect(resaved.match(/marky-mark-comments/g)?.length).toBe(1);
+});
+
+test('E138: a newer-major trailer — every authoring route is closed and the indication persists past the toast timer', async ({
+  page,
+}) => {
+  await fsWrite(page, NEWER_PATH, `${NEWER_DOC}${NEWER_TRAILER}`);
+  await openPath(page, NEWER_PATH);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Newer document');
+
+  // Req 16: a persistent indication — and NOT the 4-second toast.
+  const indication = page.getByTestId('store-unreadable');
+  await expect(indication).toBeVisible();
+  await expect(indication).toContainText('newer version of Marky Mark');
+  await expect(indication).toContainText('2.0.0'); // the version as declared
+  await expect(page.getByTestId('notice')).toHaveCount(0);
+  expect(await indication.evaluate((el) => el.className)).not.toContain('mm-notice');
+
+  // Req 15: selecting text offers no Add comment button…
+  await selectPhrase(page, 'paragraph');
+  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+  // …and type-to-comment opens no composer.
+  await page.keyboard.type('x');
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+  await expect(page.getByTestId('composer-input')).toHaveCount(0);
+  await expect(page.getByTestId('panel')).toHaveCount(0);
+
+  // Req 16: still there well after the 4s mm-notice timer would have fired,
+  // and across a mode switch (edit ↔ preview).
+  await page.waitForTimeout(4500);
+  await expect(indication).toBeVisible();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(indication).toBeVisible();
+  await page.keyboard.press('Control+e');
+  await expect(indication).toBeVisible();
+
+  // It belongs to the document: a clean one clears it, coming back restores it.
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('store-unreadable')).toHaveCount(0);
+  await openPath(page, NEWER_PATH);
+  await expect(page.getByTestId('docname')).toContainText('from-the-future.md');
+  await expect(page.getByTestId('store-unreadable')).toBeVisible();
+});
+
+test('E139: per store — an unreadable trailer beside a readable sidecar shows the sidecar’s comments, read-only', async ({
+  page,
+}) => {
+  // Build a genuine readable sidecar through the app, then bury a newer-major
+  // trailer in the same document (Req 17: the two stores are judged apart).
+  await fsWrite(page, NEWER_PATH, NEWER_DOC);
+  await openPath(page, NEWER_PATH);
+  await addComment(page, 'paragraph', 'Readable sidecar note');
+  const sidecarPath = `${NEWER_PATH}.comments.json`;
+  await expect.poll(() => fsRead(page, sidecarPath)).toContain('Readable sidecar note');
+  const sidecarBefore = (await fsRead(page, sidecarPath))!;
+
+  await openWelcomeViaHelp(page); // park it, so the reopen re-reads from disk
+  await fsWrite(page, NEWER_PATH, `${NEWER_DOC}${NEWER_TRAILER}`);
+  await openPath(page, NEWER_PATH);
+  await expect(page.getByTestId('docname')).toContainText('from-the-future.md');
+
+  // Req 17: the readable store still shows — card, body and mark.
+  const card = page.getByTestId('comment-card');
+  await expect(card).toHaveCount(1);
+  await expect(card.getByTestId('card-body')).toContainText('Readable sidecar note');
+  await expect(page.locator('mark.hl')).toHaveCount(1);
+  await expect(page.getByTestId('store-unreadable')).toBeVisible();
+
+  // Reqs 15/17: …but authoring is frozen for the WHOLE document.
+  for (const id of ['reply-btn', 'edit-btn', 'resolve-btn', 'reopen-btn', 'delete-btn', 'edit-reply', 'delete-reply']) {
+    await expect(card.getByTestId(id)).toHaveCount(0);
+  }
+  await selectPhrase(page, 'reads perfectly');
+  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+
+  // Req 14: a save leaves the trailer byte-identical and never touches the
+  // sidecar — no migration in either direction.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('MIXEDEDIT ');
+  await page.keyboard.press('Control+e');
+  await menuSave(page);
+  const saved = (await fsRead(page, NEWER_PATH))!;
+  expect(saved).toContain('MIXEDEDIT ');
+  expect(saved.slice(saved.length - NEWER_TRAILER.length)).toBe(NEWER_TRAILER);
+  await page.waitForTimeout(1200); // longer than the 800ms comment autosave debounce
+  expect(await fsRead(page, sidecarPath)).toBe(sidecarBefore);
+});
+
+test('E140: a frozen document’s resolved cards are read-only too, inside the collapsed resolved section', async ({
+  page,
+}) => {
+  // Resolve a comment while the document is still fully readable…
+  await fsWrite(page, NEWER_PATH, NEWER_DOC);
+  await openPath(page, NEWER_PATH);
+  await addComment(page, 'paragraph', 'Note that gets resolved');
+  await page.getByTestId('comment-card').getByTestId('resolve-btn').click();
+  await expect.poll(() => fsRead(page, `${NEWER_PATH}.comments.json`)).toContain('"resolved": true');
+
+  // …then bury a newer-major trailer under it and come back.
+  await openWelcomeViaHelp(page);
+  await fsWrite(page, NEWER_PATH, `${NEWER_DOC}${NEWER_TRAILER}`);
+  await openPath(page, NEWER_PATH);
+  await expect(page.getByTestId('store-unreadable')).toBeVisible();
+
+  // The ghosted resolved card (showResolved on, the default) is read-only…
+  const ghost = page.locator('.card.resolved-ghost');
+  await expect(ghost).toContainText('Note that gets resolved');
+  for (const id of ['reopen-btn', 'delete-btn', 'reply-btn', 'edit-btn', 'resolve-btn']) {
+    await expect(ghost.getByTestId(id)).toHaveCount(0);
+  }
+
+  // …and so is the same card inside the collapsed resolved section.
+  await openSettings(page, 'general');
+  await page.getByTestId('show-resolved').uncheck();
+  await page.getByTestId('settings-close').click();
+  const section = page.getByTestId('resolved-section');
+  await expect(section).toContainText('Resolved (1)');
+  await section.locator('summary').click(); // expand it
+  const card = section.getByTestId('comment-card');
+  await expect(card.getByTestId('card-body')).toContainText('Note that gets resolved');
+  for (const id of ['reopen-btn', 'delete-btn', 'reply-btn', 'edit-btn', 'resolve-btn']) {
+    await expect(card.getByTestId(id)).toHaveCount(0);
+  }
+  await expect(page.getByTestId('store-unreadable')).toBeVisible(); // still there
+});

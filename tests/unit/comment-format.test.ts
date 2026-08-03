@@ -17,6 +17,7 @@ import {
 import { attachEmbedded, mergeComments, serializeTrailer, splitEmbedded } from '../../src/lib/embedded';
 import { parseSidecar, readSidecar, serializeSidecar } from '../../src/lib/sidecar';
 import type { CommentData } from '../../src/lib/anchoring';
+import { alpha4ParseSidecar, alpha4SplitEmbedded } from '../frozen/alpha4-reader';
 
 const seamSource = readFileSync(
   fileURLToPath(new URL('../../src/lib/commentFormat.ts', import.meta.url)),
@@ -505,5 +506,106 @@ describe('comment stores through the seam (PRD 004 §B/D/E — issue #15)', () =
     // The sidecar keeps its throw-on-unparseable-JSON contract instead
     // (src/App.tsx's existing try/catch covers it).
     expect(() => readSidecar('{ "comments": [ ')).toThrow();
+  });
+});
+
+describe('unreadable stores keep their bytes (PRD 004 Reqs 14/39 — issue #16)', () => {
+  test('U144: splitEmbedded reports the trailer block it stripped, byte-for-byte, whatever the trailer was', () => {
+    // A newer MAJOR: unreadable, and its exact bytes come back out.
+    const newer = trailerOf({ version: '2.0.0', comments: [comment], future: { shape: 1 } });
+    const split = splitEmbedded(`${DOC}${newer}`);
+    expect(split.readable).toBe(false);
+    expect(split.trailerBytes).toBe(newer);
+    expect(`${split.content}${split.trailerBytes}`).toBe(`${DOC}${newer}`); // input reproduced
+
+    // The legacy marker: the marker is reported as it was FOUND, not renamed.
+    const legacy = trailerOf({ version: '2.0.0', comments: [comment] }, 'markimark-comments');
+    const legacySplit = splitEmbedded(`${DOC}${legacy}`);
+    expect(legacySplit.readable).toBe(false);
+    expect(legacySplit.trailerBytes).toBe(legacy);
+    expect(legacySplit.trailerBytes).toContain('markimark-comments');
+
+    // Unparseable JSON (U143's verdict): still byte-exact, oddities included.
+    const brokenTrailer = '\n<!-- marky-mark-comments\n{ "comments": [ \n-->\n\n';
+    const broken = splitEmbedded(`${DOC}${brokenTrailer}`);
+    expect(broken.readable).toBe(false);
+    expect(broken.trailerBytes).toBe(brokenTrailer); // trailing blank line and all
+
+    // A readable trailer reports its bytes too — nothing else consults them.
+    const fine = splitEmbedded(attachEmbedded(DOC, [comment]));
+    expect(fine.readable).toBe(true);
+    expect(fine.trailerBytes).toBe(serializeTrailer([comment]));
+    // …and no trailer at all reports none.
+    expect(splitEmbedded(DOC).trailerBytes).toBeUndefined();
+  });
+
+  test('U145: the preserving composition re-emits those bytes verbatim after the content changed, and stays idempotent', () => {
+    // Req 14: open → edit text → save leaves the payload bit-identical, and
+    // the comments argument is ignored entirely — no migration can slip in.
+    const preserved = trailerOf({ version: '2.0.0', comments: [comment], future: 'unknown to us' });
+    const onDisk = `${DOC}${preserved}`;
+    const split = splitEmbedded(onDisk);
+    const edited = `${split.content}\nAn edit made while the trailer was unreadable.\n`;
+
+    const saved = attachEmbedded(edited, [], split.trailerBytes);
+    expect(saved).toBe(`${edited}${preserved}`);
+    expect(saved.slice(edited.length)).toBe(preserved); // byte-for-byte
+    expect(attachEmbedded(edited, [comment], split.trailerBytes)).toBe(saved); // comments ignored
+    expect(saved).not.toContain('"1.0.0"'); // never restamped to our version
+
+    // Re-saving repeatedly keeps it so, and never doubles the trailer.
+    let text = saved;
+    for (let i = 0; i < 3; i++) text = attachEmbedded(text, [], splitEmbedded(text).trailerBytes);
+    expect(text).toBe(saved);
+    expect(text.match(/marky-mark-comments/g)?.length).toBe(1);
+    expect(splitEmbedded(text).content).toBe(edited);
+
+    // A trailer carrying an escaped "-->" survives the same way (the hazard
+    // that makes a regex re-run in the app the wrong place to get bytes from).
+    const trickyJson = JSON.stringify(
+      { version: '2.0.0', comments: [{ ...comment, body: 'tricky --> body' }] },
+      null,
+      2,
+    ).replace(/-->/g, '-\\u002d>'); // exactly what serializeTrailer does
+    const tricky = `\n<!-- marky-mark-comments\n${trickyJson}\n-->\n`;
+    const trickySplit = splitEmbedded(`${DOC}${tricky}`);
+    expect(trickySplit.readable).toBe(false);
+    expect(trickySplit.trailerBytes).toBe(tricky);
+    expect(trickySplit.trailerBytes).toContain('-\\u002d>'); // the escape, not a raw "-->"
+    expect(attachEmbedded(`${DOC}more\n`, [], trickySplit.trailerBytes)).toBe(`${DOC}more\n${tricky}`);
+
+    // The legacy marker is preserved as found — a save does NOT migrate it
+    // for a document this build could not read.
+    const legacy = trailerOf({ version: '2.0.0', comments: [comment] }, 'markimark-comments');
+    const legacyBytes = splitEmbedded(`${DOC}${legacy}`).trailerBytes;
+    expect(attachEmbedded(`${DOC}x\n`, [], legacyBytes)).toContain('markimark-comments');
+
+    // Without the argument, attachEmbedded is exactly what it always was.
+    expect(attachEmbedded(DOC, [comment], undefined)).toBe(attachEmbedded(DOC, [comment]));
+  });
+
+  test('U146: Req 39 — the shipped v0.4.0-alpha.4 reader still reads what this build writes', () => {
+    const comments = [comment, { ...comment, id: 'c-two', body: 'second, with a --> in it' }];
+
+    // The trailer: alpha.4 ignores the version field, so "1.0.0" where it
+    // wrote the integer 1 disturbs nothing.
+    const written = attachEmbedded(DOC, comments);
+    expect(JSON.parse(splitTrailerJson(written)).version).toBe('1.0.0');
+    const readBack = alpha4SplitEmbedded(written);
+    expect(readBack.hadTrailer).toBe(true);
+    expect(readBack.content).toBe(DOC);
+    expect(readBack.comments).toEqual(comments);
+    expect(readBack.comments[1].body).toBe('second, with a --> in it'); // escape restored
+
+    // The sidecar, same story.
+    const sidecar = serializeSidecar(comments);
+    expect(JSON.parse(sidecar).version).toBe('1.0.0');
+    expect(alpha4ParseSidecar(sidecar)).toEqual(comments);
+
+    // And the frozen reader is genuinely the old one: it accepts a payload
+    // our build refuses (a newer MAJOR), which is why it must never be
+    // re-pointed at src/.
+    expect(alpha4ParseSidecar(JSON.stringify({ version: '2.0.0', comments }))).toEqual(comments);
+    expect(readSidecar(JSON.stringify({ version: '2.0.0', comments })).readable).toBe(false);
   });
 });
