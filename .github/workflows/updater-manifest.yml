@@ -5,15 +5,30 @@
 name: updater-manifest
 on:
   release:
-    # `published` alone is flaky for draft-flips and pre-releases; listen to
-    # all three (the job is idempotent — clobber upload) and keep a manual
-    # dispatch as the recovery lever.
+    # A single publish fires MORE THAN ONE of these (flipping a pre-release
+    # draft fires `published` AND `prereleased`). All three are kept: they buy
+    # draft-flip reliability, and the `concurrency:` block below — not
+    # idempotence — is what makes listening to them safe. See issue #19.
     types: [published, prereleased, released]
   workflow_dispatch:
     inputs:
       tag:
         description: "Release tag to advance the updater manifest from"
         required: true
+      force:
+        description: "Point the updater at this tag even if it is OLDER than the version currently served (rollback lever)"
+        type: boolean
+        default: false
+
+# Serialise every run onto ONE queue. The group is deliberately a FIXED string:
+# the duplicate events that caused issue #19 share a tag, and a manual recovery
+# dispatch must queue behind an in-flight run too, so keying by tag/ref/event
+# would re-open the race. cancel-in-progress MUST stay false —
+# `gh release upload --clobber` is delete-then-upload, so cancelling a run
+# between the two is exactly the state that left the endpoint with no asset.
+concurrency:
+  group: updater-manifest
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -25,12 +40,34 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+      FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force || false }}
     steps:
       - uses: actions/checkout@v4
       - name: Copy latest.json to the rolling updater release
         run: |
+          set -euo pipefail
+
           gh release download "$TAG" --pattern latest.json --dir manifest || {
             echo "::warning::$TAG has no latest.json (pre-SPEC19 release?) — nothing to advance"; exit 0; }
+
+          manifest_version() { # $1 = path; empty output = missing/zero-byte/garbage
+            node -e 'try{const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof m.version==="string"?m.version:"")}catch{}' "$1"
+          }
+
+          CANDIDATE="$(manifest_version manifest/latest.json)"
+          if [ -z "$CANDIDATE" ]; then
+            echo "::error::$TAG's latest.json carries no version field — refusing to advance the updater endpoint"; exit 1; fi
+
+          # What the endpoint serves today (absent/empty/unparseable is fine —
+          # the guard advances in that case, which is the #19 recovery path).
+          gh release download updater --pattern latest.json --dir current || true
+          DECISION="$(node scripts/updater-manifest.mjs \
+            --candidate "$CANDIDATE" --current-file current/latest.json --force "$FORCE")"
+          echo "updater-manifest: $DECISION"
+          case "$DECISION" in
+            skip*) echo "::notice::$TAG ($CANDIDATE) does not advance the updater endpoint — ${DECISION#skip }"; exit 0 ;;
+          esac
+
           # --prerelease keeps it out of the `releases/latest` slot for good:
           # --latest=false only breaks ties among FULL releases, and with every
           # real release an alpha the rolling release was claiming "latest",
@@ -43,4 +80,15 @@ jobs:
             gh release edit updater --prerelease > /dev/null
           fi
           gh release upload updater manifest/latest.json --clobber
-          echo "updater manifest advanced to $TAG"
+
+          # Verify what the endpoint actually SERVES. The incident's end state
+          # (`gh release view updater --json assets` → `[]`) exited 0; it must
+          # fail red instead, naming the tag and what was found.
+          rm -rf verify
+          gh release download updater --pattern latest.json --dir verify || {
+            echo "::error::updater release carries no latest.json after uploading $TAG — endpoint is DOWN, re-dispatch: gh workflow run updater-manifest.yml -f tag=$TAG"; exit 1; }
+          SERVED="$(manifest_version verify/latest.json)"
+          if [ "$SERVED" != "$CANDIDATE" ]; then
+            echo "::error::updater endpoint serves version '${SERVED:-<unparseable or empty>}' after uploading $TAG (expected $CANDIDATE) — re-dispatch: gh workflow run updater-manifest.yml -f tag=$TAG"; exit 1; fi
+
+          echo "updater manifest advanced to $TAG ($SERVED)"

@@ -103,4 +103,30 @@ carries `Marky.Mark_<version>_universal.app.tar.gz` and `latest.json`
 workflow copies its `latest.json` onto the rolling **`updater`** release —
 the fixed endpoint Check for Updates… polls. Publishing remains the manual
 act it always was; updates start flowing the moment you flip the draft.
-Never edit the `updater` release by hand and never mark it pre-release.
+Never edit the `updater` release by hand — the workflow owns it, and it
+deliberately keeps it marked **pre-release** so the rolling pointer never
+hijacks the `/releases/latest` slot the README links to.
+
+Two behaviours a releaser can hit there (issue #19):
+
+- **The pointer only moves forwards.** Publishing a tag whose version is
+  older than — or the same as — the one the endpoint already serves logs
+  why and exits 0 *without* uploading. That is the guard, not a failure. It
+  yields automatically when the endpoint is empty or unreadable, so the
+  broken state is always recoverable.
+- **A run fails red if the endpoint ends up wrong.** After uploading, the
+  job re-downloads `latest.json` from the `updater` release and checks the
+  version it serves. No asset, a zero-byte asset, or a stale version fails
+  the run and names the tag to re-dispatch.
+
+Recovery levers, unchanged except for the new `force`:
+
+```sh
+gh workflow run updater-manifest.yml -f tag=<newest published tag>
+gh workflow run updater-manifest.yml -f tag=<older tag> -f force=true  # roll back on purpose
+```
+
+Every run of that workflow — event-driven or manual — queues on one fixed
+`concurrency` group and never cancels: a single publish fires several
+`release` events, and `gh release upload --clobber` is delete-then-upload,
+so overlapping runs are what emptied the endpoint in the first place.
