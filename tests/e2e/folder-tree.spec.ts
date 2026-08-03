@@ -19,6 +19,9 @@ test.beforeEach(async ({ page }) => {
 test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion persistence, guarded md opens, inert others', async ({
   page,
 }) => {
+  // Kitchen-sink runtime sat at the 30s default timeout, so machine load
+  // timed it out — the suite's most frequent timeout.
+  test.slow();
   await seedFolders(page);
 
   // Issue #22: outside workspace mode the folder view doesn't exist — the

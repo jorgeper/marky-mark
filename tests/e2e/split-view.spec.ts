@@ -144,17 +144,28 @@ test('E58: split scroll sync — the editor follows the preview; no feedback osc
   });
   await expect.poll(async () => Math.abs((await editorTopGutterLine(page)) - markerLine)).toBeLessThan(6);
 
-  // Settle check: both panes hold still across two frames — no loop.
-  await page.waitForTimeout(150);
+  // Settle check: both panes come to rest — the same pair of scroll offsets
+  // on two consecutive polls (the stableBox pattern). A feedback loop keeps
+  // the offsets moving, so the poll times out and fails; the old two-frame
+  // equality snapshot also failed when a late smooth-scroll frame landed
+  // between samples under CPU load, which is a runner artifact, not a loop.
   const snap = () =>
     page.evaluate(() => ({
       e: document.querySelector('.cm-scroller')!.scrollTop,
       p: document.querySelector('.split-preview')!.scrollTop,
     }));
-  const a = await snap();
-  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-  const b = await snap();
-  expect(b).toEqual(a);
+  let previous: string | null = null;
+  await expect
+    .poll(
+      async () => {
+        const current = JSON.stringify(await snap());
+        const settled = current === previous;
+        previous = current;
+        return settled;
+      },
+      { intervals: [100, 100, 250, 250, 500], timeout: 5000 }
+    )
+    .toBe(true);
 });
 
 test('E59: mode toggling carries the reading position — edit ↔ preview stay on the same block', async ({

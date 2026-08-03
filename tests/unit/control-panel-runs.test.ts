@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 // @ts-expect-error — the control panel is plain untyped CommonJS Node.
 import { parseRuns } from '../../control-panel/server.js';
 
@@ -12,6 +12,13 @@ const runs = (file: string, content: string, mtimeMs: number, timings: Timing[])
   (parseRuns as (f: string, c: string, m: number, t: Timing[]) => Run[])(file, content, mtimeMs, timings);
 
 describe('control panel agent-run status', () => {
+  // parseRuns decides running-vs-interrupted against the real clock (mtime
+  // within RUNNING_WINDOW_MS of now), so pin now to the moment of the
+  // reproduced logs — on a live clock the running-lane case below stops
+  // passing 15 minutes after its hardcoded mtime.
+  beforeEach(() => vi.useFakeTimers({ now: Date.parse('2026-08-03T22:12:50Z') }));
+  afterEach(() => vi.useRealTimers());
+
   // Reproduces the real 2026-08-03 logs: issue 32's implementer finished in
   // 2m32s while issue 31's implementer — started 9s earlier — was still
   // working. On phase+time matching alone, 31 adopted 32's entry and the

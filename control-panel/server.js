@@ -311,11 +311,27 @@ const ORCH_LOG = path.join(LOG_DIR, 'main-orchestrator.log');
 // gitignored — no main-repo change needed to keep the lock out of git.
 const LOCK_FILE = path.join(LOG_DIR, 'orchestrator.lock');
 
+// flock(1) exists on the Linux VPS (where the lock must cross a container
+// boundary) but not on macOS. On a Mac there IS no container boundary — the
+// panel, the orchestrator, and pgrep all share one machine — so the PID-file
+// + pgrep signals below are sufficient and the lock layer just switches off.
+const HAS_FLOCK = (() => {
+  try {
+    execFileSync('flock', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
 // True when anyone holds the lock — including a run on the host, which
-// pgrep in this container cannot see. Fails closed: if flock is missing or
-// the lock path is unwritable we report "held" and refuse to start, which
-// is the safe direction for a guard against concurrent orchestrators.
+// pgrep in this container cannot see. Fails closed WHERE FLOCK EXISTS: if
+// the probe errors we report "held" and refuse to start, the safe direction
+// for a guard against concurrent orchestrators. Without flock(1) (macOS)
+// the cross-container case cannot arise, so the check simply defers to
+// pgrep/PID-file.
 function lockHeld() {
+  if (!HAS_FLOCK) return false;
   try {
     execFileSync('flock', ['-n', LOCK_FILE, '-c', 'true'], { stdio: 'ignore' });
     return false;
@@ -364,7 +380,12 @@ function startOrchestrator() {
   // flock holds the lock for as long as npm lives, so the host-side loop
   // skips its turn instead of running a second orchestrator over the same
   // worktrees. -n means "give up now" rather than queue behind the holder.
-  const child = spawn('flock', ['-n', LOCK_FILE, 'npm', 'run', 'sandcastle'], { cwd: REPO, detached: true, stdio: ['ignore', fd, fd] });
+  // Without flock(1) (macOS) spawn npm directly — pgrep/PID-file still
+  // guard against a double start on a single machine.
+  const [cmd, args] = HAS_FLOCK
+    ? ['flock', ['-n', LOCK_FILE, 'npm', 'run', 'sandcastle']]
+    : ['npm', ['run', 'sandcastle']];
+  const child = spawn(cmd, args, { cwd: REPO, detached: true, stdio: ['ignore', fd, fd] });
   fs.closeSync(fd);
   child.unref();
   fs.writeFileSync(PID_FILE, JSON.stringify({ pid: child.pid, startedAt }));
