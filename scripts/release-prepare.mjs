@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * release:prepare (SPEC10 §1): move the app version in lock-step across
- * package.json, src-tauri/tauri.conf.json, and src-tauri/Cargo.toml, refresh
+ * package.json, src-tauri/tauri.conf.json, src-tauri/Cargo.toml, and the
+ * README's alpha banner (issue #22), refresh
  * both lockfiles, print a scoped diffstat, and commit — or, with --no-commit,
  * leave the tree for inspection. A rerun with the version already in place is
  * a no-op. The pre-release identifier is preserved verbatim, never stripped.
@@ -34,13 +35,38 @@ export function setCargoVersion(content, version) {
   return content.replace(/^version = "[^"]*"/m, `version = "${version}"`);
 }
 
+// The README's alpha banner advertises the shipping version (issue #22). It is
+// matched on its own line, prefix and suffix included, so neither the
+// shields.io badge URL nor the `<version>` placeholders in the download table
+// can ever be mistaken for it.
+const README_BANNER_RE =
+  /^(> \*\*⚠️ Alpha\*\* — Marky Mark is pre-release software \(`)([^`]*)(`\)\.)/m;
+
+/** The version advertised by the README alpha banner, or null if there is none. */
+export function readmeVersion(content) {
+  return README_BANNER_RE.exec(content)?.[2] ?? null;
+}
+
+/** Rewrite only the version inside the README alpha banner. */
+export function setReadmeVersion(content, version) {
+  return content.replace(README_BANNER_RE, `$1${version}$3`);
+}
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const env = {
   ...process.env,
   PATH: `${path.join(homedir(), '.cargo', 'bin')}:${process.env.PATH ?? ''}`,
 };
 
-const VERSION_FILES = ['package.json', 'src-tauri/tauri.conf.json', 'src-tauri/Cargo.toml'];
+// README.md joins the three release files (issue #22): its alpha banner is
+// advertised on the repo's front page and is checked by validate.mjs's
+// lock-step, so cutting a release must move it too.
+const VERSION_FILES = [
+  'package.json',
+  'src-tauri/tauri.conf.json',
+  'src-tauri/Cargo.toml',
+  'README.md',
+];
 const LOCK_FILES = ['package-lock.json', 'src-tauri/Cargo.lock'];
 
 function run(cmd, args, opts = {}) {
@@ -70,15 +96,17 @@ function main() {
     JSON.parse(contents[0]).version,
     JSON.parse(contents[1]).version,
     /^version = "([^"]*)"/m.exec(contents[2])?.[1],
+    readmeVersion(contents[3]),
   ];
   if (current.every((v) => v === version)) {
-    console.log(`release:prepare: all three version files already at ${version} — no-op.`);
+    console.log(`release:prepare: all ${VERSION_FILES.length} version files already at ${version} — no-op.`);
     return;
   }
 
   writeFileSync(path.join(root, VERSION_FILES[0]), setJsonVersion(contents[0], version));
   writeFileSync(path.join(root, VERSION_FILES[1]), setJsonVersion(contents[1], version));
   writeFileSync(path.join(root, VERSION_FILES[2]), setCargoVersion(contents[2], version));
+  writeFileSync(path.join(root, VERSION_FILES[3]), setReadmeVersion(contents[3], version));
 
   console.log(`release:prepare: version → ${version}; refreshing lockfiles…`);
   run('npm', ['install', '--package-lock-only']);

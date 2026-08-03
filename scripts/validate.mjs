@@ -33,22 +33,27 @@ const env = {
   PATH: `${path.join(homedir(), '.cargo', 'bin')}:${process.env.PATH ?? ''}`,
 };
 
-// Version lock-step (SPEC10 §1.3): the three release files must agree on one
-// valid semver, pre-release identifier intact.
+// Version lock-step (SPEC10 §1.3, extended by issue #22): the three release
+// files and the version the README advertises must agree on one valid semver,
+// pre-release identifier intact. `readmeVersion` is the same pure transform
+// release:prepare writes with, so the gate checks exactly what the release
+// path produces; a README with no recognisable banner extracts as null and
+// fails here rather than passing vacuously.
 console.log('=== validate: version lock-step ===');
+const { isValidSemver, readmeVersion } = await import('./release-prepare.mjs');
 const versions = {
   'package.json': JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version,
   'src-tauri/tauri.conf.json': JSON.parse(readFileSync(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8')).version,
   'src-tauri/Cargo.toml': /^version = "([^"]*)"/m.exec(readFileSync(path.join(root, 'src-tauri/Cargo.toml'), 'utf8'))?.[1],
+  'README.md': readmeVersion(readFileSync(path.join(root, 'README.md'), 'utf8')),
 };
-const { isValidSemver } = await import('./release-prepare.mjs');
 const distinct = new Set(Object.values(versions));
 if (distinct.size !== 1 || !isValidSemver(versions['package.json'])) {
   for (const [f, v] of Object.entries(versions)) console.error(`  ${f}: ${v}`);
   console.error('\nVALIDATION FAILED at step: version lock-step');
   process.exit(1);
 }
-console.log(`version ${versions['package.json']} in lock-step across package.json, tauri.conf.json, Cargo.toml`);
+console.log(`version ${versions['package.json']} in lock-step across package.json, tauri.conf.json, Cargo.toml, README.md`);
 
 const steps = [
   { name: 'typecheck', cmd: 'npx', args: ['tsc', '--noEmit'] },
