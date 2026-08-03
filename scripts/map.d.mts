@@ -1,4 +1,4 @@
-/** Type surface of map.mjs for the unit suite (U155–U161) and validate.mjs. */
+/** Type surface of map.mjs for the unit suite (U155–U161). */
 export interface MapFile {
   path: string;
   text: string;

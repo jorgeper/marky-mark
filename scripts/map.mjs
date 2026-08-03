@@ -6,8 +6,9 @@
  * the spec list and each spec's own `# ` title, and the `SPEC<n>` comments in
  * src/ and in the E-numbered e2e tests give the rows.
  *
- * Deterministic output: rows sorted by spec number, files and E-numbers sorted
- * within a row, no timestamps, no absolute paths, byte-identical on rerun —
+ * Deterministic output: rows sorted by spec number, src files sorted within a
+ * row, e2e attributions in citing-file order, no timestamps, no absolute
+ * paths, byte-identical on rerun —
  * scripts/validate.mjs compares the committed file against a fresh render and
  * fails the gate (both tiers) when they differ.
  *
@@ -201,6 +202,9 @@ export function buildRows(tree) {
 
   for (const row of rows.values()) {
     row.src = [...new Set(row.src)].sort();
+    // Deduped but not re-sorted: e2e files are visited in name order and each
+    // file's citations arrive sorted, so the cell is already deterministic —
+    // E-numbers group by citing file rather than sorting globally.
     row.tests = [...new Set(row.tests)];
   }
   return { rows: [...rows.values()].sort((a, b) => compareSpecKeys(a.key, b.key)), unknown: [...unknown].sort(compareSpecKeys) };
@@ -209,9 +213,10 @@ export function buildRows(tree) {
 /** The committed markdown for a set of rows. Pure: same rows in, same bytes out. */
 export function renderMap(rows) {
   const cell = (items) => (items.length ? items.map((i) => `\`${i}\``).join(', ') : '_none_');
+  // E-numbers render bare; a file-level attribution renders as a code-quoted path.
+  const testCell = (tests) => (tests.length ? tests.map((t) => (t.startsWith('E') ? t : `\`${t}\``)).join(', ') : '_none_');
   const body = rows.map(
-    (row) =>
-      `| [${row.key}](specs/${row.file}) | ${row.title} | ${cell(row.src)} | ${row.tests.length ? row.tests.map((t) => (t.startsWith('E') ? t : `\`${t}\``)).join(', ') : '_none_'} |`,
+    (row) => `| [${row.key}](specs/${row.file}) | ${row.title} | ${cell(row.src)} | ${testCell(row.tests)} |`,
   );
   return `# Spec → code map
 
