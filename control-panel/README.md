@@ -28,3 +28,7 @@ Data sources:
 - **Agents** — parsed from `.sandcastle/logs/*.log` (`--- Run started ---` blocks) + `timings.jsonl`. A run with no completion marker and a log file modified in the last 3 minutes counts as *running*.
 - **Issues** — `gh issue list` + the sub-issues REST API, nested parent → children.
 - **PRs** — `gh pr list`, linked to issues via branch names (`issue-N`) and `#N` in titles.
+- **Docs** — `.html` articles in `$MARKY_REPO/docs/archive`, listed from their `<title>`
+  and `<meta name="description">` and served at `/docs/<file>` (with a link to the
+  matching `.md` when one exists). Start with
+  [how-marky-mark-is-built.html](../docs/archive/how-marky-mark-is-built.html).
