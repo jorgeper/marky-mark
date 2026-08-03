@@ -119,7 +119,7 @@ Two behaviours a releaser can hit there (issue #19):
   version it serves. No asset, a zero-byte asset, or a stale version fails
   the run and names the tag to re-dispatch.
 
-Recovery levers, unchanged except for the new `force`:
+Recovery levers:
 
 ```sh
 gh workflow run updater-manifest.yml -f tag=<newest published tag>

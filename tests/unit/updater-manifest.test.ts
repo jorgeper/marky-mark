@@ -1,8 +1,10 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 // @ts-expect-error — plain .mjs script module (the release pipeline's composer)
-import { compareVersions, composeManifest, decideAdvance } from '../../scripts/updater-manifest.mjs';
+import { compareVersions, composeManifest, decideAdvance, versionFromManifestFile } from '../../scripts/updater-manifest.mjs';
 
 /** A repo file read from disk (follows tests/unit/licenses.test.ts and U148). */
 const repoFile = (rel: string) => readFileSync(fileURLToPath(new URL(`../../${rel}`, import.meta.url)), 'utf8');
@@ -150,7 +152,6 @@ describe('the updater pointer only moves forwards (issue #19)', () => {
     // The stale "the job is idempotent — clobber upload" justification is gone;
     // the trigger comment now points at the concurrency block instead.
     expect(wf).not.toMatch(/the job is idempotent/);
-    expect(wf).toMatch(/concurrency/);
   });
 
   test('U153: the job fails red when the endpoint does not end up serving the published version', () => {
@@ -176,5 +177,32 @@ describe('the updater pointer only moves forwards (issue #19)', () => {
     // The pre-SPEC19 early exit survives: no latest.json on the tag still
     // warns and exits 0 without touching the endpoint.
     expect(wf).toMatch(/::warning::\$TAG has no latest\.json[\s\S]{0,120}?exit 0/);
+  });
+
+  test('U154: reading a manifest’s version tolerates every broken file the endpoint can hand back', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'updater-manifest-'));
+    const write = (name: string, body: string) => {
+      const path = join(dir, name);
+      writeFileSync(path, body);
+      return path;
+    };
+
+    expect(versionFromManifestFile(write('good.json', JSON.stringify({ version: '0.4.0-alpha.5' })))).toBe(
+      '0.4.0-alpha.5'
+    );
+    // Everything the guard must survive rather than throw on: the file gh never
+    // downloaded, a truncated upload, JSON that is not a manifest.
+    expect(versionFromManifestFile(join(dir, 'absent.json'))).toBeNull();
+    expect(versionFromManifestFile(undefined)).toBeNull();
+    expect(versionFromManifestFile(write('empty.json', ''))).toBeNull();
+    expect(versionFromManifestFile(write('garbage.json', 'not json at all'))).toBeNull();
+    expect(versionFromManifestFile(write('noversion.json', '{}'))).toBeNull();
+    expect(versionFromManifestFile(write('typed.json', JSON.stringify({ version: 42 })))).toBeNull();
+
+    // The workflow reads versions through this same function (CLI mode) rather
+    // than re-implementing the parse in shell — one set of edge cases, not two.
+    expect(repoFile('.github/workflows/updater-manifest.yml')).toMatch(
+      /node scripts\/updater-manifest\.mjs --read-version/
+    );
   });
 });

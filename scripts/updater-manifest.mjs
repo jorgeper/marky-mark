@@ -16,8 +16,13 @@
  * release currently serves, so the pointer cannot walk backwards:
  *   node scripts/updater-manifest.mjs --candidate 0.4.0-alpha.5 \
  *     --current-file current/latest.json [--force true]
+ *
+ * CLI (read — also used by updater-manifest.yml): print a manifest's version,
+ * or nothing at all if the file is missing/zero-byte/garbage, so the workflow
+ * never re-implements this parse in shell:
+ *   node scripts/updater-manifest.mjs --read-version manifest/latest.json
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 /** @typedef {{ platform: 'darwin-universal' | 'windows-x86_64', url: string, signature: string }} ManifestAsset */
 
@@ -123,9 +128,10 @@ export function compareVersions(a, b) {
  * @returns {{ decision: 'advance' | 'skip', reason: string }}
  */
 export function decideAdvance({ candidate, current, force = false }) {
-  const cand = parseVersion(candidate);
-  if (!cand) throw new Error(`decideAdvance: unparseable candidate version ${JSON.stringify(candidate)}`);
-  const normalizedCandidate = String(candidate).trim().replace(/^v/, '');
+  if (!parseVersion(candidate)) {
+    throw new Error(`decideAdvance: unparseable candidate version ${JSON.stringify(candidate)}`);
+  }
+  const normalizedCandidate = candidate.trim().replace(/^v/, '');
 
   if (force) {
     return { decision: 'advance', reason: `forced: pointing the updater at ${normalizedCandidate} regardless of order` };
@@ -149,9 +155,17 @@ export function decideAdvance({ candidate, current, force = false }) {
   };
 }
 
-/** Read a manifest's `version` off disk, tolerating missing/zero-byte/garbage files. */
-function versionFromManifestFile(path) {
-  if (!path || !existsSync(path)) return null;
+/**
+ * Read a manifest's `version` off disk, or null for a missing/zero-byte/garbage
+ * file — every one of those is a normal input here (the tag may predate SPEC19,
+ * and the `updater` release may be in the broken state of issue #19). The reads
+ * that fail are exactly the ones readFileSync/JSON.parse throw on, so the catch
+ * is the whole guard.
+ * @param {string | undefined} path
+ * @returns {string | null}
+ */
+export function versionFromManifestFile(path) {
+  if (!path) return null;
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8'));
     return typeof parsed?.version === 'string' ? parsed.version : null;
@@ -168,7 +182,13 @@ function arg(name) {
 
 const isCli = Boolean(process.argv[1] && process.argv[1].endsWith('updater-manifest.mjs'));
 
-if (isCli && arg('candidate')) {
+if (isCli && arg('read-version') !== undefined) {
+  // Read mode: the manifest's version, or an empty line the caller reads as
+  // "nothing usable there". Never fails — the absence IS the answer, so an
+  // empty --read-version argument must still land here rather than fall
+  // through to another mode (hence `!== undefined`, not a truthiness check).
+  console.log(versionFromManifestFile(arg('read-version')) ?? '');
+} else if (isCli && arg('candidate')) {
   // Decide mode: `advance <reason>` / `skip <reason>` on stdout. Exit 0 either
   // way — skipping is a normal outcome, not a failure; exit 1 only for input
   // the guard cannot reason about at all.

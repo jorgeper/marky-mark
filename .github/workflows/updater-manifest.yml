@@ -51,7 +51,7 @@ jobs:
             echo "::warning::$TAG has no latest.json (pre-SPEC19 release?) — nothing to advance"; exit 0; }
 
           manifest_version() { # $1 = path; empty output = missing/zero-byte/garbage
-            node -e 'try{const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof m.version==="string"?m.version:"")}catch{}' "$1"
+            node scripts/updater-manifest.mjs --read-version "$1"
           }
 
           CANDIDATE="$(manifest_version manifest/latest.json)"
@@ -84,7 +84,7 @@ jobs:
           # Verify what the endpoint actually SERVES. The incident's end state
           # (`gh release view updater --json assets` → `[]`) exited 0; it must
           # fail red instead, naming the tag and what was found.
-          rm -rf verify
+          rm -rf verify # gh refuses to download over an existing file
           gh release download updater --pattern latest.json --dir verify || {
             echo "::error::updater release carries no latest.json after uploading $TAG — endpoint is DOWN, re-dispatch: gh workflow run updater-manifest.yml -f tag=$TAG"; exit 1; }
           SERVED="$(manifest_version verify/latest.json)"
