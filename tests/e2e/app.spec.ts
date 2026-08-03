@@ -5,6 +5,8 @@ import { expect, test } from './fixtures';
 import pkg from '../../package.json' with { type: 'json' };
 import {
   addComment,
+  clickClearOfToolbar,
+  stableBox,
   selectPhraseInPane,
   selectSpanInPane,
   freshApp,
@@ -825,24 +827,34 @@ test('E31: the edit-mode text column aligns with the preview column', async ({ p
 
   const p1 = await previewTextLeft();
   await page.keyboard.press('Control+e');
-  expect(Math.abs((await editorTextLeft()) - p1)).toBeLessThanOrEqual(2);
+  // The editor mounts and measures asynchronously — poll the alignment rather
+  // than sampling the column the instant the swap starts.
+  await expect.poll(async () => Math.abs((await editorTextLeft()) - p1)).toBeLessThanOrEqual(2);
   await page.keyboard.press('Control+e');
 
   // Margins move both columns together.
   await openSettings(page);
   await page.getByTestId('settings-margins').selectOption('wide');
   await page.getByTestId('settings-close').click();
+  // The margins change re-lays the column out; wait for it to land before
+  // measuring, then hold that measurement.
+  await expect.poll(previewTextLeft).toBeGreaterThan(p1); // narrower column starts further right
   const p2 = await previewTextLeft();
-  expect(p2).toBeGreaterThan(p1); // narrower column starts further right
   await page.keyboard.press('Control+e');
-  expect(Math.abs((await editorTextLeft()) - p2)).toBeLessThanOrEqual(2);
+  await expect.poll(async () => Math.abs((await editorTextLeft()) - p2)).toBeLessThanOrEqual(2);
   await page.keyboard.press('Control+e');
 
   // With the gutter on, the text may shift by at most the gutter width.
   await page.evaluate(() => window.__mmDispatch!('toggleLineNumbers')); // issue #10: back on
   await page.keyboard.press('Control+e');
-  const gutterW = await page.locator('.cm-gutters').evaluate((el) => el.getBoundingClientRect().width);
-  expect(Math.abs((await editorTextLeft()) - p2)).toBeLessThanOrEqual(gutterW + 2);
+  // .cm-gutters is sized on a rAF scheduled by the pane ResizeObserver
+  // (Editor.tsx:1238) — the same deferral that broke E136.
+  await expect
+    .poll(async () => {
+      const gutterW = await page.locator('.cm-gutters').evaluate((el) => el.getBoundingClientRect().width);
+      return Math.abs((await editorTextLeft()) - p2) - gutterW;
+    })
+    .toBeLessThanOrEqual(2);
 });
 
 test('E32: activating a buried comment glides it level with its highlight; cards wear a faint shadow', async ({
@@ -899,7 +911,9 @@ test('E33: resolved comments can be shown ghosted in place, reopened from the gh
   const ghost = page.locator('.card.resolved-ghost');
   await expect(ghost).toHaveCount(1);
   await expect(ghost).toContainText('ghost me');
-  expect(await ghost.evaluate((el) => parseFloat(getComputedStyle(el).opacity))).toBeLessThan(1);
+  await expect
+    .poll(() => ghost.evaluate((el) => parseFloat(getComputedStyle(el).opacity)))
+    .toBeLessThan(1);
   await expect(page.locator('mark.hl.ghost').first()).toBeVisible();
   await expect(page.getByTestId('resolved-section')).toHaveCount(0);
 
@@ -1083,11 +1097,13 @@ test('E40: the split divider drags within bounds, persists its ratio, and double
     const e = (await page.locator('.split-editor').boundingBox())!;
     return e.width / wsBox.width;
   };
-  expect(Math.abs((await editorFraction()) - 0.5)).toBeLessThanOrEqual(0.05);
+  // The preview slides in over 180ms (paneSlide.ts): poll the ratio instead of
+  // sampling it mid-flight — and the divider below must be grabbed at rest.
+  await expect.poll(async () => Math.abs((await editorFraction()) - 0.5)).toBeLessThanOrEqual(0.05);
 
   // Drag the divider to ~30% of the window.
   const divider = page.getByTestId('split-divider');
-  const d1 = (await divider.boundingBox())!;
+  const d1 = await stableBox(divider);
   await page.mouse.move(d1.x + d1.width / 2, d1.y + 200);
   await page.mouse.down();
   await page.mouse.move(wsBox.x + wsBox.width * 0.3, d1.y + 200, { steps: 8 });
@@ -1107,7 +1123,7 @@ test('E40: the split divider drags within bounds, persists its ratio, and double
     .toBeLessThanOrEqual(0.35);
 
   // Dragging far left clamps at the 0.2 floor.
-  const d2 = (await divider.boundingBox())!;
+  const d2 = await stableBox(divider);
   await page.mouse.move(d2.x + d2.width / 2, d2.y + 200);
   await page.mouse.down();
   await page.mouse.move(wsBox.x + 5, d2.y + 200, { steps: 8 });
@@ -1521,16 +1537,16 @@ test('E54: fixed navigator pill — appears on selection, steps in order, wraps,
   // the invariant is about stepping, not the appear animation).
   await page.getByTestId('comment-nav-next').click();
   await expect(page.getByTestId('comment-nav-count')).toHaveText('2 / 3');
-  const box = await page.getByTestId('comment-nav').boundingBox();
+  const box = await stableBox(page.getByTestId('comment-nav'));
   await page.getByTestId('comment-nav-next').click();
   await expect(page.getByTestId('comment-nav-count')).toHaveText('3 / 3');
-  expect(await page.getByTestId('comment-nav').boundingBox()).toEqual(box);
+  await expect.poll(() => page.getByTestId('comment-nav').boundingBox()).toEqual(box);
   await page.getByTestId('comment-nav-next').click(); // wrap forward
   await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 3');
-  expect(await page.getByTestId('comment-nav').boundingBox()).toEqual(box);
+  await expect.poll(() => page.getByTestId('comment-nav').boundingBox()).toEqual(box);
   await page.getByTestId('comment-nav-prev').click(); // wrap back
   await expect(page.getByTestId('comment-nav-count')).toHaveText('3 / 3');
-  expect(await page.getByTestId('comment-nav').boundingBox()).toEqual(box);
+  await expect.poll(() => page.getByTestId('comment-nav').boundingBox()).toEqual(box);
   // Stepping keeps an active highlight in the document and never killed the pill.
   await expect(page.locator('mark.hl.active').first()).toBeVisible();
 
@@ -1796,12 +1812,13 @@ test('E61: heading palette — Mod+K opens, fuzzy-filters, Enter jumps preview a
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('heading-palette')).toHaveCount(0);
   // The heading sits at the viewport top (±120px).
-  const delta = await page.evaluate(() => {
-    const ws = document.querySelector('.workspace')!;
-    const el = Array.from(document.querySelectorAll('.doc h2')).find((h) => h.textContent === 'Marker 15')!;
-    return Math.abs(el.getBoundingClientRect().top - ws.getBoundingClientRect().top);
-  });
-  expect(delta).toBeLessThan(120);
+  const delta = () =>
+    page.evaluate(() => {
+      const ws = document.querySelector('.workspace')!;
+      const el = Array.from(document.querySelectorAll('.doc h2')).find((h) => h.textContent === 'Marker 15')!;
+      return Math.abs(el.getBoundingClientRect().top - ws.getBoundingClientRect().top);
+    });
+  await expect.poll(delta).toBeLessThan(120); // the jump scrolls asynchronously
 
   // Esc closes without jumping.
   await page.keyboard.press('Control+k');
@@ -2236,8 +2253,8 @@ test('E77: image resize lives in the EDIT pane — a chip drag persists into the
   await expect(page.getByTestId('image-chip-layer')).toBeVisible();
 
   // Drag the corner chip 60px left → the SPEC20 rewrite lands in the buffer.
-  const chip = await page.getByTestId('image-resize-wh').boundingBox();
-  await page.mouse.move(chip!.x + chip!.width / 2, chip!.y + chip!.height / 2);
+  const chip = await stableBox(page.getByTestId('image-resize-wh'));
+  await page.mouse.move(chip.x + chip.width / 2, chip.y + chip.height / 2);
   await page.mouse.down();
   await page.mouse.move(chip!.x + chip!.width / 2 - 60, chip!.y + chip!.height / 2, { steps: 5 });
   await page.mouse.up();
@@ -2630,8 +2647,13 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   await expect(expand).toHaveAttribute('title', 'Show the preview pane');
   await expect(expand).toHaveAttribute('aria-label', 'Show the preview pane');
   const viewport = page.viewportSize()!;
-  const expandBox = (await expand.boundingBox())!;
-  expect(expandBox.x + expandBox.width).toBeGreaterThan(viewport.width - 24);
+  // The chevron re-pins once the preview has finished sliding away.
+  await expect
+    .poll(async () => {
+      const b = (await expand.boundingBox())!;
+      return b.x + b.width;
+    })
+    .toBeGreaterThan(viewport.width - 24);
   await expand.click();
   await expect(page.getByTestId('split-preview')).toBeVisible();
   await expect(expand).toHaveCount(0);
@@ -3120,6 +3142,9 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   // Restart: panel visibility, root, and expansion all survive.
   await page.reload();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
+  // The tree re-lists from foldertree.json after the reload — wait for the
+  // restored listing itself, not just the first paint of a row in it.
+  await expect.poll(names).toContain('/notes/sub/b.md');
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toBeVisible();
 
   // Clicking a markdown row opens it (selected class follows).
@@ -3129,16 +3154,18 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
 
   // The selected tab floats clear of the panel's left edge — the pill must
   // not widen the scroll range, and the reveal must not scroll the gap away.
-  const pill = await page.evaluate(() => {
-    const list = document.querySelector('.folder-list')!;
-    const sel = document.querySelector('.folder-item.selected')!;
-    return {
-      gap: sel.getBoundingClientRect().left - list.getBoundingClientRect().left,
-      scrollLeft: list.scrollLeft,
-    };
-  });
-  expect(pill.scrollLeft).toBe(0);
-  expect(pill.gap).toBeGreaterThanOrEqual(10);
+  const pill = () =>
+    page.evaluate(() => {
+      const list = document.querySelector('.folder-list')!;
+      const sel = document.querySelector('.folder-item.selected')!;
+      return {
+        gap: sel.getBoundingClientRect().left - list.getBoundingClientRect().left,
+        scrollLeft: list.scrollLeft,
+      };
+    });
+  // The reveal scroll lands after the selection re-render, so poll both.
+  await expect.poll(async () => (await pill()).scrollLeft).toBe(0);
+  await expect.poll(async () => (await pill()).gap).toBeGreaterThanOrEqual(10);
 
   // The eye choice survived the reload above (foldertree.json); hiding
   // again drops the rows without collapsing sub or losing the selection.
@@ -3171,14 +3198,15 @@ test('E94: folder chrome — divider resize persists, chevrons / View checkbox /
   await expect(page.getByTestId('folder-header')).toContainText('notes');
 
   // Drag the divider ~+80px; width and the persisted setting follow.
-  const before = await page.getByTestId('folder-panel').evaluate((el) => el.getBoundingClientRect().width);
-  const box = (await page.getByTestId('folder-divider').boundingBox())!;
+  const panelWidth = () =>
+    page.getByTestId('folder-panel').evaluate((el) => el.getBoundingClientRect().width);
+  const before = await panelWidth();
+  const box = await stableBox(page.getByTestId('folder-divider')); // grab it at rest
   await page.mouse.move(box.x + box.width / 2, box.y + 200);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 80, box.y + 200, { steps: 5 });
   await page.mouse.up();
-  const after = await page.getByTestId('folder-panel').evaluate((el) => el.getBoundingClientRect().width);
-  expect(after).toBeGreaterThan(before + 40);
+  await expect.poll(panelWidth).toBeGreaterThan(before + 40);
   await expect.poll(async () => JSON.parse((await fsRead(page, '/config/settings.json'))!).folderWidth).toBeGreaterThan(
     before + 40
   );
@@ -3900,8 +3928,11 @@ test('E105: smart-edit gutter button — cursor line only, follows the caret, ri
   await expect(btn).toHaveCount(1);
   await editor.locator('.cm-line').filter({ hasText: /^beta$/ }).click();
   const lineBox = (await editor.locator('.cm-line').filter({ hasText: /^beta$/ }).boundingBox())!;
+  // The button re-anchors on CodeMirror's next measure after the click.
+  await expect
+    .poll(async () => Math.abs((await btn.boundingBox())!.y - lineBox.y))
+    .toBeLessThan(4);
   let btnBox = (await btn.boundingBox())!;
-  expect(Math.abs(btnBox.y - lineBox.y)).toBeLessThan(4);
 
   // It follows the caret.
   await page.keyboard.press('ArrowDown');
@@ -4700,7 +4731,7 @@ test('E120: the global toggle — both tables flip together, originals restore, 
   expect(raw).toContain('| x    | y |'); // decorative padding restored
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   await page.keyboard.press('ControlOrMeta+z'); // flips never enter history
-  expect(await text()).toBe(raw);
+  await expect.poll(text).toBe(raw);
 
   // The setting persists: reload, reopen, still raw.
   await page.keyboard.press('Control+s');
@@ -4845,7 +4876,7 @@ test('E122: resize chips — the eight-chip ring on every border and corner, edg
   };
   const widgetImg = () => editor.locator('.mm-image-widget img');
   const dragChip = async (id: string, dx: number, dy: number) => {
-    const box = (await page.getByTestId(id).boundingBox())!;
+    const box = await stableBox(page.getByTestId(id)); // re-placed after each drag
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy, { steps: 5 });
@@ -5350,7 +5381,7 @@ test('E129: split edit — highlights + panel in the live pane, comment from a s
     const box = (await page.getByTestId('comment-card').first().boundingBox())!;
     return (await page.evaluate(() => window.innerWidth)) - (box.x + box.width);
   };
-  expect(await gapTo()).toBeGreaterThanOrEqual(16);
+  await expect.poll(gapTo).toBeGreaterThanOrEqual(16);
 
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').check();
@@ -5374,7 +5405,10 @@ test('E129: split edit — highlights + panel in the live pane, comment from a s
   // A selection made IN the split pane grows a comment like preview mode.
   // Real flow first: a mousedown in the pane blurs the editor (a focused CM
   // would re-assert its own selection and kill the pane's).
-  await pane.click({ position: { x: 10, y: 10 } });
+  // y: 10 would land the pointer in the 20px `.toolbar-hotzone` and hold the
+  // shell down over the top 42px for the rest of the test; 60 is the same
+  // blur-the-editor click, clear of the band.
+  await pane.click({ position: { x: 10, y: 60 } });
   // Center the phrase first so the floating button clears the toolbar.
   await page.evaluate(() => {
     const doc = document.querySelector('[data-testid="split-preview"] .doc')!;
@@ -5389,7 +5423,7 @@ test('E129: split edit — highlights + panel in the live pane, comment from a s
   });
   await selectPhraseInPane(page, '[data-testid="split-preview"] .doc', 'renders GitHub-flavored markdown');
   await expect(page.getByTestId('add-comment-btn')).toBeVisible();
-  await page.getByTestId('add-comment-btn').click();
+  await clickClearOfToolbar(page, page.getByTestId('add-comment-btn'));
   await expect(page.getByTestId('composer')).toBeVisible();
   await page.getByTestId('composer-input').fill('From the split pane');
   await page.getByTestId('composer-submit').click();
@@ -5406,7 +5440,7 @@ test('E129: split edit — highlights + panel in the live pane, comment from a s
   await expect(page.getByTestId('comment-nav-count')).toHaveText('2 / 2');
 
   // Padding fix, split mode: same clear gap to the window's right border.
-  expect(await gapTo()).toBeGreaterThanOrEqual(16);
+  await expect.poll(gapTo).toBeGreaterThanOrEqual(16);
 });
 
 test('E130: comment boxes keep a clear right-edge gap — every surface and state, both hosts, even an overflowing split pane (#20/#24)', async ({
@@ -5422,18 +5456,18 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
 
   // Full preview: idle card.
   await addComment(page, PHRASE, 'gap probe');
-  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
+  await expect.poll(() => gapOf('comment-card')).toBeGreaterThanOrEqual(16);
 
   // Active card.
   await page.getByTestId('comment-card').first().click();
   await expect(page.getByTestId('comment-card').first()).toHaveClass(/active/);
-  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
+  await expect.poll(() => gapOf('comment-card')).toBeGreaterThanOrEqual(16);
 
   // Open composer.
   await selectPhrase(page, 'markdown itself stays untouched');
   await page.getByTestId('add-comment-btn').click();
   await expect(page.getByTestId('composer')).toBeVisible();
-  expect(await gapOf('composer')).toBeGreaterThanOrEqual(16);
+  await expect.poll(() => gapOf('composer')).toBeGreaterThanOrEqual(16);
   await page.keyboard.press('Escape');
 
   // Collapsed resolved section (show-resolved off), plus a live card beside it.
@@ -5444,10 +5478,10 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
   await page.getByTestId('settings-close').click();
   await addComment(page, 'markdown itself stays untouched', 'second note');
   await expect(page.getByTestId('resolved-section')).toBeVisible();
-  expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+  await expect.poll(() => gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
   // Expanded resolved section too.
   await page.getByTestId('resolved-section').locator('summary').click();
-  expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+  await expect.poll(() => gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
 
   // Split-edit host at the suite's pinned pane floor (fits without overflow).
   await openSettings(page, 'general');
@@ -5455,8 +5489,8 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
   await page.getByTestId('settings-close').click();
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-preview')).toBeVisible();
-  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
-  expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+  await expect.poll(() => gapOf('comment-card')).toBeGreaterThanOrEqual(16);
+  await expect.poll(() => gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
 
   // The #20 repro: the shipped paneMinWidth (768px) makes the split pane's
   // content (doc floor + 300px panel) overflow sideways at this 1280px
@@ -5471,7 +5505,7 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
   await page.reload();
   await openWelcomeViaHelp(page);
   await expect(page.getByTestId('comment-card').first()).toBeVisible();
-  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16); // preview still fits
+  await expect.poll(() => gapOf('comment-card')).toBeGreaterThanOrEqual(16); // preview still fits
   await page.keyboard.press('Control+e');
   const pane = page.getByTestId('split-preview');
   await expect(pane).toBeVisible();
@@ -5479,9 +5513,14 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
 
   /** Measured geometry (#24): the box must sit fully right of the doc's box. */
   const clearOfDoc = async (testId: string) => {
-    const doc = (await pane.locator('.doc').boundingBox())!;
-    const box = (await page.getByTestId(testId).first().boundingBox())!;
-    expect(box.x).toBeGreaterThanOrEqual(doc.x + doc.width);
+    // Both rects move while the split settles — poll the relation itself.
+    await expect
+      .poll(async () => {
+        const doc = (await pane.locator('.doc').boundingBox())!;
+        const box = (await page.getByTestId(testId).first().boundingBox())!;
+        return box.x - (doc.x + doc.width);
+      })
+      .toBeGreaterThanOrEqual(0);
   };
 
   // Overflow, not overlay: the pane scrolls sideways…
@@ -5503,8 +5542,8 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
   });
   await clearOfDoc('panel');
   await clearOfDoc('comment-card');
-  expect(await gapOf('comment-card')).toBeGreaterThanOrEqual(16);
-  expect(await gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+  await expect.poll(() => gapOf('comment-card')).toBeGreaterThanOrEqual(16);
+  await expect.poll(() => gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
 });
 
 // --- Issue #22: the explicit three-mode model (splash / file / workspace) -------
@@ -5720,6 +5759,11 @@ test('E133: pane slides — folder and preview open/close as 180ms transforms, p
 
   // Folder close (Req 9): the pane translates toward the left edge and stays
   // mounted for the whole exit.
+  // Steady state carries no transform (asserted below for the open path) —
+  // measure there, so the midFlight thresholds are built on the full width.
+  await expect
+    .poll(() => page.getByTestId('folder-panel').evaluate((el) => getComputedStyle(el).transform))
+    .toBe('none');
   const folderWidth = await page
     .getByTestId('folder-panel')
     .evaluate((el) => el.getBoundingClientRect().width);
@@ -5742,6 +5786,9 @@ test('E133: pane slides — folder and preview open/close as 180ms transforms, p
   // Split preview (Req 10): same language from/toward the RIGHT edge.
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect
+    .poll(() => page.getByTestId('split-preview').evaluate((el) => getComputedStyle(el).transform))
+    .toBe('none');
   const previewWidth = await page
     .getByTestId('split-preview')
     .evaluate((el) => el.getBoundingClientRect().width);
@@ -5797,7 +5844,7 @@ test('E134: split mode — the editor column hugs its pane, leaving no blank str
 
   const wsBox = (await page.locator('.workspace.split').boundingBox())!;
   const divider = page.getByTestId('split-divider');
-  const d = (await divider.boundingBox())!;
+  const d = await stableBox(divider);
   await page.mouse.move(d.x + d.width / 2, d.y + 200);
   await page.mouse.down();
   await page.mouse.move(wsBox.x + wsBox.width * 0.8, d.y + 200, { steps: 8 });

@@ -4348,7 +4348,11 @@ export default function App() {
         <button
           className="add-comment-btn"
           data-testid="add-comment-btn"
-          style={{ left: selInfo.x, top: Math.max(8, selInfo.y - 42) }}
+          // The toolbar shell (z-index 80) overlays the top 42px of the
+          // window, so a selection near the pane's top edge used to clamp this
+          // button (z-index 60) underneath it, where `.docname` swallowed the
+          // click and the button could not be pressed at all (issue #18).
+          style={{ left: selInfo.x, top: Math.max(nativeMenu ? 8 : 50, selInfo.y - 42) }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => startComposer()}
         >

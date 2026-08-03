@@ -57,3 +57,11 @@ session here can run the tiers for you:
   release-profile install before judging performance.
 - Windows-reserved filenames (`aux`, `con`, `nul`, …) break CI checkout
   on Windows — scan before tagging.
+- e2e reads of animation- or observer-driven state must poll, never
+  sample once: transitions (pane slides, the toolbar shell), and anything
+  applied in a `requestAnimationFrame` or a `ResizeObserver` (the gutter),
+  settle after the action that triggered them. Wrap the property under
+  test in `expect.poll` (or a web-first `expect`) with the assertion
+  unchanged — `07da43e` (E25, the slide-out transform) and `75b92ae`
+  (E136, the rAF-scheduled gutter rules) are the model. `stableBox()` in
+  `tests/e2e/helpers.ts` is the same idea for geometry a drag starts from.
