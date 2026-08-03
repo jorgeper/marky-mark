@@ -191,15 +191,24 @@ function usePaneSlide(open: boolean, arm: React.MutableRefObject<boolean>): Slid
 }
 
 /**
+ * A store that was there but could not be interpreted. `declaredVersion` is
+ * the version exactly as declared — absent when there was none to read at all
+ * (JSON that does not parse), which the indication's wording turns on.
+ */
+interface UnreadableStore {
+  declaredVersion?: unknown;
+}
+
+/**
  * PRD 004 Reqs 13–17: what this build could not interpret in the OPEN
  * document's two comment stores. Per document, never per session — it is
  * parked with the tab and cleared when a document closes.
  */
 interface DocStores {
   /** Non-null when a trailer was present but unreadable (version or JSON). */
-  trailer: { declaredVersion?: unknown } | null;
+  trailer: UnreadableStore | null;
   /** Non-null when a sidecar was present but unreadable. */
-  sidecar: { declaredVersion?: unknown } | null;
+  sidecar: UnreadableStore | null;
   /** The unreadable trailer's exact bytes, re-emitted verbatim on save (Req 14). */
   trailerBytes: string | null;
 }
@@ -208,8 +217,20 @@ interface DocStores {
 const CLEAN_STORES: DocStores = { trailer: null, sidecar: null, trailerBytes: null };
 
 /** True when either store of the document could not be interpreted. */
-function hasUnreadableStore(s: DocStores): boolean {
-  return s.trailer !== null || s.sidecar !== null;
+function hasUnreadableStore(stores: DocStores): boolean {
+  return stores.trailer !== null || stores.sidecar !== null;
+}
+
+/**
+ * PRD 004 Req 16: what the persistent indication says. The newer-version
+ * wording names the version whenever a store declared one; a store that
+ * declared none gets the plainer sentence.
+ */
+function unreadableStoreMessage(stores: DocStores): string {
+  const declared = stores.trailer?.declaredVersion ?? stores.sidecar?.declaredVersion;
+  return typeof declared === 'string' && declared
+    ? `This document’s comments were written by a newer version of Marky Mark (comment format ${declared}) and cannot be shown. They are left untouched.`
+    : 'This document’s comments could not be read by this version of Marky Mark and cannot be shown. They are left untouched.';
 }
 
 export default function App() {
@@ -244,13 +265,6 @@ export default function App() {
   // for the WHOLE document — a save targets one store and must never strand
   // the other. The readable store's comments still render, read-only.
   const authoringFrozen = hasUnreadableStore(stores);
-  // Req 16: the wording names the declared version when there is one; a
-  // store that declared none (unparseable JSON) gets the plainer sentence.
-  const unreadableVersion = stores.trailer?.declaredVersion ?? stores.sidecar?.declaredVersion;
-  const storeNoticeText =
-    typeof unreadableVersion === 'string' && unreadableVersion
-      ? `This document’s comments were written by a newer version of Marky Mark (comment format ${unreadableVersion}) and cannot be shown. They are left untouched.`
-      : 'This document’s comments could not be read by this version of Marky Mark and cannot be shown. They are left untouched.';
   const [positions, setPositions] = useState<Positions>({});
   // SPEC29: Open Recent (MRU, persisted to recent.json; menu rebuild rides it).
   const [recent, setRecent] = useState<RecentStore>({ version: 1, entries: [] });
@@ -1011,7 +1025,7 @@ export default function App() {
     const raw = await p.readTextFile(path);
     const split = splitEmbedded(raw);
     let sidecarComments: CommentData[] = [];
-    let sidecarStore: DocStores['sidecar'] = null;
+    let sidecarStore: UnreadableStore | null = null;
     try {
       const sidecar = sidecarPathFor(path);
       if (await p.exists(sidecar)) {
@@ -1020,7 +1034,10 @@ export default function App() {
         if (!read.readable) sidecarStore = { declaredVersion: read.declaredVersion };
       }
     } catch {
-      sidecarComments = []; // corrupt sidecar: ignore rather than crash
+      // Unreadable file or JSON that does not parse: ignore rather than
+      // crash, and leave the verdict clean — only a sidecar the store layer
+      // could read well enough to judge (`readable === false`) freezes a doc.
+      sidecarComments = [];
     }
     const docStores: DocStores = {
       trailer: split.readable ? null : { declaredVersion: split.declaredVersion },
@@ -2392,10 +2409,10 @@ export default function App() {
     // PRD 004 Req 14: an unreadable store freezes this document's stores —
     // the trailer travels to the new path verbatim whatever the storage mode
     // (Save As must not be a way to drop it) and no migration runs.
-    const frozen = hasUnreadableStore(s.stores);
-    const preserved = s.stores.trailerBytes ?? undefined;
     const text =
-      frozen || s.settings.commentStorage === 'embedded' ? attachEmbedded(out, s.comments, preserved) : out;
+      hasUnreadableStore(s.stores) || s.settings.commentStorage === 'embedded'
+        ? attachEmbedded(out, s.comments, s.stores.trailerBytes)
+        : out;
     await p.writeTextFile(target, text);
     // An unreadable sidecar is never copied (out of scope) — and never read
     // from, so it contributed no comments to copy anyway.
@@ -2419,10 +2436,9 @@ export default function App() {
     // PRD 004 Req 14: an unreadable trailer is re-emitted byte-for-byte after
     // the modified content, and no store migration runs for such a document —
     // sidecar mode does NOT strip the trailer here as it otherwise would.
-    const preserved = s.stores.trailerBytes ?? undefined;
     const text =
       hasUnreadableStore(s.stores) || s.settings.commentStorage === 'embedded'
-        ? attachEmbedded(out, s.comments, preserved)
+        ? attachEmbedded(out, s.comments, s.stores.trailerBytes)
         : out;
     await s.platform.writeTextFile(s.docPath, text);
     await s.platform.commitFile?.(s.docPath); // web download fallback for handle-less files
@@ -3929,7 +3945,6 @@ export default function App() {
   // split-edit live preview (#19).
   const commentSurfaceUp = mode === 'preview' || (mode === 'edit' && settings.splitEdit);
 
-
   const panelVisible =
     commentSurfaceUp && showComments && settings.commentsEnabled && (comments.length > 0 || pending !== null);
 
@@ -4355,7 +4370,7 @@ export default function App() {
           off (SPEC7 §2); byte preservation applies in that state regardless. */}
       {authoringFrozen && settings.commentsEnabled && (
         <div className="mm-store-notice" data-testid="store-unreadable" role="status">
-          {storeNoticeText}
+          {unreadableStoreMessage(stores)}
         </div>
       )}
 

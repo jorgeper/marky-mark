@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import pkg from '../../package.json' with { type: 'json' };
 import {
@@ -6189,7 +6190,7 @@ const NEWER_TRAILER = `
 const NEWER_PATH = '/docs/from-the-future.md';
 
 /** Open `path` through the menu's Open dialog (the shim accepts the string). */
-async function openPath(page: import('@playwright/test').Page, path: string): Promise<void> {
+async function openPath(page: Page, path: string): Promise<void> {
   page.once('dialog', (d) => void d.accept(path));
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
@@ -6197,7 +6198,7 @@ async function openPath(page: import('@playwright/test').Page, path: string): Pr
 }
 
 /** Save the active document through the toolbar menu. */
-async function menuSave(page: import('@playwright/test').Page): Promise<void> {
+async function menuSave(page: Page): Promise<void> {
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('menu-save').click();
@@ -6228,7 +6229,6 @@ test('E137: a newer-major trailer — the doc opens and edits normally, and its 
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   const saved = (await fsRead(page, NEWER_PATH))!;
   expect(saved).toContain('EDITED ');
-  expect(saved.endsWith(NEWER_TRAILER)).toBe(true);
   expect(saved.slice(saved.length - NEWER_TRAILER.length)).toBe(NEWER_TRAILER); // byte-for-byte
   expect(saved.match(/marky-mark-comments/g)?.length).toBe(1); // never doubled
   expect(saved).not.toContain('"1.0.0"'); // never restamped to our version

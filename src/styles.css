@@ -1461,8 +1461,8 @@ mark.hl.ghost {
 
 /* --- PRD 004 Req 16: persistent unreadable-comment-store indication ---
    Deliberately NOT the .mm-notice toast: this one has no timer and stays put
-   for as long as the document is open. Bottom-left of the toast lane so the
-   two never fight for the same pixels. */
+   for as long as the document is open. Centred like the toast but sitting
+   above it, so the two never fight for the same pixels. */
 .mm-store-notice {
   position: fixed;
   left: 50%;

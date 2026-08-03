@@ -94,7 +94,7 @@ export function serializeTrailer(comments: CommentData[]): string {
  * of saves. Idempotent either way — an already-attached trailer is stripped
  * before the new one goes on, so the trailer is never doubled.
  */
-export function attachEmbedded(content: string, comments: CommentData[], preserved?: string): string {
+export function attachEmbedded(content: string, comments: CommentData[], preserved?: string | null): string {
   const base = splitEmbedded(content).content; // idempotent: never double-attach
   return `${base}${preserved ?? serializeTrailer(comments)}`;
 }
