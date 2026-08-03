@@ -182,7 +182,7 @@ describe('comment format: version literal and migration seam (PRD 004 §A/C/F)',
     // (issue #15) — in particular it no longer re-serializes to reuse
     // parseSidecar, and no store can import it back into a cycle.
     expect(seamSource.match(/^import .*/gm)).toEqual([
-      "import type { Anchor, CommentData, ThreadReply } from './anchoring';",
+      "import type { Anchor, CommentData, RetainedKeys, ThreadReply } from './anchoring';",
     ]);
     expect(seamSource).not.toMatch(/JSON\.stringify/);
 
@@ -483,5 +483,27 @@ describe('comment stores through the seam (PRD 004 §B/D/E — issue #15)', () =
     const read = readSidecar(interop);
     expect(read.readable).toBe(true);
     expect(read.comments.length).toBeGreaterThan(0);
+  });
+
+  test('U143: the other two readability verdicts — unparseable trailer JSON is unreadable, no trailer at all is readable', () => {
+    // A trailer whose JSON never parses reports the same unreadable verdict as
+    // an unsupported version, with no declared version to name; the block is
+    // still stripped byte-exactly so it cannot leak into the editor.
+    const broken = splitEmbedded(`${DOC}\n<!-- marky-mark-comments\n{ "comments": [ \n-->\n`);
+    expect(broken.hadTrailer).toBe(true);
+    expect(broken.readable).toBe(false);
+    expect(broken.declaredVersion).toBeUndefined();
+    expect(broken.comments).toEqual([]);
+    expect(broken.content).toBe(DOC);
+
+    // Nothing there is not unreadable: a document without a trailer is
+    // readable, so issue #16 has nothing to indicate.
+    const none = splitEmbedded(DOC);
+    expect(none.hadTrailer).toBe(false);
+    expect(none.readable).toBe(true);
+
+    // The sidecar keeps its throw-on-unparseable-JSON contract instead
+    // (src/App.tsx's existing try/catch covers it).
+    expect(() => readSidecar('{ "comments": [ ')).toThrow();
   });
 });

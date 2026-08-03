@@ -46,14 +46,15 @@ export function splitEmbedded(text: string): SplitDoc {
   const m = TRAILER_RE.exec(text);
   if (!m) return { content: text, comments: [], hadTrailer: false, readable: true };
   const content = text.slice(0, m.index);
-  let read;
+  let payload: unknown;
   try {
-    read = readCommentPayload(JSON.parse(m[1]));
+    payload = JSON.parse(m[1]);
   } catch {
     // Unparseable trailer: treat as content-less rather than crashing; the
     // block is still stripped so it never leaks into the editor.
     return { content, comments: [], hadTrailer: true, readable: false };
   }
+  const read = readCommentPayload(payload); // never throws, by the seam's contract
   if (!read.supported) {
     return { content, comments: [], hadTrailer: true, readable: false, declaredVersion: read.declaredVersion };
   }

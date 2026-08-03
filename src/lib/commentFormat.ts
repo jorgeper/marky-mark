@@ -1,4 +1,4 @@
-import type { Anchor, CommentData, ThreadReply } from './anchoring';
+import type { Anchor, CommentData, RetainedKeys, ThreadReply } from './anchoring';
 
 /**
  * The comment-format migration seam (PRD 004 §F): the single chokepoint that
@@ -66,7 +66,9 @@ export function isFormatVersion(value: unknown): value is string {
 export function compareFormatVersions(a: unknown, b: unknown): number {
   const pa = parseFormatVersion(a);
   const pb = parseFormatVersion(b);
-  if (pa === null || pb === null) return (pa === null ? 0 : 1) - (pb === null ? 0 : 1);
+  if (pa === null && pb === null) return 0;
+  if (pa === null) return -1;
+  if (pb === null) return 1;
   return pa.major - pb.major || pa.minor - pb.minor || pa.patch - pb.patch;
 }
 
@@ -195,24 +197,35 @@ const REPLY_KEY_SET = new Set(REPLY_KEYS);
 const ANCHOR_KEY_SET = new Set(ANCHOR_KEYS);
 
 /**
- * The unknown keys of one object, or undefined when it had none — the bag is
- * absent rather than empty, so an ordinary payload parses to exactly the
- * objects the pre-#15 code produced. Built with Object.fromEntries, which
- * defines own properties, so a key named `__proto__` cannot reach the
- * prototype setter.
+ * Build the in-memory object for one level of the payload: the known keys the
+ * caller has already extracted, plus a bag holding every key of the raw object
+ * this build does not recognize (PRD Req 19). The bag is absent rather than
+ * empty when there was nothing unknown, so an ordinary payload parses to
+ * exactly the objects the pre-#15 code produced. Built with
+ * Object.fromEntries, which defines own properties, so a key named
+ * `__proto__` cannot reach the prototype setter.
  */
-function retainedKeys(o: Record<string, unknown>, known: ReadonlySet<string>): Record<string, unknown> | undefined {
-  const extra = Object.entries(o).filter(([k]) => !known.has(k));
-  return extra.length === 0 ? undefined : Object.fromEntries(extra);
+function bagUnknownKeys<T extends { extra?: RetainedKeys }>(
+  known: T,
+  raw: Record<string, unknown>,
+  knownKeys: ReadonlySet<string>,
+): T {
+  const unknown = Object.entries(raw).filter(([key]) => !knownKeys.has(key));
+  if (unknown.length === 0) return known;
+  return { ...known, extra: Object.fromEntries(unknown) };
 }
 
 /** True when this comment, one of its replies or its anchor retained a key. */
 function hasRetained(c: CommentData): boolean {
-  return Boolean(c.extra ?? c.anchor.extra ?? c.thread.some((r) => r.extra));
+  return (
+    c.extra !== undefined ||
+    c.anchor.extra !== undefined ||
+    c.thread.some((r) => r.extra !== undefined)
+  );
 }
 
-/** Re-attach retained keys to a freshly built known-key object for output. */
-function withRetained<T extends object>(known: T, extra: Record<string, unknown> | undefined): T {
+/** Re-attach a bag's retained keys to a freshly built known-key object for output. */
+function withRetained<T extends object>(known: T, extra: RetainedKeys | undefined): T {
   if (!extra) return known;
   // A retained key can never shadow a known one (Req 20): the filter drops any
   // collision — own keys only, so a retained key that happens to be named
@@ -254,8 +267,7 @@ function parseReply(o: Record<string, unknown>): ThreadReply {
     createdAt: o.createdAt as string,
     body: o.body as string,
   };
-  const extra = retainedKeys(o, REPLY_KEY_SET);
-  return extra ? { ...reply, extra } : reply;
+  return bagUnknownKeys(reply, o, REPLY_KEY_SET);
 }
 
 function parseAnchor(o: Record<string, unknown>): Anchor {
@@ -266,8 +278,7 @@ function parseAnchor(o: Record<string, unknown>): Anchor {
     start: o.start as number,
     end: o.end as number,
   };
-  const extra = retainedKeys(o, ANCHOR_KEY_SET);
-  return extra ? { ...anchor, extra } : anchor;
+  return bagUnknownKeys(anchor, o, ANCHOR_KEY_SET);
 }
 
 /**
@@ -307,9 +318,8 @@ function parseEntries(list: unknown, version: string): CommentData[] {
       thread: Array.isArray(c.thread) ? c.thread.filter(isReply).map(parseReply) : [],
       anchor: parseAnchor(c.anchor),
     };
-    const extra = retainedKeys(c, COMMENT_KEY_SET);
-    const retained = extra ? { ...comment, extra } : comment;
-    out.push(hasRetained(retained) ? { ...retained, extraVersion: version } : retained);
+    const parsed = bagUnknownKeys(comment, c, COMMENT_KEY_SET);
+    out.push(hasRetained(parsed) ? { ...parsed, extraVersion: version } : parsed);
   }
   return out;
 }
