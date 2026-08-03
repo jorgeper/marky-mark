@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
  * release:prepare (SPEC10 §1): move the app version in lock-step across
- * package.json, src-tauri/tauri.conf.json, and src-tauri/Cargo.toml, refresh
- * both lockfiles, print a scoped diffstat, and commit — or, with --no-commit,
- * leave the tree for inspection. A rerun with the version already in place is
- * a no-op. The pre-release identifier is preserved verbatim, never stripped.
+ * package.json, src-tauri/tauri.conf.json, src-tauri/Cargo.toml, and the
+ * README's alpha banner (issue #22), refresh both lockfiles, print a scoped
+ * diffstat, and commit — or, with --no-commit, leave the tree for inspection.
+ * A rerun with the version already in place is a no-op. The pre-release
+ * identifier is preserved verbatim, never stripped.
  *
  * The version-apply helpers are exported pure string transforms so the unit
- * suite (U16) exercises exactly the code that rewrites the release files.
+ * suite (U148/U149) exercises exactly the code that rewrites the release
+ * files — and so validate.mjs's lock-step reads the README the same way.
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -34,13 +36,45 @@ export function setCargoVersion(content, version) {
   return content.replace(/^version = "[^"]*"/m, `version = "${version}"`);
 }
 
+// The README's alpha banner advertises the shipping version (issue #22). The
+// match is anchored to the start of the banner line and carries its prefix and
+// suffix, so neither the shields.io badge URL nor the `<version>` placeholders
+// in the download table can be mistaken for it.
+const README_BANNER_RE =
+  /^(> \*\*⚠️ Alpha\*\* — Marky Mark is pre-release software \(`)([^`]*)(`\)\.)/m;
+
+/** The version advertised by the README alpha banner, or null if there is none. */
+export function readmeVersion(content) {
+  return README_BANNER_RE.exec(content)?.[2] ?? null;
+}
+
+/** Rewrite only the version inside the README alpha banner. */
+export function setReadmeVersion(content, version) {
+  return content.replace(README_BANNER_RE, `$1${version}$3`);
+}
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const env = {
   ...process.env,
   PATH: `${path.join(homedir(), '.cargo', 'bin')}:${process.env.PATH ?? ''}`,
 };
 
-const VERSION_FILES = ['package.json', 'src-tauri/tauri.conf.json', 'src-tauri/Cargo.toml'];
+// Every file the version lives in, paired with how its version is read (for
+// the no-op check) and rewritten — one row per file, so adding a file can't
+// leave the two halves out of step. README.md is a version file too (issue
+// #22): its alpha banner is the version the repo's front page advertises, and
+// validate.mjs's lock-step holds it to the other three.
+const VERSION_FILES = [
+  { file: 'package.json', read: (c) => JSON.parse(c).version, write: setJsonVersion },
+  { file: 'src-tauri/tauri.conf.json', read: (c) => JSON.parse(c).version, write: setJsonVersion },
+  {
+    file: 'src-tauri/Cargo.toml',
+    read: (c) => /^version = "([^"]*)"/m.exec(c)?.[1],
+    write: setCargoVersion,
+  },
+  { file: 'README.md', read: readmeVersion, write: setReadmeVersion },
+];
+const VERSION_PATHS = VERSION_FILES.map((v) => v.file);
 const LOCK_FILES = ['package-lock.json', 'src-tauri/Cargo.lock'];
 
 function run(cmd, args, opts = {}) {
@@ -65,20 +99,18 @@ function main() {
     process.exit(1);
   }
 
-  const contents = VERSION_FILES.map((f) => readFileSync(path.join(root, f), 'utf8'));
-  const current = [
-    JSON.parse(contents[0]).version,
-    JSON.parse(contents[1]).version,
-    /^version = "([^"]*)"/m.exec(contents[2])?.[1],
-  ];
+  const contents = VERSION_PATHS.map((f) => readFileSync(path.join(root, f), 'utf8'));
+  const current = VERSION_FILES.map(({ read }, i) => read(contents[i]));
   if (current.every((v) => v === version)) {
-    console.log(`release:prepare: all three version files already at ${version} — no-op.`);
+    console.log(
+      `release:prepare: all ${VERSION_FILES.length} version files already at ${version} — no-op.`,
+    );
     return;
   }
 
-  writeFileSync(path.join(root, VERSION_FILES[0]), setJsonVersion(contents[0], version));
-  writeFileSync(path.join(root, VERSION_FILES[1]), setJsonVersion(contents[1], version));
-  writeFileSync(path.join(root, VERSION_FILES[2]), setCargoVersion(contents[2], version));
+  VERSION_FILES.forEach(({ file, write }, i) =>
+    writeFileSync(path.join(root, file), write(contents[i], version)),
+  );
 
   console.log(`release:prepare: version → ${version}; refreshing lockfiles…`);
   run('npm', ['install', '--package-lock-only']);
@@ -88,13 +120,13 @@ function main() {
   });
 
   console.log('\nrelease:prepare: diffstat (version files + lockfiles):');
-  run('git', ['diff', '--stat', '--', ...VERSION_FILES, ...LOCK_FILES]);
+  run('git', ['diff', '--stat', '--', ...VERSION_PATHS, ...LOCK_FILES]);
 
   if (noCommit) {
     console.log('release:prepare: --no-commit — working tree left for inspection.');
     return;
   }
-  run('git', ['commit', '-m', `chore: release v${version}`, '--', ...VERSION_FILES, ...LOCK_FILES]);
+  run('git', ['commit', '-m', `chore: release v${version}`, '--', ...VERSION_PATHS, ...LOCK_FILES]);
   console.log(`release:prepare: committed chore: release v${version}`);
 }
 

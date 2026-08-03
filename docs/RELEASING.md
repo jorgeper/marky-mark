@@ -8,8 +8,10 @@ tag=vX.Y.Z` builds the NSIS installer against the tag, appends it to the
 same release, and refreshes SHA256SUMS.txt + latest.json (re-advancing
 the updater pointer if already published). Versions are strict semver; the
 pre-release identifier (`0.2.0-alpha.1`) is **never stripped**. The version
-lives in `package.json`, `src-tauri/tauri.conf.json`, and
-`src-tauri/Cargo.toml`, and moves only via `npm run release:prepare`. Tags
+lives in four files — `package.json`, `src-tauri/tauri.conf.json`,
+`src-tauri/Cargo.toml`, and the README's alpha banner (`README.md`) — and
+moves only via `npm run release:prepare`, which rewrites all four.
+`validate`'s version lock-step holds the four to the same version. Tags
 mirror the files (`v` + version) — the files are the source of truth, not
 `git describe`.
 
@@ -19,7 +21,7 @@ Tell Claude: *"release 0.2.0-alpha.2"*. Claude runs, in order:
 
 ```bash
 cd ~/src/marky-mark
-npm run release:prepare -- 0.2.0-alpha.2   # bumps the 3 version files + lockfiles, commits
+npm run release:prepare -- 0.2.0-alpha.2   # bumps the 4 version files + lockfiles, commits
 npm run validate                            # full gate must print VALIDATION: ALL PASSED
 npm run licenses                            # regenerate THIRD-PARTY-NOTICES.md (commit if changed)
 git tag -a v0.2.0-alpha.2 -m "Marky Mark 0.2.0-alpha.2"
@@ -40,7 +42,7 @@ smoke-test and publish as below.
 ```bash
 # ---- cut ------------------------------------------------------------------
 cd ~/src/marky-mark
-npm run release:prepare -- 0.2.0-alpha.2    # bump 3 version files + locks, commit
+npm run release:prepare -- 0.2.0-alpha.2    # bump 4 version files + locks, commit
 npm run validate                            # must end with VALIDATION: ALL PASSED
 git push
 git tag -a v0.2.0-alpha.2 -m "Marky Mark 0.2.0-alpha.2"
