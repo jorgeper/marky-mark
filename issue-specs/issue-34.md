@@ -1,0 +1,27 @@
+# Spec: Hydrate .sandcastle/CODING_STANDARDS.md with real, checkable repository rules (#34)
+
+## Goal
+
+All acceptance criteria in issue-specs/issue-34.md are satisfied for issue #34, with evidence visible in the session: `.sandcastle/CODING_STANDARDS.md` carries real, repository-specific, reviewer-decidable rules under its Style, Testing and Architecture headings; no placeholder or instruction-to-the-author comment survives in it; the file restates nothing that PRD 005 requirements 1–8 assign to `AGENTS.md`; `npm run validate:quick` has been run in the implementer's session and passes; and a summary comment from the implementer exists on issue #34 naming the source of every rule.
+
+## Acceptance criteria
+
+- `.sandcastle/CODING_STANDARDS.md` keeps its `# Coding Standards` title and its three `## Style`, `## Testing` and `## Architecture` headings, and each of the three sections contains at least three rules (no empty section).
+- Every rule is one a reviewer can decide against a diff alone, with no further context: it is a concrete imperative about what code in this repository must or must not do. Rules that need runtime measurement, a judgement call about taste, or knowledge outside the diff (e.g. "write clean code", "keep performance good") do not count toward the minimum.
+- Every rule is repository-specific — it describes a convention this codebase already follows and would be wrong or meaningless in an arbitrary TypeScript project. Generic review bar material already covered by `.sandcastle/review-checklist.md` (naming, dead code, nested ternaries, "comments explain why", swallowed errors) is not repeated here.
+- No placeholder content survives: `rg -n '<!-- Example' .sandcastle/CODING_STANDARDS.md` returns nothing, the "Customize this file with your project's coding standards" header comment is gone, and no HTML comment addressed to the file's author remains anywhere in the file. Any HTML comment that does remain must be content a reviewer uses, not an instruction to fill the file in.
+- The file restates nothing that PRD 005 requirements 1–8 assign to `AGENTS.md`: no directory map, no token/size budgets, no per-command cost or "which command to run when" guidance, no citation-grep-as-navigation instructions, no "do not read X" list. A rule that new or changed behaviour cites its spec is a review-time rule and is allowed; explaining that `rg 'SPEC34' src` is how you find code is navigation and is not.
+- The implementer's summary comment on issue #34 lists each rule alongside the existing repository evidence it was drawn from — a file path (optionally with line numbers), a doc section, or a command whose output shows the convention in force. No rule is new policy invented for this file.
+- `.sandcastle/.template-base/CODING_STANDARDS.md` is unchanged. It is the upstream Sandcastle template and hydrating it is an upstream follow-up (PRD 005 "Upstream follow-ups" item 3), not part of this issue.
+- The branch diff against `main` touches only `.sandcastle/CODING_STANDARDS.md` and `issue-specs/issue-34.md`. No other sub-issue of PRD 005 is implemented here — in particular `AGENTS.md` is not created by this change.
+- Iterate with `npm run typecheck` and `npm run test:unit` (or tests targeted at the changed code). Baseline with the quick tier only if a baseline is wanted; do not run the full suite as a baseline or after every edit.
+- `npm run validate:quick` has been run once in the implementer's session, right before declaring the goal met, and prints `QUICK VALIDATION: ALL PASSED`.
+- A summary comment from the implementer exists on issue #34.
+
+## Context
+
+The target file is `.sandcastle/CODING_STANDARDS.md` — currently a 27-line untouched template. It is loaded on every review via `@.sandcastle/CODING_STANDARDS.md` from `.sandcastle/review-checklist.md:49`, `.sandcastle/review-prompt.md` and `.sandcastle/pr-review-prompt.md`, so it is a guaranteed-delivery context slot that today carries no signal. This issue covers PRD section F (requirements 36–39) of `prd/005-agent-context-hygiene.md`; parent issue is #23. It is independently landable — the other PRD 005 sub-issues (`AGENTS.md`, the e2e split, `archive/`, `docs/MAP.md`, the `specs/` → `issue-specs/` rename) are not in scope.
+
+Sources of already-followed conventions worth mining (not an exhaustive or mandatory list): `CONTRIBUTING.md` — the `src/platform/` seam rule, the spec-driven delta-spec model, stable U/E/W test IDs that are never reused and never weakened/skipped/deleted, the frozen comment containers and the `docs/COMMENT-FORMAT.md` version-bump-plus-changelog rule, and `npm run licenses` on any dependency change; `docs/ARCHITECTURE.md` for the platform seam's shape; the `// SPEC<n> §x.y: <what and why>` citation comments that appear ~755 times across `src/` and `tests/`; `data-testid` selectors in the e2e suite (~198 sites); `scripts/validate.mjs` for what the gate already enforces (a rule the gate already fails on is still worth stating only if a reviewer would otherwise miss it in a diff).
+
+The change is documentation-only, so `typecheck` and `test:unit` will be no-ops for it; they are still the iteration pair, and `npm run validate:quick` (typecheck + unit + desktop-shim e2e, per `QUICK_STEPS` in `scripts/validate.mjs:70`) is the single full run before declaring done. Keep the file tight — it is paid for on every review, and length competes with the signal it is supposed to add.

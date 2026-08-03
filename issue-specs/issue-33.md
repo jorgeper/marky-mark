@@ -2,7 +2,7 @@
 
 ## Goal
 
-All acceptance criteria in specs/issue-33.md are satisfied for issue #33, with
+All acceptance criteria in issue-specs/issue-33.md are satisfied for issue #33, with
 evidence visible in the session: a root `archive/` holds all 45 files moved
 unchanged from `docs/goals/`, `docs/superpowers/plans/` and `docs/archive/`;
 every surviving reference to those old paths (`CONTRIBUTING.md`, the three
