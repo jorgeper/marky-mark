@@ -20,13 +20,97 @@
  * `VALIDATION: ALL PASSED` counts as release evidence. The full step list
  * below is untouched.
  */
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const QUICK = process.argv.includes('--quick');
+
+// --- progress reporting ---------------------------------------------------
+// Agents run this behind `| tail -25` or `> log 2>&1 &`, so a run that prints
+// nothing for ten minutes is indistinguishable from a hung one. Every step is
+// stamped with elapsed time, long steps emit a heartbeat, and the run ends
+// with a step-by-step timing table compact enough to survive `tail`.
+const startedAt = Date.now();
+const HEARTBEAT_MS = 30_000;
+const timings = [];
+
+function fmt(ms) {
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(ms / 60_000);
+  return `${m}m${String(Math.round((ms % 60_000) / 1000)).padStart(2, '0')}s`;
+}
+const elapsed = () => `+${fmt(Date.now() - startedAt)}`;
+
+function record(name, ms) {
+  timings.push({ name, ms });
+}
+
+function printTimeline(headline) {
+  const width = Math.max(...timings.map((t) => t.name.length), 12);
+  console.log(`\n${headline}`);
+  for (const t of timings) console.log(`  ${t.name.padEnd(width)}  ${fmt(t.ms).padStart(7)}`);
+  console.log(`  ${'TOTAL'.padEnd(width)}  ${fmt(Date.now() - startedAt).padStart(7)}`);
+}
+
+// --- cross-lane e2e mutex --------------------------------------------------
+// Several Sandcastle lanes validating at once oversubscribe the 2-core VPS:
+// two concurrent Playwright suites make every timing-sensitive test flaky,
+// and each flake used to trigger a full gate re-run. The e2e steps therefore
+// serialize machine-wide. The lock lives in the repo's COMMON git dir — the
+// one host inode that the main checkout, every worktree, and every sandbox
+// container share (each lane bind-mounts it or git would not work there), so
+// one flock covers all of them: flock locks the inode and the kernel is
+// shared across containers. flock(1) releases on process death, so a killed
+// gate never wedges the lock.
+function e2eLockPath() {
+  try {
+    const common = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+      cwd: root,
+      encoding: 'utf8',
+    }).trim();
+    execFileSync('flock', ['--version'], { stdio: 'ignore' });
+    return path.join(path.resolve(root, common), 'sandcastle-e2e.lock');
+  } catch {
+    return null; // no git or no flock(1): run unserialized rather than fail
+  }
+}
+
+/** Run one step with a live heartbeat, returning its exit status. */
+function runStep(step) {
+  let { cmd, args } = step;
+  if (step.mutex) {
+    const lock = e2eLockPath();
+    if (lock) {
+      // Non-blocking probe purely for the log line: a lane that has to wait
+      // should say so, not sit silent behind another lane's 10-minute suite.
+      try {
+        execFileSync('flock', ['-n', lock, 'true'], { stdio: 'ignore' });
+      } catch {
+        console.log(`--- validate: ${step.name} waiting for the machine-wide e2e lock (another validation run holds it) ---`);
+      }
+      [cmd, args] = ['flock', [lock, cmd, ...args]];
+    }
+  }
+  console.log(`\n=== validate: ${step.name} === (start ${elapsed()})`);
+  const stepStart = Date.now();
+  const child = spawn(cmd, args, { cwd: step.cwd ?? root, env, stdio: 'inherit' });
+  const beat = setInterval(
+    () => console.log(`--- validate: ${step.name} still running (${fmt(Date.now() - stepStart)}) ---`),
+    HEARTBEAT_MS
+  );
+  return new Promise((resolve) => {
+    child.on('exit', (code) => {
+      clearInterval(beat);
+      const ms = Date.now() - stepStart;
+      record(step.name, ms);
+      console.log(`=== validate: ${step.name} ${code === 0 ? 'OK' : `FAILED (exit ${code})`} in ${fmt(ms)} ===`);
+      resolve(code ?? 1);
+    });
+  });
+}
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const env = {
   ...process.env,
@@ -39,7 +123,8 @@ const env = {
 // `readmeVersion`, so the gate checks exactly what the release path writes —
 // and a README with no recognisable banner extracts as null, which fails the
 // set-of-one check rather than passing vacuously.
-console.log('=== validate: version lock-step ===');
+console.log(`=== validate: version lock-step === (start ${elapsed()})`);
+const lockStepStart = Date.now();
 const { isValidSemver, readmeVersion } = await import('./release-prepare.mjs');
 const versions = {
   'package.json': JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version,
@@ -54,13 +139,14 @@ if (distinct.size !== 1 || !isValidSemver(versions['package.json'])) {
   process.exit(1);
 }
 console.log(`version ${versions['package.json']} in lock-step across package.json, tauri.conf.json, Cargo.toml, README.md`);
+record('version lock-step', Date.now() - lockStepStart);
 
 const steps = [
   { name: 'typecheck', cmd: 'npx', args: ['tsc', '--noEmit'] },
   { name: 'unit tests', cmd: 'npm', args: ['run', 'test:unit'] },
-  { name: 'e2e tests (desktop shim)', cmd: 'npm', args: ['run', 'test:e2e'] },
+  { name: 'e2e tests (desktop shim)', cmd: 'npm', args: ['run', 'test:e2e'], mutex: true },
   { name: 'web single-file build', cmd: 'npm', args: ['run', 'build:web'] },
-  { name: 'e2e tests (web, dist-web)', cmd: 'npm', args: ['run', 'test:e2e:web'] },
+  { name: 'e2e tests (web, dist-web)', cmd: 'npm', args: ['run', 'test:e2e:web'], mutex: true },
   { name: 'desktop bundle build', cmd: 'npm', args: ['run', 'build'] },
   { name: 'cargo check', cmd: 'cargo', args: ['check'], cwd: path.join(root, 'src-tauri') },
 ];
@@ -70,20 +156,29 @@ const steps = [
 const QUICK_STEPS = new Set(['typecheck', 'unit tests', 'e2e tests (desktop shim)']);
 const runSteps = QUICK ? steps.filter((s) => QUICK_STEPS.has(s.name)) : steps;
 
+console.log(
+  `\nvalidate${QUICK ? ':quick' : ''} — ${runSteps.length + 1} steps: ${['version lock-step', ...runSteps.map((s) => s.name)].join(' → ')}`
+);
+
 for (const step of runSteps) {
-  console.log(`\n=== validate: ${step.name} ===`);
-  const res = spawnSync(step.cmd, step.args, {
-    cwd: step.cwd ?? root,
-    env,
-    stdio: 'inherit',
-  });
-  if (res.status !== 0) {
+  const status = await runStep(step);
+  if (status !== 0) {
+    printTimeline(`VALIDATION FAILED at step: ${step.name} — timeline:`);
+    // Point the reader (usually an agent) at the cheap next move: iterate on
+    // just the failures, and re-run the whole gate only once they pass.
+    if (step.name === 'e2e tests (desktop shim)') {
+      console.error(
+        '\nTip: `npm run test:e2e:failed` re-runs ONLY the tests that just failed.' +
+          ' Iterate there; re-run the full gate once they are green.'
+      );
+    }
     console.error(`\nVALIDATION FAILED at step: ${step.name}`);
-    process.exit(res.status ?? 1);
+    process.exit(status);
   }
 }
 
 if (QUICK) {
+  printTimeline('QUICK VALIDATION timeline:');
   console.log('\nQUICK VALIDATION: ALL PASSED');
   process.exit(0);
 }
@@ -138,4 +233,5 @@ console.log(
   `static bundle scan: ${bundleTargets.length} bundle files — no XMLHttpRequest/WebSocket/sendBeacon/EventSource call sites; fetch( count ${fetchCount} matches allowlist (${FETCH_ALLOWLIST})`,
 );
 
+printTimeline('VALIDATION timeline:');
 console.log('\nVALIDATION: ALL PASSED');

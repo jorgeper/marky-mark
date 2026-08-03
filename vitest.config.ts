@@ -7,5 +7,12 @@ export default defineConfig({
   test: {
     include: ['tests/unit/**/*.test.ts'],
     environment: 'node',
+    // These are pure-function tests with no global state to protect: the
+    // default per-file worker isolation spent ~30s of a ~35s run forking and
+    // preparing 42 environments to execute ~1s of assertions. Sharing one
+    // worker per thread drops the suite to ~5s, which matters because
+    // QUICK_VERIFY_COMMANDS runs it after every change.
+    pool: 'threads',
+    poolOptions: { threads: { isolate: false } },
   },
 });

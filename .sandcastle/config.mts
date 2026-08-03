@@ -23,6 +23,14 @@ export const IMPLEMENT_ATTEMPTS = 4;
 // Maximum number of classify→plan→execute→merge cycles before stopping.
 export const MAX_ITERATIONS = 10;
 
+// Maximum implementer lanes run concurrently. The planner outputs every
+// unblocked issue; this caps how many are dispatched per cycle — the rest
+// stay open and re-enter as candidates on the next iteration, so nothing is
+// dropped. Sized for the 2-core VPS: the e2e gate is serialized machine-wide
+// (scripts/validate.mjs flock), but each extra lane still adds an agent
+// process, a container, and typecheck/unit bursts to a small machine.
+export const MAX_PARALLEL_LANES = 2;
+
 // Reviewer turns per debate invocation before deadlocked threads escalate to
 // the owner as NEEDS-DECISION.
 export const MAX_DEBATE_ROUNDS = 3;
