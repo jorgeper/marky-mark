@@ -43,3 +43,11 @@ files under `goals/`, `superpowers/plans/` and `articles/` arrived from their
 former homes under `docs/` byte-for-byte, recorded in git as renames, so
 `git log --follow` reaches their full history. Nothing
 was dropped in the move, and nothing here is excluded from version control.
+
+## A guardrail, not a security boundary
+
+The exclusion above is a context guardrail: it keeps superseded narrative
+out of agent context so searches surface current code and specs. It is not
+a security boundary — everything here is tracked in git, ships in every
+clone, and can be opened by explicit path at any time. Never place secrets
+in `archive/` on the strength of this exclusion.

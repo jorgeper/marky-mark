@@ -4,7 +4,8 @@
  * failing on the first non-zero exit:
  *   1. version lock-step check (four version files agree, valid semver)
  *   1b. docs/MAP.md freshness (matches what scripts/map.mjs derives)
- *   1c. desktop-shim e2e test-count floor (Playwright's own collection)
+ *   1c. CLAUDE.md resolves to AGENTS.md (root symlink intact)
+ *   1d. desktop-shim e2e test-count floor (Playwright's own collection)
  *   2. tsc --noEmit
  *   3. unit tests (Vitest, U1–U21)
  *   4. desktop e2e (Playwright, browser platform shim, E1–E41 + E45–E50)
@@ -17,14 +18,14 @@
  * Prints VALIDATION: ALL PASSED as the final line only if all steps passed.
  *
  * SPEC33 §1.1: `--quick` runs the inner-loop subset only — version
- * lock-step, MAP.md freshness, the e2e count floor, typecheck, unit tests,
- * desktop-shim e2e — and prints the
+ * lock-step, MAP.md freshness, the CLAUDE.md symlink check, the e2e count
+ * floor, typecheck, unit tests, desktop-shim e2e — and prints the
  * DISTINCT line `QUICK VALIDATION: ALL PASSED`. Only the full gate's
  * `VALIDATION: ALL PASSED` counts as release evidence. The full step list
  * below is untouched.
  */
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -164,6 +165,36 @@ if (committedMap !== mapFromTree(root).markdown) {
 console.log('docs/MAP.md matches the SPEC citations in src/ and tests/e2e/ (regenerate with `npm run map`)');
 record('docs/MAP.md up to date', Date.now() - mapStart);
 
+// CLAUDE.md → AGENTS.md (issue #37, prd/005-agent-context-hygiene.md §A):
+// AGENTS.md is the single source of truth for agent orientation and CLAUDE.md
+// is a root symlink to it, so both harnesses load the same map. A Windows
+// checkout without core.symlinks materialises the link as a regular text file
+// containing "AGENTS.md" — caught here, alongside a missing CLAUDE.md or a
+// symlink pointing elsewhere. A spawn-free file check, so it sits with the
+// checks above, ahead of the `steps` array, and runs in the quick tier too.
+console.log(`\n=== validate: CLAUDE.md resolves to AGENTS.md === (start ${elapsed()})`);
+const linkStart = Date.now();
+const claudeMd = path.join(root, 'CLAUDE.md');
+const linkStat = lstatSync(claudeMd, { throwIfNoEntry: false });
+const linkTarget = linkStat?.isSymbolicLink() ? readlinkSync(claudeMd) : null;
+if (
+  !existsSync(path.join(root, 'AGENTS.md')) ||
+  linkTarget === null ||
+  path.resolve(root, linkTarget) !== path.join(root, 'AGENTS.md')
+) {
+  if (!existsSync(path.join(root, 'AGENTS.md'))) console.error('  AGENTS.md is missing from the repository root.');
+  if (!linkStat) console.error('  CLAUDE.md is missing from the repository root.');
+  else if (!linkStat.isSymbolicLink())
+    console.error('  CLAUDE.md is a regular file, not a symlink (a Windows checkout without core.symlinks materialises it this way).');
+  else if (linkTarget !== null && path.resolve(root, linkTarget) !== path.join(root, 'AGENTS.md'))
+    console.error(`  CLAUDE.md is a symlink to ${linkTarget}, not AGENTS.md.`);
+  console.error('  Fix: rm CLAUDE.md && ln -s AGENTS.md CLAUDE.md (on Windows: git config core.symlinks true, then re-checkout CLAUDE.md).');
+  console.error('\nVALIDATION FAILED at step: CLAUDE.md resolves to AGENTS.md');
+  process.exit(1);
+}
+console.log('CLAUDE.md is a symlink resolving to AGENTS.md — both harnesses load the same map');
+record('CLAUDE.md resolves to AGENTS.md', Date.now() - linkStart);
+
 // Issue #31 — committed test-count floor for the desktop-shim e2e suite. The
 // count is Playwright's OWN collection (`playwright test --list`, which honours
 // the config's testMatch/testIgnore), never a grep over the spec sources: after
@@ -225,7 +256,7 @@ const QUICK_STEPS = new Set(['typecheck', 'unit tests', 'e2e tests (desktop shim
 const runSteps = QUICK ? steps.filter((s) => QUICK_STEPS.has(s.name)) : steps;
 
 console.log(
-  `\nvalidate${QUICK ? ':quick' : ''} — ${runSteps.length + 3} steps: ${['version lock-step', 'docs/MAP.md up to date', 'e2e test-count floor (desktop shim)', ...runSteps.map((s) => s.name)].join(' → ')}`
+  `\nvalidate${QUICK ? ':quick' : ''} — ${runSteps.length + 4} steps: ${['version lock-step', 'docs/MAP.md up to date', 'CLAUDE.md resolves to AGENTS.md', 'e2e test-count floor (desktop shim)', ...runSteps.map((s) => s.name)].join(' → ')}`
 );
 
 for (const step of runSteps) {
