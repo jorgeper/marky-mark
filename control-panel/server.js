@@ -432,12 +432,53 @@ async function fetchPrs() {
   return prs;
 }
 
+// ---------- docs ----------
+
+// Long-form write-ups live in the repo at docs/archive. The HTML ones are
+// self-contained single files, so they are served straight off disk.
+const DOCS_DIR = path.join(REPO, 'docs', 'archive');
+
+function listDocs() {
+  let names;
+  try {
+    names = fs.readdirSync(DOCS_DIR).filter((n) => n.endsWith('.html'));
+  } catch {
+    return []; // no docs/archive in this checkout
+  }
+  return names
+    .map((name) => {
+      const full = path.join(DOCS_DIR, name);
+      const st = fs.statSync(full);
+      let title = name.replace(/\.html$/, '').replace(/[-_]+/g, ' ');
+      let blurb = '';
+      try {
+        const head = fs.readFileSync(full, 'utf8').slice(0, 4096);
+        const t = head.match(/<title>([^<]+)<\/title>/i);
+        if (t) title = t[1].trim();
+        const d = head.match(/<meta\s+name="description"\s+content="([^"]*)"/i);
+        if (d) blurb = d[1].trim();
+      } catch { /* unreadable — fall back to the filename */ }
+      const md = name.replace(/\.html$/, '.md');
+      return {
+        name,
+        title,
+        blurb,
+        url: `/docs/${name}`,
+        markdownUrl: fs.existsSync(path.join(DOCS_DIR, md)) ? `/docs/${md}` : null,
+        updatedAt: st.mtime.toISOString(),
+        sizeKb: Math.round(st.size / 1024),
+      };
+    })
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
 // ---------- http ----------
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
+  '.md': 'text/plain; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
 };
@@ -495,6 +536,18 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/prs') {
       return json(res, { prs: await cached('prs', 30000, fetchPrs) });
+    }
+    if (url.pathname === '/api/docs') {
+      return json(res, { docs: listDocs() });
+    }
+    // Articles from docs/archive. basename() strips any traversal attempt.
+    if (url.pathname.startsWith('/docs/')) {
+      const name = path.basename(decodeURIComponent(url.pathname.slice('/docs/'.length)));
+      const full = path.join(DOCS_DIR, name);
+      if (name && fs.existsSync(full) && fs.statSync(full).isFile()) {
+        return send(res, 200, fs.readFileSync(full), MIME[path.extname(full)] || 'application/octet-stream');
+      }
+      return send(res, 404, JSON.stringify({ error: 'not found' }));
     }
 
     // static

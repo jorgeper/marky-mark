@@ -1,0 +1,1330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Building Marky Mark with Sandcastle</title>
+<meta name="description" content="How I ship a desktop app from my phone, with a fleet of AI agents that never sleep — Sandcastle, my fork of it, and the 24/7 VPS setup behind Marky Mark.">
+<meta name="theme-color" content="#fbfcfd">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='78' font-size='76'>🏰</text></svg>">
+<style>
+/* Palette adapted from Marky Mark's "Crisp" theme (themes/crisp.css),
+   on a slightly off-white page instead of pure white. */
+:root{
+  --bg:#fbfcfd;
+  --surface:#ffffff;
+  --elevated:#f6f8fa;
+  --fg:#1f2328;
+  --muted:#59636e;
+  --faint:#818b98;
+  --link:#0969da;
+  --border:#d1d9e0;
+  --border-soft:#e4e8ed;
+  --hr:#d8dee4;
+
+  --blue:#0969da;   --blue-bg:#ddf4ff;   --blue-line:#54aeff;
+  --green:#1a7f37;  --green-bg:#dafbe1;  --green-line:#4ac26b;
+  --purple:#8250df; --purple-bg:#fbefff; --purple-line:#c297ff;
+  --amber:#9a6700;  --amber-bg:#fff8c5;  --amber-line:#d4a72c;
+
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--fg);
+  font-family:var(--sans);font-size:17px;line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:760px;margin:0 auto;padding:0 24px 120px}
+
+/* ---------- hero ---------- */
+header.hero{max-width:860px;margin:0 auto;padding:72px 24px 8px}
+.kicker{
+  font-size:12.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--link);margin:0 0 14px;
+}
+h1{
+  font-size:clamp(32px,5.2vw,46px);line-height:1.15;margin:0 0 16px;
+  font-weight:700;letter-spacing:-.022em;
+}
+.dek{font-size:clamp(18px,2.3vw,21px);line-height:1.5;color:var(--muted);margin:0;max-width:38em}
+.byline{
+  font-size:14px;color:var(--faint);margin:26px 0 0;
+  padding-top:18px;border-top:1px solid var(--border-soft);
+}
+
+/* ---------- type ---------- */
+h2{
+  font-size:clamp(25px,3.4vw,30px);line-height:1.25;font-weight:700;letter-spacing:-.018em;
+  margin:72px 0 6px;padding-top:26px;border-top:1px solid var(--border-soft);
+}
+h2 .num{
+  display:block;font-size:12.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--link);margin-bottom:8px;
+}
+h3{font-size:20px;line-height:1.35;font-weight:600;letter-spacing:-.012em;margin:42px 0 4px}
+h4{font-size:16.5px;font-weight:600;margin:28px 0 2px}
+p{margin:16px 0}
+a{color:var(--link);text-decoration:none}
+a:hover{text-decoration:underline}
+ul,ol{padding-left:24px;margin:16px 0}
+li{margin:9px 0}
+li::marker{color:var(--faint)}
+hr{border:0;border-top:1px solid var(--hr);margin:48px 0}
+code{
+  font-family:var(--mono);font-size:.86em;background:var(--elevated);
+  border:1px solid var(--border-soft);border-radius:5px;padding:1px 5px;
+  overflow-wrap:anywhere;
+}
+pre{
+  background:var(--elevated);border:1px solid var(--border);border-radius:8px;
+  padding:16px 18px;overflow-x:auto;font-size:14px;line-height:1.62;
+}
+pre code{background:none;border:0;padding:0;font-size:14px}
+blockquote{
+  margin:26px 0;padding:2px 0 2px 20px;border-left:3px solid var(--border);
+  color:var(--muted);
+}
+blockquote p{margin:8px 0}
+.callout{
+  border:1px solid var(--border);border-left:3px solid var(--link);
+  background:var(--surface);border-radius:6px;padding:16px 20px;margin:28px 0;
+}
+.callout.warn{border-left-color:var(--amber-line);background:#fffdf3}
+.callout .t{display:block;font-weight:600;margin-bottom:6px;font-size:15.5px}
+.callout p{margin:8px 0}
+.callout p:last-child{margin-bottom:0}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse;margin:24px 0;font-size:15.5px}
+th,td{
+  text-align:left;padding:11px 14px;border-bottom:1px solid var(--border-soft);
+  vertical-align:top;overflow-wrap:anywhere;
+}
+th{
+  font-size:12.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--muted);border-bottom:1px solid var(--border);
+}
+tbody tr:nth-child(even){background:var(--elevated)}
+table td:first-child{font-weight:600}
+
+/* On a phone, two-column tables become stacked cards — there simply isn't
+   enough width for a label column and a paragraph side by side. */
+@media (max-width:700px){
+  table.stack{border-collapse:separate;border-spacing:0}
+  table.stack thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  table.stack,table.stack tbody,table.stack tr,table.stack td{display:block;width:100%}
+  table.stack tr{
+    background:var(--surface)!important;border:1px solid var(--border);
+    border-radius:8px;padding:12px 14px;margin:0 0 10px;
+  }
+  table.stack td{border:0;padding:0}
+  table.stack td:first-child{
+    font-weight:600;font-size:15px;margin-bottom:4px;
+  }
+  table.stack td:not(:first-child){color:var(--muted);font-size:14.5px;line-height:1.6}
+}
+
+/* ---------- toc ---------- */
+nav.toc{
+  border:1px solid var(--border);border-radius:8px;background:var(--surface);
+  padding:18px 22px;margin:40px 0 8px;
+}
+nav.toc b{
+  display:block;font-size:12.5px;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:8px;
+}
+nav.toc ol{margin:0;padding-left:20px;font-size:15.5px}
+nav.toc li{margin:5px 0}
+
+/* ---------- figures ---------- */
+figure{margin:36px 0 32px}
+.figwrap{
+  overflow-x:auto;background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;padding:8px;-webkit-overflow-scrolling:touch;
+}
+svg.fig{display:block;width:1200px;max-width:100%;height:auto}
+figcaption{
+  font-size:14.5px;color:var(--muted);margin-top:12px;line-height:1.6;
+}
+figcaption b{color:var(--fg);font-weight:600}
+.scrollhint{display:none;font-size:12.5px;color:var(--faint);margin:8px 0 0}
+@media (max-width:860px){
+  svg.fig{width:1160px;max-width:none}
+  .scrollhint{display:block}
+  body{font-size:16.5px}
+  .wrap{padding:0 18px 90px}
+  header.hero{padding:52px 18px 8px}
+}
+.bleed{max-width:1120px;margin-left:calc((760px - 1120px)/2)}
+@media (max-width:1160px){.bleed{max-width:100%;margin-left:0}}
+
+/* ---------- svg diagram styling ---------- */
+svg.fig text{font-family:var(--sans);fill:var(--fg)}
+.t1{font-size:13.5px;font-weight:600}
+.t2{font-size:12px;fill:var(--muted)}
+.t3{font-size:10.5px;fill:var(--faint)}
+.hd{font-size:15px;font-weight:700;letter-spacing:-.01em}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.09em;fill:var(--muted)}
+.note{font-size:12px;fill:var(--link)}
+.mono{font-family:var(--mono);font-size:10.5px;fill:var(--muted)}
+.mid{text-anchor:middle}
+.end{text-anchor:end}
+
+.box{fill:var(--surface);stroke:var(--border);stroke-width:1.4}
+.b-me{fill:var(--blue-bg);stroke:var(--blue-line)}
+.b-agent{fill:var(--green-bg);stroke:var(--green-line)}
+.b-gh{fill:var(--purple-bg);stroke:var(--purple-line)}
+.b-art{fill:var(--amber-bg);stroke:var(--amber-line)}
+.b-inf{fill:var(--elevated);stroke:var(--border)}
+.panel{fill:#fbfcfd;stroke:var(--border);stroke-width:1.4}
+.panel.dash{stroke-dasharray:5 4}
+.ar{fill:none;stroke:#8c959f;stroke-width:1.5;marker-end:url(#a)}
+.ar.d{stroke-dasharray:5 4}
+.ar.me{stroke:var(--blue);marker-end:url(#am)}
+.chip{fill:var(--purple-bg);stroke:var(--purple-line);stroke-width:1.2}
+.chip-t{font-family:var(--mono);font-size:10.5px;fill:#6639ba}
+
+footer{
+  max-width:760px;margin:0 auto;padding:32px 24px 80px;
+  border-top:1px solid var(--border-soft);font-size:14.5px;color:var(--muted);
+}
+@media print{
+  body{background:#fff}
+  .figwrap{break-inside:avoid}
+  svg.fig{width:100%}
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 1 L9 5 L0 9 Z" fill="#8c959f"/>
+    </marker>
+    <marker id="am" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 1 L9 5 L0 9 Z" fill="#0969da"/>
+    </marker>
+    <symbol id="me" viewBox="0 0 48 54">
+      <circle cx="24" cy="14" r="9.5" fill="#ddf4ff" stroke="#0969da" stroke-width="1.7"/>
+      <path d="M5.5 48 A18.5 18.5 0 0 1 42.5 48 Z" fill="#ddf4ff" stroke="#0969da" stroke-width="1.7" stroke-linejoin="round"/>
+    </symbol>
+  </defs>
+</svg>
+
+<header class="hero">
+  <p class="kicker">An exploration, in progress</p>
+  <h1>Building Marky Mark with Sandcastle</h1>
+  <p class="dek">How I ship a desktop app from my phone, with a fleet of AI agents that never sleep.</p>
+  <p class="byline">Jorge Pereira · 3 August 2026 · ~20 minute read</p>
+</header>
+
+<div class="wrap">
+
+<div class="callout warn">
+  <span class="t">Read this first</span>
+  <p>This is a <strong>work in progress and an exploration</strong>. It isn't a product, a
+  recommendation, or a finished methodology — it's a log of what I've built so far, what
+  worked, and what I'm still figuring out. Some of it will look silly in three months.
+  That's rather the point.</p>
+</div>
+
+<p><a href="https://github.com/jorgeper/marky-mark">Marky Mark</a> is a fast, themeable
+markdown viewer for macOS, Windows and the web. <strong>I write almost none of it by
+hand.</strong> Instead I file GitHub issues, and a fleet of AI agents — orchestrated by a
+fork of <a href="https://github.com/mattpocock/sandcastle">Matt Pocock's Sandcastle</a>
+running 24/7 on a VPS — picks them up, writes a spec, implements against it inside a
+Docker sandbox, reviews the diff, argues about it on a pull request, and merges.</p>
+
+<p>My job is deciding <em>what</em> to build, and saying yes or no. I can do that entirely
+from my phone.</p>
+
+<nav class="toc">
+  <b>Contents</b>
+  <ol>
+    <li><a href="#s1">What Sandcastle is (the original)</a></li>
+    <li><a href="#s2">What I changed (the fork)</a></li>
+    <li><a href="#s3">The flows — one inbox, one routing decision</a></li>
+    <li><a href="#s4">Anatomy of a single agent run</a></li>
+    <li><a href="#s5">The deployment: 24/7, from a phone</a></li>
+    <li><a href="#s6">The control panel</a></li>
+    <li><a href="#s7">Everything this thing can do</a></li>
+    <li><a href="#s8">So what actually got built?</a></li>
+    <li><a href="#s9">What's next</a></li>
+  </ol>
+</nav>
+
+<!-- ==================== FIGURE 1 ==================== -->
+<figure class="bleed">
+  <div class="figwrap">
+  <svg class="fig" viewBox="0 0 1200 820" role="img" aria-labelledby="f1t">
+    <title id="f1t">The whole system: me, four touchpoints, GitHub, and the VPS</title>
+    <g>
+      <use href="#me" x="48" y="284" width="96" height="108"/>
+
+      <rect class="box b-me" x="190" y="100" width="250" height="80" rx="7"/>
+      <rect class="box b-me" x="190" y="214" width="250" height="80" rx="7"/>
+      <rect class="box b-me" x="190" y="328" width="250" height="80" rx="7"/>
+      <rect class="box b-me" x="190" y="442" width="250" height="80" rx="7"/>
+
+      <path class="ar me" d="M148 302 C172 258 166 176 186 144"/>
+      <path class="ar me" d="M150 316 C170 306 168 272 186 256"/>
+      <path class="ar me" d="M150 356 C170 356 168 356 186 366"/>
+      <path class="ar me" d="M148 372 C172 412 166 458 186 478"/>
+
+      <rect class="panel" x="500" y="60" width="660" height="170" rx="8"/>
+      <rect class="chip" x="524" y="146" width="104" height="26" rx="13"/>
+      <rect class="chip" x="640" y="146" width="176" height="26" rx="13"/>
+      <rect class="chip" x="828" y="146" width="146" height="26" rx="13"/>
+      <rect class="chip" x="524" y="184" width="162" height="26" rx="13"/>
+      <rect class="chip" x="698" y="184" width="180" height="26" rx="13"/>
+      <rect class="chip" x="890" y="184" width="152" height="26" rx="13"/>
+
+      <rect class="panel dash" x="500" y="286" width="660" height="470" rx="8"/>
+      <rect class="box b-agent" x="524" y="336" width="392" height="76" rx="7"/>
+      <rect class="box b-inf" x="524" y="432" width="392" height="66" rx="7"/>
+      <rect class="box b-inf" x="524" y="514" width="392" height="66" rx="7"/>
+      <rect class="box b-agent" x="524" y="604" width="124" height="112" rx="7"/>
+      <rect class="box b-agent" x="658" y="604" width="124" height="112" rx="7"/>
+      <rect class="box b-agent" x="792" y="604" width="124" height="112" rx="7"/>
+      <rect class="box b-art" x="946" y="336" width="192" height="380" rx="7"/>
+
+      <path class="ar" d="M586 584 V600"/><path class="ar" d="M720 584 V600"/><path class="ar" d="M854 584 V600"/>
+      <path class="ar" d="M918 374 H942"/><path class="ar" d="M918 465 H942"/>
+      <path class="ar" d="M918 547 H942"/><path class="ar" d="M918 660 H942"/>
+
+      <path class="ar me" d="M442 140 H494"/>
+      <path class="ar me" d="M442 254 C480 254 486 344 518 362"/>
+      <path class="ar me" d="M442 368 C480 368 486 444 518 458"/>
+      <path class="ar me" d="M442 482 C480 482 486 524 518 542"/>
+
+      <path class="ar" d="M756 240 V278"/>
+      <path class="ar" d="M796 278 V240"/>
+
+      <rect class="box b-me" x="40" y="776" width="16" height="16" rx="3"/>
+      <rect class="box b-agent" x="278" y="776" width="16" height="16" rx="3"/>
+      <rect class="box b-gh" x="410" y="776" width="16" height="16" rx="3"/>
+      <rect class="box b-art" x="530" y="776" width="16" height="16" rx="3"/>
+      <rect class="panel dash" x="734" y="776" width="16" height="16" rx="3"/>
+    </g>
+    <g>
+      <text class="hd mid" x="96" y="424">Me</text>
+      <text class="t2 mid" x="96" y="446">usually on a phone</text>
+
+      <text class="t1 mid" x="315" y="132">GitHub — issues, labels, PRs</text>
+      <text class="t2 mid" x="315" y="155">file · label · approve · read PRs</text>
+      <text class="t1 mid" x="315" y="246">Claude Code — remote session</text>
+      <text class="t2 mid" x="315" y="269">/new-prd · releases · ad-hoc work</text>
+      <text class="t1 mid" x="315" y="360">Control panel</text>
+      <text class="t2 mid" x="315" y="383">watch agents · tail logs</text>
+      <text class="t1 mid" x="315" y="474">tmux on the VPS host</text>
+      <text class="t2 mid" x="315" y="497">start the loop · rebuild the image</text>
+
+      <text class="hd" x="524" y="96">GitHub — the one inbox</text>
+      <text class="t2" x="524" y="122">Every idea is an issue; a routing label decides which agent gets it.</text>
+      <text class="chip-t mid" x="576" y="163">Sandcastle</text>
+      <text class="chip-t mid" x="728" y="163">sandcastle:requires-prd</text>
+      <text class="chip-t mid" x="901" y="163">sandcastle:design</text>
+      <text class="chip-t mid" x="605" y="201">sandcastle:require-pr</text>
+      <text class="chip-t mid" x="788" y="201">sandcastle:agent-approve</text>
+      <text class="chip-t mid" x="966" y="201">sandcastle:approved</text>
+
+      <text class="t2" x="812" y="254">Agents read the issues,</text>
+      <text class="t2" x="812" y="272">and write back PRs.</text>
+
+      <text class="hd" x="524" y="322">My VPS — always on</text>
+      <text class="t1 mid" x="720" y="366">claude-remote container</text>
+      <text class="t2 mid" x="720" y="389">Claude Code 24/7 · YOLO mode · tmux inside</text>
+      <text class="t1 mid" x="720" y="460">Control panel, port 8080</text>
+      <text class="t2 mid" x="720" y="482">fronted by a Cloudflare quick tunnel</text>
+      <text class="t1 mid" x="720" y="542">tmux: the Sandcastle loop</text>
+      <text class="mono mid" x="720" y="564">while true; flock; npm run sandcastle; sleep 300</text>
+
+      <text class="eyebrow mid" x="586" y="642">AGENT SANDBOX</text>
+      <text class="eyebrow mid" x="720" y="642">AGENT SANDBOX</text>
+      <text class="eyebrow mid" x="854" y="642">AGENT SANDBOX</text>
+      <text class="t1 mid" x="586" y="668">issue #17</text>
+      <text class="t1 mid" x="720" y="668">issue #18</text>
+      <text class="t1 mid" x="854" y="668">issue #19</text>
+      <text class="t2 mid" x="586" y="690">spec → build</text>
+      <text class="t2 mid" x="720" y="690">spec → build</text>
+      <text class="t2 mid" x="854" y="690">spec → build</text>
+
+      <text class="eyebrow mid" x="1042" y="372">THE REPO</text>
+      <text class="mono mid" x="1042" y="398">/workspace/</text>
+      <text class="mono mid" x="1042" y="414">marky-mark</text>
+      <text class="t2 mid" x="1042" y="452">main branch</text>
+      <text class="t2 mid" x="1042" y="474">worktrees</text>
+      <text class="t2 mid" x="1042" y="496">.sandcastle/logs</text>
+      <text class="note mid" x="1042" y="556">Bind-mounted</text>
+      <text class="note mid" x="1042" y="576">into every</text>
+      <text class="note mid" x="1042" y="596">container.</text>
+
+      <text class="t2" x="64" y="789">Me — a human touchpoint</text>
+      <text class="t2" x="302" y="789">An agent</text>
+      <text class="t2" x="434" y="789">GitHub</text>
+      <text class="t2" x="554" y="789">An artifact / the repo</text>
+      <text class="t2" x="758" y="789">Infrastructure</text>
+    </g>
+  </svg>
+  </div>
+  <p class="scrollhint">Scroll the diagram sideways to see all of it.</p>
+  <figcaption><b>Figure 1 — the whole system.</b> Four touchpoints, and three of them work
+  fine on a phone. Everything to the right of them runs whether I'm awake or not.</figcaption>
+</figure>
+
+<hr>
+
+<h2 id="s1"><span class="num">Part 1</span>What Sandcastle is (the original)</h2>
+
+<p><a href="https://github.com/mattpocock/sandcastle">Sandcastle</a> is a TypeScript
+library by Matt Pocock for <strong>orchestrating AI coding agents inside isolated
+sandboxes</strong>. Its pitch is three lines long:</p>
+
+<ol>
+  <li>You invoke an agent with a single <code>sandcastle.run()</code>.</li>
+  <li>Sandcastle sandboxes the agent with a configurable branch strategy.</li>
+  <li>The commits the agent makes on its branch get merged back.</li>
+</ol>
+
+<p>It's not an app and it's not a SaaS. It's a library you script.</p>
+
+<pre><code>import { run, claudeCode } from "@ai-hero/sandcastle";
+import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
+
+await run({
+  agent: claudeCode("claude-opus-4-8"),
+  sandbox: docker(),          // or podman(), vercel(), noSandbox(), or your own
+  promptFile: ".sandcastle/prompt.md",
+});</code></pre>
+
+<h3>The vocabulary</h3>
+
+<p>Sandcastle is unusually disciplined about its own language — it ships a
+<code>CONTEXT.md</code> glossary that tells you which words to avoid. The terms matter for
+everything below.</p>
+
+<table class="stack">
+<thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>Host</td><td>Your machine. The real git repo lives here.</td></tr>
+<tr><td>Sandbox</td><td>The isolation boundary — a container or VM the agent runs inside.</td></tr>
+<tr><td>Agent</td><td>The AI coding tool in the sandbox (Claude Code, Codex, …). Deliberately swappable.</td></tr>
+<tr><td>Sandbox provider</td><td>Pluggable implementation that creates sandboxes: <code>docker()</code>, <code>podman()</code>, <code>vercel()</code>, <code>noSandbox()</code>, or your own.</td></tr>
+<tr><td>Worktree</td><td>A git worktree in <code>.sandcastle/worktrees/</code> on the host, bind-mounted into the sandbox.</td></tr>
+<tr><td>Branch strategy</td><td>How commits relate to branches: <code>head</code> (work in place), <code>merge-to-head</code> (temp branch, merged back), <code>branch</code> (a named branch).</td></tr>
+<tr><td>Target branch</td><td>The branch the host is on at <code>run()</code> time — where work merges back to.</td></tr>
+</tbody>
+</table>
+
+<h3>The idea that makes it work</h3>
+
+<p>The agent never touches your working directory. Sandcastle creates a <strong>git
+worktree</strong> on the host, <strong>bind-mounts</strong> it into a container, runs the
+agent in there with access to nothing else, and merges the resulting commits back into the
+target branch. The blast radius of a confused agent is one worktree and one branch.</p>
+
+<p>And because the worktree is a real git worktree, <strong>git is the memory bus</strong>.
+An agent that dies mid-task leaves committed work behind, and the next agent starts from
+that state. You get crash-safety and resumability for free, without a database.</p>
+
+<h3>Templates: the orchestration layer</h3>
+
+<p><code>npx sandcastle init</code> scaffolds a <code>.sandcastle/</code> directory
+containing a <em>template</em> — a script you own and can edit, built on the library. The
+interesting one is the <strong>parallel planner</strong>: a loop that reads GitHub issues
+labeled <code>Sandcastle</code>, works out which are unblocked, fans out one sandboxed
+implementer per issue <strong>in parallel</strong>, runs a reviewer, and merges. Then it
+does it again. And again.</p>
+
+<p>This is the "RALPH" lineage — keep throwing agents at a backlog until the backlog is
+empty. Sandcastle's contribution is making each throw <em>isolated</em>,
+<em>branch-aware</em> and <em>scriptable</em>.</p>
+
+<hr>
+
+<h2 id="s2"><span class="num">Part 2</span>What I changed (the fork)</h2>
+
+<p>My fork is <a href="https://github.com/jorgeper/sandcastle">jorgeper/sandcastle</a>.
+Every change lives on its own <code>feat/*</code> branch so it can be proposed upstream
+individually, and <code>README-FORK.md</code> records them newest-first.</p>
+
+<p>Upstream Sandcastle starts at <em>"here is a labeled issue."</em> Almost everything I
+added is about the two halves that sentence hides: <strong>how does an idea become a good
+issue</strong>, and <strong>how do I trust what comes out the other end?</strong></p>
+
+<h3>2.1 The front half — from idea to issues</h3>
+
+<table class="stack">
+<thead><tr><th>Addition</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>PRD-driven workflow</td><td><code>/new-prd</code> and <code>/decompose-prd</code> Claude Code skills, scaffolded into the repo by <code>init</code>. Grill me into a PRD, commit it, then propose a parent issue plus N labeled sub-issues with dependency edges — wired together with GitHub's real sub-issues API.</td></tr>
+<tr><td>Conversation gateway</td><td>A durable, turn-based conversation engine (<code>conversation.start()/open()/send()</code>) plus an Ink chat TUI. You can <em>talk to</em> a sandboxed agent instead of driving a TUI by hand. Every message is persisted <em>before</em> the agent runs, so Ctrl-C is always safe.</td></tr>
+<tr><td>Designer / decomposer / filer lanes</td><td>Three conversational agents. The <strong>filer</strong> turns a one-line report into a well-formed, routed issue; the <strong>designer</strong> grills you into a PRD and opens the PRD PR; the <strong>decomposer</strong> proposes the issue tree and only creates it after you type Approve.</td></tr>
+<tr><td>Label-routed PRD lane</td><td>The no-chat alternative: label an issue <code>sandcastle:requires-prd</code> and the main loop nudges you to run <code>/new-prd</code> in your own Claude session. Approve the resulting PRD PR with a label and the loop merges it and decomposes it autonomously.</td></tr>
+</tbody>
+</table>
+
+<p>The unifying rule: <strong>everything is a GitHub issue, and a routing label decides
+which agent handles it.</strong> There is exactly one inbox.</p>
+
+<h3>2.2 The back half — trust, review, merge gates</h3>
+
+<table class="stack">
+<thead><tr><th>Addition</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>PR checkpoint + review debate</td><td>Label an issue <code>sandcastle:require-pr</code> and the work lands on a pull request instead of auto-merging. A <code>pr-reviewer</code> agent and an <code>addresser</code> agent then <em>debate in the PR's review threads</em> until every thread resolves. Deadlocks escalate as <code>NEEDS-DECISION</code> for me to arbitrate. Turn-taking, thread states and the merge gate are pure, unit-tested code — not prompt interpretation.</td></tr>
+<tr><td>Agent-approved PRs</td><td><code>sandcastle:agent-approve</code>: same PR and same debate, but when the reviewer has nothing outstanding it posts an "approving on behalf of the owner" comment and applies <code>sandcastle:approved</code> itself. The next loop merges. No human touch — but deadlocks still stop and wait for me.</td></tr>
+<tr><td>One shared review bar</td><td>Both reviewers read the same <code>review-checklist.md</code>: correctness, clarity, balance, standards, preserve-functionality.</td></tr>
+<tr><td>Goal mode</td><td>Replaces "spawn an agent and substring-match its own claim of completion" with Claude Code's native <code>/goal</code> engine, where a <em>separate evaluator model</em> judges the completion condition after every turn. A spec-writer step first distils each issue into a committed <code>specs/issue-&lt;n&gt;.md</code> whose <code>## Goal</code> section <em>is</em> the condition. Unverified work never reaches the PR or merge phases.</td></tr>
+<tr><td>Marker convention</td><td>Everything an agent writes on GitHub under my identity starts with <code>[agent · harness · model]</code>. Unmarked means a human wrote it — which is also how the scripts tell my PR comments from agent replies and route mine to the addresser.</td></tr>
+</tbody>
+</table>
+
+<h3>2.3 Making it survive contact with reality</h3>
+
+<p>This is the unglamorous half, and it's most of the diff. Every item below came from
+watching a real run go wrong.</p>
+
+<ul>
+<li><strong><code>sandcastle:ready-to-merge</code></strong> — a crash after an issue was
+implemented, reviewed <em>and</em> gate-verified used to re-run the whole implementer just
+to re-prove finished work. Now "goal met" is recorded as a durable label and the next
+cycle routes straight to merge.</li>
+<li><strong>Merged-issue safety net</strong> — an issue whose branch was merged but which
+never got closed looped forever, paying for a full verify suite every cycle. Three
+derive-from-git fixes closed it.</li>
+<li><strong>Prompt-arg tripwire</strong> — a test asserting that every
+<code>{{PLACEHOLDER}}</code> in every prompt has a matching argument. It immediately found
+two latent crashes, one of which killed the entire loop process.</li>
+<li><strong>Timing instrumentation and the <code>sandcastle-analyze</code> skill</strong> —
+every log line is timestamped, every agent run appends
+<code>{ts, phase, ms, ok, issue}</code> to <code>timings.jsonl</code>, and a scaffolded
+skill reads all of it and tells me where the wall-clock went and what to change.</li>
+<li><strong>Tiered verification</strong> — <code>QUICK_VERIFY_COMMANDS</code> (typecheck
+plus unit tests) for the inner loop; the full <code>VERIFY_COMMANDS</code> exactly once
+before declaring work done. Runs got dramatically cheaper.</li>
+<li><strong>Image-gap nudge</strong> — installs inside a sandbox die with the container.
+The loop scans its own logs for install signatures (<code>playwright install</code>,
+<code>apt-get</code>, <code>npm i -g</code>), tallies repeats per image id, and prints the
+exact Dockerfile line that would fix it.</li>
+<li><strong>Per-repo customization</strong> — <code>.sandcastle/config.mts</code> holds
+every knob as plain TypeScript consts, and <code>init</code> detects your toolchain
+(node / react-web / tauri / go / python) and proposes verify commands scanned from your
+real <code>package.json</code>.</li>
+<li><strong><code>--doctor</code></strong> — one command that checks env vars, whether the
+GitHub token can actually <em>read issues</em> (a contents-only PAT authenticates fine and
+then strands every agent), the Docker image, the label vocabulary, whether the implementer
+skill is committed, and whether the verify commands exist.</li>
+<li><strong>Still-running heartbeat</strong> — with four issues in flight the console went
+silent for eight minutes and I "fixed" it by killing live agents. Now it prints
+<code>still running: implementer(issue=22) 12.3m</code> every two minutes.</li>
+</ul>
+
+<blockquote><p><strong>The rule I keep relearning:</strong> image = toolchain, worktree =
+project deps, hooks = cheap glue only. If you catch an agent running <code>apt-get</code>,
+that belongs in the Dockerfile.</p></blockquote>
+
+<hr>
+
+<h2 id="s3"><span class="num">Part 3</span>The flows</h2>
+
+<p>There is one inbox (GitHub issues) and one routing decision (which label). Everything
+else follows from that.</p>
+
+<!-- ==================== FIGURE 2 ==================== -->
+<figure class="bleed">
+  <div class="figwrap">
+  <svg class="fig" viewBox="0 0 1200 720" role="img" aria-labelledby="f2t">
+    <title id="f2t">The router: one issue, four lanes, chosen by label</title>
+    <g>
+      <use href="#me" x="62" y="52" width="62" height="70"/>
+      <rect class="box b-art" x="170" y="58" width="280" height="74" rx="7"/>
+      <path class="ar me" d="M130 92 H166"/>
+      <path class="box b-inf" d="M480 180 L600 132 L720 180 L600 228 Z"/>
+      <path class="ar" d="M452 98 C520 102 542 130 556 162"/>
+
+      <path class="ar" d="M534 200 C420 224 280 242 162 274"/>
+      <path class="ar" d="M574 222 C520 246 470 250 452 274"/>
+      <path class="ar" d="M626 222 C680 246 730 250 748 274"/>
+      <path class="ar" d="M666 200 C780 224 920 242 1038 274"/>
+
+      <rect class="box b-inf"   x="35"  y="278" width="230" height="80" rx="7"/>
+      <rect class="box b-agent" x="335" y="278" width="230" height="80" rx="7"/>
+      <rect class="box b-agent" x="635" y="278" width="230" height="80" rx="7"/>
+      <rect class="box b-agent" x="935" y="278" width="230" height="80" rx="7"/>
+      <rect class="box"         x="335" y="394" width="230" height="80" rx="7"/>
+      <rect class="box"         x="635" y="394" width="230" height="80" rx="7"/>
+      <rect class="box"         x="935" y="394" width="230" height="80" rx="7"/>
+      <rect class="box"         x="335" y="510" width="230" height="72" rx="7"/>
+      <rect class="box b-art"   x="635" y="510" width="230" height="72" rx="7"/>
+      <rect class="box b-art"   x="935" y="510" width="230" height="72" rx="7"/>
+
+      <path class="ar" d="M450 360 V390"/><path class="ar" d="M750 360 V390"/><path class="ar" d="M1050 360 V390"/>
+      <path class="ar" d="M450 476 V506"/><path class="ar" d="M750 476 V506"/><path class="ar" d="M1050 476 V506"/>
+      <path class="ar d me" d="M267 318 H331"/>
+
+      <rect class="box b-agent" x="300" y="618" width="740" height="72" rx="7"/>
+      <path class="ar" d="M450 584 V614"/>
+      <path class="ar" d="M750 584 C750 602 722 602 700 614"/>
+      <path class="ar" d="M1050 584 C1050 602 980 600 940 614"/>
+    </g>
+    <g>
+      <text class="eyebrow" x="46" y="36">ME</text>
+      <text class="t1 mid" x="310" y="90">A thing I want</text>
+      <text class="t2 mid" x="310" y="113">a bug · a feature · a half-formed idea</text>
+      <text class="t1 mid" x="600" y="176">Which label do</text>
+      <text class="t1 mid" x="600" y="196">I put on it?</text>
+
+      <text class="t1 mid" x="150" y="308">No label</text>
+      <text class="t2 mid" x="150" y="330">it sits on the backlog,</text>
+      <text class="t2 mid" x="150" y="348">invisible to every agent</text>
+
+      <text class="chip-t mid" x="450" y="304">Sandcastle</text>
+      <text class="t2 mid" x="450" y="328">the planner picks it up</text>
+      <text class="t2 mid" x="450" y="346">on the next loop cycle</text>
+      <text class="chip-t mid" x="750" y="304">sandcastle:requires-prd</text>
+      <text class="t2 mid" x="750" y="328">the loop nudges me:</text>
+      <text class="t2 mid" x="750" y="346">"run /new-prd in Claude Code"</text>
+      <text class="chip-t mid" x="1050" y="304">sandcastle:design</text>
+      <text class="t2 mid" x="1050" y="328">the designer agent opens</text>
+      <text class="t2 mid" x="1050" y="346">a chat conversation</text>
+
+      <text class="t1 mid" x="450" y="424">spec → implement → review</text>
+      <text class="t2 mid" x="450" y="447">in a sandbox, in parallel</text>
+      <text class="t1 mid" x="750" y="424">grilling session → PRD PR</text>
+      <text class="t2 mid" x="750" y="447">I approve with a label</text>
+      <text class="t1 mid" x="1050" y="424">conversation → PRD PR</text>
+      <text class="t2 mid" x="1050" y="447">I approve with a label</text>
+
+      <text class="t1 mid" x="450" y="542">Merge and close</text>
+      <text class="t2 mid" x="450" y="564">the merger does it, never me</text>
+      <text class="t1 mid" x="750" y="542">Auto-decompose</text>
+      <text class="t2 mid" x="750" y="564">into sub-issues</text>
+      <text class="t1 mid" x="1050" y="542">Decomposer chat</text>
+      <text class="t2 mid" x="1050" y="564">into sub-issues</text>
+
+      <text class="note mid" x="150" y="414">…until I label it,</text>
+      <text class="t2 mid" x="150" y="436">and then it's just a lane-2 issue</text>
+
+      <text class="t1 mid" x="670" y="650">Merged into main</text>
+      <text class="t2 mid" x="670" y="673">and every sub-issue is just a lane-2 issue, so the tree feeds itself</text>
+    </g>
+  </svg>
+  </div>
+  <p class="scrollhint">Scroll the diagram sideways to see all of it.</p>
+  <figcaption><b>Figure 2 — the router.</b> Two further labels modify the implement lane
+  rather than routing it: <code>sandcastle:require-pr</code> (land on a PR and wait for me)
+  and <code>sandcastle:agent-approve</code> (land on a PR and let the reviewer approve it).
+  Those are Figure 3.</figcaption>
+</figure>
+
+<h3>3.1 Three ways an implementation issue lands</h3>
+
+<p>Same pipeline, three merge policies, chosen per issue with a label. This is the single
+most useful knob in the whole system: it lets me spend my attention only where it's worth
+spending.</p>
+
+<!-- ==================== FIGURE 3 ==================== -->
+<figure class="bleed">
+  <div class="figwrap">
+  <svg class="fig" viewBox="0 0 1220 730" role="img" aria-labelledby="f3t">
+    <title id="f3t">Three merge policies: auto-merge, PR with my approval, PR with agent approval</title>
+    <g>
+      <rect class="box b-me"    x="40"   y="72" width="155" height="64" rx="7"/>
+      <rect class="box b-gh"    x="235"  y="72" width="155" height="64" rx="7"/>
+      <rect class="box b-agent" x="430"  y="72" width="155" height="64" rx="7"/>
+      <rect class="box b-agent" x="625"  y="72" width="155" height="64" rx="7"/>
+      <rect class="box b-agent" x="820"  y="72" width="155" height="64" rx="7"/>
+      <rect class="box b-art"   x="1015" y="72" width="155" height="64" rx="7"/>
+      <path class="ar" d="M197 104 H231"/><path class="ar" d="M392 104 H426"/>
+      <path class="ar" d="M587 104 H621"/><path class="ar" d="M782 104 H816"/>
+      <path class="ar" d="M977 104 H1011"/>
+
+      <rect class="box b-me"    x="40"   y="290" width="155" height="64" rx="7"/>
+      <rect class="box b-agent" x="235"  y="290" width="155" height="64" rx="7"/>
+      <rect class="box b-gh"    x="430"  y="290" width="155" height="64" rx="7"/>
+      <rect class="box b-agent" x="625"  y="290" width="155" height="64" rx="7"/>
+      <rect class="box b-me"    x="820"  y="290" width="155" height="64" rx="7"/>
+      <rect class="box b-art"   x="1015" y="290" width="155" height="64" rx="7"/>
+      <path class="ar" d="M197 322 H231"/><path class="ar" d="M392 322 H426"/>
+      <path class="ar" d="M587 322 H621"/><path class="ar" d="M782 322 H816"/>
+      <path class="ar" d="M977 322 H1011"/>
+      <path class="ar" d="M660 288 C660 264 745 264 745 288"/>
+      <rect class="box b-art" x="625" y="392" width="350" height="52" rx="7"/>
+      <path class="ar me" d="M702 356 V388"/>
+
+      <rect class="box b-me"    x="40"   y="552" width="155" height="64" rx="7"/>
+      <rect class="box b-agent" x="235"  y="552" width="155" height="64" rx="7"/>
+      <rect class="box b-gh"    x="430"  y="552" width="155" height="64" rx="7"/>
+      <rect class="box b-agent" x="625"  y="552" width="155" height="64" rx="7"/>
+      <rect class="box b-agent" x="820"  y="552" width="155" height="64" rx="7"/>
+      <rect class="box b-art"   x="1015" y="552" width="155" height="64" rx="7"/>
+      <path class="ar" d="M197 584 H231"/><path class="ar" d="M392 584 H426"/>
+      <path class="ar" d="M587 584 H621"/><path class="ar" d="M782 584 H816"/>
+      <path class="ar" d="M977 584 H1011"/>
+      <path class="ar" d="M660 550 C660 526 745 526 745 550"/>
+    </g>
+    <g>
+      <text class="hd" x="40" y="46">A · Auto-merge</text>
+      <text class="chip-t" x="196" y="46">Sandcastle</text>
+      <text class="t1 mid" x="117" y="98">Me: file it</text><text class="t2 mid" x="117" y="120">plus one label</text>
+      <text class="t1 mid" x="312" y="98">Issue #N</text><text class="t2 mid" x="312" y="120">planner picks it up</text>
+      <text class="t1 mid" x="507" y="98">spec-writer</text><text class="mono mid" x="507" y="120">specs/issue-N.md</text>
+      <text class="t1 mid" x="702" y="98">implementer</text><text class="t2 mid" x="702" y="120">goal mode + judge</text>
+      <text class="t1 mid" x="897" y="98">reviewer</text><text class="t2 mid" x="897" y="120">commits refinements</text>
+      <text class="t1 mid" x="1092" y="98">Merge + close</text><text class="t2 mid" x="1092" y="120">issue closed</text>
+      <text class="note" x="40" y="172">My touchpoints: 1 — file it, then walk away.</text>
+
+      <text class="hd" x="40" y="264">B · PR, my approval</text>
+      <text class="chip-t" x="228" y="264">sandcastle:require-pr</text>
+      <text class="t1 mid" x="117" y="316">Me: file it</text><text class="t2 mid" x="117" y="338">plus require-pr</text>
+      <text class="t1 mid" x="312" y="316">spec + implement</text><text class="t2 mid" x="312" y="338">as in A</text>
+      <text class="t1 mid" x="507" y="316">PR opened</text><text class="chip-t mid" x="507" y="338">sandcastle:ready</text>
+      <text class="t1 mid" x="702" y="312">pr-reviewer ⇄</text><text class="t1 mid" x="702" y="330">addresser</text><text class="t2 mid" x="702" y="348">in review threads</text>
+      <text class="t1 mid" x="897" y="312">Me: read it,</text><text class="t1 mid" x="897" y="330">label approved</text>
+      <text class="t1 mid" x="1092" y="316">Squash-merge</text><text class="t2 mid" x="1092" y="338">and close the issue</text>
+      <text class="t2 mid" x="702" y="258">debate rounds</text>
+      <text class="t1 mid" x="800" y="418">Deadlock → sandcastle:needs-decision</text>
+      <text class="t2 mid" x="800" y="436">which is a ping for me, and only then</text>
+      <text class="note" x="40" y="480">My touchpoints: 2–3. I never press GitHub's merge button — the label is the gate.</text>
+
+      <text class="hd" x="40" y="526">C · PR, <tspan fill="#1a7f37">agent</tspan> approval</text>
+      <text class="chip-t" x="236" y="526">sandcastle:agent-approve</text>
+      <text class="t1 mid" x="117" y="578">Me: file it</text><text class="t2 mid" x="117" y="600">plus agent-approve</text>
+      <text class="t1 mid" x="312" y="578">spec + implement</text><text class="t2 mid" x="312" y="600">as in A</text>
+      <text class="t1 mid" x="507" y="578">PR opened</text><text class="t2 mid" x="507" y="600">full description</text>
+      <text class="t1 mid" x="702" y="574">pr-reviewer ⇄</text><text class="t1 mid" x="702" y="592">addresser</text><text class="t2 mid" x="702" y="610">same review bar</text>
+      <text class="t1 mid" x="897" y="574">Reviewer adds</text><text class="t1 mid" x="897" y="592">approved itself</text>
+      <text class="t1 mid" x="1092" y="578">Squash-merge</text><text class="t2 mid" x="1092" y="600">and close the issue</text>
+      <text class="t2 mid" x="702" y="520">debate rounds</text>
+      <text class="note" x="40" y="660">My touchpoints: 1 — or 2 if it deadlocks, because deadlocks still stop and wait.</text>
+      <text class="t2" x="40" y="690">The audit trail is identical to B. I just didn't block the pipeline on my attention.</text>
+    </g>
+  </svg>
+  </div>
+  <p class="scrollhint">Scroll the diagram sideways to see all of it.</p>
+  <figcaption><b>Figure 3 — three merge policies.</b> Why a label instead of GitHub's
+  Approve button? Every PR is authored by my own identity, and GitHub won't let you approve
+  your own PR. The label <em>is</em> the gate — and it's checked by code, not by a
+  prompt.</figcaption>
+</figure>
+
+<h3>3.2 The big thing: the PRD lane</h3>
+
+<p>This is the flow for anything I can't describe in a paragraph.</p>
+
+<!-- ==================== FIGURE 4 ==================== -->
+<figure class="bleed">
+  <div class="figwrap">
+  <svg class="fig" viewBox="0 0 1200 820" role="img" aria-labelledby="f4t">
+    <title id="f4t">The PRD lane, from a labeled issue to closed sub-issues</title>
+    <g>
+      <rect class="box b-me"    x="90"  y="100" width="400" height="96" rx="7"/>
+      <rect class="box b-inf"   x="90"  y="232" width="400" height="96" rx="7"/>
+      <rect class="box b-me"    x="90"  y="364" width="400" height="96" rx="7"/>
+      <rect class="box b-art"   x="90"  y="496" width="400" height="96" rx="7"/>
+      <rect class="box b-gh"    x="90"  y="628" width="400" height="96" rx="7"/>
+      <path class="ar" d="M290 198 V228"/><path class="ar" d="M290 330 V360"/>
+      <path class="ar" d="M290 462 V492"/><path class="ar" d="M290 594 V624"/>
+      <use href="#me" x="30" y="118" width="48" height="54"/>
+      <use href="#me" x="30" y="382" width="48" height="54"/>
+      <use href="#me" x="630" y="118" width="48" height="54"/>
+      <rect class="box b-me"    x="690" y="100" width="400" height="96" rx="7"/>
+      <rect class="box b-inf"   x="690" y="232" width="400" height="96" rx="7"/>
+      <rect class="box b-gh"    x="690" y="364" width="400" height="96" rx="7"/>
+      <rect class="box b-agent" x="690" y="496" width="400" height="96" rx="7"/>
+      <rect class="box b-art"   x="690" y="628" width="400" height="96" rx="7"/>
+      <path class="ar" d="M890 198 V228"/><path class="ar" d="M890 330 V360"/>
+      <path class="ar" d="M890 462 V492"/><path class="ar" d="M890 594 V624"/>
+      <path class="ar" d="M492 676 Q580 676 592 760 L1128 760 Q1160 760 1160 726 L1160 182 Q1160 150 1128 150 L1096 150"/>
+    </g>
+    <g>
+      <text class="t1" x="110" y="132">1 · I file issue #41</text>
+      <text class="t2" x="110" y="155">labels: Sandcastle + sandcastle:requires-prd</text>
+      <text class="t2" x="110" y="175">one sentence is enough — that's the point</text>
+
+      <text class="t1" x="110" y="264">2 · The loop nudges me</text>
+      <text class="t2" x="110" y="287">"#41 needs a PRD — run /new-prd in Claude Code."</text>
+      <text class="t2" x="110" y="307">Nothing else happens until I do.</text>
+
+      <text class="t1" x="110" y="396">3 · /new-prd 41 — the grilling session</text>
+      <text class="t2" x="110" y="419">one question at a time, until the idea is actually</text>
+      <text class="t2" x="110" y="439">specified. This is where the value is.</text>
+
+      <text class="t1" x="110" y="528">4 · prd/012-slug.md, committed</text>
+      <text class="t2" x="110" y="551">on branch prd/issue-41-slug — the branch name</text>
+      <text class="t2" x="110" y="571">IS the link back to the issue, with no database</text>
+
+      <text class="t1" x="110" y="660">5 · PRD PR opened, titled "PRD for #41"</text>
+      <text class="t2" x="110" y="683">the URL is commented back on the issue,</text>
+      <text class="t2" x="110" y="703">so the trail never leaves GitHub</text>
+
+      <text class="t1" x="710" y="132">6 · I read it</text>
+      <text class="t2" x="710" y="155">Comment for changes, or add the label</text>
+      <text class="t2" x="710" y="175">sandcastle:approved. That's my last decision.</text>
+
+      <text class="t1" x="710" y="264">7 · Next loop run</text>
+      <text class="t2" x="710" y="287">squash-merges the PRD, then runs the</text>
+      <text class="t2" x="710" y="307">decomposer autonomously — no second approval</text>
+
+      <text class="t1" x="710" y="396">8 · Sub-issues, under the parent</text>
+      <text class="t2" x="710" y="419">labeled Sandcastle, with acceptance criteria</text>
+      <text class="t2" x="710" y="439">and "Blocked by #N" dependency edges</text>
+
+      <text class="t1" x="710" y="528">9 · Each sub-issue runs flow A, B or C</text>
+      <text class="t2" x="710" y="551">in parallel, one Docker sandbox each,</text>
+      <text class="t2" x="710" y="571">dependencies staged across merge rounds</text>
+
+      <text class="t1" x="710" y="660">10 · All children closed → parent auto-closes</text>
+      <text class="t2" x="710" y="683">design issue → PRD PR → parent → children → PRs</text>
+      <text class="t2" x="710" y="703">is one real GitHub sub-issue tree. Expand and read.</text>
+
+      <text class="note mid" x="850" y="786">…and then</text>
+      <text class="note mid" x="590" y="404">My</text>
+      <text class="note mid" x="590" y="424">touchpoints:</text>
+      <text class="note mid" x="590" y="444">just 3</text>
+    </g>
+  </svg>
+  </div>
+  <p class="scrollhint">Scroll the diagram sideways to see all of it.</p>
+  <figcaption><b>Figure 4 — the PRD lane.</b> The grilling carries most of the value. A
+  twenty-minute interview where an agent keeps asking <em>"what happens if the file is
+  deleted while it's open?"</em> produces a PRD that produces sub-issues that produce code I
+  don't have to throw away.</figcaption>
+</figure>
+
+<h3>3.3 The conversational lanes</h3>
+
+<p>The older, chattier path — still there, still useful when I want arrow-key options and a
+back-and-forth rather than a Claude Code session. Its best property: <strong>capture is
+instant and agent-free.</strong> The issue exists the moment I hit enter; the conversation
+is optional and can happen days later.</p>
+
+<!-- ==================== FIGURE 5 ==================== -->
+<figure class="bleed">
+  <div class="figwrap">
+  <svg class="fig" viewBox="0 0 1200 640" role="img" aria-labelledby="f5t">
+    <title id="f5t">The filer lane: instant capture, optional enrichment, then routing</title>
+    <g>
+      <use href="#me" x="34" y="12" width="48" height="54"/>
+      <rect class="box b-me"  x="40"  y="84" width="280" height="80" rx="7"/>
+      <rect class="box b-gh"  x="370" y="84" width="250" height="80" rx="7"/>
+      <path class="box b-inf" d="M680 124 L790 84 L900 124 L790 164 Z"/>
+      <rect class="box b-inf" x="940" y="84" width="220" height="80" rx="7"/>
+      <path class="ar me" d="M322 124 H366"/>
+      <path class="ar" d="M622 124 H676"/>
+      <path class="ar" d="M902 124 H936"/>
+      <rect class="box b-agent" x="560" y="244" width="460" height="88" rx="7"/>
+      <path class="ar" d="M790 166 V240"/>
+      <rect class="box b-inf"   x="60"  y="402" width="250" height="80" rx="7"/>
+      <rect class="box b-agent" x="360" y="402" width="290" height="80" rx="7"/>
+      <rect class="box b-agent" x="700" y="402" width="290" height="80" rx="7"/>
+      <path class="ar" d="M700 334 C520 356 300 370 190 398"/>
+      <path class="ar" d="M760 334 C640 358 540 370 508 398"/>
+      <path class="ar" d="M840 334 C844 358 846 374 846 398"/>
+      <rect class="box b-art" x="640" y="512" width="450" height="100" rx="7"/>
+      <path class="ar" d="M846 484 V508"/>
+    </g>
+    <g>
+      <text class="t1 mid" x="180" y="116">One line, from anywhere</text>
+      <text class="mono mid" x="180" y="139">sandcastle:issue "search is slow"</text>
+      <text class="t1 mid" x="495" y="116">The issue exists — instantly</text>
+      <text class="t2 mid" x="495" y="139">no agent · unlabeled means on hold</text>
+      <text class="t1 mid" x="790" y="120">Develop it now?</text>
+      <text class="t1 mid" x="1050" y="116">Enter — done</text>
+      <text class="t2 mid" x="1050" y="139">fire and forget</text>
+      <text class="note" x="800" y="204">yes</text>
+
+      <text class="t1 mid" x="790" y="276">The filer agent</text>
+      <text class="t2 mid" x="790" y="299">grounds it in the repo, asks at most two or three questions,</text>
+      <text class="t2 mid" x="790" y="319">rewrites the body with code pointers and acceptance criteria</text>
+
+      <text class="t1 mid" x="185" y="434">Hold</text>
+      <text class="t2 mid" x="185" y="457">stays unlabeled on the backlog</text>
+      <text class="t1 mid" x="505" y="434">Sandcastle</text>
+      <text class="t2 mid" x="505" y="457">released straight to the implementers</text>
+      <text class="t1 mid" x="845" y="434">sandcastle:design</text>
+      <text class="t2 mid" x="845" y="457">escalation is a label, not a handoff</text>
+
+      <text class="t1 mid" x="865" y="546">designer chat → PRD PR → I approve →</text>
+      <text class="t1 mid" x="865" y="568">decomposer chat → I type Approve →</text>
+      <text class="t2 mid" x="865" y="591">sub-issues, labeled Sandcastle, back to the implement lane</text>
+
+      <text class="note" x="40" y="322">The filer recommends —</text>
+      <text class="note" x="40" y="344">I decide.</text>
+      <text class="t2" x="40" y="546">Ctrl-C anywhere is safe: the issue</text>
+      <text class="t2" x="40" y="566">already exists, the conversation</text>
+      <text class="t2" x="40" y="586">re-attaches, and unlabeled means</text>
+      <text class="t2" x="40" y="606">untouched.</text>
+    </g>
+  </svg>
+  </div>
+  <p class="scrollhint">Scroll the diagram sideways to see all of it.</p>
+  <figcaption><b>Figure 5 — the filer lane.</b> Every message is persisted before the agent
+  runs, which is what makes Ctrl-C harmless and re-attachment reliable.</figcaption>
+</figure>
+
+<h3>3.4 Inside one loop iteration</h3>
+
+<p>What <code>npm run sandcastle</code> actually does, per cycle:</p>
+
+<!-- ==================== FIGURE 6 ==================== -->
+<figure class="bleed">
+  <div class="figwrap">
+  <svg class="fig" viewBox="0 0 1200 700" role="img" aria-labelledby="f6t">
+    <title id="f6t">One orchestrator cycle: classify, three lanes, gate, merge, repeat</title>
+    <g>
+      <rect class="box b-inf"   x="40"  y="282" width="210" height="104" rx="7"/>
+      <rect class="box b-gh"    x="300" y="102" width="240" height="68" rx="7"/>
+      <rect class="box b-gh"    x="300" y="292" width="240" height="68" rx="7"/>
+      <rect class="box b-gh"    x="300" y="482" width="240" height="68" rx="7"/>
+      <rect class="box b-agent" x="610" y="88"  width="270" height="96" rx="7"/>
+      <rect class="box b-agent" x="610" y="278" width="270" height="96" rx="7"/>
+      <rect class="box b-agent" x="610" y="468" width="270" height="96" rx="7"/>
+      <rect class="box b-art"   x="930" y="268" width="230" height="136" rx="7"/>
+      <path class="ar" d="M252 320 C276 320 280 180 296 140"/>
+      <path class="ar" d="M252 330 H296"/>
+      <path class="ar" d="M252 344 C276 344 280 486 296 516"/>
+      <path class="ar" d="M542 136 H606"/><path class="ar" d="M542 326 H606"/><path class="ar" d="M542 516 H606"/>
+      <path class="ar" d="M882 136 C910 136 908 280 926 300"/>
+      <path class="ar" d="M882 326 H926"/>
+      <path class="ar" d="M882 516 C910 516 908 392 926 372"/>
+      <path class="ar" d="M1045 406 L1045 620 Q1045 646 1018 646 L172 646 Q145 646 145 620 L145 392"/>
+    </g>
+    <g>
+      <text class="t1 mid" x="145" y="318">Classify</text>
+      <text class="t2 mid" x="145" y="342">read GitHub + git.</text>
+      <text class="t2 mid" x="145" y="362">No database, ever.</text>
+
+      <text class="t1 mid" x="420" y="130">PRD lane work?</text>
+      <text class="t2 mid" x="420" y="152">approved PRD PRs, parents</text>
+      <text class="t1 mid" x="420" y="320">Open PRs?</text>
+      <text class="t2 mid" x="420" y="342">threads, conflicts, labels</text>
+      <text class="t1 mid" x="420" y="510">Unblocked issues?</text>
+      <text class="t2 mid" x="420" y="532">labeled, not blocked-by</text>
+
+      <text class="t1 mid" x="745" y="122">Merge the PRD, decompose,</text>
+      <text class="t1 mid" x="745" y="142">close finished parents</text>
+      <text class="t2 mid" x="745" y="164">no second approval needed</text>
+      <text class="t1 mid" x="745" y="312">pr-reviewer ⇄ addresser</text>
+      <text class="t2 mid" x="745" y="334">rounds, then conflict-resolver</text>
+      <text class="t2 mid" x="745" y="354">unmarked comments are mine</text>
+      <text class="t1 mid" x="745" y="502">Planner → N sandboxes</text>
+      <text class="t2 mid" x="745" y="524">in parallel: spec → implement</text>
+      <text class="t2 mid" x="745" y="544">→ review, per issue</text>
+
+      <text class="t1 mid" x="1045" y="306">Full verify, once</text>
+      <text class="t2 mid" x="1045" y="328">label ready-to-merge</text>
+      <text class="t1 mid" x="1045" y="358">Merger: merge,</text>
+      <text class="t2 mid" x="1045" y="380">verify closed, close</text>
+
+      <text class="note mid" x="600" y="676">…and again, every five minutes, forever</text>
+      <text class="t2" x="300" y="600">Every phase is wrapped in timed(): a timestamped console line plus a JSON record in</text>
+      <text class="t2" x="300" y="620">.sandcastle/logs/timings.jsonl. That file feeds the control panel and the analyze skill.</text>
+    </g>
+  </svg>
+  </div>
+  <p class="scrollhint">Scroll the diagram sideways to see all of it.</p>
+  <figcaption><b>Figure 6 — one cycle.</b> Every phase derives its state from GitHub and
+  git, never from a database. Kill the loop at any moment and the next run re-classifies
+  from scratch and picks up exactly where it was. That property is what makes it safe to
+  leave running unattended.</figcaption>
+</figure>
+
+<hr>
+
+<h2 id="s4"><span class="num">Part 4</span>Anatomy of a single agent run</h2>
+
+<!-- ==================== FIGURE 7 ==================== -->
+<figure class="bleed">
+  <div class="figwrap">
+  <svg class="fig" viewBox="0 0 1200 540" role="img" aria-labelledby="f7t">
+    <title id="f7t">One run: host worktree, bind mount, sandboxed agent, commits back</title>
+    <g>
+      <rect class="panel" x="40" y="70" width="470" height="392" rx="8"/>
+      <rect class="box b-art" x="70" y="132" width="410" height="84" rx="7"/>
+      <rect class="box" x="70" y="290" width="410" height="104" rx="7"/>
+      <path class="ar" d="M180 220 V286"/>
+      <path class="ar" d="M390 288 V222"/>
+      <rect class="panel dash" x="690" y="70" width="470" height="296" rx="8"/>
+      <rect class="box b-gh" x="720" y="132" width="410" height="76" rx="7"/>
+      <rect class="box b-agent" x="720" y="240" width="410" height="96" rx="7"/>
+      <path class="ar" d="M925 212 V236"/>
+      <path class="ar" d="M486 314 C580 314 600 200 714 178"/>
+      <path class="ar" d="M714 300 C600 300 580 370 486 354"/>
+      <rect class="box b-inf" x="690" y="410" width="470" height="96" rx="7"/>
+      <path class="ar d" d="M925 406 V372"/>
+    </g>
+    <g>
+      <text class="eyebrow" x="62" y="102">HOST — MY VPS</text>
+      <text class="t1 mid" x="275" y="164">The repo</text>
+      <text class="t2 mid" x="275" y="188">branch: main · the only copy that matters</text>
+      <text class="t1 mid" x="275" y="324">A git worktree</text>
+      <text class="mono mid" x="275" y="347">.sandcastle/worktrees/issue-17</text>
+      <text class="t2 mid" x="275" y="369">branch: issue-17-… · node_modules copied in</text>
+      <text class="t2" x="192" y="248">createWorktree()</text>
+      <text class="t2 end" x="378" y="242">merge back</text>
+      <text class="t2 end" x="378" y="262">or push the branch</text>
+
+      <text class="eyebrow" x="712" y="102">DOCKER SANDBOX — EPHEMERAL</text>
+      <text class="mono mid" x="925" y="162">/home/agent/workspace</text>
+      <text class="t2 mid" x="925" y="186">a bind mount of that worktree — nothing else is visible</text>
+      <text class="t1 mid" x="925" y="276">Claude Code running /goal</text>
+      <text class="t2 mid" x="925" y="299">a separate judge model checks the completion</text>
+      <text class="t2 mid" x="925" y="319">condition after every single turn</text>
+
+      <text class="t2 mid" x="600" y="206">bind mount</text>
+      <text class="t2 mid" x="598" y="398">the commits land in the worktree</text>
+
+      <text class="t1 mid" x="925" y="444">The image is the toolchain</text>
+      <text class="t2 mid" x="925" y="464">node 22 · gh · playwright + chromium, baked in</text>
+      <text class="t2 mid" x="925" y="486">UID-aligned &quot;agent&quot; user</text>
+      <text class="t2 mid" x="925" y="526">Anything an agent installs at runtime dies with the container.</text>
+
+      <text class="note" x="62" y="500">The blast radius of a confused agent is one worktree and one branch.</text>
+    </g>
+  </svg>
+  </div>
+  <p class="scrollhint">Scroll the diagram sideways to see all of it.</p>
+  <figcaption><b>Figure 7 — one run.</b> Three details that matter in practice: the bind
+  mount means <code>node_modules</code> survives; the image carries the toolchain so agents
+  never re-download a browser; and the container user's UID/GID are aligned with the host's
+  at build time, so bind-mounted files never need a runtime <code>chown</code>.</figcaption>
+</figure>
+
+<hr>
+
+<h2 id="s5"><span class="num">Part 5</span>The deployment: 24/7, from a phone</h2>
+
+<p>This is the part that turns a local dev tool into something that works while I'm
+asleep.</p>
+
+<!-- ==================== FIGURE 8 ==================== -->
+<figure class="bleed">
+  <div class="figwrap">
+  <svg class="fig" viewBox="0 0 1200 870" role="img" aria-labelledby="f8t">
+    <title id="f8t">Deployment: my devices, the network paths, and everything running on the VPS</title>
+    <g>
+      <use href="#me" x="70" y="88" width="62" height="70"/>
+      <rect class="box b-me" x="30" y="268" width="220" height="82" rx="7"/>
+      <path class="ar me" d="M100 210 V264"/>
+      <rect class="box b-gh" x="286" y="152" width="196" height="72" rx="7"/>
+      <rect class="box b-gh" x="286" y="292" width="196" height="72" rx="7"/>
+      <rect class="box b-gh" x="286" y="482" width="196" height="72" rx="7"/>
+      <rect class="box b-gh" x="286" y="592" width="196" height="72" rx="7"/>
+      <path class="ar me" d="M252 292 C270 250 268 214 282 192"/>
+      <path class="ar me" d="M252 314 C266 318 268 324 282 328"/>
+      <path class="ar me" d="M252 336 C270 400 268 476 282 518"/>
+      <path class="ar me" d="M252 348 C272 460 268 580 282 628"/>
+
+      <rect class="panel dash" x="530" y="60" width="640" height="782" rx="8"/>
+      <rect class="panel" x="552" y="112" width="452" height="298" rx="8"/>
+      <rect class="box b-inf" x="572" y="158" width="250" height="92" rx="7"/>
+      <rect class="box b-inf" x="840" y="158" width="146" height="92" rx="7"/>
+      <rect class="box b-agent" x="572" y="282" width="130" height="100" rx="7"/>
+      <rect class="box b-agent" x="714" y="282" width="130" height="100" rx="7"/>
+      <rect class="box b-agent" x="856" y="282" width="130" height="100" rx="7"/>
+      <path class="ar" d="M824 204 H836"/>
+      <path class="ar" d="M700 252 C700 266 650 266 640 278"/>
+      <path class="ar" d="M760 252 C770 264 776 266 780 278"/>
+      <path class="ar" d="M912 252 C912 264 916 266 920 278"/>
+
+      <rect class="panel" x="552" y="440" width="452" height="246" rx="8"/>
+      <rect class="box b-agent" x="572" y="484" width="414" height="74" rx="7"/>
+      <rect class="box b-inf" x="572" y="582" width="200" height="84" rx="7"/>
+      <rect class="box b-inf" x="790" y="582" width="196" height="84" rx="7"/>
+      <path class="ar" d="M774 624 H786"/>
+
+      <rect class="box b-art" x="1020" y="112" width="130" height="700" rx="7"/>
+      <path class="ar" d="M990 204 H1016"/>
+      <path class="ar" d="M990 332 H1016"/>
+      <path class="ar" d="M990 521 H1016"/>
+      <path class="ar" d="M990 624 H1016"/>
+
+      <path class="ar me" d="M484 188 H566"/>
+      <path class="ar" d="M484 320 H566"/>
+      <path class="ar" d="M566 340 H484"/>
+      <path class="ar me" d="M484 518 H566"/>
+      <path class="ar me" d="M484 628 H566"/>
+      <path class="ar d me" d="M472 228 Q508 250 508 298 L508 494 Q508 520 534 520 L566 524"/>
+    </g>
+    <g>
+      <text class="hd mid" x="100" y="196">Me, anywhere</text>
+      <text class="t1 mid" x="140" y="302">Phone, mostly</text>
+      <text class="t2 mid" x="140" y="326">laptop sometimes</text>
+
+      <text class="t1 mid" x="384" y="182">ssh</text>
+      <text class="t2 mid" x="384" y="204">and docker exec + tmux</text>
+      <text class="t1 mid" x="384" y="322">GitHub</text>
+      <text class="t2 mid" x="384" y="344">issues · PRs · releases</text>
+      <text class="t1 mid" x="384" y="512">claude.ai</text>
+      <text class="t2 mid" x="384" y="534">remote session</text>
+      <text class="t1 mid" x="384" y="622">Cloudflare tunnel</text>
+      <text class="t2 mid" x="384" y="644">?key=… once, then a cookie</text>
+
+      <text class="hd" x="554" y="96">My VPS — always on</text>
+      <text class="eyebrow" x="572" y="140">THE VPS HOST — WHERE THE DOCKER SOCKET LIVES</text>
+      <text class="t1 mid" x="697" y="186">tmux: sandcastle</text>
+      <text class="t2 mid" x="697" y="208">supervisor loop, flock&#39;d</text>
+      <text class="mono mid" x="697" y="230">npm run sandcastle; sleep 300</text>
+      <text class="t1 mid" x="913" y="196">docker</text>
+      <text class="t2 mid" x="913" y="218">daemon</text>
+      <text class="eyebrow mid" x="637" y="318">SANDBOX</text>
+      <text class="eyebrow mid" x="779" y="318">SANDBOX</text>
+      <text class="eyebrow mid" x="921" y="318">SANDBOX</text>
+      <text class="t1 mid" x="637" y="344">issue #17</text>
+      <text class="t1 mid" x="779" y="344">issue #18</text>
+      <text class="t1 mid" x="921" y="344">issue #19</text>
+
+      <text class="eyebrow" x="572" y="468">CLAUDE-REMOTE CONTAINER — LONG-LIVED, YOLO MODE</text>
+      <text class="mono mid" x="779" y="512">tmux → claude --dangerously-skip-permissions</text>
+      <text class="t2 mid" x="779" y="536">the container is the permission boundary</text>
+      <text class="t1 mid" x="672" y="616">cloudflared</text>
+      <text class="t2 mid" x="672" y="638">the tunnel ends here</text>
+      <text class="t1 mid" x="888" y="616">Control panel</text>
+      <text class="mono mid" x="888" y="638">node server.js :8080</text>
+
+      <text class="eyebrow mid" x="1085" y="148">THE REPO</text>
+      <text class="mono mid" x="1085" y="176">/workspace/</text>
+      <text class="mono mid" x="1085" y="192">marky-mark</text>
+      <text class="t2 mid" x="1085" y="234">Bind-mounted</text>
+      <text class="t2 mid" x="1085" y="254">into</text>
+      <text class="t2 mid" x="1085" y="274">everything.</text>
+      <text class="t2 mid" x="1085" y="322">main</text>
+      <text class="t2 mid" x="1085" y="342">worktrees</text>
+      <text class="t2 mid" x="1085" y="362">logs</text>
+      <text class="t2 mid" x="1085" y="382">timings</text>
+      <text class="note mid" x="1085" y="434">And the</text>
+      <text class="note mid" x="1085" y="454">flock lock</text>
+      <text class="note mid" x="1085" y="474">lives here</text>
+      <text class="t2 mid" x="1085" y="512">— because it's</text>
+      <text class="t2 mid" x="1085" y="532">the only inode</text>
+      <text class="t2 mid" x="1085" y="552">the host and</text>
+      <text class="t2 mid" x="1085" y="572">the container</text>
+      <text class="t2 mid" x="1085" y="592">actually share.</text>
+
+      <text class="note" x="30" y="726">No ports are published</text>
+      <text class="note" x="30" y="748">from the VPS — the</text>
+      <text class="note" x="30" y="770">tunnel is the only way in.</text>
+    </g>
+  </svg>
+  </div>
+  <p class="scrollhint">Scroll the diagram sideways to see all of it.</p>
+  <figcaption><b>Figure 8 — the deployment.</b> Solid blue lines are paths I use; the dashed
+  one is <code>ssh</code> → <code>docker exec</code> → attach to the tmux session inside the
+  Claude container.</figcaption>
+</figure>
+
+<h3>Why each piece exists</h3>
+
+<h4>The VPS</h4>
+<p>The loop needs to run when my laptop is closed. That's the entire reason. A cheap
+always-on box turns "I ran some agents this afternoon" into "the backlog drains
+overnight."</p>
+
+<h4>tmux session #1 — the orchestrator loop, on the host</h4>
+<p>It lives on the VPS host rather than in a container because it needs the Docker socket to
+launch sandboxes. A supervisor loop runs <code>npm run sandcastle</code> forever with a
+five-minute pause between cycles, wrapped in <code>flock -n</code> on a lock file
+<em>inside the repo</em>:</p>
+
+<pre><code>while true; do
+  echo "=== $(date -Is) ==="
+  flock -n .sandcastle/logs/orchestrator.lock npm run sandcastle
+  sleep 300
+done 2>&amp;1 | tee -a .sandcastle/logs/main-orchestrator.log</code></pre>
+
+<div class="callout">
+  <span class="t">A genuinely annoying detail, worth writing down</span>
+  <p>The lock lives at <code>.sandcastle/logs/orchestrator.lock</code>, inside the repo, not
+  in <code>/tmp</code>. The control panel runs <em>inside a container</em> whose
+  <code>/tmp</code> is its own overlay filesystem — a <code>/tmp</code> lock there is a
+  different inode and shares nothing with the host. But the repo is bind-mounted into both,
+  and <code>flock</code> locks the <em>inode</em> while the kernel is shared. So a repo-path
+  lock is visible across the container boundary, and the panel can both refuse to start a
+  second orchestrator <em>and see the host-side one running</em> — which <code>pgrep</code>
+  inside that container never could.</p>
+</div>
+
+<h4>The claude-remote container</h4>
+<p>A long-lived Docker container on the VPS with Claude Code installed and the repo
+bind-mounted. Three reasons it exists:</p>
+<ol>
+<li><strong>24/7</strong> — it's on my VPS, so it's always up and always reachable.</li>
+<li><strong>Remote mode</strong> — I can open a session against it from my phone or any
+browser and pick up exactly where I left off.</li>
+<li><strong><code>--dangerously-skip-permissions</code></strong> — because it's a container
+with a single bind-mounted repo and nothing else, I can run in YOLO mode without it being
+reckless. <strong>The container is the permission boundary.</strong> That's the same
+argument Sandcastle makes for its agent sandboxes, applied one level up to my own
+interactive session.</li>
+</ol>
+
+<h4>tmux session #2 — inside that container</h4>
+<p>I SSH to the VPS, <code>docker exec</code> into the container, and attach to a tmux
+session where Claude Code is running. Not a glamorous touchpoint, but it's how I restart it
+after a crash and how I grab the URL for a remote session.</p>
+
+<h3>My touchpoints, ranked by how often I use them</h3>
+
+<table class="stack">
+<thead><tr><th>Touchpoint</th><th>What I do there</th></tr></thead>
+<tbody>
+<tr><td>1. GitHub issues and PRs — phone or web</td><td>File issues, apply routing labels, read review debates, apply <code>sandcastle:approved</code></td></tr>
+<tr><td>2. Claude Code, remote session</td><td><code>/new-prd</code> grilling sessions, <code>/release-mac</code>, <code>/gate</code>, ad-hoc "go look at this" work — and sometimes filing issues by just asking</td></tr>
+<tr><td>3. The control panel — phone browser</td><td>Watch which agents are running, tail logs, read the issue tree, start a run with the play button</td></tr>
+<tr><td>4. tmux on the VPS host</td><td>Run or restart the orchestrator loop, rebuild the Docker image, occasional git surgery</td></tr>
+<tr><td>5. tmux inside the Claude container</td><td>Restart Claude Code if it dies; fetch the remote-session URL</td></tr>
+</tbody>
+</table>
+
+<p>Touchpoints 1–3 are all phone-friendly. That's the design goal: <strong>the common path
+never requires a terminal.</strong></p>
+
+<hr>
+
+<h2 id="s6"><span class="num">Part 6</span>The control panel</h2>
+
+<p>I built this because the honest answer to <em>"what are the agents doing right now?"</em>
+was <code>tail -f</code> over SSH, which is a miserable thing to do on a phone. It's about
+500 lines of zero-dependency Node plus a vanilla-JS single-page app.</p>
+
+<ul>
+<li><strong>Agents tab</strong> — every agent run, parsed straight out of
+<code>.sandcastle/logs/*.log</code> (split on <code>--- Run started ---</code> markers) and
+<code>timings.jsonl</code>. Role icons, durations, a live badge, and failure reasons pulled
+out of crash dumps and shown in red. Tap through to the log with a live tail.</li>
+<li><strong>Issues tab</strong> — <code>gh issue list</code> plus the sub-issues REST API,
+rendered as a tree: parent → children → the PRs that close them, with agent chips per
+row.</li>
+<li><strong>PRs tab</strong> — <code>gh pr list</code>, cross-linked back to issues by
+branch name.</li>
+<li><strong>The start button</strong> — runs <code>npm run sandcastle</code> detached under
+the same <code>flock</code>. If the host-side loop is already running, the button correctly
+shows a disabled "running" pill instead.</li>
+<li><strong>Access</strong> — <code>?key=…</code> once, then a cookie. No ports are
+published on the VPS, so the Cloudflare quick tunnel is the only external path.</li>
+</ul>
+
+<p>One feature I deliberately removed: a one-button "remediation" panel that could trigger
+<code>docker build-image</code>. The panel executes <em>inside</em> a container where the
+Docker CLI doesn't exist, so it could only ever fail — with a misleading error message, no
+less. Good reminder that a control panel should mostly <em>observe</em>.</p>
+
+<hr>
+
+<h2 id="s7"><span class="num">Part 7</span>Everything this thing can do</h2>
+
+<h3>From upstream Sandcastle</h3>
+<ul>
+<li>Run any agent (Claude Code, Codex, …) inside a real sandbox.</li>
+<li>Swappable sandbox providers: Docker, Podman, Vercel microVMs, no-sandbox, or your own.</li>
+<li>Git worktrees and branch strategies, so agents never touch your working copy.</li>
+<li><strong>Parallel</strong> agents — one sandbox per issue, fanned out every cycle.</li>
+<li>Templates you own and can edit, scaffolded into <code>.sandcastle/</code>.</li>
+<li>Session resume and fork, structured output, keep-alive sandboxes.</li>
+</ul>
+
+<h3>From my fork</h3>
+<ul>
+<li><strong>A defined front half</strong>: idea → filer → PRD → decomposition → labeled
+issues, producing a real GitHub sub-issue tree from design issue all the way down to
+implementation PR. <em>Nothing exists without an issue that says why.</em></li>
+<li><strong>Goal mode with an independent judge model</strong> — no more agents grading
+their own homework.</li>
+<li><strong>Committed specs</strong> (<code>specs/issue-N.md</code>), SHA-pinned and linked
+from the issue, so I can read what the agent thought it was building.</li>
+<li><strong>PR checkpoints</strong> with a genuine reviewer ⇄ addresser debate in review
+threads, and deadlock escalation to me.</li>
+<li><strong>Agent-approved merges</strong> for work I don't need to gate.</li>
+<li><strong>Three merge policies per issue, chosen by label</strong> — auto-merge, PR plus
+my approval, PR plus agent approval.</li>
+<li><strong>A full audit trail</strong> — every agent action is a marked comment on the
+issue or the PR. I can reconstruct any decision months later.</li>
+<li><strong>Crash-safe everywhere</strong> — state lives in GitHub, git, and the
+conversation store. Kill anything at any time; the next run re-derives.</li>
+<li><strong>Timing instrumentation plus an analyze skill</strong> that reads it and proposes
+config changes with evidence.</li>
+<li><strong>Tiered verification</strong> — fast checks in the inner loop, the full gate
+exactly once.</li>
+<li><strong><code>--doctor</code></strong> — the single command that tells me why it isn't
+working.</li>
+<li><strong>The image-gap nudge</strong> — the loop notices when agents keep reinstalling
+something and tells me the Dockerfile line to add.</li>
+<li><strong>Per-repo config</strong> in one plain-TypeScript file.</li>
+<li><strong>24/7 unattended operation</strong> on a VPS, with the whole thing drivable from
+a phone.</li>
+</ul>
+
+<hr>
+
+<h2 id="s8"><span class="num">Part 8</span>So what actually got built?</h2>
+
+<table class="stack">
+<thead><tr><th>Measure</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>Commits</td><td>283, over about four weeks (2026-07-08 → 2026-08-03)</td></tr>
+<tr><td>Agent-authored</td><td>~40 commits carry an agent author; 54 carry the <code>RALPH:</code> agent-commit prefix</td></tr>
+<tr><td>Issues filed</td><td>26</td></tr>
+<tr><td>Committed specs</td><td>11, at <code>specs/issue-N.md</code></td></tr>
+<tr><td>Latest release</td><td><code>v0.4.0-alpha.5</code></td></tr>
+<tr><td>What it is</td><td>A Tauri 2 markdown viewer and editor for macOS, Windows and a single-file web build — themes, margin comments, export and print</td></tr>
+</tbody>
+</table>
+
+<p>Things the agents built essentially unattended: theme work, the comment system's margin
+layout and gutter rules, the export and print HTML generation, the Windows installer path,
+large parts of the E2E suite, and most of the documentation. Things I still drive myself:
+the visual design calls, the release decisions, and anything where "correct" is a matter of
+taste rather than a test.</p>
+
+<hr>
+
+<h2 id="s9"><span class="num">Part 9</span>What's next</h2>
+
+<p><strong>Multiple harnesses and multiple models.</strong> Sandcastle is provider-agnostic
+by design, and the marker convention already records <code>[agent · harness · model]</code>
+on every comment. The obvious next step is running the same work through different harnesses
+and models — and, more interestingly, running <strong>adversarial reviews</strong>: have one
+model implement and a genuinely different model review, rather than the same family grading
+itself. The review-debate machinery is already there; it just needs a different model on the
+other side of the table.</p>
+
+<p><strong>Cheaper cycles.</strong> The timing data says a lot of wall-clock still goes to
+verification and sandbox setup. There's more to win there.</p>
+
+<p><strong>Upstreaming.</strong> Every fork change lives on its own branch specifically so it
+can be proposed to Matt's repo one piece at a time.</p>
+
+<hr>
+
+<h2>Closing note</h2>
+
+<p>I want to be clear about what this is: <strong>an exploration, in progress.</strong> It's
+a system built for one person and one repo, and a lot of it is scar tissue from specific
+failures rather than considered design. But the core shape — <em>one inbox, routing labels,
+isolated sandboxes, git as the memory bus, and merge gates that are code rather than
+vibes</em> — has held up better than I expected.</p>
+
+<p>The thing I did not anticipate: the hardest problems were never "can the model write the
+code." They were <strong>specification</strong> (which is why the grilling sessions matter),
+<strong>verification</strong> (which is why goal mode has a separate judge), and
+<strong>operations</strong> (which is why half the fork is crash recovery). The model was
+rarely the bottleneck.</p>
+
+</div>
+
+<footer>
+  Written 3 August 2026. Sandcastle is by
+  <a href="https://github.com/mattpocock/sandcastle">Matt Pocock</a>; the fork is
+  <a href="https://github.com/jorgeper/sandcastle">jorgeper/sandcastle</a>; the app is
+  <a href="https://github.com/jorgeper/marky-mark">jorgeper/marky-mark</a>. There's a
+  <a href="./how-marky-mark-is-built.md">plain markdown version</a> of this page too.
+</footer>
+
+</body>
+</html>

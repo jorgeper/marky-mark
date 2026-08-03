@@ -9,6 +9,7 @@ const state = {
   runs: [],
   issues: [],
   prs: [],
+  docs: [],
   log: null, // {file, runIndex, title, running}
   expandedIssue: null,
 };
@@ -259,6 +260,39 @@ function openLog(file, runIndex, title, running, issue) {
   refreshSummary();
 }
 
+// ---------- docs ----------
+
+// Long-form write-ups from the repo's docs/archive, served by the panel so
+// they're readable on a phone without cloning anything.
+function renderDocs() {
+  const list = $('#doc-list');
+  if (!state.docs.length) {
+    list.innerHTML = '<div class="empty">No articles in <code>docs/archive</code></div>';
+    return;
+  }
+  list.innerHTML = state.docs.map((d) => `
+    <div class="card">
+      <div class="row1">
+        <span class="issue-title">📖 ${esc(d.title)}</span>
+        <span class="spacer"></span>
+        <a class="gh-link" href="${esc(d.url)}" target="_blank" rel="noopener">Read ↗</a>
+      </div>
+      ${d.blurb ? `<div class="row2">${esc(d.blurb)}</div>` : ''}
+      <div class="row2">
+        ${rel(d.updatedAt)} · ${d.sizeKb} KB · <code>${esc(d.name)}</code>
+        ${d.markdownUrl ? `<a class="chip-link" href="${esc(d.markdownUrl)}" target="_blank" rel="noopener">markdown</a>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+async function refreshDocs() {
+  try {
+    const data = await api('/api/docs');
+    state.docs = data.docs || [];
+    if (state.tab === 'docs') renderDocs();
+  } catch { /* transient */ }
+}
+
 // ---------- navigation / refresh loops ----------
 
 function showView(tab) {
@@ -290,7 +324,12 @@ async function refreshGh() {
 
 document.addEventListener('click', (e) => {
   const nav = e.target.closest('nav button');
-  if (nav) { showView(nav.dataset.tab); render(); return; }
+  if (nav) {
+    showView(nav.dataset.tab);
+    render();
+    if (nav.dataset.tab === 'docs') refreshDocs(); // cheap, and picks up new articles
+    return;
+  }
 
   // data-issue chips live inside data-log cards, so check the inner target first
   const issueEl = e.target.closest('[data-issue]');
@@ -370,10 +409,12 @@ function render() {
   if (state.tab === 'agents') renderAgents();
   else if (state.tab === 'issues') renderIssues();
   else if (state.tab === 'prs') renderPrs();
+  else if (state.tab === 'docs') renderDocs();
 }
 
 refreshAgents();
 refreshGh();
+refreshDocs();
 refreshSc();
 setInterval(refreshSc, 5000);
 setInterval(refreshAgents, 5000);
