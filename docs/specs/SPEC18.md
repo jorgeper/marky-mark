@@ -103,7 +103,7 @@ threads in the PDF margin; pagination controls.
 1. README export bullet: static reading page (HTML) or PDF, options,
    sticky theme. Size claim re-checked (the app shrinks back to ~6 MB).
 
-## 6. Manual acceptance (GOAL18 lists these; automation can't see them)
+## 6. Manual acceptance ([GOAL18](../../archive/goals/GOAL18.md) lists these; automation can't see them)
 
 1. Export → HTML opens in a browser as a clean readable page — no app
    chrome, comments as numbered notes at the end.
