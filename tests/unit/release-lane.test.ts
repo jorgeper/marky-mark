@@ -205,9 +205,9 @@ describe('PRD 008 release-lane gh JSON parsers and guard comments', () => {
 
 describe('PRD 008 §R12–R13 cut-phase classification', () => {
   /** Classifier input with no phase markers posted yet. */
-  const fresh = (b: string, tagNames = TAGS) => ({
+  const fresh = (b: string) => ({
     body: b,
-    tagNames,
+    tagNames: TAGS,
     draftTags: [],
     draftReportPosted: false,
     awaitingPublishPosted: false,

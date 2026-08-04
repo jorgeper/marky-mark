@@ -53,7 +53,7 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 # prd/008 R8: rustup stable for `cargo check` (validate step 8). Installed as
 # the agent user so the toolchain lands in /home/agent/.rustup; validate.mjs
 # already prepends ~/.cargo/bin to PATH, and the ENV below covers direct use.
-RUN curl --proto '=https' --tlsv1.2 -fsSf https://sh.rustup.rs \
+RUN curl --proto '=https' --tlsv1.2 -fsS https://sh.rustup.rs \
   | sh -s -- -y --profile minimal --default-toolchain stable
 
 # Add Claude and cargo to PATH

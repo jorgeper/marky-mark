@@ -264,9 +264,10 @@ export type ReleaseAction =
  * `windows` request whose tag already exists appends the installer to that
  * release, bypassing the ordering guard for exactly that case (R13 —
  * `mac`/`both` for an existing version still refuse, preserving the #19
- * guard); a version at or behind the newest tag is refused (R6); unreported abandoned
- * drafts are surfaced once (R7) — informational, the runner posts the report
- * and still dispatches; otherwise the issue proceeds to the releaser agent. */
+ * guard); a version at or behind the newest tag is refused (R6); unreported
+ * abandoned drafts are surfaced once (R7) — informational, the runner posts
+ * the report and still dispatches; otherwise the issue proceeds to the
+ * releaser agent. */
 export const classifyReleaseIssue = (input: {
   body: string;
   tagNames: string[];
