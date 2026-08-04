@@ -781,6 +781,26 @@ mark.hl.ghost {
   border-right: 1px solid var(--mm-border, #d1d9e0);
 }
 
+/* Issue #52: CodeMirror's base theme paints the gutter surface itself — a
+   hardcoded light-gray strip (#f5f5f5 behind #6c6c6c digits in &light) that
+   nothing above overrode, so the strip stayed the same gray in every theme.
+   The gutter reads the same surface token as .cm-editor and the digits the
+   muted foreground, so both follow the active theme; the issue #10 side
+   rules above stay the strip's only delineation. */
+.editor-wrap .cm-editor .cm-gutters {
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg-muted, #59636e);
+}
+
+/* Issue #52: the base theme's active-line gutter highlight is another
+   hardcoded pick (light-blue #e2f2fa) that clashes on dark themes. There is
+   no dedicated token for it, so it is neutralized rather than recolored; the
+   caret line's number just reads in the theme's full foreground instead. */
+.editor-wrap .cm-editor .cm-activeLineGutter {
+  background: transparent;
+  color: var(--mm-fg, #1f2328);
+}
+
 .editor-wrap .cm-editor .cm-content {
   font-family: var(--mm-font-mono, monospace);
   caret-color: var(--mm-accent, #0969da);

@@ -406,3 +406,49 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
   expect(flush.left).toMatch(/^0px /);
   expect(flush.right).toMatch(/^1px solid /);
 });
+
+test('E156: issue #52 — the line-number gutter follows the theme instead of staying CodeMirror gray', async ({
+  page,
+}) => {
+  // Line numbers are on by default; enter edit mode to get the gutter.
+  await page.keyboard.press('Control+e');
+  const gutters = page.getByTestId('editor').locator('.cm-gutters');
+  await expect(gutters).toBeVisible();
+
+  /** Computed gutter surface + digit colors, straight off the DOM. */
+  const colors = () =>
+    gutters.evaluate((el) => {
+      const digit = el.querySelector('.cm-lineNumbers .cm-gutterElement:last-child')!;
+      return {
+        bg: getComputedStyle(el).backgroundColor,
+        fg: getComputedStyle(digit).color,
+      };
+    });
+
+  // Crisp: theme tokens, not the base theme's #f5f5f5 / #6c6c6c grays.
+  const light = await colors();
+  expect(light.bg).toBe('rgb(255, 255, 255)'); // --mm-bg
+  expect(light.fg).toBe('rgb(89, 99, 110)'); // --mm-fg-muted
+
+  // The app doesn't mount highlightActiveLineGutter, but the base theme still
+  // ships a hardcoded light-blue #e2f2fa for .cm-activeLineGutter; the issue
+  // #52 rule neutralizes it so it can never clash with a theme. Probe the
+  // rule by putting the class on a real gutter element and reading it back.
+  const activeBg = () =>
+    gutters.evaluate((el) => {
+      const digit = el.querySelector('.cm-lineNumbers .cm-gutterElement:last-child')!;
+      digit.classList.add('cm-activeLineGutter');
+      const bg = getComputedStyle(digit).backgroundColor;
+      digit.classList.remove('cm-activeLineGutter');
+      return bg;
+    });
+  expect(await activeBg()).toBe('rgba(0, 0, 0, 0)');
+
+  // Switch to Monokai (the E2 pattern): every reading follows the new tokens.
+  await openSettings(page);
+  await page.getByTestId('settings-theme-light').selectOption('monokai');
+  await page.getByTestId('settings-close').click();
+  await expect.poll(async () => (await colors()).bg).toBe('rgb(39, 40, 34)'); // --mm-bg
+  await expect.poll(async () => (await colors()).fg).toBe('rgb(165, 159, 133)'); // --mm-fg-muted
+  expect(await activeBg()).toBe('rgba(0, 0, 0, 0)');
+});
