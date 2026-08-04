@@ -1,11 +1,16 @@
 import { describe, expect, test } from 'vitest';
 import {
+  AWAITING_PUBLISH_MARKER,
   buildDraftReport,
   buildMalformedComment,
   buildOutOfOrderComment,
+  CI_GREEN_MARKER,
   classifyReleaseIssue,
   compareVersions,
+  CUT_FAILED_MARKER,
   DRAFT_REPORT_MARKER,
+  DRAFT_VERIFIED_MARKER,
+  GATE_PASSED_MARKER,
   MALFORMED_MARKER,
   newestReleaseTag,
   OUT_OF_ORDER_MARKER,
@@ -13,6 +18,9 @@ import {
   parseMarkerPresent,
   parseReleaseIssueBody,
   parseTagNames,
+  PREFLIGHT_ACK_MARKER,
+  TAG_PUSHED_MARKER,
+  WINDOWS_APPENDED_MARKER,
 } from '../../.sandcastle/release-lane.mts';
 
 /** A well-formed release-issue body per the release-prompt.md contract. */
@@ -88,6 +96,8 @@ describe('PRD 008 §R6 ordering guard', () => {
       tagNames: TAGS,
       draftTags: [],
       draftReportPosted: false,
+      awaitingPublishPosted: false,
+      tagPushedPosted: false,
     });
     expect(action).toEqual({
       kind: 'out-of-order',
@@ -102,6 +112,8 @@ describe('PRD 008 §R6 ordering guard', () => {
       tagNames: TAGS,
       draftTags: [],
       draftReportPosted: false,
+      awaitingPublishPosted: false,
+      tagPushedPosted: false,
     });
     expect(equal.kind).toBe('out-of-order');
 
@@ -110,6 +122,8 @@ describe('PRD 008 §R6 ordering guard', () => {
       tagNames: TAGS,
       draftTags: [],
       draftReportPosted: false,
+      awaitingPublishPosted: false,
+      tagPushedPosted: false,
     });
     expect(newer.kind).toBe('proceed');
   });
@@ -133,6 +147,8 @@ describe('PRD 008 §R7 abandoned-draft report', () => {
       tagNames: TAGS,
       draftTags: DRAFTS,
       draftReportPosted: false,
+      awaitingPublishPosted: false,
+      tagPushedPosted: false,
     };
     const first = classifyReleaseIssue(input);
     expect(first.kind).toBe('drafts-to-report');
@@ -149,6 +165,8 @@ describe('PRD 008 §R7 abandoned-draft report', () => {
       tagNames: TAGS,
       draftTags: DRAFTS,
       draftReportPosted: false,
+      awaitingPublishPosted: false,
+      tagPushedPosted: false,
     });
     expect(action.kind).toBe('malformed');
   });
@@ -182,5 +200,91 @@ describe('PRD 008 release-lane gh JSON parsers and guard comments', () => {
     expect(parseMarkerPresent(comments, OUT_OF_ORDER_MARKER)).toBe(true);
     expect(parseMarkerPresent(comments, MALFORMED_MARKER)).toBe(false);
     expect(parseMarkerPresent(JSON.stringify({}), OUT_OF_ORDER_MARKER)).toBe(false);
+  });
+});
+
+describe('PRD 008 §R12–R13 cut-phase classification', () => {
+  /** Classifier input with no phase markers posted yet. */
+  const fresh = (b: string, tagNames = TAGS) => ({
+    body: b,
+    tagNames,
+    draftTags: [],
+    draftReportPosted: false,
+    awaitingPublishPosted: false,
+    tagPushedPosted: false,
+  });
+
+  test('U205: a windows request for an existing tag classifies windows-append; mac/both for the same version stay refused (#19 guard)', () => {
+    const windows = classifyReleaseIssue(fresh(body('0.4.0-alpha.5', 'windows')));
+    expect(windows.kind).toBe('windows-append');
+    expect(windows.kind === 'windows-append' && windows.spec.version).toBe('0.4.0-alpha.5');
+
+    expect(classifyReleaseIssue(fresh(body('0.4.0-alpha.5', 'mac'))).kind).toBe('out-of-order');
+    expect(classifyReleaseIssue(fresh(body('0.4.0-alpha.5', 'both'))).kind).toBe('out-of-order');
+  });
+
+  test('U206: a windows request whose tag does not exist takes the full-cut path, ordering guard included', () => {
+    expect(classifyReleaseIssue(fresh(body('0.4.0-alpha.6', 'windows'))).kind).toBe('proceed');
+    // No v0.4.0-alpha.2 tag exists, so no append — and the version is behind
+    // the newest tag, so the ordering guard refuses as for any full cut.
+    expect(classifyReleaseIssue(fresh(body('0.4.0-alpha.2', 'windows'))).kind).toBe('out-of-order');
+  });
+
+  test('U207: the awaiting-publish marker ends the lane host-side, even though the cut’s own tag now trips the ordering guard', () => {
+    const done = classifyReleaseIssue({
+      ...fresh(body('0.4.0-alpha.5', 'both')),
+      awaitingPublishPosted: true,
+    });
+    expect(done.kind).toBe('awaiting-publish');
+    expect(done.kind === 'awaiting-publish' && done.spec.version).toBe('0.4.0-alpha.5');
+
+    // Guards still dominate: a body that stopped parsing is malformed first.
+    expect(
+      classifyReleaseIssue({ ...fresh('no structure'), awaitingPublishPosted: true }).kind,
+    ).toBe('malformed');
+  });
+
+  test('U208: a posted tag-pushed marker means mid-flight resume — proceed despite the cut’s own tag and own draft', () => {
+    const resumed = classifyReleaseIssue({
+      ...fresh(body('0.4.0-alpha.5', 'both')),
+      draftTags: ['v0.4.0-alpha.5'],
+      tagPushedPosted: true,
+    });
+    // Neither refused over its own tag (out-of-order) nor stalled reporting
+    // its own in-flight draft (drafts-to-report).
+    expect(resumed).toEqual({
+      kind: 'proceed',
+      spec: { version: '0.4.0-alpha.5', platforms: 'both', changelog: '- Added things.' },
+    });
+
+    // A mid-flight `windows` FULL cut resumes as the full cut it is — the
+    // append shortcut is only for issues that never pushed a tag themselves.
+    const windowsMidFlight = classifyReleaseIssue({
+      ...fresh(body('0.4.0-alpha.5', 'windows')),
+      tagPushedPosted: true,
+    });
+    expect(windowsMidFlight.kind).toBe('proceed');
+  });
+
+  test('U209: phase markers are pairwise distinct and none contains another, so parseMarkerPresent cannot misfire', () => {
+    const markers = [
+      MALFORMED_MARKER,
+      OUT_OF_ORDER_MARKER,
+      DRAFT_REPORT_MARKER,
+      PREFLIGHT_ACK_MARKER,
+      GATE_PASSED_MARKER,
+      CUT_FAILED_MARKER,
+      TAG_PUSHED_MARKER,
+      CI_GREEN_MARKER,
+      DRAFT_VERIFIED_MARKER,
+      WINDOWS_APPENDED_MARKER,
+      AWAITING_PUBLISH_MARKER,
+    ];
+    expect(new Set(markers).size).toBe(markers.length);
+    for (const a of markers) {
+      for (const b of markers) {
+        if (a !== b) expect(a.includes(b)).toBe(false);
+      }
+    }
   });
 });

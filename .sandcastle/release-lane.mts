@@ -189,6 +189,26 @@ export const MALFORMED_MARKER = "🏰 Sandcastle releaser: malformed release req
 export const OUT_OF_ORDER_MARKER = "🏰 Sandcastle releaser: version refused by the ordering guard";
 export const DRAFT_REPORT_MARKER = "🏰 Sandcastle releaser: abandoned draft releases";
 
+// prd/008 R17: the release issue is the running log of the cut — every phase
+// transition the runbook (release-prompt.md) completes lands as exactly one
+// comment beginning with one of these fixed lines. They are deliberately NOT
+// built from the agent marker (which embeds the model string and so varies
+// across runs): resume detection via parseMarkerPresent needs stable text.
+// main.ts passes them into the runbook as promptArgs, so the prompt can never
+// drift from what the classifier below matches. None of the markers in this
+// file may contain another (substring matching would then misfire) — unit
+// test U209 holds that invariant.
+export const PREFLIGHT_ACK_MARKER = "🏰 Sandcastle releaser: preflight acknowledged";
+export const GATE_PASSED_MARKER = "🏰 Sandcastle releaser: gate passed";
+/** prd/008 R10: the one failure comment — a failed gate (or failed CI run). */
+export const CUT_FAILED_MARKER = "🏰 Sandcastle releaser: cut failed";
+export const TAG_PUSHED_MARKER = "🏰 Sandcastle releaser: tag pushed";
+export const CI_GREEN_MARKER = "🏰 Sandcastle releaser: CI green";
+export const DRAFT_VERIFIED_MARKER = "🏰 Sandcastle releaser: draft verified";
+export const WINDOWS_APPENDED_MARKER = "🏰 Sandcastle releaser: windows appended";
+/** prd/008 R12: the final hand-over — after this, only the human publishes. */
+export const AWAITING_PUBLISH_MARKER = "🏰 Sandcastle releaser: cut complete, awaiting publish";
+
 /** prd/008 R5: one explanatory comment naming every parse problem. */
 export const buildMalformedComment = (problems: string[]): string =>
   [
@@ -229,24 +249,48 @@ export const buildDraftReport = (draftTags: string[]): string =>
 
 export type ReleaseAction =
   | { kind: "malformed"; problems: string[] }
+  | { kind: "awaiting-publish"; spec: ReleaseSpec }
+  | { kind: "windows-append"; spec: ReleaseSpec }
   | { kind: "out-of-order"; version: string; newestTag: string }
   | { kind: "drafts-to-report"; spec: ReleaseSpec; drafts: string[] }
   | { kind: "proceed"; spec: ReleaseSpec };
 
-/** The preflight state machine of prd/008 R5–R7. Guards dominate in order:
- * a body that does not parse ends the lane (R5); a version at or behind the
- * newest tag is refused (R6); unreported abandoned drafts are surfaced once
- * (R7) — informational, the runner posts the report and still dispatches;
- * otherwise the issue proceeds to the releaser agent. */
+/** The preflight state machine of prd/008 R5–R13. Guards dominate in order:
+ * a body that does not parse ends the lane (R5); a fully-verified cut whose
+ * awaiting-publish comment exists needs no sandbox at all — only the human
+ * publish remains (R12), and its own tag would otherwise trip the ordering
+ * guard; a cut that already posted its tag-pushed comment is mid-flight, so
+ * it re-dispatches to resume rather than being refused over its own tag; a
+ * `windows` request whose tag already exists appends the installer to that
+ * release, bypassing the ordering guard for exactly that case (R13 —
+ * `mac`/`both` for an existing version still refuse, preserving the #19
+ * guard); a version at or behind the newest tag is refused (R6); unreported abandoned
+ * drafts are surfaced once (R7) — informational, the runner posts the report
+ * and still dispatches; otherwise the issue proceeds to the releaser agent. */
 export const classifyReleaseIssue = (input: {
   body: string;
   tagNames: string[];
   draftTags: string[];
   /** DRAFT_REPORT_MARKER already present among the issue's comments. */
   draftReportPosted: boolean;
+  /** AWAITING_PUBLISH_MARKER already present among the issue's comments. */
+  awaitingPublishPosted: boolean;
+  /** TAG_PUSHED_MARKER already present among the issue's comments. */
+  tagPushedPosted: boolean;
 }): ReleaseAction => {
   const parsed = parseReleaseIssueBody(input.body);
   if (!parsed.ok) return { kind: "malformed", problems: parsed.problems };
+  if (input.awaitingPublishPosted) return { kind: "awaiting-publish", spec: parsed.spec };
+  // Mid-flight resume: our own tag push made the version "not newer than the
+  // newest tag", and the release's own draft is not an abandoned one — skip
+  // those checks and let the runbook pick up from its phase markers. Checked
+  // before windows-append: a `windows` full cut that pushed its tag resumes
+  // as the full cut it is (merge-back, draft verification still pending) —
+  // a true append issue never posts a tag-pushed marker.
+  if (input.tagPushedPosted) return { kind: "proceed", spec: parsed.spec };
+  if (parsed.spec.platforms === "windows" && input.tagNames.includes(`v${parsed.spec.version}`)) {
+    return { kind: "windows-append", spec: parsed.spec };
+  }
   const newest = newestReleaseTag(input.tagNames);
   if (newest !== null && compareVersions(parsed.spec.version, newest) <= 0) {
     return { kind: "out-of-order", version: parsed.spec.version, newestTag: newest };

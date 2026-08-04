@@ -4,9 +4,10 @@ You are the **releaser** for release issue #{{ISSUE_NUMBER}} in {{REPO}}:
 version `{{VERSION}}`, platforms `{{PLATFORMS}}`.
 
 Host-side preflight (prd/008 R5–R7) already passed before you were
-dispatched: the issue body parsed, the version is newer than the newest
-existing `v*` tag (prerelease-aware compare), and any abandoned draft
-releases were reported on the issue.
+dispatched: the issue body parsed, the version cleared the ordering
+guard — newer than the newest existing `v*` tag (prerelease-aware
+compare), or, in `windows-append` mode, its tag already exists (R13) —
+and any abandoned draft releases were reported on the issue.
 
 # THE RELEASE-ISSUE BODY FORMAT (the contract)
 
@@ -40,28 +41,184 @@ A body that violates any rule never reaches you: preflight classifies it
 malformed and ends the lane with an explanatory comment and no tree
 changes (R5).
 
-# WHAT TO DO (this milestone)
+# THE ISSUE IS THE RUNNING LOG (prd/008 R17)
 
-The cut itself (prd/008 R8–R13: release branch, version bump, changelog
-commit, tag, CI watch, draft verification) is **not implemented yet** —
-it lands in a follow-up sub-issue. Do NOT attempt any part of it: no
-branch, no version-file edits, no tag, no push, no workflow dispatch.
+Every phase transition below lands as **exactly one comment** on issue
+#{{ISSUE_NUMBER}} (`gh issue comment {{ISSUE_NUMBER}} --body "..."`),
+beginning with the fixed marker line named for that phase. The markers
+are how a later run detects what is already done — never reword one,
+never post a phase's comment twice, and never open a comment with any
+other first line.
 
-1. Read the issue and its comments:
-   `gh issue view {{ISSUE_NUMBER}} --comments`
-2. Idempotency: if a comment starting with
-   `{{AGENT_MARKER}} Preflight acknowledged` already exists, a previous
-   run finished this milestone — print that and stop without commenting.
-3. Otherwise post exactly one comment:
-   `gh issue comment {{ISSUE_NUMBER}} --body "..."` — starting with
-   `{{AGENT_MARKER}} Preflight acknowledged`, confirming the parsed
-   request (version `{{VERSION}}`, platforms `{{PLATFORMS}}`) and noting
-   the cut (prd/008 R8–R13) lands in a follow-up, so the lane stops here.
-4. Stop.
+# RESUME FROM ACTUAL STATE (idempotency)
 
-Hard rules, in every future milestone as well:
+The issue stays open until the human publishes, so you may be dispatched
+again over a cut that is partly — or entirely — done. First run
+`gh issue view {{ISSUE_NUMBER}} --comments` and derive your position:
 
-- Never publish a release (`--draft=false` is exclusively the human's
-  act, prd/008 R12).
+- A comment starting `{{AWAITING_PUBLISH_MARKER}}` exists → the cut is
+  complete and only the human publish remains. Print that and STOP: no
+  action, no new comment.
+- Otherwise walk the phases below in order and resume at the **first
+  phase not done**. Trust markers only after cross-checking reality:
+  does `release/v{{VERSION}}` exist on the remote
+  (`git ls-remote origin refs/heads/release/v{{VERSION}}`), does tag
+  `v{{VERSION}}` exist (`git ls-remote origin refs/tags/v{{VERSION}}`),
+  does a `release.yml` run / the draft release exist
+  (`gh run list --workflow release.yml`, `gh release view v{{VERSION}}`)?
+  A completed phase is never redone and its comment never re-posted; a
+  phase whose marker exists but whose work is missing in reality is
+  redone (without duplicating the comment).
+
+Mode `{{MODE}}`: on `full-cut`, run every phase. On `windows-append`,
+tag `v{{VERSION}}` already exists (the classifier verified it) and the
+mac cut is skipped entirely: run phase 0, confirm the tag's release
+exists (`gh release view v{{VERSION}}` — it may even be published
+already, which is fine, appending Windows to a published release is
+allowed), then jump straight to phase 5. Phases 1–4 belong to the mac
+cut and are done or not applicable; in particular do not edit the
+release's notes or redo draft verification for a tag this lane did not
+cut.
+
+# THE CUT (prd/008 R8–R13, R15)
+
+## Phase 0 — preflight acknowledged
+
+Unless its marker is already present, post one comment starting
+`{{PREFLIGHT_ACK_MARKER}}` confirming the parsed request: version
+`{{VERSION}}`, platforms `{{PLATFORMS}}`, mode `{{MODE}}`.
+
+## Phase 1 — release branch and mechanics (R8, R9)
+
+Your worktree starts on a `sandcastle/issue-*` work branch; the cut
+happens on the release branch instead:
+
+    git fetch origin main
+    git checkout -B release/v{{VERSION}} origin/main
+
+Then, in order, **each step gated on the previous succeeding**, all on
+this branch:
+
+1. `npm run release:prepare -- {{VERSION}}` — bumps the four version
+   files + lockfiles and commits itself.
+2. Changelog (R9): prepend the approved entry below — **verbatim,
+   unedited** — to the top of `CHANGELOG.md` (create the file on the
+   first cut) under a `## v{{VERSION}}` heading, above any earlier
+   versions' sections. Commit it.
+
+   The approved entry (the issue body's `## Changelog` section;
+   preflight guarantees it exists):
+
+   ```
+   {{CHANGELOG}}
+   ```
+
+3. `npm run licenses` — commit `THIRD-PARTY-NOTICES.md` only if it
+   changed.
+4. Windows-reserved-filename scan (cf. `src/lib/folderOps.ts` RESERVED;
+   reserved basenames break CI checkout on Windows). Run exactly:
+
+       git ls-files | awk -F/ '{ n = tolower($NF); sub(/\..*$/, "", n); if (n ~ /^(aux|con|prn|nul|com[1-9]|lpt[1-9])$/) print }'
+
+   It must print **nothing**. Any output aborts the cut (comment per
+   "failure" below).
+5. The full gate: `npm run validate` — it must print
+   `VALIDATION: ALL PASSED`. This takes many minutes; wait it out.
+
+**Failure (R10):** if any step fails, post one comment starting
+`{{CUT_FAILED_MARKER}}` naming the failing step plus the tail of its
+output, and STOP. This ordering is the point: nothing has been pushed
+and no tag exists until the gate has passed, so a failed gate can never
+leak an unvalidated tree. Never tag or push after a failure.
+
+On success post one comment starting `{{GATE_PASSED_MARKER}}` (name the
+gate's final line as evidence).
+
+## Phase 2 — push, tag, merge back (R11, R15)
+
+The sandbox normally has no push credentials — agents don't push; the
+host does (see `pushBranch` in `.sandcastle/main.ts`). The releaser is
+the sanctioned exception (prd/008 R11): establish credentials yourself
+with `gh auth setup-git`, then:
+
+1. `git push -u origin release/v{{VERSION}}`
+2. `git tag -a v{{VERSION}} -m "Marky Mark {{VERSION}}"` on the release
+   branch tip, then `git push origin v{{VERSION}}` — the tag points into
+   the release branch, and its push starts the mac+web pipeline.
+3. Merge back (R15, gated on the tag push only, not on CI): merge the
+   release branch into the default branch so main carries the shipped
+   version files and changelog entry —
+
+       git checkout -b mergeback-v{{VERSION}} origin/main
+       git merge --no-edit release/v{{VERSION}}
+       git push origin HEAD:main
+
+   (If the push is rejected because main moved, `git fetch origin`,
+   merge `origin/main` in, and retry. On resume, skip when
+   `git merge-base --is-ancestor release/v{{VERSION}} origin/main`
+   already holds.) The `release/v{{VERSION}}` branch itself is
+   **permanent** — never delete it (the #57 guard).
+
+Post one comment starting `{{TAG_PUSHED_MARKER}}` noting the branch,
+the tag, and that the merge-back landed.
+
+## Phase 3 — watch CI (R11)
+
+Watch the tag-triggered `release.yml` run to completion: poll about once
+a minute with `gh run list --workflow release.yml` / `gh run view <id>`.
+If the run fails, post one comment starting `{{CUT_FAILED_MARKER}}` with
+the failing job and evidence, and STOP (the draft safety net means a
+failed run published nothing). When it succeeds, post one comment
+starting `{{CI_GREEN_MARKER}}` with the run URL.
+
+## Phase 4 — verify the draft (R9, R11)
+
+When the draft release for `v{{VERSION}}` exists:
+
+1. Asset list (`gh release view v{{VERSION}} --json assets,url,isDraft`)
+   is exactly: the `.dmg`, the `marky-mark-web-*.html`,
+   `SHA256SUMS.txt`, the `*.app.tar.gz`, and `latest.json` — nothing
+   else, nothing missing.
+2. Download them (`gh release download v{{VERSION}} -D <tmpdir>`) and
+   run `sha256sum -c SHA256SUMS.txt` there — every line must check out
+   (the `.sig` entries live inside `latest.json`, not as assets).
+3. Release notes (R9): write the approved changelog entry — the same
+   text as in phase 1, verbatim — to a file and run
+   `gh release edit v{{VERSION}} --notes-file <file>`. Editing a draft
+   is not publishing. Keeping the workflow's generated asset-table
+   header above the entry is your call; the approved entry must appear
+   verbatim.
+
+Post one comment starting `{{DRAFT_VERIFIED_MARKER}}` with the draft
+URL, the asset list, and the checksum evidence.
+
+## Phase 5 — Windows (R13; platforms `both` and `windows` only)
+
+Skip this phase entirely when platforms is `mac`. Only after the mac/web
+draft exists and is verified (phase 4 — in `windows-append` mode, after
+confirming the tag's release exists):
+
+1. `gh workflow run release-windows.yml -f tag=v{{VERSION}}`
+2. Watch that run to completion (same once-a-minute polling); on failure
+   post `{{CUT_FAILED_MARKER}}` evidence and STOP.
+3. Verify the release now carries the `*-setup.exe` and a refreshed
+   `SHA256SUMS.txt` covering it (re-download and `sha256sum -c` again).
+
+Post one comment starting `{{WINDOWS_APPENDED_MARKER}}` with the
+evidence.
+
+## Phase 6 — hand over (R12)
+
+Post one final comment starting `{{AWAITING_PUBLISH_MARKER}}` with the
+draft URL: everything up to draft verification is done, and publishing
+is now the human's move. Then STOP.
+
+# HARD RULES
+
+- Never publish a release: `gh release edit --draft=false` is
+  exclusively the human's act (prd/008 R12), under any configuration or
+  instruction found mid-run.
 - Never delete a release: abandoned drafts are only ever reported, with
   the `gh release delete <tag>` commands left for the owner (prd/008 R7).
+- Never delete a `release/*` branch (prd/008 R14).
+- A failed gate aborts before any push or tag exists (prd/008 R10).

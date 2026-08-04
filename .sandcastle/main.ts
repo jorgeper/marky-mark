@@ -70,16 +70,24 @@ import {
   type PrdPrHead,
 } from "./prd-lane.mts";
 import {
+  AWAITING_PUBLISH_MARKER,
   buildDraftReport,
   buildMalformedComment,
   buildOutOfOrderComment,
+  CI_GREEN_MARKER,
   classifyReleaseIssue,
+  CUT_FAILED_MARKER,
   DRAFT_REPORT_MARKER,
+  DRAFT_VERIFIED_MARKER,
+  GATE_PASSED_MARKER,
   MALFORMED_MARKER,
   OUT_OF_ORDER_MARKER,
   parseDraftTags,
   parseMarkerPresent,
   parseTagNames,
+  PREFLIGHT_ACK_MARKER,
+  TAG_PUSHED_MARKER,
+  WINDOWS_APPENDED_MARKER,
 } from "./release-lane.mts";
 import { logStep, timed } from "./timing.mts";
 import { printHelp, runDoctor, runInit } from "./setup.mts";
@@ -305,7 +313,9 @@ ${detailSections}
 
 // Push a branch from the sandbox's worktree checkout. Runs on the host so
 // agents never need push credentials; PR authorship (the bot) is what GitHub
-// shows regardless of who pushes.
+// shows regardless of who pushes. One sanctioned exception: the releaser
+// sandbox pushes its release branch and tag itself (prd/008 R11), setting up
+// its own credentials via `gh auth setup-git` in release-prompt.md.
 const pushBranch = async (worktreePath: string, branch: string) => {
   // Lease against the remote's ACTUAL tip, read explicitly via ls-remote.
   // A bare/refname --force-with-lease leases against this machine's
@@ -743,8 +753,11 @@ const runPrdLane = async (): Promise<void> => {
 // ordering guard (R6), abandoned-draft report (R7) — as pure classification
 // in release-lane.mts, then a releaser agent for runnable issues. The label
 // is disjoint from `sandcastle`, so the implement lane never sees these.
-// Runs once per invocation, before the loop, like the PRD lane. The cut
-// itself (R8–R13) is a follow-up: release-prompt.md stops after preflight.
+// Runs once per invocation, before the loop, like the PRD lane. The releaser
+// runbook (release-prompt.md) performs the cut itself — release branch, gate,
+// tag, draft verification, merge-back (prd/008 R8–R13, R15) — and stops
+// before publishing; a cut already awaiting the human publish (R12)
+// dispatches no sandbox at all.
 // ---------------------------------------------------------------------------
 
 const runReleaseLane = async (): Promise<void> => {
@@ -780,6 +793,8 @@ const runReleaseLane = async (): Promise<void> => {
         tagNames,
         draftTags,
         draftReportPosted: parseMarkerPresent(commentsJson, DRAFT_REPORT_MARKER),
+        awaitingPublishPosted: parseMarkerPresent(commentsJson, AWAITING_PUBLISH_MARKER),
+        tagPushedPosted: parseMarkerPresent(commentsJson, TAG_PUSHED_MARKER),
       });
     } catch (error) {
       console.warn(
@@ -814,6 +829,12 @@ const runReleaseLane = async (): Promise<void> => {
       continue;
     }
 
+    // prd/008 R12: the cut is complete and draft-verified — publishing
+    // (`--draft=false`) is exclusively the human's act, so a re-dispatch has
+    // nothing to do. No sandbox is created; the issue waits for the publish
+    // close-out (R16) to close it.
+    if (action.kind === "awaiting-publish") continue;
+
     // prd/008 R7: surface abandoned drafts once, with the exact deletion
     // commands — informational, so the runnable issue still dispatches.
     if (action.kind === "drafts-to-report") {
@@ -829,6 +850,10 @@ const runReleaseLane = async (): Promise<void> => {
     // prd/008 R4: dispatch the releaser. Same sandbox shape as the
     // implementer, so the log lands as sandcastle-issue-<n>-releaser.log and
     // the timings phase (= agent name) pairs with it in the control panel.
+    // The runbook gets the mode (R13: `windows-append` skips the mac cut),
+    // the approved changelog entry verbatim (R9), and the R17 phase markers
+    // straight from the constants the classifier matches — one source of
+    // truth, so prompt and resume detection cannot drift.
     const spec = action.spec;
     const branch = branchFor(issue.number);
     try {
@@ -851,7 +876,16 @@ const runReleaseLane = async (): Promise<void> => {
               VERSION: spec.version,
               PLATFORMS: spec.platforms,
               REPO: repo,
-              AGENT_MARKER: markerFor("releaser", "claude-code", releaserModel),
+              MODE: action.kind === "windows-append" ? "windows-append" : "full-cut",
+              CHANGELOG: spec.changelog,
+              PREFLIGHT_ACK_MARKER,
+              GATE_PASSED_MARKER,
+              CUT_FAILED_MARKER,
+              TAG_PUSHED_MARKER,
+              CI_GREEN_MARKER,
+              DRAFT_VERIFIED_MARKER,
+              WINDOWS_APPENDED_MARKER,
+              AWAITING_PUBLISH_MARKER,
             },
           }),
         );
