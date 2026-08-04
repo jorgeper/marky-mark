@@ -1,0 +1,20 @@
+# Spec: Retire /release-mac and /release-windows; rewrite docs/RELEASING.md for the issue-driven flow (#62)
+
+## Goal
+
+All acceptance criteria in issue-specs/issue-62.md are satisfied for issue #62, with evidence visible in the session: the R18 precondition (a releaser-lane cut has passed end to end) has been verified before anything is deleted; `.claude/commands/release-mac.md` and `.claude/commands/release-windows.md` no longer exist; `docs/RELEASING.md` documents the issue-driven flow (`/new-release` → `sandcastle:release` issue → releaser lane → human publish) as the primary path with today's manual Flow 2 kept as the fallback; and `npm run validate:quick` passes in the implementer's session.
+
+## Acceptance criteria
+
+- **Precondition verified first (PRD 008 R18):** evidence exists in the session that the releaser lane has passed a real cut end to end — e.g. a `release/vX.Y.Z` branch on origin, or a `sandcastle:release` issue whose thread shows the lane's draft-verified comment. As of 2026-08-04 no such evidence exists (no `release/*` branches, no `sandcastle:release` issues). If the precondition is still unmet, the end state is instead: a comment from the implementer on issue #62 explaining the precondition is unmet, with **no files deleted and no docs rewritten**.
+- `.claude/commands/release-mac.md` and `.claude/commands/release-windows.md` are deleted from the repo.
+- `docs/RELEASING.md` is rewritten so the issue-driven flow is the primary path: request via the `/new-release` skill (the only supported way to file a release), which files a `sandcastle:release` issue; the releaser lane (`.sandcastle/release-prompt.md`, per prd/008-releaser-agent.md) runs the cut on a permanent `release/vX.Y.Z` branch through draft verification; publishing (`gh release edit --draft=false`) remains the only human, irreversible act. Today's Flow 2 manual sequence remains in the doc as the fallback, and the still-true material (semver/alpha policy, updater artifacts/SPEC19 section, recovery levers) is preserved rather than dropped.
+- The rewritten `docs/RELEASING.md` no longer describes `/release-mac` or `/release-windows` as available commands, and the old "Flow 1 — from Claude Code" hand-run sequence is replaced by the issue-driven flow.
+- `docs/DEVELOPING.md` no longer points at the deleted commands (the `/release-mac` / `/release-windows` rows in its skills table are removed or replaced with the `/new-release` flow). Historical documents (`docs/specs/SPEC33.md`, `archive/`, `prd/`, old `issue-specs/`) are left untouched.
+- No lingering references: `rg 'release-mac|/release-windows' docs/RELEASING.md docs/DEVELOPING.md .claude/commands CLAUDE.md` returns nothing (the `release-windows.yml` workflow name may still appear — the workflow itself is not retired).
+- Iteration used `npm run typecheck` and `npm run test:unit` (or tests targeted at changed code); the full gate `npm run validate:quick` was run ONCE, right before declaring the goal met, and printed `QUICK VALIDATION: ALL PASSED` in the implementer's session — not after every small change and not as a starting baseline.
+- A summary comment from the implementer exists on issue #62.
+
+## Context
+
+This is R18 of `prd/008-releaser-agent.md` (parent #25), deliberately last in the effort and blocked by #61 (the `/new-release` skill, already landed). The precondition is the whole point of the first criterion: the commands may only be deleted after the releaser lane has actually shipped a cut — check `git ls-remote --heads origin 'release/*'` and `gh issue list --label sandcastle:release --state all`. The doc to rewrite is `docs/RELEASING.md` (132 lines; Flow 1/Flow 2, semver policy, and the SPEC19 updater section — keep the latter two). The command files to delete are `.claude/commands/release-mac.md` and `.claude/commands/release-windows.md`; `docs/DEVELOPING.md:48-49` lists them in its skills table. `docs/specs/SPEC33.md` also describes them but is numbered contract history — do not edit it. This change is docs/skills-only, so `typecheck`/`test:unit` are a formality; the real check is the validate gate's file checks plus the reference grep.
