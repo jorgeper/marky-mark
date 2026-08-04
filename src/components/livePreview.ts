@@ -1,5 +1,5 @@
 /**
- * PRD 006 §3–§6/§8/§9 (issues #47/#48): the live-preview CodeMirror
+ * PRD 006 §3–§9 (issues #47/#48/#49): the live-preview CodeMirror
  * extension — DOM/view wiring over the pure decoration core in
  * src/lib/livePreview.ts.
  *
@@ -16,8 +16,13 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from '@codemirror/view';
-import type { Extension } from '@codemirror/state';
-import { computeLivePreviewDecos, type LineStyle, type MarkStyle } from '../lib/livePreview';
+import type { Extension, Text } from '@codemirror/state';
+import {
+  computeLivePreviewDecos,
+  taskToggleChange,
+  type LineStyle,
+  type MarkStyle,
+} from '../lib/livePreview';
 
 /** PRD 006 §3/§6: one mark per style; colors/weights ride the theme. */
 const MARKS: Record<MarkStyle, Decoration> = {
@@ -67,6 +72,28 @@ class RuleWidget extends WidgetType {
   }
 }
 
+/** PRD 006 §7: a task marker drawn as a real checkbox mirroring [ ]/[x]. */
+class CheckboxWidget extends WidgetType {
+  constructor(readonly checked: boolean) {
+    super();
+  }
+  toDOM() {
+    const el = document.createElement('input');
+    el.type = 'checkbox';
+    el.className = 'mm-lp-task';
+    el.checked = this.checked;
+    return el;
+  }
+  override eq(other: CheckboxWidget) {
+    return other.checked === this.checked;
+  }
+  // PRD 006 §7: clicks inside the widget must reach the view's mousedown
+  // handler (which dispatches the toggle) instead of being swallowed.
+  override ignoreEvent() {
+    return false;
+  }
+}
+
 const BULLET = Decoration.replace({ widget: new BulletWidget() });
 const RULE = Decoration.replace({ widget: new RuleWidget() });
 
@@ -88,6 +115,10 @@ function buildDecorations(view: EditorView): DecorationSet {
           }).range(s.from, s.to);
         case 'bullet':
           return BULLET.range(s.from, s.to);
+        // PRD 006 §7: the checked state rides the widget so a source edit
+        // rebuilds a visibly different checkbox.
+        case 'checkbox':
+          return Decoration.replace({ widget: new CheckboxWidget(s.checked) }).range(s.from, s.to);
         case 'rule':
           return RULE.range(s.from, s.to);
         case 'line':
@@ -118,24 +149,47 @@ const livePreviewPlugin = ViewPlugin.fromClass(
 );
 
 /**
- * PRD 006 §5: the mousedown handler behind cmd/ctrl-click on a rendered
- * link — returns true (event consumed) only for a modified click on a link
- * span with an http(s) URL, handing the URL to `open`; anything else
- * returns false so CodeMirror just places the cursor. Only http(s) opens,
- * mirroring the preview pane's managed-link rule (SPEC11 §4). Exported as a
- * factory so unit tests can assert the callback/URL without a browser.
+ * PRD 006 §5/§7: the mousedown handler behind the only two widget
+ * interactions. A modified (cmd/ctrl) click on a link span with an http(s)
+ * URL hands the URL to `open`, mirroring the preview pane's managed-link
+ * rule (SPEC11 §4); a plain click on a rendered task checkbox dispatches
+ * the marker toggle as one transaction, so one undo restores it. Anything
+ * else returns false and CodeMirror just places the cursor. Exported as a
+ * factory so unit tests can assert the callback/URL and the dispatched
+ * change without a browser.
  */
 export function livePreviewMousedown(open: ((url: string) => void) | undefined) {
-  return (event: {
-    metaKey: boolean;
-    ctrlKey: boolean;
-    target: EventTarget | null;
-    preventDefault(): void;
-  }): boolean => {
-    if (!event.metaKey && !event.ctrlKey) return false;
+  return (
+    event: {
+      metaKey: boolean;
+      ctrlKey: boolean;
+      target: EventTarget | null;
+      preventDefault(): void;
+    },
+    view?: {
+      posAtDOM(node: Node): number;
+      state: { doc: Text };
+      dispatch(spec: {
+        changes: { from: number; to: number; insert: string };
+        userEvent: string;
+      }): void;
+    }
+  ): boolean => {
     const target = event.target as {
       closest?: (selector: string) => { getAttribute(name: string): string | null } | null;
     } | null;
+    if (!event.metaKey && !event.ctrlKey) {
+      // PRD 006 §7: the widget's position in the view is the marker's
+      // document offset, so the pure toggle validates it really is a
+      // marker before any change dispatches.
+      const box = target?.closest?.('.mm-lp-task');
+      if (!box || !view) return false;
+      const change = taskToggleChange(view.state.doc, view.posAtDOM(box as unknown as Node));
+      if (!change) return false;
+      event.preventDefault();
+      view.dispatch({ changes: change, userEvent: 'input' });
+      return true;
+    }
     const url = target?.closest?.('.mm-lp-link')?.getAttribute('data-mm-lp-url') ?? '';
     if (!/^https?:\/\//i.test(url)) return false;
     event.preventDefault();
@@ -169,6 +223,13 @@ const livePreviewTheme = EditorView.baseTheme({
   },
   '.mm-lp-list-num': { color: 'var(--mm-accent, #0969da)' },
   '.mm-lp-bullet': { color: 'var(--mm-accent, #0969da)' },
+  // PRD 006 §7: the task checkbox rides the theme accent like other marks.
+  '.mm-lp-task': {
+    cursor: 'pointer',
+    accentColor: 'var(--mm-accent, #0969da)',
+    verticalAlign: 'middle',
+    margin: '0',
+  },
   '.mm-lp-hr': {
     display: 'inline-block',
     width: '100%',
@@ -188,7 +249,7 @@ export interface LivePreviewOptions {
 }
 
 /**
- * PRD 006 §3–§6/§8 (issues #47/#48): the live-preview extension factory —
+ * PRD 006 §3–§8 (issues #47/#48/#49): the live-preview extension factory —
  * the internal opt-in flag. Callers that want live preview include this in
  * their extension list; the app as shipped never does.
  */

@@ -5,7 +5,7 @@
  * which content spans to style. Nothing here touches the DOM or the
  * document; the ViewPlugin in src/components/livePreview.ts maps these
  * specs onto CodeMirror decorations. #48 added blocks and links to the walk;
- * the next sub-issue (#49 checkboxes) extends it the same way.
+ * #49 added task-list checkboxes and the pure toggle change-spec.
  */
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState, Text } from '@codemirror/state';
@@ -32,6 +32,8 @@ export type LivePreviewDeco =
   | { from: number; to: number; deco: 'link'; url: string }
   // PRD 006 §6: a bullet-list marker rendered as a bullet glyph.
   | { from: number; to: number; deco: 'bullet' }
+  // PRD 006 §7: a task marker rendered as a checkbox mirroring [ ]/[x].
+  | { from: number; to: number; deco: 'checkbox'; checked: boolean }
   // PRD 006 §6: a horizontal rule drawn over the raw ---/*** text.
   | { from: number; to: number; deco: 'rule' }
   // PRD 006 §4/§6: line-level styling; from/to span the full line.
@@ -146,6 +148,23 @@ export function revealedRanges(state: EditorState): { from: number; to: number }
  * which reveal line-by-line. Purely derived data — the document and
  * selection are never modified (§9).
  */
+/**
+ * PRD 006 §7/§9: the change spec toggling the task marker starting at
+ * `from` — `[ ]` ⇄ `[x]` (uppercase `[X]` also unchecks), one 3-character
+ * replacement and nothing else. Returns null when `from` is not a task
+ * marker. Pure data: only the explicit checkbox click in
+ * src/components/livePreview.ts dispatches it; rendering never does.
+ */
+export function taskToggleChange(
+  doc: Text,
+  from: number
+): { from: number; to: number; insert: string } | null {
+  const marker = doc.sliceString(from, from + 3);
+  if (marker === '[ ]') return { from, to: from + 3, insert: '[x]' };
+  if (marker === '[x]' || marker === '[X]') return { from, to: from + 3, insert: '[ ]' };
+  return null;
+}
+
 export function computeLivePreviewDecos(
   state: EditorState,
   visibleRanges: readonly VisibleRange[]
@@ -161,6 +180,7 @@ export function computeLivePreviewDecos(
     let detail = '';
     if ('style' in d) detail = d.style;
     else if (d.deco === 'link') detail = d.url;
+    else if (d.deco === 'checkbox') detail = String(d.checked);
     const key = `${d.from}:${d.to}:${d.deco}:${detail}`;
     if (!seen.has(key)) {
       seen.add(key);
@@ -253,10 +273,35 @@ export function computeLivePreviewDecos(
           case 'ListMark': {
             const line = doc.lineAt(n.from);
             if (overlapsRevealed(line.from, line.to)) return;
+            // PRD 006 §7: a task item's mark hides instead of drawing a
+            // bullet — the preview pane shows task lists as checkboxes
+            // without bullets, and the editor matches it.
+            if (n.node.parent?.getChild('Task')) {
+              push({ from: n.from, to: n.to, deco: 'hide' });
+              return;
+            }
             const list = n.node.parent?.parent?.name;
             if (list === 'BulletList') push({ from: n.from, to: n.to, deco: 'bullet' });
             else if (list === 'OrderedList')
               push({ from: n.from, to: n.to, deco: 'style', style: 'list-number' });
+            return;
+          }
+          // PRD 006 §7: the 3-char task marker renders as a checkbox whose
+          // checked state mirrors the source ([X] counts as checked). §8:
+          // tasks reveal line-by-line like the lists they live in, so the
+          // check is per line; content after the marker still decorates.
+          case 'Task': {
+            const line = doc.lineAt(n.from);
+            if (overlapsRevealed(line.from, line.to)) return;
+            const marker = n.node.getChild('TaskMarker');
+            if (marker) {
+              push({
+                from: marker.from,
+                to: marker.to,
+                deco: 'checkbox',
+                checked: /[xX]/.test(doc.sliceString(marker.from, marker.to)),
+              });
+            }
             return;
           }
           // PRD 006 §6: horizontal rules draw as a rule over the raw text.

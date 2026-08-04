@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import { EditorState, type EditorStateConfig } from '@codemirror/state';
+import { EditorState, type EditorStateConfig, type Transaction } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
+import { history, undo } from '@codemirror/commands';
 import {
   computeLivePreviewDecos,
   revealedRanges,
+  taskToggleChange,
   type LivePreviewDeco,
 } from '../../src/lib/livePreview';
 import { livePreviewMousedown } from '../../src/components/livePreview';
@@ -221,6 +223,129 @@ describe('PRD 006 §6 block elements: quotes, lists, rules, fences', () => {
   });
 });
 
+describe('PRD 006 §7 task-list checkboxes: render mirrors the source, a plain click toggles it', () => {
+  /** A fake EditorView: posAtDOM answers `pos`, dispatch applies the spec. */
+  const mkView = (initial: EditorState, pos: number) => {
+    let state = initial;
+    const dispatched: unknown[] = [];
+    return {
+      dispatched,
+      get doc() {
+        return state.doc.toString();
+      },
+      undo() {
+        undo({
+          state,
+          dispatch: (tr: Transaction) => {
+            state = tr.state;
+          },
+        });
+      },
+      posAtDOM: () => pos,
+      get state() {
+        return state;
+      },
+      dispatch(spec: { changes: { from: number; to: number; insert: string }; userEvent: string }) {
+        dispatched.push(spec);
+        state = state.update(spec).state;
+      },
+    };
+  };
+  /** A click target whose closest() matches exactly `matches`. */
+  const clickTarget = (matches: string) =>
+    ({
+      closest: (sel: string) => (sel === matches ? { getAttribute: () => null } : null),
+    }) as unknown as EventTarget;
+
+  test('U185: task markers emit checkbox decos mirroring [ ]/[x]/[X]; task bullets hide, plain bullets stay', () => {
+    const doc = '- [ ] open\n- [x] done\n- [X] DONE\n- plain\n\ncursor';
+    const state = mkState(doc, { anchor: doc.length });
+    const decos = allDecos(state);
+    const boxes = decos
+      .filter((d): d is Extract<LivePreviewDeco, { deco: 'checkbox' }> => d.deco === 'checkbox')
+      .map((d) => ({ text: state.doc.sliceString(d.from, d.to), checked: d.checked }));
+    expect(boxes).toEqual([
+      { text: '[ ]', checked: false },
+      { text: '[x]', checked: true },
+      { text: '[X]', checked: true },
+    ]);
+    // The task items' list marks hide (the preview pane shows task lists as
+    // checkboxes without bullets); only the plain item draws a bullet.
+    const bullets = decos.filter((d) => d.deco === 'bullet');
+    expect(bullets).toEqual([{ from: doc.indexOf('- plain'), to: doc.indexOf('- plain') + 1, deco: 'bullet' }]);
+    expect(hiddenText(state, decos)).toBe('---');
+  });
+
+  test('U186: the toggle change spec replaces exactly the 3 marker chars in both directions', () => {
+    const doc = '- [ ] a\n- [x] b\n- [X] c';
+    const state = mkState(doc);
+    expect(taskToggleChange(state.doc, 2)).toEqual({ from: 2, to: 5, insert: '[x]' });
+    expect(taskToggleChange(state.doc, 10)).toEqual({ from: 10, to: 13, insert: '[ ]' });
+    // Uppercase [X] unchecks too.
+    expect(taskToggleChange(state.doc, 18)).toEqual({ from: 18, to: 21, insert: '[ ]' });
+    // A position that is not a task marker toggles nothing.
+    expect(taskToggleChange(state.doc, 0)).toBeNull();
+  });
+
+  test('U187: a plain checkbox click dispatches one toggle transaction; a single undo restores the text', () => {
+    const doc = '- [ ] task\ncursor';
+    const view = mkView(
+      EditorState.create({
+        doc,
+        selection: { anchor: doc.length },
+        extensions: [markdown({ base: markdownLanguage }), history()],
+      }),
+      doc.indexOf('[ ]')
+    );
+    const handler = livePreviewMousedown(undefined);
+    let prevented = 0;
+    const click = () =>
+      handler(
+        { metaKey: false, ctrlKey: false, target: clickTarget('.mm-lp-task'), preventDefault: () => prevented++ },
+        view
+      );
+    expect(click()).toBe(true);
+    expect(prevented).toBe(1);
+    // One transaction, and nothing but the marker changed.
+    expect(view.dispatched.length).toBe(1);
+    expect(view.doc).toBe('- [x] task\ncursor');
+    // A single undo restores the pre-click text exactly.
+    view.undo();
+    expect(view.doc).toBe(doc);
+  });
+
+  test('U188: the cursor on a task line reveals it raw while another task line stays a checkbox', () => {
+    const doc = '- [ ] one\n- [x] two\n\ncursor';
+    const state = mkState(doc, { anchor: 3 });
+    const decos = allDecos(state);
+    // The cursor's task line carries no decos at all: raw mark, raw marker.
+    for (const d of decos) expect(d.from).toBeGreaterThan(doc.indexOf('\n'));
+    // The other task line still renders its checkbox.
+    const boxes = decos.filter((d) => d.deco === 'checkbox');
+    expect(boxes).toEqual([
+      { from: doc.indexOf('[x]'), to: doc.indexOf('[x]') + 3, deco: 'checkbox', checked: true },
+    ]);
+  });
+
+  test('U189: a plain click on any non-checkbox construct dispatches nothing — the cursor just moves', () => {
+    const doc = '- [ ] task\nsee [docs](https://ex.com)';
+    const opened: string[] = [];
+    const view = mkView(mkState(doc, { anchor: 0 }), doc.indexOf('[ ]'));
+    const handler = livePreviewMousedown((url) => opened.push(url));
+    let prevented = 0;
+    const plain = (target: EventTarget) =>
+      handler({ metaKey: false, ctrlKey: false, target, preventDefault: () => prevented++ }, view);
+    // A rendered link, plain-clicked: no open, no change, not consumed.
+    expect(plain(clickTarget('.mm-lp-link'))).toBe(false);
+    // Any other rendered construct (nothing interactive under the click).
+    expect(plain({ closest: () => null } as unknown as EventTarget)).toBe(false);
+    expect(view.dispatched).toEqual([]);
+    expect(view.doc).toBe(doc);
+    expect(opened).toEqual([]);
+    expect(prevented).toBe(0);
+  });
+});
+
 describe('PRD 006 §8 reveal rule', () => {
   test('U168: the cursor line shows raw markdown; other lines stay decorated', () => {
     const doc = '**one**\n**two**\n**three**';
@@ -353,6 +478,24 @@ describe('PRD 006 §13 viewport-bounded computation', () => {
     const decos = computeLivePreviewDecos(state, [vp]);
     // Exactly the 10 visible headings: one line style + one marker hide each.
     expect(decos.filter((d) => d.deco === 'line').length).toBe(10);
+    expect(decos.filter((d) => d.deco === 'hide').length).toBe(10);
+    expect(decos.length).toBe(20);
+    for (const d of decos) {
+      expect(d.to).toBeGreaterThan(vp.from);
+      expect(d.from).toBeLessThan(vp.to);
+    }
+  });
+
+  test('U190: task items also decorate only the visible ranges of a large document', () => {
+    const line = '- [ ] item';
+    const lines = Array.from({ length: 4000 }, () => line);
+    const doc = lines.join('\n');
+    const state = mkState(doc + '\ncursor', { anchor: doc.length + 3 });
+    const lineLen = line.length + 1;
+    const vp = { from: 2000 * lineLen, to: 2010 * lineLen - 1 };
+    const decos = computeLivePreviewDecos(state, [vp]);
+    // Exactly the 10 visible task items: one checkbox + one list-mark hide each.
+    expect(decos.filter((d) => d.deco === 'checkbox').length).toBe(10);
     expect(decos.filter((d) => d.deco === 'hide').length).toBe(10);
     expect(decos.length).toBe(20);
     for (const d of decos) {
