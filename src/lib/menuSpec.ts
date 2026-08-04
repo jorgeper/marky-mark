@@ -184,7 +184,9 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
       cmd('toggleFolders', 'Folders', s.hotkeys.toggleFolders, s.showFolders, !wsOpen),
       // SPEC36 §5.2: the only-open-files view rides directly after Folders.
       cmd('toggleOpenOnly', 'Only Open Files', s.hotkeys.toggleOpenOnly, s.openOnly ?? false, !wsOpen),
-      cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit'),
+      // Issue #40: edit mode needs an open document (file or untitled) —
+      // grayed on the splash and workspace-no-file states alike.
+      cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit', !s.docOpen),
       // SPEC25 §3: split is a first-class toggle, not just a Settings checkbox.
       cmd('toggleSplit', 'Split Edit', s.hotkeys.toggleSplit, s.splitEdit),
       // Master switch off (SPEC7 §2): the comments UI is gone, menu included —
