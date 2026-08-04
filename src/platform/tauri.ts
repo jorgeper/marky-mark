@@ -57,9 +57,11 @@ export async function createTauriPlatform(): Promise<Platform> {
     about: { title: 'About Marky Mark', width: 360, height: 420 },
   };
 
+  const isMac = navigator.userAgent.includes('Mac');
+
   const platform: Platform = {
     kind: 'tauri',
-    isMac: navigator.userAgent.includes('Mac'),
+    isMac,
 
     readTextFile: (path) => fsp.readTextFile(path),
     writeTextFile: (path, content) => fsp.writeTextFile(path, content),
@@ -300,7 +302,7 @@ export async function createTauriPlatform(): Promise<Platform> {
       // off macOS so the bar attaches to the already-created window, keep
       // the app-wide call as a fallback, and let a double failure reject —
       // App.tsx catches it and falls back to the in-app toolbar.
-      if (navigator.userAgent.includes('Mac')) {
+      if (isMac) {
         await menu.setAsAppMenu();
       } else {
         try {

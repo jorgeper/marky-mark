@@ -303,9 +303,11 @@ export default function App() {
   const [pending, setPending] = useState<{ start: number; end: number } | null>(null);
   const [draft, setDraft] = useState('');
   const [selInfo, setSelInfo] = useState<{ start: number; end: number; x: number; y: number } | null>(null);
-  // Issue #38: the live plain-edit-mode selection, so that surface can offer
-  // a comment affordance too (previously it dead-ended with nothing at all).
-  const [editSel, setEditSel] = useState<{ from: number; to: number } | null>(null);
+  // Issue #38: whether plain edit mode has a live selection, so that surface
+  // can offer a comment affordance too (previously it dead-ended with nothing
+  // at all). Only presence matters — the range itself rides in
+  // lastEditorSelRef and reaches preview through the SPEC25 carry.
+  const [editHasSelection, setEditHasSelection] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [closePrompt, setClosePrompt] = useState(false);
@@ -868,13 +870,7 @@ export default function App() {
       // comment affordance can render from it (split's live preview keeps
       // the existing selInfo path).
       if (st.mode === 'edit' && !st.settings.splitEdit) {
-        const has = s.selFrom !== s.selTo;
-        setEditSel((prev) => {
-          if (!has) return prev === null ? prev : null;
-          const from = Math.min(s.selFrom, s.selTo);
-          const to = Math.max(s.selFrom, s.selTo);
-          return prev && prev.from === from && prev.to === to ? prev : { from, to };
-        });
+        setEditHasSelection(s.selFrom !== s.selTo);
       }
       if (st.mode !== 'edit' || !st.settings.splitEdit) return;
       if (mirrorTimerRef.current) clearTimeout(mirrorTimerRef.current);
@@ -3883,7 +3879,7 @@ export default function App() {
   // document) it came from — any swap retires the affordance; the editor's
   // next selection report re-establishes it if a selection is still there.
   useEffect(() => {
-    setEditSel(null);
+    setEditHasSelection(false);
   }, [mode, settings.splitEdit, docPath, untitled]);
 
   // Issue #38: the edit-mode affordance parks the selection in the SPEC25
@@ -4004,7 +4000,7 @@ export default function App() {
   const affordanceSurface = commentAffordanceSurface({
     mode,
     splitEdit: settings.splitEdit,
-    hasSelection: commentSurfaceUp ? selInfo !== null : editSel !== null,
+    hasSelection: commentSurfaceUp ? selInfo !== null : editHasSelection,
     showComments,
     commentsEnabled: settings.commentsEnabled,
     composerOpen: pending !== null,
