@@ -226,7 +226,7 @@ test('E88: Open Recent — MRU order, persistence, guarded reopen, vanished-file
   await expect.poll(() => fsRead(page, '/config/recent.json')).not.toContain('/docs/ra.md');
 });
 
-test('E91: reopen on launch — restores the last doc, loses to explicit opens, honors the setting, skips missing files', async ({
+test('E91: reopen on launch — off by default (splash), the setting opts in, loses to explicit opens, skips missing files', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/r1.md', '# R One\n');
@@ -234,7 +234,18 @@ test('E91: reopen on launch — restores the last doc, loses to explicit opens, 
   await page.goto('/#open=/docs/r1.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('R One');
 
-  // A hash-less relaunch reopens r1 by itself.
+  // SPEC30 §2 (issue #53 amendment): strip the suite's seed pin so this
+  // launch runs the SHIPPED default — a hash-less relaunch lands on the
+  // splash, with the recent entry intact (nothing is forgotten).
+  await fsWrite(page, '/config/settings.json', JSON.stringify({ paneMinWidth: 240 }));
+  await page.goto('/');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  expect(await fsRead(page, '/config/recent.json')).toContain('/docs/r1.md');
+
+  // Checking the setting opts back in: a hash-less relaunch reopens r1.
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-reopen').check();
+  await page.getByTestId('settings-close').click();
   await page.goto('/');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('R One');
 
@@ -243,7 +254,7 @@ test('E91: reopen on launch — restores the last doc, loses to explicit opens, 
   await page.reload();
   await expect(page.getByTestId('doc').locator('h1')).toContainText('R Two');
 
-  // Setting off ⇒ splash.
+  // Unchecking returns to the splash.
   await openSettings(page, 'general');
   await page.getByTestId('settings-reopen').uncheck();
   await page.getByTestId('settings-close').click();

@@ -119,12 +119,12 @@ Either way it's a one-time step — the app opens normally afterwards.
   undo history — switch freely (⌃Tab / ⌃⇧Tab cycle), no prompts until
   you close (hover ✕) or quit, which walks every dirty file one by one.
   ⌘⇧O (or View → Only Open Files) hides everything but your open files,
-  and the whole set reopens at launch (toggleable).
+  and the whole set can reopen at launch (with reopen-on-launch enabled).
 - **Front matter, handled** — YAML front matter never renders as broken
   markdown; it shows as a quiet metadata card you can dismiss (✕ or View →
   Front Matter), with a setting for the default.
-- **Creature comforts** — launching the app reopens your last document
-  right where you left off (toggleable), File → Open Recent remembers
+- **Creature comforts** — launching the app can reopen your last document
+  right where you left off (opt-in in Settings), File → Open Recent remembers
   your last ten documents, ⌘K fuzzy-jumps to any heading, and a quiet
   word-count / reading-time chip keeps score (selection-aware).
 - **Images that just work** — paste a screenshot straight into edit mode and

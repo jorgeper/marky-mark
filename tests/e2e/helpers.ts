@@ -29,8 +29,12 @@ const SEED_STORE = (() => {
   // Pin the pane-content floor for the suite: the shipped default (768px)
   // would hold both split panes under a horizontal scrollbar at this
   // suite's 1280px viewport and skew every geometry-based assertion.
+  // Also pin reopenLastDoc ON: the suite predates the issue #53 flip to
+  // default-off, and many tests reload after menu/dialog opens expecting
+  // the document back. E91 owns the shipped default-off contract (it
+  // strips this pin before asserting the splash launch).
   const store: Record<string, string> = {
-    '/config/settings.json': JSON.stringify({ paneMinWidth: 240 }),
+    '/config/settings.json': JSON.stringify({ paneMinWidth: 240, reopenLastDoc: true }),
   };
   for (const name of readdirSync(dir).filter((f) => f.endsWith('.md'))) {
     store[`/docs/${name}`] = readFileSync(path.join(dir, name), 'utf8');
@@ -277,9 +281,9 @@ export async function freshNativeMenuApp(page: Page): Promise<void> {
   await page.evaluate(() => localStorage.clear());
   await page.reload(); // fresh boot — fixtures re-seed
   await expect(page.getByTestId('empty-hint')).toBeVisible(); // shim ready
-  // Same pane-floor pin as freshApp above.
+  // Same pane-floor + reopen pins as freshApp above.
   await page.evaluate(() =>
-    window.__mmfs!.write('/config/settings.json', JSON.stringify({ paneMinWidth: 240 }))
+    window.__mmfs!.write('/config/settings.json', JSON.stringify({ paneMinWidth: 240, reopenLastDoc: true }))
   );
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible();

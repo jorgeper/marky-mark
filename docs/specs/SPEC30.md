@@ -54,6 +54,15 @@ encryption, session restore beyond the single last document.
 
 ## 2. Reopen on launch (FR-REOPEN)
 
+> **Amendment (issue #53, 2026-08-04):** the default flipped to
+> **`false`** — a launch with default settings lands on the initial
+> splash window; the Settings → General checkbox is the opt-in and the
+> behavior is otherwise unchanged (explicit opens still win, SPEC36
+> §8.3's open-set restore stays gated on this setting). U59 and E91
+> assert the new default; the e2e suite's shared seed pins the setting
+> on for tests written under reopen-by-default (see
+> `tests/e2e/helpers.ts`).
+
 1. New setting **`reopenLastDoc: boolean`, default `true`** (house
    parse rules; Settings → General checkbox `settings-reopen`, label
    "Reopen last document on launch").

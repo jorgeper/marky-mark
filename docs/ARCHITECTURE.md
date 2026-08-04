@@ -541,7 +541,8 @@ replace-one/replace-all ride the normal transaction/undo path.
 `#open` hash, review bundle — always win; they set a synchronous
 explicit-open flag the reopen timer checks, because `docPath` lands only
 after async I/O and a timer race would double-open. Otherwise the most
-recent document reopens (setting, default on). After that resolves, a
+recent document reopens (setting, default off since issue #53 — the
+default launch lands on the splash). After that resolves, a
 present, parseable, non-stale `draft.json` raises the restore offer.
 
 **Drafts:** while the buffer is dirty, a ~2 s idle debounce shadow-writes
@@ -789,8 +790,9 @@ then a dirty untitled last; Cancel anywhere aborts the whole quit
 `foldertree.json` gained three OPTIONAL fields — `openFiles` (capped at
 `OPEN_CAP` = 50 at persistence), `activeFile` (forced null unless a
 member), `openOnly` — absent in legacy files, which round-trip
-unchanged. `restoreOpenFiles` (setting, default on) gates the boot
-restore only: while off, the write-through preserves the boot-loaded
+unchanged. `restoreOpenFiles` (setting, default on; the boot restore
+also requires `reopenLastDoc`, default off since issue #53) gates the
+boot restore only: while off, the write-through preserves the boot-loaded
 (dormant) set verbatim instead of the live one, so flipping the setting
 back on revives it.
 
