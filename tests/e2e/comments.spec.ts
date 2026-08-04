@@ -1003,3 +1003,49 @@ test('E154: the edit-mode affordance obeys every gate — frozen store, hidden c
   await page.waitForTimeout(200);
   await expect(page.getByTestId('add-comment-btn-edit')).toHaveCount(0);
 });
+
+test('E158: a parked doc reopens fresh when an external tool edited its sidecar (issue #64) — and a mid-debounce comment edit flushes on the switch instead of going stale', async ({
+  page,
+}) => {
+  // Author a comment through the app and let the debounced sidecar settle.
+  await fsWrite(page, NEWER_PATH, NEWER_DOC);
+  await openPath(page, NEWER_PATH);
+  await addComment(page, 'paragraph', 'Home-grown note');
+  const sidecarPath = `${NEWER_PATH}.comments.json`;
+  await expect.poll(() => fsRead(page, sidecarPath)).toContain('Home-grown note');
+
+  // Park it, then play the sibling md-with-comments app: append a comment
+  // to the sidecar while the doc sits clean in the park map.
+  await openWelcomeViaHelp(page);
+  const external = JSON.parse((await fsRead(page, sidecarPath))!);
+  external.comments.push({
+    id: 'external-1',
+    author: 'md-with-comments',
+    createdAt: '2026-08-04T00:00:00.000Z',
+    body: 'Added while you were away',
+    resolved: false,
+    thread: [],
+    anchor: { exact: 'reads perfectly', prefix: 'This paragraph ', suffix: ' well', start: 33, end: 48 },
+  });
+  await fsWrite(page, sidecarPath, `${JSON.stringify(external, null, 2)}\n`);
+
+  // Issue #64: the plain reopen is a parked activation now, but the clean
+  // bundle must still notice the disk moved on — both comments show.
+  await openPath(page, NEWER_PATH);
+  const cards = page.getByTestId('comment-card');
+  await expect(cards).toHaveCount(2);
+  await expect(page.getByTestId('card-body').filter({ hasText: 'Added while you were away' })).toHaveCount(1);
+  await expect(page.getByTestId('card-body').filter({ hasText: 'Home-grown note' })).toHaveCount(1);
+
+  // Now author another comment and switch away INSIDE the 800 ms autosave
+  // debounce: parkActive flushes the pending write, so the edit reaches the
+  // sidecar at the switch (it used to sit unpersisted until the next edit)…
+  await addComment(page, 'even though', 'Mid-debounce note');
+  await openWelcomeViaHelp(page);
+  await expect.poll(() => fsRead(page, sidecarPath)).toContain('Mid-debounce note');
+
+  // …and the reopen agrees with disk: all three comments, nothing clobbered.
+  await openPath(page, NEWER_PATH);
+  await expect(cards).toHaveCount(3);
+  await expect.poll(() => fsRead(page, sidecarPath)).toContain('Added while you were away');
+});

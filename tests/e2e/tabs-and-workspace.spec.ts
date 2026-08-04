@@ -16,37 +16,43 @@ test.beforeEach(async ({ page }) => {
   await freshApp(page);
 });
 
-test('E100: Mod+click opens IN ADDITION — front/behind tab classes, no prompts across dirty switches, plain-click replaces', async ({
+test('E100: plain click opens IN ADDITION (issue #64) — clicks accumulate tabs, front/behind tab classes, no prompts, hover ✕', async ({
   page,
 }) => {
   await seedFolders(page);
   await openNotesRoot(page);
+  // freshApp left welcome.md open (outside the root, so no row shows it) —
+  // close it so the tab counts below are exact.
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('workspace-empty-hint')).toBeVisible();
 
-  // Plain click replaces the (clean) welcome doc — one file open.
+  // Plain click opens a — the one open file takes the front plane.
   await page.locator('[data-path="/notes/a.md"]').click();
   await expect(page.getByTestId('docname')).toContainText('a.md');
+  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/selected/);
 
-  // Mod+click opens b IN ADDITION and activates it: b is the front tab
-  // (selected), a sits behind (open, not selected).
+  // Plain click on the NOT-open b opens it IN ADDITION: b takes the front
+  // plane (selected), a stays in the set on the panel plane (open, not
+  // selected) — nothing was replaced.
   await page.locator('[data-path="/notes/sub"]').click();
-  await page.locator('[data-path="/notes/sub/b.md"]').click({ modifiers: ['ControlOrMeta'] });
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
   await expect(page.getByTestId('docname')).toContainText('b.md');
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).not.toHaveClass(/\bopen\b/);
   await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
   await expect(page.locator('[data-path="/notes/a.md"]')).not.toHaveClass(/selected/);
-  await expect(page.locator('[data-path="/notes/sub/b.md"]')).not.toHaveClass(/\bopen\b/);
 
-  // Mod+click on the ACTIVE row is a no-op.
-  await page.locator('[data-path="/notes/sub/b.md"]').click({ modifiers: ['ControlOrMeta'] });
-  await expect(page.getByTestId('docname')).toContainText('b.md');
-  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
-
-  // Dirty the active file, then Mod+click the open row a — NO prompt, park.
+  // Dirty b, then plain-click the NOT-open c: NO prompt — b parks with its
+  // ●, and three plain clicks have left three open tabs.
   await dirtyActiveDoc(page, 'TABDIRTY ');
-  await page.locator('[data-path="/notes/a.md"]').click({ modifiers: ['ControlOrMeta'] });
+  await page.locator('[data-path="/notes/sub/deep"]').click();
+  await page.locator('[data-path="/notes/sub/deep/c.md"]').click();
   await expect(page.getByTestId('open-prompt')).toHaveCount(0);
-  await expect(page.getByTestId('docname')).toContainText('a.md');
-  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/selected/);
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  await expect(page.locator('[data-path="/notes/sub/deep/c.md"]')).toHaveClass(/selected/);
+  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/\bopen\b/);
+  await expect(page.locator('[data-path="/notes/sub/b.md"] [data-testid="folder-dirty"]')).toBeVisible();
 
   // Plain click on the open row b just activates — still no prompt, and the
   // parked dirty buffer is intact (dirty dot + the typed text).
@@ -56,16 +62,18 @@ test('E100: Mod+click opens IN ADDITION — front/behind tab classes, no prompts
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
   await expect(page.getByTestId('doc')).toContainText('TABDIRTY');
 
-  // Plain click on a NOT-open file replaces the active (dirty) one — the
-  // guard prompts; Don't Save closes b out of the set; the count stays 2.
-  await page.locator('[data-path="/notes/sub/deep"]').click();
-  await page.locator('[data-path="/notes/sub/deep/c.md"]').click();
-  await expect(page.getByTestId('open-prompt')).toBeVisible();
-  await page.getByTestId('open-discard').click();
-  await expect(page.getByTestId('docname')).toContainText('c.md');
-  await expect(page.locator('[data-path="/notes/sub/deep/c.md"]')).toHaveClass(/selected/);
-  await expect(page.locator('[data-path="/notes/sub/b.md"]')).not.toHaveClass(/\bopen\b/);
-  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
+  // Mod+click on the ACTIVE row is a no-op (§3.1 unchanged).
+  await page.locator('[data-path="/notes/sub/b.md"]').click({ modifiers: ['ControlOrMeta'] });
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
+
+  // Every open row shows the ✕ on hover; the clean background a closes
+  // through it and leaves the set — b stays active.
+  await page.locator('[data-path="/notes/a.md"]').hover();
+  await expect(page.locator('[data-path="/notes/a.md"] [data-testid="folder-tab-close"]')).toBeVisible();
+  await page.locator('[data-path="/notes/a.md"] [data-testid="folder-tab-close"]').click();
+  await expect(page.locator('[data-path="/notes/a.md"]')).not.toHaveClass(/\bopen\b/);
+  await expect(page.getByTestId('docname')).toContainText('b.md');
 });
 
 test('E101: only-open-files mode — button/hotkey/View menu, flat tree-order list, # disabled, empty state, sync returns, persists', async ({
@@ -142,6 +150,10 @@ test('E102: Ctrl+Tab cycles in tree order with wrap, Ctrl+Shift+Tab reverses, ed
 }) => {
   await seedFolders(page);
   await openNotesRoot(page);
+  // Plain clicks accumulate now (issue #64) — close freshApp's welcome doc
+  // so the cycle below runs over exactly [c, b, a].
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('workspace-empty-hint')).toBeVisible();
   await page.locator('[data-path="/notes/a.md"]').click();
   await expect(page.getByTestId('docname')).toContainText('a.md');
 
@@ -189,6 +201,10 @@ test('E103: dirty lifecycle — free switching, ● markers, hover ✕, cancel/d
 }) => {
   await seedFolders(page);
   await openNotesRoot(page);
+  // Plain clicks accumulate now (issue #64) — close freshApp's welcome doc
+  // so the last-file close below really closes the last file.
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('workspace-empty-hint')).toBeVisible();
   await page.locator('[data-path="/notes/a.md"]').click();
   await page.locator('[data-path="/notes/sub"]').click();
   await page.locator('[data-path="/notes/sub/b.md"]').click({ modifiers: ['ControlOrMeta'] });
@@ -462,6 +478,10 @@ test('E157: workspace open with no document — the folder-view hint replaces th
 }) => {
   await seedFolders(page);
   await openNotesRoot(page);
+  // Plain clicks accumulate now (issue #64) — close freshApp's welcome doc
+  // so closing a.md below empties the open set.
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('workspace-empty-hint')).toBeVisible();
 
   // Close File on the open (clean) doc: the workspace stays, so the empty
   // preview is the pick-a-file hint — never the splash (Issue #39).

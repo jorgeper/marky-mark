@@ -439,6 +439,18 @@ export default function App() {
   const positionsRef = useRef<PositionStore>({ version: 1, entries: [] });
   const skipSaveRef = useRef(true);
   const unwatchRef = useRef<(() => void) | null>(null);
+  /**
+   * Issue #64: the pending debounced comment autosave (armed by the autosave
+   * effect, null when nothing is pending), exposed so parkActive can flush
+   * it before the doc's state is parked.
+   */
+  const commentFlushRef = useRef<(() => void) | null>(null);
+  /**
+   * Issue #64: the tail of the comment-write queue. persistComments chains
+   * every write behind it, and openDoc awaits it before a parked doc's
+   * freshness read — so a just-flushed write is never raced by that read.
+   */
+  const commentWriteRef = useRef<Promise<void> | null>(null);
   /** Source line carried across mode switches (line-anchored, not ratio). */
   const pendingScrollLineRef = useRef<number | null>(null);
 
@@ -1325,6 +1337,11 @@ export default function App() {
   const parkActive = useCallback(() => {
     const s = stateRef.current;
     if (!s.docPath) return;
+    // Issue #64: flush the debounced comment autosave before parking — the
+    // park entry and the disk must agree for openDoc's freshness check to
+    // compare comments at all (and a comment edit followed by a quick tab
+    // switch used to sit unpersisted until the next edit).
+    commentFlushRef.current?.();
     parkRef.current.set(s.docPath, {
       // Issue #42 / SPEC38 §3.5: park entries store CANONICAL text — mid
       // table-mode the live buffer holds the display grid, and every parked
@@ -1528,6 +1545,9 @@ export default function App() {
     const parked = parkRef.current.get(path);
     if (parked) {
       parkRef.current.delete(path);
+      // Issue #64: a comment write flushed by parkActive may still be in
+      // flight — drain the queue so the freshness read below sees it.
+      if (commentWriteRef.current) await commentWriteRef.current;
       let disk: { content: string; comments: CommentData[]; stores: DocStores } | null = null;
       try {
         disk = await loadDocParts(p, path);
@@ -1537,7 +1557,24 @@ export default function App() {
       // Issue #42: both checks ride the shared predicate — a parked buffer
       // clean modulo EOL is clean, and a disk that moved only in EOL
       // representation has not moved on.
-      if (!isDirtyText(parked.buffer, parked.savedText) && disk && isDirtyText(disk.content, parked.savedText)) {
+      // Issue #64: reopening a file lands here now that plain opens are
+      // additive (it used to be a fresh disk read) — so "the disk moved on"
+      // must also cover the comment stores (PRD 004: a trailer turned
+      // unreadable, or readable again, underneath the clean parked buffer)
+      // and the comments themselves (an external tool — e.g. the sibling
+      // md-with-comments app — edited the sidecar or trailer). Comments
+      // compare by canonical serialization (PRD 004 Req 27: same data ⇒
+      // identical bytes, whatever the in-memory key order); parkActive's
+      // flush plus the queue drain above guarantee an in-app edit sitting
+      // mid-debounce has already landed on disk, so it never misreads as an
+      // external change.
+      if (
+        disk &&
+        !isDirtyText(parked.buffer, parked.savedText) &&
+        (isDirtyText(disk.content, parked.savedText) ||
+          JSON.stringify(disk.stores) !== JSON.stringify(parked.stores) ||
+          serializeSidecar(disk.comments) !== serializeSidecar(parked.comments))
+      ) {
         content = disk.content;
         saved = disk.content;
         stored = disk.comments;
@@ -1616,8 +1653,15 @@ export default function App() {
     }
   }, [docPath, untitled]);
 
-  /** SPEC36 §3.1/§3.2: switch to an already-open file — park, never prompt. */
-  const activateOpen = useCallback(
+  /**
+   * SPEC36 §3.1/§3.2 (amended, issue #64): every switch to another file
+   * parks the outgoing doc and opens the target — never a prompt. An
+   * already-open target just activates; a not-open one joins the set
+   * (openDoc's addOpen), exactly like Mod+click — the replace path is
+   * retired. Callers have already resolved the §2.6 dirty-untitled guard
+   * (a real dirty doc just parks).
+   */
+  const parkAndOpen = useCallback(
     async (p: Platform, path: string) => {
       if (stateRef.current.docPath === path) return;
       parkActive();
@@ -1627,27 +1671,9 @@ export default function App() {
   );
 
   /**
-   * SPEC36 §3.2: the plain-open semantics — the clicked file REPLACES the
-   * active one (which leaves the set, park state discarded); the open count
-   * does not grow. Callers have already resolved the unsaved-changes guard.
-   */
-  const openReplacing = useCallback(
-    async (p: Platform, path: string) => {
-      const out = stateRef.current.docPath;
-      if (out && out !== path) {
-        parkRef.current.delete(out);
-        commitOpenSet(closeOpen(openFilesRef.current, out).list, null);
-      }
-      await openDoc(p, path);
-    },
-    [openDoc, commitOpenSet]
-  );
-
-  /**
-   * Unsaved-changes guard (SPEC4 §6, SPEC36 §3.2): every user-initiated open
-   * routes here. An already-open target just activates (no prompt — the
-   * outgoing doc parks). A not-open target replaces the active file: dirty
-   * buffer → three-way prompt; clean → straight through.
+   * SPEC36 §3.2 (amended, issue #64): every user-initiated open routes here
+   * and opens ADDITIVELY — no unsaved-changes prompt, open-set member or
+   * not. §2.6's dirty-untitled guard is the one prompt left.
    */
   const openDocGuarded = useCallback(
     (p: Platform, path: string) => {
@@ -1663,17 +1689,9 @@ export default function App() {
         setOpenPrompt({ kind: 'open', path });
         return;
       }
-      if (openFilesRef.current.includes(path)) {
-        void activateOpen(p, path);
-        return;
-      }
-      if (s.dirty) {
-        setOpenPrompt({ kind: 'open', path });
-        return;
-      }
-      void openReplacing(p, path);
+      void parkAndOpen(p, path);
     },
-    [openDoc, activateOpen, openReplacing]
+    [openDoc, parkAndOpen]
   );
 
   /** SPEC36 §3.1: Mod+click — open IN ADDITION and activate; no guard ever. */
@@ -1683,19 +1701,13 @@ export default function App() {
       if (!p) return;
       explicitOpenRef.current = true;
       const s = stateRef.current;
-      if (s.docPath === path) return; // active ⇒ no-op
       if (s.untitled && s.dirty) {
         setOpenPrompt({ kind: 'open', path }); // §2.6: untitled can't park
         return;
       }
-      if (openFilesRef.current.includes(path)) {
-        void activateOpen(p, path);
-        return;
-      }
-      parkActive();
-      void openDoc(p, path); // adds to the set and activates
+      void parkAndOpen(p, path); // active ⇒ no-op; not-open adds and activates
     },
-    [activateOpen, parkActive, openDoc]
+    [parkAndOpen]
   );
 
   /** SPEC4 clean start: close the buffer down to the splash (SPEC36 §3.5). */
@@ -1758,14 +1770,14 @@ export default function App() {
         const isActive = s.docPath === path;
         const isDirty = isActive ? s.dirty : parkedDirty(path);
         if (isDirty) {
-          if (!isActive) await activateOpen(p, path); // §3.4: visible behind the modal
+          if (!isActive) await parkAndOpen(p, path); // §3.4: visible behind the modal
           setOpenPrompt({ kind: 'close-file', path });
           return;
         }
         finishCloseFile(p, path);
       })();
     },
-    [activateOpen, finishCloseFile, parkedDirty]
+    [parkAndOpen, finishCloseFile, parkedDirty]
   );
 
   /** SPEC36 §6.3: Ctrl+Tab / Ctrl+Shift+Tab — tree order, wrap, no prompts. */
@@ -1781,13 +1793,13 @@ export default function App() {
         const target = list[0];
         if (!target) return;
         if (s.dirty) setOpenPrompt({ kind: 'open', path: target });
-        else void openReplacing(p, target);
+        else void parkAndOpen(p, target);
         return;
       }
       const target = cycleOpen(list, s.docPath, dir);
-      if (target) void activateOpen(p, target);
+      if (target) void parkAndOpen(p, target);
     },
-    [activateOpen, openReplacing]
+    [parkAndOpen]
   );
 
   /** SPEC36 §7: the dirty documents, tree order, dirty untitled last. */
@@ -1875,30 +1887,38 @@ export default function App() {
    * Persist comments per the active storage mode (SPEC2 FR-C.5). Embedded
    * writes rewrite the file as LAST-SAVED text + trailer — never flushing
    * unsaved text edits — and clean up a stale sidecar (migration). Sidecar
-   * mode behaves exactly like v1.
+   * mode behaves exactly like v1. Issue #64: writes queue serially behind
+   * commentWriteRef so openDoc can await everything pending before a parked
+   * doc's freshness read.
    */
-  const persistComments = useCallback(async (current: CommentData[]) => {
-    const s = stateRef.current;
-    if (!s.platform || !s.docPath) return;
-    // PRD 004 Reqs 14/15: a document with an unreadable store never has its
-    // comment stores written — not the trailer, not the sidecar, and not the
-    // "clean up a stale sidecar" removal below. Authoring is closed in the UI
-    // too; this is the belt to that pair of braces.
-    if (hasUnreadableStore(s.stores)) return;
-    const p = s.platform;
-    const sidecar = sidecarPathFor(s.docPath);
-    try {
-      if (s.settings.commentStorage === 'embedded') {
-        await p.writeTextFile(s.docPath, attachEmbedded(s.savedText, current));
-        if (await p.exists(sidecar)) await p.remove(sidecar);
-      } else if (current.length > 0) {
-        await p.writeTextFile(sidecar, serializeSidecar(current));
-      } else if (await p.exists(sidecar)) {
-        await p.remove(sidecar); // no comments → no sidecar litter
+  const persistComments = useCallback((current: CommentData[]) => {
+    const s = stateRef.current; // captured NOW — the doc may switch under the queue
+    const prev = commentWriteRef.current;
+    const job = (async () => {
+      await prev;
+      if (!s.platform || !s.docPath) return;
+      // PRD 004 Reqs 14/15: a document with an unreadable store never has its
+      // comment stores written — not the trailer, not the sidecar, and not the
+      // "clean up a stale sidecar" removal below. Authoring is closed in the UI
+      // too; this is the belt to that pair of braces.
+      if (hasUnreadableStore(s.stores)) return;
+      const p = s.platform;
+      const sidecar = sidecarPathFor(s.docPath);
+      try {
+        if (s.settings.commentStorage === 'embedded') {
+          await p.writeTextFile(s.docPath, attachEmbedded(s.savedText, current));
+          if (await p.exists(sidecar)) await p.remove(sidecar);
+        } else if (current.length > 0) {
+          await p.writeTextFile(sidecar, serializeSidecar(current));
+        } else if (await p.exists(sidecar)) {
+          await p.remove(sidecar); // no comments → no sidecar litter
+        }
+      } catch {
+        /* disk hiccup; the next change retries */
       }
-    } catch {
-      /* disk hiccup; the next change retries */
-    }
+    })();
+    commentWriteRef.current = job;
+    return job;
   }, []);
 
   // --- bootstrap ---------------------------------------------------------------
@@ -2702,7 +2722,7 @@ export default function App() {
         q.shift();
         continue;
       }
-      if (t !== s.docPath) await activateOpen(p, t); // §7.1: visible behind the modal
+      if (t !== s.docPath) await parkAndOpen(p, t); // §7.1: visible behind the modal
       setClosePrompt(true);
       return;
     }
@@ -2716,7 +2736,7 @@ export default function App() {
     }
     await deleteDraft();
     void p.closeNow();
-  }, [activateOpen, deleteDraft, parkedDirty]);
+  }, [parkAndOpen, deleteDraft, parkedDirty]);
   processQuitWalkRef.current = processQuitWalk;
   startQuitWalkRef.current = () => {
     // Issue #22: quitting discards a changed untitled workspace — the
@@ -3886,8 +3906,21 @@ export default function App() {
       skipSaveRef.current = false;
       return;
     }
-    const t = setTimeout(() => void persistComments(comments), 800);
-    return () => clearTimeout(t);
+    const t = setTimeout(() => {
+      commentFlushRef.current = null;
+      void persistComments(comments);
+    }, 800);
+    // Issue #64: parkActive flushes this early — the parked comment set and
+    // the disk must agree before openDoc's freshness compare.
+    commentFlushRef.current = () => {
+      clearTimeout(t);
+      commentFlushRef.current = null;
+      void persistComments(comments);
+    };
+    return () => {
+      clearTimeout(t);
+      commentFlushRef.current = null;
+    };
   }, [comments, platform, docPath, persistComments]);
 
   // --- SPEC23 §1: mirror split-preview selections into the editor -----------------
@@ -4679,7 +4712,7 @@ export default function App() {
                 onClick={() => {
                   const intent = openPrompt;
                   setOpenPrompt(null);
-                  if (intent.kind === 'open') void openReplacing(platform, intent.path);
+                  if (intent.kind === 'open') void parkAndOpen(platform, intent.path);
                   else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
                   else if (intent.kind === 'close-untitled') closeToSplash(); // issue #22
                   else startUntitled();
@@ -4695,7 +4728,7 @@ export default function App() {
                   setOpenPrompt(null);
                   // SPEC22 §2.3: a cancelled Save As aborts the pending action.
                   if (!(await saveDoc())) return;
-                  if (intent.kind === 'open') void openReplacing(platform, intent.path);
+                  if (intent.kind === 'open') void parkAndOpen(platform, intent.path);
                   else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
                   else if (intent.kind === 'close-untitled') {
                     // Issue #22: the untitled buffer just became a real file
