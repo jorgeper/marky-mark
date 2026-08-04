@@ -180,6 +180,8 @@ export function computeLivePreviewDecos(
   const tree = syntaxTree(state);
   const revealed = mergeRanges([
     ...revealedRanges(state),
+    // Copies, not the caller's objects: mergeRanges extends ranges in place,
+    // and the excluded spans live on in the caller's state.
     ...excludedRanges.map((r) => ({ from: r.from, to: r.to })),
   ]);
   const decos: LivePreviewDeco[] = [];

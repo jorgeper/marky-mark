@@ -283,6 +283,39 @@ test('E149: find still matches and highlights with live preview on — hidden ma
   await expect(page.getByTestId('find-bar')).toHaveCount(0);
 });
 
+test('E150: live preview supersedes SPEC23 highlighting — revealed lines keep mm-md-* styling whatever editorSyntax says', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/lp-super.md', LP_DOC);
+  await page.goto('/#open=/docs/lp-super.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Big Title');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  await setLivePreview(page, true);
+
+  // Cursor on the heading line reveals it raw — with SPEC23 highlight classes.
+  await editor.locator('.cm-line').first().click();
+  await page.keyboard.press('Control+Home');
+  await expect(editor.locator('.mm-md-h1:not(.mm-md-mark)').first()).toContainText('Big Title');
+
+  // PRD 006 §12: flipping editorSyntax off changes nothing while preview is
+  // on — the revealed line keeps its mm-md-* styling, rendering stays.
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-tab-editor').click();
+  await page.getByTestId('editor-syntax').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect(editor.locator('.mm-md-h1:not(.mm-md-mark)').first()).toContainText('Big Title');
+  await expect(editor.locator('.mm-lp-strong').first()).toContainText('bold');
+
+  // Turning live preview off restores SPEC23's own rule: syntax is off, so
+  // the highlight classes disappear — the supersede really was preview's.
+  await setLivePreview(page, false);
+  await expect(editor.locator('[class*="mm-lp-"]')).toHaveCount(0);
+  await expect(editor.locator('[class*="mm-md-"]')).toHaveCount(0);
+  await expect(editor.locator('.cm-content')).toContainText('**bold**');
+});
+
 test('E157: table grid + live preview (#55) — grid lines keep raw cell markdown so every pipe column aligns', async ({
   page,
 }) => {
@@ -331,37 +364,4 @@ test('E157: table grid + live preview (#55) — grid lines keep raw cell markdow
   );
   expect(lengths.length).toBeGreaterThanOrEqual(4);
   expect(new Set(lengths).size).toBe(1);
-});
-
-test('E150: live preview supersedes SPEC23 highlighting — revealed lines keep mm-md-* styling whatever editorSyntax says', async ({
-  page,
-}) => {
-  await fsWrite(page, '/docs/lp-super.md', LP_DOC);
-  await page.goto('/#open=/docs/lp-super.md');
-  await expect(page.getByTestId('doc').locator('h1')).toContainText('Big Title');
-  await page.keyboard.press('Control+e');
-  const editor = page.getByTestId('editor');
-  await expect(editor.locator('.cm-content')).toBeVisible();
-  await setLivePreview(page, true);
-
-  // Cursor on the heading line reveals it raw — with SPEC23 highlight classes.
-  await editor.locator('.cm-line').first().click();
-  await page.keyboard.press('Control+Home');
-  await expect(editor.locator('.mm-md-h1:not(.mm-md-mark)').first()).toContainText('Big Title');
-
-  // PRD 006 §12: flipping editorSyntax off changes nothing while preview is
-  // on — the revealed line keeps its mm-md-* styling, rendering stays.
-  await openSettings(page, 'general');
-  await page.getByTestId('settings-tab-editor').click();
-  await page.getByTestId('editor-syntax').uncheck();
-  await page.getByTestId('settings-close').click();
-  await expect(editor.locator('.mm-md-h1:not(.mm-md-mark)').first()).toContainText('Big Title');
-  await expect(editor.locator('.mm-lp-strong').first()).toContainText('bold');
-
-  // Turning live preview off restores SPEC23's own rule: syntax is off, so
-  // the highlight classes disappear — the supersede really was preview's.
-  await setLivePreview(page, false);
-  await expect(editor.locator('[class*="mm-lp-"]')).toHaveCount(0);
-  await expect(editor.locator('[class*="mm-md-"]')).toHaveCount(0);
-  await expect(editor.locator('.cm-content')).toContainText('**bold**');
 });
