@@ -492,6 +492,31 @@ async function fetchPrs() {
   return prs;
 }
 
+// ---------- merges ----------
+
+// Sandcastle's merger lands issue branches straight on main with no PR
+// ("sandcastle: merge issue #N into main"), so PR-merge events miss most
+// issues. Read those merge commits off git history instead.
+function listMerges() {
+  try {
+    const out = execFileSync('git',
+      ['log', '--since=14 days ago', '--first-parent', '--pretty=%cI|%s', 'main'],
+      { cwd: REPO, encoding: 'utf8', timeout: 10000 });
+    const merges = [];
+    for (const line of out.split('\n')) {
+      const bar = line.indexOf('|');
+      if (bar < 0) continue;
+      const ts = line.slice(0, bar), subject = line.slice(bar + 1);
+      if (!/\bmerge issues? #/i.test(subject)) continue;
+      const issues = [...subject.matchAll(/#(\d+)/g)].map((m) => Number(m[1]));
+      if (issues.length) merges.push({ ts, issues, subject });
+    }
+    return merges;
+  } catch {
+    return [];
+  }
+}
+
 // ---------- docs ----------
 
 // Long-form write-ups live in the repo at archive/articles. The HTML ones are
@@ -596,6 +621,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/prs') {
       return json(res, { prs: await cached('prs', 30000, fetchPrs) });
+    }
+    if (url.pathname === '/api/merges') {
+      return json(res, { merges: await cached('merges', 60000, async () => listMerges()) });
     }
     if (url.pathname === '/api/stats') {
       return json(res, await cached('stats', 180000, async () => statsSnapshot()));

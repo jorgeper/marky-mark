@@ -10,6 +10,7 @@ const state = {
   runs: [],
   issues: [],
   prs: [],
+  merges: [], // "merge issue #N into main" commits (sandcastle lands without PRs)
   docs: [],
   cats: {}, // run id -> {verify: ms, edit: ms, ...} from /api/stats
   log: null, // {file, runIndex, title, running}
@@ -432,22 +433,35 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
   // main-scope runs live on the trunk itself
   for (const e of trunkRuns) marks.push(segmentSvg(trunkX, e.r, e.span, y, padTop, padTop + height, live));
 
-  // merge dots: every PR merged inside the window sits on the trunk
+  // merge dots on the trunk: merged PRs plus sandcastle's direct
+  // "merge issue #N into main" commits (most issues land without a PR)
   for (const p of state.prs) {
     if (!p.mergedAt) continue;
     const t = new Date(p.mergedAt).getTime();
     if (t < winStart || t > winEnd) continue;
     marks.push(`<a href="${esc(p.url)}" target="_blank" rel="noopener">
-      <circle cx="${trunkX}" cy="${y(t)}" r="5" fill="#bc8cff" stroke="#0d1117" stroke-width="2"
+      <circle cx="${trunkX}" cy="${y(t)}" r="5" fill="#3fb950" stroke="#0d1117" stroke-width="2"
         data-tip="${esc(`PR #${p.number} merged · ${dayLabel(t)} ${clock(t)}\n${p.title}`)}"></circle></a>`);
+  }
+  for (const m of state.merges) {
+    const t = new Date(m.ts).getTime();
+    if (t < winStart || t > winEnd) continue;
+    marks.push(`<circle cx="${trunkX}" cy="${y(t)}" r="5" fill="#3fb950" stroke="#0d1117" stroke-width="2"
+      data-tip="${esc(`${m.subject}\n${dayLabel(t)} ${clock(t)}`)}"></circle>`);
   }
 
   lanes.forEach((lane, i) => {
     const lx = laneX(i);
     const iss = byNumber.get(Number(lane.issue));
 
-    // where does this branch rejoin the trunk? PR merge time, else issue close
+    // where does this branch rejoin the trunk? merge commit or PR merge
+    // time, else issue close
     let mergeT = null;
+    for (const m of state.merges) {
+      if (!m.issues.includes(Number(lane.issue))) continue;
+      const t = new Date(m.ts).getTime();
+      if (t >= lane.first - 60e3 && t <= winEnd && (mergeT == null || t > mergeT)) mergeT = t;
+    }
     for (const p of state.prs) {
       if (!p.mergedAt || !p.linkedIssues.includes(Number(lane.issue))) continue;
       const t = new Date(p.mergedAt).getTime();
@@ -504,7 +518,7 @@ function timelineLegendHtml(roles) {
   return [
     ...named.map((r) => `<span><span class="swatch" style="background:${roleColor(r)}"></span>${esc(r)}</span>`),
     other ? `<span><span class="swatch" style="background:${ROLE_OTHER}"></span>other</span>` : '',
-    `<span><span class="tdot merged"></span> PR merged</span>`,
+    `<span><span class="tdot" style="background:#3fb950"></span> merged to main</span>`,
     `<span><span class="tdot" style="background:#0d1117;border:2px solid #d03b3b;width:7px;height:7px"></span> failed</span>`,
     `<span><span class="dot pulse"></span> running</span>`,
   ].filter(Boolean).join('');
@@ -934,9 +948,10 @@ async function refreshAgents() {
 }
 async function refreshGh() {
   try {
-    const [i, p] = await Promise.all([api('/api/issues'), api('/api/prs')]);
+    const [i, p, m] = await Promise.all([api('/api/issues'), api('/api/prs'), api('/api/merges')]);
     state.issues = i.issues || [];
     state.prs = p.prs || [];
+    state.merges = m.merges || [];
     if (state.tab === 'issues') renderIssues();
     if (state.tab === 'prs') renderPrs();
     if (state.tab === 'issue') renderIssueDetail();
