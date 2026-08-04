@@ -16,7 +16,7 @@ test.beforeEach(async ({ page }) => {
   await freshApp(page);
 });
 
-test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion persistence, guarded md opens, inert others', async ({
+test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion persistence, additive md opens, inert others', async ({
   page,
 }) => {
   // Kitchen-sink runtime sat at the 30s default timeout, so machine load
@@ -97,15 +97,19 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   await expect.poll(names).not.toContain('/notes/pic.png');
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
 
-  // The unsaved-changes guard applies to tree opens too.
+  // Tree opens are additive (SPEC36 §3.2 amended, issue #64): clicking a
+  // not-open file over a dirty buffer never prompts — b parks with its ●
+  // on the panel plane while a takes the front plane.
   await page.keyboard.press('Control+e');
   await page.getByTestId('editor').locator('.cm-line').first().click();
   await page.keyboard.type('DIRTY ');
   await page.keyboard.press('Control+e');
   await page.locator('[data-path="/notes/a.md"]').click();
-  await expect(page.getByTestId('open-prompt')).toBeVisible();
-  await page.getByTestId('open-cancel').click();
-  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/selected/);
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/\bopen\b/);
+  await expect(page.locator('[data-path="/notes/sub/b.md"] [data-testid="folder-dirty"]')).toBeVisible();
 });
 
 test('E94: folder chrome — divider resize persists, chevrons / View checkbox / hotkey all flip the setting', async ({

@@ -43,7 +43,7 @@ test('E18: Save As writes the buffer (and sidecar) to the chosen path and switch
   await expect(page.getByTestId('card-body')).toHaveText('travels along');
 });
 
-test('E27: opening another file with unsaved changes prompts Save / Don’t save / Cancel; clean opens never prompt', async ({
+test('E27: File → Open never prompts (issue #64) — a dirty buffer parks additively and its edit survives reactivation', async ({
   page,
 }) => {
   // Clean buffer → Open another file via the dialog: no prompt.
@@ -61,36 +61,31 @@ test('E27: opening another file with unsaved changes prompts Save / Don’t save
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
 
-  // Help (a different file) → prompt. Cancel keeps everything.
+  // Help (a different, already-open file): still NO prompt — the dirty
+  // field-guide parks in the open set (SPEC36 §3.2 amended, issue #64) and
+  // the edit never reaches disk.
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('menu-help').click();
-  await expect(page.getByTestId('open-prompt')).toBeVisible();
-  await page.getByTestId('open-cancel').click();
-  await expect(page.getByTestId('docname')).toContainText('field-guide.md');
-  await expect(page.getByTestId('dirty-dot')).toBeVisible();
-
-  // Help again → Don't save: welcome opens, the edit never reached disk.
-  await revealToolbar(page);
-  await page.getByTestId('menu-btn').click();
-  await page.getByTestId('menu-help').click();
-  await page.getByTestId('open-discard').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
   expect(await fsRead(page, '/docs/field-guide.md')).not.toContain('GUARDMARK');
 
-  // Dirty welcome, then Open field-guide → Save: edit persisted, then opened.
-  await page.keyboard.press('Control+e');
-  await page.getByTestId('editor').locator('.cm-line').first().click();
-  await page.keyboard.type('GUARDMARK2 ');
-  await page.keyboard.press('Control+e');
+  // Re-open field-guide via the dialog: the parked dirty buffer returns
+  // intact — dirty dot, typed text — and disk is still untouched.
   page.once('dialog', (d) => void d.accept('/docs/field-guide.md'));
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('menu-open').click();
-  await expect(page.getByTestId('open-prompt')).toBeVisible();
-  await page.getByTestId('open-save').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
   await expect(page.getByTestId('docname')).toContainText('field-guide.md');
-  expect(await fsRead(page, WELCOME)).toContain('GUARDMARK2');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect(page.getByTestId('doc')).toContainText('GUARDMARK');
+  expect(await fsRead(page, '/docs/field-guide.md')).not.toContain('GUARDMARK');
+
+  // ⌘S persists the parked-then-reactivated edit.
+  await page.keyboard.press('Control+s');
+  await expect.poll(() => fsRead(page, '/docs/field-guide.md')).toContain('GUARDMARK');
 });
 
 test('E78: ⌘N opens an untitled buffer — no dialog, nothing on disk; first ⌘S runs Save As (cancel keeps the buffer)', async ({

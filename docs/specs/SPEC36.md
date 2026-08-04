@@ -106,6 +106,15 @@ like `folderTree.ts`:
    grow. Plain click on an open row (active or not) just activates it,
    no guard. File → Open, Open Recent, file drop, and SPEC35's
    create-then-open all follow the same replace-or-activate rule.
+
+   > **Amended (issue #64, 2026-08-04):** the replace semantics above
+   > are retired — a plain click on a not-open markdown row now opens
+   > it **in addition**, exactly like §3.1's Mod+click: the outgoing
+   > doc parks, nothing leaves the set, and no unsaved-changes prompt
+   > fires (a dirty real file parks; §2.6's dirty-untitled guard is
+   > the only navigation prompt left). File → Open, Open Recent, file
+   > drop, create-then-open, and explicit boot opens follow the same
+   > additive rule. E100/E27/E93 were amended to the new contract.
 3. At boot, an explicit open (CLI path, `#open` hash, file
    association) joins the restored set as the active file (added if
    absent), preserving the SPEC30 explicit-open race discipline.
@@ -257,6 +266,8 @@ like `folderTree.ts`:
    outgoing file is dirty; Mod+click the active row no-ops; plain
    click on a third file replaces the active one (set size stays 2,
    guard prompt when dirty); plain click on an open row activates.
+   *(Amended per the issue #64 note in §3.2: E100 now asserts plain
+   click ADDS — clicks accumulate tabs, no guard prompt, hover ✕.)*
 3. **E101** — only-open mode: button, Mod+Shift+O, and View menu all
    toggle it (button accented, menu checked); flat list matches tree
    order with no indent; # filter disabled in-mode; empty set shows

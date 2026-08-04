@@ -1537,7 +1537,16 @@ export default function App() {
       // Issue #42: both checks ride the shared predicate — a parked buffer
       // clean modulo EOL is clean, and a disk that moved only in EOL
       // representation has not moved on.
-      if (!isDirtyText(parked.buffer, parked.savedText) && disk && isDirtyText(disk.content, parked.savedText)) {
+      // Issue #64: reopening a file lands here now that plain opens are
+      // additive (it used to be a fresh disk read) — so "the disk moved on"
+      // must also cover the comment stores (PRD 004: a trailer turned
+      // unreadable, or readable again, underneath the clean parked buffer).
+      if (
+        disk &&
+        !isDirtyText(parked.buffer, parked.savedText) &&
+        (isDirtyText(disk.content, parked.savedText) ||
+          JSON.stringify(disk.stores) !== JSON.stringify(parked.stores))
+      ) {
         content = disk.content;
         saved = disk.content;
         stored = disk.comments;
@@ -1627,27 +1636,24 @@ export default function App() {
   );
 
   /**
-   * SPEC36 §3.2: the plain-open semantics — the clicked file REPLACES the
-   * active one (which leaves the set, park state discarded); the open count
-   * does not grow. Callers have already resolved the unsaved-changes guard.
+   * SPEC36 §3.2 (amended, issue #64): opening a not-open file is ADDITIVE —
+   * the outgoing doc parks and the target joins the open set, exactly like
+   * Mod+click; the replace path is retired. Callers have already resolved
+   * the §2.6 dirty-untitled guard (a real dirty doc just parks, no prompt).
    */
-  const openReplacing = useCallback(
+  const openAdditive = useCallback(
     async (p: Platform, path: string) => {
-      const out = stateRef.current.docPath;
-      if (out && out !== path) {
-        parkRef.current.delete(out);
-        commitOpenSet(closeOpen(openFilesRef.current, out).list, null);
-      }
+      parkActive();
       await openDoc(p, path);
     },
-    [openDoc, commitOpenSet]
+    [parkActive, openDoc]
   );
 
   /**
-   * Unsaved-changes guard (SPEC4 §6, SPEC36 §3.2): every user-initiated open
-   * routes here. An already-open target just activates (no prompt — the
-   * outgoing doc parks). A not-open target replaces the active file: dirty
-   * buffer → three-way prompt; clean → straight through.
+   * SPEC36 §3.2 (amended, issue #64): every user-initiated open routes here
+   * and opens ADDITIVELY. An already-open target just activates; a not-open
+   * target parks the outgoing doc and joins the set — no unsaved-changes
+   * prompt either way. §2.6's dirty-untitled guard is the one prompt left.
    */
   const openDocGuarded = useCallback(
     (p: Platform, path: string) => {
@@ -1667,13 +1673,9 @@ export default function App() {
         void activateOpen(p, path);
         return;
       }
-      if (s.dirty) {
-        setOpenPrompt({ kind: 'open', path });
-        return;
-      }
-      void openReplacing(p, path);
+      void openAdditive(p, path);
     },
-    [openDoc, activateOpen, openReplacing]
+    [openDoc, activateOpen, openAdditive]
   );
 
   /** SPEC36 §3.1: Mod+click — open IN ADDITION and activate; no guard ever. */
@@ -1692,10 +1694,9 @@ export default function App() {
         void activateOpen(p, path);
         return;
       }
-      parkActive();
-      void openDoc(p, path); // adds to the set and activates
+      void openAdditive(p, path); // adds to the set and activates
     },
-    [activateOpen, parkActive, openDoc]
+    [activateOpen, openAdditive]
   );
 
   /** SPEC4 clean start: close the buffer down to the splash (SPEC36 §3.5). */
@@ -1781,13 +1782,13 @@ export default function App() {
         const target = list[0];
         if (!target) return;
         if (s.dirty) setOpenPrompt({ kind: 'open', path: target });
-        else void openReplacing(p, target);
+        else void openAdditive(p, target);
         return;
       }
       const target = cycleOpen(list, s.docPath, dir);
       if (target) void activateOpen(p, target);
     },
-    [activateOpen, openReplacing]
+    [activateOpen, openAdditive]
   );
 
   /** SPEC36 §7: the dirty documents, tree order, dirty untitled last. */
@@ -4679,7 +4680,7 @@ export default function App() {
                 onClick={() => {
                   const intent = openPrompt;
                   setOpenPrompt(null);
-                  if (intent.kind === 'open') void openReplacing(platform, intent.path);
+                  if (intent.kind === 'open') void openAdditive(platform, intent.path);
                   else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
                   else if (intent.kind === 'close-untitled') closeToSplash(); // issue #22
                   else startUntitled();
@@ -4695,7 +4696,7 @@ export default function App() {
                   setOpenPrompt(null);
                   // SPEC22 §2.3: a cancelled Save As aborts the pending action.
                   if (!(await saveDoc())) return;
-                  if (intent.kind === 'open') void openReplacing(platform, intent.path);
+                  if (intent.kind === 'open') void openAdditive(platform, intent.path);
                   else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
                   else if (intent.kind === 'close-untitled') {
                     // Issue #22: the untitled buffer just became a real file
