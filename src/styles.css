@@ -764,19 +764,16 @@ mark.hl.ghost {
 }
 
 /* Issue #10: when the gutter+content pair is centered, the line-number strip
-   floats inside the pane with editor background either side, so the single
-   rule CodeMirror's base theme puts on its right reads as a half-drawn box.
-   Both sides are styled here, off one theme token, so they can never drift
-   apart — the base theme's right border (a hardcoded #ddd in &light, nothing
-   in &dark) is overridden rather than matched by eye.
+   floats inside the pane with editor background either side, so a right-only
+   border reads as a half-drawn box. The inset strip gets a matching left rule
+   off the same --mm-border token as the unconditional right rule below
+   (issue #63), so the two sides can never drift apart when both show.
    Gated on .gutter-inset, which Editor.tsx puts on the wrap only while the
    pane actually has centring slack either side. "Inset" is geometry, not a
    mode: the split pane hugs the folder seam (issue #7), but so does a
    full-screen pane once the folder panel or a narrow window eats its slack,
    and a left rule drawn flush on that seam doubles .folder-panel::after's own
-   hairline in the very same token. Only the LEFT rule is gated here; the
-   right rule is unconditional (issue #63, below) and reads the same
-   --mm-border token, so the two sides can never drift apart when both show. */
+   hairline in the very same token. */
 .editor-wrap.gutter-inset .cm-editor .cm-gutters {
   border-left: 1px solid var(--mm-border, #d1d9e0);
 }

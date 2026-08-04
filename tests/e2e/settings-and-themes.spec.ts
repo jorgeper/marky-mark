@@ -332,7 +332,7 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
   await expect.poll(async () => (await gutter()).left).toMatch(/^1px solid /);
   const light = await gutter();
   expect(light.inset).toBeGreaterThan(20); // genuinely inset — margins either side
-  expect(light.left).toBe(light.right); // the two rules are the same rule
+  expect(light.left).toBe(light.right); // both sides read the same --mm-border token
   expect(light.left).toMatch(/^1px solid /);
   expect(light.left).not.toContain('rgba(0, 0, 0, 0)');
 
