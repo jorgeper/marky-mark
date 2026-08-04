@@ -351,14 +351,14 @@ function segTip(r, span, live) {
 function segmentSvg(x, r, span, y, yMin, yMax, live) {
   let y1 = Math.max(y(span.end), yMin);
   let y2 = Math.min(y(span.start), yMax);
-  if (y2 - y1 < 8) { const mid = (y1 + y2) / 2; y1 = mid - 4; y2 = mid + 4; }
+  if (y2 - y1 < 10) { const mid = (y1 + y2) / 2; y1 = mid - 5; y2 = mid + 5; }
   const attrs = `data-log="${esc(r.file)}" data-run="${r.runIndex}" data-title="${esc(r.role)}${r.issue ? ' · #' + esc(r.issue) : ''}"
     data-running="${r.status === 'running'}" data-issueref="${esc(r.issue || '')}" data-tip="${esc(segTip(r, span, live))}"`;
   let extra = '';
   if (r.status === 'failed' || r.status === 'interrupted') {
-    extra = `<circle cx="${x}" cy="${y1 - 1}" r="4.5" fill="#0d1117" stroke="#d03b3b" stroke-width="2" data-tip="${esc(segTip(r, span, live))}"></circle>`;
+    extra = `<circle cx="${x}" cy="${y1 - 1}" r="5" fill="#0d1117" stroke="#d03b3b" stroke-width="2" data-tip="${esc(segTip(r, span, live))}"></circle>`;
   }
-  return `<line x1="${x}" y1="${y1 + 1}" x2="${x}" y2="${y2 - 1}" stroke="${roleColor(r.role)}" stroke-width="7" stroke-linecap="round" class="tl-seg" ${attrs}></line>${extra}`;
+  return `<line x1="${x}" y1="${y1 + 1}" x2="${x}" y2="${y2 - 1}" stroke="${roleColor(r.role)}" stroke-width="11" stroke-linecap="round" class="tl-seg" ${attrs}></line>${extra}`;
 }
 
 // entries: [{r, span}] overlapping the window. live: winEnd ≈ now.
@@ -394,7 +394,7 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
   // (noted below the chart — never silently).
   const rightPad = 16;
   const laneArea = width - trunkX - 26 - rightPad;
-  const maxLanes = Math.max(1, Math.floor(laneArea / 16) + 1);
+  const maxLanes = Math.max(1, Math.floor(laneArea / 20) + 1);
   let droppedNote = '';
   if (lanes.length > maxLanes) {
     const dropped = lanes.length - maxLanes;
@@ -404,39 +404,40 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
   const laneGap = lanes.length > 1 ? Math.min(40, laneArea / (lanes.length - 1 || 1)) : 0;
   const laneX = (i) => trunkX + 26 + i * laneGap;
 
-  const parts = [];
+  // Strict paint layers so thin chrome never crosses over data or labels:
+  // gridlines → connector lines/trunk → bars & dots → text on top.
+  const grid = [], lineLayer = [], marks = [], text = [];
 
   // hour/day gridlines + labels in the left gutter
   for (let t = Math.ceil(winStart / tick) * tick; t <= winEnd; t += tick) {
     const yy = y(t);
     if (yy < padTop + 8) continue;
     const label = tick >= 24 * 3600e3 ? dayLabel(t) : wideLabels ? `${dayLabel(t)} ${clock(t)}` : clock(t);
-    parts.push(`<line x1="${trunkX - 6}" y1="${yy}" x2="${width - 4}" y2="${yy}" stroke="#1c2129" stroke-width="1"></line>
-      <text x="${trunkX - 10}" y="${yy + 3.5}" text-anchor="end" class="tickl">${esc(label)}</text>`);
+    grid.push(`<line x1="${trunkX - 6}" y1="${yy}" x2="${width - 4}" y2="${yy}" stroke="#1c2129" stroke-width="1"></line>`);
+    text.push(`<text x="${trunkX - 10}" y="${yy + 3.5}" text-anchor="end" class="tickl">${esc(label)}</text>`);
   }
 
   // trunk (main branch)
-  parts.push(`<line x1="${trunkX}" y1="${padTop}" x2="${trunkX}" y2="${padTop + height}" stroke="#2d333b" stroke-width="3"></line>`);
+  lineLayer.push(`<line x1="${trunkX}" y1="${padTop}" x2="${trunkX}" y2="${padTop + height}" stroke="#2d333b" stroke-width="3"></line>`);
 
   // top edge: "now" (or the window end) marker
   const topLabel = live ? `now · ${clock(winEnd)}` : `${dayLabel(winEnd)} ${clock(winEnd)}`;
-  parts.push(`<line x1="${trunkX - 6}" y1="${padTop}" x2="${width - 4}" y2="${padTop}" stroke="#23582f" stroke-width="1"></line>
-    <text x="${trunkX + 12}" y="${padTop - 8}" class="nowl">${esc(topLabel)}</text>`);
-  parts.push(`<text x="${trunkX + 12}" y="${padTop + height + 16}" class="tickl">${esc(`${dayLabel(winStart)} ${clock(winStart)}`)}</text>`);
+  grid.push(`<line x1="${trunkX - 6}" y1="${padTop}" x2="${width - 4}" y2="${padTop}" stroke="#23582f" stroke-width="1"></line>`);
+  text.push(`<text x="${trunkX + 12}" y="${padTop - 8}" class="nowl">${esc(topLabel)}</text>`);
+  text.push(`<text x="${trunkX + 12}" y="${padTop + height + 16}" class="tickl">${esc(`${dayLabel(winStart)} ${clock(winStart)}`)}</text>`);
   if (live && trunkRuns.some((e) => e.r.status === 'running')) {
-    parts.push(`<circle cx="${trunkX}" cy="${padTop}" r="5" fill="#3fb950" class="pulse-svg"></circle>`);
+    marks.push(`<circle cx="${trunkX}" cy="${padTop}" r="5" fill="#3fb950" class="pulse-svg"></circle>`);
   }
 
   // main-scope runs live on the trunk itself
-  for (const e of trunkRuns) parts.push(segmentSvg(trunkX, e.r, e.span, y, padTop, padTop + height, live));
+  for (const e of trunkRuns) marks.push(segmentSvg(trunkX, e.r, e.span, y, padTop, padTop + height, live));
 
   // merge dots: every PR merged inside the window sits on the trunk
-  const laneByIssue = new Map(lanes.map((l, i) => [Number(l.issue), i]));
   for (const p of state.prs) {
     if (!p.mergedAt) continue;
     const t = new Date(p.mergedAt).getTime();
     if (t < winStart || t > winEnd) continue;
-    parts.push(`<a href="${esc(p.url)}" target="_blank" rel="noopener">
+    marks.push(`<a href="${esc(p.url)}" target="_blank" rel="noopener">
       <circle cx="${trunkX}" cy="${y(t)}" r="5" fill="#bc8cff" stroke="#0d1117" stroke-width="2"
         data-tip="${esc(`PR #${p.number} merged · ${dayLabel(t)} ${clock(t)}\n${p.title}`)}"></circle></a>`);
   }
@@ -462,36 +463,36 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
     const yTop = Math.max(y(laneEndT), padTop);
 
     // base line under the segments (bridges gaps between runs)
-    parts.push(`<line x1="${lx}" y1="${yTop}" x2="${lx}" y2="${yBottom}" stroke="#2c3542" stroke-width="1.5"></line>`);
+    lineLayer.push(`<line x1="${lx}" y1="${yTop}" x2="${lx}" y2="${yBottom}" stroke="#2c3542" stroke-width="1.5"></line>`);
 
     // fork out of the trunk (only when the branch point is inside the window)
     if (lane.first >= winStart) {
       const y0 = Math.min(yBottom + 24, padTop + height + 12);
       const ym = (y0 + yBottom) / 2;
-      parts.push(`<path d="M ${trunkX} ${y0} C ${trunkX} ${ym}, ${lx} ${y0}, ${lx} ${yBottom}" fill="none" stroke="#2c3542" stroke-width="1.5"></path>`);
+      lineLayer.push(`<path d="M ${trunkX} ${y0} C ${trunkX} ${ym}, ${lx} ${y0}, ${lx} ${yBottom}" fill="none" stroke="#2c3542" stroke-width="1.5"></path>`);
     }
     // merge back into the trunk
     if (mergeT != null && !lane.running) {
       const my = Math.max(y(mergeT), padTop);
       const ym = my + 10;
-      parts.push(`<path d="M ${lx} ${my + 20} C ${lx} ${ym}, ${trunkX} ${my + 20}, ${trunkX} ${my}" fill="none" stroke="#2c3542" stroke-width="1.5"></path>`);
+      lineLayer.push(`<path d="M ${lx} ${my + 20} C ${lx} ${ym}, ${trunkX} ${my + 20}, ${trunkX} ${my}" fill="none" stroke="#2c3542" stroke-width="1.5"></path>`);
     }
 
-    for (const e of lane.es) parts.push(segmentSvg(lx, e.r, e.span, y, padTop, padTop + height, live));
+    for (const e of lane.es) marks.push(segmentSvg(lx, e.r, e.span, y, padTop, padTop + height, live));
 
-    if (lane.running) parts.push(`<circle cx="${lx}" cy="${padTop}" r="5" fill="#3fb950" class="pulse-svg"></circle>`);
+    if (lane.running) marks.push(`<circle cx="${lx}" cy="${padTop}" r="5" fill="#3fb950" class="pulse-svg"></circle>`);
 
     const title = iss ? `#${lane.issue} ${iss.title}` : `#${lane.issue}`;
-    parts.push(`<text x="${lx}" y="${Math.max(yTop - 9, 12)}" text-anchor="middle" class="tl-issuenum"
+    text.push(`<text x="${lx}" y="${Math.max(yTop - 10, 12)}" text-anchor="middle" class="tl-issuenum"
       data-issuestats="${esc(lane.issue)}" data-tip="${esc(title)}">#${esc(lane.issue)}</text>`);
     if (yBottom - yTop > 240) {
-      parts.push(`<text x="${lx}" y="${Math.min(yBottom + 36, totalH - 4)}" text-anchor="middle" class="tl-issuenum"
+      text.push(`<text x="${lx}" y="${Math.min(yBottom + 36, totalH - 4)}" text-anchor="middle" class="tl-issuenum"
         data-issuestats="${esc(lane.issue)}" data-tip="${esc(title)}">#${esc(lane.issue)}</text>`);
     }
   });
 
   return {
-    svg: `<svg viewBox="0 0 ${width} ${totalH}" width="${width}" height="${totalH}" xmlns="http://www.w3.org/2000/svg">${parts.join('')}</svg>`,
+    svg: `<svg viewBox="0 0 ${width} ${totalH}" width="${width}" height="${totalH}" xmlns="http://www.w3.org/2000/svg">${grid.join('')}${lineLayer.join('')}${marks.join('')}${text.join('')}</svg>`,
     droppedNote,
     roles: [...new Set(entries.map((e) => e.r.role))],
   };

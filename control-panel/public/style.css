@@ -260,6 +260,9 @@ footer {
 .tl-inline { overflow: hidden; }
 .tl-seg { cursor: pointer; }
 .tl-seg:hover { filter: brightness(1.25); }
+/* labels sit in the top paint layer; the panel-colored halo keeps them
+   readable where gridlines or branch curves pass beneath */
+.tickl, .nowl, .tl-issuenum { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }
 .tickl { font-size: 10.5px; fill: var(--muted); font-variant-numeric: tabular-nums; }
 .nowl { font-size: 11px; font-weight: 700; fill: var(--green); }
 .tl-issuenum { font-size: 11px; font-weight: 600; fill: var(--muted); cursor: pointer; }
