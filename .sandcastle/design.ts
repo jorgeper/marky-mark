@@ -142,7 +142,10 @@ const sweepPr = async (conversationId: string): Promise<void> => {
     comments: PrComment[];
     reviews: PrComment[];
     labels: Array<{ name?: string }>;
-  }>(`pr view ${prUrl} --json state,reviewDecision,comments,reviews,labels`);
+    headRefName: string;
+  }>(
+    `pr view ${prUrl} --json state,reviewDecision,comments,reviews,labels,headRefName`,
+  );
 
   console.log(`\nPRD PR ${prUrl} [issue #${designIssue}]:`);
 
@@ -168,10 +171,7 @@ const sweepPr = async (conversationId: string): Promise<void> => {
       // PRD 008 R14: mergePrArgs drops --delete-branch for permanent
       // release/* heads (isPermanentBranch); every other branch keeps
       // delete-on-merge.
-      const { headRefName } = ghJson<{ headRefName: string }>(
-        `pr view ${prUrl} --json headRefName`,
-      );
-      gh(mergePrArgs(prUrl, headRefName).join(" "));
+      gh(mergePrArgs(prUrl, view.headRefName).join(" "));
       console.log("  merged.");
       if (pullFastForward()) console.log("  local checkout fast-forwarded.");
       createHandoffIssue(prdFileOf(convo), designIssue);
