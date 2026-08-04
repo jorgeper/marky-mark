@@ -123,6 +123,15 @@ type Mode = 'preview' | 'edit';
 /** SPEC36 §7: the quit walk's stand-in for a dirty untitled buffer. */
 const UNTITLED_SENTINEL = '\u0000untitled';
 
+/**
+ * Issue #42: the identity editor pushes are routed by — the doc path, the
+ * untitled sentinel, or null when nothing is open. editorSessionDocRef and
+ * editorChanged must agree on it exactly, so it is computed in one place.
+ */
+function docIdentity(docPath: string | null, untitled: boolean): string | null {
+  return docPath ?? (untitled ? UNTITLED_SENTINEL : null);
+}
+
 /** SPEC15 §3.3: anchor tops in the scroller's content coordinates. */
 function collectAnchors(scroller: HTMLElement, docEl: HTMLElement): SyncAnchor[] {
   const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
@@ -453,6 +462,13 @@ export default function App() {
   const canonicalOf = useCallback((t: string) => smartEditRef.current?.canonicalText(t) ?? t, []);
   // Issue #42: every dirty decision goes through the one shared predicate.
   const dirty = isDirtyText(canonicalOf(buffer), savedText);
+  // Issue #42: the parked half of the same rule — every "is this parked file
+  // dirty?" site asks here, so they can never disagree either. Park entries
+  // hold canonical text (see parkActive), so no canonicalOf on this path.
+  const parkedDirty = useCallback((path: string) => {
+    const pk = parkRef.current.get(path);
+    return !!pk && isDirtyText(pk.buffer, pk.savedText);
+  }, []);
   // SPEC36 §3.6: open rows carrying unsaved changes (parked dirtiness only
   // moves on switches, so these deps re-derive it exactly when it can change).
   const dirtyOpenFiles = useMemo(() => {
@@ -462,11 +478,10 @@ export default function App() {
         if (dirty) set.add(f);
         continue;
       }
-      const pk = parkRef.current.get(f);
-      if (pk && isDirtyText(pk.buffer, pk.savedText)) set.add(f); // issue #42: the shared predicate
+      if (parkedDirty(f)) set.add(f);
     }
     return set;
-  }, [openFiles, docPath, dirty]);
+  }, [openFiles, docPath, dirty, parkedDirty]);
   // SPEC26: display-parsed front matter for the card (null ⇒ none).
   const frontMatter = useMemo(() => ((docPath || untitled) ? parseFrontMatter(buffer) : null), [buffer, docPath, untitled]);
   const showFrontmatter = fmOverride ?? settings.showFrontmatter;
@@ -516,7 +531,7 @@ export default function App() {
    * OUTGOING doc — exactly the identity editorChanged routes by.
    */
   const editorSessionDocRef = useRef<string | null>(null);
-  if (mode !== 'preview') editorSessionDocRef.current = docPath ?? (untitled ? UNTITLED_SENTINEL : null);
+  if (mode !== 'preview') editorSessionDocRef.current = docIdentity(docPath, untitled);
 
   /**
    * Issue #42: every editor text push lands here. The editor's unmount
@@ -531,7 +546,7 @@ export default function App() {
   const editorChanged = useCallback((t: string) => {
     const s = stateRef.current;
     const sessionDoc = editorSessionDocRef.current;
-    if (sessionDoc === (s.docPath ?? (s.untitled ? UNTITLED_SENTINEL : null))) {
+    if (sessionDoc === docIdentity(s.docPath, s.untitled)) {
       setBuffer(t);
       return;
     }
@@ -1705,8 +1720,7 @@ export default function App() {
       void (async () => {
         const s = stateRef.current;
         const isActive = s.docPath === path;
-        const pk = parkRef.current.get(path);
-        const isDirty = isActive ? s.dirty : !!pk && isDirtyText(pk.buffer, pk.savedText); // issue #42
+        const isDirty = isActive ? s.dirty : parkedDirty(path);
         if (isDirty) {
           if (!isActive) await activateOpen(p, path); // §3.4: visible behind the modal
           setOpenPrompt({ kind: 'close-file', path });
@@ -1715,7 +1729,7 @@ export default function App() {
         finishCloseFile(p, path);
       })();
     },
-    [activateOpen, finishCloseFile]
+    [activateOpen, finishCloseFile, parkedDirty]
   );
 
   /** SPEC36 §6.3: Ctrl+Tab / Ctrl+Shift+Tab — tree order, wrap, no prompts. */
@@ -1745,18 +1759,12 @@ export default function App() {
     const s = stateRef.current;
     const q: string[] = [];
     for (const f of openFilesRef.current) {
-      const isDirty =
-        f === s.docPath
-          ? s.dirty
-          : (() => {
-              const pk = parkRef.current.get(f);
-              return !!pk && isDirtyText(pk.buffer, pk.savedText); // issue #42
-            })();
+      const isDirty = f === s.docPath ? s.dirty : parkedDirty(f);
       if (isDirty) q.push(f);
     }
     if (s.untitled && s.dirty) q.push(UNTITLED_SENTINEL);
     return q;
-  }, []);
+  }, [parkedDirty]);
 
   /**
    * SPEC35 §5.3: after a rename lands on disk, remap every piece of state
@@ -2647,8 +2655,7 @@ export default function App() {
         setClosePrompt(true);
         return;
       }
-      const pk = parkRef.current.get(t);
-      const isDirty = t === s.docPath ? s.dirty : !!pk && isDirtyText(pk.buffer, pk.savedText); // issue #42
+      const isDirty = t === s.docPath ? s.dirty : parkedDirty(t);
       if (!openFilesRef.current.includes(t) || !isDirty) {
         q.shift();
         continue;
@@ -2667,7 +2674,7 @@ export default function App() {
     }
     await deleteDraft();
     void p.closeNow();
-  }, [activateOpen, deleteDraft]);
+  }, [activateOpen, deleteDraft, parkedDirty]);
   processQuitWalkRef.current = processQuitWalk;
   startQuitWalkRef.current = () => {
     // Issue #22: quitting discards a changed untitled workspace — the
