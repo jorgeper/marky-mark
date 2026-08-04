@@ -89,12 +89,18 @@ jobs:
           # group), so by the time a re-delivered event runs, the issue is
           # closed and drops out of the open list above. The marker guard
           # covers the remaining crack: a prior run that commented but died
-          # before closing must close now without commenting twice.
-          if gh issue view "$ISSUE" --json comments --jq '.comments[].body' |
-               grep -Fq "$MARKER"; then
+          # before closing must close now without commenting twice. Captured
+          # into a variable first: an `if` condition is exempt from `set -e`,
+          # so a bare `gh | grep` pipeline would read a transient gh failure
+          # as "no marker" and double-comment — this way it aborts the run.
+          COMMENTS="$(gh issue view "$ISSUE" --json comments --jq '.comments[].body')"
+          if grep -Fq "$MARKER" <<<"$COMMENTS"; then
             echo "close-out comment already present on #$ISSUE — closing only"
           else
             ASSET_LINKS="$(jq -r '.assets[] | "- [\(.name)](\(.url))"' <<<"$RELEASE_JSON")"
+            # The continuation lines below sit at the block-scalar margin on
+            # purpose: any deeper indent would become leading spaces in the
+            # posted Markdown.
             gh issue comment "$ISSUE" --body "$MARKER
 
           **$TAG is published.**
