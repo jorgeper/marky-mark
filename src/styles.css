@@ -1288,6 +1288,15 @@ mark.hl.ghost {
   pointer-events: none;
 }
 
+/* Issue #39: workspace-open empty preview — a muted one-line invitation to
+   pick a file from the folder view; the splash never shows here. */
+.workspace-empty-hint {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--mm-fg-muted, #59636e);
+  user-select: none;
+}
+
 /* SPEC27 §3: the splash — glyph on a wispy terracotta cloud, About info,
    one drop hint. All theme-variable driven; the cloud is pure CSS. */
 .splash {
