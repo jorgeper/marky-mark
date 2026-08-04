@@ -54,6 +54,16 @@ const INLINE_NODES: Record<string, { style: InlineStyle; marker: string }> = {
   InlineCode: { style: 'inline-code', marker: 'CodeMark' },
 };
 
+/** PRD 006 §4: ATX heading nodes, keyed by Lezer node name → line style. */
+const HEADING_NODES: Record<string, LineStyle> = {
+  ATXHeading1: 'heading-1',
+  ATXHeading2: 'heading-2',
+  ATXHeading3: 'heading-3',
+  ATXHeading4: 'heading-4',
+  ATXHeading5: 'heading-5',
+  ATXHeading6: 'heading-6',
+};
+
 /** PRD 006 §8: block constructs that cannot reveal line-by-line. */
 const ATOMIC_BLOCKS = new Set(['FencedCode', 'CodeBlock']);
 
@@ -148,7 +158,9 @@ export function computeLivePreviewDecos(
   const seen = new Set<string>();
   const push = (d: LivePreviewDeco) => {
     if (d.from >= d.to) return;
-    const detail = 'style' in d ? d.style : d.deco === 'link' ? d.url : '';
+    let detail = '';
+    if ('style' in d) detail = d.style;
+    else if (d.deco === 'link') detail = d.url;
     const key = `${d.from}:${d.to}:${d.deco}:${detail}`;
     if (!seen.has(key)) {
       seen.add(key);
@@ -176,11 +188,11 @@ export function computeLivePreviewDecos(
           return;
         }
         // PRD 006 §4: ATX headings — per-level line style, markers hidden.
-        const heading = /^ATXHeading([1-6])$/.exec(n.name);
+        const heading = HEADING_NODES[n.name];
         if (heading) {
           if (overlapsRevealed(n.from, n.to)) return;
           const line = doc.lineAt(n.from);
-          push({ from: line.from, to: line.to, deco: 'line', style: `heading-${heading[1]}` as LineStyle });
+          push({ from: line.from, to: line.to, deco: 'line', style: heading });
           n.node.getChildren('HeaderMark').forEach((mark, i) => {
             // §4: the marker hides together with its separating space — the
             // one after the opening marks, the one before any closing marks.

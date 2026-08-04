@@ -97,8 +97,8 @@ describe('PRD 006 §4 headings: heading size/weight, # markers hidden', () => {
     const doc = '# h1\n## h2\n### h3\n#### h4\n##### h5\n###### h6\ncursor';
     const state = mkState(doc, { anchor: doc.length });
     const decos = allDecos(state);
-    const lines = decos.filter((d) => d.deco === 'line');
-    expect(lines.map((d) => (d.deco === 'line' ? d.style : ''))).toEqual([
+    const lines = decos.filter((d): d is Extract<LivePreviewDeco, { deco: 'line' }> => d.deco === 'line');
+    expect(lines.map((d) => d.style)).toEqual([
       'heading-1',
       'heading-2',
       'heading-3',
