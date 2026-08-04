@@ -63,7 +63,7 @@ export interface Settings {
   inlineImages: boolean;
   /** SPEC26 §3: show the front-matter card by default when a doc has one. */
   showFrontmatter: boolean;
-  /** SPEC30 §2: reopen the most recent document at launch. */
+  /** SPEC30 §2: reopen the most recent document at launch (issue #53 amendment: default off). */
   reopenLastDoc: boolean;
   /** SPEC36 §8: restore the open-file set (tabs) at launch. */
   restoreOpenFiles: boolean;
@@ -103,7 +103,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tableGridView: true,
   inlineImages: true,
   showFrontmatter: true,
-  reopenLastDoc: true,
+  reopenLastDoc: false,
   restoreOpenFiles: true,
   showFolders: false,
   folderWidth: 240,

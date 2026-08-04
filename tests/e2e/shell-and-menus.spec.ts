@@ -145,7 +145,8 @@ test('E25: toolbar auto-hides after launch, reveals on top-edge hover (with shad
   // it in the hot zone, which would legitimately pin the bar forever).
   await page.mouse.move(500, 400);
   await page.reload();
-  // SPEC30 §4.1 amendment: the relaunch reopens the last document now.
+  // SPEC30 §4.1 amendment: the relaunch reopens the last document (the
+  // suite seed pins reopenLastDoc on — default off since issue #53).
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
 
   const shell = page.getByTestId('toolbar-shell');

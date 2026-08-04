@@ -335,9 +335,10 @@ describe('SPEC12 menu spec', () => {
     expect(find(rebound, 'Edit', 'find')!.accelerator).toBe('Mod+Shift+G');
     expect(parseSettings('{"hotkeys":{"save":"Mod+S"}}').hotkeys.find).toBe('Mod+F');
 
-    expect(parseSettings('{}').reopenLastDoc).toBe(true);
-    expect(parseSettings('{"reopenLastDoc":false}').reopenLastDoc).toBe(false);
-    expect(parseSettings('{"reopenLastDoc":"nah"}').reopenLastDoc).toBe(true);
+    // SPEC30 §2 (issue #53 amendment): reopen-on-launch defaults OFF.
+    expect(parseSettings('{}').reopenLastDoc).toBe(false);
+    expect(parseSettings('{"reopenLastDoc":true}').reopenLastDoc).toBe(true);
+    expect(parseSettings('{"reopenLastDoc":"nah"}').reopenLastDoc).toBe(false);
   });
 
   test('U120: issue #22 mode gating — workspace-only and folder-view items disable outside workspace mode; Close File follows docOpen; the open trio never disables', () => {

@@ -45,7 +45,7 @@ E-number cite the spec outside any test body (file header or shared setup).
 | [SPEC26](specs/SPEC26.md) | SPEC26: Marky Mark v26 — YAML front matter: parsed, carded, dismissable | `src/App.tsx`, `src/components/FrontMatterCard.tsx`, `src/lib/frontmatter.ts`, `src/lib/markdown.ts`, `src/lib/menuSpec.ts`, `src/lib/settings.ts`, `src/styles.css` | _none_ |
 | [SPEC27](specs/SPEC27.md) | SPEC27: Marky Mark v27 — the new icon, everywhere, and a real splash | `src/App.tsx`, `src/components/Toolbar.tsx`, `src/styles.css` | E78, E1 |
 | [SPEC29](specs/SPEC29.md) | SPEC29: Marky Mark v29 — File → Open Recent | `src/App.tsx`, `src/lib/commands.ts`, `src/lib/menuSpec.ts`, `src/lib/recentFiles.ts`, `src/platform/browser.ts`, `src/platform/tauri.ts` | _none_ |
-| [SPEC30](specs/SPEC30.md) | SPEC30: Marky Mark v30 — Find, reopen-on-launch, crash-safe drafts | `src/App.tsx`, `src/components/Editor.tsx`, `src/components/FindBar.tsx`, `src/lib/drafts.ts`, `src/lib/menuSpec.ts`, `src/lib/settings.ts`, `src/styles.css` | E60, E25 |
+| [SPEC30](specs/SPEC30.md) | SPEC30: Marky Mark v30 — Find, reopen-on-launch, crash-safe drafts | `src/App.tsx`, `src/components/Editor.tsx`, `src/components/FindBar.tsx`, `src/lib/drafts.ts`, `src/lib/menuSpec.ts`, `src/lib/settings.ts`, `src/styles.css` | E91, E60, E25 |
 | [SPEC31](specs/SPEC31.md) | SPEC31: Marky Mark v31 — New Window (multi-window) | _none_ | _none_ |
 | [SPEC32](specs/SPEC32.md) | SPEC32: Marky Mark v32 — the identity break (0.4 fresh start) | `src/lib/embedded.ts`, `src/platform/browser.ts`, `src/platform/web.ts` | _none_ |
 | [SPEC33](specs/SPEC33.md) | SPEC33: Marky Mark v33 — the tiered developer workflow | _none_ | _none_ |
