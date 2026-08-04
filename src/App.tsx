@@ -4303,6 +4303,8 @@ export default function App() {
                 onPasteImages={pasteImages}
                 insertRef={editorInsertRef}
                 syntax={settings.editorSyntax}
+                livePreview={settings.livePreview}
+                onOpenExternal={(u) => void platform?.openExternal(u)}
                 vimNav={settings.vimNav}
                 onVimModeChange={seamVimMode}
                 onEditState={handleEditState}
@@ -4376,6 +4378,8 @@ export default function App() {
               onPasteImages={pasteImages}
               insertRef={editorInsertRef}
               syntax={settings.editorSyntax}
+              livePreview={settings.livePreview}
+              onOpenExternal={(u) => void platform?.openExternal(u)}
               vimNav={settings.vimNav}
               onVimModeChange={seamVimMode}
               onEditState={handleEditState}

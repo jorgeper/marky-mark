@@ -55,6 +55,8 @@ export interface Settings {
   imageNamePattern: string;
   /** SPEC23 §3: markdown syntax highlighting in the editor (on by default). */
   editorSyntax: boolean;
+  /** PRD 006 §1: live preview in the edit pane — experimental, off by default. */
+  livePreview: boolean;
   /** SPEC40 §1: show ALL tables as fitted grids in the editor (default on). */
   tableGridView: boolean;
   /** SPEC41 §1: render ALL images inline in the editor (default on). */
@@ -97,6 +99,7 @@ export const DEFAULT_SETTINGS: Settings = {
   imageFolder: 'images',
   imageNamePattern: '{doc} {n}',
   editorSyntax: true,
+  livePreview: false,
   tableGridView: true,
   inlineImages: true,
   showFrontmatter: true,
@@ -144,6 +147,7 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   imageFolder: 'W',
   imageNamePattern: 'W',
   editorSyntax: 'U',
+  livePreview: 'U',
   tableGridView: 'U',
   inlineImages: 'U',
   showFrontmatter: 'U',
@@ -202,6 +206,7 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   imageFolder: (raw) => (typeof raw === 'string' && isValidImageFolder(raw) ? raw.trim() : undefined),
   imageNamePattern: (raw) => (typeof raw === 'string' && raw.trim() ? raw : undefined),
   editorSyntax: bool,
+  livePreview: bool,
   tableGridView: bool,
   inlineImages: bool,
   showFrontmatter: bool,

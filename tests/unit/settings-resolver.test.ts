@@ -24,6 +24,7 @@ describe('PRD 002 §B5 scope inventory', () => {
       paneMinWidth: 'U',
       lineNumbers: 'U',
       editorSyntax: 'U',
+      livePreview: 'U',
       tableGridView: 'U',
       inlineImages: 'U',
       showFrontmatter: 'U',

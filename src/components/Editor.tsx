@@ -53,6 +53,7 @@ import {
 } from '../lib/smartEdit';
 import { SmartEditMenu } from './SmartEditMenu';
 import { imageViewExtension, setImageView } from './imageView';
+import { livePreviewExtension } from './livePreview';
 import { allImageRefs, applyImageRewrite, deleteImageAt, type ImageRef } from '../lib/imageResize';
 
 /** SPEC42 §1: the eight-chip ring — every border middle, every corner. */
@@ -226,6 +227,10 @@ interface Props {
   insertRef?: MutableRefObject<((text: string) => void) | null>;
   /** SPEC23 §3: markdown syntax highlighting (live-reconfigured, no remount). */
   syntax: boolean;
+  /** PRD 006 §1: live preview (experimental) — compartment-reconfigured live, no remount. */
+  livePreview: boolean;
+  /** PRD 006 §5: receives the URL of a cmd/ctrl-clicked rendered link (platform.openExternal). */
+  onOpenExternal?(url: string): void;
   /** SPEC23 §2: the vimNav setting — off ⇒ Esc stays inert, zero new behavior. */
   vimNav: boolean;
   /** SPEC23 §2/§4: nav-mode transitions (badge is internal; this feeds the seam). */
@@ -420,6 +425,8 @@ export default function Editor({
   onPasteImages,
   insertRef,
   syntax,
+  livePreview,
+  onOpenExternal,
   vimNav,
   onVimModeChange,
   onEditState,
@@ -454,6 +461,8 @@ export default function Editor({
   const gutterComp = useRef(new Compartment());
   const diffComp = useRef(new Compartment());
   const syntaxComp = useRef(new Compartment());
+  // PRD 006 §1: live preview rides its own compartment, same live-toggle pattern.
+  const lpComp = useRef(new Compartment());
   const smartComp = useRef(new Compartment());
   // SPEC43 §4: the Smart Edit menu — open state + anchor + the built model.
   const [smartMenu, setSmartMenu] = useState<{ x: number; y: number; entries: SmartMenuEntry[] } | null>(null);
@@ -486,6 +495,11 @@ export default function Editor({
   valueRef.current = value;
   const onPasteImagesRef = useRef(onPasteImages);
   onPasteImagesRef.current = onPasteImages;
+  // PRD 006 §5: the link hand-off reads through a ref so the extension stays
+  // stable while the callback prop changes identity across renders.
+  const onOpenExternalRef = useRef(onOpenExternal);
+  onOpenExternalRef.current = onOpenExternal;
+  const livePreviewExt = () => livePreviewExtension({ openExternal: (url) => onOpenExternalRef.current?.(url) });
   // SPEC23 §2: modal vim state — per mount, starts in typing mode.
   const [navMode, setNavMode] = useState(false);
   const vimResolver = useRef(new VimEditResolver());
@@ -924,8 +938,13 @@ export default function Editor({
       smartComp.current.of(smartEditButton(gutterTitle(), openMenuAtGutter)),
       diffComp.current.of([]),
       // SPEC23 §3: highlighting rides a compartment — toggling the setting
-      // reconfigures live, undo history intact.
-      syntaxComp.current.of(syntax ? syntaxHighlighting(mmHighlight) : []),
+      // reconfigures live, undo history intact. PRD 006 §12: while live
+      // preview is on it supersedes the setting — revealed raw lines keep
+      // the mm-md-* highlight styling whatever `editorSyntax` says.
+      syntaxComp.current.of(syntax || livePreview ? syntaxHighlighting(mmHighlight) : []),
+      // PRD 006 §1: the experimental live-preview extension, present only
+      // while the setting is on — off ⇒ an empty compartment, zero behavior.
+      lpComp.current.of(livePreview ? livePreviewExt() : []),
       // SPEC37 §3: aligned table mode. MUST precede the vim layer below —
       // both carry Prec.highest keydown handlers, and the first Esc has to
       // leave table mode before the next one can enter nav (§3.5).
@@ -1308,11 +1327,18 @@ export default function Editor({
   }, [showLineNumbers]);
 
   // SPEC23 §3: live highlight toggle — same compartment pattern as the gutter.
+  // PRD 006 §1/§12: the live-preview toggle reconfigures the same way (no
+  // remount, history intact), and while it's on the highlight stays for
+  // revealed lines regardless of the SPEC23 setting.
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: syntaxComp.current.reconfigure(syntax ? syntaxHighlighting(mmHighlight) : []),
+      effects: [
+        syntaxComp.current.reconfigure(syntax || livePreview ? syntaxHighlighting(mmHighlight) : []),
+        lpComp.current.reconfigure(livePreview ? livePreviewExt() : []),
+      ],
     });
-  }, [syntax]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syntax, livePreview]);
 
   // SPEC40 §1.3/§2.2: the global view — gridify on (initial mount included),
   // collapse off; both history-transparent inside the helpers.

@@ -3,10 +3,10 @@
  * extension — DOM/view wiring over the pure decoration core in
  * src/lib/livePreview.ts.
  *
- * Internal flag, not a setting: the extension activates only where a caller
- * includes `livePreviewExtension()` in its extension list. Nothing in the
- * shipped app references it yet — the settings toggle and Editor wiring land
- * in the final sub-issue (#50) — so the edit pane behaves exactly as today.
+ * PRD 006 §1 (#50): the shipped app reaches this through the
+ * "Live preview (experimental)" setting — Editor.tsx includes the extension
+ * in a compartment while `livePreview` is on; off (the default) the
+ * compartment is empty and the edit pane behaves exactly as before.
  */
 import {
   ViewPlugin,
@@ -200,18 +200,27 @@ export function livePreviewMousedown(open: ((url: string) => void) | undefined) 
   };
 }
 
+// PRD 006 §10: every painted color resolves from the theme's --mm-* tokens
+// (same tokens/fallbacks the preview pane and the SPEC23 mm-md-* classes
+// use in styles.css), so rendered constructs match the preview pane's look
+// in light and dark themes alike.
 const livePreviewTheme = EditorView.baseTheme({
   '.mm-lp-strong': { fontWeight: 'bold' },
   '.mm-lp-em': { fontStyle: 'italic' },
   '.mm-lp-strike': { textDecoration: 'line-through' },
-  '.mm-lp-code': { fontFamily: 'var(--mm-font-mono, monospace)' },
-  // PRD 006 §4: per-level heading size/weight.
-  '.mm-lp-h1': { fontSize: '1.6em', fontWeight: 'bold' },
-  '.mm-lp-h2': { fontSize: '1.4em', fontWeight: 'bold' },
-  '.mm-lp-h3': { fontSize: '1.25em', fontWeight: 'bold' },
-  '.mm-lp-h4': { fontSize: '1.1em', fontWeight: 'bold' },
-  '.mm-lp-h5': { fontSize: '1em', fontWeight: 'bold' },
-  '.mm-lp-h6': { fontSize: '0.9em', fontWeight: 'bold' },
+  '.mm-lp-code': {
+    fontFamily: 'var(--mm-font-mono, monospace)',
+    color: 'var(--mm-code-fg, var(--mm-fg, #1f2328))',
+    backgroundColor: 'var(--mm-code-bg, rgba(175, 184, 193, 0.2))',
+    borderRadius: '3px',
+  },
+  // PRD 006 §4: per-level heading size/weight, on the theme's heading color.
+  '.mm-lp-h1': { fontSize: '1.6em', fontWeight: 'bold', color: 'var(--mm-heading, var(--mm-fg, #1f2328))' },
+  '.mm-lp-h2': { fontSize: '1.4em', fontWeight: 'bold', color: 'var(--mm-heading, var(--mm-fg, #1f2328))' },
+  '.mm-lp-h3': { fontSize: '1.25em', fontWeight: 'bold', color: 'var(--mm-heading, var(--mm-fg, #1f2328))' },
+  '.mm-lp-h4': { fontSize: '1.1em', fontWeight: 'bold', color: 'var(--mm-heading, var(--mm-fg, #1f2328))' },
+  '.mm-lp-h5': { fontSize: '1em', fontWeight: 'bold', color: 'var(--mm-heading, var(--mm-fg, #1f2328))' },
+  '.mm-lp-h6': { fontSize: '0.9em', fontWeight: 'bold', color: 'var(--mm-heading, var(--mm-fg, #1f2328))' },
   // PRD 006 §5/§10: link styling rides the theme's link/accent tokens.
   '.mm-lp-link': {
     color: 'var(--mm-link, var(--mm-accent, #0969da))',
@@ -220,8 +229,9 @@ const livePreviewTheme = EditorView.baseTheme({
   },
   // PRD 006 §6: quote bar, list markers, and the drawn rule.
   '.mm-lp-quote': {
-    borderLeft: '3px solid var(--mm-accent, #0969da)',
+    borderLeft: '3px solid var(--mm-blockquote-border, #d1d9e0)',
     paddingLeft: '8px',
+    color: 'var(--mm-blockquote-fg, var(--mm-fg-muted, #57606a))',
   },
   '.mm-lp-list-num': { color: 'var(--mm-accent, #0969da)' },
   '.mm-lp-bullet': { color: 'var(--mm-accent, #0969da)' },
@@ -236,24 +246,25 @@ const livePreviewTheme = EditorView.baseTheme({
     display: 'inline-block',
     width: '100%',
     verticalAlign: 'middle',
-    borderTop: '1px solid var(--mm-border, #d0d7de)',
+    borderTop: '1px solid var(--mm-hr, var(--mm-border, #d0d7de))',
   },
 });
 
 /** PRD 006 §5: host hand-offs the extension needs from the component layer. */
 export interface LivePreviewOptions {
   /**
-   * Receives the URL of a cmd/ctrl-clicked link. #50 wires this to
-   * `platform.openExternal`, the same hand-off the preview pane uses;
-   * src/lib/ stays platform-free. Omitted → rendered links are inert.
+   * Receives the URL of a cmd/ctrl-clicked link. Editor.tsx wires this to
+   * `platform.openExternal` (PRD 006 §5), the same hand-off the preview
+   * pane uses; src/lib/ stays platform-free. Omitted → rendered links are
+   * inert.
    */
   openExternal?: (url: string) => void;
 }
 
 /**
- * PRD 006 §3–§8 (issues #47/#48/#49): the live-preview extension factory —
- * the internal opt-in flag. Callers that want live preview include this in
- * their extension list; the app as shipped never does.
+ * PRD 006 §3–§8 (issues #47/#48/#49): the live-preview extension factory.
+ * The shipped app includes it from Editor.tsx while the
+ * "Live preview (experimental)" setting is on (PRD 006 §1, #50).
  */
 export function livePreviewExtension(options: LivePreviewOptions = {}): Extension {
   return [
