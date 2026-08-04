@@ -295,8 +295,20 @@ ${detailSections}
 // agents never need push credentials; PR authorship (the bot) is what GitHub
 // shows regardless of who pushes.
 const pushBranch = async (worktreePath: string, branch: string) => {
+  // Refresh the remote-tracking ref first: these branches get pushed from
+  // more than one machine (laptop + VPS), so the local origin/<branch> is
+  // often stale and a bare --force-with-lease dies with "(stale info)" even
+  // though replacing the remote tip is exactly what the lane intends. The
+  // fetch pins the lease to the remote's actual tip: we knowingly replace
+  // what we just saw, and still refuse to clobber anything pushed in the
+  // moment between fetch and push.
+  try {
+    await execFileAsync("git", ["-C", worktreePath, "fetch", "origin", branch]);
+  } catch {
+    // branch doesn't exist on the remote yet — nothing to lease against
+  }
   await execFileAsync("git", [
-    "-C", worktreePath, "push", "--force-with-lease", "-u", "origin", branch,
+    "-C", worktreePath, "push", `--force-with-lease=${branch}`, "-u", "origin", branch,
   ]);
 };
 
