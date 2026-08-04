@@ -1402,6 +1402,14 @@ export default function App() {
   // (opening a doc from edit mode re-runs the effect before the new render).
   const renderPendingRef = useRef(false);
 
+  // Issue #43: the document epoch. Bumped by closeToSplash — the single choke
+  // point of every path back to the splash — so an in-flight renderMarkdown
+  // promise from the closed document can never land after close. The render
+  // effect's `cancelled` flag alone is not enough: it flips only at effect
+  // cleanup, and a promise resolving in the gap between the close commit and
+  // that cleanup would still repopulate `html` under the splash.
+  const docEpochRef = useRef(0);
+
   // --- document loading ------------------------------------------------------
   /** Watch `path` for external changes (replacing any previous watcher). */
   const installWatcher = useCallback(
@@ -1609,9 +1617,28 @@ export default function App() {
     [activateOpen, parkActive, openDoc]
   );
 
+  // Issue #43: the Editor's unmount cleanup reports its canonical text back
+  // through onChange (SPEC40 §2.3 — grids collapse to real tables when the
+  // view dies). When a close lands on the splash the unmount runs after the
+  // close commit, so that report would resurrect the closed buffer — and its
+  // preview render — under the logo. At the splash there is no document to
+  // report on: drop it instead of changing the Editor's unmount contract.
+  const onEditorChange = useCallback((next: string) => {
+    const s = stateRef.current;
+    if (!s.docPath && !s.untitled) return;
+    setBuffer(next);
+  }, []);
+
   /** SPEC4 clean start: close the buffer down to the splash (SPEC36 §3.5). */
   const closeToSplash = useCallback(() => {
     recordPosition(stateRef.current.docPath, currentTopLine());
+    docEpochRef.current++; // issue #43: orphan any in-flight markdown render
+    // Issue #43: the preview panes are imperative (`innerHTML`), so scrub
+    // them here, synchronously — no React effect ordering can then leave the
+    // closed document's DOM behind for the splash to composite over.
+    if (docRef.current) docRef.current.innerHTML = '';
+    if (splitDocRef.current) splitDocRef.current.innerHTML = '';
+    docTextRef.current = '';
     skipSaveRef.current = true;
     editorHistoryRef.current = null;
     pendingEditorSelRef.current = null;
@@ -3334,11 +3361,15 @@ export default function App() {
   useEffect(() => {
     if (mode !== 'preview' && !settings.splitEdit) return;
     let cancelled = false;
+    const epoch = docEpochRef.current; // issue #43: tied to the doc it renders
     const render = () =>
       // SPEC38 §3.5: the preview renders the canonical text — a real table,
       // never the display grid.
       void renderMarkdown(canonicalOf(buffer)).then((rendered) => {
-        if (cancelled) return;
+        // Issue #43: `cancelled` flips at effect cleanup, which runs after
+        // paint — a render resolving between the close-to-splash commit and
+        // that cleanup passes it. The epoch check drops it regardless.
+        if (cancelled || epoch !== docEpochRef.current) return;
         renderPendingRef.current = false; // fresh html — restores may consume
         setHtml(rendered);
       });
@@ -3438,8 +3469,12 @@ export default function App() {
     const doc = docRef.current;
     if (!doc) return;
     injectionCompleteRef.current = false;
-    doc.innerHTML = html;
-    if (!html) {
+    // Issue #43: at the splash (`!docPath && !untitled`) the container stays
+    // empty no matter what `html` still holds — whatever ordering let a stale
+    // render through, it must not paint the closed document under the logo.
+    const atSplash = !stateRef.current.docPath && !stateRef.current.untitled;
+    doc.innerHTML = atSplash ? '' : html;
+    if (atSplash || !html) {
       docTextRef.current = '';
       return;
     }
@@ -4238,7 +4273,7 @@ export default function App() {
               <Editor
                 value={buffer}
                 lineNumbers={settings.lineNumbers}
-                onChange={setBuffer}
+                onChange={onEditorChange}
                 historyRef={editorHistoryRef}
                 syncRef={editorSyncRef}
                 diff={diff}
@@ -4311,7 +4346,7 @@ export default function App() {
             <Editor
               value={buffer}
               lineNumbers={settings.lineNumbers}
-              onChange={setBuffer}
+              onChange={onEditorChange}
               historyRef={editorHistoryRef}
               syncRef={editorSyncRef}
               diff={diff}
