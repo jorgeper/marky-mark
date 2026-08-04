@@ -465,6 +465,9 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
   lanes.forEach((lane, i) => {
     const lx = laneX(i);
     const iss = byNumber.get(Number(lane.issue));
+    // every element of this lane carries data-lane so hover can light the
+    // whole branch at once (segments, base line, curves, labels)
+    const L = (s) => `<g data-lane="${esc(lane.issue)}">${s}</g>`;
 
     // where does this branch rejoin the trunk? merge commit or PR merge
     // time, else issue close
@@ -489,31 +492,31 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
     const yTop = Math.max(y(laneEndT), padTop);
 
     // base line under the segments (bridges gaps between runs)
-    lineLayer.push(`<line x1="${lx}" y1="${yTop}" x2="${lx}" y2="${yBottom}" stroke="#2c3542" stroke-width="1.5"></line>`);
+    lineLayer.push(L(`<line x1="${lx}" y1="${yTop}" x2="${lx}" y2="${yBottom}" stroke="#2c3542" stroke-width="1.5"></line>`));
 
     // fork out of the trunk (only when the branch point is inside the window)
     if (lane.first >= winStart) {
       const y0 = Math.min(yBottom + 24, padTop + height + 12);
       const ym = (y0 + yBottom) / 2;
-      lineLayer.push(`<path d="M ${trunkX} ${y0} C ${trunkX} ${ym}, ${lx} ${y0}, ${lx} ${yBottom}" fill="none" stroke="#2c3542" stroke-width="1.5"></path>`);
+      lineLayer.push(L(`<path d="M ${trunkX} ${y0} C ${trunkX} ${ym}, ${lx} ${y0}, ${lx} ${yBottom}" fill="none" stroke="#2c3542" stroke-width="1.5"></path>`));
     }
     // merge back into the trunk
     if (mergeT != null && !lane.running) {
       const my = Math.max(y(mergeT), padTop);
       const ym = my + 10;
-      lineLayer.push(`<path d="M ${lx} ${my + 20} C ${lx} ${ym}, ${trunkX} ${my + 20}, ${trunkX} ${my}" fill="none" stroke="#2c3542" stroke-width="1.5"></path>`);
+      lineLayer.push(L(`<path d="M ${lx} ${my + 20} C ${lx} ${ym}, ${trunkX} ${my + 20}, ${trunkX} ${my}" fill="none" stroke="#2c3542" stroke-width="1.5"></path>`));
     }
 
-    for (const e of lane.es) marks.push(segmentSvg(lx, e.r, e.span, y, padTop, padTop + height, live, segW));
+    for (const e of lane.es) marks.push(L(segmentSvg(lx, e.r, e.span, y, padTop, padTop + height, live, segW)));
 
-    if (lane.running) marks.push(`<circle cx="${lx}" cy="${padTop}" r="5" fill="#3fb950" class="pulse-svg"></circle>`);
+    if (lane.running) marks.push(L(`<circle cx="${lx}" cy="${padTop}" r="5" fill="#3fb950" class="pulse-svg"></circle>`));
 
     const title = iss ? `#${lane.issue} ${iss.title}` : `#${lane.issue}`;
-    text.push(`<text x="${lx}" y="${Math.max(yTop - 10, 12)}" text-anchor="middle" class="tl-issuenum"
-      data-issuestats="${esc(lane.issue)}" data-tip="${esc(title)}">#${esc(lane.issue)}</text>`);
+    text.push(L(`<text x="${lx}" y="${Math.max(yTop - 10, 12)}" text-anchor="middle" class="tl-issuenum"
+      data-issuestats="${esc(lane.issue)}" data-tip="${esc(title)}">#${esc(lane.issue)}</text>`));
     if (yBottom - yTop > 240) {
-      text.push(`<text x="${lx}" y="${Math.min(yBottom + 36, totalH - 4)}" text-anchor="middle" class="tl-issuenum"
-        data-issuestats="${esc(lane.issue)}" data-tip="${esc(title)}">#${esc(lane.issue)}</text>`);
+      text.push(L(`<text x="${lx}" y="${Math.min(yBottom + 36, totalH - 4)}" text-anchor="middle" class="tl-issuenum"
+        data-issuestats="${esc(lane.issue)}" data-tip="${esc(title)}">#${esc(lane.issue)}</text>`));
     }
   });
 
@@ -1032,6 +1035,24 @@ $('#pg-next').addEventListener('click', () => { state.page++; renderAgents(); })
 
 const tipEl = $('#tl-tip');
 document.addEventListener('mouseover', (e) => {
+  // hovering any part of a timeline lane lights the whole branch and
+  // recedes the others
+  const laneEl = e.target.closest && e.target.closest('[data-lane]');
+  const svg = laneEl && laneEl.closest('svg');
+  for (const s of document.querySelectorAll('svg.lane-focus')) {
+    if (s !== svg) {
+      s.classList.remove('lane-focus');
+      for (const el of s.querySelectorAll('.lane-hot')) el.classList.remove('lane-hot');
+    }
+  }
+  if (svg) {
+    svg.classList.add('lane-focus');
+    const key = laneEl.dataset.lane;
+    for (const el of svg.querySelectorAll('[data-lane]')) {
+      el.classList.toggle('lane-hot', el.dataset.lane === key);
+    }
+  }
+
   const t = e.target.closest && e.target.closest('[data-tip]');
   if (!t) { tipEl.hidden = true; return; }
   tipEl.textContent = t.dataset.tip; // textContent: tip strings carry untrusted titles

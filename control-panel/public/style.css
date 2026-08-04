@@ -260,6 +260,13 @@ footer {
 .tl-inline { overflow: hidden; }
 .tl-seg { cursor: pointer; }
 .tl-seg:hover { filter: brightness(1.25); }
+/* hover a lane: it lights up, sibling lanes recede (trunk/grid untouched) */
+svg [data-lane] { transition: opacity .15s ease; }
+svg.lane-focus [data-lane] { opacity: .22; }
+svg.lane-focus [data-lane].lane-hot { opacity: 1; }
+svg.lane-focus [data-lane].lane-hot line[stroke-width="1.5"],
+svg.lane-focus [data-lane].lane-hot path { stroke: #4d5a6e; }
+svg.lane-focus [data-lane].lane-hot .tl-issuenum { fill: var(--text); }
 /* labels sit in the top paint layer; the panel-colored halo keeps them
    readable where gridlines or branch curves pass beneath */
 .tickl, .nowl, .tl-issuenum { paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }

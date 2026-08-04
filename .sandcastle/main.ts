@@ -166,8 +166,12 @@ const VIEW_TASK_COMMAND = "gh issue view <ID>";
 // shippable work. Derived from GIT STATE, not any single run's commits: a
 // fresh-context attempt that merely verifies prior work makes none. 0 for
 // both "not started" and "fully merged"; callers must disambiguate with
-// goal/judge context.
-const branchAheadCount = async (branch: string): Promise<number> => {
+// goal/judge context. `null` means the branch does not exist locally —
+// it is NOT the same as 0: a lane can die before its branch syncs back to
+// this checkout, and conflating the two once closed an issue (#43) as
+// "already merged" while its fix sat on an unmerged branch. No caller may
+// treat a missing branch as merged.
+const branchAheadCount = async (branch: string): Promise<number | null> => {
   try {
     const { stdout } = await execFileAsync("git", [
       "rev-list",
@@ -176,7 +180,7 @@ const branchAheadCount = async (branch: string): Promise<number> => {
     ]);
     return Number.parseInt(stdout.trim(), 10);
   } catch {
-    return 0; // branch doesn't exist locally
+    return null; // branch doesn't exist locally
   }
 };
 
@@ -901,11 +905,21 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // them straight to the merge phase; if their branch turns out to be fully
   // merged already, the only missing state-advance is the close.
   const carriedToMerge: { id: string; title: string; branch: string }[] = [];
+  // ready-to-merge issues whose branch is missing locally: the verified work
+  // never synced back (lane died mid-collect). Closing would strand the fix
+  // (it did — #43); re-queue for a fresh implementation instead.
+  const requeueMissingBranch = new Set<number>();
   for (const entry of dispatch) {
     if (entry.action.kind !== "implement") continue;
     if (isPrLabeled(entry.issue.labels)) continue;
     if (!entry.issue.labels.includes("sandcastle:ready-to-merge")) continue;
-    if ((await branchAheadCount(branchFor(entry.issue.number))) > 0) {
+    const ahead = await branchAheadCount(branchFor(entry.issue.number));
+    if (ahead === null) {
+      console.warn(
+        `  ⚠ #${entry.issue.number}: sandcastle:ready-to-merge but ${branchFor(entry.issue.number)} does not exist locally — a missing branch is never "merged"; re-queueing for implementation.`,
+      );
+      requeueMissingBranch.add(entry.issue.number);
+    } else if (ahead > 0) {
       logStep(
         `#${entry.issue.number}: goal already verified — carrying straight to merge.`,
       );
@@ -926,7 +940,11 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   }
   const candidates = dispatch
     .filter((entry) => entry.action.kind === "implement")
-    .filter((entry) => !entry.issue.labels.includes("sandcastle:ready-to-merge"))
+    .filter(
+      (entry) =>
+        !entry.issue.labels.includes("sandcastle:ready-to-merge") ||
+        requeueMissingBranch.has(entry.issue.number),
+    )
     .map((entry) => entry.issue.number);
 
   if (candidates.length === 0 && carriedToMerge.length === 0) {
@@ -1234,7 +1252,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     if (prLabelByNumber.get(Number(issue.id))) continue;
     if (
       outcome.value.commits.length > 0 ||
-      (await branchAheadCount(issue.branch)) > 0
+      ((await branchAheadCount(issue.branch)) ?? 0) > 0 // missing branch: nothing to merge
     ) {
       completedIssues.push(issue);
     }
@@ -1299,7 +1317,16 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // branch the merger actually merged has a closed issue; close
   // deterministically if not.
   for (const issue of completedIssues) {
-    if ((await branchAheadCount(issue.branch)) > 0) continue; // not merged
+    const ahead = await branchAheadCount(issue.branch);
+    if (ahead === null) {
+      // Branch vanished between merge input and here — whatever happened,
+      // "missing" is not "merged"; never close on it.
+      console.warn(
+        `  ⚠ #${issue.id}: ${issue.branch} no longer exists locally — skipping the merged-issue close check.`,
+      );
+      continue;
+    }
+    if (ahead > 0) continue; // not merged
     const state = (
       await github
         .gh(["issue", "view", issue.id, "--json", "state", "--jq", ".state"])
