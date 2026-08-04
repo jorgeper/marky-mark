@@ -68,6 +68,7 @@ import {
   type WorkspaceSession,
 } from './lib/workspace';
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
+import { isDirtyText, normalizeEol } from './lib/dirty';
 import { relativePath, remapPath, uniqueChildName } from './lib/folderOps';
 import { FolderExpandButton, FolderPanel, PreviewToggleButton } from './components/FolderPanel';
 import {
@@ -450,7 +451,8 @@ export default function App() {
   // every place the buffer is compared or shipped uses the canonical
   // (collapsed) text. Identity whenever the mode is off.
   const canonicalOf = useCallback((t: string) => smartEditRef.current?.canonicalText(t) ?? t, []);
-  const dirty = canonicalOf(buffer) !== savedText;
+  // Issue #42: every dirty decision goes through the one shared predicate.
+  const dirty = isDirtyText(canonicalOf(buffer), savedText);
   // SPEC36 §3.6: open rows carrying unsaved changes (parked dirtiness only
   // moves on switches, so these deps re-derive it exactly when it can change).
   const dirtyOpenFiles = useMemo(() => {
@@ -461,7 +463,7 @@ export default function App() {
         continue;
       }
       const pk = parkRef.current.get(f);
-      if (pk && pk.buffer !== pk.savedText) set.add(f);
+      if (pk && isDirtyText(pk.buffer, pk.savedText)) set.add(f); // issue #42: the shared predicate
     }
     return set;
   }, [openFiles, docPath, dirty]);
@@ -506,6 +508,36 @@ export default function App() {
     showComments,
     html,
   };
+
+  /**
+   * Issue #42: the document the MOUNTED editor's text belongs to. Assigned
+   * only on renders that show an editor pane, so in the commit that switches
+   * or closes a document (mode forced back to preview) it still names the
+   * OUTGOING doc — exactly the identity editorChanged routes by.
+   */
+  const editorSessionDocRef = useRef<string | null>(null);
+  if (mode !== 'preview') editorSessionDocRef.current = docPath ?? (untitled ? UNTITLED_SENTINEL : null);
+
+  /**
+   * Issue #42: every editor text push lands here. The editor's unmount
+   * cleanup reports the OUTGOING doc's canonical text (SPEC40 §2.3), and
+   * that cleanup runs in the same commit in which a tab switch, close, or
+   * open-over has already re-pointed the buffer at ANOTHER document — an
+   * unrouted push would clobber the new buffer and read as spurious dirt.
+   * Same doc → the buffer (ordinary typing and the edit→preview
+   * canonicalization); still-parked doc → its park entry; closed/replaced
+   * doc → dropped.
+   */
+  const editorChanged = useCallback((t: string) => {
+    const s = stateRef.current;
+    const sessionDoc = editorSessionDocRef.current;
+    if (sessionDoc === (s.docPath ?? (s.untitled ? UNTITLED_SENTINEL : null))) {
+      setBuffer(t);
+      return;
+    }
+    const entry = sessionDoc ? parkRef.current.get(sessionDoc) : undefined;
+    if (entry) entry.buffer = t;
+  }, []);
 
   // --- SPEC23 §4: dev-shim-only __mmEdit seam (same gating as __mmMenu) ---------
   const seamEditState = useCallback(
@@ -1045,7 +1077,13 @@ export default function App() {
       trailerBytes: split.readable ? null : split.trailerBytes ?? null,
     };
     return {
-      content: split.content,
+      // Issue #42: line endings normalize ONCE, at load — buffer and
+      // savedText are LF internally, so a CRLF file round-tripping through
+      // CodeMirror (whose toString() joins with '\n') never reads as dirty.
+      // Deliberate consequence: a Save of a CRLF file writes LF — which any
+      // edited save already did — making the written form deterministic.
+      // The trailer stays raw (trailerBytes are preserved byte-for-byte).
+      content: normalizeEol(split.content),
       comments: mergeComments(split.comments, sidecarComments),
       stores: docStores,
     };
@@ -1252,7 +1290,11 @@ export default function App() {
     const s = stateRef.current;
     if (!s.docPath) return;
     parkRef.current.set(s.docPath, {
-      buffer: s.buffer,
+      // Issue #42 / SPEC38 §3.5: park entries store CANONICAL text — mid
+      // table-mode the live buffer holds the display grid, and every parked
+      // dirty check compares against the compact savedText. The outgoing
+      // editor is still mounted here, so canonicalOf still collapses.
+      buffer: canonicalOf(s.buffer),
       savedText: s.savedText,
       comments: s.comments,
       stores: s.stores, // PRD 004 Req 13: the verdict follows the document
@@ -1261,7 +1303,7 @@ export default function App() {
     // If the switch leaves edit mode, the real snapshot only exists after the
     // editor unmounts — the post-commit effect patches this entry then.
     parkHistoryFixupRef.current = s.docPath;
-  }, []);
+  }, [canonicalOf]);
 
   /** List one directory (visible, sorted) into the children cache. */
   const listFolderDir = useCallback(async (p: Platform, dir: string) => {
@@ -1448,7 +1490,10 @@ export default function App() {
       } catch {
         /* unreadable right now — the parked bundle carries on */
       }
-      if (parked.buffer === parked.savedText && disk && disk.content !== parked.savedText) {
+      // Issue #42: both checks ride the shared predicate — a parked buffer
+      // clean modulo EOL is clean, and a disk that moved only in EOL
+      // representation has not moved on.
+      if (!isDirtyText(parked.buffer, parked.savedText) && disk && isDirtyText(disk.content, parked.savedText)) {
         content = disk.content;
         saved = disk.content;
         stored = disk.comments;
@@ -1661,7 +1706,7 @@ export default function App() {
         const s = stateRef.current;
         const isActive = s.docPath === path;
         const pk = parkRef.current.get(path);
-        const isDirty = isActive ? s.dirty : !!pk && pk.buffer !== pk.savedText;
+        const isDirty = isActive ? s.dirty : !!pk && isDirtyText(pk.buffer, pk.savedText); // issue #42
         if (isDirty) {
           if (!isActive) await activateOpen(p, path); // §3.4: visible behind the modal
           setOpenPrompt({ kind: 'close-file', path });
@@ -1705,7 +1750,7 @@ export default function App() {
           ? s.dirty
           : (() => {
               const pk = parkRef.current.get(f);
-              return !!pk && pk.buffer !== pk.savedText;
+              return !!pk && isDirtyText(pk.buffer, pk.savedText); // issue #42
             })();
       if (isDirty) q.push(f);
     }
@@ -2603,7 +2648,7 @@ export default function App() {
         return;
       }
       const pk = parkRef.current.get(t);
-      const isDirty = t === s.docPath ? s.dirty : !!pk && pk.buffer !== pk.savedText;
+      const isDirty = t === s.docPath ? s.dirty : !!pk && isDirtyText(pk.buffer, pk.savedText); // issue #42
       if (!openFilesRef.current.includes(t) || !isDirty) {
         q.shift();
         continue;
@@ -4238,7 +4283,7 @@ export default function App() {
               <Editor
                 value={buffer}
                 lineNumbers={settings.lineNumbers}
-                onChange={setBuffer}
+                onChange={editorChanged}
                 historyRef={editorHistoryRef}
                 syncRef={editorSyncRef}
                 diff={diff}
@@ -4311,7 +4356,7 @@ export default function App() {
             <Editor
               value={buffer}
               lineNumbers={settings.lineNumbers}
-              onChange={setBuffer}
+              onChange={editorChanged}
               historyRef={editorHistoryRef}
               syncRef={editorSyncRef}
               diff={diff}

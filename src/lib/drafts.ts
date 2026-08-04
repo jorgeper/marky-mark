@@ -4,6 +4,7 @@
  * explicit discard deletes it. On boot, a non-stale draft offers a restore.
  * Pure: parse/serialize/staleness only — I/O and debounce live in the app.
  */
+import { isDirtyText } from './dirty';
 
 export interface Draft {
   version: 1;
@@ -32,9 +33,11 @@ export function serializeDraft(draft: Draft): string {
 /**
  * A draft is stale when the disk already holds its content (nothing to
  * restore — the save landed, or the user reproduced the state). Untitled
- * drafts are stale only when empty.
+ * drafts are stale only when empty. Issue #42: "holds its content" rides
+ * the shared dirty predicate, so a disk copy differing only in line-ending
+ * representation (drafts are written LF-canonical) still reads as stale.
  */
 export function isStaleDraft(draft: Draft, diskContent: string | null): boolean {
   if (draft.docPath === null) return draft.content === '';
-  return diskContent !== null && diskContent === draft.content;
+  return diskContent !== null && !isDirtyText(diskContent, draft.content);
 }
