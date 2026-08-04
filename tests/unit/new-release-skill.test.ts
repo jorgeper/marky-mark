@@ -44,7 +44,7 @@ describe('PRD 008 §R3 /new-release body template', () => {
   });
 
   test('U211: the template carries exactly the three placeholders, once each', () => {
-    const placeholders = (template.match(/\{\{[A-Z]+\}\}/g) ?? []).sort();
+    const placeholders = (template.match(/\{\{[^{}]+\}\}/g) ?? []).sort();
     expect(placeholders).toEqual(['{{CHANGELOG}}', '{{PLATFORMS}}', '{{VERSION}}']);
   });
 });
