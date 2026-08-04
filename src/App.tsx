@@ -2506,6 +2506,12 @@ export default function App() {
 
   const toggleMode = useCallback(() => {
     const s = stateRef.current;
+    // Issue #40: entering edit mode requires an open document (file or
+    // untitled) — the splash is preview-only, and a guardless toggle would
+    // mount a phantom buffer that can never be saved. Guarding in the
+    // handler keeps every dispatch route (hotkey, native menu, toolbar)
+    // inert through one gate, like toggleFolders.
+    if (s.mode === 'preview' && !s.docPath && !s.untitled) return;
     // SPEC25: carry the current selection across the mode switch.
     if (s.mode === 'preview') {
       pendingEditorSelRef.current =

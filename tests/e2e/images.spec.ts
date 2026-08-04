@@ -60,11 +60,13 @@ test('E72: a second paste numbers {n}=2; pasting into an untitled buffer shows t
   await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('images/welcome%202.png');
   expect(await fsRead(page, '/docs/images/welcome 2.png')).not.toBeNull();
 
-  // Untitled buffer (fresh app, no document open): paste writes nothing.
+  // Untitled buffer: paste writes nothing. File → New is the route to it —
+  // issue #40 made the edit toggle inert on the splash (E141), so a fresh
+  // untitled buffer comes from Ctrl+N (SPEC22 §1.1: opens in edit mode).
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
-  await page.keyboard.press('Control+e');
+  await page.keyboard.press('Control+n');
   await expect(page.getByTestId('editor')).toBeVisible();
   await pasteImage(page, TINY_PNG);
   await expect(page.getByTestId('notice')).toContainText('Save the document first');

@@ -370,6 +370,21 @@ describe('SPEC12 menu spec', () => {
     expect(find(wsNoDoc, 'File', 'closeWorkspace')!.disabled).toBeUndefined();
   });
 
+  test('U191: issue #40 — Edit Mode grays out with no document open (splash and workspace alike), enabled once one is', () => {
+    for (const isMac of [true, false]) {
+      // No document: disabled on the standalone splash AND in a workspace
+      // with no file active.
+      const splash = { ...base, isMac, appMode: 'splash' as const, docOpen: false };
+      expect(find(splash, 'View', 'toggleMode')!.disabled).toBe(true);
+      const wsNoDoc = { ...base, isMac, appMode: 'workspace' as const, docOpen: false };
+      expect(find(wsNoDoc, 'View', 'toggleMode')!.disabled).toBe(true);
+      // Document open (a file, or the untitled buffer — both set docOpen).
+      for (const appMode of ['file', 'workspace'] as const) {
+        expect(find({ ...base, isMac, appMode, docOpen: true }, 'View', 'toggleMode')!.disabled).toBeUndefined();
+      }
+    }
+  });
+
   test('U61: View starts with Folders (Mod+Shift+E checkbox); File carries Open Folder… after Open Recent; settings clamp', () => {
     expect(DEFAULT_HOTKEYS.toggleFolders).toBe('Mod+Shift+E');
     for (const s of [base, { ...base, isMac: false }]) {

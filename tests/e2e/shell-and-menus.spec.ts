@@ -50,6 +50,30 @@ test('E1: launch shows the clean empty state; Help opens the welcome doc fully r
   await expect(doc.locator('input[type="checkbox"]').first()).toBeVisible();
 });
 
+test('E141: no document open — the edit hotkey and toolbar control leave the splash in preview; no editor mounts, nothing goes dirty (#40)', async ({
+  page,
+}) => {
+  // beforeEach opened welcome — reset to a pristine launch for this test.
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  const hint = page.getByTestId('empty-hint');
+  await expect(hint).toBeVisible();
+
+  // Issue #40: the toggleEdit hotkey must be inert with no document open —
+  // no editor surface, no phantom untitled buffer.
+  await page.keyboard.press('Control+e');
+  await expect(hint).toBeVisible();
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(page.locator('.cm-content')).toHaveCount(0);
+
+  // The toolbar's mode control dispatches the same command — inert too.
+  await revealToolbar(page);
+  await page.getByTestId('edit-toggle').click();
+  await expect(hint).toBeVisible();
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
+
 test('E13: toolbar is minimal — one overflow menu with exactly Open/Save/Save As/Settings; menu Save persists', async ({
   page,
 }) => {
