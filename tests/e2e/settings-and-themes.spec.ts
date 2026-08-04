@@ -405,6 +405,17 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
   expect(flush.inset).toBeLessThanOrEqual(2);
   expect(flush.left).toMatch(/^0px /);
   expect(flush.right).toMatch(/^1px solid /);
+
+  // Issue #63: the flush right rule is themed too. It reads --mm-border —
+  // never CodeMirror's hardcoded #ddd — so it follows a theme change, while
+  // the left rule stays off the seam throughout.
+  expect(flush.right).not.toContain('rgb(221, 221, 221)');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect.poll(async () => (await gutter()).right).not.toBe(flush.right);
+  const darkFlush = await gutter();
+  expect(darkFlush.right).toMatch(/^1px solid /);
+  expect(darkFlush.right).not.toContain('rgb(221, 221, 221)');
+  expect(darkFlush.left).toMatch(/^0px /);
 });
 
 test('E156: issue #52 — the line-number gutter follows the theme instead of staying CodeMirror gray', async ({

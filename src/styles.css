@@ -774,22 +774,26 @@ mark.hl.ghost {
    mode: the split pane hugs the folder seam (issue #7), but so does a
    full-screen pane once the folder panel or a narrow window eats its slack,
    and a left rule drawn flush on that seam doubles .folder-panel::after's own
-   hairline in the very same token. Flush keeps CodeMirror's single right
-   border, untouched. */
+   hairline in the very same token. Only the LEFT rule is gated here; the
+   right rule is unconditional (issue #63, below) and reads the same
+   --mm-border token, so the two sides can never drift apart when both show. */
 .editor-wrap.gutter-inset .cm-editor .cm-gutters {
   border-left: 1px solid var(--mm-border, #d1d9e0);
-  border-right: 1px solid var(--mm-border, #d1d9e0);
 }
 
 /* Issue #52: CodeMirror's base theme paints the gutter surface itself — a
    hardcoded light-gray strip (#f5f5f5 behind #6c6c6c digits in &light) that
    nothing above overrode, so the strip stayed the same gray in every theme.
    The gutter reads the same surface token as .cm-editor and the digits the
-   muted foreground, so both follow the active theme; the issue #10 side
-   rules above stay the strip's only delineation. */
+   muted foreground, so both follow the active theme.
+   Issue #63: the right rule lives here, ungated, because the base theme's
+   hardcoded right border (#ddd in &light) otherwise wins whenever the gutter
+   sits flush and .gutter-inset is absent — gray on every theme. It reads the
+   same --mm-border token as the inset-only left rule above. */
 .editor-wrap .cm-editor .cm-gutters {
   background: var(--mm-bg, #ffffff);
   color: var(--mm-fg-muted, #59636e);
+  border-right: 1px solid var(--mm-border, #d1d9e0);
 }
 
 /* Issue #52: the base theme's active-line gutter highlight is another
