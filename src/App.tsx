@@ -4318,7 +4318,17 @@ export default function App() {
             {frontMatter && showFrontmatter && (
               <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
             )}
-            {!docPath && !untitled && (
+            {!docPath && !untitled && appMode === 'workspace' && (
+              <div className="empty-center">
+                {/* Issue #39: with a workspace open, the empty preview invites
+                    a pick from the folder view — the splash is reserved for
+                    the true initial state (no workspace, no document). */}
+                <p className="workspace-empty-hint" data-testid="workspace-empty-hint">
+                  Select a file in the folder view to open it
+                </p>
+              </div>
+            )}
+            {!docPath && !untitled && appMode !== 'workspace' && (
               <div className="empty-center">
                 {/* SPEC27 §3 (revised): the splash — the app icon, larger,
                     then the About info and one drop hint. No title text, no

@@ -479,7 +479,9 @@ test('E99: delete — cancel no-op, dim file trashes, open dirty file to splash,
   await expect(page.getByTestId('folder-delete-prompt')).toContainText('Move “b.md” to the Trash?');
   await expect(page.getByTestId('folder-delete-prompt')).toContainText('It has unsaved changes.');
   await page.getByTestId('folder-delete-confirm').click();
-  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  // Issue #39: workspace still open — the folder-view hint, never the splash.
+  await expect(page.getByTestId('workspace-empty-hint')).toBeVisible();
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
   await expect(page.locator('.folder-item.selected')).toHaveCount(0);
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveCount(0);
   await expect.poll(() => fsRead(page, '/config/recent.json')).not.toContain('/notes/sub/b.md');
@@ -496,7 +498,7 @@ test('E99: delete — cancel no-op, dim file trashes, open dirty file to splash,
   await expect(page.getByTestId('folder-delete-prompt')).toContainText('Move “sub” and its contents to the Trash?');
   await expect(page.getByTestId('folder-delete-prompt')).not.toContainText('unsaved');
   await page.getByTestId('folder-delete-confirm').click();
-  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('workspace-empty-hint')).toBeVisible(); // Issue #39
   await expect(page.locator('[data-path="/notes/sub"]')).toHaveCount(0);
   await expect(page.locator('[data-path="/notes/sub/deep/c.md"]')).toHaveCount(0);
   await expect.poll(() => fsRead(page, '/config/foldertree.json')).not.toContain('/notes/sub');

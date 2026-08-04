@@ -236,13 +236,15 @@ test('E103: dirty lifecycle — free switching, ● markers, hover ✕, cancel/d
   await expect(page.locator('[data-path="/notes/sub/deep/c.md"]')).not.toHaveClass(/\bopen\b/);
   await expect(page.getByTestId('docname')).toContainText('a.md');
 
-  // Closing the LAST open file (dirty ⇒ prompt) lands on the splash with
-  // the selection cleared.
+  // Closing the LAST open file (dirty ⇒ prompt) lands on the workspace
+  // empty hint — never the splash while a workspace is open (Issue #39) —
+  // with the selection cleared.
   await page.locator('[data-path="/notes/a.md"]').hover();
   await page.locator('[data-path="/notes/a.md"] [data-testid="folder-tab-close"]').click();
   await expect(page.getByTestId('open-prompt')).toBeVisible();
   await page.getByTestId('open-discard').click();
-  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('workspace-empty-hint')).toBeVisible();
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
   await expect(page.locator('.folder-item.selected')).toHaveCount(0);
 });
 
@@ -453,4 +455,28 @@ test('E131: three-mode model — per-mode menu gating, Close File → splash, Cl
   await page.getByTestId('ws-close-discard').click();
   await expect(page.getByTestId('folder-header')).toContainText('other');
   await expect(page.locator('[data-path="/notes"]')).toHaveCount(0);
+});
+
+test('E157: workspace open with no document — the folder-view hint replaces the splash; the splash returns once the workspace closes (#39)', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await openNotesRoot(page);
+
+  // Close File on the open (clean) doc: the workspace stays, so the empty
+  // preview is the pick-a-file hint — never the splash (Issue #39).
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  const wsHint = page.getByTestId('workspace-empty-hint');
+  await expect(wsHint).toBeVisible();
+  await expect(wsHint).toContainText('Select a file in the folder view to open it');
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  // Close Workspace: nothing open at all — the true splash returns.
+  await page.evaluate(() => window.__mmDispatch!('closeWorkspace'));
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('splash-mark')).toBeVisible();
+  await expect(wsHint).toHaveCount(0);
 });
