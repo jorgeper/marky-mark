@@ -487,7 +487,11 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
       if (t >= lane.first - 60e3 && t <= winEnd) mergeT = t;
     }
 
-    const laneEndT = lane.running ? winEnd : Math.max(lane.last, mergeT || 0);
+    // The branch line ends where its last run ends (usually the reviewer);
+    // the merge curve carries it the rest of the way to the trunk. Anchoring
+    // the curve at merge-time-minus-a-stem instead used to swallow the short
+    // reviewer segment, so the curve looked like it left the implementer.
+    const laneEndT = lane.running ? winEnd : lane.last;
     const yBottom = Math.min(y(lane.first), padTop + height);
     const yTop = Math.max(y(laneEndT), padTop);
 
@@ -500,11 +504,12 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
       const ym = (y0 + yBottom) / 2;
       lineLayer.push(L(`<path d="M ${trunkX} ${y0} C ${trunkX} ${ym}, ${lx} ${y0}, ${lx} ${yBottom}" fill="none" stroke="#2c3542" stroke-width="1.5"></path>`));
     }
-    // merge back into the trunk
+    // merge back into the trunk: one smooth sweep from the end of the last
+    // run to the merge commit, however long the merger took to get there
     if (mergeT != null && !lane.running) {
       const my = Math.max(y(mergeT), padTop);
-      const ym = my + 10;
-      lineLayer.push(L(`<path d="M ${lx} ${my + 20} C ${lx} ${ym}, ${trunkX} ${my + 20}, ${trunkX} ${my}" fill="none" stroke="#2c3542" stroke-width="1.5"></path>`));
+      const mid = (yTop + my) / 2;
+      lineLayer.push(L(`<path d="M ${lx} ${yTop} C ${lx} ${mid}, ${trunkX} ${mid}, ${trunkX} ${my}" fill="none" stroke="#2c3542" stroke-width="1.5"></path>`));
     }
 
     for (const e of lane.es) marks.push(L(segmentSvg(lx, e.r, e.span, y, padTop, padTop + height, live, segW)));
