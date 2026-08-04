@@ -25,4 +25,11 @@ describe('SPEC30 crash-safe drafts', () => {
     expect(isStaleDraft(untitled, null)).toBe(false);
     expect(isStaleDraft({ ...untitled, content: '' }, null)).toBe(true);
   });
+
+  test('U166: issue #42 — a disk copy differing only in line endings makes the draft stale', () => {
+    const doc: Draft = { version: 1, docPath: '/docs/a.md', content: 'one\ntwo\nthree\n', at: '2026-08-04T12:00:00Z' };
+    expect(isStaleDraft(doc, 'one\r\ntwo\r\nthree\r\n')).toBe(true);
+    // A real content difference still offers the restore.
+    expect(isStaleDraft(doc, 'one\r\ntwo!\r\nthree\r\n')).toBe(false);
+  });
 });

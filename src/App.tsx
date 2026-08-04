@@ -68,6 +68,7 @@ import {
   type WorkspaceSession,
 } from './lib/workspace';
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
+import { isDirtyText, normalizeEol } from './lib/dirty';
 import { relativePath, remapPath, uniqueChildName } from './lib/folderOps';
 import { FolderExpandButton, FolderPanel, PreviewToggleButton } from './components/FolderPanel';
 import {
@@ -121,6 +122,15 @@ type Mode = 'preview' | 'edit';
 
 /** SPEC36 §7: the quit walk's stand-in for a dirty untitled buffer. */
 const UNTITLED_SENTINEL = '\u0000untitled';
+
+/**
+ * Issue #42: the identity editor pushes are routed by — the doc path, the
+ * untitled sentinel, or null when nothing is open. editorSessionDocRef and
+ * editorChanged must agree on it exactly, so it is computed in one place.
+ */
+function docIdentity(docPath: string | null, untitled: boolean): string | null {
+  return docPath ?? (untitled ? UNTITLED_SENTINEL : null);
+}
 
 /** SPEC15 §3.3: anchor tops in the scroller's content coordinates. */
 function collectAnchors(scroller: HTMLElement, docEl: HTMLElement): SyncAnchor[] {
@@ -450,7 +460,15 @@ export default function App() {
   // every place the buffer is compared or shipped uses the canonical
   // (collapsed) text. Identity whenever the mode is off.
   const canonicalOf = useCallback((t: string) => smartEditRef.current?.canonicalText(t) ?? t, []);
-  const dirty = canonicalOf(buffer) !== savedText;
+  // Issue #42: every dirty decision goes through the one shared predicate.
+  const dirty = isDirtyText(canonicalOf(buffer), savedText);
+  // Issue #42: the parked half of the same rule — every "is this parked file
+  // dirty?" site asks here, so they can never disagree either. Park entries
+  // hold canonical text (see parkActive), so no canonicalOf on this path.
+  const parkedDirty = useCallback((path: string) => {
+    const pk = parkRef.current.get(path);
+    return !!pk && isDirtyText(pk.buffer, pk.savedText);
+  }, []);
   // SPEC36 §3.6: open rows carrying unsaved changes (parked dirtiness only
   // moves on switches, so these deps re-derive it exactly when it can change).
   const dirtyOpenFiles = useMemo(() => {
@@ -460,11 +478,10 @@ export default function App() {
         if (dirty) set.add(f);
         continue;
       }
-      const pk = parkRef.current.get(f);
-      if (pk && pk.buffer !== pk.savedText) set.add(f);
+      if (parkedDirty(f)) set.add(f);
     }
     return set;
-  }, [openFiles, docPath, dirty]);
+  }, [openFiles, docPath, dirty, parkedDirty]);
   // SPEC26: display-parsed front matter for the card (null ⇒ none).
   const frontMatter = useMemo(() => ((docPath || untitled) ? parseFrontMatter(buffer) : null), [buffer, docPath, untitled]);
   const showFrontmatter = fmOverride ?? settings.showFrontmatter;
@@ -506,6 +523,36 @@ export default function App() {
     showComments,
     html,
   };
+
+  /**
+   * Issue #42: the document the MOUNTED editor's text belongs to. Assigned
+   * only on renders that show an editor pane, so in the commit that switches
+   * or closes a document (mode forced back to preview) it still names the
+   * OUTGOING doc — exactly the identity editorChanged routes by.
+   */
+  const editorSessionDocRef = useRef<string | null>(null);
+  if (mode !== 'preview') editorSessionDocRef.current = docIdentity(docPath, untitled);
+
+  /**
+   * Issue #42: every editor text push lands here. The editor's unmount
+   * cleanup reports the OUTGOING doc's canonical text (SPEC40 §2.3), and
+   * that cleanup runs in the same commit in which a tab switch, close, or
+   * open-over has already re-pointed the buffer at ANOTHER document — an
+   * unrouted push would clobber the new buffer and read as spurious dirt.
+   * Same doc → the buffer (ordinary typing and the edit→preview
+   * canonicalization); still-parked doc → its park entry; closed/replaced
+   * doc → dropped.
+   */
+  const editorChanged = useCallback((t: string) => {
+    const s = stateRef.current;
+    const sessionDoc = editorSessionDocRef.current;
+    if (sessionDoc === docIdentity(s.docPath, s.untitled)) {
+      setBuffer(t);
+      return;
+    }
+    const entry = sessionDoc ? parkRef.current.get(sessionDoc) : undefined;
+    if (entry) entry.buffer = t;
+  }, []);
 
   // --- SPEC23 §4: dev-shim-only __mmEdit seam (same gating as __mmMenu) ---------
   const seamEditState = useCallback(
@@ -1045,7 +1092,13 @@ export default function App() {
       trailerBytes: split.readable ? null : split.trailerBytes ?? null,
     };
     return {
-      content: split.content,
+      // Issue #42: line endings normalize ONCE, at load — buffer and
+      // savedText are LF internally, so a CRLF file round-tripping through
+      // CodeMirror (whose toString() joins with '\n') never reads as dirty.
+      // Deliberate consequence: a Save of a CRLF file writes LF — which any
+      // edited save already did — making the written form deterministic.
+      // The trailer stays raw (trailerBytes are preserved byte-for-byte).
+      content: normalizeEol(split.content),
       comments: mergeComments(split.comments, sidecarComments),
       stores: docStores,
     };
@@ -1252,7 +1305,11 @@ export default function App() {
     const s = stateRef.current;
     if (!s.docPath) return;
     parkRef.current.set(s.docPath, {
-      buffer: s.buffer,
+      // Issue #42 / SPEC38 §3.5: park entries store CANONICAL text — mid
+      // table-mode the live buffer holds the display grid, and every parked
+      // dirty check compares against the compact savedText. The outgoing
+      // editor is still mounted here, so canonicalOf still collapses.
+      buffer: canonicalOf(s.buffer),
       savedText: s.savedText,
       comments: s.comments,
       stores: s.stores, // PRD 004 Req 13: the verdict follows the document
@@ -1261,7 +1318,7 @@ export default function App() {
     // If the switch leaves edit mode, the real snapshot only exists after the
     // editor unmounts — the post-commit effect patches this entry then.
     parkHistoryFixupRef.current = s.docPath;
-  }, []);
+  }, [canonicalOf]);
 
   /** List one directory (visible, sorted) into the children cache. */
   const listFolderDir = useCallback(async (p: Platform, dir: string) => {
@@ -1448,7 +1505,10 @@ export default function App() {
       } catch {
         /* unreadable right now — the parked bundle carries on */
       }
-      if (parked.buffer === parked.savedText && disk && disk.content !== parked.savedText) {
+      // Issue #42: both checks ride the shared predicate — a parked buffer
+      // clean modulo EOL is clean, and a disk that moved only in EOL
+      // representation has not moved on.
+      if (!isDirtyText(parked.buffer, parked.savedText) && disk && isDirtyText(disk.content, parked.savedText)) {
         content = disk.content;
         saved = disk.content;
         stored = disk.comments;
@@ -1660,8 +1720,7 @@ export default function App() {
       void (async () => {
         const s = stateRef.current;
         const isActive = s.docPath === path;
-        const pk = parkRef.current.get(path);
-        const isDirty = isActive ? s.dirty : !!pk && pk.buffer !== pk.savedText;
+        const isDirty = isActive ? s.dirty : parkedDirty(path);
         if (isDirty) {
           if (!isActive) await activateOpen(p, path); // §3.4: visible behind the modal
           setOpenPrompt({ kind: 'close-file', path });
@@ -1670,7 +1729,7 @@ export default function App() {
         finishCloseFile(p, path);
       })();
     },
-    [activateOpen, finishCloseFile]
+    [activateOpen, finishCloseFile, parkedDirty]
   );
 
   /** SPEC36 §6.3: Ctrl+Tab / Ctrl+Shift+Tab — tree order, wrap, no prompts. */
@@ -1700,18 +1759,12 @@ export default function App() {
     const s = stateRef.current;
     const q: string[] = [];
     for (const f of openFilesRef.current) {
-      const isDirty =
-        f === s.docPath
-          ? s.dirty
-          : (() => {
-              const pk = parkRef.current.get(f);
-              return !!pk && pk.buffer !== pk.savedText;
-            })();
+      const isDirty = f === s.docPath ? s.dirty : parkedDirty(f);
       if (isDirty) q.push(f);
     }
     if (s.untitled && s.dirty) q.push(UNTITLED_SENTINEL);
     return q;
-  }, []);
+  }, [parkedDirty]);
 
   /**
    * SPEC35 §5.3: after a rename lands on disk, remap every piece of state
@@ -2602,8 +2655,7 @@ export default function App() {
         setClosePrompt(true);
         return;
       }
-      const pk = parkRef.current.get(t);
-      const isDirty = t === s.docPath ? s.dirty : !!pk && pk.buffer !== pk.savedText;
+      const isDirty = t === s.docPath ? s.dirty : parkedDirty(t);
       if (!openFilesRef.current.includes(t) || !isDirty) {
         q.shift();
         continue;
@@ -2622,7 +2674,7 @@ export default function App() {
     }
     await deleteDraft();
     void p.closeNow();
-  }, [activateOpen, deleteDraft]);
+  }, [activateOpen, deleteDraft, parkedDirty]);
   processQuitWalkRef.current = processQuitWalk;
   startQuitWalkRef.current = () => {
     // Issue #22: quitting discards a changed untitled workspace — the
@@ -4238,7 +4290,7 @@ export default function App() {
               <Editor
                 value={buffer}
                 lineNumbers={settings.lineNumbers}
-                onChange={setBuffer}
+                onChange={editorChanged}
                 historyRef={editorHistoryRef}
                 syncRef={editorSyncRef}
                 diff={diff}
@@ -4311,7 +4363,7 @@ export default function App() {
             <Editor
               value={buffer}
               lineNumbers={settings.lineNumbers}
-              onChange={setBuffer}
+              onChange={editorChanged}
               historyRef={editorHistoryRef}
               syncRef={editorSyncRef}
               diff={diff}
