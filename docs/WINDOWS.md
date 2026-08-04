@@ -32,5 +32,15 @@ The installer is unsigned (signing needs a Windows host or a custom `sign_comman
 4. Paths: the config dir resolves to `%APPDATA%\io.jorgepereira.markymark.app\` automatically via
    `appConfigDir()`; themes live in `themes\` inside it. No code changes needed.
 
+One more platform seam to know about (issue #38): the native menu install.
+`Menu.setAsAppMenu()` is the macOS global-menubar call; Tauri's API documents
+`Menu.setAsWindowMenu()` as the per-window menu bar on Windows/Linux (and
+unsupported on macOS). `src/platform/tauri.ts` therefore prefers
+`setAsWindowMenu` off macOS and falls back to `setAsAppMenu`; if the install
+rejects entirely, `App.tsx` falls back to the in-app toolbar so a desktop
+window is never left with neither a menu nor a toolbar. Whether alpha.5's
+`setAsAppMenu`-only path actually installed a menu on Windows has not been
+verified on a Windows machine.
+
 Nothing else is macOS-specific: the `RunEvent::Opened` handler is `#[cfg(target_os =
 "macos")]`-gated, and hotkeys use "Mod" (⌘ on macOS, Ctrl on Windows) throughout.

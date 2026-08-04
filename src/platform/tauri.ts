@@ -294,7 +294,21 @@ export async function createTauriPlatform(): Promise<Platform> {
         )
       );
       const menu = await Menu.new({ items: submenus });
-      await menu.setAsAppMenu();
+      // Issue #38: `setAsAppMenu` is the macOS global-menubar call; per
+      // Tauri's own API docs `setAsWindowMenu` is the per-window menu bar
+      // on Windows/Linux (and unsupported on macOS). Prefer the window call
+      // off macOS so the bar attaches to the already-created window, keep
+      // the app-wide call as a fallback, and let a double failure reject —
+      // App.tsx catches it and falls back to the in-app toolbar.
+      if (navigator.userAgent.includes('Mac')) {
+        await menu.setAsAppMenu();
+      } else {
+        try {
+          await menu.setAsWindowMenu();
+        } catch {
+          await menu.setAsAppMenu();
+        }
+      }
     },
 
     /** SPEC13 §1–§2: one fixed-size window per kind; reinvoke = focus. */

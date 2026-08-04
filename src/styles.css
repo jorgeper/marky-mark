@@ -475,6 +475,14 @@ mark.hl.flash {
   color: var(--mm-accent, #0969da);
 }
 
+/* Issue #38: the plain-edit-mode affordance — same pill, pinned top-right
+   (editor selections carry no pixel rect to float over). */
+.add-comment-btn-edit {
+  left: auto;
+  right: 14px;
+  transform: none;
+}
+
 /* ---------- comments panel ---------- */
 
 .panel {
