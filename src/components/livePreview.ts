@@ -54,7 +54,7 @@ const livePreviewTheme = EditorView.baseTheme({
   '.mm-lp-strong': { fontWeight: 'bold' },
   '.mm-lp-em': { fontStyle: 'italic' },
   '.mm-lp-strike': { textDecoration: 'line-through' },
-  '.mm-lp-code': { fontFamily: 'var(--mono, monospace)' },
+  '.mm-lp-code': { fontFamily: 'var(--mm-font-mono, monospace)' },
 });
 
 /**

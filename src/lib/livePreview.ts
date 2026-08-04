@@ -75,7 +75,8 @@ export function revealedRanges(state: EditorState): { from: number; to: number }
   // Growing can pull in a construct that overlaps yet another line, so
   // repeat until a pass changes nothing. Work stays proportional to the
   // revealed region, never the document (PRD 006 §13).
-  for (let grew = true; grew; ) {
+  let grew: boolean;
+  do {
     grew = false;
     for (const r of ranges) {
       tree.iterate({
@@ -94,7 +95,7 @@ export function revealedRanges(state: EditorState): { from: number; to: number }
       });
     }
     if (grew) ranges = mergeRanges(ranges);
-  }
+  } while (grew);
   return mergeRanges(ranges);
 }
 
@@ -112,6 +113,8 @@ export function computeLivePreviewDecos(
   const tree = syntaxTree(state);
   const revealed = revealedRanges(state);
   const decos: LivePreviewDeco[] = [];
+  // A construct straddling a gap between visible ranges is entered once per
+  // range it overlaps; dedupe so it decorates once.
   const seen = new Set<string>();
   const push = (d: LivePreviewDeco) => {
     const key = `${d.from}:${d.to}:${d.deco === 'style' ? d.style : 'hide'}`;
