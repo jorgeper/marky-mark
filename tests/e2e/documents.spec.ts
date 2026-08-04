@@ -10,6 +10,7 @@ import {
   openWelcomeViaHelp,
   PHRASE,
   revealToolbar,
+  SEED_SETTINGS,
   waitForSidecar,
   WELCOME,
 } from './helpers';
@@ -234,10 +235,11 @@ test('E91: reopen on launch — off by default (splash), the setting opts in, lo
   await page.goto('/#open=/docs/r1.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('R One');
 
-  // SPEC30 §2 (issue #53 amendment): strip the suite's seed pin so this
+  // SPEC30 §2 (issue #53 amendment): strip the suite's reopen pin so this
   // launch runs the SHIPPED default — a hash-less relaunch lands on the
   // splash, with the recent entry intact (nothing is forgotten).
-  await fsWrite(page, '/config/settings.json', JSON.stringify({ paneMinWidth: 240 }));
+  const { reopenLastDoc: _pin, ...shippedDefaults } = SEED_SETTINGS;
+  await fsWrite(page, '/config/settings.json', JSON.stringify(shippedDefaults));
   await page.goto('/');
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   expect(await fsRead(page, '/config/recent.json')).toContain('/docs/r1.md');
