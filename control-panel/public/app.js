@@ -347,25 +347,37 @@ function segTip(r, span, live) {
   return `${r.role}${r.issue ? ' · #' + r.issue : ''}\n${clock(span.start)} → ${endTxt} · ${dur(span.end - span.start)} · ${r.status}`;
 }
 
+// Bars thin out as the window widens — a 7-day wall of 11px bars reads as
+// clutter; an hour of 6px bars reads as timid.
+function segWidth(windowMs) {
+  if (windowMs <= 2 * 3600e3) return 13;
+  if (windowMs <= 13 * 3600e3) return 12;
+  if (windowMs <= 26 * 3600e3) return 11;
+  if (windowMs <= 80 * 3600e3) return 8;
+  return 6;
+}
+
 // One <line> per run, rounded caps, 1px shaved per end so back-to-back runs
 // keep a surface gap between them.
-function segmentSvg(x, r, span, y, yMin, yMax, live) {
+function segmentSvg(x, r, span, y, yMin, yMax, live, segW) {
+  const minLen = segW;
   let y1 = Math.max(y(span.end), yMin);
   let y2 = Math.min(y(span.start), yMax);
-  if (y2 - y1 < 10) { const mid = (y1 + y2) / 2; y1 = mid - 5; y2 = mid + 5; }
+  if (y2 - y1 < minLen) { const mid = (y1 + y2) / 2; y1 = mid - minLen / 2; y2 = mid + minLen / 2; }
   const attrs = `data-log="${esc(r.file)}" data-run="${r.runIndex}" data-title="${esc(r.role)}${r.issue ? ' · #' + esc(r.issue) : ''}"
     data-running="${r.status === 'running'}" data-issueref="${esc(r.issue || '')}" data-tip="${esc(segTip(r, span, live))}"`;
   let extra = '';
   if (r.status === 'failed' || r.status === 'interrupted') {
-    extra = `<circle cx="${x}" cy="${y1 - 1}" r="5" fill="#0d1117" stroke="#d03b3b" stroke-width="2" data-tip="${esc(segTip(r, span, live))}"></circle>`;
+    extra = `<circle cx="${x}" cy="${y1 - 1}" r="${Math.max(4, segW / 2 - 1)}" fill="#0d1117" stroke="#d03b3b" stroke-width="2" data-tip="${esc(segTip(r, span, live))}"></circle>`;
   }
-  return `<line x1="${x}" y1="${y1 + 1}" x2="${x}" y2="${y2 - 1}" stroke="${roleColor(r.role)}" stroke-width="11" stroke-linecap="round" class="tl-seg" ${attrs}></line>${extra}`;
+  return `<line x1="${x}" y1="${y1 + 1}" x2="${x}" y2="${y2 - 1}" stroke="${roleColor(r.role)}" stroke-width="${segW}" stroke-linecap="round" class="tl-seg" ${attrs}></line>${extra}`;
 }
 
 // entries: [{r, span}] overlapping the window. live: winEnd ≈ now.
 function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
   const windowMs = winEnd - winStart;
   const tick = tickEvery(windowMs);
+  const segW = segWidth(windowMs);
   const wideLabels = tick >= 6 * 3600e3;
   const trunkX = wideLabels ? 92 : 52;
   const padTop = 36, padBottom = 30;
@@ -395,7 +407,7 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
   // (noted below the chart — never silently).
   const rightPad = 16;
   const laneArea = width - trunkX - 26 - rightPad;
-  const maxLanes = Math.max(1, Math.floor(laneArea / 20) + 1);
+  const maxLanes = Math.max(1, Math.floor(laneArea / (segW + 9)) + 1);
   let droppedNote = '';
   if (lanes.length > maxLanes) {
     const dropped = lanes.length - maxLanes;
@@ -431,7 +443,7 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
   }
 
   // main-scope runs live on the trunk itself
-  for (const e of trunkRuns) marks.push(segmentSvg(trunkX, e.r, e.span, y, padTop, padTop + height, live));
+  for (const e of trunkRuns) marks.push(segmentSvg(trunkX, e.r, e.span, y, padTop, padTop + height, live, segW));
 
   // merge dots on the trunk: merged PRs plus sandcastle's direct
   // "merge issue #N into main" commits (most issues land without a PR)
@@ -492,7 +504,7 @@ function timelineSVG({ entries, winStart, winEnd, width, height, live }) {
       lineLayer.push(`<path d="M ${lx} ${my + 20} C ${lx} ${ym}, ${trunkX} ${my + 20}, ${trunkX} ${my}" fill="none" stroke="#2c3542" stroke-width="1.5"></path>`);
     }
 
-    for (const e of lane.es) marks.push(segmentSvg(lx, e.r, e.span, y, padTop, padTop + height, live));
+    for (const e of lane.es) marks.push(segmentSvg(lx, e.r, e.span, y, padTop, padTop + height, live, segW));
 
     if (lane.running) marks.push(`<circle cx="${lx}" cy="${padTop}" r="5" fill="#3fb950" class="pulse-svg"></circle>`);
 
