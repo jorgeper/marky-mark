@@ -96,6 +96,10 @@ class CheckboxWidget extends WidgetType {
 
 const BULLET = Decoration.replace({ widget: new BulletWidget() });
 const RULE = Decoration.replace({ widget: new RuleWidget() });
+// PRD 006 §7: one cached deco per checked state — a source edit swaps the
+// deco, so the rebuild draws a visibly different checkbox.
+const CHECKBOX_CHECKED = Decoration.replace({ widget: new CheckboxWidget(true) });
+const CHECKBOX_UNCHECKED = Decoration.replace({ widget: new CheckboxWidget(false) });
 
 function buildDecorations(view: EditorView): DecorationSet {
   // PRD 006 §13: decorations are computed for the visible ranges only.
@@ -115,10 +119,8 @@ function buildDecorations(view: EditorView): DecorationSet {
           }).range(s.from, s.to);
         case 'bullet':
           return BULLET.range(s.from, s.to);
-        // PRD 006 §7: the checked state rides the widget so a source edit
-        // rebuilds a visibly different checkbox.
         case 'checkbox':
-          return Decoration.replace({ widget: new CheckboxWidget(s.checked) }).range(s.from, s.to);
+          return (s.checked ? CHECKBOX_CHECKED : CHECKBOX_UNCHECKED).range(s.from, s.to);
         case 'rule':
           return RULE.range(s.from, s.to);
         case 'line':

@@ -140,15 +140,6 @@ export function revealedRanges(state: EditorState): { from: number; to: number }
 }
 
 /**
- * PRD 006 §3–§6/§8/§13: decoration specs for the visible ranges only.
- * Constructs outside every revealed region render (styled spans, hidden
- * markers, line styles, drawn rules); constructs overlapping a revealed
- * region are skipped (they show raw markdown) — per construct for inline
- * spans, headings, rules and fences, per line for blockquotes and lists,
- * which reveal line-by-line. Purely derived data — the document and
- * selection are never modified (§9).
- */
-/**
  * PRD 006 §7/§9: the change spec toggling the task marker starting at
  * `from` — `[ ]` ⇄ `[x]` (uppercase `[X]` also unchecks), one 3-character
  * replacement and nothing else. Returns null when `from` is not a task
@@ -165,6 +156,15 @@ export function taskToggleChange(
   return null;
 }
 
+/**
+ * PRD 006 §3–§6/§8/§13: decoration specs for the visible ranges only.
+ * Constructs outside every revealed region render (styled spans, hidden
+ * markers, line styles, drawn rules); constructs overlapping a revealed
+ * region are skipped (they show raw markdown) — per construct for inline
+ * spans, headings, rules and fences, per line for blockquotes and lists,
+ * which reveal line-by-line. Purely derived data — the document and
+ * selection are never modified (§9).
+ */
 export function computeLivePreviewDecos(
   state: EditorState,
   visibleRanges: readonly VisibleRange[]
