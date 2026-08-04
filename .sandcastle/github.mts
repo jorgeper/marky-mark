@@ -112,6 +112,50 @@ export const prFilesJson = (prNumber: number): Promise<string> =>
 export const issueCommentsJson = (issueNumber: number): Promise<string> =>
   gh(["issue", "view", String(issueNumber), "--json", "comments"]);
 
+// --- Release lane (prd/008 R4–R7) wrappers — raw JSON out, parsing in
+// --- release-lane.mts. Listing is label-scoped so plain-`sandcastle`
+// --- implement classification never sees release issues.
+
+export interface ReleaseIssueInfo extends IssueInfo {
+  body: string;
+}
+
+export const listReleaseIssues = async (): Promise<ReleaseIssueInfo[]> => {
+  const raw = await gh([
+    "issue",
+    "list",
+    "--state",
+    "open",
+    "--label",
+    RELEASE_LABEL,
+    "--limit",
+    "100",
+    "--json",
+    "number,title,labels,body",
+  ]);
+  return (JSON.parse(raw) as any[]).map((issue) => ({
+    number: issue.number,
+    title: issue.title,
+    labels: (issue.labels as any[]).map((label) => label.name),
+    body: issue.body ?? "",
+  }));
+};
+
+// Single page of 100 tags is plenty for the ordering guard: release tags
+// are returned newest-first and only the newest parseable one matters.
+export const tagsJson = (repo: string): Promise<string> =>
+  gh(["api", "-X", "GET", `repos/${repo}/tags`, "-F", "per_page=100"]);
+
+export const releaseListJson = (): Promise<string> =>
+  gh(["release", "list", "--limit", "100", "--json", "tagName,isDraft"]);
+
+export const postIssueComment = async (
+  issueNumber: number,
+  body: string,
+): Promise<void> => {
+  await gh(["issue", "comment", String(issueNumber), "--body", body]);
+};
+
 export const findLatestPr = async (
   branch: string,
 ): Promise<{ number: number; state: "OPEN" | "MERGED" | "CLOSED" } | null> => {
@@ -278,12 +322,14 @@ export const TRIGGER_LABEL = "sandcastle";
 export const REQUIRE_PR_LABEL = "sandcastle:require-pr";
 export const REQUIRES_PRD_LABEL = "sandcastle:requires-prd";
 export const AGENT_APPROVE_LABEL = "sandcastle:agent-approve";
+export const RELEASE_LABEL = "sandcastle:release";
 
 export const TRIGGER_LABEL_DEFS: LabelDef[] = [
   { name: TRIGGER_LABEL, color: "1D76DB", desc: "Queue this issue for the sandcastle loop" },
   { name: REQUIRE_PR_LABEL, color: "0052CC", desc: "Gate this issue behind a PR + outer review" },
   { name: AGENT_APPROVE_LABEL, color: "0052CC", desc: "PR mode, but the reviewer agent approves instead of you" },
   { name: REQUIRES_PRD_LABEL, color: "B60205", desc: "Needs an approved PRD before decompose/implement" },
+  { name: RELEASE_LABEL, color: "006B75", desc: "Release request — enters the releaser lane (prd/008)" },
 ];
 
 export type StatusLabel =

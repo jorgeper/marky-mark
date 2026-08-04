@@ -69,6 +69,18 @@ import {
   PARENT_CLOSE_MARKER,
   type PrdPrHead,
 } from "./prd-lane.mts";
+import {
+  buildDraftReport,
+  buildMalformedComment,
+  buildOutOfOrderComment,
+  classifyReleaseIssue,
+  DRAFT_REPORT_MARKER,
+  MALFORMED_MARKER,
+  OUT_OF_ORDER_MARKER,
+  parseDraftTags,
+  parseMarkerPresent,
+  parseTagNames,
+} from "./release-lane.mts";
 import { logStep, timed } from "./timing.mts";
 import { printHelp, runDoctor, runInit } from "./setup.mts";
 import {
@@ -726,6 +738,135 @@ const runPrdLane = async (): Promise<void> => {
 };
 
 // ---------------------------------------------------------------------------
+// Release lane (prd/008 R4–R7): issues labeled `sandcastle:release` (filed
+// only by the /new-release skill) get host-side preflight — body parse (R5),
+// ordering guard (R6), abandoned-draft report (R7) — as pure classification
+// in release-lane.mts, then a releaser agent for runnable issues. The label
+// is disjoint from `sandcastle`, so the implement lane never sees these.
+// Runs once per invocation, before the loop, like the PRD lane. The cut
+// itself (R8–R13) is a follow-up: release-prompt.md stops after preflight.
+// ---------------------------------------------------------------------------
+
+const runReleaseLane = async (): Promise<void> => {
+  let issues: github.ReleaseIssueInfo[];
+  try {
+    issues = await github.listReleaseIssues();
+  } catch {
+    return; // no gh / no labels yet — the lane is best-effort at startup
+  }
+  if (issues.length === 0) return;
+
+  let repo: string;
+  let tagNames: string[];
+  let draftTags: string[];
+  try {
+    repo = await github.repoSlug();
+    tagNames = parseTagNames(await github.tagsJson(repo));
+    draftTags = parseDraftTags(await github.releaseListJson());
+  } catch (error) {
+    console.warn(
+      `⚠ release lane unavailable this run: ${error instanceof Error ? error.message.split("\n", 1)[0] : error}`,
+    );
+    return;
+  }
+
+  for (const issue of issues) {
+    let action: ReturnType<typeof classifyReleaseIssue>;
+    let commentsJson: string;
+    try {
+      commentsJson = await github.issueCommentsJson(issue.number);
+      action = classifyReleaseIssue({
+        body: issue.body,
+        tagNames,
+        draftTags,
+        draftReportPosted: parseMarkerPresent(commentsJson, DRAFT_REPORT_MARKER),
+      });
+    } catch (error) {
+      console.warn(
+        `  ⚠ release lane: could not classify #${issue.number} (${error instanceof Error ? error.message.split("\n", 1)[0] : error}) — skipping.`,
+      );
+      continue;
+    }
+    console.log(`  release #${issue.number} → ${action.kind}`);
+
+    // prd/008 R5: a malformed body ends the lane with one explanatory
+    // comment and no changes to the tree. Marker check keeps a later pass
+    // over the same unchanged issue from re-posting.
+    if (action.kind === "malformed") {
+      if (!parseMarkerPresent(commentsJson, MALFORMED_MARKER)) {
+        await github
+          .postIssueComment(issue.number, buildMalformedComment(action.problems))
+          .catch(() => {});
+      }
+      continue;
+    }
+
+    // prd/008 R6: refuse to cut a version ≤ the newest existing tag.
+    if (action.kind === "out-of-order") {
+      if (!parseMarkerPresent(commentsJson, OUT_OF_ORDER_MARKER)) {
+        await github
+          .postIssueComment(
+            issue.number,
+            buildOutOfOrderComment(action.version, action.newestTag),
+          )
+          .catch(() => {});
+      }
+      continue;
+    }
+
+    // prd/008 R7: surface abandoned drafts once, with the exact deletion
+    // commands — informational, so the runnable issue still dispatches.
+    if (action.kind === "drafts-to-report") {
+      try {
+        await github.postIssueComment(issue.number, buildDraftReport(action.drafts));
+      } catch (error) {
+        console.warn(
+          `  ⚠ release lane: draft report on #${issue.number} failed (${error instanceof Error ? error.message.split("\n", 1)[0] : error}).`,
+        );
+      }
+    }
+
+    // prd/008 R4: dispatch the releaser. Same sandbox shape as the
+    // implementer, so the log lands as sandcastle-issue-<n>-releaser.log and
+    // the timings phase (= agent name) pairs with it in the control panel.
+    const spec = action.spec;
+    const branch = branchFor(issue.number);
+    try {
+      const sandbox = await sandcastle.createSandbox({
+        branch,
+        sandbox: docker(),
+        hooks,
+        copyToWorktree,
+      });
+      try {
+        const releaserModel = "claude-fable-5";
+        await timed("releaser", { issue: issue.number }, () =>
+          sandbox.run({
+            name: "releaser",
+            maxIterations: 1,
+            agent: sandcastle.claudeCode(releaserModel),
+            promptFile: "./.sandcastle/release-prompt.md",
+            promptArgs: {
+              ISSUE_NUMBER: issue.number,
+              VERSION: spec.version,
+              PLATFORMS: spec.platforms,
+              REPO: repo,
+              AGENT_MARKER: markerFor("releaser", "claude-code", releaserModel),
+            },
+          }),
+        );
+      } finally {
+        await sandbox.close();
+      }
+    } catch (error) {
+      console.warn(
+        `  ⚠ release lane: releaser for #${issue.number} failed (${error instanceof Error ? error.message.split("\n", 1)[0] : error}) — the issue stays open for the next run.`,
+      );
+    }
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
 
@@ -734,6 +875,7 @@ warnEmptyVerifyCommands();
 await warnNonDefaultBranch();
 await nudgeConversationalLanes();
 await runPrdLane();
+await runReleaseLane();
 
 // Image-gap nudge (prd/006): logs modified after this instant belong to
 // this run's scan window.
