@@ -1,0 +1,106 @@
+# prd/008 R16: when a real release is PUBLISHED, close out the open
+# `sandcastle:release` issue that requested it — post one marked comment
+# with the final release links, then close it as completed. Publish is
+# what closes release issues, never merge keywords: the cut PR carries no
+# `Closes #<n>` for them, so this workflow is the only closer.
+name: release-closeout
+on:
+  release:
+    # Mirrors updater-manifest.yml: one publish fires MORE THAN ONE of
+    # these (flipping a pre-release draft fires `published` AND
+    # `prereleased`). All three are kept for draft-flip reliability; the
+    # concurrency queue below plus the closed-issue no-op and marker guard
+    # in the script are what make the duplicates safe. See issue #19.
+    types: [published, prereleased, released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to close out the matching release issue for"
+        required: true
+
+# Fixed-string group, mirroring updater-manifest.yml: the duplicate events
+# above share a tag, and a manual recovery dispatch must queue behind an
+# in-flight run too, so keying by tag/ref/event would re-open the race.
+concurrency:
+  group: release-closeout
+  cancel-in-progress: false
+
+# prd/008 R16 hard limits: this workflow only READS releases and comments
+# on / closes issues. It never publishes, un-drafts, or deletes anything,
+# and `contents: read` is the ceiling that guarantees it.
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  closeout:
+    # The rolling `updater` release never has a release issue — skip it
+    # without spinning up a runner script.
+    if: github.event_name == 'workflow_dispatch' || github.event.release.tag_name != 'updater'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+    steps:
+      - name: Comment final links on the release issue and close it
+        run: |
+          set -euo pipefail
+
+          # Mirrors the 🏰 marker convention in .sandcastle/release-lane.mts;
+          # its presence on the issue is the "already commented" guard below.
+          MARKER="🏰 Sandcastle releaser: release published"
+
+          if [ "$TAG" = "updater" ]; then
+            echo "::notice::rolling updater release — nothing to close out"; exit 0; fi
+
+          # Guard the recovery path: never act on a missing or still-draft
+          # release (closing the issue would claim a publish that hasn't
+          # happened).
+          RELEASE_JSON="$(gh release view "$TAG" --json url,isDraft,assets 2>/dev/null)" || {
+            echo "::warning::no release found for tag $TAG — nothing to close out"; exit 0; }
+          if [ "$(jq -r '.isDraft' <<<"$RELEASE_JSON")" != "false" ]; then
+            echo "::notice::$TAG is still a draft — close-out runs on publish"; exit 0; fi
+          URL="$(jq -r '.url' <<<"$RELEASE_JSON")"
+
+          # Match by the #58 body contract (release-prompt.md "THE
+          # RELEASE-ISSUE BODY FORMAT", parsed by parseReleaseIssueBody in
+          # .sandcastle/release-lane.mts): the open sandcastle:release issue
+          # whose `**Version:**` line equals the tag minus its leading `v`.
+          # The jq mirrors the parser — strip the `**Version:**` prefix and
+          # surrounding whitespace, then compare the bare semver exactly.
+          VERSION="${TAG#v}"
+          MATCHES="$(gh issue list --label 'sandcastle:release' --state open \
+            --limit 100 --json number,body |
+            jq -r --arg v "$VERSION" 'map(select(
+              [ .body | split("\n")[]
+                | select(test("^\\*\\*Version:\\*\\*"))
+                | sub("^\\*\\*Version:\\*\\*[ \t]*"; "") | sub("[ \t\r]*$"; "")
+              ] | index($v) != null
+            ) | .number) | .[]')"
+
+          if [ -z "$MATCHES" ]; then
+            echo "::notice::no open sandcastle:release issue for version $VERSION — nothing to close out"; exit 0; fi
+          ISSUE="$(head -n1 <<<"$MATCHES")"
+          if [ "$(wc -l <<<"$MATCHES")" -gt 1 ]; then
+            echo "::warning::multiple open sandcastle:release issues match $VERSION — closing #$ISSUE only"; fi
+
+          # Duplicate publish events queue behind each other (concurrency
+          # group), so by the time a re-delivered event runs, the issue is
+          # closed and drops out of the open list above. The marker guard
+          # covers the remaining crack: a prior run that commented but died
+          # before closing must close now without commenting twice.
+          if gh issue view "$ISSUE" --json comments --jq '.comments[].body' |
+               grep -Fq "$MARKER"; then
+            echo "close-out comment already present on #$ISSUE — closing only"
+          else
+            ASSET_LINKS="$(jq -r '.assets[] | "- [\(.name)](\(.url))"' <<<"$RELEASE_JSON")"
+            gh issue comment "$ISSUE" --body "$MARKER
+
+          **$TAG is published.**
+
+          - Release page: $URL
+          ${ASSET_LINKS}"
+          fi
+          gh issue close "$ISSUE" --reason completed
+          echo "closed #$ISSUE for $TAG"
