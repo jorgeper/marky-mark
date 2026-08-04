@@ -7,6 +7,7 @@ import {
   fsWrite,
   menuClick,
   openSettings,
+  openWelcomeViaHelp,
   PHRASE,
   revealToolbar,
   waitForSidecar,
@@ -310,4 +311,56 @@ test('E92: crash-safe drafts — shadow write, restore, discard, staleness after
   await expect(page.getByTestId('docname')).toContainText('Untitled');
   await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('ScratchDraft');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
+});
+
+test('E141: closing to the splash leaves no stale document behind — preview, edit, and split edit (issue #43)', async ({
+  page,
+}) => {
+  // Issue #43: the splash and stale doc content are mutually exclusive.
+  // Assert immediately and again after a settle window: a render orphaned by
+  // the close (the edit-mode debounce is 200ms, plus the async markdown
+  // pipeline) would land inside it and repopulate the container.
+  const expectCleanSplash = async () => {
+    await expect(page.getByTestId('empty-hint')).toBeVisible();
+    await expect(page.getByTestId('doc')).toBeEmpty();
+    await page.waitForTimeout(400); // intentional: catches the late async render
+    await expect(page.getByTestId('empty-hint')).toBeVisible();
+    await expect(page.getByTestId('doc')).toBeEmpty();
+  };
+
+  // Close from preview — the reported path: visible text, close, splash.
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expectCleanSplash();
+
+  // Reopen: content renders and the splash yields (no over-correction).
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
+
+  // Close out of full edit with fresh keystrokes: a debounced render is in
+  // flight and the editor's unmount reports its canonical text — neither may
+  // resurrect the closed buffer. Discard the dirty prompt down to the splash.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('STALE-EDIT ');
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  await page.getByTestId('open-discard').click();
+  await expectCleanSplash();
+
+  // Same out of split edit — the split pane injection must not linger either.
+  await openWelcomeViaHelp(page);
+  await page.keyboard.press('Control+e');
+  await page.evaluate(() => window.__mmDispatch!('toggleSplit'));
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('STALE-SPLIT ');
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  await page.getByTestId('open-discard').click();
+  await expectCleanSplash();
+
+  // A final clean reopen: the closes left no lasting damage behind.
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
 });
