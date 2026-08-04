@@ -873,3 +873,133 @@ test('E140: a frozen document’s resolved cards are read-only too, inside the c
   }
   await expect(page.getByTestId('store-unreadable')).toBeVisible(); // still there
 });
+// --- Issue #38: the "Add comment" gate, verdict tests + the plain-edit affordance ----
+
+test('E151: comments hidden (Mod+Shift+C) with the master switch ON — selection offers no button until shown again', async ({
+  page,
+}) => {
+  // The `showComments` conjunct alone (E36 covers commentsEnabled off).
+  await page.keyboard.press('Control+Shift+C');
+  await expect(page.getByTestId('comments-toggle')).not.toHaveClass(/active/);
+  await selectPhrase(page, PHRASE);
+  await page.waitForTimeout(200);
+  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+  // Type-to-comment stays closed too (same gate in the SPEC7 §3 effect).
+  await page.keyboard.press('x');
+  await page.waitForTimeout(150);
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+
+  // Showing comments again is the only change — the button comes right back.
+  await page.keyboard.press('Control+Shift+C');
+  await selectPhrase(page, PHRASE);
+  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
+});
+
+test('E152: an open composer suppresses a second Add-comment button until it closes', async ({ page }) => {
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('add-comment-btn'));
+  await expect(page.getByTestId('composer')).toBeVisible();
+
+  // A new selection while the composer is pending offers no second button.
+  await selectPhrase(page, 'GitHub-flavored markdown');
+  await page.waitForTimeout(200);
+  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+
+  // Cancel closes the composer — the same selection offers the button again.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+  await selectPhrase(page, 'GitHub-flavored markdown');
+  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
+});
+
+test('E153: plain edit mode reaches a comment — the affordance rides the SPEC25 carry and anchors the selected phrase', async ({
+  page,
+}) => {
+  const AFFORD_PATH = '/docs/edit-affordance.md';
+  await fsWrite(page, AFFORD_PATH, '# Edit Affordance\n\nalpha bravo charlie delta.\n\nclosing line entirely.\n');
+  await page.goto(`/#open=${AFFORD_PATH}`);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Edit Affordance');
+
+  // Into PLAIN edit mode (split off — the split preview has its own button).
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  if (await page.getByTestId('split-preview').count()) await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+
+  // No selection → no affordance.
+  await expect(page.getByTestId('add-comment-btn-edit')).toHaveCount(0);
+
+  // Select the whole middle paragraph in the editor.
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'alpha bravo' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('alpha bravo charlie delta.');
+  const afford = page.getByTestId('add-comment-btn-edit');
+  await expect(afford).toBeVisible();
+
+  // Acting on it switches surface (SPEC25 carry) and opens the composer on
+  // the SAME selection, now in preview's rendered-DOM offsets.
+  await clickClearOfToolbar(afford);
+  await expect(page.getByTestId('composer')).toBeVisible();
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Edit Affordance'); // preview is up
+  await page.getByTestId('composer-input').fill('from plain edit mode');
+  await page.getByTestId('composer-submit').click();
+
+  // The comment exists, highlights exactly the selected phrase, and persists.
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('card-body')).toHaveText('from plain edit mode');
+  await expect.poll(async () => (await page.locator('mark.hl').allTextContents()).join('')).toBe(
+    'alpha bravo charlie delta.'
+  );
+  const sidecarPath = `${AFFORD_PATH}.comments.json`;
+  await expect.poll(() => fsRead(page, sidecarPath)).toContain('from plain edit mode');
+  expect(await fsRead(page, sidecarPath)).toContain('alpha bravo charlie delta.');
+});
+
+test('E154: the edit-mode affordance obeys every gate — frozen store, hidden comments, master switch off', async ({
+  page,
+}) => {
+  // PRD 004 Req 15: a frozen document closes this authoring route too.
+  await fsWrite(page, NEWER_PATH, `${NEWER_DOC}${NEWER_TRAILER}`);
+  await openPath(page, NEWER_PATH);
+  await expect(page.getByTestId('store-unreadable')).toBeVisible();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  if (await page.getByTestId('split-preview').count()) await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'reads perfectly' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await expect.poll(() => page.evaluate(() => (window.__mmEdit?.selText ?? '').length)).toBeGreaterThan(0);
+  await page.waitForTimeout(200);
+  await expect(page.getByTestId('add-comment-btn-edit')).toHaveCount(0);
+  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+
+  // A clean document in the same session DOES offer it (back to plain edit —
+  // opening a document lands in preview; the split-off setting persisted)…
+  await openWelcomeViaHelp(page);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'saved to a sidecar' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  const afford = page.getByTestId('add-comment-btn-edit');
+  await expect(afford).toBeVisible();
+
+  // …until comments are hidden (Mod+Shift+C)…
+  await page.keyboard.press('Control+Shift+C');
+  await expect(afford).toHaveCount(0);
+  await page.keyboard.press('Control+Shift+C');
+  await expect(afford).toBeVisible();
+
+  // …or the master switch goes off (SPEC7 §2).
+  await openSettings(page, 'general');
+  await page.getByTestId('set-comments-enabled').uncheck();
+  await page.getByTestId('settings-close').click();
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'saved to a sidecar' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.waitForTimeout(200);
+  await expect(page.getByTestId('add-comment-btn-edit')).toHaveCount(0);
+});

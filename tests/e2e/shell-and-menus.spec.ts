@@ -13,8 +13,10 @@ import {
   openFolderRoot,
   openSettings,
   openWelcomeViaHelp,
+  PHRASE,
   revealToolbar,
   seedFolders,
+  selectPhrase,
   stableBox,
   TOOLBAR_WAIT,
   WELCOME,
@@ -814,4 +816,29 @@ test('E134: split mode — the editor column hugs its pane, leaving no blank str
   const content = await box('.editor-wrap .cm-content');
   expect(gutters.left - full.left).toBeGreaterThan(100);
   expect(Math.abs(gutters.left - full.left - (full.right - content.right))).toBeLessThanOrEqual(2);
+});
+
+
+test('E155: a native-menu install that REJECTS falls back to the in-app toolbar — never menu-less and toolbar-less', async ({
+  page,
+}) => {
+  // The shim seam (issue #38): ?nativeMenu=fail advertises setAppMenu but
+  // every install rejects — the platform claims a menu it cannot deliver.
+  await page.goto('/?nativeMenu=fail');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+
+  // No menu was installed…
+  expect(await page.evaluate(() => typeof window.__mmMenu)).toBe('undefined');
+  // …so the toolbar chrome must be present and working (fixtures' console
+  // guard doubles as the no-unhandled-rejection assertion).
+  await revealToolbar(page);
+  await expect(page.getByTestId('menu-btn')).toBeVisible();
+
+  // The fallback chrome is fully functional: Help opens the welcome doc and
+  // the comment flow — the very thing issue #38 reports losing — works.
+  await openWelcomeViaHelp(page);
+  await selectPhrase(page, PHRASE);
+  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
 });

@@ -23,7 +23,7 @@ E-number cite the spec outside any test body (file header or shared setup).
 | [SPEC4](specs/SPEC4.md) | SPEC4: Markimark v4 — vanishing toolbar, tabbed settings, text-only zoom, clean start | `src/App.tsx`, `src/lib/settings.ts`, `src/styles.css` | E24, E13 |
 | [SPEC5](specs/SPEC5.md) | SPEC5: Marky Mark v5 — app badge, opt-in auto-hide, centered hint, rename | `src/App.tsx`, `src/styles.css` | E25 |
 | [SPEC6](specs/SPEC6.md) | SPEC6: Marky Mark v6 — aligned editor, Word-style comment flow, 20 new themes | `src/App.tsx`, `src/components/CommentCard.tsx`, `src/lib/markdown.ts`, `src/styles.css` | E134 |
-| [SPEC7](specs/SPEC7.md) | SPEC7: Marky Mark v7 — comment controls, split view, undo/redo | `src/App.tsx`, `src/components/Editor.tsx`, `src/components/Toolbar.tsx`, `src/lib/menuSpec.ts`, `src/lib/settings.ts`, `src/styles.css` | E9, E33, E38 |
+| [SPEC7](specs/SPEC7.md) | SPEC7: Marky Mark v7 — comment controls, split view, undo/redo | `src/App.tsx`, `src/components/Editor.tsx`, `src/components/Toolbar.tsx`, `src/lib/commentAffordance.ts`, `src/lib/menuSpec.ts`, `src/lib/settings.ts`, `src/styles.css` | E9, E33, E38, E151, E154 |
 | [SPEC8](specs/SPEC8.md) | SPEC8: Marky Mark v8 — scroll continuity across modes and split panes | _none_ | _none_ |
 | [SPEC9](specs/SPEC9.md) | SPEC9: Marky Mark v9 — release pipeline (CI/CD → GitHub Releases) | _none_ | _none_ |
 | [SPEC10](specs/SPEC10.md) | SPEC10: Marky Mark v10 — open-source alpha: semver, CI/CD releases, About, license | `src/components/AboutDialog.tsx`, `src/styles.css`, `src/vite-env.d.ts` | E13, E45 |
@@ -41,7 +41,7 @@ E-number cite the spec outside any test body (file header or shared setup).
 | [SPEC22](specs/SPEC22.md) | SPEC22: Marky Mark v22 — New File v2: the untitled buffer | `src/App.tsx`, `src/lib/menuSpec.ts` | E72 |
 | [SPEC23](specs/SPEC23.md) | SPEC23: Marky Mark v23 — editing trio: mirrored selection, vim nav mode, markdown highlighting | `src/App.tsx`, `src/components/Editor.tsx`, `src/components/livePreview.ts`, `src/lib/selectionMap.ts`, `src/lib/settings.ts`, `src/lib/vimnav.ts`, `src/platform/browser.ts`, `src/styles.css` | E150, `tests/e2e/live-preview.spec.ts`, E61 |
 | [SPEC24](specs/SPEC24.md) | SPEC24: Marky Mark v24 — mirrored selection, both ways | `src/App.tsx`, `src/components/Editor.tsx`, `src/lib/selectionMap.ts`, `src/platform/browser.ts`, `src/styles.css` | _none_ |
-| [SPEC25](specs/SPEC25.md) | SPEC25: Marky Mark v25 — selection across mode switches; first-class split toggle | `src/App.tsx`, `src/components/Editor.tsx`, `src/lib/menuSpec.ts` | _none_ |
+| [SPEC25](specs/SPEC25.md) | SPEC25: Marky Mark v25 — selection across mode switches; first-class split toggle | `src/App.tsx`, `src/components/Editor.tsx`, `src/lib/commentAffordance.ts`, `src/lib/menuSpec.ts` | E153 |
 | [SPEC26](specs/SPEC26.md) | SPEC26: Marky Mark v26 — YAML front matter: parsed, carded, dismissable | `src/App.tsx`, `src/components/FrontMatterCard.tsx`, `src/lib/frontmatter.ts`, `src/lib/markdown.ts`, `src/lib/menuSpec.ts`, `src/lib/settings.ts`, `src/styles.css` | _none_ |
 | [SPEC27](specs/SPEC27.md) | SPEC27: Marky Mark v27 — the new icon, everywhere, and a real splash | `src/App.tsx`, `src/components/Toolbar.tsx`, `src/styles.css` | E78, E1 |
 | [SPEC29](specs/SPEC29.md) | SPEC29: Marky Mark v29 — File → Open Recent | `src/App.tsx`, `src/lib/commands.ts`, `src/lib/menuSpec.ts`, `src/lib/recentFiles.ts`, `src/platform/browser.ts`, `src/platform/tauri.ts` | _none_ |

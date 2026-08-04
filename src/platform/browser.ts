@@ -150,7 +150,11 @@ class BrowserFs {
 
 export function createBrowserPlatform(): Platform {
   const fs = new BrowserFs();
-  const nativeMenu = new URLSearchParams(window.location.search).has('nativeMenu');
+  const nativeMenuParam = new URLSearchParams(window.location.search).get('nativeMenu');
+  const nativeMenu = nativeMenuParam !== null;
+  // Issue #38: `?nativeMenu=fail` — a platform whose menu install rejects,
+  // so e2e can prove a failed install falls back to the in-app toolbar.
+  const menuInstallFails = nativeMenuParam === 'fail';
   window.__mmfs = {
     read: (p) => fs.read(p),
     write: (p, c) => fs.write(p, c),
@@ -166,6 +170,7 @@ export function createBrowserPlatform(): Platform {
 
   /** SPEC12 §5.2: record the installed spec; click() dispatches like a menu. */
   const setAppMenu = async (spec: MenuSpec) => {
+    if (menuInstallFails) throw new Error('menu install failed (e2e seam, issue #38)');
     // SPEC29 §3.3: commands may live inside nested submenus now.
     const flatten = (items: MenuSpec['submenus'][number]['items']): MenuSpec['submenus'][number]['items'] =>
       items.flatMap((it) => (it.type === 'submenu' ? flatten(it.items) : [it]));

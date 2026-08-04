@@ -99,6 +99,7 @@ import { VimNavResolver } from './lib/vimnav';
 import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, renderedOffsetForSource, sourceOffsetForRendered, sourceRangeForVisibleMatch, visibleTextForRange } from './lib/selectionMap';
 import { blockLineFor, wordAt } from './lib/activePosition';
 import { parseFrontMatter } from './lib/frontmatter';
+import { commentAffordanceSurface } from './lib/commentAffordance';
 import { isStaleDraft, parseDraft, serializeDraft, type Draft } from './lib/drafts';
 import { FindBar } from './components/FindBar';
 import { FrontMatterCard } from './components/FrontMatterCard';
@@ -312,6 +313,11 @@ export default function App() {
   const [pending, setPending] = useState<{ start: number; end: number } | null>(null);
   const [draft, setDraft] = useState('');
   const [selInfo, setSelInfo] = useState<{ start: number; end: number; x: number; y: number } | null>(null);
+  // Issue #38: whether plain edit mode has a live selection, so that surface
+  // can offer a comment affordance too (previously it dead-ended with nothing
+  // at all). Only presence matters — the range itself rides in
+  // lastEditorSelRef and reaches preview through the SPEC25 carry.
+  const [editHasSelection, setEditHasSelection] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [closePrompt, setClosePrompt] = useState(false);
@@ -425,6 +431,9 @@ export default function App() {
   const lastEditorSelRef = useRef<{ from: number; to: number }>({ from: 0, to: 0 });
   const pendingEditorSelRef = useRef<{ from: number; to: number } | null>(null);
   const pendingPreviewSelRef = useRef<{ from: number; to: number } | null>(null);
+  // Issue #38: the edit-mode affordance routes through the SPEC25 carry —
+  // armed on click, consumed when the carried selection lands as selInfo.
+  const composeOnCarryRef = useRef(false);
   /** True once the preview injection pass ran to completion for the current DOM. */
   const injectionCompleteRef = useRef(false);
   const positionsRef = useRef<PositionStore>({ version: 1, entries: [] });
@@ -486,7 +495,11 @@ export default function App() {
   const frontMatter = useMemo(() => ((docPath || untitled) ? parseFrontMatter(buffer) : null), [buffer, docPath, untitled]);
   const showFrontmatter = fmOverride ?? settings.showFrontmatter;
   // SPEC12 §2.3: a platform that owns a native menu gets no in-app header.
-  const nativeMenu = !!platform?.setAppMenu;
+  // Issue #38: only while installs succeed — a rejected setAppMenu would
+  // otherwise leave the window with neither a menu nor the toolbar, so a
+  // failed install hands the session back to the in-app toolbar.
+  const [menuInstallFailed, setMenuInstallFailed] = useState(false);
+  const nativeMenu = !!platform?.setAppMenu && !menuInstallFailed;
 
   // Refs mirroring state, for stable event handlers.
   const stateRef = useRef({
@@ -902,6 +915,12 @@ export default function App() {
       seamEditState(s);
       lastEditorSelRef.current = { from: s.selFrom, to: s.selTo }; // SPEC25 §2.1
       const st = stateRef.current;
+      // Issue #38: plain edit mode tracks its selection in state so the
+      // comment affordance can render from it (split's live preview keeps
+      // the existing selInfo path).
+      if (st.mode === 'edit' && !st.settings.splitEdit) {
+        setEditHasSelection(s.selFrom !== s.selTo);
+      }
       if (st.mode !== 'edit' || !st.settings.splitEdit) return;
       if (mirrorTimerRef.current) clearTimeout(mirrorTimerRef.current);
       mirrorTimerRef.current = setTimeout(() => {
@@ -3111,8 +3130,8 @@ export default function App() {
 
   // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
   useEffect(() => {
-    if (!platform?.setAppMenu) return;
-    void platform.setAppMenu(
+    if (!platform?.setAppMenu || menuInstallFailed) return;
+    platform.setAppMenu(
       buildMenuSpec({
         isMac: platform.isMac,
         mode,
@@ -3134,8 +3153,10 @@ export default function App() {
         // PRD 002 §D15: the workspaces section, same disambiguated labels.
         recentWorkspaces: recentMenuEntries(recentWs, platform.basename, platform.dirname),
       })
-    );
-  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, settings.lineNumbers, recent, recentWs, settings.showFolders, folderOpenOnly]);
+      // Issue #38: a failed install must not strand the window with neither
+      // a menu nor the toolbar — fall back to in-app chrome for the session.
+    ).catch(() => setMenuInstallFailed(true));
+  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, settings.lineNumbers, recent, recentWs, settings.showFolders, folderOpenOnly, menuInstallFailed]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -3582,13 +3603,19 @@ export default function App() {
     const doc = docRef.current;
     if (!doc || doc.childElementCount === 0) return;
     pendingPreviewSelRef.current = null;
+    // Issue #38: from here on the carry is consumed — a bail-out below must
+    // also disarm the edit-affordance composer so it can't fire on a later,
+    // unrelated selection.
+    const abandonCompose = () => {
+      composeOnCarryRef.current = false;
+    };
     const buffer = stateRef.current.buffer;
     const needle = visibleTextForRange(buffer, pending.from, pending.to);
-    if (!needle.replace(/\s+/g, ' ').trim()) return;
+    if (!needle.replace(/\s+/g, ' ').trim()) return abandonCompose();
     const fromLine = buffer.slice(0, pending.from).split('\n').length;
     const toLine = buffer.slice(0, pending.to).split('\n').length;
     const stamped = Array.from(doc.querySelectorAll<HTMLElement>('[data-mm-line]'));
-    if (stamped.length === 0) return;
+    if (stamped.length === 0) return abandonCompose();
     let startEl = stamped[0];
     for (const el of stamped) {
       if (Number(el.dataset.mmLine) <= fromLine) startEl = el;
@@ -3599,11 +3626,11 @@ export default function App() {
     region.setStartBefore(startEl);
     if (after) region.setEndBefore(after);
     else if (doc.lastChild) region.setEndAfter(doc.lastChild);
-    else return;
+    else return abandonCompose();
     const { start: rs, end: re } = rangeToOffsets(doc, region);
     const hit = findNormalized(getDocText(doc).slice(rs, re), needle);
     const range = offsetsToRange(doc, hit ? rs + hit.start : rs, hit ? rs + hit.end : re);
-    if (!range) return;
+    if (!range) return abandonCompose();
     const sel = window.getSelection();
     sel?.removeAllRanges();
     sel?.addRange(range);
@@ -3931,6 +3958,28 @@ export default function App() {
     setSelInfo(null);
   };
 
+  // Issue #38: a stale edit selection must not survive the surface (or the
+  // document) it came from — any swap retires the affordance; the editor's
+  // next selection report re-establishes it if a selection is still there.
+  useEffect(() => {
+    setEditHasSelection(false);
+  }, [mode, settings.splitEdit, docPath, untitled]);
+
+  // Issue #38: the edit-mode affordance parks the selection in the SPEC25
+  // carry and switches to preview; once the carry lands there as a native
+  // selection (→ selInfo, with preview's own rendered-DOM offsets), the
+  // composer opens for exactly the anchor preview would have produced.
+  useEffect(() => {
+    if (mode !== 'preview') {
+      composeOnCarryRef.current = false;
+      return;
+    }
+    if (!composeOnCarryRef.current || !selInfo) return;
+    composeOnCarryRef.current = false;
+    startComposer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- startComposer is recreated per render
+  }, [mode, selInfo]);
+
   // --- type-to-comment (SPEC7 §3): a printable key over a selection opens the composer
   useEffect(() => {
     if (mode !== 'preview' || !selInfo || pending || !showComments) return;
@@ -4027,6 +4076,19 @@ export default function App() {
   // Comments live on whichever preview surface is up: full preview or the
   // split-edit live preview (#19).
   const commentSurfaceUp = mode === 'preview' || (mode === 'edit' && settings.splitEdit);
+
+  // Issue #38: which surface may offer "Add comment" for the live selection —
+  // the preview surfaces keep the floating button; plain edit mode gets an
+  // affordance that routes through the SPEC25 carry instead of dead-ending.
+  const affordanceSurface = commentAffordanceSurface({
+    mode,
+    splitEdit: settings.splitEdit,
+    hasSelection: commentSurfaceUp ? selInfo !== null : editHasSelection,
+    showComments,
+    commentsEnabled: settings.commentsEnabled,
+    composerOpen: pending !== null,
+    authoringFrozen,
+  });
 
   const panelVisible =
     commentSurfaceUp && showComments && settings.commentsEnabled && (comments.length > 0 || pending !== null);
@@ -4431,7 +4493,7 @@ export default function App() {
 
       </div>
 
-      {selInfo && showComments && settings.commentsEnabled && !pending && commentSurfaceUp && !authoringFrozen && (
+      {selInfo && affordanceSurface === 'preview' && (
         <button
           className="add-comment-btn"
           data-testid="add-comment-btn"
@@ -4443,6 +4505,28 @@ export default function App() {
           style={{ left: selInfo.x, top: Math.max(nativeMenu ? 8 : 50, selInfo.y - 42) }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => startComposer()}
+        >
+          💬 Add comment
+        </button>
+      )}
+
+      {/* Issue #38: plain edit mode's route to a comment. The editor has no
+          rendered DOM to anchor from, so the click does NOT invent a source-
+          offset anchor — it parks the selection in the SPEC25 carry, switches
+          to preview, and the compose-on-carry effect opens the composer on
+          the selection preview re-establishes. Fixed top-right (CM reports
+          carry no pixel rect), floored below the toolbar band like the
+          preview button (issue #18). */}
+      {affordanceSurface === 'edit' && (
+        <button
+          className="add-comment-btn add-comment-btn-edit"
+          data-testid="add-comment-btn-edit"
+          style={{ top: nativeMenu ? 8 : 50 }}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            composeOnCarryRef.current = true;
+            toggleMode();
+          }}
         >
           💬 Add comment
         </button>
