@@ -283,6 +283,56 @@ test('E149: find still matches and highlights with live preview on — hidden ma
   await expect(page.getByTestId('find-bar')).toHaveCount(0);
 });
 
+test('E157: table grid + live preview (#55) — grid lines keep raw cell markdown so every pipe column aligns', async ({
+  page,
+}) => {
+  // The issue #55 repro shape: cells carrying **bold** terms and `code`.
+  const TABLE = [
+    '| Term | Meaning |',
+    '| --- | --- |',
+    '| **Host** | Your machine. The real repo lives here. |',
+    '| **Sandbox** | The boundary a `docker()` container gives. |',
+  ].join('\n');
+  await fsWrite(page, '/docs/lp-grid.md', `# Grid\n\nsome **bold** here\n\n${TABLE}\n\ntail\n`);
+  await page.goto('/#open=/docs/lp-grid.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Grid');
+  // Full-screen edit (the tables-suite pattern) + live preview on; the
+  // tableGridView default is already on.
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await page.getByTestId('settings-tab-editor').click();
+  await page.getByTestId('editor-live-preview').check();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+
+  // Park the caret on the tail line, OUTSIDE the table: the exclusion must
+  // hold selection-independently (PRD 006 §11 #55), not via §8's reveal.
+  await editor.locator('.cm-line', { hasText: 'tail' }).last().click();
+
+  // The grid rendered, and its lines show raw cell markdown — the ** and
+  // backtick markers stay visible inside the grid…
+  const gridLines = editor.locator('.cm-line.mm-table-mode-line');
+  await expect(gridLines.first()).toBeVisible();
+  await expect(editor.locator('.cm-line', { hasText: '**Host**' }).first()).toBeVisible();
+  await expect(editor.locator('.cm-line', { hasText: '`docker()`' }).first()).toBeVisible();
+
+  // …while live preview still renders the same constructs outside the grid.
+  const boldLine = editor.locator('.cm-line', { hasText: 'some' }).first();
+  await expect(editor.locator('.mm-lp-strong').first()).toContainText('bold');
+  await expect(boldLine).not.toContainText('**');
+
+  // Every grid line has the same visible length: all | columns align.
+  const lengths = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('.cm-line.mm-table-mode-line')).map(
+      (el) => (el.textContent ?? '').length
+    )
+  );
+  expect(lengths.length).toBeGreaterThanOrEqual(4);
+  expect(new Set(lengths).size).toBe(1);
+});
+
 test('E150: live preview supersedes SPEC23 highlighting — revealed lines keep mm-md-* styling whatever editorSyntax says', async ({
   page,
 }) => {

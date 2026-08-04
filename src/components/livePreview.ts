@@ -23,6 +23,7 @@ import {
   type LineStyle,
   type MarkStyle,
 } from '../lib/livePreview';
+import { tableModeField } from './tableMode';
 
 /** PRD 006 §3/§6: one mark per style; colors/weights ride the theme. */
 const MARKS: Record<MarkStyle, Decoration> = {
@@ -102,8 +103,11 @@ const CHECKBOX_CHECKED = Decoration.replace({ widget: new CheckboxWidget(true) }
 const CHECKBOX_UNCHECKED = Decoration.replace({ widget: new CheckboxWidget(false) });
 
 function buildDecorations(view: EditorView): DecorationSet {
+  // PRD 006 §11 (#55): tracked table-grid spans are excluded regions — their
+  // lines keep raw character counts so the SPEC40 grid's pipes stay aligned.
+  const grid = view.state.field(tableModeField, false);
   // PRD 006 §13: decorations are computed for the visible ranges only.
-  const specs = computeLivePreviewDecos(view.state, view.visibleRanges);
+  const specs = computeLivePreviewDecos(view.state, view.visibleRanges, grid?.spans ?? []);
   return Decoration.set(
     specs.map((s) => {
       switch (s.deco) {
@@ -141,8 +145,15 @@ const livePreviewPlugin = ViewPlugin.fromClass(
 
     update(update: ViewUpdate) {
       // PRD 006 §8: selection changes move the reveal; §13: viewport moves
-      // recompute for the newly visible ranges.
-      if (update.docChanged || update.selectionSet || update.viewportChanged) {
+      // recompute for the newly visible ranges; §11 (#55): a grid-set change
+      // without a doc edit (a span dropped by the watcher, a width-only
+      // refit) moves the excluded regions.
+      if (
+        update.docChanged ||
+        update.selectionSet ||
+        update.viewportChanged ||
+        update.startState.field(tableModeField, false) !== update.state.field(tableModeField, false)
+      ) {
         this.decorations = buildDecorations(update.view);
       }
     }

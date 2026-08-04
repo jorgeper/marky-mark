@@ -346,6 +346,46 @@ describe('PRD 006 §7 task-list checkboxes: render mirrors the source, a plain c
   });
 });
 
+describe('PRD 006 §11 (#55) excluded regions: table-grid spans show raw markdown', () => {
+  // A grid-shaped table (SPEC40 pads columns by raw character count): if any
+  // deco changed a grid line's visible character count, its pipes would drift.
+  const GRID =
+    '| Term     | Meaning        |\n' +
+    '| -------- | -------------- |\n' +
+    '| **Host** | Your machine   |\n' +
+    '| `code`   | [a](https://x) |';
+  const DOC = `before **bold** here\n${GRID}\nafter **tail** \`c\`\ncursor`;
+  const span = { from: DOC.indexOf('| Term'), to: DOC.indexOf('\nafter') };
+
+  test('U192: decos are suppressed inside an excluded span and still produced outside it', () => {
+    const state = mkState(DOC, { anchor: DOC.length });
+    // Without the exclusion the bug is live: hides land inside the table.
+    const unexcluded = allDecos(state);
+    expect(
+      unexcluded.filter((d) => d.deco === 'hide' && d.from < span.to && d.to > span.from).length
+    ).toBeGreaterThan(0);
+    // With the span excluded, no deco of any kind lands inside it…
+    const decos = computeLivePreviewDecos(state, [{ from: 0, to: state.doc.length }], [span]);
+    for (const d of decos) expect(d.from >= span.to || d.to <= span.from).toBe(true);
+    // …while identical constructs outside it still decorate.
+    expect(styleSpans(state, decos)).toEqual([
+      { style: 'strong', text: '**bold**' },
+      { style: 'strong', text: '**tail**' },
+      { style: 'inline-code', text: '`c`' },
+    ]);
+    expect(hiddenText(state, decos)).toBe('****' + '****' + '``');
+  });
+
+  test('U193: the exclusion is selection-independent — it holds wherever the caret sits', () => {
+    // Caret before, inside, and after the span: the span never decorates.
+    for (const anchor of [0, DOC.indexOf('**Host**'), DOC.length]) {
+      const state = mkState(DOC, { anchor });
+      const decos = computeLivePreviewDecos(state, [{ from: 0, to: state.doc.length }], [span]);
+      for (const d of decos) expect(d.from >= span.to || d.to <= span.from).toBe(true);
+    }
+  });
+});
+
 describe('PRD 006 §8 reveal rule', () => {
   test('U168: the cursor line shows raw markdown; other lines stay decorated', () => {
     const doc = '**one**\n**two**\n**three**';

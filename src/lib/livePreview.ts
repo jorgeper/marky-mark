@@ -164,13 +164,24 @@ export function taskToggleChange(
  * spans, headings, rules and fences, per line for blockquotes and lists,
  * which reveal line-by-line. Purely derived data — the document and
  * selection are never modified (§9).
+ *
+ * PRD 006 §11 (#55): `excludedRanges` (the caller's tracked table-grid
+ * spans) always show raw markdown, exactly like revealed regions — SPEC40
+ * grids pad columns by raw character count, so a decoration that changes a
+ * line's visible character count (a marker hide, link-syntax collapse, a
+ * widget replacement) would pull that row's pipes out of column. Unlike
+ * §8's reveal, the exclusion is selection-independent.
  */
 export function computeLivePreviewDecos(
   state: EditorState,
-  visibleRanges: readonly VisibleRange[]
+  visibleRanges: readonly VisibleRange[],
+  excludedRanges: readonly VisibleRange[] = []
 ): LivePreviewDeco[] {
   const tree = syntaxTree(state);
-  const revealed = revealedRanges(state);
+  const revealed = mergeRanges([
+    ...revealedRanges(state),
+    ...excludedRanges.map((r) => ({ from: r.from, to: r.to })),
+  ]);
   const decos: LivePreviewDeco[] = [];
   // A construct straddling a gap between visible ranges is entered once per
   // range it overlaps; dedupe so it decorates once.
