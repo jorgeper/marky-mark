@@ -19,6 +19,8 @@
   --cat-other: #008300;
 }
 * { box-sizing: border-box; }
+/* the hidden attribute must beat component display values (e.g. .badge's inline-flex) */
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; }
 body {
   background: var(--bg);
@@ -187,4 +189,102 @@ a.tnum.pr { color: var(--blue); }
 
 footer {
   color: var(--muted); font-size: 12px; text-align: center; padding: 8px 0 14px;
+}
+
+/* ---------- elapsed-time bar on running agent cards ---------- */
+.timebar { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; }
+.tb-clock { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+.meter {
+  flex: 1; min-width: 50px; height: 6px; border-radius: 999px;
+  background: #1c2f4a; /* darker step of the fill's own blue ramp */
+  overflow: hidden;
+}
+.meter.meter-empty { background: var(--panel2); }
+.meter-fill { height: 100%; border-radius: 999px; background: #3987e5; transition: width .5s linear; }
+.meter-fill.over { background: var(--amber); }
+.tb-elapsed { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; flex: none; }
+.tb-typical { color: var(--muted); font-size: 11.5px; flex: none; }
+
+/* ---------- stat tiles ---------- */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.tile { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+.t-label { font-size: 12px; color: var(--muted); }
+.t-value { font-size: 26px; font-weight: 650; margin-top: 2px; line-height: 1.15; }
+.t-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.statcard { display: flex; flex-direction: column; gap: 8px; }
+.sec-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+
+/* ---------- horizontal bars (median/p90, busiest issues) ---------- */
+.hrow { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.h-label { width: 92px; flex: none; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h-track { flex: 1; position: relative; height: 12px; }
+.h-bar {
+  position: absolute; left: 0; top: 0; height: 12px; min-width: 3px;
+  background: #3987e5; border-radius: 0 4px 4px 0; /* rounded data-end, square baseline */
+}
+.h-p90 {
+  position: absolute; left: 0; top: 3px; height: 6px; min-width: 3px;
+  background: #1f3a5f; border-radius: 0 3px 3px 0; /* lighter step, same ramp */
+}
+.h-val { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.h-val, .h-p90l { font-size: 12px; }
+.h-p90l { color: var(--muted); }
+
+/* ---------- activity histogram ---------- */
+.histo { display: flex; align-items: flex-end; gap: 2px; height: 74px; padding-top: 14px; }
+.hb-slot { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; position: relative; min-width: 0; }
+.hb { width: 100%; max-width: 14px; background: #3987e5; border-radius: 3px 3px 0 0; }
+.hb-max {
+  position: absolute; top: -14px; font-size: 10px; color: var(--muted);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.histo-axis {
+  display: flex; justify-content: space-between; color: var(--muted); font-size: 10.5px;
+  border-top: 1px solid var(--border); padding-top: 4px; margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- outcomes table ---------- */
+.stat-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.stat-table th {
+  text-align: left; color: var(--muted); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px 6px 0;
+}
+.stat-table td { padding: 4px 8px 4px 0; border-top: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.stat-table td:first-child { font-weight: 600; font-variant-numeric: normal; }
+
+/* ---------- timeline ---------- */
+.tl-card { padding: 10px 6px; overflow: hidden; }
+.tl-card svg, .tl-inline svg { display: block; max-width: 100%; }
+.tl-inline { overflow: hidden; }
+.tl-seg { cursor: pointer; }
+.tl-seg:hover { filter: brightness(1.25); }
+.tickl { font-size: 10.5px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.nowl { font-size: 11px; font-weight: 700; fill: var(--green); }
+.tl-issuenum { font-size: 11px; font-weight: 600; fill: var(--muted); cursor: pointer; }
+.tl-issuenum:hover { fill: var(--blue); }
+.tl-note { color: var(--muted); font-size: 12px; text-align: center; padding: 6px 0 2px; }
+.pulse-svg { animation: pulse 1.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+
+#tl-tip {
+  position: fixed; z-index: 60; pointer-events: none;
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 9px; font-size: 12px; line-height: 1.4; color: var(--text);
+  white-space: pre-line; max-width: 280px; box-shadow: 0 6px 20px rgba(0,0,0,.45);
+}
+
+/* ---------- per-issue stats button + history ---------- */
+.statbtn {
+  appearance: none; background: none; border: none; cursor: pointer;
+  font-size: 14px; padding: 0 2px; margin-left: auto; opacity: .75; flex: none;
+}
+.statbtn:hover, .statbtn:active { opacity: 1; }
+#issue-head-title { font-weight: 700; display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+
+.hist { border-left: 2px solid var(--border); margin-left: 6px; padding-left: 14px; display: flex; flex-direction: column; gap: 8px; }
+.hist-item { position: relative; }
+.hist-dot {
+  position: absolute; left: -21px; top: 16px; width: 10px; height: 10px;
+  border-radius: 50%; border: 2px solid var(--bg);
 }

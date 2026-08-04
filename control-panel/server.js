@@ -298,6 +298,20 @@ function summarizeRun(file, runIndex) {
   };
 }
 
+// Per-run category totals for the Stats tab, keyed by run id. Parsing every
+// log is ~1MB of regex work — fine behind a cache, wasteful per 5s poll.
+function statsSnapshot() {
+  const { runs } = listAgentRuns();
+  const cats = {};
+  for (const r of runs) {
+    try {
+      const s = summarizeRun(r.file, r.runIndex);
+      if (s.totalMs) cats[r.id] = Object.fromEntries(s.cats.filter((c) => c.ms > 0).map((c) => [c.key, c.ms]));
+    } catch { /* unreadable file — that run just has no breakdown */ }
+  }
+  return { cats, generatedAt: new Date().toISOString() };
+}
+
 // ---------- sandcastle orchestrator control ----------
 
 const PID_FILE = '/tmp/sandcastle-orchestrator.pid';
@@ -406,10 +420,18 @@ const cache = new Map();
 function cached(key, ttlMs, fn) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < ttlMs) return Promise.resolve(hit.value);
-  return fn().then((value) => {
-    cache.set(key, { at: Date.now(), value });
-    return value;
-  });
+  return fn().then(
+    (value) => {
+      cache.set(key, { at: Date.now(), value });
+      return value;
+    },
+    (err) => {
+      // Serve the stale value rather than an error: a transient gh failure
+      // (rate limit, network) must not blank a tree the client already had.
+      if (hit) return hit.value;
+      throw err;
+    }
+  );
 }
 
 function gh(args) {
@@ -421,32 +443,44 @@ function gh(args) {
   });
 }
 
+// One GraphQL call for the whole tree. The per-issue REST sub_issues endpoint
+// looked harmless but was 44 calls per cache miss — enough to exhaust the
+// 5000/hr REST quota, whereupon every catch blanked subIssues and the tree
+// rendered flat. GraphQL has its own (barely touched) quota and returns
+// parent + children in the same query.
 async function fetchIssues() {
-  const raw = await gh(['issue', 'list', '--state', 'all', '--json',
-    'number,title,state,labels,url,updatedAt', '--limit', '100']);
-  const issues = JSON.parse(raw);
-  // Sub-issue links (best effort — endpoint may not exist on older GitHub plans).
-  await Promise.all(issues.map(async (iss) => {
-    iss.subIssues = [];
-    iss.parent = null;
-    try {
-      const subs = JSON.parse(await gh(['api', `repos/{owner}/{repo}/issues/${iss.number}/sub_issues`]));
-      iss.subIssues = subs.map((s) => s.number);
-    } catch { /* no sub-issues */ }
+  const raw = await gh(['api', 'graphql',
+    '-F', 'owner={owner}', '-F', 'name={repo}',
+    '-f', `query=query($owner:String!,$name:String!){
+      repository(owner:$owner,name:$name){
+        issues(first:100,orderBy:{field:UPDATED_AT,direction:DESC}){
+          nodes{
+            number title state url createdAt updatedAt closedAt
+            labels(first:20){nodes{name}}
+            parent{number}
+            subIssues(first:100){nodes{number}}
+          }
+        }
+      }
+    }`]);
+  const nodes = JSON.parse(raw).data.repository.issues.nodes;
+  return nodes.map((n) => ({
+    number: n.number,
+    title: n.title,
+    state: n.state,
+    url: n.url,
+    createdAt: n.createdAt,
+    updatedAt: n.updatedAt,
+    closedAt: n.closedAt,
+    labels: n.labels.nodes,
+    parent: n.parent ? n.parent.number : null,
+    subIssues: n.subIssues.nodes.map((s) => s.number),
   }));
-  const byNumber = new Map(issues.map((i) => [i.number, i]));
-  for (const iss of issues) {
-    for (const sub of iss.subIssues) {
-      const child = byNumber.get(sub);
-      if (child) child.parent = iss.number;
-    }
-  }
-  return issues;
 }
 
 async function fetchPrs() {
   const raw = await gh(['pr', 'list', '--state', 'all', '--json',
-    'number,title,state,url,headRefName,updatedAt,isDraft', '--limit', '50']);
+    'number,title,state,url,headRefName,createdAt,updatedAt,mergedAt,closedAt,isDraft', '--limit', '50']);
   const prs = JSON.parse(raw);
   for (const pr of prs) {
     const linked = new Set();
@@ -562,6 +596,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/prs') {
       return json(res, { prs: await cached('prs', 30000, fetchPrs) });
+    }
+    if (url.pathname === '/api/stats') {
+      return json(res, await cached('stats', 180000, async () => statsSnapshot()));
     }
     if (url.pathname === '/api/docs') {
       return json(res, { docs: listDocs() });

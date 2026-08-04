@@ -17,6 +17,8 @@
     <button data-tab="agents" class="active">Agents <span id="running-badge" class="badge" hidden></span></button>
     <button data-tab="issues">Issues</button>
     <button data-tab="prs">PRs</button>
+    <button data-tab="timeline">Timeline</button>
+    <button data-tab="stats">Stats</button>
     <button data-tab="docs">Docs</button>
   </nav>
 </header>
@@ -52,6 +54,29 @@
     <div id="pr-list" class="list"><div class="empty">Loading…</div></div>
   </section>
 
+  <section id="view-timeline" class="view" hidden>
+    <div class="toolbar">
+      <div class="chips range-chips"></div>
+    </div>
+    <div id="tl-legend" class="legend"></div>
+    <div id="tl-wrap" class="card tl-card"><div class="empty">Loading…</div></div>
+  </section>
+
+  <section id="view-stats" class="view" hidden>
+    <div class="toolbar">
+      <div class="chips range-chips"></div>
+    </div>
+    <div id="stats-body" class="list"><div class="empty">Loading…</div></div>
+  </section>
+
+  <section id="view-issue" class="view" hidden>
+    <div class="log-head">
+      <button id="issue-back">‹ Issues</button>
+      <div id="issue-head-title"></div>
+    </div>
+    <div id="issue-body" class="list"><div class="empty">Loading…</div></div>
+  </section>
+
   <section id="view-docs" class="view" hidden>
     <div id="doc-list" class="list"><div class="empty">Loading…</div></div>
   </section>
@@ -68,6 +93,7 @@
   </section>
 </main>
 
+<div id="tl-tip" hidden></div>
 <footer id="status-line"></footer>
 <script src="/app.js"></script>
 </body>
