@@ -1,32 +1,99 @@
 /**
- * PRD 006 §3/§8/§9 (issue #47): the live-preview CodeMirror extension —
- * DOM/view wiring over the pure decoration core in src/lib/livePreview.ts.
+ * PRD 006 §3–§6/§8/§9 (issues #47/#48): the live-preview CodeMirror
+ * extension — DOM/view wiring over the pure decoration core in
+ * src/lib/livePreview.ts.
  *
  * Internal flag, not a setting: the extension activates only where a caller
  * includes `livePreviewExtension()` in its extension list. Nothing in the
  * shipped app references it yet — the settings toggle and Editor wiring land
  * in the final sub-issue (#50) — so the edit pane behaves exactly as today.
  */
-import { ViewPlugin, Decoration, EditorView, type DecorationSet, type ViewUpdate } from '@codemirror/view';
+import {
+  ViewPlugin,
+  Decoration,
+  EditorView,
+  WidgetType,
+  type DecorationSet,
+  type ViewUpdate,
+} from '@codemirror/view';
 import type { Extension } from '@codemirror/state';
-import { computeLivePreviewDecos, type InlineStyle } from '../lib/livePreview';
+import { computeLivePreviewDecos, type LineStyle, type MarkStyle } from '../lib/livePreview';
 
-/** PRD 006 §3: one mark per inline style; colors/weights ride the theme. */
-const MARKS: Record<InlineStyle, Decoration> = {
+/** PRD 006 §3/§6: one mark per style; colors/weights ride the theme. */
+const MARKS: Record<MarkStyle, Decoration> = {
   strong: Decoration.mark({ class: 'mm-lp-strong' }),
   emphasis: Decoration.mark({ class: 'mm-lp-em' }),
   strikethrough: Decoration.mark({ class: 'mm-lp-strike' }),
   'inline-code': Decoration.mark({ class: 'mm-lp-code' }),
+  'list-number': Decoration.mark({ class: 'mm-lp-list-num' }),
+};
+
+/** PRD 006 §4/§6: whole-line styles — heading sizes and the quote bar. */
+const LINES: Record<LineStyle, Decoration> = {
+  'heading-1': Decoration.line({ class: 'mm-lp-h1' }),
+  'heading-2': Decoration.line({ class: 'mm-lp-h2' }),
+  'heading-3': Decoration.line({ class: 'mm-lp-h3' }),
+  'heading-4': Decoration.line({ class: 'mm-lp-h4' }),
+  'heading-5': Decoration.line({ class: 'mm-lp-h5' }),
+  'heading-6': Decoration.line({ class: 'mm-lp-h6' }),
+  blockquote: Decoration.line({ class: 'mm-lp-quote' }),
 };
 
 /** PRD 006 §3/§9: markers vanish visually; the text underneath stays. */
 const HIDE = Decoration.replace({});
 
+/** PRD 006 §6: a bullet-list marker drawn as a bullet glyph. */
+class BulletWidget extends WidgetType {
+  toDOM() {
+    const el = document.createElement('span');
+    el.className = 'mm-lp-bullet';
+    el.textContent = '•';
+    return el;
+  }
+  override eq() {
+    return true;
+  }
+}
+
+/** PRD 006 §6: a horizontal rule drawn in place of the raw ---/*** text. */
+class RuleWidget extends WidgetType {
+  toDOM() {
+    const el = document.createElement('span');
+    el.className = 'mm-lp-hr';
+    return el;
+  }
+  override eq() {
+    return true;
+  }
+}
+
+const BULLET = Decoration.replace({ widget: new BulletWidget() });
+const RULE = Decoration.replace({ widget: new RuleWidget() });
+
 function buildDecorations(view: EditorView): DecorationSet {
   // PRD 006 §13: decorations are computed for the visible ranges only.
   const specs = computeLivePreviewDecos(view.state, view.visibleRanges);
   return Decoration.set(
-    specs.map((s) => (s.deco === 'hide' ? HIDE : MARKS[s.style]).range(s.from, s.to)),
+    specs.map((s) => {
+      switch (s.deco) {
+        case 'hide':
+          return HIDE.range(s.from, s.to);
+        case 'style':
+          return MARKS[s.style].range(s.from, s.to);
+        // PRD 006 §5: the link text carries its URL for the click hand-off.
+        case 'link':
+          return Decoration.mark({
+            class: 'mm-lp-link',
+            attributes: { 'data-mm-lp-url': s.url },
+          }).range(s.from, s.to);
+        case 'bullet':
+          return BULLET.range(s.from, s.to);
+        case 'rule':
+          return RULE.range(s.from, s.to);
+        case 'line':
+          return LINES[s.style].range(s.from);
+      }
+    }),
     true
   );
 }
@@ -50,18 +117,85 @@ const livePreviewPlugin = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations }
 );
 
+/**
+ * PRD 006 §5: the mousedown handler behind cmd/ctrl-click on a rendered
+ * link — returns true (event consumed) only for a modified click on a link
+ * span with an http(s) URL, handing the URL to `open`; anything else
+ * returns false so CodeMirror just places the cursor. Only http(s) opens,
+ * mirroring the preview pane's managed-link rule (SPEC11 §4). Exported as a
+ * factory so unit tests can assert the callback/URL without a browser.
+ */
+export function livePreviewMousedown(open: ((url: string) => void) | undefined) {
+  return (event: {
+    metaKey: boolean;
+    ctrlKey: boolean;
+    target: EventTarget | null;
+    preventDefault(): void;
+  }): boolean => {
+    if (!event.metaKey && !event.ctrlKey) return false;
+    const target = event.target as {
+      closest?: (selector: string) => { getAttribute(name: string): string | null } | null;
+    } | null;
+    const url = target?.closest?.('.mm-lp-link')?.getAttribute('data-mm-lp-url') ?? '';
+    if (!/^https?:\/\//i.test(url)) return false;
+    event.preventDefault();
+    open?.(url);
+    return true;
+  };
+}
+
 const livePreviewTheme = EditorView.baseTheme({
   '.mm-lp-strong': { fontWeight: 'bold' },
   '.mm-lp-em': { fontStyle: 'italic' },
   '.mm-lp-strike': { textDecoration: 'line-through' },
   '.mm-lp-code': { fontFamily: 'var(--mm-font-mono, monospace)' },
+  // PRD 006 §4: per-level heading size/weight.
+  '.mm-lp-h1': { fontSize: '1.6em', fontWeight: 'bold' },
+  '.mm-lp-h2': { fontSize: '1.4em', fontWeight: 'bold' },
+  '.mm-lp-h3': { fontSize: '1.25em', fontWeight: 'bold' },
+  '.mm-lp-h4': { fontSize: '1.1em', fontWeight: 'bold' },
+  '.mm-lp-h5': { fontSize: '1em', fontWeight: 'bold' },
+  '.mm-lp-h6': { fontSize: '0.9em', fontWeight: 'bold' },
+  // PRD 006 §5/§10: link styling rides the theme's link/accent tokens.
+  '.mm-lp-link': {
+    color: 'var(--mm-link, var(--mm-accent, #0969da))',
+    textDecoration: 'underline',
+    cursor: 'pointer',
+  },
+  // PRD 006 §6: quote bar, list markers, and the drawn rule.
+  '.mm-lp-quote': {
+    borderLeft: '3px solid var(--mm-accent, #0969da)',
+    paddingLeft: '8px',
+  },
+  '.mm-lp-list-num': { color: 'var(--mm-accent, #0969da)' },
+  '.mm-lp-bullet': { color: 'var(--mm-accent, #0969da)' },
+  '.mm-lp-hr': {
+    display: 'inline-block',
+    width: '100%',
+    verticalAlign: 'middle',
+    borderTop: '1px solid var(--mm-border, #d0d7de)',
+  },
 });
 
+/** PRD 006 §5: host hand-offs the extension needs from the component layer. */
+export interface LivePreviewOptions {
+  /**
+   * Receives the URL of a cmd/ctrl-clicked link. #50 wires this to
+   * `platform.openExternal`, the same hand-off the preview pane uses;
+   * src/lib/ stays platform-free. Omitted → rendered links are inert.
+   */
+  openExternal?: (url: string) => void;
+}
+
 /**
- * PRD 006 §3/§8 (issue #47): the live-preview extension factory — the
- * internal opt-in flag. Callers that want live preview include this in
+ * PRD 006 §3–§6/§8 (issues #47/#48): the live-preview extension factory —
+ * the internal opt-in flag. Callers that want live preview include this in
  * their extension list; the app as shipped never does.
  */
-export function livePreviewExtension(): Extension {
-  return [livePreviewPlugin, livePreviewTheme];
+export function livePreviewExtension(options: LivePreviewOptions = {}): Extension {
+  return [
+    livePreviewPlugin,
+    EditorView.domEventHandlers({ mousedown: livePreviewMousedown(options.openExternal) }),
+    livePreviewTheme,
+  ];
 }

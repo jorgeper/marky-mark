@@ -7,6 +7,7 @@ import {
   revealedRanges,
   type LivePreviewDeco,
 } from '../../src/lib/livePreview';
+import { livePreviewMousedown } from '../../src/components/livePreview';
 
 /** A state whose syntax tree is fully parsed (GFM base, as the tests need
  * Strikethrough nodes; the pure core only sees the tree, never the config). */
@@ -17,7 +18,10 @@ function mkState(doc: string, selection?: EditorStateConfig['selection']): Edito
     extensions: [markdown({ base: markdownLanguage })],
   });
   ensureSyntaxTree(state, state.doc.length, 5000);
-  return state;
+  // ensureSyntaxTree advances the shared parse context, but syntaxTree()
+  // reads the state field's snapshot, which init only fills for the first
+  // ~3000 chars — a no-op update refreshes it to the fully parsed tree.
+  return state.update({}).state;
 }
 
 /** Decos for the whole document as one visible range. */
@@ -88,6 +92,135 @@ describe('PRD 006 §3 inline formatting: markers hidden, content styled', () => 
   });
 });
 
+describe('PRD 006 §4 headings: heading size/weight, # markers hidden', () => {
+  test('U175: each ATX level gets its per-level line style and hides its markers plus the space', () => {
+    const doc = '# h1\n## h2\n### h3\n#### h4\n##### h5\n###### h6\ncursor';
+    const state = mkState(doc, { anchor: doc.length });
+    const decos = allDecos(state);
+    const lines = decos.filter((d) => d.deco === 'line');
+    expect(lines.map((d) => (d.deco === 'line' ? d.style : ''))).toEqual([
+      'heading-1',
+      'heading-2',
+      'heading-3',
+      'heading-4',
+      'heading-5',
+      'heading-6',
+    ]);
+    // Every line deco anchors at its line start and spans the line.
+    for (const d of lines) {
+      const line = state.doc.lineAt(d.from);
+      expect(d.from).toBe(line.from);
+      expect(d.to).toBe(line.to);
+    }
+    // The leading markers hide together with the space after them.
+    expect(hiddenText(state, decos)).toBe('# ## ### #### ##### ###### ');
+  });
+});
+
+describe('PRD 006 §5 links: text styled, syntax hidden, cmd/ctrl-click hand-off', () => {
+  test('U176: the [text](url) syntax hides and the link text carries the URL', () => {
+    const doc = 'see [docs](https://ex.com) end\ncursor';
+    const state = mkState(doc, { anchor: doc.length });
+    const decos = allDecos(state);
+    const links = decos.filter((d) => d.deco === 'link');
+    expect(links).toEqual([{ from: 5, to: 9, deco: 'link', url: 'https://ex.com' }]);
+    expect(state.doc.sliceString(links[0].from, links[0].to)).toBe('docs');
+    expect(hiddenText(state, decos)).toBe('[](https://ex.com)');
+  });
+
+  test('U177: cmd/ctrl-click hands the URL to the openExternal callback; plain click does not', () => {
+    const opened: string[] = [];
+    const handler = livePreviewMousedown((url) => opened.push(url));
+    let prevented = 0;
+    const linkTarget = (url: string) =>
+      ({
+        closest: (sel: string) =>
+          sel === '.mm-lp-link'
+            ? { getAttribute: (name: string) => (name === 'data-mm-lp-url' ? url : null) }
+            : null,
+      }) as unknown as EventTarget;
+    const ev = (mods: { metaKey: boolean; ctrlKey: boolean }, url = 'https://ex.com') => ({
+      ...mods,
+      target: linkTarget(url),
+      preventDefault: () => prevented++,
+    });
+    // cmd (mac) and ctrl (win/linux) both open, consuming the event.
+    expect(handler(ev({ metaKey: true, ctrlKey: false }))).toBe(true);
+    expect(handler(ev({ metaKey: false, ctrlKey: true }))).toBe(true);
+    expect(opened).toEqual(['https://ex.com', 'https://ex.com']);
+    expect(prevented).toBe(2);
+    // Plain click is not consumed — CodeMirror just places the cursor.
+    expect(handler(ev({ metaKey: false, ctrlKey: false }))).toBe(false);
+    // Non-http(s) URLs are inert, mirroring the preview pane's managed links.
+    expect(handler(ev({ metaKey: true, ctrlKey: false }, 'javascript:alert(1)'))).toBe(false);
+    // A cmd-click away from any link is not consumed either.
+    expect(
+      handler({
+        metaKey: true,
+        ctrlKey: false,
+        target: { closest: () => null } as unknown as EventTarget,
+        preventDefault: () => prevented++,
+      })
+    ).toBe(false);
+    expect(opened.length).toBe(2);
+    expect(prevented).toBe(2);
+  });
+});
+
+describe('PRD 006 §6 block elements: quotes, lists, rules, fences', () => {
+  test('U178: blockquote lines get the quote-bar line style with > markers hidden, revealing line-by-line', () => {
+    // The blank line matters: a bare 'cursor' line would lazily continue
+    // the blockquote per CommonMark and correctly pick up quote styling.
+    const doc = '> one **b**\n> two\n\ncursor';
+    // Cursor on the second quote line: line 1 stays decorated, line 2 raw.
+    const state = mkState(doc, { anchor: doc.indexOf('two') });
+    const decos = allDecos(state);
+    const lines = decos.filter((d) => d.deco === 'line');
+    expect(lines).toEqual([{ from: 0, to: 11, deco: 'line', style: 'blockquote' }]);
+    // Only line 1's marker (and its space) hides; **b** still decorates.
+    expect(hiddenText(state, decos)).toBe('> ****');
+    expect(styleSpans(state, decos)).toEqual([{ style: 'strong', text: '**b**' }]);
+  });
+
+  test('U179: bullet markers render as bullets and ordered markers as numbers — nothing hides', () => {
+    const doc = '- apple\n- pear\n\n1. one\n2. two\n\ncursor';
+    const state = mkState(doc, { anchor: doc.length });
+    const decos = allDecos(state);
+    const bullets = decos
+      .filter((d) => d.deco === 'bullet')
+      .map((d) => state.doc.sliceString(d.from, d.to));
+    expect(bullets).toEqual(['-', '-']);
+    expect(styleSpans(state, decos)).toEqual([
+      { style: 'list-number', text: '1.' },
+      { style: 'list-number', text: '2.' },
+    ]);
+    expect(hiddenText(state, decos)).toBe('');
+  });
+
+  test('U180: horizontal rules draw as rules over the raw --- / *** text', () => {
+    const doc = 'a\n\n---\n\n***\n\ncursor';
+    const state = mkState(doc, { anchor: doc.length });
+    const decos = allDecos(state);
+    const rules = decos
+      .filter((d) => d.deco === 'rule')
+      .map((d) => state.doc.sliceString(d.from, d.to));
+    expect(rules).toEqual(['---', '***']);
+    expect(hiddenText(state, decos)).toBe('');
+  });
+
+  test('U181: fence lines (backticks and info string) hide; the code body carries no hide span', () => {
+    const doc = '```js\nconst x = 1;\n```\ncursor';
+    const state = mkState(doc, { anchor: doc.length });
+    const decos = allDecos(state);
+    expect(hiddenText(state, decos)).toBe('```js```');
+    // The code body keeps its own highlighting: no deco of any kind overlaps it.
+    const body = { from: doc.indexOf('const'), to: doc.indexOf(';') + 1 };
+    for (const d of decos) {
+      expect(d.from >= body.to || d.to <= body.from).toBe(true);
+    }
+  });
+});
+
 describe('PRD 006 §8 reveal rule', () => {
   test('U168: the cursor line shows raw markdown; other lines stay decorated', () => {
     const doc = '**one**\n**two**\n**three**';
@@ -132,6 +265,28 @@ describe('PRD 006 §8 reveal rule', () => {
       // …so the construct stays raw while the last line still decorates.
       expect(styleSpans(state, allDecos(state))).toEqual([{ style: 'inline-code', text: '`tail`' }]);
     }
+  });
+
+  test('U182: the cursor on a heading line shows it raw; other lines stay decorated', () => {
+    const doc = '# head\n**b**\ncursor';
+    const state = mkState(doc, { anchor: 2 });
+    const decos = allDecos(state);
+    // No heading line style, no marker hide on the cursor line.
+    expect(decos.filter((d) => d.deco === 'line')).toEqual([]);
+    for (const d of decos) expect(d.from).toBeGreaterThan(doc.indexOf('\n'));
+    // Line 2's construct still decorates.
+    expect(styleSpans(state, decos)).toEqual([{ style: 'strong', text: '**b**' }]);
+  });
+
+  test('U183: the cursor inside a fence reveals the whole fence raw — no fence-line hides', () => {
+    const doc = 'before\n```js\nconst x = 1;\n```\nafter **bold**';
+    const state = mkState(doc, { anchor: doc.indexOf('x = 1') });
+    const decos = allDecos(state);
+    const fence = { from: doc.indexOf('```js'), to: doc.indexOf('\nafter') };
+    expect(
+      decos.filter((d) => d.deco === 'hide' && d.from < fence.to && d.to > fence.from)
+    ).toEqual([]);
+    expect(styleSpans(state, decos)).toEqual([{ style: 'strong', text: '**bold**' }]);
   });
 });
 
@@ -186,5 +341,23 @@ describe('PRD 006 §13 viewport-bounded computation', () => {
       { style: 'strong', text: '**a**' },
       { style: 'strong', text: '**c**' },
     ]);
+  });
+
+  test('U184: block constructs also decorate only the visible ranges of a large document', () => {
+    const line = '## head';
+    const lines = Array.from({ length: 4000 }, () => line);
+    const doc = lines.join('\n');
+    const state = mkState(doc + '\ncursor', { anchor: doc.length + 3 });
+    const lineLen = line.length + 1;
+    const vp = { from: 2000 * lineLen, to: 2010 * lineLen - 1 };
+    const decos = computeLivePreviewDecos(state, [vp]);
+    // Exactly the 10 visible headings: one line style + one marker hide each.
+    expect(decos.filter((d) => d.deco === 'line').length).toBe(10);
+    expect(decos.filter((d) => d.deco === 'hide').length).toBe(10);
+    expect(decos.length).toBe(20);
+    for (const d of decos) {
+      expect(d.to).toBeGreaterThan(vp.from);
+      expect(d.from).toBeLessThan(vp.to);
+    }
   });
 });
