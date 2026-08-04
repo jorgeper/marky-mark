@@ -1322,7 +1322,27 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 
   // PR-mode branches fork from local HEAD but their PR diffs are computed
   // against origin/master — keep the remote in sync with local merges.
-  await execFileAsync("git", ["push", "origin", TARGET_BRANCH]);
+  // A bare push races the other machines (and GitHub-side PR merges) on the
+  // target branch, and a rejection here crashed the whole loop with the
+  // merger's issue-closes already done — the merges stranded locally (it
+  // happened: #52/#53 and #55/#39 closed with main never pushed). Integrate
+  // the remote tip first — merge, never force: the target branch is shared —
+  // and on failure log and fall through; the next cycle's push retries.
+  try {
+    await execFileAsync("git", ["fetch", "origin", TARGET_BRANCH]);
+    try {
+      await execFileAsync("git", ["merge", "--no-edit", `origin/${TARGET_BRANCH}`]);
+    } catch (error) {
+      // A conflicted merge must not leak into later phases' working tree.
+      await execFileAsync("git", ["merge", "--abort"]).catch(() => {});
+      throw error;
+    }
+    await execFileAsync("git", ["push", "origin", TARGET_BRANCH]);
+  } catch (error) {
+    console.error(
+      `  ✗ push of ${TARGET_BRANCH} failed: ${error instanceof Error ? error.message : error} — continuing; local merges are intact and the next cycle retries the push.`,
+    );
+  }
 
   // The merger's state-advance is the issue close, and an agent can miss it
   // (it happened: a merged branch's issue stayed open, so the classifier
