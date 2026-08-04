@@ -31,6 +31,9 @@ import {
   pullFastForward,
   laneNudge,
 } from "./shared.ts";
+// The one shared branch-permanence guard (PRD 008 R14) — a deliberate
+// cross-template import so no second copy of the rule can drift.
+import { mergePrArgs } from "./github.mts";
 
 // Designer lane — re-entrant, no resident process (same shape as the main
 // loop: classify GitHub state → do everything actionable → exit with
@@ -162,7 +165,13 @@ const sweepPr = async (conversationId: string): Promise<void> => {
   if (approved) {
     console.log("  sandcastle:approved — merging…");
     try {
-      gh(`pr merge ${prUrl} --squash --delete-branch`);
+      // PRD 008 R14: mergePrArgs drops --delete-branch for permanent
+      // release/* heads (isPermanentBranch); every other branch keeps
+      // delete-on-merge.
+      const { headRefName } = ghJson<{ headRefName: string }>(
+        `pr view ${prUrl} --json headRefName`,
+      );
+      gh(mergePrArgs(prUrl, headRefName).join(" "));
       console.log("  merged.");
       if (pullFastForward()) console.log("  local checkout fast-forwarded.");
       createHandoffIssue(prdFileOf(convo), designIssue);

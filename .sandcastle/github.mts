@@ -219,8 +219,33 @@ export const createPr = async (opts: {
   return Number(match[1]);
 };
 
+// PRD 008 R14: release/* branches are permanent — no Sandcastle path (merge,
+// cleanup, or otherwise) may delete them. Every branch-deletion site routes
+// through this predicate; design.ts imports it too, a deliberate exception to
+// the no-cross-template-sharing norm so there is exactly one guard.
+export const isPermanentBranch = (branch: string): boolean =>
+  branch.startsWith("release/");
+
+// Pure seam for merge-command construction so tests can assert the deletion
+// exemption without mocking gh. `target` is whatever `gh pr merge` accepts —
+// a PR number or URL.
+export const mergePrArgs = (target: string, headRefName: string): string[] => {
+  const args = ["pr", "merge", target, "--squash"];
+  // PRD 008 R14: a permanent release/* head survives its merge.
+  if (!isPermanentBranch(headRefName)) args.push("--delete-branch");
+  return args;
+};
+
+export const prHeadRefName = async (prNumber: number): Promise<string> => {
+  const raw = await gh([
+    "pr", "view", String(prNumber), "--json", "headRefName",
+  ]);
+  return (JSON.parse(raw) as { headRefName: string }).headRefName;
+};
+
 export const mergePr = async (prNumber: number): Promise<void> => {
-  await gh(["pr", "merge", String(prNumber), "--squash", "--delete-branch"]);
+  const headRefName = await prHeadRefName(prNumber);
+  await gh(mergePrArgs(String(prNumber), headRefName));
 };
 
 // GitHub's "Closes #N" auto-close is asynchronous; we close explicitly after
