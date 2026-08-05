@@ -62,7 +62,9 @@ again over a cut that is partly — or entirely — done. First run
 - Otherwise walk the phases below in order and resume at the **first
   phase not done**. Trust markers only after cross-checking reality:
   does `release/v{{VERSION}}` exist on the remote
-  (`git ls-remote origin refs/heads/release/v{{VERSION}}`), does tag
+  (`git ls-remote origin refs/heads/release/v{{VERSION}}`), does a
+  green `release-branch-test.yml` run exist for the branch tip SHA
+  (`gh run list --workflow release-branch-test.yml`), does tag
   `v{{VERSION}}` exist (`git ls-remote origin refs/tags/v{{VERSION}}`),
   does a `release.yml` run / the draft release exist
   (`gh run list --workflow release.yml`, `gh release view v{{VERSION}}`)?
@@ -71,11 +73,23 @@ again over a cut that is partly — or entirely — done. First run
   redone (without duplicating the comment).
 - A `{{CUT_FAILED_MARKER}}` comment **newer than every other phase
   marker** means the last attempt failed and you were re-dispatched
-  because its blocking bug closed. Start a fresh attempt: re-cut
-  `release/v{{VERSION}}` from current `origin/main` (phase 1's
-  `git checkout -B`), force-push in phase 2a, and post each phase's
-  comment again for this attempt — markers older than that cut-failed
-  comment belong to the failed attempt and do not count as done.
+  because its blocking bug closed. Check whether tag `v{{VERSION}}`
+  exists on the remote (`git ls-remote origin refs/tags/v{{VERSION}}`)
+  to tell which kind of retry applies:
+  - **Tag does not exist** — the failure was pre-tag. Start a fresh
+    attempt: re-cut `release/v{{VERSION}}` from current `origin/main`
+    (phase 1's `git checkout -B`), force-push in phase 2a, and post
+    each phase's comment again for this attempt — markers older than
+    that cut-failed comment belong to the failed attempt and do not
+    count as done.
+  - **Tag exists** — never re-cut or force-push anything; phases up to
+    the tag push are done. Resume from the failed step instead: a
+    failed tag-triggered `release.yml` run (phase 3) is retried with
+    `gh run rerun <run-id> --failed`, then watched as in phase 3; a
+    failed Windows run (phase 5) is retried by re-running phase 5's
+    `gh workflow run release-windows.yml -f tag=v{{VERSION}}`. If the
+    retried run fails again, that is a new cut failure — the failure
+    flow applies again.
 
 Mode `{{MODE}}`: on `full-cut`, run every phase. On `windows-append`,
 tag `v{{VERSION}}` already exists (the classifier verified it) and the

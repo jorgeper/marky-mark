@@ -943,11 +943,23 @@ const runReleaseLane = async (): Promise<void> => {
       }
     } catch (error) {
       if (error instanceof ReleaseCutNotOk) {
-        console.warn(
-          error.bug !== null
-            ? `  ✖ release #${issue.number}: ${error.outcome.text.toUpperCase()} — bug #${error.bug} filed; fix it via npm run sandcastle, the cut auto-resumes when it closes.`
-            : `  ✖ release #${issue.number}: ${error.outcome.text.toUpperCase()} — see the issue thread for evidence.`,
-        );
+        // Spec 2026-08-04 §4: "failed" (newest marker is CUT_FAILED_MARKER)
+        // is the only level the auto-resumes-on-bug-close promise applies
+        // to — an "incomplete" run (any other newest marker) just ended
+        // mid-cut and re-dispatches on the next npm run sandcastle, so a
+        // bug number attached to it (from an older cut-failed comment)
+        // must not be presented as blocking this outcome.
+        if (error.outcome.level === "failed") {
+          console.warn(
+            error.bug !== null
+              ? `  ✖ release #${issue.number}: ${error.outcome.text.toUpperCase()} — bug #${error.bug} filed; fix it via npm run sandcastle, the cut auto-resumes when it closes.`
+              : `  ✖ release #${issue.number}: ${error.outcome.text.toUpperCase()} — see the issue thread for evidence.`,
+          );
+        } else {
+          console.warn(
+            `  ✖ release #${issue.number}: ${error.outcome.text} — run ended mid-cut; the next npm run sandcastle re-dispatches it.`,
+          );
+        }
       } else {
         console.warn(
           `  ⚠ release lane: releaser for #${issue.number} failed (${error instanceof Error ? error.message.split("\n", 1)[0] : error}) — the issue stays open for the next run.`,
