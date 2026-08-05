@@ -214,10 +214,10 @@ the tag, and that the merge-back landed.
 
 Watch the tag-triggered `release.yml` run to completion: poll about once
 a minute with `gh run list --workflow release.yml` / `gh run view <id>`.
-If the run fails, post one comment starting `{{CUT_FAILED_MARKER}}` with
-the failing job and evidence, and STOP (the draft safety net means a
-failed run published nothing). When it succeeds, post one comment
-starting `{{CI_GREEN_MARKER}}` with the run URL.
+If the run fails → the failure flow in phase 1 (bug filed, `Blocked-by:`
+comment), and STOP (the draft safety net means a failed run published
+nothing). When it succeeds, post one comment starting `{{CI_GREEN_MARKER}}`
+with the run URL.
 
 ## Phase 4 — verify the draft (R9, R11)
 
@@ -248,7 +248,7 @@ confirming the tag's release exists):
 
 1. `gh workflow run release-windows.yml -f tag=v{{VERSION}}`
 2. Watch that run to completion (same once-a-minute polling); on failure
-   post `{{CUT_FAILED_MARKER}}` evidence and STOP.
+   → the failure flow in phase 1, and STOP.
 3. Verify the release now carries the `*-setup.exe` and a refreshed
    `SHA256SUMS.txt` covering it (re-download and `sha256sum -c` again).
 
