@@ -138,6 +138,9 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 
 const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
+const isIsoTimestamp = (v: unknown): v is string =>
+  isNonEmptyString(v) && !Number.isNaN(Date.parse(v));
+
 /**
  * PRD 007 Req 7: validate untrusted manifest data. An unsupported schema
  * version or a malformed field is rejected with an error naming the problem
@@ -150,14 +153,13 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
   if (data.version !== MANIFEST_VERSION) {
     return fail(`unsupported manifest version ${JSON.stringify(data.version)} (this build reads version ${MANIFEST_VERSION})`);
   }
-  if (!isNonEmptyString(data.name)) return fail('manifest name must be a non-empty string');
-  for (const key of ['created', 'modified'] as const) {
-    if (!isNonEmptyString(data[key]) || Number.isNaN(Date.parse(data[key] as string))) {
-      return fail(`manifest ${key} must be an ISO 8601 timestamp`);
-    }
-  }
+  const { name, created, modified, everyone, settings } = data;
+  if (!isNonEmptyString(name)) return fail('manifest name must be a non-empty string');
+  if (!isIsoTimestamp(created)) return fail('manifest created must be an ISO 8601 timestamp');
+  if (!isIsoTimestamp(modified)) return fail('manifest modified must be an ISO 8601 timestamp');
 
   if (!Array.isArray(data.members)) return fail('manifest members must be an array');
+  const members: WorkspaceMember[] = [];
   const memberIds = new Set<string>();
   for (const m of data.members as unknown[]) {
     if (!isPlainObject(m) || !isNonEmptyString(m.id) || !isNonEmptyString(m.role)) {
@@ -167,9 +169,11 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
     // closed); a duplicate member id is a malformed manifest, not a policy.
     if (memberIds.has(m.id)) return fail(`duplicate member id ${JSON.stringify(m.id)}`);
     memberIds.add(m.id);
+    members.push({ id: m.id, role: m.role });
   }
 
   if (!Array.isArray(data.roles)) return fail('manifest roles must be an array');
+  const roles: CustomRole[] = [];
   const roleNames = new Set<string>();
   for (const r of data.roles as unknown[]) {
     if (!isPlainObject(r) || !isNonEmptyString(r.name) || !Array.isArray(r.permissions)) {
@@ -182,29 +186,32 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
     }
     if (roleNames.has(r.name)) return fail(`duplicate custom role ${JSON.stringify(r.name)}`);
     roleNames.add(r.name);
+    const permissions: Permission[] = [];
     for (const p of r.permissions as unknown[]) {
       // PRD 007 Req 13: only catalog verbs exist — an unknown verb is an
       // error, not a typo that passes.
       if (!isPermission(p)) return fail(`unknown permission ${JSON.stringify(p)} in role ${JSON.stringify(r.name)}`);
+      permissions.push(p);
     }
+    roles.push({ name: r.name, permissions });
   }
 
-  if (!isPlainObject(data.everyone) || typeof data.everyone.enabled !== 'boolean' || !isNonEmptyString(data.everyone.role)) {
+  if (!isPlainObject(everyone) || typeof everyone.enabled !== 'boolean' || !isNonEmptyString(everyone.role)) {
     return fail('manifest everyone must be {enabled: boolean, role: string}');
   }
-  if (!isPlainObject(data.settings)) return fail('manifest settings must be an object');
+  if (!isPlainObject(settings)) return fail('manifest settings must be an object');
 
   return {
     ok: true,
     manifest: {
       version: MANIFEST_VERSION,
-      name: data.name,
-      created: data.created as string,
-      modified: data.modified as string,
-      members: (data.members as WorkspaceMember[]).map((m) => ({ id: m.id, role: m.role })),
-      roles: (data.roles as CustomRole[]).map((r) => ({ name: r.name, permissions: [...r.permissions] })),
-      everyone: { enabled: data.everyone.enabled, role: data.everyone.role },
-      settings: { ...(data.settings as Record<string, unknown>) },
+      name,
+      created,
+      modified,
+      members,
+      roles,
+      everyone: { enabled: everyone.enabled, role: everyone.role },
+      settings: { ...settings },
     },
   };
 }

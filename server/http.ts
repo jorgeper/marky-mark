@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Buffer } from 'node:buffer';
 
 /** Uploads beyond this are rejected outright (scaffold guard, not a quota). */
-export const MAX_BODY_BYTES = 25 * 1024 * 1024;
+const MAX_BODY_BYTES = 25 * 1024 * 1024;
 
 export function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const data = JSON.stringify(body);
