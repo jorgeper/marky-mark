@@ -4,6 +4,7 @@ import {
   freshApp,
   freshNativeMenuApp,
   fsRead,
+  fsWrite,
   menuClick,
   openNotesRoot,
   seedFolders,
@@ -585,4 +586,22 @@ test('E170: issue #81 — relaunch with a named workspace and files open lands o
   await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
   await expect(page).toHaveTitle(/b\.md/);
+});
+
+test('E171: an OS-opened .marky-workspace path opens the workspace, not a text document (issue #82)', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await fsWrite(page, '/w/team.marky-workspace', JSON.stringify({ version: 1, folders: ['/notes'], settings: {} }));
+  // Issue #82: the shim's #open= deep link drives the same onOpenFile seam
+  // that OS file associations (double-click in Finder) deliver paths to.
+  await page.goto('/#open=/w/team.marky-workspace');
+  // The workspace opens: its member folder becomes the sidebar root…
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+  await expect(page.locator('[data-path="/notes/a.md"]')).toBeVisible();
+  // …and no text tab opened for the workspace file itself — the document on
+  // screen is still freshApp's welcome.md, not the workspace JSON.
+  await expect(page).toHaveTitle(/welcome\.md/);
+  await expect(page.getByTestId('docname')).not.toContainText('team.marky-workspace');
 });

@@ -46,6 +46,12 @@
         "description": "Markdown document",
         "role": "Editor",
         "mimeType": "text/markdown"
+      },
+      {
+        "ext": ["marky-workspace"],
+        "name": "Marky Mark Workspace",
+        "description": "Marky Mark workspace",
+        "role": "Editor"
       }
     ],
     "createUpdaterArtifacts": true

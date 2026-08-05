@@ -15,6 +15,16 @@ import { OPEN_CAP } from './openFiles';
 import { SETTINGS_SCOPES, type Scope } from './settings';
 
 export const WORKSPACE_FILE_EXT = '.marky-workspace';
+
+/**
+ * Issue #82: an OS-opened path (file association, CLI arg, deep link) is a
+ * workspace file iff it ends in `.marky-workspace`, case-insensitively —
+ * App.tsx branches its single onOpenFile registration on this so
+ * double-clicked workspace files open the workspace, not a text document.
+ */
+export function isWorkspaceFilePath(path: string): boolean {
+  return path.toLowerCase().endsWith(WORKSPACE_FILE_EXT);
+}
 /** Machine-local session stores live under `<configDir>/session/` (§B6). */
 export const SESSION_DIR_NAME = 'session';
 /** §C11: the single current-untitled slot. */

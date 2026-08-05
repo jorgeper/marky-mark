@@ -37,6 +37,7 @@ import {
   addWorkspaceFolder,
   closeWorkspace,
   emptyWorkspaceSession,
+  isWorkspaceFilePath,
   openFolderWorkspace,
   parseWorkspaceFile,
   parseWorkspaceSession,
@@ -374,6 +375,12 @@ export default function App() {
   const startQuitWalkRef = useRef<() => void>(() => {});
   /** Issue #22: the walk stepper, ref'd for the same declaration-order dodge. */
   const processQuitWalkRef = useRef<() => Promise<void>>(async () => {});
+  /**
+   * Issue #82: opens an OS-delivered workspace file (discard-guarded);
+   * ref'd because the boot effect that registers onOpenFile runs before
+   * openWorkspaceFromPath / guardWorkspaceDiscard are declared.
+   */
+  const openWorkspacePathRef = useRef<(p: Platform, path: string) => void>(() => {});
   /**
    * The editor snapshots its undo state into editorHistoryRef only on
    * UNMOUNT — which runs AFTER a doc switch commits. These two refs defer
@@ -1990,7 +1997,12 @@ export default function App() {
       setThemes(themeList);
 
       // Clean start (SPEC4 §5): no auto-opened welcome — only explicit opens.
-      await p.onOpenFile((path) => openDocGuarded(p, path));
+      // Issue #82: every OS-delivered path (macOS RunEvent::Opened, pending
+      // drains, Windows/Linux CLI args) lands here — .marky-workspace files
+      // open as workspaces, everything else stays a document.
+      await p.onOpenFile((path) =>
+        isWorkspaceFilePath(path) ? openWorkspacePathRef.current(p, path) : openDocGuarded(p, path)
+      );
       await p.onFileDrop((path) => openDocGuarded(p, path));
 
       // SPEC36 §7: the close guard triggers the quit walk over EVERY dirty
@@ -2327,6 +2339,11 @@ export default function App() {
       })();
     });
   }, [guardWorkspaceDiscard, openWorkspaceFromPath]);
+
+  // Issue #82: the boot effect's onOpenFile branch lands workspace files
+  // here — same guarded open as a recent-workspace pick (a changed untitled
+  // workspace prompts before being replaced). Assigned each render.
+  openWorkspacePathRef.current = (p, path) => guardWorkspaceDiscard(() => void openWorkspaceFromPath(p, path));
 
   /**
    * PRD 002 §D14/§C8: Add Folder to Workspace… — a single-folder untitled
