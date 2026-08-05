@@ -123,6 +123,30 @@ async function handleApi(
     return;
   }
 
+  // PRD 007 Req 6: same-origin avatar proxy (the URL shape is defined once,
+  // in providers/types.ts userPhotoUrl). Inside the auth guard like the rest
+  // of /api/; 404 for a user with no photo or who is unknown. Checked before
+  // the plain user lookup, whose prefix it shares.
+  if (
+    pathname.startsWith('/api/directory/users/') &&
+    pathname.endsWith('/photo') &&
+    req.method === 'GET'
+  ) {
+    const id = tryDecode(pathname.slice('/api/directory/users/'.length, -'/photo'.length));
+    if (!id) {
+      sendJson(res, 400, { error: 'invalid user id' });
+      return;
+    }
+    const photo = await providers.directory.getUserPhoto(id, auth);
+    if (!photo) {
+      sendJson(res, 404, { error: 'no photo' });
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': photo.contentType, 'Content-Length': photo.data.length });
+    res.end(Buffer.from(photo.data));
+    return;
+  }
+
   if (pathname.startsWith('/api/directory/users/') && req.method === 'GET') {
     const id = tryDecode(pathname.slice('/api/directory/users/'.length));
     if (id === null) {

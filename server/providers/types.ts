@@ -75,6 +75,19 @@ export interface DirectoryUser {
   avatarUrl?: string;
 }
 
+/** A user's profile photo as raw bytes plus its media type. */
+export interface UserPhoto {
+  contentType: string;
+  data: Uint8Array;
+}
+
+// PRD 007 Req 6: avatars reach the SPA only through the app's own origin —
+// this is the one definition of that URL, shared by the providers that stamp
+// it onto results and the route in server/app.ts that serves it.
+export function userPhotoUrl(id: string): string {
+  return `/api/directory/users/${encodeURIComponent(id)}/photo`;
+}
+
 /** User-directory seam: search and profile resolution. */
 export interface DirectoryProvider {
   readonly kind: string;
@@ -82,6 +95,10 @@ export interface DirectoryProvider {
   search(query: string, auth: RequestAuth): Promise<DirectoryUser[]>;
   /** Resolve one user by id, or null when unknown (e.g. left the tenant). */
   getUser(id: string, auth: RequestAuth): Promise<DirectoryUser | null>;
+  // PRD 007 Req 6: a missing photo answers null (the picker falls back to
+  // initials), never an error — an unknown user answers null the same way.
+  /** A user's profile photo, or null when the user is unknown or has none. */
+  getUserPhoto(id: string, auth: RequestAuth): Promise<UserPhoto | null>;
 }
 
 /** The full provider set the request handlers receive. */

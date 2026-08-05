@@ -71,8 +71,9 @@ sibling issues. All endpoints except sign-in require
 | `GET /api/files/<path>` | Read: `{path, content, etag}`, or 404. |
 | `PUT /api/files/<path>` | Write body as content → `{path, etag}`. |
 | `DELETE /api/files/<path>` | Delete; 404 when absent. |
-| `GET /api/directory/search?q=` | Directory user search. |
+| `GET /api/directory/search?q=` | Directory user search. Results carry a same-origin `avatarUrl` when the user has a photo. |
 | `GET /api/directory/users/<id>` | One directory user, or 404. |
+| `GET /api/directory/users/<id>/photo` | Profile photo bytes (avatar). 404 when the user has no photo or is unknown. |
 
 ## Sign-in (PRD 007 Req 5)
 
