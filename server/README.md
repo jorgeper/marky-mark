@@ -133,8 +133,9 @@ calling user, and answer `403` (naming the verb) when it is missing.
 | `GET /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` path) | Read: `{path, content, etag}`, or 404. |
 | `PUT /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` path) | Write body as content → `{path, etag}`. |
 | `DELETE /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` path) | Delete; 404 when absent. |
-| `GET /api/directory/search?q=` | — (signed-in) | Directory user search. |
+| `GET /api/directory/search?q=` | — (signed-in) | Directory user search. Results carry a same-origin `avatarUrl` when the user has a photo. |
 | `GET /api/directory/users/<id>` | — (signed-in) | One directory user, or 404. |
+| `GET /api/directory/users/<id>/photo` | — (signed-in) | Profile photo bytes (avatar). 404 when the user has no photo or is unknown. |
 
 ## Sign-in (PRD 007 Req 5)
 

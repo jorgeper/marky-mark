@@ -5,7 +5,8 @@
 // issue). The fetch function is injected so unit tests pin the URL shapes and
 // response mapping with no network; verified by typecheck + unit tests only.
 
-import type { DirectoryProvider, DirectoryUser, RequestAuth } from '../types.ts';
+import type { DirectoryProvider, DirectoryUser, RequestAuth, UserPhoto } from '../types.ts';
+import { userPhotoUrl } from '../types.ts';
 
 const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 
@@ -22,6 +23,10 @@ function toDirectoryUser(u: GraphUser): DirectoryUser {
     id: u.id,
     displayName: u.displayName ?? u.userPrincipalName ?? u.id,
     username: u.userPrincipalName ?? '',
+    // PRD 007 Req 6: every Graph user gets the same-origin photo URL — Graph
+    // cannot say who has a photo without one round trip per user, so the
+    // photo endpoint's 404 (→ initials fallback) is the "no photo" signal.
+    avatarUrl: userPhotoUrl(u.id),
   };
 }
 
@@ -55,6 +60,19 @@ export function createGraphDirectoryProvider(fetchImpl: FetchLike = fetch): Dire
       if (res.status === 404) return null; // left the tenant — caller renders a plain identifier
       if (!res.ok) throw new Error(`Graph user lookup failed: ${res.status}`);
       return toDirectoryUser((await res.json()) as GraphUser);
+    },
+    // PRD 007 Req 6: profile photo bytes via Graph /users/{id}/photo/$value.
+    // 404 covers both "no photo" and "unknown user" — neither is an error,
+    // both mean the client renders the initials fallback.
+    async getUserPhoto(id: string, auth: RequestAuth): Promise<UserPhoto | null> {
+      const url = `${GRAPH_BASE}/users/${encodeURIComponent(id)}/photo/$value`;
+      const res = await fetchImpl(url, { headers: { Authorization: `Bearer ${auth.token}` } });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`Graph photo fetch failed: ${res.status}`);
+      return {
+        contentType: res.headers.get('content-type') ?? 'image/jpeg',
+        data: new Uint8Array(await res.arrayBuffer()),
+      };
     },
   };
 }

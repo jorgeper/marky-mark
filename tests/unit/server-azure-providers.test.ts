@@ -68,7 +68,15 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
       );
     });
     const users = await provider.search('grace', auth);
-    expect(users).toEqual([{ id: 'g1', displayName: 'Grace Hopper', username: 'grace@contoso.com' }]);
+    expect(users).toEqual([
+      {
+        id: 'g1',
+        displayName: 'Grace Hopper',
+        username: 'grace@contoso.com',
+        // PRD 007 Req 6: results carry the same-origin avatar URL, never a Graph URL.
+        avatarUrl: '/api/directory/users/g1/photo',
+      },
+    ]);
     const url = new URL(calls[0].url);
     expect(url.origin + url.pathname).toBe('https://graph.microsoft.com/v1.0/users');
     expect(url.searchParams.get('$search')).toContain('displayName:grace');
@@ -87,10 +95,39 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
         ? new Response(JSON.stringify({ id: 'g2', displayName: 'Alan Turing' }), { status })
         : new Response('', { status }),
     );
-    expect(await provider.getUser('g2', auth)).toEqual({ id: 'g2', displayName: 'Alan Turing', username: '' });
+    expect(await provider.getUser('g2', auth)).toEqual({
+      id: 'g2',
+      displayName: 'Alan Turing',
+      username: '',
+      avatarUrl: '/api/directory/users/g2/photo',
+    });
     status = 404;
     expect(await provider.getUser('gone', auth)).toBeNull();
     status = 500;
     await expect(provider.getUser('g2', auth)).rejects.toThrowError(/Graph user lookup failed: 500/);
+  });
+
+  it('U243: getUserPhoto calls Graph /users/{id}/photo/$value as the caller and yields the bytes and media type', async () => {
+    // PRD 007 Req 6: the photo proxy's upstream — URL shape, bearer, bytes.
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
+    const provider = createGraphDirectoryProvider(async (url, init) => {
+      calls.push({ url, init });
+      return new Response(bytes, { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
+    });
+    const photo = await provider.getUserPhoto('g1/odd id', auth);
+    expect(calls[0].url).toBe('https://graph.microsoft.com/v1.0/users/g1%2Fodd%20id/photo/$value');
+    expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer caller-token');
+    expect(photo).toEqual({ contentType: 'image/jpeg', data: bytes });
+  });
+
+  it('U244: a missing photo (404) is null — no photo, not an error — while other failures surface', async () => {
+    // PRD 007 Req 6: Graph answers 404 both for "no photo" and "unknown
+    // user"; either way the client renders the initials fallback.
+    let status = 404;
+    const provider = createGraphDirectoryProvider(async () => new Response('', { status }));
+    expect(await provider.getUserPhoto('no-photo', auth)).toBeNull();
+    status = 503;
+    await expect(provider.getUserPhoto('g1', auth)).rejects.toThrowError(/Graph photo fetch failed: 503/);
   });
 });

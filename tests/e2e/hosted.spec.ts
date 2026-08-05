@@ -79,7 +79,13 @@ test('E162: user-directory search returns the seeded mock users', async ({ reque
   const grace = await request.get(`${HOSTED}/api/directory/search?q=hopper`, { headers });
   expect(grace.status()).toBe(200);
   expect(await grace.json()).toEqual([
-    { id: 'mock-grace', username: 'grace', displayName: 'Grace Hopper' },
+    {
+      id: 'mock-grace',
+      username: 'grace',
+      displayName: 'Grace Hopper',
+      // PRD 007 Req 6: results point avatars at the app's own origin.
+      avatarUrl: '/api/directory/users/mock-grace/photo',
+    },
   ]);
   // Substring matching spans display names and usernames.
   const kat = await request.get(`${HOSTED}/api/directory/search?q=kath`, { headers });
@@ -88,6 +94,62 @@ test('E162: user-directory search returns the seeded mock users', async ({ reque
   ]);
   const none = await request.get(`${HOSTED}/api/directory/search?q=zz-nobody`, { headers });
   expect(await none.json()).toEqual([]);
+});
+
+test('E172: directory search results carry working same-origin avatar URLs and the photo endpoint serves image bytes', async ({
+  request,
+}) => {
+  // PRD 007 Req 6: avatars flow through the directory seam — the SPA never
+  // sees a Graph URL, only /api/directory/users/<id>/photo on its own origin.
+  const token = await signIn(request, 'ada');
+  const headers = { Authorization: `Bearer ${token}` };
+  const search = await request.get(`${HOSTED}/api/directory/search?q=hopper`, { headers });
+  expect(search.status()).toBe(200);
+  const [grace] = (await search.json()) as { avatarUrl?: string }[];
+  expect(grace.avatarUrl).toBe('/api/directory/users/mock-grace/photo');
+  const photo = await request.get(`${HOSTED}${grace.avatarUrl}`, { headers });
+  expect(photo.status()).toBe(200);
+  expect(photo.headers()['content-type']).toContain('image/');
+  const bytes = await photo.body();
+  expect(bytes.length).toBeGreaterThan(0);
+  // Deterministic: the seeded avatar is the same picture on every fetch.
+  const again = await request.get(`${HOSTED}${grace.avatarUrl}`, { headers });
+  expect(await again.body()).toEqual(bytes);
+});
+
+test('E173: a user with no photo and an unknown user both answer 404 on photo — and unknown on lookup too', async ({
+  request,
+}) => {
+  // PRD 007 Req 6: katherine is seeded without a photo (the initials-
+  // fallback path); a vanished user 404s on lookup and photo alike.
+  const token = await signIn(request, 'grace');
+  const headers = { Authorization: `Bearer ${token}` };
+  const kat = await request.get(`${HOSTED}/api/directory/users/mock-katherine`, { headers });
+  expect(kat.status()).toBe(200);
+  expect(await kat.json()).toEqual({
+    id: 'mock-katherine',
+    username: 'katherine',
+    displayName: 'Katherine Johnson',
+  });
+  const noPhoto = await request.get(`${HOSTED}/api/directory/users/mock-katherine/photo`, { headers });
+  expect(noPhoto.status()).toBe(404);
+  const goneLookup = await request.get(`${HOSTED}/api/directory/users/mock-nobody`, { headers });
+  expect(goneLookup.status()).toBe(404);
+  const gonePhoto = await request.get(`${HOSTED}/api/directory/users/mock-nobody/photo`, { headers });
+  expect(gonePhoto.status()).toBe(404);
+});
+
+test('E174: the avatar photo endpoint sits inside the auth guard — 401 without a token', async ({
+  request,
+}) => {
+  // PRD 007 Req 6 + Req 3: the photo proxy is as guarded as every other
+  // /api/ endpoint.
+  const bare = await request.get(`${HOSTED}/api/directory/users/mock-ada/photo`);
+  expect(bare.status()).toBe(401);
+  const garbage = await request.get(`${HOSTED}/api/directory/users/mock-ada/photo`, {
+    headers: { Authorization: 'Bearer not-a-real-token' },
+  });
+  expect(garbage.status()).toBe(401);
 });
 
 test('E163: the server serves the built SPA HTML at / from the same origin as the API', async ({

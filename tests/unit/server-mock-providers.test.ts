@@ -52,4 +52,35 @@ describe('PRD 007 Req 4 mock directory provider', () => {
     expect(await directory.getUser('mock-alan', auth)).toMatchObject({ displayName: 'Alan Turing' });
     expect(await directory.getUser('mock-nobody', auth)).toBeNull();
   });
+
+  it('U245: seeded users carry the same-origin avatar URL and a deterministic SVG photo', async () => {
+    // PRD 007 Req 6: local dev and e2e render real pictures with zero
+    // network — same bytes on every call, media type included.
+    expect(await directory.getUser('mock-ada', auth)).toMatchObject({
+      avatarUrl: '/api/directory/users/mock-ada/photo',
+    });
+    expect(await directory.search('hopper', auth)).toEqual([
+      expect.objectContaining({ avatarUrl: '/api/directory/users/mock-grace/photo' }),
+    ]);
+    const photo = await directory.getUserPhoto('mock-ada', auth);
+    expect(photo?.contentType).toBe('image/svg+xml');
+    const svg = new TextDecoder().decode(photo!.data);
+    expect(svg).toContain('<svg');
+    expect(svg).toContain('AL'); // Ada Lovelace's initials are baked into the picture
+    const again = await directory.getUserPhoto('mock-ada', auth);
+    expect(again!.data).toEqual(photo!.data);
+  });
+
+  it('U246: the photo-less seeded user and unknown ids answer null photos (and no avatarUrl)', async () => {
+    // PRD 007 Req 6: katherine deliberately has no photo, so the offline
+    // suite exercises the 404 → initials-fallback path a Graph user without
+    // a picture takes.
+    expect(await directory.getUser('mock-katherine', auth)).toEqual({
+      id: 'mock-katherine',
+      username: 'katherine',
+      displayName: 'Katherine Johnson',
+    });
+    expect(await directory.getUserPhoto('mock-katherine', auth)).toBeNull();
+    expect(await directory.getUserPhoto('mock-nobody', auth)).toBeNull();
+  });
 });
