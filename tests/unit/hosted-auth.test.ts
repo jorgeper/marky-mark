@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   buildAuthorizeRedirect,
   buildTokenRequest,
@@ -97,9 +97,11 @@ describe('PRD 007 Req 5 Entra PKCE flow', () => {
   });
 
   it('U235: a successful exchange POSTs the form body and yields the id_token', async () => {
-    const fetchFn = vi.fn(async () =>
-      new Response(JSON.stringify({ id_token: 'the-jwt', access_token: 'graph-token' }), { status: 200 }),
-    ) as unknown as typeof fetch;
+    const calls: Parameters<typeof fetch>[] = [];
+    const fetchFn: typeof fetch = async (input, init) => {
+      calls.push([input, init]);
+      return new Response(JSON.stringify({ id_token: 'the-jwt', access_token: 'graph-token' }), { status: 200 });
+    };
     const token = await exchangeCodeForToken(fetchFn, {
       tenantId: 'my-tenant',
       clientId: 'my-client',
@@ -108,14 +110,11 @@ describe('PRD 007 Req 5 Entra PKCE flow', () => {
       codeVerifier: 'the-verifier',
     });
     expect(token).toBe('the-jwt');
-    const [url, init] = (fetchFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [
-      string,
-      RequestInit,
-    ];
+    const [url, init] = calls[0];
     expect(url).toBe('https://login.microsoftonline.com/my-tenant/oauth2/v2.0/token');
-    expect(init.method).toBe('POST');
-    expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/x-www-form-urlencoded');
-    expect(String(init.body)).toContain('code_verifier=the-verifier');
+    expect(init?.method).toBe('POST');
+    expect((init?.headers as Record<string, string>)['Content-Type']).toBe('application/x-www-form-urlencoded');
+    expect(String(init?.body)).toContain('code_verifier=the-verifier');
   });
 
   it('U236: exchange failures throw the endpoint error description, or the status when the body is opaque', async () => {
@@ -126,15 +125,15 @@ describe('PRD 007 Req 5 Entra PKCE flow', () => {
       redirectUri: 'https://app.example/',
       codeVerifier: 'v',
     };
-    const denied = (async () =>
+    const denied: typeof fetch = async () =>
       new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'AADSTS70008: expired' }), {
         status: 400,
-      })) as unknown as typeof fetch;
+      });
     await expect(exchangeCodeForToken(denied, opts)).rejects.toThrow('AADSTS70008: expired');
-    const html = (async () => new Response('<html>gateway error</html>', { status: 502 })) as unknown as typeof fetch;
+    const html: typeof fetch = async () => new Response('<html>gateway error</html>', { status: 502 });
     await expect(exchangeCodeForToken(html, opts)).rejects.toThrow('502');
     // A 200 without an id_token is still a failure — never store undefined.
-    const empty = (async () => new Response('{}', { status: 200 })) as unknown as typeof fetch;
+    const empty: typeof fetch = async () => new Response('{}', { status: 200 });
     await expect(exchangeCodeForToken(empty, opts)).rejects.toThrow('200');
   });
 });

@@ -36,6 +36,9 @@ function redirectUri(): string {
   return `${window.location.origin}/`;
 }
 
+/** The generic failure both sign-in paths show when the server's answer is unusable. */
+const SIGN_IN_FAILED = 'Sign-in failed — the server did not answer as expected.';
+
 type Phase =
   | { kind: 'checking' }
   | { kind: 'signed-out'; error: string | null; busy: boolean }
@@ -114,7 +117,7 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
     const error =
       res && res.status === 401
         ? 'Unknown user — sign in as one of the seeded dev users (e.g. ada).'
-        : 'Sign-in failed — the server did not answer as expected.';
+        : SIGN_IN_FAILED;
     setPhase({ kind: 'signed-out', error, busy: false });
   }, [username]);
 
@@ -130,9 +133,10 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
     const body = res?.ok
       ? ((await res.json().catch(() => null)) as { kind?: string; authorizeUrl?: string } | null)
       : null;
-    const app = body?.kind === 'redirect' && body.authorizeUrl ? parseAuthorizeUrl(body.authorizeUrl) : null;
-    if (!app || !body?.authorizeUrl) {
-      setPhase({ kind: 'signed-out', error: 'Sign-in failed — the server did not answer as expected.', busy: false });
+    const authorizeUrl = body?.kind === 'redirect' ? body.authorizeUrl : undefined;
+    const app = authorizeUrl ? parseAuthorizeUrl(authorizeUrl) : null;
+    if (!authorizeUrl || !app) {
+      setPhase({ kind: 'signed-out', error: SIGN_IN_FAILED, busy: false });
       return;
     }
     const verifier = createCodeVerifier();
@@ -145,7 +149,7 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
       clientId: app.clientId,
     });
     window.location.assign(
-      buildAuthorizeRedirect(body.authorizeUrl, { redirectUri: redirectUri(), state, codeChallenge: challenge }),
+      buildAuthorizeRedirect(authorizeUrl, { redirectUri: redirectUri(), state, codeChallenge: challenge }),
     );
   }, []);
 
