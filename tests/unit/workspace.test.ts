@@ -5,6 +5,7 @@ import {
   adoptLegacyFolderState,
   closeWorkspace,
   isAbsolutePath,
+  isWorkspaceFilePath,
   openFolderWorkspace,
   parentDirOf,
   parseWorkspaceFile,
@@ -259,6 +260,19 @@ describe('PRD 002 §B6/§C11 per-workspace session state', () => {
     for (const bad of ['', 'nope', '{"kind":"named"}', '{"kind":"weird"}', 'null']) {
       expect(parseWorkspacePointer(bad)).toEqual({ version: 1, kind: 'none' });
     }
+  });
+});
+
+describe('Issue #82 OS-opened path routing — workspace file vs document', () => {
+  test('U242: paths ending in .marky-workspace match, case-insensitively; anything else does not', () => {
+    expect(isWorkspaceFilePath('/w/team.marky-workspace')).toBe(true);
+    expect(isWorkspaceFilePath('/W/TEAM.MARKY-WORKSPACE')).toBe(true);
+    expect(isWorkspaceFilePath('C:\\ws\\Mine.Marky-Workspace')).toBe(true);
+    // The extension must END the path — a doc that merely contains it stays a doc.
+    expect(isWorkspaceFilePath('/notes/notes.marky-workspace.md')).toBe(false);
+    expect(isWorkspaceFilePath('/notes/a.md')).toBe(false);
+    expect(isWorkspaceFilePath('/notes/marky-workspace')).toBe(false); // no dot
+    expect(isWorkspaceFilePath('')).toBe(false);
   });
 });
 
