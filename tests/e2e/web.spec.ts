@@ -277,12 +277,34 @@ test('W7: a bundle carrying an export theme boots with it applied — without to
   expect(persisted ?? '').not.toContain('dracula');
 });
 
+/**
+ * Full editor document text read from CodeMirror state, not the `.cm-content`
+ * DOM: CodeMirror renders the viewport lazily, so DOM text is a moving
+ * prefix of the document until measurement settles (issue #69 — a baseline
+ * `textContent()` snapshot raced it on a slow CI runner). The state read is
+ * complete regardless of what is rendered, and needs no dev seam (W10
+ * asserts `__mmEdit` is absent from the web build) — CodeMirror hangs its
+ * doc tile off the content DOM (`dom.cmTile`), the same handle
+ * `EditorView.findFromDOM` resolves the view through.
+ */
+async function editorDocText(page: import('@playwright/test').Page): Promise<string> {
+  return page.evaluate(() => {
+    const content = document.querySelector('.cm-content') as
+      | (Element & { cmTile?: { root?: { view?: { state: { doc: { toString(): string } } } } } })
+      | null;
+    const view = content?.cmTile?.root?.view;
+    if (!view) throw new Error('CodeMirror view not reachable from .cm-content');
+    return view.state.doc.toString();
+  });
+}
+
 test('W8: image paste on the web build shows the needs-desktop notice and leaves the buffer unchanged', async ({
   page,
 }) => {
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor')).toBeVisible();
-  const before = await page.getByTestId('editor').locator('.cm-content').textContent();
+  const before = await editorDocText(page);
+  expect(before).toContain('Welcome to Marky Mark'); // baseline is the real doc, not an empty read
 
   await page.evaluate(() => {
     const bytes = new Uint8Array([137, 80, 78, 71]); // enough to look like a file item
@@ -294,7 +316,7 @@ test('W8: image paste on the web build shows the needs-desktop notice and leaves
   });
 
   await expect(page.getByTestId('notice')).toContainText('needs the desktop app');
-  await expect(page.getByTestId('editor').locator('.cm-content')).toHaveText(before ?? '');
+  expect(await editorDocText(page)).toBe(before);
 });
 
 test('W9: hamburger New opens an untitled buffer; Save runs the handle-less Save As and downloads Untitled.md', async ({
