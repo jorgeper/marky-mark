@@ -4,6 +4,7 @@ import {
   freshNativeMenuApp,
   fsRead,
   fsWrite,
+  goToDocStart,
   menuClick,
   openSettings,
   PHRASE,
@@ -178,7 +179,7 @@ test('E81: editor vim nav — Esc inert with the setting off; full modal keyset 
   await page.getByTestId('settings-vimnav').check();
   await page.getByTestId('settings-close').click();
   await page.getByTestId('editor').locator('.cm-line').first().click();
-  await page.keyboard.press('Control+Home'); // deterministic start (native nav still works)
+  await goToDocStart(page); // deterministic start (native nav still works)
 
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('vim-badge')).toBeVisible();

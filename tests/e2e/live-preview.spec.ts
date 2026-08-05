@@ -9,6 +9,7 @@ import {
   freshApp,
   fsRead,
   fsWrite,
+  goToDocStart,
   openSettings,
   previewTopAnchorLines,
   selectPhraseInPane,
@@ -209,7 +210,7 @@ test('E147: vim nav keeps working with live preview on', async ({ page }) => {
 
   // PRD 006 §11: Esc enters nav mode; j/k walk rendered lines by source line.
   await editor.locator('.cm-line').first().click();
-  await page.keyboard.press('Control+Home');
+  await goToDocStart(page);
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('vim-badge')).toBeVisible();
   const headLine = () => page.evaluate(() => window.__mmEdit?.headLine);
@@ -296,7 +297,7 @@ test('E150: live preview supersedes SPEC23 highlighting — revealed lines keep 
 
   // Cursor on the heading line reveals it raw — with SPEC23 highlight classes.
   await editor.locator('.cm-line').first().click();
-  await page.keyboard.press('Control+Home');
+  await goToDocStart(page);
   await expect(editor.locator('.mm-md-h1:not(.mm-md-mark)').first()).toContainText('Big Title');
 
   // PRD 006 §12: flipping editorSyntax off changes nothing while preview is

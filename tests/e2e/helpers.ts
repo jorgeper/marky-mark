@@ -441,6 +441,17 @@ export async function caretInto(page: Page, lineText: string, rights: number): P
   for (let i = 0; i < rights; i++) await page.keyboard.press('ArrowRight');
 }
 
+/**
+ * Move the editor cursor to DOCUMENT start (not line start — plain Home only
+ * goes to line start). CodeMirror's keymap dispatches on the browser's
+ * platform, which matches the runner's: the mac keymap binds Cmd-ArrowUp to
+ * cursorDocStart, the PC keymap binds Ctrl-Home (issue #67 — a bare
+ * Control+Home is a no-op on macOS runners).
+ */
+export async function goToDocStart(page: Page): Promise<void> {
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowUp' : 'Control+Home');
+}
+
 /** Center of the nth visible occurrence of `word` inside `paneSel`; click it. */
 export const clickWord = async (page: Page, paneSel: string, word: string, nth = 0) => {
   const pt = await page.evaluate(
