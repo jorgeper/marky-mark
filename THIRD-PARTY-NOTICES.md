@@ -10,6 +10,19 @@
 
   | Package | Version | License |
 | --- | --- | --- |
+| @azure/abort-controller | 2.2.0 | MIT |
+| @azure/core-auth | 1.11.0 | MIT |
+| @azure/core-client | 1.11.0 | MIT |
+| @azure/core-http-compat | 2.5.0 | MIT |
+| @azure/core-lro | 2.7.2 | MIT |
+| @azure/core-paging | 1.7.0 | MIT |
+| @azure/core-rest-pipeline | 1.25.0 | MIT |
+| @azure/core-tracing | 1.4.0 | MIT |
+| @azure/core-util | 1.14.0 | MIT |
+| @azure/core-xml | 1.6.0 | MIT |
+| @azure/logger | 1.4.0 | MIT |
+| @azure/storage-blob | 12.33.0 | MIT |
+| @azure/storage-common | 12.5.0 | MIT |
 | @codemirror/autocomplete | 6.20.3 | MIT |
 | @codemirror/commands | 6.10.4 | MIT |
 | @codemirror/lang-css | 6.3.1 | MIT |
@@ -29,6 +42,7 @@
 | @lezer/lr | 1.4.10 | MIT |
 | @lezer/markdown | 1.6.4 | MIT |
 | @marijn/find-cluster-break | 1.0.3 | MIT |
+| @nodable/entities | 3.0.0 | MIT |
 | @tauri-apps/api | 2.11.1 | Apache-2.0 OR MIT |
 | @tauri-apps/plugin-clipboard-manager | 2.3.2 | MIT OR Apache-2.0 |
 | @tauri-apps/plugin-dialog | 2.7.1 | MIT OR Apache-2.0 |
@@ -41,7 +55,10 @@
 | @types/mdast | 4.0.4 | MIT |
 | @types/ms | 2.1.0 | MIT |
 | @types/unist | 3.0.3 | MIT |
+| @typespec/ts-http-runtime | 0.3.8 | MIT |
 | @ungap/structured-clone | 1.3.2 | ISC |
+| agent-base | 7.1.4 | MIT |
+| anynum | 1.0.1 | MIT |
 | bail | 2.0.2 | MIT |
 | ccount | 2.0.1 | MIT |
 | character-entities | 2.0.2 | MIT |
@@ -55,7 +72,10 @@
 | devlop | 1.1.0 | MIT |
 | diff-match-patch | 1.0.5 | Apache-2.0 |
 | escape-string-regexp | 5.0.0 | MIT |
+| events | 3.3.0 | MIT |
 | extend | 3.0.2 | MIT |
+| fast-xml-builder | 1.3.0 | MIT |
+| fast-xml-parser | 5.10.1 | MIT |
 | fault | 2.0.1 | MIT |
 | format | 0.2.2 | MIT |
 | hast-util-is-element | 3.0.0 | MIT |
@@ -65,7 +85,11 @@
 | hast-util-whitespace | 3.0.0 | MIT |
 | highlight.js | 11.11.1 | BSD-3-Clause |
 | html-void-elements | 3.0.0 | MIT |
+| http-proxy-agent | 7.0.2 | MIT |
+| https-proxy-agent | 7.0.6 | MIT |
 | is-plain-obj | 4.1.0 | MIT |
+| is-unsafe | 2.0.0 | MIT |
+| jose | 6.2.8 | MIT |
 | longest-streak | 3.1.0 | MIT |
 | lowlight | 3.3.0 | MIT |
 | markdown-table | 3.0.4 | MIT |
@@ -112,6 +136,7 @@
 | micromark-util-symbol | 2.0.1 | MIT |
 | micromark-util-types | 2.0.2 | MIT |
 | ms | 2.1.3 | MIT |
+| path-expression-matcher | 1.6.2 | MIT |
 | property-information | 7.2.0 | MIT |
 | react | 19.2.7 | MIT |
 | react-dom | 19.2.7 | MIT |
@@ -126,9 +151,11 @@
 | scheduler | 0.27.0 | MIT |
 | space-separated-tokens | 2.0.2 | MIT |
 | stringify-entities | 4.0.4 | MIT |
+| strnum | 2.4.1 | MIT |
 | style-mod | 4.1.3 | MIT |
 | trim-lines | 3.0.1 | MIT |
 | trough | 2.2.0 | MIT |
+| tslib | 2.8.1 | 0BSD |
 | unified | 11.0.5 | MIT |
 | unist-util-find-after | 5.0.0 | MIT |
 | unist-util-is | 6.0.1 | MIT |
@@ -139,6 +166,7 @@
 | vfile | 6.0.3 | MIT |
 | vfile-message | 4.0.3 | MIT |
 | w3c-keyname | 2.2.8 | MIT |
+| xml-naming | 0.3.0 | MIT |
 | zwitch | 2.0.4 | MIT |
 
   ## Rust crates

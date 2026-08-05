@@ -204,7 +204,9 @@ record('CLAUDE.md resolves to AGENTS.md', Date.now() - linkStart);
 // here. It rises when tests are added; a drop means a file went missing.
 // 135, not 136: E135 (pane-slide easing-curve sampling) was removed on main
 // (cd37b03, owner call — chronically load-flaky) after the split was specced.
-const E2E_TEST_FLOOR = 135;
+// 160 as of issue #70: the suite had grown to 155 collected, and the hosted
+// backend scaffold added E159–E163 (tests/e2e/hosted.spec.ts).
+const E2E_TEST_FLOOR = 160;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {
