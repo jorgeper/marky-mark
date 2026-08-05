@@ -68,24 +68,6 @@ const ARGS_BY_PROMPT: Record<string, string[]> = {
     "AGENT_MARKER",
     "TRIGGER_LABEL",
   ],
-  "release-prompt.md": [
-    "ISSUE_NUMBER",
-    "VERSION",
-    "PLATFORMS",
-    "REPO",
-    "MODE",
-    "CHANGELOG",
-    "PREFLIGHT_ACK_MARKER",
-    "GATE_PASSED_MARKER",
-    "PRETAG_CI_GREEN_MARKER",
-    "TAG_PUSHED_MARKER",
-    "CI_GREEN_MARKER",
-    "DRAFT_VERIFIED_MARKER",
-    "WINDOWS_APPENDED_MARKER",
-    "AWAITING_PUBLISH_MARKER",
-    "CUT_FAILED_MARKER",
-    "AGENT_MARKER",
-  ],
 };
 
 const placeholdersIn = (file: string): string[] => {

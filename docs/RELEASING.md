@@ -15,27 +15,26 @@ moves only via `npm run release:prepare`, which rewrites all four.
 mirror the files (`v` + version) — the files are the source of truth, not
 `git describe`.
 
-## Flow 1 — from Claude Code
+## Flow 1 — issue-driven, from Claude Code (the primary path, prd/008)
 
-Tell Claude: *"release 0.2.0-alpha.2"*. Claude runs, in order:
+Two skills, two invocations, with the release issue as the running log:
 
-```bash
-cd ~/src/marky-mark
-npm run release:prepare -- 0.2.0-alpha.2   # bumps the 4 version files + lockfiles, commits
-npm run validate                            # full gate must print VALIDATION: ALL PASSED
-npm run licenses                            # regenerate THIRD-PARTY-NOTICES.md (commit if changed)
-git tag -a v0.2.0-alpha.2 -m "Marky Mark 0.2.0-alpha.2"
-```
+1. `/new-release` — interviews you for version + platforms, drafts the
+   changelog from commits and closed issues, and files the
+   `sandcastle:release` issue once you approve the text. It never
+   starts the cut.
+2. `/cut-release <issue#>` — executes the cut in your session:
+   preflight (parse + ordering guard via `release-lane.mts`), the
+   release branch and mechanics, the full gate, the pre-tag
+   `release-branch-test.yml` run, tag + merge-back, `release.yml`
+   watch, draft verification, and the Windows append for `both` /
+   `windows` requests. Every phase lands as a marker comment on the
+   issue, so a re-invocation resumes where the cut left off; a failed
+   step files a blocking bug and parks the cut until the bug closes.
 
-The guard hook means pushes are always run by you — Claude hands back:
-
-```bash
-! git push
-! git push origin v0.2.0-alpha.2            # ← this starts the pipeline
-```
-
-Claude then watches CI (`gh run watch`) and reports when the draft is up;
-smoke-test and publish as below.
+Publishing the draft is still exclusively your act (below); the
+`release-closeout` workflow comments the final links and closes the
+issue when you publish.
 
 ## Flow 2 — manually
 
@@ -78,10 +77,10 @@ Rules of thumb: the tag push is the trigger, the draft is the safety net, and
 re-cut by fixing, deleting + re-pushing the tag, or `workflow_dispatch`.
 
 Pushing a `release/**` branch triggers `release-branch-test.yml` — the
-same macOS suite the tag run gates on — so agents (and you) can get a
-green light *before* spending the tag. The agent-driven cut in
-`.sandcastle/release-prompt.md` always does this; manual cuts may tag
-directly and lean on the draft safety net as before.
+same macOS suite the tag run gates on — so you can get a green light
+*before* spending the tag. The `/cut-release` skill always does this;
+manual cuts may tag directly and lean on the draft safety net as
+before.
 
 ## Semver / alpha policy
 

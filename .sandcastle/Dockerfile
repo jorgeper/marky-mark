@@ -23,20 +23,6 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
   && apt-get update && apt-get install -y gh \
   && rm -rf /var/lib/apt/lists/*
 
-# prd/008 R8: the releaser runs the full `npm run validate` gate inside this
-# sandbox, and its step 8 is `cargo check` in src-tauri — so the image needs
-# the system libraries the Tauri crates' build scripts probe via pkg-config
-# (the gate never runs `tauri build`, so dev headers are all it takes).
-RUN apt-get update && apt-get install -y \
-  pkg-config \
-  libssl-dev \
-  libgtk-3-dev \
-  libwebkit2gtk-4.1-dev \
-  libayatana-appindicator3-dev \
-  librsvg2-dev \
-  libxdo-dev \
-  && rm -rf /var/lib/apt/lists/*
-
 # Build-args for UID/GID alignment: sandcastle docker build-image
 # defaults these to the host user's UID/GID so image-built files
 # and bind-mounted files share an owner without runtime chown.
@@ -50,14 +36,11 @@ USER ${AGENT_UID}:${AGENT_GID}
 # Install Claude Code CLI
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
-# prd/008 R8: rustup stable for `cargo check` (validate step 8). Installed as
-# the agent user so the toolchain lands in /home/agent/.rustup; validate.mjs
-# already prepends ~/.cargo/bin to PATH, and the ENV below covers direct use.
-RUN curl --proto '=https' --tlsv1.2 -fsS https://sh.rustup.rs \
-  | sh -s -- -y --profile minimal --default-toolchain stable
-
-# Add Claude and cargo to PATH
-ENV PATH="/home/agent/.local/bin:/home/agent/.cargo/bin:$PATH"
+# Add Claude to PATH
+# (No Rust toolchain here: sandbox lanes only run validate:quick, which has
+# no cargo step. Release cuts — the one flow needing the full gate — run in
+# the owner's session via /cut-release, prd/008 as amended 2026-08-05.)
+ENV PATH="/home/agent/.local/bin:$PATH"
 
 WORKDIR /home/agent
 

@@ -69,30 +69,6 @@ import {
   PARENT_CLOSE_MARKER,
   type PrdPrHead,
 } from "./prd-lane.mts";
-import {
-  AWAITING_PUBLISH_MARKER,
-  buildDraftReport,
-  buildMalformedComment,
-  buildOutOfOrderComment,
-  CI_GREEN_MARKER,
-  classifyReleaseIssue,
-  CUT_FAILED_MARKER,
-  DRAFT_REPORT_MARKER,
-  DRAFT_VERIFIED_MARKER,
-  GATE_PASSED_MARKER,
-  MALFORMED_MARKER,
-  OUT_OF_ORDER_MARKER,
-  parseBlockedBy,
-  parseDraftTags,
-  parseMarkerPresent,
-  parseTagNames,
-  PREFLIGHT_ACK_MARKER,
-  PRETAG_CI_GREEN_MARKER,
-  releaseOutcome,
-  TAG_PUSHED_MARKER,
-  WINDOWS_APPENDED_MARKER,
-  type ReleaseOutcome,
-} from "./release-lane.mts";
 import { logStep, timed } from "./timing.mts";
 import { printHelp, runDoctor, runInit } from "./setup.mts";
 import {
@@ -317,9 +293,9 @@ ${detailSections}
 
 // Push a branch from the sandbox's worktree checkout. Runs on the host so
 // agents never need push credentials; PR authorship (the bot) is what GitHub
-// shows regardless of who pushes. One sanctioned exception: the releaser
-// sandbox pushes its release branch and tag itself (prd/008 R11), setting up
-// its own credentials via `gh auth setup-git` in release-prompt.md.
+// shows regardless of who pushes. (Release cuts push their own branch and
+// tag, but those run in the owner's session via /cut-release — prd/008 as
+// amended 2026-08-05 — not in a sandbox.)
 const pushBranch = async (worktreePath: string, branch: string) => {
   // Lease against the remote's ACTUAL tip, read explicitly via ls-remote.
   // A bare/refname --force-with-lease leases against this machine's
@@ -752,222 +728,14 @@ const runPrdLane = async (): Promise<void> => {
 };
 
 // ---------------------------------------------------------------------------
-// Release lane (prd/008 R4–R7): issues labeled `sandcastle:release` (filed
-// only by the /new-release skill) get host-side preflight — body parse (R5),
-// ordering guard (R6), abandoned-draft report (R7) — as pure classification
-// in release-lane.mts, then a releaser agent for runnable issues. The label
-// is disjoint from `sandcastle`, so the implement lane never sees these.
-// Runs once per invocation, before the loop, like the PRD lane. The releaser
-// runbook (release-prompt.md) performs the cut itself — release branch, gate,
-// tag, draft verification, merge-back (prd/008 R8–R13, R15) — and stops
-// before publishing; a cut already awaiting the human publish (R12)
-// dispatches no sandbox at all.
+// Release issues (prd/008, amended 2026-08-05): issues labeled
+// `sandcastle:release` (filed only by the /new-release skill) are cut by the
+// owner-invoked /cut-release skill, not by this orchestrator — the skill
+// runs the same release-lane.mts preflight and the runbook in the owner's
+// interactive session. The label is disjoint from `sandcastle`, so the
+// implement lane never sees these issues; the orchestrator carries no
+// release code beyond that disjointness.
 // ---------------------------------------------------------------------------
-
-/** Spec 2026-08-04 §4: thrown inside the timed releaser callback when the
- * run's newest phase marker is not terminal success — marks the timing
- * entry failed and carries the outcome for the console line. */
-class ReleaseCutNotOk extends Error {
-  constructor(
-    readonly outcome: ReleaseOutcome,
-    readonly bug: number | null,
-  ) {
-    super(outcome.text);
-  }
-}
-
-const runReleaseLane = async (): Promise<void> => {
-  let issues: github.ReleaseIssueInfo[];
-  try {
-    issues = await github.listReleaseIssues();
-  } catch {
-    return; // no gh / no labels yet — the lane is best-effort at startup
-  }
-  if (issues.length === 0) return;
-
-  let repo: string;
-  let tagNames: string[];
-  let draftTags: string[];
-  try {
-    repo = await github.repoSlug();
-    tagNames = parseTagNames(await github.tagsJson(repo));
-    draftTags = parseDraftTags(await github.releaseListJson());
-  } catch (error) {
-    console.warn(
-      `⚠ release lane unavailable this run: ${error instanceof Error ? error.message.split("\n", 1)[0] : error}`,
-    );
-    return;
-  }
-
-  for (const issue of issues) {
-    let action: ReturnType<typeof classifyReleaseIssue>;
-    let commentsJson: string;
-    try {
-      commentsJson = await github.issueCommentsJson(issue.number);
-      // Spec 2026-08-04 §4: the newest phase marker decides whether the
-      // cut is dead; a linked open bug parks it host-side (no sandbox).
-      const cutFailedActive = releaseOutcome(commentsJson).level === "failed";
-      const blockedByBug = parseBlockedBy(commentsJson);
-      let blockingBugOpen: boolean | null = null;
-      if (cutFailedActive && blockedByBug !== null) {
-        try {
-          blockingBugOpen = (await github.issueState(blockedByBug)).trim() === "OPEN";
-        } catch {
-          blockingBugOpen = null; // unknown state parks (fail safe)
-        }
-      }
-      action = classifyReleaseIssue({
-        body: issue.body,
-        tagNames,
-        draftTags,
-        draftReportPosted: parseMarkerPresent(commentsJson, DRAFT_REPORT_MARKER),
-        awaitingPublishPosted: parseMarkerPresent(commentsJson, AWAITING_PUBLISH_MARKER),
-        tagPushedPosted: parseMarkerPresent(commentsJson, TAG_PUSHED_MARKER),
-        cutFailedActive,
-        blockedByBug,
-        blockingBugOpen,
-      });
-    } catch (error) {
-      console.warn(
-        `  ⚠ release lane: could not classify #${issue.number} (${error instanceof Error ? error.message.split("\n", 1)[0] : error}) — skipping.`,
-      );
-      continue;
-    }
-    console.log(`  release #${issue.number} → ${action.kind}`);
-
-    // Spec 2026-08-04 §4: a parked cut waits for its bug — never a sandbox.
-    if (action.kind === "parked") {
-      console.warn(
-        action.bug === null
-          ? `  ⚠ release #${issue.number}: cut failed with no linked bug — read the issue thread and close or re-arm it yourself.`
-          : `  release #${issue.number}: parked on open bug #${action.bug} — fix lands via npm run sandcastle; the cut auto-resumes when the bug closes.`,
-      );
-      continue;
-    }
-
-    // prd/008 R5: a malformed body ends the lane with one explanatory
-    // comment and no changes to the tree. Marker check keeps a later pass
-    // over the same unchanged issue from re-posting.
-    if (action.kind === "malformed") {
-      if (!parseMarkerPresent(commentsJson, MALFORMED_MARKER)) {
-        await github
-          .postIssueComment(issue.number, buildMalformedComment(action.problems))
-          .catch(() => {});
-      }
-      continue;
-    }
-
-    // prd/008 R6: refuse to cut a version ≤ the newest existing tag.
-    if (action.kind === "out-of-order") {
-      if (!parseMarkerPresent(commentsJson, OUT_OF_ORDER_MARKER)) {
-        await github
-          .postIssueComment(
-            issue.number,
-            buildOutOfOrderComment(action.version, action.newestTag),
-          )
-          .catch(() => {});
-      }
-      continue;
-    }
-
-    // prd/008 R12: the cut is complete and draft-verified — publishing
-    // (`--draft=false`) is exclusively the human's act, so a re-dispatch has
-    // nothing to do. No sandbox is created; the issue waits for the publish
-    // close-out (R16) to close it.
-    if (action.kind === "awaiting-publish") continue;
-
-    // prd/008 R7: surface abandoned drafts once, with the exact deletion
-    // commands — informational, so the runnable issue still dispatches.
-    if (action.kind === "drafts-to-report") {
-      try {
-        await github.postIssueComment(issue.number, buildDraftReport(action.drafts));
-      } catch (error) {
-        console.warn(
-          `  ⚠ release lane: draft report on #${issue.number} failed (${error instanceof Error ? error.message.split("\n", 1)[0] : error}).`,
-        );
-      }
-    }
-
-    // prd/008 R4: dispatch the releaser. Same sandbox shape as the
-    // implementer, so the log lands as sandcastle-issue-<n>-releaser.log and
-    // the timings phase (= agent name) pairs with it in the control panel.
-    // The runbook gets the mode (R13: `windows-append` skips the mac cut),
-    // the approved changelog entry verbatim (R9), and the R17 phase markers
-    // straight from the constants the classifier matches — one source of
-    // truth, so prompt and resume detection cannot drift.
-    const spec = action.spec;
-    const branch = branchFor(issue.number);
-    try {
-      const sandbox = await sandcastle.createSandbox({
-        branch,
-        sandbox: docker(),
-        hooks,
-        copyToWorktree,
-      });
-      try {
-        const releaserModel = "claude-fable-5";
-        await timed("releaser", { issue: issue.number }, async () => {
-          await sandbox.run({
-            name: "releaser",
-            maxIterations: 1,
-            agent: sandcastle.claudeCode(releaserModel),
-            promptFile: "./.sandcastle/release-prompt.md",
-            promptArgs: {
-              ISSUE_NUMBER: issue.number,
-              VERSION: spec.version,
-              PLATFORMS: spec.platforms,
-              REPO: repo,
-              MODE: action.kind === "windows-append" ? "windows-append" : "full-cut",
-              CHANGELOG: spec.changelog,
-              PREFLIGHT_ACK_MARKER,
-              GATE_PASSED_MARKER,
-              CUT_FAILED_MARKER,
-              PRETAG_CI_GREEN_MARKER,
-              TAG_PUSHED_MARKER,
-              CI_GREEN_MARKER,
-              DRAFT_VERIFIED_MARKER,
-              WINDOWS_APPENDED_MARKER,
-              AWAITING_PUBLISH_MARKER,
-            },
-          });
-          // Spec §4: never trust process exit — read the cut's outcome
-          // back from the issue's newest phase marker.
-          const afterJson = await github.issueCommentsJson(issue.number);
-          const outcome = releaseOutcome(afterJson);
-          if (outcome.level !== "ok")
-            throw new ReleaseCutNotOk(outcome, parseBlockedBy(afterJson));
-          console.log(`  ✔ release #${issue.number}: ${outcome.text}`);
-        });
-      } finally {
-        await sandbox.close();
-      }
-    } catch (error) {
-      if (error instanceof ReleaseCutNotOk) {
-        // Spec 2026-08-04 §4: "failed" (newest marker is CUT_FAILED_MARKER)
-        // is the only level the auto-resumes-on-bug-close promise applies
-        // to — an "incomplete" run (any other newest marker) just ended
-        // mid-cut and re-dispatches on the next npm run sandcastle, so a
-        // bug number attached to it (from an older cut-failed comment)
-        // must not be presented as blocking this outcome.
-        if (error.outcome.level === "failed") {
-          console.warn(
-            error.bug !== null
-              ? `  ✖ release #${issue.number}: ${error.outcome.text.toUpperCase()} — bug #${error.bug} filed; fix it via npm run sandcastle, the cut auto-resumes when it closes.`
-              : `  ✖ release #${issue.number}: ${error.outcome.text.toUpperCase()} — see the issue thread for evidence.`,
-          );
-        } else {
-          console.warn(
-            `  ✖ release #${issue.number}: ${error.outcome.text} — run ended mid-cut; the next npm run sandcastle re-dispatches it.`,
-          );
-        }
-      } else {
-        console.warn(
-          `  ⚠ release lane: releaser for #${issue.number} failed (${error instanceof Error ? error.message.split("\n", 1)[0] : error}) — the issue stays open for the next run.`,
-        );
-      }
-    }
-  }
-};
 
 // ---------------------------------------------------------------------------
 // Main loop
@@ -978,7 +746,6 @@ warnEmptyVerifyCommands();
 await warnNonDefaultBranch();
 await nudgeConversationalLanes();
 await runPrdLane();
-await runReleaseLane();
 
 // Image-gap nudge (prd/006): logs modified after this instant belong to
 // this run's scan window.

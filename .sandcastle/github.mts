@@ -333,7 +333,7 @@ export const TRIGGER_LABEL_DEFS: LabelDef[] = [
   { name: REQUIRE_PR_LABEL, color: "0052CC", desc: "Gate this issue behind a PR + outer review" },
   { name: AGENT_APPROVE_LABEL, color: "0052CC", desc: "PR mode, but the reviewer agent approves instead of you" },
   { name: REQUIRES_PRD_LABEL, color: "B60205", desc: "Needs an approved PRD before decompose/implement" },
-  { name: RELEASE_LABEL, color: "006B75", desc: "Release request — enters the releaser lane (prd/008)" },
+  { name: RELEASE_LABEL, color: "006B75", desc: "Release request — cut via /cut-release (prd/008)" },
 ];
 
 export type StatusLabel =

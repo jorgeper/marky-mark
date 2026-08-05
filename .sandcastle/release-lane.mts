@@ -1,12 +1,13 @@
-// Release lane (prd/008 R4–R7): pure classification for `sandcastle:release`
-// issues. Every state is derived from GitHub alone — issue body, tag list,
-// release list, existing comments. The impure lane runner lives in main.ts
-// (agent call sites stay there, template convention); everything here is
-// unit-testable, no `gh` or fs calls.
+// Release preflight (prd/008 R5–R7, amended 2026-08-05): pure classification
+// for `sandcastle:release` issues. Every state is derived from GitHub alone —
+// issue body, tag list, release list, existing comments. The impure executor
+// is the owner-invoked /cut-release skill (.claude/skills/cut-release), which
+// calls this module at preflight; everything here is unit-testable, no `gh`
+// or fs calls.
 
 // prd/008 R5: the structured, machine-parseable release-issue body. The
-// full contract (what `/new-release` files and the publish close-out reads)
-// is documented in release-prompt.md; this module is the one parser of it.
+// contract is what `/new-release` files and the publish close-out reads;
+// this module is its one parser.
 export interface ReleaseSpec {
   /** Strict semver, pre-release id kept, no leading `v` (the tag adds it). */
   version: string;
@@ -242,8 +243,9 @@ export const releaseOutcome = (json: string): ReleaseOutcome => {
 
 // ---------------------------------------------------------------------------
 // Guard comments. Each carries a recognizable first line (the
-// PARENT_CLOSE_MARKER pattern) so a later loop pass re-classifying the same
-// unchanged issue detects the existing comment and does not spam the thread.
+// PARENT_CLOSE_MARKER pattern) so a later /cut-release invocation
+// re-classifying the same unchanged issue detects the existing comment and
+// does not spam the thread.
 // ---------------------------------------------------------------------------
 
 export const MALFORMED_MARKER = "🏰 Sandcastle releaser: malformed release request";
@@ -251,14 +253,13 @@ export const OUT_OF_ORDER_MARKER = "🏰 Sandcastle releaser: version refused by
 export const DRAFT_REPORT_MARKER = "🏰 Sandcastle releaser: abandoned draft releases";
 
 // prd/008 R17: the release issue is the running log of the cut — every phase
-// transition the runbook (release-prompt.md) completes lands as exactly one
-// comment beginning with one of these fixed lines. They are deliberately NOT
-// built from the agent marker (which embeds the model string and so varies
-// across runs): resume detection via parseMarkerPresent needs stable text.
-// main.ts passes them into the runbook as promptArgs, so the prompt can never
-// drift from what the classifier below matches. None of the markers in this
-// file may contain another (substring matching would then misfire) — unit
-// test U209 holds that invariant.
+// transition the /cut-release skill completes lands as exactly one comment
+// beginning with one of these fixed lines. They are deliberately stable text
+// (resume detection via parseMarkerPresent depends on it); the skill's
+// preflight script prints them from this module, so the comments it posts
+// can never drift from what the classifier below matches. None of the
+// markers in this file may contain another (substring matching would then
+// misfire) — unit test U209 holds that invariant.
 export const PREFLIGHT_ACK_MARKER = "🏰 Sandcastle releaser: preflight acknowledged";
 export const GATE_PASSED_MARKER = "🏰 Sandcastle releaser: gate passed";
 /** Spec 2026-08-04 §2: pre-tag branch CI green — posted between the
@@ -278,11 +279,11 @@ export const buildMalformedComment = (problems: string[]): string =>
   [
     MALFORMED_MARKER,
     "",
-    "The issue body does not parse as a release request, so the lane stopped before touching anything:",
+    "The issue body does not parse as a release request, so preflight stopped before touching anything:",
     "",
     ...problems.map((p) => `- ${p}`),
     "",
-    "The expected format is documented in `.sandcastle/release-prompt.md`. Edit the body (or re-file via `/new-release`) and the next loop pass will re-classify.",
+    "The expected format is what `/new-release` files (parsed by `parseReleaseIssueBody` in `.sandcastle/release-lane.mts`). Re-file via `/new-release` (or edit the body) and re-run `/cut-release`.",
   ].join("\n");
 
 /** prd/008 R6: refusal for a version at or behind the newest existing tag —
@@ -293,16 +294,16 @@ export const buildOutOfOrderComment = (version: string, newest: string): string 
     "",
     `Refusing to cut \`${version}\`: the newest existing tag is \`${newest}\`, and the requested version is not newer (prerelease-aware semver compare). Cutting backwards is how the #19 incident (v0.4.0-alpha.4 published after v0.4.0-alpha.5) happened.`,
     "",
-    "Pick a version newer than the newest tag and update the issue body; the next loop pass will re-classify.",
+    "Pick a version newer than the newest tag, update the issue body, and re-run `/cut-release` to re-classify.",
   ].join("\n");
 
 /** prd/008 R7: report abandoned draft releases with the exact deletion
- * commands. Reporting only — no code path in the lane deletes a release. */
+ * commands. Reporting only — no code path here deletes a release. */
 export const buildDraftReport = (draftTags: string[]): string =>
   [
     DRAFT_REPORT_MARKER,
     "",
-    `Preflight found ${draftTags.length} abandoned draft release(s). To delete one, run the command yourself — the lane never deletes a release:`,
+    `Preflight found ${draftTags.length} abandoned draft release(s). To delete one, run the command yourself — the cut never deletes a release:`,
     "",
     ...draftTags.map((t) => `- \`gh release delete ${t}\``),
   ].join("\n");
@@ -321,18 +322,18 @@ export type ReleaseAction =
   | { kind: "proceed"; spec: ReleaseSpec };
 
 /** The preflight state machine of prd/008 R5–R13. Guards dominate in order:
- * a body that does not parse ends the lane (R5); a fully-verified cut whose
- * awaiting-publish comment exists needs no sandbox at all — only the human
+ * a body that does not parse ends preflight (R5); a fully-verified cut whose
+ * awaiting-publish comment exists needs no work at all — only the human
  * publish remains (R12), and its own tag would otherwise trip the ordering
  * guard; a cut that already posted its tag-pushed comment is mid-flight, so
- * it re-dispatches to resume rather than being refused over its own tag; a
+ * it resumes rather than being refused over its own tag; a
  * `windows` request whose tag already exists appends the installer to that
  * release, bypassing the ordering guard for exactly that case (R13 —
  * `mac`/`both` for an existing version still refuse, preserving the #19
  * guard); a version at or behind the newest tag is refused (R6); unreported
- * abandoned drafts are surfaced once (R7) — informational, the runner posts
- * the report and still dispatches; otherwise the issue proceeds to the
- * releaser agent. */
+ * abandoned drafts are surfaced once (R7) — informational, the caller posts
+ * the report and the cut still proceeds; otherwise the issue proceeds to
+ * the cut itself (/cut-release). */
 export const classifyReleaseIssue = (input: {
   body: string;
   tagNames: string[];
@@ -354,9 +355,9 @@ export const classifyReleaseIssue = (input: {
   if (!parsed.ok) return { kind: "malformed", problems: parsed.problems };
   if (input.awaitingPublishPosted) return { kind: "awaiting-publish", spec: parsed.spec };
   // Spec 2026-08-04 §4: a cut whose newest phase marker is cut-failed is
-  // dead until its blocking bug closes. Park — no sandbox — unless the
-  // linked bug is known-closed; a missing link or unknown bug state also
-  // parks (fail safe: never dispatch at a known-dead cut).
+  // dead until its blocking bug closes. Park unless the linked bug is
+  // known-closed; a missing link or unknown bug state also parks (fail
+  // safe: never proceed at a known-dead cut).
   if (input.cutFailedActive) {
     const bugKnownClosed = input.blockedByBug !== null && input.blockingBugOpen === false;
     if (!bugKnownClosed) return { kind: "parked", bug: input.blockedByBug };

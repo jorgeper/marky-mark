@@ -26,7 +26,7 @@ import {
   WINDOWS_APPENDED_MARKER,
 } from '../../.sandcastle/release-lane.mts';
 
-/** A well-formed release-issue body per the release-prompt.md contract. */
+/** A well-formed release-issue body per the release-lane.mts contract. */
 const body = (version = '0.5.0', platforms = 'both', changelog = '- Added things.') =>
   `**Version:** ${version}\n**Platforms:** ${platforms}\n\n## Changelog\n\n${changelog}\n`;
 

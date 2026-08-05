@@ -63,9 +63,8 @@ jobs:
             echo "::notice::$TAG is still a draft — close-out runs on publish"; exit 0; fi
           URL="$(jq -r '.url' <<<"$RELEASE_JSON")"
 
-          # Match by the #58 body contract (release-prompt.md "THE
-          # RELEASE-ISSUE BODY FORMAT", parsed by parseReleaseIssueBody in
-          # .sandcastle/release-lane.mts): the open sandcastle:release issue
+          # Match by the #58 body contract (parsed by parseReleaseIssueBody
+          # in .sandcastle/release-lane.mts): the open sandcastle:release issue
           # whose `**Version:**` line equals the tag minus its leading `v`.
           # The jq mirrors the parser — strip the `**Version:**` prefix and
           # surrounding whitespace, then compare the bare semver exactly.

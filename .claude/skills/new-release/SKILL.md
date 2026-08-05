@@ -5,16 +5,16 @@ description: Interview the owner for a release — version, platform set, option
 
 # New release (interview → approved changelog → filed issue)
 
-File a `sandcastle:release` issue in the machine-parseable contract of
-`.sandcastle/release-prompt.md` ("THE RELEASE-ISSUE BODY FORMAT"),
-parsed by `parseReleaseIssueBody` in `.sandcastle/release-lane.mts`.
+File a `sandcastle:release` issue in the machine-parseable contract
+parsed (and documented) by `parseReleaseIssueBody` in
+`.sandcastle/release-lane.mts`.
 
 This skill is the **only supported way** to file a release issue.
-Hand-authored bodies are unsupported (preflight still refuses malformed
-ones, but that is a guard, not a workflow). And the skill **never starts
-the cut**: it ends at the filed issue's URL — never run
-`npm run sandcastle` or any release mechanics; the next orchestrator
-pass picks the issue up and drives the lane (prd/008).
+Hand-authored bodies are unsupported (`/cut-release` preflight still
+refuses malformed ones, but that is a guard, not a workflow). And the
+skill **never starts the cut**: it ends at the filed issue's URL —
+never run any release mechanics; the owner drives the cut by invoking
+`/cut-release <issue#>` (prd/008, amended 2026-08-05).
 
 ## 1. Fetch release state
 
@@ -106,7 +106,7 @@ the other `sandcastle:*` labels (`RELEASE_LABEL` in
 
     gh label list --json name --jq '.[].name' | grep -qx 'sandcastle:release' ||
       gh label create 'sandcastle:release' --color '006B75' \
-        --description 'Release request — enters the releaser lane (prd/008)'
+        --description 'Release request — cut via /cut-release (prd/008)'
 
 The issue body is exactly this template with the three placeholders
 substituted — nothing added, nothing reordered. Unit test U210
@@ -143,6 +143,6 @@ sees release issues:
 
 ## 5. Stop
 
-Report the issue URL to the owner and stop. The cut itself is the
-releaser lane's job on the next orchestrator pass — this skill never
-runs it.
+Report the issue URL to the owner and stop. The cut itself is
+`/cut-release <issue#>`, invoked by the owner when they are ready —
+this skill never runs it.

@@ -154,6 +154,38 @@ None — all questions raised in #25 were resolved in the PRD interview
 and are reflected above (lane model → R4; issue format → R3/R5;
 changelog → R2/R9; publish handback → R12/R16; hotfixes → Non-goals).
 
+## Amendment 2026-08-05 — the executor is the /cut-release skill, not a lane
+
+Supersedes R4's dispatch model and the "unattended" wording of the
+Goals; R1–R3, R5–R17 stand, re-homed as below. Three consecutive
+releaser dispatches for #68 died mid-cut, each in a different layer
+(stale sandbox image missing the R8 Rust toolchain; the agent
+backgrounding the gate and ending its one-shot turn; both compounded by
+a fresh container per dispatch losing all progress). The root mismatch
+is structural: a cut is a wait-dominated 45–90-minute process (full
+gate, pre-tag CI, tag CI, Windows CI), and a single-iteration,
+turn-capped sandbox with no wake-on-background-completion cannot sit
+through it, while the owner's interactive session natively can.
+
+- The cut is executed by the owner-invoked `/cut-release <issue#>`
+  skill (`.claude/skills/cut-release/SKILL.md`), which runs the same
+  preflight (R5–R7) via `release-lane.mts` — invoked, never
+  re-implemented — and the same phased runbook with the same R17
+  markers. `.sandcastle/release-prompt.md` is folded into the skill and
+  deleted; `npm run sandcastle` carries no release code (the
+  `sandcastle:release` label stays disjoint from `sandcastle`, so the
+  implement lane still never sees release issues).
+- "Auto-resumes when the blocking bug closes" (Amendment 2026-08-04)
+  becomes: preflight classifies the issue `parked` while the bug is
+  open, and the owner re-invokes `/cut-release` after it closes. The
+  bug itself still flows through the implement lane.
+- The R8 Rust toolchain and Tauri dev headers leave
+  `.sandcastle/Dockerfile`: sandbox lanes only run `validate:quick`,
+  which has no cargo step.
+- R18's retirement of `/release-mac` and `/release-windows` stays
+  gated on `/cut-release` passing a real cut, which has not happened
+  yet; until then they remain the proven fallback.
+
 ## Amendment 2026-08-04 — pre-tag CI gate and failure flow
 
 Superseding parts of R10/R11/R15/R17; full design in
