@@ -3,6 +3,10 @@ import { defineConfig, devices } from '@playwright/test';
 
 const PORT = 4923;
 
+// PRD 007 Req 4: the hosted backend the E159+ tests exercise — a separate
+// port so it never clashes with the shim server above.
+const HOSTED_PORT = 4924;
+
 // `fullyParallel` interleaves tests across files, so `workers` is what sets
 // the concurrency. The count was pinned at 2 for the smallest host that runs
 // this suite; scale it with the machine instead, and let a Sandcastle sandbox
@@ -32,10 +36,24 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     ...devices['Desktop Chrome'],
   },
-  webServer: {
-    command: `npx vite --port ${PORT} --strictPort`,
-    url: `http://localhost:${PORT}`,
-    reuseExistingServer: true,
-    timeout: 30_000,
-  },
+  webServer: [
+    {
+      command: `npx vite --port ${PORT} --strictPort`,
+      url: `http://localhost:${PORT}`,
+      reuseExistingServer: true,
+      timeout: 30_000,
+    },
+    // PRD 007 Req 4: the hosted server in local dev mode for the E159+ suite
+    // (tests/e2e/hosted.spec.ts). The command arranges everything itself —
+    // SPA build if dist/ is missing, Azurite from node_modules, then the
+    // server — all offline; the generous timeout covers that cold build. The
+    // URL probe is the served SPA, which only answers once the whole chain is
+    // up.
+    {
+      command: 'npm run server:local',
+      url: `http://localhost:${HOSTED_PORT}/`,
+      reuseExistingServer: true,
+      timeout: 180_000,
+    },
+  ],
 });
