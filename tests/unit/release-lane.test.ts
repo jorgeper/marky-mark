@@ -14,11 +14,14 @@ import {
   MALFORMED_MARKER,
   newestReleaseTag,
   OUT_OF_ORDER_MARKER,
+  parseBlockedBy,
   parseDraftTags,
   parseMarkerPresent,
+  PRETAG_CI_GREEN_MARKER,
   parseReleaseIssueBody,
   parseTagNames,
   PREFLIGHT_ACK_MARKER,
+  releaseOutcome,
   TAG_PUSHED_MARKER,
   WINDOWS_APPENDED_MARKER,
 } from '../../.sandcastle/release-lane.mts';
@@ -273,6 +276,7 @@ describe('PRD 008 §R12–R13 cut-phase classification', () => {
       DRAFT_REPORT_MARKER,
       PREFLIGHT_ACK_MARKER,
       GATE_PASSED_MARKER,
+      PRETAG_CI_GREEN_MARKER,
       CUT_FAILED_MARKER,
       TAG_PUSHED_MARKER,
       CI_GREEN_MARKER,
@@ -286,5 +290,40 @@ describe('PRD 008 §R12–R13 cut-phase classification', () => {
         if (a !== b) expect(a.includes(b)).toBe(false);
       }
     }
+  });
+});
+
+describe('spec 2026-08-04 §4 failure-flow parsing', () => {
+  const comments = (...bodies: string[]) =>
+    JSON.stringify({ comments: bodies.map((body) => ({ body })) });
+
+  test('U212: parseBlockedBy reads the Blocked-by line of the newest cut-failed comment only', () => {
+    expect(
+      parseBlockedBy(
+        comments(
+          `${CUT_FAILED_MARKER}\n\nold failure\nBlocked-by: #41`,
+          `${TAG_PUSHED_MARKER}\n\nretry got further`,
+          `${CUT_FAILED_MARKER}\n\nnew failure\nBlocked-by: #67\nmore text`,
+        ),
+      ),
+    ).toBe(67);
+    expect(parseBlockedBy(comments(`${CUT_FAILED_MARKER}\n\nno link here`))).toBe(null);
+    expect(parseBlockedBy(comments('owner chatter'))).toBe(null);
+    expect(parseBlockedBy(JSON.stringify({}))).toBe(null);
+  });
+
+  test('U213: releaseOutcome maps the newest phase marker — awaiting-publish ok, cut-failed failed, all else incomplete', () => {
+    expect(releaseOutcome(comments(`${AWAITING_PUBLISH_MARKER}\n\ndraft url`)).level).toBe('ok');
+    expect(
+      releaseOutcome(comments(`${GATE_PASSED_MARKER}\n\n…`, `${CUT_FAILED_MARKER}\n\nE150`)).level,
+    ).toBe('failed');
+    // A retry that got past its old failure is no longer "failed".
+    expect(
+      releaseOutcome(
+        comments(`${CUT_FAILED_MARKER}\n\nold`, `${PREFLIGHT_ACK_MARKER}\n\nretrying`),
+      ).level,
+    ).toBe('incomplete');
+    expect(releaseOutcome(comments('owner chatter')).level).toBe('incomplete');
+    expect(releaseOutcome(JSON.stringify({})).level).toBe('incomplete');
   });
 });

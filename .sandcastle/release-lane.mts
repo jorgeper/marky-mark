@@ -180,6 +180,67 @@ export const parseMarkerPresent = (json: string, marker: string): boolean => {
 };
 
 // ---------------------------------------------------------------------------
+// Spec 2026-08-04 §4: failure-flow parsing. A failed cut's comment links the
+// sandcastle bug that blocks it; the outcome of a releaser run is read back
+// from the newest phase marker rather than trusted from process exit.
+// ---------------------------------------------------------------------------
+
+const PHASE_MARKERS = (): string[] => [
+  MALFORMED_MARKER,
+  OUT_OF_ORDER_MARKER,
+  DRAFT_REPORT_MARKER,
+  PREFLIGHT_ACK_MARKER,
+  GATE_PASSED_MARKER,
+  PRETAG_CI_GREEN_MARKER,
+  CUT_FAILED_MARKER,
+  TAG_PUSHED_MARKER,
+  CI_GREEN_MARKER,
+  DRAFT_VERIFIED_MARKER,
+  WINDOWS_APPENDED_MARKER,
+  AWAITING_PUBLISH_MARKER,
+];
+
+/** The bug number from the `Blocked-by: #<n>` line of the newest
+ * cut-failed comment; null when no cut-failed comment or no line. */
+export const parseBlockedBy = (json: string): number | null => {
+  const view = JSON.parse(json) as { comments?: { body?: string }[] };
+  const all = view.comments ?? [];
+  for (let i = all.length - 1; i >= 0; i--) {
+    const body = all[i].body ?? "";
+    if (body.trimStart().startsWith(CUT_FAILED_MARKER)) {
+      const m = body.match(/^Blocked-by: #(\d+)\s*$/m);
+      return m ? Number(m[1]) : null;
+    }
+  }
+  return null;
+};
+
+export interface ReleaseOutcome {
+  level: "ok" | "failed" | "incomplete";
+  text: string;
+}
+
+/** The run's semantic outcome, from the newest comment that starts with a
+ * phase marker. Only awaiting-publish is terminal success; a cut-failed
+ * newest marker is a failed cut; anything else means the run ended mid-cut. */
+export const releaseOutcome = (json: string): ReleaseOutcome => {
+  const view = JSON.parse(json) as { comments?: { body?: string }[] };
+  let last: string | null = null;
+  for (const comment of view.comments ?? []) {
+    const body = (comment.body ?? "").trimStart();
+    const marker = PHASE_MARKERS().find((m) => body.startsWith(m));
+    if (marker !== undefined) last = marker;
+  }
+  if (last === AWAITING_PUBLISH_MARKER)
+    return { level: "ok", text: "cut complete, awaiting publish" };
+  if (last === CUT_FAILED_MARKER) return { level: "failed", text: "cut failed" };
+  return {
+    level: "incomplete",
+    text: last === null ? "no phase marker posted" : `stopped after "${last}"`,
+  };
+};
+
+// ---------------------------------------------------------------------------
 // Guard comments. Each carries a recognizable first line (the
 // PARENT_CLOSE_MARKER pattern) so a later loop pass re-classifying the same
 // unchanged issue detects the existing comment and does not spam the thread.
@@ -200,6 +261,9 @@ export const DRAFT_REPORT_MARKER = "🏰 Sandcastle releaser: abandoned draft re
 // test U209 holds that invariant.
 export const PREFLIGHT_ACK_MARKER = "🏰 Sandcastle releaser: preflight acknowledged";
 export const GATE_PASSED_MARKER = "🏰 Sandcastle releaser: gate passed";
+/** Spec 2026-08-04 §2: pre-tag branch CI green — posted between the
+ * gate-passed and tag-pushed markers; the tag is only spent after it. */
+export const PRETAG_CI_GREEN_MARKER = "🏰 Sandcastle releaser: pre-tag CI green";
 /** prd/008 R10: the one failure comment — a failed gate (or failed CI run). */
 export const CUT_FAILED_MARKER = "🏰 Sandcastle releaser: cut failed";
 export const TAG_PUSHED_MARKER = "🏰 Sandcastle releaser: tag pushed";
