@@ -16,7 +16,7 @@ import {
 
 /** Avatar image when the directory has one, initials disc when it does not
  *  (or when the photo URL answers 404 — Graph users without a photo). */
-function MemberAvatar({ entry }: { entry: { displayName: string; username: string; avatarUrl?: string } }) {
+function MemberAvatar({ entry }: { entry: Pick<DirectoryEntry, 'displayName' | 'username' | 'avatarUrl'> }) {
   const [failed, setFailed] = useState(false);
   if (!entry.avatarUrl || failed) {
     return (
@@ -57,21 +57,29 @@ export function MembershipPicker({
 }: MembershipPickerProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<DirectoryEntry[]>([]);
-  const latest = useRef({ searchUsers, debounceMs });
-  latest.current = { searchUsers, debounceMs };
+  const latestSearchUsers = useRef(searchUsers);
+  latestSearchUsers.current = searchUsers;
 
   // One controller for the component's lifetime: it owns the debounce timer
-  // and drops out-of-order responses; dispose cancels in-flight work.
+  // and drops out-of-order responses; dispose cancels in-flight work. The
+  // search function is read through a ref so a caller re-rendering with a new
+  // closure still hits the latest one; debounceMs is captured at mount.
   const search = useMemo(
     () =>
       createDirectorySearch({
-        search: (q) => latest.current.searchUsers(q),
+        search: (q) => latestSearchUsers.current(q),
         onResults: (users) => setResults(users),
-        delayMs: latest.current.debounceMs,
+        delayMs: debounceMs,
       }),
     [],
   );
   useEffect(() => () => search.dispose(), [search]);
+
+  /** The input value and the controller move together — never one without the other. */
+  const changeQuery = (value: string) => {
+    setQuery(value);
+    search.setQuery(value);
+  };
 
   const selectable = filterSelectable(
     results,
@@ -116,10 +124,7 @@ export function MembershipPicker({
         data-testid="membership-picker-input"
         value={query}
         placeholder={placeholder}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          search.setQuery(e.target.value);
-        }}
+        onChange={(e) => changeQuery(e.target.value)}
       />
       {selectable.length > 0 && (
         <ul className="membership-results" data-testid="membership-picker-results">
@@ -131,8 +136,7 @@ export function MembershipPicker({
                 data-testid={`membership-picker-result-${user.id}`}
                 onClick={() => {
                   onAdd(user);
-                  setQuery('');
-                  search.setQuery('');
+                  changeQuery('');
                 }}
               >
                 <MemberAvatar entry={user} />
