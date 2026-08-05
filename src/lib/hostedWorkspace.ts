@@ -1,0 +1,291 @@
+/**
+ * PRD 007 Req 7+13+14: the hosted-workspace data model — the fixed permission
+ * catalog, the five built-in roles, the versioned workspace-manifest JSON
+ * (the hosted evolution of the local `.marky-workspace` format in
+ * `workspace.ts`), and pure permission resolution. No I/O and no platform
+ * imports: the server (`server/workspaces.ts`) and, later, the hosted client
+ * (#73) both consume this module, so parse/serialize/validate stay pure and
+ * timestamps come in as arguments.
+ */
+
+// --- permission catalog (PRD 007 Req 13) -------------------------------------
+
+/**
+ * PRD 007 Req 13: the fixed catalog of verbs the server enforces — exactly
+ * these fourteen, nothing else. Role definitions and endpoint requirements
+ * reference the `Permission` union, so an unknown verb is a type error in
+ * code and a validation error in manifest data.
+ */
+export const PERMISSIONS = [
+  'doc.read',
+  'doc.edit',
+  'file.create',
+  'file.delete',
+  'file.rename',
+  'file.upload',
+  'file.download',
+  'folder.manage',
+  'comment.read',
+  'comment.write',
+  'workspace.settings',
+  'workspace.members',
+  'workspace.roles',
+  'workspace.delete',
+] as const;
+
+export type Permission = (typeof PERMISSIONS)[number];
+
+export function isPermission(value: unknown): value is Permission {
+  return typeof value === 'string' && (PERMISSIONS as readonly string[]).includes(value);
+}
+
+// --- built-in roles (PRD 007 Req 14) -----------------------------------------
+
+export type BuiltInRoleName = 'Owner' | 'Editor' | 'Contributor' | 'Commenter' | 'Viewer';
+
+const EDITOR_PERMISSIONS: readonly Permission[] = [
+  'doc.read',
+  'doc.edit',
+  'file.create',
+  'file.delete',
+  'file.rename',
+  'file.upload',
+  'file.download',
+  'folder.manage',
+  'comment.read',
+  'comment.write',
+];
+
+/**
+ * PRD 007 Req 14: the five built-in roles as named permission sets — Owner
+ * all fourteen, Editor all doc/file/folder/comment verbs, Contributor is
+ * Editor minus `file.delete`/`file.rename`/`folder.manage`, Commenter and
+ * Viewer the read-and-comment tail. Built-ins live here in code, never in a
+ * manifest, which is what makes them uneditable and undeletable: manifest
+ * validation rejects a custom role using a built-in name, and the role
+ * mutation helpers below refuse built-in targets.
+ */
+export const BUILT_IN_ROLES: Readonly<Record<BuiltInRoleName, readonly Permission[]>> = {
+  Owner: PERMISSIONS,
+  Editor: EDITOR_PERMISSIONS,
+  Contributor: EDITOR_PERMISSIONS.filter(
+    (p) => p !== 'file.delete' && p !== 'file.rename' && p !== 'folder.manage'
+  ),
+  Commenter: ['doc.read', 'file.download', 'comment.read', 'comment.write'],
+  Viewer: ['doc.read', 'file.download', 'comment.read'],
+};
+
+export function isBuiltInRoleName(name: string): name is BuiltInRoleName {
+  return Object.prototype.hasOwnProperty.call(BUILT_IN_ROLES, name);
+}
+
+// --- the workspace manifest (PRD 007 Req 7) ----------------------------------
+
+/** The one schema version this build reads and writes. */
+export const MANIFEST_VERSION = 1;
+
+export interface WorkspaceMember {
+  /** The auth provider's stable user id (Entra object id / mock id). */
+  id: string;
+  /** A role name: built-in or a custom role defined in the same manifest. */
+  role: string;
+}
+
+/** A custom role: a named subset of the permission catalog (PRD 007 Req 15). */
+export interface CustomRole {
+  name: string;
+  permissions: Permission[];
+}
+
+/** Everyone-in-tenant access: off, or on with a default role (PRD 007 Req 16). */
+export interface EveryoneAccess {
+  enabled: boolean;
+  /** Role for signed-in non-members while enabled. Default 'Viewer'. */
+  role: string;
+}
+
+/**
+ * PRD 007 Req 7: the workspace manifest — the versioned JSON evolution of
+ * the local `.marky-workspace` format (`WorkspaceFileData` in
+ * `workspace.ts`). It keeps that format's `version` and `settings` slots;
+ * the `folders` list is gone (the workspace IS its blob prefix) and the
+ * hosted-only fields (name, timestamps, members, roles, everyone-access)
+ * are new. One manifest blob per workspace; no database.
+ */
+export interface WorkspaceManifest {
+  version: typeof MANIFEST_VERSION;
+  name: string;
+  /** ISO 8601 creation timestamp; preserved across updates. */
+  created: string;
+  /** ISO 8601 last-manifest-update timestamp. */
+  modified: string;
+  members: WorkspaceMember[];
+  /** Custom role definitions; built-ins are code, never listed here. */
+  roles: CustomRole[];
+  everyone: EveryoneAccess;
+  /** Workspace-scoped settings — the PRD 002 Workspace layer slot. */
+  settings: Record<string, unknown>;
+}
+
+export type ManifestResult =
+  | { ok: true; manifest: WorkspaceManifest }
+  | { ok: false; error: string };
+
+const fail = (error: string): ManifestResult => ({ ok: false, error });
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+/**
+ * PRD 007 Req 7: validate untrusted manifest data. An unsupported schema
+ * version or a malformed field is rejected with an error naming the problem
+ * — never silently coerced (deliberately unlike the corruption-tolerant
+ * local `parseWorkspaceFile`, because a hosted manifest is the permission
+ * source of truth, and "sane empty" here would mean dropped members).
+ */
+export function validateWorkspaceManifest(data: unknown): ManifestResult {
+  if (!isPlainObject(data)) return fail('manifest must be a JSON object');
+  if (data.version !== MANIFEST_VERSION) {
+    return fail(`unsupported manifest version ${JSON.stringify(data.version)} (this build reads version ${MANIFEST_VERSION})`);
+  }
+  if (!isNonEmptyString(data.name)) return fail('manifest name must be a non-empty string');
+  for (const key of ['created', 'modified'] as const) {
+    if (!isNonEmptyString(data[key]) || Number.isNaN(Date.parse(data[key] as string))) {
+      return fail(`manifest ${key} must be an ISO 8601 timestamp`);
+    }
+  }
+
+  if (!Array.isArray(data.members)) return fail('manifest members must be an array');
+  const memberIds = new Set<string>();
+  for (const m of data.members as unknown[]) {
+    if (!isPlainObject(m) || !isNonEmptyString(m.id) || !isNonEmptyString(m.role)) {
+      return fail('each member must be {id, role} with non-empty strings');
+    }
+    // A role NAME that resolves to nothing stays valid (resolution fails
+    // closed); a duplicate member id is a malformed manifest, not a policy.
+    if (memberIds.has(m.id)) return fail(`duplicate member id ${JSON.stringify(m.id)}`);
+    memberIds.add(m.id);
+  }
+
+  if (!Array.isArray(data.roles)) return fail('manifest roles must be an array');
+  const roleNames = new Set<string>();
+  for (const r of data.roles as unknown[]) {
+    if (!isPlainObject(r) || !isNonEmptyString(r.name) || !Array.isArray(r.permissions)) {
+      return fail('each custom role must be {name, permissions[]}');
+    }
+    // PRD 007 Req 14: a custom role cannot shadow a built-in name — that
+    // would amount to editing the built-in.
+    if (isBuiltInRoleName(r.name)) {
+      return fail(`custom role ${JSON.stringify(r.name)} shadows a built-in role`);
+    }
+    if (roleNames.has(r.name)) return fail(`duplicate custom role ${JSON.stringify(r.name)}`);
+    roleNames.add(r.name);
+    for (const p of r.permissions as unknown[]) {
+      // PRD 007 Req 13: only catalog verbs exist — an unknown verb is an
+      // error, not a typo that passes.
+      if (!isPermission(p)) return fail(`unknown permission ${JSON.stringify(p)} in role ${JSON.stringify(r.name)}`);
+    }
+  }
+
+  if (!isPlainObject(data.everyone) || typeof data.everyone.enabled !== 'boolean' || !isNonEmptyString(data.everyone.role)) {
+    return fail('manifest everyone must be {enabled: boolean, role: string}');
+  }
+  if (!isPlainObject(data.settings)) return fail('manifest settings must be an object');
+
+  return {
+    ok: true,
+    manifest: {
+      version: MANIFEST_VERSION,
+      name: data.name,
+      created: data.created as string,
+      modified: data.modified as string,
+      members: (data.members as WorkspaceMember[]).map((m) => ({ id: m.id, role: m.role })),
+      roles: (data.roles as CustomRole[]).map((r) => ({ name: r.name, permissions: [...r.permissions] })),
+      everyone: { enabled: data.everyone.enabled, role: data.everyone.role },
+      settings: { ...(data.settings as Record<string, unknown>) },
+    },
+  };
+}
+
+/** Parse manifest JSON text; malformed JSON is an error like any other. */
+export function parseWorkspaceManifest(json: string): ManifestResult {
+  let data: unknown;
+  try {
+    data = JSON.parse(json);
+  } catch {
+    return fail('manifest is not valid JSON');
+  }
+  return validateWorkspaceManifest(data);
+}
+
+export function serializeWorkspaceManifest(manifest: WorkspaceManifest): string {
+  return `${JSON.stringify(manifest, null, 2)}\n`;
+}
+
+/**
+ * PRD 007 Req 10: a fresh manifest with the creator as the sole member,
+ * role Owner, and everyone-access off (default role Viewer, per Req 16).
+ */
+export function createWorkspaceManifest(name: string, creatorId: string, nowIso: string): WorkspaceManifest {
+  return {
+    version: MANIFEST_VERSION,
+    name,
+    created: nowIso,
+    modified: nowIso,
+    members: [{ id: creatorId, role: 'Owner' }],
+    roles: [],
+    everyone: { enabled: false, role: 'Viewer' },
+    settings: {},
+  };
+}
+
+// --- custom-role mutations (PRD 007 Req 14+15) -------------------------------
+
+/**
+ * Add or redefine a custom role. Refuses built-in names: built-ins are not
+ * editable, and creating a same-named custom role would shadow one.
+ */
+export function upsertCustomRole(manifest: WorkspaceManifest, role: CustomRole): ManifestResult {
+  if (isBuiltInRoleName(role.name)) {
+    return fail(`built-in role ${JSON.stringify(role.name)} cannot be edited or shadowed`);
+  }
+  if (!role.permissions.every(isPermission)) return fail('role permissions must come from the catalog');
+  const roles = manifest.roles.filter((r) => r.name !== role.name);
+  return { ok: true, manifest: { ...manifest, roles: [...roles, { name: role.name, permissions: [...role.permissions] }] } };
+}
+
+/** Remove a custom role. Refuses built-in names: built-ins are not deletable. */
+export function removeCustomRole(manifest: WorkspaceManifest, name: string): ManifestResult {
+  if (isBuiltInRoleName(name)) {
+    return fail(`built-in role ${JSON.stringify(name)} cannot be deleted`);
+  }
+  if (!manifest.roles.some((r) => r.name === name)) return fail(`no custom role ${JSON.stringify(name)}`);
+  return { ok: true, manifest: { ...manifest, roles: manifest.roles.filter((r) => r.name !== name) } };
+}
+
+// --- permission resolution (PRD 007 Req 13+16) -------------------------------
+
+const NO_PERMISSIONS: ReadonlySet<Permission> = new Set();
+
+/** A role name → its permission set: built-in first, else custom, else nothing. */
+function permissionsOfRole(manifest: WorkspaceManifest, roleName: string): ReadonlySet<Permission> {
+  if (isBuiltInRoleName(roleName)) return new Set(BUILT_IN_ROLES[roleName]);
+  const custom = manifest.roles.find((r) => r.name === roleName);
+  return custom ? new Set(custom.permissions) : NO_PERMISSIONS;
+}
+
+/**
+ * PRD 007 Req 13+16: resolve a user's permissions from the manifest.
+ * Explicit membership wins over the everyone-role (even when the member's
+ * role name resolves to nothing — an unknown role fails closed rather than
+ * falling back); a signed-in non-member gets the everyone default role when
+ * everyone-access is on, and nothing at all when it is off.
+ */
+export function resolvePermissions(manifest: WorkspaceManifest, userId: string): ReadonlySet<Permission> {
+  const member = manifest.members.find((m) => m.id === userId);
+  if (member) return permissionsOfRole(manifest, member.role);
+  if (manifest.everyone.enabled) return permissionsOfRole(manifest, manifest.everyone.role);
+  return NO_PERMISSIONS;
+}

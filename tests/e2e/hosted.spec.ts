@@ -181,3 +181,117 @@ test('E168: a failed sign-in surfaces as an on-page error and the API guard stil
   const unauthenticated = await request.get(`${HOSTED}/api/me`);
   expect(unauthenticated.status()).toBe(401);
 });
+
+/** Create a workspace and return its id (PRD 007 Req 10: creator → Owner). */
+async function createWorkspace(request: APIRequestContext, token: string, name: string): Promise<string> {
+  const res = await request.post(`${HOSTED}/api/workspaces`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { name },
+  });
+  expect(res.status()).toBe(201);
+  return ((await res.json()) as { id: string }).id;
+}
+
+test('E172: creating a workspace yields a manifest blob under its own prefix with the creator as Owner', async ({
+  request,
+}) => {
+  // PRD 007 Req 7: per-workspace prefix + manifest blob in Azurite — real
+  // blob storage code, zero Azure resources. The manifest records the
+  // creator as sole Owner and everyone-access off.
+  const token = await signIn(request, 'ada');
+  const headers = { Authorization: `Bearer ${token}` };
+  const name = `E172 workspace w${test.info().workerIndex}`;
+  const id = await createWorkspace(request, token, name);
+
+  const manifestRes = await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, { headers });
+  expect(manifestRes.status()).toBe(200);
+  const { manifest } = (await manifestRes.json()) as {
+    manifest: { version: number; name: string; members: unknown[]; everyone: unknown };
+  };
+  expect(manifest.version).toBe(1);
+  expect(manifest.name).toBe(name);
+  expect(manifest.members).toEqual([{ id: 'mock-ada', role: 'Owner' }]);
+  expect(manifest.everyone).toEqual({ enabled: false, role: 'Viewer' });
+
+  // The workspace shows up in the signed-in metadata listing (PRD 007 Req 11)…
+  const list = await request.get(`${HOSTED}/api/workspaces`, { headers });
+  const listed = (await list.json()) as { id: string; name: string }[];
+  expect(listed.map((w) => w.id)).toContain(id);
+  // …its manifest blob is invisible to workspace file listings (it lives
+  // outside the files/ prefix)…
+  const files = await request.get(`${HOSTED}/api/workspaces/${id}/files`, { headers });
+  expect(await files.json()).toEqual([]);
+  // …and the legacy workspace-agnostic scaffold cannot reach or list it.
+  const viaScaffold = await request.get(`${HOSTED}/api/files/workspaces/${id}/manifest.json`, { headers });
+  expect(viaScaffold.status()).toBe(403);
+  const scaffoldList = (await (await request.get(`${HOSTED}/api/files`, { headers })).json()) as {
+    path: string;
+  }[];
+  expect(scaffoldList.every((f) => !f.path.startsWith('workspaces/'))).toBe(true);
+});
+
+test('E173: a member granted Viewer can read workspace files but gets 403 writing — the verb is named', async ({
+  request,
+}) => {
+  // PRD 007 Req 13+14+17: server-side enforcement of the built-in Viewer set.
+  const ada = await signIn(request, 'ada');
+  const adaHeaders = { Authorization: `Bearer ${ada}` };
+  const id = await createWorkspace(request, ada, `E173 workspace w${test.info().workerIndex}`);
+  const put = await request.put(`${HOSTED}/api/workspaces/${id}/files/notes/shared.md`, {
+    headers: adaHeaders,
+    data: '# shared\n',
+  });
+  expect(put.status()).toBe(200);
+
+  // Ada (Owner: workspace.settings) grants Grace the Viewer role.
+  const { manifest } = (await (
+    await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, { headers: adaHeaders })
+  ).json()) as { manifest: { members: { id: string; role: string }[] } };
+  manifest.members.push({ id: 'mock-grace', role: 'Viewer' });
+  const update = await request.put(`${HOSTED}/api/workspaces/${id}/manifest`, {
+    headers: adaHeaders,
+    data: manifest,
+  });
+  expect(update.status()).toBe(200);
+
+  const grace = { Authorization: `Bearer ${await signIn(request, 'grace')}` };
+  // Viewer holds doc.read: listing and reading work…
+  const read = await request.get(`${HOSTED}/api/workspaces/${id}/files/notes/shared.md`, { headers: grace });
+  expect(read.status()).toBe(200);
+  expect(((await read.json()) as { content: string }).content).toBe('# shared\n');
+  // …but doc.edit and file.delete are missing: 403, naming the one
+  // required permission the endpoint documents.
+  const write = await request.put(`${HOSTED}/api/workspaces/${id}/files/notes/shared.md`, {
+    headers: grace,
+    data: 'overwrite',
+  });
+  expect(write.status()).toBe(403);
+  expect(await write.json()).toEqual({ error: 'forbidden', required: 'doc.edit' });
+  const del = await request.delete(`${HOSTED}/api/workspaces/${id}/files/notes/shared.md`, { headers: grace });
+  expect(del.status()).toBe(403);
+  expect(((await del.json()) as { required: string }).required).toBe('file.delete');
+});
+
+test('E174: a non-member of a workspace without everyone-access gets 403 reading file content', async ({
+  request,
+}) => {
+  // PRD 007 Req 13+16+17: no membership, no everyone-access → fails closed
+  // with 403 on content reads (metadata listing stays open per Req 11).
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E174 workspace w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/private.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: 'members only',
+  });
+
+  const alan = { Authorization: `Bearer ${await signIn(request, 'alan')}` };
+  for (const path of [`/api/workspaces/${id}/files/private.md`, `/api/workspaces/${id}/files`, `/api/workspaces/${id}/manifest`]) {
+    const res = await request.get(`${HOSTED}${path}`, { headers: alan });
+    expect(res.status(), path).toBe(403);
+    expect(((await res.json()) as { required: string }).required).toBe('doc.read');
+  }
+  // The pre-permission metadata listing still names the workspace (Req 11).
+  const list = await request.get(`${HOSTED}/api/workspaces`, { headers: alan });
+  const listed = (await list.json()) as { id: string }[];
+  expect(listed.map((w) => w.id)).toContain(id);
+});

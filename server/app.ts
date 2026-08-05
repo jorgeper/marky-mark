@@ -10,10 +10,9 @@ import { Buffer } from 'node:buffer';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { ServerMode } from './config.ts';
+import { cleanRelativePath, readBody, sendJson, tryDecode } from './http.ts';
 import type { Providers, RequestAuth } from './providers/types.ts';
-
-/** Uploads beyond this are rejected outright (scaffold guard, not a quota). */
-const MAX_BODY_BYTES = 25 * 1024 * 1024;
+import { handleWorkspaceApi, WORKSPACES_PREFIX } from './workspaces.ts';
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -30,51 +29,11 @@ const CONTENT_TYPES: Record<string, string> = {
   '.map': 'application/json',
 };
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  const data = JSON.stringify(body);
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
-  res.end(data);
-}
-
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    req.on('data', (chunk: Uint8Array) => {
-      size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        reject(new Error('request body too large'));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
-  });
-}
-
-/**
- * decodeURIComponent, or null on a malformed percent-escape. Request paths
- * are attacker-controlled, and a bare decodeURIComponent throws on e.g.
- * `/%zz` — uncaught in the synchronous static handler, that took the whole
- * process down.
- */
-function tryDecode(component: string): string | null {
-  try {
-    return decodeURIComponent(component);
-  } catch {
-    return null;
-  }
-}
-
 /** A stored-file path from the URL; null when absent, malformed, or escaping the root. */
 function filePathFrom(pathname: string): string | null {
   const raw = tryDecode(pathname.slice('/api/files/'.length));
   if (!raw) return null;
-  const segments = raw.split('/');
-  if (segments.some((s) => s === '' || s === '.' || s === '..')) return null;
-  return segments.join('/');
+  return cleanRelativePath(raw);
 }
 
 async function handleApi(
@@ -138,8 +97,19 @@ async function handleApi(
     return;
   }
 
+  // PRD 007 Req 7+13: everything under /api/workspaces is per-workspace
+  // scoped and permission-checked (server/workspaces.ts).
+  if (pathname === '/api/workspaces' || pathname.startsWith('/api/workspaces/')) {
+    await handleWorkspaceApi(req, res, pathname, providers.storage, auth);
+    return;
+  }
+
   if (pathname === '/api/files' && req.method === 'GET') {
-    sendJson(res, 200, await providers.storage.list(url.searchParams.get('prefix') ?? ''));
+    const listed = await providers.storage.list(url.searchParams.get('prefix') ?? '');
+    // PRD 007 Req 13: the workspace root is invisible to the workspace-
+    // agnostic scaffold — its blobs (manifests included) are reachable only
+    // through the permission-checked /api/workspaces endpoints.
+    sendJson(res, 200, listed.filter((f) => !f.path.startsWith(WORKSPACES_PREFIX)));
     return;
   }
 
@@ -147,6 +117,12 @@ async function handleApi(
     const filePath = filePathFrom(pathname);
     if (!filePath) {
       sendJson(res, 400, { error: 'invalid file path' });
+      return;
+    }
+    // PRD 007 Req 13: workspace data never bypasses its permission checks
+    // via the legacy scaffold.
+    if (filePath.startsWith(WORKSPACES_PREFIX)) {
+      sendJson(res, 403, { error: 'workspace data is served by /api/workspaces' });
       return;
     }
     if (req.method === 'GET') {

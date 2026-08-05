@@ -57,22 +57,84 @@ Req 23, a separate issue; the environment reference is below.
 `MM_MODE=azure` refuses to start with any of its required variables missing,
 naming them all at once.
 
-## API surface (scaffold)
+## Workspace storage model (PRD 007 Req 7)
 
-Kept deliberately minimal — workspace manifest, roles, and permissions are
-sibling issues. All endpoints except sign-in require
-`Authorization: Bearer <token>` and answer `401` without it.
+Everything about a workspace lives in blobs inside the one container
+(`MM_STORAGE_CONTAINER`) — no database, no server-local state. Each
+workspace owns a prefix keyed by a server-generated UUID:
 
-| Endpoint | Meaning |
-| --- | --- |
-| `POST /api/auth/sign-in` | Local: `{username}` → `{kind:'token', token, user}`. Azure: `{kind:'redirect', authorizeUrl}` for the SPA's PKCE flow. The only unauthenticated endpoint. |
-| `GET /api/me` | The authenticated user. |
-| `GET /api/files` (`?prefix=`) | List stored files (path, size, lastModified, etag). |
-| `GET /api/files/<path>` | Read: `{path, content, etag}`, or 404. |
-| `PUT /api/files/<path>` | Write body as content → `{path, etag}`. |
-| `DELETE /api/files/<path>` | Delete; 404 when absent. |
-| `GET /api/directory/search?q=` | Directory user search. |
-| `GET /api/directory/users/<id>` | One directory user, or 404. |
+```
+workspaces/<id>/manifest.json     the workspace manifest (below)
+workspaces/<id>/files/<path>      its Markdown documents and assets
+```
+
+The manifest sits *outside* the `files/` prefix, so workspace file listings
+never surface it; the workspace-agnostic `/api/files*` scaffold refuses the
+whole `workspaces/` prefix (403, filtered from listings), so workspace data
+is reachable only through the permission-checked endpoints below.
+
+### The workspace manifest
+
+A versioned JSON evolution of the local `.marky-workspace` format
+(`src/lib/workspace.ts`): it keeps that format's `version` and `settings`
+slots, drops `folders` (the workspace *is* its blob prefix), and adds the
+hosted fields. Parse/serialize/validate are pure functions in
+`src/lib/hostedWorkspace.ts`; an unsupported `version` or malformed field
+is rejected with a named error, never silently coerced.
+
+```jsonc
+{
+  "version": 1,                       // schema version; this build reads exactly 1
+  "name": "Design docs",
+  "created": "2026-08-05T12:00:00Z",  // ISO 8601; immutable after creation
+  "modified": "2026-08-05T12:00:00Z", // restamped server-side on manifest updates
+  "members": [{ "id": "<user id>", "role": "Owner" }],
+  "roles": [                          // custom roles: named catalog subsets
+    { "name": "Reviewer", "permissions": ["doc.read", "comment.read", "comment.write"] }
+  ],
+  "everyone": { "enabled": false, "role": "Viewer" },  // everyone-in-tenant access
+  "settings": {}                      // the PRD 002 Workspace settings layer
+}
+```
+
+## Roles and permissions (PRD 007 Req 13+14)
+
+`src/lib/hostedWorkspace.ts` defines the fixed fourteen-verb permission
+catalog (`doc.read`, `doc.edit`, `file.create`, `file.delete`,
+`file.rename`, `file.upload`, `file.download`, `folder.manage`,
+`comment.read`, `comment.write`, `workspace.settings`,
+`workspace.members`, `workspace.roles`, `workspace.delete`) and the five
+built-in roles — Owner (all), Editor, Contributor, Commenter, Viewer.
+Built-ins live in code, never in a manifest: they cannot be edited or
+deleted, and a custom role may not reuse a built-in name (validation
+rejects it). A member whose role name resolves to nothing fails closed —
+no permissions.
+
+## API surface
+
+All endpoints except sign-in require `Authorization: Bearer <token>` and
+answer `401` without it. Workspace-scoped endpoints then check exactly
+**one** required permission, resolved from the workspace manifest for the
+calling user, and answer `403` (naming the verb) when it is missing.
+
+| Endpoint | Required permission | Meaning |
+| --- | --- | --- |
+| `POST /api/auth/sign-in` | — (unauthenticated) | Local: `{username}` → `{kind:'token', token, user}`. Azure: `{kind:'redirect', authorizeUrl}` for the SPA's PKCE flow. The only unauthenticated endpoint. |
+| `GET /api/me` | — (signed-in) | The authenticated user. |
+| `POST /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 10 — any user may create; the creator becomes the manifest's sole Owner) | `{name}` → `201 {id, manifest}`. |
+| `GET /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 11 — metadata is listable by any signed-in user; contents stay permission-checked) | `[{id, name, created, modified}]`. |
+| `GET /api/workspaces/<id>/manifest` | `doc.read` | `{id, manifest}`. |
+| `PUT /api/workspaces/<id>/manifest` | `workspace.settings` | Validate + store the full manifest (`created` preserved, `modified` restamped server-side); finer-grained member/role endpoints are #77. |
+| `GET /api/workspaces/<id>/files` | `doc.read` | List the workspace's files, workspace-relative paths. |
+| `GET /api/workspaces/<id>/files/<path>` | `doc.read` | Read: `{path, content, etag}`, or 404. |
+| `PUT /api/workspaces/<id>/files/<path>` | `doc.edit` | Write body as content → `{path, etag}`. |
+| `DELETE /api/workspaces/<id>/files/<path>` | `file.delete` | Delete; 404 when absent. |
+| `GET /api/files` (`?prefix=`) | — (signed-in; legacy workspace-agnostic scaffold — never lists `workspaces/`) | List stored files (path, size, lastModified, etag). |
+| `GET /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` path) | Read: `{path, content, etag}`, or 404. |
+| `PUT /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` path) | Write body as content → `{path, etag}`. |
+| `DELETE /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` path) | Delete; 404 when absent. |
+| `GET /api/directory/search?q=` | — (signed-in) | Directory user search. |
+| `GET /api/directory/users/<id>` | — (signed-in) | One directory user, or 404. |
 
 ## Sign-in (PRD 007 Req 5)
 
