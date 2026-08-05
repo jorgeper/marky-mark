@@ -1,15 +1,16 @@
 /**
- * PRD 002 §C7–§C13: the workspace model — pure data types and transitions,
- * the `.marky-workspace` file's parse/serialize pair, per-workspace
- * machine-local session state, and the legacy foldertree.json adoption
- * (§G24). No I/O and no platform imports; App.tsx owns the reads/writes.
+ * PRD 002 §C7–§C12: the workspace model — pure data types and transitions,
+ * the `.marky-workspace` file's parse/serialize pair, and per-workspace
+ * machine-local session state. No I/O and no platform imports; App.tsx owns
+ * the reads/writes. Issue #81 retired the §C13 launch pointer and the §G24
+ * legacy adoption: launch never reopens a workspace, so nothing reads them.
  *
  * §C7: the three states — no workspace, untitled workspace, named
  * workspace — form a single union, so one `Workspace` value IS the current
  * workspace: at most one is representable at a time by construction.
  */
 
-import { EXPANDED_CAP, type FolderState } from './folderTree';
+import { EXPANDED_CAP } from './folderTree';
 import { OPEN_CAP } from './openFiles';
 import { SETTINGS_SCOPES, type Scope } from './settings';
 
@@ -18,8 +19,6 @@ export const WORKSPACE_FILE_EXT = '.marky-workspace';
 export const SESSION_DIR_NAME = 'session';
 /** §C11: the single current-untitled slot. */
 export const UNTITLED_SLOT_FILE = 'untitled.json';
-/** §C13: which workspace to reopen at launch. */
-export const CURRENT_POINTER_FILE = 'current.json';
 
 /** A member folder; unreachable roots stay flagged, never dropped (§C10). */
 export interface WorkspaceFolder {
@@ -265,19 +264,6 @@ export function serializeWorkspaceSession(s: WorkspaceSession): string {
   )}\n`;
 }
 
-/** Bridge a session into today's single-root sidebar wiring. */
-export function sessionToFolderState(s: WorkspaceSession): FolderState {
-  return {
-    version: 1,
-    root: s.folders[0] ?? null,
-    expanded: s.expanded,
-    showNonMd: s.showNonMd,
-    openFiles: s.openFiles,
-    activeFile: s.activeFile,
-    openOnly: s.openOnly,
-  };
-}
-
 /** Stable session-file key for a named workspace: readable slug + FNV-1a hash. */
 export function sessionKeyForWorkspaceFile(file: string): string {
   let h = 0x811c9dc5;
@@ -293,42 +279,4 @@ export function sessionKeyForWorkspaceFile(file: string): string {
       .replace(/^-+|-+$/g, '')
       .slice(0, 40) || 'workspace';
   return `ws-${slug}-${h.toString(16).padStart(8, '0')}`;
-}
-
-// --- launch pointer (§C13) ---------------------------------------------------
-
-export type WorkspacePointer =
-  | { version: 1; kind: 'none' }
-  | { version: 1; kind: 'untitled' }
-  | { version: 1; kind: 'named'; file: string };
-
-export function parseWorkspacePointer(json: string): WorkspacePointer {
-  try {
-    const d = JSON.parse(json) as { kind?: unknown; file?: unknown } | null;
-    if (typeof d !== 'object' || d === null) return { version: 1, kind: 'none' };
-    if (d.kind === 'untitled') return { version: 1, kind: 'untitled' };
-    if (d.kind === 'named' && typeof d.file === 'string' && d.file) return { version: 1, kind: 'named', file: d.file };
-    return { version: 1, kind: 'none' };
-  } catch {
-    return { version: 1, kind: 'none' };
-  }
-}
-
-export function serializeWorkspacePointer(ws: Workspace): string {
-  const ptr: WorkspacePointer =
-    ws.kind === 'named' ? { version: 1, kind: 'named', file: ws.file } : { version: 1, kind: ws.kind };
-  return `${JSON.stringify(ptr, null, 2)}\n`;
-}
-
-// --- legacy adoption (§G24) --------------------------------------------------
-
-/**
- * First launch with no session pointer: an existing foldertree.json root is
- * adopted as an untitled workspace with that one folder; the caller keeps
- * applying the foldertree state it already parsed, so today's expanded/tab
- * state carries along. A pure read — the caller rewrites nothing.
- */
-export function adoptLegacyFolderState(ft: FolderState): Workspace | null {
-  if (!ft.root) return null;
-  return { kind: 'untitled', folders: [{ path: ft.root, available: true }], settings: {} };
 }

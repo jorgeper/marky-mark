@@ -28,11 +28,11 @@ const LS_KEY = 'marky-mark.fs.v1';
 // Settings pinned into every seeded profile (freshApp and freshNativeMenuApp).
 // paneMinWidth: the shipped default (768px) would hold both split panes under
 // a horizontal scrollbar at this suite's 1280px viewport and skew every
-// geometry-based assertion. reopenLastDoc: the suite predates the issue #53
-// flip to default-off, and many tests reload after menu/dialog opens expecting
-// the document back. E91 owns the shipped default-off contract (it rewrites
-// the settings file without the reopen pin before asserting the splash launch).
-export const SEED_SETTINGS = { paneMinWidth: 240, reopenLastDoc: true };
+// geometry-based assertion. Issue #81 removed reopen-on-launch (and its old
+// reopenLastDoc pin here): a relaunch always lands on the splash, so tests
+// that need a document after a reload reopen it explicitly (#open hash or
+// menu) — E91 owns the never-reopens contract.
+export const SEED_SETTINGS = { paneMinWidth: 240 };
 
 const SEED_STORE = (() => {
   const dir = path.resolve(import.meta.dirname, '../../fixtures');

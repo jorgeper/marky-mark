@@ -135,11 +135,19 @@ test('E101: only-open-files mode — button/hotkey/View menu, flat tree-order li
   await expect(page.locator('[data-path="/notes/sub/deep/c.md"]')).toHaveClass(/selected/);
   await expect(page.getByTestId('folder-filter')).toBeEnabled();
 
-  // Mode + set survive a reload (openOnly rides foldertree.json).
+  // Mode + set live in the workspace session (issue #81): a relaunch lands
+  // on the splash; reopening the folder revives openOnly, the open set, and
+  // the active file.
   await page.waitForTimeout(200);
   await page.getByTestId('folder-open-only').click();
   await expect(page.getByTestId('folder-open-only')).toHaveClass(/filter-on/);
   await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => !!window.__mmMenu)).toBe(true);
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
   await expect(page.getByTestId('folder-open-only')).toHaveClass(/filter-on/);
   await expect.poll(names).toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md', '/notes/a.md']);
   await expect(page).toHaveTitle(/c\.md/);
@@ -264,7 +272,7 @@ test('E103: dirty lifecycle — free switching, ● markers, hover ✕, cancel/d
   await expect(page.locator('.folder-item.selected')).toHaveCount(0);
 });
 
-test('E104: quit walks every dirty file in order (save/cancel paths), restore survives relaunch, the setting gates it', async ({
+test('E104: quit walks every dirty file in order (save/cancel paths); a relaunch lands on the splash (#81)', async ({
   page,
 }) => {
   await freshNativeMenuApp(page);
@@ -312,38 +320,16 @@ test('E104: quit walks every dirty file in order (save/cancel paths), restore su
   await expect(page).toHaveTitle(/a\.md •/);
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/\bopen\b/);
 
-  // Clean up a, add c to the set, then delete c on disk: the restore drops
-  // the vanished path and falls back to the first survivor as active.
+  // Clean up a, then relaunch: issue #81 — the boot never restores. Splash,
+  // no workspace, nothing open, whatever was open at quit; the session
+  // store still remembers the set for an explicit reopen (E169).
   await menuClick(page, 'save');
   await expect(page).toHaveTitle(/a\.md — /);
-  await page.locator('[data-path="/notes/sub/deep"]').click();
-  await page.locator('[data-path="/notes/sub/deep/c.md"]').click({ modifiers: ['ControlOrMeta'] });
-  await expect(page).toHaveTitle(/c\.md/);
-  await page.evaluate(() => window.__mmfs!.remove('/notes/sub/deep/c.md'));
+  await expect.poll(() => fsRead(page, '/config/session/untitled.json')).toContain('/notes/a.md');
   await page.reload();
-  await expect(page).toHaveTitle(/b\.md/);
-  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
-  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
-
-  // Setting off: boot ignores the set (single reopen-last-doc behavior) but
-  // foldertree.json KEEPS it — flipping back on revives both tabs.
-  await page.evaluate(() => {
-    const s = JSON.parse(window.__mmfs!.read('/config/settings.json') ?? '{}');
-    s.restoreOpenFiles = false;
-    window.__mmfs!.write('/config/settings.json', JSON.stringify(s));
-  });
-  await page.reload();
-  await expect(page).toHaveTitle(/b\.md/);
-  await expect(page.locator('[data-path="/notes/a.md"]')).not.toHaveClass(/\bopen\b/);
-  await expect.poll(() => fsRead(page, '/config/foldertree.json')).toContain('/notes/a.md');
-  await page.evaluate(() => {
-    const s = JSON.parse(window.__mmfs!.read('/config/settings.json') ?? '{}');
-    s.restoreOpenFiles = true;
-    window.__mmfs!.write('/config/settings.json', JSON.stringify(s));
-  });
-  await page.reload();
-  await expect(page).toHaveTitle(/b\.md/);
-  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.locator('[data-testid="folder-item"]')).toHaveCount(0);
 });
 
 test('E131: three-mode model — per-mode menu gating, Close File → splash, Close Workspace guards, changed-workspace prompt', async ({
@@ -499,4 +485,104 @@ test('E157: workspace open with no document — the folder-view hint replaces th
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await expect(page.getByTestId('splash-mark')).toBeVisible();
   await expect(wsHint).toHaveCount(0);
+});
+
+test('E169: issue #81 — a workspace remembers its open files: Close Workspace → reopen revives them (and across a restart), pruning vanished paths', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await seedFolders(page);
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+
+  // Open a then b (additive clicks); b is active.
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await page.locator('[data-path="/notes/sub"]').click();
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
+  await expect(page).toHaveTitle(/b\.md/);
+
+  // The open set lands in the untitled slot automatically — no setting
+  // gates the write-through.
+  await expect.poll(() => fsRead(page, '/config/session/untitled.json')).toContain('/notes/sub/b.md');
+
+  // Close Workspace → splash. Reopening the same folder revives the session:
+  // both files show as open, the active file is back on screen.
+  await menuClick(page, 'closeWorkspace');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
+  await expect(page).toHaveTitle(/b\.md/);
+
+  // The same revival works across an app restart.
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => !!window.__mmMenu)).toBe(true);
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
+  await expect(page).toHaveTitle(/b\.md/);
+
+  // Existing-files-only pruning: b vanishes on disk; the reopen drops it and
+  // falls back to the first survivor as active.
+  await menuClick(page, 'closeWorkspace');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.evaluate(() => window.__mmfs!.remove('/notes/sub/b.md'));
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/selected/);
+  await expect(page).toHaveTitle(/a\.md/);
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveCount(0);
+});
+
+test('E170: issue #81 — relaunch with a named workspace and files open lands on the splash; Open Workspace… brings the session back', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await seedFolders(page);
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await page.locator('[data-path="/notes/sub"]').click();
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
+  await expect(page).toHaveTitle(/b\.md/);
+
+  // Name the workspace; its session store keeps the open set.
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/w/mine.marky-workspace';
+  });
+  await menuClick(page, 'saveWorkspaceAs');
+  await expect.poll(() => fsRead(page, '/w/mine.marky-workspace')).toContain('"folders"');
+
+  // Relaunch: splash — no workspace, no open files, regardless of what was
+  // open at quit (Bug 2).
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.locator('[data-testid="folder-item"]')).toHaveCount(0);
+
+  // Open Workspace… explicitly: tabs and the active file return (Bug 1).
+  await expect.poll(() => page.evaluate(() => !!window.__mmMenu)).toBe(true);
+  await page.evaluate(() => {
+    window.__mmfs!.nextWorkspacePath = '/w/mine.marky-workspace';
+  });
+  await menuClick(page, 'openWorkspace');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
+  await expect(page).toHaveTitle(/b\.md/);
 });

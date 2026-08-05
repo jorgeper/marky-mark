@@ -41,11 +41,10 @@ test('E60: reading position memory — reopening a document restores where you w
     .toBeGreaterThan(10);
   const savedScroll = await ws.evaluate((el) => el.scrollTop);
 
-  // Restart the app (localStorage persists): SPEC30 §2 reopens the document
-  // by itself — no manual #open needed (§4.1 amendment, strengthened). Since
-  // issue #53 the reopen setting defaults off; the suite seed pins it on
-  // (helpers.ts), and E91 owns the default-off contract.
-  await page.goto('/');
+  // Restart the app (localStorage persists): launch never reopens anything
+  // since issue #81, so reopen the document explicitly — position memory is
+  // keyed to the document, not to how it was opened.
+  await page.goto('/#open=/docs/long.md');
   await expect(page.getByTestId('doc').locator('h2').first()).toBeAttached();
   await expect
     .poll(() => page.locator('.workspace').evaluate((el) => el.scrollTop))

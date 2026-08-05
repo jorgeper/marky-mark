@@ -37,8 +37,6 @@ describe('PRD 002 §B5 scope inventory', () => {
       exportTheme: 'U',
       hotkeys: 'U',
       commentsEnabled: 'U',
-      reopenLastDoc: 'U',
-      restoreOpenFiles: 'U',
       author: 'U!',
       commentStorage: 'W',
       imageFolder: 'W',

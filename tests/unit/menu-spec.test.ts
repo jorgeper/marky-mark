@@ -323,7 +323,7 @@ describe('SPEC12 menu spec', () => {
     }
   });
 
-  test('U59: Edit carries Find… with the rebindable Mod+F; reopenLastDoc setting follows house rules', () => {
+  test('U59: Edit carries Find… with the rebindable Mod+F', () => {
     expect(DEFAULT_HOTKEYS.find).toBe('Mod+F');
     for (const s of [base, { ...base, isMac: false }]) {
       const edit = commandsIn(s, 'Edit');
@@ -334,11 +334,6 @@ describe('SPEC12 menu spec', () => {
     const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, find: 'Mod+Shift+G' } };
     expect(find(rebound, 'Edit', 'find')!.accelerator).toBe('Mod+Shift+G');
     expect(parseSettings('{"hotkeys":{"save":"Mod+S"}}').hotkeys.find).toBe('Mod+F');
-
-    // SPEC30 §2 (issue #53 amendment): reopen-on-launch defaults OFF.
-    expect(parseSettings('{}').reopenLastDoc).toBe(false);
-    expect(parseSettings('{"reopenLastDoc":true}').reopenLastDoc).toBe(true);
-    expect(parseSettings('{"reopenLastDoc":"nah"}').reopenLastDoc).toBe(false);
   });
 
   test('U120: issue #22 mode gating — workspace-only and folder-view items disable outside workspace mode; Close File follows docOpen; the open trio never disables', () => {

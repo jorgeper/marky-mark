@@ -621,34 +621,6 @@ export function SettingsPanel({
 
       <div className="checkbox-row">
         <input
-          id="settings-reopen"
-          type="checkbox"
-          data-testid="settings-reopen"
-          checked={settings.reopenLastDoc}
-          onChange={(e) => onChange({ ...settings, reopenLastDoc: e.target.checked })}
-        />
-        <label htmlFor="settings-reopen" style={{ margin: 0, fontWeight: 400 }}>
-          Reopen last document on launch
-        </label>
-        {scopeNote('reopenLastDoc')}
-      </div>
-
-      <div className="checkbox-row">
-        <input
-          id="set-restore-open-files"
-          type="checkbox"
-          data-testid="set-restore-open-files"
-          checked={settings.restoreOpenFiles}
-          onChange={(e) => onChange({ ...settings, restoreOpenFiles: e.target.checked })}
-        />
-        <label htmlFor="set-restore-open-files" style={{ margin: 0, fontWeight: 400 }}>
-          Reopen open files at launch
-        </label>
-        {scopeNote('restoreOpenFiles')}
-      </div>
-
-      <div className="checkbox-row">
-        <input
           id="settings-frontmatter"
           type="checkbox"
           data-testid="settings-frontmatter"

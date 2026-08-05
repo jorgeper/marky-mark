@@ -6,17 +6,16 @@ import {
   fsRead,
   fsWrite,
   menuClick,
-  openSettings,
   openWelcomeViaHelp,
   PHRASE,
   revealToolbar,
-  SEED_SETTINGS,
   waitForSidecar,
   WELCOME,
 } from './helpers';
 
 // Opening, saving and remembering documents: Save As, the unsaved-changes
-// guard, new buffers, Open Recent, reopen-on-launch, crash-safe drafts.
+// guard, new buffers, Open Recent, the never-reopen launch (#81), crash-safe
+// drafts.
 
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
@@ -222,7 +221,7 @@ test('E88: Open Recent — MRU order, persistence, guarded reopen, vanished-file
   await expect.poll(() => fsRead(page, '/config/recent.json')).not.toContain('/docs/ra.md');
 });
 
-test('E91: reopen on launch — off by default (splash), the setting opts in, loses to explicit opens, skips missing files', async ({
+test('E91: launch never reopens a document (issue #81) — hash-less relaunches land on the splash, explicit opens still work, recents intact', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/r1.md', '# R One\n');
@@ -230,39 +229,20 @@ test('E91: reopen on launch — off by default (splash), the setting opts in, lo
   await page.goto('/#open=/docs/r1.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('R One');
 
-  // SPEC30 §2 (issue #53 amendment): strip the suite's reopen pin so this
-  // launch runs the SHIPPED default — a hash-less relaunch lands on the
-  // splash, with the recent entry intact (nothing is forgotten).
-  const { reopenLastDoc: _pin, ...shippedDefaults } = SEED_SETTINGS;
-  await fsWrite(page, '/config/settings.json', JSON.stringify(shippedDefaults));
+  // Issue #81: a hash-less relaunch ALWAYS lands on the splash — there is no
+  // reopen setting to opt in — with the recent entry intact (nothing is
+  // forgotten).
   await page.goto('/');
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   expect(await fsRead(page, '/config/recent.json')).toContain('/docs/r1.md');
 
-  // Checking the setting opts back in: a hash-less relaunch reopens r1.
-  await openSettings(page, 'general');
-  await page.getByTestId('settings-reopen').check();
-  await page.getByTestId('settings-close').click();
-  await page.goto('/');
-  await expect(page.getByTestId('doc').locator('h1')).toContainText('R One');
-
-  // An explicit #open at boot beats reopen.
+  // An explicit #open at boot still opens (reload keeps the hash: an
+  // explicit open again, not a restore).
   await page.goto('/#open=/docs/r2.md');
   await page.reload();
   await expect(page.getByTestId('doc').locator('h1')).toContainText('R Two');
 
-  // Unchecking returns to the splash.
-  await openSettings(page, 'general');
-  await page.getByTestId('settings-reopen').uncheck();
-  await page.getByTestId('settings-close').click();
-  await page.goto('/');
-  await expect(page.getByTestId('empty-hint')).toBeVisible();
-
-  // Back on, but the top recent has vanished ⇒ splash, entry retained.
-  await openSettings(page, 'general');
-  await page.getByTestId('settings-reopen').check();
-  await page.getByTestId('settings-close').click();
-  await page.evaluate(() => window.__mmfs!.remove('/docs/r2.md'));
+  // And back to hash-less: splash again, both recents retained.
   await page.goto('/');
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   expect(await fsRead(page, '/config/recent.json')).toContain('/docs/r2.md');
@@ -277,7 +257,8 @@ test('E92: crash-safe drafts — shadow write, restore, discard, staleness after
   await page.keyboard.type('DRAFTMARK ');
   await expect.poll(() => fsRead(page, '/config/draft.json'), { timeout: 20000 }).toContain('DRAFTMARK');
 
-  // "Crash" (reload): the boot reopens welcome, then offers the draft.
+  // "Crash" (reload): the boot lands on the splash (issue #81) and offers
+  // the draft; Restore reopens the drafted document itself.
   await page.reload();
   await expect(page.getByTestId('restore-prompt')).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('restore-prompt')).toContainText('welcome.md');
@@ -287,14 +268,16 @@ test('E92: crash-safe drafts — shadow write, restore, discard, staleness after
   await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('DRAFTMARK');
   await expect.poll(() => fsRead(page, '/config/draft.json')).toBeNull();
 
-  // Saving makes future boots quiet (clean transition also deletes).
+  // Saving makes future boots quiet (clean transition also deletes) — and a
+  // relaunch lands on the splash (issue #81: launch never reopens).
   await page.keyboard.press('Control+s');
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   await page.reload();
-  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
   await expect(page.getByTestId('restore-prompt')).toHaveCount(0);
 
   // Discard path.
+  await openWelcomeViaHelp(page);
   await page.keyboard.press('Control+e');
   await page.getByTestId('editor').locator('.cm-line').first().click();
   await page.keyboard.type('DRAFT2 ');

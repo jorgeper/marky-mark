@@ -62,11 +62,15 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toBeVisible();
   await expect.poll(() => fsRead(page, '/config/foldertree.json')).toContain('/notes/sub');
 
-  // Restart: panel visibility, root, and expansion all survive.
+  // Restart: issue #81 — the launch lands on the splash with no panel.
+  // Reopening the same folder revives the untitled session: root, expansion,
+  // and the eye choice all return.
   await page.reload();
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
-  // The tree re-lists from foldertree.json after the reload — wait for the
-  // restored listing itself, not just the first paint of a row in it.
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await openFolderRoot(page);
+  // The tree re-lists from the revived session — wait for the restored
+  // listing itself, not just the first paint of a row in it.
   await expect.poll(names).toContain('/notes/sub/b.md');
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toBeVisible();
 
@@ -90,7 +94,7 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   await expect.poll(async () => (await pill()).scrollLeft).toBe(0);
   await expect.poll(async () => (await pill()).gap).toBeGreaterThanOrEqual(10);
 
-  // The eye choice survived the reload above (foldertree.json); hiding
+  // The eye choice survived the restart above (the revived session); hiding
   // again drops the rows without collapsing sub or losing the selection.
   await expect.poll(names).toContain('/notes/pic.png');
   await page.getByTestId('folder-filter').click();
@@ -156,8 +160,21 @@ test('E94: folder chrome — divider resize persists, chevrons / View checkbox /
   await expect(page.getByTestId('folder-expand')).toHaveAttribute('title', 'Show the folder panel');
   await expect(page.getByTestId('folder-expand')).toHaveAttribute('aria-label', 'Show the folder panel');
 
-  // The chevron-closed state persists across a restart (Req 4).
+  // Issue #81: a restart lands on the splash — no panel AND no chevron
+  // (there is no workspace to expand). Reopening the folder shows the
+  // panel again (openFolder always reveals it).
   await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  // Back to the chevron-closed state for the sections below.
+  await page.getByTestId('folder-collapse').click();
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
   await expect(page.getByTestId('folder-expand')).toBeVisible();
 
@@ -177,8 +194,15 @@ test('E94: folder chrome — divider resize persists, chevrons / View checkbox /
   await page.keyboard.press('Control+Shift+E');
   await expect(page.getByTestId('folder-panel')).toBeVisible();
 
-  // Open-state visibility persists across a restart too.
+  // A restart always lands on the splash (issue #81); reopening the folder
+  // brings the panel back.
   await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
   await expect(page.getByTestId('folder-panel')).toBeVisible();
 });
 

@@ -32,39 +32,26 @@ import { UpdateDialog } from './components/UpdateDialog';
 import { diffLineSets, type DiffLineSets } from './lib/diffLines';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
 import { clearRecent, parseRecent, recentMenuEntries, rememberRecent, removeRecent, serializeRecent, type RecentStore } from './lib/recentFiles';
-import {
-  ancestorsOf,
-  isMarkdownFile,
-  parseFolderState,
-  serializeFolderState,
-  visibleEntries,
-  type DirEntry,
-} from './lib/folderTree';
+import { ancestorsOf, isMarkdownFile, serializeFolderState, visibleEntries, type DirEntry } from './lib/folderTree';
 import {
   addWorkspaceFolder,
-  adoptLegacyFolderState,
   closeWorkspace,
-  CURRENT_POINTER_FILE,
   emptyWorkspaceSession,
   openFolderWorkspace,
   parseWorkspaceFile,
-  parseWorkspacePointer,
   parseWorkspaceSession,
   sanitizeWorkspaceSettings,
   saveWorkspaceAs,
   serializeWorkspaceFile,
-  serializeWorkspacePointer,
   serializeWorkspaceSession,
   SESSION_DIR_NAME,
   sessionKeyForWorkspaceFile,
-  sessionToFolderState,
   UNTITLED_SLOT_FILE,
   untitledWorkspaceChanged,
   WORKSPACE_FILE_EXT,
   workspaceFolderPaths,
   workspaceFromFile,
   type Workspace,
-  type WorkspaceFolder,
   type WorkspaceSession,
 } from './lib/workspace';
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
@@ -375,13 +362,6 @@ export default function App() {
   const openFilesRef = useRef<string[]>([]);
   /** The active member of the open set (null while untitled / splash). */
   const activeFileRef = useRef<string | null>(null);
-  /**
-   * SPEC36 §8.3: the persisted set loaded at boot while restoreOpenFiles is
-   * OFF — ignored but never clobbered, so flipping the setting back on (and
-   * relaunching) revives it. Write-through prefers this while the setting
-   * is off.
-   */
-  const dormantOpenRef = useRef<{ files: string[]; active: string | null }>({ files: [], active: null });
   /** SPEC36 §7: the quit walk's remaining dirty targets (null = no walk). */
   const quitQueueRef = useRef<string[] | null>(null);
   /**
@@ -421,12 +401,6 @@ export default function App() {
   const findMarksRef = useRef<HTMLElement[][]>([]);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftWrittenRef = useRef(false);
-  /**
-   * SPEC30 §2: set SYNCHRONOUSLY the moment any explicit open starts —
-   * openDoc's own docPath lands only after async I/O, so the boot reopen
-   * timer must not race an in-flight association/hash open.
-   */
-  const explicitOpenRef = useRef(false);
   // SPEC25: selection carry across mode switches.
   const lastEditorSelRef = useRef<{ from: number; to: number }>({ from: 0, to: 0 });
   const pendingEditorSelRef = useRef<{ from: number; to: number } | null>(null);
@@ -1202,11 +1176,9 @@ export default function App() {
     const p = platformNow ?? stateRef.current.platform;
     if (!p) return;
     const st = folderStateRef.current;
-    // SPEC36 §8: the open set rides foldertree.json. While the restore is
-    // gated off (either setting) the boot-loaded values persist untouched —
-    // ignored, not cleared — so flipping back on revives them.
-    const restoring = stateRef.current.settings.restoreOpenFiles && stateRef.current.settings.reopenLastDoc;
-    const open = restoring ? { files: openFilesRef.current, active: activeFileRef.current } : dormantOpenRef.current;
+    // Issue #81: the live open set writes through unconditionally — open
+    // state belongs to the current workspace's session, not to any setting.
+    const open = { files: openFilesRef.current, active: activeFileRef.current };
     const ws = curWorkspaceRef.current;
     void (async () => {
       try {
@@ -1245,9 +1217,8 @@ export default function App() {
           const slot = ws.kind === 'untitled' ? UNTITLED_SLOT_FILE : `${sessionKeyForWorkspaceFile(ws.file)}.json`;
           await p.writeTextFile(p.join(dir, slot), serializeWorkspaceSession(session));
         }
-        // §C13/§D16: remember which workspace to reopen at launch — the
-        // pointer is written for 'none' too, so Close Workspace sticks.
-        await p.writeTextFile(p.join(dir, CURRENT_POINTER_FILE), serializeWorkspacePointer(ws));
+        // Issue #81 retired the §C13 launch pointer: launch never reopens a
+        // workspace, so nothing marks which one was current.
       } catch {
         /* best effort */
       }
@@ -1677,7 +1648,6 @@ export default function App() {
    */
   const openDocGuarded = useCallback(
     (p: Platform, path: string) => {
-      explicitOpenRef.current = true; // SPEC30 §2: explicit opens beat reopen
       const s = stateRef.current;
       if (s.docPath === path) {
         void openDoc(p, path); // same-path re-open (existing semantics)
@@ -1699,7 +1669,6 @@ export default function App() {
     (path: string) => {
       const p = stateRef.current.platform;
       if (!p) return;
-      explicitOpenRef.current = true;
       const s = stateRef.current;
       if (s.untitled && s.dirty) {
         setOpenPrompt({ kind: 'open', path }); // §2.6: untitled can't park
@@ -1942,47 +1911,10 @@ export default function App() {
         }
         return undefined;
       };
-      // PRD 002 §C13 + §G24: load the current workspace (named file or the
-      // untitled slot) with its machine-local session state. All reads are
-      // corruption-tolerant; any failure lands in the no-workspace state.
-      let bootWs: Workspace = { kind: 'none' };
-      let bootSession: WorkspaceSession | null = null;
-      let hadPointer = false;
-      if (p.readDirEntries) {
-        try {
-          const sessionDir = p.join(cfg, SESSION_DIR_NAME);
-          const ptrPath = p.join(sessionDir, CURRENT_POINTER_FILE);
-          hadPointer = await p.exists(ptrPath);
-          const ptr = hadPointer ? parseWorkspacePointer(await p.readTextFile(ptrPath)) : null;
-          if (ptr?.kind === 'named' && (await p.exists(ptr.file))) {
-            const data = parseWorkspaceFile(await p.readTextFile(ptr.file));
-            const folderPaths = workspaceFolderPaths(data, ptr.file);
-            // §C10: unreachable folders stay in the model, flagged for the UI.
-            const unavailable = new Set<string>();
-            for (const f of folderPaths) if (!(await p.exists(f))) unavailable.add(f);
-            bootWs = workspaceFromFile(data, ptr.file, unavailable);
-            const sPath = p.join(sessionDir, `${sessionKeyForWorkspaceFile(ptr.file)}.json`);
-            bootSession = (await p.exists(sPath))
-              ? parseWorkspaceSession(await p.readTextFile(sPath))
-              : emptyWorkspaceSession();
-            // The .marky-workspace file, not the session cache, owns membership.
-            bootSession.folders = folderPaths;
-          } else if (ptr?.kind === 'untitled') {
-            const uPath = p.join(sessionDir, UNTITLED_SLOT_FILE);
-            if (await p.exists(uPath)) {
-              const slot = parseWorkspaceSession(await p.readTextFile(uPath));
-              if (slot.folders.length > 0) {
-                const folders: WorkspaceFolder[] = [];
-                for (const f of slot.folders) folders.push({ path: f, available: await p.exists(f) });
-                bootWs = { kind: 'untitled', folders, settings: slot.settings ?? {} };
-                bootSession = slot;
-              }
-            }
-          }
-        } catch {
-          /* no workspace */
-        }
-      }
+      // Issue #81 (reversing PRD 002 §C13 / SPEC30 §2): launch never reopens
+      // a workspace or a document — every boot lands on the splash with no
+      // workspace current. Session stores keep every workspace's open state
+      // on disk; only an explicit reopen reads them back.
       const globalRaw = await readSettingsLayer('global-settings.json');
       const userRaw = await readSettingsLayer('settings.json');
       // §E18: keep the RAW layers — the panel's scope tabs write them back
@@ -1996,9 +1928,8 @@ export default function App() {
       };
       let loaded = resolveSettings({
         global: globalRaw,
-        // §B5/§F22: a current workspace's settings feed the Workspace layer;
-        // with none current, resolution is unchanged from today.
-        workspace: bootWs.kind === 'none' ? undefined : bootWs.settings,
+        // §B5/§F22: no workspace is current at boot (issue #81), so the
+        // Workspace layer is empty until one is explicitly opened.
         user: userRaw,
       });
       if (p.kind === 'web') {
@@ -2048,50 +1979,12 @@ export default function App() {
         /* start empty */
       }
 
-      // SPEC34 §2.3: folder sidebar state, same tolerance. The current
-      // workspace's own session state wins (§B6); with no session pointer yet,
-      // the legacy foldertree.json is read as before — and a single existing
-      // root is silently adopted as an untitled workspace (§G24). The
-      // adoption is a pure read: neither settings.json nor foldertree.json is
-      // rewritten or deleted.
-      // SPEC36 §8: the persisted open set rides along — parked in dormantOpenRef
-      // until the restore decision below (never restored eagerly here).
-      try {
-        if (p.readDirEntries) {
-          let ft = bootSession ? sessionToFolderState(bootSession) : null;
-          if (!ft && bootWs.kind === 'none') {
-            const ftPath = p.join(cfg, 'foldertree.json');
-            if (await p.exists(ftPath)) {
-              ft = parseFolderState(await p.readTextFile(ftPath));
-              if (!hadPointer) bootWs = adoptLegacyFolderState(ft) ?? bootWs;
-            }
-          }
-          curWorkspaceRef.current = bootWs;
-          setWsKind(bootWs.kind); // issue #22: the derived app mode follows
-          if (ft) {
-            // §D17: ALL member folders become sidebar roots (the FolderState
-            // bridge only carries the first; the session/workspace has them all).
-            const roots = bootSession ? bootSession.folders : ft.root ? [ft.root] : [];
-            const expanded = new Set(ft.expanded);
-            folderStateRef.current = { roots, expanded, showNonMd: ft.showNonMd, openOnly: ft.openOnly ?? false };
-            dormantOpenRef.current = { files: ft.openFiles ?? [], active: ft.activeFile ?? null };
-            setFolderRoots(roots);
-            setFolderExpanded(expanded);
-            setFolderShowNonMd(ft.showNonMd);
-            setFolderOpenOnly(ft.openOnly ?? false); // §5.5: view state restores regardless
-            if (loaded.showFolders && roots.length > 0) {
-              for (const dir of [...roots, ...ft.expanded]) void listFolderDir(p, dir);
-            }
-          }
-        }
-      } catch {
-        /* start empty */
-      }
+      // Issue #81: no sidebar or workspace state restores at boot — the
+      // saved sessions (and the legacy foldertree.json mirror) stay on disk
+      // untouched until a workspace is explicitly reopened.
 
       setPlatform(p);
-      // §E18: the panel's layer view boots alongside the resolved settings
-      // (bootWs may have just been adopted above — the helper reads the ref,
-      // not bootWs).
+      // §E18: the panel's layer view boots alongside the resolved settings.
       setLayerView(currentLayerView());
       setSettings(loaded);
       setThemes(themeList);
@@ -2109,41 +2002,13 @@ export default function App() {
         () => startQuitWalkRef.current()
       );
 
-      // SPEC30 §2 + §3: reopen-on-launch, then the draft offer. Explicit
-      // opens (association/CLI/#open/review) land through the drains above —
-      // give them a beat, then only fill a still-empty window.
+      // SPEC30 §3 (issue #81 removed §2's reopen-on-launch): only the draft
+      // offer runs after boot. Explicit opens (association/CLI/#open/review)
+      // land through the drains above — give them a beat first, so the
+      // draft's staleness check sees the opened document.
       setTimeout(() => {
         void (async () => {
           if (disposed) return;
-          const st = stateRef.current;
-          const dormant = dormantOpenRef.current;
-          // SPEC36 §8.3: restore the open set (existing files only). An
-          // explicit boot open keeps the active slot (§3.3/§8.4) and the
-          // restored set merges in around it; otherwise the persisted
-          // activeFile (fallback: first) opens in place of reopen-last-doc.
-          // reopenLastDoc=false suppresses ANY reopen (E91 discipline) —
-          // restoreOpenFiles only widens the reopen to the whole set.
-          if (loaded.reopenLastDoc && loaded.restoreOpenFiles && dormant.files.length > 0) {
-            const alive: string[] = [];
-            for (const f of dormant.files) if (await p.exists(f)) alive.push(f);
-            if (explicitOpenRef.current || st.docPath !== null || st.untitled) {
-              if (alive.length > 0) {
-                let merged = openFilesRef.current;
-                for (const f of alive) merged = addOpen(merged, f);
-                commitOpenSet(merged, activeFileRef.current);
-              }
-            } else if (alive.length > 0) {
-              commitOpenSet(alive, null);
-              const act = dormant.active && alive.includes(dormant.active) ? dormant.active : alive[0];
-              await openDoc(p, act);
-            } else if (loaded.reopenLastDoc) {
-              const top = recentRef.current.entries[0];
-              if (top && (await p.exists(top.path))) await openDoc(p, top.path);
-            }
-          } else if (loaded.reopenLastDoc && !explicitOpenRef.current && st.docPath === null && !st.untitled) {
-            const top = recentRef.current.entries[0];
-            if (top && (await p.exists(top.path))) await openDoc(p, top.path);
-          }
           try {
             const dPath = p.join(cfg, 'draft.json');
             if (!(await p.exists(dPath))) return;
@@ -2343,21 +2208,59 @@ export default function App() {
       void (async () => {
         const picked = await p.openFolderDialog!();
         if (!picked) return;
-        const expanded = new Set([picked]);
+        // Issue #81: picking the folder the untitled slot last held REVIVES
+        // that session — its tabs and view state return like a named
+        // workspace reopen. Any other pick starts fresh (§C8/§C11).
+        let session: WorkspaceSession | null = null;
+        try {
+          const slotPath = p.join(await p.configDir(), SESSION_DIR_NAME, UNTITLED_SLOT_FILE);
+          if (await p.exists(slotPath)) {
+            const slot = parseWorkspaceSession(await p.readTextFile(slotPath));
+            if (slot.folders.length === 1 && slot.folders[0] === picked) session = slot;
+          }
+        } catch {
+          /* fresh */
+        }
+        const expanded = new Set(session && session.expanded.length > 0 ? session.expanded : [picked]);
         setFolderRoots([picked]);
         setFolderExpanded(expanded);
         setFolderChildren({});
-        folderStateRef.current = { ...folderStateRef.current, roots: [picked], expanded };
+        setFolderShowNonMd(session?.showNonMd ?? false);
+        setFolderOpenOnly(session?.openOnly ?? false);
+        folderStateRef.current = {
+          roots: [picked],
+          expanded,
+          showNonMd: session?.showNonMd ?? false,
+          openOnly: session?.openOnly ?? false,
+        };
         // PRD 002 §C8: opening a folder starts a fresh untitled workspace holding
-        // that one folder (a new untitled overwrites the slot, §C11).
-        updateWorkspace(openFolderWorkspace(curWorkspaceRef.current, picked), p);
+        // that one folder (a new untitled overwrites the slot, §C11); a revived
+        // slot brings its workspace-scoped settings back with it.
+        const ws = openFolderWorkspace(curWorkspaceRef.current, picked);
+        updateWorkspace(ws.kind === 'untitled' && session?.settings ? { ...ws, settings: session.settings } : ws, p);
+        if (session) {
+          // Issue #81: existing-files-only pruning, saved active (fallback:
+          // first survivor) reopened onto the empty post-close screen. Only
+          // in-root files — an outside-root open would retarget the root.
+          const alive: string[] = [];
+          for (const f of session.openFiles) if (await p.exists(f)) alive.push(f);
+          commitOpenSet(alive, session.activeFile);
+          const candidates = alive.filter((f) => ancestorsOf(picked, f, p.dirname).length > 0);
+          const st = stateRef.current;
+          if (candidates.length > 0 && st.docPath === null && !st.untitled) {
+            const act =
+              session.activeFile && candidates.includes(session.activeFile) ? session.activeFile : candidates[0];
+            await openDoc(p, act);
+          }
+        }
         await listFolderDir(p, picked);
+        for (const dir of expanded) if (dir !== picked) void listFolderDir(p, dir);
         if (!stateRef.current.settings.showFolders) {
           updateSettings({ ...stateRef.current.settings, showFolders: true });
         }
       })();
     });
-  }, [guardWorkspaceDiscard, listFolderDir, updateWorkspace, updateSettings]);
+  }, [guardWorkspaceDiscard, commitOpenSet, openDoc, listFolderDir, updateWorkspace, updateSettings]);
 
   /**
    * PRD 002 §D14: make `file` the current named workspace — corruption-
@@ -2393,6 +2296,17 @@ export default function App() {
         const alive: string[] = [];
         for (const f of session.openFiles) if (await p.exists(f)) alive.push(f);
         commitOpenSet(alive, session.activeFile);
+        // Issue #81: onto an empty screen the saved active file (fallback:
+        // the first survivor) reopens with the set. Only in-root files —
+        // opening an outside-root member would retarget the root (SPEC34 §5).
+        const inRoot = (f: string) => folders.some((r) => ancestorsOf(r, f, p.dirname).length > 0);
+        const candidates = alive.filter(inRoot);
+        const st = stateRef.current;
+        if (candidates.length > 0 && st.docPath === null && !st.untitled) {
+          const act =
+            session.activeFile && candidates.includes(session.activeFile) ? session.activeFile : candidates[0];
+          await openDoc(p, act);
+        }
         commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
         for (const dir of new Set([...folders, ...expanded])) void listFolderDir(p, dir);
         if (!stateRef.current.settings.showFolders) {
@@ -2402,7 +2316,7 @@ export default function App() {
         showNotice(`Couldn’t open “${p.basename(file)}”`);
       }
     },
-    [commitOpenSet, updateWorkspace, commitRecentWs, listFolderDir, updateSettings, showNotice]
+    [commitOpenSet, openDoc, updateWorkspace, commitRecentWs, listFolderDir, updateSettings, showNotice]
   );
 
   /** PRD 002 §D14: Open Workspace… — dialog filtered to .marky-workspace. */

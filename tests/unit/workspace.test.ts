@@ -1,21 +1,17 @@
 import { describe, expect, test } from 'vitest';
-import type { FolderState } from '../../src/lib/folderTree';
 import {
   addWorkspaceFolder,
-  adoptLegacyFolderState,
   closeWorkspace,
   isAbsolutePath,
   openFolderWorkspace,
   parentDirOf,
   parseWorkspaceFile,
-  parseWorkspacePointer,
   parseWorkspaceSession,
   relativizeFolderPath,
   resolveFolderPath,
   sanitizeWorkspaceSettings,
   saveWorkspaceAs,
   serializeWorkspaceFile,
-  serializeWorkspacePointer,
   serializeWorkspaceSession,
   sessionKeyForWorkspaceFile,
   untitledWorkspaceChanged,
@@ -244,47 +240,5 @@ describe('PRD 002 §B6/§C11 per-workspace session state', () => {
     expect(a).toMatch(/^ws-proj-[0-9a-f]{8}$/);
     expect(sessionKeyForWorkspaceFile('/x/Ünt itled?.marky-workspace')).toMatch(/^ws-[A-Za-z0-9_-]+-[0-9a-f]{8}$/);
   });
-
-  test('U114: launch pointer round-trips per state and tolerates corruption', () => {
-    const named: Workspace = { kind: 'named', file: '/ws/p.marky-workspace', folders: [], settings: {} };
-    expect(parseWorkspacePointer(serializeWorkspacePointer(named))).toEqual({
-      version: 1,
-      kind: 'named',
-      file: '/ws/p.marky-workspace',
-    });
-    expect(parseWorkspacePointer(serializeWorkspacePointer({ kind: 'untitled', folders: [], settings: {} }))).toEqual({
-      version: 1,
-      kind: 'untitled',
-    });
-    for (const bad of ['', 'nope', '{"kind":"named"}', '{"kind":"weird"}', 'null']) {
-      expect(parseWorkspacePointer(bad)).toEqual({ version: 1, kind: 'none' });
-    }
-  });
 });
 
-describe('PRD 002 §G24 legacy foldertree.json adoption', () => {
-  test('U115: a single root becomes an untitled workspace with that one folder', () => {
-    const ft: FolderState = {
-      version: 1,
-      root: '/notes',
-      expanded: ['/notes', '/notes/sub'],
-      showNonMd: true,
-      openFiles: ['/notes/a.md'],
-      activeFile: '/notes/a.md',
-      openOnly: true,
-    };
-    // Adoption only names the workspace; the caller keeps applying `ft`
-    // itself, so the same sidebar, tabs, and expanded state show as before.
-    expect(adoptLegacyFolderState(ft)).toEqual({
-      kind: 'untitled',
-      folders: [{ path: '/notes', available: true }],
-      settings: {},
-    });
-  });
-
-  test('U116: no root (fresh install / never opened a folder) adopts nothing', () => {
-    expect(
-      adoptLegacyFolderState({ version: 1, root: null, expanded: [], showNonMd: false })
-    ).toBeNull();
-  });
-});

@@ -63,10 +63,6 @@ export interface Settings {
   inlineImages: boolean;
   /** SPEC26 §3: show the front-matter card by default when a doc has one. */
   showFrontmatter: boolean;
-  /** SPEC30 §2: reopen the most recent document at launch (issue #53 amendment: default off). */
-  reopenLastDoc: boolean;
-  /** SPEC36 §8: restore the open-file set (tabs) at launch. */
-  restoreOpenFiles: boolean;
   /** SPEC34 §2.2: the folder sidebar's visibility (persisted toggle). */
   showFolders: boolean;
   /** SPEC34 §3.6: sidebar width in px, clamped [160, 480]. */
@@ -103,8 +99,6 @@ export const DEFAULT_SETTINGS: Settings = {
   tableGridView: true,
   inlineImages: true,
   showFrontmatter: true,
-  reopenLastDoc: false,
-  restoreOpenFiles: true,
   showFolders: false,
   folderWidth: 240,
   paneMinWidth: 768,
@@ -151,8 +145,6 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   tableGridView: 'U',
   inlineImages: 'U',
   showFrontmatter: 'U',
-  reopenLastDoc: 'U',
-  restoreOpenFiles: 'U',
   showFolders: 'M',
   folderWidth: 'M',
   paneMinWidth: 'U',
@@ -210,8 +202,6 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   tableGridView: bool,
   inlineImages: bool,
   showFrontmatter: bool,
-  reopenLastDoc: bool,
-  restoreOpenFiles: bool,
   showFolders: bool,
   folderWidth: clampedInt(FOLDER_WIDTH_MIN, FOLDER_WIDTH_MAX),
   paneMinWidth: clampedInt(PANE_MIN_WIDTH_MIN, PANE_MIN_WIDTH_MAX),
