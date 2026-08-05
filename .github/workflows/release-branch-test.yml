@@ -1,0 +1,17 @@
+# Pre-tag CI gate (spec §1–2): fires on every release/** branch push, so
+# the releaser can watch it and only spend the tag once macOS is green.
+# cancel-in-progress: a retry force-pushes a re-cut branch; the
+# superseded run is worthless.
+name: release-branch-test
+
+on:
+  push:
+    branches: ['release/**']
+
+concurrency:
+  group: release-branch-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    uses: ./.github/workflows/test-suite.yml

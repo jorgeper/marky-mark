@@ -1,0 +1,66 @@
+# Reusable macOS test gate (shared by release.yml and
+# release-branch-test.yml so the pre-tag gate and the tag-time safety
+# net can never drift — see docs/superpowers/specs/
+# 2026-08-04-release-pretag-gate-design.md §1). Runs the full validate
+# gate on macos-latest; `version` empty means "no expected version"
+# (branch runs): it is resolved from package.json and the drift check
+# then only asserts the three version files agree with each other.
+name: test-suite
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Expected version (leading v tolerated); empty resolves from package.json'
+        required: false
+        type: string
+        default: ''
+    outputs:
+      version:
+        description: 'Resolved bare semver'
+        value: ${{ jobs.test.outputs.version }}
+
+jobs:
+  test:
+    runs-on: macos-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Resolve version
+        id: version
+        run: |
+          v="${{ inputs.version }}"
+          v="${v#v}"
+          if [ -z "$v" ]; then
+            v=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Version check (no silent drift)
+        run: |
+          v="${{ steps.version.outputs.version }}"
+          fail=0
+          for f in package.json src-tauri/tauri.conf.json; do
+            got=$(node -p "JSON.parse(require('fs').readFileSync('$f','utf8')).version")
+            if [ "$got" != "$v" ]; then echo "::error::$f has $got, releasing $v"; fail=1; fi
+          done
+          got=$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)
+          if [ "$got" != "$v" ]; then echo "::error::src-tauri/Cargo.toml has $got, releasing $v"; fail=1; fi
+          exit $fail
+      - run: npm ci
+      - name: Dependency audit — npm production tree (SPEC11 §6.7)
+        run: npm audit --omit=dev --audit-level=high
+      - name: Dependency audit — cargo advisories (SPEC11 §6.7)
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit --file src-tauri/Cargo.lock
+      - run: npx playwright install chromium
+      - run: npm run validate

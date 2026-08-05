@@ -22,48 +22,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The same reusable suite release-branch-test.yml runs pre-tag; here
+  # it is the redundant safety net gating the builds (spec §1).
   test:
-    runs-on: macos-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-      - name: Resolve release version
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Version check (no silent drift)
-        run: |
-          v="${{ steps.version.outputs.version }}"
-          fail=0
-          for f in package.json src-tauri/tauri.conf.json; do
-            got=$(node -p "JSON.parse(require('fs').readFileSync('$f','utf8')).version")
-            if [ "$got" != "$v" ]; then echo "::error::$f has $got, releasing $v"; fail=1; fi
-          done
-          got=$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -1)
-          if [ "$got" != "$v" ]; then echo "::error::src-tauri/Cargo.toml has $got, releasing $v"; fail=1; fi
-          exit $fail
-      - run: npm ci
-      - name: Dependency audit — npm production tree (SPEC11 §6.7)
-        run: npm audit --omit=dev --audit-level=high
-      - name: Dependency audit — cargo advisories (SPEC11 §6.7)
-        run: |
-          cargo install cargo-audit --locked
-          cargo audit --file src-tauri/Cargo.lock
-      - run: npx playwright install chromium
-      - run: npm run validate
+    uses: ./.github/workflows/test-suite.yml
+    with:
+      version: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
 
   build-macos:
     runs-on: macos-latest
