@@ -13,7 +13,7 @@ Select text to comment on it.
     alt="Marky Mark in four of its themes — reading mode in Vaporwave, margin comments in Crisp Mono, the editor in Phosphor, and side-by-side edit in Claude"></a>
 </p>
 
-> **⚠️ Alpha** — Marky Mark is pre-release software (`0.5.0-alpha.1`).
+> **⚠️ Alpha** — Marky Mark is pre-release software (`0.5.0-alpha.2`).
 > Builds are unsigned, formats may still shift, expect rough edges.
 
 ## Download
