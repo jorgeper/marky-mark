@@ -101,6 +101,9 @@ describe('PRD 008 §R6 ordering guard', () => {
       draftReportPosted: false,
       awaitingPublishPosted: false,
       tagPushedPosted: false,
+      cutFailedActive: false,
+      blockedByBug: null,
+      blockingBugOpen: null,
     });
     expect(action).toEqual({
       kind: 'out-of-order',
@@ -117,6 +120,9 @@ describe('PRD 008 §R6 ordering guard', () => {
       draftReportPosted: false,
       awaitingPublishPosted: false,
       tagPushedPosted: false,
+      cutFailedActive: false,
+      blockedByBug: null,
+      blockingBugOpen: null,
     });
     expect(equal.kind).toBe('out-of-order');
 
@@ -127,6 +133,9 @@ describe('PRD 008 §R6 ordering guard', () => {
       draftReportPosted: false,
       awaitingPublishPosted: false,
       tagPushedPosted: false,
+      cutFailedActive: false,
+      blockedByBug: null,
+      blockingBugOpen: null,
     });
     expect(newer.kind).toBe('proceed');
   });
@@ -152,6 +161,9 @@ describe('PRD 008 §R7 abandoned-draft report', () => {
       draftReportPosted: false,
       awaitingPublishPosted: false,
       tagPushedPosted: false,
+      cutFailedActive: false,
+      blockedByBug: null,
+      blockingBugOpen: null,
     };
     const first = classifyReleaseIssue(input);
     expect(first.kind).toBe('drafts-to-report');
@@ -170,6 +182,9 @@ describe('PRD 008 §R7 abandoned-draft report', () => {
       draftReportPosted: false,
       awaitingPublishPosted: false,
       tagPushedPosted: false,
+      cutFailedActive: false,
+      blockedByBug: null,
+      blockingBugOpen: null,
     });
     expect(action.kind).toBe('malformed');
   });
@@ -215,6 +230,9 @@ describe('PRD 008 §R12–R13 cut-phase classification', () => {
     draftReportPosted: false,
     awaitingPublishPosted: false,
     tagPushedPosted: false,
+    cutFailedActive: false,
+    blockedByBug: null as number | null,
+    blockingBugOpen: null as boolean | null,
   });
 
   test('U205: a windows request for an existing tag classifies windows-append; mac/both for the same version stay refused (#19 guard)', () => {
@@ -290,6 +308,73 @@ describe('PRD 008 §R12–R13 cut-phase classification', () => {
         if (a !== b) expect(a.includes(b)).toBe(false);
       }
     }
+  });
+
+  test('U214: an active cut-failed parks the release while its bug is open, unknown, or unlinked — never dispatching a sandbox', () => {
+    expect(
+      classifyReleaseIssue({
+        ...fresh(body('0.5.0-alpha.1', 'both')),
+        tagPushedPosted: true,
+        cutFailedActive: true,
+        blockedByBug: 67,
+        blockingBugOpen: true,
+      }),
+    ).toEqual({ kind: 'parked', bug: 67 });
+    // Unknown bug state fails safe: parked.
+    expect(
+      classifyReleaseIssue({
+        ...fresh(body('0.5.0-alpha.1', 'both')),
+        cutFailedActive: true,
+        blockedByBug: 67,
+        blockingBugOpen: null,
+      }).kind,
+    ).toBe('parked');
+    // Legacy cut-failed with no Blocked-by line: parked with bug null.
+    expect(
+      classifyReleaseIssue({
+        ...fresh(body('0.5.0-alpha.1', 'both')),
+        tagPushedPosted: true,
+        cutFailedActive: true,
+      }),
+    ).toEqual({ kind: 'parked', bug: null });
+  });
+
+  test('U215: a closed blocking bug un-parks — the cut resumes (proceed), and terminal/guard states still dominate', () => {
+    expect(
+      classifyReleaseIssue({
+        ...fresh(body('0.5.0-alpha.1', 'both')),
+        tagPushedPosted: true,
+        cutFailedActive: true,
+        blockedByBug: 67,
+        blockingBugOpen: false,
+      }).kind,
+    ).toBe('proceed');
+    // Pre-tag failure (no tag pushed): closed bug resumes through the
+    // ordering guard as a fresh cut of the same, still-unspent version.
+    expect(
+      classifyReleaseIssue({
+        ...fresh(body('0.5.0-alpha.1', 'both')),
+        cutFailedActive: true,
+        blockedByBug: 67,
+        blockingBugOpen: false,
+      }).kind,
+    ).toBe('proceed');
+    // awaiting-publish and malformed still outrank parking.
+    expect(
+      classifyReleaseIssue({
+        ...fresh(body('0.5.0-alpha.1', 'both')),
+        awaitingPublishPosted: true,
+        cutFailedActive: true,
+        blockedByBug: 67,
+        blockingBugOpen: true,
+      }).kind,
+    ).toBe('awaiting-publish');
+    expect(
+      classifyReleaseIssue({
+        ...fresh('no structure'),
+        cutFailedActive: true,
+      }).kind,
+    ).toBe('malformed');
   });
 });
 

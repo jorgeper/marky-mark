@@ -314,6 +314,7 @@ export const buildDraftReport = (draftTags: string[]): string =>
 export type ReleaseAction =
   | { kind: "malformed"; problems: string[] }
   | { kind: "awaiting-publish"; spec: ReleaseSpec }
+  | { kind: "parked"; bug: number | null }
   | { kind: "windows-append"; spec: ReleaseSpec }
   | { kind: "out-of-order"; version: string; newestTag: string }
   | { kind: "drafts-to-report"; spec: ReleaseSpec; drafts: string[] }
@@ -342,10 +343,24 @@ export const classifyReleaseIssue = (input: {
   awaitingPublishPosted: boolean;
   /** TAG_PUSHED_MARKER already present among the issue's comments. */
   tagPushedPosted: boolean;
+  /** CUT_FAILED_MARKER is the newest phase marker (the cut failed most recently). */
+  cutFailedActive: boolean;
+  /** The bug number from the Blocked-by line of the newest cut-failed comment; null when no cut-failed comment or no line. */
+  blockedByBug: number | null;
+  /** The resolution state of the blocking bug (if known); null = unknown/unresolvable. */
+  blockingBugOpen: boolean | null;
 }): ReleaseAction => {
   const parsed = parseReleaseIssueBody(input.body);
   if (!parsed.ok) return { kind: "malformed", problems: parsed.problems };
   if (input.awaitingPublishPosted) return { kind: "awaiting-publish", spec: parsed.spec };
+  // Spec 2026-08-04 §4: a cut whose newest phase marker is cut-failed is
+  // dead until its blocking bug closes. Park — no sandbox — unless the
+  // linked bug is known-closed; a missing link or unknown bug state also
+  // parks (fail safe: never dispatch at a known-dead cut).
+  if (input.cutFailedActive) {
+    const bugKnownClosed = input.blockedByBug !== null && input.blockingBugOpen === false;
+    if (!bugKnownClosed) return { kind: "parked", bug: input.blockedByBug };
+  }
   // Mid-flight resume: our own tag push made the version "not newer than the
   // newest tag", and the release's own draft is not an abandoned one — skip
   // those checks and let the runbook pick up from its phase markers. Checked
