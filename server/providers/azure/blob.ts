@@ -30,6 +30,8 @@ export function createBlobStorageProvider(connectionString: string, container: s
       try {
         const res = await containerClient.getBlockBlobClient(path).download();
         return {
+          // readableStreamBody is always set in Node (undefined only in
+          // the SDK's browser builds, which expose blobBody instead).
           content: await streamToString(res.readableStreamBody!),
           etag: res.etag ?? '',
         };

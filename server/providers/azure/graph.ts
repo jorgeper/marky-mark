@@ -38,8 +38,10 @@ export function createGraphDirectoryProvider(fetchImpl: FetchLike = fetch): Dire
       const q = query.trim();
       if (!q) return [];
       const url = new URL(`${GRAPH_BASE}/users`);
-      const quoted = q.replace(/"/g, '');
-      url.searchParams.set('$search', `"displayName:${quoted}" OR "userPrincipalName:${quoted}"`);
+      // Strip embedded double quotes: they would terminate the quoted
+      // $search phrase early and break the query.
+      const term = q.replace(/"/g, '');
+      url.searchParams.set('$search', `"displayName:${term}" OR "userPrincipalName:${term}"`);
       url.searchParams.set('$select', 'id,displayName,userPrincipalName');
       url.searchParams.set('$top', '20');
       const res = await fetchImpl(url.toString(), { headers: headers(auth) });

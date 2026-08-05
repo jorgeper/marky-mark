@@ -53,9 +53,23 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-/** A stored-file path from the URL; null when absent or escaping the root. */
+/**
+ * decodeURIComponent, or null on a malformed percent-escape. Request paths
+ * are attacker-controlled, and a bare decodeURIComponent throws on e.g.
+ * `/%zz` — uncaught in the synchronous static handler, that took the whole
+ * process down.
+ */
+function tryDecode(component: string): string | null {
+  try {
+    return decodeURIComponent(component);
+  } catch {
+    return null;
+  }
+}
+
+/** A stored-file path from the URL; null when absent, malformed, or escaping the root. */
 function filePathFrom(pathname: string): string | null {
-  const raw = decodeURIComponent(pathname.slice('/api/files/'.length));
+  const raw = tryDecode(pathname.slice('/api/files/'.length));
   if (!raw) return null;
   const segments = raw.split('/');
   if (segments.some((s) => s === '' || s === '.' || s === '..')) return null;
@@ -109,7 +123,11 @@ async function handleApi(
   }
 
   if (pathname.startsWith('/api/directory/users/') && req.method === 'GET') {
-    const id = decodeURIComponent(pathname.slice('/api/directory/users/'.length));
+    const id = tryDecode(pathname.slice('/api/directory/users/'.length));
+    if (id === null) {
+      sendJson(res, 400, { error: 'invalid user id' });
+      return;
+    }
     const found = await providers.directory.getUser(id, auth);
     if (!found) {
       sendJson(res, 404, { error: 'unknown user' });
@@ -164,7 +182,12 @@ function handleStatic(req: IncomingMessage, res: ServerResponse, url: URL, stati
     sendJson(res, 405, { error: 'method not allowed' });
     return;
   }
-  const relative = path.posix.normalize(decodeURIComponent(url.pathname)).replace(/^\/+/, '');
+  const decoded = tryDecode(url.pathname);
+  if (decoded === null) {
+    sendJson(res, 400, { error: 'invalid path' });
+    return;
+  }
+  const relative = path.posix.normalize(decoded).replace(/^\/+/, '');
   const candidate = path.resolve(staticRoot, relative);
   const inRoot = candidate === staticRoot || candidate.startsWith(staticRoot + path.sep);
   const target =

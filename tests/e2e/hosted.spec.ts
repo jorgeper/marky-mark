@@ -106,3 +106,21 @@ test('E163: the server serves the built SPA HTML at / from the same origin as th
   expect(deep.status()).toBe(200);
   expect(await deep.text()).toContain('<div id="root">');
 });
+
+test('E164: a malformed percent-escape in the path answers 400 — on static and API routes alike', async ({
+  request,
+}) => {
+  // decodeURIComponent throws on bad escapes like %zz; the server must
+  // answer 400 (not crash) whichever handler the path lands in.
+  const staticBad = await request.get(`${HOSTED}/%zz`);
+  expect(staticBad.status()).toBe(400);
+  const token = await signIn(request, 'ada');
+  const headers = { Authorization: `Bearer ${token}` };
+  const fileBad = await request.get(`${HOSTED}/api/files/%zz`, { headers });
+  expect(fileBad.status()).toBe(400);
+  const userBad = await request.get(`${HOSTED}/api/directory/users/%zz`, { headers });
+  expect(userBad.status()).toBe(400);
+  // And the server is still alive to serve the next request.
+  const home = await request.get(`${HOSTED}/`);
+  expect(home.status()).toBe(200);
+});
