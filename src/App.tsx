@@ -1899,9 +1899,9 @@ export default function App() {
 
       const cfg = await p.configDir();
       // PRD 002 §F21 layer sources: Global = DEFAULT_SETTINGS plus an optional
-      // admin file, Team = reserved (no local file), Workspace = empty until
-      // the workspace model lands, User = the existing settings.json. An
-      // absent or corrupt file simply leaves its layer empty.
+      // admin file, Team = reserved (no local file), Workspace = empty at boot
+      // (issue #81), User = the existing settings.json. An absent or corrupt
+      // file simply leaves its layer empty.
       const readSettingsLayer = async (name: string): Promise<unknown> => {
         try {
           const path = p.join(cfg, name);
@@ -2198,6 +2198,28 @@ export default function App() {
     setWsClosePrompt(true);
   }, []);
 
+  /**
+   * Issue #81: bring a reopened workspace's saved open set back — existing
+   * files only, and onto an empty screen the saved active file (fallback:
+   * the first survivor) reopens with the set. Only in-root files are
+   * candidates — opening an outside-root member would retarget the root
+   * (SPEC34 §5).
+   */
+  const restoreSessionOpenFiles = useCallback(
+    async (p: Platform, session: WorkspaceSession, roots: string[]) => {
+      const alive: string[] = [];
+      for (const f of session.openFiles) if (await p.exists(f)) alive.push(f);
+      commitOpenSet(alive, session.activeFile);
+      const candidates = alive.filter((f) => roots.some((r) => ancestorsOf(r, f, p.dirname).length > 0));
+      const st = stateRef.current;
+      if (candidates.length > 0 && st.docPath === null && !st.untitled) {
+        const act = session.activeFile && candidates.includes(session.activeFile) ? session.activeFile : candidates[0];
+        await openDoc(p, act);
+      }
+    },
+    [commitOpenSet, openDoc]
+  );
+
   /** SPEC34 §4.2: pick a directory → root; the panel opens; no file opens. */
   const openFolderCmd = useCallback(() => {
     const p = stateRef.current.platform;
@@ -2238,21 +2260,7 @@ export default function App() {
         // slot brings its workspace-scoped settings back with it.
         const ws = openFolderWorkspace(curWorkspaceRef.current, picked);
         updateWorkspace(ws.kind === 'untitled' && session?.settings ? { ...ws, settings: session.settings } : ws, p);
-        if (session) {
-          // Issue #81: existing-files-only pruning, saved active (fallback:
-          // first survivor) reopened onto the empty post-close screen. Only
-          // in-root files — an outside-root open would retarget the root.
-          const alive: string[] = [];
-          for (const f of session.openFiles) if (await p.exists(f)) alive.push(f);
-          commitOpenSet(alive, session.activeFile);
-          const candidates = alive.filter((f) => ancestorsOf(picked, f, p.dirname).length > 0);
-          const st = stateRef.current;
-          if (candidates.length > 0 && st.docPath === null && !st.untitled) {
-            const act =
-              session.activeFile && candidates.includes(session.activeFile) ? session.activeFile : candidates[0];
-            await openDoc(p, act);
-          }
-        }
+        if (session) await restoreSessionOpenFiles(p, session, [picked]);
         await listFolderDir(p, picked);
         for (const dir of expanded) if (dir !== picked) void listFolderDir(p, dir);
         if (!stateRef.current.settings.showFolders) {
@@ -2260,7 +2268,7 @@ export default function App() {
         }
       })();
     });
-  }, [guardWorkspaceDiscard, commitOpenSet, openDoc, listFolderDir, updateWorkspace, updateSettings]);
+  }, [guardWorkspaceDiscard, restoreSessionOpenFiles, listFolderDir, updateWorkspace, updateSettings]);
 
   /**
    * PRD 002 §D14: make `file` the current named workspace — corruption-
@@ -2293,20 +2301,7 @@ export default function App() {
         updateWorkspace(ws, p);
         // §F22: the open-tab set restores (existing files only); the document
         // on screen stays — restoring tabs never yanks the editor.
-        const alive: string[] = [];
-        for (const f of session.openFiles) if (await p.exists(f)) alive.push(f);
-        commitOpenSet(alive, session.activeFile);
-        // Issue #81: onto an empty screen the saved active file (fallback:
-        // the first survivor) reopens with the set. Only in-root files —
-        // opening an outside-root member would retarget the root (SPEC34 §5).
-        const inRoot = (f: string) => folders.some((r) => ancestorsOf(r, f, p.dirname).length > 0);
-        const candidates = alive.filter(inRoot);
-        const st = stateRef.current;
-        if (candidates.length > 0 && st.docPath === null && !st.untitled) {
-          const act =
-            session.activeFile && candidates.includes(session.activeFile) ? session.activeFile : candidates[0];
-          await openDoc(p, act);
-        }
+        await restoreSessionOpenFiles(p, session, folders);
         commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
         for (const dir of new Set([...folders, ...expanded])) void listFolderDir(p, dir);
         if (!stateRef.current.settings.showFolders) {
@@ -2316,7 +2311,7 @@ export default function App() {
         showNotice(`Couldn’t open “${p.basename(file)}”`);
       }
     },
-    [commitOpenSet, openDoc, updateWorkspace, commitRecentWs, listFolderDir, updateSettings, showNotice]
+    [restoreSessionOpenFiles, updateWorkspace, commitRecentWs, listFolderDir, updateSettings, showNotice]
   );
 
   /** PRD 002 §D14: Open Workspace… — dialog filtered to .marky-workspace. */
