@@ -69,6 +69,13 @@ again over a cut that is partly — or entirely — done. First run
   A completed phase is never redone and its comment never re-posted; a
   phase whose marker exists but whose work is missing in reality is
   redone (without duplicating the comment).
+- A `{{CUT_FAILED_MARKER}}` comment **newer than every other phase
+  marker** means the last attempt failed and you were re-dispatched
+  because its blocking bug closed. Start a fresh attempt: re-cut
+  `release/v{{VERSION}}` from current `origin/main` (phase 1's
+  `git checkout -B`), force-push in phase 2a, and post each phase's
+  comment again for this attempt — markers older than that cut-failed
+  comment belong to the failed attempt and do not count as done.
 
 Mode `{{MODE}}`: on `full-cut`, run every phase. On `windows-append`,
 tag `v{{VERSION}}` already exists (the classifier verified it) and the
@@ -125,29 +132,70 @@ this branch:
 5. The full gate: `npm run validate` — it must print
    `VALIDATION: ALL PASSED`. This takes many minutes; wait it out.
 
-**Failure (R10):** if any step fails, post one comment starting
-`{{CUT_FAILED_MARKER}}` naming the failing step plus the tail of its
-output, and STOP. This ordering is the point: nothing has been pushed
-and no tag exists until the gate has passed, so a failed gate can never
-leak an unvalidated tree. Never tag or push after a failure.
+**Failure flow (R10, amended by spec 2026-08-04):** if any step fails —
+the local gate here, the pre-tag branch CI (phase 2a), the tag-triggered
+run (phase 3), or the Windows run (phase 5) — do all of this, then STOP:
+
+1. Unless the newest `{{CUT_FAILED_MARKER}}` comment already links an
+   open bug for this same failure, file **one** bug issue:
+
+       gh issue create --label sandcastle \
+         --title "Release cut failed: <failing step or test id>" \
+         --body "<what failed, the CI run URL if CI failed, the tail of
+                 the failing output, and the line:
+                 Blocks release #{{ISSUE_NUMBER}}.>"
+
+2. Post one comment starting `{{CUT_FAILED_MARKER}}` naming the failing
+   step plus the tail of its output, containing **on its own line**
+   exactly `Blocked-by: #<bug-number>`, and telling the owner: the fix
+   flows through the normal `npm run sandcastle` implement lane, and
+   this release auto-resumes once that bug closes.
+3. If filing the bug itself failed, still post the cut-failed comment —
+   just without the Blocked-by line — and say the bug could not be
+   filed.
+
+A failure in phase 1 or 2a has pushed no tag and touched neither main
+nor any release: the version stays reusable and the retry re-cuts it.
+Never tag, merge back, or push anything further after a failure.
 
 On success post one comment starting `{{GATE_PASSED_MARKER}}` (name the
 gate's final line as evidence).
 
-## Phase 2 — push, tag, merge back (R11, R15)
+## Phase 2a — push the branch, watch the pre-tag CI
 
 The sandbox normally has no push credentials — agents don't push; the
 host does (see `pushBranch` in `.sandcastle/main.ts`). The releaser is
 the sanctioned exception (prd/008 R11): establish credentials yourself
-with `gh auth setup-git`, then:
+with `gh auth setup-git`, then push **the branch only — no tag yet**:
 
-1. `git push -u origin release/v{{VERSION}}`
-2. `git tag -a v{{VERSION}} -m "Marky Mark {{VERSION}}"` on the release
+    git push -u origin release/v{{VERSION}}
+
+(On a retry after a failed attempt, the branch already exists with the
+old attempt's commits: push with `--force-with-lease` instead. Updating
+a not-yet-tagged release branch is sanctioned; deleting one never is.)
+
+The push triggers the `release-branch-test` workflow — the same macOS
+test suite the tag-time pipeline runs, moved before the tag so a
+failure spends nothing. Find the run for your exact branch tip
+(`gh run list --workflow release-branch-test.yml`, match its head SHA
+to `git rev-parse HEAD`; allow a minute for the trigger — if no run
+appears after ~5 minutes of polling, treat that itself as a cut
+failure, evidence being the empty `gh run list` output). Watch it to
+completion, polling about once a minute.
+
+- On failure → the failure flow below, and STOP. Nothing is spent: no
+  tag, no merge-back, main untouched — the version stays reusable.
+- On success → post one comment starting `{{PRETAG_CI_GREEN_MARKER}}`
+  with the run URL, then continue.
+
+## Phase 2b — tag + merge back, only on green (R11, R15 amended)
+
+1. `git tag -a v{{VERSION}} -m "Marky Mark {{VERSION}}"` on the release
    branch tip, then `git push origin v{{VERSION}}` — the tag points into
    the release branch, and its push starts the mac+web pipeline.
-3. Merge back (R15, gated on the tag push only, not on CI): merge the
-   release branch into the default branch so main carries the shipped
-   version files and changelog entry —
+2. Merge back (R15, now gated on the pre-tag CI being green, so main
+   only ever carries the version files of a cut that passed macOS
+   tests): merge the release branch into the default branch —
 
        git checkout -b mergeback-v{{VERSION}} origin/main
        git merge --no-edit release/v{{VERSION}}
@@ -221,4 +269,7 @@ is now the human's move. Then STOP.
 - Never delete a release: abandoned drafts are only ever reported, with
   the `gh release delete <tag>` commands left for the owner (prd/008 R7).
 - Never delete a `release/*` branch (prd/008 R14).
-- A failed gate aborts before any push or tag exists (prd/008 R10).
+- A failed local gate aborts before any push exists; a failed pre-tag
+  CI aborts before any tag or merge-back exists (prd/008 R10, amended
+  by spec 2026-08-04). Every failure files its blocking bug per the
+  failure flow.
