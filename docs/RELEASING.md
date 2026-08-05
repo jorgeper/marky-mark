@@ -77,6 +77,12 @@ Rules of thumb: the tag push is the trigger, the draft is the safety net, and
 `--draft=false` is the only step that makes anything public. A failed run is
 re-cut by fixing, deleting + re-pushing the tag, or `workflow_dispatch`.
 
+Pushing a `release/**` branch triggers `release-branch-test.yml` — the
+same macOS suite the tag run gates on — so agents (and you) can get a
+green light *before* spending the tag. The agent-driven cut in
+`.sandcastle/release-prompt.md` always does this; manual cuts may tag
+directly and lean on the draft safety net as before.
+
 ## Semver / alpha policy
 
 - **`alpha.N` bumps** (`0.2.0-alpha.1` → `0.2.0-alpha.2`): fixes and

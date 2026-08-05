@@ -153,3 +153,16 @@ and give every shipped version a permanent `release/vX.Y.Z` branch.
 None — all questions raised in #25 were resolved in the PRD interview
 and are reflected above (lane model → R4; issue format → R3/R5;
 changelog → R2/R9; publish handback → R12/R16; hotfixes → Non-goals).
+
+## Amendment 2026-08-04 — pre-tag CI gate and failure flow
+
+Superseding parts of R10/R11/R15/R17; full design in
+`docs/superpowers/specs/2026-08-04-release-pretag-gate-design.md`.
+The macOS test suite now runs on the release branch push
+(`release-branch-test.yml`) **before** the tag is spent; the merge-back
+is gated on that run being green. A failed cut files a
+`sandcastle`-labeled bug (linked via `Blocked-by: #n` in the cut-failed
+comment); the lane parks the release while that bug is open and
+auto-resumes when it closes. The host reports every releaser run's
+outcome from the issue's newest phase marker (new marker: `pre-tag CI
+green`) instead of trusting process exit.
