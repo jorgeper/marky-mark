@@ -65,7 +65,7 @@ sibling issues. All endpoints except sign-in require
 
 | Endpoint | Meaning |
 | --- | --- |
-| `POST /api/auth/sign-in` | Local: `{username}` → `{kind:'token', token, user}`. Azure: `{kind:'redirect', authorizeUrl}` for the SPA's PKCE flow. |
+| `POST /api/auth/sign-in` | Local: `{username}` → `{kind:'token', token, user}`. Azure: `{kind:'redirect', authorizeUrl}` for the SPA's PKCE flow. The only unauthenticated endpoint. |
 | `GET /api/me` | The authenticated user. |
 | `GET /api/files` (`?prefix=`) | List stored files (path, size, lastModified, etag). |
 | `GET /api/files/<path>` | Read: `{path, content, etag}`, or 404. |
@@ -73,6 +73,24 @@ sibling issues. All endpoints except sign-in require
 | `DELETE /api/files/<path>` | Delete; 404 when absent. |
 | `GET /api/directory/search?q=` | Directory user search. |
 | `GET /api/directory/users/<id>` | One directory user, or 404. |
+
+## Sign-in (PRD 007 Req 5)
+
+The server injects `<meta name="marky-mark-hosted" content="<mode>">` into
+every HTML document it serves (`server/app.ts` `injectHostedMarker`).
+That marker — never present in `dist/` on disk, in the Tauri shell, in the
+dev shim, or on a static host — is how the unmodified SPA build knows to
+gate behind the sign-in page (`src/components/HostedSignIn.tsx`). No
+pre-auth probe endpoint exists; the marker's content also tells the SPA
+which sign-in UI to show (`local`: seeded-username form, `azure`: a
+sign-in-with-Microsoft redirect).
+
+In azure mode the SPA drives the auth-code + PKCE flow
+(`src/lib/hostedAuth.ts`): S256 challenge, state-checked callback, then a
+public-client code exchange at the tenant's token endpoint. The session
+bearer is the **id_token** — with the scaffold's `openid profile email`
+scopes it is the token whose issuer and audience match what
+`providers/azure/entra.ts` pins (tenant issuer + client-id audience).
 
 ## Tests
 

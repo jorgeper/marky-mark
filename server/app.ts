@@ -7,8 +7,9 @@
 
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import { Buffer } from 'node:buffer';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import type { ServerMode } from './config.ts';
 import type { Providers, RequestAuth } from './providers/types.ts';
 
 /** Uploads beyond this are rejected outright (scaffold guard, not a quota). */
@@ -173,11 +174,29 @@ async function handleApi(
 }
 
 /**
+ * PRD 007 Req 5: mark served HTML as hosted (mode in the content) so the
+ * unmodified SPA build knows to gate behind sign-in. Injection happens at
+ * serve time — dist/ on disk stays byte-identical to a static deployment,
+ * which never carries the marker and therefore never shows a sign-in page.
+ */
+export function injectHostedMarker(html: string, mode: ServerMode): string {
+  const marker = `<meta name="marky-mark-hosted" content="${mode}">`;
+  const head = html.indexOf('</head>');
+  return head === -1 ? marker + html : html.slice(0, head) + marker + html.slice(head);
+}
+
+/**
  * Serve the built SPA. Anything that resolves to a real file under staticDir
  * streams out; any other GET falls back to index.html so client-side routes
  * deep-link (PRD 007 Req 1: same origin as the API).
  */
-function handleStatic(req: IncomingMessage, res: ServerResponse, url: URL, staticRoot: string): void {
+function handleStatic(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  staticRoot: string,
+  mode: ServerMode,
+): void {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     sendJson(res, 405, { error: 'method not allowed' });
     return;
@@ -198,6 +217,17 @@ function handleStatic(req: IncomingMessage, res: ServerResponse, url: URL, stati
     sendJson(res, 404, { error: 'SPA build not found — run `npm run build` first' });
     return;
   }
+  // PRD 007 Req 5: HTML is read (not streamed) so the hosted marker can be
+  // injected; every other asset streams out untouched.
+  if (path.extname(target).toLowerCase() === '.html') {
+    const html = injectHostedMarker(readFileSync(target, 'utf8'), mode);
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': Buffer.byteLength(html),
+    });
+    res.end(req.method === 'HEAD' ? undefined : html);
+    return;
+  }
   res.writeHead(200, {
     'Content-Type': CONTENT_TYPES[path.extname(target).toLowerCase()] ?? 'application/octet-stream',
     'Content-Length': statSync(target).size,
@@ -209,7 +239,7 @@ function handleStatic(req: IncomingMessage, res: ServerResponse, url: URL, stati
   createReadStream(target).pipe(res);
 }
 
-export function createApp(staticDir: string, providers: Providers): RequestListener {
+export function createApp(staticDir: string, providers: Providers, mode: ServerMode): RequestListener {
   const staticRoot = path.resolve(staticDir);
   return (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -221,6 +251,6 @@ export function createApp(staticDir: string, providers: Providers): RequestListe
       });
       return;
     }
-    handleStatic(req, res, url, staticRoot);
+    handleStatic(req, res, url, staticRoot, mode);
   };
 }

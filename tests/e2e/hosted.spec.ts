@@ -124,3 +124,60 @@ test('E164: a malformed percent-escape in the path answers 400 — on static and
   const home = await request.get(`${HOSTED}/`);
   expect(home.status()).toBe(200);
 });
+
+test('E165: an unauthenticated visit to the hosted server shows only the sign-in page', async ({ page }) => {
+  // PRD 007 Req 5: the served HTML carries the hosted marker, so the SPA
+  // gates on sign-in — no editor, sidebar, menus, or document content.
+  await page.goto(`${HOSTED}/`);
+  await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
+  await expect(page.getByTestId('hosted-sign-in-username')).toBeVisible();
+  for (const id of ['editor', 'doc', 'empty-hint', 'folder-panel', 'toolbar-shell', 'panel']) {
+    await expect(page.getByTestId(id), `${id} must not render pre-auth`).toHaveCount(0);
+  }
+});
+
+test('E166: signing in as a seeded mock user renders the app shell', async ({ page }) => {
+  // PRD 007 Req 5: local dev mode signs in end to end — mock user in, the
+  // normal start page (splash) out, sign-in page gone.
+  await page.goto(`${HOSTED}/`);
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('hosted-sign-in')).toHaveCount(0);
+});
+
+test('E167: the signed-in session survives a page reload', async ({ page }) => {
+  // PRD 007 Req 5: the stored token is revalidated on boot via GET /api/me
+  // (a bearer-carrying API call), so a reload lands in the app, not sign-in.
+  await page.goto(`${HOSTED}/`);
+  await page.getByTestId('hosted-sign-in-username').fill('grace');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('hosted-sign-in')).toHaveCount(0);
+});
+
+test('E168: a failed sign-in surfaces as an on-page error and the API guard still answers 401', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 5: sign-in failures are UI state, never console output, and
+  // the page stays on sign-in with no app shell. The refusal is mocked with
+  // an in-page intercept because a real 401 response makes Chromium itself
+  // log a console error, which the fixtures' zero-console-error guard
+  // (rightly) rejects; the server's own 401 for unknown users is pinned by
+  // E160, and the guard across endpoints by E159 and the request below.
+  await page.route('**/api/auth/sign-in', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
+  );
+  await page.goto(`${HOSTED}/`);
+  await page.getByTestId('hosted-sign-in-username').fill('mallory');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('hosted-sign-in-error')).toContainText('Sign-in failed');
+  await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
+  const unauthenticated = await request.get(`${HOSTED}/api/me`);
+  expect(unauthenticated.status()).toBe(401);
+});

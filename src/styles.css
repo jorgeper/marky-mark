@@ -2349,3 +2349,79 @@ mark.hl.ghost {
 .image-chip[data-testid='image-resize-bl'] {
   cursor: nesw-resize;
 }
+
+/* PRD 007 Req 5: the hosted flavor's sign-in page — the only UI an
+   unauthenticated visitor to the hosted server sees. */
+.hosted-signin {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg, #1f2328);
+}
+
+.hosted-signin-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 44px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 12px;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  text-align: center;
+}
+
+.hosted-signin-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.hosted-signin-hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--mm-fg-muted, #59636e);
+}
+
+.hosted-signin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 240px;
+}
+
+.hosted-signin-form input {
+  padding: 7px 10px;
+  font-size: 13px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 6px;
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg, #1f2328);
+}
+
+.hosted-signin-form button,
+.hosted-signin-ms {
+  padding: 7px 14px;
+  font-size: 13px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 6px;
+  background: var(--mm-accent, #0969da);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.hosted-signin-form button:disabled,
+.hosted-signin-ms:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.hosted-signin-error {
+  margin: 4px 0 0;
+  max-width: 280px;
+  font-size: 12.5px;
+  color: #d1242f;
+}

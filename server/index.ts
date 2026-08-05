@@ -14,7 +14,7 @@ const config = loadConfig(process.env);
 const providers = createProviders(config);
 await providers.storage.init?.();
 
-const server = http.createServer(createApp(config.staticDir, providers));
+const server = http.createServer(createApp(config.staticDir, providers, config.mode));
 server.listen(config.port, () => {
   console.log(
     `marky-mark server: mode=${config.mode} port=${config.port} static=${config.staticDir} ` +

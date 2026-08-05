@@ -308,7 +308,11 @@ console.log(`dist-web/index.html is self-contained (single file, no external scr
 // SPEC11 §6.6 — static bundle scan: the shipped JS may contain no network
 // call sites. fetch( occurrences must equal the committed allowlist below.
 console.log('\n=== validate: static bundle scan (network call sites) ===');
-const FETCH_ALLOWLIST = 0; // no fetch() call sites are expected; justify any future entry here
+// PRD 007 Req 5: the hosted sign-in gate funnels every request (sign-in,
+// session validation, the PKCE token exchange) through the single wrapper in
+// src/components/HostedSignIn.tsx — one fetch( per bundle (dist/ and
+// dist-web/), reachable only when the served HTML carries the hosted marker.
+const FETCH_ALLOWLIST = 2;
 const FORBIDDEN = ['XMLHttpRequest(', 'new WebSocket', 'sendBeacon', 'new EventSource'];
 const bundleTargets = [
   path.join(distWeb, 'index.html'),
