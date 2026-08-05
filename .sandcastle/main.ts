@@ -82,12 +82,16 @@ import {
   GATE_PASSED_MARKER,
   MALFORMED_MARKER,
   OUT_OF_ORDER_MARKER,
+  parseBlockedBy,
   parseDraftTags,
   parseMarkerPresent,
   parseTagNames,
   PREFLIGHT_ACK_MARKER,
+  PRETAG_CI_GREEN_MARKER,
+  releaseOutcome,
   TAG_PUSHED_MARKER,
   WINDOWS_APPENDED_MARKER,
+  type ReleaseOutcome,
 } from "./release-lane.mts";
 import { logStep, timed } from "./timing.mts";
 import { printHelp, runDoctor, runInit } from "./setup.mts";
@@ -760,6 +764,18 @@ const runPrdLane = async (): Promise<void> => {
 // dispatches no sandbox at all.
 // ---------------------------------------------------------------------------
 
+/** Spec 2026-08-04 §4: thrown inside the timed releaser callback when the
+ * run's newest phase marker is not terminal success — marks the timing
+ * entry failed and carries the outcome for the console line. */
+class ReleaseCutNotOk extends Error {
+  constructor(
+    readonly outcome: ReleaseOutcome,
+    readonly bug: number | null,
+  ) {
+    super(outcome.text);
+  }
+}
+
 const runReleaseLane = async (): Promise<void> => {
   let issues: github.ReleaseIssueInfo[];
   try {
@@ -788,6 +804,18 @@ const runReleaseLane = async (): Promise<void> => {
     let commentsJson: string;
     try {
       commentsJson = await github.issueCommentsJson(issue.number);
+      // Spec 2026-08-04 §4: the newest phase marker decides whether the
+      // cut is dead; a linked open bug parks it host-side (no sandbox).
+      const cutFailedActive = releaseOutcome(commentsJson).level === "failed";
+      const blockedByBug = parseBlockedBy(commentsJson);
+      let blockingBugOpen: boolean | null = null;
+      if (cutFailedActive && blockedByBug !== null) {
+        try {
+          blockingBugOpen = (await github.issueState(blockedByBug)).trim() === "OPEN";
+        } catch {
+          blockingBugOpen = null; // unknown state parks (fail safe)
+        }
+      }
       action = classifyReleaseIssue({
         body: issue.body,
         tagNames,
@@ -795,6 +823,9 @@ const runReleaseLane = async (): Promise<void> => {
         draftReportPosted: parseMarkerPresent(commentsJson, DRAFT_REPORT_MARKER),
         awaitingPublishPosted: parseMarkerPresent(commentsJson, AWAITING_PUBLISH_MARKER),
         tagPushedPosted: parseMarkerPresent(commentsJson, TAG_PUSHED_MARKER),
+        cutFailedActive,
+        blockedByBug,
+        blockingBugOpen,
       });
     } catch (error) {
       console.warn(
@@ -803,6 +834,16 @@ const runReleaseLane = async (): Promise<void> => {
       continue;
     }
     console.log(`  release #${issue.number} → ${action.kind}`);
+
+    // Spec 2026-08-04 §4: a parked cut waits for its bug — never a sandbox.
+    if (action.kind === "parked") {
+      console.warn(
+        action.bug === null
+          ? `  ⚠ release #${issue.number}: cut failed with no linked bug — read the issue thread and close or re-arm it yourself.`
+          : `  release #${issue.number}: parked on open bug #${action.bug} — fix lands via npm run sandcastle; the cut auto-resumes when the bug closes.`,
+      );
+      continue;
+    }
 
     // prd/008 R5: a malformed body ends the lane with one explanatory
     // comment and no changes to the tree. Marker check keeps a later pass
@@ -865,8 +906,8 @@ const runReleaseLane = async (): Promise<void> => {
       });
       try {
         const releaserModel = "claude-fable-5";
-        await timed("releaser", { issue: issue.number }, () =>
-          sandbox.run({
+        await timed("releaser", { issue: issue.number }, async () => {
+          await sandbox.run({
             name: "releaser",
             maxIterations: 1,
             agent: sandcastle.claudeCode(releaserModel),
@@ -881,21 +922,37 @@ const runReleaseLane = async (): Promise<void> => {
               PREFLIGHT_ACK_MARKER,
               GATE_PASSED_MARKER,
               CUT_FAILED_MARKER,
+              PRETAG_CI_GREEN_MARKER,
               TAG_PUSHED_MARKER,
               CI_GREEN_MARKER,
               DRAFT_VERIFIED_MARKER,
               WINDOWS_APPENDED_MARKER,
               AWAITING_PUBLISH_MARKER,
             },
-          }),
-        );
+          });
+          // Spec §4: never trust process exit — read the cut's outcome
+          // back from the issue's newest phase marker.
+          const afterJson = await github.issueCommentsJson(issue.number);
+          const outcome = releaseOutcome(afterJson);
+          if (outcome.level !== "ok")
+            throw new ReleaseCutNotOk(outcome, parseBlockedBy(afterJson));
+          console.log(`  ✔ release #${issue.number}: ${outcome.text}`);
+        });
       } finally {
         await sandbox.close();
       }
     } catch (error) {
-      console.warn(
-        `  ⚠ release lane: releaser for #${issue.number} failed (${error instanceof Error ? error.message.split("\n", 1)[0] : error}) — the issue stays open for the next run.`,
-      );
+      if (error instanceof ReleaseCutNotOk) {
+        console.warn(
+          error.bug !== null
+            ? `  ✖ release #${issue.number}: ${error.outcome.text.toUpperCase()} — bug #${error.bug} filed; fix it via npm run sandcastle, the cut auto-resumes when it closes.`
+            : `  ✖ release #${issue.number}: ${error.outcome.text.toUpperCase()} — see the issue thread for evidence.`,
+        );
+      } else {
+        console.warn(
+          `  ⚠ release lane: releaser for #${issue.number} failed (${error instanceof Error ? error.message.split("\n", 1)[0] : error}) — the issue stays open for the next run.`,
+        );
+      }
     }
   }
 };

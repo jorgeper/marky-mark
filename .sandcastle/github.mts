@@ -112,6 +112,10 @@ export const prFilesJson = (prNumber: number): Promise<string> =>
 export const issueCommentsJson = (issueNumber: number): Promise<string> =>
   gh(["issue", "view", String(issueNumber), "--json", "comments"]);
 
+/** Spec 2026-08-04 §4: state of the bug blocking a failed cut. */
+export const issueState = (issueNumber: number): Promise<string> =>
+  gh(["issue", "view", String(issueNumber), "--json", "state", "-q", ".state"]);
+
 // --- Release lane (prd/008 R4–R7) wrappers — raw JSON out, parsing in
 // --- release-lane.mts. Listing is label-scoped so plain-`sandcastle`
 // --- implement classification never sees release issues.
