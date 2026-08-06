@@ -2221,6 +2221,15 @@ mark.hl.ghost {
   border-color: var(--mm-danger, #cf222e);
   outline: none;
 }
+/* PRD 009 Req 13: the save picker states its reason in the dialog (the
+   sidebar's rename row has no room for one and uses a tooltip instead). */
+.modal input.invalid {
+  border-color: var(--mm-danger, #cf222e);
+}
+.picker-error {
+  margin: 0 0 4px;
+  color: var(--mm-danger, #cf222e);
+}
 .folder-empty {
   flex: 1;
   display: flex;

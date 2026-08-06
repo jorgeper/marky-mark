@@ -20,6 +20,14 @@ interface Props {
    * native menu's grayed items.
    */
   canEdit?: boolean;
+  /**
+   * PRD 009 Req 13/16: whether New File is offered here. Absent ⇒ yes, so
+   * every platform with a save dialog (desktop, the shim, the web build)
+   * keeps the row exactly as it was; false hides it — on a flavor without a
+   * save dialog, creating files is a workspace-mode capability, so the row is
+   * absent on the initial page and in single-file mode.
+   */
+  canNewFile?: boolean;
   onToggleMode(): void;
   onToggleComments(): void;
   onNewFile(): void;
@@ -118,6 +126,7 @@ export function Toolbar(p: Props) {
 
   // PRD 007 Req 17: absent ⇒ no permission model ⇒ every writing row stays.
   const canEdit = p.canEdit !== false;
+  const canNewFile = p.canNewFile !== false; // PRD 009 Req 13/16
 
   const item = (testid: string, label: string, hint: string | null, onClick: () => void) => (
     <button
@@ -174,7 +183,7 @@ export function Toolbar(p: Props) {
         </button>
         {menuOpen && (
           <div className="theme-menu" data-testid="app-menu">
-            {item('menu-new', 'New', displayCombo(p.hotkeys.newFile, p.isMac), p.onNewFile)}
+            {canNewFile && item('menu-new', 'New', displayCombo(p.hotkeys.newFile, p.isMac), p.onNewFile)}
             {item('menu-open', 'Open…', displayCombo(p.hotkeys.openFile, p.isMac), p.onOpenFile)}
             {canEdit && item('menu-save', 'Save', displayCombo(p.hotkeys.save, p.isMac), p.onSave)}
             {canEdit && item('menu-save-as', 'Save As…', null, p.onSaveAs)}
