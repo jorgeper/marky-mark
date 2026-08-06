@@ -727,3 +727,109 @@ test('E178: issue #84 — View → Next/Previous Open File dispatch the cycle, f
   await sp.getByTestId('reset-hotkey-nextFile').click();
   await expect.poll(async () => (await viewItem('nextFile')).accelerator).toBe('Ctrl+Tab');
 });
+
+// Issue #83: a document long enough to have a scroll position worth
+// remembering, in the /notes root so it shows in the folder pane.
+const LONG_DOC =
+  Array.from({ length: 40 }, (_, i) => `## Marker ${i + 1}\n\n` + `Paragraph for section ${i + 1}. `.repeat(8)).join(
+    '\n\n'
+  ) + '\n';
+
+test('E175: issue #83 — scroll position survives a background-tab switch and return, and a close-tab → reopen from the folder pane', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await seedFolders(page);
+  await fsWrite(page, '/notes/long.md', LONG_DOC);
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+
+  // Open a.md, then long.md: the active row is `selected`, the background
+  // one `open` — both visibly marked in the pane (SPEC36 §3).
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await page.locator('[data-path="/notes/long.md"]').click();
+  await expect(page).toHaveTitle(/long\.md/);
+  await expect(page.getByTestId('doc').locator('h2').first()).toContainText('Marker 1');
+  await expect(page.locator('[data-path="/notes/long.md"]')).toHaveClass(/selected/);
+  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
+
+  const ws = page.locator('.workspace');
+  await ws.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.4));
+  const savedScroll = await ws.evaluate((el) => el.scrollTop);
+  expect(savedScroll).toBeGreaterThan(0);
+
+  // (a) Switch to the background tab and back: the switch itself records the
+  // outgoing position (SPEC16 §3.2) — no debounce wait — and the return
+  // restores it.
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page).toHaveTitle(/a\.md/);
+  await expect(page.locator('[data-path="/notes/long.md"]')).toHaveClass(/\bopen\b/);
+  await page.locator('[data-path="/notes/long.md"]').click();
+  await expect(page).toHaveTitle(/long\.md/);
+  await expect.poll(() => ws.evaluate((el) => el.scrollTop)).toBeGreaterThan(savedScroll * 0.8);
+  expect(await ws.evaluate((el) => el.scrollTop)).toBeLessThan(savedScroll * 1.2);
+
+  // (b) Close the tab — its open marking clears (SPEC36 §3.5), the neighbor
+  // activates — then reopen from the pane: back at the remembered position.
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page).toHaveTitle(/a\.md/);
+  await expect(page.locator('[data-path="/notes/long.md"]')).not.toHaveClass(/\bopen\b/);
+  await expect(page.locator('[data-path="/notes/long.md"]')).not.toHaveClass(/selected/);
+  await page.locator('[data-path="/notes/long.md"]').click();
+  await expect(page).toHaveTitle(/long\.md/);
+  await expect.poll(() => ws.evaluate((el) => el.scrollTop)).toBeGreaterThan(savedScroll * 0.8);
+  expect(await ws.evaluate((el) => el.scrollTop)).toBeLessThan(savedScroll * 1.2);
+});
+
+test('E176: issue #83 — scroll position survives Close Workspace → reopen, and a relaunch + explicit reopen, for the session-restored active file', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await seedFolders(page);
+  await fsWrite(page, '/notes/long.md', LONG_DOC);
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+  await page.locator('[data-path="/notes/long.md"]').click();
+  await expect(page.getByTestId('doc').locator('h2').first()).toContainText('Marker 1');
+
+  const ws = page.locator('.workspace');
+  await ws.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.4));
+  const savedScroll = await ws.evaluate((el) => el.scrollTop);
+  expect(savedScroll).toBeGreaterThan(0);
+
+  // Close Workspace with no debounce wait: the close itself must record the
+  // active doc's position (SPEC16 §3.2 at closeToSplash, issue #83).
+  await menuClick(page, 'closeWorkspace');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+
+  // Reopening the same folder revives the untitled session (issue #81):
+  // long.md is active again AND back at the remembered scroll position.
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page).toHaveTitle(/long\.md/);
+  await expect(page.locator('[data-path="/notes/long.md"]')).toHaveClass(/selected/);
+  await expect.poll(() => ws.evaluate((el) => el.scrollTop)).toBeGreaterThan(savedScroll * 0.8);
+  expect(await ws.evaluate((el) => el.scrollTop)).toBeLessThan(savedScroll * 1.2);
+
+  // Relaunch: the splash (launch never auto-opens anything), then an
+  // explicit reopen restores the session file to the same position —
+  // positions.json carried it across the restart (SPEC16 §3).
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => !!window.__mmMenu)).toBe(true);
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page).toHaveTitle(/long\.md/);
+  await expect.poll(() => page.locator('.workspace').evaluate((el) => el.scrollTop)).toBeGreaterThan(savedScroll * 0.8);
+  expect(await page.locator('.workspace').evaluate((el) => el.scrollTop)).toBeLessThan(savedScroll * 1.2);
+});
