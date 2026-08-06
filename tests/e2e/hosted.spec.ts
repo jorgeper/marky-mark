@@ -1476,8 +1476,18 @@ test('E201: the hosted start page offers exactly Open File + the two workspace f
   // opening, and PRD 009 Req 8/9 pins the rest of its initial-page item set —
   // the workspace group present (the capability exists), no New File, no
   // Close File, no Close Workspace, Save / Save As… greyed rather than gone.
+  // PRD 009 Req 7: the hamburger leads the toolbar — its right edge sits left
+  // of the document name's — and the popover is anchored to it, not to the
+  // toolbar's right edge (E13 pins the same for the shim).
+  await revealToolbar(page);
+  const btnBox = (await page.getByTestId('menu-btn').boundingBox())!;
+  const nameBox = (await page.getByTestId('docname').boundingBox())!;
+  expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(nameBox.x);
+
   await openAppMenu(page);
   const menu = page.getByTestId('app-menu');
+  const menuBox = (await menu.boundingBox())!;
+  expect(Math.abs(menuBox.x - btnBox.x)).toBeLessThan(12);
   await expect(menu).not.toContainText('Open Folder');
   const rows = await menu.locator('button').evaluateAll((els) => els.map((el) => el.dataset.testid));
   expect(rows).toEqual([
@@ -1990,4 +2000,234 @@ test('E215: Sign out prompts for unsaved work, Cancel keeps the session, and goi
   await page.getByTestId('hosted-sign-in-submit').click();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+});
+
+test('E220: dropping a local file with a workspace open crosses into single-file mode — Cancel at the dirty prompt aborts the drop', async ({
+  page,
+  request,
+}) => {
+  // PRD 009 Req 4/5: drag-and-drop is the crossing action E212 does not cover
+  // (it drives Open File…). The dropped file must not open INSIDE the
+  // workspace (the retired behavior of E209) — it closes it first, prompts,
+  // and a Cancel there leaves the workspace exactly as it was.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E220 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/theirs.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Theirs\n',
+  });
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'theirs.md');
+  await page.getByTestId('edit-toggle').click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('unsaved ');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  /** Drop an in-page-constructed .md File onto the window. */
+  const drop = () =>
+    page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(['# Dropped\n\nNever uploaded.\n'], 'dropped.md', { type: 'text/markdown' }));
+      window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    });
+
+  // Req 4: the workspace's dirty walk runs first, and Cancel aborts the whole
+  // switch — still in the workspace, still dirty, nothing new opened.
+  await drop();
+  await expect(page.getByTestId('close-prompt')).toBeVisible();
+  await page.getByTestId('close-cancel').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('docname')).toContainText('theirs.md');
+  await expect(page.getByTestId('docname')).not.toContainText('dropped.md');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  expect(new URL(page.url()).search).toBe(`?workspace=${id}`);
+
+  // Discarding this time: the workspace closes and the dropped file opens in
+  // single-file mode — never inside the workspace, never via the initial page.
+  await drop();
+  await expect(page.getByTestId('close-prompt')).toBeVisible();
+  await page.getByTestId('close-discard').click();
+  await expect(page.getByTestId('docname')).toContainText('dropped.md');
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('docname-workspace')).toHaveCount(0);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Dropped');
+
+  // Req 6: the binding went with the workspace, and the drop uploaded nothing
+  // — the unsaved edit to theirs.md was discarded, not written.
+  expect(new URL(page.url()).search).toBe('');
+  expect(await listFiles(request, ada, id)).toEqual(['theirs.md']);
+  expect(await readAs(request, ada, id, 'theirs.md')).toBe('# Theirs\n');
+});
+
+test('E217: Close Workspace returns to the initial page and drops the ?workspace binding, so a reload stays there', async ({
+  page,
+  request,
+}) => {
+  // PRD 009 Req 3+6: the menu row, not the command seam — with a document open
+  // inside the workspace, Close Workspace ends on the initial page and takes
+  // the URL binding with it. E212 covers the same clearing on the *crossing*
+  // path; this is the plain close, whose resting state IS the initial page.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E217 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/kept.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Kept\n',
+  });
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'kept.md');
+  expect(new URL(page.url()).search).toBe(`?workspace=${id}`);
+
+  // PRD 009 Req 8/9: workspace mode is the one state E13 (single-file) and
+  // E201 (initial page) cannot freeze — its full row set, in order, is here:
+  // New File and Close Workspace present exactly because of the mode.
+  await openAppMenu(page);
+  const menu = page.getByTestId('app-menu');
+  const rows = await menu.locator('button').evaluateAll((els) => els.map((el) => el.dataset.testid));
+  expect(rows).toEqual([
+    'menu-new',
+    'menu-open',
+    'menu-close-file',
+    'menu-new-workspace',
+    'menu-open-workspace',
+    'menu-close-workspace',
+    'menu-save',
+    'menu-save-as',
+    'menu-view',
+    'menu-sign-out',
+    'menu-settings',
+    'menu-help',
+    'menu-about',
+  ]);
+  await expect(menu.getByTestId('menu-sep')).toHaveCount(4);
+  await expect(menu.getByTestId('menu-save')).toBeEnabled();
+
+  await page.getByTestId('menu-close-workspace').click();
+
+  // Req 3: the initial page — no sidebar, no document, the start actions back.
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('start-openFile')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
+  await expect(page.getByTestId('docname-workspace')).toHaveCount(0);
+  await expect(page.getByTestId('doc').locator('h1')).toHaveCount(0);
+
+  // Req 9: the workspace-mode rows went with the mode; the group's entry rows
+  // stay because the capability does.
+  await openAppMenu(page);
+  await expect(page.getByTestId('menu-close-workspace')).toHaveCount(0);
+  await expect(page.getByTestId('menu-close-file')).toHaveCount(0);
+  await expect(page.getByTestId('menu-new')).toHaveCount(0);
+  await expect(page.getByTestId('menu-open-workspace')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // Req 6: the binding is gone from the URL in place, so a reload lands on the
+  // initial page rather than walking straight back into the workspace.
+  expect(new URL(page.url()).search).toBe('');
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  // The workspace itself is untouched — only this browser's binding to it.
+  expect(await listFiles(request, ada, id)).toEqual(['kept.md']);
+});
+
+test('E218: workspace New File names the file in the picker, creates it through the workspace file API and opens it', async ({
+  page,
+  request,
+}) => {
+  // PRD 009 Req 13: on a flavor with no native save dialog, New File is a
+  // workspace-mode row that goes through the shared picker — no floating
+  // untitled buffer. tests/unit/save-picker.test.ts covers the naming rules;
+  // this drives the row end to end against the real file API.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E218 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/seed.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Seed\n',
+  });
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'seed.md');
+
+  // Req 9: New File exists here precisely because this is workspace mode.
+  await openAppMenu(page);
+  await expect(page.getByTestId('menu-new')).toBeEnabled();
+  await page.getByTestId('menu-new').click();
+
+  // The picker offers a free default name and the workspace's folders.
+  const picker = page.getByTestId('save-picker');
+  await expect(picker).toBeVisible();
+  await expect(page.getByTestId('save-picker-name')).toHaveValue('Untitled.md');
+  await expect(page.getByTestId('save-picker-folder')).toBeVisible();
+  await page.getByTestId('save-picker-name').fill('minted.md');
+  await page.getByTestId('save-picker-confirm').click();
+  await expect(picker).toHaveCount(0);
+
+  // It became a real workspace file, and it is the current document — named
+  // for its path, inside the workspace, and not an untitled buffer.
+  await expect(page.getByTestId('docname')).toContainText('minted.md');
+  await expect(page.getByTestId('docname')).not.toContainText('Untitled');
+  await expect(page.getByTestId('docname-workspace')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'minted.md' })).toBeVisible();
+  await expect.poll(() => listFiles(request, ada, id)).toEqual(['minted.md', 'seed.md']);
+  expect(await readAs(request, ada, id, 'minted.md')).toBe('');
+
+  // …and it edits and saves like any other workspace document.
+  await page.getByTestId('edit-toggle').click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('# Minted');
+  await menuSave(page);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect.poll(() => readAs(request, ada, id, 'minted.md')).toContain('# Minted');
+});
+
+test('E219: workspace Save As… writes the copy through the picker and switches to it, leaving the original intact', async ({
+  page,
+  request,
+}) => {
+  // PRD 009 Req 14: the same picker as Req 13, reaching the same end state as
+  // the native Save As… dialog — the copy becomes the current document.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E219 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/original.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Original\n\nFirst draft.\n',
+  });
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'original.md');
+  await page.getByTestId('edit-toggle').click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('A branching thought. ');
+
+  await openAppMenu(page);
+  await page.getByTestId('menu-save-as').click();
+  const picker = page.getByTestId('save-picker');
+  await expect(picker).toBeVisible();
+  // Save As… suggests a free name derived from the current document.
+  await expect(page.getByTestId('save-picker-name')).toHaveValue(/original/);
+  await page.getByTestId('save-picker-name').fill('branch.md');
+  await page.getByTestId('save-picker-confirm').click();
+  await expect(picker).toHaveCount(0);
+
+  // The copy carries the buffer — edits included — and is now the document.
+  await expect(page.getByTestId('docname')).toContainText('branch.md');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect.poll(() => listFiles(request, ada, id)).toEqual(['branch.md', 'original.md']);
+  await expect.poll(() => readAs(request, ada, id, 'branch.md')).toContain('A branching thought.');
+  // …while the original still holds what was last saved to it.
+  expect(await readAs(request, ada, id, 'original.md')).toBe('# Original\n\nFirst draft.\n');
+
+  // Typing now lands in the copy, never back in the original. (Opening the
+  // copy is a fresh openDoc, so it lands in preview mode like any other.)
+  await page.getByTestId('edit-toggle').click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('Only here. ');
+  await menuSave(page);
+  await expect.poll(() => readAs(request, ada, id, 'branch.md')).toContain('Only here.');
+  expect(await readAs(request, ada, id, 'original.md')).toBe('# Original\n\nFirst draft.\n');
 });

@@ -941,3 +941,34 @@ test('E214: PRD 009 Req 12 — View ▸ opens the shared View items: checked, gr
   await expect(page.getByTestId('app-menu-view')).toHaveCount(0);
   await expect(page.getByTestId('app-menu')).toHaveCount(0);
 });
+
+test('E216: PRD 009 Req 3 — Close File on the last open file lands on the initial page, driven through the menu row', async ({
+  page,
+}) => {
+  // Req 18 asks for this path through the real menu wiring, not the
+  // `__mmDispatch` command seam E210 uses for its setup: the row has to exist,
+  // be enabled, and reach `closeFile`.
+  await expect(page.getByTestId('docname')).toContainText('welcome.md');
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  const row = page.getByTestId('menu-close-file');
+  await expect(row).toBeEnabled();
+  await row.click();
+
+  // Req 3: the last file closed ⇒ the initial page, with its start actions and
+  // drop hint back and no document behind them.
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('start-drop')).toBeVisible();
+  await expect(page.getByTestId('start-openFile')).toBeVisible();
+  await expect(page.getByTestId('doc').locator('h1')).toHaveCount(0);
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(page.getByTestId('docname')).toHaveText('');
+
+  // Req 9: with nothing open the row that got us here is gone — Close File is
+  // hidden, not a greyed leftover, while Save/Save As… stay as greyed rows.
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await expect(page.getByTestId('menu-close-file')).toHaveCount(0);
+  await expect(page.getByTestId('menu-save')).toBeDisabled();
+  await expect(page.getByTestId('menu-save-as')).toBeDisabled();
+});

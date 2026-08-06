@@ -447,8 +447,16 @@ test('W13: the single-file web start page offers the drag hint and Open File —
   // workspace group is absent here — and on the initial page there is no New
   // File and no Close File either, while Save / Save As… are merely greyed.
   await revealToolbar(page);
+  // PRD 009 Req 7: the hamburger leads the toolbar here too — left of the
+  // document name, with the popover anchored to the button.
+  const btnBox = (await page.getByTestId('menu-btn').boundingBox())!;
+  const nameBox = (await page.getByTestId('docname').boundingBox())!;
+  expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(nameBox.x);
+
   await page.getByTestId('menu-btn').click();
   const menu = page.getByTestId('app-menu');
+  const menuBox = (await menu.boundingBox())!;
+  expect(Math.abs(menuBox.x - btnBox.x)).toBeLessThan(12);
   const rows = await menu.locator('button').evaluateAll((els) => els.map((el) => el.dataset.testid));
   expect(rows).toEqual(['menu-open', 'menu-save', 'menu-save-as', 'menu-view', 'menu-settings', 'menu-help', 'menu-about']);
   await expect(menu.getByTestId('menu-sep')).toHaveCount(3);
