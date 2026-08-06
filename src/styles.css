@@ -196,6 +196,27 @@ button {
   margin: 5px 4px;
 }
 
+/* PRD 009 Req 12: the View ▸ flyout sits beside the menu it hangs off, not
+   over it — same panel chrome, offset past the menu's own width. */
+.theme-menu.submenu-panel {
+  left: 216px;
+  /* Wide enough that the longest label + its combo stay on one line. */
+  min-width: 272px;
+}
+
+.theme-menu.submenu-panel button.theme-option {
+  white-space: nowrap;
+}
+
+/* PRD 009 Req 12: the check column — a fixed gutter so checked and unchecked
+   rows keep their labels on one line. */
+.theme-menu button.theme-option .menu-check {
+  width: 12px;
+  flex: none;
+  font-size: 11px;
+  color: var(--mm-accent, #b95a3d);
+}
+
 /* PRD 009 Req 8: View ▸ reads as a submenu parent, not an action (#94). */
 .theme-menu button.theme-option .submenu-arrow {
   color: var(--mm-fg-muted, #59636e);

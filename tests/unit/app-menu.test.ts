@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest';
-import { buildAppMenu, type AppMenuGroupId, type AppMenuState } from '../../src/lib/appMenu';
+import { buildAppMenu, type AppMenuGroupId, type AppMenuRow, type AppMenuState } from '../../src/lib/appMenu';
 import type { CommandId } from '../../src/lib/commands';
+import { DEFAULT_HOTKEYS } from '../../src/lib/hotkeys';
+import { buildMenuSpec, type CommandItemSpec, type ViewMenuState } from '../../src/lib/menuSpec';
 import type { StartActionId } from '../../src/lib/startActions';
 
 /**
@@ -16,6 +18,31 @@ const CAPS: Record<'desktopish' | 'hosted' | 'web', StartActionId[]> = {
   web: ['openFile'],
 };
 
+/**
+ * PRD 009 Req 12: the View state — the same shape lib/menuSpec.ts builds the
+ * native View menu from, because the in-app rows ARE its items.
+ */
+const viewState = (over: Partial<ViewMenuState> = {}): ViewMenuState => ({
+  isMac: false,
+  mode: 'preview',
+  appMode: 'workspace',
+  docOpen: true,
+  canEdit: true,
+  splitEdit: false,
+  showComments: true,
+  commentsEnabled: true,
+  commentCount: 2,
+  hotkeys: { ...DEFAULT_HOTKEYS },
+  showDiff: false,
+  showWordCount: true,
+  showFrontmatter: false,
+  lineNumbers: true,
+  showFolders: true,
+  openOnly: false,
+  openFileCount: 3,
+  ...over,
+});
+
 /** A workspace-mode, everything-permitted state; each test varies one thing. */
 const state = (over: Partial<AppMenuState> = {}): AppMenuState => ({
   mode: 'workspace',
@@ -23,6 +50,7 @@ const state = (over: Partial<AppMenuState> = {}): AppMenuState => ({
   canEdit: true,
   canNewFile: true,
   entryActions: CAPS.hosted,
+  view: viewState(),
   ...over,
 });
 
@@ -89,7 +117,8 @@ describe('PRD 009 Req 8: the groups and their order', () => {
 
   test('U339: View is a submenu parent, not an action — it carries no command', () => {
     const view = row(state(), 'menu-view');
-    expect(view?.submenu).toBe(true);
+    // #94: the submenu is its rows now, in separator-divided groups.
+    expect(view?.submenu?.length).toBeGreaterThan(0);
     expect(view?.command).toBeUndefined();
     // Every other row is a real command row.
     for (const r of buildAppMenu(state()).flatMap((g) => g.rows)) {
@@ -191,5 +220,138 @@ describe('PRD 009 Req 9: mode and capability gating', () => {
       'menu-help',
       'menu-about',
     ]);
+  });
+});
+
+/**
+ * PRD 009 Req 12: the View ▸ flyout. Its rows are the native View menu's own
+ * items (lib/menuSpec.ts `buildViewItems`), so these tests mostly assert that
+ * the two surfaces agree rather than re-pinning the item list here.
+ */
+describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () => {
+  const viewRows = (s: AppMenuState = state()): AppMenuRow[] =>
+    (row(s, 'menu-view')?.submenu ?? []).flatMap((g) => g);
+  /** The desktop View submenu's command items for the same state. */
+  const specItems = (over: Partial<ViewMenuState> = {}): CommandItemSpec[] =>
+    buildMenuSpec({ ...viewState(over), recentFiles: [] })
+      .submenus.find((m) => m.title === 'View')!
+      .items.filter((i): i is CommandItemSpec => i.type === 'command');
+
+  test('U348: the in-app rows are the desktop View items — same commands, same labels', () => {
+    for (const over of [{}, { mode: 'edit' as const }, { isMac: true }, { commentCount: 0 }]) {
+      const rows = viewRows(state({ view: viewState(over) }));
+      const items = specItems(over);
+      expect(rows.map((r) => r.command), JSON.stringify(over)).toEqual(items.map((i) => i.command));
+      expect(rows.map((r) => r.label), JSON.stringify(over)).toEqual(items.map((i) => i.label));
+    }
+    // The full set the PRD names, in the desktop order.
+    expect(viewRows().map((r) => r.command)).toEqual([
+      'toggleFolders',
+      'toggleOpenOnly',
+      'nextFile',
+      'prevFile',
+      'toggleMode',
+      'toggleSplit',
+      'toggleComments',
+      'nextComment',
+      'prevComment',
+      'headingPalette',
+      'toggleWordCount',
+      'toggleFrontmatter',
+      'toggleLineNumbers',
+      'zoomIn',
+      'zoomOut',
+      'zoomReset',
+    ]);
+  });
+
+  test('U349: predefined items are dropped; the one surviving separator sits before the zoom group', () => {
+    // macOS: the spec ends with a separator + Fullscreen — neither has an
+    // in-app meaning, and the group they would have made is gone with them.
+    for (const isMac of [false, true]) {
+      const groups = row(state({ view: viewState({ isMac }) }), 'menu-view')!.submenu!;
+      expect(groups.length, `isMac=${isMac}`).toBe(2);
+      expect(groups.every((g) => g.length > 0), `isMac=${isMac}`).toBe(true);
+      expect(groups[1].map((r) => r.command)).toEqual(['zoomIn', 'zoomOut', 'zoomReset']);
+      expect(groups.flatMap((g) => g).map((r) => r.label)).not.toContain('Fullscreen');
+    }
+  });
+
+  test('U350: comment rows follow commentsEnabled; Changes Since Save follows edit mode', () => {
+    const commands = (over: Partial<ViewMenuState>) => viewRows(state({ view: viewState(over) })).map((r) => r.command);
+    expect(commands({ commentsEnabled: false })).not.toContain('toggleComments');
+    expect(commands({ commentsEnabled: false })).not.toContain('nextComment');
+    expect(commands({ commentsEnabled: false })).not.toContain('prevComment');
+    // The label carries the count exactly as desktop does.
+    expect(viewRows().find((r) => r.command === 'toggleComments')?.label).toBe('Comments (2)');
+    expect(commands({})).not.toContain('toggleDiff');
+    expect(commands({ mode: 'edit' })).toContain('toggleDiff');
+  });
+
+  test('U351: no workspace capability ⇒ the sidebar and open-set rows are absent, not greyed', () => {
+    const gated: CommandId[] = ['toggleFolders', 'toggleOpenOnly', 'nextFile', 'prevFile'];
+    const web = viewRows(state({ entryActions: CAPS.web, view: viewState({ appMode: 'file' }) })).map((r) => r.command);
+    for (const c of gated) expect(web, c).not.toContain(c);
+    // Where the capability exists they are present — merely disabled when the
+    // state cannot honour them (PRD 009 Req 9).
+    const outsideWs = viewRows(state({ view: viewState({ appMode: 'file' }) }));
+    for (const c of gated) expect(outsideWs.find((r) => r.command === c)?.disabled, c).toBe(true);
+    const inWs = viewRows();
+    for (const c of gated) expect(inWs.find((r) => r.command === c)?.disabled, c).toBeFalsy();
+  });
+
+  test('U352: checked and disabled survive the mapping, item for item', () => {
+    for (const over of [{}, { mode: 'edit' as const }, { appMode: 'file' as const }, { docOpen: false }]) {
+      const rows = viewRows(state({ view: viewState(over) }));
+      for (const item of specItems(over)) {
+        const r = rows.find((x) => x.command === item.command)!;
+        expect(r.checked, `${item.command} checked`).toBe(item.checked);
+        expect(!!r.disabled, `${item.command} disabled`).toBe(!!item.disabled);
+        expect(r.accel, `${item.command} accel`).toBe(item.accelerator);
+      }
+    }
+    // Edit Mode greys with no document or no write permission (Req 9).
+    const greyed = (over: Partial<ViewMenuState>) =>
+      viewRows(state({ view: viewState(over) })).find((r) => r.command === 'toggleMode')?.disabled;
+    expect(greyed({ docOpen: false })).toBe(true);
+    expect(greyed({ canEdit: false })).toBe(true);
+    expect(greyed({})).toBeFalsy();
+  });
+
+  test('U353: every child dispatches a registered CommandId under a derived, unique test id', () => {
+    const allowed: CommandId[] = [
+      'toggleFolders',
+      'toggleOpenOnly',
+      'nextFile',
+      'prevFile',
+      'toggleMode',
+      'toggleSplit',
+      'toggleComments',
+      'nextComment',
+      'prevComment',
+      'toggleDiff',
+      'headingPalette',
+      'toggleWordCount',
+      'toggleFrontmatter',
+      'toggleLineNumbers',
+      'zoomIn',
+      'zoomOut',
+      'zoomReset',
+    ];
+    const rows = [
+      ...viewRows(),
+      ...viewRows(state({ view: viewState({ mode: 'edit' }) })),
+      ...viewRows(state({ view: viewState({ isMac: true }) })),
+    ];
+    for (const r of rows) {
+      expect(r.command, r.testId).toBeTruthy();
+      expect(allowed, r.testId).toContain(r.command);
+      // Derived once from the command, never spelled out per row.
+      expect(r.testId).toBe(`menu-view-${r.command}`);
+    }
+    const ids = viewRows().map((r) => r.testId);
+    expect(new Set(ids).size).toBe(ids.length);
+    // The parent keeps its existing id (#93).
+    expect(row(state(), 'menu-view')?.testId).toBe('menu-view');
   });
 });

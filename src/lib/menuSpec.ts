@@ -77,7 +77,13 @@ export interface MenuSpec {
   submenus: SubmenuSpec[];
 }
 
-export interface MenuState {
+/**
+ * PRD 009 Req 12: everything the View menu is derived from — the slice of
+ * MenuState `buildViewItems` reads, so the in-app menu (lib/appMenu.ts) can
+ * feed the SAME builder without inventing the File-menu state it has no use
+ * for. MenuState extends it, so the native call sites are unchanged.
+ */
+export interface ViewMenuState {
   isMac: boolean;
   mode: 'preview' | 'edit';
   /** SPEC25 §3: the Split Edit checkbox mirrors the persisted setting. */
@@ -94,24 +100,8 @@ export interface MenuState {
   showFrontmatter: boolean;
   /** Issue #10: the line-number gutter (persisted setting). */
   lineNumbers: boolean;
-  /** SPEC29 §3: Open Recent entries, most-recent-first (label ready-made). */
-  recentFiles: Array<{ path: string; label: string }>;
-  /**
-   * PRD 002 §D15: recent workspaces, most-recent-first — the section above
-   * the files in Open Recent. OPTIONAL so pre-existing MenuState call sites
-   * (and frozen test fixtures) stay valid; absent reads as empty.
-   */
-  recentWorkspaces?: Array<{ path: string; label: string }>;
   /** SPEC34 §4.1: the folder sidebar's visibility (persisted setting). */
   showFolders: boolean;
-  /**
-   * PRD 007 Req 19: whether the flavor offers single-file upload/download at
-   * all, and whether this user holds the verb. OPTIONAL so every pre-#76
-   * MenuState call site (and frozen test fixtures) keeps its exact File menu:
-   * absent reads as "no such seam", and the items are simply not there.
-   */
-  canUpload?: boolean;
-  canDownload?: boolean;
   /**
    * PRD 007 Req 17: whether this user may change the open document at all.
    * OPTIONAL so every pre-#79 MenuState call site (and frozen test fixtures)
@@ -143,6 +133,26 @@ export interface MenuState {
   appMode: AppMode;
   /** Issue #22: a document (file or untitled buffer) is open — gates Close File. */
   docOpen: boolean;
+}
+
+/** Everything the whole native menu bar is derived from (SPEC12 §3.2). */
+export interface MenuState extends ViewMenuState {
+  /** SPEC29 §3: Open Recent entries, most-recent-first (label ready-made). */
+  recentFiles: Array<{ path: string; label: string }>;
+  /**
+   * PRD 002 §D15: recent workspaces, most-recent-first — the section above
+   * the files in Open Recent. OPTIONAL so pre-existing MenuState call sites
+   * (and frozen test fixtures) stay valid; absent reads as empty.
+   */
+  recentWorkspaces?: Array<{ path: string; label: string }>;
+  /**
+   * PRD 007 Req 19: whether the flavor offers single-file upload/download at
+   * all, and whether this user holds the verb. OPTIONAL so every pre-#76
+   * MenuState call site (and frozen test fixtures) keeps its exact File menu:
+   * absent reads as "no such seam", and the items are simply not there.
+   */
+  canUpload?: boolean;
+  canDownload?: boolean;
   /**
    * PRD 007 Req 22: the entry actions this flavor can honour (lib/
    * startActions.ts) — the SAME list the start page shows, so the two
@@ -170,6 +180,66 @@ const cmd = (
   ...(checked !== undefined ? { checked } : {}),
   ...(disabled ? { disabled: true } : {}),
 });
+
+/**
+ * PRD 009 Req 12: the View items, in ONE place. The native menu bar's View
+ * submenu is this list, and the in-app menu's View ▸ flyout is this list
+ * mapped to rows (lib/appMenu.ts) — adding an item here adds it to both, and
+ * neither surface holds a second copy to drift from.
+ */
+export function buildViewItems(s: ViewMenuState): MenuItemSpec[] {
+  const wsOpen = s.appMode === 'workspace';
+  // Issue #84: cycling needs two open files in a workspace to mean anything.
+  const noCycle = !wsOpen || (s.openFileCount ?? 0) < 2;
+  // PRD 007 Req 17: absent ⇒ no permission model ⇒ every writing item stays.
+  const noEdit = s.canEdit === false;
+
+  return [
+    // SPEC34 §4.1: layout chrome ahead of the mode toggles. Issue #22:
+    // folder views only exist in workspace mode.
+    cmd('toggleFolders', 'Folders', s.hotkeys.toggleFolders, s.showFolders, !wsOpen),
+    // SPEC36 §5.2: the only-open-files view rides directly after Folders.
+    cmd('toggleOpenOnly', 'Only Open Files', s.hotkeys.toggleOpenOnly, s.openOnly ?? false, !wsOpen),
+    // Issue #84 (SPEC36 §6.4, amended): the cycle is discoverable, not
+    // hotkey-only — accelerators follow the live map.
+    cmd('nextFile', 'Next Open File', s.hotkeys.nextFile, undefined, noCycle),
+    cmd('prevFile', 'Previous Open File', s.hotkeys.prevFile, undefined, noCycle),
+    // Issue #40: edit mode needs an open document (file or untitled) —
+    // grayed on the splash and workspace-no-file states alike.
+    cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit', !s.docOpen || noEdit),
+    // SPEC25 §3: split is a first-class toggle, not just a Settings checkbox.
+    cmd('toggleSplit', 'Split Edit', s.hotkeys.toggleSplit, s.splitEdit),
+    // Master switch off (SPEC7 §2): the comments UI is gone, menu included —
+    // navigation items too (SPEC14 §2.3).
+    ...(s.commentsEnabled
+      ? [
+          cmd(
+            'toggleComments',
+            s.commentCount > 0 ? `Comments (${s.commentCount})` : 'Comments',
+            s.hotkeys.toggleComments,
+            s.showComments
+          ),
+          cmd('nextComment', 'Next Comment', s.hotkeys.nextComment),
+          cmd('prevComment', 'Previous Comment', s.hotkeys.prevComment),
+        ]
+      : []),
+    // SPEC16 §2: diff toggle exists only where an editor does.
+    ...(s.mode === 'edit' ? [cmd('toggleDiff', 'Changes Since Save', undefined, s.showDiff)] : []),
+    cmd('headingPalette', 'Go to Heading…', s.hotkeys.headingPalette),
+    cmd('toggleWordCount', 'Word Count', s.hotkeys.toggleWordCount, s.showWordCount),
+    // SPEC26 §3: session toggle for the metadata card (no accelerator).
+    cmd('toggleFrontmatter', 'Front Matter', undefined, s.showFrontmatter),
+    // Issue #10: the gutter's only home now that Settings dropped it — a
+    // checkbox mirroring the persisted setting, deliberately hotkey-less.
+    cmd('toggleLineNumbers', 'Line Numbers', undefined, s.lineNumbers),
+    sep,
+    // Zoom In sits on the = key (⌘+ without Shift), the platform convention.
+    cmd('zoomIn', 'Zoom In', 'Mod+='),
+    cmd('zoomOut', 'Zoom Out', 'Mod+-'),
+    cmd('zoomReset', 'Actual Size', 'Mod+0'),
+    ...(s.isMac ? [sep, pre('Fullscreen')] : []),
+  ];
+}
 
 /** SPEC12 §1: the full native menu layout for the current platform + state. */
 export function buildMenuSpec(s: MenuState): MenuSpec {
@@ -219,59 +289,12 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
     ],
   };
 
-  // Issue #84: cycling needs two open files in a workspace to mean anything.
-  const noCycle = !wsOpen || (s.openFileCount ?? 0) < 2;
   // PRD 007 Req 17: absent ⇒ no permission model ⇒ every writing item stays.
   const noEdit = s.canEdit === false;
 
-  const viewMenu: SubmenuSpec = {
-    title: 'View',
-    items: [
-      // SPEC34 §4.1: layout chrome ahead of the mode toggles. Issue #22:
-      // folder views only exist in workspace mode.
-      cmd('toggleFolders', 'Folders', s.hotkeys.toggleFolders, s.showFolders, !wsOpen),
-      // SPEC36 §5.2: the only-open-files view rides directly after Folders.
-      cmd('toggleOpenOnly', 'Only Open Files', s.hotkeys.toggleOpenOnly, s.openOnly ?? false, !wsOpen),
-      // Issue #84 (SPEC36 §6.4, amended): the cycle is discoverable, not
-      // hotkey-only — accelerators follow the live map.
-      cmd('nextFile', 'Next Open File', s.hotkeys.nextFile, undefined, noCycle),
-      cmd('prevFile', 'Previous Open File', s.hotkeys.prevFile, undefined, noCycle),
-      // Issue #40: edit mode needs an open document (file or untitled) —
-      // grayed on the splash and workspace-no-file states alike.
-      cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit', !s.docOpen || noEdit),
-      // SPEC25 §3: split is a first-class toggle, not just a Settings checkbox.
-      cmd('toggleSplit', 'Split Edit', s.hotkeys.toggleSplit, s.splitEdit),
-      // Master switch off (SPEC7 §2): the comments UI is gone, menu included —
-      // navigation items too (SPEC14 §2.3).
-      ...(s.commentsEnabled
-        ? [
-            cmd(
-              'toggleComments',
-              s.commentCount > 0 ? `Comments (${s.commentCount})` : 'Comments',
-              s.hotkeys.toggleComments,
-              s.showComments
-            ),
-            cmd('nextComment', 'Next Comment', s.hotkeys.nextComment),
-            cmd('prevComment', 'Previous Comment', s.hotkeys.prevComment),
-          ]
-        : []),
-      // SPEC16 §2: diff toggle exists only where an editor does.
-      ...(s.mode === 'edit' ? [cmd('toggleDiff', 'Changes Since Save', undefined, s.showDiff)] : []),
-      cmd('headingPalette', 'Go to Heading…', s.hotkeys.headingPalette),
-      cmd('toggleWordCount', 'Word Count', s.hotkeys.toggleWordCount, s.showWordCount),
-      // SPEC26 §3: session toggle for the metadata card (no accelerator).
-      cmd('toggleFrontmatter', 'Front Matter', undefined, s.showFrontmatter),
-      // Issue #10: the gutter's only home now that Settings dropped it — a
-      // checkbox mirroring the persisted setting, deliberately hotkey-less.
-      cmd('toggleLineNumbers', 'Line Numbers', undefined, s.lineNumbers),
-      sep,
-      // Zoom In sits on the = key (⌘+ without Shift), the platform convention.
-      cmd('zoomIn', 'Zoom In', 'Mod+='),
-      cmd('zoomOut', 'Zoom Out', 'Mod+-'),
-      cmd('zoomReset', 'Actual Size', 'Mod+0'),
-      ...(s.isMac ? [sep, pre('Fullscreen')] : []),
-    ],
-  };
+  // PRD 009 Req 12: the shared list — the in-app menu builds its View ▸ rows
+  // from this very builder (lib/appMenu.ts), so the two cannot drift.
+  const viewMenu: SubmenuSpec = { title: 'View', items: buildViewItems(s) };
 
   const helpItem = cmd('help', 'Marky Mark Help');
 

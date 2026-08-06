@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useRef, useState } from 'react';
-import type { AppMenuGroup } from '../lib/appMenu';
+import type { AppMenuGroup, AppMenuRow } from '../lib/appMenu';
 import type { CommandId } from '../lib/commands';
 import { displayCombo, type HotkeyMap } from '../lib/hotkeys';
 
@@ -110,6 +110,8 @@ function CommentsIcon() {
  */
 export function Toolbar(p: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
+  // PRD 009 Req 12: the View ▸ flyout, open only over an open menu.
+  const [subOpen, setSubOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const onMenuOpenChange = p.onMenuOpenChange;
 
@@ -130,6 +132,58 @@ export function Toolbar(p: Props) {
 
   // PRD 007 Req 17: absent ⇒ no permission model ⇒ the Edit toggle stays.
   const canEdit = p.canEdit !== false;
+  // PRD 009 Req 12: the flyout closes with the menu it hangs off.
+  useEffect(() => {
+    if (!menuOpen) setSubOpen(false);
+  }, [menuOpen]);
+  const submenuRows = p.menu.flatMap((g) => g.rows).find((r) => r.submenu)?.submenu;
+
+  /**
+   * PRD 009 Req 8/12: one row renderer for both panels — this component still
+   * decides nothing about membership, order, checked or disabled state.
+   */
+  const renderRow = (r: AppMenuRow, gutter = false) => {
+    const combo = r.hotkey ? p.hotkeys[r.hotkey] : r.accel;
+    return (
+      <button
+        key={r.testId}
+        className="theme-option"
+        data-testid={r.testId}
+        disabled={r.disabled}
+        role={r.checked !== undefined ? 'menuitemcheckbox' : undefined}
+        aria-checked={r.checked}
+        aria-haspopup={r.submenu ? 'menu' : undefined}
+        aria-expanded={r.submenu ? subOpen : undefined}
+        onClick={() => {
+          // Req 8/12: a submenu parent dispatches nothing — it opens its
+          // flyout and leaves the menu open behind it.
+          if (r.submenu) {
+            setSubOpen((o) => !o);
+            return;
+          }
+          if (!r.command) return;
+          setMenuOpen(false);
+          p.onCommand(r.command);
+        }}
+      >
+        {/* Req 12: a checkbox row shows whether it is currently on — and in a
+            panel that has any, every row reserves the column so the labels
+            still line up. */}
+        {(gutter || r.checked !== undefined) && (
+          <span className="menu-check" data-testid={`${r.testId}-check`} aria-hidden="true">
+            {r.checked ? '✓' : ''}
+          </span>
+        )}
+        <span style={{ flex: 1 }}>{r.label}</span>
+        {combo && <kbd>{displayCombo(combo, p.isMac)}</kbd>}
+        {r.submenu && (
+          <span className="submenu-arrow" aria-hidden="true">
+            ▸
+          </span>
+        )}
+      </button>
+    );
+  };
   // SPEC5 §1: the badge fills the title slot when nothing is named there — so
   // with a workspace named (PRD 009 Req 11) it stands down, document or not.
   const showBadge = p.docName === null && !p.workspaceName;
@@ -151,30 +205,21 @@ export function Toolbar(p: Props) {
                     ends with one is never rendered because empty groups are
                     already gone (lib/appMenu.ts). */}
                 {gi > 0 && <div className="menu-sep" data-testid="menu-sep" role="separator" />}
-                {group.rows.map((r) => (
-                  <button
-                    key={r.testId}
-                    className="theme-option"
-                    data-testid={r.testId}
-                    disabled={r.disabled}
-                    aria-haspopup={r.submenu ? 'menu' : undefined}
-                    onClick={() => {
-                      // Req 8: a submenu parent dispatches nothing (#94 fills
-                      // it) and leaves the menu open.
-                      if (!r.command) return;
-                      setMenuOpen(false);
-                      p.onCommand(r.command);
-                    }}
-                  >
-                    <span style={{ flex: 1 }}>{r.label}</span>
-                    {r.hotkey && <kbd>{displayCombo(p.hotkeys[r.hotkey], p.isMac)}</kbd>}
-                    {r.submenu && (
-                      <span className="submenu-arrow" aria-hidden="true">
-                        ▸
-                      </span>
-                    )}
-                  </button>
-                ))}
+                {group.rows.map((r) => renderRow(r))}
+              </Fragment>
+            ))}
+          </div>
+        )}
+        {/* PRD 009 Req 12: the View ▸ flyout — a panel of its own, so the
+            menu's frozen item set (E13/E201/W13 read `app-menu`'s buttons)
+            keeps reading exactly the top-level rows. It lives inside the
+            menu's subtree, so the outside-click handler above closes both. */}
+        {menuOpen && subOpen && submenuRows && (
+          <div className="theme-menu anchor-left submenu-panel" data-testid="app-menu-view" role="menu">
+            {submenuRows.map((rows, gi) => (
+              <Fragment key={rows[0].testId}>
+                {gi > 0 && <div className="menu-sep" data-testid="menu-sep" role="separator" />}
+                {rows.map((r) => renderRow(r, true))}
               </Fragment>
             ))}
           </div>

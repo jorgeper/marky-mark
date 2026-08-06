@@ -12,6 +12,7 @@
 import type { AppMode } from './appMode';
 import type { CommandId } from './commands';
 import type { HotkeyMap } from './hotkeys';
+import { buildViewItems, type CommandItemSpec, type ViewMenuState } from './menuSpec';
 import type { StartActionId } from './startActions';
 
 /** The groups, in render order (PRD 009 Req 8). */
@@ -29,12 +30,28 @@ export interface AppMenuRow {
   /** The live HotkeyMap entry whose combo shows as the row's hint, if any. */
   hotkey?: keyof HotkeyMap;
   /**
+   * PRD 009 Req 12: a ready-made combo string ("Mod+E") for the hint, the way
+   * the shared menu items carry their accelerator — the alternative to
+   * `hotkey` for rows whose combo the spec builder already resolved.
+   */
+  accel?: string;
+  /**
    * PRD 009 Req 9: momentarily inapplicable, not gone — the row renders as a
    * real disabled button rather than disappearing.
    */
   disabled?: boolean;
-  /** PRD 009 Req 8: View ▸ opens a submenu (#94 fills it), it is not an action. */
-  submenu?: boolean;
+  /**
+   * PRD 009 Req 12: present ⇒ a checkbox row; the value is whether it is
+   * currently on, straight from the shared spec item.
+   */
+  checked?: boolean;
+  /**
+   * PRD 009 Req 8/12: View ▸ opens a submenu, it is not an action. The value
+   * is the flyout's rows in separator-divided groups — same shape as the
+   * top-level groups, so the renderer puts one divider between the groups it
+   * is handed and the panel never starts or ends with one.
+   */
+  submenu?: AppMenuRow[][];
 }
 
 export interface AppMenuGroup {
@@ -59,6 +76,12 @@ export interface AppMenuState {
    * single-file web build — shows no workspace group at all.
    */
   entryActions: readonly StartActionId[];
+  /**
+   * PRD 009 Req 12: the very state the native View menu is built from
+   * (lib/menuSpec.ts) — this menu's View ▸ rows ARE that menu's items, so the
+   * labels, hotkey hints, checked marks and gating cannot drift apart.
+   */
+  view: ViewMenuState;
 }
 
 /** One command row — the counterpart of lib/menuSpec.ts's `cmd` for this menu. */
@@ -75,6 +98,53 @@ const row = (
   ...(hotkey ? { hotkey } : {}),
   ...(disabled !== undefined ? { disabled } : {}),
 });
+
+/**
+ * PRD 009 Req 12: the View rows a flavor with no workspace seam cannot honour
+ * at all — the sidebar and the open-set cycle. Omitted there rather than
+ * permanently greyed (Req 9 greys the *momentarily* inapplicable).
+ */
+const WORKSPACE_VIEW_COMMANDS: ReadonlySet<CommandId> = new Set<CommandId>([
+  'toggleFolders',
+  'toggleOpenOnly',
+  'nextFile',
+  'prevFile',
+]);
+
+/**
+ * PRD 009 Req 12: one shared View item → one in-app row. Everything visible —
+ * label, hint, checked, disabled — rides across; only the test id is this
+ * surface's own, derived from the command rather than spelled out per row.
+ */
+const viewRow = (item: CommandItemSpec): AppMenuRow => ({
+  command: item.command,
+  label: item.label,
+  testId: `menu-view-${item.command}`,
+  ...(item.accelerator ? { accel: item.accelerator } : {}),
+  ...(item.checked !== undefined ? { checked: item.checked } : {}),
+  ...(item.disabled !== undefined ? { disabled: item.disabled } : {}),
+});
+
+/**
+ * PRD 009 Req 12: the View ▸ flyout, derived from the native View menu's own
+ * items (lib/menuSpec.ts `buildViewItems`) — never a second list. Separators
+ * split the rows into groups; items with no in-app meaning (`predefined` —
+ * the mac-only Fullscreen — and the nesting/recent kinds View never uses) are
+ * dropped, and a group left empty by the dropping goes with them.
+ */
+function buildViewRows(s: AppMenuState, hasWorkspaces: boolean): AppMenuRow[][] {
+  const groups: AppMenuRow[][] = [[]];
+  for (const item of buildViewItems(s.view)) {
+    if (item.type === 'predefined') {
+      if (item.item === 'Separator') groups.push([]);
+      continue;
+    }
+    if (item.type !== 'command') continue;
+    if (!hasWorkspaces && WORKSPACE_VIEW_COMMANDS.has(item.command)) continue;
+    groups[groups.length - 1].push(viewRow(item));
+  }
+  return groups.filter((g) => g.length > 0);
+}
 
 /**
  * PRD 009 Req 8/9: the item set. Groups that gate down to zero rows are
@@ -112,8 +182,9 @@ export function buildAppMenu(s: AppMenuState): AppMenuGroup[] {
       ]
     : [];
 
-  // PRD 009 Req 8: the submenu slot. #94 fills it; it dispatches nothing.
-  const view: AppMenuRow[] = [{ label: 'View', testId: 'menu-view', submenu: true }];
+  // PRD 009 Req 8/12: the submenu parent — it dispatches nothing; its rows
+  // are the native View menu's own items.
+  const view: AppMenuRow[] = [{ label: 'View', testId: 'menu-view', submenu: buildViewRows(s, hasWorkspaces) }];
 
   // PRD 009 Req 8: Sign out (#95) takes the first slot of this group when it
   // lands — hosted only, ahead of Settings…

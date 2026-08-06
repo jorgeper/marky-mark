@@ -868,3 +868,76 @@ test('E155: a native-menu install that REJECTS falls back to the in-app toolbar 
   await selectPhrase(page, PHRASE);
   await expect(page.getByTestId('add-comment-btn')).toBeVisible();
 });
+
+test('E214: PRD 009 Req 12 — View ▸ opens the shared View items: checked, greyed, dispatching, and closing the menu', async ({
+  page,
+}) => {
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  const menu = page.getByTestId('app-menu');
+  const view = page.getByTestId('app-menu-view');
+  await expect(view).toHaveCount(0);
+
+  // The parent row is not an action: it opens the flyout and stays behind it.
+  await menu.getByTestId('menu-view').click();
+  await expect(view).toBeVisible();
+  await expect(menu).toBeVisible();
+
+  // Req 12: the rows are menuSpec's View items — single-file mode on the
+  // desktop shim, comments on, preview mode (so no Changes Since Save).
+  const rows = await view.locator('button').evaluateAll((els) => els.map((el) => el.dataset.testid));
+  expect(rows).toEqual([
+    'menu-view-toggleFolders',
+    'menu-view-toggleOpenOnly',
+    'menu-view-nextFile',
+    'menu-view-prevFile',
+    'menu-view-toggleMode',
+    'menu-view-toggleSplit',
+    'menu-view-toggleComments',
+    'menu-view-nextComment',
+    'menu-view-prevComment',
+    'menu-view-headingPalette',
+    'menu-view-toggleWordCount',
+    'menu-view-toggleFrontmatter',
+    'menu-view-toggleLineNumbers',
+    'menu-view-zoomIn',
+    'menu-view-zoomOut',
+    'menu-view-zoomReset',
+  ]);
+  // One divider, before the zoom group — the panel neither starts nor ends
+  // with one.
+  await expect(view.getByTestId('menu-sep')).toHaveCount(1);
+  // …and the frozen top-level item set (E13) is untouched by the flyout.
+  const top = await menu.locator('button').evaluateAll((els) => els.map((el) => el.dataset.testid));
+  expect(top.filter((id) => id?.startsWith('menu-view-'))).toEqual([]);
+
+  // Checked state is visible and live; a momentarily inapplicable row is a
+  // real disabled button (PRD 009 Req 9), not a missing one.
+  await expect(view.getByTestId('menu-view-toggleLineNumbers')).toHaveAttribute('aria-checked', 'true');
+  await expect(view.getByTestId('menu-view-toggleWordCount')).toHaveAttribute('aria-checked', 'true');
+  await expect(view.getByTestId('menu-view-toggleMode')).toHaveAttribute('aria-checked', 'false');
+  await expect(view.getByTestId('menu-view-toggleFolders')).toBeDisabled();
+  await expect(view.getByTestId('menu-view-nextFile')).toBeDisabled();
+  await expect(view.getByTestId('menu-view-headingPalette')).toBeEnabled();
+
+  // Choosing a row dispatches its existing command and closes the whole menu.
+  await expect(page.getByTestId('word-chip')).toBeVisible();
+  await view.getByTestId('menu-view-toggleWordCount').click();
+  await expect(page.getByTestId('word-chip')).toHaveCount(0);
+  await expect(view).toHaveCount(0);
+  await expect(menu).toHaveCount(0);
+
+  // Reopening shows the flipped check — the submenu reads live state.
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-view').click();
+  await expect(page.getByTestId('app-menu-view').getByTestId('menu-view-toggleWordCount')).toHaveAttribute(
+    'aria-checked',
+    'false'
+  );
+
+  // A click outside closes both panels (one menuRef subtree, one handler).
+  await page.getByTestId('docname').click();
+  await expect(page.getByTestId('app-menu-view')).toHaveCount(0);
+  await expect(page.getByTestId('app-menu')).toHaveCount(0);
+});

@@ -3706,8 +3706,50 @@ export default function App() {
           canCreate: folderGrants.create,
         }),
         entryActions,
+        // PRD 009 Req 12: the View ▸ rows are the native View menu's items,
+        // so this is the very state buildMenuSpec is handed below — on every
+        // flavor, native menu bar installed or not.
+        view: {
+          isMac: !!platform?.isMac,
+          mode,
+          appMode,
+          docOpen,
+          canEdit: docGrants.edit,
+          splitEdit: settings.splitEdit,
+          showComments,
+          commentsEnabled: settings.commentsEnabled,
+          commentCount: comments.length,
+          hotkeys: settings.hotkeys,
+          showDiff,
+          showWordCount: settings.showWordCount,
+          showFrontmatter,
+          lineNumbers: settings.lineNumbers,
+          showFolders: settings.showFolders,
+          openOnly: folderOpenOnly,
+          openFileCount: openFiles.length,
+        },
       }),
-    [appMode, docOpen, docGrants.edit, platform, folderGrants.create, entryActions]
+    [
+      appMode,
+      docOpen,
+      docGrants.edit,
+      platform,
+      folderGrants.create,
+      entryActions,
+      mode,
+      settings.splitEdit,
+      showComments,
+      settings.commentsEnabled,
+      comments.length,
+      settings.hotkeys,
+      showDiff,
+      settings.showWordCount,
+      showFrontmatter,
+      settings.lineNumbers,
+      settings.showFolders,
+      folderOpenOnly,
+      openFiles.length,
+    ]
   );
 
   /**
