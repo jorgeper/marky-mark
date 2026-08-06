@@ -1,4 +1,5 @@
 import type { Platform } from './types';
+import { detectHostedMode } from '../lib/hostedGate';
 
 export type { Platform } from './types';
 
@@ -8,20 +9,31 @@ function isTauri(): boolean {
   return '__TAURI_INTERNALS__' in window;
 }
 
+/**
+ * PRD 007 Req 2+5: only HTML served by the hosted backend carries the
+ * injected marker, so Tauri, the dev shim and static web hosting resolve
+ * exactly as before — the hosted platform exists for them nowhere.
+ */
+function isHosted(): boolean {
+  return detectHostedMode(document) !== null;
+}
+
 /** Dev server and e2e runs use the localStorage fs shim; production web builds
  * must get the real static-web platform (SPEC2 FR-B.1). */
 function useShim(): boolean {
   return import.meta.env.DEV || new URLSearchParams(window.location.search).has('shim');
 }
 
-/** Resolve the platform once: Tauri host, dev/e2e shim, or static web. */
+/** Resolve the platform once: Tauri host, hosted backend, dev/e2e shim, or static web. */
 export function getPlatform(): Promise<Platform> {
   if (!instance) {
     instance = isTauri()
       ? import('./tauri').then((m) => m.createTauriPlatform())
-      : useShim()
-        ? import('./browser').then((m) => m.createBrowserPlatform())
-        : import('./web').then((m) => m.createWebPlatform());
+      : isHosted()
+        ? import('./hosted').then((m) => m.createHostedPlatform())
+        : useShim()
+          ? import('./browser').then((m) => m.createBrowserPlatform())
+          : import('./web').then((m) => m.createWebPlatform());
   }
   return instance;
 }

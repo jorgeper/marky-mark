@@ -310,9 +310,11 @@ console.log(`dist-web/index.html is self-contained (single file, no external scr
 console.log('\n=== validate: static bundle scan (network call sites) ===');
 // PRD 007 Req 5: the hosted sign-in gate funnels every request (sign-in,
 // session validation, the PKCE token exchange) through the single wrapper in
-// src/components/HostedSignIn.tsx — one fetch( per bundle (dist/ and
-// dist-web/), reachable only when the served HTML carries the hosted marker.
-const FETCH_ALLOWLIST = 2;
+// src/components/HostedSignIn.tsx. PRD 007 Req 2: the hosted Platform
+// implementation funnels every API call through the single wrapper in
+// src/platform/hosted.ts. Two call sites per bundle (dist/ and dist-web/),
+// both reachable only when the served HTML carries the hosted marker.
+const FETCH_ALLOWLIST = 4;
 const FORBIDDEN = ['XMLHttpRequest(', 'new WebSocket', 'sendBeacon', 'new EventSource'];
 const bundleTargets = [
   path.join(distWeb, 'index.html'),

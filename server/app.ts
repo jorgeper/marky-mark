@@ -12,7 +12,16 @@ import path from 'node:path';
 import type { ServerMode } from './config.ts';
 import { cleanRelativePath, readBody, sendJson, tryDecode } from './http.ts';
 import type { Providers, RequestAuth } from './providers/types.ts';
+import { handleUserFilesApi, USERS_PREFIX } from './userFiles.ts';
 import { handleWorkspaceApi, WORKSPACES_PREFIX } from './workspaces.ts';
+
+/**
+ * PRD 007 Req 9+13: prefixes the workspace-agnostic /api/files scaffold must
+ * never reach — workspace data is permission-checked at /api/workspaces, and
+ * per-user data is token-scoped at /api/me/files. Neither may be read (or
+ * listed) through a route that applies neither check.
+ */
+const RESERVED_PREFIXES = [WORKSPACES_PREFIX, USERS_PREFIX];
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -64,7 +73,16 @@ async function handleApi(
   }
 
   const header = req.headers.authorization ?? '';
-  const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : '';
+  // PRD 007 Req 8: an <img> element cannot carry an Authorization header, so
+  // GETs may also present the session token as `?access_token=`. GET only
+  // and same-origin only: a token in a query string must never be able to
+  // mutate anything, and the app's external-link policy keeps the URL from
+  // being handed to another origin as a Referer.
+  const token = header.startsWith('Bearer ')
+    ? header.slice('Bearer '.length)
+    : req.method === 'GET'
+      ? (url.searchParams.get('access_token') ?? '')
+      : '';
   const user = token ? await providers.auth.validateToken(token) : null;
   if (!user) {
     sendJson(res, 401, { error: 'authentication required' });
@@ -124,16 +142,28 @@ async function handleApi(
   // PRD 007 Req 7+13: everything under /api/workspaces is per-workspace
   // scoped and permission-checked (server/workspaces.ts).
   if (pathname === '/api/workspaces' || pathname.startsWith('/api/workspaces/')) {
-    await handleWorkspaceApi(req, res, pathname, providers.storage, auth);
+    await handleWorkspaceApi(req, res, url, providers.storage, auth);
+    return;
+  }
+
+  // PRD 007 Req 9: the signed-in user's own blobs — the roaming User settings
+  // layer and personal themes (server/userFiles.ts). Scoped to the token's
+  // user, never to a name in the URL.
+  if (pathname === '/api/me/files' || pathname.startsWith('/api/me/files/')) {
+    await handleUserFilesApi(req, res, pathname, providers.storage, auth);
     return;
   }
 
   if (pathname === '/api/files' && req.method === 'GET') {
     const listed = await providers.storage.list(url.searchParams.get('prefix') ?? '');
-    // PRD 007 Req 13: the workspace root is invisible to the workspace-
-    // agnostic scaffold — its blobs (manifests included) are reachable only
-    // through the permission-checked /api/workspaces endpoints.
-    sendJson(res, 200, listed.filter((f) => !f.path.startsWith(WORKSPACES_PREFIX)));
+    // PRD 007 Req 9+13: the workspace and per-user roots are invisible to the
+    // workspace-agnostic scaffold — their blobs (manifests included) are
+    // reachable only through the endpoints that check who may see them.
+    sendJson(
+      res,
+      200,
+      listed.filter((f) => !RESERVED_PREFIXES.some((p) => f.path.startsWith(p))),
+    );
     return;
   }
 
@@ -143,10 +173,10 @@ async function handleApi(
       sendJson(res, 400, { error: 'invalid file path' });
       return;
     }
-    // PRD 007 Req 13: workspace data never bypasses its permission checks
-    // via the legacy scaffold.
-    if (filePath.startsWith(WORKSPACES_PREFIX)) {
-      sendJson(res, 403, { error: 'workspace data is served by /api/workspaces' });
+    // PRD 007 Req 9+13: workspace and per-user data never bypass their
+    // access checks via the legacy scaffold.
+    if (RESERVED_PREFIXES.some((p) => filePath.startsWith(p))) {
+      sendJson(res, 403, { error: 'reserved data is served by /api/workspaces and /api/me/files' });
       return;
     }
     if (req.method === 'GET') {

@@ -16,6 +16,9 @@ import type { WorkspaceManifest } from '../../src/lib/hostedWorkspace';
 /** An in-memory StorageProvider — the seam contract, no Azure. */
 function createMemoryStorage(): { provider: StorageProvider; blobs: Map<string, string> } {
   const blobs = new Map<string, string>();
+  // PRD 007 Req 8: blobs written as bytes keep their bytes and media type;
+  // the text view decodes them, exactly as a real blob store behaves.
+  const binaries = new Map<string, { data: Uint8Array; contentType: string }>();
   let stamp = 0;
   const provider: StorageProvider = {
     kind: 'memory',
@@ -24,10 +27,25 @@ function createMemoryStorage(): { provider: StorageProvider; blobs: Map<string, 
       return content === undefined ? null : { content, etag: `e${path.length}` };
     },
     async write(path, content) {
+      binaries.delete(path);
       blobs.set(path, content);
       return { etag: `e${++stamp}` };
     },
+    async readBytes(path) {
+      const raw = binaries.get(path);
+      if (raw) return { ...raw, etag: `b${path.length}` };
+      const content = blobs.get(path);
+      return content === undefined
+        ? null
+        : { data: new TextEncoder().encode(content), contentType: 'text/plain; charset=utf-8', etag: `e${path.length}` };
+    },
+    async writeBytes(path, data, contentType) {
+      binaries.set(path, { data, contentType });
+      blobs.set(path, `<${data.length} bytes>`);
+      return { etag: `b${++stamp}` };
+    },
     async delete(path) {
+      binaries.delete(path);
       return blobs.delete(path);
     },
     async list(prefix) {
@@ -213,6 +231,96 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
         .end();
     });
     expect(rawStatus).toBe(404);
+    blobs.clear();
+  });
+
+  it('U269: raw workspace blobs round-trip bytes, are served with an extension-derived type, and stay permission-checked', async () => {
+    // PRD 007 Req 8: pasted images are workspace blobs — bytes in, bytes out,
+    // behind the same doc.edit / doc.read verbs as any other file.
+    const id = await createWorkspace('ada', 'Images');
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff]);
+    const put = await fetch(`${base}/api/workspaces/${id}/files/images/pic.png?raw=1`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${tokens.ada}`, 'Content-Type': 'application/octet-stream' },
+      body: png,
+    });
+    expect(put.status).toBe(200);
+
+    const got = await call('ada', 'GET', `/api/workspaces/${id}/files/images/pic.png?raw=1`);
+    expect(got.status).toBe(200);
+    expect(got.headers.get('content-type')).toBe('image/png');
+    expect(new Uint8Array(await got.arrayBuffer())).toEqual(png);
+    // The uploader's Content-Type never decides how bytes come back: a file
+    // named .html is a download, so a "pasted image" can never be same-origin
+    // script.
+    await fetch(`${base}/api/workspaces/${id}/files/evil.html?raw=1`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${tokens.ada}`, 'Content-Type': 'text/html' },
+      body: new Uint8Array([0x3c]),
+    });
+    const evil = await call('ada', 'GET', `/api/workspaces/${id}/files/evil.html?raw=1`);
+    expect(evil.headers.get('content-type')).toBe('application/octet-stream');
+    // A non-member sees the same 403 the JSON view gives, and a missing blob 404s.
+    expect((await call('grace', 'GET', `/api/workspaces/${id}/files/images/pic.png?raw=1`)).status).toBe(403);
+    expect((await call('ada', 'GET', `/api/workspaces/${id}/files/images/none.png?raw=1`)).status).toBe(404);
+    blobs.clear();
+  });
+
+  it('U270: an <img>-shaped GET authenticates with ?access_token=, but a write with one stays 401', async () => {
+    // PRD 007 Req 8: an image element cannot send an Authorization header.
+    // The query-string token is a GET-only concession — it must never mutate.
+    const id = await createWorkspace('ada', 'Asset URLs');
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    await fetch(`${base}/api/workspaces/${id}/files/images/a.png?raw=1`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${tokens.ada}` },
+      body: png,
+    });
+    const viaQuery = await fetch(
+      `${base}/api/workspaces/${id}/files/images/a.png?raw=1&access_token=${encodeURIComponent(tokens.ada)}`,
+    );
+    expect(viaQuery.status).toBe(200);
+    expect(new Uint8Array(await viaQuery.arrayBuffer())).toEqual(png);
+    // No token at all is still 401, and a bad one too.
+    expect((await fetch(`${base}/api/workspaces/${id}/files/images/a.png?raw=1`)).status).toBe(401);
+    expect(
+      (await fetch(`${base}/api/workspaces/${id}/files/images/a.png?raw=1&access_token=nonsense`)).status,
+    ).toBe(401);
+    // A PUT carrying the same token in the query is unauthenticated.
+    const write = await fetch(
+      `${base}/api/workspaces/${id}/files/images/a.png?raw=1&access_token=${encodeURIComponent(tokens.ada)}`,
+      { method: 'PUT', body: png },
+    );
+    expect(write.status).toBe(401);
+    blobs.clear();
+  });
+
+  it('U271: per-user blobs are scoped to the token, invisible to other users and to the /api/files scaffold', async () => {
+    // PRD 007 Req 9: the roaming User settings layer. The prefix comes from
+    // the validated token, so there is no URL by which one user names
+    // another's blobs — and the workspace-agnostic scaffold cannot see them.
+    expect((await call('ada', 'PUT', '/api/me/files/settings.json', '{"themeLight":"nord"}')).status).toBe(200);
+    const mine = await call('ada', 'GET', '/api/me/files/settings.json');
+    expect(mine.status).toBe(200);
+    expect((await mine.json()) as { content: string }).toMatchObject({
+      path: 'settings.json',
+      content: '{"themeLight":"nord"}',
+    });
+    // It landed under the user's own prefix…
+    expect([...blobs.keys()]).toEqual(['users/mock-ada/settings.json']);
+    // …a different user has their own empty view of the same endpoint…
+    expect((await call('grace', 'GET', '/api/me/files/settings.json')).status).toBe(404);
+    expect(await (await call('grace', 'GET', '/api/me/files')).json()).toEqual([]);
+    // …the listing is user-relative…
+    const listed = (await (await call('ada', 'GET', '/api/me/files')).json()) as { path: string }[];
+    expect(listed.map((f) => f.path)).toEqual(['settings.json']);
+    // …and the scaffold can neither read nor list it.
+    expect((await call('grace', 'GET', '/api/files/users/mock-ada/settings.json')).status).toBe(403);
+    const scaffold = (await (await call('grace', 'GET', '/api/files')).json()) as { path: string }[];
+    expect(scaffold).toEqual([]);
+    // Deleting is scoped the same way.
+    expect((await call('grace', 'DELETE', '/api/me/files/settings.json')).status).toBe(404);
+    expect((await call('ada', 'DELETE', '/api/me/files/settings.json')).status).toBe(200);
     blobs.clear();
   });
 });

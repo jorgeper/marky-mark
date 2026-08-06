@@ -52,6 +52,13 @@ export interface FileStat {
   etag: string;
 }
 
+/** A stored file's raw bytes plus the media type it was written with. */
+export interface StoredBytes {
+  data: Uint8Array;
+  contentType: string;
+  etag: string;
+}
+
 /** Storage seam: file contents + metadata. */
 export interface StorageProvider {
   readonly kind: string;
@@ -60,6 +67,14 @@ export interface StorageProvider {
   /** Read a file, or null when it does not exist. */
   read(path: string): Promise<{ content: string; etag: string } | null>;
   write(path: string, content: string): Promise<{ etag: string }>;
+  /**
+   * PRD 007 Req 8: the same blobs as bytes. Pasted images are stored and
+   * served without a text round trip — blob storage is byte-native, so
+   * base64-in-a-string would only be a lossy detour — and the media type
+   * rides along so the webview gets a usable Content-Type back.
+   */
+  readBytes(path: string): Promise<StoredBytes | null>;
+  writeBytes(path: string, data: Uint8Array, contentType: string): Promise<{ etag: string }>;
   /** Delete a file; resolves false when it did not exist. */
   delete(path: string): Promise<boolean>;
   /** List files under a prefix ('' lists everything). */

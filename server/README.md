@@ -126,13 +126,17 @@ calling user, and answer `403` (naming the verb) when it is missing.
 | `GET /api/workspaces/<id>/manifest` | `doc.read` | `{id, manifest}`. |
 | `PUT /api/workspaces/<id>/manifest` | `workspace.settings` | Validate + store the full manifest (`created` preserved, `modified` restamped server-side); finer-grained member/role endpoints are #77. |
 | `GET /api/workspaces/<id>/files` | `doc.read` | List the workspace's files, workspace-relative paths. |
-| `GET /api/workspaces/<id>/files/<path>` | `doc.read` | Read: `{path, content, etag}`, or 404. |
-| `PUT /api/workspaces/<id>/files/<path>` | `doc.edit` | Write body as content → `{path, etag}`. |
+| `GET /api/workspaces/<id>/files/<path>` | `doc.read` | Read: `{path, content, etag}`, or 404. With `?raw=1` the blob's bytes, typed from its extension (PRD 007 Req 8: pasted images). A GET may also authenticate with `?access_token=` — an `<img>` cannot send a header; writes never can. |
+| `PUT /api/workspaces/<id>/files/<path>` | `doc.edit` | Write body as content → `{path, etag}`. With `?raw=1` the body is stored as raw bytes. |
 | `DELETE /api/workspaces/<id>/files/<path>` | `file.delete` | Delete; 404 when absent. |
-| `GET /api/files` (`?prefix=`) | — (signed-in; legacy workspace-agnostic scaffold — never lists `workspaces/`) | List stored files (path, size, lastModified, etag). |
-| `GET /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` path) | Read: `{path, content, etag}`, or 404. |
-| `PUT /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` path) | Write body as content → `{path, etag}`. |
-| `DELETE /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` path) | Delete; 404 when absent. |
+| `GET /api/me/files` | — (signed-in; scoped to the token's user) | List the caller's own blobs, user-relative paths (PRD 007 Req 9: the roaming User settings layer). |
+| `GET /api/me/files/<path>` | — (signed-in; scoped to the token's user) | Read: `{path, content, etag}`, or 404. |
+| `PUT /api/me/files/<path>` | — (signed-in; scoped to the token's user) | Write body as content → `{path, etag}`. |
+| `DELETE /api/me/files/<path>` | — (signed-in; scoped to the token's user) | Delete; 404 when absent. |
+| `GET /api/files` (`?prefix=`) | — (signed-in; legacy workspace-agnostic scaffold — never lists `workspaces/` or `users/`) | List stored files (path, size, lastModified, etag). |
+| `GET /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` or `users/` path) | Read: `{path, content, etag}`, or 404. |
+| `PUT /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` or `users/` path) | Write body as content → `{path, etag}`. |
+| `DELETE /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` or `users/` path) | Delete; 404 when absent. |
 | `GET /api/directory/search?q=` | — (signed-in) | Directory user search. Results carry a same-origin `avatarUrl` when the user has a photo. |
 | `GET /api/directory/users/<id>` | — (signed-in) | One directory user, or 404. |
 | `GET /api/directory/users/<id>/photo` | — (signed-in) | Profile photo bytes (avatar). 404 when the user has no photo or is unknown. |

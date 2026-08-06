@@ -1,5 +1,6 @@
-import type { APIRequestContext } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
+import { addComment, openSettings, pasteImage } from './helpers';
 
 // PRD 007 Req 1+4: the hosted backend in local dev mode — booted by the
 // second `webServer` entry in playwright.config.ts (`npm run server:local`:
@@ -356,4 +357,226 @@ test('E174: a non-member of a workspace without everyone-access gets 403 reading
   const list = await request.get(`${HOSTED}/api/workspaces`, { headers: alan });
   const listed = (await list.json()) as { id: string }[];
   expect(listed.map((w) => w.id)).toContain(id);
+});
+
+// --- the hosted Platform implementation (PRD 007 Req 2/8/9) ------------------
+
+/** A workspace whose `members` are added to the creator, each with `role`. */
+async function sharedWorkspace(
+  request: APIRequestContext,
+  ownerToken: string,
+  name: string,
+  members: Array<{ id: string; role: string }>,
+): Promise<string> {
+  const headers = { Authorization: `Bearer ${ownerToken}` };
+  const id = await createWorkspace(request, ownerToken, name);
+  const { manifest } = (await (
+    await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, { headers })
+  ).json()) as { manifest: { members: Array<{ id: string; role: string }> } };
+  manifest.members.push(...members);
+  const update = await request.put(`${HOSTED}/api/workspaces/${id}/manifest`, { headers, data: manifest });
+  expect(update.status()).toBe(200);
+  return id;
+}
+
+/** Sign in through the UI as `username` with the page bound to a workspace. */
+async function signInTo(page: Page, username: string, workspace?: string): Promise<void> {
+  await page.goto(`${HOSTED}/${workspace ? `?workspace=${workspace}` : ''}`);
+  await page.getByTestId('hosted-sign-in-username').fill(username);
+  await page.getByTestId('hosted-sign-in-submit').click();
+}
+
+/** Drop the stored session so the next load is a fresh signed-out browser. */
+async function signOut(page: Page): Promise<void> {
+  await page.evaluate(() => window.localStorage.clear());
+}
+
+/** Open a document from the hosted workspace's folder sidebar. */
+async function openFromSidebar(page: Page, name: string): Promise<void> {
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await page.getByTestId('folder-item').filter({ hasText: name }).first().click();
+  await expect(page.getByTestId('docname')).toContainText(name);
+}
+
+const PHRASE = 'anchored in the shared document';
+const SHARED_DOC = `# Shared\n\nA line ${PHRASE} for both members to see.\n`;
+
+test('E175: a comment one member writes is a workspace blob the next member reads back', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 2+8: the hosted platform IS the seam — the sidebar, the
+  // document and the comment sidecar all resolve through the REST API. The
+  // sidecar lands inside the workspace prefix, so a second signed-in member
+  // opening the same document sees the comment.
+  const ada = await signIn(request, 'ada');
+  const id = await sharedWorkspace(request, ada, `E175 w${test.info().workerIndex}`, [
+    { id: 'mock-grace', role: 'Editor' },
+  ]);
+  const put = await request.put(`${HOSTED}/api/workspaces/${id}/files/shared.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: SHARED_DOC,
+  });
+  expect(put.status()).toBe(200);
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'shared.md');
+  await addComment(page, PHRASE, 'Ada was here');
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+
+  // The sidecar is a blob under the workspace prefix (Req 8), not browser
+  // storage — the API sees it as an ordinary workspace file.
+  const sidecar = `${HOSTED}/api/workspaces/${id}/files/shared.md.comments.json`;
+  await expect
+    .poll(async () => (await request.get(sidecar, { headers: { Authorization: `Bearer ${ada}` } })).status(), {
+      timeout: 10_000,
+    })
+    .toBe(200);
+
+  // A DIFFERENT signed-in member, in a fresh session, opens the same document.
+  await signOut(page);
+  await signInTo(page, 'grace', id);
+  await openFromSidebar(page, 'shared.md');
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('comment-card')).toContainText('Ada was here');
+});
+
+test('E176: a pasted image is a workspace blob that renders for a second member', async ({ page, request }) => {
+  // PRD 007 Req 8: writeBinaryFile PUTs the bytes into the workspace, and
+  // resolveAssetSrc maps the doc-relative ref to a same-origin URL the
+  // signed-in webview can load — for every member with doc.read.
+  const TINY_PNG =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const ada = await signIn(request, 'ada');
+  const id = await sharedWorkspace(request, ada, `E176 w${test.info().workerIndex}`, [
+    { id: 'mock-grace', role: 'Editor' },
+  ]);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/pics.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Pics\n\nPaste lands here.\n',
+  });
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'pics.md');
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await pasteImage(page, TINY_PNG);
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('![pics 1](images/pics%201.png)');
+
+  // The bytes are a workspace blob, served back with an image media type.
+  const asset = `${HOSTED}/api/workspaces/${id}/files/images/pics 1.png?raw=1`;
+  await expect
+    .poll(async () => (await request.get(asset, { headers: { Authorization: `Bearer ${ada}` } })).status(), {
+      timeout: 10_000,
+    })
+    .toBe(200);
+  const bytes = await request.get(asset, { headers: { Authorization: `Bearer ${ada}` } });
+  expect(bytes.headers()['content-type']).toBe('image/png');
+  expect((await bytes.body()).length).toBeGreaterThan(0);
+
+  // Ada saves the document, then Grace opens it and the image renders for her.
+  await page.keyboard.press('Control+s');
+  await expect
+    .poll(
+      async () =>
+        (
+          (await (
+            await request.get(`${HOSTED}/api/workspaces/${id}/files/pics.md`, {
+              headers: { Authorization: `Bearer ${ada}` },
+            })
+          ).json()) as { content: string }
+        ).content,
+      { timeout: 10_000 },
+    )
+    .toContain('images/pics%201.png');
+
+  await signOut(page);
+  await signInTo(page, 'grace', id);
+  await openFromSidebar(page, 'pics.md');
+  const img = page.getByTestId('doc').locator('img[alt="pics 1"]');
+  await expect(img).toBeVisible();
+  // The src is the app's own origin carrying the signed-in session — never a
+  // data: URI trapped in the pasting member's browser.
+  expect(await img.getAttribute('src')).toContain(`/api/workspaces/${id}/files/images/pics%201.png?raw=1`);
+  expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+});
+
+test('E177: the User settings layer roams per user while the Workspace layer comes from the manifest', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 9: the PRD 002 layers in the hosted flavor — User is a
+  // per-user blob behind /api/me/files (outside every workspace prefix),
+  // Workspace is the manifest's own `settings` slot.
+  const ada = await signIn(request, 'ada');
+  const grace = await signIn(request, 'grace');
+  // Per-user blobs outlive a test run (that is the point of roaming), so
+  // start both users from a clean User layer — otherwise "the theme Ada
+  // picked" could be whatever a previous run left behind.
+  for (const token of [ada, grace]) {
+    await request.delete(`${HOSTED}/api/me/files/settings.json`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+  const id = await sharedWorkspace(request, ada, `E177 w${test.info().workerIndex}`, [
+    { id: 'mock-grace', role: 'Editor' },
+  ]);
+  // The workspace pins a W-scoped setting in its manifest.
+  const headers = { Authorization: `Bearer ${ada}` };
+  const { manifest } = (await (
+    await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, { headers })
+  ).json()) as { manifest: Record<string, unknown> };
+  const pinned = await request.put(`${HOSTED}/api/workspaces/${id}/manifest`, {
+    headers,
+    data: { ...manifest, settings: { imageFolder: 'shared-assets' } },
+  });
+  expect(pinned.status()).toBe(200);
+
+  // Ada changes a personal (User-layer) setting in the app.
+  await signInTo(page, 'ada', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await openSettings(page);
+  const themeSelect = page.getByTestId('settings-theme-light');
+  const chosen = await themeSelect.evaluate((el: HTMLSelectElement) => {
+    const other = [...el.options].find((o) => o.value !== el.value)!;
+    return other.value;
+  });
+  await themeSelect.selectOption(chosen);
+  // The Workspace layer is already in force: it came from the manifest.
+  await page.getByTestId('settings-tab-editor').click();
+  await expect(page.getByTestId('image-folder')).toHaveValue('shared-assets');
+  await page.getByTestId('settings-close').click();
+
+  // It is stored server-side under her own prefix, not in this browser.
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`${HOSTED}/api/me/files/settings.json`, { headers });
+        return res.ok() ? ((await res.json()) as { content: string }).content : '';
+      },
+      { timeout: 10_000 },
+    )
+    .toContain(chosen);
+
+  // A fresh browser session as the SAME user gets the setting back (roaming),
+  // and the manifest's pinned Workspace-layer value applies as well.
+  await signOut(page);
+  await signInTo(page, 'ada', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await openSettings(page);
+  await expect(page.getByTestId('settings-theme-light')).toHaveValue(chosen);
+  await page.getByTestId('settings-tab-editor').click();
+  await expect(page.getByTestId('image-folder')).toHaveValue('shared-assets');
+  await page.getByTestId('settings-close').click();
+
+  // A DIFFERENT user inherits neither: their own User layer is untouched…
+  await signOut(page);
+  await signInTo(page, 'grace', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await openSettings(page);
+  await expect(page.getByTestId('settings-theme-light')).not.toHaveValue(chosen);
+  // …while the Workspace layer, which belongs to the workspace and not to a
+  // person, applies to her too.
+  await page.getByTestId('settings-tab-editor').click();
+  await expect(page.getByTestId('image-folder')).toHaveValue('shared-assets');
 });

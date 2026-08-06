@@ -12,6 +12,28 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
   res.end(data);
 }
 
+/**
+ * PRD 007 Req 8: the raw request body. Pasted-image uploads are bytes, not
+ * text, so the binary endpoints read them without a utf8 round trip.
+ */
+export function readBodyBytes(req: IncomingMessage): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    req.on('data', (chunk: Uint8Array) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error('request body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(new Uint8Array(Buffer.concat(chunks))));
+    req.on('error', reject);
+  });
+}
+
 export function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Uint8Array[] = [];

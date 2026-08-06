@@ -4,14 +4,17 @@ import type { AuxKind } from '../lib/auxProtocol';
 /**
  * The single seam between the app and the host (SPEC FR-6). Everything that
  * touches the filesystem, dialogs, paths, or the window goes through this
- * interface. Two implementations exist:
+ * interface. PRD 007 Req 2 added a fourth implementation, hosted.ts — the
+ * hosted backend's REST API, carrying the signed-in session's bearer token.
+ * App code branches on capabilities (optional methods), never on `kind`.
+ * The implementations:
  *   - tauri.ts   — the real desktop app (macOS now, Windows later)
  *   - browser.ts — an in-memory/localStorage shim used by `vite dev` and the
  *                  Playwright e2e suite (exposed to tests as window.__mmfs)
  * App code must never import Tauri APIs or assume an OS outside platform/.
  */
 export interface Platform {
-  kind: 'tauri' | 'browser' | 'web';
+  kind: 'tauri' | 'browser' | 'web' | 'hosted';
   isMac: boolean;
 
   readTextFile(path: string): Promise<string>;

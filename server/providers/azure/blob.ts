@@ -7,7 +7,7 @@
 import { BlobServiceClient } from '@azure/storage-blob';
 import type { ContainerClient } from '@azure/storage-blob';
 import { Buffer } from 'node:buffer';
-import type { FileStat, StorageProvider } from '../types.ts';
+import type { FileStat, StorageProvider, StoredBytes } from '../types.ts';
 
 async function streamToString(stream: NodeJS.ReadableStream): Promise<string> {
   const chunks: Buffer[] = [];
@@ -43,6 +43,28 @@ export function createBlobStorageProvider(connectionString: string, container: s
     async write(path: string, content: string): Promise<{ etag: string }> {
       const data = Buffer.from(content, 'utf8');
       const res = await containerClient.getBlockBlobClient(path).upload(data, data.length);
+      return { etag: res.etag ?? '' };
+    },
+    // PRD 007 Req 8: the byte-level pair — pasted images in, image bytes out.
+    async readBytes(path: string): Promise<StoredBytes | null> {
+      try {
+        const client = containerClient.getBlockBlobClient(path);
+        const buffer = await client.downloadToBuffer();
+        const props = await client.getProperties();
+        return {
+          data: new Uint8Array(buffer),
+          contentType: props.contentType ?? 'application/octet-stream',
+          etag: props.etag ?? '',
+        };
+      } catch (err) {
+        if ((err as { statusCode?: number }).statusCode === 404) return null;
+        throw err;
+      }
+    },
+    async writeBytes(path: string, data: Uint8Array, contentType: string): Promise<{ etag: string }> {
+      const res = await containerClient
+        .getBlockBlobClient(path)
+        .upload(data, data.length, { blobHTTPHeaders: { blobContentType: contentType } });
       return { etag: res.etag ?? '' };
     },
     async delete(path: string): Promise<boolean> {

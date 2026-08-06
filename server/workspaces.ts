@@ -21,7 +21,8 @@ import {
   type Permission,
   type WorkspaceManifest,
 } from '../src/lib/hostedWorkspace.ts';
-import { cleanRelativePath, readBody, sendJson, tryDecode } from './http.ts';
+import { Buffer } from 'node:buffer';
+import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import type { RequestAuth, StorageProvider } from './providers/types.ts';
 
 /** PRD 007 Req 7: the root prefix all workspace data lives under. */
@@ -31,6 +32,27 @@ const manifestBlob = (id: string): string => `${WORKSPACES_PREFIX}${id}/manifest
 const filesPrefix = (id: string): string => `${WORKSPACES_PREFIX}${id}/files/`;
 
 const MANIFEST_BLOB_RE = /^workspaces\/([^/]+)\/manifest\.json$/;
+
+/**
+ * PRD 007 Req 8: the media type a raw blob is stored and served with,
+ * derived from its extension ALONE. The uploader's Content-Type is
+ * deliberately ignored: these bytes come back from the app's own origin, so
+ * letting a caller label an upload `text/html` would turn a pasted "image"
+ * into stored same-origin script. Anything unrecognised is a download.
+ */
+const RAW_CONTENT_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'application/octet-stream', // SVG is script-capable — never served as an image
+};
+
+function contentTypeFor(filePath: string): string {
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+  return RAW_CONTENT_TYPES[ext] ?? 'application/octet-stream';
+}
 
 /**
  * Load and parse a workspace's manifest. `null` means no such workspace; a
@@ -83,11 +105,16 @@ async function requirePermission(
 export async function handleWorkspaceApi(
   req: IncomingMessage,
   res: ServerResponse,
-  pathname: string,
+  url: URL,
   storage: StorageProvider,
   auth: RequestAuth,
 ): Promise<void> {
+  const pathname = url.pathname;
   const rest = pathname.slice('/api/workspaces'.length);
+  // PRD 007 Req 8: `?raw=1` is the byte-level view of the SAME blob the JSON
+  // form serves — an <img> can load it directly and a paste can PUT bytes to
+  // it. Same paths, same permissions; only the representation differs.
+  const raw = url.searchParams.get('raw') === '1';
 
   // PRD 007 Req 10: create — deliberately pre-permission (any signed-in user
   // may create a workspace); the creator becomes its sole Owner.
@@ -198,6 +225,20 @@ export async function handleWorkspaceApi(
       // Required permission: doc.read.
       const manifest = await requirePermission(res, storage, id, auth, 'doc.read');
       if (!manifest) return;
+      if (raw) {
+        const bytes = await storage.readBytes(blobPath);
+        if (!bytes) {
+          sendJson(res, 404, { error: 'not found' });
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': bytes.contentType,
+          'Content-Length': bytes.data.length,
+          ETag: bytes.etag,
+        });
+        res.end(Buffer.from(bytes.data));
+        return;
+      }
       const file = await storage.read(blobPath);
       if (!file) sendJson(res, 404, { error: 'not found' });
       else sendJson(res, 200, { path: filePath, ...file });
@@ -208,6 +249,15 @@ export async function handleWorkspaceApi(
       // save path, and no built-in role grants file.create without doc.edit).
       const manifest = await requirePermission(res, storage, id, auth, 'doc.edit');
       if (!manifest) return;
+      if (raw) {
+        const { etag } = await storage.writeBytes(
+          blobPath,
+          await readBodyBytes(req),
+          contentTypeFor(filePath),
+        );
+        sendJson(res, 200, { path: filePath, etag });
+        return;
+      }
       const { etag } = await storage.write(blobPath, await readBody(req));
       sendJson(res, 200, { path: filePath, etag });
       return;
