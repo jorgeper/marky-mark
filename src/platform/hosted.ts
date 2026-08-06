@@ -1,4 +1,5 @@
 import type { Platform } from './types';
+import { createLocalDocs } from './localDocs';
 import { readStoredToken } from '../lib/hostedGate';
 import { createHostedWorkspaceLifecycle } from './hostedWorkspaces';
 import { fileGrantsFromPermissions, type FileGrants } from '../lib/fileGrants';
@@ -83,6 +84,18 @@ const workspaceRoute = (id: string, route: string, rel?: string): string => {
 export function createHostedPlatform(): Platform {
   const token = () => readStoredToken(window.localStorage) ?? '';
   const workspaceId = workspaceIdFromSearch(window.location.search);
+
+  /**
+   * PRD 007 Req 21: local-file mode. A Markdown file the user picks or drops
+   * on the start page opens fully client-side — the same machinery the
+   * single-file web build uses (platform/localDocs.ts), with nothing
+   * uploaded and no workspace required. Its documents hang under `/local`,
+   * which `parseHostedPath` deliberately does not resolve: a local doc can
+   * never turn into a request against `/api/workspaces/...`, so every read,
+   * write and save below answers from memory (or the browser's own file
+   * handle) before the API is ever considered.
+   */
+  const local = createLocalDocs('local');
 
   /**
    * The bundle's hosted-platform network call site (SPEC11 §6.6 bundle-scan
@@ -191,6 +204,11 @@ export function createHostedPlatform(): Platform {
     isMac: navigator.platform.toLowerCase().includes('mac'),
 
     async readTextFile(path) {
+      if (local.owns(path)) {
+        const doc = local.docs.get(path);
+        if (!doc) throw enoent(path);
+        return doc.content;
+      }
       const target = parseHostedPath(path);
       if (!target) throw enoent(path);
       // PRD 007 Req 9: the workspace file the app opens IS the manifest —
@@ -209,6 +227,9 @@ export function createHostedPlatform(): Platform {
     },
 
     async writeTextFile(path, content, opts) {
+      // PRD 007 Req 21: a local doc's save stays local — write-through to the
+      // file handle the browser granted, never a request.
+      if (local.owns(path)) return local.write(path, content);
       const target = parseHostedPath(path);
       if (!target) throw enoent(path);
       if (target.kind === 'manifest') {
@@ -248,6 +269,7 @@ export function createHostedPlatform(): Platform {
     },
 
     async exists(path) {
+      if (local.owns(path)) return local.docs.has(path);
       const target = parseHostedPath(path);
       if (!target) return false;
       if (target.kind === 'manifest') return (await api(apiPathFor(target))).ok;
@@ -259,6 +281,10 @@ export function createHostedPlatform(): Platform {
     },
 
     async remove(path) {
+      if (local.owns(path)) {
+        local.docs.delete(path);
+        return;
+      }
       const target = parseHostedPath(path);
       if (!target || target.kind === 'manifest') return;
       await api(apiPathFor(target), { method: 'DELETE' });
@@ -350,10 +376,17 @@ export function createHostedPlatform(): Platform {
       return parts.join('/') || '/';
     },
 
+    /**
+     * PRD 007 Req 21: the start page's Open File — the browser's own picker,
+     * opening the chosen Markdown file client-side. Nothing is uploaded and
+     * no workspace has to be open for it to work.
+     */
     async openFileDialog() {
-      // Opening documents is the folder sidebar's job here, and uploading one
-      // has its own picker (PRD 007 Req 19) — there is no OS file to browse.
-      return null;
+      return local.pick();
+    },
+    /** PRD 007 Req 21: an explicit Save of a handle-less local doc downloads. */
+    async commitFile(path) {
+      if (local.owns(path)) local.commit(path, (p) => p.split('/').pop() ?? p);
     },
     /**
      * SPEC34 §1: the folder sidebar's picker seam. A hosted workspace IS its
@@ -365,6 +398,10 @@ export function createHostedPlatform(): Platform {
     async openFolderDialog() {
       return workspaceId ? hostedFilesRoot(workspaceId) : null;
     },
+    // PRD 007 Req 21: and precisely because that "picker" is not a local
+    // folder pick, this flavor never declares localFolders — the start page
+    // and File menu offer no Open Folder…, derived from the capability
+    // rather than from `kind === 'hosted'` (Req 2).
     /** PRD 002 §D14: likewise — the one workspace this page is bound to. */
     async openWorkspaceDialog() {
       return workspaceId ? hostedWorkspaceFilePath(workspaceId) : null;
@@ -379,10 +416,16 @@ export function createHostedPlatform(): Platform {
       // the Workspace layer and its blobs become the sidebar's folder root.
       if (workspaceId) cb(hostedWorkspaceFilePath(workspaceId));
     },
-    async onFileDrop() {
-      // PRD 007 Req 19: an OS file dropped in is an upload, and the sidebar
-      // owns that drop itself (FolderPanel's `onUploadDrop`) — it needs the
-      // folder the file landed on, which this window-level seam cannot say.
+    /**
+     * PRD 007 Req 21: the two hosted drop targets, kept disjoint. The FOLDER
+     * SIDEBAR owns a drop on itself — that is the #76 upload into the folder
+     * the file landed on (FolderPanel's `onUploadDrop`, which stops the event
+     * before it reaches the window). THIS window-level drop owns everything
+     * else, the start page included: it opens a dropped Markdown file locally,
+     * uploading nothing. One drop therefore only ever fires one of the two.
+     */
+    async onFileDrop(cb) {
+      local.listenForDrop(cb);
     },
     async watchFile() {
       // Blob change notification is not part of this issue; nothing to unwatch.

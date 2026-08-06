@@ -1,4 +1,5 @@
 import type { AppMode } from './appMode';
+import { DEFAULT_START_ACTIONS, type StartActionId } from './startActions';
 import type { CommandId } from './commands';
 import type { HotkeyMap } from './hotkeys';
 
@@ -132,6 +133,14 @@ export interface MenuState {
   appMode: AppMode;
   /** Issue #22: a document (file or untitled buffer) is open — gates Close File. */
   docOpen: boolean;
+  /**
+   * PRD 007 Req 22: the entry actions this flavor can honour (lib/
+   * startActions.ts) — the SAME list the start page shows, so the two
+   * surfaces cannot diverge: whatever the start page offers, File offers.
+   * OPTIONAL so every pre-#78 MenuState call site (and frozen test fixture)
+   * keeps its exact File menu: absent reads as the desktop set.
+   */
+  entryActions?: StartActionId[];
 }
 
 const sep: PredefinedItemSpec = { type: 'predefined', item: 'Separator' };
@@ -158,6 +167,15 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
   // File grays out with no document open. Open…/Open Folder…/Open Workspace…
   // stay enabled in every mode.
   const wsOpen = s.appMode === 'workspace';
+  // PRD 007 Req 22: Open Folder… / New Workspace… / Open Workspace… exist
+  // only where the flavor can honour them — hosted has no local folder to
+  // open, the single-file web build has neither folder nor workspace seam.
+  const entry = new Set(s.entryActions ?? DEFAULT_START_ACTIONS);
+  const entryItems = [
+    ...(entry.has('openFolder') ? [cmd('openFolder', 'Open Folder…')] : []),
+    ...(entry.has('newWorkspace') ? [cmd('newWorkspace', 'New Workspace…')] : []),
+    ...(entry.has('openWorkspace') ? [cmd('openWorkspace', 'Open Workspace…')] : []),
+  ];
   // SPEC29 §3.2 + PRD 002 §D15: workspaces first, separator, files, separator,
   // Clear Menu — Clear alone when both sections are empty.
   const recentWs = s.recentWorkspaces ?? [];
@@ -273,10 +291,10 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             // SPEC22 §1: New opens an untitled buffer — no dialog, no ellipsis.
             cmd('newFile', 'New', s.hotkeys.newFile),
             cmd('open', 'Open…', s.hotkeys.openFile),
-            // SPEC34 §4.2: opens a folder as the sidebar root — no file opens.
-            cmd('openFolder', 'Open Folder…'),
-            // PRD 002 §D14: the workspace flows join the File menu.
-            cmd('openWorkspace', 'Open Workspace…'),
+            // SPEC34 §4.2: Open Folder… opens a folder as the sidebar root (no
+            // file opens); PRD 002 §D14 + PRD 007 Req 22: the workspace flows
+            // ride beside it, each present only where the flavor supports it.
+            ...entryItems,
             openRecent,
             sep,
             cmd('addFolderToWorkspace', 'Add Folder to Workspace…', undefined, undefined, !wsOpen),
@@ -312,9 +330,9 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
         items: [
           cmd('newFile', 'New', s.hotkeys.newFile),
           cmd('open', 'Open…', s.hotkeys.openFile),
-          cmd('openFolder', 'Open Folder…'),
-          // PRD 002 §D14: the workspace flows join the File menu.
-          cmd('openWorkspace', 'Open Workspace…'),
+          // PRD 007 Req 22: same capability-gated trio as the mac branch —
+          // the start page's list, in menu form.
+          ...entryItems,
           openRecent,
           sep,
           cmd('addFolderToWorkspace', 'Add Folder to Workspace…', undefined, undefined, !wsOpen),

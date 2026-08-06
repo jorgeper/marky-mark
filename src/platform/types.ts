@@ -80,6 +80,16 @@ export interface Platform {
   readDirEntries?(dir: string): Promise<Array<{ name: string; isDir: boolean }>>;
   /** SPEC34 §1: native directory picker; null = cancelled. */
   openFolderDialog?(): Promise<string | null>;
+  /**
+   * PRD 007 Req 21: true ⇒ `openFolderDialog` really does let the user pick a
+   * folder on their own machine, and `openWorkspaceDialog` / `saveFileDialog`
+   * really do browse for a PRD 002 `.marky-workspace` file. Absent/false ⇒
+   * those seams answer a fixed remote root instead (the hosted flavor defines
+   * `openFolderDialog` purely so the sidebar renders on the bound workspace),
+   * so the entry surface must not offer Open Folder… — the derivation lives
+   * in lib/startActions.ts and never asks which flavor is running (Req 2).
+   */
+  localFolders?: boolean;
   /** PRD 002 §D14: pick a .marky-workspace file; null = cancelled. */
   openWorkspaceDialog?(): Promise<string | null>;
   /** SPEC20 follow-up: copy a file, creating the destination's parents. */

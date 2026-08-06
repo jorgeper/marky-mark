@@ -1439,3 +1439,104 @@ test('E198: a member without workspace.members or workspace.roles sees neither s
     expect(((await res.json()) as { required: string }).required).toBe(required);
   }
 });
+
+test('E201: the hosted start page offers exactly Open File + the two workspace flows — no Open Folder, on the page or in the menu', async ({
+  page,
+}) => {
+  // PRD 007 Req 21: signed in with no workspace bound, the start page is the
+  // splash with its action list. The hosted platform DOES define
+  // openFolderDialog (it answers the bound workspace's blob root so the
+  // sidebar renders) — the list is derived from the local-folder capability
+  // instead, so Open Folder… appears nowhere.
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('start-drop')).toBeVisible();
+  for (const id of ['openFile', 'newWorkspace', 'openWorkspace']) {
+    await expect(page.getByTestId(`start-${id}`)).toBeVisible();
+  }
+  await expect(page.getByTestId('start-openFolder')).toHaveCount(0);
+  await expect(page.getByTestId('start-actions').getByRole('button')).toHaveCount(3);
+
+  // …and nowhere else either: the hosted chrome's menu offers no folder
+  // opening (the workspace flows live on the switcher chip beside it, and
+  // the File-menu gating itself is pinned by U317–U319).
+  await page.mouse.move(500, 8);
+  await page.getByTestId('menu-btn').click();
+  await expect(page.getByTestId('app-menu')).toBeVisible();
+  await expect(page.getByTestId('app-menu')).not.toContainText('Open Folder');
+  await expect(page.getByTestId('workspace-switcher-chip')).toContainText('No workspace');
+});
+
+test('E202: a local Markdown file opened on the hosted start page renders client-side — nothing uploaded, no workspace bound', async ({
+  page,
+}) => {
+  // PRD 007 Req 21: hosted local-file mode. The picker fallback is forced so
+  // the <input type=file> path (automatable) runs.
+  await page.addInitScript(() => {
+    delete (window as { showOpenFilePicker?: unknown }).showOpenFilePicker;
+  });
+  const writes: string[] = [];
+  page.on('request', (req) => {
+    if (['PUT', 'POST', 'PATCH'].includes(req.method()) && req.url().includes('/api/workspaces')) {
+      writes.push(`${req.method()} ${req.url()}`);
+    }
+  });
+
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('start-openFile').click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'local-only.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from('# Local only\n\nA paragraph that never left this browser.\n'),
+  });
+
+  // It opens, renders and is editable — with no workspace open behind it.
+  await expect(page.getByTestId('docname')).toContainText('local-only.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Local only');
+  await expect(page.getByTestId('workspace-switcher-chip')).toContainText('No workspace');
+  await page.getByTestId('edit-toggle').click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('typed locally ');
+  await menuSave(page);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // Nothing about the document went to the server.
+  expect(writes).toEqual([]);
+  expect(await page.evaluate(() => window.location.search)).toBe('');
+});
+
+test('E203: New Workspace… and Open Workspace… on the hosted start page land in a workspace', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 21: the start-page rows drive the hosted lifecycle flows the
+  // switcher chip already offers, and choosing one lands in that workspace.
+  const ada = await signIn(request, 'ada');
+  const name = `E203 existing w${test.info().workerIndex}`;
+  const existing = await createWorkspace(request, ada, name);
+
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.getByTestId('start-openWorkspace').click();
+  await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
+  await page.getByTestId(`open-workspace-item-${existing}`).click();
+  await expect(page).toHaveURL(new RegExp(`workspace=${existing}`));
+  await expect(page.getByTestId('workspace-switcher-chip')).toContainText(name);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  // New Workspace… from the start page creates one and opens it.
+  await page.evaluate(() => window.localStorage.clear());
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  const fresh = `E203 fresh w${test.info().workerIndex}`;
+  await page.getByTestId('start-newWorkspace').click();
+  await expect(page.getByTestId('new-workspace-dialog')).toBeVisible();
+  await page.getByTestId('new-workspace-name').fill(fresh);
+  await page.getByTestId('new-workspace-create').click();
+  await expect(page).toHaveURL(/workspace=/);
+  await expect(page.getByTestId('workspace-switcher-chip')).toContainText(fresh);
+});

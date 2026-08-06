@@ -1361,6 +1361,35 @@ mark.hl.ghost {
   border-radius: 999px;
 }
 
+/* PRD 007 Req 21/22: the start page's action list under the drop hint. The
+   splash already re-enables pointer events (.empty-center switches them off),
+   and every colour is a theme variable — the rows are ordinary buttons, so
+   they are keyboard-reachable and focus-visible like the rest of the app. */
+.start-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.start-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+.start-action {
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--mm-fg, #1f2328);
+  background: var(--mm-bg-elev, #ffffff);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.start-action:hover {
+  background: var(--mm-bg-hover, rgba(0, 0, 0, 0.05));
+}
+
 /* --- About dialog (SPEC10 §3) --------------------------------------------- */
 .about-dialog {
   width: min(360px, 92vw);

@@ -418,3 +418,27 @@ test('W12: §H25 platform boundary — no folder sidebar, no scope selector or W
   expect(configKeys.filter((k) => k.includes('recent-workspaces'))).toEqual([]);
   expect(configKeys.filter((k) => k.includes('.marky-workspace'))).toEqual([]);
 });
+
+test('E204: the single-file web start page offers the drag hint and Open File — and nothing it cannot honour', async ({
+  page,
+}) => {
+  // PRD 007 Req 22: the web build has neither a folder seam nor workspaces,
+  // so the capability-driven list is Open File alone — no Open Folder…, no
+  // workspace rows, on the start page or in the app menu.
+  // Back to the start page: a reload lands there (the welcome doc the
+  // beforeEach opened is a Help action, not a boot state).
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('start-drop')).toBeVisible();
+  await expect(page.getByTestId('start-openFile')).toBeVisible();
+  await expect(page.getByTestId('start-actions').getByRole('button')).toHaveCount(1);
+  for (const id of ['openFolder', 'newWorkspace', 'openWorkspace']) {
+    await expect(page.getByTestId(`start-${id}`)).toHaveCount(0);
+  }
+
+  // Open File on the start page opens a local file, fully client-side.
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('start-openFile').click();
+  await (await chooser).setFiles({ name: 'picked.md', mimeType: 'text/markdown', buffer: Buffer.from(SAMPLE_MD) });
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Web Sample');
+});

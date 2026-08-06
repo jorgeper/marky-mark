@@ -18,7 +18,7 @@ E-number cite the spec outside any test body (file header or shared setup).
 | Spec | Title | src files | e2e |
 | --- | --- | --- | --- |
 | [SPEC](specs/SPEC.md) | SPEC: Markimark — a fast, themeable Markdown viewer | `src/bundled.ts`, `src/components/Editor.tsx`, `src/lib/anchoring.ts`, `src/lib/hotkeys.ts`, `src/platform/types.ts` | _none_ |
-| [SPEC2](specs/SPEC2.md) | SPEC2: Markimark v2 — three targets, simpler chrome, embedded comments | `src/App.tsx`, `src/components/Toolbar.tsx`, `src/lib/embedded.ts`, `src/platform/index.ts`, `src/platform/web.ts` | E9 |
+| [SPEC2](specs/SPEC2.md) | SPEC2: Markimark v2 — three targets, simpler chrome, embedded comments | `src/App.tsx`, `src/components/Toolbar.tsx`, `src/lib/embedded.ts`, `src/platform/index.ts`, `src/platform/localDocs.ts`, `src/platform/web.ts` | E9 |
 | [SPEC3](specs/SPEC3.md) | SPEC3: Markimark v3 — Typora-grade settings, vim nav, tighter Claude theme | `src/App.tsx`, `src/components/Editor.tsx`, `src/components/Toolbar.tsx`, `src/lib/settings.ts`, `src/lib/vimnav.ts` | E105 |
 | [SPEC4](specs/SPEC4.md) | SPEC4: Markimark v4 — vanishing toolbar, tabbed settings, text-only zoom, clean start | `src/App.tsx`, `src/lib/settings.ts`, `src/styles.css` | E24, E13 |
 | [SPEC5](specs/SPEC5.md) | SPEC5: Marky Mark v5 — app badge, opt-in auto-hide, centered hint, rename | `src/App.tsx`, `src/styles.css` | E25 |

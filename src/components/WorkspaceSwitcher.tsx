@@ -24,8 +24,12 @@ import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 
 type Dialog = 'none' | 'new' | 'open';
 
-/** The New Workspace dialog: name, initial members with roles, everyone-access. */
-function NewWorkspaceDialog({
+/**
+ * The New Workspace dialog: name, initial members with roles, everyone-access.
+ * Exported because PRD 007 Req 21's start page drives the very same flow —
+ * the switcher chip and the start page must land in the same place.
+ */
+export function NewWorkspaceDialog({
   lifecycle,
   onClose,
 }: {
@@ -161,7 +165,7 @@ function NewWorkspaceDialog({
 }
 
 /** The Open Workspace dialog: the whole deployment, filtered as you type. */
-function OpenWorkspaceDialog({
+export function OpenWorkspaceDialog({
   lifecycle,
   onClose,
 }: {

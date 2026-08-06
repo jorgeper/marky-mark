@@ -833,3 +833,66 @@ test('E176: issue #83 — scroll position survives Close Workspace → reopen, a
   await expect.poll(() => page.locator('.workspace').evaluate((el) => el.scrollTop)).toBeGreaterThan(savedScroll * 0.8);
   expect(await page.locator('.workspace').evaluate((el) => el.scrollTop)).toBeLessThan(savedScroll * 1.2);
 });
+
+test('E199: the shim start page offers all five entry actions, and Open Folder… / Open Workspace… on it really open one', async ({
+  page,
+}) => {
+  // PRD 007 Req 22: desktop/shim can honour every row, so the splash shows
+  // the drop hint plus four buttons — the same list the File menu carries.
+  await seedFolders(page);
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('start-drop')).toBeVisible();
+  for (const id of ['openFile', 'openFolder', 'newWorkspace', 'openWorkspace']) {
+    await expect(page.getByTestId(`start-${id}`)).toBeVisible();
+  }
+  await expect(page.getByTestId('start-actions').getByRole('button')).toHaveCount(4);
+
+  // Open Folder… from the start page opens the folder as the sidebar root.
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('start-openFolder').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.locator('[data-path="/notes/a.md"]')).toBeVisible();
+
+  // …and Open Workspace… from the start page opens a .marky-workspace file.
+  await fsWrite(page, '/w/e199.marky-workspace', JSON.stringify({ version: 1, folders: ['/notes'], settings: {} }));
+  await page.evaluate(() => window.__mmDispatch!('closeWorkspace'));
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.evaluate(() => {
+    window.__mmfs!.nextWorkspacePath = '/w/e199.marky-workspace';
+  });
+  await page.getByTestId('start-openWorkspace').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.locator('[data-path="/notes/a.md"]')).toBeVisible();
+});
+
+test('E200: local New Workspace… writes the .marky-workspace file and lands in the named, root-less workspace', async ({
+  page,
+}) => {
+  // PRD 007 Req 22: the local "new workspace" flow that did not exist before.
+  await seedFolders(page);
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/w/fresh.marky-workspace';
+  });
+  await page.getByTestId('start-newWorkspace').click();
+
+  // The file exists on disk as valid PRD 002 workspace JSON…
+  await expect.poll(() => fsRead(page, '/w/fresh.marky-workspace')).toContain('"folders"');
+  expect(JSON.parse((await fsRead(page, '/w/fresh.marky-workspace'))!)).toMatchObject({ folders: [] });
+  // …and the app is in workspace mode, bound to it, with no roots yet plus
+  // the way to add one (the splash is gone — this is a workspace now).
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('folder-add-btn')).toBeVisible();
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await page.getByTestId('folder-add-btn').click();
+  await expect(page.locator('[data-path="/notes/a.md"]')).toBeVisible();
+  // The folder joined THIS workspace — the named file grew, nothing replaced it.
+  await expect.poll(() => fsRead(page, '/w/fresh.marky-workspace')).toContain('/notes');
+});

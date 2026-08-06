@@ -1,4 +1,5 @@
 import type { Platform } from './types';
+import { createLocalDocs, pickViaInput, MD_PICKER_TYPES } from './localDocs';
 import { FIXTURES } from '../bundled';
 import { extractReviewPayload } from '../lib/reviewBundle';
 
@@ -14,35 +15,7 @@ import { extractReviewPayload } from '../lib/reviewBundle';
  * Comments are always embedded on web (no sidecar siblings possible).
  */
 
-// Minimal File System Access API surface (not yet in TypeScript's lib.dom).
-interface FSFileHandle {
-  getFile(): Promise<File>;
-  createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }>;
-}
-interface OpenPickerOptions {
-  types?: Array<{ description: string; accept: Record<string, string[]> }>;
-  multiple?: boolean;
-}
-interface SavePickerOptions {
-  suggestedName?: string;
-  types?: Array<{ description: string; accept: Record<string, string[]> }>;
-}
-declare global {
-  interface Window {
-    showOpenFilePicker?(opts?: OpenPickerOptions): Promise<FSFileHandle[]>;
-    showSaveFilePicker?(opts?: SavePickerOptions): Promise<FSFileHandle & { name?: string }>;
-  }
-}
-
 const LS_CONFIG = 'marky-mark.web.config.v1'; // SPEC32 §3: fresh start at 0.4
-const MD_PICKER_TYPES = [
-  { description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown'] as string[] } },
-];
-
-interface WebDoc {
-  content: string;
-  handle: FSFileHandle | null;
-}
 
 function loadConfig(): Record<string, string> {
   try {
@@ -52,41 +25,17 @@ function loadConfig(): Record<string, string> {
   }
 }
 
-function pickViaInput(accept: string): Promise<File | null> {
-  return new Promise((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = accept;
-    input.style.display = 'none';
-    document.body.appendChild(input);
-    input.onchange = () => {
-      resolve(input.files?.[0] ?? null);
-      input.remove();
-    };
-    input.oncancel = () => {
-      resolve(null);
-      input.remove();
-    };
-    input.click();
-  });
-}
-
-function download(name: string, content: string): void {
-  const url = URL.createObjectURL(new Blob([content], { type: 'text/markdown' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
 export function createWebPlatform(): Platform {
-  const docs = new Map<string, WebDoc>();
+  // PRD 007 Req 21: the local-doc machinery now lives in localDocs.ts, shared
+  // with the hosted flavor's start-page file mode. Web keeps its historical
+  // `/name.md` paths (no prefix) — nothing else here changes.
+  const local = createLocalDocs();
+  const docs = local.docs;
   let config = loadConfig();
 
   const saveConfig = () => localStorage.setItem(LS_CONFIG, JSON.stringify(config));
   const isConfigPath = (p: string) => p.startsWith('/config/');
-  const docPathFor = (name: string) => `/${name}`;
+  const docPathFor = local.pathFor;
 
   // Seed the welcome doc (in memory — never downloaded).
   docs.set('/welcome.md', { content: FIXTURES['welcome.md'] ?? '# Welcome\n', handle: null });
@@ -95,18 +44,6 @@ export function createWebPlatform(): Platform {
   // on boot through the same path a file association would use.
   const review = extractReviewPayload(document);
   if (review) docs.set(docPathFor(review.name), { content: review.markdown, handle: null });
-
-  const openHandle = async (handle: FSFileHandle): Promise<string> => {
-    const file = await handle.getFile();
-    const path = docPathFor(file.name);
-    docs.set(path, { content: await file.text(), handle });
-    return path;
-  };
-  const openFile = async (file: File): Promise<string> => {
-    const path = docPathFor(file.name);
-    docs.set(path, { content: await file.text(), handle: null });
-    return path;
-  };
 
   return {
     kind: 'web',
@@ -128,21 +65,7 @@ export function createWebPlatform(): Platform {
         saveConfig();
         return;
       }
-      const doc = docs.get(path);
-      if (doc) {
-        doc.content = content;
-        if (doc.handle) {
-          try {
-            const w = await doc.handle.createWritable();
-            await w.write(content);
-            await w.close();
-          } catch {
-            /* permission revoked mid-session: memory copy still holds it */
-          }
-        }
-      } else {
-        docs.set(path, { content, handle: null });
-      }
+      await local.write(path, content);
     },
     async exists(path) {
       return isConfigPath(path) ? config[path] !== undefined : docs.has(path);
@@ -183,16 +106,7 @@ export function createWebPlatform(): Platform {
     },
 
     async openFileDialog() {
-      if (window.showOpenFilePicker) {
-        try {
-          const [handle] = await window.showOpenFilePicker({ types: MD_PICKER_TYPES, multiple: false });
-          return handle ? openHandle(handle) : null;
-        } catch {
-          return null; // user cancelled
-        }
-      }
-      const file = await pickViaInput('.md,.markdown');
-      return file ? openFile(file) : null;
+      return local.pick();
     },
     async saveFileDialog(suggestedName) {
       if (window.showSaveFilePicker) {
@@ -219,29 +133,7 @@ export function createWebPlatform(): Platform {
       if (review) cb(docPathFor(review.name));
     },
     async onFileDrop(cb) {
-      window.addEventListener('dragover', (e) => e.preventDefault());
-      window.addEventListener('drop', (e) => {
-        e.preventDefault();
-        const item = e.dataTransfer?.items?.[0];
-        const file = e.dataTransfer?.files?.[0];
-        if (!file || !/\.(md|markdown)$/i.test(file.name)) return;
-        void (async () => {
-          const getHandle = (item as unknown as { getAsFileSystemHandle?: () => Promise<unknown> })
-            ?.getAsFileSystemHandle;
-          if (getHandle) {
-            try {
-              const h = (await getHandle.call(item)) as (FSFileHandle & { kind?: string }) | null;
-              if (h && (h as { kind?: string }).kind === 'file') {
-                cb(await openHandle(h));
-                return;
-              }
-            } catch {
-              /* fall through to plain File */
-            }
-          }
-          cb(await openFile(file));
-        })();
-      });
+      local.listenForDrop(cb);
     },
     async watchFile() {
       return () => {}; // nothing external can change an in-memory doc
@@ -278,8 +170,7 @@ export function createWebPlatform(): Platform {
       : {}),
 
     async commitFile(path) {
-      const doc = docs.get(path);
-      if (doc && !doc.handle) download(this.basename(path), doc.content);
+      local.commit(path, (p) => this.basename(p));
     },
     async importTheme() {
       let name: string;

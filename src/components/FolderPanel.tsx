@@ -51,6 +51,13 @@ export interface FolderPanelProps {
   onCloseFile(path: string): void;
   onToggleOpenOnly(): void;
   onOpenFolder(): void;
+  /**
+   * PRD 007 Req 22: the root-less state of a workspace that HAS been created
+   * but holds no folder yet — the new local New Workspace… lands exactly
+   * there, so the empty panel must offer the way to add one. Absent (no
+   * workspace open) ⇒ the empty panel offers Open Folder… as before.
+   */
+  onAddFolder?(): void;
   onSync(): void;
   onClose(): void;
   onWidth(width: number): void;
@@ -675,9 +682,15 @@ export function FolderPanel(p: FolderPanelProps) {
           </div>
         ) : (
           <div className="folder-empty">
-            <button data-testid="folder-open-btn" onClick={p.onOpenFolder}>
-              Open Folder…
-            </button>
+            {p.onAddFolder ? (
+              <button data-testid="folder-add-btn" onClick={p.onAddFolder}>
+                Add Folder to Workspace…
+              </button>
+            ) : (
+              <button data-testid="folder-open-btn" onClick={p.onOpenFolder}>
+                Open Folder…
+              </button>
+            )}
           </div>
         )}
         {/* PRD 007 Req 19: a refused upload or move says WHICH rule stopped

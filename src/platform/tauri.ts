@@ -81,6 +81,10 @@ export async function createTauriPlatform(): Promise<Platform> {
         .map((e) => ({ name: e.name, isDir: !!e.isDirectory }));
     },
     // SPEC34 §1: the existing dialog permission covers directory picking.
+    // PRD 007 Req 21: this flavor's folder/workspace dialogs really do
+    // browse the user's own machine, so the entry surface offers Open
+    // Folder… and the PRD 002 local workspace flows.
+    localFolders: true,
     async openFolderDialog() {
       const picked = await dialog.open({ multiple: false, directory: true });
       return typeof picked === 'string' ? picked : null;

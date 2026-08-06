@@ -343,6 +343,10 @@ export function createBrowserPlatform(): Platform {
       }
       return [...seen.entries()].map(([name, isDir]) => ({ name, isDir }));
     },
+    // PRD 007 Req 21: this flavor's folder/workspace dialogs really do
+    // browse the user's own machine, so the entry surface offers Open
+    // Folder… and the PRD 002 local workspace flows.
+    localFolders: true,
     async openFolderDialog() {
       const hook = window.__mmfs?.nextFolderPath;
       if (hook !== undefined) {

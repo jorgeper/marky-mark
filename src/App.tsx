@@ -102,7 +102,9 @@ import { CommentCard } from './components/CommentCard';
 import { SettingsPanel } from './components/SettingsPanel';
 import { WorkspaceAccessSettings } from './components/WorkspaceAccessSettings';
 import { WorkspaceDangerZone } from './components/WorkspaceDangerZone';
-import { WorkspaceSwitcher } from './components/WorkspaceSwitcher';
+import { WorkspaceSwitcher, NewWorkspaceDialog, OpenWorkspaceDialog } from './components/WorkspaceSwitcher';
+import { StartPage } from './components/StartPage';
+import { startActions, startCapabilities, type StartActionId } from './lib/startActions';
 import { AboutDialog } from './components/AboutDialog';
 
 const Editor = lazy(() => import('./components/Editor'));
@@ -1204,6 +1206,10 @@ export default function App() {
   const curWorkspaceRef = useRef<Workspace>({ kind: 'none' });
   /** Issue #22: the ref's kind mirrored into state so the derived app mode re-renders. */
   const [wsKind, setWsKind] = useState<Workspace['kind']>('none');
+  // PRD 007 Req 21/22: the managed (hosted) workspace dialogs, opened from the
+  // start page or the File menu. Mounted on the `workspaces` capability, so
+  // this state is simply never reached on a flavor without it.
+  const [managedWsDialog, setManagedWsDialog] = useState<'none' | 'new' | 'open'>('none');
 
   const persistFolderState = useCallback((platformNow?: Platform) => {
     const p = platformNow ?? stateRef.current.platform;
@@ -2504,6 +2510,38 @@ export default function App() {
   }, [listFolderDir, updateWorkspace, updateSettings]);
 
   /**
+   * PRD 007 Req 22 (PRD 002 §D14/§C11): New Workspace… for the LOCAL flavors —
+   * the flow that did not exist before, when a local workspace was only
+   * reachable through Open Folder + Save Workspace As…. The user names and
+   * places the `.marky-workspace` file; it is written on the spot (an empty
+   * named workspace is valid PRD 002 JSON), the app binds to it, it joins the
+   * recent workspaces, and the sidebar opens on it with no roots and an Add
+   * Folder button. Cancelling at any step changes nothing. The changed-
+   * untitled-workspace guard runs first, exactly as Open Workspace… does.
+   */
+  const newWorkspaceCmd = useCallback(() => {
+    const p = stateRef.current.platform;
+    if (!p?.saveFileDialog || !p.readDirEntries || !p.localFolders) return; // silent no-op, menu style
+    guardWorkspaceDiscard(() => {
+      void (async () => {
+        const picked = await p.saveFileDialog!(`Untitled${WORKSPACE_FILE_EXT}`, 'workspace');
+        if (!picked) return;
+        const file = picked.endsWith(WORKSPACE_FILE_EXT) ? picked : `${picked}${WORKSPACE_FILE_EXT}`;
+        setFolderRoots([]);
+        setFolderExpanded(new Set());
+        setFolderChildren({});
+        folderStateRef.current = { ...folderStateRef.current, roots: [], expanded: new Set() };
+        // updateWorkspace writes the file for a named workspace (§C12).
+        updateWorkspace({ kind: 'named', file, folders: [], settings: {} }, p);
+        commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
+        if (!stateRef.current.settings.showFolders) {
+          updateSettings({ ...stateRef.current.settings, showFolders: true });
+        }
+      })();
+    });
+  }, [guardWorkspaceDiscard, updateWorkspace, commitRecentWs, updateSettings]);
+
+  /**
    * PRD 002 §D14/§C11: Save Workspace As… — untitled (or named) → named.
    * Issue #22: returns false when unsupported or the dialog was cancelled,
    * so the changed-workspace prompt's Save can abort the pending close.
@@ -3117,8 +3155,18 @@ export default function App() {
         if (s.dirty) setOpenPrompt({ kind: 'close-untitled' });
         else closeToSplash();
       },
-      // PRD 002 §D14: the workspace flows (silent no-ops without the seam).
-      openWorkspace: openWorkspaceCmd,
+      // PRD 002 §D14 + PRD 007 Req 21/22: the workspace flows (silent no-ops
+      // without the seam). A platform that MANAGES workspaces (the hosted
+      // lifecycle capability) drives its own dialogs; everything else takes
+      // the PRD 002 file-based route. Capability, never flavor.
+      newWorkspace: () => {
+        if (stateRef.current.platform?.workspaces) setManagedWsDialog('new');
+        else newWorkspaceCmd();
+      },
+      openWorkspace: () => {
+        if (stateRef.current.platform?.workspaces) setManagedWsDialog('open');
+        else openWorkspaceCmd();
+      },
       addFolderToWorkspace: () => void addFolderToWorkspaceCmd(),
       saveWorkspaceAs: () => void saveWorkspaceAsCmd(),
       closeWorkspace: closeWorkspaceCmd,
@@ -3225,7 +3273,7 @@ export default function App() {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
@@ -3253,6 +3301,19 @@ export default function App() {
       })();
     });
   }, [openDocGuarded, showNotice, commitRecent, commitRecentWs, openWorkspaceFromPath, guardWorkspaceDiscard]);
+
+  /**
+   * PRD 007 Req 21/22: the entry surface — the ordered actions this flavor can
+   * honour, derived from platform capabilities alone (lib/startActions.ts).
+   * The start page renders it and the File menu mirrors it, so the two can
+   * never diverge: desktop/shim get all four, hosted gets everything but Open
+   * Folder…, the single-file web build gets Open File alone.
+   */
+  const entryActions = useMemo(() => (platform ? startActions(startCapabilities(platform)) : []), [platform]);
+  /** Each row dispatches the command the File menu's twin item dispatches. */
+  const runEntryAction = useCallback((id: StartActionId) => {
+    dispatchCommand(id === 'openFile' ? 'open' : id, 'ui');
+  }, []);
 
   // Issue #22: the derived three-mode model — splash | file | workspace.
   const docOpen = docPath !== null || untitled;
@@ -3282,6 +3343,8 @@ export default function App() {
         // seam does and only for a user holding the verb.
         canUpload: !!platform?.uploadFile && folderGrants.upload,
         canDownload: !!platform?.downloadFile && folderGrants.download,
+        // PRD 007 Req 22: the File menu carries exactly the start page's list.
+        entryActions,
         openOnly: folderOpenOnly,
         // Issue #84: gates View → Next/Previous Open File.
         openFileCount: openFiles.length,
@@ -3292,7 +3355,7 @@ export default function App() {
       // Issue #38: a failed install must not strand the window with neither
       // a menu nor the toolbar — fall back to in-app chrome for the session.
     ).catch(() => setMenuInstallFailed(true));
-  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, settings.lineNumbers, recent, recentWs, settings.showFolders, folderOpenOnly, openFiles.length, menuInstallFailed]);
+  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, settings.lineNumbers, recent, recentWs, settings.showFolders, folderOpenOnly, openFiles.length, entryActions, menuInstallFailed]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -4426,6 +4489,10 @@ export default function App() {
             onCloseFile={closeOpenFile}
             onToggleOpenOnly={() => dispatchCommand('toggleOpenOnly')}
             onOpenFolder={() => dispatchCommand('openFolder')}
+            // PRD 007 Req 22: with a workspace open and no roots yet (the
+            // state local New Workspace… creates), the empty panel's button
+            // GROWS the workspace instead of replacing it.
+            onAddFolder={wsKind !== 'none' ? () => dispatchCommand('addFolderToWorkspace') : undefined}
             onSync={() => {
               // SPEC36 §5.4: from the only-open view, sync returns to the tree.
               if (folderOpenOnly) toggleOpenOnly();
@@ -4540,7 +4607,10 @@ export default function App() {
                       github.com/jorgeper/marky-mark
                     </a>
                   </p>
-                  <p className="splash-drop">Drop a file to open</p>
+                  {/* PRD 007 Req 21/22: the entry actions — one list, shared
+                      with the File menu, each row present only where this
+                      flavor can honour it (lib/startActions.ts). */}
+                  <StartPage actions={entryActions} onAction={runEntryAction} />
                 </div>
               </div>
             )}
@@ -4840,6 +4910,14 @@ export default function App() {
       {/* PRD 007 Req 10/11: the workspace switcher and its New/Open flows,
           mounted on the same capability. */}
       {platform.workspaces && <WorkspaceSwitcher lifecycle={platform.workspaces} />}
+      {/* PRD 007 Req 21/22: the same two flows, reached from the start page or
+          the File menu instead of the switcher chip. */}
+      {platform.workspaces && managedWsDialog === 'new' && (
+        <NewWorkspaceDialog lifecycle={platform.workspaces} onClose={() => setManagedWsDialog('none')} />
+      )}
+      {platform.workspaces && managedWsDialog === 'open' && (
+        <OpenWorkspaceDialog lifecycle={platform.workspaces} onClose={() => setManagedWsDialog('none')} />
+      )}
 
       {!platform.openAuxWindow && aboutOpen && (
         <AboutDialog onClose={() => setAboutOpen(false)} onOpenUrl={(u) => void platform.openExternal(u)} />

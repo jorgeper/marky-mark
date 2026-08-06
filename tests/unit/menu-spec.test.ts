@@ -440,3 +440,49 @@ describe('SPEC12 menu spec', () => {
     }
   });
 });
+
+/**
+ * PRD 007 Req 22: the File menu carries the start page's list — the same
+ * StartActionId set, gated the same way, in both the mac and non-mac branches.
+ */
+describe('PRD 007 Req 22: File-menu entry items follow the flavor', () => {
+  const fileCommands = (s: MenuState) => commandsIn(s, 'File').map((i) => i.command);
+
+  test('U317: New Workspace… sits beside Open Workspace… in both branches when the flavor has both', () => {
+    for (const isMac of [true, false]) {
+      const cmds = fileCommands({
+        ...base,
+        isMac,
+        entryActions: ['openFile', 'openFolder', 'newWorkspace', 'openWorkspace'],
+      });
+      expect(cmds).toContain('newWorkspace');
+      expect(cmds.indexOf('newWorkspace')).toBe(cmds.indexOf('openWorkspace') - 1);
+      expect(cmds.indexOf('openFolder')).toBe(cmds.indexOf('newWorkspace') - 1);
+      expect(find({ ...base, isMac, entryActions: ['newWorkspace'] }, 'File', 'newWorkspace')!.label).toBe(
+        'New Workspace…'
+      );
+    }
+  });
+
+  test('U318: the hosted list drops Open Folder… from the File menu and keeps both workspace items', () => {
+    for (const isMac of [true, false]) {
+      const cmds = fileCommands({ ...base, isMac, entryActions: ['openFile', 'newWorkspace', 'openWorkspace'] });
+      expect(cmds).not.toContain('openFolder');
+      expect(cmds).toEqual(expect.arrayContaining(['newWorkspace', 'openWorkspace']));
+    }
+  });
+
+  test('U319: the single-file web list drops all three; an absent list keeps the pre-#78 desktop menu', () => {
+    for (const isMac of [true, false]) {
+      const web = fileCommands({ ...base, isMac, entryActions: ['openFile'] });
+      expect(web).not.toContain('openFolder');
+      expect(web).not.toContain('newWorkspace');
+      expect(web).not.toContain('openWorkspace');
+      // Frozen fixtures (no entryActions) keep exactly what they had before.
+      const legacy = fileCommands({ ...base, isMac });
+      expect(legacy).toContain('openFolder');
+      expect(legacy).toContain('openWorkspace');
+      expect(legacy).not.toContain('newWorkspace');
+    }
+  });
+});

@@ -37,6 +37,7 @@ export type CommandId =
   // Issue #22: close the open document down to the splash.
   | 'closeFile'
   // PRD 002 §D14: the workspace flows.
+  | 'newWorkspace'
   | 'openWorkspace'
   | 'addFolderToWorkspace'
   | 'saveWorkspaceAs'
