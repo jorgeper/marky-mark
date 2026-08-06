@@ -7,6 +7,7 @@ import {
   fsWrite,
   menuClick,
   openNotesRoot,
+  openSettings,
   seedFolders,
 } from './helpers';
 
@@ -604,4 +605,125 @@ test('E171: an OS-opened .marky-workspace path opens the workspace, not a text d
   // screen is still freshApp's welcome.md, not the workspace JSON.
   await expect(page).toHaveTitle(/welcome\.md/);
   await expect(page.getByTestId('docname')).not.toContainText('team.marky-workspace');
+});
+
+// Issue #84: the reassignability half of the cycle — Settings records the
+// combo actually pressed, a rebind takes effect with no restart, and one row
+// restores on its own.
+test('E177: issue #84 — rebinding nextFile in Settings cycles on the new combo, Ctrl+Tab stops, the per-row restore brings it back alone', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await openNotesRoot(page);
+  // freshApp left welcome.md open — close it so the cycle runs over [b, a].
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('workspace-empty-hint')).toBeVisible();
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await page.locator('[data-path="/notes/sub"]').click();
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+
+  // The shipped defaults are on display, live from the map.
+  await openSettings(page, 'hotkeys');
+  const next = page.getByTestId('hotkey-nextFile');
+  const prev = page.getByTestId('hotkey-prevFile');
+  await expect(next).toHaveValue(/(⌃Tab|Ctrl\+Tab)/);
+  await expect(prev).toHaveValue(/(⌃⇧Tab|Ctrl\+Shift\+Tab)/);
+  // A row sitting at its default has nothing to restore.
+  await expect(page.getByTestId('reset-hotkey-nextFile')).toBeDisabled();
+
+  // A combo already bound elsewhere is refused, map untouched.
+  await next.click();
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('hotkey-hint')).toContainText('already bound');
+  await expect(next).toHaveValue(/(⌃Tab|Ctrl\+Tab)/);
+
+  // Rebind both rows; the recorders show what was pressed.
+  await next.click();
+  await page.keyboard.press('Control+F7');
+  await expect(next).toHaveValue(/F7/);
+  await prev.click();
+  await page.keyboard.press('Control+F8');
+  await expect(prev).toHaveValue(/F8/);
+  await page.getByTestId('settings-close').click();
+
+  // The new combos cycle immediately — no restart — and the old ones do not.
+  await page.keyboard.press('Control+Tab');
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await page.keyboard.press('Control+F7');
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await page.keyboard.press('Control+F8');
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+
+  // The rebinding persisted through the User-scope settings layer.
+  await expect
+    .poll(async () => JSON.parse(await fsRead(page, '/config/settings.json')).hotkeys.nextFile)
+    .toBe('Mod+F7');
+
+  // Restore just the nextFile row: Ctrl+Tab cycles again and prevFile keeps
+  // its custom combo — the rest of the map is untouched.
+  await openSettings(page, 'hotkeys');
+  await page.getByTestId('reset-hotkey-nextFile').click();
+  await expect(next).toHaveValue(/(⌃Tab|Ctrl\+Tab)/);
+  await expect(prev).toHaveValue(/F8/);
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+Tab');
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await page.keyboard.press('Control+F7');
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+});
+
+// Issue #84: the cycle is discoverable from View, carrying its live keys.
+test('E178: issue #84 — View → Next/Previous Open File dispatch the cycle, follow a rebinding, and gray out under two open files', async ({
+  page,
+}) => {
+  await freshNativeMenuApp(page);
+  await seedFolders(page);
+  await page.evaluate(() => {
+    window.__mmfs!.nextFolderPath = '/notes';
+  });
+  await menuClick(page, 'openFolder');
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+
+  const viewItem = (command: string) =>
+    page.evaluate((c) => {
+      const view = window.__mmMenu!.spec!.submenus.find((m) => m.title === 'View')!;
+      return view.items.find(
+        (i) => i.type === 'command' && (i as { command?: string }).command === c
+      ) as { label: string; accelerator?: string; disabled?: boolean };
+    }, command);
+
+  // One open file: present, labelled, but grayed — cycling would be a no-op.
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page).toHaveTitle(/a\.md/);
+  await expect.poll(async () => (await viewItem('nextFile')).label).toBe('Next Open File');
+  await expect.poll(async () => (await viewItem('prevFile')).label).toBe('Previous Open File');
+  await expect.poll(async () => (await viewItem('nextFile')).disabled).toBe(true);
+  await expect.poll(async () => (await viewItem('nextFile')).accelerator).toBe('Ctrl+Tab');
+  await expect.poll(async () => (await viewItem('prevFile')).accelerator).toBe('Ctrl+Shift+Tab');
+
+  // A second open file enables them, and they cycle the open set.
+  await page.locator('[data-path="/notes/sub"]').click();
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
+  await expect(page).toHaveTitle(/b\.md/);
+  await expect.poll(async () => (await viewItem('nextFile')).disabled).toBeUndefined();
+  await menuClick(page, 'nextFile');
+  await expect(page).toHaveTitle(/a\.md/);
+  await menuClick(page, 'prevFile');
+  await expect(page).toHaveTitle(/b\.md/);
+
+  // The accelerators follow a rebinding — recorded in the settings window
+  // (SPEC13 §1.5: desktop Settings is a popup, not the in-app modal).
+  const popupPromise = page.waitForEvent('popup');
+  await menuClick(page, 'settings');
+  const sp = await popupPromise;
+  await sp.getByTestId('settings-panel').waitFor();
+  await sp.getByTestId('settings-tab-hotkeys').click();
+  await sp.getByTestId('hotkey-nextFile').click();
+  await sp.keyboard.press('Control+F7');
+  await expect.poll(async () => (await viewItem('nextFile')).accelerator).toBe('Mod+F7');
+
+  // …and the per-row restore puts Ctrl+Tab back on the menu item alone.
+  await sp.getByTestId('reset-hotkey-nextFile').click();
+  await expect.poll(async () => (await viewItem('nextFile')).accelerator).toBe('Ctrl+Tab');
 });

@@ -110,6 +110,13 @@ export interface MenuState {
    */
   openOnly?: boolean;
   /**
+   * Issue #84: how many files are in the open set — gates the Next/Previous
+   * Open File items (cycling under two is a no-op). OPTIONAL so pre-#84
+   * MenuState call sites (and frozen test fixtures) stay valid; absent
+   * reads as zero.
+   */
+  openFileCount?: number;
+  /**
    * Issue #22: the three-mode model (splash | file | workspace) — the
    * derived deriveAppMode() value. Drives the per-item disabled gating:
    * workspace-only items gray out outside workspace mode.
@@ -176,6 +183,9 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
     ],
   };
 
+  // Issue #84: cycling needs two open files in a workspace to mean anything.
+  const noCycle = !wsOpen || (s.openFileCount ?? 0) < 2;
+
   const viewMenu: SubmenuSpec = {
     title: 'View',
     items: [
@@ -184,6 +194,10 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
       cmd('toggleFolders', 'Folders', s.hotkeys.toggleFolders, s.showFolders, !wsOpen),
       // SPEC36 §5.2: the only-open-files view rides directly after Folders.
       cmd('toggleOpenOnly', 'Only Open Files', s.hotkeys.toggleOpenOnly, s.openOnly ?? false, !wsOpen),
+      // Issue #84 (SPEC36 §6.4, amended): the cycle is discoverable, not
+      // hotkey-only — accelerators follow the live map.
+      cmd('nextFile', 'Next Open File', s.hotkeys.nextFile, undefined, noCycle),
+      cmd('prevFile', 'Previous Open File', s.hotkeys.prevFile, undefined, noCycle),
       // Issue #40: edit mode needs an open document (file or untitled) —
       // grayed on the splash and workspace-no-file states alike.
       cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit', !s.docOpen),

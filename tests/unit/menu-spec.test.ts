@@ -408,4 +408,35 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{"folderWidth":999}').folderWidth).toBe(480);
     expect(parseSettings('{"hotkeys":{"save":"Mod+S"}}').hotkeys.toggleFolders).toBe('Mod+Shift+E');
   });
+
+  test('U271: issue #84 — View carries Next/Previous Open File with live accelerators, gated on the open set', () => {
+    const ws = { ...base, openFileCount: 2 };
+    // Placed with the other open-file entries, straight after Only Open Files.
+    const view = commandsIn(ws, 'View').map((i) => i.command);
+    expect(view.slice(0, 4)).toEqual(['toggleFolders', 'toggleOpenOnly', 'nextFile', 'prevFile']);
+    expect(find(ws, 'View', 'nextFile')!.label).toBe('Next Open File');
+    expect(find(ws, 'View', 'prevFile')!.label).toBe('Previous Open File');
+    expect(find(ws, 'View', 'nextFile')!.accelerator).toBe('Ctrl+Tab');
+    expect(find(ws, 'View', 'prevFile')!.accelerator).toBe('Ctrl+Shift+Tab');
+    expect(find(ws, 'View', 'nextFile')!.disabled).toBeUndefined();
+    expect(find(ws, 'View', 'prevFile')!.disabled).toBeUndefined();
+    // Accelerators follow a rebinding — including a strict-Ctrl recording.
+    const rebound = {
+      ...ws,
+      hotkeys: { ...DEFAULT_HOTKEYS, nextFile: 'Mod+Alt+ArrowRight', prevFile: 'Ctrl+Alt+Tab' },
+    };
+    expect(find(rebound, 'View', 'nextFile')!.accelerator).toBe('Mod+Alt+ArrowRight');
+    expect(find(rebound, 'View', 'prevFile')!.accelerator).toBe('Ctrl+Alt+Tab');
+    // Cycling needs two open files in a workspace; below that it grays out.
+    const grayed = [
+      { ...ws, openFileCount: 1 },
+      { ...ws, openFileCount: 0 },
+      { ...base }, // openFileCount absent — reads as zero
+      { ...ws, appMode: 'file' as const },
+    ];
+    for (const st of grayed) {
+      expect(find(st, 'View', 'nextFile')!.disabled).toBe(true);
+      expect(find(st, 'View', 'prevFile')!.disabled).toBe(true);
+    }
+  });
 });

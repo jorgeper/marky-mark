@@ -145,16 +145,56 @@ function eventKey(e: ComboEvent): string {
   return e.key.length === 1 ? e.key.toUpperCase() : e.key;
 }
 
-/** Serialize a keyboard event into a canonical combo string, or null if it is only modifiers. */
-export function comboFromEvent(e: ComboEvent): string | null {
+/**
+ * Serialize a keyboard event into a canonical combo string, or null if it is
+ * only modifiers.
+ *
+ * Issue #84: on macOS a chord using Control WITHOUT ⌘ records as strict
+ * `Ctrl+…`, so re-pressing a shipped strict-Ctrl default (⌃Tab) stores what
+ * was actually pressed instead of silently rewriting it to `Mod+…`. ⌘ is the
+ * mac "Mod" key, so a ⌘⌃ chord — and ctrlKey on every other platform, where
+ * Ctrl IS Mod — keeps recording as `Mod` and stays portable across OSes.
+ */
+export function comboFromEvent(e: ComboEvent, isMac = false): string | null {
   const key = e.key;
   if (key === 'Meta' || key === 'Control' || key === 'Shift' || key === 'Alt') return null;
   const parts: string[] = [];
-  if (e.metaKey || e.ctrlKey) parts.push('Mod');
+  if (isMac && e.ctrlKey && !e.metaKey) parts.push('Ctrl');
+  else if (e.metaKey || e.ctrlKey) parts.push('Mod');
   if (e.shiftKey) parts.push('Shift');
   if (e.altKey) parts.push('Alt');
   parts.push(eventKey(e));
   return parts.join('+');
+}
+
+/**
+ * Strict Ctrl (SPEC36 §6.1): does a (metaKey, ctrlKey) pair satisfy this
+ * combo's ⌘/Ctrl shape? The `ctrl` flag consumes ctrlKey, so the `mod` flag
+ * then matches metaKey alone; without it, Mod keeps meaning ⌘-or-Ctrl. One
+ * definition, shared by matching an event and comparing two combos.
+ */
+function modifiersHold(c: ComboParts, meta: boolean, ctrl: boolean): boolean {
+  if (c.ctrl && !ctrl) return false;
+  return c.mod === (c.ctrl ? meta : meta || ctrl);
+}
+
+/**
+ * Issue #84: would one keypress fire BOTH combos? `Mod` matches ⌘-or-Ctrl, so
+ * `Mod+Tab` and strict `Ctrl+Tab` both fire on a physical ⌃Tab — spellings
+ * that differ as strings but collide as chords. The hotkey conflict check
+ * asks this rather than comparing strings, so a rebind can never leave two
+ * actions on one keypress.
+ */
+export function combosConflict(a: string, b: string): boolean {
+  const x = parseCombo(a);
+  const y = parseCombo(b);
+  if (!x || !y) return false;
+  if (x.key !== y.key || x.shift !== y.shift || x.alt !== y.alt) return false;
+  // Only the ⌘/Ctrl shape can still differ: the two collide when some
+  // (metaKey, ctrlKey) world — all four of them — satisfies both.
+  return [false, true].some((meta) =>
+    [false, true].some((ctrl) => modifiersHold(x, meta, ctrl) && modifiersHold(y, meta, ctrl))
+  );
 }
 
 /** Does this keyboard event match the stored combo? */
@@ -162,10 +202,7 @@ export function eventMatches(e: ComboEvent, combo: string): boolean {
   const c = parseCombo(combo);
   if (!c) return false;
   if (eventKey(e) !== c.key) return false;
-  // Strict Ctrl (SPEC36 §6.1): the ctrl flag consumes ctrlKey, so the mod
-  // flag then matches metaKey alone; without it, Mod keeps meaning ⌘-or-Ctrl.
-  if (c.ctrl && !e.ctrlKey) return false;
-  if (c.mod !== (c.ctrl ? e.metaKey : e.metaKey || e.ctrlKey)) return false;
+  if (!modifiersHold(c, e.metaKey, e.ctrlKey)) return false;
   if (c.shift !== e.shiftKey) return false;
   if (c.alt !== e.altKey) return false;
   return true;

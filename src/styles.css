@@ -1234,6 +1234,22 @@ mark.hl.ghost {
   box-shadow: 0 0 0 2px var(--mm-selection, rgba(9, 105, 218, 0.18));
 }
 
+/* Issue #84: the per-row restore-default affordance. */
+.modal .hotkey-row .hotkey-reset {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--mm-fg-muted, #59636e);
+  cursor: pointer;
+}
+
+.modal .hotkey-row .hotkey-reset:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
 .modal .hotkey-hint {
   font-size: 11.5px;
   color: var(--mm-fg-muted, #59636e);

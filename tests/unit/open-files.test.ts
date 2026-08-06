@@ -9,7 +9,7 @@ import {
   treeOrderCompare,
 } from '../../src/lib/openFiles';
 import { parseFolderState, serializeFolderState, type FolderState } from '../../src/lib/folderTree';
-import { comboFromEvent, displayCombo, eventMatches, parseCombo } from '../../src/lib/hotkeys';
+import { comboFromEvent, combosConflict, displayCombo, eventMatches, parseCombo } from '../../src/lib/hotkeys';
 
 const ev = (over: Partial<{ key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }>) => ({
   key: 'Tab',
@@ -133,7 +133,46 @@ describe('SPEC36 open files', () => {
     expect(displayCombo('Ctrl+Shift+Tab', true)).toBe('⌃⇧Tab');
     expect(displayCombo('Ctrl+Tab', false)).toBe('Ctrl+Tab');
     expect(displayCombo('Mod+Shift+O', true)).toBe('⌘⇧O');
-    // Recording is untouched: a physical Ctrl press still serializes as Mod.
+    // Issue #84 (SPEC36 §6.1, amended): recording is platform-aware. Off mac
+    // — and with the parameter omitted — ctrlKey still serializes as Mod.
     expect(comboFromEvent({ key: 'Tab', metaKey: false, ctrlKey: true, shiftKey: false, altKey: false })).toBe('Mod+Tab');
+    expect(comboFromEvent({ key: 'Tab', metaKey: false, ctrlKey: true, shiftKey: false, altKey: false }, false)).toBe('Mod+Tab');
+  });
+
+  test('U269: issue #84 — a mac ⌃-chord records as strict Ctrl, ⌘ chords stay Mod', () => {
+    const tab = (over: Partial<Parameters<typeof comboFromEvent>[0]>) => ({
+      key: 'Tab',
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      ...over,
+    });
+    // Pressing the shipped default back into its own recorder stores it
+    // verbatim — no silent rewrite to Mod+Tab.
+    expect(comboFromEvent(tab({ ctrlKey: true }), true)).toBe('Ctrl+Tab');
+    expect(comboFromEvent(tab({ ctrlKey: true, shiftKey: true }), true)).toBe('Ctrl+Shift+Tab');
+    // ⌘ is mac's Mod key: a ⌘⌃ chord (and ⌘ alone) still records as Mod.
+    expect(comboFromEvent(tab({ ctrlKey: true, metaKey: true }), true)).toBe('Mod+Tab');
+    expect(comboFromEvent(tab({ metaKey: true }), true)).toBe('Mod+Tab');
+    // Every other combo is unchanged on both platforms.
+    const s = { key: 's', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false };
+    expect(comboFromEvent(s, true)).toBe('Mod+S');
+    expect(comboFromEvent(s, false)).toBe('Mod+S');
+    expect(comboFromEvent({ key: 'Control', metaKey: false, ctrlKey: true, shiftKey: false, altKey: false }, true)).toBe(null);
+  });
+
+  test('U270: issue #84 — conflict detection sees Ctrl and Mod spellings of one chord as colliding', () => {
+    // ⌃Tab fires both spellings, so a rebind must not leave two actions bound.
+    expect(combosConflict('Ctrl+Tab', 'Mod+Tab')).toBe(true);
+    expect(combosConflict('Mod+Tab', 'Ctrl+Tab')).toBe(true);
+    expect(combosConflict('Ctrl+Shift+Tab', 'Mod+Shift+Tab')).toBe(true);
+    expect(combosConflict('Ctrl+Tab', 'Ctrl+Tab')).toBe(true);
+    // Distinct chords stay distinct: Shift, key, and ⌘⌃-vs-⌃ all separate.
+    expect(combosConflict('Ctrl+Tab', 'Ctrl+Shift+Tab')).toBe(false);
+    expect(combosConflict('Ctrl+Tab', 'Mod+E')).toBe(false);
+    expect(combosConflict('Mod+Ctrl+Tab', 'Ctrl+Tab')).toBe(false);
+    expect(combosConflict('Mod+S', 'Mod+Shift+S')).toBe(false);
+    expect(combosConflict('Mod+S', 'Mod+S')).toBe(true);
   });
 });

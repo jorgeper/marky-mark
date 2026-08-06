@@ -15,7 +15,13 @@ import {
   type SettingsScopeTab,
 } from '../lib/settings';
 import type { Theme } from '../lib/themes';
-import { comboFromEvent, DEFAULT_HOTKEYS, displayCombo, type HotkeyMap } from '../lib/hotkeys';
+import {
+  comboFromEvent,
+  combosConflict,
+  DEFAULT_HOTKEYS,
+  displayCombo,
+  type HotkeyMap,
+} from '../lib/hotkeys';
 import { SMART_EDIT_NAME } from '../lib/smartEdit';
 import { expandImageName, isValidImageFolder } from '../lib/imagePaste';
 
@@ -214,6 +220,12 @@ export function SettingsPanel({
     if (clamped !== settings.paneMinWidth) onChange({ ...settings, paneMinWidth: clamped });
   };
 
+  /** Bind one action, clearing any stale conflict hint (recorder and per-row restore alike). */
+  const setHotkey = (action: keyof HotkeyMap, combo: string) => {
+    setHint('');
+    onChange({ ...settings, hotkeys: { ...settings.hotkeys, [action]: combo } });
+  };
+
   const recordHotkey = (action: keyof HotkeyMap) => (e: React.KeyboardEvent<HTMLInputElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -221,17 +233,19 @@ export function SettingsPanel({
       (e.target as HTMLInputElement).blur();
       return;
     }
-    const combo = comboFromEvent(e);
+    // Issue #84: record what was pressed — a mac ⌃-chord stores strict Ctrl.
+    const combo = comboFromEvent(e, isMac);
     if (!combo) return; // modifier only — keep recording
+    // Issue #84: chord collision, not string equality — ⌃Tab fires both
+    // "Ctrl+Tab" and "Mod+Tab", so those must still read as bound.
     const conflict = (Object.keys(settings.hotkeys) as Array<keyof HotkeyMap>).find(
-      (k) => k !== action && settings.hotkeys[k] === combo
+      (k) => k !== action && combosConflict(settings.hotkeys[k], combo)
     );
     if (conflict) {
       setHint(`${displayCombo(combo, isMac)} is already bound to “${HOTKEY_LABELS[conflict]}”`);
       return;
     }
-    setHint('');
-    onChange({ ...settings, hotkeys: { ...settings.hotkeys, [action]: combo } });
+    setHotkey(action, combo);
     (e.target as HTMLInputElement).blur();
   };
 
@@ -729,6 +743,18 @@ export function SettingsPanel({
         onKeyDown={recordHotkey(action)}
         onFocus={(e) => e.target.select()}
       />
+      {/* Issue #84: per-row restore — what makes one mis-recorded binding
+          recoverable without resetting the whole map. */}
+      <button
+        className="hotkey-reset"
+        data-testid={`reset-hotkey-${action}`}
+        title={`Restore default (${displayCombo(DEFAULT_HOTKEYS[action], isMac)})`}
+        aria-label={`Restore default for ${HOTKEY_LABELS[action]}`}
+        disabled={settings.hotkeys[action] === DEFAULT_HOTKEYS[action]}
+        onClick={() => setHotkey(action, DEFAULT_HOTKEYS[action])}
+      >
+        ↺
+      </button>
     </div>
   );
 
