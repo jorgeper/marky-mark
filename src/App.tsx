@@ -3095,6 +3095,8 @@ export default function App() {
         lineNumbers: settings.lineNumbers,
         showFolders: settings.showFolders,
         openOnly: folderOpenOnly,
+        // Issue #84: gates View → Next/Previous Open File.
+        openFileCount: openFiles.length,
         recentFiles: recentMenuEntries(recent, platform.basename, platform.dirname),
         // PRD 002 §D15: the workspaces section, same disambiguated labels.
         recentWorkspaces: recentMenuEntries(recentWs, platform.basename, platform.dirname),
@@ -3102,7 +3104,7 @@ export default function App() {
       // Issue #38: a failed install must not strand the window with neither
       // a menu nor the toolbar — fall back to in-app chrome for the session.
     ).catch(() => setMenuInstallFailed(true));
-  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, settings.lineNumbers, recent, recentWs, settings.showFolders, folderOpenOnly, menuInstallFailed]);
+  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, settings.lineNumbers, recent, recentWs, settings.showFolders, folderOpenOnly, openFiles.length, menuInstallFailed]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {

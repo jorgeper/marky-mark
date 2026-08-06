@@ -145,16 +145,50 @@ function eventKey(e: ComboEvent): string {
   return e.key.length === 1 ? e.key.toUpperCase() : e.key;
 }
 
-/** Serialize a keyboard event into a canonical combo string, or null if it is only modifiers. */
-export function comboFromEvent(e: ComboEvent): string | null {
+/**
+ * Serialize a keyboard event into a canonical combo string, or null if it is
+ * only modifiers.
+ *
+ * Issue #84: on macOS a chord using Control WITHOUT ⌘ records as strict
+ * `Ctrl+…`, so re-pressing a shipped strict-Ctrl default (⌃Tab) stores what
+ * was actually pressed instead of silently rewriting it to `Mod+…`. ⌘ is the
+ * mac "Mod" key, so a ⌘⌃ chord — and ctrlKey on every other platform, where
+ * Ctrl IS Mod — keeps recording as `Mod` and stays portable across OSes.
+ */
+export function comboFromEvent(e: ComboEvent, isMac = false): string | null {
   const key = e.key;
   if (key === 'Meta' || key === 'Control' || key === 'Shift' || key === 'Alt') return null;
   const parts: string[] = [];
-  if (e.metaKey || e.ctrlKey) parts.push('Mod');
+  if (isMac && e.ctrlKey && !e.metaKey) parts.push('Ctrl');
+  else if (e.metaKey || e.ctrlKey) parts.push('Mod');
   if (e.shiftKey) parts.push('Shift');
   if (e.altKey) parts.push('Alt');
   parts.push(eventKey(e));
   return parts.join('+');
+}
+
+/**
+ * Issue #84: would one keypress fire BOTH combos? `Mod` matches ⌘-or-Ctrl, so
+ * `Mod+Tab` and strict `Ctrl+Tab` both fire on a physical ⌃Tab — spellings
+ * that differ as strings but collide as chords. The hotkey conflict check
+ * asks this rather than comparing strings, so a rebind can never leave two
+ * actions on one keypress.
+ */
+export function combosConflict(a: string, b: string): boolean {
+  const x = parseCombo(a);
+  const y = parseCombo(b);
+  if (!x || !y) return false;
+  if (x.key !== y.key || x.shift !== y.shift || x.alt !== y.alt) return false;
+  // Four possible (metaKey, ctrlKey) worlds — do the two modifier shapes
+  // share one? `ctrl` consumes ctrlKey, leaving `mod` to mean metaKey alone.
+  const holds = (c: ComboParts, meta: boolean, ctrl: boolean) =>
+    (!c.ctrl || ctrl) && c.mod === (c.ctrl ? meta : meta || ctrl);
+  for (const meta of [false, true]) {
+    for (const ctrl of [false, true]) {
+      if (holds(x, meta, ctrl) && holds(y, meta, ctrl)) return true;
+    }
+  }
+  return false;
 }
 
 /** Does this keyboard event match the stored combo? */

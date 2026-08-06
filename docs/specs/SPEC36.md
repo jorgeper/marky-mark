@@ -183,6 +183,19 @@ like `folderTree.ts`:
    `ctrlKey` and the `mod` flag then matches `metaKey` alone;
    `comboFromEvent` (recording) is unchanged and still emits `Mod`;
    `displayCombo` renders it "⌃" on macOS, "Ctrl+" elsewhere.
+
+   > **Amended (issue #84, 2026-08-06):** recording is platform-aware,
+   > so the strict-Ctrl defaults are reproducible from the Settings
+   > recorder. `comboFromEvent(e, isMac)` emits `Ctrl+…` for a chord
+   > using ctrlKey **without** metaKey on macOS; ⌘⌃ chords, and
+   > ctrlKey on every other platform (where Ctrl *is* Mod), still emit
+   > `Mod+…`, so recorded bindings stay portable. The `isMac` argument
+   > defaults to false, leaving every other call site unchanged. The
+   > Settings conflict check now asks `combosConflict(a, b)` — could
+   > one keypress fire both? — instead of comparing strings, because
+   > `Mod+Tab` and `Ctrl+Tab` are one physical chord on macOS. Every
+   > hotkey row also carries a per-row restore-default control
+   > (`reset-hotkey-<action>`) beside the global **Reset hotkeys**.
 2. `HotkeyMap` gains `nextFile` (default **Ctrl+Tab**), `prevFile`
    (default **Ctrl+Shift+Tab**), and `toggleOpenOnly` (default
    **Mod+Shift+O**); `HOTKEY_LABELS` gains "Next Open File",
@@ -198,6 +211,14 @@ like `folderTree.ts`:
 4. Menu: View gains "Only Open Files" (§5.2, accelerator
    `toggleOpenOnly`). "Next/Previous Open File" are hotkey-only — no
    menu items. No other menu changes.
+
+   > **Amended (issue #84, 2026-08-06):** the cycle is discoverable.
+   > View gains **Next Open File** / **Previous Open File** directly
+   > after "Only Open Files", dispatching the existing `nextFile` /
+   > `prevFile` commands and carrying their live accelerators (they
+   > follow a rebinding). Both are disabled outside workspace mode and
+   > whenever the open set holds fewer than two files — `MenuState`
+   > gains an optional `openFileCount` for that gate. E178 covers it.
 
 ## 7. Quit walk (FR-QUIT)
 
