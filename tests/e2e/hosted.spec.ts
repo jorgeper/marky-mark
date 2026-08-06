@@ -1777,14 +1777,14 @@ test('E212: on hosted, Open File… with a workspace open crosses into single-fi
   });
 
   // Req 4: the workspace closed and the file opened — single-file mode, with
-  // the initial page never the resting state of the switch.
+  // the initial page never the resting state of the switch. (The switcher
+  // chip still names the workspace it listed at boot: it goes with the rest
+  // of the hosted chrome in #93, and app state is what this test pins.)
   await expect(page.getByTestId('docname')).toContainText('mine.md');
   await expect(page.getByTestId('empty-hint')).toHaveCount(0);
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
   await expect(page.getByTestId('folder-expand')).toHaveCount(0);
-  // (The switcher chip still names the workspace it listed at boot — it is
-  // removed with the rest of the hosted chrome in #93, and the app state it
-  // paints over is what this test pins.)
+
   // …and it is a local document: fully editable, nothing uploaded.
   await page.getByTestId('edit-toggle').click();
   await page.locator('.cm-content').click();

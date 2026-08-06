@@ -91,11 +91,11 @@ export function createHostedPlatform(): Platform {
    * single-file web build uses (platform/localDocs.ts), with nothing
    * uploaded. It is a MODE, not a document that can share the screen with a
    * workspace: App closes any open workspace before it opens one of these.
-   * Its documents hang under `/local`,
-   * which `parseHostedPath` deliberately does not resolve: a local doc can
-   * never turn into a request against `/api/workspaces/...`, so every read,
-   * write and save below answers from memory (or the browser's own file
-   * handle) before the API is ever considered.
+   * Its documents hang under `/local`, which `parseHostedPath` deliberately
+   * does not resolve: a local doc can never turn into a request against
+   * `/api/workspaces/...`, so every read, write and save below answers from
+   * memory (or the browser's own file handle) before the API is ever
+   * considered.
    */
   const local = createLocalDocs('local');
 

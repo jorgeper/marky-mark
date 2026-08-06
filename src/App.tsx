@@ -21,8 +21,8 @@ import {
 import { displayCombo, eventMatches } from './lib/hotkeys';
 import { dispatchCommand, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
 import { buildMenuSpec } from './lib/menuSpec';
-import { deriveAppMode, type AppMode } from './lib/appMode';
-import { modesAreExclusive, planModeSwitch, type ModeSwitch } from './lib/modeSwitch';
+import { deriveAppMode } from './lib/appMode';
+import { modesAreExclusive, planModeSwitch, type ModeTarget } from './lib/modeSwitch';
 import { stepComment } from './lib/commentNav';
 import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
 import type { EditorSearchHandle, EditorSyncHandle, SmartEditHandle, SmartFormatOp } from './components/Editor';
@@ -2633,6 +2633,17 @@ export default function App() {
   }, [updateWorkspace, commitRecentWs]);
 
   /**
+   * PRD 009 Req 3: single-file mode is closed for real — every tab drops and
+   * the initial page comes back. Every dirty guard has already run by the
+   * time this fires (see crossModes); a workspace close ends the same way.
+   */
+  const finishCloseFiles = useCallback(() => {
+    commitOpenSet([], null);
+    parkRef.current.clear();
+    closeToSplash();
+  }, [commitOpenSet, closeToSplash]);
+
+  /**
    * Issue #22: the workspace is closed for real — sidebar roots/tabs empty,
    * the open document closes too, the splash shows. Every dirty guard has
    * already run by the time this fires (see closeWorkspaceCmd).
@@ -2647,15 +2658,13 @@ export default function App() {
     // The workspace flips to 'none' FIRST so the tab clear below can't
     // overwrite the closed workspace's saved session with an empty one.
     updateWorkspace(closeWorkspace(cur));
-    commitOpenSet([], null);
-    parkRef.current.clear();
-    closeToSplash();
+    finishCloseFiles();
     // PRD 009 Req 6: hosted binds the open workspace in its own URL, so
     // closing one has to drop `?workspace=<id>` too — otherwise a reload
     // walks straight back in. `unbind` rewrites the URL in place instead of
     // navigating: a crossing action (Req 4) still has a file to open here.
     stateRef.current.platform?.workspaces?.unbind();
-  }, [commitOpenSet, updateWorkspace, closeToSplash]);
+  }, [finishCloseFiles, updateWorkspace]);
 
   /**
    * PRD 002 §D16 + issue #22: Close Workspace — the changed-workspace prompt
@@ -2675,26 +2684,21 @@ export default function App() {
   }, [guardWorkspaceDiscard, finishCloseWorkspace, dirtyDocsQueue]);
 
   /**
-   * PRD 009 Req 3: single-file mode is closed for real — every tab drops and
-   * the initial page comes back. The mirror of finishCloseWorkspace: the
-   * dirty walk has already run by the time this fires.
-   */
-  const finishCloseFiles = useCallback(() => {
-    commitOpenSet([], null);
-    parkRef.current.clear();
-    closeToSplash();
-  }, [commitOpenSet, closeToSplash]);
-
-  /**
-   * PRD 009 Req 4/5: a crossing action closes the mode it is leaving — through
-   * that mode's own dirty prompts — and only then does its own work. Cancel
-   * anywhere in those prompts drops `enter` on the floor: nothing was closed
-   * and nothing new was opened. A plan of 'enter' (the initial page, a move
-   * inside one mode, or desktop, where the modes are not exclusive) runs the
-   * action straight away.
+   * PRD 009 Req 4/5: run `enter` as a crossing action — the mode it wants
+   * (`target`) closes the mode the app is leaving first, through that mode's
+   * own dirty prompts, and only then does its own work. Cancel anywhere in
+   * those prompts drops `enter` on the floor: nothing was closed and nothing
+   * new was opened. Nothing is crossed from the initial page, within one mode,
+   * or on desktop (where the modes are not exclusive) — `enter` runs straight
+   * away.
    */
   const crossModes = useCallback(
-    (plan: ModeSwitch, enter: () => void) => {
+    (p: Platform, target: ModeTarget, enter: () => void) => {
+      // PRD 009 Req 1: the mode is read from live refs, not from this render —
+      // a command dispatches long after the closure that carries it was made.
+      const s = stateRef.current;
+      const mode = deriveAppMode(s.docPath !== null || s.untitled, curWorkspaceRef.current.kind);
+      const plan = planModeSwitch(mode, target, modesAreExclusive(p.kind));
       if (plan === 'enter') {
         enter();
         return;
@@ -2730,24 +2734,18 @@ export default function App() {
     enter();
   }, [modeSwitchTick]);
 
-  /** PRD 009 Req 1: the mode the app is in right now, read from live refs. */
-  const currentMode = useCallback(
-    (): AppMode => deriveAppMode(stateRef.current.docPath !== null || stateRef.current.untitled, curWorkspaceRef.current.kind),
-    []
-  );
-
   /**
    * PRD 009 Req 4/5: opening a local file is a crossing action. With a
    * workspace open it closes the workspace first and lands in single-file
    * mode holding that file — it no longer opens INSIDE the workspace (the
-   * retired PRD 007 Req 21 variant). Desktop is unchanged: the plan is
-   * 'enter' there, so the file opens exactly as it always did.
+   * retired PRD 007 Req 21 variant). Desktop is unchanged: nothing is crossed
+   * there, so the file opens exactly as it always did.
    */
   const openLocalFile = useCallback(
     (p: Platform, path: string) => {
-      crossModes(planModeSwitch(currentMode(), 'file', modesAreExclusive(p.kind)), () => openDocGuarded(p, path));
+      crossModes(p, 'file', () => openDocGuarded(p, path));
     },
-    [crossModes, currentMode, openDocGuarded]
+    [crossModes, openDocGuarded]
   );
   // The boot effect registers the window drop once, so it reaches this
   // render's closure through a ref (like openWorkspacePathRef above).
@@ -2933,8 +2931,8 @@ export default function App() {
     // PRD 009 Req 4: the pick happens FIRST — a cancelled picker must not have
     // closed a workspace — and only a real pick crosses into single-file mode.
     const path = await p.openFileDialog();
-    if (path) openLocalFileRef.current(p, path);
-  }, []);
+    if (path) openLocalFile(p, path);
+  }, [openLocalFile]);
 
   /**
    * File → New v2 (SPEC22 §1.1): swap in a blank unsaved buffer in edit mode.
@@ -3341,7 +3339,7 @@ export default function App() {
       newWorkspace: () => {
         const p = stateRef.current.platform;
         if (!p) return;
-        crossModes(planModeSwitch(currentMode(), 'workspace', modesAreExclusive(p.kind)), () => {
+        crossModes(p, 'workspace', () => {
           if (p.workspaces) setManagedWsDialog('new');
           else newWorkspaceCmd();
         });
@@ -3349,7 +3347,7 @@ export default function App() {
       openWorkspace: () => {
         const p = stateRef.current.platform;
         if (!p) return;
-        crossModes(planModeSwitch(currentMode(), 'workspace', modesAreExclusive(p.kind)), () => {
+        crossModes(p, 'workspace', () => {
           if (p.workspaces) setManagedWsDialog('open');
           else openWorkspaceCmd();
         });
@@ -3460,7 +3458,7 @@ export default function App() {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, currentMode]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
