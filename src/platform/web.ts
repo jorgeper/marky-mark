@@ -169,8 +169,11 @@ export function createWebPlatform(): Platform {
         }
       : {}),
 
+    // PRD 009 Req 15: the explicit Save — write-through to the handle after
+    // the browser's readwrite grant, download otherwise. Shared with hosted
+    // through localDocs.ts; nothing is reimplemented here.
     async commitFile(path) {
-      local.commit(path);
+      await local.commit(path);
     },
     async importTheme() {
       let name: string;
