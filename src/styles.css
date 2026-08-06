@@ -2540,9 +2540,9 @@ mark.hl.ghost {
   gap: 6px;
 }
 .workspace-switcher-chip {
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--fg);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  background: var(--mm-bg-elevated, #f6f8fa);
+  color: var(--mm-fg, #1f2328);
   border-radius: 999px;
   padding: 4px 12px;
   font-size: 12px;
@@ -2552,41 +2552,48 @@ mark.hl.ghost {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .workspace-switcher-menu {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
+  border: 1px solid var(--mm-border, #d1d9e0);
   border-radius: 8px;
-  background: var(--panel);
+  background: var(--mm-bg-elevated, #f6f8fa);
   overflow: hidden;
 }
+
 .workspace-switcher-menu button {
   background: none;
   border: none;
-  color: var(--fg);
+  color: var(--mm-fg, #1f2328);
   text-align: left;
   padding: 6px 14px;
   font-size: 13px;
   cursor: pointer;
 }
+
 .workspace-switcher-menu button:hover {
-  background: var(--hover);
+  background: var(--mm-hover, rgba(9, 105, 218, 0.08));
 }
+
 .modal.workspace-modal {
   min-width: 420px;
 }
+
 .workspace-role-row {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 6px;
 }
+
 .workspace-role-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .workspace-list {
   list-style: none;
   margin: 0;
@@ -2594,6 +2601,7 @@ mark.hl.ghost {
   max-height: 260px;
   overflow-y: auto;
 }
+
 .workspace-list-item {
   display: flex;
   width: 100%;
@@ -2601,37 +2609,43 @@ mark.hl.ghost {
   gap: 10px;
   background: none;
   border: none;
-  color: var(--fg);
+  color: var(--mm-fg, #1f2328);
   padding: 6px 8px;
   cursor: pointer;
   text-align: left;
 }
+
 .workspace-list-item:hover {
-  background: var(--hover);
+  background: var(--mm-hover, rgba(9, 105, 218, 0.08));
 }
+
 .workspace-list-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .workspace-list-modified {
   opacity: 0.6;
   font-size: 12px;
 }
+
 .workspace-danger {
   margin-top: 18px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--mm-border, #d1d9e0);
   padding-top: 12px;
 }
+
 .workspace-danger button.destructive {
-  border: 1px solid #b3261e;
-  background: #b3261e;
-  color: #fff;
+  border: 1px solid var(--mm-danger, #cf222e);
+  background: var(--mm-danger, #cf222e);
+  color: #ffffff;
   border-radius: 6px;
   padding: 5px 12px;
   cursor: pointer;
 }
+
 .workspace-danger button.destructive:disabled {
   opacity: 0.45;
   cursor: default;

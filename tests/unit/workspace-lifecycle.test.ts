@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_EVERYONE_ROLE,
   buildNewWorkspaceManifest,
   createWorkspaceManifest,
   isKnownRoleName,
@@ -9,7 +10,6 @@ import {
 } from '../../src/lib/hostedWorkspace';
 import type { MemberEntry } from '../../src/lib/membership';
 import {
-  DEFAULT_EVERYONE_ROLE,
   deleteConfirmationMatches,
   emptyNewWorkspaceForm,
   filterWorkspaces,

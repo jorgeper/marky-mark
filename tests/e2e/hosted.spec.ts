@@ -583,21 +583,24 @@ test('E177: the User settings layer roams per user while the Workspace layer com
 
 // --- workspace lifecycle: create, open, delete (PRD 007 Req 10/11/12) --------
 
+/** A row of `GET /api/workspaces` (PRD 007 Req 11). */
+interface WorkspaceRow {
+  id: string;
+  name: string;
+  modified: string;
+  owners: string[];
+  access: boolean;
+}
+
 /** The listing row for `id`, as `GET /api/workspaces` reports it to `token`. */
 async function listingFor(
   request: APIRequestContext,
   token: string,
   id: string,
-): Promise<{ id: string; name: string; modified: string; owners: string[]; access: boolean } | undefined> {
+): Promise<WorkspaceRow | undefined> {
   const res = await request.get(`${HOSTED}/api/workspaces`, { headers: { Authorization: `Bearer ${token}` } });
   expect(res.status()).toBe(200);
-  const listed = (await res.json()) as Array<{
-    id: string;
-    name: string;
-    modified: string;
-    owners: string[];
-    access: boolean;
-  }>;
+  const listed = (await res.json()) as WorkspaceRow[];
   return listed.find((w) => w.id === id);
 }
 

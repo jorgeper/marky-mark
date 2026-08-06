@@ -6,12 +6,12 @@
 // Platform's `workspaces` capability, so nothing here asks which flavor is
 // running; all decisions are the pure functions in lib/workspaceLifecycle.ts.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MembershipPicker } from './MembershipPicker';
 import type { DirectoryEntry, MemberEntry } from '../lib/membership';
 import { timeAgo } from '../lib/time';
 import {
-  DEFAULT_EVERYONE_ROLE,
+  DEFAULT_MEMBER_ROLE,
   GRANTABLE_ROLES,
   emptyNewWorkspaceForm,
   filterWorkspaces,
@@ -41,7 +41,7 @@ function NewWorkspaceDialog({
 
   const addMember = (user: DirectoryEntry) => {
     setPicked((prev) => [...prev, { ...user, resolved: true }]);
-    setForm((prev) => ({ ...prev, members: [...prev.members, { id: user.id, role: DEFAULT_EVERYONE_ROLE }] }));
+    setForm((prev) => ({ ...prev, members: [...prev.members, { id: user.id, role: DEFAULT_MEMBER_ROLE }] }));
   };
   const removeMember = (id: string) => {
     setPicked((prev) => prev.filter((m) => m.id !== id));
@@ -275,10 +275,10 @@ export function WorkspaceSwitcher({ lifecycle }: { lifecycle: WorkspaceLifecycle
     };
   }, [lifecycle, currentId]);
 
-  const open = useCallback((next: Dialog) => {
+  const open = (next: Dialog) => {
     setMenuOpen(false);
     setDialog(next);
-  }, []);
+  };
 
   return (
     <>

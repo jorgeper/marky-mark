@@ -10,7 +10,12 @@
 
 import { fuzzyFilter } from './fuzzy';
 import type { MemberEntry } from './membership';
-import type { CreateWorkspaceRequest, WorkspaceMember } from './hostedWorkspace';
+import {
+  DEFAULT_EVERYONE_ROLE,
+  type BuiltInRoleName,
+  type CreateWorkspaceRequest,
+  type WorkspaceMember,
+} from './hostedWorkspace';
 
 /**
  * PRD 007 Req 11: one row of `GET /api/workspaces`. Every workspace in the
@@ -36,11 +41,20 @@ export interface NewWorkspaceForm {
   everyoneRole: string;
 }
 
-/** PRD 007 Req 16: what everyone-access grants until the user picks otherwise. */
-export const DEFAULT_EVERYONE_ROLE = 'Viewer';
+/**
+ * The roles the create flow offers for an initial grant: the built-ins minus
+ * Owner (the creator's own role, not something the form hands out). Typed
+ * against `BuiltInRoleName`, so a name that stops being a built-in stops
+ * compiling here rather than becoming a 400 at create time.
+ */
+export const GRANTABLE_ROLES: readonly BuiltInRoleName[] = ['Editor', 'Contributor', 'Commenter', 'Viewer'];
 
-/** The roles the create flow offers for an initial grant (built-ins, minus Owner). */
-export const GRANTABLE_ROLES = ['Editor', 'Contributor', 'Commenter', 'Viewer'] as const;
+/**
+ * PRD 007 Req 10: the role a freshly picked initial member starts at — the
+ * least-privileged grant, raised per member by the row's role select. Distinct
+ * from `DEFAULT_EVERYONE_ROLE` (Req 16) even though both start at Viewer.
+ */
+export const DEFAULT_MEMBER_ROLE: BuiltInRoleName = 'Viewer';
 
 export function emptyNewWorkspaceForm(): NewWorkspaceForm {
   return { name: '', members: [], everyoneEnabled: false, everyoneRole: DEFAULT_EVERYONE_ROLE };
@@ -72,14 +86,19 @@ export function validateNewWorkspaceForm(form: NewWorkspaceForm): NewWorkspaceRe
   };
 }
 
+/** Newest first. ISO 8601 timestamps sort chronologically as plain strings. */
+function newestFirst(a: WorkspaceListing, b: WorkspaceListing): number {
+  if (a.modified === b.modified) return 0;
+  return a.modified > b.modified ? -1 : 1;
+}
+
 /**
  * PRD 007 Req 11: search-as-you-type over the already-fetched list — the same
  * fuzzy matcher the heading palette uses, so no keystroke costs a round trip.
  * An empty query keeps every workspace, most recently modified first.
  */
 export function filterWorkspaces(query: string, items: readonly WorkspaceListing[]): WorkspaceListing[] {
-  const ordered = [...items].sort((a, b) => (a.modified < b.modified ? 1 : a.modified > b.modified ? -1 : 0));
-  return fuzzyFilter(query, ordered, (w) => w.name);
+  return fuzzyFilter(query, [...items].sort(newestFirst), (w) => w.name);
 }
 
 /**

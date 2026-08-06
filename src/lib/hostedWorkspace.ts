@@ -100,9 +100,17 @@ export interface CustomRole {
 /** Everyone-in-tenant access: off, or on with a default role (PRD 007 Req 16). */
 export interface EveryoneAccess {
   enabled: boolean;
-  /** Role for signed-in non-members while enabled. Default 'Viewer'. */
+  /** Role for signed-in non-members while enabled; `DEFAULT_EVERYONE_ROLE`. */
   role: string;
 }
+
+/**
+ * PRD 007 Req 16: what everyone-access grants until a role is named — the
+ * least-privileged built-in. One constant for the whole flavor: the server
+ * stamps it on a create request that omits the role, and the New Workspace
+ * form starts its picker there, so the two can never drift apart.
+ */
+export const DEFAULT_EVERYONE_ROLE: BuiltInRoleName = 'Viewer';
 
 /**
  * PRD 007 Req 7: the workspace manifest — the versioned JSON evolution of
@@ -243,7 +251,7 @@ export function createWorkspaceManifest(name: string, creatorId: string, nowIso:
     modified: nowIso,
     members: [{ id: creatorId, role: 'Owner' }],
     roles: [],
-    everyone: { enabled: false, role: 'Viewer' },
+    everyone: { enabled: false, role: DEFAULT_EVERYONE_ROLE },
     settings: {},
   };
 }
@@ -282,7 +290,9 @@ export function buildNewWorkspaceManifest(
   nowIso: string,
 ): ManifestResult {
   if (!isPlainObject(body)) return fail('request body must be a JSON object');
-  const { name, members, everyone } = body as CreateWorkspaceRequest & Record<string, unknown>;
+  // Untrusted fields stay `unknown` until each check narrows them — the same
+  // shape-by-shape discipline validateWorkspaceManifest applies above.
+  const { name, members, everyone } = body;
   if (typeof name !== 'string' || name.trim() === '') {
     return fail('name must be a non-empty string');
   }
@@ -308,7 +318,7 @@ export function buildNewWorkspaceManifest(
     if (!isPlainObject(everyone) || typeof everyone.enabled !== 'boolean') {
       return fail('everyone must be {enabled: boolean, role?: string}');
     }
-    const role = everyone.role === undefined ? 'Viewer' : everyone.role;
+    const role = everyone.role === undefined ? DEFAULT_EVERYONE_ROLE : everyone.role;
     if (!isNonEmptyString(role) || !isKnownRoleName(manifest, role)) {
       return fail(`unknown role ${JSON.stringify(everyone.role)}`);
     }
