@@ -121,6 +121,14 @@ table below is the same mapping `WORKSPACE_ROUTE_PERMISSIONS` declares in
 routes — every one of the fourteen catalog verbs is required by some
 operation here, so none can be added and left dead.
 
+A **comment sidecar** — the term three `files/<path>` rows below use — is a
+`<doc>.comments.json` blob (`isSidecarPath` in `src/lib/sidecar.ts`: one
+definition, shared by the server and the client that writes them). Those
+requests require the comment verbs instead of the doc/file ones, which is
+what lets a Commenter — who holds no `doc.edit` — actually write a comment
+on a document they may not change. Pasted images and every other blob stay
+on the doc/file verbs.
+
 | Endpoint | Required permission | Meaning |
 | --- | --- | --- |
 | `POST /api/auth/sign-in` | — (unauthenticated) | Local: `{username}` → `{kind:'token', token, user}`. Azure: `{kind:'redirect', authorizeUrl}` for the SPA's PKCE flow. The only unauthenticated endpoint. |
@@ -141,14 +149,6 @@ operation here, so none can be added and left dead.
 | `GET /api/workspaces/<id>/files/<path>` | `doc.read` (a comment sidecar: `comment.read`) | Read: `{path, content, etag}`, or 404. With `?raw=1` the blob's bytes, typed from its extension (PRD 007 Req 8: pasted images). A GET may also authenticate with `?access_token=` — an `<img>` cannot send a header; writes never can. |
 | `PUT /api/workspaces/<id>/files/<path>` | `file.create` when the blob does not exist yet, `doc.edit` when it does (a comment sidecar: `comment.write`) | Write body as content → `{path, etag}`. With `?raw=1` the body is stored as raw bytes. A PUT of a path that holds nothing is a **create** and a PUT over one that does is a **save**: a custom role may grant either verb without the other (Req 15), so they cannot share one. PRD 007 Req 20: an `If-Match` header makes the write conditional on the ETag the client read — a stale one answers **412** with the stored content untouched, so another member's save is never silently lost. No `If-Match` is a deliberate unconditional write (a first save, or the user's Overwrite answer to the conflict prompt). |
 | `DELETE /api/workspaces/<id>/files/<path>` | `file.delete` (a comment sidecar: `comment.write`) | Delete; 404 when absent. |
-
-A **comment sidecar** is a `<doc>.comments.json` blob (`isSidecarPath` in
-`src/lib/sidecar.ts` — one definition, shared by the server and the client
-that writes them). Those three routes require the comment verbs instead of
-the doc/file ones, which is what lets a Commenter — who holds no `doc.edit`
-— actually write a comment on a document they may not change. Pasted images
-and every other blob stay on the doc/file verbs.
-
 | `POST /api/workspaces/<id>/move-file` | `file.rename` | `{from, to}` → move or rename ONE file (PRD 007 Req 18). 409 when the destination is occupied (the target is never silently destroyed), 404 for an unknown source. |
 | `POST /api/workspaces/<id>/move-folder` | `folder.manage` | `{from, to}` → move or rename a folder, re-keying every blob under its prefix (contents follow). 409 when the destination prefix already holds anything, 404 when the source is empty, 400 for a folder into its own descendant. |
 | `POST /api/workspaces/<id>/folders` | `folder.manage` | `{path}` → create an EMPTY folder as a `.mmkeep` marker blob under its prefix (blob storage has no directories), so a new folder survives a reload. Idempotent. |

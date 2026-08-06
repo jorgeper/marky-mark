@@ -9,7 +9,7 @@ import {
   WidgetType,
   type DecorationSet,
 } from '@codemirror/view';
-import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
+import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField, type Extension } from '@codemirror/state';
 import {
   cursorCharLeft,
   cursorCharRight,
@@ -398,6 +398,16 @@ class SmartEditWidget extends WidgetType {
     return anchor;
   }
 }
+
+/**
+ * PRD 007 Req 17: the read-only pane, both halves — `readOnly` refuses
+ * document changes, `editable` also takes the pane out of the tab order and
+ * hides the caret, so it reads as what it is rather than an editor that
+ * swallows keystrokes. One definition for the mount and the live
+ * reconfigure, which must never drift apart.
+ */
+const readOnlyExt = (on: boolean): Extension =>
+  on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [];
 
 /** The cursor-line-only button, decorated into the content area (not a gutter). */
 function smartEditButton(title: string, onOpen: (view: EditorView, rect: DOMRect) => void) {
@@ -947,13 +957,9 @@ export default function Editor({
       // SPEC43 §3.2: the smart-edit button, in the content area's left
       // padding — same geometry with or without line numbers.
       smartComp.current.of(smartEditButton(gutterTitle(), openMenuAtGutter)),
-      // PRD 007 Req 17: both halves — `readOnly` refuses document changes,
-      // `editable` also takes the pane out of the tab order and hides the
-      // caret, so it reads as what it is rather than an editor that swallows
-      // keystrokes.
-      readOnlyComp.current.of(
-        readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [],
-      ),
+      // PRD 007 Req 17: read-only rides a compartment like every other live
+      // prop — see readOnlyExt above for what it turns off.
+      readOnlyComp.current.of(readOnlyExt(readOnly)),
       diffComp.current.of([]),
       // SPEC23 §3: highlighting rides a compartment — toggling the setting
       // reconfigures live, undo history intact. PRD 006 §12: while live
@@ -1338,11 +1344,7 @@ export default function Editor({
   }, [value]);
 
   useEffect(() => {
-    viewRef.current?.dispatch({
-      effects: readOnlyComp.current.reconfigure(
-        readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [],
-      ),
-    });
+    viewRef.current?.dispatch({ effects: readOnlyComp.current.reconfigure(readOnlyExt(readOnly)) });
   }, [readOnly]);
 
   useEffect(() => {

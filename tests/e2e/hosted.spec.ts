@@ -1549,7 +1549,6 @@ test('E203: New Workspace… and Open Workspace… on the hosted start page land
   await expect(page.getByTestId('workspace-switcher-chip')).toContainText(fresh);
 });
 
-
 // PRD 007 Req 13+17 (#79): end-to-end permission enforcement — the UI offers
 // only what the signed-in member's role allows, and every route refuses the
 // rest regardless of what any UI showed.

@@ -143,15 +143,21 @@ export const WORKSPACE_ROUTE_PERMISSIONS: readonly WorkspaceRouteRequirement[] =
  * included, stays on the doc/file verbs. A PUT is a create when the path
  * holds nothing yet and a save when it does: a custom role may grant
  * `file.create` without `doc.edit` or the other way round (Req 15), so the
- * two cannot share one verb.
+ * two cannot share one verb. `exists` is a thunk because that is the only
+ * branch that needs it — every other request answers without a storage round
+ * trip, and this function is the one place that knows which branch that is.
  */
-function fileRouteVerb(method: string, filePath: string, exists: boolean): Permission | null {
+async function fileRouteVerb(
+  method: string,
+  filePath: string,
+  exists: () => Promise<boolean>,
+): Promise<Permission | null> {
   if (isSidecarPath(filePath)) {
     if (method === 'GET') return 'comment.read';
     return method === 'PUT' || method === 'DELETE' ? 'comment.write' : null;
   }
   if (method === 'GET') return 'doc.read';
-  if (method === 'PUT') return exists ? 'doc.edit' : 'file.create';
+  if (method === 'PUT') return (await exists()) ? 'doc.edit' : 'file.create';
   return method === 'DELETE' ? 'file.delete' : null;
 }
 
@@ -728,10 +734,9 @@ export async function handleWorkspaceApi(
     // depending on whether the blob is already there. An unsupported method
     // yields no verb and falls through to the 404 at the end.
     const method = req.method ?? '';
-    const exists = method === 'PUT' && !isSidecarPath(filePath) ? await blobExists(storage, blobPath) : false;
-    const verb = fileRouteVerb(method, filePath, exists);
+    const verb = await fileRouteVerb(method, filePath, () => blobExists(storage, blobPath));
     if (verb && !(await requirePermission(res, storage, id, auth, verb))) return;
-    if (req.method === 'GET') {
+    if (method === 'GET') {
       if (raw) {
         const bytes = await storage.readBytes(blobPath);
         if (!bytes) {
@@ -751,7 +756,7 @@ export async function handleWorkspaceApi(
       else sendJson(res, 200, { path: filePath, ...file });
       return;
     }
-    if (req.method === 'PUT') {
+    if (method === 'PUT') {
       if (raw) {
         const { etag } = await storage.writeBytes(
           blobPath,
@@ -782,7 +787,7 @@ export async function handleWorkspaceApi(
       sendJson(res, 200, { path: filePath, etag });
       return;
     }
-    if (req.method === 'DELETE') {
+    if (method === 'DELETE') {
       const existed = await storage.delete(blobPath);
       sendJson(res, existed ? 200 : 404, existed ? { deleted: filePath } : { error: 'not found' });
       return;

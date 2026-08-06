@@ -1144,12 +1144,12 @@ export default function App() {
     // loaded at all — no sidecar request to be refused, and the trailer's
     // comments (which arrive inside the document's own bytes, so no server
     // can withhold them) are dropped here rather than shown.
-    const mayRead = (await grantsFor(p, path)).commentRead;
+    const mayReadComments = (await grantsFor(p, path)).commentRead;
     let sidecarComments: CommentData[] = [];
     let sidecarStore: UnreadableStore | null = null;
     try {
       const sidecar = sidecarPathFor(path);
-      if (mayRead && (await p.exists(sidecar))) {
+      if (mayReadComments && (await p.exists(sidecar))) {
         const read = readSidecar(await p.readTextFile(sidecar));
         sidecarComments = read.comments;
         if (!read.readable) sidecarStore = { declaredVersion: read.declaredVersion };
@@ -1173,7 +1173,7 @@ export default function App() {
       // edited save already did — making the written form deterministic.
       // The trailer stays raw (trailerBytes are preserved byte-for-byte).
       content: normalizeEol(split.content),
-      comments: mayRead ? mergeComments(split.comments, sidecarComments) : [],
+      comments: mayReadComments ? mergeComments(split.comments, sidecarComments) : [],
       stores: docStores,
     };
   }, []);
@@ -1536,9 +1536,9 @@ export default function App() {
    */
   useEffect(() => {
     const p = stateRef.current.platform;
-    if (!p?.fileGrants) return;
+    if (!p) return;
     let live = true;
-    void p.fileGrants().then((grants) => {
+    void grantsFor(p).then((grants) => {
       if (live) setFolderGrants(grants);
     });
     return () => {

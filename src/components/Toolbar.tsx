@@ -116,6 +116,9 @@ export function Toolbar(p: Props) {
     return () => document.removeEventListener('mousedown', onDown);
   }, [menuOpen]);
 
+  // PRD 007 Req 17: absent ⇒ no permission model ⇒ every writing row stays.
+  const canEdit = p.canEdit !== false;
+
   const item = (testid: string, label: string, hint: string | null, onClick: () => void) => (
     <button
       className="theme-option"
@@ -141,7 +144,7 @@ export function Toolbar(p: Props) {
         )}
       </span>
 
-      {p.canEdit !== false && (
+      {canEdit && (
         <button
           className={`tbtn${p.mode === 'edit' ? ' on' : ''}`}
           data-testid="edit-toggle"
@@ -173,8 +176,8 @@ export function Toolbar(p: Props) {
           <div className="theme-menu" data-testid="app-menu">
             {item('menu-new', 'New', displayCombo(p.hotkeys.newFile, p.isMac), p.onNewFile)}
             {item('menu-open', 'Open…', displayCombo(p.hotkeys.openFile, p.isMac), p.onOpenFile)}
-            {p.canEdit !== false && item('menu-save', 'Save', displayCombo(p.hotkeys.save, p.isMac), p.onSave)}
-            {p.canEdit !== false && item('menu-save-as', 'Save As…', null, p.onSaveAs)}
+            {canEdit && item('menu-save', 'Save', displayCombo(p.hotkeys.save, p.isMac), p.onSave)}
+            {canEdit && item('menu-save-as', 'Save As…', null, p.onSaveAs)}
             {item('menu-help', 'Help', null, p.onHelp)}
             {item('menu-about', 'About Marky Mark', null, p.onAbout)}
             <div className="menu-footer">{item('menu-settings', 'Settings…', null, p.onOpenSettings)}</div>
