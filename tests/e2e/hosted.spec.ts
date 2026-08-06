@@ -1,4 +1,4 @@
-import type { APIRequestContext, Page } from '@playwright/test';
+import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { addComment, openSettings, pasteImage } from './helpers';
 
@@ -1081,7 +1081,7 @@ test('E192: a member without workspace.members or workspace.roles sees neither s
 
   // Each endpoint answers 403 naming its one verb, not 404 or a silent no-op.
   const headers = { Authorization: `Bearer ${grace}` };
-  const forbidden: Array<[Promise<import('@playwright/test').APIResponse>, string]> = [
+  const forbidden: Array<[Promise<APIResponse>, string]> = [
     [request.post(`${HOSTED}/api/workspaces/${id}/members`, { headers, data: { id: 'mock-alan', role: 'Viewer' } }), 'workspace.members'],
     [request.put(`${HOSTED}/api/workspaces/${id}/everyone`, { headers, data: { enabled: true } }), 'workspace.members'],
     [request.post(`${HOSTED}/api/workspaces/${id}/roles`, { headers, data: { name: 'Sneaky', permissions: [] } }), 'workspace.roles'],

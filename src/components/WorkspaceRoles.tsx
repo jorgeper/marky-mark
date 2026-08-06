@@ -18,7 +18,7 @@ import {
   type Permission,
   type WorkspaceManifest,
 } from '../lib/hostedWorkspace';
-import type { ManifestUpdate, WorkspaceLifecycle } from '../platform/hostedWorkspaces';
+import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 
 export interface WorkspaceRolesProps {
   lifecycle: WorkspaceLifecycle;
@@ -68,14 +68,14 @@ export function WorkspaceRoles({ lifecycle, workspaceId, manifest, onManifest }:
    * with the wording the endpoint would answer, and the endpoint refuses it
    * again for anyone calling it directly (U304/U309).
    */
-  const apply = async (decision: ManifestResult, send: () => Promise<ManifestUpdate>, onDone: () => void) => {
+  const apply = async (decision: ManifestResult, send: () => Promise<ManifestResult>, onDone: () => void) => {
     if (!decision.ok) {
       setError(decision.error);
       return;
     }
     setError('');
     const result = await send();
-    if ('manifest' in result) {
+    if (result.ok) {
       onManifest(result.manifest);
       onDone();
     } else {

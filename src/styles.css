@@ -2631,11 +2631,12 @@ mark.hl.ghost {
   font-size: 12px;
 }
 
-/* PRD 007 Req 15+16: the people and custom-roles sections of Workspace
-   settings. Same theme variables as .workspace-danger below — no hard-coded
-   colors, so every bundled theme dresses them without a rule of its own. */
+/* PRD 007 Req 12+15+16: the sections of Workspace settings — people, custom
+   roles and the danger zone — are separated the same way, off the same theme
+   variables, so every bundled theme dresses them without a rule of its own. */
 .workspace-members,
-.workspace-roles {
+.workspace-roles,
+.workspace-danger {
   margin-top: 18px;
   border-top: 1px solid var(--mm-border, #d1d9e0);
   padding-top: 12px;
@@ -2669,12 +2670,6 @@ mark.hl.ghost {
   margin-top: 8px;
   font-size: 12.5px;
   color: var(--mm-danger, #cf222e);
-}
-
-.workspace-danger {
-  margin-top: 18px;
-  border-top: 1px solid var(--mm-border, #d1d9e0);
-  padding-top: 12px;
 }
 
 .workspace-danger button.destructive {

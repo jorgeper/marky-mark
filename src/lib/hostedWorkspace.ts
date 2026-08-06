@@ -355,13 +355,10 @@ export const OWNER_ROLE: BuiltInRoleName = 'Owner';
 /** The refusal every membership edit shares, phrased for the UI and the API. */
 const LAST_OWNER_ERROR = 'a workspace must keep at least one Owner';
 
-const ownerIdsOf = (manifest: WorkspaceManifest): string[] =>
-  manifest.members.filter((m) => m.role === OWNER_ROLE).map((m) => m.id);
-
 /** True when `id` is the only Owner-role member — the one nobody may unseat. */
 function isLastOwner(manifest: WorkspaceManifest, id: string): boolean {
-  const owners = ownerIdsOf(manifest);
-  return owners.length === 1 && owners[0] === id;
+  const owners = manifest.members.filter((m) => m.role === OWNER_ROLE);
+  return owners.length === 1 && owners[0].id === id;
 }
 
 /**

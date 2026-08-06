@@ -17,18 +17,12 @@ import {
   validateWorkspaceManifest,
   type CreateWorkspaceRequest,
   type CustomRoleInput,
+  type ManifestResult,
   type Permission,
   type WorkspaceManifest,
   type WorkspaceMember,
 } from '../lib/hostedWorkspace';
 import type { WorkspaceListing } from '../lib/workspaceLifecycle';
-
-/**
- * PRD 007 Req 15+16: what one member/role mutation answers — the manifest as
- * stored, or the server's own named refusal (403's verb, or a 400's last-Owner
- * / in-use / built-in message), so the settings UI can show it verbatim.
- */
-export type ManifestUpdate = { manifest: WorkspaceManifest } | { error: string };
 
 /** The lifecycle seam the workspace UI is written against. */
 export interface WorkspaceLifecycle {
@@ -44,15 +38,20 @@ export interface WorkspaceLifecycle {
   permissions(id: string): Promise<Permission[]>;
   /** PRD 007 Req 15+16: the stored manifest, or null when the read is refused. */
   manifest(id: string): Promise<WorkspaceManifest | null>;
-  /** PRD 007 Req 16: membership edits — all behind `workspace.members`. */
-  addMember(id: string, member: WorkspaceMember): Promise<ManifestUpdate>;
-  setMemberRole(id: string, userId: string, role: string): Promise<ManifestUpdate>;
-  removeMember(id: string, userId: string): Promise<ManifestUpdate>;
-  setEveryone(id: string, everyone: { enabled: boolean; role?: string }): Promise<ManifestUpdate>;
+  /**
+   * PRD 007 Req 16: membership edits — all behind `workspace.members`. Each
+   * answers the same `ManifestResult` the pure decision has: the manifest as
+   * stored, or the server's own named refusal (a 403's verb, or a 400's
+   * last-Owner / in-use / built-in message) for the UI to show verbatim.
+   */
+  addMember(id: string, member: WorkspaceMember): Promise<ManifestResult>;
+  setMemberRole(id: string, userId: string, role: string): Promise<ManifestResult>;
+  removeMember(id: string, userId: string): Promise<ManifestResult>;
+  setEveryone(id: string, everyone: { enabled: boolean; role?: string }): Promise<ManifestResult>;
   /** PRD 007 Req 15: custom-role edits — all behind `workspace.roles`. */
-  createRole(id: string, role: CustomRoleInput): Promise<ManifestUpdate>;
-  updateRole(id: string, name: string, role: CustomRoleInput): Promise<ManifestUpdate>;
-  deleteRole(id: string, name: string): Promise<ManifestUpdate>;
+  createRole(id: string, role: CustomRoleInput): Promise<ManifestResult>;
+  updateRole(id: string, name: string, role: CustomRoleInput): Promise<ManifestResult>;
+  deleteRole(id: string, name: string): Promise<ManifestResult>;
   /** Directory search for the membership picker. */
   searchUsers(query: string): Promise<DirectoryEntry[]>;
   /** Stored ids → display entries; unresolvable ids stay plain identifiers. */
@@ -98,7 +97,7 @@ export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
    * Owner, in-use role, built-in name, missing verb) are the user-facing
    * explanation, so nothing here re-words them.
    */
-  const mutate = async (path: string, method: string, body?: unknown): Promise<ManifestUpdate> => {
+  const mutate = async (path: string, method: string, body?: unknown): Promise<ManifestResult> => {
     const res = await api(path, {
       method,
       headers: { 'Content-Type': 'application/json' },
@@ -106,12 +105,14 @@ export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
     });
     if (res.ok) {
       const manifest = await readManifest(res);
-      if (manifest) return { manifest };
-      return { error: 'The server returned a workspace manifest this build cannot read.' };
+      if (manifest) return { ok: true, manifest };
+      return { ok: false, error: 'The server returned a workspace manifest this build cannot read.' };
     }
     const failure = (await res.json().catch(() => null)) as { error?: string; required?: string } | null;
-    if (failure?.required) return { error: `You need the ${failure.required} permission to do that.` };
-    return { error: failure?.error ?? `The change could not be saved (${res.status}).` };
+    if (failure?.required) {
+      return { ok: false, error: `You need the ${failure.required} permission to do that.` };
+    }
+    return { ok: false, error: failure?.error ?? `The change could not be saved (${res.status}).` };
   };
 
   return {
@@ -135,14 +136,14 @@ export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
     },
 
     async remove(id) {
-      return (await api(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' })).ok;
+      return (await api(workspacePath(id), { method: 'DELETE' })).ok;
     },
 
     async permissions(id) {
       // The manifest read is itself doc.read-gated, so "no access" comes back
       // as a 403 and resolves to the empty set without a second endpoint.
       const body = await json<{ manifest: { members: { id: string; role: string }[] } }>(
-        await api(`/api/workspaces/${encodeURIComponent(id)}/manifest`),
+        await api(workspacePath(id, '/manifest')),
       );
       if (!body) return [];
       const me = await json<{ id: string }>(await api('/api/me'));

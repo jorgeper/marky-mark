@@ -154,10 +154,10 @@ function readRoleBody(body: unknown): { name: string; permissions: string[] } | 
   if (typeof body !== 'object' || body === null) return 'role must be {name, permissions[]}';
   const { name, permissions } = body as { name?: unknown; permissions?: unknown };
   if (typeof name !== 'string') return 'role must be {name, permissions[]}';
-  if (!Array.isArray(permissions) || permissions.some((p) => typeof p !== 'string')) {
+  if (!Array.isArray(permissions) || !permissions.every((p): p is string => typeof p === 'string')) {
     return 'role permissions must be an array of permission names';
   }
-  return { name, permissions: permissions as string[] };
+  return { name, permissions };
 }
 
 /**
