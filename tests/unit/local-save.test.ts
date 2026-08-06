@@ -7,26 +7,29 @@ import {
   type LocalWriteTarget,
 } from '../../src/lib/localSave';
 
+/** How one stub answers the permission seams and the write. */
+interface StubOptions {
+  query?: FSPermissionState;
+  request?: FSPermissionState;
+  omitQuery?: boolean;
+  omitRequest?: boolean;
+  throwOnWrite?: boolean;
+  throwOnQuery?: boolean;
+}
+/** A target that also records the calls it received. */
+type StubTarget = LocalWriteTarget & { written: string[]; requests: number; queries: number };
+
 /** A stub handle: scripted permission answers plus what it recorded. */
-function stubTarget(
-  opts: {
-    query?: FSPermissionState;
-    request?: FSPermissionState;
-    omitQuery?: boolean;
-    omitRequest?: boolean;
-    throwOnWrite?: boolean;
-    throwOnQuery?: boolean;
-  } = {}
-): LocalWriteTarget & { written: string[]; requests: number; queries: number } {
-  const rec = {
-    written: [] as string[],
+function stubTarget(opts: StubOptions = {}): StubTarget {
+  const rec: StubTarget = {
+    written: [],
     requests: 0,
     queries: 0,
-    write: async (content: string) => {
+    write: async (content) => {
       if (opts.throwOnWrite) throw new Error('permission revoked mid-session');
       rec.written.push(content);
     },
-  } as LocalWriteTarget & { written: string[]; requests: number; queries: number };
+  };
   if (!opts.omitQuery) {
     rec.query = async () => {
       rec.queries += 1;

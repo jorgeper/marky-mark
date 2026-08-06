@@ -55,9 +55,10 @@ export interface LocalDoc {
   /**
    * PRD 009 Req 15: the bytes this doc's handle is known to hold on disk —
    * set by a write-through that landed, so the explicit Save that follows
-   * knows whether there is anything left to write.
+   * knows whether there is anything left to write. Absent whenever the last
+   * write did not reach the file: no handle, no grant, or a throw.
    */
-  flushed?: string | null;
+  flushed?: string;
 }
 
 /** Show a hidden file input; resolves to the pick, or null when cancelled. */
@@ -89,14 +90,14 @@ export function pickViaInput(accept: string): Promise<File | null> {
 const targetFor = (doc: LocalDoc): LocalWriteTarget | null => {
   const handle = doc.handle;
   if (!handle) return null;
-  const mode = { mode: 'readwrite' } as const;
+  // Both permission members are optional on the handle, so each seam is only
+  // offered where the browser has one; localSave.ts writes to a handle that
+  // answers neither.
+  const { queryPermission, requestPermission } = handle;
+  const readwrite = { mode: 'readwrite' } as const;
   return {
-    ...(handle.queryPermission
-      ? { query: (): Promise<FSPermissionState> => handle.queryPermission!(mode) }
-      : {}),
-    ...(handle.requestPermission
-      ? { request: (): Promise<FSPermissionState> => handle.requestPermission!(mode) }
-      : {}),
+    query: queryPermission ? () => queryPermission.call(handle, readwrite) : undefined,
+    request: requestPermission ? () => requestPermission.call(handle, readwrite) : undefined,
     write: async (content: string) => {
       const w = await handle.createWritable();
       await w.write(content);
@@ -131,7 +132,7 @@ export interface LocalDocs {
   openFile(file: File): Promise<string>;
   /** The picker seam behind `openFileDialog`; null = cancelled. */
   pick(): Promise<string | null>;
-  /** Write through to the handle when there is one; memory always wins. */
+  /** Write through to an already-granted handle; memory always wins. */
   write(path: string, content: string): Promise<void>;
   /**
    * The user's explicit Save: in place through the handle where the browser
@@ -195,7 +196,7 @@ export function createLocalDocs(prefix = ''): LocalDocs {
       // PRD 009 Req 15: not the user's explicit Save — keep an already-granted
       // file up to date and stop there. No permission prompt (the browser
       // would refuse one outside a gesture) and never a download.
-      doc.flushed = (await flushLocalDoc(targetFor(doc), content)) ? content : null;
+      doc.flushed = (await flushLocalDoc(targetFor(doc), content)) ? content : undefined;
     },
 
     async commit(path) {
@@ -205,7 +206,7 @@ export function createLocalDocs(prefix = ''): LocalDocs {
       // user's own file — nothing to write, nothing to download.
       if (doc.flushed === doc.content) return;
       const outcome = await saveLocalDoc(targetFor(doc), doc.content);
-      doc.flushed = outcome.kind === 'in-place' ? doc.content : null;
+      doc.flushed = outcome.kind === 'in-place' ? doc.content : undefined;
       // A save that could not land in place — no handle, the grant refused,
       // or the write threw — still reaches the user, as a download.
       if (outcome.kind === 'download') download(basenameOf(path), doc.content);
