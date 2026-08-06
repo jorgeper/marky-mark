@@ -16,9 +16,19 @@ import {
   resolvePermissions,
   validateWorkspaceManifest,
   type CreateWorkspaceRequest,
+  type CustomRoleInput,
   type Permission,
+  type WorkspaceManifest,
+  type WorkspaceMember,
 } from '../lib/hostedWorkspace';
 import type { WorkspaceListing } from '../lib/workspaceLifecycle';
+
+/**
+ * PRD 007 Req 15+16: what one member/role mutation answers — the manifest as
+ * stored, or the server's own named refusal (403's verb, or a 400's last-Owner
+ * / in-use / built-in message), so the settings UI can show it verbatim.
+ */
+export type ManifestUpdate = { manifest: WorkspaceManifest } | { error: string };
 
 /** The lifecycle seam the workspace UI is written against. */
 export interface WorkspaceLifecycle {
@@ -32,6 +42,17 @@ export interface WorkspaceLifecycle {
   remove(id: string): Promise<boolean>;
   /** The signed-in user's resolved permissions in a workspace ([] without access). */
   permissions(id: string): Promise<Permission[]>;
+  /** PRD 007 Req 15+16: the stored manifest, or null when the read is refused. */
+  manifest(id: string): Promise<WorkspaceManifest | null>;
+  /** PRD 007 Req 16: membership edits — all behind `workspace.members`. */
+  addMember(id: string, member: WorkspaceMember): Promise<ManifestUpdate>;
+  setMemberRole(id: string, userId: string, role: string): Promise<ManifestUpdate>;
+  removeMember(id: string, userId: string): Promise<ManifestUpdate>;
+  setEveryone(id: string, everyone: { enabled: boolean; role?: string }): Promise<ManifestUpdate>;
+  /** PRD 007 Req 15: custom-role edits — all behind `workspace.roles`. */
+  createRole(id: string, role: CustomRoleInput): Promise<ManifestUpdate>;
+  updateRole(id: string, name: string, role: CustomRoleInput): Promise<ManifestUpdate>;
+  deleteRole(id: string, name: string): Promise<ManifestUpdate>;
   /** Directory search for the membership picker. */
   searchUsers(query: string): Promise<DirectoryEntry[]>;
   /** Stored ids → display entries; unresolvable ids stay plain identifiers. */
@@ -59,6 +80,38 @@ export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
   const getUser = async (id: string): Promise<DirectoryEntry | null> => {
     const user = await json<DirectoryEntry>(await api(`/api/directory/users/${encodeURIComponent(id)}`));
     return user ? withAvatarToken(user) : null;
+  };
+
+  const workspacePath = (id: string, rest = ''): string =>
+    `/api/workspaces/${encodeURIComponent(id)}${rest}`;
+
+  const readManifest = async (res: Response): Promise<WorkspaceManifest | null> => {
+    const body = await json<{ manifest: unknown }>(res);
+    if (!body) return null;
+    const validated = validateWorkspaceManifest(body.manifest);
+    return validated.ok ? validated.manifest : null;
+  };
+
+  /**
+   * PRD 007 Req 15+16: one member/role mutation. The server's own 400/403
+   * message is what the settings UI shows — the refusals it phrases (last
+   * Owner, in-use role, built-in name, missing verb) are the user-facing
+   * explanation, so nothing here re-words them.
+   */
+  const mutate = async (path: string, method: string, body?: unknown): Promise<ManifestUpdate> => {
+    const res = await api(path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (res.ok) {
+      const manifest = await readManifest(res);
+      if (manifest) return { manifest };
+      return { error: 'The server returned a workspace manifest this build cannot read.' };
+    }
+    const failure = (await res.json().catch(() => null)) as { error?: string; required?: string } | null;
+    if (failure?.required) return { error: `You need the ${failure.required} permission to do that.` };
+    return { error: failure?.error ?? `The change could not be saved (${res.status}).` };
   };
 
   return {
@@ -96,6 +149,38 @@ export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
       if (!me) return [];
       const validated = validateWorkspaceManifest(body.manifest);
       return validated.ok ? [...resolvePermissions(validated.manifest, me.id)] : [];
+    },
+
+    manifest(id) {
+      return api(workspacePath(id, '/manifest')).then(readManifest);
+    },
+
+    addMember(id, member) {
+      return mutate(workspacePath(id, '/members'), 'POST', member);
+    },
+
+    setMemberRole(id, userId, role) {
+      return mutate(workspacePath(id, `/members/${encodeURIComponent(userId)}`), 'PUT', { role });
+    },
+
+    removeMember(id, userId) {
+      return mutate(workspacePath(id, `/members/${encodeURIComponent(userId)}`), 'DELETE');
+    },
+
+    setEveryone(id, everyone) {
+      return mutate(workspacePath(id, '/everyone'), 'PUT', everyone);
+    },
+
+    createRole(id, role) {
+      return mutate(workspacePath(id, '/roles'), 'POST', role);
+    },
+
+    updateRole(id, name, role) {
+      return mutate(workspacePath(id, `/roles/${encodeURIComponent(name)}`), 'PUT', role);
+    },
+
+    deleteRole(id, name) {
+      return mutate(workspacePath(id, `/roles/${encodeURIComponent(name)}`), 'DELETE');
     },
 
     async searchUsers(query) {
