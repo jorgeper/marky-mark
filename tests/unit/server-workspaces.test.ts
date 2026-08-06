@@ -482,4 +482,203 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     expect(await (await call('ada', 'GET', path)).json()).toMatchObject({ content: 'ada overwrote' });
     blobs.clear();
   });
+
+  // PRD 007 Req 15+16+17: the member and custom-role endpoints, each behind
+  // exactly one verb. `workspace.settings` is deliberately NOT one of them:
+  // the whole-manifest PUT above keeps its own gate untouched (#79 narrows it).
+  /** Grant `user` `role` in `id` through the membership endpoint, as ada. */
+  const addMember = (id: string, user: string, role: string) =>
+    call('ada', 'POST', `/api/workspaces/${id}/members`, JSON.stringify({ id: user, role }));
+
+  it('U305: the member endpoints add, re-role and remove, and the server owns modified', async () => {
+    const id = await createWorkspace('ada', 'People');
+    const added = await addMember(id, 'mock-grace', 'Viewer');
+    expect(added.status).toBe(200);
+    const first = ((await added.json()) as { manifest: WorkspaceManifest }).manifest;
+    expect(first.members).toEqual([
+      { id: 'mock-ada', role: 'Owner' },
+      { id: 'mock-grace', role: 'Viewer' },
+    ]);
+    // Grace can read but not write — the grant is live, not just recorded.
+    await call('ada', 'PUT', `/api/workspaces/${id}/files/a.md`, 'hi');
+    expect((await call('grace', 'PUT', `/api/workspaces/${id}/files/a.md`, 'x')).status).toBe(403);
+
+    const promoted = await call(
+      'ada',
+      'PUT',
+      `/api/workspaces/${id}/members/mock-grace`,
+      JSON.stringify({ role: 'Editor' }),
+    );
+    expect(promoted.status).toBe(200);
+    const second = ((await promoted.json()) as { manifest: WorkspaceManifest }).manifest;
+    expect(second.members[1]).toEqual({ id: 'mock-grace', role: 'Editor' });
+    // Creation is immutable; the modification stamp is the server's.
+    expect(second.created).toBe(first.created);
+    expect(Date.parse(second.modified)).toBeGreaterThanOrEqual(Date.parse(first.created));
+    expect((await call('grace', 'PUT', `/api/workspaces/${id}/files/a.md`, 'x')).status).toBe(200);
+
+    const removed = await call('ada', 'DELETE', `/api/workspaces/${id}/members/mock-grace`);
+    expect(removed.status).toBe(200);
+    expect(((await removed.json()) as { manifest: WorkspaceManifest }).manifest.members).toEqual([
+      { id: 'mock-ada', role: 'Owner' },
+    ]);
+    expect((await call('grace', 'GET', `/api/workspaces/${id}/files/a.md`)).status).toBe(403);
+    blobs.clear();
+  });
+
+  it('U306: everyone-access is a member endpoint too — it grants a default role to non-members', async () => {
+    const id = await createWorkspace('ada', 'Open');
+    await call('ada', 'PUT', `/api/workspaces/${id}/files/a.md`, 'hi');
+    expect((await call('alan', 'GET', `/api/workspaces/${id}/files/a.md`)).status).toBe(403);
+    const on = await call(
+      'ada',
+      'PUT',
+      `/api/workspaces/${id}/everyone`,
+      JSON.stringify({ enabled: true, role: 'Viewer' }),
+    );
+    expect(on.status).toBe(200);
+    expect(((await on.json()) as { manifest: WorkspaceManifest }).manifest.everyone).toEqual({
+      enabled: true,
+      role: 'Viewer',
+    });
+    expect((await call('alan', 'GET', `/api/workspaces/${id}/files/a.md`)).status).toBe(200);
+    // An unknown role is a 400 naming it, and access is unchanged.
+    const bad = await call(
+      'ada',
+      'PUT',
+      `/api/workspaces/${id}/everyone`,
+      JSON.stringify({ enabled: true, role: 'Superuser' }),
+    );
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: string }).error).toContain('Superuser');
+    // Turning it off closes the door again.
+    await call('ada', 'PUT', `/api/workspaces/${id}/everyone`, JSON.stringify({ enabled: false }));
+    expect((await call('alan', 'GET', `/api/workspaces/${id}/files/a.md`)).status).toBe(403);
+    blobs.clear();
+  });
+
+  it('U307: the last Owner cannot be removed or demoted through the member endpoints', async () => {
+    const id = await createWorkspace('ada', 'Owned');
+    for (const [method, path, body] of [
+      ['DELETE', `/api/workspaces/${id}/members/mock-ada`, undefined],
+      ['PUT', `/api/workspaces/${id}/members/mock-ada`, JSON.stringify({ role: 'Viewer' })],
+    ] as const) {
+      const res = await call('ada', method, path, body);
+      expect(res.status, `${method} ${path}`).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toContain('at least one Owner');
+    }
+    // With a second Owner in place, both become legal.
+    expect((await addMember(id, 'mock-grace', 'Owner')).status).toBe(200);
+    expect((await call('ada', 'DELETE', `/api/workspaces/${id}/members/mock-ada`)).status).toBe(200);
+    blobs.clear();
+  });
+
+  it('U308: the custom-role endpoints create, rename+edit and delete, carrying members over on a rename', async () => {
+    const id = await createWorkspace('ada', 'Roles');
+    const made = await call(
+      'ada',
+      'POST',
+      `/api/workspaces/${id}/roles`,
+      JSON.stringify({ name: 'Reviewer', permissions: ['doc.read', 'comment.read', 'comment.write'] }),
+    );
+    expect(made.status).toBe(200);
+    expect(((await made.json()) as { manifest: WorkspaceManifest }).manifest.roles).toEqual([
+      { name: 'Reviewer', permissions: ['doc.read', 'comment.read', 'comment.write'] },
+    ]);
+    // The fresh role is grantable straight away.
+    expect((await addMember(id, 'mock-grace', 'Reviewer')).status).toBe(200);
+
+    const renamed = await call(
+      'ada',
+      'PUT',
+      `/api/workspaces/${id}/roles/Reviewer`,
+      JSON.stringify({ name: 'Auditor', permissions: ['doc.read'] }),
+    );
+    expect(renamed.status).toBe(200);
+    const after = ((await renamed.json()) as { manifest: WorkspaceManifest }).manifest;
+    expect(after.roles).toEqual([{ name: 'Auditor', permissions: ['doc.read'] }]);
+    // Grace came along: she never silently drops to no permissions.
+    expect(after.members[1]).toEqual({ id: 'mock-grace', role: 'Auditor' });
+    expect((await call('grace', 'GET', `/api/workspaces/${id}/manifest`)).status).toBe(200);
+
+    // Held roles cannot be deleted; freeing it first makes the delete legal.
+    const held = await call('ada', 'DELETE', `/api/workspaces/${id}/roles/Auditor`);
+    expect(held.status).toBe(400);
+    const heldError = ((await held.json()) as { error: string }).error;
+    expect(heldError).toContain('Auditor');
+    expect(heldError).toContain('1 member');
+    await call('ada', 'DELETE', `/api/workspaces/${id}/members/mock-grace`);
+    expect((await call('ada', 'DELETE', `/api/workspaces/${id}/roles/Auditor`)).status).toBe(200);
+    blobs.clear();
+  });
+
+  it('U309: role writes refuse built-in names, duplicates, unknown verbs and unknown targets with a 400', async () => {
+    const id = await createWorkspace('ada', 'Guarded roles');
+    const post = (body: unknown) =>
+      call('ada', 'POST', `/api/workspaces/${id}/roles`, JSON.stringify(body));
+    expect((await post({ name: 'Reviewer', permissions: ['doc.read'] })).status).toBe(200);
+
+    const shadow = await post({ name: 'Owner', permissions: [] });
+    expect(shadow.status).toBe(400);
+    expect(((await shadow.json()) as { error: string }).error).toContain('built-in');
+    const dup = await post({ name: 'Reviewer', permissions: [] });
+    expect(dup.status).toBe(400);
+    expect(((await dup.json()) as { error: string }).error).toContain('already exists');
+    const verb = await post({ name: 'Auditor', permissions: ['doc.publish'] });
+    expect(verb.status).toBe(400);
+    expect(((await verb.json()) as { error: string }).error).toContain('doc.publish');
+    expect((await post({ name: 'Auditor', permissions: 'all' })).status).toBe(400);
+    // Editing or deleting a built-in is refused at the same gate.
+    expect(
+      (await call('ada', 'PUT', `/api/workspaces/${id}/roles/Viewer`, JSON.stringify({ name: 'Peeker', permissions: [] })))
+        .status,
+    ).toBe(400);
+    expect((await call('ada', 'DELETE', `/api/workspaces/${id}/roles/Editor`)).status).toBe(400);
+    // A role nothing defines is a 400 too.
+    expect((await call('ada', 'DELETE', `/api/workspaces/${id}/roles/Ghost`)).status).toBe(400);
+    // …and an unknown workspace id stays a 404 on every one of these routes.
+    expect((await call('ada', 'POST', '/api/workspaces/no-such-id/roles', '{}')).status).toBe(404);
+    expect((await call('ada', 'POST', '/api/workspaces/no-such-id/members', '{}')).status).toBe(404);
+    blobs.clear();
+  });
+
+  it('U310: each new endpoint checks exactly one verb — members and roles are separately gated', async () => {
+    const id = await createWorkspace('ada', 'Verbs');
+    // A custom role holding workspace.members but NOT workspace.roles, and
+    // one holding workspace.roles but NOT workspace.members: each can use
+    // exactly its own endpoints and gets a 403 naming the other's verb.
+    await call('ada', 'POST', `/api/workspaces/${id}/roles`, JSON.stringify({ name: 'Peopler', permissions: ['doc.read', 'workspace.members'] }));
+    await call('ada', 'POST', `/api/workspaces/${id}/roles`, JSON.stringify({ name: 'Roler', permissions: ['doc.read', 'workspace.roles'] }));
+    await addMember(id, 'mock-grace', 'Peopler');
+    await addMember(id, 'mock-alan', 'Roler');
+
+    const memberRoutes = [
+      ['POST', `/api/workspaces/${id}/members`, JSON.stringify({ id: 'mock-katherine', role: 'Viewer' })],
+      ['PUT', `/api/workspaces/${id}/members/mock-alan`, JSON.stringify({ role: 'Viewer' })],
+      ['DELETE', `/api/workspaces/${id}/members/mock-alan`, undefined],
+      ['PUT', `/api/workspaces/${id}/everyone`, JSON.stringify({ enabled: false })],
+    ] as const;
+    const roleRoutes = [
+      ['POST', `/api/workspaces/${id}/roles`, JSON.stringify({ name: 'Extra', permissions: [] })],
+      ['PUT', `/api/workspaces/${id}/roles/Extra`, JSON.stringify({ name: 'Extra', permissions: [] })],
+      ['DELETE', `/api/workspaces/${id}/roles/Extra`, undefined],
+    ] as const;
+
+    for (const [method, path, body] of roleRoutes) {
+      const res = await call('grace', method, path, body);
+      expect(res.status, `grace ${method} ${path}`).toBe(403);
+      expect(((await res.json()) as { required: string }).required).toBe('workspace.roles');
+    }
+    for (const [method, path, body] of memberRoutes) {
+      const res = await call('alan', method, path, body);
+      expect(res.status, `alan ${method} ${path}`).toBe(403);
+      expect(((await res.json()) as { required: string }).required).toBe('workspace.members');
+    }
+    // And each does hold their own: grace administers people, alan roles.
+    expect((await call('grace', 'PUT', `/api/workspaces/${id}/everyone`, JSON.stringify({ enabled: false }))).status).toBe(200);
+    for (const [method, path, body] of roleRoutes) {
+      expect((await call('alan', method, path, body)).status, `alan ${method} ${path}`).toBe(200);
+    }
+    blobs.clear();
+  });
 });

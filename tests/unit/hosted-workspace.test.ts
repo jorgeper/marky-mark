@@ -1,15 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addWorkspaceMember,
   BUILT_IN_ROLES,
+  createCustomRole,
   createWorkspaceManifest,
+  customRoleUsage,
+  DEFAULT_EVERYONE_ROLE,
+  grantableRoleNames,
   isBuiltInRoleName,
+  isCustomRoleInUse,
   isPermission,
   MANIFEST_VERSION,
   parseWorkspaceManifest,
   PERMISSIONS,
   removeCustomRole,
+  removeWorkspaceMember,
   resolvePermissions,
   serializeWorkspaceManifest,
+  setEveryoneAccess,
+  setWorkspaceMemberRole,
+  updateCustomRole,
   upsertCustomRole,
   validateWorkspaceManifest,
   type WorkspaceManifest,
@@ -246,5 +256,204 @@ describe('PRD 007 Req 13+16 permission resolution', () => {
     expect(resolvePermissions(open, 'mock-grace').has('workspace.settings')).toBe(false);
     // Alan's role name resolves to nothing: empty, not the everyone fallback.
     expect(resolvePermissions(open, 'mock-alan').size).toBe(0);
+  });
+});
+
+// PRD 007 Req 16: the membership decisions the Workspace settings people
+// section and the server endpoints share — add, remove, role change, the
+// everyone-access toggle, and the invariant that a workspace never loses its
+// last Owner. Pure: no manifest is mutated in place, so a refusal leaves the
+// caller's manifest exactly as it was.
+describe('PRD 007 Req 16 membership management', () => {
+  /** Ada as Owner plus `extra` members, and a Reviewer custom role. */
+  const shared = (extra: { id: string; role: string }[] = []): WorkspaceManifest => ({
+    ...base(),
+    members: [{ id: 'mock-ada', role: 'Owner' }, ...extra],
+    roles: [{ name: 'Reviewer', permissions: ['doc.read', 'comment.write'] }],
+  });
+
+  it('U295: adding a member takes a built-in or custom role and refuses unknown names and duplicates', () => {
+    const added = addWorkspaceMember(shared(), { id: 'mock-grace', role: 'Editor' });
+    expect(added.ok && added.manifest.members).toEqual([
+      { id: 'mock-ada', role: 'Owner' },
+      { id: 'mock-grace', role: 'Editor' },
+    ]);
+    // A custom role of this workspace is grantable exactly like a built-in.
+    expect(addWorkspaceMember(shared(), { id: 'mock-grace', role: 'Reviewer' }).ok).toBe(true);
+    // A role name nothing defines is a refusal, not a member with no permissions.
+    const unknown = addWorkspaceMember(shared(), { id: 'mock-grace', role: 'Superuser' });
+    expect(unknown.ok).toBe(false);
+    if (!unknown.ok) expect(unknown.error).toContain('Superuser');
+    // An id already on the list would be the duplicate validation rejects.
+    expect(addWorkspaceMember(shared(), { id: 'mock-ada', role: 'Viewer' }).ok).toBe(false);
+    expect(addWorkspaceMember(shared(), { id: '  ', role: 'Viewer' }).ok).toBe(false);
+  });
+
+  it('U296: removing a member works — except the last Owner, who cannot be removed', () => {
+    const two = shared([{ id: 'mock-grace', role: 'Editor' }]);
+    const removed = removeWorkspaceMember(two, 'mock-grace');
+    expect(removed.ok && removed.manifest.members).toEqual([{ id: 'mock-ada', role: 'Owner' }]);
+    // Ada is the only Owner: removing her would leave nobody to administer it.
+    const last = removeWorkspaceMember(two, 'mock-ada');
+    expect(last.ok).toBe(false);
+    if (!last.ok) expect(last.error).toContain('at least one Owner');
+    // With a second Owner the same removal is fine.
+    const coOwned = shared([{ id: 'mock-grace', role: 'Owner' }]);
+    expect(removeWorkspaceMember(coOwned, 'mock-ada').ok).toBe(true);
+    // A non-member is a refusal naming the id, not a silent no-op.
+    expect(removeWorkspaceMember(two, 'mock-alan').ok).toBe(false);
+  });
+
+  it('U297: a role change refuses demoting the last Owner — the same invariant, differently spelled', () => {
+    const two = shared([{ id: 'mock-grace', role: 'Editor' }]);
+    const promoted = setWorkspaceMemberRole(two, 'mock-grace', 'Reviewer');
+    expect(promoted.ok && promoted.manifest.members[1]).toEqual({ id: 'mock-grace', role: 'Reviewer' });
+    const demoted = setWorkspaceMemberRole(two, 'mock-ada', 'Viewer');
+    expect(demoted.ok).toBe(false);
+    if (!demoted.ok) expect(demoted.error).toContain('at least one Owner');
+    // Setting the last Owner to Owner again is a no-op, not a refusal.
+    expect(setWorkspaceMemberRole(two, 'mock-ada', 'Owner').ok).toBe(true);
+    // Promoting someone else first makes the demotion legal.
+    const co = setWorkspaceMemberRole(two, 'mock-grace', 'Owner');
+    expect(co.ok && setWorkspaceMemberRole(co.manifest, 'mock-ada', 'Viewer').ok).toBe(true);
+    expect(setWorkspaceMemberRole(two, 'mock-grace', 'Superuser').ok).toBe(false);
+    expect(setWorkspaceMemberRole(two, 'mock-alan', 'Viewer').ok).toBe(false);
+  });
+
+  it('U298: everyone-access toggles with a role that must be grantable; omitting it keeps the stored one', () => {
+    const manifest = shared();
+    expect(manifest.everyone).toEqual({ enabled: false, role: DEFAULT_EVERYONE_ROLE });
+    const on = setEveryoneAccess(manifest, { enabled: true, role: 'Editor' });
+    expect(on.ok && on.manifest.everyone).toEqual({ enabled: true, role: 'Editor' });
+    // Toggling again without naming a role keeps the raised one.
+    const off = on.ok ? setEveryoneAccess(on.manifest, { enabled: false }) : on;
+    expect(off.ok && off.manifest.everyone).toEqual({ enabled: false, role: 'Editor' });
+    // A custom role is grantable to everyone; an unknown one is refused.
+    expect(setEveryoneAccess(manifest, { enabled: true, role: 'Reviewer' }).ok).toBe(true);
+    expect(setEveryoneAccess(manifest, { enabled: true, role: 'Superuser' }).ok).toBe(false);
+  });
+
+  it('U299: the role list a picker offers is the five built-ins then the workspace’s own custom roles', () => {
+    expect(grantableRoleNames(shared())).toEqual([
+      'Owner',
+      'Editor',
+      'Contributor',
+      'Commenter',
+      'Viewer',
+      'Reviewer',
+    ]);
+    expect(grantableRoleNames(base())).toEqual(['Owner', 'Editor', 'Contributor', 'Commenter', 'Viewer']);
+  });
+
+  it('U300: explicit membership still overrides the everyone-role after an everyone-access edit', () => {
+    // The Req 16 invariant that predates this issue, re-pinned against the
+    // helper that now writes `everyone`: a member keeps their own role.
+    const two = shared([{ id: 'mock-grace', role: 'Viewer' }]);
+    const open = setEveryoneAccess(two, { enabled: true, role: 'Editor' });
+    expect(open.ok).toBe(true);
+    if (!open.ok) return;
+    expect(resolvePermissions(open.manifest, 'mock-grace').has('doc.edit')).toBe(false);
+    expect(resolvePermissions(open.manifest, 'mock-katherine').has('doc.edit')).toBe(true);
+  });
+});
+
+// PRD 007 Req 15: the custom-roles editor's decisions — create, rename, edit
+// and delete named subsets of the catalog, with built-in, duplicate and
+// in-use refusals.
+describe('PRD 007 Req 15 custom-roles editor', () => {
+  const withReviewer = (): WorkspaceManifest => ({
+    ...base(),
+    roles: [{ name: 'Reviewer', permissions: ['doc.read', 'comment.write'] }],
+  });
+
+  it('U301: creating a role refuses blank, slash-bearing, built-in and duplicate names', () => {
+    const made = createCustomRole(base(), { name: '  Reviewer  ', permissions: ['doc.read'] });
+    expect(made.ok && made.manifest.roles).toEqual([{ name: 'Reviewer', permissions: ['doc.read'] }]);
+    for (const name of ['', '   ', 'Owner', 'Viewer']) {
+      expect(createCustomRole(base(), { name, permissions: [] }).ok, name).toBe(false);
+    }
+    // A role name addresses its own endpoint path segment.
+    expect(createCustomRole(base(), { name: 'a/b', permissions: [] }).ok).toBe(false);
+    // Never a silent redefinition of a role members may already hold.
+    const dup = createCustomRole(withReviewer(), { name: 'Reviewer', permissions: [] });
+    expect(dup.ok).toBe(false);
+    if (!dup.ok) expect(dup.error).toContain('already exists');
+    // Only catalog verbs exist.
+    const bad = createCustomRole(base(), { name: 'Auditor', permissions: ['doc.publish'] });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toContain('doc.publish');
+  });
+
+  it('U302: renaming a role carries its members and everyone-grant over in the same update', () => {
+    const held: WorkspaceManifest = {
+      ...withReviewer(),
+      members: [
+        { id: 'mock-ada', role: 'Owner' },
+        { id: 'mock-grace', role: 'Reviewer' },
+      ],
+      everyone: { enabled: true, role: 'Reviewer' },
+    };
+    const renamed = updateCustomRole(held, 'Reviewer', {
+      name: 'Auditor',
+      permissions: ['doc.read', 'comment.read'],
+    });
+    expect(renamed.ok).toBe(true);
+    if (!renamed.ok) return;
+    expect(renamed.manifest.roles).toEqual([{ name: 'Auditor', permissions: ['doc.read', 'comment.read'] }]);
+    // Nobody silently drops to a role that resolves to no permissions.
+    expect(renamed.manifest.members[1]).toEqual({ id: 'mock-grace', role: 'Auditor' });
+    expect(renamed.manifest.everyone).toEqual({ enabled: true, role: 'Auditor' });
+    expect([...resolvePermissions(renamed.manifest, 'mock-grace')].sort()).toEqual(
+      ['comment.read', 'doc.read'].sort()
+    );
+  });
+
+  it('U303: editing permissions without renaming works; built-in and duplicate targets are refused', () => {
+    const edited = updateCustomRole(withReviewer(), 'Reviewer', {
+      name: 'Reviewer',
+      permissions: ['doc.read'],
+    });
+    expect(edited.ok && edited.manifest.roles).toEqual([{ name: 'Reviewer', permissions: ['doc.read'] }]);
+    // Built-ins are not editable and cannot be renamed into or out of.
+    expect(updateCustomRole(withReviewer(), 'Viewer', { name: 'Peeker', permissions: [] }).ok).toBe(false);
+    expect(updateCustomRole(withReviewer(), 'Reviewer', { name: 'Owner', permissions: [] }).ok).toBe(false);
+    // A rename onto another custom role's name would merge two grants.
+    const two: WorkspaceManifest = {
+      ...withReviewer(),
+      roles: [
+        { name: 'Reviewer', permissions: ['doc.read'] },
+        { name: 'Auditor', permissions: ['doc.read'] },
+      ],
+    };
+    expect(updateCustomRole(two, 'Reviewer', { name: 'Auditor', permissions: [] }).ok).toBe(false);
+    expect(updateCustomRole(withReviewer(), 'Nobody', { name: 'X', permissions: [] }).ok).toBe(false);
+  });
+
+  it('U304: a role held by a member or by everyone-access cannot be deleted, and the error names it', () => {
+    const held: WorkspaceManifest = {
+      ...withReviewer(),
+      members: [
+        { id: 'mock-ada', role: 'Owner' },
+        { id: 'mock-grace', role: 'Reviewer' },
+      ],
+    };
+    expect(isCustomRoleInUse(held, 'Reviewer')).toBe(true);
+    expect(customRoleUsage(held, 'Reviewer')).toEqual({ members: ['mock-grace'], everyone: false });
+    const refused = removeCustomRole(held, 'Reviewer');
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.error).toContain('Reviewer');
+      expect(refused.error).toContain('1 member');
+    }
+    // A live everyone-grant counts as in use: deleting would strip it silently.
+    const everyone: WorkspaceManifest = { ...withReviewer(), everyone: { enabled: true, role: 'Reviewer' } };
+    expect(isCustomRoleInUse(everyone, 'Reviewer')).toBe(true);
+    const byEveryone = removeCustomRole(everyone, 'Reviewer');
+    expect(byEveryone.ok).toBe(false);
+    if (!byEveryone.ok) expect(byEveryone.error).toContain('everyone-access');
+    // Disabled everyone-access is not a live grant, so the role is free again.
+    const disabled: WorkspaceManifest = { ...withReviewer(), everyone: { enabled: false, role: 'Reviewer' } };
+    expect(isCustomRoleInUse(disabled, 'Reviewer')).toBe(false);
+    expect(removeCustomRole(disabled, 'Reviewer').ok).toBe(true);
   });
 });

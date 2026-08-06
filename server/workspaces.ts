@@ -14,12 +14,20 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import {
+  addWorkspaceMember,
   buildNewWorkspaceManifest,
+  createCustomRole,
   parseWorkspaceManifest,
+  removeCustomRole,
+  removeWorkspaceMember,
   resolvePermissions,
   serializeWorkspaceManifest,
+  setEveryoneAccess,
+  setWorkspaceMemberRole,
+  updateCustomRole,
   validateWorkspaceManifest,
   workspaceOwnerIds,
+  type ManifestResult,
   type Permission,
   type WorkspaceManifest,
 } from '../src/lib/hostedWorkspace.ts';
@@ -143,6 +151,58 @@ async function requirePermission(
 }
 
 /**
+ * Parse a JSON request body. Sends the 400 itself and returns `undefined`
+ * (a value `JSON.parse` never yields) when the body is malformed, so callers
+ * bail on exactly one check.
+ */
+async function readJsonBody(req: IncomingMessage, res: ServerResponse): Promise<unknown> {
+  try {
+    return JSON.parse((await readBody(req)) || '{}');
+  } catch {
+    sendJson(res, 400, { error: 'malformed JSON body' });
+    return undefined;
+  }
+}
+
+/**
+ * PRD 007 Req 15+16: persist the outcome of one pure manifest mutation. A
+ * refusal from `src/lib/hostedWorkspace.ts` — an unknown role, a built-in
+ * name, the last Owner, an in-use role — is a 400 carrying that named error;
+ * a success is written with the server owning the timestamps exactly as the
+ * manifest PUT does (creation immutable, modification restamped here).
+ */
+async function saveMutation(
+  res: ServerResponse,
+  storage: StorageProvider,
+  id: string,
+  existing: WorkspaceManifest,
+  result: ManifestResult,
+): Promise<void> {
+  if (!result.ok) {
+    sendJson(res, 400, { error: result.error });
+    return;
+  }
+  const manifest: WorkspaceManifest = {
+    ...result.manifest,
+    created: existing.created,
+    modified: new Date().toISOString(),
+  };
+  await storage.write(manifestBlob(id), serializeWorkspaceManifest(manifest));
+  sendJson(res, 200, { id, manifest });
+}
+
+/** The untrusted `{name, permissions}` shape a custom-role write carries. */
+function readRoleBody(body: unknown): { name: string; permissions: string[] } | string {
+  if (typeof body !== 'object' || body === null) return 'role must be {name, permissions[]}';
+  const { name, permissions } = body as { name?: unknown; permissions?: unknown };
+  if (typeof name !== 'string') return 'role must be {name, permissions[]}';
+  if (!Array.isArray(permissions) || !permissions.every((p): p is string => typeof p === 'string')) {
+    return 'role permissions must be an array of permission names';
+  }
+  return { name, permissions };
+}
+
+/**
  * Handle a request under `/api/workspaces`. The caller (app.ts) has already
  * applied the 401 auth guard. Unmatched routes answer 404 here.
  */
@@ -163,13 +223,8 @@ export async function handleWorkspaceApi(
   // PRD 007 Req 10: create — deliberately pre-permission (any signed-in user
   // may create a workspace); the creator becomes its sole Owner.
   if (rest === '' && req.method === 'POST') {
-    let body: unknown;
-    try {
-      body = JSON.parse((await readBody(req)) || '{}');
-    } catch {
-      sendJson(res, 400, { error: 'malformed JSON body' });
-      return;
-    }
+    const body = await readJsonBody(req, res);
+    if (body === undefined) return;
     // PRD 007 Req 10: initial members with roles and everyone-access ride
     // along with the name; a name-only body is exactly the old behaviour.
     // The creator is retained as Owner whatever the body asks for, and an
@@ -251,9 +306,10 @@ export async function handleWorkspaceApi(
       return;
     }
     if (req.method === 'PUT') {
-      // Required permission: workspace.settings. Finer-grained member/role
-      // endpoints are #77's scope; until then the whole manifest updates at
-      // once under the strictest of its verbs' built-in holders (Owner).
+      // Required permission: workspace.settings — the whole-manifest write,
+      // unchanged. The finer-grained member and role endpoints above (Req
+      // 15+16) are the ones settings UI uses; narrowing what this one may
+      // touch belongs to the #79 enforcement sweep.
       const existing = await requirePermission(res, storage, id, auth, 'workspace.settings');
       if (!existing) return;
       let body: unknown;
@@ -460,6 +516,107 @@ export async function handleWorkspaceApi(
     });
     res.end(Buffer.from(bytes.data));
     return;
+  }
+
+  // PRD 007 Req 16+17: membership. Every route below requires exactly one
+  // verb — `workspace.members` — and answers 400 with the pure layer's own
+  // named refusal (unknown role, duplicate id, last Owner) on invalid input.
+
+  // POST /api/workspaces/<id>/members — add one member with a role.
+  if (segments.length === 2 && segments[1] === 'members' && req.method === 'POST') {
+    const existing = await requirePermission(res, storage, id, auth, 'workspace.members');
+    if (!existing) return;
+    const body = await readJsonBody(req, res);
+    if (body === undefined) return;
+    const { id: memberId, role } = (body ?? {}) as { id?: unknown; role?: unknown };
+    if (typeof memberId !== 'string' || typeof role !== 'string') {
+      sendJson(res, 400, { error: 'member must be {id, role} with non-empty strings' });
+      return;
+    }
+    await saveMutation(res, storage, id, existing, addWorkspaceMember(existing, { id: memberId, role }));
+    return;
+  }
+
+  // PUT /api/workspaces/<id>/everyone — everyone-in-tenant access + its role.
+  if (segments.length === 2 && segments[1] === 'everyone' && req.method === 'PUT') {
+    const existing = await requirePermission(res, storage, id, auth, 'workspace.members');
+    if (!existing) return;
+    const body = await readJsonBody(req, res);
+    if (body === undefined) return;
+    const { enabled, role } = (body ?? {}) as { enabled?: unknown; role?: unknown };
+    if (typeof enabled !== 'boolean' || (role !== undefined && typeof role !== 'string')) {
+      sendJson(res, 400, { error: 'everyone must be {enabled: boolean, role?: string}' });
+      return;
+    }
+    await saveMutation(res, storage, id, existing, setEveryoneAccess(existing, { enabled, role }));
+    return;
+  }
+
+  // PUT/DELETE /api/workspaces/<id>/members/<userId> — role change / removal.
+  if (segments.length === 3 && segments[1] === 'members') {
+    const memberId = segments[2];
+    if (req.method === 'PUT') {
+      const existing = await requirePermission(res, storage, id, auth, 'workspace.members');
+      if (!existing) return;
+      const body = await readJsonBody(req, res);
+      if (body === undefined) return;
+      const { role } = (body ?? {}) as { role?: unknown };
+      if (typeof role !== 'string') {
+        sendJson(res, 400, { error: 'body must be {role: string}' });
+        return;
+      }
+      await saveMutation(res, storage, id, existing, setWorkspaceMemberRole(existing, memberId, role));
+      return;
+    }
+    if (req.method === 'DELETE') {
+      const existing = await requirePermission(res, storage, id, auth, 'workspace.members');
+      if (!existing) return;
+      await saveMutation(res, storage, id, existing, removeWorkspaceMember(existing, memberId));
+      return;
+    }
+  }
+
+  // PRD 007 Req 15+17: the custom-role editor's writes. One verb each —
+  // `workspace.roles` — and never `workspace.members`: defining a role is a
+  // different act from handing one out.
+
+  // POST /api/workspaces/<id>/roles — create a named subset of the catalog.
+  if (segments.length === 2 && segments[1] === 'roles' && req.method === 'POST') {
+    const existing = await requirePermission(res, storage, id, auth, 'workspace.roles');
+    if (!existing) return;
+    const body = await readJsonBody(req, res);
+    if (body === undefined) return;
+    const role = readRoleBody(body);
+    if (typeof role === 'string') {
+      sendJson(res, 400, { error: role });
+      return;
+    }
+    await saveMutation(res, storage, id, existing, createCustomRole(existing, role));
+    return;
+  }
+
+  // PUT/DELETE /api/workspaces/<id>/roles/<name> — rename+edit / delete.
+  if (segments.length === 3 && segments[1] === 'roles') {
+    const roleName = segments[2];
+    if (req.method === 'PUT') {
+      const existing = await requirePermission(res, storage, id, auth, 'workspace.roles');
+      if (!existing) return;
+      const body = await readJsonBody(req, res);
+      if (body === undefined) return;
+      const role = readRoleBody(body);
+      if (typeof role === 'string') {
+        sendJson(res, 400, { error: role });
+        return;
+      }
+      await saveMutation(res, storage, id, existing, updateCustomRole(existing, roleName, role));
+      return;
+    }
+    if (req.method === 'DELETE') {
+      const existing = await requirePermission(res, storage, id, auth, 'workspace.roles');
+      if (!existing) return;
+      await saveMutation(res, storage, id, existing, removeCustomRole(existing, roleName));
+      return;
+    }
   }
 
   // GET /api/workspaces/<id>/files — list; required permission: doc.read.

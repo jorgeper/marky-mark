@@ -100,6 +100,7 @@ import { FIXTURES } from './bundled';
 import { AppBadge, Toolbar } from './components/Toolbar';
 import { CommentCard } from './components/CommentCard';
 import { SettingsPanel } from './components/SettingsPanel';
+import { WorkspaceAccessSettings } from './components/WorkspaceAccessSettings';
 import { WorkspaceDangerZone } from './components/WorkspaceDangerZone';
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher';
 import { AboutDialog } from './components/AboutDialog';
@@ -4822,10 +4823,16 @@ export default function App() {
           onClose={() => setSettingsOpen(false)}
           docName={docPath ? platform.basename(docPath).replace(/\.[^.]+$/, '') : undefined}
           workspaceActions={
-            // PRD 007 Req 12: a capability check, not a flavor check — only a
-            // platform offering the workspace lifecycle has a workspace to
-            // delete server-side.
-            platform.workspaces ? <WorkspaceDangerZone lifecycle={platform.workspaces} /> : undefined
+            // PRD 007 Req 12 (+15/16): a capability check, not a flavor check
+            // — only a platform offering the workspace lifecycle has a
+            // workspace to administer or delete server-side. Each section
+            // gates itself on the one permission it needs.
+            platform.workspaces ? (
+              <>
+                <WorkspaceAccessSettings lifecycle={platform.workspaces} />
+                <WorkspaceDangerZone lifecycle={platform.workspaces} />
+              </>
+            ) : undefined
           }
         />
       )}

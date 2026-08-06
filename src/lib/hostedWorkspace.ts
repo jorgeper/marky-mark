@@ -343,7 +343,161 @@ export function workspaceOwnerIds(manifest: WorkspaceManifest): string[] {
     .map((m) => m.id);
 }
 
+// --- membership mutations (PRD 007 Req 16) -----------------------------------
+
+/**
+ * PRD 007 Req 16: the one role a workspace can never be left without. Named
+ * once here so the invariant reads the same in every helper below — "Owner"
+ * means the built-in role by that name, not "whoever holds admin verbs".
+ */
+export const OWNER_ROLE: BuiltInRoleName = 'Owner';
+
+/** The refusal every membership edit shares, phrased for the UI and the API. */
+const LAST_OWNER_ERROR = 'a workspace must keep at least one Owner';
+
+/** True when `id` is the only Owner-role member — the one nobody may unseat. */
+function isLastOwner(manifest: WorkspaceManifest, id: string): boolean {
+  const owners = manifest.members.filter((m) => m.role === OWNER_ROLE);
+  return owners.length === 1 && owners[0].id === id;
+}
+
+/**
+ * PRD 007 Req 15+16: every role name this manifest can grant, in the order a
+ * picker should offer them — the five built-ins first, then the workspace's
+ * own custom roles. One list for the member role select and the everyone-role
+ * select, so a freshly created custom role is grantable immediately.
+ */
+export function grantableRoleNames(manifest: WorkspaceManifest): string[] {
+  return [...Object.keys(BUILT_IN_ROLES), ...manifest.roles.map((r) => r.name)];
+}
+
+/**
+ * PRD 007 Req 16: add one member. The role must be one this manifest can
+ * grant (400 rather than a member who silently resolves to nothing), and an
+ * id already on the list is a refusal — a second grant would be the duplicate
+ * `validateWorkspaceManifest` rejects.
+ */
+export function addWorkspaceMember(manifest: WorkspaceManifest, member: WorkspaceMember): ManifestResult {
+  const id = member.id.trim();
+  if (!id) return fail('member id must be a non-empty string');
+  if (manifest.members.some((m) => m.id === id)) return fail(`${JSON.stringify(id)} is already a member`);
+  if (!isKnownRoleName(manifest, member.role)) return fail(`unknown role ${JSON.stringify(member.role)}`);
+  return { ok: true, manifest: { ...manifest, members: [...manifest.members, { id, role: member.role }] } };
+}
+
+/**
+ * PRD 007 Req 16: remove one member — unless they are the last Owner, which
+ * would leave the workspace with nobody able to administer it.
+ */
+export function removeWorkspaceMember(manifest: WorkspaceManifest, id: string): ManifestResult {
+  if (!manifest.members.some((m) => m.id === id)) return fail(`${JSON.stringify(id)} is not a member`);
+  if (isLastOwner(manifest, id)) return fail(LAST_OWNER_ERROR);
+  return { ok: true, manifest: { ...manifest, members: manifest.members.filter((m) => m.id !== id) } };
+}
+
+/**
+ * PRD 007 Req 16: change one member's role. The same last-Owner invariant
+ * applies: demoting the sole Owner is refused exactly like removing them —
+ * the two are the same act with different spellings.
+ */
+export function setWorkspaceMemberRole(
+  manifest: WorkspaceManifest,
+  id: string,
+  role: string,
+): ManifestResult {
+  if (!manifest.members.some((m) => m.id === id)) return fail(`${JSON.stringify(id)} is not a member`);
+  if (!isKnownRoleName(manifest, role)) return fail(`unknown role ${JSON.stringify(role)}`);
+  if (role !== OWNER_ROLE && isLastOwner(manifest, id)) return fail(LAST_OWNER_ERROR);
+  return {
+    ok: true,
+    manifest: { ...manifest, members: manifest.members.map((m) => (m.id === id ? { id, role } : m)) },
+  };
+}
+
+/**
+ * PRD 007 Req 16: toggle everyone-in-tenant access and the role it grants.
+ * Omitting the role keeps the one already stored (a fresh manifest starts at
+ * `DEFAULT_EVERYONE_ROLE`), so turning access on twice never silently
+ * re-lowers a role the Owner raised.
+ */
+export function setEveryoneAccess(
+  manifest: WorkspaceManifest,
+  everyone: { enabled: boolean; role?: string },
+): ManifestResult {
+  const role = everyone.role === undefined ? manifest.everyone.role : everyone.role;
+  if (!isKnownRoleName(manifest, role)) return fail(`unknown role ${JSON.stringify(role)}`);
+  return { ok: true, manifest: { ...manifest, everyone: { enabled: everyone.enabled, role } } };
+}
+
 // --- custom-role mutations (PRD 007 Req 14+15) -------------------------------
+
+/** A custom-role edit as the API accepts it: the verbs arrive untrusted. */
+export interface CustomRoleInput {
+  name: string;
+  permissions: readonly string[];
+}
+
+/**
+ * PRD 007 Req 15: who still holds a role — member ids, and whether
+ * everyone-access grants it. Non-empty means deleting the role would strip a
+ * live grant, which is exactly what `removeCustomRole` refuses.
+ */
+export interface CustomRoleUsage {
+  members: string[];
+  everyone: boolean;
+}
+
+export function customRoleUsage(manifest: WorkspaceManifest, name: string): CustomRoleUsage {
+  return {
+    members: manifest.members.filter((m) => m.role === name).map((m) => m.id),
+    everyone: manifest.everyone.enabled && manifest.everyone.role === name,
+  };
+}
+
+export function isCustomRoleInUse(manifest: WorkspaceManifest, name: string): boolean {
+  const usage = customRoleUsage(manifest, name);
+  return usage.members.length > 0 || usage.everyone;
+}
+
+/** "2 members", "everyone-access", "1 member and everyone-access". */
+function describeUsage(usage: CustomRoleUsage): string {
+  const parts: string[] = [];
+  if (usage.members.length > 0) {
+    parts.push(`${usage.members.length} member${usage.members.length === 1 ? '' : 's'}`);
+  }
+  if (usage.everyone) parts.push('everyone-access');
+  return parts.join(' and ');
+}
+
+/**
+ * The refusal a proposed custom-role name earns, or null when it is usable:
+ * blank, slash-bearing (a role name addresses its own endpoint path segment),
+ * shadowing a built-in, or already taken by another custom role. `replacing`
+ * is the name being renamed away from, which never counts as taken.
+ */
+function customRoleNameProblem(
+  manifest: WorkspaceManifest,
+  name: string,
+  replacing?: string,
+): string | null {
+  if (!name) return 'role name must not be empty';
+  if (name.includes('/')) return `role name ${JSON.stringify(name)} must not contain "/"`;
+  if (isBuiltInRoleName(name)) return `built-in role ${JSON.stringify(name)} cannot be edited or shadowed`;
+  if (manifest.roles.some((r) => r.name === name && r.name !== replacing)) {
+    return `custom role ${JSON.stringify(name)} already exists`;
+  }
+  return null;
+}
+
+/** Narrow untrusted verb strings to catalog permissions, or name the bad one. */
+function readPermissions(names: readonly string[], roleName: string): Permission[] | string {
+  const permissions: Permission[] = [];
+  for (const p of names) {
+    if (!isPermission(p)) return `unknown permission ${JSON.stringify(p)} in role ${JSON.stringify(roleName)}`;
+    permissions.push(p);
+  }
+  return permissions;
+}
 
 /**
  * Add or redefine a custom role. Refuses built-in names: built-ins are not
@@ -358,12 +512,70 @@ export function upsertCustomRole(manifest: WorkspaceManifest, role: CustomRole):
   return { ok: true, manifest: { ...manifest, roles: [...roles, { name: role.name, permissions: [...role.permissions] }] } };
 }
 
-/** Remove a custom role. Refuses built-in names: built-ins are not deletable. */
+/**
+ * PRD 007 Req 15: create a new custom role as a named subset of the catalog.
+ * Unlike `upsertCustomRole` this never redefines an existing role — a name
+ * already in use is a refusal, so "create" cannot silently overwrite the
+ * permission set members already hold.
+ */
+export function createCustomRole(manifest: WorkspaceManifest, role: CustomRoleInput): ManifestResult {
+  const name = role.name.trim();
+  const problem = customRoleNameProblem(manifest, name);
+  if (problem) return fail(problem);
+  const permissions = readPermissions(role.permissions, name);
+  if (typeof permissions === 'string') return fail(permissions);
+  return { ok: true, manifest: { ...manifest, roles: [...manifest.roles, { name, permissions }] } };
+}
+
+/**
+ * PRD 007 Req 15: rename and/or re-scope one custom role. Members holding the
+ * old name — and an everyone-access grant naming it — carry over to the new
+ * name in the SAME update, so a rename never silently drops anyone to a role
+ * that resolves to no permissions.
+ */
+export function updateCustomRole(
+  manifest: WorkspaceManifest,
+  currentName: string,
+  next: CustomRoleInput,
+): ManifestResult {
+  if (isBuiltInRoleName(currentName)) {
+    return fail(`built-in role ${JSON.stringify(currentName)} cannot be edited or shadowed`);
+  }
+  if (!manifest.roles.some((r) => r.name === currentName)) {
+    return fail(`no custom role ${JSON.stringify(currentName)}`);
+  }
+  const name = next.name.trim();
+  const problem = customRoleNameProblem(manifest, name, currentName);
+  if (problem) return fail(problem);
+  const permissions = readPermissions(next.permissions, name);
+  if (typeof permissions === 'string') return fail(permissions);
+  return {
+    ok: true,
+    manifest: {
+      ...manifest,
+      members: manifest.members.map((m) => (m.role === currentName ? { ...m, role: name } : m)),
+      roles: manifest.roles.map((r) => (r.name === currentName ? { name, permissions } : r)),
+      everyone:
+        manifest.everyone.role === currentName ? { ...manifest.everyone, role: name } : manifest.everyone,
+    },
+  };
+}
+
+/**
+ * Remove a custom role. Refuses built-in names: built-ins are not deletable.
+ * PRD 007 Req 15: a role any member still holds — or one everyone-access is
+ * currently granting — is refused too, naming the role: deleting it would
+ * silently strip a live grant rather than being an edit anyone asked for.
+ */
 export function removeCustomRole(manifest: WorkspaceManifest, name: string): ManifestResult {
   if (isBuiltInRoleName(name)) {
     return fail(`built-in role ${JSON.stringify(name)} cannot be deleted`);
   }
   if (!manifest.roles.some((r) => r.name === name)) return fail(`no custom role ${JSON.stringify(name)}`);
+  const usage = customRoleUsage(manifest, name);
+  if (usage.members.length > 0 || usage.everyone) {
+    return fail(`custom role ${JSON.stringify(name)} is still in use by ${describeUsage(usage)}`);
+  }
   return { ok: true, manifest: { ...manifest, roles: manifest.roles.filter((r) => r.name !== name) } };
 }
 

@@ -1,4 +1,4 @@
-import type { APIRequestContext, Page } from '@playwright/test';
+import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { addComment, menuSave, openSettings, pasteImage } from './helpers';
 
@@ -1216,4 +1216,226 @@ test('E192: a save against a file another member has written is refused — Relo
   await expect
     .poll(async () => ((await (await request.get(file, { headers: adaHeaders })).json()) as { content: string }).content)
     .toContain('ada overwrites');
+});
+
+// --- Workspace settings: membership and custom roles (PRD 007 Req 15+16) -----
+
+/** Open Workspace settings for the bound workspace and wait for its content. */
+async function openWorkspaceSettings(page: Page): Promise<void> {
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-scope-workspace').click();
+  await expect(page.getByTestId('settings-scope-content-workspace')).toBeVisible();
+}
+
+/** Write a file as `token` and report the status — what a role actually allows. */
+async function writeAs(
+  request: APIRequestContext,
+  token: string,
+  id: string,
+  path: string,
+): Promise<number> {
+  const res = await request.put(`${HOSTED}/api/workspaces/${id}/files/${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# written\n',
+  });
+  return res.status();
+}
+
+test('E193: an Owner adds a member through the settings picker, and that member can then open the workspace', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 16: the people section mounts the existing membership picker
+  // against the live directory; the grant is server-side, so a second session
+  // as the added user gets in.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E193 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/note.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# note\n',
+  });
+  // Grace is not a member yet — the API says so before any UI runs.
+  const grace = await signIn(request, 'grace');
+  expect((await listingFor(request, grace, id))?.access).toBe(false);
+
+  await signInTo(page, 'ada', id);
+  await openWorkspaceSettings(page);
+  await expect(page.getByTestId('workspace-members-section')).toBeVisible();
+  await page.getByTestId('membership-picker-input').fill('hopper');
+  await page.getByTestId('membership-picker-result-mock-grace').click();
+  // She lands in the list with the least-privileged default role.
+  await expect(page.getByTestId('workspace-member-role-mock-grace')).toHaveValue('Viewer');
+
+  expect((await listingFor(request, grace, id))?.access).toBe(true);
+  await signOut(page);
+  await signInTo(page, 'grace', id);
+  await openFromSidebar(page, 'note');
+});
+
+test('E194: changing a member’s role through the settings control changes what that member can do', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 16: the role select offers the built-ins and the workspace's
+  // own custom roles, and the change is enforced server-side immediately.
+  const ada = await signIn(request, 'ada');
+  const grace = await signIn(request, 'grace');
+  const id = await sharedWorkspace(request, ada, `E194 w${test.info().workerIndex}`, [
+    { id: 'mock-grace', role: 'Viewer' },
+  ]);
+  expect(await writeAs(request, grace, id, 'graces.md')).toBe(403);
+
+  await signInTo(page, 'ada', id);
+  await openWorkspaceSettings(page);
+  await page.getByTestId('workspace-member-role-mock-grace').selectOption('Editor');
+  await expect(page.getByTestId('workspace-member-role-mock-grace')).toHaveValue('Editor');
+
+  expect(await writeAs(request, grace, id, 'graces.md')).toBe(200);
+
+  // Removing her through the picker's × revokes it again.
+  await page.getByTestId('membership-picker-remove-mock-grace').click();
+  await expect(page.getByTestId('workspace-member-role-mock-grace')).toHaveCount(0);
+  expect(await writeAs(request, grace, id, 'graces.md')).toBe(403);
+});
+
+test('E195: the last Owner cannot be demoted or removed — the refusal is visible and the server agrees', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 16: the invariant is the server's; the UI shows its message
+  // rather than pretending a disabled control is the enforcement.
+  const ada = await signIn(request, 'ada');
+  const id = await sharedWorkspace(request, ada, `E195 w${test.info().workerIndex}`, [
+    { id: 'mock-grace', role: 'Editor' },
+  ]);
+
+  await signInTo(page, 'ada', id);
+  await openWorkspaceSettings(page);
+  await page.getByTestId('workspace-member-role-mock-ada').selectOption('Viewer');
+  await expect(page.getByTestId('workspace-members-error')).toContainText('at least one Owner');
+  // She is still the Owner: the refused change never landed.
+  await expect(page.getByTestId('workspace-member-role-mock-ada')).toHaveValue('Owner');
+
+  // The endpoint refuses the same act directly — 400, not merely disabled UI.
+  const removed = await request.delete(`${HOSTED}/api/workspaces/${id}/members/mock-ada`, {
+    headers: { Authorization: `Bearer ${ada}` },
+  });
+  expect(removed.status()).toBe(400);
+  expect(((await removed.json()) as { error: string }).error).toContain('at least one Owner');
+});
+
+test('E196: everyone-access grants its default role to non-members while an explicit member keeps their own', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 16: the toggle plus its Owner-chosen role, and the override
+  // rule — an explicit Viewer does NOT get promoted by an Editor everyone-role.
+  const ada = await signIn(request, 'ada');
+  const grace = await signIn(request, 'grace');
+  const alan = await signIn(request, 'alan');
+  const id = await sharedWorkspace(request, ada, `E196 w${test.info().workerIndex}`, [
+    { id: 'mock-grace', role: 'Viewer' },
+  ]);
+  expect((await listingFor(request, alan, id))?.access).toBe(false);
+
+  await signInTo(page, 'ada', id);
+  await openWorkspaceSettings(page);
+  // The toggle is driven by the stored manifest, so it settles once the
+  // server has answered — it starts at the Viewer default it was created with.
+  await page.getByTestId('workspace-everyone-enabled').click();
+  await expect(page.getByTestId('workspace-everyone-enabled')).toBeChecked();
+  await expect(page.getByTestId('workspace-everyone-role')).toHaveValue('Viewer');
+  await page.getByTestId('workspace-everyone-role').selectOption('Editor');
+  await expect(page.getByTestId('workspace-everyone-role')).toHaveValue('Editor');
+
+  // Alan, a non-member, is in as an Editor…
+  expect(await writeAs(request, alan, id, 'alans.md')).toBe(200);
+  // …while Grace's explicit Viewer role still overrides the everyone-role.
+  expect(await writeAs(request, grace, id, 'graces.md')).toBe(403);
+
+  await page.getByTestId('workspace-everyone-enabled').click();
+  await expect(page.getByTestId('workspace-everyone-enabled')).not.toBeChecked();
+  await expect(page.getByTestId('workspace-everyone-role')).toHaveCount(0);
+  expect(await writeAs(request, alan, id, 'alans.md')).toBe(403);
+});
+
+test('E197: a custom role created in the roles editor is grantable to a member and cannot be deleted while held', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 15: create a named catalog subset, grant it, and watch the
+  // in-use refusal name the role rather than the delete silently doing nothing.
+  const ada = await signIn(request, 'ada');
+  const grace = await signIn(request, 'grace');
+  const role = `Reviewer${test.info().workerIndex}`;
+  const id = await sharedWorkspace(request, ada, `E197 w${test.info().workerIndex}`, [
+    { id: 'mock-grace', role: 'Viewer' },
+  ]);
+
+  await signInTo(page, 'ada', id);
+  await openWorkspaceSettings(page);
+  await expect(page.getByTestId('workspace-roles-section')).toBeVisible();
+  // Built-ins are listed, but as fixed rows with no edit or delete control.
+  await expect(page.getByTestId('workspace-builtin-role-Owner')).toBeVisible();
+  await expect(page.getByTestId('workspace-role-edit-Owner')).toHaveCount(0);
+
+  await page.getByTestId('workspace-role-name').fill(role);
+  for (const permission of ['doc.read', 'doc.edit', 'comment.read']) {
+    await page.getByTestId(`workspace-role-permission-${permission}`).check();
+  }
+  await page.getByTestId('workspace-role-save').click();
+  await expect(page.getByTestId(`workspace-role-${role}`)).toContainText('3 permissions');
+
+  // A built-in name is refused with the server's own message.
+  await page.getByTestId('workspace-role-name').fill('Owner');
+  await page.getByTestId('workspace-role-save').click();
+  await expect(page.getByTestId('workspace-roles-error')).toContainText('built-in');
+
+  // The fresh role is grantable straight away, and it really grants doc.edit.
+  await page.getByTestId('workspace-member-role-mock-grace').selectOption(role);
+  await expect(page.getByTestId('workspace-member-role-mock-grace')).toHaveValue(role);
+  expect(await writeAs(request, grace, id, 'graces.md')).toBe(200);
+
+  // Held: the delete is refused, naming the role, and it stays in the list.
+  await page.getByTestId(`workspace-role-delete-${role}`).click();
+  await expect(page.getByTestId('workspace-roles-error')).toContainText(role);
+  await expect(page.getByTestId('workspace-roles-error')).toContainText('in use');
+  await expect(page.getByTestId(`workspace-role-${role}`)).toBeVisible();
+
+  // Free it and the same delete goes through.
+  await page.getByTestId('workspace-member-role-mock-grace').selectOption('Viewer');
+  await page.getByTestId(`workspace-role-delete-${role}`).click();
+  await expect(page.getByTestId(`workspace-role-${role}`)).toHaveCount(0);
+});
+
+test('E198: a member without workspace.members or workspace.roles sees neither settings section', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 17: the sections are gated on the resolved permissions, the
+  // same way the delete action is (E186) — and the endpoints refuse anyway.
+  const ada = await signIn(request, 'ada');
+  const grace = await signIn(request, 'grace');
+  const id = await sharedWorkspace(request, ada, `E198 w${test.info().workerIndex}`, [
+    { id: 'mock-grace', role: 'Editor' },
+  ]);
+
+  await signInTo(page, 'grace', id);
+  await openWorkspaceSettings(page);
+  await expect(page.getByTestId('workspace-members-section')).toHaveCount(0);
+  await expect(page.getByTestId('workspace-roles-section')).toHaveCount(0);
+
+  // Each endpoint answers 403 naming its one verb, not 404 or a silent no-op.
+  const headers = { Authorization: `Bearer ${grace}` };
+  const forbidden: Array<[Promise<APIResponse>, string]> = [
+    [request.post(`${HOSTED}/api/workspaces/${id}/members`, { headers, data: { id: 'mock-alan', role: 'Viewer' } }), 'workspace.members'],
+    [request.put(`${HOSTED}/api/workspaces/${id}/everyone`, { headers, data: { enabled: true } }), 'workspace.members'],
+    [request.post(`${HOSTED}/api/workspaces/${id}/roles`, { headers, data: { name: 'Sneaky', permissions: [] } }), 'workspace.roles'],
+  ];
+  for (const [pending, required] of forbidden) {
+    const res = await pending;
+    expect(res.status()).toBe(403);
+    expect(((await res.json()) as { required: string }).required).toBe(required);
+  }
 });
