@@ -1278,6 +1278,8 @@ export default function App() {
   const curWorkspaceRef = useRef<Workspace>({ kind: 'none' });
   /** Issue #22: the ref's kind mirrored into state so the derived app mode re-renders. */
   const [wsKind, setWsKind] = useState<Workspace['kind']>('none');
+  /** PRD 009 Req 11: the same mirror for the name the toolbar now shows. */
+  const [localWsName, setLocalWsName] = useState<string | null>(null);
   // PRD 007 Req 21/22: the managed (hosted) workspace dialogs, opened from the
   // start page or the File menu. Mounted on the `workspaces` capability, so
   // this state is simply never reached on a flavor without it.
@@ -1383,6 +1385,7 @@ export default function App() {
       const prev = curWorkspaceRef.current;
       curWorkspaceRef.current = next;
       setWsKind(next.kind); // issue #22: the derived app mode follows
+      setLocalWsName(workspaceDisplayName(next)); // PRD 009 Req 11: so does the toolbar's name
       // §E18/§B5: the workspace layer changed — pinned settings apply (or
       // stop applying) immediately, and the settings panels see fresh layers.
       applyResolved();
@@ -3735,9 +3738,10 @@ export default function App() {
     };
   }, [lifecycle, managedWsId]);
   // A managed workspace is named ONLY by its listing (never by the blob root
-  // its folder seam answers); a local one only by lib/workspace.ts.
-  const workspaceName =
-    appMode !== 'workspace' ? null : lifecycle ? managedWsName : workspaceDisplayName(curWorkspaceRef.current);
+  // its folder seam answers); a local one only by lib/workspace.ts, mirrored
+  // into `localWsName` when the workspace changed.
+  const boundWsName = lifecycle ? managedWsName : localWsName;
+  const workspaceName = appMode === 'workspace' ? boundWsName : null;
 
   // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
   useEffect(() => {

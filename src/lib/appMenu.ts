@@ -61,6 +61,21 @@ export interface AppMenuState {
   entryActions: readonly StartActionId[];
 }
 
+/** One command row — the counterpart of lib/menuSpec.ts's `cmd` for this menu. */
+const row = (
+  command: CommandId,
+  label: string,
+  testId: string,
+  hotkey?: keyof HotkeyMap,
+  disabled?: boolean
+): AppMenuRow => ({
+  command,
+  label,
+  testId,
+  ...(hotkey ? { hotkey } : {}),
+  ...(disabled !== undefined ? { disabled } : {}),
+});
+
 /**
  * PRD 009 Req 8/9: the item set. Groups that gate down to zero rows are
  * dropped entirely, so the renderer can put one separator between the groups
@@ -69,36 +84,31 @@ export interface AppMenuState {
 export function buildAppMenu(s: AppMenuState): AppMenuGroup[] {
   const inWorkspace = s.mode === 'workspace';
   const entry = new Set(s.entryActions);
+  // PRD 009 Req 9: the workspace rows are a capability test, never a check of
+  // which flavor is running — a flavor that can do neither shows no group.
+  const hasWorkspaces = entry.has('newWorkspace') || entry.has('openWorkspace');
 
   const file: AppMenuRow[] = [
     // PRD 009 Req 9 (+Req 16): creating files is a workspace-mode capability
     // here; `canNewFile` is savePicker's existing rule, not a second one.
-    ...(inWorkspace && s.canNewFile
-      ? [{ command: 'newFile' as const, label: 'New File', testId: 'menu-new', hotkey: 'newFile' as const }]
-      : []),
-    { command: 'open', label: 'Open File…', testId: 'menu-open', hotkey: 'openFile' },
+    ...(inWorkspace && s.canNewFile ? [row('newFile', 'New File', 'menu-new', 'newFile')] : []),
+    row('open', 'Open File…', 'menu-open', 'openFile'),
     // PRD 009 Req 9: nothing to close with no document open.
-    ...(s.docOpen ? [{ command: 'closeFile' as const, label: 'Close File', testId: 'menu-close-file' }] : []),
+    ...(s.docOpen ? [row('closeFile', 'Close File', 'menu-close-file')] : []),
   ];
 
   const workspace: AppMenuRow[] = [
-    ...(entry.has('newWorkspace')
-      ? [{ command: 'newWorkspace' as const, label: 'New Workspace', testId: 'menu-new-workspace' }]
-      : []),
-    ...(entry.has('openWorkspace')
-      ? [{ command: 'openWorkspace' as const, label: 'Open Workspace…', testId: 'menu-open-workspace' }]
-      : []),
-    ...(inWorkspace && (entry.has('newWorkspace') || entry.has('openWorkspace'))
-      ? [{ command: 'closeWorkspace' as const, label: 'Close Workspace', testId: 'menu-close-workspace' }]
-      : []),
+    ...(entry.has('newWorkspace') ? [row('newWorkspace', 'New Workspace', 'menu-new-workspace')] : []),
+    ...(entry.has('openWorkspace') ? [row('openWorkspace', 'Open Workspace…', 'menu-open-workspace')] : []),
+    ...(inWorkspace && hasWorkspaces ? [row('closeWorkspace', 'Close Workspace', 'menu-close-workspace')] : []),
   ];
 
   // PRD 007 Req 17: a read-only document has no Save rows at all. PRD 009
   // Req 9: with no document they are merely inapplicable — greyed, not gone.
   const save: AppMenuRow[] = s.canEdit
     ? [
-        { command: 'save', label: 'Save', testId: 'menu-save', hotkey: 'save', disabled: !s.docOpen },
-        { command: 'saveAs', label: 'Save As…', testId: 'menu-save-as', disabled: !s.docOpen },
+        row('save', 'Save', 'menu-save', 'save', !s.docOpen),
+        row('saveAs', 'Save As…', 'menu-save-as', undefined, !s.docOpen),
       ]
     : [];
 
@@ -108,9 +118,9 @@ export function buildAppMenu(s: AppMenuState): AppMenuGroup[] {
   // PRD 009 Req 8: Sign out (#95) takes the first slot of this group when it
   // lands — hosted only, ahead of Settings…
   const app: AppMenuRow[] = [
-    { command: 'settings', label: 'Settings…', testId: 'menu-settings' },
-    { command: 'help', label: 'Help', testId: 'menu-help' },
-    { command: 'about', label: 'About Marky Mark', testId: 'menu-about' },
+    row('settings', 'Settings…', 'menu-settings'),
+    row('help', 'Help', 'menu-help'),
+    row('about', 'About Marky Mark', 'menu-about'),
   ];
 
   const groups: AppMenuGroup[] = [

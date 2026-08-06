@@ -99,7 +99,9 @@ test('E13: the menu leads the toolbar on the left and holds exactly the gated gr
 
   // PRD 009 Req 8/9: the item set for this flavor and mode — a local file open
   // (single-file mode) on a shim that can honour every workspace flow. No New
-  // File outside workspace mode, no Close Workspace outside it.
+  // File outside workspace mode, no Close Workspace outside it. Exactly these,
+  // in this order: still the one overflow menu of SPEC4 §5.2, still carrying
+  // SPEC10 §6's About row.
   const rows = await menu.locator('button').evaluateAll((els) => els.map((el) => el.dataset.testid));
   expect(rows).toEqual([
     'menu-open',

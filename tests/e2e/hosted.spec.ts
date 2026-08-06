@@ -1,6 +1,6 @@
 import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { addComment, menuSave, openSettings, pasteImage, selectPhrase } from './helpers';
+import { addComment, menuSave, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
 
 // PRD 007 Req 1+4: the hosted backend in local dev mode — booted by the
 // second `webServer` entry in playwright.config.ts (`npm run server:local`:
@@ -609,7 +609,7 @@ async function listingFor(
  * hosted shell's lifecycle entry point now that the switcher chip is gone.
  */
 async function openAppMenu(page: Page): Promise<void> {
-  await page.mouse.move(500, 8);
+  await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   await expect(page.getByTestId('app-menu')).toBeVisible();
 }

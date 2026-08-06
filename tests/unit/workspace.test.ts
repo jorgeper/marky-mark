@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
   addWorkspaceFolder,
-  workspaceDisplayName,
   closeWorkspace,
   isAbsolutePath,
   isWorkspaceFilePath,
@@ -17,6 +16,7 @@ import {
   serializeWorkspaceSession,
   sessionKeyForWorkspaceFile,
   untitledWorkspaceChanged,
+  workspaceDisplayName,
   workspaceFromFile,
   type Workspace,
   type WorkspaceSession,

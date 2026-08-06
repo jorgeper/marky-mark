@@ -229,12 +229,13 @@ export function workspaceFromFile(
  */
 export function workspaceDisplayName(ws: Workspace): string | null {
   if (ws.kind === 'none') return null;
-  const leaf = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? path;
-  if (ws.kind === 'named') {
-    const name = leaf(ws.file);
-    return isWorkspaceFilePath(name) ? name.slice(0, -WORKSPACE_FILE_EXT.length) || name : name;
-  }
-  return ws.folders[0] ? leaf(ws.folders[0].path) : null;
+  const leaf = (path: string) => splitSegs(path).pop() ?? path;
+  if (ws.kind !== 'named') return ws.folders[0] ? leaf(ws.folders[0].path) : null;
+  const base = leaf(ws.file);
+  if (!isWorkspaceFilePath(base)) return base;
+  // A file named exactly `.marky-workspace` has no stem to show — it goes by
+  // its full name rather than by nothing.
+  return base.slice(0, -WORKSPACE_FILE_EXT.length) || base;
 }
 
 // --- per-workspace session state (§B6, §C11, §F22) ---------------------------

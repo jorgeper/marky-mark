@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import type { AppMenuGroup } from '../lib/appMenu';
 import type { CommandId } from '../lib/commands';
 import { displayCombo, type HotkeyMap } from '../lib/hotkeys';
@@ -130,7 +130,9 @@ export function Toolbar(p: Props) {
 
   // PRD 007 Req 17: absent ⇒ no permission model ⇒ the Edit toggle stays.
   const canEdit = p.canEdit !== false;
-  const onCommand = p.onCommand;
+  // SPEC5 §1: the badge fills the title slot when nothing is named there — so
+  // with a workspace named (PRD 009 Req 11) it stands down, document or not.
+  const showBadge = p.docName === null && !p.workspaceName;
 
   return (
     <header className="toolbar">
@@ -144,7 +146,7 @@ export function Toolbar(p: Props) {
         {menuOpen && (
           <div className="theme-menu anchor-left" data-testid="app-menu">
             {p.menu.map((group, gi) => (
-              <div key={group.id}>
+              <Fragment key={group.id}>
                 {/* Req 8: one separator BETWEEN groups — a menu that starts or
                     ends with one is never rendered because empty groups are
                     already gone (lib/appMenu.ts). */}
@@ -152,7 +154,7 @@ export function Toolbar(p: Props) {
                 {group.rows.map((r) => (
                   <button
                     key={r.testId}
-                    className={`theme-option${r.submenu ? ' submenu-parent' : ''}`}
+                    className="theme-option"
                     data-testid={r.testId}
                     disabled={r.disabled}
                     aria-haspopup={r.submenu ? 'menu' : undefined}
@@ -161,7 +163,7 @@ export function Toolbar(p: Props) {
                       // it) and leaves the menu open.
                       if (!r.command) return;
                       setMenuOpen(false);
-                      onCommand(r.command);
+                      p.onCommand(r.command);
                     }}
                   >
                     <span style={{ flex: 1 }}>{r.label}</span>
@@ -173,7 +175,7 @@ export function Toolbar(p: Props) {
                     )}
                   </button>
                 ))}
-              </div>
+              </Fragment>
             ))}
           </div>
         )}
@@ -190,7 +192,8 @@ export function Toolbar(p: Props) {
             {p.docName && <span className="ws-sep"> / </span>}
           </>
         )}
-        {p.docName ?? (p.workspaceName ? null : <AppBadge />)}
+        {p.docName}
+        {showBadge && <AppBadge />}
         {p.dirty && (
           <span className="dirty-dot" data-testid="dirty-dot" title="Unsaved changes">
             ●

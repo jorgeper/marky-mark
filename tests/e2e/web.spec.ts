@@ -324,8 +324,8 @@ test('W9: the New File hotkey opens an untitled buffer; Save runs the handle-les
 }) => {
   // PRD 009 Req 9/16: single-file mode has no New File menu row — creating
   // files is a workspace-mode item, and the web build has no workspaces. The
-  // command itself is unchanged (no hotkey was added or removed here), so the
-  // untitled-buffer flow this test pins is driven by its existing binding.
+  // command itself is unchanged (no hotkey was added or removed here), so
+  // SPEC21 §5.6's binding still drives the untitled-buffer flow this pins.
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   await expect(page.getByTestId('menu-new')).toHaveCount(0);

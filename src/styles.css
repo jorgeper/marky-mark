@@ -247,12 +247,6 @@ button {
   flex-shrink: 0;
 }
 
-.theme-menu .menu-footer {
-  border-top: 1px solid var(--mm-border, #d1d9e0);
-  margin-top: 5px;
-  padding-top: 5px;
-}
-
 /* ---------- workspace / document ---------- */
 
 .workspace {
