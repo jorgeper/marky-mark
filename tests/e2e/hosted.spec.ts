@@ -1745,30 +1745,26 @@ test('E208: comment.read gates whether comments load at all, and comment.write w
   expect(await requiredVerb(read)).toBe('comment.read');
 });
 
-test('E209: a local file opened inside a workspace that grants nothing stays fully editable', async ({
+test('E212: on hosted, Open File… with a workspace open crosses into single-file mode and clears the ?workspace binding', async ({
   page,
   request,
 }) => {
-  // PRD 007 Req 17+21: a role governs workspace content, not a document the
-  // browser holds. The same page shows a read-only workspace doc and a fully
-  // editable local one.
+  // PRD 009 Req 4/5/6 (#90): the modes are exclusive here — a local file no
+  // longer opens INSIDE the workspace (the retired PRD 007 Req 21 variant,
+  // whose E209 this test replaces). The picker fallback is forced so the
+  // <input type=file> path (automatable) runs.
   await page.addInitScript(() => {
     delete (window as { showOpenFilePicker?: unknown }).showOpenFilePicker;
   });
   const ada = await signIn(request, 'ada');
-  const id = await workspaceWithRole(request, ada, `E209 w${test.info().workerIndex}`, 'grace', ['doc.read']);
+  const id = await createWorkspace(request, ada, `E212 w${test.info().workerIndex}`);
   await request.put(`${HOSTED}/api/workspaces/${id}/files/theirs.md`, {
     headers: { Authorization: `Bearer ${ada}` },
     data: '# Theirs\n',
   });
 
-  await signInTo(page, 'grace', id);
+  await signInTo(page, 'ada', id);
   await openFromSidebar(page, 'theirs.md');
-  // The workspace document is read-only for this role…
-  await expect(page.getByTestId('read-only-doc')).toBeVisible();
-  await expect(page.getByTestId('edit-toggle')).toHaveCount(0);
-
-  // …and a local file opened in the same session is not.
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('menu-open').click();
@@ -1779,15 +1775,28 @@ test('E209: a local file opened inside a workspace that grants nothing stays ful
     mimeType: 'text/markdown',
     buffer: Buffer.from('# Mine\n\nHeld by this browser alone.\n'),
   });
+
+  // Req 4: the workspace closed and the file opened — single-file mode, with
+  // the initial page never the resting state of the switch.
   await expect(page.getByTestId('docname')).toContainText('mine.md');
-  await expect(page.getByTestId('read-only-doc')).toHaveCount(0);
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
+  // (The switcher chip still names the workspace it listed at boot — it is
+  // removed with the rest of the hosted chrome in #93, and the app state it
+  // paints over is what this test pins.)
+  // …and it is a local document: fully editable, nothing uploaded.
   await page.getByTestId('edit-toggle').click();
   await page.locator('.cm-content').click();
   await page.keyboard.type('typed locally ');
   await menuSave(page);
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
-
-  // Nothing of it reached the workspace: its files are still the Owner's one.
   expect(await listFiles(request, ada, id)).toEqual(['theirs.md']);
-  expect(await readAs(request, ada, id, 'theirs.md')).toBe('# Theirs\n');
+
+  // Req 6: the URL binding went with the workspace — in place, so the file
+  // being opened survived — and a reload now lands on the initial page.
+  expect(await page.evaluate(() => window.location.search)).toBe('');
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('workspace-switcher-chip')).toContainText('No workspace');
 });

@@ -86,10 +86,12 @@ export function createHostedPlatform(): Platform {
   const workspaceId = workspaceIdFromSearch(window.location.search);
 
   /**
-   * PRD 007 Req 21: local-file mode. A Markdown file the user picks or drops
-   * on the start page opens fully client-side — the same machinery the
+   * PRD 007 Req 21 (PRD 009 Req 4/5): local-file mode. A Markdown file the
+   * user picks or drops opens fully client-side — the same machinery the
    * single-file web build uses (platform/localDocs.ts), with nothing
-   * uploaded and no workspace required. Its documents hang under `/local`,
+   * uploaded. It is a MODE, not a document that can share the screen with a
+   * workspace: App closes any open workspace before it opens one of these.
+   * Its documents hang under `/local`,
    * which `parseHostedPath` deliberately does not resolve: a local doc can
    * never turn into a request against `/api/workspaces/...`, so every read,
    * write and save below answers from memory (or the browser's own file
@@ -437,6 +439,10 @@ export function createHostedPlatform(): Platform {
      * before it reaches the window). THIS window-level drop owns everything
      * else, the start page included: it opens a dropped Markdown file locally,
      * uploading nothing. One drop therefore only ever fires one of the two.
+     *
+     * PRD 009 Req 4/5: a drop here is a crossing action — with a workspace
+     * open, App closes it (dirty prompts and all) and lands in single-file
+     * mode, so a dropped file never joins the workspace's own documents.
      */
     async onFileDrop(cb) {
       local.listenForDrop(cb);
@@ -489,7 +495,9 @@ export function createHostedPlatform(): Platform {
      *
      * PRD 007 Req 21: a local doc is not workspace content — nobody's role
      * governs a file the browser opened client-side, so it keeps every
-     * affordance even when the bound workspace grants none.
+     * affordance. PRD 009 Req 5 retired the case this once had to survive (a
+     * local doc open INSIDE a workspace that grants nothing); the exemption
+     * stays because the grants cache outlives the workspace it was read for.
      */
     fileGrants: (path) =>
       path !== undefined && local.owns(path)

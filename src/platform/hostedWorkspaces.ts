@@ -58,6 +58,12 @@ export interface WorkspaceLifecycle {
   resolveUsers(ids: readonly string[]): Promise<MemberEntry[]>;
   /** Bind the page to a workspace (null: leave — the start page, no workspace). */
   navigateTo(id: string | null): void;
+  /**
+   * PRD 009 Req 6: drop the binding WITHOUT navigating — Close Workspace and
+   * every crossing action into single-file mode must leave a reload on the
+   * initial page, and a navigation would discard the file being opened.
+   */
+  unbind(): void;
 }
 
 export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
@@ -199,6 +205,13 @@ export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
       // so opening or leaving a workspace is a same-origin navigation that
       // rebinds it — the whole app boots against the new workspace.
       window.location.assign(id ? `/?workspace=${encodeURIComponent(id)}` : '/');
+    },
+
+    unbind() {
+      // PRD 009 Req 6: same binding, rewritten in place — this page keeps
+      // running (it may be mid-switch into single-file mode), and only a
+      // reload from here starts against no workspace.
+      window.history.replaceState(null, '', '/');
     },
   };
 }

@@ -896,3 +896,91 @@ test('E200: local New Workspace… writes the .marky-workspace file and lands in
   // The folder joined THIS workspace — the named file grew, nothing replaced it.
   await expect.poll(() => fsRead(page, '/w/fresh.marky-workspace')).toContain('/notes');
 });
+
+// PRD 009 Req 3/4/5 (#90): the exclusive two-mode model on the non-desktop
+// flavors. The e2e shim is one of them (Req 1 names hosted, static web and the
+// browser shim), so the crossing actions are driven here through the command
+// seam every menu item dispatches into.
+
+test('E210: a local file opened with a workspace open closes the workspace first and lands in single-file mode; Cancel aborts the switch', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await openNotesRoot(page);
+  // freshApp left welcome.md open (outside the root) — drop it so the
+  // workspace's dirty walk below is exactly the file this test dirtied.
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await dirtyActiveDoc(page, 'CROSSING ');
+
+  // PRD 009 Req 4: Open File… runs the workspace's dirty prompts FIRST…
+  page.once('dialog', (d) => void d.accept('/docs/welcome.md'));
+  await page.evaluate(() => window.__mmDispatch!('open'));
+  await expect(page.getByTestId('close-prompt')).toBeVisible();
+  // …and Cancel aborts the WHOLE switch: the workspace is still open, the
+  // dirty buffer is untouched, and nothing new was opened.
+  await page.getByTestId('close-cancel').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Don't save: the workspace closes and the picked file opens in single-file
+  // mode — the initial page is never the resting state of the switch.
+  page.once('dialog', (d) => void d.accept('/docs/welcome.md'));
+  await page.evaluate(() => window.__mmDispatch!('open'));
+  await page.getByTestId('close-discard').click();
+  await expect(page.getByTestId('docname')).toContainText('welcome.md');
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
+  // PRD 009 Req 2: no folder sidebar (nor its collapsed reveal seam) in
+  // single-file mode, whatever the flavor can browse.
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
+
+  // PRD 009 Req 2: "single file" means "no workspace", not "one document" —
+  // a second file joins the open set and Ctrl+Tab still cycles both.
+  page.once('dialog', (d) => void d.accept('/notes/a.md'));
+  await page.evaluate(() => window.__mmDispatch!('open'));
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await page.keyboard.press('Control+Tab');
+  await expect(page.getByTestId('docname')).toContainText('welcome.md');
+
+  // PRD 009 Req 3: closing the files one by one ends on the initial page.
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('start-drop')).toBeVisible();
+});
+
+test('E211: Open Workspace… in single-file mode closes the open file first, then enters workspace mode; Cancel aborts the switch', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await fsWrite(page, '/w/e211.marky-workspace', JSON.stringify({ version: 1, folders: ['/notes'], settings: {} }));
+  // freshApp leaves welcome.md open: single-file mode, with unsaved work.
+  await expect(page.getByTestId('docname')).toContainText('welcome.md');
+  await dirtyActiveDoc(page, 'STAYS ');
+
+  // PRD 009 Req 4: the crossing runs the open file's dirty prompt first…
+  await page.evaluate(() => {
+    window.__mmfs!.nextWorkspacePath = '/w/e211.marky-workspace';
+    window.__mmDispatch!('openWorkspace');
+  });
+  await expect(page.getByTestId('close-prompt')).toBeVisible();
+  // …and Cancel leaves single-file mode exactly as it was.
+  await page.getByTestId('close-cancel').click();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('docname')).toContainText('welcome.md');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Don't save: the file closes and workspace mode opens directly.
+  await page.evaluate(() => {
+    window.__mmfs!.nextWorkspacePath = '/w/e211.marky-workspace';
+    window.__mmDispatch!('openWorkspace');
+  });
+  await page.getByTestId('close-discard').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.locator('[data-path="/notes/a.md"]')).toBeVisible();
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
+});
