@@ -170,7 +170,7 @@ export function createWebPlatform(): Platform {
       : {}),
 
     async commitFile(path) {
-      local.commit(path, (p) => this.basename(p));
+      local.commit(path);
     },
     async importTheme() {
       let name: string;

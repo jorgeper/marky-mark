@@ -1,5 +1,3 @@
-import type { Platform } from './types';
-
 /**
  * PRD 007 Req 21: local-file mode, shared by every browser flavor. The
  * single-file web build has always opened a Markdown file the user picks or
@@ -67,6 +65,9 @@ export function pickViaInput(accept: string): Promise<File | null> {
   });
 }
 
+/** The name a virtual path downloads under — both flavors' `basename`. */
+const basenameOf = (path: string): string => path.split('/').pop() ?? path;
+
 /** Hand `content` to the browser as a download named `name`. */
 export function download(name: string, content: string): void {
   const url = URL.createObjectURL(new Blob([content], { type: 'text/markdown' }));
@@ -92,8 +93,8 @@ export interface LocalDocs {
   pick(): Promise<string | null>;
   /** Write through to the handle when there is one; memory always wins. */
   write(path: string, content: string): Promise<void>;
-  /** An explicit Save of a handle-less doc becomes a download. */
-  commit(path: string, basename: (p: string) => string): void;
+  /** An explicit Save of a handle-less doc becomes a download of its basename. */
+  commit(path: string): void;
   /** Window-level drop → open a Markdown file locally. */
   listenForDrop(cb: (path: string) => void): void;
 }
@@ -158,9 +159,9 @@ export function createLocalDocs(prefix = ''): LocalDocs {
       }
     },
 
-    commit(path, basename) {
+    commit(path) {
       const doc = docs.get(path);
-      if (doc && !doc.handle) download(basename(path), doc.content);
+      if (doc && !doc.handle) download(basenameOf(path), doc.content);
     },
 
     listenForDrop(cb) {
@@ -190,6 +191,3 @@ export function createLocalDocs(prefix = ''): LocalDocs {
     },
   };
 }
-
-/** The basename helper both browser flavors' Platform methods already use. */
-export const basenameOf: Platform['basename'] = (path) => path.split('/').pop() ?? path;

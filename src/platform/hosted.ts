@@ -386,7 +386,7 @@ export function createHostedPlatform(): Platform {
     },
     /** PRD 007 Req 21: an explicit Save of a handle-less local doc downloads. */
     async commitFile(path) {
-      if (local.owns(path)) local.commit(path, (p) => p.split('/').pop() ?? p);
+      if (local.owns(path)) local.commit(path);
     },
     /**
      * SPEC34 §1: the folder sidebar's picker seam. A hosted workspace IS its
@@ -394,14 +394,15 @@ export function createHostedPlatform(): Platform {
      * the bound workspace's root. Defining it is what makes the sidebar
      * render at all (App gates the whole feature on this capability); the
      * workspace-picking UI proper is issue #75's scope.
+     *
+     * PRD 007 Req 21: and precisely because this is not a local folder pick,
+     * the flavor never declares `localFolders` — so the start page and File
+     * menu offer no Open Folder…, derived from that capability rather than
+     * from `kind === 'hosted'` (Req 2).
      */
     async openFolderDialog() {
       return workspaceId ? hostedFilesRoot(workspaceId) : null;
     },
-    // PRD 007 Req 21: and precisely because that "picker" is not a local
-    // folder pick, this flavor never declares localFolders — the start page
-    // and File menu offer no Open Folder…, derived from the capability
-    // rather than from `kind === 'hosted'` (Req 2).
     /** PRD 002 §D14: likewise — the one workspace this page is bound to. */
     async openWorkspaceDialog() {
       return workspaceId ? hostedWorkspaceFilePath(workspaceId) : null;

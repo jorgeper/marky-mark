@@ -71,7 +71,11 @@ export function startActions(caps: StartCapabilities): StartActionId[] {
   return list;
 }
 
-/** The label each action carries, identical on the start page and the menu. */
+/**
+ * The label each action carries on the start page. The File menu names the
+ * same three gated items identically; only Open File… differs, appearing
+ * there under the File submenu's own older name, "Open…".
+ */
 export const START_ACTION_LABELS: Record<StartActionId, string> = {
   openFile: 'Open File…',
   openFolder: 'Open Folder…',

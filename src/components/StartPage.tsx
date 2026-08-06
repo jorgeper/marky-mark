@@ -1,8 +1,8 @@
 // PRD 007 Req 21/22: the start page's action list — one component for all
 // four flavors, fed by the pure capability→actions mapping in
 // lib/startActions.ts. Nothing here knows which flavor is running: it renders
-// the list it is handed, so the hosted page's four actions and the desktop's
-// five come from the same code and the same rules as the File menu.
+// the list it is handed, so the hosted page's three buttons and the desktop's
+// four come from the same code and the same rules as the File menu.
 
 import { START_ACTION_LABELS, type StartActionId } from '../lib/startActions';
 

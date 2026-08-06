@@ -419,7 +419,9 @@ test('W12: §H25 platform boundary — no folder sidebar, no scope selector or W
   expect(configKeys.filter((k) => k.includes('.marky-workspace'))).toEqual([]);
 });
 
-test('E204: the single-file web start page offers the drag hint and Open File — and nothing it cannot honour', async ({
+// W13, not E204: this file's tests run against the BUILT web app, and the
+// suite numbers those W<n> (CODING_STANDARDS § Testing).
+test('W13: the single-file web start page offers the drag hint and Open File — and nothing it cannot honour', async ({
   page,
 }) => {
   // PRD 007 Req 22: the web build has neither a folder seam nor workspaces,

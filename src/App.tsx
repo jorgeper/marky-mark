@@ -2521,7 +2521,9 @@ export default function App() {
    */
   const newWorkspaceCmd = useCallback(() => {
     const p = stateRef.current.platform;
-    if (!p?.saveFileDialog || !p.readDirEntries || !p.localFolders) return; // silent no-op, menu style
+    // The very predicate that puts the row on the start page and the item in
+    // the File menu, so affordance and command cannot drift (startActions.ts).
+    if (!p || !startCapabilities(p).localWorkspaceSave) return; // silent no-op, menu style
     guardWorkspaceDiscard(() => {
       void (async () => {
         const picked = await p.saveFileDialog!(`Untitled${WORKSPACE_FILE_EXT}`, 'workspace');
@@ -3310,7 +3312,11 @@ export default function App() {
    * Folder…, the single-file web build gets Open File alone.
    */
   const entryActions = useMemo(() => (platform ? startActions(startCapabilities(platform)) : []), [platform]);
-  /** Each row dispatches the command the File menu's twin item dispatches. */
+  /**
+   * Each row dispatches the command the File menu's twin item dispatches —
+   * the ids coincide but for `openFile`, whose long-standing command id is
+   * `open` (the menu's own "Open…").
+   */
   const runEntryAction = useCallback((id: StartActionId) => {
     dispatchCommand(id === 'openFile' ? 'open' : id, 'ui');
   }, []);

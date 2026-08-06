@@ -1370,6 +1370,7 @@ mark.hl.ghost {
   flex-direction: column;
   align-items: center;
 }
+
 .start-action-row {
   display: flex;
   flex-wrap: wrap;
@@ -1377,6 +1378,7 @@ mark.hl.ghost {
   gap: 8px;
   margin-top: 14px;
 }
+
 .start-action {
   padding: 6px 14px;
   font-size: 13px;
@@ -1386,8 +1388,11 @@ mark.hl.ghost {
   border-radius: 6px;
   cursor: pointer;
 }
+
+/* --mm-hover is the themed hover wash every other row in the app uses; the
+   fallback matches theirs so an unthemed build stays consistent too. */
 .start-action:hover {
-  background: var(--mm-bg-hover, rgba(0, 0, 0, 0.05));
+  background: var(--mm-hover, rgba(9, 105, 218, 0.08));
 }
 
 /* --- About dialog (SPEC10 §3) --------------------------------------------- */
