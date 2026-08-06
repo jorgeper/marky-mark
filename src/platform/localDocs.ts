@@ -10,16 +10,25 @@
  *     <input type=file> otherwise;
  *   - write-through to the file's handle when the browser granted one,
  *     otherwise a download on the user's explicit Save (commitFile);
+ *   - PRD 009 Req 15: the readwrite grant behind that write-through, asked
+ *     for on the Save gesture and falling back to the download whenever the
+ *     in-place write cannot land (lib/localSave.ts holds the decision);
  *   - the window-level drop listener that opens a dragged Markdown file.
  *
  * It performs no network I/O of any kind — a document opened through here
  * never leaves the browser.
  */
 
+import { flushLocalDoc, saveLocalDoc, type FSPermissionState, type LocalWriteTarget } from '../lib/localSave';
+
 /** Minimal File System Access API surface (not yet in TypeScript's lib.dom). */
 export interface FSFileHandle {
   getFile(): Promise<File>;
   createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }>;
+  // PRD 009 Req 15: the readwrite grant a write-through needs. Optional
+  // because lib.dom knows neither member and a browser may offer neither.
+  queryPermission?(descriptor?: { mode?: 'read' | 'readwrite' }): Promise<FSPermissionState>;
+  requestPermission?(descriptor?: { mode?: 'read' | 'readwrite' }): Promise<FSPermissionState>;
 }
 interface OpenPickerOptions {
   types?: Array<{ description: string; accept: Record<string, string[]> }>;
@@ -43,6 +52,12 @@ export const MD_PICKER_TYPES = [
 export interface LocalDoc {
   content: string;
   handle: FSFileHandle | null;
+  /**
+   * PRD 009 Req 15: the bytes this doc's handle is known to hold on disk —
+   * set by a write-through that landed, so the explicit Save that follows
+   * knows whether there is anything left to write.
+   */
+  flushed?: string | null;
 }
 
 /** Show a hidden file input; resolves to the pick, or null when cancelled. */
@@ -64,6 +79,31 @@ export function pickViaInput(accept: string): Promise<File | null> {
     input.click();
   });
 }
+
+/**
+ * PRD 009 Req 15: one document's handle as the browser seams lib/localSave.ts
+ * reasons about — a handle-less doc has no target at all, which is what makes
+ * its Save a download. `write`/`close` are one unit: the bytes are not on disk
+ * until the writable closes, so a failure in either is a failed write.
+ */
+const targetFor = (doc: LocalDoc): LocalWriteTarget | null => {
+  const handle = doc.handle;
+  if (!handle) return null;
+  const mode = { mode: 'readwrite' } as const;
+  return {
+    ...(handle.queryPermission
+      ? { query: (): Promise<FSPermissionState> => handle.queryPermission!(mode) }
+      : {}),
+    ...(handle.requestPermission
+      ? { request: (): Promise<FSPermissionState> => handle.requestPermission!(mode) }
+      : {}),
+    write: async (content: string) => {
+      const w = await handle.createWritable();
+      await w.write(content);
+      await w.close();
+    },
+  };
+};
 
 /** The name a virtual path downloads under — both flavors' `basename`. */
 const basenameOf = (path: string): string => path.split('/').pop() ?? path;
@@ -93,8 +133,11 @@ export interface LocalDocs {
   pick(): Promise<string | null>;
   /** Write through to the handle when there is one; memory always wins. */
   write(path: string, content: string): Promise<void>;
-  /** An explicit Save of a handle-less doc becomes a download of its basename. */
-  commit(path: string): void;
+  /**
+   * The user's explicit Save: in place through the handle where the browser
+   * grants it, a download of the basename everywhere else (PRD 009 Req 15).
+   */
+  commit(path: string): Promise<void>;
   /** Window-level drop → open a Markdown file locally. */
   listenForDrop(cb: (path: string) => void): void;
 }
@@ -149,19 +192,23 @@ export function createLocalDocs(prefix = ''): LocalDocs {
         return;
       }
       doc.content = content;
-      if (!doc.handle) return;
-      try {
-        const w = await doc.handle.createWritable();
-        await w.write(content);
-        await w.close();
-      } catch {
-        /* permission revoked mid-session: memory copy still holds it */
-      }
+      // PRD 009 Req 15: not the user's explicit Save — keep an already-granted
+      // file up to date and stop there. No permission prompt (the browser
+      // would refuse one outside a gesture) and never a download.
+      doc.flushed = (await flushLocalDoc(targetFor(doc), content)) ? content : null;
     },
 
-    commit(path) {
+    async commit(path) {
       const doc = docs.get(path);
-      if (doc && !doc.handle) download(basenameOf(path), doc.content);
+      if (!doc) return;
+      // PRD 009 Req 15: the write-through already landed these bytes in the
+      // user's own file — nothing to write, nothing to download.
+      if (doc.flushed === doc.content) return;
+      const outcome = await saveLocalDoc(targetFor(doc), doc.content);
+      doc.flushed = outcome.kind === 'in-place' ? doc.content : null;
+      // A save that could not land in place — no handle, the grant refused,
+      // or the write threw — still reaches the user, as a download.
+      if (outcome.kind === 'download') download(basenameOf(path), doc.content);
     },
 
     listenForDrop(cb) {

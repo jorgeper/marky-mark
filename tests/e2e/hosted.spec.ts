@@ -1800,3 +1800,107 @@ test('E212: on hosted, Open File… with a workspace open crosses into single-fi
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await expect(page.getByTestId('workspace-switcher-chip')).toContainText('No workspace');
 });
+
+test('E213: on hosted, a handle-backed local file saves in place through the handle — and downloads instead when the permission request is denied', async ({
+  page,
+}) => {
+  // PRD 009 Req 15: single-file mode saves the user's own file back through
+  // the File System Access handle after the readwrite grant. The real picker
+  // cannot be driven headlessly, so a fake handle stands in for it: it
+  // records what `createWritable()` was given and answers the permission
+  // seams from localStorage, so the same stub serves the grant and the
+  // refusal. Everything under test — the query/request pair, the write, the
+  // download fallback — is the app's own code either way.
+  await page.addInitScript(() => {
+    const w = window as unknown as {
+      showOpenFilePicker: unknown;
+      __fsWrites: string[];
+      __fsPrompts: number;
+    };
+    w.__fsWrites = [];
+    w.__fsPrompts = 0;
+    let granted = false;
+    w.showOpenFilePicker = async () => [
+      {
+        kind: 'file',
+        name: 'stubbed.md',
+        getFile: async () =>
+          new File(['# Stubbed\n\nHeld by this browser alone.\n'], 'stubbed.md', { type: 'text/markdown' }),
+        queryPermission: async () => (granted ? 'granted' : 'prompt'),
+        requestPermission: async () => {
+          w.__fsPrompts += 1;
+          const answer = localStorage.getItem('e2e-fs-permission') ?? 'granted';
+          granted = answer === 'granted';
+          return answer;
+        },
+        createWritable: async () => {
+          let buf = '';
+          return {
+            write: async (data: string) => {
+              buf += data;
+            },
+            close: async () => {
+              w.__fsWrites.push(buf);
+            },
+          };
+        },
+      },
+    ];
+  });
+  const downloads: string[] = [];
+  page.on('download', (d) => downloads.push(d.suggestedFilename()));
+  const writes: string[] = [];
+  page.on('request', (req) => {
+    if (['PUT', 'POST', 'PATCH'].includes(req.method()) && req.url().includes('/api/workspaces')) {
+      writes.push(`${req.method()} ${req.url()}`);
+    }
+  });
+
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.getByTestId('start-openFile').click();
+  await expect(page.getByTestId('docname')).toContainText('stubbed.md');
+
+  await page.getByTestId('edit-toggle').click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('typed in place ');
+  await menuSave(page);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // The edited buffer went into the user's own file, through the handle,
+  // after exactly one grant — no download, and nothing to the server.
+  const written = await page.evaluate(() => (window as unknown as { __fsWrites: string[] }).__fsWrites);
+  expect(written).toHaveLength(1);
+  expect(written[0]).toContain('typed in place ');
+  expect(written[0]).toContain('# Stubbed');
+  expect(downloads).toEqual([]);
+  expect(writes).toEqual([]);
+  expect(await page.evaluate(() => (window as unknown as { __fsPrompts: number }).__fsPrompts)).toBe(1);
+
+  // A second save in the same session writes again without re-prompting.
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('and again ');
+  await menuSave(page);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  const twice = await page.evaluate(() => (window as unknown as { __fsWrites: string[] }).__fsWrites);
+  expect(twice).toHaveLength(2);
+  expect(twice[1]).toContain('and again ');
+  expect(await page.evaluate(() => (window as unknown as { __fsPrompts: number }).__fsPrompts)).toBe(1);
+  expect(downloads).toEqual([]);
+
+  // Same Save with the grant refused: the bytes still reach the user, as a
+  // download, and nothing was written through the handle.
+  await page.evaluate(() => localStorage.setItem('e2e-fs-permission', 'denied'));
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.getByTestId('start-openFile').click();
+  await expect(page.getByTestId('docname')).toContainText('stubbed.md');
+  await page.getByTestId('edit-toggle').click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('typed while denied ');
+  const downloaded = page.waitForEvent('download');
+  await menuSave(page);
+  expect((await downloaded).suggestedFilename()).toBe('stubbed.md');
+  expect(await page.evaluate(() => (window as unknown as { __fsWrites: string[] }).__fsWrites)).toEqual([]);
+  expect(writes).toEqual([]);
+});

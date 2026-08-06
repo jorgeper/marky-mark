@@ -399,9 +399,14 @@ export function createHostedPlatform(): Platform {
     async openFileDialog() {
       return local.pick();
     },
-    /** PRD 007 Req 21: an explicit Save of a handle-less local doc downloads. */
+    /**
+     * PRD 007 Req 21 + PRD 009 Req 15: an explicit Save of a local doc — in
+     * place through its file handle where the browser grants it, a download
+     * of a handle-less one (or of a write that could not land). The shared
+     * localDocs store owns that decision for both browser flavors.
+     */
     async commitFile(path) {
-      if (local.owns(path)) local.commit(path);
+      if (local.owns(path)) await local.commit(path);
     },
     /**
      * SPEC34 §1: the folder sidebar's picker seam. A hosted workspace IS its
