@@ -11,8 +11,9 @@ source when something disagrees. The backend reference — API surface, the
 permission catalog, the manifest shape — is `server/README.md`; this guide does
 not repeat it.
 
-Read [Known limitations](#known-limitations) before you promise anything to
-users: tenant user search and avatars do not work yet on a real tenant.
+Read [Known limitations](#known-limitations) before you set aside an afternoon
+for this: the documented start command does not get past its own imports yet,
+and tenant user search and avatars do not work against a real tenant.
 
 ## Before you start
 
@@ -78,7 +79,6 @@ az rest --method PATCH \
   --headers 'Content-Type=application/json' \
   --body "{\"spa\":{\"redirectUris\":[\"https://$APP.azurewebsites.net/\"]}}"
 ```
-
 
 The redirect URI type must be **SPA** (not "Web" — a Web platform entry expects
 a confidential client and will reject the secret-less PKCE exchange), and its
@@ -235,9 +235,9 @@ What is in there and why:
 | --- | --- |
 | `dist/` | the built SPA the server serves (`MM_STATIC_DIR`, default `dist`) |
 | `server/` | the app itself; `server/index.ts` is the entry point |
-| `src/lib/` | `server/workspaces.ts` imports the shared pure modules from here (`hostedWorkspace.ts`, `sidecar.ts`, `fileTransfer.ts`, `workspaceLifecycle.ts`) — omit it and the server crashes on its first import |
+| `src/lib/` | `server/workspaces.ts` imports the shared pure modules from here (`hostedWorkspace.ts`, `sidecar.ts`, `fileTransfer.ts`, `workspaceLifecycle.ts`), and those pull in further siblings (`commentFormat.ts`, `fuzzy.ts`, …) — copy the whole directory, or the server crashes on an import |
 | `package.json`, `package-lock.json` | so `npm ci --omit=dev` resolves the same versions |
-| `node_modules/` (production only) | the runtime dependencies: **`@azure/storage-blob`** and **`jose`**, the only two the server imports |
+| `node_modules/` (production only) | whatever `dependencies` resolves to — of which the server itself imports exactly two, **`@azure/storage-blob`** and **`jose`**; the rest is the SPA's own dependency block, already bundled into `dist/` and along for the ride |
 
 Staging into `deploy/` rather than building in place keeps your working copy's
 devDependencies intact, and installing with `--omit=dev` there means Vite,
@@ -297,7 +297,9 @@ MM_MODE=azure node server/index.ts
 ```
 
 Plain `node`, no build, no process manager, relative to `/home/site/wwwroot`
-where the payload lands. (`MM_MODE` is both in the startup command and in the
+where the payload lands. **That command does not currently survive its own
+imports** — read [Known limitations](#known-limitations) before you start
+hunting for a configuration mistake. (`MM_MODE` is both in the startup command and in the
 app settings above; either alone is enough, and keeping both means neither a
 settings edit nor a startup-command edit can silently drop the app into local
 mode.)
@@ -433,6 +435,19 @@ directory search is not on the list — see below.
 
 ## Known limitations
 
+- **`node server/index.ts` does not start yet.** The documented start command —
+  step 4's, and `server/README.md`'s — exits immediately with
+  `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…/src/lib/commentFormat'
+  imported from …/src/lib/sidecar.ts`. Three of the shared modules the server
+  pulls in name a sibling without its file extension (`src/lib/sidecar.ts` →
+  `./commentFormat`, `src/lib/workspaceLifecycle.ts` → `./fuzzy` and
+  `./hostedWorkspace`), and Node's ESM resolver does not guess extensions.
+  `npm run server:local` never trips over it because it runs under `tsx`, which
+  does — so this only bites the production path. Until those specifiers carry
+  `.ts`, a payload staged exactly as in step 3 comes up 502 with that error in
+  the log stream; shipping `tsx` with the payload and starting
+  `npx tsx server/index.ts` gets past the imports, but it is a stopgap nothing
+  in this repo documents or tests.
 - **Tenant user search and avatars do not work against real Graph yet.**
   `server/providers/azure/graph.ts` forwards the caller's session bearer — the
   **id_token**, issued for `openid profile email` with the application's own
@@ -458,6 +473,7 @@ directory search is not on the list — see below.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| The app never starts; the log says `ERR_MODULE_NOT_FOUND: Cannot find module '…/src/lib/commentFormat'` (or `'./fuzzy'`, `'./hostedWorkspace'`) | not your deployment: extensionless imports in the shared `src/lib` modules, which Node's ESM resolver rejects — see [Known limitations](#known-limitations) | nothing to configure; it is a code gap |
 | The app never starts; the log says `MM_MODE=azure requires environment variables: …` | exactly the named app settings are missing (`loadConfig`, `server/config.ts`) | set them (step 4); the message lists all of them at once, so there is no second round |
 | The log says `MM_MODE must be 'local' or 'azure', got '…'` or `PORT must be a TCP port number, got '…'` | a malformed app setting | fix the value; never set `PORT` yourself |
 | Startup line reads `auth=mock, storage=azurite, directory=mock` | `MM_MODE` did not arrive — the startup command was overwritten | re-apply the startup command from step 4 |
