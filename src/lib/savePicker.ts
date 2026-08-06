@@ -1,10 +1,12 @@
 /**
  * PRD 009 Req 13+14: the pure logic behind the in-workspace save picker — the
  * ONE naming surface New File and Save As… share on a flavor with no local
- * save dialog. It answers four questions and nothing else: which folders may
- * be named, which one opens selected, which name is pre-filled, and whether a
- * typed name may be committed. No DOM, no platform imports (the caller injects
- * its own `join`), so both actions and the unit suite ask the same code.
+ * save dialog. It answers which folders may be named, which one opens
+ * selected, which name is pre-filled, whether a typed name may be committed,
+ * and — because the picker is what lets New File exist without a save dialog —
+ * where New File is offered at all. No DOM, no platform imports (the caller
+ * injects its own `join`), so both actions and the unit suite ask the same
+ * code.
  */
 
 import { uniqueChildName, validateEntryName } from './folderOps';
@@ -136,10 +138,33 @@ export function checkPickerName(raw: string, existing: readonly string[]): Picke
   const invalid = validateEntryName(raw.trim());
   if (invalid) return { ok: false, error: invalid };
   const name = withDefaultExtension(raw);
-  const stillInvalid = validateEntryName(name);
-  if (stillInvalid) return { ok: false, error: stillInvalid };
+  // The appended `.md` is part of the name that lands on disk, so it faces the
+  // same rules — it can push a name just under the 255-character limit over it.
+  const invalidWithExtension = validateEntryName(name);
+  if (invalidWithExtension) return { ok: false, error: invalidWithExtension };
   if (existing.some((e) => e.toLowerCase() === name.toLowerCase())) {
     return { ok: false, error: `“${name}” already exists in that folder` };
   }
   return { ok: true, name };
+}
+
+/**
+ * PRD 009 Req 13/16: is New File offered here? The capability tested is the
+ * platform's own save dialog — never which flavor is running (the rule
+ * lib/startActions.ts already follows): a platform that HAS one keeps SPEC22's
+ * untitled buffer everywhere, because that buffer can always be saved
+ * somewhere. Without one an untitled buffer is a dead end, so creating a file
+ * means naming a real one inside the workspace: it needs a workspace to write
+ * into, the listing seam the picker draws its folders from, and the
+ * `file.create` grant that gates the sidebar's own New File row (PRD 007
+ * Req 17). Shared by the menu row and the command so the two cannot drift.
+ */
+export function canOfferNewFile(opts: {
+  hasSaveDialog: boolean;
+  inWorkspace: boolean;
+  canList: boolean;
+  canCreate: boolean;
+}): boolean {
+  if (opts.hasSaveDialog) return true;
+  return opts.inWorkspace && opts.canList && opts.canCreate;
 }

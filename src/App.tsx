@@ -30,6 +30,7 @@ import { buildStaticHtml, statsLine, type StaticComment } from './lib/exportDoc'
 import { ExportDialog, type ExportRequest } from './components/ExportDialog';
 import { SavePicker } from './components/SavePicker';
 import {
+  canOfferNewFile,
   defaultFolder,
   defaultName,
   pickerFolders,
@@ -2685,40 +2686,10 @@ export default function App() {
 
   // --- actions -----------------------------------------------------------------
   /**
-   * PRD 009 Req 13+14: open the shared in-workspace picker, resolving when the
-   * user answers — true once a file was written, false on cancel (and false at
-   * once when there is no workspace folder to write into). The defaults come
-   * from the live listing of the folder it opens on, so New File's
-   * `Untitled.md` is free exactly like the sidebar's own New File row.
+   * PRD 009 Req 13: a folder's child names — what the picker prefills a free
+   * name from and checks a typed one against. An unlistable folder answers
+   * "nothing known": the picker still opens and the write reports the error.
    */
-  const openSavePicker = useCallback(async (kind: SavePickerKind): Promise<boolean> => {
-    const s = stateRef.current;
-    const p = s.platform;
-    if (!p?.readDirEntries) return false;
-    const docDir = s.docPath ? p.dirname(s.docPath) : null;
-    const folders = pickerFolders({
-      roots: folderStateRef.current.roots,
-      children: folderChildrenRef.current,
-      docDir,
-      join: (dir, name) => p.join(dir, name),
-    });
-    const folder = defaultFolder(folders, docDir);
-    if (!folder) return false;
-    let existing: string[] = [];
-    try {
-      existing = (await p.readDirEntries(folder)).map((e) => e.name);
-    } catch {
-      /* an unlistable folder still gets a picker — the write reports the error */
-    }
-    const name = defaultName(kind, { docBasename: s.docPath ? p.basename(s.docPath) : null, existing });
-    savePickerResolveRef.current?.(false); // never leave an earlier caller hanging
-    return new Promise<boolean>((resolve) => {
-      savePickerResolveRef.current = resolve;
-      setSavePicker({ kind, folders, folder, name });
-    });
-  }, []);
-
-  /** PRD 009 Req 13: a folder's child names — the picker's collision check. */
   const listPickerNames = useCallback(async (dir: string): Promise<string[]> => {
     const p = stateRef.current.platform;
     if (!p?.readDirEntries) return [];
@@ -2728,6 +2699,38 @@ export default function App() {
       return [];
     }
   }, []);
+
+  /**
+   * PRD 009 Req 13+14: open the shared in-workspace picker, resolving when the
+   * user answers — true once a file was written, false on cancel (and false at
+   * once when there is no workspace folder to write into). The defaults come
+   * from the live listing of the folder it opens on, so New File's
+   * `Untitled.md` is free exactly like the sidebar's own New File row.
+   */
+  const openSavePicker = useCallback(
+    async (kind: SavePickerKind): Promise<boolean> => {
+      const s = stateRef.current;
+      const p = s.platform;
+      if (!p?.readDirEntries) return false;
+      const docDir = s.docPath ? p.dirname(s.docPath) : null;
+      const folders = pickerFolders({
+        roots: folderStateRef.current.roots,
+        children: folderChildrenRef.current,
+        docDir,
+        join: (dir, name) => p.join(dir, name),
+      });
+      const folder = defaultFolder(folders, docDir);
+      if (!folder) return false;
+      const existing = await listPickerNames(folder);
+      const name = defaultName(kind, { docBasename: s.docPath ? p.basename(s.docPath) : null, existing });
+      savePickerResolveRef.current?.(false); // never leave an earlier caller hanging
+      return new Promise<boolean>((resolve) => {
+        savePickerResolveRef.current = resolve;
+        setSavePicker({ kind, folders, folder, name });
+      });
+    },
+    [listPickerNames]
+  );
 
   /**
    * SPEC3 §3: the Save As… write itself — the buffer, its comments and the
@@ -2806,7 +2809,7 @@ export default function App() {
       const p = stateRef.current.platform;
       if (!p) return;
       const target = p.join(folder, name);
-      setSavePicker(null);
+      setSavePicker(null); // close before the write; finishSavePicker's own close is then a no-op
       try {
         if (kind === 'new') {
           await p.writeTextFile(target, '');
@@ -3137,33 +3140,36 @@ export default function App() {
   );
 
   /**
-   * PRD 009 Req 13: whether New File is offered at all, and what it does.
-   * The capability tested is the platform's own save dialog — never which
-   * flavor is running (lib/startActions.ts's rule): a platform that HAS one
-   * keeps SPEC22's untitled buffer, because that buffer can always be saved
-   * somewhere. Without one an untitled buffer is a dead end, so New File is a
-   * workspace-mode action there: it names a real file inside the workspace,
-   * and outside workspace mode (single-file, the initial page) it is not
-   * offered at all (Req 16). The file.create grant gates it exactly as it
-   * gates the sidebar's own New File row (PRD 007 Req 17).
+   * PRD 009 Req 13/16: whether the newFile command does anything here — the
+   * shared `canOfferNewFile` rule, asked of the refs so a hotkey is exactly as
+   * inert as the menu row the same rule hides.
    */
   const canNewFile = useCallback((): boolean => {
     const s = stateRef.current;
     const p = s.platform;
     if (!p) return false;
-    if (p.saveFileDialog) return true;
     const mode = deriveAppMode(s.docPath !== null || s.untitled, curWorkspaceRef.current.kind);
-    return mode === 'workspace' && !!p.readDirEntries && s.folderGrants.create;
+    return canOfferNewFile({
+      hasSaveDialog: !!p.saveFileDialog,
+      inWorkspace: mode === 'workspace',
+      canList: !!p.readDirEntries,
+      canCreate: s.folderGrants.create,
+    });
   }, []);
 
-  /** PRD 009 Req 13: what New File does once the unsaved-changes guard clears. */
+  /**
+   * PRD 009 Req 13: what New File does once the unsaved-changes guard clears —
+   * SPEC22's untitled buffer on a platform with a save dialog, the
+   * in-workspace picker on one without. The guard may be answered long after
+   * the command ran, so the rule is asked again here.
+   */
   const beginNewFile = useCallback(() => {
     if (!canNewFile()) return;
-    if (!stateRef.current.platform?.saveFileDialog) {
-      void openSavePicker('new');
+    if (stateRef.current.platform?.saveFileDialog) {
+      startUntitled();
       return;
     }
-    startUntitled();
+    void openSavePicker('new');
   }, [canNewFile, openSavePicker, startUntitled]);
 
   /** The newFile command: same unsaved-changes guard as opening (SPEC22 §1.2). */
@@ -4688,13 +4694,14 @@ export default function App() {
               isMac={platform.isMac}
               // PRD 007 Req 17: no Edit / Save rows for a read-only role.
               canEdit={docGrants.edit}
-              // PRD 009 Req 13/16: the same rule the newFile command applies —
-              // a save dialog keeps the row everywhere; without one, creating
-              // files is a workspace-mode capability the role must hold.
-              canNewFile={
-                !!platform.saveFileDialog ||
-                (appMode === 'workspace' && !!platform.readDirEntries && folderGrants.create)
-              }
+              // PRD 009 Req 13/16: the same rule the newFile command applies,
+              // over the same state the mode itself is derived from.
+              canNewFile={canOfferNewFile({
+                hasSaveDialog: !!platform.saveFileDialog,
+                inWorkspace: appMode === 'workspace',
+                canList: !!platform.readDirEntries,
+                canCreate: folderGrants.create,
+              })}
               onToggleMode={() => dispatchCommand('toggleMode')}
               onToggleComments={() => dispatchCommand('toggleComments')}
               onNewFile={() => dispatchCommand('newFile')}

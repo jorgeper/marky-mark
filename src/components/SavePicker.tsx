@@ -109,7 +109,7 @@ export function SavePicker({
         </div>
 
         {touched && error && (
-          <p className="picker-error" data-testid="save-picker-error" style={{ fontSize: 13, marginTop: 10 }}>
+          <p className="picker-error" data-testid="save-picker-error">
             {error}
           </p>
         )}

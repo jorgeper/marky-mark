@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
+  canOfferNewFile,
   checkPickerName,
   defaultFolder,
   defaultName,
@@ -110,5 +111,24 @@ describe('PRD 009 Req 13/14 save picker', () => {
     if (!clash.ok) expect(clash.error).toContain('already exists');
     expect(checkPickerName('notes.md', ['notes.md']).ok).toBe(false);
     expect(checkPickerName('notes.md', ['notes.markdown']).ok).toBe(true);
+
+    // The defaulted '.md' is part of the name that lands on disk: a stem that
+    // fits the 255-character limit but does not once extended is refused.
+    expect(checkPickerName('x'.repeat(252), []).ok).toBe(true); // 252 + '.md' = 255
+    const tooLong = checkPickerName('x'.repeat(253), []);
+    expect(tooLong.ok).toBe(false);
+    if (!tooLong.ok) expect(tooLong.error).toBe('Name too long');
+  });
+
+  test('U335: New File is offered with a save dialog, else only in a writable workspace', () => {
+    // A save dialog keeps the untitled buffer offered everywhere — mode,
+    // listing seam and grants never enter into it.
+    expect(canOfferNewFile({ hasSaveDialog: true, inWorkspace: false, canList: false, canCreate: false })).toBe(true);
+    // Without one it takes a workspace, the listing seam the picker's folders
+    // come from, and the file.create grant.
+    expect(canOfferNewFile({ hasSaveDialog: false, inWorkspace: true, canList: true, canCreate: true })).toBe(true);
+    expect(canOfferNewFile({ hasSaveDialog: false, inWorkspace: false, canList: true, canCreate: true })).toBe(false);
+    expect(canOfferNewFile({ hasSaveDialog: false, inWorkspace: true, canList: false, canCreate: true })).toBe(false);
+    expect(canOfferNewFile({ hasSaveDialog: false, inWorkspace: true, canList: true, canCreate: false })).toBe(false);
   });
 });
