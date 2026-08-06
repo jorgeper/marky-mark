@@ -130,19 +130,24 @@ export function Toolbar(p: Props) {
     return () => document.removeEventListener('mousedown', onDown);
   }, [menuOpen]);
 
-  // PRD 007 Req 17: absent ⇒ no permission model ⇒ the Edit toggle stays.
-  const canEdit = p.canEdit !== false;
-  // PRD 009 Req 12: the flyout closes with the menu it hangs off.
+  // PRD 009 Req 12: the flyout closes with the menu it hangs off — however the
+  // menu closed (a row, the hamburger, a click outside).
   useEffect(() => {
     if (!menuOpen) setSubOpen(false);
   }, [menuOpen]);
+
+  // PRD 007 Req 17: absent ⇒ no permission model ⇒ the Edit toggle stays.
+  const canEdit = p.canEdit !== false;
+  // PRD 009 Req 12: the one submenu parent's rows (View ▸), already grouped.
   const submenuRows = p.menu.flatMap((g) => g.rows).find((r) => r.submenu)?.submenu;
 
   /**
    * PRD 009 Req 8/12: one row renderer for both panels — this component still
    * decides nothing about membership, order, checked or disabled state.
+   * `checkGutter` reserves the ✓ column on every row of a panel that holds any
+   * checkbox rows, so its labels line up whatever is currently on.
    */
-  const renderRow = (r: AppMenuRow, gutter = false) => {
+  const renderRow = (r: AppMenuRow, checkGutter = false) => {
     const combo = r.hotkey ? p.hotkeys[r.hotkey] : r.accel;
     return (
       <button
@@ -166,10 +171,8 @@ export function Toolbar(p: Props) {
           p.onCommand(r.command);
         }}
       >
-        {/* Req 12: a checkbox row shows whether it is currently on — and in a
-            panel that has any, every row reserves the column so the labels
-            still line up. */}
-        {(gutter || r.checked !== undefined) && (
+        {/* Req 12: a checkbox row shows whether it is currently on. */}
+        {(checkGutter || r.checked !== undefined) && (
           <span className="menu-check" data-testid={`${r.testId}-check`} aria-hidden="true">
             {r.checked ? '✓' : ''}
           </span>

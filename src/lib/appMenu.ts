@@ -132,9 +132,9 @@ const viewRow = (item: CommandItemSpec): AppMenuRow => ({
  * the mac-only Fullscreen — and the nesting/recent kinds View never uses) are
  * dropped, and a group left empty by the dropping goes with them.
  */
-function buildViewRows(s: AppMenuState, hasWorkspaces: boolean): AppMenuRow[][] {
+function buildViewRows(view: ViewMenuState, hasWorkspaces: boolean): AppMenuRow[][] {
   const groups: AppMenuRow[][] = [[]];
-  for (const item of buildViewItems(s.view)) {
+  for (const item of buildViewItems(view)) {
     if (item.type === 'predefined') {
       if (item.item === 'Separator') groups.push([]);
       continue;
@@ -184,7 +184,7 @@ export function buildAppMenu(s: AppMenuState): AppMenuGroup[] {
 
   // PRD 009 Req 8/12: the submenu parent — it dispatches nothing; its rows
   // are the native View menu's own items.
-  const view: AppMenuRow[] = [{ label: 'View', testId: 'menu-view', submenu: buildViewRows(s, hasWorkspaces) }];
+  const view: AppMenuRow[] = [{ label: 'View', testId: 'menu-view', submenu: buildViewRows(s.view, hasWorkspaces) }];
 
   // PRD 009 Req 8: Sign out (#95) takes the first slot of this group when it
   // lands — hosted only, ahead of Settings…

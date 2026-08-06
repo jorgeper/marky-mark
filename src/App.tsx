@@ -20,7 +20,7 @@ import {
 } from './lib/settings';
 import { displayCombo, eventMatches } from './lib/hotkeys';
 import { dispatchCommand, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
-import { buildMenuSpec } from './lib/menuSpec';
+import { buildMenuSpec, type ViewMenuState } from './lib/menuSpec';
 import { deriveAppMode } from './lib/appMode';
 import { buildAppMenu } from './lib/appMenu';
 import { modesAreExclusive, planModeSwitch, type ModeTarget } from './lib/modeSwitch';
@@ -3688,6 +3688,58 @@ export default function App() {
   const appMode = deriveAppMode(docOpen, wsKind);
 
   /**
+   * PRD 009 Req 12: the View state BOTH menus are built from — the native menu
+   * bar below (buildMenuSpec) and the in-app View ▸ flyout (buildAppMenu,
+   * rendered on every flavor, native menu installed or not). One object, so
+   * the two surfaces cannot be handed different values.
+   */
+  const viewMenuState: ViewMenuState = useMemo(
+    () => ({
+      isMac: !!platform?.isMac,
+      mode,
+      appMode,
+      docOpen,
+      // PRD 007 Req 17: Edit Mode grays out for a member who may not change
+      // the open document — the hotkey it mirrors is gated in the command
+      // handler, so both routes are equally inert.
+      canEdit: docGrants.edit,
+      splitEdit: settings.splitEdit,
+      showComments,
+      commentsEnabled: settings.commentsEnabled,
+      commentCount: comments.length,
+      hotkeys: settings.hotkeys,
+      showDiff,
+      showWordCount: settings.showWordCount,
+      showFrontmatter,
+      // Issue #10: the View checkbox mirrors the persisted gutter setting.
+      lineNumbers: settings.lineNumbers,
+      showFolders: settings.showFolders,
+      openOnly: folderOpenOnly,
+      // Issue #84: gates View → Next/Previous Open File.
+      openFileCount: openFiles.length,
+    }),
+    [
+      platform,
+      mode,
+      appMode,
+      docOpen,
+      docGrants.edit,
+      settings.splitEdit,
+      showComments,
+      settings.commentsEnabled,
+      comments.length,
+      settings.hotkeys,
+      showDiff,
+      settings.showWordCount,
+      showFrontmatter,
+      settings.lineNumbers,
+      settings.showFolders,
+      folderOpenOnly,
+      openFiles.length,
+    ]
+  );
+
+  /**
    * PRD 009 Req 8: the in-app menu's item set — derived from the mode and the
    * same capability list the start page reads, never decided in the Toolbar.
    */
@@ -3706,50 +3758,10 @@ export default function App() {
           canCreate: folderGrants.create,
         }),
         entryActions,
-        // PRD 009 Req 12: the View ▸ rows are the native View menu's items,
-        // so this is the very state buildMenuSpec is handed below — on every
-        // flavor, native menu bar installed or not.
-        view: {
-          isMac: !!platform?.isMac,
-          mode,
-          appMode,
-          docOpen,
-          canEdit: docGrants.edit,
-          splitEdit: settings.splitEdit,
-          showComments,
-          commentsEnabled: settings.commentsEnabled,
-          commentCount: comments.length,
-          hotkeys: settings.hotkeys,
-          showDiff,
-          showWordCount: settings.showWordCount,
-          showFrontmatter,
-          lineNumbers: settings.lineNumbers,
-          showFolders: settings.showFolders,
-          openOnly: folderOpenOnly,
-          openFileCount: openFiles.length,
-        },
+        // PRD 009 Req 12: the View ▸ rows ARE the native View menu's items.
+        view: viewMenuState,
       }),
-    [
-      appMode,
-      docOpen,
-      docGrants.edit,
-      platform,
-      folderGrants.create,
-      entryActions,
-      mode,
-      settings.splitEdit,
-      showComments,
-      settings.commentsEnabled,
-      comments.length,
-      settings.hotkeys,
-      showDiff,
-      settings.showWordCount,
-      showFrontmatter,
-      settings.lineNumbers,
-      settings.showFolders,
-      folderOpenOnly,
-      openFiles.length,
-    ]
+    [appMode, docOpen, docGrants.edit, platform, folderGrants.create, entryActions, viewMenuState]
   );
 
   /**
@@ -3790,34 +3802,16 @@ export default function App() {
     if (!platform?.setAppMenu || menuInstallFailed) return;
     platform.setAppMenu(
       buildMenuSpec({
-        isMac: platform.isMac,
-        mode,
-        appMode,
-        docOpen,
-        splitEdit: settings.splitEdit,
-        showComments,
-        commentsEnabled: settings.commentsEnabled,
-        commentCount: comments.length,
-        hotkeys: settings.hotkeys,
-        showDiff,
-        showWordCount: settings.showWordCount,
-        showFrontmatter,
-        // Issue #10: the View checkbox mirrors the persisted gutter setting.
-        lineNumbers: settings.lineNumbers,
-        showFolders: settings.showFolders,
+        // PRD 009 Req 12: the View half of the state is the in-app menu's own
+        // (see viewMenuState above) — the File half is this menu's alone.
+        ...viewMenuState,
         // PRD 007 Req 17+19: File-menu transfer rows exist only where the
-        // seam does and only for a user holding the verb.
+        // seam does and only for a user holding the verb. Save / Save As…
+        // gray out for a member who may not write (Req 17, `canEdit`).
         canUpload: !!platform?.uploadFile && folderGrants.upload,
         canDownload: !!platform?.downloadFile && folderGrants.download,
-        // PRD 007 Req 17: Edit Mode / Save / Save As… gray out for a member
-        // who may not change the open document — the hotkeys they mirror are
-        // gated in the command handlers, so both routes are equally inert.
-        canEdit: docGrants.edit,
         // PRD 007 Req 22: the File menu carries exactly the start page's list.
         entryActions,
-        openOnly: folderOpenOnly,
-        // Issue #84: gates View → Next/Previous Open File.
-        openFileCount: openFiles.length,
         recentFiles: recentMenuEntries(recent, platform.basename, platform.dirname),
         // PRD 002 §D15: the workspaces section, same disambiguated labels.
         recentWorkspaces: recentMenuEntries(recentWs, platform.basename, platform.dirname),
@@ -3825,7 +3819,9 @@ export default function App() {
       // Issue #38: a failed install must not strand the window with neither
       // a menu nor the toolbar — fall back to in-app chrome for the session.
     ).catch(() => setMenuInstallFailed(true));
-  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, settings.lineNumbers, recent, recentWs, settings.showFolders, folderOpenOnly, openFiles.length, entryActions, menuInstallFailed, docGrants.edit]);
+    // Every View input rides in `viewMenuState`, which changes identity
+    // exactly when one of them does — the rest is this menu's File half.
+  }, [platform, viewMenuState, recent, recentWs, entryActions, menuInstallFailed]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {

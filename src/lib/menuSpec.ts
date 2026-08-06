@@ -247,6 +247,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
   // File grays out with no document open. Open…/Open Folder…/Open Workspace…
   // stay enabled in every mode.
   const wsOpen = s.appMode === 'workspace';
+  // PRD 007 Req 17: absent ⇒ no permission model ⇒ every writing item stays.
+  const noEdit = s.canEdit === false;
   // PRD 007 Req 22: Open Folder… / New Workspace… / Open Workspace… exist
   // only where the flavor can honour them — hosted has no local folder to
   // open, the single-file web build has neither folder nor workspace seam.
@@ -288,9 +290,6 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
       cmd('insertImage', 'Insert Image…'),
     ],
   };
-
-  // PRD 007 Req 17: absent ⇒ no permission model ⇒ every writing item stays.
-  const noEdit = s.canEdit === false;
 
   // PRD 009 Req 12: the shared list — the in-app menu builds its View ▸ rows
   // from this very builder (lib/appMenu.ts), so the two cannot drift.
