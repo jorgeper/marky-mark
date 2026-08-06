@@ -3,7 +3,7 @@ import { readStoredToken } from '../lib/hostedGate';
 import { createHostedWorkspaceLifecycle } from './hostedWorkspaces';
 import { fileGrantsFromPermissions, type FileGrants } from '../lib/fileGrants';
 import { uploadRejection } from '../lib/fileTransfer';
-import { parseWorkspaceManifest, resolvePermissions } from '../lib/hostedWorkspace';
+import { parseWorkspaceManifest, resolvePermissions, type Permission } from '../lib/hostedWorkspace';
 import { SaveConflictError } from '../lib/saveConflict';
 import {
   HOSTED_CONFIG_DIR,
@@ -68,6 +68,16 @@ const listRootOf = (target: HostedTarget): string | null => {
   if (target.kind === 'user') return apiPathFor({ kind: 'user', rel: '' });
   if (target.kind === 'workspace') return apiPathFor({ kind: 'workspace', id: target.id, rel: '' });
   return null;
+};
+
+/**
+ * A workspace route outside the files/manifest pair `apiPathFor` covers —
+ * `/api/workspaces/<id>/<route>[/<rel>]`, every segment percent-encoded (a
+ * blob name may hold anything a URL gives meaning to).
+ */
+const workspaceRoute = (id: string, route: string, rel?: string): string => {
+  const base = `/api/workspaces/${encodeURIComponent(id)}/${route}`;
+  return rel ? `${base}/${rel.split('/').map(encodeURIComponent).join('/')}` : base;
 };
 
 export function createHostedPlatform(): Platform {
@@ -144,6 +154,30 @@ export function createHostedPlatform(): Platform {
    * unconditionally — there is nothing yet to conflict with.
    */
   const etags = new Map<string, string>();
+
+  /**
+   * PRD 007 Req 17: the signed-in member's verbs in the bound workspace,
+   * resolved from its manifest. An unanswerable question — no workspace
+   * bound, no session, a manifest that will not parse — resolves to no verbs
+   * at all: the sidebar then offers nothing it cannot back up.
+   */
+  const myPermissions = async (): Promise<ReadonlySet<Permission>> => {
+    if (!workspaceId) return new Set();
+    // Who is asking and what the manifest says are independent questions —
+    // both requests are in flight at once.
+    const [meRes, manifestRes] = await Promise.all([
+      api('/api/me'),
+      api(apiPathFor({ kind: 'manifest', id: workspaceId })),
+    ]);
+    const me = await json<{ id: string }>(meRes);
+    const body = await json<{ manifest: unknown }>(manifestRes);
+    if (!me || !body) return new Set();
+    const parsed = parseWorkspaceManifest(JSON.stringify(body.manifest));
+    return parsed.ok ? resolvePermissions(parsed.manifest, me.id) : new Set();
+  };
+
+  /** The one resolution per page load — see `fileGrants` below. */
+  let grants: Promise<FileGrants> | null = null;
 
   const readManifest = async (id: string) => {
     const res = await api(apiPathFor({ kind: 'manifest', id }));
@@ -244,7 +278,7 @@ export function createHostedPlatform(): Platform {
     async mkdirp(dir) {
       const target = parseHostedPath(dir);
       if (target?.kind !== 'workspace' || !target.rel) return;
-      await api(`/api/workspaces/${encodeURIComponent(target.id)}/folders`, {
+      await api(workspaceRoute(target.id, 'folders'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: target.rel }),
@@ -264,7 +298,7 @@ export function createHostedPlatform(): Platform {
       const to = parseHostedPath(newPath);
       if (from?.kind !== 'workspace' || to?.kind !== 'workspace' || from.id !== to.id) throw enoent(oldPath);
       const route = (await isDirTarget(from)) ? 'move-folder' : 'move-file';
-      const res = await api(`/api/workspaces/${encodeURIComponent(from.id)}/${route}`, {
+      const res = await api(workspaceRoute(from.id, route), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ from: from.rel, to: to.rel }),
@@ -290,9 +324,7 @@ export function createHostedPlatform(): Platform {
       if (target?.kind !== 'workspace' || !target.rel) throw enoent(path);
       const dir = await isDirTarget(target);
       const res = await api(
-        dir
-          ? `/api/workspaces/${encodeURIComponent(target.id)}/folders/${target.rel.split('/').map(encodeURIComponent).join('/')}`
-          : apiPathFor(target),
+        dir ? workspaceRoute(target.id, 'folders', target.rel) : apiPathFor(target),
         { method: 'DELETE' },
       );
       invalidate(target);
@@ -319,8 +351,8 @@ export function createHostedPlatform(): Platform {
     },
 
     async openFileDialog() {
-      // Opening documents is the folder sidebar's job here; upload/download
-      // dialogs are issue #76's scope.
+      // Opening documents is the folder sidebar's job here, and uploading one
+      // has its own picker (PRD 007 Req 19) — there is no OS file to browse.
       return null;
     },
     /**
@@ -348,7 +380,9 @@ export function createHostedPlatform(): Platform {
       if (workspaceId) cb(hostedWorkspaceFilePath(workspaceId));
     },
     async onFileDrop() {
-      /* dropping files in is upload — issue #76's scope */
+      // PRD 007 Req 19: an OS file dropped in is an upload, and the sidebar
+      // owns that drop itself (FolderPanel's `onUploadDrop`) — it needs the
+      // folder the file landed on, which this window-level seam cannot say.
     },
     async watchFile() {
       // Blob change notification is not part of this issue; nothing to unwatch.
@@ -391,30 +425,12 @@ export function createHostedPlatform(): Platform {
     },
 
     /**
-     * PRD 007 Req 17: the signed-in member's own verbs, resolved from the
-     * bound workspace's manifest, so the sidebar offers only what this member
-     * can actually do. Cached for the page's lifetime: permissions change in
-     * the members UI (#77), which reloads. With no workspace bound there is
-     * nothing to gate — the sidebar is not rendered either.
+     * PRD 007 Req 17: the affordances this member's verbs allow, so the
+     * sidebar offers only what they can actually do. Resolved once and cached
+     * for the page's lifetime: permissions change in the members UI (#77),
+     * which reloads.
      */
-    fileGrants: (() => {
-      let pending: Promise<FileGrants> | null = null;
-      return (): Promise<FileGrants> => {
-        pending ??= (async () => {
-          const id = workspaceId;
-          if (!id) return fileGrantsFromPermissions(new Set());
-          const [me, manifestRes] = await Promise.all([
-            json<{ id: string }>(await api('/api/me')),
-            api(apiPathFor({ kind: 'manifest', id })),
-          ]);
-          const body = await json<{ manifest: unknown }>(manifestRes);
-          const parsed = me && body ? parseWorkspaceManifest(JSON.stringify(body.manifest)) : null;
-          if (!parsed?.ok) return fileGrantsFromPermissions(new Set());
-          return fileGrantsFromPermissions(resolvePermissions(parsed.manifest, me!.id));
-        })();
-        return pending;
-      };
-    })(),
+    fileGrants: () => (grants ??= myPermissions().then(fileGrantsFromPermissions)),
 
     /**
      * PRD 007 Req 19: single-file upload through its own `file.upload` route.
@@ -427,14 +443,12 @@ export function createHostedPlatform(): Platform {
       if (target?.kind !== 'workspace' || !target.rel) throw enoent(`${dir}/${name}`);
       const rejection = uploadRejection(name, bytes.length);
       if (rejection) throw new Error(rejection);
-      const res = await api(
-        `/api/workspaces/${encodeURIComponent(target.id)}/upload/${target.rel.split('/').map(encodeURIComponent).join('/')}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/octet-stream' },
-          body: bytes.slice().buffer as ArrayBuffer,
-        },
-      );
+      const res = await api(workspaceRoute(target.id, 'upload', target.rel), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        // A fresh copy: fetch wants a plain ArrayBuffer view it owns.
+        body: bytes.slice().buffer as ArrayBuffer,
+      });
       invalidate(target);
       if (!res.ok) {
         const body = await json<{ error?: string }>(res);
@@ -452,9 +466,7 @@ export function createHostedPlatform(): Platform {
     async downloadFile(path) {
       const target = parseHostedPath(path);
       if (target?.kind !== 'workspace' || !target.rel) throw enoent(path);
-      const res = await api(
-        `/api/workspaces/${encodeURIComponent(target.id)}/download/${target.rel.split('/').map(encodeURIComponent).join('/')}`,
-      );
+      const res = await api(workspaceRoute(target.id, 'download', target.rel));
       if (!res.ok) throw new Error(`download failed (${res.status}): ${path}`);
       const url = URL.createObjectURL(await res.blob());
       const anchor = document.createElement('a');
@@ -463,7 +475,9 @@ export function createHostedPlatform(): Platform {
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      URL.revokeObjectURL(url);
+      // Revoked on a delay, like the web flavor's download helper: the click
+      // only STARTS the save, and a URL revoked under it can cancel it.
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
     },
 
     // PRD 007 Req 10/11/12: the workspace lifecycle the New/Open dialogs and

@@ -431,12 +431,17 @@ export function FolderPanel(p: FolderPanelProps) {
   const [dropOver, setDropOver] = useState<string | null>(null);
   const draggingRef = useRef<string | null>(null);
 
+  // PRD 007 Req 17: a gesture exists only where the seam does AND the user
+  // holds the verb — the panel asks nothing about which flavor it is in.
+  const movable = !!p.onMoveEntry && p.caps.canRename;
+  const uploads = !!p.onUploadDrop && p.caps.canUpload;
+
   // PRD 007 Req 18/19: one drop handler for both kinds of payload. OS files
   // are an upload into the target folder; anything else is the dragged row,
   // taken from the live ref or (for a synthetic drop) the transfer data.
   const dnd: Dnd = {
-    movable: !!p.onMoveEntry && p.caps.canRename,
-    uploads: !!p.onUploadDrop && p.caps.canUpload,
+    movable,
+    uploads,
     dragging: draggingRef,
     over: dropOver,
     setOver: setDropOver,
@@ -444,12 +449,12 @@ export function FolderPanel(p: FolderPanelProps) {
       setDropOver(null);
       const files = e.dataTransfer.files;
       if (files && files.length > 0) {
-        if (p.onUploadDrop && p.caps.canUpload) p.onUploadDrop(dir, files);
+        if (uploads) p.onUploadDrop?.(dir, files);
         return;
       }
       const source = draggingRef.current ?? e.dataTransfer.getData('text/plain');
       draggingRef.current = null;
-      if (source && p.onMoveEntry && p.caps.canRename) p.onMoveEntry(source, dir);
+      if (source && movable) p.onMoveEntry?.(source, dir);
     },
   };
 

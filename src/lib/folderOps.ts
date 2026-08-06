@@ -7,49 +7,6 @@
 
 export type FolderMenuItem = { id: string; label: string } | 'sep';
 
-/** The parent directory of a path, separator-tolerant ('' at the top). */
-function parentOf(path: string): string {
-  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-  return cut === -1 ? '' : path.slice(0, cut);
-}
-
-/** The final segment of a path, separator-tolerant. */
-function baseOf(path: string): string {
-  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-  return cut === -1 ? path : path.slice(cut + 1);
-}
-
-/**
- * PRD 007 Req 18: where a dragged row lands, or why it cannot. Pure so the
- * drop target can be judged before any I/O — the three ways a move is
- * meaningless or destructive are all decidable from paths plus the target's
- * listing:
- *   - a directory into itself or its own descendant would detach the subtree;
- *   - a drop back into the row's current parent is a no-op, not an error the
- *     user should see a message about (it just does nothing);
- *   - a name already taken in the target would clobber a sibling.
- * `existing` is the target directory's child names (case-insensitively
- * matched, like `uniqueChildName`). `separator` is whatever the platform's
- * `join` produces — inferred from the target path so Windows paths stay
- * Windows paths.
- */
-export type MoveTarget =
-  | { ok: true; path: string }
-  | { ok: false; reason: string | null };
-
-export function moveTarget(source: string, destDir: string, existing: string[]): MoveTarget {
-  const sep = destDir.includes('\\') && !destDir.includes('/') ? '\\' : '/';
-  if (source === destDir || remapPath(destDir, source, source) !== null) {
-    return { ok: false, reason: 'A folder cannot be moved inside itself' };
-  }
-  if (parentOf(source) === destDir) return { ok: false, reason: null }; // already there
-  const name = baseOf(source);
-  if (existing.some((e) => e.toLowerCase() === name.toLowerCase())) {
-    return { ok: false, reason: `“${name}” already exists in that folder` };
-  }
-  return { ok: true, path: `${destDir.replace(/[\\/]+$/, '')}${sep}${name}` };
-}
-
 /** Windows-reserved basenames, judged on the name before its first '.'. */
 const RESERVED = /^(aux|con|prn|nul|com[1-9]|lpt[1-9])$/;
 
@@ -89,6 +46,49 @@ export function remapPath(path: string, oldPrefix: string, newPrefix: string): s
   if (path.startsWith(`${oldPrefix}/`) || path.startsWith(`${oldPrefix}\\`))
     return newPrefix + path.slice(oldPrefix.length);
   return null;
+}
+
+/** The parent directory of a path, separator-tolerant ('' at the top). */
+function parentOf(path: string): string {
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return cut === -1 ? '' : path.slice(0, cut);
+}
+
+/** The final segment of a path, separator-tolerant. */
+function baseOf(path: string): string {
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return cut === -1 ? path : path.slice(cut + 1);
+}
+
+/** Where a dragged row may land: the new path, or why it may not. */
+export type MoveTarget = { ok: true; path: string } | { ok: false; reason: string | null };
+
+/**
+ * PRD 007 Req 18: where a dragged row lands, or why it cannot. Pure so the
+ * drop target can be judged before any I/O — the three ways a move is
+ * meaningless or destructive are all decidable from paths plus the target's
+ * listing:
+ *   - a directory into itself or its own descendant would detach the subtree;
+ *   - a drop back into the row's current parent is a no-op, not an error the
+ *     user should see a message about (it just does nothing — a null reason);
+ *   - a name already taken in the target would clobber a sibling.
+ * `existing` is the target directory's child names (case-insensitively
+ * matched, like `uniqueChildName`). The separator of the result is inferred
+ * from the target path, so Windows paths stay Windows paths.
+ */
+export function moveTarget(source: string, destDir: string, existing: string[]): MoveTarget {
+  // `remapPath` answers "is destDir the source itself, or inside it?" — both
+  // are the self-nesting case.
+  if (remapPath(destDir, source, source) !== null) {
+    return { ok: false, reason: 'A folder cannot be moved inside itself' };
+  }
+  if (parentOf(source) === destDir) return { ok: false, reason: null }; // already there
+  const name = baseOf(source);
+  if (existing.some((e) => e.toLowerCase() === name.toLowerCase())) {
+    return { ok: false, reason: `“${name}” already exists in that folder` };
+  }
+  const sep = destDir.includes('\\') && !destDir.includes('/') ? '\\' : '/';
+  return { ok: true, path: `${destDir.replace(/[\\/]+$/, '')}${sep}${name}` };
 }
 
 /**

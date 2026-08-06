@@ -299,10 +299,15 @@ export default function App() {
   const [uploadDir, setUploadDir] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   // PRD 007 Req 20: the save the server refused because the file changed
-  // under us — the prompt offering Reload / Overwrite / Cancel.
-  const [saveConflict, setSaveConflict] = useState<{ path: string; text: string; saved: string } | null>(
-    null
-  );
+  // under us — the prompt offering Reload / Overwrite / Cancel. `fileText` is
+  // exactly what that write tried to store (trailer and all); `bufferText` is
+  // the canonical buffer it came from, which becomes the clean baseline if
+  // the user answers Overwrite.
+  const [saveConflict, setSaveConflict] = useState<{
+    path: string;
+    fileText: string;
+    bufferText: string;
+  } | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showComments, setShowComments] = useState(true);
   // SPEC26 §3: per-document front-matter override — null means "follow the
@@ -1441,6 +1446,23 @@ export default function App() {
   }, []);
 
   /**
+   * SPEC35 §4: show what just landed in `dir` — the directory opens (a new
+   * folder of its own stays collapsed), the expansion is persisted, and the
+   * directory re-lists so the new row is there.
+   */
+  const revealNewEntry = useCallback(
+    async (p: Platform, dir: string) => {
+      const nextExpanded = new Set(folderStateRef.current.expanded);
+      nextExpanded.add(dir);
+      folderStateRef.current = { ...folderStateRef.current, expanded: nextExpanded };
+      setFolderExpanded(nextExpanded);
+      persistFolderState(p);
+      await listFolderDir(p, dir);
+    },
+    [persistFolderState, listFolderDir]
+  );
+
+  /**
    * SPEC35 §4: New File / New Folder as a child of `dir` (the clicked
    * directory, or the root for the empty-area menu). The unique-named entry
    * is created on disk, the target directory expands and re-lists, and the
@@ -1459,18 +1481,13 @@ export default function App() {
         const path = p.join(dir, name);
         if (kind === 'file') await p.writeTextFile(path, '');
         else await p.mkdirp(path);
-        const nextExpanded = new Set(folderStateRef.current.expanded);
-        nextExpanded.add(dir); // the target opens; a new folder itself stays collapsed
-        folderStateRef.current = { ...folderStateRef.current, expanded: nextExpanded };
-        setFolderExpanded(nextExpanded);
-        persistFolderState(p);
-        await listFolderDir(p, dir);
+        await revealNewEntry(p, dir);
         startFolderRename({ path, openOnDone: kind === 'file' });
       } catch {
         /* creation failed — no row to rename */
       }
     },
-    [persistFolderState, listFolderDir, startFolderRename]
+    [revealNewEntry, startFolderRename]
   );
 
   /**
@@ -1512,18 +1529,13 @@ export default function App() {
           file.name
         );
         await p.uploadFile(dir, name, new Uint8Array(await file.arrayBuffer()));
-        const nextExpanded = new Set(folderStateRef.current.expanded);
-        nextExpanded.add(dir);
-        folderStateRef.current = { ...folderStateRef.current, expanded: nextExpanded };
-        setFolderExpanded(nextExpanded);
-        persistFolderState(p);
-        await listFolderDir(p, dir);
+        await revealNewEntry(p, dir);
         setFolderNotice(null);
       } catch (e) {
         setFolderNotice(e instanceof Error ? e.message : String(e));
       }
     },
-    [listFolderDir, persistFolderState]
+    [revealNewEntry]
   );
 
   /** SPEC35 §3: a folder-menu item was invoked — run the operation. */
@@ -2600,7 +2612,7 @@ export default function App() {
       // saved first — their content is still what is stored. The buffer stays
       // dirty and unsaved until the user answers the prompt.
       if (isSaveConflict(e)) {
-        setSaveConflict({ path: s.docPath, text, saved: out });
+        setSaveConflict({ path: s.docPath, fileText: text, bufferText: out });
         return false;
       }
       throw e;
@@ -2635,9 +2647,9 @@ export default function App() {
         return;
       }
       if (plan.write) {
-        await p.writeTextFile(conflict.path, conflict.text, { overwrite: true });
+        await p.writeTextFile(conflict.path, conflict.fileText, { overwrite: true });
         await p.commitFile?.(conflict.path);
-        setSavedText(conflict.saved);
+        setSavedText(conflict.bufferText);
       }
     },
     [saveConflict, openDoc]

@@ -24,7 +24,7 @@ import {
   type WorkspaceManifest,
 } from '../src/lib/hostedWorkspace.ts';
 import type { WorkspaceListing } from '../src/lib/workspaceLifecycle.ts';
-import { UPLOAD_MAX_BYTES, uploadRejection } from '../src/lib/fileTransfer.ts';
+import { UPLOAD_MAX_LABEL, uploadRejection, uploadTypeRejection } from '../src/lib/fileTransfer.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import type { RequestAuth, StorageProvider } from './providers/types.ts';
 
@@ -55,6 +55,11 @@ const RAW_CONTENT_TYPES: Record<string, string> = {
 function contentTypeFor(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
   return RAW_CONTENT_TYPES[ext] ?? 'application/octet-stream';
+}
+
+/** The last segment of a workspace-relative path — the file's own name. */
+function basenameOf(filePath: string): string {
+  return filePath.split('/').pop() ?? filePath;
 }
 
 /**
@@ -396,19 +401,21 @@ export async function handleWorkspaceApi(
     const blobPath = filesPrefix(id) + filePath;
     // PRD 007 Req 17+19: the SAME pure rule the client rejects with, applied
     // again here — the client's check is a courtesy, this one is the control.
-    // Type first (it costs nothing and needs no body), then the size, split
-    // into the two status codes HTTP already has words for.
-    const name = filePath.split('/').pop() ?? filePath;
-    const typeRejection = uploadRejection(name, 0);
+    // Type first (it needs no body at all), then the size, split into the two
+    // status codes HTTP already has words for.
+    const name = basenameOf(filePath);
+    const typeRejection = uploadTypeRejection(name);
     if (typeRejection) {
       sendJson(res, 415, { error: typeRejection });
       return;
     }
     let bytes: Uint8Array;
     try {
+      // A body past the transport's own guard never finishes arriving — that
+      // is the same refusal, reported with the same limit.
       bytes = await readBodyBytes(req);
     } catch {
-      sendJson(res, 413, { error: `upload exceeds the ${UPLOAD_MAX_BYTES}-byte limit` });
+      sendJson(res, 413, { error: `upload exceeds the ${UPLOAD_MAX_LABEL} upload limit` });
       return;
     }
     const sizeRejection = uploadRejection(name, bytes.length);
@@ -444,7 +451,7 @@ export async function handleWorkspaceApi(
       sendJson(res, 404, { error: 'not found' });
       return;
     }
-    const name = filePath.split('/').pop() ?? filePath;
+    const name = basenameOf(filePath);
     res.writeHead(200, {
       'Content-Type': 'application/octet-stream',
       'Content-Length': bytes.data.length,
