@@ -1472,10 +1472,6 @@ test('E201: the hosted start page offers exactly Open File + the two workspace f
   await expect(page.getByTestId('start-openFolder')).toHaveCount(0);
   await expect(page.getByTestId('start-actions').getByRole('button')).toHaveCount(3);
 
-  // …and nowhere else either: the hosted chrome's menu offers no folder
-  // opening, and PRD 009 Req 8/9 pins the rest of its initial-page item set —
-  // the workspace group present (the capability exists), no New File, no
-  // Close File, no Close Workspace, Save / Save As… greyed rather than gone.
   // PRD 009 Req 7: the hamburger leads the toolbar — its right edge sits left
   // of the document name's — and the popover is anchored to it, not to the
   // toolbar's right edge (E13 pins the same for the shim).
@@ -1488,6 +1484,11 @@ test('E201: the hosted start page offers exactly Open File + the two workspace f
   const menu = page.getByTestId('app-menu');
   const menuBox = (await menu.boundingBox())!;
   expect(Math.abs(menuBox.x - btnBox.x)).toBeLessThan(12);
+
+  // …and nowhere else either: the hosted chrome's menu offers no folder
+  // opening, and PRD 009 Req 8/9 pins the rest of its initial-page item set —
+  // the workspace group present (the capability exists), no New File, no
+  // Close File, no Close Workspace, Save / Save As… greyed rather than gone.
   await expect(menu).not.toContainText('Open Folder');
   const rows = await menu.locator('button').evaluateAll((els) => els.map((el) => el.dataset.testid));
   expect(rows).toEqual([
@@ -2002,65 +2003,6 @@ test('E215: Sign out prompts for unsaved work, Cancel keeps the session, and goi
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
 });
 
-test('E220: dropping a local file with a workspace open crosses into single-file mode — Cancel at the dirty prompt aborts the drop', async ({
-  page,
-  request,
-}) => {
-  // PRD 009 Req 4/5: drag-and-drop is the crossing action E212 does not cover
-  // (it drives Open File…). The dropped file must not open INSIDE the
-  // workspace (the retired behavior of E209) — it closes it first, prompts,
-  // and a Cancel there leaves the workspace exactly as it was.
-  const ada = await signIn(request, 'ada');
-  const id = await createWorkspace(request, ada, `E220 w${test.info().workerIndex}`);
-  await request.put(`${HOSTED}/api/workspaces/${id}/files/theirs.md`, {
-    headers: { Authorization: `Bearer ${ada}` },
-    data: '# Theirs\n',
-  });
-
-  await signInTo(page, 'ada', id);
-  await openFromSidebar(page, 'theirs.md');
-  await page.getByTestId('edit-toggle').click();
-  await page.locator('.cm-content').click();
-  await page.keyboard.type('unsaved ');
-  await expect(page.getByTestId('dirty-dot')).toBeVisible();
-
-  /** Drop an in-page-constructed .md File onto the window. */
-  const drop = () =>
-    page.evaluate(() => {
-      const dt = new DataTransfer();
-      dt.items.add(new File(['# Dropped\n\nNever uploaded.\n'], 'dropped.md', { type: 'text/markdown' }));
-      window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
-    });
-
-  // Req 4: the workspace's dirty walk runs first, and Cancel aborts the whole
-  // switch — still in the workspace, still dirty, nothing new opened.
-  await drop();
-  await expect(page.getByTestId('close-prompt')).toBeVisible();
-  await page.getByTestId('close-cancel').click();
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await expect(page.getByTestId('docname')).toContainText('theirs.md');
-  await expect(page.getByTestId('docname')).not.toContainText('dropped.md');
-  await expect(page.getByTestId('dirty-dot')).toBeVisible();
-  expect(new URL(page.url()).search).toBe(`?workspace=${id}`);
-
-  // Discarding this time: the workspace closes and the dropped file opens in
-  // single-file mode — never inside the workspace, never via the initial page.
-  await drop();
-  await expect(page.getByTestId('close-prompt')).toBeVisible();
-  await page.getByTestId('close-discard').click();
-  await expect(page.getByTestId('docname')).toContainText('dropped.md');
-  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
-  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
-  await expect(page.getByTestId('docname-workspace')).toHaveCount(0);
-  await expect(page.getByTestId('doc').locator('h1')).toContainText('Dropped');
-
-  // Req 6: the binding went with the workspace, and the drop uploaded nothing
-  // — the unsaved edit to theirs.md was discarded, not written.
-  expect(new URL(page.url()).search).toBe('');
-  expect(await listFiles(request, ada, id)).toEqual(['theirs.md']);
-  expect(await readAs(request, ada, id, 'theirs.md')).toBe('# Theirs\n');
-});
-
 test('E217: Close Workspace returns to the initial page and drops the ?workspace binding, so a reload stays there', async ({
   page,
   request,
@@ -2230,4 +2172,63 @@ test('E219: workspace Save As… writes the copy through the picker and switches
   await menuSave(page);
   await expect.poll(() => readAs(request, ada, id, 'branch.md')).toContain('Only here.');
   expect(await readAs(request, ada, id, 'original.md')).toBe('# Original\n\nFirst draft.\n');
+});
+
+test('E220: dropping a local file with a workspace open crosses into single-file mode — Cancel at the dirty prompt aborts the drop', async ({
+  page,
+  request,
+}) => {
+  // PRD 009 Req 4/5: drag-and-drop is the crossing action E212 does not cover
+  // (it drives Open File…). The dropped file must not open INSIDE the
+  // workspace (the retired behavior of E209) — it closes it first, prompts,
+  // and a Cancel there leaves the workspace exactly as it was.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E220 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/theirs.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Theirs\n',
+  });
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'theirs.md');
+  await page.getByTestId('edit-toggle').click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('unsaved ');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  /** Drop an in-page-constructed .md File onto the window. */
+  const drop = () =>
+    page.evaluate(() => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(['# Dropped\n\nNever uploaded.\n'], 'dropped.md', { type: 'text/markdown' }));
+      window.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    });
+
+  // Req 4: the workspace's dirty walk runs first, and Cancel aborts the whole
+  // switch — still in the workspace, still dirty, nothing new opened.
+  await drop();
+  await expect(page.getByTestId('close-prompt')).toBeVisible();
+  await page.getByTestId('close-cancel').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('docname')).toContainText('theirs.md');
+  await expect(page.getByTestId('docname')).not.toContainText('dropped.md');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  expect(new URL(page.url()).search).toBe(`?workspace=${id}`);
+
+  // Discarding this time: the workspace closes and the dropped file opens in
+  // single-file mode — never inside the workspace, never via the initial page.
+  await drop();
+  await expect(page.getByTestId('close-prompt')).toBeVisible();
+  await page.getByTestId('close-discard').click();
+  await expect(page.getByTestId('docname')).toContainText('dropped.md');
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('docname-workspace')).toHaveCount(0);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Dropped');
+
+  // Req 6: the binding went with the workspace, and the drop uploaded nothing
+  // — the unsaved edit to theirs.md was discarded, not written.
+  expect(new URL(page.url()).search).toBe('');
+  expect(await listFiles(request, ada, id)).toEqual(['theirs.md']);
+  expect(await readAs(request, ada, id, 'theirs.md')).toBe('# Theirs\n');
 });
