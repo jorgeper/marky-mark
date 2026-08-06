@@ -3590,6 +3590,22 @@ export default function App() {
         if (p?.openAuxWindow) void p.openAuxWindow('settings');
         else setSettingsOpen(true);
       },
+      // PRD 009 Req 17: Sign out borrows the SAME dirty walk Close File and
+      // Close Workspace take — the changed-untitled-workspace prompt, then
+      // one close prompt per dirty tab. Cancel anywhere in there clears the
+      // borrowed finish (see the close-prompt Cancel below), so the session
+      // keeps its token and nothing was closed. Only an exhausted walk ends
+      // the session, through the platform capability — silently inert where
+      // that capability is absent (desktop, the shim, the static web build).
+      signOut: () => {
+        const p = stateRef.current.platform;
+        if (!p?.signOut) return;
+        guardWorkspaceDiscard(() => {
+          quitDoneRef.current = () => p.signOut?.();
+          quitQueueRef.current = dirtyDocsQueue();
+          void processQuitWalkRef.current();
+        });
+      },
       help: () => void openHelp(),
       about: () => {
         const p = stateRef.current.platform;
@@ -3637,7 +3653,7 @@ export default function App() {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
@@ -3706,6 +3722,10 @@ export default function App() {
           canCreate: folderGrants.create,
         }),
         entryActions,
+        // PRD 009 Req 17: the row rides the platform's sign-out capability,
+        // never `platform.kind` — and never the mode, since a session can be
+        // left from the initial page just as well as from a workspace.
+        canSignOut: !!platform?.signOut,
       }),
     [appMode, docOpen, docGrants.edit, platform, folderGrants.create, entryActions]
   );

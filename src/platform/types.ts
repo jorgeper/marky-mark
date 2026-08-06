@@ -225,6 +225,15 @@ export interface Platform {
    */
   workspaces?: WorkspaceLifecycle;
 
+  /**
+   * PRD 009 Req 17: end the signed-in session — drop the stored credential
+   * and land the browser back on the sign-in screen. Defined only by a flavor
+   * that HAS a session to end (the hosted platform); desktop, the dev shim
+   * and the static web build leave it undefined, so the menu's Sign out row
+   * is a capability test and never a check of which flavor is running.
+   */
+  signOut?(): void;
+
   updates?: {
     /** null ⇒ already up to date. Throws on network/manifest/signature errors. */
     check(): Promise<{ version: string; notes: string } | null>;
