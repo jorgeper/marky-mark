@@ -220,6 +220,12 @@ export function SettingsPanel({
     if (clamped !== settings.paneMinWidth) onChange({ ...settings, paneMinWidth: clamped });
   };
 
+  /** Bind one action, clearing any stale conflict hint (recorder and per-row restore alike). */
+  const setHotkey = (action: keyof HotkeyMap, combo: string) => {
+    setHint('');
+    onChange({ ...settings, hotkeys: { ...settings.hotkeys, [action]: combo } });
+  };
+
   const recordHotkey = (action: keyof HotkeyMap) => (e: React.KeyboardEvent<HTMLInputElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -239,8 +245,7 @@ export function SettingsPanel({
       setHint(`${displayCombo(combo, isMac)} is already bound to “${HOTKEY_LABELS[conflict]}”`);
       return;
     }
-    setHint('');
-    onChange({ ...settings, hotkeys: { ...settings.hotkeys, [action]: combo } });
+    setHotkey(action, combo);
     (e.target as HTMLInputElement).blur();
   };
 
@@ -746,13 +751,7 @@ export function SettingsPanel({
         title={`Restore default (${displayCombo(DEFAULT_HOTKEYS[action], isMac)})`}
         aria-label={`Restore default for ${HOTKEY_LABELS[action]}`}
         disabled={settings.hotkeys[action] === DEFAULT_HOTKEYS[action]}
-        onClick={() => {
-          setHint('');
-          onChange({
-            ...settings,
-            hotkeys: { ...settings.hotkeys, [action]: DEFAULT_HOTKEYS[action] },
-          });
-        }}
+        onClick={() => setHotkey(action, DEFAULT_HOTKEYS[action])}
       >
         ↺
       </button>

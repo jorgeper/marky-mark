@@ -168,6 +168,17 @@ export function comboFromEvent(e: ComboEvent, isMac = false): string | null {
 }
 
 /**
+ * Strict Ctrl (SPEC36 §6.1): does a (metaKey, ctrlKey) pair satisfy this
+ * combo's ⌘/Ctrl shape? The `ctrl` flag consumes ctrlKey, so the `mod` flag
+ * then matches metaKey alone; without it, Mod keeps meaning ⌘-or-Ctrl. One
+ * definition, shared by matching an event and comparing two combos.
+ */
+function modifiersHold(c: ComboParts, meta: boolean, ctrl: boolean): boolean {
+  if (c.ctrl && !ctrl) return false;
+  return c.mod === (c.ctrl ? meta : meta || ctrl);
+}
+
+/**
  * Issue #84: would one keypress fire BOTH combos? `Mod` matches ⌘-or-Ctrl, so
  * `Mod+Tab` and strict `Ctrl+Tab` both fire on a physical ⌃Tab — spellings
  * that differ as strings but collide as chords. The hotkey conflict check
@@ -179,16 +190,11 @@ export function combosConflict(a: string, b: string): boolean {
   const y = parseCombo(b);
   if (!x || !y) return false;
   if (x.key !== y.key || x.shift !== y.shift || x.alt !== y.alt) return false;
-  // Four possible (metaKey, ctrlKey) worlds — do the two modifier shapes
-  // share one? `ctrl` consumes ctrlKey, leaving `mod` to mean metaKey alone.
-  const holds = (c: ComboParts, meta: boolean, ctrl: boolean) =>
-    (!c.ctrl || ctrl) && c.mod === (c.ctrl ? meta : meta || ctrl);
-  for (const meta of [false, true]) {
-    for (const ctrl of [false, true]) {
-      if (holds(x, meta, ctrl) && holds(y, meta, ctrl)) return true;
-    }
-  }
-  return false;
+  // Only the ⌘/Ctrl shape can still differ: the two collide when some
+  // (metaKey, ctrlKey) world — all four of them — satisfies both.
+  return [false, true].some((meta) =>
+    [false, true].some((ctrl) => modifiersHold(x, meta, ctrl) && modifiersHold(y, meta, ctrl))
+  );
 }
 
 /** Does this keyboard event match the stored combo? */
@@ -196,10 +202,7 @@ export function eventMatches(e: ComboEvent, combo: string): boolean {
   const c = parseCombo(combo);
   if (!c) return false;
   if (eventKey(e) !== c.key) return false;
-  // Strict Ctrl (SPEC36 §6.1): the ctrl flag consumes ctrlKey, so the mod
-  // flag then matches metaKey alone; without it, Mod keeps meaning ⌘-or-Ctrl.
-  if (c.ctrl && !e.ctrlKey) return false;
-  if (c.mod !== (c.ctrl ? e.metaKey : e.metaKey || e.ctrlKey)) return false;
+  if (!modifiersHold(c, e.metaKey, e.ctrlKey)) return false;
   if (c.shift !== e.shiftKey) return false;
   if (c.alt !== e.altKey) return false;
   return true;

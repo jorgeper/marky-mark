@@ -1229,6 +1229,11 @@ mark.hl.ghost {
   cursor: pointer;
 }
 
+.modal .hotkey-row input:focus {
+  border-color: var(--mm-accent, #0969da);
+  box-shadow: 0 0 0 2px var(--mm-selection, rgba(9, 105, 218, 0.18));
+}
+
 /* Issue #84: the per-row restore-default affordance. */
 .modal .hotkey-row .hotkey-reset {
   background: none;
@@ -1243,11 +1248,6 @@ mark.hl.ghost {
 .modal .hotkey-row .hotkey-reset:disabled {
   opacity: 0.3;
   cursor: default;
-}
-
-.modal .hotkey-row input:focus {
-  border-color: var(--mm-accent, #0969da);
-  box-shadow: 0 0 0 2px var(--mm-selection, rgba(9, 105, 218, 0.18));
 }
 
 .modal .hotkey-hint {

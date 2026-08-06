@@ -139,7 +139,7 @@ describe('SPEC36 open files', () => {
     expect(comboFromEvent({ key: 'Tab', metaKey: false, ctrlKey: true, shiftKey: false, altKey: false }, false)).toBe('Mod+Tab');
   });
 
-  test('U178: issue #84 — a mac ⌃-chord records as strict Ctrl, ⌘ chords stay Mod', () => {
+  test('U269: issue #84 — a mac ⌃-chord records as strict Ctrl, ⌘ chords stay Mod', () => {
     const tab = (over: Partial<Parameters<typeof comboFromEvent>[0]>) => ({
       key: 'Tab',
       metaKey: false,
@@ -162,7 +162,7 @@ describe('SPEC36 open files', () => {
     expect(comboFromEvent({ key: 'Control', metaKey: false, ctrlKey: true, shiftKey: false, altKey: false }, true)).toBe(null);
   });
 
-  test('U179: issue #84 — conflict detection sees Ctrl and Mod spellings of one chord as colliding', () => {
+  test('U270: issue #84 — conflict detection sees Ctrl and Mod spellings of one chord as colliding', () => {
     // ⌃Tab fires both spellings, so a rebind must not leave two actions bound.
     expect(combosConflict('Ctrl+Tab', 'Mod+Tab')).toBe(true);
     expect(combosConflict('Mod+Tab', 'Ctrl+Tab')).toBe(true);
