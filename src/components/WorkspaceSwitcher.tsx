@@ -1,10 +1,12 @@
-// PRD 007 Req 10/11: the hosted workspace lifecycle's reachable surface — a
-// switcher chip naming the open workspace, the New Workspace flow (name +
-// initial members with roles, or everyone-in-tenant access), and the Open
-// Workspace dialog (every workspace in the deployment, fuzzy search-as-you-
-// type, an in-dialog no-access message naming the Owners). Mounted on the
-// Platform's `workspaces` capability, so nothing here asks which flavor is
-// running; all decisions are the pure functions in lib/workspaceLifecycle.ts.
+// PRD 007 Req 10/11: the hosted workspace lifecycle's reachable surface — the
+// New Workspace flow (name + initial members with roles, or everyone-in-tenant
+// access) and the Open Workspace dialog (every workspace in the deployment,
+// fuzzy search-as-you-type, an in-dialog no-access message naming the Owners).
+// Mounted on the Platform's `workspaces` capability, so nothing here asks which
+// flavor is running; all decisions are the pure functions in
+// lib/workspaceLifecycle.ts. PRD 009 Req 11 retired the switcher chip that
+// used to sit alongside them: the menu and the start page are the way in, and
+// the open workspace's name shows in the toolbar's document affordance.
 
 import { useEffect, useState } from 'react';
 import { MembershipPicker } from './MembershipPicker';
@@ -22,12 +24,10 @@ import {
 } from '../lib/workspaceLifecycle';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 
-type Dialog = 'none' | 'new' | 'open';
-
 /**
  * The New Workspace dialog: name, initial members with roles, everyone-access.
- * Exported because PRD 007 Req 21's start page drives the very same flow —
- * the switcher chip and the start page must land in the same place.
+ * PRD 007 Req 21 + PRD 009 Req 11: the start page and the menu's New
+ * Workspace row both land here, through App.tsx's `managedWsDialog`.
  */
 export function NewWorkspaceDialog({
   lifecycle,
@@ -256,58 +256,3 @@ export function OpenWorkspaceDialog({
   );
 }
 
-/**
- * The always-present entry point: a chip naming the open workspace (or "No
- * workspace") that opens the two flows. It is the hosted shell's workspace
- * switcher — reachable without issue #78's start-page action list.
- */
-export function WorkspaceSwitcher({ lifecycle }: { lifecycle: WorkspaceLifecycle }) {
-  const [dialog, setDialog] = useState<Dialog>('none');
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [label, setLabel] = useState('No workspace');
-
-  const currentId = lifecycle.currentId();
-  useEffect(() => {
-    if (!currentId) return;
-    let cancelled = false;
-    void lifecycle.list().then((items) => {
-      const current = items.find((w) => w.id === currentId);
-      if (!cancelled && current) setLabel(current.name);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [lifecycle, currentId]);
-
-  const open = (next: Dialog) => {
-    setMenuOpen(false);
-    setDialog(next);
-  };
-
-  return (
-    <>
-      <div className="workspace-switcher" data-testid="workspace-switcher">
-        <button
-          type="button"
-          className="workspace-switcher-chip"
-          data-testid="workspace-switcher-chip"
-          onClick={() => setMenuOpen((v) => !v)}
-        >
-          {label}
-        </button>
-        {menuOpen && (
-          <div className="workspace-switcher-menu" data-testid="workspace-switcher-menu">
-            <button type="button" data-testid="workspace-switcher-new" onClick={() => open('new')}>
-              New Workspace…
-            </button>
-            <button type="button" data-testid="workspace-switcher-open" onClick={() => open('open')}>
-              Open Workspace…
-            </button>
-          </div>
-        )}
-      </div>
-      {dialog === 'new' && <NewWorkspaceDialog lifecycle={lifecycle} onClose={() => setDialog('none')} />}
-      {dialog === 'open' && <OpenWorkspaceDialog lifecycle={lifecycle} onClose={() => setDialog('none')} />}
-    </>
-  );
-}

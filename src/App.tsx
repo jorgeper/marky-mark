@@ -22,6 +22,7 @@ import { displayCombo, eventMatches } from './lib/hotkeys';
 import { dispatchCommand, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
 import { buildMenuSpec } from './lib/menuSpec';
 import { deriveAppMode } from './lib/appMode';
+import { buildAppMenu } from './lib/appMenu';
 import { modesAreExclusive, planModeSwitch, type ModeTarget } from './lib/modeSwitch';
 import { stepComment } from './lib/commentNav';
 import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
@@ -60,6 +61,7 @@ import {
   UNTITLED_SLOT_FILE,
   untitledWorkspaceChanged,
   WORKSPACE_FILE_EXT,
+  workspaceDisplayName,
   workspaceFolderPaths,
   workspaceFromFile,
   type Workspace,
@@ -112,7 +114,7 @@ import { CommentCard } from './components/CommentCard';
 import { SettingsPanel } from './components/SettingsPanel';
 import { WorkspaceAccessSettings } from './components/WorkspaceAccessSettings';
 import { WorkspaceDangerZone } from './components/WorkspaceDangerZone';
-import { WorkspaceSwitcher, NewWorkspaceDialog, OpenWorkspaceDialog } from './components/WorkspaceSwitcher';
+import { NewWorkspaceDialog, OpenWorkspaceDialog } from './components/WorkspaceSwitcher';
 import { StartPage } from './components/StartPage';
 import { startActions, startCapabilities, type StartActionId } from './lib/startActions';
 import { AboutDialog } from './components/AboutDialog';
@@ -3682,6 +3684,61 @@ export default function App() {
   const docOpen = docPath !== null || untitled;
   const appMode = deriveAppMode(docOpen, wsKind);
 
+  /**
+   * PRD 009 Req 8: the in-app menu's item set — derived from the mode and the
+   * same capability list the start page reads, never decided in the Toolbar.
+   */
+  const appMenu = useMemo(
+    () =>
+      buildAppMenu({
+        mode: appMode,
+        docOpen,
+        canEdit: docGrants.edit,
+        // PRD 009 Req 13/16: the same rule the newFile command applies —
+        // savePicker's, not a second one.
+        canNewFile: canOfferNewFile({
+          hasSaveDialog: !!platform?.saveFileDialog,
+          inWorkspace: appMode === 'workspace',
+          canList: !!platform?.readDirEntries,
+          canCreate: folderGrants.create,
+        }),
+        entryActions,
+      }),
+    [appMode, docOpen, docGrants.edit, platform, folderGrants.create, entryActions]
+  );
+
+  /**
+   * PRD 009 Req 11: the open workspace's name for the toolbar's document
+   * affordance — the switcher chip that used to carry it is gone. A managed
+   * (hosted) workspace names itself through the lifecycle listing, exactly as
+   * the chip did; a local one is named by its `.marky-workspace` file or, for
+   * an untitled workspace, by its first folder (lib/workspace.ts).
+   */
+  const [managedWsName, setManagedWsName] = useState<string | null>(null);
+  const lifecycle = platform?.workspaces;
+  const managedWsId = lifecycle?.currentId() ?? null;
+  useEffect(() => {
+    if (!lifecycle || !managedWsId) {
+      setManagedWsName(null);
+      return;
+    }
+    let cancelled = false;
+    // Never show the previous workspace's name over a new binding: blank it
+    // until the listing answers for THIS id.
+    setManagedWsName(null);
+    void lifecycle.list().then((items) => {
+      const current = items.find((w) => w.id === managedWsId);
+      if (!cancelled && current) setManagedWsName(current.name);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [lifecycle, managedWsId]);
+  // A managed workspace is named ONLY by its listing (never by the blob root
+  // its folder seam answers); a local one only by lib/workspace.ts.
+  const workspaceName =
+    appMode !== 'workspace' ? null : lifecycle ? managedWsName : workspaceDisplayName(curWorkspaceRef.current);
+
   // --- native menu install (SPEC12 §3.3): rebuilt whenever menu state changes ----
   useEffect(() => {
     if (!platform?.setAppMenu || menuInstallFailed) return;
@@ -4803,25 +4860,16 @@ export default function App() {
               commentCount={comments.length}
               hotkeys={settings.hotkeys}
               isMac={platform.isMac}
-              // PRD 007 Req 17: no Edit / Save rows for a read-only role.
+              // PRD 009 Req 11: the open workspace's name, where the removed
+              // switcher chip used to show it.
+              workspaceName={workspaceName}
+              // PRD 007 Req 17: no Edit toggle for a read-only role.
               canEdit={docGrants.edit}
-              // PRD 009 Req 13/16: the same rule the newFile command applies,
-              // over the same state the mode itself is derived from.
-              canNewFile={canOfferNewFile({
-                hasSaveDialog: !!platform.saveFileDialog,
-                inWorkspace: appMode === 'workspace',
-                canList: !!platform.readDirEntries,
-                canCreate: folderGrants.create,
-              })}
+              // PRD 009 Req 8: the whole item set, already gated.
+              menu={appMenu}
               onToggleMode={() => dispatchCommand('toggleMode')}
               onToggleComments={() => dispatchCommand('toggleComments')}
-              onNewFile={() => dispatchCommand('newFile')}
-              onOpenFile={() => dispatchCommand('open')}
-              onSave={() => dispatchCommand('save')}
-              onSaveAs={() => dispatchCommand('saveAs')}
-              onHelp={() => dispatchCommand('help')}
-              onAbout={() => dispatchCommand('about')}
-              onOpenSettings={() => dispatchCommand('settings')}
+              onCommand={(id) => dispatchCommand(id)}
               onMenuOpenChange={setMenuPin}
             />
           </div>
@@ -5304,11 +5352,9 @@ export default function App() {
         />
       )}
 
-      {/* PRD 007 Req 10/11: the workspace switcher and its New/Open flows,
-          mounted on the same capability. */}
-      {platform.workspaces && <WorkspaceSwitcher lifecycle={platform.workspaces} />}
-      {/* PRD 007 Req 21/22: the same two flows, reached from the start page or
-          the File menu instead of the switcher chip. */}
+      {/* PRD 007 Req 21/22 + PRD 009 Req 11: the New/Open Workspace flows,
+          mounted on the workspace capability. The switcher chip that used to
+          offer them is gone — the start page and the menu are the way in. */}
       {platform.workspaces && managedWsDialog === 'new' && (
         <NewWorkspaceDialog lifecycle={platform.workspaces} onClose={() => setManagedWsDialog('none')} />
       )}

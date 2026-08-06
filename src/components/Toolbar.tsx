@@ -1,8 +1,16 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import type { AppMenuGroup } from '../lib/appMenu';
+import type { CommandId } from '../lib/commands';
 import { displayCombo, type HotkeyMap } from '../lib/hotkeys';
 
 interface Props {
   docName: string | null;
+  /**
+   * PRD 009 Req 11: the open workspace's name, shown here now that the
+   * bottom-right switcher chip is gone. Null outside workspace mode, where
+   * this affordance stays exactly the filename it has always been.
+   */
+  workspaceName?: string | null;
   /** Full on-disk path, shown as the filename's hover tooltip (SPEC2 FR-U.3). */
   docPath: string | null;
   dirty: boolean;
@@ -15,28 +23,22 @@ interface Props {
   isMac: boolean;
   /**
    * PRD 007 Req 17: whether this user may change the open document. Absent ⇒
-   * no permission model (desktop, the shim, the web build) — every row stays
-   * exactly as it was. False hides Edit / Save / Save As…, matching the
-   * native menu's grayed items.
+   * no permission model (desktop, the shim, the web build) — the Edit toggle
+   * stays exactly as it was. False hides it, matching the native menu's
+   * grayed items. The menu's own Save rows ride the same flag through
+   * lib/appMenu.ts.
    */
   canEdit?: boolean;
   /**
-   * PRD 009 Req 13/16: whether New File is offered here. Absent ⇒ yes, so
-   * every platform with a save dialog (desktop, the shim, the web build)
-   * keeps the row exactly as it was; false hides it — on a flavor without a
-   * save dialog, creating files is a workspace-mode capability, so the row is
-   * absent on the initial page and in single-file mode.
+   * PRD 009 Req 8: the menu's item set, already gated — this component
+   * renders it and decides nothing about order, membership or gating
+   * (lib/appMenu.ts).
    */
-  canNewFile?: boolean;
+  menu: AppMenuGroup[];
   onToggleMode(): void;
   onToggleComments(): void;
-  onNewFile(): void;
-  onOpenFile(): void;
-  onSave(): void;
-  onSaveAs(): void;
-  onHelp(): void;
-  onAbout(): void;
-  onOpenSettings(): void;
+  /** PRD 009 Req 8: every row dispatches through this one seam. */
+  onCommand(id: CommandId): void;
   /** Reports the menu popover state so the auto-hiding shell can stay pinned. */
   onMenuOpenChange(open: boolean): void;
 }
@@ -101,8 +103,10 @@ function CommentsIcon() {
 }
 
 /**
- * v2 toolbar (SPEC2 FR-U.1): filename · Edit/Preview · comments toggle · one
- * overflow menu (Open… / Save / Settings…). Nothing else.
+ * v2 toolbar (SPEC2 FR-U.1): one overflow menu · filename · Edit/Preview ·
+ * comments toggle. Nothing else. PRD 009 Req 7/8: the menu leads the toolbar
+ * on the left, and its rows are the data lib/appMenu.ts derives — this
+ * component renders them and dispatches, nothing more.
  */
 export function Toolbar(p: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -124,28 +128,69 @@ export function Toolbar(p: Props) {
     return () => document.removeEventListener('mousedown', onDown);
   }, [menuOpen]);
 
-  // PRD 007 Req 17: absent ⇒ no permission model ⇒ every writing row stays.
+  // PRD 007 Req 17: absent ⇒ no permission model ⇒ the Edit toggle stays.
   const canEdit = p.canEdit !== false;
-  const canNewFile = p.canNewFile !== false; // PRD 009 Req 13/16
-
-  const item = (testid: string, label: string, hint: string | null, onClick: () => void) => (
-    <button
-      className="theme-option"
-      data-testid={testid}
-      onClick={() => {
-        setMenuOpen(false);
-        onClick();
-      }}
-    >
-      <span style={{ flex: 1 }}>{label}</span>
-      {hint && <kbd>{hint}</kbd>}
-    </button>
-  );
+  const onCommand = p.onCommand;
 
   return (
     <header className="toolbar">
+      {/* PRD 009 Req 7: the hamburger is the toolbar's FIRST element, and its
+          popover is anchored to it — .anchor-left, so the folder, smart-edit
+          and theme popovers sharing .theme-menu stay right-anchored. */}
+      <div className="theme-picker" ref={menuRef}>
+        <button className="tbtn" data-testid="menu-btn" title="Menu" onClick={() => setMenuOpen((o) => !o)}>
+          <MenuIcon />
+        </button>
+        {menuOpen && (
+          <div className="theme-menu anchor-left" data-testid="app-menu">
+            {p.menu.map((group, gi) => (
+              <div key={group.id}>
+                {/* Req 8: one separator BETWEEN groups — a menu that starts or
+                    ends with one is never rendered because empty groups are
+                    already gone (lib/appMenu.ts). */}
+                {gi > 0 && <div className="menu-sep" data-testid="menu-sep" role="separator" />}
+                {group.rows.map((r) => (
+                  <button
+                    key={r.testId}
+                    className={`theme-option${r.submenu ? ' submenu-parent' : ''}`}
+                    data-testid={r.testId}
+                    disabled={r.disabled}
+                    aria-haspopup={r.submenu ? 'menu' : undefined}
+                    onClick={() => {
+                      // Req 8: a submenu parent dispatches nothing (#94 fills
+                      // it) and leaves the menu open.
+                      if (!r.command) return;
+                      setMenuOpen(false);
+                      onCommand(r.command);
+                    }}
+                  >
+                    <span style={{ flex: 1 }}>{r.label}</span>
+                    {r.hotkey && <kbd>{displayCombo(p.hotkeys[r.hotkey], p.isMac)}</kbd>}
+                    {r.submenu && (
+                      <span className="submenu-arrow" aria-hidden="true">
+                        ▸
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <span className="docname" data-testid="docname" title={p.docPath ?? undefined}>
-        {p.docName ?? <AppBadge />}
+        {/* PRD 009 Req 11: with a workspace open its name lives here — the
+            switcher chip that used to carry it is gone. */}
+        {p.workspaceName && (
+          <>
+            <span className="ws-name" data-testid="docname-workspace">
+              {p.workspaceName}
+            </span>
+            {p.docName && <span className="ws-sep"> / </span>}
+          </>
+        )}
+        {p.docName ?? (p.workspaceName ? null : <AppBadge />)}
         {p.dirty && (
           <span className="dirty-dot" data-testid="dirty-dot" title="Unsaved changes">
             ●
@@ -176,23 +221,6 @@ export function Toolbar(p: Props) {
           {p.commentCount > 0 ? ` ${p.commentCount}` : ''}
         </button>
       )}
-
-      <div className="theme-picker" ref={menuRef}>
-        <button className="tbtn" data-testid="menu-btn" title="Menu" onClick={() => setMenuOpen((o) => !o)}>
-          <MenuIcon />
-        </button>
-        {menuOpen && (
-          <div className="theme-menu" data-testid="app-menu">
-            {canNewFile && item('menu-new', 'New', displayCombo(p.hotkeys.newFile, p.isMac), p.onNewFile)}
-            {item('menu-open', 'Open…', displayCombo(p.hotkeys.openFile, p.isMac), p.onOpenFile)}
-            {canEdit && item('menu-save', 'Save', displayCombo(p.hotkeys.save, p.isMac), p.onSave)}
-            {canEdit && item('menu-save-as', 'Save As…', null, p.onSaveAs)}
-            {item('menu-help', 'Help', null, p.onHelp)}
-            {item('menu-about', 'About Marky Mark', null, p.onAbout)}
-            <div className="menu-footer">{item('menu-settings', 'Settings…', null, p.onOpenSettings)}</div>
-          </div>
-        )}
-      </div>
     </header>
   );
 }

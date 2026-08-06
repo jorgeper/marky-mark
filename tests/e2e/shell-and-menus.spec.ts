@@ -76,7 +76,7 @@ test('E141: no document open — the edit hotkey and toolbar control leave the s
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
 });
 
-test('E13: toolbar is minimal — one overflow menu with exactly Open/Save/Save As/Settings; menu Save persists', async ({
+test('E13: the menu leads the toolbar on the left and holds exactly the gated groups; menu Save persists', async ({
   page,
 }) => {
   // Old toolbar buttons are gone.
@@ -85,16 +85,39 @@ test('E13: toolbar is minimal — one overflow menu with exactly Open/Save/Save 
   await expect(page.getByTestId('settings-btn')).toHaveCount(0);
 
   await revealToolbar(page);
+  // PRD 009 Req 7: the hamburger is the toolbar's first element — its right
+  // edge sits left of the document name's left edge.
+  const btnBox = (await page.getByTestId('menu-btn').boundingBox())!;
+  const nameBox = (await page.getByTestId('docname').boundingBox())!;
+  expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(nameBox.x);
+
   await page.getByTestId('menu-btn').click();
   const menu = page.getByTestId('app-menu');
-  await expect(menu.getByTestId('menu-new')).toBeVisible(); // SPEC21 §5.6 amendment
-  await expect(menu.getByTestId('menu-open')).toBeVisible();
-  await expect(menu.getByTestId('menu-save')).toBeVisible();
-  await expect(menu.getByTestId('menu-save-as')).toBeVisible();
-  await expect(menu.getByTestId('menu-help')).toBeVisible();
-  await expect(menu.getByTestId('menu-about')).toBeVisible();
-  await expect(menu.getByTestId('menu-settings')).toBeVisible();
-  await expect(menu.locator('button')).toHaveCount(7); // exactly these seven (SPEC4 §5.2 + SPEC10 §6 + SPEC21)
+  // …and the popover is anchored to the button, not the toolbar's right edge.
+  const menuBox = (await menu.boundingBox())!;
+  expect(Math.abs(menuBox.x - btnBox.x)).toBeLessThan(12);
+
+  // PRD 009 Req 8/9: the item set for this flavor and mode — a local file open
+  // (single-file mode) on a shim that can honour every workspace flow. No New
+  // File outside workspace mode, no Close Workspace outside it.
+  const rows = await menu.locator('button').evaluateAll((els) => els.map((el) => el.dataset.testid));
+  expect(rows).toEqual([
+    'menu-open',
+    'menu-close-file',
+    'menu-new-workspace',
+    'menu-open-workspace',
+    'menu-save',
+    'menu-save-as',
+    'menu-view',
+    'menu-settings',
+    'menu-help',
+    'menu-about',
+  ]);
+  // Five surviving groups ⇒ four separators, one between each pair — the menu
+  // never starts or ends with one.
+  await expect(menu.getByTestId('menu-sep')).toHaveCount(4);
+  await expect(menu.getByTestId('menu-view')).toHaveAttribute('aria-haspopup', 'menu');
+  await expect(menu.getByTestId('menu-save')).toBeEnabled();
   await page.keyboard.press('Escape');
   await revealToolbar(page);
   await page.getByTestId('docname').click(); // close menu

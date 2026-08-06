@@ -421,7 +421,8 @@ walk these four things:
    `login.microsoftonline.com`, you authenticate with a work account in the
    tenant, and you land back on the app's root URL — signed in, with the editor
    visible. Reload the page: you stay signed in.
-3. **A workspace can be created.** Create one from the workspace switcher. It
+3. **A workspace can be created.** Create one from the menu's New Workspace
+   row (or the initial page's New Workspace… button). It
    is yours as Owner. `az storage blob list --account-name "$STORAGE"
    --container-name "$CONTAINER" --connection-string
    "$AZURE_STORAGE_CONNECTION_STRING" --prefix workspaces/ -o table` now shows a

@@ -319,14 +319,19 @@ test('W8: image paste on the web build shows the needs-desktop notice and leaves
   expect(await editorDocText(page)).toBe(before);
 });
 
-test('W9: hamburger New opens an untitled buffer; Save runs the handle-less Save As and downloads Untitled.md', async ({
+test('W9: the New File hotkey opens an untitled buffer; Save runs the handle-less Save As and downloads Untitled.md', async ({
   page,
 }) => {
+  // PRD 009 Req 9/16: single-file mode has no New File menu row — creating
+  // files is a workspace-mode item, and the web build has no workspaces. The
+  // command itself is unchanged (no hotkey was added or removed here), so the
+  // untitled-buffer flow this test pins is driven by its existing binding.
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
-  const item = page.getByTestId('menu-new');
-  await expect(item).toContainText('New');
-  await item.click();
+  await expect(page.getByTestId('menu-new')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.getByTestId('docname').click(); // close the menu
+  await page.keyboard.press('Control+n');
 
   await expect(page.getByTestId('docname')).toContainText('Untitled');
   await expect(page.getByTestId('editor')).toBeVisible();
@@ -437,6 +442,20 @@ test('W13: the single-file web start page offers the drag hint and Open File —
   for (const id of ['openFolder', 'newWorkspace', 'openWorkspace']) {
     await expect(page.getByTestId(`start-${id}`)).toHaveCount(0);
   }
+
+  // PRD 009 Req 8/9: the same capability list drives the menu, so the whole
+  // workspace group is absent here — and on the initial page there is no New
+  // File and no Close File either, while Save / Save As… are merely greyed.
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  const menu = page.getByTestId('app-menu');
+  const rows = await menu.locator('button').evaluateAll((els) => els.map((el) => el.dataset.testid));
+  expect(rows).toEqual(['menu-open', 'menu-save', 'menu-save-as', 'menu-view', 'menu-settings', 'menu-help', 'menu-about']);
+  await expect(menu.getByTestId('menu-sep')).toHaveCount(3);
+  await expect(menu.getByTestId('menu-save')).toBeDisabled();
+  await expect(menu.getByTestId('menu-save-as')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await page.getByTestId('docname').click(); // close the menu
 
   // Open File on the start page opens a local file, fully client-side.
   const chooser = page.waitForEvent('filechooser');

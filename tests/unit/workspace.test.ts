@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   addWorkspaceFolder,
+  workspaceDisplayName,
   closeWorkspace,
   isAbsolutePath,
   isWorkspaceFilePath,
@@ -253,5 +254,29 @@ describe('Issue #82 OS-opened path routing — workspace file vs document', () =
     expect(isWorkspaceFilePath('/notes/a.md')).toBe(false);
     expect(isWorkspaceFilePath('/notes/marky-workspace')).toBe(false); // no dot
     expect(isWorkspaceFilePath('')).toBe(false);
+  });
+});
+
+describe('PRD 009 Req 11: what names the open workspace in the toolbar', () => {
+  test('U347: a named workspace goes by its file stem, an untitled one by its first folder', () => {
+    expect(workspaceDisplayName({ kind: 'none' })).toBeNull();
+    expect(
+      workspaceDisplayName({ kind: 'named', file: '/ws/Team Notes.marky-workspace', folders: [], settings: {} })
+    ).toBe('Team Notes');
+    expect(
+      workspaceDisplayName({ kind: 'named', file: 'C:\\ws\\Mine.MARKY-WORKSPACE', folders: [], settings: {} })
+    ).toBe('Mine');
+    expect(
+      workspaceDisplayName({
+        kind: 'untitled',
+        folders: [
+          { path: '/home/ada/notes/', available: true },
+          { path: '/home/ada/other', available: true },
+        ],
+        settings: {},
+      })
+    ).toBe('notes');
+    // A folder-less untitled workspace has nothing to be named after.
+    expect(workspaceDisplayName({ kind: 'untitled', folders: [], settings: {} })).toBeNull();
   });
 });

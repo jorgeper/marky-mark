@@ -220,6 +220,23 @@ export function workspaceFromFile(
   };
 }
 
+/**
+ * PRD 009 Req 11: what to call the open workspace in the toolbar's document
+ * affordance, now that the switcher chip is gone. A named workspace goes by
+ * its `.marky-workspace` file's stem, an untitled one by its first folder;
+ * with no workspace open there is nothing to name. Path-flavor agnostic — the
+ * separator is whichever of / \ the platform handed us.
+ */
+export function workspaceDisplayName(ws: Workspace): string | null {
+  if (ws.kind === 'none') return null;
+  const leaf = (path: string) => path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? path;
+  if (ws.kind === 'named') {
+    const name = leaf(ws.file);
+    return isWorkspaceFilePath(name) ? name.slice(0, -WORKSPACE_FILE_EXT.length) || name : name;
+  }
+  return ws.folders[0] ? leaf(ws.folders[0].path) : null;
+}
+
 // --- per-workspace session state (§B6, §C11, §F22) ---------------------------
 
 export interface WorkspaceSession {

@@ -604,10 +604,14 @@ async function listingFor(
   return listed.find((w) => w.id === id);
 }
 
-/** Open the workspace switcher's menu (the hosted shell's lifecycle entry point). */
-async function openSwitcher(page: Page): Promise<void> {
-  await page.getByTestId('workspace-switcher-chip').click();
-  await expect(page.getByTestId('workspace-switcher-menu')).toBeVisible();
+/**
+ * Open the in-app menu — PRD 009 Req 7/8/11: the hamburger on the left is the
+ * hosted shell's lifecycle entry point now that the switcher chip is gone.
+ */
+async function openAppMenu(page: Page): Promise<void> {
+  await page.mouse.move(500, 8);
+  await page.getByTestId('menu-btn').click();
+  await expect(page.getByTestId('app-menu')).toBeVisible();
 }
 
 test('E179: POST /api/workspaces takes initial members and everyone-access, validates roles, and keeps the creator Owner', async ({
@@ -723,13 +727,14 @@ test('E182: the New Workspace flow names a workspace, grants a member a role, an
   request,
 }) => {
   // PRD 007 Req 10: the create flow end to end in the running hosted app —
-  // reachable from the workspace switcher, reusing the #74 membership picker.
+  // reachable from the in-app menu (PRD 009 Req 11 retired the switcher
+  // chip), reusing the #74 membership picker.
   const name = `E182 created w${test.info().workerIndex}`;
   await signInTo(page, 'ada');
   await expect(page.getByTestId('empty-hint')).toBeVisible();
 
-  await openSwitcher(page);
-  await page.getByTestId('workspace-switcher-new').click();
+  await openAppMenu(page);
+  await page.getByTestId('menu-new-workspace').click();
   await expect(page.getByTestId('new-workspace-dialog')).toBeVisible();
   await page.getByTestId('new-workspace-name').fill(name);
 
@@ -743,7 +748,9 @@ test('E182: the New Workspace flow names a workspace, grants a member a role, an
   // renders the (empty) workspace.
   await expect(page).toHaveURL(/\?workspace=/);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await expect(page.getByTestId('workspace-switcher-chip')).toHaveText(name);
+  // PRD 009 Req 11: the workspace's name shows in the toolbar's document
+  // affordance — the chip that used to carry it is gone.
+  await expect(page.getByTestId('docname-workspace')).toHaveText(name);
 
   const ada = await signIn(request, 'ada');
   const id = new URL(page.url()).searchParams.get('workspace')!;
@@ -772,8 +779,8 @@ test('E183: the Open Workspace dialog lists every workspace, filters as you type
 
   await signInTo(page, 'ada');
   await expect(page.getByTestId('empty-hint')).toBeVisible();
-  await openSwitcher(page);
-  await page.getByTestId('workspace-switcher-open').click();
+  await openAppMenu(page);
+  await page.getByTestId('menu-open-workspace').click();
   await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
   await expect(page.getByTestId(`open-workspace-item-${mineId}`)).toBeVisible();
   // Name and last-modified both show on the row.
@@ -803,8 +810,8 @@ test('E184: choosing a workspace the signed-in user cannot access shows a no-acc
 
   await signInTo(page, 'alan');
   await expect(page.getByTestId('empty-hint')).toBeVisible();
-  await openSwitcher(page);
-  await page.getByTestId('workspace-switcher-open').click();
+  await openAppMenu(page);
+  await page.getByTestId('menu-open-workspace').click();
   await page.getByTestId('open-workspace-search').fill(name);
   await page.getByTestId(`open-workspace-item-${id}`).click();
 
@@ -1466,13 +1473,29 @@ test('E201: the hosted start page offers exactly Open File + the two workspace f
   await expect(page.getByTestId('start-actions').getByRole('button')).toHaveCount(3);
 
   // …and nowhere else either: the hosted chrome's menu offers no folder
-  // opening (the workspace flows live on the switcher chip beside it, and
-  // the File-menu gating itself is pinned by U317–U319).
-  await page.mouse.move(500, 8);
-  await page.getByTestId('menu-btn').click();
-  await expect(page.getByTestId('app-menu')).toBeVisible();
-  await expect(page.getByTestId('app-menu')).not.toContainText('Open Folder');
-  await expect(page.getByTestId('workspace-switcher-chip')).toContainText('No workspace');
+  // opening, and PRD 009 Req 8/9 pins the rest of its initial-page item set —
+  // the workspace group present (the capability exists), no New File, no
+  // Close File, no Close Workspace, Save / Save As… greyed rather than gone.
+  await openAppMenu(page);
+  const menu = page.getByTestId('app-menu');
+  await expect(menu).not.toContainText('Open Folder');
+  const rows = await menu.locator('button').evaluateAll((els) => els.map((el) => el.dataset.testid));
+  expect(rows).toEqual([
+    'menu-open',
+    'menu-new-workspace',
+    'menu-open-workspace',
+    'menu-save',
+    'menu-save-as',
+    'menu-view',
+    'menu-settings',
+    'menu-help',
+    'menu-about',
+  ]);
+  await expect(menu.getByTestId('menu-sep')).toHaveCount(4);
+  await expect(menu.getByTestId('menu-save')).toBeDisabled();
+  await expect(menu.getByTestId('menu-save-as')).toBeDisabled();
+  // PRD 009 Req 11: no workspace is bound, so nothing names one.
+  await expect(page.getByTestId('docname-workspace')).toHaveCount(0);
 });
 
 test('E202: a local Markdown file opened on the hosted start page renders client-side — nothing uploaded, no workspace bound', async ({
@@ -1505,7 +1528,7 @@ test('E202: a local Markdown file opened on the hosted start page renders client
   // It opens, renders and is editable — with no workspace open behind it.
   await expect(page.getByTestId('docname')).toContainText('local-only.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Local only');
-  await expect(page.getByTestId('workspace-switcher-chip')).toContainText('No workspace');
+  await expect(page.getByTestId('docname-workspace')).toHaveCount(0);
   await page.getByTestId('edit-toggle').click();
   await page.locator('.cm-content').click();
   await page.keyboard.type('typed locally ');
@@ -1522,7 +1545,7 @@ test('E203: New Workspace… and Open Workspace… on the hosted start page land
   request,
 }) => {
   // PRD 007 Req 21: the start-page rows drive the hosted lifecycle flows the
-  // switcher chip already offers, and choosing one lands in that workspace.
+  // menu's workspace rows offer, and choosing one lands in that workspace.
   const ada = await signIn(request, 'ada');
   const name = `E203 existing w${test.info().workerIndex}`;
   const existing = await createWorkspace(request, ada, name);
@@ -1533,7 +1556,7 @@ test('E203: New Workspace… and Open Workspace… on the hosted start page land
   await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
   await page.getByTestId(`open-workspace-item-${existing}`).click();
   await expect(page).toHaveURL(new RegExp(`workspace=${existing}`));
-  await expect(page.getByTestId('workspace-switcher-chip')).toContainText(name);
+  await expect(page.getByTestId('docname-workspace')).toContainText(name);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
 
   // New Workspace… from the start page creates one and opens it.
@@ -1546,7 +1569,7 @@ test('E203: New Workspace… and Open Workspace… on the hosted start page land
   await page.getByTestId('new-workspace-name').fill(fresh);
   await page.getByTestId('new-workspace-create').click();
   await expect(page).toHaveURL(/workspace=/);
-  await expect(page.getByTestId('workspace-switcher-chip')).toContainText(fresh);
+  await expect(page.getByTestId('docname-workspace')).toContainText(fresh);
 });
 
 // PRD 007 Req 13+17 (#79): end-to-end permission enforcement — the UI offers
@@ -1777,9 +1800,7 @@ test('E212: on hosted, Open File… with a workspace open crosses into single-fi
   });
 
   // Req 4: the workspace closed and the file opened — single-file mode, with
-  // the initial page never the resting state of the switch. (The switcher
-  // chip still names the workspace it listed at boot: it goes with the rest
-  // of the hosted chrome in #93, and app state is what this test pins.)
+  // the initial page never the resting state of the switch.
   await expect(page.getByTestId('docname')).toContainText('mine.md');
   await expect(page.getByTestId('empty-hint')).toHaveCount(0);
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
@@ -1798,5 +1819,5 @@ test('E212: on hosted, Open File… with a workspace open crosses into single-fi
   expect(await page.evaluate(() => window.location.search)).toBe('');
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
-  await expect(page.getByTestId('workspace-switcher-chip')).toContainText('No workspace');
+  await expect(page.getByTestId('docname-workspace')).toHaveCount(0);
 });

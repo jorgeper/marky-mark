@@ -116,6 +116,18 @@ button {
   flex: 1;
 }
 
+/* PRD 009 Req 11: the open workspace's name, ahead of the filename — the
+   switcher chip that used to carry it is gone. */
+.toolbar .docname .ws-name {
+  color: var(--mm-fg-muted, #59636e);
+  font-weight: 500;
+}
+
+.toolbar .docname .ws-sep {
+  color: var(--mm-fg-muted, #59636e);
+  opacity: 0.6;
+}
+
 .toolbar .dirty-dot {
   color: var(--mm-accent, #0969da);
   margin-left: 4px;
@@ -167,6 +179,36 @@ button {
   border-radius: 10px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
   padding: 6px;
+}
+
+/* PRD 009 Req 7: the in-app menu alone opens from the LEFT — .theme-menu is
+   shared with the folder, smart-edit and theme popovers, which stay pinned to
+   the right edge. */
+.theme-menu.anchor-left {
+  left: 0;
+  right: auto;
+}
+
+/* PRD 009 Req 8: the divider between item groups. */
+.theme-menu .menu-sep {
+  height: 1px;
+  background: var(--mm-border, #d1d9e0);
+  margin: 5px 4px;
+}
+
+/* PRD 009 Req 8: View ▸ reads as a submenu parent, not an action (#94). */
+.theme-menu button.theme-option .submenu-arrow {
+  color: var(--mm-fg-muted, #59636e);
+  font-size: 11px;
+}
+
+.theme-menu button.theme-option:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.theme-menu button.theme-option:disabled:hover {
+  background: none;
 }
 
 .theme-menu .section {
@@ -2619,55 +2661,9 @@ mark.hl.ghost {
   color: var(--mm-fg, #1f2328);
 }
 
-/* PRD 007 Req 10/11/12: the hosted workspace switcher, its dialogs, and the
-   destructive delete control in Workspace settings. */
-.workspace-switcher {
-  position: fixed;
-  right: 12px;
-  bottom: 12px;
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-}
-.workspace-switcher-chip {
-  border: 1px solid var(--mm-border, #d1d9e0);
-  background: var(--mm-bg-elevated, #f6f8fa);
-  color: var(--mm-fg, #1f2328);
-  border-radius: 999px;
-  padding: 4px 12px;
-  font-size: 12px;
-  cursor: pointer;
-  max-width: 240px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workspace-switcher-menu {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 8px;
-  background: var(--mm-bg-elevated, #f6f8fa);
-  overflow: hidden;
-}
-
-.workspace-switcher-menu button {
-  background: none;
-  border: none;
-  color: var(--mm-fg, #1f2328);
-  text-align: left;
-  padding: 6px 14px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.workspace-switcher-menu button:hover {
-  background: var(--mm-hover, rgba(9, 105, 218, 0.08));
-}
-
+/* PRD 007 Req 10/11/12: the hosted workspace dialogs and the destructive
+   delete control in Workspace settings. PRD 009 Req 11 removed the switcher
+   chip these used to sit under; the menu is the way in. */
 .modal.workspace-modal {
   min-width: 420px;
 }
