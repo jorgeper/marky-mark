@@ -19,6 +19,13 @@ export interface AffordanceState {
   composerOpen: boolean;
   /** PRD 004 Req 15: an unreadable store freezes every authoring route. */
   authoringFrozen: boolean;
+  /**
+   * PRD 007 Req 17: whether this member holds `comment.write` for the open
+   * document. OPTIONAL so every pre-#79 call site (and the frozen fixtures in
+   * the unit tests) keeps its exact behaviour: absent reads as "no permission
+   * model", which is what desktop, the shim and the web build are.
+   */
+  canWrite?: boolean;
 }
 
 /**
@@ -31,5 +38,8 @@ export function commentAffordanceSurface(s: AffordanceState): 'preview' | 'edit'
   if (!s.hasSelection || !s.showComments || !s.commentsEnabled || s.composerOpen || s.authoringFrozen) {
     return null;
   }
+  // PRD 007 Req 17: a member who cannot write a comment is offered no route
+  // to one — the composer that would follow could only earn a 403.
+  if (s.canWrite === false) return null;
   return s.mode === 'preview' || s.splitEdit ? 'preview' : 'edit';
 }

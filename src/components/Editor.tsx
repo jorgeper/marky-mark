@@ -261,6 +261,14 @@ interface Props {
   pendingSelectionRef?: MutableRefObject<{ from: number; to: number } | null>;
   /** SPEC30 §1.4: populated at mount with the find/replace engine. */
   searchRef?: MutableRefObject<EditorSearchHandle | null>;
+  /**
+   * PRD 007 Req 17: the pane accepts no edits — the document is open for
+   * reading only, because the signed-in member holds no `doc.edit`. The
+   * owner says WHY; this only stops the typing. Reconfigured live, so a
+   * grant set that resolves after mount takes effect without remounting the
+   * editor (and without losing undo history).
+   */
+  readOnly?: boolean;
   /** SPEC44 §2.2: true while the find/replace input owns the keyboard. */
   activeWordSuppressed?: boolean;
   // --- SPEC43: Smart Edit ---------------------------------------------------
@@ -446,6 +454,7 @@ export default function Editor({
   resolveImageSrc,
   onToggleInlineImages,
   onInsertImage,
+  readOnly = false,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -464,6 +473,8 @@ export default function Editor({
   // PRD 006 §1: live preview rides its own compartment, same live-toggle pattern.
   const lpComp = useRef(new Compartment());
   const smartComp = useRef(new Compartment());
+  // PRD 007 Req 17: read-only rides a compartment like every other live prop.
+  const readOnlyComp = useRef(new Compartment());
   // SPEC43 §4: the Smart Edit menu — open state + anchor + the built model.
   const [smartMenu, setSmartMenu] = useState<{ x: number; y: number; entries: SmartMenuEntry[] } | null>(null);
   // SPEC37 §4: the margin chips for the cursor's cell (null = hidden).
@@ -936,6 +947,13 @@ export default function Editor({
       // SPEC43 §3.2: the smart-edit button, in the content area's left
       // padding — same geometry with or without line numbers.
       smartComp.current.of(smartEditButton(gutterTitle(), openMenuAtGutter)),
+      // PRD 007 Req 17: both halves — `readOnly` refuses document changes,
+      // `editable` also takes the pane out of the tab order and hides the
+      // caret, so it reads as what it is rather than an editor that swallows
+      // keystrokes.
+      readOnlyComp.current.of(
+        readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [],
+      ),
       diffComp.current.of([]),
       // SPEC23 §3: highlighting rides a compartment — toggling the setting
       // reconfigures live, undo history intact. PRD 006 §12: while live
@@ -1318,6 +1336,14 @@ export default function Editor({
       view.dispatch({ changes: { from: 0, to: current.length, insert: value } });
     }
   }, [value]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: readOnlyComp.current.reconfigure(
+        readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [],
+      ),
+    });
+  }, [readOnly]);
 
   useEffect(() => {
     viewRef.current?.dispatch({

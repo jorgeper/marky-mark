@@ -13,6 +13,13 @@ interface Props {
   commentCount: number;
   hotkeys: HotkeyMap;
   isMac: boolean;
+  /**
+   * PRD 007 Req 17: whether this user may change the open document. Absent ⇒
+   * no permission model (desktop, the shim, the web build) — every row stays
+   * exactly as it was. False hides Edit / Save / Save As…, matching the
+   * native menu's grayed items.
+   */
+  canEdit?: boolean;
   onToggleMode(): void;
   onToggleComments(): void;
   onNewFile(): void;
@@ -134,15 +141,17 @@ export function Toolbar(p: Props) {
         )}
       </span>
 
-      <button
-        className={`tbtn${p.mode === 'edit' ? ' on' : ''}`}
-        data-testid="edit-toggle"
-        title={`Toggle edit / preview (${displayCombo(p.hotkeys.toggleEdit, p.isMac)})`}
-        onClick={p.onToggleMode}
-      >
-        {p.mode === 'edit' ? 'Preview' : 'Edit'}
-        <kbd>{displayCombo(p.hotkeys.toggleEdit, p.isMac)}</kbd>
-      </button>
+      {p.canEdit !== false && (
+        <button
+          className={`tbtn${p.mode === 'edit' ? ' on' : ''}`}
+          data-testid="edit-toggle"
+          title={`Toggle edit / preview (${displayCombo(p.hotkeys.toggleEdit, p.isMac)})`}
+          onClick={p.onToggleMode}
+        >
+          {p.mode === 'edit' ? 'Preview' : 'Edit'}
+          <kbd>{displayCombo(p.hotkeys.toggleEdit, p.isMac)}</kbd>
+        </button>
+      )}
 
       {p.commentsEnabled && (
         <button
@@ -164,8 +173,8 @@ export function Toolbar(p: Props) {
           <div className="theme-menu" data-testid="app-menu">
             {item('menu-new', 'New', displayCombo(p.hotkeys.newFile, p.isMac), p.onNewFile)}
             {item('menu-open', 'Open…', displayCombo(p.hotkeys.openFile, p.isMac), p.onOpenFile)}
-            {item('menu-save', 'Save', displayCombo(p.hotkeys.save, p.isMac), p.onSave)}
-            {item('menu-save-as', 'Save As…', null, p.onSaveAs)}
+            {p.canEdit !== false && item('menu-save', 'Save', displayCombo(p.hotkeys.save, p.isMac), p.onSave)}
+            {p.canEdit !== false && item('menu-save-as', 'Save As…', null, p.onSaveAs)}
             {item('menu-help', 'Help', null, p.onHelp)}
             {item('menu-about', 'About Marky Mark', null, p.onAbout)}
             <div className="menu-footer">{item('menu-settings', 'Settings…', null, p.onOpenSettings)}</div>

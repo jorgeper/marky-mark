@@ -32,6 +32,7 @@ import {
   type WorkspaceManifest,
 } from '../src/lib/hostedWorkspace.ts';
 import type { WorkspaceListing } from '../src/lib/workspaceLifecycle.ts';
+import { isSidecarPath } from '../src/lib/sidecar.ts';
 import { UPLOAD_MAX_LABEL, uploadRejection, uploadTypeRejection } from '../src/lib/fileTransfer.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import type { RequestAuth, StorageProvider } from './providers/types.ts';
@@ -81,6 +82,79 @@ function basenameOf(filePath: string): string {
  */
 export const FOLDER_PLACEHOLDER = '.mmkeep';
 
+// --- the route→verb table (PRD 007 Req 13+17) --------------------------------
+
+/** One workspace-scoped route and the single catalog verb it requires. */
+export interface WorkspaceRouteRequirement {
+  method: 'GET' | 'PUT' | 'POST' | 'DELETE';
+  /**
+   * The path under `/api/workspaces/<id>` (`''` is the workspace itself),
+   * with four placeholders standing for whatever the caller addresses:
+   * `<new>` a blob that does not exist yet, `<existing>` one that does,
+   * `<sidecar>` a comment sidecar, `<folder>` a folder that exists.
+   */
+  path: string;
+  required: Permission;
+  /** Why this verb and not the neighbouring one. */
+  why: string;
+}
+
+/**
+ * PRD 007 Req 13+17: every workspace-scoped route and the ONE verb it
+ * requires, declared in one readable place — the same table server/README.md
+ * documents. The handlers below pass exactly these verbs to
+ * `requirePermission`; `tests/unit/server-workspaces.test.ts` enumerates this
+ * table, issues each request as a caller who holds nothing, and asserts the
+ * 403 names the verb listed here. So an entry that drifts from its handler
+ * fails, and a catalog verb no route requires fails too — a new verb cannot
+ * be added to `PERMISSIONS` and left dead.
+ */
+export const WORKSPACE_ROUTE_PERMISSIONS: readonly WorkspaceRouteRequirement[] = [
+  { method: 'DELETE', path: '', required: 'workspace.delete', why: 'destroys the workspace and every blob under it' },
+  { method: 'GET', path: 'manifest', required: 'doc.read', why: 'the manifest is what opening the workspace reads' },
+  { method: 'PUT', path: 'manifest', required: 'workspace.settings', why: 'the whole-manifest write, settings slot included' },
+  { method: 'POST', path: 'move-file', required: 'file.rename', why: 'rename and move are the same act on one file' },
+  { method: 'POST', path: 'move-folder', required: 'folder.manage', why: 'a folder move re-keys every blob under it' },
+  { method: 'POST', path: 'folders', required: 'folder.manage', why: 'creating an empty folder is folder management' },
+  { method: 'DELETE', path: 'folders/<folder>', required: 'folder.manage', why: 'so is deleting one, contents and all' },
+  { method: 'PUT', path: 'upload/<new>', required: 'file.upload', why: 'its own verb and its own size/type rule (Req 19)' },
+  { method: 'GET', path: 'download/<existing>', required: 'file.download', why: 'taking bytes out of the workspace (Req 19)' },
+  { method: 'POST', path: 'members', required: 'workspace.members', why: 'handing out a role' },
+  { method: 'PUT', path: 'members/<member>', required: 'workspace.members', why: 'changing one' },
+  { method: 'DELETE', path: 'members/<member>', required: 'workspace.members', why: 'taking one away' },
+  { method: 'PUT', path: 'everyone', required: 'workspace.members', why: 'everyone-access is a grant like any other' },
+  { method: 'POST', path: 'roles', required: 'workspace.roles', why: 'defining a role is not handing one out' },
+  { method: 'PUT', path: 'roles/<role>', required: 'workspace.roles', why: 'nor is editing one' },
+  { method: 'DELETE', path: 'roles/<role>', required: 'workspace.roles', why: 'nor deleting one' },
+  { method: 'GET', path: 'files', required: 'doc.read', why: 'the file listing is workspace content' },
+  { method: 'GET', path: 'files/<existing>', required: 'doc.read', why: 'reading a document or a pasted image' },
+  { method: 'PUT', path: 'files/<existing>', required: 'doc.edit', why: 'a PUT over an existing blob is a save' },
+  { method: 'PUT', path: 'files/<new>', required: 'file.create', why: 'a PUT of a path that holds nothing yet is a create' },
+  { method: 'DELETE', path: 'files/<existing>', required: 'file.delete', why: 'removing a blob' },
+  { method: 'GET', path: 'files/<sidecar>', required: 'comment.read', why: 'a sidecar is comments, not a document' },
+  { method: 'PUT', path: 'files/<sidecar>', required: 'comment.write', why: 'so a Commenter can write one without doc.edit' },
+  { method: 'DELETE', path: 'files/<sidecar>', required: 'comment.write', why: 'the last comment going away is a comment write' },
+];
+
+/**
+ * PRD 007 Req 13+17: which verb one `files/<path>` request needs. A comment
+ * sidecar is comments — `comment.read`/`comment.write` — which is what lets a
+ * Commenter (no `doc.edit`) actually comment; every other blob, pasted images
+ * included, stays on the doc/file verbs. A PUT is a create when the path
+ * holds nothing yet and a save when it does: a custom role may grant
+ * `file.create` without `doc.edit` or the other way round (Req 15), so the
+ * two cannot share one verb.
+ */
+function fileRouteVerb(method: string, filePath: string, exists: boolean): Permission | null {
+  if (isSidecarPath(filePath)) {
+    if (method === 'GET') return 'comment.read';
+    return method === 'PUT' || method === 'DELETE' ? 'comment.write' : null;
+  }
+  if (method === 'GET') return 'doc.read';
+  if (method === 'PUT') return exists ? 'doc.edit' : 'file.create';
+  return method === 'DELETE' ? 'file.delete' : null;
+}
+
 /** A `{from, to}` move request body, or null when it is not one. */
 function parseMove(raw: string): { from: string; to: string } | null {
   let body: unknown;
@@ -95,6 +169,16 @@ function parseMove(raw: string): { from: string; to: string } | null {
   const cleanFrom = cleanRelativePath(from);
   const cleanTo = cleanRelativePath(to);
   return cleanFrom && cleanTo ? { from: cleanFrom, to: cleanTo } : null;
+}
+
+/**
+ * Does this exact blob exist? A metadata listing rather than a read: the
+ * create-vs-save decision must not pay for downloading the bytes it is about
+ * to replace. Prefix listings can return neighbours (`a.md` matches `a.md2`),
+ * so the exact path is what counts.
+ */
+async function blobExists(storage: StorageProvider, path: string): Promise<boolean> {
+  return (await storage.list(path)).some((b) => b.path === path);
 }
 
 /** Copy one blob's bytes (and media type) to a new path, then drop the old. */
@@ -639,10 +723,15 @@ export async function handleWorkspaceApi(
       return;
     }
     const blobPath = filesPrefix(id) + filePath;
+    // PRD 007 Req 13+17: one verb for this request, from the table above —
+    // sidecars answer to the comment verbs, and a PUT is a create or a save
+    // depending on whether the blob is already there. An unsupported method
+    // yields no verb and falls through to the 404 at the end.
+    const method = req.method ?? '';
+    const exists = method === 'PUT' && !isSidecarPath(filePath) ? await blobExists(storage, blobPath) : false;
+    const verb = fileRouteVerb(method, filePath, exists);
+    if (verb && !(await requirePermission(res, storage, id, auth, verb))) return;
     if (req.method === 'GET') {
-      // Required permission: doc.read.
-      const manifest = await requirePermission(res, storage, id, auth, 'doc.read');
-      if (!manifest) return;
       if (raw) {
         const bytes = await storage.readBytes(blobPath);
         if (!bytes) {
@@ -663,10 +752,6 @@ export async function handleWorkspaceApi(
       return;
     }
     if (req.method === 'PUT') {
-      // Required permission: doc.edit (one verb per endpoint; PUT is the
-      // save path, and no built-in role grants file.create without doc.edit).
-      const manifest = await requirePermission(res, storage, id, auth, 'doc.edit');
-      if (!manifest) return;
       if (raw) {
         const { etag } = await storage.writeBytes(
           blobPath,
@@ -698,9 +783,6 @@ export async function handleWorkspaceApi(
       return;
     }
     if (req.method === 'DELETE') {
-      // Required permission: file.delete.
-      const manifest = await requirePermission(res, storage, id, auth, 'file.delete');
-      if (!manifest) return;
       const existed = await storage.delete(blobPath);
       sendJson(res, existed ? 200 : 404, existed ? { deleted: filePath } : { error: 'not found' });
       return;

@@ -5,7 +5,8 @@ import { createApp } from '../../server/app';
 import { createMockAuthProvider } from '../../server/providers/mock/auth';
 import { createMockDirectoryProvider } from '../../server/providers/mock/directory';
 import type { FileStat, StorageProvider } from '../../server/providers/types';
-import type { WorkspaceManifest } from '../../src/lib/hostedWorkspace';
+import { PERMISSIONS, type WorkspaceManifest } from '../../src/lib/hostedWorkspace';
+import { WORKSPACE_ROUTE_PERMISSIONS } from '../../server/workspaces';
 
 // PRD 007 Req 7+13: the workspace API's blob layout and permission
 // enforcement, proven offline at the HTTP layer — createApp wired to an
@@ -679,6 +680,206 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     for (const [method, path, body] of roleRoutes) {
       expect((await call('alan', method, path, body)).status, `alan ${method} ${path}`).toBe(200);
     }
+    blobs.clear();
+  });
+
+  /**
+   * PRD 007 Req 13+17: the enforcement sweep. The route→verb table in
+   * server/workspaces.ts is the documented mapping; these tests drive it
+   * against the real handlers, so a table entry that drifts from its route —
+   * or a catalog verb no route requires — fails here.
+   */
+  it('U326: every route in the table 403s with exactly its declared verb, and every catalog verb is enforced', async () => {
+    const id = await createWorkspace('ada', 'Table');
+    // Seed what the placeholders address: an existing blob, its sidecar, a
+    // folder, a member and a custom role.
+    await call('ada', 'PUT', `/api/workspaces/${id}/files/existing.md`, '# there\n');
+    await call('ada', 'PUT', `/api/workspaces/${id}/files/existing.md.comments.json`, '{"version":1,"comments":[]}');
+    await call('ada', 'POST', `/api/workspaces/${id}/folders`, JSON.stringify({ path: 'folder' }));
+    await addMember(id, 'mock-grace', 'Viewer');
+    await call('ada', 'POST', `/api/workspaces/${id}/roles`, JSON.stringify({ name: 'Some', permissions: [] }));
+    const before = [...blobs.keys()].sort();
+
+    const fill = (path: string): string =>
+      path
+        .replace('<existing>', 'existing.md')
+        .replace('<sidecar>', 'existing.md.comments.json')
+        .replace('<new>', 'brand-new.md')
+        .replace('<folder>', 'folder')
+        .replace('<member>', 'mock-grace')
+        .replace('<role>', 'Some');
+
+    // Alan is a signed-in non-member of a workspace with everyone-access off:
+    // he resolves to no verbs at all, so every route answers 403 and names
+    // the one verb it wanted.
+    for (const route of WORKSPACE_ROUTE_PERMISSIONS) {
+      const path = `/api/workspaces/${id}${route.path ? `/${fill(route.path)}` : ''}`;
+      const res = await call('alan', route.method, path, route.method === 'GET' ? undefined : '{}');
+      expect(res.status, `${route.method} ${route.path}`).toBe(403);
+      expect(((await res.json()) as { required: string }).required, `${route.method} ${route.path}`).toBe(
+        route.required,
+      );
+    }
+    // Req 17: nothing he tried landed — enforcement is not advisory.
+    expect([...blobs.keys()].sort()).toEqual(before);
+
+    // Req 13: the whole catalog is reachable — no verb can be added to
+    // PERMISSIONS and left with no operation behind it.
+    const enforced = new Set(WORKSPACE_ROUTE_PERMISSIONS.map((r) => r.required));
+    expect([...PERMISSIONS].filter((p) => !enforced.has(p))).toEqual([]);
+    blobs.clear();
+  });
+
+  it('U327: a comment sidecar answers to the comment verbs — a Commenter comments, a Viewer cannot', async () => {
+    const id = await createWorkspace('ada', 'Sidecars');
+    await call('ada', 'PUT', `/api/workspaces/${id}/files/doc.md`, '# doc\n');
+    await addMember(id, 'mock-grace', 'Commenter');
+    await addMember(id, 'mock-alan', 'Viewer');
+    const sidecar = `/api/workspaces/${id}/files/doc.md.comments.json`;
+    const payload = '{"version":1,"comments":[{"id":"c1"}]}';
+
+    // PRD 007 Req 14+17: the headline fix. A Commenter holds no doc.edit and
+    // could not write a sidecar while it demanded that verb.
+    expect((await call('grace', 'PUT', sidecar, payload)).status).toBe(200);
+    expect((await call('grace', 'GET', sidecar)).status).toBe(200);
+    // …but the document itself is still not theirs to change.
+    const save = await call('grace', 'PUT', `/api/workspaces/${id}/files/doc.md`, 'changed');
+    expect(save.status).toBe(403);
+    expect(((await save.json()) as { required: string }).required).toBe('doc.edit');
+    expect(blobs.get(`workspaces/${id}/files/doc.md`)).toBe('# doc\n');
+
+    // A Viewer reads the same comments and writes neither store.
+    expect((await call('alan', 'GET', sidecar)).status).toBe(200);
+    for (const [method, path, required] of [
+      ['PUT', sidecar, 'comment.write'],
+      ['DELETE', sidecar, 'comment.write'],
+      ['PUT', `/api/workspaces/${id}/files/doc.md`, 'doc.edit'],
+    ] as const) {
+      const res = await call('alan', method, path, 'x');
+      expect(res.status, `${method} ${path}`).toBe(403);
+      expect(((await res.json()) as { required: string }).required).toBe(required);
+    }
+    expect(blobs.get(`workspaces/${id}/files/doc.md.comments.json`)).toBe(payload);
+
+    // A custom role without comment.read cannot even see them, while the
+    // document stays readable — the two are separate verbs.
+    await call('ada', 'POST', `/api/workspaces/${id}/roles`, JSON.stringify({ name: 'NoComments', permissions: ['doc.read', 'doc.edit'] }));
+    await call('ada', 'PUT', `/api/workspaces/${id}/members/mock-alan`, JSON.stringify({ role: 'NoComments' }));
+    const hidden = await call('alan', 'GET', sidecar);
+    expect(hidden.status).toBe(403);
+    expect(((await hidden.json()) as { required: string }).required).toBe('comment.read');
+    expect((await call('alan', 'GET', `/api/workspaces/${id}/files/doc.md`)).status).toBe(200);
+    // A pasted image is not a sidecar: it stays on the doc/file verbs.
+    expect((await call('alan', 'PUT', `/api/workspaces/${id}/files/images/p.png?raw=1`, 'bytes')).status).toBe(403);
+    blobs.clear();
+  });
+
+  it('U328: a PUT that creates needs file.create, a PUT that saves needs doc.edit', async () => {
+    const id = await createWorkspace('ada', 'Create');
+    await call('ada', 'PUT', `/api/workspaces/${id}/files/there.md`, 'original\n');
+    // PRD 007 Req 15: custom roles are exactly why the two cannot share a
+    // verb — one role each way round.
+    await call('ada', 'POST', `/api/workspaces/${id}/roles`, JSON.stringify({ name: 'Saver', permissions: ['doc.read', 'doc.edit'] }));
+    await call('ada', 'POST', `/api/workspaces/${id}/roles`, JSON.stringify({ name: 'Maker', permissions: ['doc.read', 'file.create'] }));
+    await addMember(id, 'mock-grace', 'Saver');
+    await addMember(id, 'mock-alan', 'Maker');
+
+    // Saver: may overwrite what exists, may not bring a new path into being.
+    expect((await call('grace', 'PUT', `/api/workspaces/${id}/files/there.md`, 'edited\n')).status).toBe(200);
+    const refusedCreate = await call('grace', 'PUT', `/api/workspaces/${id}/files/fresh.md`, 'new\n');
+    expect(refusedCreate.status).toBe(403);
+    expect(((await refusedCreate.json()) as { required: string }).required).toBe('file.create');
+    expect(blobs.has(`workspaces/${id}/files/fresh.md`)).toBe(false);
+
+    // Maker: the mirror image, including for raw bytes (a pasted image).
+    expect((await call('alan', 'PUT', `/api/workspaces/${id}/files/fresh.md`, 'new\n')).status).toBe(200);
+    expect((await call('alan', 'PUT', `/api/workspaces/${id}/files/images/p.png?raw=1`, 'bytes')).status).toBe(200);
+    const refusedSave = await call('alan', 'PUT', `/api/workspaces/${id}/files/there.md`, 'stomped\n');
+    expect(refusedSave.status).toBe(403);
+    expect(((await refusedSave.json()) as { required: string }).required).toBe('doc.edit');
+    expect(blobs.get(`workspaces/${id}/files/there.md`)).toBe('edited\n');
+    // A path that was created IS existing afterwards: the second write is a save.
+    const second = await call('alan', 'PUT', `/api/workspaces/${id}/files/fresh.md`, 'again\n');
+    expect(second.status).toBe(403);
+    expect(((await second.json()) as { required: string }).required).toBe('doc.edit');
+    blobs.clear();
+  });
+
+  it('U329: the five built-in roles behave against the real endpoints, and no refusal changes stored state', async () => {
+    const id = await createWorkspace('ada', 'Matrix');
+    const files = () => [...blobs.keys()].filter((b) => b.startsWith(`workspaces/${id}/files/`)).sort();
+    const sidecar = `/api/workspaces/${id}/files/doc.md.comments.json`;
+
+    /**
+     * PRD 007 Req 14+17: what one role can actually do, endpoint by endpoint
+     * and one at a time — each attempt is issued only after the previous
+     * one's outcome is known, so what a role may do is never confused with
+     * what raced ahead of it. The document is re-seeded per role, and each
+     * role's create/rename targets carry its own name.
+     */
+    const allowed = async (user: string, tag: string): Promise<string[]> => {
+      await call('ada', 'PUT', `/api/workspaces/${id}/files/doc.md`, 'seed\n');
+      const attempts: Array<readonly [string, () => Promise<Response>]> = [
+        ['read', () => call(user, 'GET', `/api/workspaces/${id}/files/doc.md`)],
+        ['comment', () => call(user, 'PUT', sidecar, '{"version":1,"comments":[]}')],
+        ['save', () => call(user, 'PUT', `/api/workspaces/${id}/files/doc.md`, 'theirs\n')],
+        ['create', () => call(user, 'PUT', `/api/workspaces/${id}/files/${tag}.md`, 'new\n')],
+        ['delete', () => call(user, 'DELETE', `/api/workspaces/${id}/files/${tag}.md`)],
+        [
+          'rename',
+          () =>
+            call(user, 'POST', `/api/workspaces/${id}/move-file`, JSON.stringify({ from: 'doc.md', to: `${tag}-moved.md` })),
+        ],
+        ['folder', () => call(user, 'POST', `/api/workspaces/${id}/folders`, JSON.stringify({ path: `${tag}-dir` }))],
+        ['members', () => call(user, 'PUT', `/api/workspaces/${id}/everyone`, JSON.stringify({ enabled: false }))],
+      ];
+      const out: string[] = [];
+      for (const [name, run] of attempts) {
+        const res = await run();
+        if (res.ok) out.push(name);
+        else {
+          expect(res.status, `${user} ${name}`).toBe(403);
+          // Req 13: a refusal always names one catalog verb.
+          expect(PERMISSIONS).toContain(((await res.json()) as { required: string }).required);
+        }
+      }
+      return out;
+    };
+
+    await addMember(id, 'mock-grace', 'Commenter');
+    // A Commenter opens the doc and writes a comment — and nothing else.
+    expect(await allowed('grace', 'Commenter')).toEqual(['read', 'comment']);
+    // Req 17: nothing they were refused landed. The document still holds the
+    // seed, and the only blob that appeared is the sidecar they may write.
+    expect(blobs.get(`workspaces/${id}/files/doc.md`)).toBe('seed\n');
+    expect(files()).toEqual([`workspaces/${id}/files/doc.md`, `workspaces/${id}/files/doc.md.comments.json`]);
+
+    const reRole = (role: string) =>
+      call('ada', 'PUT', `/api/workspaces/${id}/members/mock-grace`, JSON.stringify({ role }));
+
+    await reRole('Viewer');
+    expect(await allowed('grace', 'Viewer')).toEqual(['read']);
+    expect(blobs.get(`workspaces/${id}/files/doc.md`)).toBe('seed\n');
+
+    await reRole('Contributor');
+    // Contributor creates and edits; deleting, renaming and folders are not theirs.
+    expect(await allowed('grace', 'Contributor')).toEqual(['read', 'comment', 'save', 'create']);
+
+    await reRole('Editor');
+    // Editor does all doc/file/folder/comment work and no workspace.* at all.
+    expect(await allowed('grace', 'Editor')).toEqual(['read', 'comment', 'save', 'create', 'delete', 'rename', 'folder']);
+
+    // Owner: everything, the membership endpoint included.
+    expect(await allowed('ada', 'Owner')).toEqual([
+      'read',
+      'comment',
+      'save',
+      'create',
+      'delete',
+      'rename',
+      'folder',
+      'members',
+    ]);
     blobs.clear();
   });
 });

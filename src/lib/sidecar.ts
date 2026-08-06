@@ -12,8 +12,24 @@ import { commentPayload, readCommentPayload } from './commentFormat';
  * in a file next to the document — and nothing more.
  */
 
+/** The suffix that makes a path a comment sidecar rather than a document. */
+export const SIDECAR_SUFFIX = '.comments.json';
+
 export function sidecarPathFor(docPath: string): string {
-  return `${docPath}.comments.json`;
+  return `${docPath}${SIDECAR_SUFFIX}`;
+}
+
+/**
+ * PRD 007 Req 13/17: is this path a comment sidecar? The server requires
+ * `comment.read`/`comment.write` for exactly these blobs instead of the doc
+ * and file verbs, so the predicate has to be ONE definition both sides share
+ * — a server that spelled the suffix itself could drift from the client that
+ * writes the file. A bare `.comments.json` is not a sidecar: it belongs to no
+ * document, and neither is a lookalike like `notes.comments.jsonx`.
+ */
+export function isSidecarPath(path: string): boolean {
+  const name = path.split('/').pop() ?? path;
+  return name.length > SIDECAR_SUFFIX.length && name.endsWith(SIDECAR_SUFFIX);
 }
 
 /** What a sidecar read yielded, including whether it was readable at all. */

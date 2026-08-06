@@ -2,7 +2,7 @@ import type { Platform } from './types';
 import { createLocalDocs } from './localDocs';
 import { readStoredToken } from '../lib/hostedGate';
 import { createHostedWorkspaceLifecycle } from './hostedWorkspaces';
-import { fileGrantsFromPermissions, type FileGrants } from '../lib/fileGrants';
+import { ALL_FILE_GRANTS, fileGrantsFromPermissions, type FileGrants } from '../lib/fileGrants';
 import { uploadRejection } from '../lib/fileTransfer';
 import { parseWorkspaceManifest, resolvePermissions, type Permission } from '../lib/hostedWorkspace';
 import { SaveConflictError } from '../lib/saveConflict';
@@ -109,6 +109,19 @@ export function createHostedPlatform(): Platform {
     fetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token()}` } });
 
   const json = async <T>(res: Response): Promise<T | null> => (res.ok ? ((await res.json()) as T) : null);
+
+  /**
+   * PRD 007 Req 17: what to tell the user about a refused request. The UI
+   * hides what a role cannot do, but a role changed in another tab (or a
+   * grant set cached since page load) can still meet a 403 — and then the
+   * server's NAMED verb is the actionable part, exactly as the members/roles
+   * endpoints already report it (platform/hostedWorkspaces.ts).
+   */
+  const refusal = async (res: Response, fallback: string): Promise<string> => {
+    const body = (await res.json().catch(() => null)) as { error?: string; required?: string } | null;
+    if (res.status === 403 && body?.required) return `You need the ${body.required} permission to do that.`;
+    return body?.error ?? fallback;
+  };
 
   // Listings are the answer to `exists` and both directory reads, and the app
   // asks constantly (every doc open probes for a sidecar). One listing per
@@ -262,7 +275,7 @@ export function createHostedPlatform(): Platform {
         // The server refused the write; the stored content is untouched.
         throw new SaveConflictError(path);
       }
-      if (!res.ok) throw new Error(`write failed (${res.status}): ${path}`);
+      if (!res.ok) throw new Error(await refusal(res, `write failed (${res.status}): ${path}`));
       const written = await json<{ etag: string }>(res);
       if (written?.etag) etags.set(path, written.etag);
       else etags.delete(path);
@@ -354,7 +367,7 @@ export function createHostedPlatform(): Platform {
         { method: 'DELETE' },
       );
       invalidate(target);
-      if (!res.ok) throw new Error(`delete failed (${res.status}): ${path}`);
+      if (!res.ok) throw new Error(await refusal(res, `delete failed (${res.status}): ${path}`));
       etags.delete(path);
     },
 
@@ -469,12 +482,19 @@ export function createHostedPlatform(): Platform {
     },
 
     /**
-     * PRD 007 Req 17: the affordances this member's verbs allow, so the
-     * sidebar offers only what they can actually do. Resolved once and cached
-     * for the page's lifetime: permissions change in the members UI (#77),
-     * which reloads.
+     * PRD 007 Req 17: the affordances this member's verbs allow, so the app
+     * offers only what they can actually do. Resolved once and cached for the
+     * page's lifetime: permissions change in the members UI (#77), which
+     * reloads.
+     *
+     * PRD 007 Req 21: a local doc is not workspace content — nobody's role
+     * governs a file the browser opened client-side, so it keeps every
+     * affordance even when the bound workspace grants none.
      */
-    fileGrants: () => (grants ??= myPermissions().then(fileGrantsFromPermissions)),
+    fileGrants: (path) =>
+      path !== undefined && local.owns(path)
+        ? Promise.resolve(ALL_FILE_GRANTS)
+        : (grants ??= myPermissions().then(fileGrantsFromPermissions)),
 
     /**
      * PRD 007 Req 19: single-file upload through its own `file.upload` route.

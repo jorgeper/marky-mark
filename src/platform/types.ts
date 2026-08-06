@@ -122,13 +122,20 @@ export interface Platform {
   readClipboardText?(): Promise<string>;
 
   /**
-   * PRD 007 Req 17: which file-management affordances the signed-in user may
-   * use. Absent ⇒ no permission model — the app offers everything the other
-   * seams already provide (`ALL_FILE_GRANTS`). Present ⇒ the sidebar's menu
-   * items and drop targets are narrowed to the answer; the server re-checks
-   * every verb regardless, so this is presentation, never enforcement.
+   * PRD 007 Req 17: which affordances the signed-in user may use — for the
+   * document at `path`, or for the storage scope as a whole when it is
+   * omitted (the sidebar's rows and the transfer items). Absent ⇒ no
+   * permission model: the app offers everything the other seams already
+   * provide (`ALL_FILE_GRANTS`). Present ⇒ the editor, the comment
+   * affordances, the menu items and the sidebar are narrowed to the answer;
+   * the server re-checks every verb regardless, so this is presentation,
+   * never enforcement.
+   *
+   * The path argument is what keeps a document the flavor holds OUTSIDE any
+   * permission scope — a hosted local-file doc (PRD 007 Req 21) — fully
+   * editable while the bound workspace grants nothing.
    */
-  fileGrants?(): Promise<FileGrants>;
+  fileGrants?(path?: string): Promise<FileGrants>;
   /**
    * PRD 007 Req 19: single-file upload — store `bytes` as `name` inside
    * `dir` and resolve the path it landed at. The caller has already applied

@@ -109,6 +109,15 @@ import { AboutDialog } from './components/AboutDialog';
 
 const Editor = lazy(() => import('./components/Editor'));
 
+/**
+ * PRD 007 Req 17: what this user may do — with one document, or with the
+ * storage scope as a whole when no path is named. The one place App asks the
+ * question: a platform without the seam has no permission model, so it keeps
+ * everything its other seams already offer.
+ */
+const grantsFor = (p: Platform, path?: string): Promise<FileGrants> =>
+  p.fileGrants ? p.fileGrants(path) : Promise.resolve(ALL_FILE_GRANTS);
+
 const CARD_GAP = 8;
 /** Auto-hiding toolbar timings (SPEC4 §2). */
 export const TOOLBAR_GRACE_MS = 2500;
@@ -291,9 +300,23 @@ export default function App() {
   const [folderRenameError, setFolderRenameError] = useState<string | null>(null);
   // SPEC35 §6: the delete confirmation — “Move ‘NAME’ to the Trash?”.
   const [folderDeletePrompt, setFolderDeletePrompt] = useState<{ path: string; isDir: boolean } | null>(null);
-  // PRD 007 Req 17: what this user may do with files — everything, unless the
-  // platform answers the grants seam (App never asks which flavor that is).
+  // PRD 007 Req 17: what this user may do in the storage scope the sidebar
+  // shows — everything, unless the platform answers the grants seam (App
+  // never asks which flavor that is).
   const [folderGrants, setFolderGrants] = useState<FileGrants>(ALL_FILE_GRANTS);
+  // PRD 007 Req 17: and what they may do with the OPEN DOCUMENT, which is a
+  // separate question: a doc the flavor holds outside any permission scope (a
+  // hosted local file, Req 21) stays editable while the workspace grants
+  // nothing.
+  const [docGrants, setDocGrants] = useState<FileGrants>(ALL_FILE_GRANTS);
+  // PRD 007 Req 17: the document is open for reading only — a role without
+  // doc.edit. Deliberately NOT the same condition as PRD 004 Req 15's frozen
+  // store, which closes comment authoring while the document text stays
+  // editable (its save re-emits the trailer bytes verbatim): the two reasons
+  // stay distinguishable, and each gets its own words to the user.
+  const docReadOnly = !docGrants.edit;
+  // Both close comment authoring, for their own reasons.
+  const mayComment = !authoringFrozen && docGrants.commentWrite;
   // PRD 007 Req 19: a refused upload or move, shown in the sidebar. It names
   // the rule that failed — the whole point of rejecting before uploading.
   const [folderNotice, setFolderNotice] = useState<string | null>(null);
@@ -539,6 +562,7 @@ export default function App() {
     activeId,
     showComments,
     html,
+    docGrants,
   });
   stateRef.current = {
     settings,
@@ -556,6 +580,9 @@ export default function App() {
     activeId,
     showComments,
     html,
+    // PRD 007 Req 17: the command handlers gate on this too, so a hotkey is
+    // exactly as inert as the menu item it mirrors.
+    docGrants,
   };
 
   /**
@@ -1113,11 +1140,16 @@ export default function App() {
   const loadDocParts = useCallback(async (p: Platform, path: string) => {
     const raw = await p.readTextFile(path);
     const split = splitEmbedded(raw);
+    // PRD 007 Req 17: without comment.read this document's comments are not
+    // loaded at all — no sidecar request to be refused, and the trailer's
+    // comments (which arrive inside the document's own bytes, so no server
+    // can withhold them) are dropped here rather than shown.
+    const mayRead = (await grantsFor(p, path)).commentRead;
     let sidecarComments: CommentData[] = [];
     let sidecarStore: UnreadableStore | null = null;
     try {
       const sidecar = sidecarPathFor(path);
-      if (await p.exists(sidecar)) {
+      if (mayRead && (await p.exists(sidecar))) {
         const read = readSidecar(await p.readTextFile(sidecar));
         sidecarComments = read.comments;
         if (!read.readable) sidecarStore = { declaredVersion: read.declaredVersion };
@@ -1141,7 +1173,7 @@ export default function App() {
       // edited save already did — making the written form deterministic.
       // The trailer stays raw (trailerBytes are preserved byte-for-byte).
       content: normalizeEol(split.content),
-      comments: mergeComments(split.comments, sidecarComments),
+      comments: mayRead ? mergeComments(split.comments, sidecarComments) : [],
       stores: docStores,
     };
   }, []);
@@ -1513,6 +1545,27 @@ export default function App() {
       live = false;
     };
   }, [folderRoots]);
+
+  /**
+   * PRD 007 Req 17: the same question for the open document — asked per path,
+   * so an untitled buffer (which belongs to no scope until Save As says where
+   * it lands) and a doc the flavor holds locally both stay editable.
+   */
+  useEffect(() => {
+    const p = stateRef.current.platform;
+    if (!p) return;
+    if (!docPath) {
+      setDocGrants(ALL_FILE_GRANTS);
+      return;
+    }
+    let live = true;
+    void grantsFor(p, docPath).then((grants) => {
+      if (live) setDocGrants(grants);
+    });
+    return () => {
+      live = false;
+    };
+  }, [docPath, platform]);
 
   /**
    * PRD 007 Req 19: upload ONE file into `dir`. The shared rule decides
@@ -2015,6 +2068,10 @@ export default function App() {
       // "clean up a stale sidecar" removal below. Authoring is closed in the UI
       // too; this is the belt to that pair of braces.
       if (hasUnreadableStore(s.stores)) return;
+      // PRD 007 Req 17: and a member without comment.write never attempts the
+      // sidecar write at all — the composer is gone, so there is nothing to
+      // persist, and an autosave that could only earn a 403 is not issued.
+      if (!s.docGrants.commentWrite) return;
       const p = s.platform;
       const sidecar = sidecarPathFor(s.docPath);
       try {
@@ -2656,7 +2713,12 @@ export default function App() {
         setSaveConflict({ path: s.docPath, fileText: text, bufferText: out });
         return false;
       }
-      throw e;
+      // PRD 007 Req 17: a refusal the UI could not foresee — a role changed
+      // in another tab, a grant set cached since page load — surfaces the
+      // server's own named verb. The buffer stays dirty: the document is
+      // never left looking saved when the save did not land.
+      showNotice(`Couldn’t save: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
     }
     await s.platform.commitFile?.(s.docPath); // web download fallback for handle-less files
     setSavedText(out);
@@ -2666,7 +2728,7 @@ export default function App() {
       await persistComments(s.comments);
     }
     return true;
-  }, [persistComments, saveDocAs]);
+  }, [persistComments, saveDocAs, showNotice]);
 
   /**
    * PRD 007 Req 20: the conflict prompt's three answers, run through the
@@ -2704,6 +2766,9 @@ export default function App() {
     // handler keeps every dispatch route (hotkey, native menu, toolbar)
     // inert through one gate, like toggleFolders.
     if (s.mode === 'preview' && !s.docPath && !s.untitled) return;
+    // PRD 007 Req 17: and entering edit mode needs the right to change the
+    // document — the menu item is grayed, this makes the hotkey match.
+    if (s.mode === 'preview' && !s.docGrants.edit) return;
     // SPEC25: carry the current selection across the mode switch.
     if (s.mode === 'preview') {
       pendingEditorSelRef.current =
@@ -3114,8 +3179,15 @@ export default function App() {
           });
         }
       },
-      save: () => void saveDoc(),
-      saveAs: () => void saveDocAs(),
+      // PRD 007 Req 17: a save the role cannot make is not attempted — the
+      // hotkey is as inert as the grayed menu row, and no request is issued
+      // that could only earn a 403.
+      save: () => {
+        if (stateRef.current.docGrants.edit) void saveDoc();
+      },
+      saveAs: () => {
+        if (stateRef.current.docGrants.edit) void saveDocAs();
+      },
       // SPEC17 §1: Export… opens the dialog (silent no-op without a document).
       exportDoc: () => {
         if (stateRef.current.docPath) setExportOpen(true);
@@ -3349,6 +3421,10 @@ export default function App() {
         // seam does and only for a user holding the verb.
         canUpload: !!platform?.uploadFile && folderGrants.upload,
         canDownload: !!platform?.downloadFile && folderGrants.download,
+        // PRD 007 Req 17: Edit Mode / Save / Save As… gray out for a member
+        // who may not change the open document — the hotkeys they mirror are
+        // gated in the command handlers, so both routes are equally inert.
+        canEdit: docGrants.edit,
         // PRD 007 Req 22: the File menu carries exactly the start page's list.
         entryActions,
         openOnly: folderOpenOnly,
@@ -3361,7 +3437,7 @@ export default function App() {
       // Issue #38: a failed install must not strand the window with neither
       // a menu nor the toolbar — fall back to in-app chrome for the session.
     ).catch(() => setMenuInstallFailed(true));
-  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, settings.lineNumbers, recent, recentWs, settings.showFolders, folderOpenOnly, openFiles.length, entryActions, menuInstallFailed]);
+  }, [platform, mode, appMode, docPath, untitled, showComments, settings.commentsEnabled, comments.length, settings.hotkeys, showDiff, settings.showWordCount, settings.splitEdit, fmOverride, settings.showFrontmatter, settings.lineNumbers, recent, recentWs, settings.showFolders, folderOpenOnly, openFiles.length, entryActions, menuInstallFailed, docGrants.edit]);
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -4168,7 +4244,7 @@ export default function App() {
 
   // --- comment operations -----------------------------------------------------------
   const startComposer = (seed = '') => {
-    if (!selInfo || authoringFrozen) return; // PRD 004 Req 15
+    if (!selInfo || !mayComment) return; // PRD 004 Req 15 + PRD 007 Req 17
     setPending({ start: selInfo.start, end: selInfo.end });
     setDraft(seed);
     setActiveId(null);
@@ -4202,7 +4278,9 @@ export default function App() {
   useEffect(() => {
     if (mode !== 'preview' || !selInfo || pending || !showComments) return;
     if (!settings.commentsEnabled || !settings.typeToComment) return;
-    if (authoringFrozen) return; // PRD 004 Req 15: no composer for a frozen doc
+    // PRD 004 Req 15: no composer for a frozen doc; PRD 007 Req 17: none
+    // without comment.write either.
+    if (!mayComment) return;
     const { start, end } = selInfo;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1) return; // printable only
@@ -4222,7 +4300,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selInfo, pending, mode, showComments, settings.commentsEnabled, settings.typeToComment, authoringFrozen]);
+  }, [selInfo, pending, mode, showComments, settings.commentsEnabled, settings.typeToComment, mayComment]);
 
   const submitComment = () => {
     const body = draft.trim();
@@ -4306,6 +4384,9 @@ export default function App() {
     commentsEnabled: settings.commentsEnabled,
     composerOpen: pending !== null,
     authoringFrozen,
+    // PRD 007 Req 17: a role without comment.write is offered no route to a
+    // comment on either surface.
+    canWrite: docGrants.commentWrite,
   });
 
   const panelVisible =
@@ -4365,7 +4446,7 @@ export default function App() {
             orphaned={positions[it.c.id] === null}
             active={activeId === it.c.id}
             ghost={it.ghost}
-            readOnly={authoringFrozen}
+            readOnly={!mayComment}
             onActivate={handleCardActivate}
             onUpdate={updateComment}
             onDelete={deleteComment}
@@ -4382,7 +4463,7 @@ export default function App() {
               author={settings.author}
               orphaned={positions[c.id] === null}
               active={activeId === c.id}
-              readOnly={authoringFrozen}
+              readOnly={!mayComment}
               onActivate={(id) => setActiveId(id)}
               onUpdate={updateComment}
               onDelete={deleteComment}
@@ -4437,6 +4518,8 @@ export default function App() {
               commentCount={comments.length}
               hotkeys={settings.hotkeys}
               isMac={platform.isMac}
+              // PRD 007 Req 17: no Edit / Save rows for a read-only role.
+              canEdit={docGrants.edit}
               onToggleMode={() => dispatchCommand('toggleMode')}
               onToggleComments={() => dispatchCommand('toggleComments')}
               onNewFile={() => dispatchCommand('newFile')}
@@ -4657,6 +4740,8 @@ export default function App() {
             <Suspense fallback={<div className="editor-wrap" data-testid="editor-loading" />}>
               <Editor
                 value={buffer}
+                // PRD 007 Req 17: a role without doc.edit types nothing.
+                readOnly={docReadOnly}
                 lineNumbers={settings.lineNumbers}
                 onChange={editorChanged}
                 historyRef={editorHistoryRef}
@@ -4732,6 +4817,8 @@ export default function App() {
           <Suspense fallback={<div className="editor-wrap" data-testid="editor-loading" />}>
             <Editor
               value={buffer}
+              // PRD 007 Req 17: a role without doc.edit types nothing.
+              readOnly={docReadOnly}
               lineNumbers={settings.lineNumbers}
               onChange={editorChanged}
               historyRef={editorHistoryRef}
@@ -4822,6 +4909,17 @@ export default function App() {
       {authoringFrozen && settings.commentsEnabled && (
         <div className="mm-store-notice" data-testid="store-unreadable" role="status">
           {unreadableStoreMessage(stores)}
+        </div>
+      )}
+
+      {/* PRD 007 Req 17: the permission case gets its own persistent line —
+          a role without doc.edit is a different situation from PRD 004's
+          frozen store above, and saying so is what stops the user hunting
+          for the Edit button that is no longer there. Shown only for a real
+          open document (an untitled buffer belongs to no scope yet). */}
+      {!docGrants.edit && !!docPath && (
+        <div className="mm-store-notice" data-testid="read-only-doc" role="status">
+          Read-only: your role in this workspace does not include doc.edit.
         </div>
       )}
 

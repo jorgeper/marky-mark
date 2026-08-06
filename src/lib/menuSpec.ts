@@ -113,6 +113,16 @@ export interface MenuState {
   canUpload?: boolean;
   canDownload?: boolean;
   /**
+   * PRD 007 Req 17: whether this user may change the open document at all.
+   * OPTIONAL so every pre-#79 MenuState call site (and frozen test fixtures)
+   * keeps its exact menus: absent reads as "no permission model" — the
+   * desktop, shim and web flavors, where everything stays as it was. False
+   * grays out Edit Mode, Save and Save As… (and their accelerators, which
+   * App gates in the command handlers), so nothing offers a route to a write
+   * the server would only refuse.
+   */
+  canEdit?: boolean;
+  /**
    * SPEC36 §5.2: the only-open-files view's checkbox. OPTIONAL so pre-36
    * MenuState call sites (and frozen test fixtures) stay valid; absent
    * reads as off.
@@ -211,6 +221,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
 
   // Issue #84: cycling needs two open files in a workspace to mean anything.
   const noCycle = !wsOpen || (s.openFileCount ?? 0) < 2;
+  // PRD 007 Req 17: absent ⇒ no permission model ⇒ every writing item stays.
+  const noEdit = s.canEdit === false;
 
   const viewMenu: SubmenuSpec = {
     title: 'View',
@@ -226,7 +238,7 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
       cmd('prevFile', 'Previous Open File', s.hotkeys.prevFile, undefined, noCycle),
       // Issue #40: edit mode needs an open document (file or untitled) —
       // grayed on the splash and workspace-no-file states alike.
-      cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit', !s.docOpen),
+      cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit', !s.docOpen || noEdit),
       // SPEC25 §3: split is a first-class toggle, not just a Settings checkbox.
       cmd('toggleSplit', 'Split Edit', s.hotkeys.toggleSplit, s.splitEdit),
       // Master switch off (SPEC7 §2): the comments UI is gone, menu included —
@@ -307,8 +319,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             // platform offers it AND the user holds the verb (Req 17).
             ...(s.canUpload ? [cmd('uploadFile', 'Upload File…')] : []),
             ...(s.canDownload ? [cmd('downloadFile', 'Download', undefined, undefined, !s.docOpen)] : []),
-            cmd('save', 'Save', s.hotkeys.save),
-            cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
+            cmd('save', 'Save', s.hotkeys.save, undefined, noEdit),
+            cmd('saveAs', 'Save As…', 'Mod+Shift+S', undefined, noEdit),
             cmd('exportDoc', 'Export…'),
             cmd('printDoc', 'Print…', 'Mod+P'),
             sep,
@@ -345,8 +357,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
           // platform offers it AND the user holds the verb (Req 17).
           ...(s.canUpload ? [cmd('uploadFile', 'Upload File…')] : []),
           ...(s.canDownload ? [cmd('downloadFile', 'Download', undefined, undefined, !s.docOpen)] : []),
-          cmd('save', 'Save', s.hotkeys.save),
-          cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
+          cmd('save', 'Save', s.hotkeys.save, undefined, noEdit),
+          cmd('saveAs', 'Save As…', 'Mod+Shift+S', undefined, noEdit),
           cmd('exportDoc', 'Export…'),
           cmd('printDoc', 'Print…', 'Mod+P'),
           sep,

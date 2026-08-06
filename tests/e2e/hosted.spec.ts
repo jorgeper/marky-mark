@@ -1,6 +1,6 @@
 import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { addComment, menuSave, openSettings, pasteImage } from './helpers';
+import { addComment, menuSave, openSettings, pasteImage, selectPhrase } from './helpers';
 
 // PRD 007 Req 1+4: the hosted backend in local dev mode — booted by the
 // second `webServer` entry in playwright.config.ts (`npm run server:local`:
@@ -1372,6 +1372,13 @@ test('E197: a custom role created in the roles editor is grantable to a member a
   const id = await sharedWorkspace(request, ada, `E197 w${test.info().workerIndex}`, [
     { id: 'mock-grace', role: 'Viewer' },
   ]);
+  // PRD 007 Req 13 (#79): doc.edit is the SAVE verb — a PUT of a path that
+  // holds nothing yet is a create and wants file.create — so the proof below
+  // writes over a file the Owner has already put there.
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/graces.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# the Owner’s\n',
+  });
 
   await signInTo(page, 'ada', id);
   await openWorkspaceSettings(page);
@@ -1392,7 +1399,8 @@ test('E197: a custom role created in the roles editor is grantable to a member a
   await page.getByTestId('workspace-role-save').click();
   await expect(page.getByTestId('workspace-roles-error')).toContainText('built-in');
 
-  // The fresh role is grantable straight away, and it really grants doc.edit.
+  // The fresh role is grantable straight away, and it really grants doc.edit:
+  // the member can now save over the Owner's file.
   await page.getByTestId('workspace-member-role-mock-grace').selectOption(role);
   await expect(page.getByTestId('workspace-member-role-mock-grace')).toHaveValue(role);
   expect(await writeAs(request, grace, id, 'graces.md')).toBe(200);
@@ -1539,4 +1547,248 @@ test('E203: New Workspace… and Open Workspace… on the hosted start page land
   await page.getByTestId('new-workspace-create').click();
   await expect(page).toHaveURL(/workspace=/);
   await expect(page.getByTestId('workspace-switcher-chip')).toContainText(fresh);
+});
+
+
+// PRD 007 Req 13+17 (#79): end-to-end permission enforcement — the UI offers
+// only what the signed-in member's role allows, and every route refuses the
+// rest regardless of what any UI showed.
+
+/** Read a workspace file as `token`; `null` when the read was refused. */
+async function readAs(
+  request: APIRequestContext,
+  token: string,
+  id: string,
+  path: string,
+): Promise<string | null> {
+  const res = await request.get(`${HOSTED}/api/workspaces/${id}/files/${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.ok() ? ((await res.json()) as { content: string }).content : null;
+}
+
+/** The `required` verb a refused response names (null when it was not a 403). */
+async function requiredVerb(res: APIResponse): Promise<string | null> {
+  if (res.status() !== 403) return null;
+  return ((await res.json()) as { required?: string }).required ?? null;
+}
+
+test('E205: a Commenter comments on a document they cannot edit, and a second member reads it', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 14+17: the headline of #79 — the sidecar write is
+  // comment.write, not doc.edit, so the built-in Commenter role can finally
+  // do the one thing it is named for.
+  const ada = await signIn(request, 'ada');
+  const id = await sharedWorkspace(request, ada, `E205 w${test.info().workerIndex}`, [
+    { id: 'mock-grace', role: 'Commenter' },
+  ]);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/shared.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: SHARED_DOC,
+  });
+
+  await signInTo(page, 'grace', id);
+  await openFromSidebar(page, 'shared.md');
+  // The document itself is read-only for them, and the app says why.
+  await expect(page.getByTestId('read-only-doc')).toBeVisible();
+  await expect(page.getByTestId('edit-toggle')).toHaveCount(0);
+  // …but commenting is offered, and works.
+  await addComment(page, PHRASE, 'Grace may comment');
+  await expect(page.getByTestId('comment-card')).toContainText('Grace may comment');
+
+  // The sidecar really landed as a workspace blob — no doc.edit involved.
+  await expect
+    .poll(async () => await readAs(request, ada, id, 'shared.md.comments.json'), { timeout: 10_000 })
+    .toContain('Grace may comment');
+  // And the document they may not save is byte-for-byte the Owner's.
+  expect(await readAs(request, ada, id, 'shared.md')).toBe(SHARED_DOC);
+
+  // A second member opens the same document and reads the comment.
+  await signOut(page);
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'shared.md');
+  await expect(page.getByTestId('comment-card')).toContainText('Grace may comment');
+});
+
+test('E206: without doc.edit the editor is read-only with no Edit Mode or Save — and the PUT is refused anyway', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 17: the UI hides the write routes; the server is what makes
+  // that a rule rather than a suggestion.
+  const ada = await signIn(request, 'ada');
+  const id = await workspaceWithRole(request, ada, `E206 w${test.info().workerIndex}`, 'grace', [
+    'doc.read',
+    'comment.read',
+  ]);
+  const stored = '# Untouchable\n\nThe stored bytes.\n';
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/locked.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: stored,
+  });
+
+  await signInTo(page, 'grace', id);
+  await openFromSidebar(page, 'locked.md');
+  await expect(page.getByTestId('read-only-doc')).toBeVisible();
+  // No Edit toggle on the toolbar, and no Save rows in its menu.
+  await expect(page.getByTestId('edit-toggle')).toHaveCount(0);
+  await page.getByTestId('menu-btn').click();
+  await expect(page.getByTestId('app-menu')).toBeVisible();
+  await expect(page.getByTestId('menu-save')).toHaveCount(0);
+  await expect(page.getByTestId('menu-save-as')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  // The hotkeys the missing items mirror are just as inert: no editor opens,
+  // and the Save that would follow is never issued.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await page.keyboard.press('Control+s');
+
+  // The endpoint refuses the same write by name, whatever any client tried.
+  const grace = await signIn(request, 'grace');
+  const put = await request.put(`${HOSTED}/api/workspaces/${id}/files/locked.md`, {
+    headers: { Authorization: `Bearer ${grace}` },
+    data: 'stomped\n',
+  });
+  expect(await requiredVerb(put)).toBe('doc.edit');
+  // …and the stored bytes are exactly what the Owner wrote.
+  expect(await readAs(request, ada, id, 'locked.md')).toBe(stored);
+});
+
+test('E207: a role with doc.edit but not file.create may overwrite an existing path and not invent a new one', async ({
+  request,
+}) => {
+  // PRD 007 Req 13+15: the create/save split. No built-in role separates the
+  // two verbs — a custom role is exactly why they cannot share one.
+  const ada = await signIn(request, 'ada');
+  const id = await workspaceWithRole(request, ada, `E207 w${test.info().workerIndex}`, 'grace', [
+    'doc.read',
+    'doc.edit',
+  ]);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/there.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: 'original\n',
+  });
+  const grace = await signIn(request, 'grace');
+  const headers = { Authorization: `Bearer ${grace}` };
+
+  // A path that holds nothing yet is a create — refused, and nothing lands.
+  const created = await request.put(`${HOSTED}/api/workspaces/${id}/files/brand-new.md`, {
+    headers,
+    data: 'mine\n',
+  });
+  expect(await requiredVerb(created)).toBe('file.create');
+  expect(await listFiles(request, ada, id)).toEqual(['there.md']);
+  // A path that exists is a save — allowed.
+  const saved = await request.put(`${HOSTED}/api/workspaces/${id}/files/there.md`, {
+    headers,
+    data: 'edited\n',
+  });
+  expect(saved.status()).toBe(200);
+  expect(await readAs(request, ada, id, 'there.md')).toBe('edited\n');
+});
+
+test('E208: comment.read gates whether comments load at all, and comment.write whether one can be written', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 17: two verbs, two separate gates — and neither is enforced
+  // by the UI alone.
+  const ada = await signIn(request, 'ada');
+  const id = await workspaceWithRole(request, ada, `E208 w${test.info().workerIndex}`, 'grace', [
+    'doc.read',
+    'comment.read',
+  ]);
+  const headers = { Authorization: `Bearer ${ada}` };
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/talked.md`, { headers, data: SHARED_DOC });
+
+  // Ada leaves a comment on it.
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'talked.md');
+  await addComment(page, PHRASE, 'Ada started a thread');
+  await expect
+    .poll(async () => await readAs(request, ada, id, 'talked.md.comments.json'), { timeout: 10_000 })
+    .toContain('Ada started a thread');
+
+  // Grace holds comment.read but not comment.write: she sees the comment and
+  // is offered no way to add one — selecting text yields no affordance.
+  await signOut(page);
+  await signInTo(page, 'grace', id);
+  await openFromSidebar(page, 'talked.md');
+  await expect(page.getByTestId('comment-card')).toContainText('Ada started a thread');
+  await selectPhrase(page, PHRASE);
+  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+  const grace = await signIn(request, 'grace');
+  const write = await request.put(`${HOSTED}/api/workspaces/${id}/files/talked.md.comments.json`, {
+    headers: { Authorization: `Bearer ${grace}` },
+    data: '{"version":1,"comments":[]}',
+  });
+  expect(await requiredVerb(write)).toBe('comment.write');
+
+  // Alan holds neither comment verb: the comments are not loaded or shown at
+  // all, and the sidecar read is refused by name.
+  const noComments = await workspaceWithRole(request, ada, `E208b w${test.info().workerIndex}`, 'alan', ['doc.read']);
+  await request.put(`${HOSTED}/api/workspaces/${noComments}/files/talked.md`, { headers, data: SHARED_DOC });
+  await request.put(`${HOSTED}/api/workspaces/${noComments}/files/talked.md.comments.json`, {
+    headers,
+    data: await readAs(request, ada, id, 'talked.md.comments.json') ?? '',
+  });
+  await signOut(page);
+  await signInTo(page, 'alan', noComments);
+  await openFromSidebar(page, 'talked.md');
+  await expect(page.getByTestId('docname')).toContainText('talked.md');
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+  const alan = await signIn(request, 'alan');
+  const read = await request.get(`${HOSTED}/api/workspaces/${noComments}/files/talked.md.comments.json`, {
+    headers: { Authorization: `Bearer ${alan}` },
+  });
+  expect(await requiredVerb(read)).toBe('comment.read');
+});
+
+test('E209: a local file opened inside a workspace that grants nothing stays fully editable', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 17+21: a role governs workspace content, not a document the
+  // browser holds. The same page shows a read-only workspace doc and a fully
+  // editable local one.
+  await page.addInitScript(() => {
+    delete (window as { showOpenFilePicker?: unknown }).showOpenFilePicker;
+  });
+  const ada = await signIn(request, 'ada');
+  const id = await workspaceWithRole(request, ada, `E209 w${test.info().workerIndex}`, 'grace', ['doc.read']);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/theirs.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Theirs\n',
+  });
+
+  await signInTo(page, 'grace', id);
+  await openFromSidebar(page, 'theirs.md');
+  // The workspace document is read-only for this role…
+  await expect(page.getByTestId('read-only-doc')).toBeVisible();
+  await expect(page.getByTestId('edit-toggle')).toHaveCount(0);
+
+  // …and a local file opened in the same session is not.
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-open').click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'mine.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from('# Mine\n\nHeld by this browser alone.\n'),
+  });
+  await expect(page.getByTestId('docname')).toContainText('mine.md');
+  await expect(page.getByTestId('read-only-doc')).toHaveCount(0);
+  await page.getByTestId('edit-toggle').click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('typed locally ');
+  await menuSave(page);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // Nothing of it reached the workspace: its files are still the Owner's one.
+  expect(await listFiles(request, ada, id)).toEqual(['theirs.md']);
+  expect(await readAs(request, ada, id, 'theirs.md')).toBe('# Theirs\n');
 });

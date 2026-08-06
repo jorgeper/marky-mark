@@ -486,3 +486,42 @@ describe('PRD 007 Req 22: File-menu entry items follow the flavor', () => {
     }
   });
 });
+
+/**
+ * PRD 007 Req 17: a member without doc.edit is offered no route to a write —
+ * the same optional-field pattern canUpload/canDownload use, so every
+ * pre-#79 call site keeps its exact menus.
+ */
+describe('PRD 007 Req 17: document-write items follow the permission', () => {
+  const disabledOf = (s: MenuState, title: string, command: string) =>
+    find(s, title, command)?.disabled ?? false;
+
+  test('U324: canEdit false grays Edit Mode, Save and Save As… in both branches', () => {
+    for (const isMac of [true, false]) {
+      const gated: MenuState = { ...base, isMac, canEdit: false };
+      expect(disabledOf(gated, 'File', 'save')).toBe(true);
+      expect(disabledOf(gated, 'File', 'saveAs')).toBe(true);
+      expect(disabledOf(gated, 'View', 'toggleMode')).toBe(true);
+      // The rows are still THERE — a grayed item says "not for you", where a
+      // missing one says "this app cannot do that".
+      expect(find(gated, 'File', 'save')).toBeTruthy();
+      expect(find(gated, 'View', 'toggleMode')!.label).toBe('Edit Mode');
+      // Nothing else in the File menu changed with it.
+      expect(disabledOf(gated, 'File', 'open')).toBe(false);
+      expect(disabledOf(gated, 'File', 'exportDoc')).toBe(false);
+      expect(disabledOf(gated, 'File', 'printDoc')).toBe(false);
+    }
+  });
+
+  test('U325: canEdit true — and absent, the pre-#79 fixtures — leave every write item enabled', () => {
+    for (const isMac of [true, false]) {
+      for (const s of [{ ...base, isMac, canEdit: true }, { ...base, isMac }]) {
+        expect(disabledOf(s, 'File', 'save')).toBe(false);
+        expect(disabledOf(s, 'File', 'saveAs')).toBe(false);
+        expect(disabledOf(s, 'View', 'toggleMode')).toBe(false);
+      }
+      // Issue #40's own gate still stands on its own: no document, no Edit Mode.
+      expect(disabledOf({ ...base, isMac, canEdit: true, docOpen: false }, 'View', 'toggleMode')).toBe(true);
+    }
+  });
+});

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
-import { parseSidecar, serializeSidecar, sidecarPathFor } from '../../src/lib/sidecar';
+import { isSidecarPath, parseSidecar, serializeSidecar, sidecarPathFor } from '../../src/lib/sidecar';
 import type { CommentData } from '../../src/lib/anchoring';
 
 const interopPath = fileURLToPath(new URL('../../fixtures/interop-sidecar.comments.json', import.meta.url));
@@ -58,5 +58,32 @@ describe('sidecar round-trip and md-with-comments interop', () => {
     expect(parsed[0].id).toBe(first.id);
     expect(parsed[0].body).toBe(first.body);
     expect(parsed[0].anchor.exact).toBe((first.anchor as Record<string, unknown>).exact);
+  });
+});
+
+describe('PRD 007 Req 13/17: the sidecar-path predicate', () => {
+  test('U322: exactly the paths sidecarPathFor produces are sidecars — lookalikes are documents', () => {
+    // The server requires comment.read/comment.write for these blobs and the
+    // doc/file verbs for every other one, so both sides ask this one
+    // question. What sidecarPathFor writes is what it recognises.
+    for (const doc of ['notes.md', 'a/b/deep.md', 'no-extension', 'sp ace.md', 'ünïcøde.md']) {
+      expect(isSidecarPath(sidecarPathFor(doc)), doc).toBe(true);
+    }
+    // Documents, pasted images and near-misses are not.
+    for (const other of [
+      'notes.md',
+      'images/pasted.png',
+      'comments.json',
+      'notes.comments.jsonx',
+      'notes.comments.json.bak',
+      'notes.comments.JSON',
+      'a/.comments.json', // belongs to no document: a dotfile, not a sidecar
+      '.comments.json',
+      '',
+    ]) {
+      expect(isSidecarPath(other), other).toBe(false);
+    }
+    // A directory named like a sidecar does not make its contents sidecars.
+    expect(isSidecarPath('notes.md.comments.json/inner.md')).toBe(false);
   });
 });
