@@ -121,8 +121,8 @@ const ABSOLUTE_SRC = /^(data:|blob:|https?:)/i;
  * at a path it would only 404 on.
  */
 export function hostedResolveAssetSrc(src: string, docDir: string, token: string): string {
-  if (ABSOLUTE_SRC.test(src)) return src;
   if (!src) return '';
+  if (ABSOLUTE_SRC.test(src)) return src;
   const decoded = src
     .split('/')
     .map((segment) => {

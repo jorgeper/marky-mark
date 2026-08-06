@@ -24,16 +24,16 @@ function useShim(): boolean {
   return import.meta.env.DEV || new URLSearchParams(window.location.search).has('shim');
 }
 
+/** Load the backend this page runs on, first match wins. */
+function loadPlatform(): Promise<Platform> {
+  if (isTauri()) return import('./tauri').then((m) => m.createTauriPlatform());
+  if (isHosted()) return import('./hosted').then((m) => m.createHostedPlatform());
+  if (useShim()) return import('./browser').then((m) => m.createBrowserPlatform());
+  return import('./web').then((m) => m.createWebPlatform());
+}
+
 /** Resolve the platform once: Tauri host, hosted backend, dev/e2e shim, or static web. */
 export function getPlatform(): Promise<Platform> {
-  if (!instance) {
-    instance = isTauri()
-      ? import('./tauri').then((m) => m.createTauriPlatform())
-      : isHosted()
-        ? import('./hosted').then((m) => m.createHostedPlatform())
-        : useShim()
-          ? import('./browser').then((m) => m.createBrowserPlatform())
-          : import('./web').then((m) => m.createWebPlatform());
-  }
+  if (!instance) instance = loadPlatform();
   return instance;
 }

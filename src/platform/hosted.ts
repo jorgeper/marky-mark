@@ -44,13 +44,16 @@ interface ListedFile {
 /** Thrown for a read of something the workspace does not hold (App catches it). */
 const enoent = (path: string) => new Error(`ENOENT: ${path}`);
 
-/** Everything under one listable scope: a workspace's files, or the user's blobs. */
-type Scope = { kind: 'user' } | { kind: 'workspace'; id: string };
-
-const scopeKey = (scope: Scope): string => (scope.kind === 'user' ? 'user' : `w:${scope.id}`);
-
-const scopeOf = (target: HostedTarget): Scope | null =>
-  target.kind === 'user' ? { kind: 'user' } : target.kind === 'workspace' ? { kind: 'workspace', id: target.id } : null;
+/**
+ * The listing endpoint a target's blobs are enumerated through — one per
+ * listable scope (the user's own blobs, or one workspace's files), which is
+ * also what the listing cache keys on. The manifest is not listable.
+ */
+const listRootOf = (target: HostedTarget): string | null => {
+  if (target.kind === 'user') return apiPathFor({ kind: 'user', rel: '' });
+  if (target.kind === 'workspace') return apiPathFor({ kind: 'workspace', id: target.id, rel: '' });
+  return null;
+};
 
 export function createHostedPlatform(): Platform {
   const token = () => readStoredToken(window.localStorage) ?? '';
@@ -61,11 +64,11 @@ export function createHostedPlatform(): Platform {
    * allowlist): every API request this platform makes funnels through here,
    * always same-origin and always bearer-authenticated.
    */
-  const api = (path: string, init?: RequestInit): Promise<Response> =>
-    fetch(path, {
-      ...init,
-      headers: { ...(init?.headers as Record<string, string> | undefined), Authorization: `Bearer ${token()}` },
-    });
+  const api = (
+    path: string,
+    init: { method?: string; headers?: Record<string, string>; body?: BodyInit } = {},
+  ): Promise<Response> =>
+    fetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token()}` } });
 
   const json = async <T>(res: Response): Promise<T | null> => (res.ok ? ((await res.json()) as T) : null);
 
@@ -74,35 +77,29 @@ export function createHostedPlatform(): Platform {
   // scope is cached and invalidated by this platform's own writes.
   const listings = new Map<string, Promise<ListedFile[]>>();
 
-  const listScope = (scope: Scope): Promise<ListedFile[]> => {
-    const key = scopeKey(scope);
-    const cached = listings.get(key);
-    if (cached) return cached;
-    const target: HostedTarget =
-      scope.kind === 'user' ? { kind: 'user', rel: '' } : { kind: 'workspace', id: scope.id, rel: '' };
-    const pending = api(apiPathFor(target))
-      .then((res) => json<ListedFile[]>(res))
-      .then((files) => files ?? [])
-      .catch(() => [] as ListedFile[]);
-    listings.set(key, pending);
-    return pending;
-  };
-
   const invalidate = (target: HostedTarget): void => {
-    const scope = scopeOf(target);
-    if (scope) listings.delete(scopeKey(scope));
+    const root = listRootOf(target);
+    if (root) listings.delete(root);
   };
 
   /** The relative blob paths under one scope, for directory-shaped questions. */
   const relPathsOf = async (target: HostedTarget): Promise<string[]> => {
-    const scope = scopeOf(target);
-    if (!scope) return [];
-    return (await listScope(scope)).map((f) => f.path);
+    const root = listRootOf(target);
+    if (!root) return [];
+    let pending = listings.get(root);
+    if (!pending) {
+      pending = api(root)
+        .then((res) => json<ListedFile[]>(res))
+        .then((files) => files ?? [])
+        .catch(() => [] as ListedFile[]);
+      listings.set(root, pending);
+    }
+    return (await pending).map((f) => f.path);
   };
 
   /** Direct children of a virtual directory, as name + isDir. */
   const childrenOf = async (dir: string): Promise<Array<{ name: string; isDir: boolean }>> => {
-    const target = parseHostedPath(normalizeHostedPath(dir));
+    const target = parseHostedPath(dir);
     if (!target || target.kind === 'manifest') return [];
     const prefix = target.rel ? `${target.rel}/` : '';
     const seen = new Map<string, boolean>();

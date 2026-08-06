@@ -13,8 +13,9 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
 }
 
 /**
- * PRD 007 Req 8: the raw request body. Pasted-image uploads are bytes, not
- * text, so the binary endpoints read them without a utf8 round trip.
+ * PRD 007 Req 8: the raw request body — what every reader here is built on.
+ * Pasted-image uploads are bytes, not text, so the binary endpoints take them
+ * as they arrived; `readBody` decodes the same bytes as utf8.
  */
 export function readBodyBytes(req: IncomingMessage): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
@@ -34,22 +35,8 @@ export function readBodyBytes(req: IncomingMessage): Promise<Uint8Array> {
   });
 }
 
-export function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    req.on('data', (chunk: Uint8Array) => {
-      size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        reject(new Error('request body too large'));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
-  });
+export async function readBody(req: IncomingMessage): Promise<string> {
+  return Buffer.from(await readBodyBytes(req)).toString('utf8');
 }
 
 /**

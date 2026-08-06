@@ -45,6 +45,21 @@ function filePathFrom(pathname: string): string | null {
   return cleanRelativePath(raw);
 }
 
+/**
+ * The session token a request presents, or '' when it presents none.
+ * PRD 007 Req 8: an <img> element cannot carry an Authorization header, so
+ * GETs may also present the token as `?access_token=`. GET only and
+ * same-origin only: a token in a query string must never be able to mutate
+ * anything, and the app's external-link policy keeps the URL from being
+ * handed to another origin as a Referer.
+ */
+function sessionToken(req: IncomingMessage, url: URL): string {
+  const header = req.headers.authorization ?? '';
+  if (header.startsWith('Bearer ')) return header.slice('Bearer '.length);
+  if (req.method === 'GET') return url.searchParams.get('access_token') ?? '';
+  return '';
+}
+
 async function handleApi(
   req: IncomingMessage,
   res: ServerResponse,
@@ -72,17 +87,7 @@ async function handleApi(
     return;
   }
 
-  const header = req.headers.authorization ?? '';
-  // PRD 007 Req 8: an <img> element cannot carry an Authorization header, so
-  // GETs may also present the session token as `?access_token=`. GET only
-  // and same-origin only: a token in a query string must never be able to
-  // mutate anything, and the app's external-link policy keeps the URL from
-  // being handed to another origin as a Referer.
-  const token = header.startsWith('Bearer ')
-    ? header.slice('Bearer '.length)
-    : req.method === 'GET'
-      ? (url.searchParams.get('access_token') ?? '')
-      : '';
+  const token = sessionToken(req, url);
   const user = token ? await providers.auth.validateToken(token) : null;
   if (!user) {
     sendJson(res, 401, { error: 'authentication required' });

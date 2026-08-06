@@ -11,6 +11,7 @@
 // server/README.md.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import {
   createWorkspaceManifest,
@@ -21,7 +22,6 @@ import {
   type Permission,
   type WorkspaceManifest,
 } from '../src/lib/hostedWorkspace.ts';
-import { Buffer } from 'node:buffer';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import type { RequestAuth, StorageProvider } from './providers/types.ts';
 
