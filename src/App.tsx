@@ -29,6 +29,15 @@ import type { EditorSearchHandle, EditorSyncHandle, SmartEditHandle, SmartFormat
 import { extractReviewPayload } from './lib/reviewBundle';
 import { buildStaticHtml, statsLine, type StaticComment } from './lib/exportDoc';
 import { ExportDialog, type ExportRequest } from './components/ExportDialog';
+import { SavePicker } from './components/SavePicker';
+import {
+  canOfferNewFile,
+  defaultFolder,
+  defaultName,
+  pickerFolders,
+  type PickerFolder,
+  type SavePickerKind,
+} from './lib/savePicker';
 import { UpdateDialog } from './components/UpdateDialog';
 import { diffLineSets, type DiffLineSets } from './lib/diffLines';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
@@ -291,6 +300,10 @@ export default function App() {
   const [folderRoots, setFolderRoots] = useState<string[]>([]);
   const [folderExpanded, setFolderExpanded] = useState<Set<string>>(new Set());
   const [folderChildren, setFolderChildren] = useState<Record<string, DirEntry[]>>({});
+  // PRD 009 Req 13: the listings, reachable from the stable command handlers —
+  // the save picker's folder list is the tree the sidebar has already read.
+  const folderChildrenRef = useRef<Record<string, DirEntry[]>>({});
+  folderChildrenRef.current = folderChildren;
   const [folderShowNonMd, setFolderShowNonMd] = useState(false);
   // SPEC36: the open-file set (tree-ordered) and the only-open-files view.
   const [openFiles, setOpenFiles] = useState<string[]>([]);
@@ -325,6 +338,18 @@ export default function App() {
   // hidden input that does the picking (null ⇒ no pick in flight).
   const [uploadDir, setUploadDir] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  // PRD 009 Req 13+14: the in-workspace name/folder picker New File and Save
+  // As… share where the platform has no save dialog (null ⇒ closed). The
+  // resolver is how a Save As… awaiting an answer learns it was cancelled —
+  // its caller (open / new / close) still aborts on false, exactly as when a
+  // native dialog is dismissed.
+  const [savePicker, setSavePicker] = useState<{
+    kind: SavePickerKind;
+    folders: PickerFolder[];
+    folder: string;
+    name: string;
+  } | null>(null);
+  const savePickerResolveRef = useRef<((done: boolean) => void) | null>(null);
   // PRD 007 Req 20: the save the server refused because the file changed
   // under us — the prompt offering Reload / Overwrite / Cancel. `fileText` is
   // exactly what that write tried to store (trailer and all); `bufferText` is
@@ -572,6 +597,7 @@ export default function App() {
     showComments,
     html,
     docGrants,
+    folderGrants,
   });
   stateRef.current = {
     settings,
@@ -592,6 +618,9 @@ export default function App() {
     // PRD 007 Req 17: the command handlers gate on this too, so a hotkey is
     // exactly as inert as the menu item it mirrors.
     docGrants,
+    // PRD 009 Req 13: New File writes into the workspace, so it asks the
+    // SIDEBAR's grants (file.create) — not the open document's.
+    folderGrants,
   };
 
   /**
@@ -2753,35 +2782,146 @@ export default function App() {
 
   // --- actions -----------------------------------------------------------------
   /**
+   * PRD 009 Req 13: a folder's child names — what the picker prefills a free
+   * name from and checks a typed one against. An unlistable folder answers
+   * "nothing known": the picker still opens and the write reports the error.
+   */
+  const listPickerNames = useCallback(async (dir: string): Promise<string[]> => {
+    const p = stateRef.current.platform;
+    if (!p?.readDirEntries) return [];
+    try {
+      return (await p.readDirEntries(dir)).map((e) => e.name);
+    } catch {
+      return [];
+    }
+  }, []);
+
+  /**
+   * PRD 009 Req 13+14: open the shared in-workspace picker, resolving when the
+   * user answers — true once a file was written, false on cancel (and false at
+   * once when there is no workspace folder to write into). The defaults come
+   * from the live listing of the folder it opens on, so New File's
+   * `Untitled.md` is free exactly like the sidebar's own New File row.
+   */
+  const openSavePicker = useCallback(
+    async (kind: SavePickerKind): Promise<boolean> => {
+      const s = stateRef.current;
+      const p = s.platform;
+      if (!p?.readDirEntries) return false;
+      const docDir = s.docPath ? p.dirname(s.docPath) : null;
+      const folders = pickerFolders({
+        roots: folderStateRef.current.roots,
+        children: folderChildrenRef.current,
+        docDir,
+        join: (dir, name) => p.join(dir, name),
+      });
+      const folder = defaultFolder(folders, docDir);
+      if (!folder) return false;
+      const existing = await listPickerNames(folder);
+      const name = defaultName(kind, { docBasename: s.docPath ? p.basename(s.docPath) : null, existing });
+      savePickerResolveRef.current?.(false); // never leave an earlier caller hanging
+      return new Promise<boolean>((resolve) => {
+        savePickerResolveRef.current = resolve;
+        setSavePicker({ kind, folders, folder, name });
+      });
+    },
+    [listPickerNames]
+  );
+
+  /**
+   * SPEC3 §3: the Save As… write itself — the buffer, its comments and the
+   * sidecar rules, landing at `target`, which then becomes the current
+   * document. Factored out of saveDocAs (PRD 009 Req 14) so the in-workspace
+   * picker reaches the SAME end state as the native dialog rather than
+   * reimplementing the comment-store rules beside it.
+   */
+  const writeDocCopyTo = useCallback(
+    async (p: Platform, target: string) => {
+      const s = stateRef.current;
+      const out = canonicalOf(s.buffer); // SPEC38 §3.5
+      // PRD 004 Req 14: an unreadable store freezes this document's stores —
+      // the trailer travels to the new path verbatim whatever the storage mode
+      // (Save As must not be a way to drop it) and no migration runs.
+      const text =
+        hasUnreadableStore(s.stores) || s.settings.commentStorage === 'embedded'
+          ? attachEmbedded(out, s.comments, s.stores.trailerBytes)
+          : out;
+      await p.writeTextFile(target, text);
+      // An unreadable sidecar is never copied (out of scope) — and never read
+      // from, so it contributed no comments to copy anyway.
+      if (s.settings.commentStorage === 'sidecar' && !s.stores.sidecar && s.comments.length > 0) {
+        await p.writeTextFile(sidecarPathFor(target), serializeSidecar(s.comments));
+      }
+      await p.commitFile?.(target);
+      await openDoc(p, target); // switch to the new document (title, watcher, sidecar)
+    },
+    [openDoc]
+  );
+
+  /**
    * Save As… (SPEC3 §3): comments travel with the document to the new path.
    * Also the first save of an untitled buffer (SPEC22 §2.1), suggesting
    * Untitled.md. Returns false when unsupported or the dialog was cancelled —
    * callers with a pending action (open/new/close) must abort on false.
+   *
+   * PRD 009 Req 14: a platform with no `saveFileDialog` no longer dead-ends
+   * here. In workspace mode it names the copy through the shared in-workspace
+   * picker instead — the capability test is the dialog itself, never which
+   * flavor is running (the rule lib/startActions.ts already follows), so
+   * desktop, the shim and the web build keep their native dialog untouched.
    */
   const saveDocAs = useCallback(async (): Promise<boolean> => {
     const s = stateRef.current;
     const p = s.platform;
-    if (!p || !p.saveFileDialog || (!s.docPath && !s.untitled)) return false;
+    if (!p || (!s.docPath && !s.untitled)) return false;
+    if (!p.saveFileDialog) {
+      if (deriveAppMode(true, curWorkspaceRef.current.kind) !== 'workspace') return false; // a doc is open here
+      return openSavePicker('saveAs');
+    }
     const target = await p.saveFileDialog(s.docPath ? p.basename(s.docPath) : 'Untitled.md');
     if (!target) return false;
-    const out = canonicalOf(s.buffer); // SPEC38 §3.5
-    // PRD 004 Req 14: an unreadable store freezes this document's stores —
-    // the trailer travels to the new path verbatim whatever the storage mode
-    // (Save As must not be a way to drop it) and no migration runs.
-    const text =
-      hasUnreadableStore(s.stores) || s.settings.commentStorage === 'embedded'
-        ? attachEmbedded(out, s.comments, s.stores.trailerBytes)
-        : out;
-    await p.writeTextFile(target, text);
-    // An unreadable sidecar is never copied (out of scope) — and never read
-    // from, so it contributed no comments to copy anyway.
-    if (s.settings.commentStorage === 'sidecar' && !s.stores.sidecar && s.comments.length > 0) {
-      await p.writeTextFile(sidecarPathFor(target), serializeSidecar(s.comments));
-    }
-    await p.commitFile?.(target);
-    await openDoc(p, target); // switch to the new document (title, watcher, sidecar)
+    await writeDocCopyTo(p, target);
     return true;
-  }, [openDoc]);
+  }, [openSavePicker, writeDocCopyTo]);
+
+  /** PRD 009 Req 13+14: close the picker and hand its answer to the caller. */
+  const finishSavePicker = useCallback((done: boolean) => {
+    setSavePicker(null);
+    const resolve = savePickerResolveRef.current;
+    savePickerResolveRef.current = null;
+    resolve?.(done);
+  }, []);
+
+  /**
+   * PRD 009 Req 13+14: the picker was committed. New File creates the file
+   * through the workspace file API — `writeTextFile(path, '')`, the same seam
+   * (and the same reveal) the sidebar's New File row uses — and opens it as
+   * the current document; Save As… writes the copy through the shared
+   * `writeDocCopyTo`. A failed write says so and answers false, so a caller
+   * with a pending action still aborts.
+   */
+  const commitSavePicker = useCallback(
+    async (kind: SavePickerKind, folder: string, name: string) => {
+      const p = stateRef.current.platform;
+      if (!p) return;
+      const target = p.join(folder, name);
+      setSavePicker(null); // close before the write; finishSavePicker's own close is then a no-op
+      try {
+        if (kind === 'new') {
+          await p.writeTextFile(target, '');
+          await revealNewEntry(p, folder);
+          await openDoc(p, target);
+        } else {
+          await writeDocCopyTo(p, target);
+        }
+        finishSavePicker(true);
+      } catch (e) {
+        showNotice(`Couldn’t write “${name}”: ${e instanceof Error ? e.message : String(e)}`);
+        finishSavePicker(false);
+      }
+    },
+    [revealNewEntry, openDoc, writeDocCopyTo, finishSavePicker, showNotice]
+  );
 
   /** Returns false when there was nothing to save into (or Save As was cancelled). */
   const saveDoc = useCallback(async (): Promise<boolean> => {
@@ -3097,14 +3237,48 @@ export default function App() {
     [openDoc, startUntitled, deleteDraft]
   );
 
+  /**
+   * PRD 009 Req 13/16: whether the newFile command does anything here — the
+   * shared `canOfferNewFile` rule, asked of the refs so a hotkey is exactly as
+   * inert as the menu row the same rule hides.
+   */
+  const canNewFile = useCallback((): boolean => {
+    const s = stateRef.current;
+    const p = s.platform;
+    if (!p) return false;
+    const mode = deriveAppMode(s.docPath !== null || s.untitled, curWorkspaceRef.current.kind);
+    return canOfferNewFile({
+      hasSaveDialog: !!p.saveFileDialog,
+      inWorkspace: mode === 'workspace',
+      canList: !!p.readDirEntries,
+      canCreate: s.folderGrants.create,
+    });
+  }, []);
+
+  /**
+   * PRD 009 Req 13: what New File does once the unsaved-changes guard clears —
+   * SPEC22's untitled buffer on a platform with a save dialog, the
+   * in-workspace picker on one without. The guard may be answered long after
+   * the command ran, so the rule is asked again here.
+   */
+  const beginNewFile = useCallback(() => {
+    if (!canNewFile()) return;
+    if (stateRef.current.platform?.saveFileDialog) {
+      startUntitled();
+      return;
+    }
+    void openSavePicker('new');
+  }, [canNewFile, openSavePicker, startUntitled]);
+
   /** The newFile command: same unsaved-changes guard as opening (SPEC22 §1.2). */
   const newFile = useCallback(() => {
+    if (!canNewFile()) return;
     if (stateRef.current.dirty) {
       setOpenPrompt({ kind: 'new' });
       return;
     }
-    startUntitled();
-  }, [startUntitled]);
+    beginNewFile();
+  }, [canNewFile, beginNewFile]);
 
   /** Help (SPEC4 §5): open the welcome doc like any file — guard included. */
   const openHelp = useCallback(async () => {
@@ -4631,6 +4805,14 @@ export default function App() {
               isMac={platform.isMac}
               // PRD 007 Req 17: no Edit / Save rows for a read-only role.
               canEdit={docGrants.edit}
+              // PRD 009 Req 13/16: the same rule the newFile command applies,
+              // over the same state the mode itself is derived from.
+              canNewFile={canOfferNewFile({
+                hasSaveDialog: !!platform.saveFileDialog,
+                inWorkspace: appMode === 'workspace',
+                canList: !!platform.readDirEntries,
+                canCreate: folderGrants.create,
+              })}
               onToggleMode={() => dispatchCommand('toggleMode')}
               onToggleComments={() => dispatchCommand('toggleComments')}
               onNewFile={() => dispatchCommand('newFile')}
@@ -5154,6 +5336,21 @@ export default function App() {
         />
       )}
 
+      {/* PRD 009 Req 13+14: the one in-workspace naming surface New File and
+          Save As… share where the platform has no save dialog. Cancelling
+          writes nothing and answers false to whoever is waiting. */}
+      {savePicker && (
+        <SavePicker
+          kind={savePicker.kind}
+          folders={savePicker.folders}
+          initialFolder={savePicker.folder}
+          initialName={savePicker.name}
+          listNames={listPickerNames}
+          onCancel={() => finishSavePicker(false)}
+          onCommit={(folder, name) => void commitSavePicker(savePicker.kind, folder, name)}
+        />
+      )}
+
       {openPrompt && (
         <div className="overlay">
           <div className="modal" data-testid="open-prompt">
@@ -5180,7 +5377,9 @@ export default function App() {
                   if (intent.kind === 'open') void parkAndOpen(platform, intent.path);
                   else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
                   else if (intent.kind === 'close-untitled') closeToSplash(); // issue #22
-                  else startUntitled();
+                  // PRD 009 Req 13: the guard cleared — New File resumes on
+                  // whichever path this platform has (untitled buffer / picker).
+                  else beginNewFile();
                 }}
               >
                 Don’t save
@@ -5201,7 +5400,7 @@ export default function App() {
                     const saved = stateRef.current.docPath;
                     if (saved) finishCloseFile(platform, saved);
                     else closeToSplash();
-                  } else startUntitled();
+                  } else beginNewFile(); // PRD 009 Req 13
                 }}
               >
                 Save
