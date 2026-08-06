@@ -39,8 +39,9 @@ MM_MODE=azure node server/index.ts
 ```
 
 Point App Service's startup command at exactly that. The full operator
-walkthrough (app registration, storage account, deployment) is PRD 007
-Req 23, a separate issue; the environment reference is below.
+walkthrough — app registration, storage account, deployment, custom domain
+— is [docs/HOSTING-AZURE.md](../docs/HOSTING-AZURE.md) (PRD 007 Req 23);
+the environment reference is below.
 
 ## Environment variables
 

@@ -183,8 +183,10 @@ Want to build from source, run the test suite, or contribute? Start with
 [developer workflow guide](docs/DEVELOPING.md) — which loop to use when,
 and the exact commands for each tier. The design docs live in
 [docs/](docs/) — [architecture](docs/ARCHITECTURE.md), the
-[delta specs](docs/specs/) that drove each milestone, and the
-[release process](docs/RELEASING.md).
+[delta specs](docs/specs/) that drove each milestone, the
+[release process](docs/RELEASING.md), and — for the hosted flavor —
+[hosting Marky Mark on Azure](docs/HOSTING-AZURE.md), the operator
+walkthrough from a fresh subscription to a running deployment.
 
 ## License
 
