@@ -51,6 +51,9 @@ const state = (over: Partial<AppMenuState> = {}): AppMenuState => ({
   canNewFile: true,
   entryActions: CAPS.hosted,
   view: viewState(),
+  // PRD 009 Req 17: the sign-out capability is its own axis — off by default
+  // here so every item-set test below stays the flavor-free baseline it was.
+  canSignOut: false,
   ...over,
 });
 
@@ -353,5 +356,51 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
     expect(new Set(ids).size).toBe(ids.length);
     // The parent keeps its existing id (#93).
     expect(row(state(), 'menu-view')?.testId).toBe('menu-view');
+  });
+});
+
+describe('PRD 009 Req 17: Sign out — a capability row, never a flavor check', () => {
+  const APP_GROUP = ['menu-sign-out', 'menu-settings', 'menu-help', 'menu-about'];
+  /** The app group's ids — the one thing every test here reads. */
+  const appRows = (s: AppMenuState): string[] =>
+    buildAppMenu(s)
+      .find((g) => g.id === 'app')!
+      .rows.map((r) => r.testId);
+
+  test('U354: Sign out leads the app group, ahead of Settings…, Help and About', () => {
+    const signedIn = state({ canSignOut: true });
+    expect(appRows(signedIn)).toEqual(APP_GROUP);
+    expect(row(signedIn, 'menu-sign-out')?.label).toBe('Sign out');
+    // The group order itself is untouched: app is still the last group.
+    expect(groupIds(signedIn).at(-1)).toBe('app');
+  });
+
+  test('U355: without the capability the row is absent — not a disabled row', () => {
+    const noSession = state({ canSignOut: false });
+    expect(testIds(noSession)).not.toContain('menu-sign-out');
+    // …and the rest of the app group is exactly what it was before.
+    expect(appRows(noSession)).toEqual(['menu-settings', 'menu-help', 'menu-about']);
+  });
+
+  test('U356: signing out is not mode-dependent — the row is there in every AppMode', () => {
+    const modes = [
+      state({ canSignOut: true, mode: 'splash', docOpen: false, entryActions: CAPS.hosted }),
+      state({ canSignOut: true, mode: 'file', docOpen: true, entryActions: CAPS.web }),
+      state({ canSignOut: true, mode: 'workspace', docOpen: true }),
+    ];
+    for (const s of modes) expect(appRows(s), s.mode).toEqual(APP_GROUP);
+  });
+
+  test('U357: the row dispatches a command, carries no hotkey hint and is never disabled', () => {
+    const r = row(state({ canSignOut: true }), 'menu-sign-out')!;
+    // Typed as CommandId, so a row dispatching something the registry
+    // (lib/commands.ts) does not know fails to compile — U340's check, for
+    // the one row that test's states cannot see.
+    const signOut: CommandId = 'signOut';
+    expect(r.command).toBe(signOut);
+    expect(r.hotkey).toBeUndefined(); // PRD 009 Non-goals: no new binding.
+    expect(r.disabled).toBeUndefined();
+    expect(r.submenu).toBeUndefined();
+
   });
 });

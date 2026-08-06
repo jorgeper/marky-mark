@@ -1,6 +1,6 @@
 import type { Platform } from './types';
 import { createLocalDocs } from './localDocs';
-import { readStoredToken } from '../lib/hostedGate';
+import { clearToken, readStoredToken } from '../lib/hostedGate';
 import { createHostedWorkspaceLifecycle } from './hostedWorkspaces';
 import { ALL_FILE_GRANTS, fileGrantsFromPermissions, type FileGrants } from '../lib/fileGrants';
 import { uploadRejection } from '../lib/fileTransfer';
@@ -84,6 +84,16 @@ const workspaceRoute = (id: string, route: string, rel?: string): string => {
 export function createHostedPlatform(): Platform {
   const token = () => readStoredToken(window.localStorage) ?? '';
   const workspaceId = workspaceIdFromSearch(window.location.search);
+
+  /**
+   * PRD 007 Req 10/11/12: the workspace lifecycle the New/Open dialogs and
+   * the Settings delete action drive. It is the hosted flavor's answer to
+   * the desktop's file-based workspace picking, offered as a capability so
+   * no app code has to know which flavor it is running in. Held in a const
+   * because sign-out (Req 17) lands through the very same navigation seam
+   * rather than writing the URL a second way.
+   */
+  const workspaces = createHostedWorkspaceLifecycle();
 
   /**
    * PRD 007 Req 21 (PRD 009 Req 4/5): local-file mode. A Markdown file the
@@ -557,11 +567,18 @@ export function createHostedPlatform(): Platform {
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     },
 
-    // PRD 007 Req 10/11/12: the workspace lifecycle the New/Open dialogs and
-    // the Settings delete action drive. It is the hosted flavor's answer to
-    // the desktop's file-based workspace picking, offered as a capability so
-    // no app code has to know which flavor it is running in.
-    workspaces: createHostedWorkspaceLifecycle(),
+    workspaces,
+
+    // PRD 009 Req 17: sign-out is client-side only — the bearer token IS the
+    // session, so dropping it (through hostedGate's one owner of that key)
+    // ends it, with no endpoint to call and no new network call site. The
+    // landing is the lifecycle seam's own origin-root navigation: it drops
+    // any `?workspace=<id>` binding, so the boot that follows finds no token
+    // and renders the sign-in screen bound to nothing.
+    signOut() {
+      clearToken(window.localStorage);
+      workspaces.navigateTo(null);
+    },
 
     async openExternal(url) {
       if (!/^https?:\/\//i.test(url)) return;

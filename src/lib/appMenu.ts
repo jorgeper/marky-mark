@@ -82,6 +82,13 @@ export interface AppMenuState {
    * labels, hotkey hints, checked marks and gating cannot drift apart.
    */
   view: ViewMenuState;
+  /**
+   * PRD 009 Req 17: this session can be signed out of — the platform's
+   * `signOut` capability (platform/types.ts), present on the hosted flavor
+   * alone. Never derived from `platform.kind`, exactly like the workspace
+   * rows above. Signing out is not mode-dependent, so nothing else gates it.
+   */
+  canSignOut: boolean;
 }
 
 /** One command row — the counterpart of lib/menuSpec.ts's `cmd` for this menu. */
@@ -186,9 +193,11 @@ export function buildAppMenu(s: AppMenuState): AppMenuGroup[] {
   // are the native View menu's own items.
   const view: AppMenuRow[] = [{ label: 'View', testId: 'menu-view', submenu: buildViewRows(s.view, hasWorkspaces) }];
 
-  // PRD 009 Req 8: Sign out (#95) takes the first slot of this group when it
-  // lands — hosted only, ahead of Settings…
+  // PRD 009 Req 8/17: Sign out takes the first slot of this group, ahead of
+  // Settings… — and only where the platform can end a session, so a flavor
+  // without hosted auth has no such row at all rather than a disabled one.
   const app: AppMenuRow[] = [
+    ...(s.canSignOut ? [row('signOut', 'Sign out', 'menu-sign-out')] : []),
     row('settings', 'Settings…', 'menu-settings'),
     row('help', 'Help', 'menu-help'),
     row('about', 'About Marky Mark', 'menu-about'),

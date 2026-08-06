@@ -1487,6 +1487,9 @@ test('E201: the hosted start page offers exactly Open File + the two workspace f
     'menu-save',
     'menu-save-as',
     'menu-view',
+    // PRD 009 Req 8/17: hosted auth exists here, so Sign out leads the app
+    // group. It is not mode-dependent — this is the initial page.
+    'menu-sign-out',
     'menu-settings',
     'menu-help',
     'menu-about',
@@ -1924,4 +1927,67 @@ test('E213: on hosted, a handle-backed local file saves in place through the han
   expect((await downloaded).suggestedFilename()).toBe('stubbed.md');
   expect(await page.evaluate(() => (window as unknown as { __fsWrites: string[] }).__fsWrites)).toEqual([]);
   expect(writes).toEqual([]);
+});
+
+test('E215: Sign out prompts for unsaved work, Cancel keeps the session, and going through drops the token and the workspace binding', async ({
+  page,
+  request,
+}) => {
+  // PRD 009 Req 17: the whole flow. Sign out is offered inside a workspace
+  // too (it is not mode-dependent), it borrows the existing dirty-file
+  // prompts rather than inventing one, Cancel anywhere aborts the sign-out
+  // outright, and the completed walk leaves the browser on the sign-in
+  // screen with no token and no `?workspace=` binding to walk back in on.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E214 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Notes\n\nStored bytes.\n',
+  });
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'notes.md');
+  await page.getByTestId('edit-toggle').click();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('unsaved work ');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // The row is there in workspace mode as well as on the initial page.
+  await openAppMenu(page);
+  await expect(page.getByTestId('menu-sign-out')).toBeEnabled();
+  await page.getByTestId('menu-sign-out').click();
+
+  // …and it runs the existing close prompt over the dirty document first.
+  await expect(page.getByTestId('close-prompt')).toBeVisible();
+  await page.getByTestId('close-cancel').click();
+  await expect(page.getByTestId('close-prompt')).toHaveCount(0);
+
+  // Cancel aborted the sign-out entirely: still signed in, still in the
+  // workspace, the document still open with its unsaved edit.
+  await expect(page.getByTestId('docname')).toContainText('notes.md');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect(page.getByTestId('hosted-sign-in')).toHaveCount(0);
+  expect(await page.evaluate(() => window.localStorage.getItem('marky-mark.hosted.token'))).toBeTruthy();
+  expect(new URL(page.url()).search).toBe(`?workspace=${id}`);
+
+  // Through the same prompt again, discarding this time.
+  await openAppMenu(page);
+  await page.getByTestId('menu-sign-out').click();
+  await expect(page.getByTestId('close-prompt')).toBeVisible();
+  await page.getByTestId('close-discard').click();
+
+  // The session is over: the sign-in screen, no stored token, and the URL
+  // carries no workspace binding.
+  await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
+  expect(await page.evaluate(() => window.localStorage.getItem('marky-mark.hosted.token'))).toBeNull();
+  expect(new URL(page.url()).search).toBe('');
+
+  // A reload stays signed out — and signing back in lands on the initial
+  // page, not back inside the workspace that was open.
+  await page.reload();
+  await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
 });

@@ -43,6 +43,9 @@ export type CommandId =
   | 'saveWorkspaceAs'
   | 'closeWorkspace'
   | 'settings'
+  // PRD 009 Req 17: end the hosted session — routed like every other menu
+  // row, and inert on a platform without the sign-out capability.
+  | 'signOut'
   | 'help'
   | 'about'
   | 'checkUpdates'
