@@ -20,32 +20,53 @@ function createMemoryStorage(): { provider: StorageProvider; blobs: Map<string, 
   // the text view decodes them, exactly as a real blob store behaves.
   const binaries = new Map<string, { data: Uint8Array; contentType: string }>();
   let stamp = 0;
+  // PRD 007 Req 20: every write mints a NEW etag for that path, exactly as a
+  // blob store does — that is what makes the conditional write meaningful
+  // rather than a formula both sides can guess.
+  const etags = new Map<string, string>();
+  const stampPath = (path: string): string => {
+    const etag = `e${++stamp}`;
+    etags.set(path, etag);
+    return etag;
+  };
   const provider: StorageProvider = {
     kind: 'memory',
     async read(path) {
       const content = blobs.get(path);
-      return content === undefined ? null : { content, etag: `e${path.length}` };
+      return content === undefined ? null : { content, etag: etags.get(path) ?? '' };
     },
     async write(path, content) {
       binaries.delete(path);
       blobs.set(path, content);
-      return { etag: `e${++stamp}` };
+      return { etag: stampPath(path) };
+    },
+    async writeIfMatch(path, content, ifMatch) {
+      if (!blobs.has(path) || etags.get(path) !== ifMatch) return null;
+      binaries.delete(path);
+      blobs.set(path, content);
+      return { etag: stampPath(path) };
     },
     async readBytes(path) {
       const raw = binaries.get(path);
-      if (raw) return { ...raw, etag: `b${path.length}` };
+      if (raw) return { ...raw, etag: etags.get(path) ?? '' };
       const content = blobs.get(path);
       return content === undefined
         ? null
-        : { data: new TextEncoder().encode(content), contentType: 'text/plain; charset=utf-8', etag: `e${path.length}` };
+        : {
+            data: new TextEncoder().encode(content),
+            contentType: 'text/plain; charset=utf-8',
+            etag: etags.get(path) ?? '',
+          };
     },
     async writeBytes(path, data, contentType) {
       binaries.set(path, { data, contentType });
-      blobs.set(path, `<${data.length} bytes>`);
-      return { etag: `b${++stamp}` };
+      // The text view decodes the same bytes — a blob store has ONE copy.
+      blobs.set(path, new TextDecoder().decode(data));
+      return { etag: stampPath(path) };
     },
     async delete(path) {
       binaries.delete(path);
+      etags.delete(path);
       return blobs.delete(path);
     },
     async list(prefix) {
@@ -321,6 +342,144 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     // Deleting is scoped the same way.
     expect((await call('grace', 'DELETE', '/api/me/files/settings.json')).status).toBe(404);
     expect((await call('ada', 'DELETE', '/api/me/files/settings.json')).status).toBe(200);
+    blobs.clear();
+  });
+
+  /** Grant `user` a role in `id` (the manifest PUT the members UI will drive). */
+  async function grant(id: string, user: string, role: string): Promise<void> {
+    const { manifest } = (await (await call('ada', 'GET', `/api/workspaces/${id}/manifest`)).json()) as {
+      manifest: WorkspaceManifest;
+    };
+    manifest.members.push({ id: `mock-${user}`, role });
+    expect((await call('ada', 'PUT', `/api/workspaces/${id}/manifest`, JSON.stringify(manifest))).status).toBe(200);
+  }
+
+  it('U301: move/rename routes each check exactly one verb, carry a folder\'s contents, and never clobber', async () => {
+    // PRD 007 Req 18: file moves need file.rename, folder moves need
+    // folder.manage — a Contributor holds neither, and the server refuses
+    // whatever the UI showed.
+    const id = await createWorkspace('ada', 'Moves');
+    await grant(id, 'grace', 'Contributor');
+    await call('ada', 'PUT', `/api/workspaces/${id}/files/a.md`, '# a');
+    await call('ada', 'PUT', `/api/workspaces/${id}/files/notes/deep/b.md`, '# b');
+
+    const forbidden = await call('grace', 'POST', `/api/workspaces/${id}/move-file`, JSON.stringify({ from: 'a.md', to: 'moved.md' }));
+    expect(forbidden.status).toBe(403);
+    expect(await forbidden.json()).toEqual({ error: 'forbidden', required: 'file.rename' });
+    const forbiddenDir = await call('grace', 'POST', `/api/workspaces/${id}/move-folder`, JSON.stringify({ from: 'notes', to: 'archive' }));
+    expect(forbiddenDir.status).toBe(403);
+    expect(await forbiddenDir.json()).toEqual({ error: 'forbidden', required: 'folder.manage' });
+
+    // The move itself: the blob moves, the old path is gone, bytes survive.
+    expect((await call('ada', 'POST', `/api/workspaces/${id}/move-file`, JSON.stringify({ from: 'a.md', to: 'notes/a.md' }))).status).toBe(200);
+    expect((await call('ada', 'GET', `/api/workspaces/${id}/files/a.md`)).status).toBe(404);
+    expect(await (await call('ada', 'GET', `/api/workspaces/${id}/files/notes/a.md`)).json()).toMatchObject({ content: '# a' });
+
+    // A directory move takes its whole subtree with it.
+    expect((await call('ada', 'POST', `/api/workspaces/${id}/move-folder`, JSON.stringify({ from: 'notes', to: 'archive/notes' }))).status).toBe(200);
+    expect(await (await call('ada', 'GET', `/api/workspaces/${id}/files/archive/notes/deep/b.md`)).json()).toMatchObject({ content: '# b' });
+    expect((await call('ada', 'GET', `/api/workspaces/${id}/files/notes/a.md`)).status).toBe(404);
+
+    // A move onto an occupied path is refused — the target is NOT destroyed.
+    await call('ada', 'PUT', `/api/workspaces/${id}/files/keep.md`, '# keep');
+    const clash = await call('ada', 'POST', `/api/workspaces/${id}/move-file`, JSON.stringify({ from: 'archive/notes/a.md', to: 'keep.md' }));
+    expect(clash.status).toBe(409);
+    expect(await (await call('ada', 'GET', `/api/workspaces/${id}/files/keep.md`)).json()).toMatchObject({ content: '# keep' });
+    // An unknown source is a 404, and a folder into itself a 400.
+    expect((await call('ada', 'POST', `/api/workspaces/${id}/move-file`, JSON.stringify({ from: 'nope.md', to: 'x.md' }))).status).toBe(404);
+    expect((await call('ada', 'POST', `/api/workspaces/${id}/move-folder`, JSON.stringify({ from: 'archive', to: 'archive/inner' }))).status).toBe(400);
+    blobs.clear();
+  });
+
+  it('U302: an empty folder survives as a placeholder blob, and deleting one needs folder.manage', async () => {
+    // PRD 007 Req 18: blob storage has no directories — the marker blob is
+    // what makes a new empty folder still be there on the next listing.
+    const id = await createWorkspace('ada', 'Folders');
+    await grant(id, 'grace', 'Contributor');
+    expect((await call('grace', 'POST', `/api/workspaces/${id}/folders`, JSON.stringify({ path: 'ideas' }))).status).toBe(403);
+    expect((await call('ada', 'POST', `/api/workspaces/${id}/folders`, JSON.stringify({ path: 'ideas' }))).status).toBe(201);
+    expect(blobs.has(`workspaces/${id}/files/ideas/.mmkeep`)).toBe(true);
+    const listed = (await (await call('ada', 'GET', `/api/workspaces/${id}/files`)).json()) as { path: string }[];
+    expect(listed.map((f) => f.path)).toEqual(['ideas/.mmkeep']);
+
+    // Deleting the folder takes everything under it, and only with the verb.
+    await call('ada', 'PUT', `/api/workspaces/${id}/files/ideas/x.md`, '# x');
+    expect((await call('grace', 'DELETE', `/api/workspaces/${id}/folders/ideas`)).status).toBe(403);
+    expect((await call('ada', 'DELETE', `/api/workspaces/${id}/folders/ideas`)).status).toBe(200);
+    expect((await call('ada', 'GET', `/api/workspaces/${id}/files/ideas/x.md`)).status).toBe(404);
+    expect((await call('ada', 'DELETE', `/api/workspaces/${id}/folders/ideas`)).status).toBe(404);
+    blobs.clear();
+  });
+
+  it('U303: upload and download check their own verb, and the server re-applies the size/type rule', async () => {
+    // PRD 007 Req 19 + Req 17: the client's check is a courtesy; THIS is the
+    // control — a hand-rolled request gets the same answer.
+    const id = await createWorkspace('ada', 'Transfer');
+    await grant(id, 'grace', 'Viewer');
+    const upload = (user: string, name: string, body: string) =>
+      call(user, 'PUT', `/api/workspaces/${id}/upload/${name}`, body);
+
+    expect((await upload('grace', 'notes.md', '# hi')).status).toBe(403);
+    expect((await upload('ada', 'notes.md', '# hi')).status).toBe(201);
+    expect(await (await call('ada', 'GET', `/api/workspaces/${id}/files/notes.md`)).json()).toMatchObject({ content: '# hi' });
+
+    // A disallowed type is 415 with the reason, and NOTHING is written.
+    const bad = await upload('ada', 'payload.exe', 'MZ');
+    expect(bad.status).toBe(415);
+    expect(((await bad.json()) as { error: string }).error).toMatch(/\.exe/);
+    expect(blobs.has(`workspaces/${id}/files/payload.exe`)).toBe(false);
+    // Oversize is 413 naming the limit.
+    const huge = await upload('ada', 'big.md', 'x'.repeat(20 * 1024 * 1024 + 1));
+    expect(huge.status).toBe(413);
+    expect(((await huge.json()) as { error: string }).error).toMatch(/20 MB/);
+    // An upload never silently replaces an existing blob.
+    expect((await upload('ada', 'notes.md', '# other')).status).toBe(409);
+    expect(await (await call('ada', 'GET', `/api/workspaces/${id}/files/notes.md`)).json()).toMatchObject({ content: '# hi' });
+
+    // Download is its own verb: a Viewer holds file.download, a member with
+    // no verbs at all does not.
+    expect((await call('grace', 'GET', `/api/workspaces/${id}/download/notes.md`)).status).toBe(200);
+    expect((await call('alan', 'GET', `/api/workspaces/${id}/download/notes.md`)).status).toBe(403);
+    const got = await call('ada', 'GET', `/api/workspaces/${id}/download/notes.md`);
+    expect(got.headers.get('content-disposition')).toContain('notes.md');
+    expect(await got.text()).toBe('# hi');
+    expect((await call('ada', 'GET', `/api/workspaces/${id}/download/nope.md`)).status).toBe(404);
+    blobs.clear();
+  });
+
+  it('U304: a save carrying a stale ETag is refused 412 with the stored content untouched', async () => {
+    // PRD 007 Req 20: two members, one file. Ada reads, Grace saves, Ada's
+    // conditional save must lose — and Grace's write must survive.
+    const id = await createWorkspace('ada', 'Concurrency');
+    await grant(id, 'grace', 'Editor');
+    const path = `/api/workspaces/${id}/files/shared.md`;
+    // A first write of a path that does not exist yet is unconditional.
+    expect((await call('ada', 'PUT', path, 'v1')).status).toBe(200);
+    const { etag } = (await (await call('ada', 'GET', path)).json()) as { etag: string };
+    expect(etag).not.toBe('');
+
+    // Grace saves first (her own read's tag, so hers lands).
+    const graceRead = (await (await call('grace', 'GET', path)).json()) as { etag: string };
+    const graceSave = await fetch(`${base}${path}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${tokens.grace}`, 'If-Match': graceRead.etag },
+      body: 'grace was here',
+    });
+    expect(graceSave.status).toBe(200);
+
+    // Ada's save carries the tag from BEFORE Grace's write: refused, and the
+    // stored content is still Grace's.
+    const adaSave = await fetch(`${base}${path}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${tokens.ada}`, 'If-Match': etag },
+      body: 'ada clobbers',
+    });
+    expect(adaSave.status).toBe(412);
+    expect(await (await call('ada', 'GET', path)).json()).toMatchObject({ content: 'grace was here' });
+
+    // The overwrite branch: no If-Match at all, so it lands unconditionally.
+    expect((await call('ada', 'PUT', path, 'ada overwrote')).status).toBe(200);
+    expect(await (await call('ada', 'GET', path)).json()).toMatchObject({ content: 'ada overwrote' });
     blobs.clear();
   });
 });

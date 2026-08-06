@@ -54,8 +54,37 @@ export interface FolderPanelProps {
   onSync(): void;
   onClose(): void;
   onWidth(width: number): void;
-  /** SPEC35 §2.5: which seam-backed menu items exist on this platform. */
-  caps: { canReveal: boolean; canTrash: boolean; canRename: boolean; canCopy: boolean };
+  /**
+   * SPEC35 §2.5: which seam-backed menu items exist on this platform, and
+   * (PRD 007 Req 17) which of them the signed-in user is permitted to use.
+   * The panel never asks which flavor it is in: a Viewer on a hosted
+   * workspace and a desktop build with no rename seam both arrive here as
+   * the same false flag.
+   */
+  caps: {
+    canReveal: boolean;
+    canTrash: boolean;
+    canRename: boolean;
+    canCopy: boolean;
+    canCreate: boolean;
+    canCreateFolder: boolean;
+    canUpload: boolean;
+    canDownload: boolean;
+  };
+  /**
+   * PRD 007 Req 18: a row was dragged onto a folder row — move it there. The
+   * owner validates the target (`moveTarget` in lib/folderOps.ts) and runs
+   * the rename seam. Absent ⇒ rows are not draggable at all.
+   */
+  onMoveEntry?(source: string, destDir: string): void;
+  /**
+   * PRD 007 Req 19: OS files dropped onto the sidebar — upload into `dir`.
+   * Absent ⇒ the panel does not accept an external drop.
+   */
+  onUploadDrop?(dir: string, files: FileList): void;
+  /** A rejected upload or refused move, shown in the panel until dismissed. */
+  notice: string | null;
+  onDismissNotice(): void;
   /** SPEC35 §3: an invoked menu item — the owner runs the operation. */
   onMenuAction(id: string, target: { kind: 'dir' | 'file' | 'root'; path: string }): void;
   /** SPEC35 §5: the row whose label is an in-place rename input; null = none. */
@@ -67,6 +96,65 @@ export interface FolderPanelProps {
 }
 
 type MenuTarget = { kind: 'dir' | 'file' | 'root'; path: string; x: number; y: number };
+
+/**
+ * PRD 007 Req 18: the sidebar's drag-and-drop, as one object threaded down
+ * the row tree. Two drops land on a folder row: another row (a move) or OS
+ * files (an upload). The dragged path also rides in `dataTransfer` so a
+ * synthetic drop — which never runs a dragstart — still carries it, and the
+ * live ref keeps `dragover` decidable (dataTransfer data is unreadable there
+ * by design).
+ */
+interface Dnd {
+  /** Whether rows can be picked up at all (the move seam + permission). */
+  movable: boolean;
+  /** Whether an OS file drop is accepted. */
+  uploads: boolean;
+  dragging: React.MutableRefObject<string | null>;
+  over: string | null;
+  setOver(path: string | null): void;
+  drop(dir: string, e: React.DragEvent): void;
+}
+
+/** Handlers that make a row draggable (a no-op spread when it is not). */
+function dragSource(dnd: Dnd, path: string): React.HTMLAttributes<HTMLElement> & { draggable?: boolean } {
+  if (!dnd.movable) return {};
+  return {
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      dnd.dragging.current = path;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', path);
+    },
+    onDragEnd: () => {
+      dnd.dragging.current = null;
+      dnd.setOver(null);
+    },
+  };
+}
+
+/** Handlers that make a directory row (or the root surface) a drop target. */
+function dropTarget(dnd: Dnd, dir: string): React.HTMLAttributes<HTMLElement> {
+  if (!dnd.movable && !dnd.uploads) return {};
+  return {
+    onDragOver: (e: React.DragEvent) => {
+      // Only claim the drop when there is something droppable: a dragged row
+      // (move) or OS files (upload). Otherwise the browser's default wins.
+      const files = e.dataTransfer.types.includes('Files');
+      if (!(files ? dnd.uploads : dnd.movable)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = files ? 'copy' : 'move';
+      dnd.setOver(dir);
+    },
+    onDragLeave: () => dnd.setOver(null),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dnd.drop(dir, e);
+    },
+  };
+}
 
 /**
  * A directory row's disclosure chevron: right collapsed, down open. The
@@ -196,12 +284,14 @@ function FileRow({
   name,
   depth,
   p,
+  dnd,
   onRowMenu,
 }: {
   path: string;
   name: string;
   depth: number | null;
   p: FolderPanelProps;
+  dnd: Dnd;
   onRowMenu(kind: 'dir' | 'file', path: string, e: React.MouseEvent): void;
 }) {
   const md = isMarkdownFile(name);
@@ -213,6 +303,7 @@ function FileRow({
       className={cls}
       data-testid="folder-item"
       data-path={path}
+      {...dragSource(dnd, path)}
       style={depth === null ? undefined : ({ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties)}
       // Not `disabled` — a disabled button swallows the SPEC35 §3.1
       // contextmenu; dim rows stay click-inert via the absent onClick.
@@ -278,11 +369,13 @@ function Rows({
   dir,
   depth,
   p,
+  dnd,
   onRowMenu,
 }: {
   dir: string;
   depth: number;
   p: FolderPanelProps;
+  dnd: Dnd;
   onRowMenu(kind: 'dir' | 'file', path: string, e: React.MouseEvent): void;
 }) {
   const listed = p.children[dir];
@@ -298,30 +391,32 @@ function Rows({
             return (
               <div key={path}>
                 <RenameRow p={p} dir={dir} entry={e} depth={depth} />
-                {open && <Rows dir={path} depth={depth + 1} p={p} onRowMenu={onRowMenu} />}
+                {open && <Rows dir={path} depth={depth + 1} p={p} dnd={dnd} onRowMenu={onRowMenu} />}
               </div>
             );
           }
           return (
             <div key={path}>
               <button
-                className="folder-item folder-item-dir"
+                className={`folder-item folder-item-dir${dnd.over === path ? ' drop-target' : ''}`}
                 data-testid="folder-item"
                 data-path={path}
                 style={{ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => p.onToggleDir(path)}
                 onContextMenu={(ev) => onRowMenu('dir', path, ev)}
+                {...dragSource(dnd, path)}
+                {...dropTarget(dnd, path)}
               >
                 <Chevron open={open} />
                 {e.name}
               </button>
-              {open && <Rows dir={path} depth={depth + 1} p={p} onRowMenu={onRowMenu} />}
+              {open && <Rows dir={path} depth={depth + 1} p={p} dnd={dnd} onRowMenu={onRowMenu} />}
             </div>
           );
         }
         if (p.renamingPath === path) return <RenameRow key={path} p={p} dir={dir} entry={e} depth={depth} />;
-        return <FileRow key={path} path={path} name={e.name} depth={depth} p={p} onRowMenu={onRowMenu} />;
+        return <FileRow key={path} path={path} name={e.name} depth={depth} p={p} dnd={dnd} onRowMenu={onRowMenu} />;
       })}
     </>
   );
@@ -333,6 +428,30 @@ export function FolderPanel(p: FolderPanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<MenuTarget | null>(null);
+  const [dropOver, setDropOver] = useState<string | null>(null);
+  const draggingRef = useRef<string | null>(null);
+
+  // PRD 007 Req 18/19: one drop handler for both kinds of payload. OS files
+  // are an upload into the target folder; anything else is the dragged row,
+  // taken from the live ref or (for a synthetic drop) the transfer data.
+  const dnd: Dnd = {
+    movable: !!p.onMoveEntry && p.caps.canRename,
+    uploads: !!p.onUploadDrop && p.caps.canUpload,
+    dragging: draggingRef,
+    over: dropOver,
+    setOver: setDropOver,
+    drop(dir, e) {
+      setDropOver(null);
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        if (p.onUploadDrop && p.caps.canUpload) p.onUploadDrop(dir, files);
+        return;
+      }
+      const source = draggingRef.current ?? e.dataTransfer.getData('text/plain');
+      draggingRef.current = null;
+      if (source && p.onMoveEntry && p.caps.canRename) p.onMoveEntry(source, dir);
+    },
+  };
 
   const openMenu = (kind: MenuTarget['kind'], path: string, e: React.MouseEvent) => {
     e.preventDefault();
@@ -501,14 +620,15 @@ export function FolderPanel(p: FolderPanelProps) {
               </div>
             ) : (
               p.openFiles.map((path) => (
-                <FileRow key={path} path={path} name={p.basename(path)} depth={null} p={p} onRowMenu={openMenu} />
+                <FileRow key={path} path={path} name={p.basename(path)} depth={null} p={p} dnd={dnd} onRowMenu={openMenu} />
               ))
             )}
           </div>
         ) : p.roots.length === 1 ? (
           <div
-            className="folder-list"
+            className={`folder-list${dropOver === p.roots[0] ? ' drop-target' : ''}`}
             ref={listRef}
+            {...dropTarget(dnd, p.roots[0])}
             onContextMenu={(e) => {
               // Rows handle their own menus; the remaining surface is the
               // empty area — the `root` menu (SPEC35 §3.1, root always set here).
@@ -516,7 +636,7 @@ export function FolderPanel(p: FolderPanelProps) {
               openMenu('root', p.roots[0], e);
             }}
           >
-            <Rows dir={p.roots[0]} depth={0} p={p} onRowMenu={openMenu} />
+            <Rows dir={p.roots[0]} depth={0} p={p} dnd={dnd} onRowMenu={openMenu} />
           </div>
         ) : p.roots.length > 1 ? (
           // PRD 002 §D17: multiple roots — each gets a collapsible header row
@@ -527,10 +647,11 @@ export function FolderPanel(p: FolderPanelProps) {
               return (
                 <div key={root}>
                   <button
-                    className="folder-item folder-item-dir folder-root"
+                    className={`folder-item folder-item-dir folder-root${dnd.over === root ? ' drop-target' : ''}`}
                     data-testid="folder-root"
                     data-path={root}
                     title={root}
+                    {...dropTarget(dnd, root)}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => p.onToggleDir(root)}
                     onContextMenu={(ev) => {
@@ -542,7 +663,7 @@ export function FolderPanel(p: FolderPanelProps) {
                     <Chevron open={open} />
                     {p.basename(root)}
                   </button>
-                  {open && <Rows dir={root} depth={1} p={p} onRowMenu={openMenu} />}
+                  {open && <Rows dir={root} depth={1} p={p} dnd={dnd} onRowMenu={openMenu} />}
                 </div>
               );
             })}
@@ -551,6 +672,16 @@ export function FolderPanel(p: FolderPanelProps) {
           <div className="folder-empty">
             <button data-testid="folder-open-btn" onClick={p.onOpenFolder}>
               Open Folder…
+            </button>
+          </div>
+        )}
+        {/* PRD 007 Req 19: a refused upload or move says WHICH rule stopped
+            it, right where the drop happened, until the user dismisses it. */}
+        {p.notice && (
+          <div className="folder-notice" data-testid="folder-notice" role="alert">
+            <span>{p.notice}</span>
+            <button data-testid="folder-notice-dismiss" title="Dismiss" onClick={p.onDismissNotice}>
+              ✕
             </button>
           </div>
         )}

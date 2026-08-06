@@ -1,6 +1,6 @@
 import type { APIRequestContext, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { addComment, openSettings, pasteImage } from './helpers';
+import { addComment, menuSave, openSettings, pasteImage } from './helpers';
 
 // PRD 007 Req 1+4: the hosted backend in local dev mode — booted by the
 // second `webServer` entry in playwright.config.ts (`npm run server:local`:
@@ -869,4 +869,351 @@ test('E186: a member without workspace.delete never sees the delete action', asy
   await page.getByTestId('settings-scope-workspace').click();
   await expect(page.getByTestId('settings-scope-content-workspace')).toBeVisible();
   await expect(page.getByTestId('workspace-delete-section')).toHaveCount(0);
+});
+
+// --- issue #76: folder management, single-file transfer, ETag concurrency ---
+
+/** A workspace where `username` holds exactly `permissions` (a custom role). */
+async function workspaceWithRole(
+  request: APIRequestContext,
+  ownerToken: string,
+  name: string,
+  username: string,
+  permissions: string[],
+): Promise<string> {
+  const headers = { Authorization: `Bearer ${ownerToken}` };
+  const id = await createWorkspace(request, ownerToken, name);
+  const { manifest } = (await (
+    await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, { headers })
+  ).json()) as {
+    manifest: { members: Array<{ id: string; role: string }>; roles: Array<unknown> };
+  };
+  manifest.roles.push({ name: 'Limited', permissions });
+  manifest.members.push({ id: `mock-${username}`, role: 'Limited' });
+  expect((await request.put(`${HOSTED}/api/workspaces/${id}/manifest`, { headers, data: manifest })).status()).toBe(200);
+  return id;
+}
+
+/** Right-click the sidebar's empty area and pick a root-menu item. */
+async function rootMenu(page: Page, item: string): Promise<void> {
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 40, y: 140 } });
+  await page.getByTestId(`folder-menu-${item}`).click();
+}
+
+/** Right-click a named row and pick an item from its menu. */
+async function rowMenu(page: Page, name: string, item: string): Promise<void> {
+  await page.getByTestId('folder-item').filter({ hasText: name }).first().click({ button: 'right' });
+  await page.getByTestId(`folder-menu-${item}`).click();
+}
+
+/** Type into the in-place rename input and commit. */
+async function christen(page: Page, name: string): Promise<void> {
+  const input = page.getByTestId('folder-rename-input');
+  await expect(input).toBeVisible();
+  await input.fill(name);
+  await input.press('Enter');
+}
+
+/** Drag one sidebar row onto another (HTML5 drag-and-drop, one DataTransfer). */
+async function dragRowOnto(page: Page, source: string, target: string): Promise<void> {
+  const dt = await page.evaluateHandle(() => new DataTransfer());
+  const from = page.getByTestId('folder-item').filter({ hasText: source }).first();
+  const onto = page.getByTestId('folder-item').filter({ hasText: target }).first();
+  await from.dispatchEvent('dragstart', { dataTransfer: dt });
+  await onto.dispatchEvent('dragover', { dataTransfer: dt });
+  await onto.dispatchEvent('drop', { dataTransfer: dt });
+}
+
+/** The workspace's file paths, straight from the API. */
+async function listFiles(request: APIRequestContext, token: string, id: string): Promise<string[]> {
+  const res = await request.get(`${HOSTED}/api/workspaces/${id}/files`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return ((await res.json()) as { path: string }[]).map((f) => f.path);
+}
+
+test('E187: the hosted sidebar creates a file and an EMPTY folder, and both survive a reload', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 18: blob storage has no directories, so an empty folder only
+  // exists if the implementation makes it exist — this test is what proves
+  // the placeholder blob does that, and that it is never a visible row.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E187 w${test.info().workerIndex}`);
+  await signInTo(page, 'ada', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  await rootMenu(page, 'new-folder');
+  await christen(page, 'ideas');
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'ideas' })).toHaveCount(1);
+
+  await rootMenu(page, 'new-file');
+  await christen(page, 'notes.md');
+  await expect(page.getByTestId('docname')).toContainText('notes.md');
+
+  // Both are still there in a brand-new page load…
+  await page.reload();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'ideas' })).toHaveCount(1);
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'notes.md' })).toHaveCount(1);
+  // …the empty folder IS a marker blob, and the marker is never a row.
+  expect(await listFiles(request, ada, id)).toEqual(
+    expect.arrayContaining(['ideas/.mmkeep', 'notes.md']),
+  );
+  await expect(page.getByTestId('folder-item').filter({ hasText: '.mmkeep' })).toHaveCount(0);
+});
+
+test('E188: renaming, then moving — by context menu and by drag-and-drop — with the change surviving a reload', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 18: the same rename seam serves both gestures, and a moved
+  // FOLDER takes its contents with it.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E188 w${test.info().workerIndex}`);
+  const headers = { Authorization: `Bearer ${ada}` };
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/draft.md`, { headers, data: '# draft\n' });
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/sub/deep.md`, { headers, data: '# deep\n' });
+  await request.post(`${HOSTED}/api/workspaces/${id}/folders`, { headers, data: { path: 'archive' } });
+
+  await signInTo(page, 'ada', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  // Rename through the context menu.
+  await rowMenu(page, 'draft.md', 'rename');
+  await christen(page, 'final.md');
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'final.md' })).toHaveCount(1);
+
+  // Move a FILE onto a folder row by dragging it there.
+  await dragRowOnto(page, 'final.md', 'archive');
+  await expect
+    .poll(() => listFiles(request, ada, id))
+    .toEqual(expect.arrayContaining(['archive/final.md']));
+
+  // Move a FOLDER (with contents) by dragging it onto another folder.
+  await dragRowOnto(page, 'sub', 'archive');
+  await expect
+    .poll(() => listFiles(request, ada, id))
+    .toEqual(expect.arrayContaining(['archive/sub/deep.md']));
+
+  // The tree shows the new shape after a reload, and the old paths are gone.
+  await page.reload();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await page.getByTestId('folder-item').filter({ hasText: 'archive' }).first().click();
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'final.md' })).toHaveCount(1);
+  const paths = await listFiles(request, ada, id);
+  expect(paths).not.toContain('draft.md');
+  expect(paths).not.toContain('sub/deep.md');
+});
+
+test('E189: an upload lands and reads back; oversize and disallowed uploads are refused by the UI and the server alike', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 19: three entry points, one rule — enforced client-side with
+  // a message naming what failed, and independently server-side.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E189 w${test.info().workerIndex}`);
+  const headers = { Authorization: `Bearer ${ada}` };
+  await signInTo(page, 'ada', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  // (1) The folder context menu's Upload File… — the real file chooser.
+  const chooser = page.waitForEvent('filechooser');
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 40, y: 140 } });
+  await page.getByTestId('folder-menu-upload').click();
+  await (await chooser).setFiles({
+    name: 'uploaded.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from('# uploaded\n\nfrom the picker\n'),
+  });
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'uploaded.md' })).toHaveCount(1);
+  // It reads back byte-identical and opens in the editor.
+  const read = await request.get(`${HOSTED}/api/workspaces/${id}/files/uploaded.md`, { headers });
+  expect(((await read.json()) as { content: string }).content).toBe('# uploaded\n\nfrom the picker\n');
+  await openFromSidebar(page, 'uploaded.md');
+
+  // (2) Dropping an OS file onto the sidebar uploads it too.
+  const drop = await page.evaluateHandle(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(['# dropped\n'], 'dropped.md', { type: 'text/markdown' }));
+    return dt;
+  });
+  await page.locator('.folder-list').dispatchEvent('drop', { dataTransfer: drop });
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'dropped.md' })).toHaveCount(1);
+
+  // (3) A disallowed type is refused with a message naming the extension, and
+  // NOTHING is written.
+  const badChooser = page.waitForEvent('filechooser');
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 40, y: 140 } });
+  await page.getByTestId('folder-menu-upload').click();
+  await (await badChooser).setFiles({
+    name: 'payload.exe',
+    mimeType: 'application/octet-stream',
+    buffer: Buffer.from('MZ'),
+  });
+  await expect(page.getByTestId('folder-notice')).toContainText('.exe');
+  expect(await listFiles(request, ada, id)).not.toContain('payload.exe');
+  await page.getByTestId('folder-notice-dismiss').click();
+  await expect(page.getByTestId('folder-notice')).toHaveCount(0);
+
+  // …and a hand-rolled request bypassing the UI gets the same answers from
+  // the server: 415 for the type, 413 for the size, both naming the reason.
+  const type415 = await request.put(`${HOSTED}/api/workspaces/${id}/upload/payload.exe`, {
+    headers,
+    data: 'MZ',
+  });
+  expect(type415.status()).toBe(415);
+  expect(((await type415.json()) as { error: string }).error).toMatch(/\.exe/);
+  const size413 = await request.put(`${HOSTED}/api/workspaces/${id}/upload/huge.md`, {
+    headers,
+    data: 'x'.repeat(20 * 1024 * 1024 + 1),
+  });
+  expect(size413.status()).toBe(413);
+  expect(((await size413.json()) as { error: string }).error).toMatch(/20 MB/);
+  expect(await listFiles(request, ada, id)).not.toContain('huge.md');
+});
+
+test('E190: downloading a file from the sidebar delivers the workspace blob’s own bytes', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 19: the download is the blob, under the file's own basename.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E190 w${test.info().workerIndex}`);
+  const body = '# downloadable\n\nexact bytes — ✓ 私\n';
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/report.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: body,
+  });
+  await signInTo(page, 'ada', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  const download = page.waitForEvent('download');
+  await rowMenu(page, 'report.md', 'download');
+  const file = await download;
+  expect(file.suggestedFilename()).toBe('report.md');
+  const stream = await file.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(chunk as Buffer);
+  expect(Buffer.concat(chunks).toString('utf8')).toBe(body);
+});
+
+test('E191: a member without file.upload/file.download/file.rename sees no affordance — and the API refuses them anyway', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 17: the UI hides what the user cannot do, and the server
+  // refuses it regardless of what any UI showed.
+  const ada = await signIn(request, 'ada');
+  const id = await workspaceWithRole(request, ada, `E191 w${test.info().workerIndex}`, 'grace', ['doc.read']);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/readonly.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# read only\n',
+  });
+
+  await signInTo(page, 'grace', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  // The file row's menu offers nothing but Copy Path — no rename, no delete,
+  // no download; the empty-area menu offers no creation or upload at all.
+  await page.getByTestId('folder-item').filter({ hasText: 'readonly.md' }).first().click({ button: 'right' });
+  await expect(page.getByTestId('folder-menu')).toBeVisible();
+  for (const item of ['rename', 'delete', 'download', 'upload']) {
+    await expect(page.getByTestId(`folder-menu-${item}`)).toHaveCount(0);
+  }
+  await page.keyboard.press('Escape');
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 40, y: 140 } });
+  for (const item of ['new-file', 'new-folder', 'upload']) {
+    await expect(page.getByTestId(`folder-menu-${item}`)).toHaveCount(0);
+  }
+  await page.keyboard.press('Escape');
+  // No hidden upload input is even mounted.
+  await expect(page.getByTestId('upload-input')).toHaveCount(0);
+
+  // The endpoints answer 403 to the same user, naming the verb each needs.
+  const grace = await signIn(request, 'grace');
+  const headers = { Authorization: `Bearer ${grace}` };
+  const cases: Array<[Promise<import('@playwright/test').APIResponse>, string]> = [
+    [request.put(`${HOSTED}/api/workspaces/${id}/upload/x.md`, { headers, data: '# x' }), 'file.upload'],
+    [request.get(`${HOSTED}/api/workspaces/${id}/download/readonly.md`, { headers }), 'file.download'],
+    [
+      request.post(`${HOSTED}/api/workspaces/${id}/move-file`, {
+        headers,
+        data: { from: 'readonly.md', to: 'moved.md' },
+      }),
+      'file.rename',
+    ],
+    [
+      request.post(`${HOSTED}/api/workspaces/${id}/folders`, { headers, data: { path: 'nope' } }),
+      'folder.manage',
+    ],
+  ];
+  for (const [pending, required] of cases) {
+    const res = await pending;
+    expect(res.status(), required).toBe(403);
+    expect(((await res.json()) as { required: string }).required).toBe(required);
+  }
+  // …and nothing of theirs landed.
+  expect(await listFiles(request, ada, id)).toEqual(['readonly.md']);
+});
+
+test('E192: a save against a file another member has written is refused — Reload takes theirs, Overwrite takes yours', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 20: no save silently loses another member's write.
+  const ada = await signIn(request, 'ada');
+  const grace = await signIn(request, 'grace');
+  const id = await sharedWorkspace(request, ada, `E192 w${test.info().workerIndex}`, [
+    { id: 'mock-grace', role: 'Editor' },
+  ]);
+  const file = `${HOSTED}/api/workspaces/${id}/files/shared.md`;
+  const adaHeaders = { Authorization: `Bearer ${ada}` };
+  const graceHeaders = { Authorization: `Bearer ${grace}` };
+  await request.put(file, { headers: adaHeaders, data: '# shared\n\noriginal line\n' });
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'shared.md');
+  await page.keyboard.press('Control+e'); // into edit mode
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('ada was typing\n');
+
+  // Grace saves first, from another session entirely.
+  expect((await request.put(file, { headers: graceHeaders, data: '# shared\n\ngrace got here first\n' })).status()).toBe(200);
+
+  // Ada's save is refused; the prompt offers two real choices.
+  await menuSave(page);
+  await expect(page.getByTestId('save-conflict-prompt')).toBeVisible();
+  // Cancelling leaves the buffer dirty and the server holding Grace's text.
+  await page.getByTestId('save-conflict-cancel').click();
+  await expect(page.getByTestId('save-conflict-prompt')).toHaveCount(0);
+  expect(((await (await request.get(file, { headers: adaHeaders })).json()) as { content: string }).content).toBe(
+    '# shared\n\ngrace got here first\n',
+  );
+
+  // Reload brings Grace's newer version into the editor.
+  await menuSave(page);
+  await expect(page.getByTestId('save-conflict-prompt')).toBeVisible();
+  await page.getByTestId('save-conflict-reload').click();
+  await expect(page.getByTestId('save-conflict-prompt')).toHaveCount(0);
+  const surface = page.locator('[data-testid="editor"], [data-testid="doc"]').first();
+  await expect(surface).toContainText('grace got here first');
+  await expect(surface).not.toContainText('ada was typing');
+
+  // The Overwrite branch: Grace writes again, Ada edits and overwrites — and
+  // Ada's content is what the server keeps, with the next save re-armed.
+  await request.put(file, { headers: graceHeaders, data: '# shared\n\ngrace again\n' });
+  if ((await page.getByTestId('editor').count()) === 0) await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('ada overwrites\n');
+  await menuSave(page);
+  await expect(page.getByTestId('save-conflict-prompt')).toBeVisible();
+  await page.getByTestId('save-conflict-overwrite').click();
+  await expect(page.getByTestId('save-conflict-prompt')).toHaveCount(0);
+  await expect
+    .poll(async () => ((await (await request.get(file, { headers: adaHeaders })).json()) as { content: string }).content)
+    .toContain('ada overwrites');
 });

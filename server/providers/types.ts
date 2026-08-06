@@ -68,6 +68,15 @@ export interface StorageProvider {
   read(path: string): Promise<{ content: string; etag: string } | null>;
   write(path: string, content: string): Promise<{ etag: string }>;
   /**
+   * PRD 007 Req 20: the conditional write behind optimistic concurrency. The
+   * write happens ONLY while the stored blob still carries `ifMatch` (an ETag
+   * from a prior read); resolves null — with the stored content untouched —
+   * when it does not, which is exactly the "someone else saved first" case
+   * the API answers 412 for. Unconditional writes keep using `write`: a first
+   * write of a path that does not exist yet has no ETag to match.
+   */
+  writeIfMatch(path: string, content: string, ifMatch: string): Promise<{ etag: string } | null>;
+  /**
    * PRD 007 Req 8: the same blobs as bytes. Pasted images are stored and
    * served without a text round trip — blob storage is byte-native, so
    * base64-in-a-string would only be a lossy detour — and the media type

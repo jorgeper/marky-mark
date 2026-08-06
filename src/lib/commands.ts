@@ -30,6 +30,10 @@ export type CommandId =
   | 'nextFile'
   | 'prevFile'
   | 'openFolder'
+  // PRD 007 Req 19: single-file upload/download — present only where the
+  // platform offers the seam and the user holds the verb.
+  | 'uploadFile'
+  | 'downloadFile'
   // Issue #22: close the open document down to the splash.
   | 'closeFile'
   // PRD 002 §D14: the workspace flows.

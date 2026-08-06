@@ -104,6 +104,14 @@ export interface MenuState {
   /** SPEC34 §4.1: the folder sidebar's visibility (persisted setting). */
   showFolders: boolean;
   /**
+   * PRD 007 Req 19: whether the flavor offers single-file upload/download at
+   * all, and whether this user holds the verb. OPTIONAL so every pre-#76
+   * MenuState call site (and frozen test fixtures) keeps its exact File menu:
+   * absent reads as "no such seam", and the items are simply not there.
+   */
+  canUpload?: boolean;
+  canDownload?: boolean;
+  /**
    * SPEC36 §5.2: the only-open-files view's checkbox. OPTIONAL so pre-36
    * MenuState call sites (and frozen test fixtures) stay valid; absent
    * reads as off.
@@ -277,6 +285,10 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             cmd('closeFile', 'Close File', undefined, undefined, !s.docOpen),
             cmd('closeWorkspace', 'Close Workspace', undefined, undefined, !wsOpen),
             sep,
+            // PRD 007 Req 19: single-file transfer, present only where the
+            // platform offers it AND the user holds the verb (Req 17).
+            ...(s.canUpload ? [cmd('uploadFile', 'Upload File…')] : []),
+            ...(s.canDownload ? [cmd('downloadFile', 'Download', undefined, undefined, !s.docOpen)] : []),
             cmd('save', 'Save', s.hotkeys.save),
             cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
             cmd('exportDoc', 'Export…'),
@@ -311,6 +323,10 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
           cmd('closeFile', 'Close File', undefined, undefined, !s.docOpen),
           cmd('closeWorkspace', 'Close Workspace', undefined, undefined, !wsOpen),
           sep,
+          // PRD 007 Req 19: single-file transfer, present only where the
+          // platform offers it AND the user holds the verb (Req 17).
+          ...(s.canUpload ? [cmd('uploadFile', 'Upload File…')] : []),
+          ...(s.canDownload ? [cmd('downloadFile', 'Download', undefined, undefined, !s.docOpen)] : []),
           cmd('save', 'Save', s.hotkeys.save),
           cmd('saveAs', 'Save As…', 'Mod+Shift+S'),
           cmd('exportDoc', 'Export…'),

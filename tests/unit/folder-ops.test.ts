@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   folderContextMenu,
+  moveTarget,
   relativePath,
   remapPath,
   uniqueChildName,
@@ -115,5 +116,70 @@ describe('SPEC35 folder ops', () => {
     expect(folderContextMenu('file', { isMac: true, canReveal: false, canTrash: false, canRename: false, canCopy: false })).toEqual(
       []
     );
+  });
+});
+
+describe('PRD 007 Req 18 sidebar drag-and-drop + Req 17 menu gating', () => {
+  test('U299: a drop target is judged before any I/O — no self-nesting, no no-op, no clobber', () => {
+    // The ordinary case: a file dragged into a sibling folder.
+    expect(moveTarget('/w/1/files/a.md', '/w/1/files/notes', ['b.md'])).toEqual({
+      ok: true,
+      path: '/w/1/files/notes/a.md',
+    });
+    // A folder into its own descendant would detach the subtree — refused
+    // with a reason the user sees.
+    expect(moveTarget('/w/1/files/notes', '/w/1/files/notes/deep', [])).toEqual({
+      ok: false,
+      reason: 'A folder cannot be moved inside itself',
+    });
+    expect(moveTarget('/w/1/files/notes', '/w/1/files/notes', [])).toEqual({
+      ok: false,
+      reason: 'A folder cannot be moved inside itself',
+    });
+    // A drop back into the row's CURRENT parent is a no-op, not an error: a
+    // null reason means "do nothing, say nothing".
+    expect(moveTarget('/w/1/files/a.md', '/w/1/files', ['a.md'])).toEqual({ ok: false, reason: null });
+    // A name already taken in the target never silently replaces it.
+    const clash = moveTarget('/w/1/files/notes/a.md', '/w/1/files/archive', ['A.MD']);
+    expect(clash.ok).toBe(false);
+    expect(clash.ok === false && clash.reason).toMatch(/already exists/);
+    // Separators survive: a Windows target keeps backslashes.
+    expect(moveTarget('C:\\docs\\a.md', 'C:\\docs\\sub', [])).toEqual({ ok: true, path: 'C:\\docs\\sub\\a.md' });
+    // A trailing separator on the target does not double up.
+    expect(moveTarget('/root/a.md', '/root/sub/', [])).toEqual({ ok: true, path: '/root/sub/a.md' });
+  });
+
+  test('U300: the menu offers only what the platform CAN do and the user MAY do', () => {
+    const seams = { isMac: false, canReveal: false, canTrash: true, canRename: true, canCopy: false };
+    const ids = (kind: 'dir' | 'file' | 'root', opts: Partial<Parameters<typeof folderContextMenu>[1]> = {}) =>
+      folderContextMenu(kind, { ...seams, ...opts })
+        .filter((i): i is { id: string; label: string } => i !== 'sep')
+        .map((i) => i.id);
+
+    // Pre-#76 call sites are unchanged: creation on, transfer rows absent.
+    expect(ids('dir')).toEqual(['new-file', 'new-folder', 'rename', 'delete']);
+    expect(ids('file')).toEqual(['rename', 'delete']);
+    expect(ids('root')).toEqual(['new-file', 'new-folder']);
+
+    // PRD 007 Req 19: the transfer rows appear only with the verb.
+    expect(ids('dir', { canUpload: true })).toContain('upload');
+    expect(ids('file', { canDownload: true })).toContain('download');
+    expect(ids('root', { canUpload: true })).toContain('upload');
+    expect(ids('file', { canUpload: true })).not.toContain('upload'); // upload targets folders
+
+    // PRD 007 Req 17: a Viewer — no create, no rename, no delete, no upload;
+    // download is the only thing left, and the dir/root menus go empty.
+    const viewer = { canTrash: false, canRename: false, canCreate: false, canDownload: true };
+    expect(ids('file', viewer)).toEqual(['download']);
+    expect(ids('dir', viewer)).toEqual([]);
+    expect(ids('root', viewer)).toEqual([]);
+
+    // Folder creation is gated separately (hosted: folder.manage), so a
+    // Contributor keeps New File and loses New Folder.
+    expect(ids('dir', { canCreate: true, canCreateFolder: false })).toEqual([
+      'new-file',
+      'rename',
+      'delete',
+    ]);
   });
 });

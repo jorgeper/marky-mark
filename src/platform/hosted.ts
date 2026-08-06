@@ -1,6 +1,10 @@
 import type { Platform } from './types';
 import { readStoredToken } from '../lib/hostedGate';
 import { createHostedWorkspaceLifecycle } from './hostedWorkspaces';
+import { fileGrantsFromPermissions, type FileGrants } from '../lib/fileGrants';
+import { uploadRejection } from '../lib/fileTransfer';
+import { parseWorkspaceManifest, resolvePermissions } from '../lib/hostedWorkspace';
+import { SaveConflictError } from '../lib/saveConflict';
 import {
   HOSTED_CONFIG_DIR,
   apiPathFor,
@@ -44,6 +48,16 @@ interface ListedFile {
 
 /** Thrown for a read of something the workspace does not hold (App catches it). */
 const enoent = (path: string) => new Error(`ENOENT: ${path}`);
+
+/**
+ * PRD 007 Req 18: the marker blob that makes an empty folder real (the server
+ * writes it; `FOLDER_PLACEHOLDER` in server/workspaces.ts is the same name).
+ * Blob storage has no directories, so without it a folder the user just
+ * created would not survive the next listing. It never appears as a row: the
+ * tree hides dotfiles anyway, and directory listings drop it explicitly here
+ * so nothing downstream — rename, delete, collision checks — ever sees it.
+ */
+const FOLDER_PLACEHOLDER = '.mmkeep';
 
 /**
  * The listing endpoint a target's blobs are enumerated through — one per
@@ -110,10 +124,26 @@ export function createHostedPlatform(): Platform {
       if (!tail) continue;
       const slash = tail.indexOf('/');
       const name = slash === -1 ? tail : tail.slice(0, slash);
+      if (slash === -1 && name === FOLDER_PLACEHOLDER) continue; // the folder marker is not a row
       seen.set(name, seen.get(name) === true || slash !== -1);
     }
     return [...seen].map(([name, isDir]) => ({ name, isDir }));
   };
+
+  /** True when `target` names a directory prefix rather than one blob. */
+  const isDirTarget = async (target: HostedTarget & { kind: 'workspace' }): Promise<boolean> => {
+    const paths = await relPathsOf(target);
+    return paths.some((p) => p.startsWith(`${target.rel}/`));
+  };
+
+  /**
+   * PRD 007 Req 20: the ETag each path was last READ or WRITTEN at. A save
+   * carries it as `If-Match`, so a save against a blob another member has
+   * written since is refused by the server rather than silently replacing
+   * their work. A path with no recorded tag (a first write) writes
+   * unconditionally — there is nothing yet to conflict with.
+   */
+  const etags = new Map<string, string>();
 
   const readManifest = async (id: string) => {
     const res = await api(apiPathFor({ kind: 'manifest', id }));
@@ -135,12 +165,16 @@ export function createHostedPlatform(): Platform {
       if (target.kind === 'manifest') {
         return manifestSettingsToWorkspaceFile((await readManifest(target.id)).settings ?? {});
       }
-      const body = await json<{ content: string }>(await api(apiPathFor(target)));
+      const body = await json<{ content: string; etag: string }>(await api(apiPathFor(target)));
       if (!body) throw enoent(path);
+      // PRD 007 Req 20: the version this session read — the save that follows
+      // is conditional on it.
+      if (body.etag) etags.set(path, body.etag);
+      else etags.delete(path);
       return body.content;
     },
 
-    async writeTextFile(path, content) {
+    async writeTextFile(path, content, opts) {
       const target = parseHostedPath(path);
       if (!target) throw enoent(path);
       if (target.kind === 'manifest') {
@@ -159,9 +193,24 @@ export function createHostedPlatform(): Platform {
         });
         return;
       }
-      const res = await api(apiPathFor(target), { method: 'PUT', body: content });
+      // PRD 007 Req 20: `overwrite` is the user's explicit answer to a
+      // conflict prompt — it drops the precondition, so the write lands
+      // whatever the server now holds, and re-arms the tag for the next save.
+      const known = opts?.overwrite ? undefined : etags.get(path);
+      const res = await api(apiPathFor(target), {
+        method: 'PUT',
+        body: content,
+        ...(known ? { headers: { 'If-Match': known } } : {}),
+      });
       invalidate(target);
+      if (res.status === 412) {
+        // The server refused the write; the stored content is untouched.
+        throw new SaveConflictError(path);
+      }
       if (!res.ok) throw new Error(`write failed (${res.status}): ${path}`);
+      const written = await json<{ etag: string }>(res);
+      if (written?.etag) etags.set(path, written.etag);
+      else etags.delete(path);
     },
 
     async exists(path) {
@@ -185,8 +234,70 @@ export function createHostedPlatform(): Platform {
     async readDirNames(dir) {
       return (await childrenOf(dir)).map((e) => e.name);
     },
-    async mkdirp() {
-      /* blob prefixes are implicit — a write creates every parent */
+    /**
+     * PRD 007 Req 18: creating a folder. A prefix under a document is
+     * implicit (writing `a/b/c.md` makes `a/b` exist), so the only case that
+     * needs the server is an EMPTY folder — which becomes the placeholder
+     * blob, and so is still there after a reload. Per-user config directories
+     * take the implicit path, unchanged.
+     */
+    async mkdirp(dir) {
+      const target = parseHostedPath(dir);
+      if (target?.kind !== 'workspace' || !target.rel) return;
+      await api(`/api/workspaces/${encodeURIComponent(target.id)}/folders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: target.rel }),
+      });
+      invalidate(target);
+    },
+
+    /**
+     * SPEC35 §1 + PRD 007 Req 18: rename AND move, for a file or a whole
+     * folder. Which of the two routes runs is decided from the listing, and
+     * each route checks its own single verb (`file.rename` / `folder.manage`)
+     * — a member who may rename files but not manage folders is refused the
+     * folder move by the server, not merely by a hidden menu item.
+     */
+    async renameEntry(oldPath, newPath) {
+      const from = parseHostedPath(oldPath);
+      const to = parseHostedPath(newPath);
+      if (from?.kind !== 'workspace' || to?.kind !== 'workspace' || from.id !== to.id) throw enoent(oldPath);
+      const route = (await isDirTarget(from)) ? 'move-folder' : 'move-file';
+      const res = await api(`/api/workspaces/${encodeURIComponent(from.id)}/${route}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: from.rel, to: to.rel }),
+      });
+      invalidate(from);
+      if (!res.ok) {
+        const body = await json<{ error?: string }>(res);
+        throw new Error(body?.error ?? `move failed (${res.status})`);
+      }
+      // The moved blobs answer under their new tags; forget the stale ones.
+      etags.clear();
+    },
+
+    /**
+     * SPEC35 §1: the sidebar's delete. PRD 007 non-goals: there is no hosted
+     * trash and no version history — this is permanent, which is what the
+     * confirmation the app shows before calling it must say.
+     */
+    permanentDelete: true,
+
+    async trashEntry(path) {
+      const target = parseHostedPath(path);
+      if (target?.kind !== 'workspace' || !target.rel) throw enoent(path);
+      const dir = await isDirTarget(target);
+      const res = await api(
+        dir
+          ? `/api/workspaces/${encodeURIComponent(target.id)}/folders/${target.rel.split('/').map(encodeURIComponent).join('/')}`
+          : apiPathFor(target),
+        { method: 'DELETE' },
+      );
+      invalidate(target);
+      if (!res.ok) throw new Error(`delete failed (${res.status}): ${path}`);
+      etags.delete(path);
     },
 
     async configDir() {
@@ -277,6 +388,82 @@ export function createHostedPlatform(): Platform {
 
     readDirEntries(dir) {
       return childrenOf(dir);
+    },
+
+    /**
+     * PRD 007 Req 17: the signed-in member's own verbs, resolved from the
+     * bound workspace's manifest, so the sidebar offers only what this member
+     * can actually do. Cached for the page's lifetime: permissions change in
+     * the members UI (#77), which reloads. With no workspace bound there is
+     * nothing to gate — the sidebar is not rendered either.
+     */
+    fileGrants: (() => {
+      let pending: Promise<FileGrants> | null = null;
+      return (): Promise<FileGrants> => {
+        pending ??= (async () => {
+          const id = workspaceId;
+          if (!id) return fileGrantsFromPermissions(new Set());
+          const [me, manifestRes] = await Promise.all([
+            json<{ id: string }>(await api('/api/me')),
+            api(apiPathFor({ kind: 'manifest', id })),
+          ]);
+          const body = await json<{ manifest: unknown }>(manifestRes);
+          const parsed = me && body ? parseWorkspaceManifest(JSON.stringify(body.manifest)) : null;
+          if (!parsed?.ok) return fileGrantsFromPermissions(new Set());
+          return fileGrantsFromPermissions(resolvePermissions(parsed.manifest, me!.id));
+        })();
+        return pending;
+      };
+    })(),
+
+    /**
+     * PRD 007 Req 19: single-file upload through its own `file.upload` route.
+     * The shared rule runs here too — a caller reaching this seam with an
+     * oversize or disallowed file is stopped before a request is made, and
+     * the server applies the identical rule again on arrival (Req 17).
+     */
+    async uploadFile(dir, name, bytes) {
+      const target = parseHostedPath(`${dir}/${name}`);
+      if (target?.kind !== 'workspace' || !target.rel) throw enoent(`${dir}/${name}`);
+      const rejection = uploadRejection(name, bytes.length);
+      if (rejection) throw new Error(rejection);
+      const res = await api(
+        `/api/workspaces/${encodeURIComponent(target.id)}/upload/${target.rel.split('/').map(encodeURIComponent).join('/')}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: bytes.slice().buffer as ArrayBuffer,
+        },
+      );
+      invalidate(target);
+      if (!res.ok) {
+        const body = await json<{ error?: string }>(res);
+        throw new Error(body?.error ?? `upload failed (${res.status})`);
+      }
+      return normalizeHostedPath(`${dir}/${name}`);
+    },
+
+    /**
+     * PRD 007 Req 19: single-file download through its own `file.download`
+     * route — the workspace blob's own bytes, saved under its own basename.
+     * The bytes arrive through the authenticated fetch (an <a href> cannot
+     * carry the bearer token) and are handed to the browser as an object URL.
+     */
+    async downloadFile(path) {
+      const target = parseHostedPath(path);
+      if (target?.kind !== 'workspace' || !target.rel) throw enoent(path);
+      const res = await api(
+        `/api/workspaces/${encodeURIComponent(target.id)}/download/${target.rel.split('/').map(encodeURIComponent).join('/')}`,
+      );
+      if (!res.ok) throw new Error(`download failed (${res.status}): ${path}`);
+      const url = URL.createObjectURL(await res.blob());
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = target.rel.split('/').pop() ?? 'download';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
     },
 
     // PRD 007 Req 10/11/12: the workspace lifecycle the New/Open dialogs and

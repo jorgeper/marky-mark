@@ -57,7 +57,10 @@ import {
 } from './lib/workspace';
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
 import { isDirtyText, normalizeEol } from './lib/dirty';
-import { relativePath, remapPath, uniqueChildName } from './lib/folderOps';
+import { moveTarget, relativePath, remapPath, uniqueChildName } from './lib/folderOps';
+import { ALL_FILE_GRANTS, type FileGrants } from './lib/fileGrants';
+import { uploadRejection } from './lib/fileTransfer';
+import { isSaveConflict, planSaveConflict, type SaveConflictChoice } from './lib/saveConflict';
 import { FolderExpandButton, FolderPanel, PreviewToggleButton } from './components/FolderPanel';
 import {
   SLIDE_SETTLE_MS,
@@ -285,6 +288,21 @@ export default function App() {
   const [folderRenameError, setFolderRenameError] = useState<string | null>(null);
   // SPEC35 §6: the delete confirmation — “Move ‘NAME’ to the Trash?”.
   const [folderDeletePrompt, setFolderDeletePrompt] = useState<{ path: string; isDir: boolean } | null>(null);
+  // PRD 007 Req 17: what this user may do with files — everything, unless the
+  // platform answers the grants seam (App never asks which flavor that is).
+  const [folderGrants, setFolderGrants] = useState<FileGrants>(ALL_FILE_GRANTS);
+  // PRD 007 Req 19: a refused upload or move, shown in the sidebar. It names
+  // the rule that failed — the whole point of rejecting before uploading.
+  const [folderNotice, setFolderNotice] = useState<string | null>(null);
+  // PRD 007 Req 19: the folder an Upload File… pick will land in, and the
+  // hidden input that does the picking (null ⇒ no pick in flight).
+  const [uploadDir, setUploadDir] = useState<string | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  // PRD 007 Req 20: the save the server refused because the file changed
+  // under us — the prompt offering Reload / Overwrite / Cancel.
+  const [saveConflict, setSaveConflict] = useState<{ path: string; text: string; saved: string } | null>(
+    null
+  );
   const [activeId, setActiveId] = useState<string | null>(null);
   const [showComments, setShowComments] = useState(true);
   // SPEC26 §3: per-document front-matter override — null means "follow the
@@ -1455,6 +1473,59 @@ export default function App() {
     [persistFolderState, listFolderDir, startFolderRename]
   );
 
+  /**
+   * PRD 007 Req 17: ask the platform which file operations this user holds.
+   * A platform without the seam has no permission model — everything its
+   * other seams offer stays offered.
+   */
+  useEffect(() => {
+    const p = stateRef.current.platform;
+    if (!p?.fileGrants) return;
+    let live = true;
+    void p.fileGrants().then((grants) => {
+      if (live) setFolderGrants(grants);
+    });
+    return () => {
+      live = false;
+    };
+  }, [folderRoots]);
+
+  /**
+   * PRD 007 Req 19: upload ONE file into `dir`. The shared rule decides
+   * first — an oversize or disallowed file is refused with the reason and
+   * nothing is sent — then a free sibling name is chosen from the live
+   * listing, so an upload never silently replaces what is already there.
+   */
+  const folderUpload = useCallback(
+    async (dir: string, file: File) => {
+      const p = stateRef.current.platform;
+      if (!p?.uploadFile || !p.readDirEntries) return;
+      const rejection = uploadRejection(file.name, file.size);
+      if (rejection) {
+        setFolderNotice(rejection);
+        return;
+      }
+      try {
+        const listing = await p.readDirEntries(dir);
+        const name = uniqueChildName(
+          listing.map((e) => e.name),
+          file.name
+        );
+        await p.uploadFile(dir, name, new Uint8Array(await file.arrayBuffer()));
+        const nextExpanded = new Set(folderStateRef.current.expanded);
+        nextExpanded.add(dir);
+        folderStateRef.current = { ...folderStateRef.current, expanded: nextExpanded };
+        setFolderExpanded(nextExpanded);
+        persistFolderState(p);
+        await listFolderDir(p, dir);
+        setFolderNotice(null);
+      } catch (e) {
+        setFolderNotice(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [listFolderDir, persistFolderState]
+  );
+
   /** SPEC35 §3: a folder-menu item was invoked — run the operation. */
   const folderMenuAction = useCallback(
     (id: string, target: { kind: 'dir' | 'file' | 'root'; path: string }) => {
@@ -1469,6 +1540,16 @@ export default function App() {
       else if (id === 'new-file') void folderCreate(p, target.path, 'file');
       else if (id === 'new-folder') void folderCreate(p, target.path, 'dir');
       else if (id === 'delete') setFolderDeletePrompt({ path: target.path, isDir: target.kind === 'dir' });
+      // PRD 007 Req 19: the folder menu's upload arms the hidden picker for
+      // the clicked folder; the file menu's download takes the clicked file.
+      else if (id === 'upload') {
+        setUploadDir(target.path);
+        uploadInputRef.current?.click();
+      } else if (id === 'download') {
+        void p.downloadFile?.(target.path).catch((e: unknown) => {
+          setFolderNotice(e instanceof Error ? e.message : String(e));
+        });
+      }
     },
     [startFolderRename, folderCreate]
   );
@@ -1860,6 +1941,41 @@ export default function App() {
     // SPEC35 §4.2: cancelling the christening still opens the new file as-is.
     if (p && session?.openOnDone && isMarkdownFile(p.basename(session.path))) openDocGuarded(p, session.path);
   }, [startFolderRename, openDocGuarded]);
+
+  /**
+   * PRD 007 Req 18: a row dropped on a folder row. `moveTarget` decides
+   * whether the drop is legal at all (no folder into its own descendant, no
+   * no-op back into the same parent, no name collision); a legal one runs the
+   * SAME rename seam the in-place rename does, so open tabs and expanded
+   * state follow through `remapAfterRename`.
+   */
+  const folderMoveEntry = useCallback(
+    async (source: string, destDir: string) => {
+      const p = stateRef.current.platform;
+      if (!p?.renameEntry || !p.readDirEntries) return;
+      const listing = await p.readDirEntries(destDir).catch(() => []);
+      const target = moveTarget(
+        source,
+        destDir,
+        listing.map((e) => e.name)
+      );
+      if (!target.ok) {
+        setFolderNotice(target.reason); // null ⇒ a no-op drop, nothing to say
+        return;
+      }
+      try {
+        await p.renameEntry(source, target.path);
+      } catch (e) {
+        setFolderNotice(e instanceof Error ? e.message : String(e));
+        return;
+      }
+      setFolderNotice(null);
+      await listFolderDir(p, p.dirname(source));
+      await listFolderDir(p, destDir);
+      remapAfterRename(p, source, target.path);
+    },
+    [listFolderDir, remapAfterRename]
+  );
 
   /**
    * Persist comments per the active storage mode (SPEC2 FR-C.5). Embedded
@@ -2477,7 +2593,18 @@ export default function App() {
       hasUnreadableStore(s.stores) || s.settings.commentStorage === 'embedded'
         ? attachEmbedded(out, s.comments, s.stores.trailerBytes)
         : out;
-    await s.platform.writeTextFile(s.docPath, text);
+    try {
+      await s.platform.writeTextFile(s.docPath, text);
+    } catch (e) {
+      // PRD 007 Req 20: the server refused the write because another member
+      // saved first — their content is still what is stored. The buffer stays
+      // dirty and unsaved until the user answers the prompt.
+      if (isSaveConflict(e)) {
+        setSaveConflict({ path: s.docPath, text, saved: out });
+        return false;
+      }
+      throw e;
+    }
     await s.platform.commitFile?.(s.docPath); // web download fallback for handle-less files
     setSavedText(out);
     if (s.settings.commentStorage === 'sidecar') {
@@ -2487,6 +2614,34 @@ export default function App() {
     }
     return true;
   }, [persistComments, saveDocAs]);
+
+  /**
+   * PRD 007 Req 20: the conflict prompt's three answers, run through the
+   * pure plan in lib/saveConflict.ts. Reload replaces the buffer with the
+   * server's newer bytes (local edits discarded, buffer clean, the next save
+   * conditional on the new version); Overwrite writes unconditionally and
+   * re-arms it; Cancel leaves the buffer dirty and UNSAVED — never a silent
+   * success.
+   */
+  const resolveSaveConflict = useCallback(
+    async (choice: SaveConflictChoice) => {
+      const conflict = saveConflict;
+      const p = stateRef.current.platform;
+      setSaveConflict(null);
+      if (!conflict || !p) return;
+      const plan = planSaveConflict(choice);
+      if (plan.reload) {
+        await openDoc(p, conflict.path);
+        return;
+      }
+      if (plan.write) {
+        await p.writeTextFile(conflict.path, conflict.text, { overwrite: true });
+        await p.commitFile?.(conflict.path);
+        setSavedText(conflict.saved);
+      }
+    },
+    [saveConflict, openDoc]
+  );
 
   const toggleMode = useCallback(() => {
     const s = stateRef.current;
@@ -2892,6 +3047,20 @@ export default function App() {
     registerCommands({
       newFile,
       open: () => void openViaDialog(),
+      // PRD 007 Req 19: the File-menu entry points. Upload arms the hidden
+      // picker for the sidebar root; download takes the open document.
+      uploadFile: () => {
+        setUploadDir(folderStateRef.current.roots[0] ?? null);
+        uploadInputRef.current?.click();
+      },
+      downloadFile: () => {
+        const s2 = stateRef.current;
+        if (s2.platform?.downloadFile && s2.docPath) {
+          void s2.platform.downloadFile(s2.docPath).catch((e: unknown) => {
+            setFolderNotice(e instanceof Error ? e.message : String(e));
+          });
+        }
+      },
       save: () => void saveDoc(),
       saveAs: () => void saveDocAs(),
       // SPEC17 §1: Export… opens the dialog (silent no-op without a document).
@@ -3096,6 +3265,10 @@ export default function App() {
         // Issue #10: the View checkbox mirrors the persisted gutter setting.
         lineNumbers: settings.lineNumbers,
         showFolders: settings.showFolders,
+        // PRD 007 Req 17+19: File-menu transfer rows exist only where the
+        // seam does and only for a user holding the verb.
+        canUpload: !!platform?.uploadFile && folderGrants.upload,
+        canDownload: !!platform?.downloadFile && folderGrants.download,
         openOnly: folderOpenOnly,
         // Issue #84: gates View → Next/Previous Open File.
         openFileCount: openFiles.length,
@@ -4248,16 +4421,56 @@ export default function App() {
             onClose={() => dispatchCommand('toggleFolders')}
             onWidth={(w) => updateSettings({ ...stateRef.current.settings, folderWidth: w })}
             caps={{
+              // SPEC35 §2.5 + PRD 007 Req 17: the seam must exist AND this
+              // user must hold the verb — a Viewer sees no New File, no
+              // Rename, no Delete and no drop target at all.
               canReveal: !!platform.revealPath,
-              canTrash: !!platform.trashEntry,
-              canRename: !!platform.renameEntry,
+              canTrash: !!platform.trashEntry && folderGrants.delete,
+              canRename: !!platform.renameEntry && folderGrants.rename,
               canCopy: !!platform.copyText,
+              canCreate: folderGrants.create,
+              canCreateFolder: folderGrants.folderManage,
+              canUpload: !!platform.uploadFile && folderGrants.upload,
+              canDownload: !!platform.downloadFile && folderGrants.download,
             }}
+            onMoveEntry={
+              platform.renameEntry ? (source, dest) => void folderMoveEntry(source, dest) : undefined
+            }
+            onUploadDrop={
+              platform.uploadFile
+                ? (dir, files) => {
+                    // PRD 007 Req 19 (non-goals: no bulk transfer) — one file.
+                    if (files[0]) void folderUpload(dir, files[0]);
+                  }
+                : undefined
+            }
+            notice={folderNotice}
+            onDismissNotice={() => setFolderNotice(null)}
             onMenuAction={folderMenuAction}
             renamingPath={folderRenaming?.path ?? null}
             renameError={folderRenameError}
             onRenameCommit={(oldPath, newName) => void folderRenameCommit(oldPath, newName)}
             onRenameCancel={folderRenameCancel}
+          />
+        )}
+
+        {/* PRD 007 Req 19: the Upload File… picker. One hidden input serves
+            the File menu and the folder context menu alike; it exists only
+            where the platform offers the upload seam and the user holds the
+            verb, so no other flavor grows a file input. */}
+        {platform.uploadFile && folderGrants.upload && (
+          <input
+            ref={uploadInputRef}
+            type="file"
+            data-testid="upload-input"
+            className="upload-input"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              const dir = uploadDir ?? folderRoots[0];
+              e.target.value = ''; // picking the same file twice must re-fire
+              setUploadDir(null);
+              if (file && dir) void folderUpload(dir, file);
+            }}
           />
         )}
 
@@ -4686,6 +4899,42 @@ export default function App() {
         </div>
       )}
 
+      {/* PRD 007 Req 20: the save was refused because the file changed on the
+          server. Two real choices, and dismissing leaves the buffer dirty. */}
+      {saveConflict && (
+        <div className="overlay">
+          <div
+            className="modal"
+            data-testid="save-conflict-prompt"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') void resolveSaveConflict('cancel');
+            }}
+          >
+            <h2>File changed elsewhere</h2>
+            <p style={{ fontSize: 13.5 }}>
+              “{platform.basename(saveConflict.path)}” was changed by someone else since you opened it.
+              Your save was not applied — their version is still stored.
+            </p>
+            <div className="actions">
+              <button data-testid="save-conflict-cancel" onClick={() => void resolveSaveConflict('cancel')}>
+                Cancel
+              </button>
+              <button data-testid="save-conflict-overwrite" onClick={() => void resolveSaveConflict('overwrite')}>
+                Overwrite
+              </button>
+              <button
+                className="primary"
+                data-testid="save-conflict-reload"
+                autoFocus
+                onClick={() => void resolveSaveConflict('reload')}
+              >
+                Reload
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {folderDeletePrompt && (
         <div className="overlay">
           <div
@@ -4695,10 +4944,15 @@ export default function App() {
               if (e.key === 'Escape') setFolderDeletePrompt(null); // §6.1: Esc ⇒ no-op
             }}
           >
-            <h2>Move to Trash</h2>
+            {/* PRD 007 non-goals: where deletes are permanent (no trash, no
+                version history) the prompt says so instead of naming a Trash
+                the user could go looking in. */}
+            <h2>{platform.permanentDelete ? 'Delete' : 'Move to Trash'}</h2>
             <p style={{ fontSize: 13.5 }}>
-              Move “{platform.basename(folderDeletePrompt.path)}”
-              {folderDeletePrompt.isDir ? ' and its contents' : ''} to the Trash?
+              {platform.permanentDelete ? 'Permanently delete' : 'Move'} “
+              {platform.basename(folderDeletePrompt.path)}”
+              {folderDeletePrompt.isDir ? ' and its contents' : ''}
+              {platform.permanentDelete ? '? This cannot be undone.' : ' to the Trash?'}
               {dirty && docPath && remapPath(docPath, folderDeletePrompt.path, folderDeletePrompt.path) !== null
                 ? ' It has unsaved changes.'
                 : ''}

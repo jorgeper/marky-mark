@@ -1,6 +1,7 @@
 import type { MenuSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
 import type { WorkspaceLifecycle } from './hostedWorkspaces';
+import type { FileGrants } from '../lib/fileGrants';
 
 /**
  * The single seam between the app and the host (SPEC FR-6). Everything that
@@ -20,7 +21,15 @@ export interface Platform {
   isMac: boolean;
 
   readTextFile(path: string): Promise<string>;
-  writeTextFile(path: string, content: string): Promise<void>;
+  /**
+   * PRD 007 Req 20: `opts.overwrite` drops any optimistic-concurrency
+   * precondition the platform would otherwise attach — the user's explicit
+   * "overwrite it anyway" answer to a save conflict. Platforms without
+   * conditional writes ignore it (their writes are already unconditional);
+   * platforms with them throw `SaveConflictError` (lib/saveConflict.ts)
+   * without writing when the stored file moved on since it was read.
+   */
+  writeTextFile(path: string, content: string, opts?: { overwrite?: boolean }): Promise<void>;
   exists(path: string): Promise<boolean>;
   remove(path: string): Promise<void>;
   /** File/dir names (not full paths) directly inside `dir`; [] if missing. */
@@ -84,6 +93,12 @@ export interface Platform {
   renameEntry?(oldPath: string, newPath: string): Promise<void>;
   /** SPEC35 §1: move a file or directory (recursively) to the OS Trash. */
   trashEntry?(path: string): Promise<void>;
+  /**
+   * SPEC35 §6 + PRD 007 non-goals: true ⇒ `trashEntry` destroys the entry
+   * outright — there is no OS trash behind it and no version history to
+   * restore from — so the confirmation must not promise recovery.
+   */
+  permanentDelete?: boolean;
   /** SPEC35 §1: select the entry in the OS file manager. */
   revealPath?(path: string): Promise<void>;
   /** SPEC35 §1: clipboard write (the shim also records on __mmClipboard for e2e). */
@@ -95,6 +110,29 @@ export interface Platform {
    * where the browser provides it.
    */
   readClipboardText?(): Promise<string>;
+
+  /**
+   * PRD 007 Req 17: which file-management affordances the signed-in user may
+   * use. Absent ⇒ no permission model — the app offers everything the other
+   * seams already provide (`ALL_FILE_GRANTS`). Present ⇒ the sidebar's menu
+   * items and drop targets are narrowed to the answer; the server re-checks
+   * every verb regardless, so this is presentation, never enforcement.
+   */
+  fileGrants?(): Promise<FileGrants>;
+  /**
+   * PRD 007 Req 19: single-file upload — store `bytes` as `name` inside
+   * `dir` and resolve the path it landed at. The caller has already applied
+   * the shared size/type rule (lib/fileTransfer.ts) and picked a free name;
+   * the implementation applies it again on the far side. Absent ⇒ no upload
+   * affordance anywhere in the UI.
+   */
+  uploadFile?(dir: string, name: string, bytes: Uint8Array): Promise<string>;
+  /**
+   * PRD 007 Req 19: single-file download — deliver the stored bytes of one
+   * file to the user's machine under its own basename. Absent ⇒ no download
+   * affordance. Bulk transfer is deliberately not part of this seam.
+   */
+  downloadFile?(path: string): Promise<void>;
 
   /**
    * Web only: flush an explicit user Save for handle-less files (download

@@ -24,6 +24,7 @@ import {
   type WorkspaceManifest,
 } from '../src/lib/hostedWorkspace.ts';
 import type { WorkspaceListing } from '../src/lib/workspaceLifecycle.ts';
+import { UPLOAD_MAX_BYTES, uploadRejection } from '../src/lib/fileTransfer.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import type { RequestAuth, StorageProvider } from './providers/types.ts';
 
@@ -54,6 +55,42 @@ const RAW_CONTENT_TYPES: Record<string, string> = {
 function contentTypeFor(filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
   return RAW_CONTENT_TYPES[ext] ?? 'application/octet-stream';
+}
+
+/**
+ * PRD 007 Req 18: blob storage has no directories — a prefix exists only for
+ * as long as something is stored under it. An empty folder the user created
+ * would therefore vanish on the next listing, so it is made real by this
+ * zero-byte marker blob. It is a dotfile, which the sidebar tree already
+ * hides (SPEC34's dotfile rule), and the hosted platform filters it from
+ * directory listings besides — so the folder shows up and the marker never
+ * does.
+ */
+export const FOLDER_PLACEHOLDER = '.mmkeep';
+
+/** A `{from, to}` move request body, or null when it is not one. */
+function parseMove(raw: string): { from: string; to: string } | null {
+  let body: unknown;
+  try {
+    body = JSON.parse(raw || '');
+  } catch {
+    return null;
+  }
+  if (typeof body !== 'object' || body === null) return null;
+  const { from, to } = body as { from?: unknown; to?: unknown };
+  if (typeof from !== 'string' || typeof to !== 'string') return null;
+  const cleanFrom = cleanRelativePath(from);
+  const cleanTo = cleanRelativePath(to);
+  return cleanFrom && cleanTo ? { from: cleanFrom, to: cleanTo } : null;
+}
+
+/** Copy one blob's bytes (and media type) to a new path, then drop the old. */
+async function moveBlob(storage: StorageProvider, from: string, to: string): Promise<boolean> {
+  const bytes = await storage.readBytes(from);
+  if (!bytes) return false;
+  await storage.writeBytes(to, bytes.data, bytes.contentType);
+  await storage.delete(from);
+  return true;
 }
 
 /**
@@ -239,6 +276,185 @@ export async function handleWorkspaceApi(
     }
   }
 
+  // POST /api/workspaces/<id>/move-file — rename or move ONE file.
+  // Required permission: file.rename (PRD 007 Req 18: the file verb; folders
+  // move through move-folder under folder.manage, so each route still checks
+  // exactly one verb). A move onto an existing path is refused with 409 —
+  // never a silent destruction of the target — and an unknown source is 404.
+  if (segments.length === 2 && segments[1] === 'move-file' && req.method === 'POST') {
+    const manifest = await requirePermission(res, storage, id, auth, 'file.rename');
+    if (!manifest) return;
+    const move = parseMove(await readBody(req));
+    if (!move) {
+      sendJson(res, 400, { error: 'expected {from, to} relative file paths' });
+      return;
+    }
+    const prefix = filesPrefix(id);
+    if (await storage.read(prefix + move.to)) {
+      sendJson(res, 409, { error: 'a file already exists at the destination', path: move.to });
+      return;
+    }
+    if (!(await moveBlob(storage, prefix + move.from, prefix + move.to))) {
+      sendJson(res, 404, { error: 'not found', path: move.from });
+      return;
+    }
+    sendJson(res, 200, { from: move.from, to: move.to });
+    return;
+  }
+
+  // POST /api/workspaces/<id>/move-folder — rename or move a folder, contents
+  // and all. Required permission: folder.manage. Every blob under the source
+  // prefix is re-keyed under the destination prefix (that IS "the directory
+  // takes its contents with it" when directories are only prefixes); a
+  // destination that already holds anything is 409, an empty source is 404.
+  if (segments.length === 2 && segments[1] === 'move-folder' && req.method === 'POST') {
+    const manifest = await requirePermission(res, storage, id, auth, 'folder.manage');
+    if (!manifest) return;
+    const move = parseMove(await readBody(req));
+    if (!move) {
+      sendJson(res, 400, { error: 'expected {from, to} relative folder paths' });
+      return;
+    }
+    const prefix = filesPrefix(id);
+    const fromPrefix = `${prefix}${move.from}/`;
+    const toPrefix = `${prefix}${move.to}/`;
+    if (toPrefix.startsWith(fromPrefix)) {
+      sendJson(res, 400, { error: 'a folder cannot move inside itself' });
+      return;
+    }
+    const blobs = await storage.list(fromPrefix);
+    if (blobs.length === 0) {
+      sendJson(res, 404, { error: 'not found', path: move.from });
+      return;
+    }
+    if ((await storage.list(toPrefix)).length > 0) {
+      sendJson(res, 409, { error: 'a folder already exists at the destination', path: move.to });
+      return;
+    }
+    for (const blob of blobs) await moveBlob(storage, blob.path, toPrefix + blob.path.slice(fromPrefix.length));
+    sendJson(res, 200, { from: move.from, to: move.to, moved: blobs.length });
+    return;
+  }
+
+  // POST /api/workspaces/<id>/folders — create an EMPTY folder (PRD 007 Req
+  // 18). Required permission: folder.manage. The folder is the placeholder
+  // blob; creating one that already exists is idempotent, not an error.
+  if (segments.length === 2 && segments[1] === 'folders' && req.method === 'POST') {
+    const manifest = await requirePermission(res, storage, id, auth, 'folder.manage');
+    if (!manifest) return;
+    let body: unknown;
+    try {
+      body = JSON.parse((await readBody(req)) || '');
+    } catch {
+      body = null;
+    }
+    const raw = (body as { path?: unknown } | null)?.path;
+    const folder = typeof raw === 'string' ? cleanRelativePath(raw) : null;
+    if (!folder) {
+      sendJson(res, 400, { error: 'expected {path} — a relative folder path' });
+      return;
+    }
+    await storage.write(`${filesPrefix(id)}${folder}/${FOLDER_PLACEHOLDER}`, '');
+    sendJson(res, 201, { path: folder });
+    return;
+  }
+
+  // DELETE /api/workspaces/<id>/folders/<path> — delete a folder and
+  // everything under it. Required permission: folder.manage. PRD 007
+  // non-goals: hosted deletes are PERMANENT — there is no trash to restore
+  // from, which is why the UI's confirmation promises no recovery.
+  if (segments.length > 2 && segments[1] === 'folders' && req.method === 'DELETE') {
+    const manifest = await requirePermission(res, storage, id, auth, 'folder.manage');
+    if (!manifest) return;
+    const folder = cleanRelativePath(segments.slice(2).join('/'));
+    if (!folder) {
+      sendJson(res, 400, { error: 'invalid folder path' });
+      return;
+    }
+    const blobs = await storage.list(`${filesPrefix(id)}${folder}/`);
+    if (blobs.length === 0) {
+      sendJson(res, 404, { error: 'not found', path: folder });
+      return;
+    }
+    await Promise.all(blobs.map((b) => storage.delete(b.path)));
+    sendJson(res, 200, { deleted: folder, files: blobs.length });
+    return;
+  }
+
+  // PUT /api/workspaces/<id>/upload/<path> — single-file upload (PRD 007 Req
+  // 19). Required permission: file.upload — deliberately its own route rather
+  // than a flag on the files PUT, so the upload verb is what is checked and
+  // the size/type rule below is enforced on exactly the upload path.
+  if (segments.length > 2 && segments[1] === 'upload' && req.method === 'PUT') {
+    const manifest = await requirePermission(res, storage, id, auth, 'file.upload');
+    if (!manifest) return;
+    const filePath = cleanRelativePath(segments.slice(2).join('/'));
+    if (!filePath) {
+      sendJson(res, 400, { error: 'invalid file path' });
+      return;
+    }
+    const blobPath = filesPrefix(id) + filePath;
+    // PRD 007 Req 17+19: the SAME pure rule the client rejects with, applied
+    // again here — the client's check is a courtesy, this one is the control.
+    // Type first (it costs nothing and needs no body), then the size, split
+    // into the two status codes HTTP already has words for.
+    const name = filePath.split('/').pop() ?? filePath;
+    const typeRejection = uploadRejection(name, 0);
+    if (typeRejection) {
+      sendJson(res, 415, { error: typeRejection });
+      return;
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = await readBodyBytes(req);
+    } catch {
+      sendJson(res, 413, { error: `upload exceeds the ${UPLOAD_MAX_BYTES}-byte limit` });
+      return;
+    }
+    const sizeRejection = uploadRejection(name, bytes.length);
+    if (sizeRejection) {
+      sendJson(res, 413, { error: sizeRejection });
+      return;
+    }
+    // An upload never silently replaces an existing blob: the client picks a
+    // free name from the listing, and a race that loses is told so.
+    if (await storage.readBytes(blobPath)) {
+      sendJson(res, 409, { error: 'a file already exists there', path: filePath });
+      return;
+    }
+    const { etag } = await storage.writeBytes(blobPath, bytes, contentTypeFor(filePath));
+    sendJson(res, 201, { path: filePath, etag, size: bytes.length });
+    return;
+  }
+
+  // GET /api/workspaces/<id>/download/<path> — single-file download (PRD 007
+  // Req 19). Required permission: file.download. The bytes are the blob's,
+  // with a Content-Disposition naming the file's own basename; bulk transfer
+  // is explicitly out of scope (PRD 007 non-goals).
+  if (segments.length > 2 && segments[1] === 'download' && req.method === 'GET') {
+    const manifest = await requirePermission(res, storage, id, auth, 'file.download');
+    if (!manifest) return;
+    const filePath = cleanRelativePath(segments.slice(2).join('/'));
+    if (!filePath) {
+      sendJson(res, 400, { error: 'invalid file path' });
+      return;
+    }
+    const bytes = await storage.readBytes(filesPrefix(id) + filePath);
+    if (!bytes) {
+      sendJson(res, 404, { error: 'not found' });
+      return;
+    }
+    const name = filePath.split('/').pop() ?? filePath;
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': bytes.data.length,
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+      ETag: bytes.etag,
+    });
+    res.end(Buffer.from(bytes.data));
+    return;
+  }
+
   // GET /api/workspaces/<id>/files — list; required permission: doc.read.
   if (segments.length === 2 && segments[1] === 'files' && req.method === 'GET') {
     const manifest = await requirePermission(res, storage, id, auth, 'doc.read');
@@ -296,7 +512,24 @@ export async function handleWorkspaceApi(
         sendJson(res, 200, { path: filePath, etag });
         return;
       }
-      const { etag } = await storage.write(blobPath, await readBody(req));
+      const content = await readBody(req);
+      // PRD 007 Req 20: optimistic concurrency. `If-Match` carries the ETag
+      // the client read; the write lands only while the blob still has it.
+      // When it does not, the answer is 412 and the STORED CONTENT IS
+      // UNTOUCHED — the other member's save survives, and the client prompts
+      // to reload or overwrite. A request with no If-Match is a deliberate
+      // unconditional write (a first save, or the user's Overwrite choice).
+      const ifMatch = req.headers['if-match'];
+      if (typeof ifMatch === 'string' && ifMatch !== '' && ifMatch !== '*') {
+        const written = await storage.writeIfMatch(blobPath, content, ifMatch);
+        if (!written) {
+          sendJson(res, 412, { error: 'the file changed on the server since it was loaded', path: filePath });
+          return;
+        }
+        sendJson(res, 200, { path: filePath, etag: written.etag });
+        return;
+      }
+      const { etag } = await storage.write(blobPath, content);
       sendJson(res, 200, { path: filePath, etag });
       return;
     }
