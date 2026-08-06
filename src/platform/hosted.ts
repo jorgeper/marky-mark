@@ -1,5 +1,6 @@
 import type { Platform } from './types';
 import { readStoredToken } from '../lib/hostedGate';
+import { createHostedWorkspaceLifecycle } from './hostedWorkspaces';
 import {
   HOSTED_CONFIG_DIR,
   apiPathFor,
@@ -277,6 +278,12 @@ export function createHostedPlatform(): Platform {
     readDirEntries(dir) {
       return childrenOf(dir);
     },
+
+    // PRD 007 Req 10/11/12: the workspace lifecycle the New/Open dialogs and
+    // the Settings delete action drive. It is the hosted flavor's answer to
+    // the desktop's file-based workspace picking, offered as a capability so
+    // no app code has to know which flavor it is running in.
+    workspaces: createHostedWorkspaceLifecycle(),
 
     async openExternal(url) {
       if (!/^https?:\/\//i.test(url)) return;

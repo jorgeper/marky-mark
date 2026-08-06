@@ -121,8 +121,9 @@ calling user, and answer `403` (naming the verb) when it is missing.
 | --- | --- | --- |
 | `POST /api/auth/sign-in` | — (unauthenticated) | Local: `{username}` → `{kind:'token', token, user}`. Azure: `{kind:'redirect', authorizeUrl}` for the SPA's PKCE flow. The only unauthenticated endpoint. |
 | `GET /api/me` | — (signed-in) | The authenticated user. |
-| `POST /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 10 — any user may create; the creator becomes the manifest's sole Owner) | `{name}` → `201 {id, manifest}`. |
-| `GET /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 11 — metadata is listable by any signed-in user; contents stay permission-checked) | `[{id, name, created, modified}]`. |
+| `POST /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 10 — any user may create; the creator is always retained as Owner) | `{name, members?: [{id, role}], everyone?: {enabled, role?}}` → `201 {id, manifest}`. A name-only body is the original behaviour. Role names are validated against the built-ins and the manifest's own custom roles (400 for an unknown one); everyone-access defaults to `Viewer` (Req 16). |
+| `GET /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 11 — metadata is listable by any signed-in user; contents stay permission-checked) | `[{id, name, created, modified, owners, access}]`. `owners` are the Owner-role member ids (whoever can grant membership, when no Owner role is used) and `access` is whether the caller resolves `doc.read` — enough for an Open dialog to tell "open it" from "ask for access" without attempting a forbidden read. Never file contents or workspace-scoped settings. |
+| `DELETE /api/workspaces/<id>` | `workspace.delete` | Delete the workspace: every blob under `workspaces/<id>/` — manifest, `files/`, comment sidecars and pasted images alike (PRD 007 Req 12). 404 for an unknown id. |
 | `GET /api/workspaces/<id>/manifest` | `doc.read` | `{id, manifest}`. |
 | `PUT /api/workspaces/<id>/manifest` | `workspace.settings` | Validate + store the full manifest (`created` preserved, `modified` restamped server-side); finer-grained member/role endpoints are #77. |
 | `GET /api/workspaces/<id>/files` | `doc.read` | List the workspace's files, workspace-relative paths. |

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   DEFAULT_SETTINGS,
   diffSettings,
@@ -52,6 +52,13 @@ interface Props {
   frameless?: boolean;
   /** SPEC20 §1: current doc basename (no extension) for the pattern example. */
   docName?: string;
+  /**
+   * PRD 007 Req 12: a slot for workspace-scoped ACTIONS the host offers
+   * (today: the hosted flavor's delete-workspace control). It renders at the
+   * foot of the Workspace scope's General tab and nowhere else; the panel
+   * neither knows nor asks what is in it, so no flavor branching lands here.
+   */
+  workspaceActions?: ReactNode;
 }
 
 const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
@@ -146,6 +153,7 @@ export function SettingsPanel({
   onClose,
   frameless,
   docName,
+  workspaceActions,
 }: Props) {
   const [tab, setTab] = useState<SettingsTab>('general');
   // §E18: which layer this window writes. Without the selector (web) it is
@@ -661,6 +669,11 @@ export function SettingsPanel({
         </label>
         {scopeNote('vimNav')}
       </div>
+
+      {/* PRD 007 Req 12: workspace-scoped actions the host supplies (the
+          hosted delete-workspace control). Workspace scope only — these act
+          on the open workspace, not on a settings layer. */}
+      {scope === 'workspace' && workspaceActions}
     </>
   );
 

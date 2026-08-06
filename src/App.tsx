@@ -97,6 +97,8 @@ import { FIXTURES } from './bundled';
 import { AppBadge, Toolbar } from './components/Toolbar';
 import { CommentCard } from './components/CommentCard';
 import { SettingsPanel } from './components/SettingsPanel';
+import { WorkspaceDangerZone } from './components/WorkspaceDangerZone';
+import { WorkspaceSwitcher } from './components/WorkspaceSwitcher';
 import { AboutDialog } from './components/AboutDialog';
 
 const Editor = lazy(() => import('./components/Editor'));
@@ -4594,8 +4596,18 @@ export default function App() {
           onRevealThemesDir={platform.revealThemesDir ? () => void platform.revealThemesDir!() : undefined}
           onClose={() => setSettingsOpen(false)}
           docName={docPath ? platform.basename(docPath).replace(/\.[^.]+$/, '') : undefined}
+          workspaceActions={
+            // PRD 007 Req 12: a capability check, not a flavor check — only a
+            // platform offering the workspace lifecycle has a workspace to
+            // delete server-side.
+            platform.workspaces ? <WorkspaceDangerZone lifecycle={platform.workspaces} /> : undefined
+          }
         />
       )}
+
+      {/* PRD 007 Req 10/11: the workspace switcher and its New/Open flows,
+          mounted on the same capability. */}
+      {platform.workspaces && <WorkspaceSwitcher lifecycle={platform.workspaces} />}
 
       {!platform.openAuxWindow && aboutOpen && (
         <AboutDialog onClose={() => setAboutOpen(false)} onOpenUrl={(u) => void platform.openExternal(u)} />

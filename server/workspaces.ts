@@ -14,14 +14,16 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import {
-  createWorkspaceManifest,
+  buildNewWorkspaceManifest,
   parseWorkspaceManifest,
   resolvePermissions,
   serializeWorkspaceManifest,
   validateWorkspaceManifest,
+  workspaceOwnerIds,
   type Permission,
   type WorkspaceManifest,
 } from '../src/lib/hostedWorkspace.ts';
+import type { WorkspaceListing } from '../src/lib/workspaceLifecycle.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import type { RequestAuth, StorageProvider } from './providers/types.ts';
 
@@ -119,21 +121,25 @@ export async function handleWorkspaceApi(
   // PRD 007 Req 10: create — deliberately pre-permission (any signed-in user
   // may create a workspace); the creator becomes its sole Owner.
   if (rest === '' && req.method === 'POST') {
-    let name: unknown;
+    let body: unknown;
     try {
-      name = (JSON.parse((await readBody(req)) || '{}') as { name?: unknown }).name;
+      body = JSON.parse((await readBody(req)) || '{}');
     } catch {
       sendJson(res, 400, { error: 'malformed JSON body' });
       return;
     }
-    if (typeof name !== 'string' || name.trim() === '') {
-      sendJson(res, 400, { error: 'name must be a non-empty string' });
+    // PRD 007 Req 10: initial members with roles and everyone-access ride
+    // along with the name; a name-only body is exactly the old behaviour.
+    // The creator is retained as Owner whatever the body asks for, and an
+    // unknown role name is a 400 rather than a member with no permissions.
+    const built = buildNewWorkspaceManifest(body, auth.user.id, new Date().toISOString());
+    if (!built.ok) {
+      sendJson(res, 400, { error: built.error });
       return;
     }
     const id = randomUUID();
-    const manifest = createWorkspaceManifest(name.trim(), auth.user.id, new Date().toISOString());
-    await storage.write(manifestBlob(id), serializeWorkspaceManifest(manifest));
-    sendJson(res, 201, { id, manifest });
+    await storage.write(manifestBlob(id), serializeWorkspaceManifest(built.manifest));
+    sendJson(res, 201, { id, manifest: built.manifest });
     return;
   }
 
@@ -142,13 +148,24 @@ export async function handleWorkspaceApi(
   // dialog can list everything; contents stay behind per-workspace checks.
   if (rest === '' && req.method === 'GET') {
     const blobs = await storage.list(WORKSPACES_PREFIX);
-    const out: { id: string; name: string; created: string; modified: string }[] = [];
+    const out: WorkspaceListing[] = [];
     for (const blob of blobs) {
       const match = MANIFEST_BLOB_RE.exec(blob.path);
       if (!match) continue;
       const manifest = await loadManifest(storage, match[1]);
       if (manifest === null || typeof manifest === 'string') continue; // corrupt: has no listable metadata
-      out.push({ id: match[1], name: manifest.name, created: manifest.created, modified: manifest.modified });
+      // PRD 007 Req 11: the row carries what the Open dialog needs to tell
+      // "openable" from "ask for access" — a resolved access flag and the
+      // owner ids to name — so the client never probes a forbidden read to
+      // find out. Never file contents, never workspace-scoped settings.
+      out.push({
+        id: match[1],
+        name: manifest.name,
+        created: manifest.created,
+        modified: manifest.modified,
+        owners: workspaceOwnerIds(manifest),
+        access: resolvePermissions(manifest, auth.user.id).has('doc.read'),
+      });
     }
     sendJson(res, 200, out);
     return;
@@ -159,6 +176,27 @@ export async function handleWorkspaceApi(
   const id = segments?.[0];
   if (!segments || !id || id === '.' || id === '..') {
     sendJson(res, 400, { error: 'invalid workspace id' });
+    return;
+  }
+
+  // DELETE /api/workspaces/<id> — destroy the workspace outright.
+  if (segments.length === 1 && req.method === 'DELETE') {
+    // Required permission: workspace.delete (404 for an unknown id, 403 when
+    // the caller lacks exactly that verb — PRD 007 Req 12+17).
+    const manifest = await requirePermission(res, storage, id, auth, 'workspace.delete');
+    if (!manifest) return;
+    // PRD 007 Req 12: EVERY blob under the workspace prefix goes — manifest,
+    // files/, comment sidecars and pasted images alike. Listing the prefix
+    // (rather than the files/ subtree) is what makes that exhaustive: nothing
+    // of the workspace survives to be listed or read afterwards.
+    const prefix = `${WORKSPACES_PREFIX}${id}/`;
+    const blobs = await storage.list(prefix);
+    const manifestPath = manifestBlob(id);
+    await Promise.all(blobs.filter((b) => b.path !== manifestPath).map((b) => storage.delete(b.path)));
+    // The manifest goes last: while it exists the permission check above
+    // still answers, so an interrupted sweep never leaves unguarded blobs.
+    await storage.delete(manifestPath);
+    sendJson(res, 200, { deleted: id });
     return;
   }
 

@@ -248,6 +248,91 @@ export function createWorkspaceManifest(name: string, creatorId: string, nowIso:
   };
 }
 
+/**
+ * PRD 007 Req 10: is `name` a role this manifest can grant — one of the five
+ * built-ins, or one of its own custom roles? Membership grants are validated
+ * against exactly this set, so a typo is a 400 rather than a member who
+ * silently resolves to no permissions at all.
+ */
+export function isKnownRoleName(manifest: WorkspaceManifest, name: string): boolean {
+  return isBuiltInRoleName(name) || manifest.roles.some((r) => r.name === name);
+}
+
+/** PRD 007 Req 10: the create-workspace request body, as the API accepts it. */
+export interface CreateWorkspaceRequest {
+  name: string;
+  /** Initial members besides the creator; the creator is always Owner. */
+  members?: WorkspaceMember[];
+  /** Everyone-in-tenant access; `role` defaults to Viewer (Req 16). */
+  everyone?: { enabled: boolean; role?: string };
+}
+
+/**
+ * PRD 007 Req 10+16: build the manifest a create request asks for. The
+ * creator is retained as Owner no matter what the body says — an initial
+ * grant naming the creator is folded into that one Owner entry, so nobody
+ * can create a workspace they cannot administer. Role names are validated
+ * against the manifest's own grantable set (built-ins plus its custom roles,
+ * which a fresh workspace has none of); everyone-access defaults to Viewer.
+ * Pure: the server passes the clock in, and unit tests pass a fixed one.
+ */
+export function buildNewWorkspaceManifest(
+  body: unknown,
+  creatorId: string,
+  nowIso: string,
+): ManifestResult {
+  if (!isPlainObject(body)) return fail('request body must be a JSON object');
+  const { name, members, everyone } = body as CreateWorkspaceRequest & Record<string, unknown>;
+  if (typeof name !== 'string' || name.trim() === '') {
+    return fail('name must be a non-empty string');
+  }
+  const manifest = createWorkspaceManifest(name.trim(), creatorId, nowIso);
+
+  if (members !== undefined) {
+    if (!Array.isArray(members)) return fail('members must be an array');
+    const seen = new Set<string>([creatorId]);
+    for (const m of members as unknown[]) {
+      if (!isPlainObject(m) || !isNonEmptyString(m.id) || !isNonEmptyString(m.role)) {
+        return fail('each member must be {id, role} with non-empty strings');
+      }
+      if (!isKnownRoleName(manifest, m.role)) return fail(`unknown role ${JSON.stringify(m.role)}`);
+      // The creator stays Owner: a body entry for them is absorbed, never a
+      // demotion and never a duplicate id in the stored manifest.
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
+      manifest.members.push({ id: m.id, role: m.role });
+    }
+  }
+
+  if (everyone !== undefined) {
+    if (!isPlainObject(everyone) || typeof everyone.enabled !== 'boolean') {
+      return fail('everyone must be {enabled: boolean, role?: string}');
+    }
+    const role = everyone.role === undefined ? 'Viewer' : everyone.role;
+    if (!isNonEmptyString(role) || !isKnownRoleName(manifest, role)) {
+      return fail(`unknown role ${JSON.stringify(everyone.role)}`);
+    }
+    manifest.everyone = { enabled: everyone.enabled, role };
+  }
+
+  return { ok: true, manifest };
+}
+
+/**
+ * PRD 007 Req 11: who to ask for access to this workspace. The Owner-role
+ * members, and — for a workspace whose ownership only exists through a custom
+ * role — anyone holding `workspace.members`, so the no-access message always
+ * names someone who can actually grant it. Ids, resolved to display names by
+ * the caller.
+ */
+export function workspaceOwnerIds(manifest: WorkspaceManifest): string[] {
+  const owners = manifest.members.filter((m) => m.role === 'Owner').map((m) => m.id);
+  if (owners.length > 0) return owners;
+  return manifest.members
+    .filter((m) => permissionsOfRole(manifest, m.role).has('workspace.members'))
+    .map((m) => m.id);
+}
+
 // --- custom-role mutations (PRD 007 Req 14+15) -------------------------------
 
 /**

@@ -1,5 +1,6 @@
 import type { MenuSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
+import type { WorkspaceLifecycle } from './hostedWorkspaces';
 
 /**
  * The single seam between the app and the host (SPEC FR-6). Everything that
@@ -159,6 +160,16 @@ export interface Platform {
    * responses verified against the baked-in public key); web leaves it
    * undefined; the shim mocks it via window.__mmUpdate for e2e.
    */
+  /**
+   * PRD 007 Req 10/11/12: the workspace-lifecycle seam — create, list/open
+   * and delete a server-side workspace, plus the directory lookups those
+   * flows need. Defined only by the hosted platform (a local workspace is a
+   * file, opened through openWorkspaceDialog); app code mounts the New/Open
+   * flows and the Settings delete action on this capability being present,
+   * never on the flavor.
+   */
+  workspaces?: WorkspaceLifecycle;
+
   updates?: {
     /** null ⇒ already up to date. Throws on network/manifest/signature errors. */
     check(): Promise<{ version: string; notes: string } | null>;

@@ -580,3 +580,290 @@ test('E177: the User settings layer roams per user while the Workspace layer com
   await page.getByTestId('settings-tab-editor').click();
   await expect(page.getByTestId('image-folder')).toHaveValue('shared-assets');
 });
+
+// --- workspace lifecycle: create, open, delete (PRD 007 Req 10/11/12) --------
+
+/** The listing row for `id`, as `GET /api/workspaces` reports it to `token`. */
+async function listingFor(
+  request: APIRequestContext,
+  token: string,
+  id: string,
+): Promise<{ id: string; name: string; modified: string; owners: string[]; access: boolean } | undefined> {
+  const res = await request.get(`${HOSTED}/api/workspaces`, { headers: { Authorization: `Bearer ${token}` } });
+  expect(res.status()).toBe(200);
+  const listed = (await res.json()) as Array<{
+    id: string;
+    name: string;
+    modified: string;
+    owners: string[];
+    access: boolean;
+  }>;
+  return listed.find((w) => w.id === id);
+}
+
+/** Open the workspace switcher's menu (the hosted shell's lifecycle entry point). */
+async function openSwitcher(page: Page): Promise<void> {
+  await page.getByTestId('workspace-switcher-chip').click();
+  await expect(page.getByTestId('workspace-switcher-menu')).toBeVisible();
+}
+
+test('E179: POST /api/workspaces takes initial members and everyone-access, validates roles, and keeps the creator Owner', async ({
+  request,
+}) => {
+  // PRD 007 Req 10: the create endpoint's contract. Name-only bodies (the
+  // createWorkspace helper above, and every existing caller) keep working.
+  const token = await signIn(request, 'ada');
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const created = await request.post(`${HOSTED}/api/workspaces`, {
+    headers,
+    data: {
+      name: `E179 shared w${test.info().workerIndex}`,
+      // A body that tries to demote the creator cannot: Owner is retained.
+      members: [
+        { id: 'mock-grace', role: 'Editor' },
+        { id: 'mock-ada', role: 'Viewer' },
+      ],
+      everyone: { enabled: true },
+    },
+  });
+  expect(created.status()).toBe(201);
+  const { manifest } = (await created.json()) as {
+    manifest: { members: Array<{ id: string; role: string }>; everyone: unknown };
+  };
+  expect(manifest.members).toEqual([
+    { id: 'mock-ada', role: 'Owner' },
+    { id: 'mock-grace', role: 'Editor' },
+  ]);
+  // PRD 007 Req 16: everyone-access with no role named defaults to Viewer.
+  expect(manifest.everyone).toEqual({ enabled: true, role: 'Viewer' });
+
+  // An unknown role is a 400 — never a member who silently resolves to nothing.
+  const bogus = await request.post(`${HOSTED}/api/workspaces`, {
+    headers,
+    data: { name: 'E179 bogus', members: [{ id: 'mock-grace', role: 'Superuser' }] },
+  });
+  expect(bogus.status()).toBe(400);
+  expect(((await bogus.json()) as { error: string }).error).toContain('Superuser');
+});
+
+test('E180: the workspace list carries owners and an access flag while contents stay 403 for a non-member', async ({
+  request,
+}) => {
+  // PRD 007 Req 11 (+17): list metadata is readable to any signed-in user;
+  // file contents and the manifest are not. The flag is what lets the Open
+  // dialog tell the two cases apart without attempting a forbidden read.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E180 private w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/secret.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: 'members only',
+  });
+
+  const alan = await signIn(request, 'alan');
+  const row = await listingFor(request, alan, id);
+  expect(row?.owners).toEqual(['mock-ada']);
+  expect(row?.access).toBe(false);
+  expect(JSON.stringify(row)).not.toContain('members only');
+  expect(row).not.toHaveProperty('settings');
+
+  const alanHeaders = { Authorization: `Bearer ${alan}` };
+  for (const path of [`/api/workspaces/${id}/manifest`, `/api/workspaces/${id}/files/secret.md`]) {
+    const res = await request.get(`${HOSTED}${path}`, { headers: alanHeaders });
+    expect(res.status(), path).toBe(403);
+  }
+  // The owner's own row says access: true.
+  expect((await listingFor(request, ada, id))?.access).toBe(true);
+});
+
+test('E181: DELETE /api/workspaces/<id> needs workspace.delete and removes every blob under the prefix', async ({
+  request,
+}) => {
+  // PRD 007 Req 12: manifest, files, comment sidecars and pasted images alike.
+  const ada = await signIn(request, 'ada');
+  const adaHeaders = { Authorization: `Bearer ${ada}` };
+  const id = await sharedWorkspace(request, ada, `E181 w${test.info().workerIndex}`, [
+    { id: 'mock-grace', role: 'Editor' },
+  ]);
+  for (const rel of ['doc.md', 'doc.md.comments.json', 'images/pic.png']) {
+    const put = await request.put(`${HOSTED}/api/workspaces/${id}/files/${rel}`, {
+      headers: adaHeaders,
+      data: 'x',
+    });
+    expect(put.status()).toBe(200);
+  }
+
+  // An Editor holds file.delete but not workspace.delete: 403 naming the verb.
+  const grace = { Authorization: `Bearer ${await signIn(request, 'grace')}` };
+  const refused = await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers: grace });
+  expect(refused.status()).toBe(403);
+  expect(await refused.json()).toEqual({ error: 'forbidden', required: 'workspace.delete' });
+  // An unknown id is a 404, before any permission talk.
+  const missing = await request.delete(`${HOSTED}/api/workspaces/no-such-workspace`, { headers: adaHeaders });
+  expect(missing.status()).toBe(404);
+
+  const gone = await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers: adaHeaders });
+  expect(gone.status()).toBe(200);
+
+  // It no longer lists, and every blob it held is unreachable.
+  expect(await listingFor(request, ada, id)).toBeUndefined();
+  for (const rel of ['doc.md', 'doc.md.comments.json', 'images/pic.png']) {
+    const res = await request.get(`${HOSTED}/api/workspaces/${id}/files/${rel}`, { headers: adaHeaders });
+    expect([403, 404], `${rel} after delete`).toContain(res.status());
+  }
+  const manifestRes = await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, { headers: adaHeaders });
+  expect(manifestRes.status()).toBe(404);
+});
+
+test('E182: the New Workspace flow names a workspace, grants a member a role, and opens it with the creator as Owner', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 10: the create flow end to end in the running hosted app —
+  // reachable from the workspace switcher, reusing the #74 membership picker.
+  const name = `E182 created w${test.info().workerIndex}`;
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+
+  await openSwitcher(page);
+  await page.getByTestId('workspace-switcher-new').click();
+  await expect(page.getByTestId('new-workspace-dialog')).toBeVisible();
+  await page.getByTestId('new-workspace-name').fill(name);
+
+  // The reused MembershipPicker searches the live directory endpoints.
+  await page.getByTestId('membership-picker-input').fill('hopper');
+  await page.getByTestId('membership-picker-result-mock-grace').click();
+  await page.getByTestId('new-workspace-role-mock-grace').selectOption('Editor');
+  await page.getByTestId('new-workspace-create').click();
+
+  // Creating opens it: the page rebinds to ?workspace=<id> and the sidebar
+  // renders the (empty) workspace.
+  await expect(page).toHaveURL(/\?workspace=/);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('workspace-switcher-chip')).toHaveText(name);
+
+  const ada = await signIn(request, 'ada');
+  const id = new URL(page.url()).searchParams.get('workspace')!;
+  const { manifest } = (await (
+    await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, { headers: { Authorization: `Bearer ${ada}` } })
+  ).json()) as { manifest: { name: string; members: Array<{ id: string; role: string }> } };
+  expect(manifest.name).toBe(name);
+  expect(manifest.members).toEqual([
+    { id: 'mock-ada', role: 'Owner' },
+    { id: 'mock-grace', role: 'Editor' },
+  ]);
+});
+
+test('E183: the Open Workspace dialog lists every workspace, filters as you type, and opens an accessible one', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 11: the whole deployment is listable; fuzzy search runs over
+  // the fetched list, with no per-keystroke server round trip.
+  const w = test.info().workerIndex;
+  const ada = await signIn(request, 'ada');
+  const mine = `E183 zebra notes w${w}`;
+  const other = `E183 quokka plans w${w}`;
+  const mineId = await createWorkspace(request, ada, mine);
+  await createWorkspace(request, ada, other);
+
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await openSwitcher(page);
+  await page.getByTestId('workspace-switcher-open').click();
+  await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
+  await expect(page.getByTestId(`open-workspace-item-${mineId}`)).toBeVisible();
+  // Name and last-modified both show on the row.
+  await expect(page.getByTestId(`open-workspace-item-${mineId}`)).toContainText(mine);
+  await expect(page.getByTestId(`open-workspace-modified-${mineId}`)).not.toBeEmpty();
+
+  // Search-as-you-type narrows the already-fetched list.
+  await page.getByTestId('open-workspace-search').fill('quokka');
+  await expect(page.getByTestId(`open-workspace-item-${mineId}`)).toHaveCount(0);
+  await page.getByTestId('open-workspace-search').fill('zebra');
+  await expect(page.getByTestId(`open-workspace-item-${mineId}`)).toBeVisible();
+
+  await page.getByTestId(`open-workspace-item-${mineId}`).click();
+  await expect(page).toHaveURL(new RegExp(`\\?workspace=${mineId}`));
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+});
+
+test('E184: choosing a workspace the signed-in user cannot access shows a no-access message naming its Owners', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 11: the refusal is in-dialog and names who to ask, resolved
+  // through the directory — never a forbidden read to discover it.
+  const ada = await signIn(request, 'ada');
+  const name = `E184 locked w${test.info().workerIndex}`;
+  const id = await createWorkspace(request, ada, name);
+
+  await signInTo(page, 'alan');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await openSwitcher(page);
+  await page.getByTestId('workspace-switcher-open').click();
+  await page.getByTestId('open-workspace-search').fill(name);
+  await page.getByTestId(`open-workspace-item-${id}`).click();
+
+  await expect(page.getByTestId('open-workspace-no-access')).toContainText('Ada Lovelace');
+  await expect(page.getByTestId('open-workspace-no-access')).toContainText(name);
+  // Still in the dialog, still no workspace bound.
+  await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('workspace')).toBeNull();
+});
+
+test('E185: Workspace settings deletes the workspace behind an exact-name gate and returns to the start page', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 12: the destructive action, its confirm-name gate, and the
+  // server-side removal it performs.
+  const ada = await signIn(request, 'ada');
+  const name = `E185 doomed w${test.info().workerIndex}`;
+  const id = await createWorkspace(request, ada, name);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/note.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# note\n',
+  });
+
+  await signInTo(page, 'ada', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-scope-workspace').click();
+  await expect(page.getByTestId('workspace-delete-section')).toBeVisible();
+
+  // Inert until the exact name is typed — a near-miss does not arm it.
+  const submit = page.getByTestId('workspace-delete-submit');
+  await expect(submit).toBeDisabled();
+  await page.getByTestId('workspace-delete-confirm').fill(`${name} `);
+  await expect(submit).toBeDisabled();
+  await page.getByTestId('workspace-delete-confirm').fill(name);
+  await expect(submit).toBeEnabled();
+  await submit.click();
+
+  // Back on the start page with no workspace bound…
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('workspace')).toBeNull();
+  // …and the workspace is gone server-side, files included.
+  expect(await listingFor(request, ada, id)).toBeUndefined();
+  const file = await request.get(`${HOSTED}/api/workspaces/${id}/files/note.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+  });
+  expect([403, 404]).toContain(file.status());
+});
+
+test('E186: a member without workspace.delete never sees the delete action', async ({ page, request }) => {
+  // PRD 007 Req 12 + Req 17: the control is hidden for non-holders, and the
+  // endpoint refuses them regardless (E181).
+  const ada = await signIn(request, 'ada');
+  const id = await sharedWorkspace(request, ada, `E186 w${test.info().workerIndex}`, [
+    { id: 'mock-grace', role: 'Editor' },
+  ]);
+
+  await signInTo(page, 'grace', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-scope-workspace').click();
+  await expect(page.getByTestId('settings-scope-content-workspace')).toBeVisible();
+  await expect(page.getByTestId('workspace-delete-section')).toHaveCount(0);
+});
