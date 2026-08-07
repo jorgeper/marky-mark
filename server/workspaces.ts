@@ -43,11 +43,12 @@ import {
 import { contentTypeFor } from './contentTypes.ts';
 import {
   connectionFailureMessage,
-  connectionFailureStatus as connectionStatusFor,
+  connectionFailureStatus,
   connectionPayload,
   isConnectionFailure,
   mayRepairConnection,
   proveReconnect,
+  refusedConnectionStatus,
 } from './workspaceConnection.ts';
 import { forgetWorkspaceCard, readWorkspaceCard, rememberWorkspaceCard } from './workspaceCards.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
@@ -376,19 +377,6 @@ function readStorageField(body: unknown): WorkspaceBackendRecord | string {
   return validated.ok ? validated.record : `storage: ${validated.error}`;
 }
 
-/**
- * PRD 010 Req 17: what a refused connection answers. The vocabulary is
- * `githubFailureDetail`'s already — the message is the thrown error's — and
- * only the status is decided here, from the status the store reported (duck
- * typed, so this module stays free of any vendor import): GitHub blaming the
- * request is the operator's connection being wrong (400), GitHub itself
- * failing is a bad gateway (502).
- */
-function connectionFailureStatus(err: unknown): number {
-  const status = (err as { status?: unknown } | null)?.status;
-  return typeof status === 'number' && status >= 500 ? 502 : 400;
-}
-
 /** The untrusted `{name, permissions}` shape a custom-role write carries. */
 function readRoleBody(body: unknown): { name: string; permissions: string[] } | string {
   if (typeof body !== 'object' || body === null) return 'role must be {name, permissions[]}';
@@ -430,7 +418,7 @@ export async function handleWorkspaceApi(
     await routeWorkspaceApi(req, res, url, backends, auth);
   } catch (err) {
     if (!isConnectionFailure(err) || res.headersSent) throw err;
-    sendJson(res, connectionStatusFor(err), { error: connectionFailureMessage(err) });
+    sendJson(res, connectionFailureStatus(err), { error: connectionFailureMessage(err) });
   }
 }
 
@@ -484,7 +472,7 @@ async function routeWorkspaceApi(
         workspaceStore = await backends.connect(record, id);
         await workspaceStore.init?.();
       } catch (err) {
-        sendJson(res, connectionFailureStatus(err), { error: (err as Error).message });
+        sendJson(res, refusedConnectionStatus(err), { error: (err as Error).message });
         return;
       }
     }
@@ -616,12 +604,11 @@ async function routeWorkspaceApi(
   try {
     storage = await backends.forWorkspace(id);
   } catch (err) {
-    // PRD 010 Req 18: one decision point. A connection failure carries the
-    // status GitHub reported and resolves to 400/502 with its own sentence;
-    // only a record this deployment cannot read at all stays a 500.
-    sendJson(res, connectionStatusFor(err), {
-      error: isConnectionFailure(err) ? connectionFailureMessage(err) : (err as Error).message,
-    });
+    // PRD 010 Req 18: one decision point — a connection failure is left to the
+    // wrapper above, which names it at 400/502. Only a record this deployment
+    // cannot read at all is answered here, and it stays the 500 it always was.
+    if (isConnectionFailure(err)) throw err;
+    sendJson(res, 500, { error: (err as Error).message });
     return;
   }
 

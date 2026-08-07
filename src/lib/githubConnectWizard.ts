@@ -55,6 +55,15 @@ export interface RepoOption {
 }
 
 /**
+ * PRD 010 Req 18: which flow a saved state belongs to. `create` is the New
+ * Workspace run (#104) and stays the default, so a record written before this
+ * existed still parses and still resumes. `reconnect` is the repair run: it
+ * produces a CONNECTION, not a workspace, and therefore collects no workspace
+ * fields at all — it names the workspace it is repairing instead.
+ */
+export type WizardPurpose = 'create' | 'reconnect';
+
+/**
  * PRD 010 Req 16: everything the wizard must still have after the browser
  * has been away at GitHub — the chosen mode is implied by this record
  * existing, and the workspace fields already entered ride along so the admin
@@ -64,15 +73,6 @@ export interface RepoOption {
  * beyond identifiers the user can already see (owner, repo, branch, the
  * installation id). No token ever reaches `src/`, so none can be persisted.
  */
-/**
- * PRD 010 Req 18: which flow a saved state belongs to. `create` is the New
- * Workspace run (#104) and stays the default, so a record written before this
- * existed still parses and still resumes. `reconnect` is the repair run: it
- * produces a CONNECTION, not a workspace, and therefore collects no workspace
- * fields at all — it names the workspace it is repairing instead.
- */
-export type WizardPurpose = 'create' | 'reconnect';
-
 export interface SavedWizardState {
   version: 1;
   /** Absent means `create` — the shape #104 wrote. */
@@ -172,9 +172,19 @@ export function parseSavedWizardState(raw: string | null): SavedWizardState | nu
   // record that satisfies neither is not usable saved state — which
   // `decideWizardEntry` turns into a named restart, never a stuck step.
   const purpose: WizardPurpose = saved.purpose === 'reconnect' ? 'reconnect' : 'create';
-  const form = saved.form as Partial<NewWorkspaceForm> | undefined;
-  if (purpose === 'create' && (!form || typeof form.name !== 'string' || !Array.isArray(form.members))) return null;
-  if (purpose === 'reconnect' && (typeof saved.workspaceId !== 'string' || !saved.workspaceId)) return null;
+  const storedForm = saved.form as Partial<NewWorkspaceForm> | undefined;
+  const form: NewWorkspaceForm | null =
+    storedForm && typeof storedForm.name === 'string' && Array.isArray(storedForm.members)
+      ? {
+          name: storedForm.name,
+          members: storedForm.members,
+          everyoneEnabled: storedForm.everyoneEnabled === true,
+          everyoneRole: typeof storedForm.everyoneRole === 'string' ? storedForm.everyoneRole : 'Viewer',
+        }
+      : null;
+  const workspaceId = typeof saved.workspaceId === 'string' && saved.workspaceId ? saved.workspaceId : null;
+  if (purpose === 'create' && !form) return null;
+  if (purpose === 'reconnect' && !workspaceId) return null;
   return {
     version: 1,
     // Absent stays absent: a create record parses back byte-identically to
@@ -182,17 +192,8 @@ export function parseSavedWizardState(raw: string | null): SavedWizardState | nu
     ...(purpose === 'reconnect' ? { purpose } : {}),
     session: saved.session,
     step: saved.step as WizardStep,
-    ...(typeof saved.workspaceId === 'string' && saved.workspaceId ? { workspaceId: saved.workspaceId } : {}),
-    ...(form && typeof form.name === 'string' && Array.isArray(form.members)
-      ? {
-          form: {
-            name: form.name,
-            members: form.members,
-            everyoneEnabled: form.everyoneEnabled === true,
-            everyoneRole: typeof form.everyoneRole === 'string' ? form.everyoneRole : 'Viewer',
-          },
-        }
-      : {}),
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(form ? { form } : {}),
     ...(typeof saved.installationId === 'number' ? { installationId: saved.installationId } : {}),
     ...(typeof saved.owner === 'string' ? { owner: saved.owner } : {}),
     ...(typeof saved.repo === 'string' ? { repo: saved.repo } : {}),

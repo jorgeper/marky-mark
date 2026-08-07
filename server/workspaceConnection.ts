@@ -21,11 +21,13 @@
 import { parseWorkspaceManifest, resolvePermissions, type WorkspaceManifest } from '../src/lib/hostedWorkspace.ts';
 import type { ConnectionHealth, WorkspaceConnectionPayload } from '../src/lib/workspaceConnection.ts';
 import {
+  backendRecordPath,
+  parseWorkspaceBackend,
   validateWorkspaceBackend,
   type WorkspaceBackendRecord,
   type WorkspaceBackends,
 } from './backends.ts';
-import type { RequestAuth, StorageProvider } from './providers/types.ts';
+import type { RequestAuth } from './providers/types.ts';
 import { readWorkspaceCard } from './workspaceCards.ts';
 import { WORKSPACES_PREFIX } from './workspaces.ts';
 
@@ -40,14 +42,25 @@ const manifestSeamPath = (id: string): string => `${WORKSPACES_PREFIX}${id}/mani
  * (a corrupt record), which stays the 500 it already was.
  */
 export function connectionFailureStatus(err: unknown): number {
-  const status = (err as { status?: unknown } | null)?.status;
-  if (typeof status !== 'number') return 500;
-  return status >= 500 ? 502 : 400;
+  if (!isConnectionFailure(err)) return 500;
+  return refusedConnectionStatus(err);
 }
 
 /** Is this a connection failure at all, or an ordinary server-side error? */
 export function isConnectionFailure(err: unknown): boolean {
   return typeof (err as { status?: unknown } | null)?.status === 'number';
+}
+
+/**
+ * PRD 010 Req 17+18: what a connection this deployment tried to MAKE answers
+ * when it does not come up — create's fail-fast connect and a reconnect's
+ * proof. There is no "not a connection failure" case here: the attempt is the
+ * connection, so anything but GitHub itself failing (502) is the operator's
+ * connection being wrong (400).
+ */
+export function refusedConnectionStatus(err: unknown): number {
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === 'number' && status >= 500 ? 502 : 400;
 }
 
 /**
@@ -89,15 +102,9 @@ export async function storedRepoRecord(
   backends: WorkspaceBackends,
   id: string,
 ): Promise<Extract<WorkspaceBackendRecord, { kind: 'repo' }> | null> {
-  const stored = await backends.deploymentDefault.read(`${WORKSPACES_PREFIX}${id}/backend.json`);
+  const stored = await backends.deploymentDefault.read(backendRecordPath(id));
   if (!stored) return null;
-  let value: unknown;
-  try {
-    value = JSON.parse(stored.content);
-  } catch {
-    return null;
-  }
-  const parsed = validateWorkspaceBackend(value);
+  const parsed = parseWorkspaceBackend(stored.content);
   return parsed.ok && parsed.record.kind === 'repo' ? parsed.record : null;
 }
 
@@ -198,19 +205,15 @@ export async function proveReconnect(
   }
   const record = validated.record;
 
-  let store: StorageProvider;
-  try {
-    store = await backends.connect(record, id);
-    await store.init?.();
-  } catch (err) {
-    return { ok: false, status: connectionFailureStatus(err) === 502 ? 502 : 400, error: (err as Error).message };
-  }
-
+  // Reachable and writable, then holding this workspace — one attempt, whose
+  // every failure is the same refusal in the store's own words.
   let manifestBlob: { content: string } | null;
   try {
+    const store = await backends.connect(record, id);
+    await store.init?.();
     manifestBlob = await store.read(manifestSeamPath(id));
   } catch (err) {
-    return { ok: false, status: connectionFailureStatus(err) === 502 ? 502 : 400, error: (err as Error).message };
+    return { ok: false, status: refusedConnectionStatus(err), error: (err as Error).message };
   }
   const parsed = manifestBlob ? parseWorkspaceManifest(manifestBlob.content) : null;
   if (!parsed?.ok) {

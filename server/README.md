@@ -186,7 +186,6 @@ retains content the app deletes (a delete is a commit, not an erasure), and
 the app's own audit of who changed what is the repo's commit log, not a
 server-side record.
 
-
 ### The workspace manifest
 
 A versioned JSON evolution of the local `.marky-workspace` format

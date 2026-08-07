@@ -1317,7 +1317,9 @@ export default function App() {
   useEffect(() => {
     const target = reconnectReturnTarget();
     if (!target || workspaceIdFromSearch(window.location.search) === target) return;
-    window.location.assign(`/?workspace=${encodeURIComponent(target)}&${window.location.search.replace(/^\?/, '')}`);
+    const params = new URLSearchParams(window.location.search);
+    params.set('workspace', target);
+    window.location.assign(`/?${params}`);
   }, []);
 
   /** PRD 009 Req 4: bumped by a completed mode close so the crossing can resume. */

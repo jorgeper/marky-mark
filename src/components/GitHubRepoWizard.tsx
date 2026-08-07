@@ -138,7 +138,10 @@ export function GitHubRepoWizard({
     advance(next);
   };
 
-  const create = async () => {
+  // The confirm step: hand the finished connection to `onConfirm` when the
+  // caller owns what happens next (PRD 010 Req 18's reconnect), otherwise
+  // create the workspace this run has been collecting fields for.
+  const finish = async () => {
     if (onConfirm) {
       const connection = connectionFor(state);
       if (!connection) {
@@ -275,7 +278,7 @@ export function GitHubRepoWizard({
             className="primary"
             data-testid="github-wizard-create"
             disabled={busy}
-            onClick={() => void create()}
+            onClick={() => void finish()}
           >
             {confirmLabel}
           </button>
