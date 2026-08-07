@@ -219,8 +219,15 @@ describe('PRD 010 Req 4 GitHub API fake: installations, contents, refs, commits'
         const matches = readFileSync(file, 'utf8').match(re) ?? [];
         return matches.map(() => path.relative(root, file));
       });
-    // One occurrence, in one file: the default API base URL constant.
-    expect(hits('server', pattern)).toEqual(['server/providers/github/auth.ts']);
+    // Two occurrences, in ONE file: the default API base URL constant and —
+    // PRD 010 Req 16 — the web host the connect-your-repo wizard's install
+    // URL is built on, which is a browser page and not an API call. The rule
+    // is unchanged and deliberately not weakened to a count or a substring:
+    // every GitHub host string in `server/` lives in that one module.
+    expect(hits('server', pattern)).toEqual([
+      'server/providers/github/auth.ts',
+      'server/providers/github/auth.ts',
+    ]);
     // No test names the API host — the fake is the only GitHub tests talk to.
     // (Release-download and About-dialog URLs elsewhere in tests/ are the
     // web host, not the API, and are none of this issue's business.)

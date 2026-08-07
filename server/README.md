@@ -58,6 +58,8 @@ the environment reference is below.
 | `MM_GITHUB_APP_ID` | both (optional; required on the github backend) | Numeric id of the deployment's GitHub App (PRD 010 Req 4). |
 | `MM_GITHUB_PRIVATE_KEY` | both (optional) | That App's PEM private key (PKCS#1 or PKCS#8), literal or `\n`-escaped newlines — the App Service app-setting shape. The **only** GitHub credential the server accepts: no PAT, no long-lived repo token. |
 | `MM_GITHUB_API_BASE` | both (optional) | GitHub REST root, for GitHub Enterprise. Defaults to the public API (`GITHUB_API_BASE` in `providers/github/auth.ts`, the one place a GitHub host is named). |
+| `MM_GITHUB_APP_SLUG` | both (optional) | That App's URL slug, e.g. `marky-mark` in `github.com/apps/marky-mark`. Only the connect-your-repo wizard needs it (PRD 010 Req 16): without it the New Workspace dialog reports the GitHub choice unavailable instead of offering a dead end. |
+| `MM_GITHUB_WEB_BASE` | both (optional) | Web host the wizard's install URL is built on, for GitHub Enterprise. Defaults to the public one; needs `MM_GITHUB_APP_SLUG`. |
 | `MM_GITHUB_DEFAULT_REPO` | github backend (required) | The deployment-default repo as `owner/repo` — never a URL (PRD 010 Req 5). |
 | `MM_GITHUB_DEFAULT_BRANCH` | github backend (optional) | The one branch everything is stored on. Default `main`. |
 | `MM_GITHUB_DEFAULT_ROOT` | github backend (optional) | Repo-relative prefix to store under. Default: the repo root. |
@@ -189,6 +191,11 @@ on the doc/file verbs.
 | --- | --- | --- |
 | `POST /api/auth/sign-in` | — (unauthenticated) | Local: `{username}` → `{kind:'token', token, user}`. Azure: `{kind:'redirect', authorizeUrl}` for the SPA's PKCE flow. The only unauthenticated endpoint. |
 | `GET /api/me` | — (signed-in) | The authenticated user. |
+| `GET /api/github/byo` | — (signed-in) | PRD 010 Req 15: `{available, reason?}` — whether this deployment can connect a repo (it needs the App section **and** `MM_GITHUB_APP_SLUG`). The one route that answers on an unconfigured deployment; the four below then refuse with `409` and the same reason. |
+| `POST /api/github/byo/session` | — (signed-in) | PRD 010 Req 16: start a wizard session → `{session, installUrl}`. `installUrl` is the App's install page carrying the opaque `state` GitHub echoes back to the App's configured setup URL. |
+| `POST /api/github/byo/return` | — (signed-in) | `{session, installationId, setupAction}` → `{installationId, account}`. Confirms the returned installation against the App's own installations and binds it to that session. `404` for a session this server did not issue, one belonging to another user, or an installation the App does not have. |
+| `GET /api/github/byo/repos` | — (signed-in, session-scoped) | `?session=&installation=` → `{repos: [{owner, repo, fullName, defaultBranch}], message?}` for the installation **that session came back from**. `403` for any other installation, `409` before the round trip has completed. |
+| `GET /api/github/byo/branches` | — (signed-in, session-scoped) | `?session=&installation=&owner=&repo=` → `{defaultBranch, branches}`, the same session scoping. |
 | `POST /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 10 — any user may create; the creator is always retained as Owner) | `{name, members?: [{id, role}], everyone?: {enabled, role?}}` → `201 {id, manifest}`. A name-only body is the original behaviour. Role names are validated against the built-ins and the manifest's own custom roles (400 for an unknown one); everyone-access defaults to `Viewer` (Req 16). |
 | `GET /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 11 — metadata is listable by any signed-in user; contents stay permission-checked) | `[{id, name, created, modified, owners, access}]`. `owners` are the Owner-role member ids (whoever can grant membership, when no Owner role is used) and `access` is whether the caller resolves `doc.read` — enough for an Open dialog to tell "open it" from "ask for access" without attempting a forbidden read. Never file contents or workspace-scoped settings. |
 | `DELETE /api/workspaces/<id>` | `workspace.delete` | Delete the workspace: every blob under `workspaces/<id>/` — manifest, `files/`, comment sidecars and pasted images alike (PRD 007 Req 12). 404 for an unknown id. |
@@ -222,6 +229,26 @@ on the doc/file verbs.
 | `GET /api/directory/search?q=` | — (signed-in) | Directory user search. Results carry a same-origin `avatarUrl` when the user has a photo. |
 | `GET /api/directory/users/<id>` | — (signed-in) | One directory user, or 404. |
 | `GET /api/directory/users/<id>/photo` | — (signed-in) | Profile photo bytes (avatar). 404 when the user has no photo or is unknown. |
+
+### Connecting a repo (PRD 010 Req 15+16)
+
+The five `/api/github/byo/…` routes above are the whole server side of the
+New Workspace flow's **connect your GitHub repo** wizard (`server/
+githubByo.ts`). They exist because the browser never talks to GitHub: every
+GitHub call is made here with the deployment's App credentials, and the SPA
+bundle contains no GitHub host string at all.
+
+Enumeration is deliberately bounded. Nothing hands a signed-in caller the
+deployment's installation list or a repo list they did not just complete an
+install round trip for: an installation is readable only through the wizard
+session that came back from it, sessions belong to the user who started them
+and expire after an hour, and naming any other installation is a `403`. The
+wizard finishes by calling the existing `POST /api/workspaces` with
+`storage: {kind:'repo', …}` — there is no create endpoint of its own.
+
+Registering the App and pointing its setup URL back at the deployment is
+operator documentation rather than part of this surface; it belongs with the
+rest of the hosting walkthrough in `docs/HOSTING-AZURE.md`.
 
 ## Sign-in (PRD 007 Req 5)
 

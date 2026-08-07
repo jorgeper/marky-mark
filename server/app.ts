@@ -11,6 +11,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { createWorkspaceBackends, type WorkspaceBackends } from './backends.ts';
 import type { ServerMode } from './config.ts';
+import { createGitHubByo, GITHUB_BYO_PREFIX, type GitHubByo } from './githubByo.ts';
 import { cleanRelativePath, readBody, sendJson, tryDecode } from './http.ts';
 import { StoragePathError, type Providers, type RequestAuth } from './providers/types.ts';
 import { handleUserFilesApi, USERS_PREFIX } from './userFiles.ts';
@@ -67,6 +68,7 @@ async function handleApi(
   url: URL,
   providers: Providers,
   backends: WorkspaceBackends,
+  byo: GitHubByo,
 ): Promise<void> {
   const { pathname } = url;
 
@@ -143,6 +145,15 @@ async function handleApi(
       return;
     }
     sendJson(res, 200, found);
+    return;
+  }
+
+  // PRD 010 Req 2+16: the connect-your-GitHub-repo wizard's server surface —
+  // inside this same 401 guard like the rest of /api/, and the only place a
+  // GitHub call is made on its behalf (server/githubByo.ts). Absent App
+  // section, the module still answers availability with the named reason.
+  if (pathname === GITHUB_BYO_PREFIX || pathname.startsWith(`${GITHUB_BYO_PREFIX}/`)) {
+    await byo.handle(req, res, url, auth);
     return;
   }
 
@@ -288,12 +299,15 @@ export function createApp(
   providers: Providers,
   mode: ServerMode,
   backends: WorkspaceBackends = createWorkspaceBackends({ deploymentDefault: providers.storage }),
+  // PRD 010 Req 15+16: defaulted to an unconfigured wizard, so a caller with
+  // no GitHub App still wires and the choice reports itself unavailable.
+  byo: GitHubByo = createGitHubByo(),
 ): RequestListener {
   const staticRoot = path.resolve(staticDir);
   return (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-      handleApi(req, res, url, providers, backends).catch((err: unknown) => {
+      handleApi(req, res, url, providers, backends, byo).catch((err: unknown) => {
         // PRD 010 Req 17: a path the workspace's store refuses to map at all
         // (outside the workspace, escaping the connected root, or the
         // `.marky-mark/` metadata directory) is a bad request, not a broken

@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { AZURITE_CONNECTION_STRING, loadConfig } from '../../server/config';
-import { GITHUB_API_BASE } from '../../server/providers/github/auth';
+import { GITHUB_API_BASE, GITHUB_WEB_BASE } from '../../server/providers/github/auth';
 
 // PRD 007 Req 1+4: env-var configuration and the MM_MODE mode switch — pure
 // parsing, so every branch is pinned here without starting a server.
@@ -77,7 +77,14 @@ describe('PRD 010 Req 4 GitHub App configuration', () => {
   it('U372: parses App id, PEM (literal or \\n-escaped newlines) and an optional API base defaulting to the public API', () => {
     const config = loadConfig({ MM_GITHUB_APP_ID: '424242', MM_GITHUB_PRIVATE_KEY: PEM });
     expect(config.mode).toBe('local'); // no backend knob: mode is untouched
-    expect(config.github).toEqual({ appId: '424242', privateKey: PEM.trim(), apiBase: GITHUB_API_BASE });
+    // PRD 010 Req 16 adds the web host the wizard's install URL is built on;
+    // it defaults to the public one, like the API base beside it.
+    expect(config.github).toEqual({
+      appId: '424242',
+      privateKey: PEM.trim(),
+      apiBase: GITHUB_API_BASE,
+      webBase: GITHUB_WEB_BASE,
+    });
 
     // How a PEM survives an App Service app setting.
     const escaped = loadConfig({
@@ -89,6 +96,7 @@ describe('PRD 010 Req 4 GitHub App configuration', () => {
       appId: '424242',
       privateKey: PEM.trim(),
       apiBase: 'https://ghe.example.test/api/v3',
+      webBase: GITHUB_WEB_BASE,
     });
   });
 
@@ -197,6 +205,48 @@ describe('PRD 010 Req 1 storage backend knob', () => {
     // The Entra half is still required — only the storage account was dropped.
     expect(() => loadConfig({ MM_MODE: 'azure', ...GITHUB_ENV })).toThrowError(
       /requires environment variables: ENTRA_TENANT_ID, ENTRA_CLIENT_ID/,
+    );
+  });
+
+  it('U454: the App\u2019s web-side identity is optional, validated, and never configurable by halves', () => {
+    // PRD 010 Req 16: without a slug the section parses exactly as before —
+    // the wizard then reports the choice unavailable rather than dead-ending.
+    expect(loadConfig({ MM_GITHUB_APP_ID: '424242', MM_GITHUB_PRIVATE_KEY: PEM }).github?.appSlug).toBeUndefined();
+    const configured = loadConfig({
+      MM_GITHUB_APP_ID: '424242',
+      MM_GITHUB_PRIVATE_KEY: PEM,
+      MM_GITHUB_APP_SLUG: 'marky-mark',
+      MM_GITHUB_WEB_BASE: 'https://ghe.example.test/',
+    }).github;
+    expect(configured?.appSlug).toBe('marky-mark');
+    // Trailing slashes are trimmed, so the install URL never doubles one.
+    expect(configured?.webBase).toBe('https://ghe.example.test');
+
+    // Named refusals, never the key material and never a silent no-op.
+    expect(() =>
+      loadConfig({ MM_GITHUB_APP_ID: '424242', MM_GITHUB_PRIVATE_KEY: PEM, MM_GITHUB_APP_SLUG: 'not a slug' }),
+    ).toThrowError(/MM_GITHUB_APP_SLUG must be the App's URL slug/);
+    expect(() =>
+      loadConfig({
+        MM_GITHUB_APP_ID: '424242',
+        MM_GITHUB_PRIVATE_KEY: PEM,
+        MM_GITHUB_APP_SLUG: 'marky-mark',
+        MM_GITHUB_WEB_BASE: 'nope',
+      }),
+    ).toThrowError(/MM_GITHUB_WEB_BASE must be an absolute URL, got 'nope'/);
+    expect(() => loadConfig({ MM_GITHUB_WEB_BASE: 'https://ghe.example.test' })).toThrowError(
+      /GitHub App configuration is incomplete, missing: MM_GITHUB_APP_ID, MM_GITHUB_PRIVATE_KEY/,
+    );
+    expect(() =>
+      loadConfig({
+        MM_GITHUB_APP_ID: '424242',
+        MM_GITHUB_PRIVATE_KEY: PEM,
+        MM_GITHUB_WEB_BASE: 'https://ghe.example.test',
+      }),
+    ).toThrowError(/MM_GITHUB_WEB_BASE needs MM_GITHUB_APP_SLUG/);
+    // A slug named without the credentials is the same incomplete refusal.
+    expect(() => loadConfig({ MM_GITHUB_APP_SLUG: 'marky-mark' })).toThrowError(
+      /GitHub App configuration is incomplete/,
     );
   });
 });

@@ -116,6 +116,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { WorkspaceAccessSettings } from './components/WorkspaceAccessSettings';
 import { WorkspaceDangerZone } from './components/WorkspaceDangerZone';
 import { NewWorkspaceDialog, OpenWorkspaceDialog } from './components/WorkspaceSwitcher';
+import { readGitHubReturn } from './lib/githubConnectWizard';
 import { StartPage } from './components/StartPage';
 import { startActions, startCapabilities, type StartActionId } from './lib/startActions';
 import { AboutDialog } from './components/AboutDialog';
@@ -1284,7 +1285,14 @@ export default function App() {
   // PRD 007 Req 21/22: the managed (hosted) workspace dialogs, opened from the
   // start page or the File menu. Mounted on the `workspaces` capability, so
   // this state is simply never reached on a flavor without it.
-  const [managedWsDialog, setManagedWsDialog] = useState<'none' | 'new' | 'open'>('none');
+  // PRD 010 Req 16: coming back from GitHub's consent page lands on the app's
+  // own URL with GitHub's parameters attached — the New Workspace flow opens
+  // straight away so the wizard resumes at pick-repo rather than dropping the
+  // admin on a bare start page. The dialog itself is still capability-gated,
+  // so this is simply never rendered on a flavor without managed workspaces.
+  const [managedWsDialog, setManagedWsDialog] = useState<'none' | 'new' | 'open'>(() =>
+    readGitHubReturn(window.location.search).present ? 'new' : 'none',
+  );
   /** PRD 009 Req 4: bumped by a completed mode close so the crossing can resume. */
   const [modeSwitchTick, setModeSwitchTick] = useState(0);
 

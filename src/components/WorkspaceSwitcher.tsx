@@ -8,8 +8,9 @@
 // used to sit alongside them: the menu and the start page are the way in, and
 // the open workspace's name shows in the toolbar's document affordance.
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { MembershipPicker } from './MembershipPicker';
+import { GitHubRepoWizard, clearWizardState, saveWizardState } from './GitHubRepoWizard';
 import type { DirectoryEntry, MemberEntry } from '../lib/membership';
 import { timeAgo } from '../lib/time';
 import {
@@ -22,7 +23,15 @@ import {
   type NewWorkspaceForm,
   type WorkspaceListing,
 } from '../lib/workspaceLifecycle';
-import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
+import {
+  DEFAULT_STORAGE_CHOICE,
+  WIZARD_STATE_KEY,
+  decideWizardEntry,
+  readGitHubReturn,
+  type SavedWizardState,
+  type StorageChoice,
+} from '../lib/githubConnectWizard';
+import type { ByoAvailability, WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 
 /**
  * The New Workspace dialog: name, initial members with roles, everyone-access.
@@ -42,6 +51,106 @@ export function NewWorkspaceDialog({
   const [picked, setPicked] = useState<MemberEntry[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // PRD 010 Req 15: the storage choice — default storage preselected, so the
+  // flow a deployment already has is the one it keeps.
+  const [choice, setChoice] = useState<StorageChoice>(DEFAULT_STORAGE_CHOICE);
+  const [availability, setAvailability] = useState<ByoAvailability | null>(null);
+  // PRD 010 Req 16: the wizard in progress, the saved progress being offered
+  // to continue, and the named reason a saved state could not be used.
+  const [wizard, setWizard] = useState<SavedWizardState | null>(null);
+  const [resumable, setResumable] = useState<SavedWizardState | null>(null);
+  const [notice, setNotice] = useState('');
+  const byo = lifecycle.byo;
+
+  const restart = useCallback((reason: string) => {
+    clearWizardState();
+    setWizard(null);
+    setResumable(null);
+    setChoice(DEFAULT_STORAGE_CHOICE);
+    setNotice(reason);
+  }, []);
+
+  // PRD 010 Req 15: the GitHub choice is offered only where the deployment can
+  // actually connect one; elsewhere it is visibly unavailable with the
+  // server's one-line reason, never a dead end.
+  useEffect(() => {
+    if (!byo) return;
+    let cancelled = false;
+    void byo.availability().then((answer) => {
+      if (!cancelled) setAvailability(answer);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [byo]);
+
+  // PRD 010 Req 16: what re-entering the flow does — the pure decision over
+  // the saved state and GitHub's return parameters, rendered as it comes.
+  useEffect(() => {
+    if (!byo) return;
+    const entry = decideWizardEntry(window.localStorage.getItem(WIZARD_STATE_KEY), readGitHubReturn(window.location.search));
+    if (entry.kind === 'fresh') return;
+    if (entry.kind === 'restart') {
+      restart(entry.reason);
+      return;
+    }
+    setForm(entry.state.form);
+    setChoice('github');
+    if (entry.kind === 'continue') {
+      setResumable(entry.state);
+      return;
+    }
+    // The return leg: the server binds the installation to the session it
+    // issued, and only then does the wizard resume at pick-repo.
+    let cancelled = false;
+    const ret = readGitHubReturn(window.location.search);
+    void byo
+      .resolveReturn(entry.state.session, entry.state.installationId!, ret.setupAction)
+      .then((result) => {
+        if (cancelled) return;
+        if ('error' in result) {
+          restart(result.error);
+          return;
+        }
+        saveWizardState(entry.state);
+        setWizard(entry.state);
+        // GitHub's parameters have done their job; the page keeps running
+        // with the app's own URL so a reload is an ordinary re-entry.
+        lifecycle.unbind();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [byo, lifecycle, restart]);
+
+  // The workspace fields stay editable during the wizard, and stay saved with
+  // it: the connection adds to them, it does not replace them.
+  useEffect(() => {
+    if (wizard) saveWizardState({ ...wizard, form });
+  }, [wizard, form]);
+
+  /**
+   * PRD 010 Req 16: leave for GitHub's consent page. The progress is written
+   * BEFORE navigating — this is a full navigation out of the app, not a
+   * fetch — so coming back (or never coming back) finds it.
+   */
+  const beginInstall = async () => {
+    const validated = validateNewWorkspaceForm(form);
+    if (!validated.ok) {
+      setError(validated.error);
+      return;
+    }
+    if (!byo) return;
+    setBusy(true);
+    const started = await byo.beginInstall();
+    if ('error' in started) {
+      setError(started.error);
+      setBusy(false);
+      return;
+    }
+    saveWizardState({ version: 1, session: started.session, step: 'install', form });
+    window.location.assign(started.installUrl);
+  };
 
   const addMember = (user: DirectoryEntry) => {
     setPicked((prev) => [...prev, { ...user, resolved: true }]);
@@ -146,19 +255,132 @@ export function NewWorkspaceDialog({
           </div>
         )}
 
-        {error && (
-          <p className="hotkey-hint" data-testid="new-workspace-error" role="alert">
-            {error}
+        {/* PRD 010 Req 15: the storage choice. Both choices collect the same
+            workspace fields above; this only says where the bytes live. */}
+        {byo && (
+          <div className="field" data-testid="new-workspace-storage">
+            <label>Storage</label>
+            <div className="checkbox-row">
+              <input
+                id="new-workspace-storage-default"
+                data-testid="new-workspace-storage-default"
+                type="radio"
+                name="new-workspace-storage"
+                checked={choice === 'default'}
+                onChange={() => {
+                  setChoice('default');
+                  setError('');
+                }}
+              />
+              <label htmlFor="new-workspace-storage-default">Default storage</label>
+            </div>
+            <div className="checkbox-row">
+              <input
+                id="new-workspace-storage-github"
+                data-testid="new-workspace-storage-github"
+                type="radio"
+                name="new-workspace-storage"
+                disabled={!availability?.available}
+                checked={choice === 'github'}
+                onChange={() => {
+                  setChoice('github');
+                  setError('');
+                }}
+              />
+              <label htmlFor="new-workspace-storage-github">Connect your GitHub repository</label>
+            </div>
+            {availability && !availability.available && (
+              <p className="hotkey-hint" data-testid="new-workspace-storage-unavailable">
+                {availability.reason}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* PRD 010 Req 16: abandoning mid-flow is not an error state — the
+            saved progress is offered back, and starting over discards it. */}
+        {choice === 'github' && resumable && !wizard && (
+          <div className="field" data-testid="new-workspace-resume">
+            <p className="hotkey-hint">
+              You started connecting a repository and did not finish. Continue where you stopped, or start over.
+            </p>
+            <div className="actions">
+              <button
+                data-testid="new-workspace-resume-continue"
+                onClick={() => {
+                  setWizard(resumable);
+                  setResumable(null);
+                }}
+              >
+                Continue
+              </button>
+              <button
+                data-testid="new-workspace-resume-restart"
+                onClick={() => restart('')}
+              >
+                Start over
+              </button>
+            </div>
+          </div>
+        )}
+
+        {notice && (
+          <p className="hotkey-hint" data-testid="new-workspace-notice" role="alert">
+            {notice}
           </p>
         )}
-        <div className="actions">
-          <button data-testid="new-workspace-cancel" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="primary" data-testid="new-workspace-create" disabled={busy} onClick={() => void submit()}>
-            Create
-          </button>
-        </div>
+
+        {choice === 'github' && wizard && wizard.step !== 'install' ? (
+          <GitHubRepoWizard
+            lifecycle={lifecycle}
+            state={{ ...wizard, form }}
+            onState={setWizard}
+            onRestart={restart}
+            onCancel={onClose}
+          />
+        ) : (
+          <>
+            {error && (
+              <p className="hotkey-hint" data-testid="new-workspace-error" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="actions">
+              <button data-testid="new-workspace-cancel" onClick={onClose}>
+                Cancel
+              </button>
+              {choice === 'github' && !resumable ? (
+                // PRD 010 Req 16: what leaving does, said plainly, and how to
+                // come back if the tab is lost.
+                <button
+                  className="primary"
+                  data-testid="new-workspace-connect"
+                  disabled={busy}
+                  onClick={() => void beginInstall()}
+                  title="You will be sent to GitHub to install this app on your repository, then returned here. If the tab is lost, reopen the app and choose New Workspace to continue."
+                >
+                  Continue on GitHub…
+                </button>
+              ) : (
+                <button
+                  className="primary"
+                  data-testid="new-workspace-create"
+                  disabled={busy || choice === 'github'}
+                  onClick={() => void submit()}
+                >
+                  Create
+                </button>
+              )}
+            </div>
+            {choice === 'github' && !wizard && !resumable && (
+              <p className="hotkey-hint" data-testid="new-workspace-install-note">
+                You will leave Marky Mark for GitHub to install this app on your repository, then come back here to
+                pick the repo, branch and folder. If you lose this tab, open the app again and choose New Workspace —
+                you will be offered to continue.
+              </p>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

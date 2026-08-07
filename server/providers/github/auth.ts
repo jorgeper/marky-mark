@@ -21,6 +21,15 @@ import { SignJWT } from 'jose';
  */
 export const GITHUB_API_BASE = 'https://api.github.com';
 
+/**
+ * PRD 010 Req 16: the WEB host — where a repo admin is sent to install the
+ * deployment's App (`/apps/<slug>/installations/new`), which is a browser
+ * page and not an API call. It lives here, beside {@link GITHUB_API_BASE},
+ * because the rule is one module for every GitHub host string in `server/`
+ * (U370), not one constant.
+ */
+export const GITHUB_WEB_BASE = 'https://github.com';
+
 /** GitHub rejects an App JWT whose lifetime exceeds ten minutes. */
 const APP_JWT_TTL_SECONDS = 540;
 

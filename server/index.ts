@@ -9,7 +9,7 @@ import process from 'node:process';
 import { createApp } from './app.ts';
 import { createWorkspaceBackends } from './backends.ts';
 import { loadConfig } from './config.ts';
-import { createProviders, createRepoConnector } from './providers/index.ts';
+import { createGitHubByoApi, createProviders, createRepoConnector } from './providers/index.ts';
 
 const config = loadConfig(process.env);
 const providers = createProviders(config);
@@ -33,7 +33,9 @@ try {
   process.exit(1);
 }
 
-const server = http.createServer(createApp(config.staticDir, providers, config.mode, backends));
+// PRD 010 Req 15+16: the wizard's routes, built from the same App section.
+const byo = createGitHubByoApi(config);
+const server = http.createServer(createApp(config.staticDir, providers, config.mode, backends, byo));
 server.listen(config.port, () => {
   console.log(
     `marky-mark server: mode=${config.mode} port=${config.port} static=${config.staticDir} ` +

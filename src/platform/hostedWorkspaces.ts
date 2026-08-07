@@ -22,7 +22,58 @@ import {
   type WorkspaceManifest,
   type WorkspaceMember,
 } from '../lib/hostedWorkspace';
+import type { RepoOption } from '../lib/githubConnectWizard';
 import type { WorkspaceListing } from '../lib/workspaceLifecycle';
+
+/** PRD 010 Req 15: whether this deployment can connect a repo, and why not. */
+export interface ByoAvailability {
+  available: boolean;
+  reason?: string;
+}
+
+/** PRD 010 Req 16: a started wizard session and where to send the admin. */
+export interface ByoSession {
+  session: string;
+  installUrl: string;
+}
+
+/** The installation the return from GitHub resolved to. */
+export interface ByoInstallation {
+  installationId: number;
+  account: string;
+}
+
+/** The installation's repos; `message` says why an empty list is empty. */
+export interface ByoRepos {
+  repos: RepoOption[];
+  message?: string;
+}
+
+export interface ByoBranches {
+  defaultBranch: string;
+  branches: string[];
+}
+
+/** Every wizard call answers its payload or the server's own message. */
+export type ByoResult<T> = T | { error: string };
+
+/**
+ * PRD 010 Req 2+16: the connect-your-GitHub-repo wizard's transport. Every
+ * method is a call to THIS app's own origin through the same bearer-stamped
+ * wrapper as the rest of the lifecycle — the server makes the GitHub calls
+ * with the deployment's App credentials, so no GitHub host string and no
+ * GitHub token exists anywhere in `src/`.
+ */
+export interface GitHubByoClient {
+  availability(): Promise<ByoAvailability>;
+  /** Start a session; the install URL carries the state GitHub echoes back. */
+  beginInstall(): Promise<ByoResult<ByoSession>>;
+  /** Resolve GitHub's return into that session. */
+  resolveReturn(session: string, installationId: number, setupAction: string | null): Promise<ByoResult<ByoInstallation>>;
+  /** The repos of the installation this session came back from. */
+  repos(session: string, installationId: number): Promise<ByoResult<ByoRepos>>;
+  branches(session: string, installationId: number, owner: string, repo: string): Promise<ByoResult<ByoBranches>>;
+}
 
 /** The lifecycle seam the workspace UI is written against. */
 export interface WorkspaceLifecycle {
@@ -58,6 +109,12 @@ export interface WorkspaceLifecycle {
   resolveUsers(ids: readonly string[]): Promise<MemberEntry[]>;
   /** Bind the page to a workspace (null: leave — the start page, no workspace). */
   navigateTo(id: string | null): void;
+  /**
+   * PRD 010 Req 15+16: the connect-your-GitHub-repo wizard's calls. Optional
+   * on the seam like every other capability — a lifecycle without it simply
+   * offers no storage choice, which is what the New Workspace dialog renders.
+   */
+  byo?: GitHubByoClient;
   /**
    * PRD 009 Req 6: drop the binding WITHOUT navigating — Close Workspace and
    * every crossing action into single-file mode must leave a reload on the
@@ -120,6 +177,25 @@ export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
     }
     return { ok: false, error: failure?.error ?? `The change could not be saved (${res.status}).` };
   };
+
+  /**
+   * PRD 010 Req 11+16: one wizard call. A refusal is the SERVER's own message
+   * — the actionable GitHub failure vocabulary, the session-gone sentence,
+   * the cross-installation refusal — so nothing here re-words it, and a
+   * status with no message still says something rather than a bare code.
+   */
+  const byoCall = async <T>(
+    path: string,
+    init: { method?: string; headers?: Record<string, string>; body?: string } = {},
+  ): Promise<ByoResult<T>> => {
+    const res = await api(path, init);
+    const body = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
+    if (res.ok && body) return body;
+    return { error: body?.error ?? `GitHub could not be reached (${res.status}).` };
+  };
+
+  const byoQuery = (session: string, installationId: number): string =>
+    `session=${encodeURIComponent(session)}&installation=${encodeURIComponent(String(installationId))}`;
 
   return {
     currentId() {
@@ -198,6 +274,33 @@ export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
 
     resolveUsers(ids) {
       return resolveMembers(ids, getUser);
+    },
+
+    // PRD 010 Req 2+16: every wizard step is one `/api/github/byo/…` call on
+    // this origin, through the same `api()` wrapper — no new network call
+    // site is introduced, so the bundle scan's fetch allowlist is unchanged.
+    byo: {
+      async availability() {
+        const body = await json<ByoAvailability>(await api('/api/github/byo'));
+        return body ?? { available: false, reason: 'This deployment did not answer whether a repo can be connected.' };
+      },
+      beginInstall() {
+        return byoCall<ByoSession>('/api/github/byo/session', { method: 'POST' });
+      },
+      resolveReturn(session, installationId, setupAction) {
+        return byoCall<ByoInstallation>('/api/github/byo/return', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session, installationId, setupAction }),
+        });
+      },
+      repos(session, installationId) {
+        return byoCall<ByoRepos>(`/api/github/byo/repos?${byoQuery(session, installationId)}`);
+      },
+      branches(session, installationId, owner, repo) {
+        const query = `${byoQuery(session, installationId)}&owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`;
+        return byoCall<ByoBranches>(`/api/github/byo/branches?${query}`);
+      },
     },
 
     navigateTo(id) {

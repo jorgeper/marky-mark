@@ -116,6 +116,9 @@ export interface GitHubFake {
 }
 
 interface RepoState {
+  /** Owner and name as seeded — the lookup key is lowercased, these are not. */
+  owner: string;
+  repo: string;
   branch: string;
   files: Map<string, Uint8Array>;
   commits: FakeCommit[];
@@ -166,8 +169,12 @@ function error(status: number, message: string, headers: Record<string, string> 
  * `path` (contents, possibly empty for the repo root), `branch` (a ref) and
  * `commits` participates, so the undefined ones say which route it was.
  */
+// PRD 010 Req 16 adds two more: the repo itself (its default branch is the
+// wizard's branch default) and its branch list. Both take an optional suffix,
+// so the bare `/repos/<owner>/<repo>` — every group undefined — is the repo
+// metadata route.
 const REPO_ROUTE =
-  /^\/repos\/(?<owner>[^/]+)\/(?<repo>[^/]+)\/(?:contents\/(?<path>.*)|git\/ref\/heads\/(?<branch>.+)|git\/trees\/(?<tree>[^/]+)|git\/blobs\/(?<blob>[^/]+)|(?<commits>commits))$/;
+  /^\/repos\/(?<owner>[^/]+)\/(?<repo>[^/]+)(?:\/(?:contents\/(?<path>.*)|git\/ref\/heads\/(?<branch>.+)|git\/trees\/(?<tree>[^/]+)|git\/blobs\/(?<blob>[^/]+)|(?<commits>commits)|(?<branches>branches)))?$/;
 
 interface RepoRouteGroups {
   owner: string;
@@ -177,6 +184,7 @@ interface RepoRouteGroups {
   tree?: string;
   blob?: string;
   commits?: string;
+  branches?: string;
 }
 
 class AuthFailure extends Error {}
@@ -194,6 +202,8 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
       const key = `${repo.owner}/${repo.repo}`.toLowerCase();
       const files = new Map(Object.entries(repo.files ?? {}).map(([path, content]) => [path, toBytes(content)]));
       repos.set(key, {
+        owner: repo.owner,
+        repo: repo.repo,
         branch: repo.branch ?? 'main',
         files,
         // A seeded repo starts with one commit, so `git/ref` and `commits`
@@ -292,6 +302,23 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
     };
   }
 
+  /**
+   * PRD 010 Req 16: a repository as the wizard's pick-repo and branch steps
+   * read it — its owner, its name and the default branch the branch step
+   * pre-fills. `permissions.push` is what a repo the installation cannot
+   * write would say false to.
+   */
+  function repositoryBody(state: RepoState): unknown {
+    return {
+      name: state.repo,
+      full_name: `${state.owner}/${state.repo}`,
+      owner: { login: state.owner, type: 'Organization' },
+      private: true,
+      default_branch: state.branch,
+      permissions: { admin: false, push: true, pull: true },
+    };
+  }
+
   function contentsBody(owner: string, repo: string, path: string, content: Uint8Array): unknown {
     return {
       type: 'file',
@@ -357,6 +384,19 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
       const found = findRepo(decodeURIComponent(repoInstall[1]), decodeURIComponent(repoInstall[2]));
       if (!found) return error(404, 'Not Found');
       return json(200, installationBody(found.installation));
+    }
+
+    // PRD 010 Req 16: the repos one installation grants, addressed as that
+    // installation — the App JWT cannot read this route, and the answer is
+    // scoped to the token's own installation rather than to anything the
+    // caller named.
+    if (pathname === '/installation/repositories' && method === 'GET') {
+      const value = credential(headers);
+      if (!value) throw new AuthFailure('Requires authentication');
+      const minted = tokens.get(value);
+      if (!minted || minted.expiresAtMs <= now()) throw new AuthFailure('Bad credentials');
+      const repos = [...(installations.get(minted.installationId)?.repos.values() ?? [])];
+      return json(200, { total_count: repos.length, repositories: repos.map(repositoryBody) });
     }
 
     // --- contents / refs / commits (installation token) -----------------
@@ -453,6 +493,24 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
             committer: c.committer ? { ...c.committer, date: c.date } : { date: c.date },
           },
         })));
+      }
+
+      // PRD 010 Req 16: the repo's branch list, and the repo itself — the two
+      // reads the wizard's branch step makes, with the default branch coming
+      // from the repo rather than being assumed.
+      if (repoRoute.branches !== undefined && method === 'GET') {
+        return json(200, [{ name: state.branch, commit: { sha: head().sha } }]);
+      }
+      if (
+        repoRoute.path === undefined &&
+        repoRoute.branch === undefined &&
+        repoRoute.tree === undefined &&
+        repoRoute.blob === undefined &&
+        repoRoute.commits === undefined &&
+        repoRoute.branches === undefined
+      ) {
+        if (method !== 'GET') return error(405, 'Method not allowed');
+        return json(200, repositoryBody(state));
       }
 
       // PRD 010 Req 9+10: the tree of a ref, which is how a listing is one

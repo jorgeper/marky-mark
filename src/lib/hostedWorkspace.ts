@@ -273,6 +273,13 @@ export interface CreateWorkspaceRequest {
   members?: WorkspaceMember[];
   /** Everyone-in-tenant access; `role` defaults to Viewer (Req 16). */
   everyone?: { enabled: boolean; role?: string };
+  /**
+   * PRD 010 Req 15+16: where this workspace's bytes live. Absent — which is
+   * what the default-storage choice sends — means the deployment default and
+   * a body byte identical to before; the connect-your-repo wizard is the one
+   * caller that fills it in, with the record #103 validates server-side.
+   */
+  storage?: { kind: 'repo'; owner: string; repo: string; branch: string; root?: string };
 }
 
 /**

@@ -4,7 +4,7 @@
 // auth/directory, the offline dev mode) or 'azure' (Entra ID + Blob Storage +
 // Graph). Pure parsing, no I/O, so the unit suite can pin every branch.
 
-import { GITHUB_API_BASE, normalizeGitHubPrivateKey } from './providers/github/auth.ts';
+import { GITHUB_API_BASE, GITHUB_WEB_BASE, normalizeGitHubPrivateKey } from './providers/github/auth.ts';
 
 export type ServerMode = 'local' | 'azure';
 
@@ -60,6 +60,15 @@ export interface ServerConfig {
     /** PEM private key, newlines already un-escaped. */
     privateKey: string;
     apiBase: string;
+    /**
+     * PRD 010 Req 16: the App's identity on the WEB host — its slug, the one
+     * thing the install URL the connect-your-repo wizard sends an admin to
+     * needs and the API credentials above do not carry. Optional: without it
+     * the wizard reports itself unavailable rather than offering a dead end.
+     */
+    appSlug?: string;
+    /** Web host the install URL is built on; GHES deployments override it. */
+    webBase: string;
     /**
      * PRD 010 Req 5: the deployment-default repo — where workspaces the
      * operator has not connected elsewhere are stored. Present only when
@@ -146,10 +155,13 @@ function loadGitHubConfig(env: Record<string, string | undefined>): ServerConfig
   const appId = env.MM_GITHUB_APP_ID?.trim();
   const privateKey = env.MM_GITHUB_PRIVATE_KEY;
   const apiBase = env.MM_GITHUB_API_BASE?.trim();
+  // PRD 010 Req 16: the App's web-side identity, for the wizard's install URL.
+  const appSlug = env.MM_GITHUB_APP_SLUG?.trim();
+  const webBase = env.MM_GITHUB_WEB_BASE?.trim();
   // PRD 010 Req 5: the default repo is part of this section — naming it
   // without the credentials is the same "incomplete" refusal below.
   const defaultRepo = loadDefaultRepo(env);
-  if (!appId && !privateKey && !apiBase && !defaultRepo) return undefined;
+  if (!appId && !privateKey && !apiBase && !appSlug && !webBase && !defaultRepo) return undefined;
 
   if (!appId || !privateKey) {
     const missing = [
@@ -175,10 +187,27 @@ function loadGitHubConfig(env: Record<string, string | undefined>): ServerConfig
       throw new Error(`MM_GITHUB_API_BASE must be an absolute URL, got '${apiBase}'`);
     }
   }
+  // PRD 010 Req 16: the slug is what appears in an install URL path, so it is
+  // held to GitHub's own slug shape rather than being interpolated blindly.
+  if (appSlug && !/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(appSlug)) {
+    throw new Error(`MM_GITHUB_APP_SLUG must be the App's URL slug (letters, digits and dashes), got '${appSlug}'`);
+  }
+  if (webBase) {
+    try {
+      new URL(webBase);
+    } catch {
+      throw new Error(`MM_GITHUB_WEB_BASE must be an absolute URL, got '${webBase}'`);
+    }
+    // A web host with no slug installs nothing: the same "say which half is
+    // missing" stance `loadDefaultRepo` takes for its own pair.
+    if (!appSlug) throw new Error('MM_GITHUB_WEB_BASE needs MM_GITHUB_APP_SLUG');
+  }
   return {
     appId,
     privateKey: key,
     apiBase: apiBase || GITHUB_API_BASE,
+    webBase: (webBase || GITHUB_WEB_BASE).replace(/\/+$/, ''),
+    ...(appSlug ? { appSlug } : {}),
     ...(defaultRepo ? { defaultRepo } : {}),
   };
 }

@@ -10,6 +10,7 @@
 
 import type { WorkspaceBackendsOptions } from '../backends.ts';
 import type { ServerConfig } from '../config.ts';
+import { createGitHubByo, type GitHubByo } from '../githubByo.ts';
 import { createBlobStorageProvider } from './azure/blob.ts';
 import { createEntraAuthProvider } from './azure/entra.ts';
 import { createGraphDirectoryProvider } from './azure/graph.ts';
@@ -112,6 +113,23 @@ export function createRepoConnector(
     // provider — the repo holds plain markdown at the connected root.
     return createWorkspaceRepoView(connected, id);
   };
+}
+
+/**
+ * PRD 010 Req 15+16: the connect-your-GitHub-repo wizard's server side, built
+ * from the deployment's App section alone — the same credentials the storage
+ * connector uses, and the App's web-side slug for the install URL. Answers an
+ * unconfigured deployment too: `createGitHubByo` with no auth reports the
+ * choice unavailable by name rather than being absent and 404-ing.
+ */
+export function createGitHubByoApi(config: ServerConfig, options: ProviderOptions = {}): GitHubByo {
+  const { github } = config;
+  if (!github) return createGitHubByo();
+  return createGitHubByo({
+    auth: appAuthFor(github, options),
+    ...(github.appSlug ? { appSlug: github.appSlug } : {}),
+    webBase: github.webBase,
+  });
 }
 
 export function createProviders(config: ServerConfig, options: ProviderOptions = {}): Providers {
