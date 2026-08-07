@@ -84,8 +84,31 @@ workspaces/<id>/files/<path>      its Markdown documents and assets
 The same layout is what the github backend stores in the default repo, at
 those repo-relative paths under `MM_GITHUB_DEFAULT_ROOT`, on the one
 configured branch. That repo is **app storage, not intended for human
-browsing** — the human-readable layout is the bring-your-own-repo case
-(#103).
+browsing**.
+
+### Bring your own repo (PRD 010 Req 17)
+
+A workspace whose `backend.json` names a repo connection (`{kind: 'repo',
+owner, repo, branch, root?}`) is laid out the other way round — for humans:
+
+```
+<root>/<path>                     the workspace's documents, as normal files
+<root>/.marky-mark/manifest.json  app metadata, all of it under one directory
+```
+
+The document the app calls `notes/plan.md` is committed at
+`<root>/notes/plan.md` and reads on GitHub as ordinary Markdown: no id in the
+path, no `files/` segment, no encoding. An empty `root` means the repo root.
+Files already committed under that root **are** workspace documents — that is
+the point of connecting a repo you already have. `.marky-mark/` at the
+connected root is the exception: it never appears in a file listing and is
+not reachable through the `files/<path>` routes.
+
+The connection is server-side only. The workspace id stays an opaque UUID,
+no API response carries the connection, and it is derivable from no URL or
+client payload. `POST /api/workspaces` takes an optional `storage` field
+carrying exactly that record (absent = the deployment default); the repo is
+proved writable before the record, the manifest or any commit exists.
 
 `backend.json` always lives in the deployment default store (the backend has
 to be known before the workspace's own store can be read); no record means

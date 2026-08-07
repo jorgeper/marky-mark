@@ -34,7 +34,12 @@ import {
 import type { WorkspaceListing } from '../src/lib/workspaceLifecycle.ts';
 import { isSidecarPath } from '../src/lib/sidecar.ts';
 import { UPLOAD_MAX_LABEL, uploadRejection, uploadTypeRejection } from '../src/lib/fileTransfer.ts';
-import type { WorkspaceBackends } from './backends.ts';
+import {
+  backendRecordWorkspaceId,
+  validateWorkspaceBackend,
+  type WorkspaceBackendRecord,
+  type WorkspaceBackends,
+} from './backends.ts';
 import { contentTypeFor } from './contentTypes.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import { mergeThreeWay } from './merge.ts';
@@ -340,6 +345,34 @@ async function saveMutation(
   sendJson(res, 200, { id, manifest });
 }
 
+/**
+ * PRD 010 Req 17: the optional `storage` field on a create body — the ONLY
+ * way a repo connection is created in this issue, and what #104's wizard will
+ * call. Absent means the deployment default, so a body with no such field
+ * behaves byte-identically to before. Validation is
+ * `validateWorkspaceBackend`'s and no one else's: one validator for the record
+ * the wizard sends and the record that is later read back.
+ */
+function readStorageField(body: unknown): WorkspaceBackendRecord | string {
+  const requested = (body as { storage?: unknown } | null)?.storage;
+  if (requested === undefined) return { kind: 'deployment-default' };
+  const validated = validateWorkspaceBackend(requested);
+  return validated.ok ? validated.record : `storage: ${validated.error}`;
+}
+
+/**
+ * PRD 010 Req 17: what a refused connection answers. The vocabulary is
+ * `githubFailureDetail`'s already — the message is the thrown error's — and
+ * only the status is decided here, from the status the store reported (duck
+ * typed, so this module stays free of any vendor import): GitHub blaming the
+ * request is the operator's connection being wrong (400), GitHub itself
+ * failing is a bad gateway (502).
+ */
+function connectionFailureStatus(err: unknown): number {
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === 'number' && status >= 500 ? 502 : 400;
+}
+
 /** The untrusted `{name, permissions}` shape a custom-role write carries. */
 function readRoleBody(body: unknown): { name: string; permissions: string[] } | string {
   if (typeof body !== 'object' || body === null) return 'role must be {name, permissions[]}';
@@ -390,13 +423,39 @@ export async function handleWorkspaceApi(
       sendJson(res, 400, { error: built.error });
       return;
     }
+    // PRD 010 Req 17: a malformed connection is a 400 naming the offending
+    // field, never a created workspace.
+    const record = readStorageField(body);
+    if (typeof record === 'string') {
+      sendJson(res, 400, { error: record });
+      return;
+    }
+    // PRD 007 Req 7 + PRD 010 Req 17: the id stays an opaque server-generated
+    // UUID. Nothing about owner/repo/branch/root appears in it, in the
+    // workspace URL, or in any API response — the connection is read from the
+    // server-side record and from nowhere else.
     const id = randomUUID();
+    let workspaceStore = deploymentDefault;
+    if (record.kind !== 'deployment-default') {
+      // PRD 010 Req 17: fail fast. The repo is proved reachable with
+      // `contents: write` BEFORE anything is written, so a bad connection
+      // leaves no record, no manifest and no commit behind.
+      try {
+        workspaceStore = await backends.connect(record, id);
+        await workspaceStore.init?.();
+      } catch (err) {
+        sendJson(res, connectionFailureStatus(err), { error: (err as Error).message });
+        return;
+      }
+    }
     // PRD 010 Req 3: the record goes down BEFORE the manifest — the backend
     // is what says where the manifest itself belongs, so it can never be the
-    // second thing written. A new workspace is on the deployment default;
-    // #103 is what makes that choice something else.
-    await backends.remember(id, { kind: 'deployment-default' });
-    await deploymentDefault.write(manifestBlob(id), serializeWorkspaceManifest(built.manifest));
+    // second thing written.
+    await backends.remember(id, record);
+    // …and the manifest through the workspace's OWN backend, which for a repo
+    // connection lands it at `<root>/.marky-mark/manifest.json` as one commit.
+    await workspaceStore.write(manifestBlob(id), serializeWorkspaceManifest(built.manifest));
+    // The 201 is the existing `{id, manifest}` — no connection details.
     sendJson(res, 201, { id, manifest: built.manifest });
     return;
   }
@@ -405,22 +464,36 @@ export async function handleWorkspaceApi(
   // (id, name, timestamps) is readable to any signed-in user so an Open
   // dialog can list everything; contents stay behind per-workspace checks.
   if (rest === '' && req.method === 'GET') {
-    // PRD 010 Req 3: a workspace is still exactly a `manifest.json` under the
-    // prefix — the sibling backend record matches nothing here and so is
-    // never mistaken for one, nor surfaced in a row.
+    // PRD 010 Req 3+17: which ids exist is the UNION of two traces in the
+    // deployment default — a `manifest.json` (a workspace on this store, and
+    // every workspace an existing deployment already has) and a
+    // `backend.json` (a workspace whose manifest lives in ITS backend, which
+    // is what a BYO workspace looks like from here). Neither trace is a row
+    // of its own: each id's manifest is loaded through its own backend.
     const blobs = await deploymentDefault.list(WORKSPACES_PREFIX);
-    const out: WorkspaceListing[] = [];
+    const ids = new Set<string>();
     for (const blob of blobs) {
-      const match = MANIFEST_BLOB_RE.exec(blob.path);
-      if (!match) continue;
-      const manifest = await loadManifest(await backends.forWorkspace(match[1]), match[1]);
+      const id = MANIFEST_BLOB_RE.exec(blob.path)?.[1] ?? backendRecordWorkspaceId(blob.path);
+      if (id) ids.add(id);
+    }
+    const out: WorkspaceListing[] = [];
+    for (const id of ids) {
+      // A workspace whose manifest cannot be loaded — corrupt, or a connected
+      // repo that is unreachable right now — is skipped, exactly as a corrupt
+      // manifest already was: one broken workspace never fails the listing.
+      let manifest: WorkspaceManifest | string | null;
+      try {
+        manifest = await loadManifest(await backends.forWorkspace(id), id);
+      } catch {
+        continue;
+      }
       if (manifest === null || typeof manifest === 'string') continue; // corrupt: has no listable metadata
       // PRD 007 Req 11: the row carries what the Open dialog needs to tell
       // "openable" from "ask for access" — a resolved access flag and the
       // owner ids to name — so the client never probes a forbidden read to
       // find out. Never file contents, never workspace-scoped settings.
       out.push({
-        id: match[1],
+        id,
         name: manifest.name,
         created: manifest.created,
         modified: manifest.modified,
@@ -462,6 +535,11 @@ export async function handleWorkspaceApi(
     // files/, comment sidecars and pasted images alike. Listing the prefix
     // (rather than the files/ subtree) is what makes that exhaustive: nothing
     // of the workspace survives to be listed or read afterwards.
+    // PRD 010 Req 17: on a BYO workspace the same sweep is the connected root
+    // — its files and its `.marky-mark/` — as commits, and nothing outside
+    // that root: the workspace's store cannot address anything else, so the
+    // repo and the branch themselves are never touched. Repo history retains
+    // the content, as git history always does.
     const prefix = `${WORKSPACES_PREFIX}${id}/`;
     const blobs = await storage.list(prefix);
     const manifestPath = manifestBlob(id);

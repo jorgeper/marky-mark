@@ -35,6 +35,18 @@ export function backendRecordPath(id: string): string {
   return `${WORKSPACES_PREFIX}${id}/backend.json`;
 }
 
+const BACKEND_RECORD_RE = /^workspaces\/([^/]+)\/backend\.json$/;
+
+/**
+ * PRD 010 Req 17: the workspace id a blob path names as a backend record, or
+ * null. `GET /api/workspaces` enumerates the UNION of the manifest scan and
+ * these — a BYO workspace's manifest lives in its own repo, so the record is
+ * the only trace of it in the deployment default store.
+ */
+export function backendRecordWorkspaceId(blobPath: string): string | null {
+  return BACKEND_RECORD_RE.exec(blobPath)?.[1] ?? null;
+}
+
 const fail = (error: string): WorkspaceBackendResult => ({ ok: false, error });
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
@@ -96,6 +108,12 @@ export interface WorkspaceBackends {
   readonly deploymentDefault: StorageProvider;
   /** The storage backing this workspace. No record means the default. */
   forWorkspace(id: string): Promise<StorageProvider>;
+  /**
+   * PRD 010 Req 17: the same resolution for a record that is not stored yet —
+   * what create uses to PROVE a repo connection (reachable, `contents:
+   * write`) before the record, the manifest or any commit exists.
+   */
+  connect(record: WorkspaceBackendRecord, id: string): Promise<StorageProvider>;
   /** Write the record a newly created workspace gets. */
   remember(id: string, record: WorkspaceBackendRecord): Promise<void>;
   /** Drop it again when the workspace is deleted. */
@@ -106,8 +124,9 @@ export interface WorkspaceBackendsOptions {
   deploymentDefault: StorageProvider;
   /**
    * How a record that is not the deployment default becomes a provider.
-   * Unset here on purpose: this issue creates no such record, and #103 is
-   * what supplies the connection.
+   * Optional: a deployment with no GitHub App section configured cannot
+   * connect one at all, and says so by name rather than falling back to the
+   * default store (PRD 010 Req 17).
    */
   connect?: (record: WorkspaceBackendRecord, id: string) => Promise<StorageProvider> | StorageProvider;
 }
@@ -115,8 +134,17 @@ export interface WorkspaceBackendsOptions {
 export function createWorkspaceBackends(options: WorkspaceBackendsOptions): WorkspaceBackends {
   const { deploymentDefault, connect } = options;
 
+  const resolve = async (record: WorkspaceBackendRecord, id: string): Promise<StorageProvider> => {
+    if (record.kind === 'deployment-default') return deploymentDefault;
+    if (!connect) {
+      throw new Error(`workspace ${id} names a repo backend this deployment cannot connect to`);
+    }
+    return connect(record, id);
+  };
+
   return {
     deploymentDefault,
+    connect: resolve,
     async forWorkspace(id: string): Promise<StorageProvider> {
       const stored = await deploymentDefault.read(backendRecordPath(id));
       // No record: every workspace an existing deployment already has.
@@ -125,11 +153,7 @@ export function createWorkspaceBackends(options: WorkspaceBackendsOptions): Work
       // A damaged record is refused, never coerced — the caller turns this
       // into a 500 the way a corrupt manifest already is.
       if (!parsed.ok) throw new Error(`corrupt workspace backend record: ${parsed.error}`);
-      if (parsed.record.kind === 'deployment-default') return deploymentDefault;
-      if (!connect) {
-        throw new Error(`workspace ${id} names a repo backend this deployment cannot connect to`);
-      }
-      return connect(parsed.record, id);
+      return resolve(parsed.record, id);
     },
     async remember(id: string, record: WorkspaceBackendRecord): Promise<void> {
       await deploymentDefault.write(backendRecordPath(id), serializeWorkspaceBackend(record));
