@@ -165,20 +165,21 @@ function error(status: number, message: string, headers: Record<string, string> 
 }
 
 /**
- * The three installation-scoped repo routes in one match: exactly one of
- * `path` (contents, possibly empty for the repo root), `branch` (a ref) and
- * `commits` participates, so the undefined ones say which route it was.
+ * The installation-scoped repo routes in one match: exactly one of `path`
+ * (contents, possibly empty for the repo root), `branch` (a ref), `tree`,
+ * `blob`, `commits` and — PRD 010 Req 16 — `branches` participates, so the
+ * undefined ones say which route it was. The whole suffix is optional and
+ * captured as `sub`: no suffix at all is the repo itself, whose default
+ * branch is the wizard's branch default.
  */
-// PRD 010 Req 16 adds two more: the repo itself (its default branch is the
-// wizard's branch default) and its branch list. Both take an optional suffix,
-// so the bare `/repos/<owner>/<repo>` — every group undefined — is the repo
-// metadata route.
 const REPO_ROUTE =
-  /^\/repos\/(?<owner>[^/]+)\/(?<repo>[^/]+)(?:\/(?:contents\/(?<path>.*)|git\/ref\/heads\/(?<branch>.+)|git\/trees\/(?<tree>[^/]+)|git\/blobs\/(?<blob>[^/]+)|(?<commits>commits)|(?<branches>branches)))?$/;
+  /^\/repos\/(?<owner>[^/]+)\/(?<repo>[^/]+)(?<sub>\/(?:contents\/(?<path>.*)|git\/ref\/heads\/(?<branch>.+)|git\/trees\/(?<tree>[^/]+)|git\/blobs\/(?<blob>[^/]+)|(?<commits>commits)|(?<branches>branches)))?$/;
 
 interface RepoRouteGroups {
   owner: string;
   repo: string;
+  /** The part after `<owner>/<repo>`; undefined for the repo itself. */
+  sub?: string;
   path?: string;
   branch?: string;
   tree?: string;
@@ -501,14 +502,7 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
       if (repoRoute.branches !== undefined && method === 'GET') {
         return json(200, [{ name: state.branch, commit: { sha: head().sha } }]);
       }
-      if (
-        repoRoute.path === undefined &&
-        repoRoute.branch === undefined &&
-        repoRoute.tree === undefined &&
-        repoRoute.blob === undefined &&
-        repoRoute.commits === undefined &&
-        repoRoute.branches === undefined
-      ) {
+      if (repoRoute.sub === undefined) {
         if (method !== 'GET') return error(405, 'Method not allowed');
         return json(200, repositoryBody(state));
       }

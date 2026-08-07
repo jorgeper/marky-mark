@@ -84,6 +84,13 @@ interface RepoOption {
   defaultBranch: string;
 }
 
+/** A refusal a route sends back verbatim: the status and the sentence. */
+interface Refusal {
+  ok: false;
+  status: number;
+  error: string;
+}
+
 /** What GitHub's `/installation/repositories` answers, in the parts read. */
 interface RepositoriesBody {
   repositories?: {
@@ -108,6 +115,14 @@ const NO_SLUG =
   'Ask an operator to set MM_GITHUB_APP_SLUG.';
 
 /**
+ * The one sentence every unusable session gets — expired, another user's, or
+ * one this process never issued. The wizard turns it into a clean restart,
+ * and it says the same thing in every case so none of them leaks whether the
+ * id exists.
+ */
+const SESSION_GONE = 'That connection is no longer in progress — start connecting a repository again.';
+
+/**
  * PRD 010 Req 11: a failed GitHub response becomes an actionable message and
  * a status that says whose fault it is — GitHub blaming the request is a 400,
  * GitHub itself failing is a 502. Only the status and GitHub's own short
@@ -118,7 +133,7 @@ async function failure(res: ServerResponse, response: Response, what: string): P
   sendJson(res, response.status >= 500 ? 502 : 400, { error: `${what}: ${detail}` });
 }
 
-/** The same, for a thrown {@link GitHubApiError} from an App-level call. */
+/** The same, for a thrown `GitHubApiError` from an App-level call. */
 function thrownFailure(res: ServerResponse, err: unknown): void {
   const status = (err as { status?: unknown } | null)?.status;
   sendJson(res, typeof status === 'number' && status >= 500 ? 502 : 400, { error: (err as Error).message });
@@ -150,37 +165,26 @@ export function createGitHubByo(options: GitHubByoOptions = {}): GitHubByo {
   };
 
   /**
-   * PRD 010 Req 2: the caller's own session, or the named refusal. A session
+   * PRD 010 Req 2: the caller's OWN live session, or nothing. A session
    * another user started, one this process never issued (a restarted server,
-   * a stale tab) and an expired one are all 404 — the wizard turns that into
-   * a clean restart, and none of them leaks whether the id exists.
+   * a stale tab) and an expired one are all indistinguishable from here —
+   * every caller gets {@link SESSION_GONE}.
    */
-  const sessionFor = (
-    url: URL,
-    user: string,
-  ): { ok: true; id: string; session: WizardSession } | { ok: false; status: number; error: string } => {
-    const id = url.searchParams.get('session') ?? '';
+  const activeSession = (id: string, user: string): WizardSession | undefined => {
     const session = id ? sessions.get(id) : undefined;
-    if (!session || session.userId !== user || session.createdAtMs < now() - SESSION_TTL_MS) {
-      return {
-        ok: false,
-        status: 404,
-        error: 'That connection is no longer in progress — start connecting a repository again.',
-      };
-    }
-    return { ok: true, id, session };
+    if (!session || session.userId !== user || session.createdAtMs < now() - SESSION_TTL_MS) return undefined;
+    return session;
   };
 
   /**
-   * PRD 010 Req 2: an installation is readable ONLY through the session that
-   * completed the round trip for it. A caller naming any other installation —
-   * including a real one belonging to another admin — is refused by name
-   * rather than served.
+   * PRD 010 Req 2: an installation is readable ONLY through the caller's own
+   * session, and only once that session has come back from GitHub bound to
+   * it. A caller naming any other installation — including a real one
+   * belonging to another admin — is refused by name rather than served.
    */
-  const installationFor = (
-    url: URL,
-    session: WizardSession,
-  ): { ok: true; id: number } | { ok: false; status: number; error: string } => {
+  const scopedInstallation = (url: URL, user: string): { ok: true; id: number } | Refusal => {
+    const session = activeSession(url.searchParams.get('session') ?? '', user);
+    if (!session) return { ok: false, status: 404, error: SESSION_GONE };
     if (session.installationId === undefined) {
       return {
         ok: false,
@@ -248,11 +252,9 @@ export function createGitHubByo(options: GitHubByoOptions = {}): GitHubByo {
       const body = await readJson(req, res);
       if (body === undefined) return;
       const id = typeof body.session === 'string' ? body.session : '';
-      const session = sessions.get(id);
-      if (!session || session.userId !== auth.user.id || session.createdAtMs < now() - SESSION_TTL_MS) {
-        sendJson(res, 404, {
-          error: 'That connection is no longer in progress — start connecting a repository again.',
-        });
+      const session = activeSession(id, auth.user.id);
+      if (!session) {
+        sendJson(res, 404, { error: SESSION_GONE });
         return;
       }
       if (body.setupAction === 'cancel') {
@@ -286,12 +288,7 @@ export function createGitHubByo(options: GitHubByoOptions = {}): GitHubByo {
     }
 
     if (rest === '/repos' && req.method === 'GET') {
-      const owned = sessionFor(url, auth.user.id);
-      if (!owned.ok) {
-        sendJson(res, owned.status, { error: owned.error });
-        return;
-      }
-      const installation = installationFor(url, owned.session);
+      const installation = scopedInstallation(url, auth.user.id);
       if (!installation.ok) {
         sendJson(res, installation.status, { error: installation.error });
         return;
@@ -336,12 +333,7 @@ export function createGitHubByo(options: GitHubByoOptions = {}): GitHubByo {
     }
 
     if (rest === '/branches' && req.method === 'GET') {
-      const owned = sessionFor(url, auth.user.id);
-      if (!owned.ok) {
-        sendJson(res, owned.status, { error: owned.error });
-        return;
-      }
-      const installation = installationFor(url, owned.session);
+      const installation = scopedInstallation(url, auth.user.id);
       if (!installation.ok) {
         sendJson(res, installation.status, { error: installation.error });
         return;

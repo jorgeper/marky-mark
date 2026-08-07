@@ -123,9 +123,18 @@ export function readGitHubReturn(search: string): GitHubReturn {
  */
 export type WizardEntry =
   | { kind: 'fresh' }
-  | { kind: 'resume'; state: SavedWizardState }
+  | { kind: 'resume'; state: ResumedWizardState }
   | { kind: 'continue'; state: SavedWizardState }
   | { kind: 'restart'; reason: string };
+
+/**
+ * A resumed state always names the installation the return came back with —
+ * that is what separates `resume` from the restarts above, so the caller
+ * never has to assert it.
+ */
+export interface ResumedWizardState extends SavedWizardState {
+  installationId: number;
+}
 
 /** Only a well-formed saved record is resumable; anything else is not one. */
 export function parseSavedWizardState(raw: string | null): SavedWizardState | null {
@@ -242,17 +251,13 @@ export function connectionFor(state: SavedWizardState): RepoConnection | null {
 }
 
 /**
- * PRD 010 Req 15: the default-storage create body — today's body exactly, with
- * NO `storage` field, so an existing deployment's create is byte identical.
- */
-export function buildDefaultCreateRequest(form: NewWorkspaceForm): NewWorkspaceResult {
-  return validateNewWorkspaceForm(form);
-}
-
-/**
  * PRD 010 Req 15+16: the GitHub choice's create body — the same workspace
  * fields (the connection adds to them, it does not replace them) plus #103's
  * optional `storage` field. One existing call, `POST /api/workspaces`.
+ *
+ * The default-storage choice does not come through here at all: it stays on
+ * `validateNewWorkspaceForm` alone, so its body carries no `storage` key and
+ * is byte identical to an existing deployment's.
  */
 export function buildConnectedCreateRequest(state: SavedWizardState): NewWorkspaceResult {
   const validated = validateNewWorkspaceForm(state.form);

@@ -4,7 +4,6 @@ import {
   WIZARD_STATE_KEY,
   WIZARD_STEPS,
   buildConnectedCreateRequest,
-  buildDefaultCreateRequest,
   connectionFor,
   decideWizardEntry,
   parseSavedWizardState,
@@ -17,7 +16,7 @@ import {
   validateSubdirectory,
   type SavedWizardState,
 } from '../../src/lib/githubConnectWizard';
-import { emptyNewWorkspaceForm } from '../../src/lib/workspaceLifecycle';
+import { emptyNewWorkspaceForm, validateNewWorkspaceForm } from '../../src/lib/workspaceLifecycle';
 
 // PRD 010 Req 15+16: the pure half of the connect-your-GitHub-repo wizard —
 // the two storage choices and the create body each produces, the four steps
@@ -34,7 +33,9 @@ function savedAt(step: SavedWizardState['step'], extra: Partial<SavedWizardState
 describe('PRD 010 Req 15+16 connect-your-GitHub-repo wizard: choices, steps, restart', () => {
   it('U435: default storage is preselected and its create body carries no storage field', () => {
     expect(DEFAULT_STORAGE_CHOICE).toBe('default');
-    const built = buildDefaultCreateRequest(form);
+    // The default choice stays on the dialog's existing validation, untouched
+    // by this issue — which is exactly why its body cannot grow a field.
+    const built = validateNewWorkspaceForm(form);
     expect(built.ok).toBe(true);
     if (!built.ok) return;
     // Byte identical to today's body: `storage` is not even present as a key.

@@ -62,7 +62,8 @@ export function NewWorkspaceDialog({
   const [notice, setNotice] = useState('');
   const byo = lifecycle.byo;
 
-  const restart = useCallback((reason: string) => {
+  /** Discard the saved progress; `reason` is shown when there is one to name. */
+  const restart = useCallback((reason = '') => {
     clearWizardState();
     setWizard(null);
     setResumable(null);
@@ -88,7 +89,8 @@ export function NewWorkspaceDialog({
   // the saved state and GitHub's return parameters, rendered as it comes.
   useEffect(() => {
     if (!byo) return;
-    const entry = decideWizardEntry(window.localStorage.getItem(WIZARD_STATE_KEY), readGitHubReturn(window.location.search));
+    const ret = readGitHubReturn(window.location.search);
+    const entry = decideWizardEntry(window.localStorage.getItem(WIZARD_STATE_KEY), ret);
     if (entry.kind === 'fresh') return;
     if (entry.kind === 'restart') {
       restart(entry.reason);
@@ -102,22 +104,20 @@ export function NewWorkspaceDialog({
     }
     // The return leg: the server binds the installation to the session it
     // issued, and only then does the wizard resume at pick-repo.
+    const resumed = entry.state;
     let cancelled = false;
-    const ret = readGitHubReturn(window.location.search);
-    void byo
-      .resolveReturn(entry.state.session, entry.state.installationId!, ret.setupAction)
-      .then((result) => {
-        if (cancelled) return;
-        if ('error' in result) {
-          restart(result.error);
-          return;
-        }
-        saveWizardState(entry.state);
-        setWizard(entry.state);
-        // GitHub's parameters have done their job; the page keeps running
-        // with the app's own URL so a reload is an ordinary re-entry.
-        lifecycle.unbind();
-      });
+    void byo.resolveReturn(resumed.session, resumed.installationId, ret.setupAction).then((result) => {
+      if (cancelled) return;
+      if ('error' in result) {
+        restart(result.error);
+        return;
+      }
+      saveWizardState(resumed);
+      setWizard(resumed);
+      // GitHub's parameters have done their job; the page keeps running
+      // with the app's own URL so a reload is an ordinary re-entry.
+      lifecycle.unbind();
+    });
     return () => {
       cancelled = true;
     };
@@ -314,10 +314,7 @@ export function NewWorkspaceDialog({
               >
                 Continue
               </button>
-              <button
-                data-testid="new-workspace-resume-restart"
-                onClick={() => restart('')}
-              >
+              <button data-testid="new-workspace-resume-restart" onClick={() => restart()}>
                 Start over
               </button>
             </div>

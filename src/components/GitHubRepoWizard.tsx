@@ -16,6 +16,7 @@ import {
   connectionFor,
   pickRepo,
   serializeWizardState,
+  stepAfter,
   stepBefore,
   summarize,
   validateSubdirectory,
@@ -34,9 +35,6 @@ export function saveWizardState(state: SavedWizardState): void {
 export function clearWizardState(): void {
   window.localStorage.removeItem(WIZARD_STATE_KEY);
 }
-
-const errorOf = (result: unknown): string | null =>
-  typeof result === 'object' && result !== null && 'error' in result ? String((result as { error: string }).error) : null;
 
 /**
  * The wizard's steps after the install round trip: pick repo, pick branch and
@@ -73,14 +71,12 @@ export function GitHubRepoWizard({
     let cancelled = false;
     void byo.repos(state.session, installationId).then((result) => {
       if (cancelled) return;
-      const failed = errorOf(result);
-      if (failed) {
-        onRestart(failed);
+      if ('error' in result) {
+        onRestart(result.error);
         return;
       }
-      const { repos: found, message } = result as { repos: RepoOption[]; message?: string };
-      setRepos(found);
-      setReposMessage(message ?? '');
+      setRepos(result.repos);
+      setReposMessage(result.message ?? '');
     });
     return () => {
       cancelled = true;
@@ -93,12 +89,11 @@ export function GitHubRepoWizard({
     let cancelled = false;
     void byo.branches(state.session, installationId, state.owner, state.repo).then((result) => {
       if (cancelled) return;
-      const failed = errorOf(result);
-      if (failed) {
-        setError(failed);
+      if ('error' in result) {
+        setError(result.error);
         return;
       }
-      setBranches(result as ByoBranches);
+      setBranches(result);
     });
     return () => {
       cancelled = true;
@@ -125,7 +120,7 @@ export function GitHubRepoWizard({
       setError(checked.error);
       return;
     }
-    const next: SavedWizardState = { ...state, step: 'confirm' };
+    const next: SavedWizardState = { ...state, step: stepAfter(state.step) };
     if (checked.root) next.root = checked.root;
     else delete next.root;
     advance(next);
