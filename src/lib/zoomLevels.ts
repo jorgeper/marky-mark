@@ -10,7 +10,7 @@
  * its consumers.
  */
 
-import type { DocumentSections, SectionNode } from './sectionModel';
+import { flattenSections, type DocumentSections, type SectionNode } from './sectionModel';
 
 export type ZoomLevel = 1 | 2 | 3 | 4 | 5;
 
@@ -99,7 +99,8 @@ function newEntry(section: SectionNode): ZoomEntry {
 }
 
 /** The one entry that stands for the whole document (L1, and empty documents). */
-function documentEntry(doc: DocumentSections, title: string, all: SectionNode[]): ZoomEntry {
+function documentEntry(doc: DocumentSections, title: string): ZoomEntry {
+  const all = flattenSections(doc);
   return {
     id: 'document',
     depth: 0,
@@ -111,14 +112,6 @@ function documentEntry(doc: DocumentSections, title: string, all: SectionNode[])
     folded: all.map((s) => ({ id: s.id, depth: s.depth, title: s.title })),
     summary: { kind: 'document', sectionIds: all.map((s) => s.id) },
   };
-}
-
-function flatten(nodes: SectionNode[], out: SectionNode[]): SectionNode[] {
-  for (const n of nodes) {
-    out.push(n);
-    flatten(n.children, out);
-  }
-  return out;
 }
 
 /**
@@ -155,14 +148,13 @@ function entriesToDepth(doc: DocumentSections, maxDepth: number): ZoomEntry[] {
 export function zoomView(doc: DocumentSections, level: number, opts?: ZoomViewOptions): ZoomView {
   const clamped = clampZoomLevel(level);
   const title = documentTitle(doc, opts);
-  const all = flatten(doc.sections, doc.preamble ? [doc.preamble] : []);
 
   // L5 shows the source verbatim — no entries, and nothing to summarize.
   if (clamped === 5) return { level: clamped, verbatim: true, title, entries: [] };
 
   // L1 is the title plus a single whole-document summary slot.
   if (clamped === 1) {
-    return { level: clamped, verbatim: false, title, entries: [documentEntry(doc, title, all)] };
+    return { level: clamped, verbatim: false, title, entries: [documentEntry(doc, title)] };
   }
 
   const entries = entriesToDepth(doc, KEPT_DEPTH[clamped]);
@@ -170,6 +162,6 @@ export function zoomView(doc: DocumentSections, level: number, opts?: ZoomViewOp
     level: clamped,
     verbatim: false,
     title,
-    entries: entries.length > 0 ? entries : [documentEntry(doc, title, all)],
+    entries: entries.length > 0 ? entries : [documentEntry(doc, title)],
   };
 }

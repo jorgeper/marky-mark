@@ -29,8 +29,9 @@ export const PROMPT_OVERHEAD_TOKENS = 80;
 export const SUMMARY_OUTPUT_TOKENS = 96;
 
 export interface TokenPrice {
-  /** Currency per million input tokens (US dollars, by the caller's choice). */
+  /** Price per million input tokens, in whatever currency the caller works in. */
   inputPerMillion: number;
+  /** Price per million output tokens, in that same currency. */
   outputPerMillion: number;
 }
 
@@ -76,6 +77,9 @@ const costOf = (tokens: number, perMillion: number | undefined): number | null =
   typeof perMillion === 'number' && Number.isFinite(perMillion) ? (tokens / 1_000_000) * perMillion : null;
 
 const sum = (a: number | null, b: number | null): number | null => (a === null || b === null ? null : a + b);
+
+/** A usable token count: a real number, not a missing, null or NaN one. */
+const isTokenCount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
 /**
  * PRD 011 Req 33: what summarizing this level would do — how many sections are
@@ -139,7 +143,7 @@ export type MeasuredCost =
 export function measuredCost(usage: ProviderUsage | null | undefined, price?: TokenPrice | null): MeasuredCost {
   const input = usage?.inputTokens;
   const output = usage?.outputTokens;
-  if (typeof input !== 'number' || typeof output !== 'number' || !Number.isFinite(input) || !Number.isFinite(output)) {
+  if (!isTokenCount(input) || !isTokenCount(output)) {
     return { known: false, reason: 'usage-missing', inputTokens: null, outputTokens: null };
   }
   const inputCost = costOf(input, price?.inputPerMillion);
