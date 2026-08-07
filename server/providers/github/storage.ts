@@ -49,6 +49,15 @@ export const APP_COMMIT_IDENTITY: CommitIdentity = {
 };
 
 /**
+ * The `StorageProvider.kind` every view from this provider reports — including
+ * a BYO workspace's, which inherits it (`github/byo.ts`). Exported because
+ * `server/backends.ts` asks about it by name (PRD 010 Req 21: a delete on this
+ * store is retained by the repository's history), so the question and the
+ * answer cannot drift apart.
+ */
+export const GITHUB_STORAGE_KIND = 'github-repo';
+
+/**
  * PRD 010 Req 10: how long a cached view of the branch may be served before
  * the head ref is re-checked. Reads inside the window cost zero GitHub
  * requests; a write decision never consults the cache at all, whatever this
@@ -411,7 +420,7 @@ export function createGitHubStorageProvider(options: GitHubStorageOptions): Stor
   function view(actor: AuthUser | null): StorageProvider {
     const author = authorFor(actor);
     return {
-      kind: 'github-repo',
+      kind: GITHUB_STORAGE_KIND,
       async init(): Promise<void> {
         // PRD 010 Req 6: fail fast. ONE lookup both resolves the installation
         // this provider will call as and proves the repo is reachable with

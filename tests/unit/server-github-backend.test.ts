@@ -270,8 +270,19 @@ describe('PRD 010 Req 3 the backend record over HTTP', () => {
     ]);
     const rows = (await (await call('GET', '/api/workspaces')).json()) as Array<Record<string, unknown>>;
     expect(rows.map((row) => row.id)).toEqual([id]);
-    // No API response gains a backend field.
-    expect(Object.keys(rows[0]).sort()).toEqual(['access', 'created', 'id', 'modified', 'name', 'owners']);
+    // No API response gains a backend field. PRD 010 Req 21 adds exactly one
+    // boolean — what a delete MEANS here — and it is false on this store, so
+    // still nothing on the row says which backend serves the workspace.
+    expect(Object.keys(rows[0]).sort()).toEqual([
+      'access',
+      'created',
+      'id',
+      'modified',
+      'name',
+      'owners',
+      'retainsHistory',
+    ]);
+    expect(rows[0].retainsHistory).toBe(false);
     const manifest = (await (await call('GET', `/api/workspaces/${id}/manifest`)).json()) as {
       manifest: WorkspaceManifest;
     };

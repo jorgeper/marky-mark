@@ -186,7 +186,9 @@ and the exact commands for each tier. The design docs live in
 [delta specs](docs/specs/) that drove each milestone, the
 [release process](docs/RELEASING.md), and — for the hosted flavor —
 [hosting Marky Mark on Azure](docs/HOSTING-AZURE.md), the operator
-walkthrough from a fresh subscription to a running deployment.
+walkthrough from a fresh subscription to a running deployment, and
+[hosting it on the GitHub backend](docs/HOSTING-GITHUB.md), the same
+walkthrough for storing every document in a Git repository.
 
 ## License
 

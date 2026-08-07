@@ -69,6 +69,7 @@ import {
 } from './lib/workspace';
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
 import { isDirtyText, normalizeEol } from './lib/dirty';
+import { deleteRetention, entryDeletePrompt } from './lib/deleteRetention';
 import { moveTarget, relativePath, remapPath, uniqueChildName } from './lib/folderOps';
 import { ALL_FILE_GRANTS, type FileGrants } from './lib/fileGrants';
 import { uploadRejection } from './lib/fileTransfer';
@@ -3856,20 +3857,31 @@ export default function App() {
    * an untitled workspace, by its first folder (lib/workspace.ts).
    */
   const [managedWsName, setManagedWsName] = useState<string | null>(null);
+  /**
+   * PRD 010 Req 21: whether a delete in the bound workspace is retained by
+   * repository history — the same listing row the name comes from, so the
+   * delete prompt costs no request of its own and no `workspace.settings`.
+   */
+  const [managedWsRetainsHistory, setManagedWsRetainsHistory] = useState(false);
   const lifecycle = platform?.workspaces;
   const managedWsId = lifecycle?.currentId() ?? null;
   useEffect(() => {
     if (!lifecycle || !managedWsId) {
       setManagedWsName(null);
+      setManagedWsRetainsHistory(false);
       return;
     }
     let cancelled = false;
     // Never show the previous workspace's name over a new binding: blank it
-    // until the listing answers for THIS id.
+    // until the listing answers for THIS id. The retention fact resets with
+    // it — until this id answers, the stricter promise is what a prompt makes.
     setManagedWsName(null);
+    setManagedWsRetainsHistory(false);
     void lifecycle.list().then((items) => {
       const current = items.find((w) => w.id === managedWsId);
-      if (!cancelled && current) setManagedWsName(current.name);
+      if (cancelled || !current) return;
+      setManagedWsName(current.name);
+      setManagedWsRetainsHistory(current.retainsHistory === true);
     });
     return () => {
       cancelled = true;
@@ -4957,6 +4969,21 @@ export default function App() {
 
   if (!platform) return <div className="theme-root" />;
 
+  // PRD 010 Req 21: the sidebar delete confirmation's two strings, decided by
+  // the pure module from the platform's delete semantics and the bound
+  // workspace's own retention fact. Computed here rather than in the modal so
+  // the JSX below stays the thin shell that renders what it is handed.
+  const folderDeleteCopy =
+    folderDeletePrompt &&
+    entryDeletePrompt(
+      deleteRetention({ permanentDelete: platform.permanentDelete, retainsHistory: managedWsRetainsHistory }),
+      {
+        name: platform.basename(folderDeletePrompt.path),
+        isDir: folderDeletePrompt.isDir,
+        dirty: dirty && !!docPath && remapPath(docPath, folderDeletePrompt.path, folderDeletePrompt.path) !== null,
+      },
+    );
+
   return (
     <div className={`theme-root${!nativeMenu ? ' has-toolbar' : ''}${!nativeMenu && !settings.autoHideToolbar ? ' toolbar-static' : ''}`} ref={rootRef}>
       {/* SPEC12 §2.1: with a native menu the header does not render at all. */}
@@ -5622,7 +5649,7 @@ export default function App() {
         </div>
       )}
 
-      {folderDeletePrompt && (
+      {folderDeletePrompt && folderDeleteCopy && (
         <div className="overlay">
           <div
             className="modal"
@@ -5631,19 +5658,14 @@ export default function App() {
               if (e.key === 'Escape') setFolderDeletePrompt(null); // §6.1: Esc ⇒ no-op
             }}
           >
-            {/* PRD 007 non-goals: where deletes are permanent (no trash, no
-                version history) the prompt says so instead of naming a Trash
-                the user could go looking in. */}
-            <h2>{platform.permanentDelete ? 'Delete' : 'Move to Trash'}</h2>
-            <p style={{ fontSize: 13.5 }}>
-              {platform.permanentDelete ? 'Permanently delete' : 'Move'} “
-              {platform.basename(folderDeletePrompt.path)}”
-              {folderDeletePrompt.isDir ? ' and its contents' : ''}
-              {platform.permanentDelete ? '? This cannot be undone.' : ' to the Trash?'}
-              {dirty && docPath && remapPath(docPath, folderDeletePrompt.path, folderDeletePrompt.path) !== null
-                ? ' It has unsaved changes.'
-                : ''}
-            </p>
+            {/* PRD 007 non-goals + PRD 010 Req 21: where deletes are permanent
+                (no trash, no version history) the prompt says so instead of
+                naming a Trash the user could go looking in — and where the
+                workspace is git-backed it says the repository's history
+                retains the content instead of promising the opposite. The
+                choice and every string are lib/deleteRetention.ts's. */}
+            <h2>{folderDeleteCopy.title}</h2>
+            <p style={{ fontSize: 13.5 }}>{folderDeleteCopy.body}</p>
             <div className="actions">
               <button data-testid="folder-delete-cancel" onClick={() => setFolderDeletePrompt(null)}>
                 Cancel

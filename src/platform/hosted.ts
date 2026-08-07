@@ -381,8 +381,16 @@ export function createHostedPlatform(): Platform {
 
     /**
      * SPEC35 §1: the sidebar's delete. PRD 007 non-goals: there is no hosted
-     * trash and no version history — this is permanent, which is what the
-     * confirmation the app shows before calling it must say.
+     * trash, no undelete and no version browsing — nothing the app offers
+     * brings a deleted entry back, whatever the backend, so the confirmation
+     * may never promise recovery.
+     *
+     * PRD 010 Req 21: what it may say beyond that is per WORKSPACE, not per
+     * platform. On the blob backend the content is gone; on the github
+     * backend (deployment default or a BYO repo) the repository's history
+     * retains it. The listing row carries that fact as `retainsHistory` and
+     * `deleteRetention()` combines the two — this stays a flat `true` because
+     * as far as this platform's own API goes, the delete is final.
      */
     permanentDelete: true,
 

@@ -13,6 +13,7 @@
 // in a file listing (it is outside `files/`), and not reachable through the
 // `files/<path>` routes.
 
+import { GITHUB_STORAGE_KIND } from './providers/github/storage.ts';
 import type { StorageProvider } from './providers/types.ts';
 import { WORKSPACES_PREFIX } from './workspaces.ts';
 
@@ -45,6 +46,21 @@ const BACKEND_RECORD_RE = /^workspaces\/([^/]+)\/backend\.json$/;
  */
 export function backendRecordWorkspaceId(blobPath: string): string | null {
   return BACKEND_RECORD_RE.exec(blobPath)?.[1] ?? null;
+}
+
+/**
+ * PRD 010 Req 21: whether deleting from this store leaves the content in a
+ * repository's history — the one place the app asks it, against the kind the
+ * provider itself spells, so the two cannot drift. Null (a store that could
+ * not be resolved) is `false`: the stricter promise is the safe one to make
+ * about an unknown backend.
+ *
+ * It answers about the STORE, not about a connection — a workspace on a
+ * `github` deployment default and a BYO repo workspace are alike here, which
+ * is what keeps PRD 010 Req 3 intact when the client renders it.
+ */
+export function retainsHistory(store: Pick<StorageProvider, 'kind'> | null | undefined): boolean {
+  return store?.kind === GITHUB_STORAGE_KIND;
 }
 
 const fail = (error: string): WorkspaceBackendResult => ({ ok: false, error });
