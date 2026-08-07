@@ -9,6 +9,7 @@ import {
   parseSavedWizardState,
   pickRepo,
   readGitHubReturn,
+  reconnectTargetOf,
   serializeWizardState,
   stepAfter,
   stepBefore,
@@ -154,7 +155,7 @@ describe('PRD 010 Req 15+16 connect-your-GitHub-repo wizard: choices, steps, res
     if (entry.kind !== 'resume') return;
     expect(entry.state.step).toBe('repo');
     expect(entry.state.installationId).toBe(7);
-    expect(entry.state.form.name).toBe('Docs');
+    expect(entry.state.form?.name).toBe('Docs');
   });
 
   it('U443: abandoning mid-flow offers to continue, and nothing saved is simply a fresh dialog', () => {
@@ -192,5 +193,67 @@ describe('PRD 010 Req 15+16 connect-your-GitHub-repo wizard: choices, steps, res
 
   it('U445: the saved-state key is one stable string the dialog and the return leg agree on', () => {
     expect(WIZARD_STATE_KEY).toBe('marky-mark.new-workspace.github-connect');
+  });
+});
+
+// PRD 010 Req 18: the same wizard, re-run to REPAIR a connection. The saved
+// state names the workspace instead of carrying workspace fields, and
+// `decideWizardEntry`'s fresh / resume / continue / restart contract holds for
+// both flows — a state belonging to the other flow is simply not this flow's.
+describe('PRD 010 Req 18 the wizard re-run as a reconnect', () => {
+  const reconnectState = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      version: 1,
+      purpose: 'reconnect',
+      workspaceId: 'ws-7',
+      session: 'sess-r',
+      step: 'branch',
+      owner: 'ada',
+      repo: 'handbook',
+      ...over,
+    });
+
+  it('U460: a reconnect run carries the workspace and NO workspace fields, and continues cleanly', () => {
+    const parsed = parseSavedWizardState(reconnectState());
+    expect(parsed).toMatchObject({ purpose: 'reconnect', workspaceId: 'ws-7' });
+    expect(parsed?.form).toBeUndefined();
+    // It produces a connection, not a workspace: create is unreachable from it.
+    expect(buildConnectedCreateRequest(parsed!)).toEqual({
+      ok: false,
+      error: 'This run is repairing a connection, not creating a workspace.',
+    });
+    // Re-entering an abandoned reconnect is not an error state.
+    const entry = decideWizardEntry(reconnectState(), { present: false, installationId: null, setupAction: null, session: null }, {
+      purpose: 'reconnect',
+      workspaceId: 'ws-7',
+    });
+    expect(entry.kind).toBe('continue');
+  });
+
+  it('U461: each flow ignores the other flow’s saved state, and a nameless reconnect is a named restart', () => {
+    const ret = readGitHubReturn('?installation_id=7&setup_action=install&state=sess-r');
+    // A reconnect state is not the create flow's saved state…
+    expect(decideWizardEntry(reconnectState(), ret).kind).toBe('restart');
+    // …nor another workspace's reconnect.
+    expect(decideWizardEntry(reconnectState(), ret, { purpose: 'reconnect', workspaceId: 'ws-9' }).kind).toBe('restart');
+    // …and one naming no workspace at all is not usable saved state.
+    const nameless = decideWizardEntry(reconnectState({ workspaceId: '' }), ret, {
+      purpose: 'reconnect',
+      workspaceId: 'ws-7',
+    });
+    expect(nameless.kind).toBe('restart');
+    if (nameless.kind === 'restart') expect(nameless.reason).toMatch(/Start again/);
+
+    // The matching one resumes at pick-repo with the installation it returned
+    // with — the same contract the create flow has.
+    const resumed = decideWizardEntry(reconnectState(), ret, { purpose: 'reconnect', workspaceId: 'ws-7' });
+    expect(resumed).toMatchObject({ kind: 'resume', state: { step: 'repo', installationId: 7, workspaceId: 'ws-7' } });
+  });
+
+  it('U462: the saved state says which workspace a return from GitHub is repairing', () => {
+    expect(reconnectTargetOf(reconnectState())).toBe('ws-7');
+    // A create run is not a reconnect, and neither is nothing at all.
+    expect(reconnectTargetOf(serializeWizardState(savedAt('branch')))).toBeNull();
+    expect(reconnectTargetOf(null)).toBeNull();
   });
 });

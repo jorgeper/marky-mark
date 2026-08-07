@@ -64,12 +64,30 @@ export interface RepoOption {
  * beyond identifiers the user can already see (owner, repo, branch, the
  * installation id). No token ever reaches `src/`, so none can be persisted.
  */
+/**
+ * PRD 010 Req 18: which flow a saved state belongs to. `create` is the New
+ * Workspace run (#104) and stays the default, so a record written before this
+ * existed still parses and still resumes. `reconnect` is the repair run: it
+ * produces a CONNECTION, not a workspace, and therefore collects no workspace
+ * fields at all — it names the workspace it is repairing instead.
+ */
+export type WizardPurpose = 'create' | 'reconnect';
+
 export interface SavedWizardState {
   version: 1;
+  /** Absent means `create` — the shape #104 wrote. */
+  purpose?: WizardPurpose;
+  /**
+   * PRD 010 Req 18: which workspace is being repaired. Present exactly when
+   * `purpose` is `reconnect`, and what makes the return from GitHub land back
+   * on THAT workspace's settings rather than the start page.
+   */
+  workspaceId?: string;
   /** The opaque state the server issued for this wizard session. */
   session: string;
   step: WizardStep;
-  form: NewWorkspaceForm;
+  /** The workspace fields a create run carries; a reconnect run has none. */
+  form?: NewWorkspaceForm;
   /** Present from the moment the return from GitHub is resolved. */
   installationId?: number;
   owner?: string;
@@ -150,18 +168,31 @@ export function parseSavedWizardState(raw: string | null): SavedWizardState | nu
   if (saved.version !== 1) return null;
   if (typeof saved.session !== 'string' || !saved.session) return null;
   if (!WIZARD_STEPS.includes(saved.step as WizardStep)) return null;
+  // PRD 010 Req 18: the two purposes carry different requirements, and a
+  // record that satisfies neither is not usable saved state — which
+  // `decideWizardEntry` turns into a named restart, never a stuck step.
+  const purpose: WizardPurpose = saved.purpose === 'reconnect' ? 'reconnect' : 'create';
   const form = saved.form as Partial<NewWorkspaceForm> | undefined;
-  if (!form || typeof form.name !== 'string' || !Array.isArray(form.members)) return null;
+  if (purpose === 'create' && (!form || typeof form.name !== 'string' || !Array.isArray(form.members))) return null;
+  if (purpose === 'reconnect' && (typeof saved.workspaceId !== 'string' || !saved.workspaceId)) return null;
   return {
     version: 1,
+    // Absent stays absent: a create record parses back byte-identically to
+    // the shape #104 wrote, so nothing about that flow changed.
+    ...(purpose === 'reconnect' ? { purpose } : {}),
     session: saved.session,
     step: saved.step as WizardStep,
-    form: {
-      name: form.name,
-      members: form.members,
-      everyoneEnabled: form.everyoneEnabled === true,
-      everyoneRole: typeof form.everyoneRole === 'string' ? form.everyoneRole : 'Viewer',
-    },
+    ...(typeof saved.workspaceId === 'string' && saved.workspaceId ? { workspaceId: saved.workspaceId } : {}),
+    ...(form && typeof form.name === 'string' && Array.isArray(form.members)
+      ? {
+          form: {
+            name: form.name,
+            members: form.members,
+            everyoneEnabled: form.everyoneEnabled === true,
+            everyoneRole: typeof form.everyoneRole === 'string' ? form.everyoneRole : 'Viewer',
+          },
+        }
+      : {}),
     ...(typeof saved.installationId === 'number' ? { installationId: saved.installationId } : {}),
     ...(typeof saved.owner === 'string' ? { owner: saved.owner } : {}),
     ...(typeof saved.repo === 'string' ? { repo: saved.repo } : {}),
@@ -181,8 +212,21 @@ export function serializeWizardState(state: SavedWizardState): string {
  * restart — an abandoned round trip is not an error state, and a return the
  * app cannot match is a sentence, not a status code.
  */
-export function decideWizardEntry(raw: string | null, ret: GitHubReturn): WizardEntry {
-  const saved = parseSavedWizardState(raw);
+export function decideWizardEntry(
+  raw: string | null,
+  ret: GitHubReturn,
+  // PRD 010 Req 18: which flow is asking. The create flow (#104) is the
+  // default, so its existing contract is unchanged; the reconnect flow also
+  // names the workspace it is repairing, and a saved state belonging to the
+  // OTHER flow is simply not this flow's saved state.
+  expect: { purpose: WizardPurpose; workspaceId?: string } = { purpose: 'create' },
+): WizardEntry {
+  const parsed = parseSavedWizardState(raw);
+  const mine =
+    parsed !== null &&
+    (parsed.purpose ?? 'create') === expect.purpose &&
+    (expect.purpose !== 'reconnect' || parsed.workspaceId === expect.workspaceId);
+  const saved = mine ? parsed : null;
   if (!ret.present) return saved ? { kind: 'continue', state: saved } : { kind: 'fresh' };
   if (!saved) {
     return {
@@ -208,6 +252,18 @@ export function decideWizardEntry(raw: string | null, ret: GitHubReturn): Wizard
     // and the session are the ones that survived the navigation.
     state: { ...saved, step: 'repo', installationId: ret.installationId },
   };
+}
+
+/**
+ * PRD 010 Req 18: the workspace a saved reconnect run is repairing, or null.
+ * Leaving for GitHub is a full navigation and the deployment's setup URL is
+ * one fixed address, so the app boots at the start page on the way back: this
+ * is what tells it to rebind to that workspace and reopen its settings
+ * instead of showing a fresh New Workspace dialog.
+ */
+export function reconnectTargetOf(raw: string | null): string | null {
+  const saved = parseSavedWizardState(raw);
+  return saved?.purpose === 'reconnect' ? (saved.workspaceId ?? null) : null;
 }
 
 export type SubdirectoryResult = { ok: true; root?: string } | { ok: false; error: string };
@@ -260,6 +316,9 @@ export function connectionFor(state: SavedWizardState): RepoConnection | null {
  * is byte identical to an existing deployment's.
  */
 export function buildConnectedCreateRequest(state: SavedWizardState): NewWorkspaceResult {
+  // PRD 010 Req 18: a reconnect run has no workspace fields at all, and must
+  // never be able to reach create — it produces a connection, not a workspace.
+  if (!state.form) return { ok: false, error: 'This run is repairing a connection, not creating a workspace.' };
   const validated = validateNewWorkspaceForm(state.form);
   if (!validated.ok) return validated;
   const connection = connectionFor(state);

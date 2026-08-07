@@ -22,7 +22,8 @@ import {
   type WorkspaceManifest,
   type WorkspaceMember,
 } from '../lib/hostedWorkspace';
-import type { RepoOption } from '../lib/githubConnectWizard';
+import type { RepoConnection, RepoOption } from '../lib/githubConnectWizard';
+import type { WorkspaceConnectionPayload } from '../lib/workspaceConnection';
 import type { WorkspaceListing } from '../lib/workspaceLifecycle';
 
 /** PRD 010 Req 15: whether this deployment can connect a repo, and why not. */
@@ -103,6 +104,20 @@ export interface WorkspaceLifecycle {
   createRole(id: string, role: CustomRoleInput): Promise<ManifestResult>;
   updateRole(id: string, name: string, role: CustomRoleInput): Promise<ManifestResult>;
   deleteRole(id: string, name: string): Promise<ManifestResult>;
+  /**
+   * PRD 010 Req 18: this workspace's connection as the server reports it —
+   * owner/repo, branch, root and the App installation's status — or the
+   * server's own named refusal. A workspace that is not repo-backed answers
+   * `{connected: false}`, which the section renders as nothing at all.
+   */
+  connection(id: string): Promise<ByoResult<WorkspaceConnectionPayload>>;
+  /**
+   * PRD 010 Req 18: repair the connection. NOT `POST /api/workspaces` — it
+   * never creates a workspace, and the server refuses it unless the target is
+   * reachable, writable and already carries this workspace's own manifest.
+   * A refusal is the server's own sentence, shown in the wizard verbatim.
+   */
+  reconnect(id: string, connection: RepoConnection): Promise<ByoResult<WorkspaceConnectionPayload>>;
   /** Directory search for the membership picker. */
   searchUsers(query: string): Promise<DirectoryEntry[]>;
   /** Stored ids → display entries; unresolvable ids stay plain identifiers. */
@@ -264,6 +279,22 @@ export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
 
     deleteRole(id, name) {
       return mutate(workspacePath(id, `/roles/${encodeURIComponent(name)}`), 'DELETE');
+    },
+
+    // PRD 010 Req 18: both connection calls go through the SAME bearer-stamped
+    // `api()` wrapper as everything else on this seam — no new client network
+    // call site, so `FETCH_ALLOWLIST` in scripts/validate.mjs is unchanged, and
+    // no GitHub host string exists in `src/` to add to it.
+    connection(id) {
+      return byoCall<WorkspaceConnectionPayload>(workspacePath(id, '/connection'));
+    },
+
+    reconnect(id, connection) {
+      return byoCall<WorkspaceConnectionPayload>(workspacePath(id, '/connection'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connection }),
+      });
     },
 
     async searchUsers(query) {

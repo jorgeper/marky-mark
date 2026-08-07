@@ -41,6 +41,15 @@ import {
   type WorkspaceBackends,
 } from './backends.ts';
 import { contentTypeFor } from './contentTypes.ts';
+import {
+  connectionFailureMessage,
+  connectionFailureStatus as connectionStatusFor,
+  connectionPayload,
+  isConnectionFailure,
+  mayRepairConnection,
+  proveReconnect,
+} from './workspaceConnection.ts';
+import { forgetWorkspaceCard, readWorkspaceCard, rememberWorkspaceCard } from './workspaceCards.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import { mergeThreeWay } from './merge.ts';
 import type { RequestAuth, StorageProvider } from './providers/types.ts';
@@ -113,6 +122,8 @@ export const WORKSPACE_ROUTE_PERMISSIONS: readonly WorkspaceRouteRequirement[] =
   { method: 'POST', path: 'roles', required: 'workspace.roles', why: 'defining a role is not handing one out' },
   { method: 'PUT', path: 'roles/<role>', required: 'workspace.roles', why: 'nor is editing one' },
   { method: 'DELETE', path: 'roles/<role>', required: 'workspace.roles', why: 'nor deleting one' },
+  { method: 'GET', path: 'connection', required: 'workspace.settings', why: 'PRD 010 Req 18: the connection is a workspace setting, shown to nobody else' },
+  { method: 'POST', path: 'connection', required: 'workspace.settings', why: 'PRD 010 Req 18: repairing it is the same authority as changing it' },
   { method: 'GET', path: 'files', required: 'doc.read', why: 'the file listing is workspace content' },
   { method: 'GET', path: 'files/<existing>', required: 'doc.read', why: 'reading a document or a pasted image' },
   { method: 'PUT', path: 'files/<existing>', required: 'doc.edit', why: 'a PUT over an existing blob is a save' },
@@ -328,6 +339,7 @@ async function readJsonBody(req: IncomingMessage, res: ServerResponse): Promise<
 async function saveMutation(
   res: ServerResponse,
   storage: StorageProvider,
+  deploymentDefault: StorageProvider,
   id: string,
   existing: WorkspaceManifest,
   result: ManifestResult,
@@ -342,6 +354,10 @@ async function saveMutation(
     modified: new Date().toISOString(),
   };
   await storage.write(manifestBlob(id), serializeWorkspaceManifest(manifest));
+  // PRD 010 Req 18: the card tracks the manifest. A member/role/everyone
+  // mutation can change the display name or who holds `workspace.settings`,
+  // which is exactly what the card is read for when the repo is unreachable.
+  await rememberWorkspaceCard(deploymentDefault, id, manifest);
   sendJson(res, 200, { id, manifest });
 }
 
@@ -395,6 +411,30 @@ function readRoleBody(body: unknown): { name: string; permissions: string[] } | 
  * deployment default's, by definition.
  */
 export async function handleWorkspaceApi(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  backends: WorkspaceBackends,
+  auth: RequestAuth,
+): Promise<void> {
+  // PRD 010 Req 18: THE decision point for a lost connection. Opening a
+  // workspace, listing its files and saving into it all go through the same
+  // store, so they all fail the same way — and they all report it the same
+  // way here: the `githubFailureDetail` sentence the store threw, at the
+  // status `connectionFailureStatus` splits ("GitHub refused or does not have
+  // it" from "GitHub is unavailable"). Never a bare 500 carrying an
+  // `Error.message`, never a raw stack, never an indefinite wait. Anything
+  // that is not a connection failure (a path refusal, a bug) is rethrown to
+  // `server/app.ts` untouched.
+  try {
+    await routeWorkspaceApi(req, res, url, backends, auth);
+  } catch (err) {
+    if (!isConnectionFailure(err) || res.headersSent) throw err;
+    sendJson(res, connectionStatusFor(err), { error: connectionFailureMessage(err) });
+  }
+}
+
+async function routeWorkspaceApi(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
@@ -455,6 +495,11 @@ export async function handleWorkspaceApi(
     // …and the manifest through the workspace's OWN backend, which for a repo
     // connection lands it at `<root>/.marky-mark/manifest.json` as one commit.
     await workspaceStore.write(manifestBlob(id), serializeWorkspaceManifest(built.manifest));
+    // PRD 010 Req 18: and the server-side card in the DEPLOYMENT DEFAULT, so
+    // this workspace can still be named and its repair authorised when its
+    // own backend cannot be reached. Derived from the manifest, never from
+    // the request: nothing here is client-writable.
+    await rememberWorkspaceCard(deploymentDefault, id, built.manifest);
     // The 201 is the existing `{id, manifest}` — no connection details.
     sendJson(res, 201, { id, manifest: built.manifest });
     return;
@@ -478,13 +523,29 @@ export async function handleWorkspaceApi(
     }
     const out: WorkspaceListing[] = [];
     for (const id of ids) {
-      // A workspace whose manifest cannot be loaded — corrupt, or a connected
-      // repo that is unreachable right now — is skipped, exactly as a corrupt
-      // manifest already was: one broken workspace never fails the listing.
       let manifest: WorkspaceManifest | string | null;
       try {
         manifest = await loadManifest(await backends.forWorkspace(id), id);
-      } catch {
+      } catch (err) {
+        // PRD 010 Req 18: a repo-backed workspace whose backend cannot be
+        // reached is no longer DROPPED — it was the one row an owner needed
+        // in order to find and repair it. It is listed as needing attention,
+        // named from the server-side card, with the reason. One broken
+        // workspace still never fails the listing: a workspace with no card
+        // (nothing left to name it with) is skipped as before.
+        const card = await readWorkspaceCard(deploymentDefault, id);
+        if (!card) continue;
+        out.push({
+          id,
+          name: card.name,
+          created: card.created,
+          modified: card.created,
+          owners: card.admins,
+          // Whether this caller may act on it: the manifest is unreadable, so
+          // the card's settings holders are who can open it to repair it.
+          access: card.admins.includes(auth.user.id),
+          attention: connectionFailureMessage(err),
+        });
         continue;
       }
       if (manifest === null || typeof manifest === 'string') continue; // corrupt: has no listable metadata
@@ -513,6 +574,40 @@ export async function handleWorkspaceApi(
     return;
   }
 
+  // PRD 010 Req 18: the connection surface is answered BEFORE the backend is
+  // resolved, and that ordering is the point: a workspace whose repo cannot
+  // be reached must still be able to say so and be repaired. Both routes are
+  // gated on `workspace.settings` — from the manifest when it is readable,
+  // from the server-side card when it is not.
+  if (segments.length === 2 && segments[1] === 'connection' && (req.method === 'GET' || req.method === 'POST')) {
+    const allowed = await mayRepairConnection(backends, id, auth);
+    if (!allowed.ok) {
+      sendJson(res, allowed.status, {
+        error: allowed.error,
+        ...(allowed.status === 403 ? { required: 'workspace.settings' as Permission } : {}),
+      });
+      return;
+    }
+    if (req.method === 'GET') {
+      sendJson(res, 200, await connectionPayload(backends, id));
+      return;
+    }
+    // PRD 010 Req 18: repair, not migration, and not a create. Nothing is
+    // written to the new target, and a refusal leaves the stored record
+    // exactly as it was — the wizard shows the sentence and keeps the picked
+    // values so a step can be corrected.
+    const body = await readJsonBody(req, res);
+    if (body === undefined) return;
+    const proved = await proveReconnect(backends, id, (body as { connection?: unknown } | null)?.connection);
+    if (!proved.ok) {
+      sendJson(res, proved.status, { error: proved.error });
+      return;
+    }
+    await backends.remember(id, proved.record);
+    sendJson(res, 200, await connectionPayload(backends, id));
+    return;
+  }
+
   // PRD 010 Req 3: one resolution per request, from here on `storage` IS
   // this workspace's backend. A record that cannot be read is a server-side
   // data problem, reported like a corrupt manifest — never coerced into the
@@ -521,7 +616,12 @@ export async function handleWorkspaceApi(
   try {
     storage = await backends.forWorkspace(id);
   } catch (err) {
-    sendJson(res, 500, { error: (err as Error).message });
+    // PRD 010 Req 18: one decision point. A connection failure carries the
+    // status GitHub reported and resolves to 400/502 with its own sentence;
+    // only a record this deployment cannot read at all stays a 500.
+    sendJson(res, connectionStatusFor(err), {
+      error: isConnectionFailure(err) ? connectionFailureMessage(err) : (err as Error).message,
+    });
     return;
   }
 
@@ -552,6 +652,8 @@ export async function handleWorkspaceApi(
     // workspace's, the sweep above already took it and this is a no-op; when
     // it is not, this is the only thing that removes it.
     await backends.forget(id);
+    // PRD 010 Req 18: and the card, so nothing of the workspace outlives it.
+    await forgetWorkspaceCard(deploymentDefault, id);
     sendJson(res, 200, { deleted: id });
     return;
   }
@@ -591,6 +693,8 @@ export async function handleWorkspaceApi(
         modified: new Date().toISOString(),
       };
       await storage.write(manifestBlob(id), serializeWorkspaceManifest(manifest));
+      // PRD 010 Req 18: the card follows the manifest here too.
+      await rememberWorkspaceCard(deploymentDefault, id, manifest);
       sendJson(res, 200, { id, manifest });
       return;
     }
@@ -792,7 +896,7 @@ export async function handleWorkspaceApi(
       sendJson(res, 400, { error: 'member must be {id, role} with non-empty strings' });
       return;
     }
-    await saveMutation(res, storage, id, existing, addWorkspaceMember(existing, { id: memberId, role }));
+    await saveMutation(res, storage, deploymentDefault, id, existing, addWorkspaceMember(existing, { id: memberId, role }));
     return;
   }
 
@@ -807,7 +911,7 @@ export async function handleWorkspaceApi(
       sendJson(res, 400, { error: 'everyone must be {enabled: boolean, role?: string}' });
       return;
     }
-    await saveMutation(res, storage, id, existing, setEveryoneAccess(existing, { enabled, role }));
+    await saveMutation(res, storage, deploymentDefault, id, existing, setEveryoneAccess(existing, { enabled, role }));
     return;
   }
 
@@ -824,13 +928,13 @@ export async function handleWorkspaceApi(
         sendJson(res, 400, { error: 'body must be {role: string}' });
         return;
       }
-      await saveMutation(res, storage, id, existing, setWorkspaceMemberRole(existing, memberId, role));
+      await saveMutation(res, storage, deploymentDefault, id, existing, setWorkspaceMemberRole(existing, memberId, role));
       return;
     }
     if (req.method === 'DELETE') {
       const existing = await requirePermission(res, storage, id, auth, 'workspace.members');
       if (!existing) return;
-      await saveMutation(res, storage, id, existing, removeWorkspaceMember(existing, memberId));
+      await saveMutation(res, storage, deploymentDefault, id, existing, removeWorkspaceMember(existing, memberId));
       return;
     }
   }
@@ -850,7 +954,7 @@ export async function handleWorkspaceApi(
       sendJson(res, 400, { error: role });
       return;
     }
-    await saveMutation(res, storage, id, existing, createCustomRole(existing, role));
+    await saveMutation(res, storage, deploymentDefault, id, existing, createCustomRole(existing, role));
     return;
   }
 
@@ -867,13 +971,13 @@ export async function handleWorkspaceApi(
         sendJson(res, 400, { error: role });
         return;
       }
-      await saveMutation(res, storage, id, existing, updateCustomRole(existing, roleName, role));
+      await saveMutation(res, storage, deploymentDefault, id, existing, updateCustomRole(existing, roleName, role));
       return;
     }
     if (req.method === 'DELETE') {
       const existing = await requirePermission(res, storage, id, auth, 'workspace.roles');
       if (!existing) return;
-      await saveMutation(res, storage, id, existing, removeCustomRole(existing, roleName));
+      await saveMutation(res, storage, deploymentDefault, id, existing, removeCustomRole(existing, roleName));
       return;
     }
   }

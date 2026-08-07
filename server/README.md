@@ -131,6 +131,62 @@ never surface it; the workspace-agnostic `/api/files*` scaffold refuses the
 whole `workspaces/` prefix (403, filtered from listings), so workspace data
 is reachable only through the permission-checked endpoints below.
 
+#### Managing the connection (PRD 010 Req 18)
+
+Beside `workspaces/<id>/backend.json` the deployment default also keeps
+`workspaces/<id>/card.json`: the workspace's display name, its creation stamp
+and the ids holding `workspace.settings`. It is derived from the manifest by
+the server every time the manifest is written and is **never**
+client-writable — the create body's `storage` field and
+`validateWorkspaceBackend` are unchanged by it. It exists for exactly one
+moment: when the connected repo cannot be reached, the manifest is
+unreachable with it, and there would otherwise be nothing left to name the
+workspace or to authorise its repair.
+
+That makes three things possible while a connection is broken:
+
+* `GET /api/workspaces` **lists** the workspace with an `attention` reason
+  instead of dropping it, so an owner can still find it. (A corrupt manifest
+  is still skipped; one broken workspace never fails the listing.)
+* `GET /api/workspaces/<id>/connection` reports owner/repo, branch, root and
+  the App installation's status; `POST` to the same path re-runs the connect
+  wizard's result against it. Both are gated on `workspace.settings` — from
+  the manifest when it is readable, from the card when it is not.
+* Opening or saving into the workspace answers the named reason (the App is
+  not installed there, the repo is gone, the rate limit is exhausted, GitHub
+  is unavailable) at `400` or `502`, never a bare `500` and never a hang.
+
+A reconnect is **repair, not migration**. Only a workspace whose record is
+already `kind: 'repo'` has the path at all, and the new target is accepted
+only once it is proved reachable with write access **and** proved to already
+carry this workspace's own `<root>/.marky-mark/manifest.json` (matched on the
+creation stamp in the card). Nothing is written to the target before the
+record changes and the manifest is never re-created there, so a refusal — an
+unrelated repo, a wrong branch, a wrong subdirectory — leaves the stored
+record exactly as it was.
+
+#### Out-of-band edits are legitimate (PRD 010 Req 19)
+
+**GitHub repo permissions are the security boundary for a BYO workspace.**
+Anyone who can push to the connected branch can change the workspace's
+content, whatever their in-app role says; in-app roles bound only what this
+app itself permits, and they are not, and cannot be, a boundary on the repo.
+
+Edits made outside the app — a `git push`, a commit through github.com, a
+pull request merge — are therefore legitimate, expected, and neither detected
+nor policed. They are picked up on the next read once the branch head has
+moved: created files appear in the file listing, deleted files read as
+absent, and a conditional save whose base went stale because of one takes the
+identical merge/412 path as a save made stale by another member — the merge
+decision reads versions and text only and never branches on *who* made the
+other change.
+
+Two consequences worth stating to operators: the connected repo's history
+retains content the app deletes (a delete is a commit, not an erasure), and
+the app's own audit of who changed what is the repo's commit log, not a
+server-side record.
+
+
 ### The workspace manifest
 
 A versioned JSON evolution of the local `.marky-workspace` format
@@ -226,6 +282,8 @@ on the doc/file verbs.
 | `GET /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` or `users/` path) | Read: `{path, content, etag}`, or 404. |
 | `PUT /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` or `users/` path) | Write body as content → `{path, etag}`. |
 | `DELETE /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` or `users/` path) | Delete; 404 when absent. |
+| `GET /api/workspaces/<id>/connection` | `workspace.settings` | PRD 010 Req 18: the connection (owner/repo, branch, root) and the App installation's status. `{connected:false}` when the workspace is not repo-backed. Answered without reading the repo, so it works while the connection is broken. |
+| `POST /api/workspaces/<id>/connection` | `workspace.settings` | PRD 010 Req 18: repair the connection — `{connection:{kind:'repo',…}}`. Refuses a workspace that is not repo-backed, a target that is unreachable or unwritable, and one that does not already carry this workspace's manifest; never creates a workspace. |
 | `GET /api/directory/search?q=` | — (signed-in) | Directory user search. Results carry a same-origin `avatarUrl` when the user has a photo. |
 | `GET /api/directory/users/<id>` | — (signed-in) | One directory user, or 404. |
 | `GET /api/directory/users/<id>/photo` | — (signed-in) | Profile photo bytes (avatar). 404 when the user has no photo or is unknown. |

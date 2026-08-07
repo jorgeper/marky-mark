@@ -220,7 +220,14 @@ export function createHostedPlatform(): Platform {
   const readManifest = async (id: string) => {
     const res = await api(apiPathFor({ kind: 'manifest', id }));
     const body = await json<{ manifest: { settings?: Record<string, unknown> } }>(res);
-    if (!body) throw enoent(`workspace ${id}`);
+    if (!body) {
+      // PRD 010 Req 18: a workspace whose connected repository cannot be
+      // reached is NOT "no longer there". The server answers the named,
+      // actionable reason at a 400/502; only a real 404 is an absent
+      // workspace, and only that keeps today's ENOENT phrasing.
+      if (res.status !== 404) throw new Error(await refusal(res, `workspace ${id} could not be opened`));
+      throw enoent(`workspace ${id}`);
+    }
     return body.manifest;
   };
 

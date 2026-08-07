@@ -96,7 +96,7 @@ export function NewWorkspaceDialog({
       restart(entry.reason);
       return;
     }
-    setForm(entry.state.form);
+    if (entry.state.form) setForm(entry.state.form);
     setChoice('github');
     if (entry.kind === 'continue') {
       setResumable(entry.state);

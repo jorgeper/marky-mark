@@ -21,6 +21,7 @@ import {
   summarize,
   validateSubdirectory,
   WIZARD_STATE_KEY,
+  type RepoConnection,
   type RepoOption,
   type SavedWizardState,
 } from '../lib/githubConnectWizard';
@@ -47,12 +48,23 @@ export function GitHubRepoWizard({
   onState,
   onRestart,
   onCancel,
+  onConfirm,
+  confirmLabel = 'Create workspace',
 }: {
   lifecycle: WorkspaceLifecycle;
   state: SavedWizardState;
   onState: (next: SavedWizardState) => void;
   onRestart: (reason: string) => void;
   onCancel: () => void;
+  /**
+   * PRD 010 Req 18: what confirming does, when it is not creating a
+   * workspace. The reconnect flow walks the SAME steps and the same pure step
+   * logic and hands the finished connection here instead — answering the
+   * server's own refusal to show in the wizard, with every picked value still
+   * in hand, or null when it landed.
+   */
+  onConfirm?: (connection: RepoConnection) => Promise<string | null>;
+  confirmLabel?: string;
 }) {
   const [repos, setRepos] = useState<RepoOption[] | null>(null);
   const [reposMessage, setReposMessage] = useState('');
@@ -127,6 +139,20 @@ export function GitHubRepoWizard({
   };
 
   const create = async () => {
+    if (onConfirm) {
+      const connection = connectionFor(state);
+      if (!connection) {
+        setError('Pick a repository and a branch before confirming.');
+        return;
+      }
+      setBusy(true);
+      const refused = await onConfirm(connection);
+      if (refused) {
+        setError(refused);
+        setBusy(false);
+      }
+      return;
+    }
     const built = buildConnectedCreateRequest(state);
     if (!built.ok) {
       setError(built.error);
@@ -251,7 +277,7 @@ export function GitHubRepoWizard({
             disabled={busy}
             onClick={() => void create()}
           >
-            Create workspace
+            {confirmLabel}
           </button>
         )}
       </div>

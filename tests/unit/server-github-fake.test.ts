@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SignJWT } from 'jose';
 import { describe, expect, it } from 'vitest';
+import { createGitHubAppAuth } from '../../server/providers/github/auth';
 import { createGitHubFake } from '../../server/providers/github/fake';
 
 // PRD 010 Req 4: the local GitHub API fake — the only GitHub the repo's tests
@@ -232,5 +233,48 @@ describe('PRD 010 Req 4 GitHub API fake: installations, contents, refs, commits'
     // (Release-download and About-dialog URLs elsewhere in tests/ are the
     // web host, not the API, and are none of this issue's business.)
     expect(hits('tests', apiHost)).toEqual([]);
+  });
+});
+
+// PRD 010 Req 18+19: the two mutators this issue needed — losing an
+// installation (connection loss) and deleting a file out of band — in the
+// style of the existing seams, with the scripted-failure and counting seams
+// untouched.
+describe('PRD 010 Req 18 the fake can lose an installation', () => {
+  it('U473: uninstalling makes the App unreachable there; count/rate-limit/5xx seams keep working', async () => {
+    const fake = createGitHubFake({
+      appId: APP_ID,
+      installations: [{ id: 3, account: 'ada', repos: [{ owner: 'ada', repo: 'handbook', files: { 'a.md': 'x' } }] }],
+    });
+    const auth = createGitHubAppAuth({ appId: APP_ID, privateKey: PRIVATE_KEY_PEM, apiBase: BASE, fetchImpl: fake.fetch });
+    await expect(auth.installationForRepo('ada', 'handbook')).resolves.toMatchObject({ id: 3 });
+
+    // Losing one repo's grant is not losing the installation.
+    fake.uninstall(3, { owner: 'ada', repo: 'handbook' });
+    await expect(auth.installationForRepo('ada', 'handbook')).rejects.toThrowError(/failed: 404/);
+    await expect(auth.listInstallations()).resolves.toHaveLength(1);
+    // Losing the installation itself is.
+    fake.uninstall(3);
+    await expect(auth.listInstallations()).resolves.toHaveLength(0);
+
+    // The other seams are unaffected by any of it.
+    const before = fake.count('GET', '/app/installations');
+    fake.queueRateLimit();
+    await expect(auth.listInstallations()).rejects.toThrowError(/rate limit/i);
+    fake.queueServerError(503);
+    await expect(auth.listInstallations()).rejects.toThrowError(/503/);
+    expect(fake.count('GET', '/app/installations')).toBe(before + 2);
+  });
+
+  it('U474: removeFile deletes out of band and moves the branch head, like a real push', () => {
+    const fake = createGitHubFake({
+      appId: APP_ID,
+      installations: [{ id: 4, account: 'ada', repos: [{ owner: 'ada', repo: 'notes', files: { 'a.md': 'x' } }] }],
+    });
+    const before = fake.commits('ada', 'notes').length;
+    fake.removeFile('ada', 'notes', 'a.md');
+    expect(fake.file('ada', 'notes', 'a.md')).toBeUndefined();
+    expect(fake.commits('ada', 'notes').length).toBe(before + 1);
+    expect(() => fake.removeFile('ada', 'nope', 'a.md')).toThrowError(/no such repo in the fake/);
   });
 });

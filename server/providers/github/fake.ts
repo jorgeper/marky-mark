@@ -111,6 +111,20 @@ export interface GitHubFake {
    * branch head moves exactly as it would for a real push.
    */
   setFile(owner: string, repo: string, path: string, content: string | Uint8Array, message?: string): void;
+  /**
+   * PRD 010 Req 18: delete a file behind a provider's back — the out-of-band
+   * `git rm` the next read must see as absent rather than as stale content.
+   * Appends a commit, so the branch head moves exactly as a real push does.
+   */
+  removeFile(owner: string, repo: string, path: string, message?: string): void;
+  /**
+   * PRD 010 Req 18: lose an installation — the App uninstalled, or its access
+   * to a repo revoked. Every later call as that installation answers 404 the
+   * way GitHub does, which is what a broken connection looks like from here.
+   * With `repo`, only that repo leaves the installation's grant; without it,
+   * the whole installation goes.
+   */
+  uninstall(installationId: number, repo?: { owner: string; repo: string }): void;
   /** Tokens minted so far, oldest first — lets a test send a stale one. */
   mintedTokens: string[];
 }
@@ -668,6 +682,26 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
       if (!found) throw new Error(`no such repo in the fake: ${owner}/${repo}`);
       found.state.files.set(path, toBytes(content));
       appendCommit(found.state, `${owner}/${repo}`.toLowerCase(), message);
+    },
+    // PRD 010 Req 18: the same seam in the other direction — the file is gone
+    // from the head, so the next read must answer absent, not stale bytes.
+    removeFile(owner: string, repo: string, path: string, message = `out-of-band rm ${path}`): void {
+      const found = findRepo(owner, repo);
+      if (!found) throw new Error(`no such repo in the fake: ${owner}/${repo}`);
+      found.state.files.delete(path);
+      appendCommit(found.state, `${owner}/${repo}`.toLowerCase(), message);
+    },
+    // PRD 010 Req 18: connection loss, modelled where it really happens — in
+    // the installation, not in the transport. `count()`, `queueRateLimit()`
+    // and `queueServerError()` are untouched by it.
+    uninstall(installationId: number, repo?: { owner: string; repo: string }): void {
+      const installation = installations.get(installationId);
+      if (!installation) throw new Error(`no such installation in the fake: ${installationId}`);
+      if (!repo) {
+        installations.delete(installationId);
+        return;
+      }
+      installation.repos.delete(`${repo.owner}/${repo.repo}`.toLowerCase());
     },
   };
 }

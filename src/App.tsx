@@ -114,9 +114,11 @@ import { AppBadge, Toolbar } from './components/Toolbar';
 import { CommentCard } from './components/CommentCard';
 import { SettingsPanel } from './components/SettingsPanel';
 import { WorkspaceAccessSettings } from './components/WorkspaceAccessSettings';
+import { WorkspaceConnectionSettings } from './components/WorkspaceConnectionSettings';
 import { WorkspaceDangerZone } from './components/WorkspaceDangerZone';
 import { NewWorkspaceDialog, OpenWorkspaceDialog } from './components/WorkspaceSwitcher';
-import { readGitHubReturn } from './lib/githubConnectWizard';
+import { readGitHubReturn, reconnectTargetOf, WIZARD_STATE_KEY } from './lib/githubConnectWizard';
+import { workspaceIdFromSearch } from './lib/hostedPaths';
 import { StartPage } from './components/StartPage';
 import { startActions, startCapabilities, type StartActionId } from './lib/startActions';
 import { AboutDialog } from './components/AboutDialog';
@@ -263,6 +265,17 @@ function unreadableStoreMessage(stores: DocStores): string {
     : 'This document’s comments could not be read by this version of Marky Mark and cannot be shown. They are left untouched.';
 }
 
+/**
+ * PRD 010 Req 18: the workspace a return from GitHub is REPAIRING, or null.
+ * The deployment's setup URL is one fixed address, so a reconnect comes back
+ * at the start page: this is what makes the app rebind to that workspace and
+ * open its settings there, instead of a fresh New Workspace dialog.
+ */
+function reconnectReturnTarget(): string | null {
+  if (!readGitHubReturn(window.location.search).present) return null;
+  return reconnectTargetOf(window.localStorage.getItem(WIZARD_STATE_KEY));
+}
+
 export default function App() {
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -387,7 +400,9 @@ export default function App() {
   // at all). Only presence matters — the range itself rides in
   // lastEditorSelRef and reaches preview through the SPEC25 carry.
   const [editHasSelection, setEditHasSelection] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // PRD 010 Req 18: a reconnect returning from GitHub opens Workspace
+  // settings on arrival — that is where the repair surface lives.
+  const [settingsOpen, setSettingsOpen] = useState(() => reconnectReturnTarget() !== null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [closePrompt, setClosePrompt] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -1291,8 +1306,20 @@ export default function App() {
   // admin on a bare start page. The dialog itself is still capability-gated,
   // so this is simply never rendered on a flavor without managed workspaces.
   const [managedWsDialog, setManagedWsDialog] = useState<'none' | 'new' | 'open'>(() =>
-    readGitHubReturn(window.location.search).present ? 'new' : 'none',
+    // PRD 010 Req 18: a return from GitHub belonging to a RECONNECT run is
+    // not a New Workspace dialog — it lands on the workspace being repaired.
+    readGitHubReturn(window.location.search).present && !reconnectReturnTarget() ? 'new' : 'none',
   );
+  // PRD 010 Req 18: whatever the reconnect flow needs on return must outlive
+  // an unload, and that includes WHICH workspace it is repairing. GitHub's
+  // parameters ride along so the wizard can still resolve the return once the
+  // page is bound to that workspace.
+  useEffect(() => {
+    const target = reconnectReturnTarget();
+    if (!target || workspaceIdFromSearch(window.location.search) === target) return;
+    window.location.assign(`/?workspace=${encodeURIComponent(target)}&${window.location.search.replace(/^\?/, '')}`);
+  }, []);
+
   /** PRD 009 Req 4: bumped by a completed mode close so the crossing can resume. */
   const [modeSwitchTick, setModeSwitchTick] = useState(0);
 
@@ -5442,6 +5469,10 @@ export default function App() {
             platform.workspaces ? (
               <>
                 <WorkspaceAccessSettings lifecycle={platform.workspaces} />
+                {/* PRD 010 Req 18: the connection section lives on the same
+                    `workspaces` capability, never on a flavor check, and gates
+                    itself on the one permission it needs. */}
+                <WorkspaceConnectionSettings lifecycle={platform.workspaces} />
                 <WorkspaceDangerZone lifecycle={platform.workspaces} />
               </>
             ) : undefined

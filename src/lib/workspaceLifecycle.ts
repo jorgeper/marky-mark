@@ -30,6 +30,13 @@ export interface WorkspaceListing {
   modified: string;
   owners: string[];
   access: boolean;
+  /**
+   * PRD 010 Req 18: present only when this workspace's backend could not be
+   * reached — the named, actionable reason, so a repo-backed workspace whose
+   * connection broke is listed as needing attention instead of silently
+   * vanishing from the dialog. Absent on every healthy row.
+   */
+  attention?: string;
 }
 
 /** PRD 007 Req 10: the New Workspace form's state, exactly as the user sees it. */
