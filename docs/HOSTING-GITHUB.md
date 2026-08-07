@@ -227,6 +227,45 @@ MM_STORAGE_BACKEND=github requires environment variables: MM_GITHUB_PRIVATE_KEY,
 MM_GITHUB_DEFAULT_REPO must be one 'owner/repo' pair, got 'https://github.com/example-org/marky-mark-storage'
 ```
 
+### The deployment's LLM provider (optional)
+
+Orthogonal to the storage backend, and identical on both: Marky Mark's LLM
+features run against **one provider that you configure here**. Set none of
+these four and the deployment starts exactly as it does today and reports
+itself as having no LLM: no provider is contacted, no LLM affordance appears.
+That is a supported configuration, not a broken one — there is no default
+provider, no default model and no default key.
+
+| Variable | Required? | Default | What it is |
+| --- | --- | --- | --- |
+| `MM_LLM_PROVIDER` | optional; **required** to configure a provider at all | — | Which provider: `openai`, `anthropic`, `gemini`, `openrouter`, or `custom` for any OpenAI-compatible endpoint. Any other value refuses to start, naming the value it got. |
+| `MM_LLM_MODEL` | **required** once a provider is named | — | The model id sent on every request, e.g. `gpt-4o-mini`. No model is ever fabricated for you. |
+| `MM_LLM_API_KEY` | **required** once a provider is named | — | The provider credential. **Secret** — see below. |
+| `MM_LLM_BASE_URL` | **required** for `custom`, refused for every other provider | — | Absolute `http(s)` root of an OpenAI-compatible endpoint. On a hosted provider it would silently do nothing, so naming it there is refused rather than ignored. |
+
+**The key is deployment-wide, and it is yours, not your members'.** One
+credential serves every member of this deployment; every request they make
+spends it. It is never shown to a member and cannot be changed by one: no
+route accepts a key, a provider, a model or a base URL from a browser, the key
+value appears in no response, no error message and no log line, and the only
+thing the app tells a signed-in member is which provider kind and model are in
+use. Rotating or revoking it is a settings change here, followed by a restart.
+
+The browser never talks to a provider: it posts to this app's own origin
+(`/api/llm`, behind the same sign-in as every other API route) and the server
+makes the outbound call with the key above.
+
+Half a section refuses to start, naming every gap at once:
+
+```
+LLM configuration is incomplete, missing: MM_LLM_MODEL, MM_LLM_API_KEY
+MM_LLM_PROVIDER must be one of openai, anthropic, gemini, openrouter, custom, got 'gpt5'
+MM_LLM_PROVIDER=custom requires environment variables: MM_LLM_BASE_URL
+```
+
+A healthy start names the choice — and only the choice — on the startup line:
+`llm=openai:gpt-4o-mini`, or `llm=none` when you configured none.
+
 ## 4. Verify the deployment
 
 **The startup line is the first check.** A healthy start logs:

@@ -1,6 +1,7 @@
 import type { MenuSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
 import type { WorkspaceLifecycle } from './hostedWorkspaces';
+import type { LlmClient } from './hostedLlm';
 import type { FileGrants } from '../lib/fileGrants';
 
 /**
@@ -250,6 +251,18 @@ export interface Platform {
    * is a capability test and never a check of which flavor is running.
    */
   signOut?(): void;
+
+  /**
+   * PRD 011 Req 8+13: run an LLM request, and read what this deployment has.
+   * Defined only by the hosted platform, where the credential is the
+   * OPERATOR'S — configured in the server's environment, never handed to a
+   * member and not changeable by one — and every provider call is made
+   * server-side through the app's own origin. The static web build and the
+   * desktop shell leave it undefined (desktop's own path is issue #112), so
+   * app code mounts LLM affordances on this capability being present and never
+   * on which flavor is running.
+   */
+  llm?: LlmClient;
 
   updates?: {
     /** null ⇒ already up to date. Throws on network/manifest/signature errors. */

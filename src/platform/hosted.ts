@@ -2,6 +2,7 @@ import type { Platform } from './types';
 import { createLocalDocs } from './localDocs';
 import { clearToken, readStoredToken } from '../lib/hostedGate';
 import { createHostedWorkspaceLifecycle } from './hostedWorkspaces';
+import { createHostedLlm } from './hostedLlm';
 import { ALL_FILE_GRANTS, fileGrantsFromPermissions, type FileGrants } from '../lib/fileGrants';
 import { uploadRejection } from '../lib/fileTransfer';
 import { parseWorkspaceManifest, resolvePermissions, type Permission } from '../lib/hostedWorkspace';
@@ -592,6 +593,14 @@ export function createHostedPlatform(): Platform {
     },
 
     workspaces,
+
+    /**
+     * PRD 011 Req 8+13: the deployment's LLM, reached only through this app's
+     * own origin — built on the `api()` wrapper above, so it adds no network
+     * call site and the operator's key stays server-side where the browser can
+     * neither read it nor change it.
+     */
+    llm: createHostedLlm(api),
 
     // PRD 009 Req 17: sign-out is client-side only — the bearer token IS the
     // session, so dropping it (through hostedGate's one owner of that key)

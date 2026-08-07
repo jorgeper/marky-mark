@@ -4,6 +4,7 @@
 // auth/directory, the offline dev mode) or 'azure' (Entra ID + Blob Storage +
 // Graph). Pure parsing, no I/O, so the unit suite can pin every branch.
 
+import type { LlmProviderConfig, LlmProviderKind } from '../src/lib/llmSeam.ts';
 import { GITHUB_API_BASE, GITHUB_WEB_BASE, normalizeGitHubPrivateKey } from './providers/github/auth.ts';
 
 export type ServerMode = 'local' | 'azure';
@@ -50,6 +51,15 @@ export interface ServerConfig {
     tenantId: string;
     clientId: string;
   };
+  /**
+   * PRD 011 Req 8: the deployment-wide LLM credential, configured by the
+   * operator at deploy time. Optional in every mode and absent unless
+   * configured — a deployment that names none of the `MM_LLM_*` variables
+   * simply has no LLM features. It is the seam's own `LlmProviderConfig`
+   * (src/lib/llmSeam.ts), not a second copy of it: exactly one provider is
+   * active, structurally.
+   */
+  llm?: LlmProviderConfig;
   /**
    * PRD 010 Req 4: the deployment's GitHub App credentials. Optional in
    * every mode — no mode requires them; only `storageBackend: 'github'`
@@ -219,6 +229,88 @@ function loadGitHubConfig(env: Record<string, string | undefined>): ServerConfig
 }
 
 /**
+ * PRD 011 Req 8: the LLM section's environment variables — the whole set, in
+ * the order an operator meets them. Exported so the hosting guides' drift
+ * guard (U536) can assert both documents still name every one of them, the
+ * way `GITHUB_BACKEND_REQUIRED` does for the github backend.
+ */
+export const LLM_ENV_VARS = [
+  'MM_LLM_PROVIDER',
+  'MM_LLM_MODEL',
+  'MM_LLM_API_KEY',
+  'MM_LLM_BASE_URL',
+] as const;
+
+/** …of which these three are what any configured LLM section cannot omit. */
+export const LLM_REQUIRED = ['MM_LLM_PROVIDER', 'MM_LLM_MODEL', 'MM_LLM_API_KEY'] as const;
+
+/** PRD 011 Req 5: the five kinds, as values, for parsing one out of the env. */
+const LLM_PROVIDER_KINDS: readonly LlmProviderKind[] = [
+  'openai',
+  'anthropic',
+  'gemini',
+  'openrouter',
+  'custom',
+];
+
+/**
+ * PRD 011 Req 8: the optional LLM section, in the shape of
+ * {@link loadGitHubConfig} — absent unless configured, and refused BY NAME
+ * when it is half-configured or malformed. Two rules hold throughout:
+ *
+ *  - no default provider, no default model, no default key. A deployment that
+ *    sets none of {@link LLM_ENV_VARS} gets `undefined`, which is what makes
+ *    "this deployment has no LLM" a real state rather than a broken one.
+ *  - PRD 011 Req 7: no message here — and no log line anywhere in `server/` —
+ *    contains the key value. Refusals name the *variable*, never its content,
+ *    which is why the unparseable-key branch below quotes the provider kind
+ *    and the base URL but never `MM_LLM_API_KEY`.
+ */
+function loadLlmConfig(env: Record<string, string | undefined>): LlmProviderConfig | undefined {
+  const kind = env.MM_LLM_PROVIDER?.trim();
+  const model = env.MM_LLM_MODEL?.trim();
+  const apiKey = env.MM_LLM_API_KEY?.trim();
+  const baseUrl = env.MM_LLM_BASE_URL?.trim();
+  if (!kind && !model && !apiKey && !baseUrl) return undefined;
+
+  // Every gap at once, so an operator sees the whole list in one restart.
+  const missing = LLM_REQUIRED.filter((name) => !env[name]?.trim());
+  if (missing.length) {
+    throw new Error(`LLM configuration is incomplete, missing: ${missing.join(', ')}`);
+  }
+  if (!isLlmProviderKind(kind)) {
+    throw new Error(
+      `MM_LLM_PROVIDER must be one of ${LLM_PROVIDER_KINDS.join(', ')}, got '${kind}'`,
+    );
+  }
+  // PRD 011 Req 5: the custom kind is the ONLY one with an endpoint to point
+  // at; naming a base URL for a hosted provider would silently do nothing.
+  if (kind !== 'custom') {
+    if (baseUrl) throw new Error(`MM_LLM_BASE_URL applies only to MM_LLM_PROVIDER=custom, got '${kind}'`);
+    return { kind, apiKey: apiKey!, model: model! };
+  }
+  if (!baseUrl) throw new Error('MM_LLM_PROVIDER=custom requires environment variables: MM_LLM_BASE_URL');
+  if (!isAbsoluteHttpUrl(baseUrl)) {
+    throw new Error(`MM_LLM_BASE_URL must be an absolute http(s) URL, got '${baseUrl}'`);
+  }
+  return { kind, apiKey: apiKey!, model: model!, baseUrl };
+}
+
+function isLlmProviderKind(value: string | undefined): value is LlmProviderKind {
+  return LLM_PROVIDER_KINDS.includes(value as LlmProviderKind);
+}
+
+/** An absolute `http(s)` URL and nothing else — no relative path, no other scheme. */
+function isAbsoluteHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Parse a config from an environment. Throws with an actionable message —
  * naming the offending variable and every missing one at once — rather than
  * failing later with a vendor error.
@@ -253,10 +345,20 @@ export function loadConfig(env: Record<string, string | undefined>): ServerConfi
   const staticDir = env.MM_STATIC_DIR ?? 'dist';
   // PRD 010 Req 4: parsed in both modes, required in neither.
   const github = loadGitHubConfig(env);
+  // PRD 011 Req 8: parsed in both modes, required in neither — same stance.
+  const llm = loadLlmConfig(env);
   const storage = loadStorage(env, mode, storageBackend);
 
   if (mode === 'local') {
-    return { mode, storageBackend, port, staticDir, storage, ...(github ? { github } : {}) };
+    return {
+      mode,
+      storageBackend,
+      port,
+      staticDir,
+      storage,
+      ...(github ? { github } : {}),
+      ...(llm ? { llm } : {}),
+    };
   }
 
   // PRD 010 Req 1: Entra stays required in azure mode whatever the backend;
@@ -274,5 +376,6 @@ export function loadConfig(env: Record<string, string | undefined>): ServerConfi
     storage,
     azure: { tenantId: env.ENTRA_TENANT_ID!, clientId: env.ENTRA_CLIENT_ID! },
     ...(github ? { github } : {}),
+    ...(llm ? { llm } : {}),
   };
 }

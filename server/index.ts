@@ -9,6 +9,7 @@ import process from 'node:process';
 import { createApp } from './app.ts';
 import { createWorkspaceBackends } from './backends.ts';
 import { loadConfig } from './config.ts';
+import { createLlmApi } from './llm.ts';
 import { createGitHubByoApi, createProviders, createRepoConnector } from './providers/index.ts';
 
 const config = loadConfig(process.env);
@@ -35,10 +36,16 @@ try {
 
 // PRD 010 Req 15+16: the wizard's routes, built from the same App section.
 const byo = createGitHubByoApi(config);
-const server = http.createServer(createApp(config.staticDir, providers, config.mode, backends, byo));
+// PRD 011 Req 8+13: the LLM routes, built from the optional LLM section. No
+// section ⇒ an api that answers "not configured" and contacts nothing.
+const llm = createLlmApi({ ...(config.llm ? { config: config.llm } : {}) });
+const server = http.createServer(createApp(config.staticDir, providers, config.mode, backends, byo, llm));
 server.listen(config.port, () => {
   console.log(
     `marky-mark server: mode=${config.mode} port=${config.port} static=${config.staticDir} ` +
-      `(auth=${providers.auth.kind}, storage=${providers.storage.kind}, directory=${providers.directory.kind})`,
+      `(auth=${providers.auth.kind}, storage=${providers.storage.kind}, directory=${providers.directory.kind}, ` +
+      // PRD 011 Req 7: the provider kind and model are operator-visible facts;
+      // the key is not, and no log line here or anywhere in server/ carries it.
+      `llm=${config.llm ? `${config.llm.kind}:${config.llm.model}` : 'none'})`,
   );
 });
