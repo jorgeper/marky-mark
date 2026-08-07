@@ -84,7 +84,12 @@ export function createMemoryStorage(): { provider: StorageProvider; blobs: Map<s
 export interface StorageContractOptions {
   /** Which implementation is under test, for the describe title. */
   label: string;
-  /** The first U number of this run's block; the suite uses `firstId`…`firstId + 8`. */
+  /**
+   * The first U number of this run's block; the suite uses `firstId`…
+   * `firstId + 8`. Adding a test here widens every block, so it also means
+   * moving each caller to a fresh, still-unused block rather than growing
+   * into the next one.
+   */
   firstId: number;
   /** A provider with nothing stored in it yet, built fresh for every test. */
   create: () => StorageProvider | Promise<StorageProvider>;

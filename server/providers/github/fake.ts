@@ -456,14 +456,15 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
           for (let i = 1; i < parts.length; i += 1) directories.add(parts.slice(0, i).join('/'));
         }
         const entries = [
-          ...paths.map((path) => ({
-            path,
-            mode: '100644',
-            type: 'blob',
-            sha: blobSha(state.files.get(path)!),
-            size: state.files.get(path)!.length,
-          })),
-          ...[...directories].sort().map((path) => ({ path, mode: '040000', type: 'tree', sha: commitSha(repoKey, -1, path) })),
+          ...paths.map((path) => {
+            const content = state.files.get(path)!;
+            return { path, mode: '100644', type: 'blob', sha: blobSha(content), size: content.length };
+          }),
+          // Nothing ever dereferences a directory's sha — only its `tree`
+          // type is under test — so any deterministic filler serves.
+          ...[...directories]
+            .sort()
+            .map((path) => ({ path, mode: '040000', type: 'tree', sha: commitSha(repoKey, -1, path) })),
         ];
         return json(200, {
           sha: head().sha,

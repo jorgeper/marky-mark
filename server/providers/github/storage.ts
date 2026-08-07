@@ -21,7 +21,7 @@
 import { Buffer } from 'node:buffer';
 import { contentTypeFor } from '../../contentTypes.ts';
 import type { AuthUser, FileStat, StorageProvider, StoredBytes } from '../types.ts';
-import { GitHubApiError, type GitHubAppAuth } from './auth.ts';
+import { GitHubApiError, githubFailureDetail, type GitHubAppAuth } from './auth.ts';
 
 /** A git commit's author or committer line. */
 export interface CommitIdentity {
@@ -51,7 +51,10 @@ export const APP_COMMIT_IDENTITY: CommitIdentity = {
  */
 const CACHE_TTL_MS = 5_000;
 
-/** Blob bodies held by sha. Content-addressed, so an entry can never go stale. */
+/**
+ * How many blob bodies are held by sha before the oldest is dropped. They
+ * are content-addressed, so an entry can never go stale — only take room.
+ */
 const BLOB_CACHE_LIMIT = 512;
 
 export interface GitHubStorageOptions {
@@ -66,6 +69,7 @@ export interface GitHubStorageOptions {
   auth: GitHubAppAuth;
   /** Injected clock (epoch ms) so cache expiry is testable without sleeping. */
   now?: () => number;
+  /** Overrides {@link CACHE_TTL_MS} — the branch-head revalidation window. */
   cacheTtlMs?: number;
 }
 
@@ -126,48 +130,38 @@ export function createGitHubStorageProvider(options: GitHubStorageOptions): Stor
 
   /**
    * PRD 010 Req 11: what a failed call becomes — a thrown error naming the
-   * status and the operation, saying what state the repo is in, and (for the
-   * two failures an operator actually meets) what to do about it. It reaches
-   * the client through the existing 500/notice pathway in `server/app.ts`;
-   * it is never swallowed into a silent success, and nothing here waits, so
-   * a save fails fast instead of hanging.
+   * status and the operation, and saying what became of the request, from
+   * the one failure vocabulary `auth.ts` also builds its errors from. It
+   * reaches the client through the existing 500/notice pathway in
+   * `server/app.ts`; it is never swallowed into a silent success, and
+   * nothing here waits, so a save fails fast instead of hanging.
    */
   async function failure(res: Response, operation: string): Promise<GitHubApiError> {
-    let detail: string;
-    if (res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0') {
-      const reset = res.headers.get('x-ratelimit-reset');
-      const at = reset ? new Date(Number(reset) * 1000).toISOString() : 'an unknown time';
-      detail = `the GitHub rate limit is exhausted until ${at} — nothing was written and no retry was attempted`;
-    } else if (res.status === 403) {
-      detail = 'the App installation does not grant contents access to that repository';
-    } else if (res.status === 401) {
-      detail = 'the App credentials were rejected — check MM_GITHUB_APP_ID and MM_GITHUB_PRIVATE_KEY';
-    } else if (res.status === 404) {
-      detail = 'not found, or the App is not installed on that repository';
-    } else if (res.status >= 500) {
-      detail = 'GitHub is unavailable — nothing was written and no retry was attempted';
-    } else {
-      let message = '';
-      try {
-        const body = (await res.json()) as { message?: unknown };
-        if (typeof body.message === 'string') message = body.message;
-      } catch {
-        // A non-JSON error body tells us nothing worth surfacing.
-      }
-      detail = message || 'unexpected response';
-    }
+    // Every call this module makes is part of serving a read or landing a
+    // write, so the operator's question is always "did my change land?".
+    const detail = await githubFailureDetail(res, 'nothing was written and no retry was attempted');
     return new GitHubApiError(res.status, operation, detail);
   }
 
   // --- the server-side cache (PRD 010 Req 10) --------------------------------
 
   let snapshot: Snapshot | null = null;
-  let refreshing: Promise<Snapshot> | null = null;
+  /** The refresh in flight, tagged with the generation it started in. */
+  let refreshing: { work: Promise<Snapshot>; generation: number } | null = null;
+  /** Bumped by every mutation — see {@link invalidate}. */
+  let generation = 0;
   const blobs = new Map<string, Uint8Array>();
 
-  /** Dropped after every mutation, so the next read re-derives from the head. */
+  /**
+   * Dropped after every mutation, so the next read re-derives from the head.
+   * The generation bump is what makes that hold DURING a refresh too: a
+   * refresh that began before the mutation is describing a head this write
+   * has already superseded, so once it lands that refresh may neither be
+   * published as the cache nor joined by a later reader.
+   */
   const invalidate = (): void => {
     snapshot = null;
+    generation += 1;
   };
 
   async function head(): Promise<{ sha: string; date: string }> {
@@ -211,7 +205,10 @@ export function createGitHubStorageProvider(options: GitHubStorageOptions): Stor
   async function currentSnapshot(): Promise<Snapshot> {
     const cached = snapshot;
     if (cached && now() - cached.checkedAtMs < ttl) return cached;
-    if (refreshing) return refreshing;
+    // Concurrent readers share one refresh — but only one that no write has
+    // outdated since it started.
+    if (refreshing && refreshing.generation === generation) return refreshing.work;
+    const startedIn = generation;
     const work = (async (): Promise<Snapshot> => {
       const { sha, date } = await head();
       const reusable = snapshot && snapshot.headSha === sha ? snapshot.entries : null;
@@ -221,14 +218,15 @@ export function createGitHubStorageProvider(options: GitHubStorageOptions): Stor
         entries: reusable ?? (await loadTree(sha)),
         checkedAtMs: now(),
       };
-      snapshot = fresh;
+      if (generation === startedIn) snapshot = fresh;
       return fresh;
     })();
-    refreshing = work;
+    refreshing = { work, generation: startedIn };
     try {
       return await work;
     } finally {
-      refreshing = null;
+      // Only ever clear our own — a newer refresh may already hold the slot.
+      if (refreshing?.work === work) refreshing = null;
     }
   }
 

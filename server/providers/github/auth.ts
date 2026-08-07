@@ -103,6 +103,39 @@ export class GitHubApiError extends Error {
 }
 
 /**
+ * PRD 010 Req 4+11: the operator-facing reason a GitHub response failed,
+ * status by status — the ONE mapping every module that turns a response into
+ * a {@link GitHubApiError} builds its detail from, so the auth layer and the
+ * storage provider cannot drift into two vocabularies for the same failure.
+ * Only the status and GitHub's own short `message` are read: never a header
+ * (they carry the Authorization we sent) and never a body dump.
+ *
+ * `consequence` is the clause appended where the operator's next question is
+ * "so what happened to my request?" — a caller mid-write says so.
+ */
+export async function githubFailureDetail(res: Response, consequence = 'no retry was attempted'): Promise<string> {
+  if (res.status === 401) {
+    return 'the App credentials were rejected — check MM_GITHUB_APP_ID and MM_GITHUB_PRIVATE_KEY';
+  }
+  if (res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0') {
+    const reset = res.headers.get('x-ratelimit-reset');
+    const at = reset ? new Date(Number(reset) * 1000).toISOString() : 'an unknown time';
+    return `rate limit exceeded, resets at ${at} — ${consequence}`;
+  }
+  if (res.status === 403) return 'the App installation does not grant access to that resource';
+  if (res.status === 404) return 'not found, or the App is not installed on that repository';
+  if (res.status >= 500) return `GitHub is unavailable — ${consequence}`;
+  let message = '';
+  try {
+    const body = (await res.json()) as { message?: unknown };
+    if (typeof body.message === 'string') message = body.message;
+  } catch {
+    // A non-JSON error body tells us nothing worth surfacing.
+  }
+  return message || 'unexpected response';
+}
+
+/**
  * PRD 010 Req 4: App Service app settings cannot hold literal newlines, so a
  * PEM arrives `\n`-escaped there and with real newlines everywhere else —
  * both are accepted. Throws (without echoing the key) when the value is not
@@ -162,36 +195,12 @@ export function createGitHubAppAuth(options: GitHubAppAuthOptions): GitHubAppAut
 
   /**
    * The error a failed response becomes — thrown by the caller, so the
-   * control flow stays visible at the call site. Only the status, the
-   * operation and GitHub's own short `message` are surfaced: no headers
-   * (which carry the Authorization we sent), no body dump, and the whole
-   * string is scrubbed of known secrets.
+   * control flow stays visible at the call site. The detail comes from the
+   * shared mapping above and is then scrubbed of every secret this module
+   * has held, so not even GitHub's own `message` can echo one back.
    */
   async function apiError(res: Response, operation: string): Promise<GitHubApiError> {
-    let detail: string;
-    if (res.status === 401) {
-      detail = 'the App credentials were rejected — check MM_GITHUB_APP_ID and MM_GITHUB_PRIVATE_KEY';
-    } else if (res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0') {
-      const reset = res.headers.get('x-ratelimit-reset');
-      const at = reset ? new Date(Number(reset) * 1000).toISOString() : 'an unknown time';
-      detail = `rate limit exceeded, resets at ${at} — no retry was attempted`;
-    } else if (res.status === 403) {
-      detail = 'the App installation does not grant access to that resource';
-    } else if (res.status === 404) {
-      detail = 'not found, or the App is not installed on that repository';
-    } else if (res.status >= 500) {
-      detail = 'GitHub is unavailable — no retry was attempted';
-    } else {
-      let message = '';
-      try {
-        const body = (await res.json()) as { message?: unknown };
-        if (typeof body.message === 'string') message = body.message;
-      } catch {
-        // A non-JSON error body tells us nothing worth surfacing.
-      }
-      detail = message || 'unexpected response';
-    }
-    return new GitHubApiError(res.status, operation, redact(detail));
+    return new GitHubApiError(res.status, operation, redact(await githubFailureDetail(res)));
   }
 
   async function appRequest(path: string, init: RequestInit, operation: string): Promise<Response> {

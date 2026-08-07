@@ -29,12 +29,21 @@ const CACHE_TTL_MS = 5_000;
 const ADA: AuthUser = { id: 'u-ada', username: 'ada@marky.test', displayName: 'Ada Lovelace' };
 const GRACE: AuthUser = { id: 'u-grace', username: 'grace@marky.test', displayName: 'Grace Hopper' };
 
-/** A fake repo plus a provider pointed at it, sharing one injectable clock. */
-function setup(): {
+/**
+ * A fake repo plus a provider pointed at it, sharing one injectable clock.
+ *
+ * `holdOnce` parks the first request whose URL contains it — after the fake
+ * has already answered it — until `release()` is called, and `paused`
+ * resolves once that request is parked. That is the only way to pin an
+ * interleaving of two in-flight calls down deterministically (U400).
+ */
+function setup(holdOnce?: string): {
   fake: ReturnType<typeof createGitHubFake>;
   provider: StorageProvider;
   tick: (ms: number) => void;
   repoPath: (path: string) => string;
+  paused: Promise<void>;
+  release: () => void;
 } {
   let clock = CLOCK;
   const now = (): number => clock;
@@ -45,11 +54,24 @@ function setup(): {
       { id: 7, account: OWNER, repos: [{ owner: OWNER, repo: REPO, branch: BRANCH, files: { 'README.md': '# store\n' } }] },
     ],
   });
+  let release = (): void => {};
+  let reachedHold = (): void => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const paused = new Promise<void>((resolve) => (reachedHold = resolve));
+  let holding = holdOnce !== undefined;
   const auth = createGitHubAppAuth({
     appId: APP_ID,
     privateKey: PRIVATE_KEY_PEM,
     apiBase: BASE,
-    fetchImpl: fake.fetch,
+    fetchImpl: async (url, init) => {
+      const res = await fake.fetch(url, init);
+      if (holding && url.includes(holdOnce!)) {
+        holding = false;
+        reachedHold();
+        await held;
+      }
+      return res;
+    },
     now,
   });
   const provider = createGitHubStorageProvider({
@@ -61,7 +83,7 @@ function setup(): {
     now,
     cacheTtlMs: CACHE_TTL_MS,
   });
-  return { fake, provider, tick: (ms) => (clock += ms), repoPath: (path) => `${ROOT}/${path}` };
+  return { fake, provider, tick: (ms) => (clock += ms), repoPath: (path) => `${ROOT}/${path}`, paused, release };
 }
 
 /** The commits a mutation added, newest last. */
@@ -258,6 +280,25 @@ describe('PRD 010 Req 10 server-side caching without stale write decisions', () 
     expect(fake.file(OWNER, REPO, repoPath(path))).toBe('somebody else\n');
     // → 412 for the client, and the very next read reflects the new head.
     expect((await provider.read(path))?.content).toBe('somebody else\n');
+  });
+
+  it('U400: a write that lands while a listing is in flight is not undone by it — a refresh started before the write never becomes the cache', async () => {
+    const { fake, provider, repoPath, paused, release } = setup('/git/trees/');
+    const path = 'workspaces/w1/files/notes.md';
+    await provider.write(path, 'one\n');
+
+    // A listing that has read the pre-write tree and is parked mid-flight.
+    const listing = provider.list('workspaces/w1/files/');
+    await paused;
+    // The save lands while it is parked, and drops the cache.
+    await provider.write(path, 'two\n');
+    release();
+    await listing;
+
+    // Well inside the cache window: if the parked refresh had published the
+    // view it started from, this read would answer the superseded content.
+    expect((await provider.read(path))?.content).toBe('two\n');
+    expect(fake.file(OWNER, REPO, repoPath(path))).toBe('two\n');
   });
 });
 
