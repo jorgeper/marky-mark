@@ -101,6 +101,25 @@ export interface StorageProvider {
    * against the shared instance — `storage.asUser?.(user) ?? storage`.
    */
   asUser?(user: AuthUser): StorageProvider;
+  /**
+   * PRD 010 Req 12: the merge capability — read back the content an opaque
+   * version token names, whatever the current content is. It is what makes a
+   * three-way merge possible at all: the merge base is the version the client
+   * loaded, and only a store that can still hand those bytes back can supply
+   * it. A git blob is content-addressed, so an ETag from any earlier read
+   * still names retrievable bytes; a blob-store ETag names only "the version
+   * that was current then", which is unrecoverable once it is not.
+   *
+   * Resolves null when the token names nothing this store can resolve — a
+   * null base is a 412, never a guess.
+   *
+   * OPTIONAL: a store without content-addressed history (Azure Blob, the
+   * in-memory reference provider) simply omits it, and `server/workspaces.ts`
+   * answers every stale conditional save with today's 412. Callers decide
+   * "can this workspace merge?" by whether the provider resolved for that
+   * workspace offers this — never by a backend name or `kind` string.
+   */
+  readAtVersion?(path: string, version: string): Promise<string | null>;
 }
 
 /** A user as the directory sees them (member pickers, avatars). */

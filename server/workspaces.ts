@@ -37,6 +37,7 @@ import { UPLOAD_MAX_LABEL, uploadRejection, uploadTypeRejection } from '../src/l
 import type { WorkspaceBackends } from './backends.ts';
 import { contentTypeFor } from './contentTypes.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
+import { mergeThreeWay } from './merge.ts';
 import type { RequestAuth, StorageProvider } from './providers/types.ts';
 
 /** PRD 007 Req 7: the root prefix all workspace data lives under. */
@@ -166,6 +167,83 @@ function parseMove(raw: string): { from: string; to: string } | null {
  */
 async function blobExists(storage: StorageProvider, path: string): Promise<boolean> {
   return (await storage.list(path)).some((b) => b.path === path);
+}
+
+/**
+ * PRD 010 Req 12: how many times the read-merge-write is re-run when the
+ * merged commit itself loses a race. Small on purpose: each attempt is a
+ * fresh head read and a fresh merge, so a branch busy enough to beat this
+ * many times over is one the user should be told about rather than one to
+ * keep hammering. Running out answers 412 — never an unconditional write.
+ */
+const MERGE_ATTEMPTS = 3;
+
+/**
+ * PRD 010 Req 12: the merge attempt that sits between "the conditional write
+ * lost" and "answer 412". Answers the committed merge, or null for every
+ * reason the caller must turn back into today's 412:
+ *
+ *  - the provider has no merge capability at all (Req 14 — this is the ONLY
+ *    thing that decides whether a workspace can merge; no backend name and no
+ *    `kind` string is consulted anywhere in this path);
+ *  - the base version cannot be resolved (a null base is a 412, never a guess);
+ *  - the file is gone from the head;
+ *  - the two sides conflict;
+ *  - the merged text fails the structured-file guard;
+ *  - the merged commit kept losing further races.
+ *
+ * PRD 010 Req 10: the head read may come from the provider's cache, because
+ * the commit below is CONDITIONAL ON THE ETAG THAT READ RETURNED — the same
+ * rule the plain conditional write follows. A cached head that has been
+ * superseded therefore cannot be committed over: the write is refused, the
+ * provider's cache is invalidated by that attempt, and the next iteration
+ * merges against the real head.
+ *
+ * PRD 010 Req 11: a rate-limited or failing backend throws out of here into
+ * the existing failure pathway. It is never swallowed into a silent 412, and
+ * nothing in this loop waits, so a save fails fast rather than hanging.
+ */
+async function mergeStaleSave(
+  storage: StorageProvider,
+  blobPath: string,
+  filePath: string,
+  ours: string,
+  ifMatch: string,
+): Promise<{ etag: string; content: string } | null> {
+  if (!storage.readAtVersion) return null;
+  const base = await storage.readAtVersion(blobPath, ifMatch);
+  if (base === null) return null;
+  for (let attempt = 0; attempt < MERGE_ATTEMPTS; attempt += 1) {
+    const head = await storage.read(blobPath);
+    if (!head) return null;
+    const merged = mergeThreeWay(base, ours, head.content);
+    if (!merged.clean) return null;
+    if (!mergeKeepsFileWellFormed(filePath, merged.text)) return null;
+    // PRD 010 Req 7: one commit like any other mutation — authored by the
+    // saving user (the storage handed in is already their `asUser` view) with
+    // a message naming the action and the path.
+    const written = await storage.writeIfMatch(blobPath, merged.text, head.etag);
+    if (written) return { etag: written.etag, content: merged.text };
+  }
+  return null;
+}
+
+/**
+ * PRD 010 Req 12: the structured-file guard. A LINE merge knows nothing about
+ * syntax, so two clean edits to different lines of a JSON document can produce
+ * a file that no longer parses — and the comment sidecars (`src/lib/sidecar.ts`)
+ * are exactly such documents. A merged `.json` that does not `JSON.parse` is
+ * refused, so the 412 and its dialog are what the user gets rather than a
+ * committed file the app can no longer read.
+ */
+function mergeKeepsFileWellFormed(filePath: string, text: string): boolean {
+  if (!/\.json$/i.test(filePath)) return true;
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Copy one blob's bytes (and media type) to a new path, then drop the old. */
@@ -790,6 +868,15 @@ export async function handleWorkspaceApi(
       if (typeof ifMatch === 'string' && ifMatch !== '' && ifMatch !== '*') {
         const written = await storage.writeIfMatch(blobPath, content, ifMatch);
         if (!written) {
+          // PRD 010 Req 12: the stale save gets one chance to become a merge
+          // before it becomes a 412 — and only on a backend that can hand
+          // back the version the client loaded (Req 14: blob cannot, so a
+          // blob-backed workspace takes the 412 below verbatim as today).
+          const merged = await mergeStaleSave(storage, blobPath, filePath, content, ifMatch);
+          if (merged) {
+            sendJson(res, 200, { path: filePath, etag: merged.etag, merged: true, content: merged.content });
+            return;
+          }
           sendJson(res, 412, { error: 'the file changed on the server since it was loaded', path: filePath });
           return;
         }

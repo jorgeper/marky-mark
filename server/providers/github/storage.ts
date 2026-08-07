@@ -271,10 +271,13 @@ export function createGitHubStorageProvider(options: GitHubStorageOptions): Stor
    * forever — the head moving changes which sha a path points at, never what
    * a sha contains.
    */
-  async function blobBytes(sha: string, operation: string): Promise<Uint8Array> {
+  async function blobBytesOrNull(sha: string, operation: string): Promise<Uint8Array | null> {
     const cached = blobs.get(sha);
     if (cached) return cached;
     const res = await call('GET', `/git/blobs/${encodeURIComponent(sha)}`);
+    // 404 = no such object; 422 = not a sha at all. Both mean "this token
+    // names nothing here", which is a null answer rather than a failure.
+    if (res.status === 404 || res.status === 422) return null;
     if (!res.ok) throw await failure(res, operation);
     const body = (await res.json()) as { content?: string; encoding?: string };
     const bytes = new Uint8Array(
@@ -283,6 +286,14 @@ export function createGitHubStorageProvider(options: GitHubStorageOptions): Stor
     if (blobs.size >= BLOB_CACHE_LIMIT) blobs.delete(blobs.keys().next().value!);
     blobs.set(sha, bytes);
     return bytes;
+  }
+
+  async function blobBytes(sha: string, operation: string): Promise<Uint8Array> {
+    const found = await blobBytesOrNull(sha, operation);
+    // The tree named this sha moments ago, so its absence is a real fault —
+    // reported through the same failure vocabulary as any other bad response.
+    if (!found) throw new GitHubApiError(404, operation, 'the tree names a blob the repository does not hold');
+    return found;
   }
 
   /** The bytes at a seam path plus the blob sha that is its ETag, or null. */
@@ -421,7 +432,10 @@ export function createGitHubStorageProvider(options: GitHubStorageOptions): Stor
        * 412. Never a thrown 500, and never a retry — a retry here would
        * overwrite the save that won.
        *
-       * Merging the two versions is out of scope by design; that is #102.
+       * PRD 010 Req 12: a null answer is no longer the end of the story —
+       * `server/workspaces.ts` may follow it with a three-way merge, through
+       * `readAtVersion` below. This method's own contract is unchanged: it
+       * still never retries and never overwrites the save that won.
        */
       async writeIfMatch(path: string, content: string, ifMatch: string): Promise<{ etag: string } | null> {
         const repoRelative = repoPath(path);
@@ -501,6 +515,25 @@ export function createGitHubStorageProvider(options: GitHubStorageOptions): Stor
           });
         }
         return out;
+      },
+      /**
+       * PRD 010 Req 12: the merge capability. An ETag from this provider IS a
+       * blob sha, so the version the client loaded is still fetchable however
+       * far the branch has moved since — that is exactly what a merge base
+       * needs, and exactly what a blob store cannot offer.
+       *
+       * No new GitHub host string: this rides the same `call` helper as every
+       * other request, so `GITHUB_API_BASE` in `auth.ts` remains the one place
+       * a GitHub host is spelled (U370).
+       *
+       * `path` takes no part in resolving the bytes — a blob is addressed by
+       * content — but it is what names the operation in a failure, and a
+       * rate-limited or 5xx lookup throws through the Req 11 vocabulary
+       * rather than becoming a silent 412.
+       */
+      async readAtVersion(path: string, version: string): Promise<string | null> {
+        const found = await blobBytesOrNull(version, `merge-base read of ${repoPath(path)}`);
+        return found && Buffer.from(found).toString('utf8');
       },
       asUser: (user: AuthUser) => view(user),
     };

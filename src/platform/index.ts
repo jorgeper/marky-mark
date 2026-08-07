@@ -1,7 +1,7 @@
 import type { Platform } from './types';
 import { detectHostedMode } from '../lib/hostedGate';
 
-export type { Platform } from './types';
+export type { Platform, WriteResult } from './types';
 
 let instance: Promise<Platform> | null = null;
 

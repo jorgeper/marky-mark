@@ -288,9 +288,18 @@ export function createHostedPlatform(): Platform {
         throw new SaveConflictError(path);
       }
       if (!res.ok) throw new Error(await refusal(res, `write failed (${res.status}): ${path}`));
-      const written = await json<{ etag: string }>(res);
+      const written = await json<{ etag: string; merged?: boolean; content?: string }>(res);
       if (written?.etag) etags.set(path, written.etag);
       else etags.delete(path);
+      // PRD 010 Req 12+13: the server merged someone else's changes into this
+      // save and committed the result. The etag re-armed just above is the
+      // MERGED version's, so the next conditional save is guarded against it;
+      // the merged text goes up to the caller, because what landed is not
+      // what was sent. A 412 still throws SaveConflictError above — this is
+      // the only other response shape the write knows.
+      if (written?.merged && typeof written.content === 'string') {
+        return { merged: true, content: written.content };
+      }
     },
 
     async exists(path) {

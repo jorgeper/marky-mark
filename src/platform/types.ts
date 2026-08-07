@@ -4,6 +4,16 @@ import type { WorkspaceLifecycle } from './hostedWorkspaces';
 import type { FileGrants } from '../lib/fileGrants';
 
 /**
+ * PRD 010 Req 13: what a write reports back. `void` is the whole story for
+ * every platform whose save either lands byte-for-byte as written or throws —
+ * tauri, browser and web all answer it, and every caller that ignores the
+ * result is unaffected. A backend that can merge a stale save (Req 12)
+ * instead says so and carries the text that actually landed, which is NOT
+ * what the caller asked to write.
+ */
+export type WriteResult = void | { merged: true; content: string };
+
+/**
  * The single seam between the app and the host (SPEC FR-6). Everything that
  * touches the filesystem, dialogs, paths, or the window goes through this
  * interface. Four implementations exist:
@@ -29,7 +39,7 @@ export interface Platform {
    * platforms with them throw `SaveConflictError` (lib/saveConflict.ts)
    * without writing when the stored file moved on since it was read.
    */
-  writeTextFile(path: string, content: string, opts?: { overwrite?: boolean }): Promise<void>;
+  writeTextFile(path: string, content: string, opts?: { overwrite?: boolean }): Promise<WriteResult>;
   exists(path: string): Promise<boolean>;
   remove(path: string): Promise<void>;
   /** File/dir names (not full paths) directly inside `dir`; [] if missing. */

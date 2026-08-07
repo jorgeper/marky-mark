@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { getPlatform, type Platform } from './platform';
+import { getPlatform, type Platform, type WriteResult } from './platform';
 import { renderMarkdown } from './lib/markdown';
 import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
 import { getDocText, highlightRange, offsetsToRange, rangeToOffsets, rectForOffsets } from './lib/domtext';
@@ -73,6 +73,7 @@ import { moveTarget, relativePath, remapPath, uniqueChildName } from './lib/fold
 import { ALL_FILE_GRANTS, type FileGrants } from './lib/fileGrants';
 import { uploadRejection } from './lib/fileTransfer';
 import { isSaveConflict, planSaveConflict, type SaveConflictChoice } from './lib/saveConflict';
+import { planMergedSave } from './lib/mergedSave';
 import { FolderExpandButton, FolderPanel, PreviewToggleButton } from './components/FolderPanel';
 import {
   SLIDE_SETTLE_MS,
@@ -2944,8 +2945,9 @@ export default function App() {
       hasUnreadableStore(s.stores) || s.settings.commentStorage === 'embedded'
         ? attachEmbedded(out, s.comments, s.stores.trailerBytes)
         : out;
+    let write: WriteResult;
     try {
-      await s.platform.writeTextFile(s.docPath, text);
+      write = await s.platform.writeTextFile(s.docPath, text);
     } catch (e) {
       // PRD 007 Req 20: the server refused the write because another member
       // saved first — their content is still what is stored. The buffer stays
@@ -2962,6 +2964,27 @@ export default function App() {
       return false;
     }
     await s.platform.commitFile?.(s.docPath); // web download fallback for handle-less files
+    // PRD 010 Req 13: the save landed, but as a MERGE — someone else's
+    // changes came in with it, so what is stored is not what was sent. The
+    // buffer follows the merged bytes (clean at them, caret clamped rather
+    // than reset) and the user is told through a non-blocking notice. No
+    // dialog: there is nothing here for them to answer. Every decision is
+    // lib/mergedSave.ts's; this only dispatches it.
+    if (write?.merged) {
+      const plan = planMergedSave({
+        mergedText: write.content,
+        sidecarComments: s.comments,
+        mayReadComments: true,
+        selection: lastEditorSelRef.current,
+      });
+      pendingEditorSelRef.current = plan.selection;
+      setBuffer(plan.buffer);
+      setSavedText(plan.savedText);
+      setComments(plan.comments);
+      setStores((prev) => ({ ...prev, trailer: plan.stores.trailer, trailerBytes: plan.stores.trailerBytes }));
+      showNotice(plan.notice);
+      return true;
+    }
     setSavedText(out);
     if (s.settings.commentStorage === 'sidecar') {
       // Completes an embedded→sidecar migration: the plain write above

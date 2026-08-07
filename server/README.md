@@ -93,6 +93,14 @@ the deployment default, which is every workspace an existing deployment
 already has. It is server-side only: no API response carries it, and it is
 outside `files/` like the manifest.
 
+One behaviour differs by backend, and only one (PRD 010 Req 12+14): when a
+conditional save arrives against a version the file has moved on from, a
+**github-backed** workspace three-way merges it and saves when the merge is
+clean (answering 200 with the merged text), and 412s when it conflicts; a
+**blob-backed** workspace always 412s. A git blob is content-addressed, so
+the ETag the client loaded still names retrievable bytes to merge from — a
+blob-store ETag does not.
+
 The manifest sits *outside* the `files/` prefix, so workspace file listings
 never surface it; the workspace-agnostic `/api/files*` scaffold refuses the
 whole `workspaces/` prefix (403, filtered from listings), so workspace data
