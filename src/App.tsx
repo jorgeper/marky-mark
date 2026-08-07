@@ -2971,10 +2971,14 @@ export default function App() {
     // dialog: there is nothing here for them to answer. Every decision is
     // lib/mergedSave.ts's; this only dispatches it.
     if (write?.merged) {
+      // PRD 007 Req 17: the same verdict `loadDocParts` reaches — a session
+      // without comment.read must not be shown the merged text's trailer
+      // comments, which arrive inside the document's own bytes.
+      const mayReadComments = (await grantsFor(s.platform, s.docPath)).commentRead;
       const plan = planMergedSave({
         mergedText: write.content,
         sidecarComments: s.comments,
-        mayReadComments: true,
+        mayReadComments,
         selection: lastEditorSelRef.current,
       });
       pendingEditorSelRef.current = plan.selection;
