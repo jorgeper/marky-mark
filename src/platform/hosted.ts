@@ -3,6 +3,7 @@ import { createLocalDocs } from './localDocs';
 import { clearToken, readStoredToken } from '../lib/hostedGate';
 import { createHostedWorkspaceLifecycle } from './hostedWorkspaces';
 import { createHostedLlm } from './hostedLlm';
+import { createHostedSummaryCache } from './hostedSummaryCache';
 import { ALL_FILE_GRANTS, fileGrantsFromPermissions, type FileGrants } from '../lib/fileGrants';
 import { uploadRejection } from '../lib/fileTransfer';
 import { parseWorkspaceManifest, resolvePermissions, type Permission } from '../lib/hostedWorkspace';
@@ -601,6 +602,16 @@ export function createHostedPlatform(): Platform {
      * neither read it nor change it.
      */
     llm: createHostedLlm(api),
+
+    /**
+     * PRD 011 Req 29: the workspace's shared summary cache, server-side and
+     * reached only through `api()` above — no new network call site, and the
+     * blobs never enter the workspace's files or a connected repository.
+     * Present only when this page IS bound to a workspace: a personal-files
+     * session has no workspace to scope a shared cache to, and the capability
+     * being absent is how app code learns that.
+     */
+    ...(workspaceId ? { summaryCache: createHostedSummaryCache(api, workspaceId) } : {}),
 
     // PRD 009 Req 17: sign-out is client-side only — the bearer token IS the
     // session, so dropping it (through hostedGate's one owner of that key)

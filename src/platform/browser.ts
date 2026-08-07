@@ -1,4 +1,5 @@
 import type { Platform } from './types';
+import { createFileSummaryCache } from './summaryCacheFiles';
 import { FIXTURES } from '../bundled';
 import { dispatchRecent, dispatchCommand, type CommandId } from '../lib/commands';
 import type { CommandItemSpec, MenuSpec, RecentItemSpec } from '../lib/menuSpec';
@@ -241,7 +242,7 @@ export function createBrowserPlatform(): Platform {
     return false;
   };
 
-  return {
+  const platform: Platform = {
     kind: 'browser',
     ...(nativeMenu ? { setAppMenu, openAuxWindow, closeFocusedAuxWindow } : {}),
     busEmit,
@@ -516,4 +517,10 @@ export function createBrowserPlatform(): Platform {
       (w.__mmExternalOpens ??= []).push(url);
     },
   };
+
+  // PRD 011 Req 29: the shim gets the desktop store over its virtual fs — the
+  // SAME `createFileSummaryCache` tauri.ts uses, not a second implementation,
+  // so later e2e work drives the real eviction and corruption behaviour.
+  platform.summaryCache = createFileSummaryCache(platform, { now: () => Date.now() });
+  return platform;
 }
