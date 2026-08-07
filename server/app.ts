@@ -12,7 +12,7 @@ import path from 'node:path';
 import { createWorkspaceBackends, type WorkspaceBackends } from './backends.ts';
 import type { ServerMode } from './config.ts';
 import { cleanRelativePath, readBody, sendJson, tryDecode } from './http.ts';
-import type { Providers, RequestAuth } from './providers/types.ts';
+import { StoragePathError, type Providers, type RequestAuth } from './providers/types.ts';
 import { handleUserFilesApi, USERS_PREFIX } from './userFiles.ts';
 import { handleWorkspaceApi, WORKSPACES_PREFIX } from './workspaces.ts';
 
@@ -294,6 +294,15 @@ export function createApp(
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
       handleApi(req, res, url, providers, backends).catch((err: unknown) => {
+        // PRD 010 Req 17: a path the workspace's store refuses to map at all
+        // (outside the workspace, escaping the connected root, or the
+        // `.marky-mark/` metadata directory) is a bad request, not a broken
+        // server — and nothing was read or written, so it is safe to say so.
+        if (err instanceof StoragePathError) {
+          if (!res.headersSent) sendJson(res, 400, { error: 'invalid file path' });
+          else res.end();
+          return;
+        }
         console.error('API error:', err);
         if (!res.headersSent) sendJson(res, 500, { error: 'internal server error' });
         else res.end();

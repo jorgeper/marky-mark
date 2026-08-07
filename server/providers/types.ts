@@ -43,6 +43,21 @@ export interface RequestAuth {
   user: AuthUser;
 }
 
+/**
+ * PRD 010 Req 17: a path a provider refuses to map AT ALL — not a file that
+ * happens to be missing, but one this store will never serve (outside the
+ * workspace it backs, escaping its configured root, or app metadata a file
+ * route may not reach). Distinct from a generic failure so `server/app.ts`
+ * answers 400 rather than 500: the request named an invalid path, the server
+ * did not break.
+ */
+export class StoragePathError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StoragePathError';
+  }
+}
+
 /** A stored file's metadata. */
 export interface FileStat {
   path: string;
