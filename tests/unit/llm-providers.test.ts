@@ -28,7 +28,7 @@ import type {
 
 const KEY = 'sk-SENTINEL-do-not-leak-0123456789';
 
-const request: LlmRequest = {
+const ASK: LlmRequest = {
   trigger: 'summarize',
   system: 'Summarize in two sentences.',
   prompt: 'The document body.',
@@ -46,14 +46,18 @@ const configs: Record<LlmProviderKind, LlmProviderConfig> = {
 const ALL_KINDS = Object.keys(configs) as LlmProviderKind[];
 
 /** The descriptor a provider builds, with the build-failure case ruled out. */
-function build(kind: LlmProviderKind, config: LlmProviderConfig = configs[kind]): LlmHttpRequest {
-  const built = providerFor(kind).buildRequest(config, request);
+function build(
+  kind: LlmProviderKind,
+  config: LlmProviderConfig = configs[kind],
+  ask: LlmRequest = ASK,
+): LlmHttpRequest {
+  const built = providerFor(kind).buildRequest(config, ask);
   if ('kind' in built) throw new Error(`expected a request, got a ${built.kind} failure`);
   return built;
 }
 
-const body = (kind: LlmProviderKind): Record<string, never> =>
-  JSON.parse(build(kind).body) as Record<string, never>;
+const body = (kind: LlmProviderKind, ask: LlmRequest = ASK): Record<string, unknown> =>
+  JSON.parse(build(kind, configs[kind], ask).body) as Record<string, unknown>;
 
 const reply = (kind: LlmProviderKind, response: LlmHttpResponse) =>
   providerFor(kind).readResponse(response);
@@ -115,7 +119,11 @@ describe('PRD 011 Req 5 — provider request descriptors', () => {
 
   it('U496: the custom endpoint normalizes its base URL — trailing slash or not, same request', () => {
     const bare = build('custom');
-    const slashed = build('custom', { ...configs.custom, kind: 'custom', baseUrl: 'https://box.local/v1/' });
+    const slashed = build('custom', {
+      ...configs.custom,
+      kind: 'custom',
+      baseUrl: 'https://box.local/v1/',
+    });
     expect(bare.url).toBe('https://box.local/v1/chat/completions');
     expect(slashed.url).toBe(bare.url);
     expect(slashed.body).toBe(bare.body);
@@ -137,7 +145,7 @@ describe('PRD 011 Req 5 — provider request descriptors', () => {
     }
     const built = providerFor('custom').buildRequest(
       { kind: 'custom', apiKey: KEY, model: 'm', baseUrl: 'box.local' },
-      request,
+      ASK,
     );
     expect(built).toEqual({ kind: 'invalid-config', message: INVALID_BASE_URL_MESSAGE });
   });
@@ -153,10 +161,8 @@ describe('PRD 011 Req 5 — provider request descriptors', () => {
 
   it('U499: a request with no system text omits it rather than sending an empty one', () => {
     const bare: LlmRequest = { trigger: 'test-connection', prompt: 'ping', maxOutputTokens: 8 };
-    expect(JSON.parse(build('openai').body)).toBeTruthy();
     for (const kind of ALL_KINDS) {
-      const built = providerFor(kind).buildRequest(configs[kind], bare) as LlmHttpRequest;
-      const sent = JSON.parse(built.body) as Record<string, unknown>;
+      const sent = body(kind, bare);
       expect(sent.system).toBeUndefined();
       expect(sent.systemInstruction).toBeUndefined();
       expect(JSON.stringify(sent)).toContain('ping');

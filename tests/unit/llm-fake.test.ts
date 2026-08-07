@@ -12,7 +12,13 @@ import {
   OPENAI_ENDPOINT,
   OPENROUTER_ENDPOINT,
 } from '../../src/lib/llmProviders';
-import { runLlmRequest, UNREACHABLE_MESSAGE, type LlmProviderConfig, type LlmRequest } from '../../src/lib/llmSeam';
+import {
+  runLlmRequest,
+  UNREACHABLE_MESSAGE,
+  type LlmProviderConfig,
+  type LlmProviderKind,
+  type LlmRequest,
+} from '../../src/lib/llmSeam';
 
 // PRD 011 Req 35: the local fake — the harness every LLM test drives, here
 // driven against itself. It replaces only the sending, so the real provider
@@ -21,12 +27,18 @@ import { runLlmRequest, UNREACHABLE_MESSAGE, type LlmProviderConfig, type LlmReq
 
 const DUMMY_KEY = 'dummy-key';
 
-const configs: Record<string, LlmProviderConfig> = {
+/** One config per kind; `Object.values` iterates them in this order. */
+const configs: Record<LlmProviderKind, LlmProviderConfig> = {
   openai: { kind: 'openai', apiKey: DUMMY_KEY, model: 'gpt-5' },
   anthropic: { kind: 'anthropic', apiKey: DUMMY_KEY, model: 'claude-opus-5' },
   gemini: { kind: 'gemini', apiKey: DUMMY_KEY, model: 'gemini-2.5-flash' },
   openrouter: { kind: 'openrouter', apiKey: DUMMY_KEY, model: 'meta-llama/llama-4' },
-  custom: { kind: 'custom', apiKey: DUMMY_KEY, model: 'local-model', baseUrl: 'https://box.local/v1/' },
+  custom: {
+    kind: 'custom',
+    apiKey: DUMMY_KEY,
+    model: 'local-model',
+    baseUrl: 'https://box.local/v1/',
+  },
 };
 
 const ask = (over: Partial<LlmRequest> = {}): LlmRequest => ({
@@ -173,7 +185,7 @@ describe('PRD 011 Req 35 — the fake records what was asked', () => {
     // Reset restores the outcome the fake was created with.
     await expect(fake.run(configs.openai, ask())).resolves.toMatchObject({
       ok: true,
-      text: (DEFAULT_FAKE_OUTCOME as { text: string }).text,
+      text: DEFAULT_FAKE_OUTCOME.text,
     });
   });
 });

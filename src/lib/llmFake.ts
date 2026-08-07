@@ -22,6 +22,7 @@ import { runLlmRequest } from './llmSeam';
 import type {
   LlmFailureKind,
   LlmHttpRequest,
+  LlmHttpResponse,
   LlmProviderConfig,
   LlmProviderKind,
   LlmRequest,
@@ -30,6 +31,16 @@ import type {
   LlmTransportResult,
   LlmTrigger,
 } from './llmSeam';
+
+/**
+ * The failures a real provider delivers as an HTTP error status — the rest of
+ * the taxonomy is either not an exchange at all (`unreachable-host`), a 200 the
+ * adapter could not read (`unexpected`), or never sent (`invalid-config`).
+ */
+type ErrorStatusKind = Exclude<
+  LlmFailureKind,
+  'invalid-config' | 'unreachable-host' | 'unexpected'
+>;
 
 /**
  * PRD 011 Req 35: what a test scripts. `invalid-config` is absent on purpose —
@@ -73,11 +84,11 @@ export interface FakeLlm {
 }
 
 /** The reply a fake gives when a test scripted nothing: a success with usage. */
-export const DEFAULT_FAKE_OUTCOME: FakeLlmOutcome = {
+export const DEFAULT_FAKE_OUTCOME = {
   outcome: 'text',
   text: 'A fake summary.',
   usage: { inputTokens: 12, outputTokens: 7 },
-};
+} as const satisfies FakeLlmOutcome;
 
 /** What a fake transport says when it is standing in for an unreachable host. */
 export const FAKE_UNREACHABLE_DETAIL = 'fake transport: no route to host';
@@ -89,15 +100,17 @@ export function createFakeLlm(initial: FakeLlmOutcome = DEFAULT_FAKE_OUTCOME): F
   let fallback = initial;
   // `run` sets this immediately before calling the seam, and the transport
   // takes it on the same synchronous turn (the seam builds the descriptor
-  // without awaiting), so concurrent runs cannot swap triggers.
+  // without awaiting), so concurrent runs cannot swap triggers. The `finally`
+  // in `run` clears it again for the path where no request was ever built.
   let pendingTrigger: LlmTrigger | undefined;
 
   const transport: LlmTransport = (request) => {
     const trigger = pendingTrigger;
     pendingTrigger = undefined;
-    calls.push(describeCall(request, trigger));
+    const kind = providerKindOf(request);
+    calls.push(describeCall(kind, request, trigger));
     const outcome = queued.shift() ?? fallback;
-    return Promise.resolve(synthesize(wireStyleOf(request), outcome));
+    return Promise.resolve(synthesize(wireStyleOf(kind), outcome));
   };
 
   return {
@@ -105,7 +118,11 @@ export function createFakeLlm(initial: FakeLlmOutcome = DEFAULT_FAKE_OUTCOME): F
     calls,
     run(config, request) {
       pendingTrigger = request.trigger;
-      return runLlmRequest(transport, config, request);
+      try {
+        return runLlmRequest(transport, config, request);
+      } finally {
+        pendingTrigger = undefined;
+      }
     },
     respondWith(outcome) {
       fallback = outcome;
@@ -138,18 +155,20 @@ function providerKindOf(request: LlmHttpRequest): LlmProviderKind {
   return 'custom';
 }
 
-function wireStyleOf(request: LlmHttpRequest): WireStyle {
-  const kind = providerKindOf(request);
+function wireStyleOf(kind: LlmProviderKind): WireStyle {
   if (kind === 'anthropic') return 'anthropic';
   if (kind === 'gemini') return 'gemini';
   return 'openai';
 }
 
 /** PRD 011 Req 35: the model, prompt and system text, read back out of the body. */
-function describeCall(request: LlmHttpRequest, trigger: LlmTrigger | undefined): FakeLlmCall {
-  const kind = providerKindOf(request);
-  const body = JSON.parse(request.body) as Record<string, never>;
-  const sent = readSent(wireStyleOf(request), body, request.url);
+function describeCall(
+  kind: LlmProviderKind,
+  request: LlmHttpRequest,
+  trigger: LlmTrigger | undefined,
+): FakeLlmCall {
+  const body = JSON.parse(request.body) as Record<string, unknown>;
+  const sent = readSent(wireStyleOf(kind), body, request.url);
   return {
     providerKind: kind,
     url: request.url,
@@ -202,16 +221,16 @@ function synthesize(style: WireStyle, outcome: FakeLlmOutcome): LlmTransportResu
   if (outcome.outcome === 'text') {
     return { kind: 'http', response: { status: 200, body: successBody(style, outcome) } };
   }
-  const kind = outcome.kind;
-  if (kind === 'unreachable-host') {
-    return { kind: 'no-response', detail: FAKE_UNREACHABLE_DETAIL };
+  switch (outcome.kind) {
+    case 'unreachable-host':
+      return { kind: 'no-response', detail: FAKE_UNREACHABLE_DETAIL };
+    case 'unexpected':
+      // The catch-all as it actually happens: a 200 whose body is not the shape
+      // the provider promised, never a silent empty summary.
+      return { kind: 'http', response: { status: 200, body: '<html>bad gateway</html>' } };
+    default:
+      return { kind: 'http', response: errorResponse(style, outcome.kind, outcome) };
   }
-  if (kind === 'unexpected') {
-    // The catch-all as it actually happens: a 200 whose body is not the shape
-    // the provider promised, never a silent empty summary.
-    return { kind: 'http', response: { status: 200, body: '<html>bad gateway</html>' } };
-  }
-  return { kind: 'http', response: errorResponse(style, { ...outcome, kind }) };
 }
 
 function successBody(
@@ -251,61 +270,71 @@ function successBody(
 
 function errorResponse(
   style: WireStyle,
-  outcome: { kind: 'bad-key' | 'unknown-model' | 'rate-limited'; providerMessage?: string; retryAfterSeconds?: number },
-): { status: number; body: string; headers?: Record<string, string> } {
-  const message = outcome.providerMessage ?? DEFAULT_PROVIDER_MESSAGE[outcome.kind];
+  kind: ErrorStatusKind,
+  outcome: { providerMessage?: string; retryAfterSeconds?: number },
+): LlmHttpResponse {
+  const message = outcome.providerMessage ?? DEFAULT_PROVIDER_MESSAGE[kind];
   const retry = outcome.retryAfterSeconds;
+  const retryHeader = retry === undefined ? {} : { headers: { 'retry-after': String(retry) } };
   if (style === 'anthropic') {
-    const type =
-      outcome.kind === 'bad-key'
-        ? 'authentication_error'
-        : outcome.kind === 'unknown-model'
-          ? 'not_found_error'
-          : 'rate_limit_error';
     return {
-      status: STATUS[outcome.kind],
-      body: JSON.stringify({ type: 'error', error: { type, message } }),
-      ...(retry === undefined ? {} : { headers: { 'retry-after': String(retry) } }),
+      status: STATUS[kind],
+      body: JSON.stringify({ type: 'error', error: { type: ANTHROPIC_ERROR_TYPE[kind], message } }),
+      ...retryHeader,
     };
   }
   if (style === 'gemini') {
-    const status =
-      outcome.kind === 'bad-key'
-        ? 'INVALID_ARGUMENT'
-        : outcome.kind === 'unknown-model'
-          ? 'NOT_FOUND'
-          : 'RESOURCE_EXHAUSTED';
     // Gemini answers 400 for a rejected key, and puts its retry hint in the body.
-    const httpStatus = outcome.kind === 'bad-key' ? 400 : STATUS[outcome.kind];
+    const status = kind === 'bad-key' ? 400 : STATUS[kind];
     return {
-      status: httpStatus,
+      status,
       body: JSON.stringify({
         error: {
-          code: httpStatus,
-          status,
+          code: status,
+          status: GEMINI_ERROR_STATUS[kind],
           message,
           ...(retry === undefined ? {} : { details: [{ retryDelay: `${retry}s` }] }),
         },
       }),
     };
   }
-  const code =
-    outcome.kind === 'bad-key'
-      ? 'invalid_api_key'
-      : outcome.kind === 'unknown-model'
-        ? 'model_not_found'
-        : 'rate_limit_exceeded';
   return {
-    status: STATUS[outcome.kind],
-    body: JSON.stringify({ error: { message, type: 'invalid_request_error', code } }),
-    ...(retry === undefined ? {} : { headers: { 'retry-after': String(retry) } }),
+    status: STATUS[kind],
+    body: JSON.stringify({
+      error: { message, type: 'invalid_request_error', code: OPENAI_ERROR_CODE[kind] },
+    }),
+    ...retryHeader,
   };
 }
 
-const STATUS = { 'bad-key': 401, 'unknown-model': 404, 'rate-limited': 429 } as const;
+// The vocabulary each wire dialect reports these three failures in — the very
+// fields `llmProviders.ts` classifies from.
+const STATUS: Record<ErrorStatusKind, number> = {
+  'bad-key': 401,
+  'unknown-model': 404,
+  'rate-limited': 429,
+};
 
-const DEFAULT_PROVIDER_MESSAGE = {
+const ANTHROPIC_ERROR_TYPE: Record<ErrorStatusKind, string> = {
+  'bad-key': 'authentication_error',
+  'unknown-model': 'not_found_error',
+  'rate-limited': 'rate_limit_error',
+};
+
+const GEMINI_ERROR_STATUS: Record<ErrorStatusKind, string> = {
+  'bad-key': 'INVALID_ARGUMENT',
+  'unknown-model': 'NOT_FOUND',
+  'rate-limited': 'RESOURCE_EXHAUSTED',
+};
+
+const OPENAI_ERROR_CODE: Record<ErrorStatusKind, string> = {
+  'bad-key': 'invalid_api_key',
+  'unknown-model': 'model_not_found',
+  'rate-limited': 'rate_limit_exceeded',
+};
+
+const DEFAULT_PROVIDER_MESSAGE: Record<ErrorStatusKind, string> = {
   'bad-key': 'Incorrect API key provided.',
   'unknown-model': 'The model does not exist.',
   'rate-limited': 'Rate limit reached for requests.',
-} as const;
+};

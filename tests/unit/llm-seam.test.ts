@@ -11,6 +11,7 @@ import {
   USAGE_UNKNOWN,
   type LlmHttpRequest,
   type LlmProviderConfig,
+  type LlmProviderKind,
   type LlmRequest,
   type LlmTransport,
   type LlmTransportResult,
@@ -23,13 +24,16 @@ import {
 
 const KEY = 'sk-SENTINEL-do-not-leak-0123456789';
 
-const CONFIGS: LlmProviderConfig[] = [
-  { kind: 'openai', apiKey: KEY, model: 'gpt-5' },
-  { kind: 'anthropic', apiKey: KEY, model: 'claude-opus-5' },
-  { kind: 'gemini', apiKey: KEY, model: 'gemini-2.5-flash' },
-  { kind: 'openrouter', apiKey: KEY, model: 'meta-llama/llama-4' },
-  { kind: 'custom', apiKey: KEY, model: 'local-model', baseUrl: 'https://box.local/v1' },
-];
+/** One config per kind. The insertion order is what `EVERY_CONFIG` iterates in. */
+const CONFIGS: Record<LlmProviderKind, LlmProviderConfig> = {
+  openai: { kind: 'openai', apiKey: KEY, model: 'gpt-5' },
+  anthropic: { kind: 'anthropic', apiKey: KEY, model: 'claude-opus-5' },
+  gemini: { kind: 'gemini', apiKey: KEY, model: 'gemini-2.5-flash' },
+  openrouter: { kind: 'openrouter', apiKey: KEY, model: 'meta-llama/llama-4' },
+  custom: { kind: 'custom', apiKey: KEY, model: 'local-model', baseUrl: 'https://box.local/v1' },
+};
+
+const EVERY_CONFIG = Object.values(CONFIGS);
 
 const ask = (over: Partial<LlmRequest> = {}): LlmRequest => ({
   trigger: 'summarize',
@@ -75,7 +79,7 @@ describe('PRD 011 Req 11 — one entry point, one response shape', () => {
       text: 'A two-sentence summary.',
       usage: { inputTokens: 40, outputTokens: 9 },
     });
-    const response = await runLlmRequest(fake.transport, CONFIGS[0], ask());
+    const response = await runLlmRequest(fake.transport, CONFIGS.openai, ask());
     expect(response).toEqual({
       ok: true,
       text: 'A two-sentence summary.',
@@ -87,7 +91,7 @@ describe('PRD 011 Req 11 — one entry point, one response shape', () => {
 
   it('U483: every provider kind answers the same response shape through the one entry point', async () => {
     const fake = createFakeLlm({ outcome: 'text', text: 'same shape' });
-    for (const config of CONFIGS) {
+    for (const config of EVERY_CONFIG) {
       const response = await runLlmRequest(fake.transport, config, ask());
       expect(response.ok).toBe(true);
       if (!response.ok) continue;
@@ -109,7 +113,7 @@ describe('PRD 011 Req 11 — one entry point, one response shape', () => {
 describe('PRD 011 Req 10 — transport-level failure is an unreachable host', () => {
   it('U484: a transport reporting no HTTP response is an unreachable host, not a status', async () => {
     const { transport } = stubTransport({ kind: 'no-response', detail: 'getaddrinfo ENOTFOUND' });
-    const response = await runLlmRequest(transport, CONFIGS[1], ask());
+    const response = await runLlmRequest(transport, CONFIGS.anthropic, ask());
     expect(response).toEqual({
       ok: false,
       failure: {
@@ -122,7 +126,7 @@ describe('PRD 011 Req 10 — transport-level failure is an unreachable host', ()
 
   it('U485: a transport that rejects is an unreachable host too, and never throws out of the seam', async () => {
     const { transport } = stubTransport(() => Promise.reject(new Error('connect ECONNREFUSED')));
-    const response = await runLlmRequest(transport, CONFIGS[3], ask());
+    const response = await runLlmRequest(transport, CONFIGS.openrouter, ask());
     expect(response.ok).toBe(false);
     if (response.ok) return;
     expect(response.failure.kind).toBe('unreachable-host');
@@ -155,7 +159,7 @@ describe('PRD 011 Req 7 — the key never leaves the request headers', () => {
   it('U488: no failure path of any provider leaks the key into a message or a serialized failure', async () => {
     const fake = createFakeLlm();
     const kinds = ['bad-key', 'unknown-model', 'rate-limited', 'unreachable-host', 'unexpected'] as const;
-    for (const config of CONFIGS) {
+    for (const config of EVERY_CONFIG) {
       for (const kind of kinds) {
         // The provider quotes the key straight back at us, as a careless one might.
         fake.respondWith({ outcome: 'failure', kind, providerMessage: `key ${KEY} refused` });
@@ -178,7 +182,7 @@ describe('PRD 011 Req 7 — the key never leaves the request headers', () => {
 
   it('U489: no built URL carries the key, for any provider kind', async () => {
     const fake = createFakeLlm();
-    for (const config of CONFIGS) await runLlmRequest(fake.transport, config, ask());
+    for (const config of EVERY_CONFIG) await runLlmRequest(fake.transport, config, ask());
     for (const call of fake.calls) {
       expect(call.url).not.toContain(KEY);
       expect(call.url).toMatch(/^https:\/\//);

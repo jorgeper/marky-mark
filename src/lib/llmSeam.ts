@@ -201,9 +201,17 @@ export async function runLlmRequest(
   config: LlmProviderConfig,
   request: LlmRequest,
 ): Promise<LlmResponse> {
+  // PRD 011 Req 7: no failure leaves here unredacted, whichever step produced it.
+  const fail = (failure: LlmFailure): LlmResponse => ({
+    ok: false,
+    failure: redactFailure(failure, config.apiKey),
+  });
+
   const provider = providerFor(config.kind);
+  // A provider answers either the descriptor to send or the reason it could
+  // not build one; only the failure carries a `kind`.
   const built = provider.buildRequest(config, request);
-  if ('kind' in built) return { ok: false, failure: redactFailure(built, config.apiKey) };
+  if ('kind' in built) return fail(built);
 
   let result: LlmTransportResult;
   try {
@@ -215,22 +223,15 @@ export async function runLlmRequest(
   }
 
   if (result.kind === 'no-response') {
-    return {
-      ok: false,
-      failure: redactFailure(
-        {
-          kind: 'unreachable-host',
-          message: UNREACHABLE_MESSAGE,
-          ...(result.detail ? { providerMessage: result.detail } : {}),
-        },
-        config.apiKey,
-      ),
-    };
+    return fail({
+      kind: 'unreachable-host',
+      message: UNREACHABLE_MESSAGE,
+      ...(result.detail ? { providerMessage: result.detail } : {}),
+    });
   }
 
   const response = provider.readResponse(result.response);
-  if (response.ok) return response;
-  return { ok: false, failure: redactFailure(response.failure, config.apiKey) };
+  return response.ok ? response : fail(response.failure);
 }
 
 /** PRD 011 Req 7: every human-readable field of a failure, redacted. */
