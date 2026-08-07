@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { flattenSections, parseSections } from '../../src/lib/sectionModel';
 import { reconcileSummaryKeys, summaryKeyForSection, type SummaryKeyContext } from '../../src/lib/summaryCache';
 import {
-  EMPTY_SUMMARY_CACHE,
   SUMMARY_CACHE_MAX_BYTES,
+  emptySummaryCache,
   parseSummaryCache,
   readSummaryCacheEntry,
   serializeSummaryCache,
@@ -21,7 +21,7 @@ const CONFIG_DIR = '/home/ada/.config/marky-mark';
 
 /**
  * A fake of the file slice of the Platform seam, recording every path any
- * operation touched — that ledger is what U546 reads to prove the store never
+ * operation touched — that ledger is what U547 reads to prove the store never
  * writes beside a document.
  */
 function createFakeFs(): SummaryCacheFs & { files: Map<string, string>; touched: string[] } {
@@ -77,7 +77,7 @@ const CTX: SummaryKeyContext = { level: 3, providerId: 'fake', modelId: 'fake-sm
 
 describe('PRD 011 Req 28 — the summary cache store keeps #110’s keys and survives a restart', () => {
   it('U540: an entry round-trips through serialize/parse with its provider, model, prompt version and stamp', () => {
-    const file = writeSummaryCacheEntry(EMPTY_SUMMARY_CACHE, input('k1', 'a summary'), 1_234);
+    const file = writeSummaryCacheEntry(emptySummaryCache(), input('k1', 'a summary'), 1_234);
     const back = parseSummaryCache(serializeSummaryCache(file));
     expect(readSummaryCacheEntry(back, 'k1')).toEqual({
       key: 'k1',
@@ -90,7 +90,7 @@ describe('PRD 011 Req 28 — the summary cache store keeps #110’s keys and sur
     // PRD 011 Req 33: #119's usage numbers have somewhere to land, and are
     // absent rather than zeroed when no producer supplied them.
     const withUsage = writeSummaryCacheEntry(
-      EMPTY_SUMMARY_CACHE,
+      emptySummaryCache(),
       { ...input('k2', 's'), usage: { promptTokens: 120, completionTokens: 30 } },
       1,
     );
@@ -120,7 +120,7 @@ describe('PRD 011 Req 28 — the summary cache store keeps #110’s keys and sur
     const store = createFileSummaryCache(fs, { now: createFakeClock().now });
     // The very first get, before anything exists at all.
     expect(await store.get('never-written')).toBeNull();
-    expect(await store.size()).toEqual({ bytes: summaryCacheBytes(EMPTY_SUMMARY_CACHE), entries: 0 });
+    expect(await store.size()).toEqual({ bytes: summaryCacheBytes(emptySummaryCache()), entries: 0 });
     await store.put(input('present', 's'));
     expect(await store.get('absent')).toBeNull();
   });
@@ -177,7 +177,7 @@ describe('PRD 011 Req 29 — the desktop store is byte-capped, oldest-out, and l
   it('U545: over the cap, the least recently written entries go first and the newest one always stays', () => {
     // A cap that fits three of these entries but not four.
     const three = writeSummaryCacheEntry(
-      writeSummaryCacheEntry(writeSummaryCacheEntry(EMPTY_SUMMARY_CACHE, input('a', 'A'.repeat(200)), 1), input('b', 'B'.repeat(200)), 2),
+      writeSummaryCacheEntry(writeSummaryCacheEntry(emptySummaryCache(), input('a', 'A'.repeat(200)), 1), input('b', 'B'.repeat(200)), 2),
       input('c', 'C'.repeat(200)),
       3,
     );
@@ -198,7 +198,7 @@ describe('PRD 011 Req 29 — the desktop store is byte-capped, oldest-out, and l
   });
 
   it('U546: an entry bigger than the cap on its own is refused and leaves the store exactly as it was', async () => {
-    const seeded = writeSummaryCacheEntry(EMPTY_SUMMARY_CACHE, input('small', 'ok'), 1);
+    const seeded = writeSummaryCacheEntry(emptySummaryCache(), input('small', 'ok'), 1);
     const cap = summaryCacheBytes(seeded) + 50;
     const after = writeSummaryCacheEntry(seeded, input('huge', 'X'.repeat(cap * 2)), 2, cap);
     expect(after).toBe(seeded);
@@ -237,7 +237,7 @@ describe('PRD 011 Req 29 — the desktop store is byte-capped, oldest-out, and l
     const fs = createFakeFs();
     const clock = createFakeClock();
     const store = createFileSummaryCache(fs, { now: clock.now });
-    expect(await store.size()).toEqual({ bytes: summaryCacheBytes(EMPTY_SUMMARY_CACHE), entries: 0 });
+    expect(await store.size()).toEqual({ bytes: summaryCacheBytes(emptySummaryCache()), entries: 0 });
 
     await store.put(input('k1', 'one'));
     clock.tick();

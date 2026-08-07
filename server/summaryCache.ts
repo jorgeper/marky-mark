@@ -21,10 +21,10 @@
 // desktop store's promise (Req 29); the hosted side reports its size and
 // offers Clear (Req 30) and adds no operator knob.
 
-import {
-  type SummaryCacheEntry,
-  type SummaryCacheInput,
-  type SummaryCacheSize,
+import type {
+  SummaryCacheEntry,
+  SummaryCacheInput,
+  SummaryCacheSize,
 } from '../src/lib/summaryCacheStore.ts';
 import type { StorageProvider } from './providers/types.ts';
 import { WORKSPACES_PREFIX } from './workspaces.ts';

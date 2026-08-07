@@ -15,8 +15,8 @@
  */
 
 import {
-  EMPTY_SUMMARY_CACHE,
   SUMMARY_CACHE_MAX_BYTES,
+  emptySummaryCache,
   parseSummaryCache,
   readSummaryCacheEntry,
   serializeSummaryCache,
@@ -59,13 +59,13 @@ export function createFileSummaryCache(fs: SummaryCacheFs, options: FileSummaryC
     const path = await filePath();
     // A missing file is an empty cache, not a failure — the first run, and
     // every run after a Clear, take this branch.
-    if (!(await fs.exists(path))) return { ...EMPTY_SUMMARY_CACHE };
+    if (!(await fs.exists(path))) return emptySummaryCache();
     try {
       return parseSummaryCache(await fs.readTextFile(path));
     } catch {
       // Unreadable (permissions, a directory in its place) is a miss too: a
       // cache that cannot be read must never stop the app from summarizing.
-      return { ...EMPTY_SUMMARY_CACHE };
+      return emptySummaryCache();
     }
   };
 
@@ -76,7 +76,9 @@ export function createFileSummaryCache(fs: SummaryCacheFs, options: FileSummaryC
   };
 
   // One file, so operations are serialized: a put that read the file before an
-  // earlier put wrote it would silently drop that entry.
+  // earlier put wrote it would silently drop that entry. `then(work, work)`
+  // runs the next operation whether the previous one settled or threw — one
+  // failed read must not wedge the queue behind it.
   let queue: Promise<unknown> = Promise.resolve();
   const serial = <T>(work: () => Promise<T>): Promise<T> => {
     const next = queue.then(work, work);
@@ -91,7 +93,8 @@ export function createFileSummaryCache(fs: SummaryCacheFs, options: FileSummaryC
       serial(async () => {
         const before = await load();
         const after = writeSummaryCacheEntry(before, entry, options.now(), cap);
-        // An oversized entry is refused, and a refusal rewrites nothing.
+        // An oversized entry is refused — the pure store hands the same value
+        // back — and a refusal rewrites nothing.
         if (after !== before) await save(after);
       }),
 

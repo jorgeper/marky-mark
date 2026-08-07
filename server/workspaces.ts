@@ -727,34 +727,34 @@ async function routeWorkspaceApi(
   // are the ones every route here already has; the verbs are the catalog's
   // existing ones (PRD 007 Req 13), no fifteenth added.
   //
-  // Every branch reads and writes `deploymentDefault`, NEVER `storage`: on a
-  // workspace connected to a BYO repository the cache must not follow its
+  // Both routes below read and write `deploymentDefault`, NEVER `storage`: on
+  // a workspace connected to a BYO repository the cache must not follow its
   // files into the user's repo (server/summaryCache.ts states the layout and
   // the three consequences it buys).
-  if (
-    segments[1] === 'summary-cache' &&
-    (segments.length === 2 || (segments.length === 3 && segments[2] === 'entry'))
-  ) {
-    const isEntryRoute = segments.length === 3;
-    if (isEntryRoute && (req.method === 'GET' || req.method === 'PUT')) {
+
+  // GET/PUT /api/workspaces/<id>/summary-cache/entry — one key at a time.
+  if (segments.length === 3 && segments[1] === 'summary-cache' && segments[2] === 'entry') {
+    if (req.method === 'GET') {
       // Required permission: doc.read — a summary is derived from content the
-      // caller may already read, and storing one they just generated is not a
-      // change to any document.
+      // caller may already read.
       if (!(await requirePermission(res, storage, id, auth, 'doc.read'))) return;
-      if (req.method === 'GET') {
-        // The key rides the query string, so the ONE key-carrying path segment
-        // that would otherwise need escaping never exists.
-        const key = readSummaryCacheKey(url.searchParams.get('key'));
-        if (!key) {
-          sendJson(res, 400, { error: 'invalid cache key' });
-          return;
-        }
-        // A miss is 200 with `entry: null`, not 404: "nothing cached yet" is
-        // the ordinary answer, and a client must not read a status code to
-        // tell it apart from a failure it should report.
-        sendJson(res, 200, { entry: await readCachedSummary(deploymentDefault, id, key) });
+      // The key rides the query string, so the ONE key-carrying path segment
+      // that would otherwise need escaping never exists.
+      const key = readSummaryCacheKey(url.searchParams.get('key'));
+      if (!key) {
+        sendJson(res, 400, { error: 'invalid cache key' });
         return;
       }
+      // A miss is 200 with `entry: null`, not 404: "nothing cached yet" is
+      // the ordinary answer, and a client must not read a status code to
+      // tell it apart from a failure it should report.
+      sendJson(res, 200, { entry: await readCachedSummary(deploymentDefault, id, key) });
+      return;
+    }
+    if (req.method === 'PUT') {
+      // Required permission: doc.read — storing a summary the caller just
+      // generated is not a change to any document.
+      if (!(await requirePermission(res, storage, id, auth, 'doc.read'))) return;
       const body = await readJsonBody(req, res);
       if (body === undefined) return;
       const entry = validateSummaryCacheEntry(body);
@@ -767,14 +767,19 @@ async function routeWorkspaceApi(
       sendJson(res, 200, { key: entry.key });
       return;
     }
-    if (!isEntryRoute && req.method === 'GET') {
+  }
+
+  // GET/DELETE /api/workspaces/<id>/summary-cache — the whole cache: how much
+  // it holds, and throwing it away.
+  if (segments.length === 2 && segments[1] === 'summary-cache') {
+    if (req.method === 'GET') {
       // Required permission: doc.read — the size is about content the caller
       // can already reach (PRD 011 Req 30's inspect half, #120's to render).
       if (!(await requirePermission(res, storage, id, auth, 'doc.read'))) return;
       sendJson(res, 200, await summaryCacheUsage(deploymentDefault, id));
       return;
     }
-    if (!isEntryRoute && req.method === 'DELETE') {
+    if (req.method === 'DELETE') {
       // Required permission: workspace.settings — Clear discards summaries
       // every member shares, so it is the workspace-wide authority and not
       // the reader's (PRD 011 Req 30's clear half).

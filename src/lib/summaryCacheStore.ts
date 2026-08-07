@@ -84,12 +84,19 @@ export type SummaryClock = () => number;
  */
 export const SUMMARY_CACHE_MAX_BYTES = 4 * 1024 * 1024;
 
-export const EMPTY_SUMMARY_CACHE: SummaryCacheFile = { version: SUMMARY_CACHE_VERSION, entries: [] };
+/**
+ * A fresh empty cache. A function rather than a shared constant so every
+ * caller owns its result: two "empty" reads must not alias one `entries`
+ * array, or a later mutation in one place would be visible in every other.
+ */
+export function emptySummaryCache(): SummaryCacheFile {
+  return { version: SUMMARY_CACHE_VERSION, entries: [] };
+}
 
 const encoder = new TextEncoder();
 
 /** Byte length, not character length: the cap is a promise about disk. */
-export function utf8Bytes(text: string): number {
+function utf8Bytes(text: string): number {
   return encoder.encode(text).length;
 }
 
@@ -117,12 +124,12 @@ const isEntry = (value: unknown): value is SummaryCacheEntry => {
 export function parseSummaryCache(json: string): SummaryCacheFile {
   try {
     const data = JSON.parse(json) as { version?: unknown; entries?: unknown };
-    if (data.version !== SUMMARY_CACHE_VERSION || !Array.isArray(data.entries)) return { ...EMPTY_SUMMARY_CACHE };
+    if (data.version !== SUMMARY_CACHE_VERSION || !Array.isArray(data.entries)) return emptySummaryCache();
     // Per-entry filtering, not all-or-nothing: one damaged row must not throw
     // away every good summary beside it.
     return { version: SUMMARY_CACHE_VERSION, entries: (data.entries as unknown[]).filter(isEntry) };
   } catch {
-    return { ...EMPTY_SUMMARY_CACHE };
+    return emptySummaryCache();
   }
 }
 
@@ -155,8 +162,9 @@ export function readSummaryCacheEntry(file: SummaryCacheFile, key: string): Summ
  * Front-insert plus drop-from-the-tail is what makes the two edges true: the
  * entry just written is at the head, so eviction can never take it while a
  * strictly older one is still there; and an entry that alone exceeds the cap
- * is REFUSED (the store comes back untouched) rather than emptying the cache
- * to store one oversized row it would then have to evict anyway.
+ * is REFUSED rather than emptying the cache to store one oversized row it
+ * would then have to evict anyway. A refusal returns `file` ITSELF, so a
+ * caller with a file to rewrite detects it as `after === before`.
  */
 export function writeSummaryCacheEntry(
   file: SummaryCacheFile,
