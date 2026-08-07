@@ -1,5 +1,6 @@
 import type { Platform } from './types';
 import { createFileSummaryCache } from './summaryCacheFiles';
+import { createFakeLlm } from '../lib/llmFake';
 import { FIXTURES } from '../bundled';
 import { dispatchRecent, dispatchCommand, type CommandId } from '../lib/commands';
 import type { CommandItemSpec, MenuSpec, RecentItemSpec } from '../lib/menuSpec';
@@ -522,5 +523,11 @@ export function createBrowserPlatform(): Platform {
   // SAME `createFileSummaryCache` tauri.ts uses, not a second implementation,
   // so later e2e work drives the real eviction and corruption behaviour.
   platform.summaryCache = createFileSummaryCache(platform, { now: () => Date.now() });
+  // PRD 011 Req 35: the dev/e2e shim's LLM transport is the local FAKE, so a
+  // desktop-shim test drives the real seam and the real provider adapters and
+  // only the sending is replaced — no real provider is ever contacted. Only
+  // this shim gets it: `tauri.ts` keeps the Rust-backed transport, `hosted.ts`
+  // its same-origin client, and `web.ts` no LLM capability at all.
+  platform.llmTransport = createFakeLlm().transport;
   return platform;
 }

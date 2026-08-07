@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   DEFAULT_SETTINGS,
   diffSettings,
+  resolveSettings,
   SETTINGS_SCOPES,
   settingsRowStatus,
   winningLayer,
@@ -30,6 +31,29 @@ describe('PRD 002 §E18 workspace-eligible keys', () => {
     expect([...WORKSPACE_PINNABLE_KEYS].sort()).toEqual(uKeys.filter((k) => k !== 'hotkeys').sort());
     expect(WORKSPACE_PINNABLE_KEYS).not.toContain('hotkeys');
     expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain('hotkeys');
+  });
+
+  test('U576: PRD 011 Req 7 — no LLM key is workspace-editable, and no layer but User supplies one', () => {
+    const llmKeys: Array<keyof Settings> = ['llmProvider', 'llmModel', 'llmApiKey', 'llmBaseUrl'];
+    for (const k of llmKeys) {
+      expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain(k);
+      expect(WORKSPACE_PINNABLE_KEYS).not.toContain(k);
+      // Shown on the Workspace tab, but the workspace layer cannot supply it.
+      expect(settingsRowStatus(k, 'workspace', {}).userOnly).toBe(true);
+    }
+    // `U!`: a workspace-layer (and global-layer) value never wins resolution —
+    // a committed `.marky-workspace` cannot hand a reader someone else's key.
+    const planted = { llmApiKey: 'sk-planted', llmProvider: 'openai', llmModel: 'gpt-5', llmBaseUrl: 'https://x/v1' };
+    const resolved = resolveSettings({ global: planted, team: planted, workspace: planted, user: {} });
+    expect(resolved.llmApiKey).toBe(DEFAULT_SETTINGS.llmApiKey);
+    expect(resolved.llmApiKey).toBe('');
+    expect(resolved.llmProvider).toBe(DEFAULT_SETTINGS.llmProvider);
+    expect(resolved.llmModel).toBe('');
+    expect(resolved.llmBaseUrl).toBe('');
+    for (const k of llmKeys) expect(winningLayer(k, { workspace: planted, global: planted })).toBe('default');
+    // The reader's own User layer is the one that does win.
+    expect(resolveSettings({ workspace: planted, user: { llmApiKey: 'sk-mine' } }).llmApiKey).toBe('sk-mine');
+    expect(winningLayer('llmApiKey', { workspace: planted, user: { llmApiKey: 'sk-mine' } })).toBe('user');
   });
 });
 

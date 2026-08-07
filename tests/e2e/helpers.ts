@@ -70,7 +70,12 @@ export async function freshApp(page: Page): Promise<void> {
 }
 
 /** Open the Settings panel through the overflow menu, on the given tab. */
-export async function openSettings(page: Page, tab: 'appearance' | 'general' | 'hotkeys' = 'appearance'): Promise<void> {
+export async function openSettings(
+  page: Page,
+  // PRD 011 Req 4: widened for the LLM providers tab — same helper, one more
+  // destination, so no caller is duplicated or replaced.
+  tab: 'appearance' | 'general' | 'hotkeys' | 'editor' | 'llm' = 'appearance'
+): Promise<void> {
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('menu-settings').click();

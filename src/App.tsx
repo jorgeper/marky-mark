@@ -93,13 +93,17 @@ import {
   EV_AUX_INIT,
   EV_AUX_READY,
   EV_AUX_REQUEST,
+  EV_LLM_TEST_RESULT,
   EV_SETTINGS_CHANGED,
   EV_SETTINGS_EDIT,
   EV_THEMES_CHANGED,
+  sanitizeAuxRequest,
   sanitizeSettingsEdit,
-  type AuxRequest,
   type SettingsBroadcast,
 } from './lib/auxProtocol';
+import { LLM_UNCONFIGURED, type LlmAvailability } from './lib/llmDeployment';
+import { runLlmRequest } from './lib/llmSeam';
+import { llmAreaState, testConnection, type LlmCapabilities, type LlmTestResult } from './lib/llmSettings';
 import { VimNavResolver } from './lib/vimnav';
 import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, renderedOffsetForSource, sourceOffsetForRendered, sourceRangeForVisibleMatch, visibleTextForRange } from './lib/selectionMap';
 import { blockLineFor, wordAt } from './lib/activePosition';
@@ -404,6 +408,10 @@ export default function App() {
   // PRD 010 Req 18: a reconnect returning from GitHub opens Workspace
   // settings on arrival — that is where the repair surface lives.
   const [settingsOpen, setSettingsOpen] = useState(() => reconnectReturnTarget() !== null);
+  // PRD 011 Req 13: what the hosted deployment says it has. Null until asked —
+  // and it is only asked once the reader opens Settings (below), never at
+  // startup (PRD 011 Req 16).
+  const [llmHosted, setLlmHosted] = useState<LlmAvailability | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [closePrompt, setClosePrompt] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -3919,6 +3927,55 @@ export default function App() {
     // exactly when one of them does — the rest is this menu's File half.
   }, [platform, viewMenuState, recent, recentWs, entryActions, menuInstallFailed]);
 
+  // --- LLM providers area (PRD 011 Reqs 9+10) -----------------------------
+  // PRD 011 Req 9: availability is a CAPABILITY question, never a flavor one.
+  // A window with `llmTransport` can send provider requests itself; one with
+  // `llm` defers to the deployment's own server; the static web build has
+  // neither, which is exactly the "unavailable on this platform" state.
+  const llmCapabilities = useMemo<LlmCapabilities>(
+    () => ({
+      transport: platform?.llmTransport !== undefined,
+      // Until the deployment answers, an existing hosted client reads as
+      // unconfigured — the honest conservative state, and the one the area
+      // already has a sentence for. It corrects itself when the reply lands.
+      hosted: platform?.llm ? llmHosted ?? LLM_UNCONFIGURED : null,
+    }),
+    [platform, llmHosted]
+  );
+
+  useEffect(() => {
+    // PRD 011 Req 16: this is not a provider request and it does not run at
+    // startup — it asks the app's OWN server what the operator configured, and
+    // only once the reader has opened Settings.
+    if (!settingsOpen || !platform?.llm || llmHosted) return;
+    let disposed = false;
+    void platform.llm.availability().then((a) => {
+      if (!disposed) setLlmHosted(a);
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [settingsOpen, platform, llmHosted]);
+
+  /**
+   * PRD 011 Req 10: the one place a test-connection request is made. It runs
+   * in THIS window — the one that holds the capability — whether the click came
+   * from the inline panel or arrived from the aux settings window over the bus.
+   * Exactly one request per invocation, built once in `llmSettings.ts`.
+   */
+  const runLlmTest = useCallback(async (): Promise<LlmTestResult> => {
+    const area = llmAreaState(llmCapabilities, stateRef.current.settings);
+    const client = stateRef.current.platform?.llm;
+    if (area.state === 'hosted' && client) return testConnection((req) => client.run(req));
+    const transport = stateRef.current.platform?.llmTransport;
+    if (area.state === 'ready' && transport) {
+      return testConnection((req) => runLlmRequest(transport, area.config, req));
+    }
+    // Nothing to send: report it as the seam's own typed failure carrying the
+    // area's own sentence, rather than inventing a second wording.
+    return { ok: false, failure: { kind: 'invalid-config', message: area.message } };
+  }, [llmCapabilities]);
+
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
     if (!platform?.busListen || !platform.busEmit) return;
@@ -3935,6 +3992,9 @@ export default function App() {
             themes: s.themes,
             isMac: platform.isMac,
             version: __APP_VERSION__,
+            // PRD 011 Req 9: the aux window holds no capability of its own, so
+            // what this window can do travels with the init.
+            llm: llmCapabilities,
           })
         );
       });
@@ -3945,10 +4005,18 @@ export default function App() {
         if (e) applySettingsEdit(e.scope, e.patch);
       });
       const req = await platform.busListen!(EV_AUX_REQUEST, (payload) => {
-        const r = payload as AuxRequest;
+        // §3.5: an aux request is validated, not trusted — same precedent as
+        // the settings edit above.
+        const r = sanitizeAuxRequest(payload);
+        if (!r) return;
         if (r.req === 'reloadThemes') void reloadThemes();
         else if (r.req === 'revealThemesDir') void platform.revealThemesDir?.();
         else if (r.req === 'openExternal') void platform.openExternal(r.url);
+        // PRD 011 Req 10: the aux settings window asked; THIS window runs the
+        // request and sends back the narrowed, already-redacted result.
+        else if (r.req === 'llmTestConnection') {
+          void runLlmTest().then((result) => platform.busEmit!(EV_LLM_TEST_RESULT, result));
+        }
       });
       if (disposed) [ready, edit, req].forEach((off) => off());
       else offs.push(ready, edit, req);
@@ -3957,7 +4025,7 @@ export default function App() {
       disposed = true;
       offs.forEach((off) => off());
     };
-  }, [platform, applySettingsEdit, currentLayerView, reloadThemes]);
+  }, [platform, applySettingsEdit, currentLayerView, reloadThemes, llmCapabilities, runLlmTest]);
 
   // §3.5 canonical echo: every settings/layer change broadcasts, whatever its source.
   useEffect(() => {
@@ -5490,6 +5558,11 @@ export default function App() {
           onRevealThemesDir={platform.revealThemesDir ? () => void platform.revealThemesDir!() : undefined}
           onClose={() => setSettingsOpen(false)}
           docName={docPath ? platform.basename(docPath).replace(/\.[^.]+$/, '') : undefined}
+          // PRD 011 Reqs 9+10: this window holds the capability, so the panel
+          // renders from it directly — the aux round trip is the desktop path,
+          // not a new indirection for everyone.
+          llmCapabilities={llmCapabilities}
+          onLlmTest={runLlmTest}
           workspaceActions={
             // PRD 007 Req 12 (+15/16): a capability check, not a flavor check
             // — only a platform offering the workspace lifecycle has a

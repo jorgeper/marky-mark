@@ -24,6 +24,8 @@ import {
 } from '../lib/hotkeys';
 import { SMART_EDIT_NAME } from '../lib/smartEdit';
 import { expandImageName, isValidImageFolder } from '../lib/imagePaste';
+import { LlmSettings } from './LlmSettings';
+import type { LlmCapabilities, LlmTestResult } from '../lib/llmSettings';
 
 interface Props {
   /** The EFFECTIVE (resolved) settings — every row displays these (§E19). */
@@ -59,6 +61,19 @@ interface Props {
    * neither knows nor asks what is in it, so no flavor branching lands here.
    */
   workspaceActions?: ReactNode;
+  /**
+   * PRD 011 Req 9: what the window holding the platform can do about LLM
+   * requests. The panel forwards it; the LLM tab branches on it (never on a
+   * flavor). Absent means "no LLM path", which is exactly the static web build.
+   */
+  llmCapabilities?: LlmCapabilities;
+  /**
+   * PRD 011 Req 10: run one test-connection request on behalf of the panel.
+   * Supplied by whoever actually holds the capability — the main window inline,
+   * or the aux window's round trip over the bus — so the panel itself never
+   * calls the seam or an IPC command.
+   */
+  onLlmTest?: () => Promise<LlmTestResult>;
 }
 
 const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
@@ -127,7 +142,12 @@ const MARGIN_LABELS: Array<{ value: Margins; label: string }> = [
   { value: 'wide', label: 'Wide margins (narrow text)' },
 ];
 
-type SettingsTab = 'appearance' | 'general' | 'editor' | 'hotkeys';
+// PRD 011 Req 4: the LLM providers area is a page of its own, not a row
+// appended to General, Editor or Appearance.
+type SettingsTab = 'appearance' | 'general' | 'editor' | 'hotkeys' | 'llm';
+
+/** PRD 011 Req 4 (following issue #21's Hotkeys precedent): User-scope-only tabs. */
+const USER_ONLY_TABS: ReadonlyArray<SettingsTab> = ['hotkeys', 'llm'];
 
 // Issue #21: General leads, and Hotkeys is a User-scope-only tab.
 const TABS: Array<{ id: SettingsTab; label: string }> = [
@@ -135,6 +155,8 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'appearance', label: 'Appearance' },
   { id: 'editor', label: 'Editor' },
   { id: 'hotkeys', label: 'Hotkeys' },
+  // PRD 011 Req 4: unconditional — no experimental flag gates it.
+  { id: 'llm', label: 'LLM providers' },
 ];
 
 export function SettingsPanel({
@@ -154,6 +176,8 @@ export function SettingsPanel({
   frameless,
   docName,
   workspaceActions,
+  llmCapabilities,
+  onLlmTest,
 }: Props) {
   const [tab, setTab] = useState<SettingsTab>('general');
   // §E18: which layer this window writes. Without the selector (web) it is
@@ -162,9 +186,10 @@ export function SettingsPanel({
   useEffect(() => {
     if (scope === 'workspace' && (!scopeSelector || !workspaceOpen)) setScope('user');
   }, [scope, scopeSelector, workspaceOpen]);
-  // Issue #21: Hotkeys is User-only — landing in Workspace scope on it bounces to General.
+  // Issue #21 + PRD 011 Req 4: Hotkeys and LLM providers are User-only —
+  // landing in Workspace scope on one bounces to General.
   useEffect(() => {
-    if (scope === 'workspace' && tab === 'hotkeys') setTab('general');
+    if (scope === 'workspace' && USER_ONLY_TABS.includes(tab)) setTab('general');
   }, [scope, tab]);
   const [hint, setHint] = useState('');
   // SPEC20 §1: the folder field keeps the raw draft; only valid single-segment
@@ -792,6 +817,18 @@ export function SettingsPanel({
     </>
   );
 
+  // PRD 011 Req 4: the LLM providers page. It renders identically from both
+  // mount points — the inline panel in App.tsx and the desktop aux window —
+  // because everything platform-specific arrives as these two props.
+  const llmTab = (
+    <LlmSettings
+      values={settings}
+      capabilities={llmCapabilities ?? { transport: false, hosted: null }}
+      onChange={(patch) => onChange({ ...settings, ...patch })}
+      onTest={onLlmTest}
+    />
+  );
+
   const doneButton = !frameless && (
     <div className="actions">
       <button className="primary" data-testid="settings-close" onClick={onClose}>
@@ -831,7 +868,7 @@ export function SettingsPanel({
       <div className="settings-body">
         {/* Issue #21: both scopes share one tab rail; Hotkeys is User-only. */}
         <nav className="tab-rail" data-testid="settings-tabs">
-          {TABS.filter((t) => scope === 'user' || t.id !== 'hotkeys').map((t) => (
+          {TABS.filter((t) => scope === 'user' || !USER_ONLY_TABS.includes(t.id)).map((t) => (
             <button
               key={t.id}
               className={`tab-btn${tab === t.id ? ' active' : ''}`}
@@ -847,6 +884,7 @@ export function SettingsPanel({
           {tab === 'appearance' && appearanceTab}
           {tab === 'editor' && editorTab}
           {tab === 'hotkeys' && scope === 'user' && hotkeysTab}
+          {tab === 'llm' && scope === 'user' && llmTab}
           {doneButton}
         </div>
       </div>

@@ -145,3 +145,46 @@ describe('SPEC23 settings', () => {
     expect(round.editorSyntax).toBe(false);
   });
 });
+
+describe('PRD 011 Req 6+7 LLM provider settings', () => {
+  test('U577: the defaults leave the app unconfigured — empty key, no fabricated model', () => {
+    const d = parseSettings('{}');
+    expect(d.llmApiKey).toBe('');
+    expect(d.llmModel).toBe('');
+    expect(d.llmBaseUrl).toBe('');
+    // A kind must be *something*; choosing one configures nothing on its own.
+    expect(d.llmProvider).toBe('anthropic');
+    expect(DEFAULT_SETTINGS.llmApiKey).toBe('');
+    expect(DEFAULT_SETTINGS.llmModel).toBe('');
+  });
+
+  test('U578: any model id the provider accepts persists and survives a save/reload unchanged', () => {
+    // PRD 011 Req 6: nothing rejects an id for being absent from the curated
+    // list — a new model must never require an app release.
+    for (const model of ['claude-opus-5', 'some-model-shipped-tomorrow', 'vendor/slug:v2', 'x']) {
+      const round = parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, llmModel: model }));
+      expect(round.llmModel).toBe(model);
+    }
+    const custom = parseSettings(
+      serializeSettings({
+        ...DEFAULT_SETTINGS,
+        llmProvider: 'custom',
+        llmBaseUrl: 'https://llm.example.com/v1',
+        llmApiKey: 'sk-secret',
+      })
+    );
+    expect(custom.llmProvider).toBe('custom');
+    expect(custom.llmBaseUrl).toBe('https://llm.example.com/v1');
+    expect(custom.llmApiKey).toBe('sk-secret');
+    // The unconfigured state is a real stored value, not a missing one.
+    expect(parseSettings('{"llmModel":""}').llmModel).toBe('');
+  });
+
+  test('U579: a provider kind the seam does not have falls back rather than reaching providerFor', () => {
+    expect(parseSettings('{"llmProvider":"perplexity"}').llmProvider).toBe('anthropic');
+    expect(parseSettings('{"llmProvider":7}').llmProvider).toBe('anthropic');
+    expect(parseSettings('{"llmProvider":"openrouter"}').llmProvider).toBe('openrouter');
+    // Non-string credentials are refused too.
+    expect(parseSettings('{"llmApiKey":{"leak":1}}').llmApiKey).toBe('');
+  });
+});
