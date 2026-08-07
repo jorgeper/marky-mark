@@ -45,10 +45,13 @@ const GITHUB_ENV = {
 };
 const AZURE_ENV = { MM_MODE: 'azure', ENTRA_TENANT_ID: 't', ENTRA_CLIENT_ID: 'c' };
 
-/** A fake holding the default repo, optionally with a narrowed grant. */
-function fakeWith(options: { repos?: boolean; permissions?: Record<string, string> } = {}): ReturnType<
-  typeof createGitHubFake
-> {
+type GitHubFake = ReturnType<typeof createGitHubFake>;
+
+/**
+ * A fake holding the default repo, optionally with a narrowed grant or —
+ * `withRepo: false` — with the App installed but not on that repo.
+ */
+function fakeWith(options: { withRepo?: boolean; permissions?: Record<string, string> } = {}): GitHubFake {
   return createGitHubFake({
     appId: APP_ID,
     installations: [
@@ -56,7 +59,7 @@ function fakeWith(options: { repos?: boolean; permissions?: Record<string, strin
         id: 7,
         account: OWNER,
         ...(options.permissions ? { permissions: options.permissions } : {}),
-        repos: options.repos === false ? [] : [{ owner: OWNER, repo: REPO, files: { 'README.md': '# store\n' } }],
+        repos: options.withRepo === false ? [] : [{ owner: OWNER, repo: REPO, files: { 'README.md': '# store\n' } }],
       },
     ],
   });
@@ -99,11 +102,11 @@ describe('PRD 010 Req 5 wiring the deployment default', () => {
 
 describe('PRD 010 Req 6 startup validation of the default repo', () => {
   /** Startup as `server/index.ts` performs it: init() before any listener. */
-  const startup = (fake: ReturnType<typeof createGitHubFake>, env: Record<string, string> = GITHUB_ENV) =>
+  const startup = (fake: GitHubFake, env: Record<string, string> = GITHUB_ENV) =>
     createProviders(loadConfig(env), { fetchImpl: fake.fetch }).storage.init?.();
 
   /** The same check, called directly — no server, no provider in between. */
-  const validate = (fake: ReturnType<typeof createGitHubFake>) =>
+  const validate = (fake: GitHubFake) =>
     assertRepoIsWritable(
       createGitHubAppAuth({ appId: APP_ID, privateKey: PEM, apiBase: BASE, fetchImpl: fake.fetch }),
       OWNER,
@@ -117,7 +120,7 @@ describe('PRD 010 Req 6 startup validation of the default repo', () => {
   });
 
   it('U407: an absent repo (or an App not installed on it) fails fast, naming the repo and never a credential', async () => {
-    const fake = fakeWith({ repos: false });
+    const fake = fakeWith({ withRepo: false });
     const error = await validate(fake).then(
       () => new Error('expected startup to refuse an unreachable repo'),
       (err: Error) => err,

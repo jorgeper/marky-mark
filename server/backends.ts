@@ -35,49 +35,38 @@ export function backendRecordPath(id: string): string {
   return `${WORKSPACES_PREFIX}${id}/backend.json`;
 }
 
+const fail = (error: string): WorkspaceBackendResult => ({ ok: false, error });
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+const isNonEmptyString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
 /**
  * PRD 010 Req 3: parsed through a typed validator that REJECTS malformed data
  * with a named error rather than coercing it — the stance
- * `validateWorkspaceManifest` takes, for the same reason: silently reading a
- * damaged record as "the default" would serve a workspace from the wrong
- * store.
+ * `validateWorkspaceManifest` takes (and the shape it is written in), for the
+ * same reason: silently reading a damaged record as "the default" would serve
+ * a workspace from the wrong store.
  */
 export function validateWorkspaceBackend(value: unknown): WorkspaceBackendResult {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return { ok: false, error: 'backend record must be an object' };
-  }
-  const { kind } = value as { kind?: unknown };
+  if (!isPlainObject(value)) return fail('backend record must be an object');
+  const { kind, owner, repo, branch, root } = value;
   if (kind === 'deployment-default') return { ok: true, record: { kind } };
   if (kind !== 'repo') {
-    return { ok: false, error: `backend record kind must be 'deployment-default' or 'repo', got ${describe(kind)}` };
+    return fail(`backend record kind must be 'deployment-default' or 'repo', got ${describeValue(kind)}`);
   }
-  const { owner, repo, branch, root } = value as Record<string, unknown>;
-  for (const [name, field] of [
-    ['owner', owner],
-    ['repo', repo],
-    ['branch', branch],
-  ] as const) {
-    if (typeof field !== 'string' || field === '') {
-      return { ok: false, error: `backend record ${name} must be a non-empty string` };
-    }
-  }
+  if (!isNonEmptyString(owner)) return fail('backend record owner must be a non-empty string');
+  if (!isNonEmptyString(repo)) return fail('backend record repo must be a non-empty string');
+  if (!isNonEmptyString(branch)) return fail('backend record branch must be a non-empty string');
   if (root !== undefined && typeof root !== 'string') {
-    return { ok: false, error: 'backend record root must be a string when present' };
+    return fail('backend record root must be a string when present');
   }
-  return {
-    ok: true,
-    record: {
-      kind,
-      owner: owner as string,
-      repo: repo as string,
-      branch: branch as string,
-      ...(root === undefined ? {} : { root: root as string }),
-    },
-  };
+  return { ok: true, record: { kind, owner, repo, branch, ...(root === undefined ? {} : { root }) } };
 }
 
 /** How a rejected value is named in an error — never the value itself. */
-function describe(value: unknown): string {
+function describeValue(value: unknown): string {
   return typeof value === 'string' ? `'${value}'` : typeof value;
 }
 

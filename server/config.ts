@@ -119,6 +119,24 @@ function loadDefaultRepo(env: Record<string, string | undefined>): GitHubRepoTar
 }
 
 /**
+ * PRD 010 Req 1: where bytes live. The blob backend is today's rule exactly —
+ * Azurite's dev connection string as the local default, azure mode supplying
+ * its own (a missing one is `loadConfig`'s named refusal below). The github
+ * backend needs no Azure storage account at all, so the config carries no
+ * connection string rather than a fabricated one.
+ */
+function loadStorage(
+  env: Record<string, string | undefined>,
+  mode: ServerMode,
+  backend: StorageBackend,
+): ServerConfig['storage'] {
+  const container = env.MM_STORAGE_CONTAINER ?? 'marky-mark';
+  if (backend === 'github') return { container };
+  const fallback = mode === 'local' ? AZURITE_CONNECTION_STRING : undefined;
+  return { connectionString: env.AZURE_STORAGE_CONNECTION_STRING ?? fallback, container };
+}
+
+/**
  * PRD 010 Req 4: the optional GitHub App section. App ID + private key are
  * the ONLY credential inputs — no PAT and no long-lived repo token is read
  * here or anywhere else in `server/`. Absent unless configured; malformed
@@ -198,22 +216,9 @@ export function loadConfig(env: Record<string, string | undefined>): ServerConfi
   }
 
   const staticDir = env.MM_STATIC_DIR ?? 'dist';
-  const container = env.MM_STORAGE_CONTAINER ?? 'marky-mark';
   // PRD 010 Req 4: parsed in both modes, required in neither.
   const github = loadGitHubConfig(env);
-
-  // PRD 010 Req 1: the github backend needs NO Azure storage account, so the
-  // config carries no connection string at all rather than a fabricated one.
-  const storage =
-    storageBackend === 'blob'
-      ? {
-          connectionString:
-            mode === 'local'
-              ? (env.AZURE_STORAGE_CONNECTION_STRING ?? AZURITE_CONNECTION_STRING)
-              : env.AZURE_STORAGE_CONNECTION_STRING!,
-          container,
-        }
-      : { container };
+  const storage = loadStorage(env, mode, storageBackend);
 
   if (mode === 'local') {
     return { mode, storageBackend, port, staticDir, storage, ...(github ? { github } : {}) };
