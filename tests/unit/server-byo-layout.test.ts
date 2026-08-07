@@ -11,7 +11,7 @@ import {
   workspaceRepoPath,
   workspaceSeamPath,
 } from '../../server/providers/github/byo';
-import { createGitHubFake, type FakeRepoSeed } from '../../server/providers/github/fake';
+import { createGitHubFake } from '../../server/providers/github/fake';
 import { createProviders, createRepoConnector } from '../../server/providers/index';
 import { createMockAuthProvider } from '../../server/providers/mock/auth';
 import { createMockDirectoryProvider } from '../../server/providers/mock/directory';
@@ -49,9 +49,7 @@ const BYO_ENV = {
 type GitHubFake = ReturnType<typeof createGitHubFake>;
 
 /** A fake holding the user's own repo, seeded with content they already had. */
-function fakeWith(
-  options: { files?: FakeRepoSeed['files']; permissions?: Record<string, string>; withRepo?: boolean } = {},
-): GitHubFake {
+function fakeWith(options: { permissions?: Record<string, string> } = {}): GitHubFake {
   return createGitHubFake({
     appId: APP_ID,
     installations: [
@@ -59,16 +57,9 @@ function fakeWith(
         id: 11,
         account: OWNER,
         ...(options.permissions ? { permissions: options.permissions } : {}),
-        repos:
-          options.withRepo === false
-            ? []
-            : [
-                {
-                  owner: OWNER,
-                  repo: REPO,
-                  files: options.files ?? { 'README.md': '# handbook\n', 'docs/existing.md': '# already here\n' },
-                },
-              ],
+        repos: [
+          { owner: OWNER, repo: REPO, files: { 'README.md': '# handbook\n', 'docs/existing.md': '# already here\n' } },
+        ],
       },
     ],
   });
@@ -389,7 +380,8 @@ describe('PRD 010 Req 17 BYO and default workspaces over HTTP', () => {
     expect(blobs.get(backendRecordPath(byo.id!))).toBeUndefined();
 
     // The default one is untouched by that, and deletes normally itself.
-    expect((await (await call('GET', '/api/workspaces')).json()).map?.((r: { id: string }) => r.id)).toContain(plain.id);
+    const left = (await (await call('GET', '/api/workspaces')).json()) as Array<{ id: string }>;
+    expect(left.map((r) => r.id)).toContain(plain.id);
     expect((await call('DELETE', `/api/workspaces/${plain.id}`)).status).toBe(200);
     expect(blobs.get(backendRecordPath(plain.id!))).toBeUndefined();
     expect(await deploymentDefault.read(`workspaces/${plain.id}/files/a.md`)).toBeNull();

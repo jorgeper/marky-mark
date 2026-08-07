@@ -13,7 +13,7 @@ import type { ServerConfig } from '../config.ts';
 import { createBlobStorageProvider } from './azure/blob.ts';
 import { createEntraAuthProvider } from './azure/entra.ts';
 import { createGraphDirectoryProvider } from './azure/graph.ts';
-import { createGitHubAppAuth, type FetchLike } from './github/auth.ts';
+import { createGitHubAppAuth, type FetchLike, type GitHubAppAuth } from './github/auth.ts';
 import { createWorkspaceRepoView, normalizeRoot, repoConnectionKey } from './github/byo.ts';
 import { createGitHubStorageProvider } from './github/storage.ts';
 import { createMockAuthProvider } from './mock/auth.ts';
@@ -23,6 +23,18 @@ import type { Providers, StorageProvider } from './types.ts';
 export interface ProviderOptions {
   /** Injected for tests — the GitHub fake, never the network. */
   fetchImpl?: FetchLike;
+}
+
+/**
+ * PRD 010 Req 5+17: the deployment's GitHub App credentials as one auth
+ * client. The App section is the deployment's, never a record's or a
+ * request's, so both the default repo and every BYO connection are built from
+ * exactly this.
+ */
+function appAuthFor(github: NonNullable<ServerConfig['github']>, options: ProviderOptions): GitHubAppAuth {
+  const { appId, privateKey, apiBase } = github;
+  const { fetchImpl } = options;
+  return createGitHubAppAuth({ appId, privateKey, apiBase, ...(fetchImpl ? { fetchImpl } : {}) });
 }
 
 /**
@@ -37,9 +49,8 @@ function createStorage(config: ServerConfig, options: ProviderOptions): StorageP
   }
   // …and loadConfig guarantees the App section and the default repo whenever
   // it is github, naming every missing variable at once if it cannot.
-  const { appId, privateKey, apiBase, defaultRepo } = config.github!;
-  const { owner, repo, branch, root } = defaultRepo!;
-  const { fetchImpl } = options;
+  const github = config.github!;
+  const { owner, repo, branch, root } = github.defaultRepo!;
   return createGitHubStorageProvider({
     owner,
     repo,
@@ -49,7 +60,7 @@ function createStorage(config: ServerConfig, options: ProviderOptions): StorageP
     // `users/…` at those repo-relative paths, on one branch. #100's provider
     // used as-is: no per-workspace branch, no path mangling, no id
     // translation.
-    auth: createGitHubAppAuth({ appId, privateKey, apiBase, ...(fetchImpl ? { fetchImpl } : {}) }),
+    auth: appAuthFor(github, options),
   });
 }
 
@@ -80,9 +91,7 @@ export function createRepoConnector(
 ): WorkspaceBackendsOptions['connect'] | undefined {
   const { github } = config;
   if (!github) return undefined;
-  const { appId, privateKey, apiBase } = github;
-  const { fetchImpl } = options;
-  const auth = createGitHubAppAuth({ appId, privateKey, apiBase, ...(fetchImpl ? { fetchImpl } : {}) });
+  const auth = appAuthFor(github, options);
   const connections = new Map<string, StorageProvider>();
   return (record, id) => {
     if (record.kind !== 'repo') throw new Error(`workspace ${id} has no repo connection to build`);

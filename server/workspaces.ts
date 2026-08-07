@@ -357,14 +357,14 @@ export async function handleWorkspaceApi(
     // workspace URL, or in any API response — the connection is read from the
     // server-side record and from nowhere else.
     const id = randomUUID();
-    let target = deploymentDefault;
+    let workspaceStore = deploymentDefault;
     if (record.kind !== 'deployment-default') {
       // PRD 010 Req 17: fail fast. The repo is proved reachable with
       // `contents: write` BEFORE anything is written, so a bad connection
       // leaves no record, no manifest and no commit behind.
       try {
-        target = await backends.connect(record, id);
-        await target.init?.();
+        workspaceStore = await backends.connect(record, id);
+        await workspaceStore.init?.();
       } catch (err) {
         sendJson(res, connectionFailureStatus(err), { error: (err as Error).message });
         return;
@@ -376,7 +376,7 @@ export async function handleWorkspaceApi(
     await backends.remember(id, record);
     // …and the manifest through the workspace's OWN backend, which for a repo
     // connection lands it at `<root>/.marky-mark/manifest.json` as one commit.
-    await target.write(manifestBlob(id), serializeWorkspaceManifest(built.manifest));
+    await workspaceStore.write(manifestBlob(id), serializeWorkspaceManifest(built.manifest));
     // The 201 is the existing `{id, manifest}` — no connection details.
     sendJson(res, 201, { id, manifest: built.manifest });
     return;
@@ -393,13 +393,10 @@ export async function handleWorkspaceApi(
     // is what a BYO workspace looks like from here). Neither trace is a row
     // of its own: each id's manifest is loaded through its own backend.
     const blobs = await deploymentDefault.list(WORKSPACES_PREFIX);
-    const ids: string[] = [];
-    const seen = new Set<string>();
+    const ids = new Set<string>();
     for (const blob of blobs) {
       const id = MANIFEST_BLOB_RE.exec(blob.path)?.[1] ?? backendRecordWorkspaceId(blob.path);
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      ids.push(id);
+      if (id) ids.add(id);
     }
     const out: WorkspaceListing[] = [];
     for (const id of ids) {

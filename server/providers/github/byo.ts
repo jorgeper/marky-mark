@@ -120,9 +120,9 @@ export function workspaceSeamPath(id: string, repoRelative: string): string {
  */
 export function createWorkspaceRepoView(inner: StorageProvider, id: string): StorageProvider {
   const { prefix, files } = seamPrefixes(id);
+  const at = (seamPath: string): string => workspaceRepoPath(id, seamPath);
 
   const wrap = (target: StorageProvider): StorageProvider => {
-    const at = (seamPath: string): string => workspaceRepoPath(id, seamPath);
     const view: StorageProvider = {
       kind: target.kind,
       read: (path) => target.read(at(path)),
@@ -155,8 +155,9 @@ export function createWorkspaceRepoView(inner: StorageProvider, id: string): Sto
     // PRD 010 Req 6+7: forwarded, not re-implemented — `init()` is the
     // connected repo's own fail-fast writability check, and `asUser` still
     // yields a view whose commits carry the acting user as author.
-    if (target.init) view.init = () => target.init!();
-    if (target.asUser) view.asUser = (user: AuthUser) => wrap(target.asUser!(user));
+    const { init, asUser } = target;
+    if (init) view.init = () => init();
+    if (asUser) view.asUser = (user: AuthUser) => wrap(asUser(user));
     return view;
   };
 
@@ -164,7 +165,7 @@ export function createWorkspaceRepoView(inner: StorageProvider, id: string): Sto
 }
 
 /** The connection identity a provider may be shared across workspaces by. */
-export function repoConnectionKey(record: WorkspaceBackendRecord & { kind: 'repo' }): string {
+export function repoConnectionKey(record: Extract<WorkspaceBackendRecord, { kind: 'repo' }>): string {
   return `${record.owner}/${record.repo}#${record.branch}:${normalizeRoot(record.root)}`;
 }
 
