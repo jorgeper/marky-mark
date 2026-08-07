@@ -25,6 +25,36 @@ compromised or substituted asset fails closed. No scheduled checks, no
 telemetry, no other hosts. (The pre-SPEC19 sentence "the Rust host has no
 network-capable dependencies / no updater" is superseded by this paragraph.)
 
+**PRD 011 amendment (issue #114, 2026-08-07):** the app gained an **opt-in
+LLM path**, so the verdict above is now stated conditionally — and only in
+one direction. Unchanged and unconditional: **no document, theme or
+dependency ever causes an outbound request.** The sanitize layer, both CSPs
+and the adversarial suite (U17/U18/E46/W5) are untouched and still enforced.
+New and conditional: beyond that, the app makes **no outbound request at all
+unless an LLM provider has been configured — by the user on desktop, by the
+operator on a hosted deployment — and a feature that uses it is invoked.**
+Every request is attributable to a user action; none at startup, in the
+background, or speculative (PRD 011 Req 16). Per flavor: **desktop** sends
+from the Rust shell (the `llm_request` command, the SPEC19 shape), so the
+webview's CSP is *not* widened and the webview still opens nothing;
+**hosted** sends from the browser to the app's **own origin** (`/api/llm…`)
+and never to a provider host — the key is the operator's, held server-side;
+the **static web single-file build has no LLM path at all**, keeps
+`connect-src 'none'`, and is held there by U556–U558
+(`tests/unit/static-web-no-llm.test.ts`). Configure no provider and the app
+is exactly as silent as this assessment originally described.
+
+*(Correction, same amendment: the sentence below stating that `src/` contains
+**zero network calls** was true when written and is not any more. `src/`
+today holds three `fetch(` call sites, all hosted-flavor and all same-origin
+wrappers — `components/HostedSignIn.tsx`, `platform/hosted.ts`,
+`platform/hostedWorkspaces.ts` — plus the hosted LLM client and summary
+cache, which declare no call site of their own and reuse
+`platform/hosted.ts`'s `api(...)`. None is reachable unless the served HTML
+carries the hosted marker. `npm run validate`'s bundle scan pins that number:
+`FETCH_ALLOWLIST = 6`, three sites × two bundles, each justified in
+`scripts/validate.mjs`. No provider host string exists anywhere in `src/`.)*
+
 The app is **almost** fully local. Application code contains **zero network
 calls** (no fetch/XHR/WebSocket/beacon anywhere in `src/`), the Rust host has
 **no network-capable dependencies** (no HTTP plugin, no updater, no
@@ -52,6 +82,8 @@ by CSP and proven by tests*.
 
 - **App code**: the only URL in `src/` is the About dialog's GitHub link. No
   network APIs anywhere. React/CodeMirror/remark stack is local-only.
+  *(Superseded by the PRD 011 amendment above: `src/` now holds three
+  same-origin hosted `fetch(` wrappers, and no provider host string.)*
 - **Rust host**: `tauri`, `plugin-fs`, `plugin-dialog`, `plugin-window-state`,
   `plugin-opener`, `serde` — nothing that can open a socket on its own. No
   auto-updater, no crash reporting, no telemetry.
@@ -71,3 +103,6 @@ by CSP and proven by tests*.
 - The guarantee is enforced in the app (sanitize + CSP) and **proven by CI**:
   adversarial-document tests (E46/W5) assert zero non-localhost requests, and
   a static scan of the built bundles asserts no network call sites ship.
+  *(Per the PRD 011 amendment above, that scan now pins an allowlist of six
+  audited same-origin call sites rather than zero; `XMLHttpRequest`,
+  `WebSocket`, `sendBeacon` and `EventSource` remain forbidden outright.)*

@@ -8,9 +8,12 @@
 Marky Mark is a Tauri 2 desktop app: a minimal Rust host (window, file
 associations, fs/dialog plugins) with all application logic in a Vite + React +
 TypeScript frontend running in the OS-native webview (WKWebView on macOS,
-WebView2 on Windows). There is no server and no network access; documents are
-plain files on disk, comments live in pretty-printed sidecar JSON next to them,
-and themes/settings live in the app config directory.
+WebView2 on Windows). There is no server; documents are plain files on disk,
+comments live in pretty-printed sidecar JSON next to them, and themes/settings
+live in the app config directory. Network access is opt-in and never
+document-driven — see [Security model & network
+isolation](#security-model--network-isolation-spec11) for the exact
+guarantee.
 
 ```
 OS (double-click .md / CLI arg) ──▶ Rust host (src-tauri/src/lib.rs)
@@ -140,13 +143,15 @@ key lives only in Actions secrets and an out-of-repo backup; losing both
 means future updates can't be signed (users fall back to manual
 downloads). No private-key material may ever be committed.
 
-**The privacy invariant, restated.** The *webview* still makes zero
-network requests — its CSP, the sanitize layer, the static bundle scan,
-and the W4/W5 adversarial tests are unchanged and still enforced. The
+**The privacy invariant, restated.** On desktop the *webview* still makes
+zero network requests — its CSP, the sanitize layer, the static bundle
+scan, and the W4/W5 adversarial tests are unchanged and still enforced,
+and PRD 011's LLM path did not widen the webview's CSP either (it leaves
+through the Rust `llm_request` command, exactly as the updater does). The
 updater's network lives entirely in Rust, fires only on the user's
 explicit menu click, and speaks only to the two GitHub endpoints. No
 scheduled checks, no telemetry. `docs/security/assessment.md` carries the
-formal amendment.
+formal amendments (SPEC19 for this updater, PRD 011 for the LLM path).
 
 **Testing.** The shim implements `Platform.updates` as a mock driven by
 `window.__mmUpdate` (next result, recorded progress/installs/restarts) —
@@ -844,7 +849,8 @@ A theme is one `.css` file setting the `--mm-*` custom-property contract on
 `.theme-root` (documented in `THEMES.md`), with `@name/@author/@variant`
 metadata in its first comment block. `parseTheme()` (`src/lib/themes.ts`,
 pure) handles metadata with filename fallbacks and **rejects any theme
-referencing remote `url(http…)`** — the app promises zero network traffic.
+referencing remote `url(http…)`** — no theme may ever cause network traffic
+(SPEC11 §2, unconditional).
 
 The **Claude** built-in (v3) is a direct port of the user's Typora Claude
 theme (`abnerworks.Typora/themes/claude.css`), with its values pinned in
@@ -1007,10 +1013,32 @@ allowlist.
 
 ## Security model & network isolation (SPEC11)
 
-**The guarantee: Marky Mark never makes an outbound network request** — not
-from app code, not from dependencies, and not from anything a document or
-theme contains. Two independent enforcement layers, so a hole in one is
-caught by the other:
+**The guarantee (SPEC11, as amended for PRD 011 in issue #114) has two
+halves, and only the second one is conditional:**
+
+1. **Unconditional — no document, theme or dependency ever makes an outbound
+   request.** Whatever file you open, whatever theme you load. Enforced by
+   the two layers below and proven by U17/U18/E46/W5.
+2. **Conditional — beyond that, no outbound request at all unless an LLM
+   provider is configured and a feature that uses it is invoked.** The user
+   configures it on desktop, the operator on a hosted deployment (PRD 011
+   Reqs 12/13). Every request is attributable to a user action: none at
+   startup, none in the background, none speculative (Req 16). Configure
+   nothing and the app is as silent as it was before PRD 011.
+
+Where an LLM request originates, per flavor:
+
+| Flavor | Origin of the request | CSP consequence |
+| --- | --- | --- |
+| Desktop | The **Rust shell** (`llm_request` command), like the updater | none — `connect-src` still `ipc:` / `http://ipc.localhost` only |
+| Hosted | The **browser to the app's own origin** (`/api/llm…`), never a provider host; the key is the operator's, server-side | same-origin only |
+| Static web (single file) | **No LLM path at all** (Req 14) | `connect-src 'none'` — zero-outbound stays unconditional, guarded by U556–U558 |
+
+The user-initiated updater (SPEC19) is the other, older exception; it is
+unchanged.
+
+Two independent enforcement layers back the unconditional half, so a hole in
+one is caught by the other:
 
 1. **Content layer.** The render pipeline swaps every remote image
    (`http:`, `https:`, protocol-relative) for an inert placeholder naming
@@ -1041,7 +1069,13 @@ hypothetical renderer compromise has no network exfiltration channel.
 images, remote link) is rendered under Playwright request interception in
 E46 (desktop shim) and W5 (built web page), asserting zero non-localhost
 requests and no app navigation; U17/U18 pin the theme guard and renderer;
-`npm run validate` ends with a static scan proving the shipped bundles
-contain no `fetch`/`XMLHttpRequest`/`WebSocket`/`sendBeacon`/`EventSource`
-call sites; CI runs `npm audit` (production, high+) and `cargo audit` on
-every release. Full findings history: `docs/security/assessment.md`.
+`npm run validate` ends with a static scan of the shipped bundles that
+forbids `XMLHttpRequest`/`WebSocket`/`sendBeacon`/`EventSource` outright
+and pins `fetch(` to a committed allowlist — today `FETCH_ALLOWLIST = 6`
+in `scripts/validate.mjs`: three same-origin hosted wrappers
+(`HostedSignIn.tsx`, `platform/hosted.ts`, `platform/hostedWorkspaces.ts`),
+counted once per bundle, each justified in a comment there and none of
+them reachable without the hosted marker. U556–U558
+(`tests/unit/static-web-no-llm.test.ts`) hold the static web build to no
+LLM path at all. CI runs `npm audit` (production, high+) and `cargo audit`
+on every release. Full findings history: `docs/security/assessment.md`.

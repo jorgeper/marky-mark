@@ -11,6 +11,44 @@ document or theme can contain*. Fully local, enforced in two independent
 layers (content sanitization + Content-Security-Policy) and **proven by
 tests** that render adversarial content and assert zero non-local traffic.
 
+> **Amendment (issue #114, 2026-08-07):** the guarantee above is **kept, but
+> stated conditionally**, because PRD 011 gave the app an opt-in LLM path.
+> Precisely, and in this order of strength:
+>
+> 1. **Unconditional, unchanged:** *no outbound request ever originates from a
+>    **document**, a **theme**, or a **dependency*** — whatever file you open,
+>    whatever theme you load. §1 (sanitize), §2 (theme guard), §3 (CSP on both
+>    targets) and the adversarial proof suite (U17/U18/E46/W5) are untouched
+>    and still enforced. This is the promise a reader of a Markdown viewer
+>    cares about, and it did not weaken.
+> 2. **Conditional, new:** beyond that, the app makes **no outbound request at
+>    all unless** the user (desktop) or the operator (hosted) has **configured
+>    an LLM provider** *and* **invoked a feature that uses it**. PRD 011 Req
+>    16: every request is attributable to a user action — none at startup,
+>    none in the background, none speculative. Configure nothing and the app
+>    is exactly as silent as it was before PRD 011.
+> 3. **Where a request originates, per flavor:**
+>    - **Desktop** — from the **Rust shell**, via the `llm_request` command
+>      (PRD 011 Req 12), the same shape as SPEC19's updater. The webview's CSP
+>      is **not widened**: `connect-src` still allows only `ipc:` /
+>      `http://ipc.localhost`, so the webview itself still opens nothing.
+>    - **Hosted** — from the browser to the **app's own origin**
+>      (`/api/llm…`), never to a provider host (PRD 011 Req 13). The key is
+>      the operator's, held server-side; no provider host string exists in
+>      `src/`.
+>    - **Static web** (the single-file build) — **no LLM path at all** (PRD
+>      011 Req 14). Its CSP keeps `connect-src 'none'`, so its zero-outbound
+>      property stays *unconditional*. Guarded in the fast tier by U556–U558
+>      (`tests/unit/static-web-no-llm.test.ts`).
+> 4. **The updater exception (SPEC19) still stands** and is not re-litigated:
+>    strictly user-initiated, Rust-side, signature-verified, GitHub Releases
+>    only.
+>
+> One sentence, for the docs that restate this: *Marky Mark makes no outbound
+> request from documents, themes or dependencies, ever — and none at all
+> unless you (or, on a hosted deployment, your operator) configured an LLM
+> provider and used a feature that needs it.*
+
 Out of scope: OS-level platform traffic (Apple/WebView2 services); signing/
 notarization (future SPEC); sandboxing the Rust process.
 
@@ -110,6 +148,20 @@ notarization (future SPEC); sandboxing the Rust process.
    `cargo audit` (via `rustsec/audit-check` or installed binary) must pass.
 8. No other test changes; nothing may be weakened. Existing suites stay
    green (U1–U16, E1–E41 + E45, W1–W4).
+
+> **Amendment (issue #114, 2026-08-07):** §6.6's "`fetch(` occurrences must
+> match a committed allowlist (**expected: 0**)" is restated to what the gate
+> pins today: **`FETCH_ALLOWLIST = 6`** in `scripts/validate.mjs` — three
+> same-origin wrapper functions (`HostedSignIn.tsx`, `platform/hosted.ts`,
+> `platform/hostedWorkspaces.ts`), counted once each in `dist/assets/*.js` and
+> once each in `dist-web/index.html`. All three are hosted-flavor code,
+> reachable only when the served HTML carries the hosted marker; the static
+> web build reaches none of them. The forbidden list (`XMLHttpRequest(`,
+> `new WebSocket`, `sendBeacon`, `new EventSource`) is unchanged and still
+> zero. The number is a count of *audited* call sites with a written
+> justification each, not a claim that none ship — PRD 011 added none of them
+> (desktop leaves through the Rust `llm_request` command; the hosted LLM
+> client and summary cache reuse `platform/hosted.ts`'s `api(...)`).
 
 ## 7. Docs
 

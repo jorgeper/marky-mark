@@ -142,13 +142,21 @@ Either way it's a one-time step — the app opens normally afterwards.
   (rebindable) or the fixed navigator pill — park the mouse and click
   through. Stored in a `foo.md.comments.json` sidecar or embedded invisibly
   in the markdown file itself — your pick.
-- **Private by design** — no server, no telemetry: the document viewer
-  makes **no outbound network requests, guaranteed** — remote images and
-  theme imports are blocked at render time, a strict CSP backstops
-  everything, and CI proves it with adversarial tests. The *only* network
-  the app ever performs is the **update check you explicitly trigger**
-  (Check for Updates…): a Rust-side, signature-verified request to this
-  repo's GitHub Releases — nothing automatic, nothing else, ever. See the
+- **Private by design** — no server, no telemetry. **No document, theme or
+  dependency ever makes an outbound request** — guaranteed, whatever file
+  you open: remote images and theme imports are blocked at render time, a
+  strict CSP backstops everything, and CI proves it with adversarial tests.
+  Beyond that the app makes **no network request at all unless an LLM
+  provider has been configured and you invoked a feature that uses it** —
+  nothing at startup, nothing in the background, and never a request you did
+  not ask for. Configure none and the app stays as silent as it has always
+  been. Two exceptions, both triggered by you: that LLM call (sent from the
+  Rust shell on desktop, so the app window still opens no connection of its
+  own) and the **update check** (Check for Updates…) — a Rust-side,
+  signature-verified request to this repo's GitHub Releases. On a hosted
+  deployment the LLM key is your operator's and the browser talks only to
+  your own server; the single-file web build has no LLM path at all and
+  stays strictly zero-outbound. See the
   [security assessment](docs/security/assessment.md). Your files stay files.
 - **Updates, on your terms** — Check for Updates… (in the app menu) checks
   GitHub Releases and installs the new version in one click, verified

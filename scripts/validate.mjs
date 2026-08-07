@@ -210,6 +210,12 @@ record('CLAUDE.md resolves to AGENTS.md', Date.now() - linkStart);
 // (221 collected before this issue), and the GitHub-backed lane added E221–
 // E225 (tests/e2e/github-storage.spec.ts). Re-pinned to the collected count
 // so it means "this many tests exist" again.
+// 226 still, re-verified for PRD 011 (issue #114): `npx playwright test --list`
+// collects exactly 226. The LLM work added no desktop-shim e2e test — the
+// desktop transport (#112) is Rust-side plus a pure mapping module, and the
+// hosted proxy (#113) and summary cache (#115) are server routes; all three
+// are covered by unit tests (U490+, U536+) and the hosted lane, none of which
+// this floor counts. Unchanged, not stale.
 const E2E_TEST_FLOOR = 226;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
@@ -312,13 +318,30 @@ console.log(`dist-web/index.html is self-contained (single file, no external scr
 // SPEC11 §6.6 — static bundle scan: the shipped JS may contain no network
 // call sites. fetch( occurrences must equal the committed allowlist below.
 console.log('\n=== validate: static bundle scan (network call sites) ===');
-// PRD 007 Req 5: the hosted sign-in gate funnels every request (sign-in,
-// session validation, the PKCE token exchange) through the single wrapper in
-// src/components/HostedSignIn.tsx. PRD 007 Req 2: the hosted Platform
-// implementation funnels every API call through the single wrapper in
-// src/platform/hosted.ts. Two call sites per bundle (dist/ and dist-web/),
-// both reachable only when the served HTML carries the hosted marker.
-const FETCH_ALLOWLIST = 4;
+// Three call sites, each of them a single same-origin wrapper, counted once per
+// bundle (dist/ and dist-web/) — 3 × 2 = 6. All three are reachable only when
+// the served HTML carries the hosted marker; the static web build resolves to
+// src/platform/web.ts, which reaches none of them (U556–U558 guard that).
+//   1. PRD 007 Req 5 — the hosted sign-in gate funnels every request (sign-in,
+//      session validation, the PKCE token exchange) through the single wrapper
+//      in src/components/HostedSignIn.tsx.
+//   2. PRD 007 Req 2 — the hosted Platform implementation funnels every API
+//      call through the single wrapper in src/platform/hosted.ts.
+//   3. PRD 009/010 — the workspace lifecycle (create/bind/unbind, the BYO
+//      GitHub connection) has its own copy of that wrapper in
+//      src/platform/hostedWorkspaces.ts.
+// 4 → 6 as of issue #114. Site 3 landed with the workspace work (#90/#104/#105)
+// without re-pinning this number: the scan only runs in the full `npm run
+// validate`, which needs Rust on PATH, so the drift went unseen. Re-pinned to
+// the count two fresh builds actually produce (dist-web/index.html 3,
+// dist/assets/*.js 3).
+// PRD 011 added no site of its own, in either flavor: desktop sends from the
+// Rust shell through the `llm_request` IPC command (no webview fetch at all),
+// and the hosted LLM client (src/platform/hostedLlm.ts) plus the hosted summary
+// cache (src/platform/hostedSummaryCache.ts) are handed the `api(...)` wrapper
+// of site 2 rather than opening their own. SPEC11 §6.6 (amended): this number
+// is the count of same-origin wrappers that ship, not a claim of zero.
+const FETCH_ALLOWLIST = 6;
 const FORBIDDEN = ['XMLHttpRequest(', 'new WebSocket', 'sendBeacon', 'new EventSource'];
 const bundleTargets = [
   path.join(distWeb, 'index.html'),
