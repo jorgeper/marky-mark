@@ -4,6 +4,8 @@
 // auth/directory, the offline dev mode) or 'azure' (Entra ID + Blob Storage +
 // Graph). Pure parsing, no I/O, so the unit suite can pin every branch.
 
+import { GITHUB_API_BASE, normalizeGitHubPrivateKey } from './providers/github/auth.ts';
+
 export type ServerMode = 'local' | 'azure';
 
 /**
@@ -33,10 +35,60 @@ export interface ServerConfig {
     tenantId: string;
     clientId: string;
   };
+  /**
+   * PRD 010 Req 4: the deployment's GitHub App credentials. Optional in
+   * every mode — startup never requires them, and nothing selects a GitHub
+   * backend yet (that knob is #101). Present only when configured.
+   */
+  github?: {
+    appId: string;
+    /** PEM private key, newlines already un-escaped. */
+    privateKey: string;
+    apiBase: string;
+  };
 }
 
 /** Env vars azure mode cannot start without. */
 const AZURE_REQUIRED = ['ENTRA_TENANT_ID', 'ENTRA_CLIENT_ID', 'AZURE_STORAGE_CONNECTION_STRING'] as const;
+
+/**
+ * PRD 010 Req 4: the optional GitHub App section. App ID + private key are
+ * the ONLY credential inputs — no PAT and no long-lived repo token is read
+ * here or anywhere else in `server/`. Absent unless configured; malformed
+ * when present is rejected by name, and never by echoing the key material.
+ */
+function loadGitHubConfig(env: Record<string, string | undefined>): ServerConfig['github'] {
+  const appId = env.MM_GITHUB_APP_ID?.trim();
+  const privateKey = env.MM_GITHUB_PRIVATE_KEY;
+  const apiBase = env.MM_GITHUB_API_BASE?.trim();
+  if (!appId && !privateKey && !apiBase) return undefined;
+
+  const missing = [
+    ...(appId ? [] : ['MM_GITHUB_APP_ID']),
+    ...(privateKey ? [] : ['MM_GITHUB_PRIVATE_KEY']),
+  ];
+  if (missing.length) {
+    throw new Error(`GitHub App configuration is incomplete, missing: ${missing.join(', ')}`);
+  }
+  if (!/^\d+$/.test(appId!)) {
+    throw new Error(`MM_GITHUB_APP_ID must be the numeric GitHub App id, got '${appId}'`);
+  }
+  let key: string;
+  try {
+    key = normalizeGitHubPrivateKey(privateKey!);
+  } catch (err) {
+    // The message names the variable and the expected shape — never the value.
+    throw new Error(`MM_GITHUB_PRIVATE_KEY is ${(err as Error).message}`);
+  }
+  if (apiBase) {
+    try {
+      new URL(apiBase);
+    } catch {
+      throw new Error(`MM_GITHUB_API_BASE must be an absolute URL, got '${apiBase}'`);
+    }
+  }
+  return { appId: appId!, privateKey: key, apiBase: apiBase || GITHUB_API_BASE };
+}
 
 /**
  * Parse a config from an environment. Throws with an actionable message —
@@ -57,6 +109,8 @@ export function loadConfig(env: Record<string, string | undefined>): ServerConfi
 
   const staticDir = env.MM_STATIC_DIR ?? 'dist';
   const container = env.MM_STORAGE_CONTAINER ?? 'marky-mark';
+  // PRD 010 Req 4: parsed in both modes, required in neither.
+  const github = loadGitHubConfig(env);
 
   if (mode === 'local') {
     return {
@@ -67,6 +121,7 @@ export function loadConfig(env: Record<string, string | undefined>): ServerConfi
         connectionString: env.AZURE_STORAGE_CONNECTION_STRING ?? AZURITE_CONNECTION_STRING,
         container,
       },
+      ...(github ? { github } : {}),
     };
   }
 
@@ -80,5 +135,6 @@ export function loadConfig(env: Record<string, string | undefined>): ServerConfi
     staticDir,
     storage: { connectionString: env.AZURE_STORAGE_CONNECTION_STRING!, container },
     azure: { tenantId: env.ENTRA_TENANT_ID!, clientId: env.ENTRA_CLIENT_ID! },
+    ...(github ? { github } : {}),
   };
 }

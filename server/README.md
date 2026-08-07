@@ -54,6 +54,9 @@ the environment reference is below.
 | `AZURE_STORAGE_CONNECTION_STRING` | azure (required); local (optional) | Storage connection string. Local default: Azurite's well-known dev connection string. |
 | `ENTRA_TENANT_ID` | azure (required) | Entra ID tenant (single-tenant app registration). |
 | `ENTRA_CLIENT_ID` | azure (required) | Entra ID application (client) id — also the expected token audience. |
+| `MM_GITHUB_APP_ID` | both (optional) | Numeric id of the deployment's GitHub App (PRD 010 Req 4). Required only alongside `MM_GITHUB_PRIVATE_KEY`; nothing uses it yet. |
+| `MM_GITHUB_PRIVATE_KEY` | both (optional) | That App's PEM private key (PKCS#1 or PKCS#8), literal or `\n`-escaped newlines — the App Service app-setting shape. The **only** GitHub credential the server accepts: no PAT, no long-lived repo token. |
+| `MM_GITHUB_API_BASE` | both (optional) | GitHub REST root, for GitHub Enterprise. Defaults to the public API (`GITHUB_API_BASE` in `providers/github/auth.ts`, the one place a GitHub host is named). |
 
 `MM_MODE=azure` refuses to start with any of its required variables missing,
 naming them all at once.
@@ -191,6 +194,12 @@ scopes it is the token whose issuer and audience match what
 - Unit (`npm run test:unit`): config parsing, provider selection, mock
   auth/directory, Entra URL/token-shape logic, Graph request mapping
   (injected fetch) — `tests/unit/server-*.test.ts`.
+- GitHub (PRD 010 Req 4): `providers/github/auth.ts` mints App JWTs and
+  cached installation tokens against an injected `fetch`;
+  `providers/github/fake.ts` is the local fake of the GitHub REST API
+  (installations, contents, refs, commits) every GitHub test runs against —
+  injectable as a `fetch`, or mountable on a `node:http` listener. No test
+  reaches github.
 - E2E (`npm run test:e2e`): `tests/e2e/hosted.spec.ts` boots this server in
   local mode via Playwright's `webServer` (E159+) — real HTTP against
   Azurite, zero Azure resources or network beyond localhost.
