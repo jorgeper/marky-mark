@@ -1,0 +1,152 @@
+// PRD 010 Req 3: which backend backs which workspace. A deployment can hold
+// workspaces on more than one store, so the answer is a durable per-workspace
+// record — `workspaces/<id>/backend.json` in the DEPLOYMENT DEFAULT store,
+// deliberately outside the workspace's `files/` prefix and deliberately NOT
+// in the manifest: the manifest lives in the workspace's own backend, and the
+// backend has to be known before anything there can be read.
+//
+// A workspace with no record is served by the deployment default — which is
+// every workspace an existing deployment already has, so this ships with no
+// migration step and no startup rewrite.
+//
+// Nothing here reaches the client: the record is not in any API response, not
+// in a file listing (it is outside `files/`), and not reachable through the
+// `files/<path>` routes.
+
+import type { StorageProvider } from './providers/types.ts';
+import { WORKSPACES_PREFIX } from './workspaces.ts';
+
+/**
+ * PRD 010 Req 3: what a record may say. One kind ships here — the deployment
+ * default; `repo` is the shape #103's BYO connection fills in, validated the
+ * same way so that issue supplies contents rather than plumbing.
+ */
+export type WorkspaceBackendRecord =
+  | { kind: 'deployment-default' }
+  | { kind: 'repo'; owner: string; repo: string; branch: string; root?: string };
+
+/** A validated record, or the named reason it is not one. */
+export type WorkspaceBackendResult =
+  | { ok: true; record: WorkspaceBackendRecord }
+  | { ok: false; error: string };
+
+/** Where a workspace's record lives — outside its `files/` prefix (Req 3). */
+export function backendRecordPath(id: string): string {
+  return `${WORKSPACES_PREFIX}${id}/backend.json`;
+}
+
+/**
+ * PRD 010 Req 3: parsed through a typed validator that REJECTS malformed data
+ * with a named error rather than coercing it — the stance
+ * `validateWorkspaceManifest` takes, for the same reason: silently reading a
+ * damaged record as "the default" would serve a workspace from the wrong
+ * store.
+ */
+export function validateWorkspaceBackend(value: unknown): WorkspaceBackendResult {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return { ok: false, error: 'backend record must be an object' };
+  }
+  const { kind } = value as { kind?: unknown };
+  if (kind === 'deployment-default') return { ok: true, record: { kind } };
+  if (kind !== 'repo') {
+    return { ok: false, error: `backend record kind must be 'deployment-default' or 'repo', got ${describe(kind)}` };
+  }
+  const { owner, repo, branch, root } = value as Record<string, unknown>;
+  for (const [name, field] of [
+    ['owner', owner],
+    ['repo', repo],
+    ['branch', branch],
+  ] as const) {
+    if (typeof field !== 'string' || field === '') {
+      return { ok: false, error: `backend record ${name} must be a non-empty string` };
+    }
+  }
+  if (root !== undefined && typeof root !== 'string') {
+    return { ok: false, error: 'backend record root must be a string when present' };
+  }
+  return {
+    ok: true,
+    record: {
+      kind,
+      owner: owner as string,
+      repo: repo as string,
+      branch: branch as string,
+      ...(root === undefined ? {} : { root: root as string }),
+    },
+  };
+}
+
+/** How a rejected value is named in an error — never the value itself. */
+function describe(value: unknown): string {
+  return typeof value === 'string' ? `'${value}'` : typeof value;
+}
+
+/** Parse a stored record. Malformed JSON is a named error like any other. */
+export function parseWorkspaceBackend(text: string): WorkspaceBackendResult {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { ok: false, error: 'backend record is not valid JSON' };
+  }
+  return validateWorkspaceBackend(value);
+}
+
+export function serializeWorkspaceBackend(record: WorkspaceBackendRecord): string {
+  return JSON.stringify(record, null, 2);
+}
+
+/**
+ * PRD 010 Req 3: the ONE thing request handling resolves storage through.
+ * `server/workspaces.ts` asks this per workspace instead of reading a
+ * process-wide `providers.storage`, so a workspace on another backend is
+ * served from it with no further plumbing.
+ */
+export interface WorkspaceBackends {
+  /** The deployment default — per-user files and the legacy scaffold's store. */
+  readonly deploymentDefault: StorageProvider;
+  /** The storage backing this workspace. No record means the default. */
+  forWorkspace(id: string): Promise<StorageProvider>;
+  /** Write the record a newly created workspace gets. */
+  remember(id: string, record: WorkspaceBackendRecord): Promise<void>;
+  /** Drop it again when the workspace is deleted. */
+  forget(id: string): Promise<void>;
+}
+
+export interface WorkspaceBackendsOptions {
+  deploymentDefault: StorageProvider;
+  /**
+   * How a record that is not the deployment default becomes a provider.
+   * Unset here on purpose: this issue creates no such record, and #103 is
+   * what supplies the connection.
+   */
+  connect?: (record: WorkspaceBackendRecord, id: string) => Promise<StorageProvider> | StorageProvider;
+}
+
+export function createWorkspaceBackends(options: WorkspaceBackendsOptions): WorkspaceBackends {
+  const { deploymentDefault, connect } = options;
+
+  return {
+    deploymentDefault,
+    async forWorkspace(id: string): Promise<StorageProvider> {
+      const stored = await deploymentDefault.read(backendRecordPath(id));
+      // No record: every workspace an existing deployment already has.
+      if (!stored) return deploymentDefault;
+      const parsed = parseWorkspaceBackend(stored.content);
+      // A damaged record is refused, never coerced — the caller turns this
+      // into a 500 the way a corrupt manifest already is.
+      if (!parsed.ok) throw new Error(`corrupt workspace backend record: ${parsed.error}`);
+      if (parsed.record.kind === 'deployment-default') return deploymentDefault;
+      if (!connect) {
+        throw new Error(`workspace ${id} names a repo backend this deployment cannot connect to`);
+      }
+      return connect(parsed.record, id);
+    },
+    async remember(id: string, record: WorkspaceBackendRecord): Promise<void> {
+      await deploymentDefault.write(backendRecordPath(id), serializeWorkspaceBackend(record));
+    },
+    async forget(id: string): Promise<void> {
+      await deploymentDefault.delete(backendRecordPath(id));
+    },
+  };
+}

@@ -51,11 +51,15 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     return ((await res.json()) as { id: string }).id;
   }
 
-  it('U263: creating a workspace writes exactly one manifest blob under its own prefix, creator as Owner', async () => {
+  it('U263: creating a workspace writes its manifest and backend record under its own prefix, creator as Owner', async () => {
     const id = await createWorkspace('ada', 'Layout proof');
     // Blob layout (Req 7): the manifest is at workspaces/<id>/manifest.json —
-    // a per-workspace prefix in the container, and nothing else was written.
-    expect([...blobs.keys()]).toEqual([`workspaces/${id}/manifest.json`]);
+    // a per-workspace prefix in the container. PRD 010 Req 3 adds exactly one
+    // sibling, the backend record, outside the files/ prefix; nothing else.
+    expect([...blobs.keys()].sort()).toEqual([
+      `workspaces/${id}/backend.json`,
+      `workspaces/${id}/manifest.json`,
+    ]);
     const read = await call('ada', 'GET', `/api/workspaces/${id}/manifest`);
     expect(read.status).toBe(200);
     const { manifest } = (await read.json()) as { manifest: WorkspaceManifest };

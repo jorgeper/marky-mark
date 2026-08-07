@@ -34,6 +34,7 @@ import {
 import type { WorkspaceListing } from '../src/lib/workspaceLifecycle.ts';
 import { isSidecarPath } from '../src/lib/sidecar.ts';
 import { UPLOAD_MAX_LABEL, uploadRejection, uploadTypeRejection } from '../src/lib/fileTransfer.ts';
+import type { WorkspaceBackends } from './backends.ts';
 import { contentTypeFor } from './contentTypes.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import type { RequestAuth, StorageProvider } from './providers/types.ts';
@@ -275,14 +276,21 @@ function readRoleBody(body: unknown): { name: string; permissions: string[] } | 
 /**
  * Handle a request under `/api/workspaces`. The caller (app.ts) has already
  * applied the 401 auth guard. Unmatched routes answer 404 here.
+ *
+ * PRD 010 Req 3: storage arrives as a per-workspace RESOLVER, not one
+ * process-wide provider — a deployment may hold workspaces on more than one
+ * backend, and which one backs a given workspace is a property of that
+ * workspace. Everything before an id is known (create, the listing) is the
+ * deployment default's, by definition.
  */
 export async function handleWorkspaceApi(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
-  storage: StorageProvider,
+  backends: WorkspaceBackends,
   auth: RequestAuth,
 ): Promise<void> {
+  const deploymentDefault = backends.deploymentDefault;
   const pathname = url.pathname;
   const rest = pathname.slice('/api/workspaces'.length);
   // PRD 007 Req 8: `?raw=1` is the byte-level view of the SAME blob the JSON
@@ -305,7 +313,12 @@ export async function handleWorkspaceApi(
       return;
     }
     const id = randomUUID();
-    await storage.write(manifestBlob(id), serializeWorkspaceManifest(built.manifest));
+    // PRD 010 Req 3: the record goes down BEFORE the manifest — the backend
+    // is what says where the manifest itself belongs, so it can never be the
+    // second thing written. A new workspace is on the deployment default;
+    // #103 is what makes that choice something else.
+    await backends.remember(id, { kind: 'deployment-default' });
+    await deploymentDefault.write(manifestBlob(id), serializeWorkspaceManifest(built.manifest));
     sendJson(res, 201, { id, manifest: built.manifest });
     return;
   }
@@ -314,12 +327,15 @@ export async function handleWorkspaceApi(
   // (id, name, timestamps) is readable to any signed-in user so an Open
   // dialog can list everything; contents stay behind per-workspace checks.
   if (rest === '' && req.method === 'GET') {
-    const blobs = await storage.list(WORKSPACES_PREFIX);
+    // PRD 010 Req 3: a workspace is still exactly a `manifest.json` under the
+    // prefix — the sibling backend record matches nothing here and so is
+    // never mistaken for one, nor surfaced in a row.
+    const blobs = await deploymentDefault.list(WORKSPACES_PREFIX);
     const out: WorkspaceListing[] = [];
     for (const blob of blobs) {
       const match = MANIFEST_BLOB_RE.exec(blob.path);
       if (!match) continue;
-      const manifest = await loadManifest(storage, match[1]);
+      const manifest = await loadManifest(await backends.forWorkspace(match[1]), match[1]);
       if (manifest === null || typeof manifest === 'string') continue; // corrupt: has no listable metadata
       // PRD 007 Req 11: the row carries what the Open dialog needs to tell
       // "openable" from "ask for access" — a resolved access flag and the
@@ -346,6 +362,18 @@ export async function handleWorkspaceApi(
     return;
   }
 
+  // PRD 010 Req 3: one resolution per request, from here on `storage` IS
+  // this workspace's backend. A record that cannot be read is a server-side
+  // data problem, reported like a corrupt manifest — never coerced into the
+  // default, which would serve the workspace from the wrong store.
+  let storage: StorageProvider;
+  try {
+    storage = await backends.forWorkspace(id);
+  } catch (err) {
+    sendJson(res, 500, { error: (err as Error).message });
+    return;
+  }
+
   // DELETE /api/workspaces/<id> — destroy the workspace outright.
   if (segments.length === 1 && req.method === 'DELETE') {
     // Required permission: workspace.delete (404 for an unknown id, 403 when
@@ -363,6 +391,11 @@ export async function handleWorkspaceApi(
     // The manifest goes last: while it exists the permission check above
     // still answers, so an interrupted sweep never leaves unguarded blobs.
     await storage.delete(manifestPath);
+    // PRD 010 Req 3: and the record with it, so nothing of the workspace is
+    // left behind in the deployment default either. When that store IS this
+    // workspace's, the sweep above already took it and this is a no-op; when
+    // it is not, this is the only thing that removes it.
+    await backends.forget(id);
     sendJson(res, 200, { deleted: id });
     return;
   }

@@ -71,6 +71,12 @@ export interface GitHubInstallation {
   id: number;
   /** Login of the account (user or org) the App is installed on. */
   account: string;
+  /**
+   * PRD 010 Req 6: what the installation actually grants, resource → access
+   * (`contents: 'write'`, …) — the thing startup validation checks before the
+   * deployment accepts a single request. Empty when GitHub reported none.
+   */
+  permissions: Record<string, string>;
 }
 
 export interface GitHubAppAuth {
@@ -84,6 +90,22 @@ export interface GitHubAppAuth {
   installationToken(installationId: number): Promise<string>;
   /** `fetch` against the API base authenticated as that installation. */
   requestAsInstallation(installationId: number, path: string, init?: RequestInit): Promise<Response>;
+}
+
+/** An installation as GitHub reports it, before it is read into shape. */
+interface InstallationBody {
+  id: number;
+  account?: { login?: string };
+  permissions?: Record<string, unknown>;
+}
+
+/** Only string-valued permissions are grants; anything else is not read. */
+function readInstallation(body: InstallationBody): GitHubInstallation {
+  const permissions: Record<string, string> = {};
+  for (const [resource, access] of Object.entries(body.permissions ?? {})) {
+    if (typeof access === 'string') permissions[resource] = access;
+  }
+  return { id: body.id, account: body.account?.login ?? '', permissions };
 }
 
 /**
@@ -261,14 +283,13 @@ export function createGitHubAppAuth(options: GitHubAppAuthOptions): GitHubAppAut
     installationToken,
     async listInstallations(): Promise<GitHubInstallation[]> {
       const res = await appRequest('/app/installations', {}, 'installation list');
-      const body = (await res.json()) as Array<{ id: number; account?: { login?: string } }>;
-      return body.map((i) => ({ id: i.id, account: i.account?.login ?? '' }));
+      const body = (await res.json()) as InstallationBody[];
+      return body.map(readInstallation);
     },
     async installationForRepo(owner: string, repo: string): Promise<GitHubInstallation> {
       const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/installation`;
       const res = await appRequest(path, {}, `installation lookup for ${owner}/${repo}`);
-      const body = (await res.json()) as { id: number; account?: { login?: string } };
-      return { id: body.id, account: body.account?.login ?? '' };
+      return readInstallation((await res.json()) as InstallationBody);
     },
     async requestAsInstallation(installationId: number, path: string, init: RequestInit = {}): Promise<Response> {
       // PRD 010 Req 4: installation-scoped calls carry the installation

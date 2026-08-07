@@ -21,7 +21,12 @@
 import { Buffer } from 'node:buffer';
 import { contentTypeFor } from '../../contentTypes.ts';
 import type { AuthUser, FileStat, StorageProvider, StoredBytes } from '../types.ts';
-import { GitHubApiError, githubFailureDetail, type GitHubAppAuth } from './auth.ts';
+import {
+  GitHubApiError,
+  githubFailureDetail,
+  type GitHubAppAuth,
+  type GitHubInstallation,
+} from './auth.ts';
 
 /** A git commit's author or committer line. */
 export interface CommitIdentity {
@@ -73,6 +78,36 @@ export interface GitHubStorageOptions {
   cacheTtlMs?: number;
 }
 
+/**
+ * PRD 010 Req 6: the startup check — is this repo actually usable as storage?
+ * Exported so the unit suite can drive it against `github/fake.ts` without
+ * booting a server; `init()` below is what runs it at startup, before
+ * `server/index.ts` lets the HTTP listener accept a connection.
+ *
+ * One request: the installation lookup, which answers both questions at once
+ * — an unreachable repo (or an App that is not installed on it) fails it, and
+ * a reachable one reports the permissions it granted. The failure vocabulary
+ * is `githubFailureDetail`'s, reached through `installationForRepo`'s own
+ * {@link GitHubApiError}, so there is no second wording for "not found" here.
+ * Nothing credential-shaped can appear in either message: the only inputs are
+ * a status, GitHub's short message and the repo the operator configured.
+ */
+export async function assertRepoIsWritable(auth: GitHubAppAuth, owner: string, repo: string): Promise<void> {
+  assertContentsWritable(await auth.installationForRepo(owner, repo), owner, repo);
+}
+
+/** The permission half of the check, on an installation already looked up. */
+function assertContentsWritable(installation: GitHubInstallation, owner: string, repo: string): void {
+  const contents = installation.permissions.contents ?? 'none';
+  if (contents !== 'write') {
+    throw new Error(
+      `GitHub default repository ${owner}/${repo} is not writable: the App installation grants ` +
+        `contents: ${contents} — grant it Repository permissions → Contents: Read and write, ` +
+        'then accept the updated permissions on the installation',
+    );
+  }
+}
+
 /** One file in the branch's tree: the blob it points at, and its size. */
 interface TreeEntry {
   sha: string;
@@ -106,18 +141,19 @@ export function createGitHubStorageProvider(options: GitHubStorageOptions): Stor
   const seamPath = (repoRelative: string): string => (root ? repoRelative.slice(root.length + 1) : repoRelative);
   const repoRoute = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
 
-  let installation: Promise<number> | null = null;
-  const installationId = async (): Promise<number> => {
+  let installation: Promise<GitHubInstallation> | null = null;
+  const currentInstallation = async (): Promise<GitHubInstallation> => {
     if (!installation) {
       // A failed lookup is not cached: the App may simply not be installed
       // yet, and the next call should ask again rather than fail forever.
-      installation = auth.installationForRepo(owner, repo).then((found) => found.id);
+      installation = auth.installationForRepo(owner, repo);
       installation.catch(() => {
         installation = null;
       });
     }
     return installation;
   };
+  const installationId = async (): Promise<number> => (await currentInstallation()).id;
 
   async function call(method: string, suffix: string, payload?: unknown): Promise<Response> {
     const init: RequestInit = { method };
@@ -361,9 +397,12 @@ export function createGitHubStorageProvider(options: GitHubStorageOptions): Stor
     return {
       kind: 'github-repo',
       async init(): Promise<void> {
-        // Resolve the installation once up front. Deliberately NOT a
-        // reachability check of the branch — that validation is #101.
-        await installationId();
+        // PRD 010 Req 6: fail fast. ONE lookup both resolves the installation
+        // this provider will call as and proves the repo is reachable with
+        // contents read/write — a deployment pointed at a repo it cannot
+        // write never reaches its first save to find out. Same check as
+        // {@link assertRepoIsWritable}, on the installation already fetched.
+        assertContentsWritable(await currentInstallation(), owner, repo);
       },
       async read(path: string): Promise<{ content: string; etag: string } | null> {
         const found = await readEntry(path, `read of ${repoPath(path)}`);

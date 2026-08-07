@@ -9,6 +9,15 @@ import { GITHUB_API_BASE, normalizeGitHubPrivateKey } from './providers/github/a
 export type ServerMode = 'local' | 'azure';
 
 /**
+ * PRD 010 Req 1: which storage backend the deployment defaults to, read from
+ * `MM_STORAGE_BACKEND`. Deliberately ORTHOGONAL to {@link ServerMode}: mode
+ * picks auth + directory (mock vs Entra/Graph), this picks where bytes live,
+ * and all four combinations are legal — a local developer may point at a
+ * GitHub repo, and an azure deployment may stay on Blob Storage.
+ */
+export type StorageBackend = 'blob' | 'github';
+
+/**
  * Azurite's well-known dev-storage connection string (the documented
  * devstoreaccount1 account every Azure tool ships): the local mode default,
  * so `npm run server:local` needs zero configuration.
@@ -20,13 +29,19 @@ export const AZURITE_CONNECTION_STRING =
 
 export interface ServerConfig {
   mode: ServerMode;
+  /** PRD 010 Req 1: the deployment-default storage backend. */
+  storageBackend: StorageBackend;
   /** Port to listen on. App Service supplies PORT; local default is 4924. */
   port: number;
   /** Directory the built SPA is served from. */
   staticDir: string;
   storage: {
-    /** Blob Storage (or Azurite) connection string. */
-    connectionString: string;
+    /**
+     * Blob Storage (or Azurite) connection string. PRD 010 Req 1: absent on
+     * the github backend — a deployment with no Azure storage account at all
+     * carries no fabricated connection string, it carries none.
+     */
+    connectionString?: string;
     /** Container all files live in. */
     container: string;
   };
@@ -37,19 +52,71 @@ export interface ServerConfig {
   };
   /**
    * PRD 010 Req 4: the deployment's GitHub App credentials. Optional in
-   * every mode — startup never requires them, and nothing selects a GitHub
-   * backend yet (that knob is #101). Present only when configured.
+   * every mode — no mode requires them; only `storageBackend: 'github'`
+   * does (Req 1). Present only when configured.
    */
   github?: {
     appId: string;
     /** PEM private key, newlines already un-escaped. */
     privateKey: string;
     apiBase: string;
+    /**
+     * PRD 010 Req 5: the deployment-default repo — where workspaces the
+     * operator has not connected elsewhere are stored. Present only when
+     * configured; required when the backend knob says `github`.
+     */
+    defaultRepo?: GitHubRepoTarget;
   };
 }
 
-/** Env vars azure mode cannot start without. */
-const AZURE_REQUIRED = ['ENTRA_TENANT_ID', 'ENTRA_CLIENT_ID', 'AZURE_STORAGE_CONNECTION_STRING'] as const;
+/** PRD 010 Req 5: one repo branch (and optional prefix) to store under. */
+export interface GitHubRepoTarget {
+  owner: string;
+  repo: string;
+  branch: string;
+  /** Repo-relative prefix; absent means the repo root. */
+  root?: string;
+}
+
+/** Env vars azure mode cannot start without, whatever the storage backend. */
+const AZURE_REQUIRED = ['ENTRA_TENANT_ID', 'ENTRA_CLIENT_ID'] as const;
+
+/** …plus the storage account, which only the blob backend needs (Req 1). */
+const AZURE_BLOB_REQUIRED = [...AZURE_REQUIRED, 'AZURE_STORAGE_CONNECTION_STRING'] as const;
+
+/**
+ * PRD 010 Req 1: what the github backend cannot start without — the App
+ * credentials of Req 4 and the default repo of Req 5. Named all at once when
+ * any are missing, the way `AZURE_REQUIRED` is.
+ */
+const GITHUB_BACKEND_REQUIRED = ['MM_GITHUB_APP_ID', 'MM_GITHUB_PRIVATE_KEY', 'MM_GITHUB_DEFAULT_REPO'] as const;
+
+/** `owner/repo` — exactly one pair, no URL, no third segment (Req 5). */
+const OWNER_REPO_RE = /^[^/\s]+\/[^/\s]+$/;
+
+/**
+ * PRD 010 Req 5: the deployment-default repo, configured as `owner/repo` and
+ * NEVER as a URL — the host of the API lives in exactly one place
+ * (`GITHUB_API_BASE`), and U370 fails the build if a second appears.
+ */
+function loadDefaultRepo(env: Record<string, string | undefined>): GitHubRepoTarget | undefined {
+  const target = env.MM_GITHUB_DEFAULT_REPO?.trim();
+  const branch = env.MM_GITHUB_DEFAULT_BRANCH?.trim();
+  const root = env.MM_GITHUB_DEFAULT_ROOT?.trim().replace(/^\/+|\/+$/g, '');
+  if (!target) {
+    if (branch || root) {
+      throw new Error('MM_GITHUB_DEFAULT_BRANCH/MM_GITHUB_DEFAULT_ROOT need MM_GITHUB_DEFAULT_REPO');
+    }
+    return undefined;
+  }
+  if (!OWNER_REPO_RE.test(target)) {
+    throw new Error(`MM_GITHUB_DEFAULT_REPO must be one 'owner/repo' pair, got '${target}'`);
+  }
+  const [owner, repo] = target.split('/');
+  // PRD 010 Req 5: one branch for the whole deployment — no per-workspace
+  // branch anywhere in this backend.
+  return { owner, repo, branch: branch || 'main', ...(root ? { root } : {}) };
+}
 
 /**
  * PRD 010 Req 4: the optional GitHub App section. App ID + private key are
@@ -61,7 +128,10 @@ function loadGitHubConfig(env: Record<string, string | undefined>): ServerConfig
   const appId = env.MM_GITHUB_APP_ID?.trim();
   const privateKey = env.MM_GITHUB_PRIVATE_KEY;
   const apiBase = env.MM_GITHUB_API_BASE?.trim();
-  if (!appId && !privateKey && !apiBase) return undefined;
+  // PRD 010 Req 5: the default repo is part of this section — naming it
+  // without the credentials is the same "incomplete" refusal below.
+  const defaultRepo = loadDefaultRepo(env);
+  if (!appId && !privateKey && !apiBase && !defaultRepo) return undefined;
 
   if (!appId || !privateKey) {
     const missing = [
@@ -87,7 +157,12 @@ function loadGitHubConfig(env: Record<string, string | undefined>): ServerConfig
       throw new Error(`MM_GITHUB_API_BASE must be an absolute URL, got '${apiBase}'`);
     }
   }
-  return { appId, privateKey: key, apiBase: apiBase || GITHUB_API_BASE };
+  return {
+    appId,
+    privateKey: key,
+    apiBase: apiBase || GITHUB_API_BASE,
+    ...(defaultRepo ? { defaultRepo } : {}),
+  };
 }
 
 /**
@@ -107,33 +182,56 @@ export function loadConfig(env: Record<string, string | undefined>): ServerConfi
     throw new Error(`PORT must be a TCP port number, got '${rawPort}'`);
   }
 
+  // PRD 010 Req 1: the backend knob — its own variable, parsed on its own,
+  // with no bearing on `mode` and no opinion from it.
+  const storageBackend = env.MM_STORAGE_BACKEND ?? 'blob';
+  if (storageBackend !== 'blob' && storageBackend !== 'github') {
+    throw new Error(`MM_STORAGE_BACKEND must be 'blob' or 'github', got '${storageBackend}'`);
+  }
+  if (storageBackend === 'github') {
+    // Named all at once, before the per-variable format checks below, so an
+    // operator sees every gap in one run rather than one per restart.
+    const absent = GITHUB_BACKEND_REQUIRED.filter((name) => !env[name]?.trim());
+    if (absent.length) {
+      throw new Error(`MM_STORAGE_BACKEND=github requires environment variables: ${absent.join(', ')}`);
+    }
+  }
+
   const staticDir = env.MM_STATIC_DIR ?? 'dist';
   const container = env.MM_STORAGE_CONTAINER ?? 'marky-mark';
   // PRD 010 Req 4: parsed in both modes, required in neither.
   const github = loadGitHubConfig(env);
 
+  // PRD 010 Req 1: the github backend needs NO Azure storage account, so the
+  // config carries no connection string at all rather than a fabricated one.
+  const storage =
+    storageBackend === 'blob'
+      ? {
+          connectionString:
+            mode === 'local'
+              ? (env.AZURE_STORAGE_CONNECTION_STRING ?? AZURITE_CONNECTION_STRING)
+              : env.AZURE_STORAGE_CONNECTION_STRING!,
+          container,
+        }
+      : { container };
+
   if (mode === 'local') {
-    return {
-      mode,
-      port,
-      staticDir,
-      storage: {
-        connectionString: env.AZURE_STORAGE_CONNECTION_STRING ?? AZURITE_CONNECTION_STRING,
-        container,
-      },
-      ...(github ? { github } : {}),
-    };
+    return { mode, storageBackend, port, staticDir, storage, ...(github ? { github } : {}) };
   }
 
-  const missing = AZURE_REQUIRED.filter((name) => !env[name]);
+  // PRD 010 Req 1: Entra stays required in azure mode whatever the backend;
+  // the storage account is required only by the backend that uses it.
+  const required = storageBackend === 'blob' ? AZURE_BLOB_REQUIRED : AZURE_REQUIRED;
+  const missing = required.filter((name) => !env[name]);
   if (missing.length) {
     throw new Error(`MM_MODE=azure requires environment variables: ${missing.join(', ')}`);
   }
   return {
     mode,
+    storageBackend,
     port,
     staticDir,
-    storage: { connectionString: env.AZURE_STORAGE_CONNECTION_STRING!, container },
+    storage,
     azure: { tenantId: env.ENTRA_TENANT_ID!, clientId: env.ENTRA_CLIENT_ID! },
     ...(github ? { github } : {}),
   };

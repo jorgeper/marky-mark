@@ -53,8 +53,8 @@ describe('PRD 007 Req 1+4 server config', () => {
 });
 
 // PRD 010 Req 4: the optional GitHub App section — App ID + private key are
-// the only credential inputs, no mode newly requires them, and no backend
-// selection knob is added here (that is #101).
+// the only credential inputs, and no mode newly requires them; only the
+// backend knob below does.
 describe('PRD 010 Req 4 GitHub App configuration', () => {
   const { privateKey: PEM } = generateKeyPairSync('rsa', {
     modulusLength: 2048,
@@ -118,5 +118,85 @@ describe('PRD 010 Req 4 GitHub App configuration', () => {
       expect(message).toMatch(/MM_GITHUB_PRIVATE_KEY is not a readable PEM private key/);
       expect(message).not.toContain(PEM.split('\n')[1]);
     }
+  });
+});
+
+// PRD 010 Req 1: the storage-backend knob — a variable of its own, orthogonal
+// to MM_MODE, defaulting to today's blob behaviour, and (on github) needing no
+// Azure storage account at all.
+describe('PRD 010 Req 1 storage backend knob', () => {
+  const { privateKey: PEM } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+  });
+  /** The github backend's minimum: App credentials plus the default repo. */
+  const GITHUB_ENV = {
+    MM_STORAGE_BACKEND: 'github',
+    MM_GITHUB_APP_ID: '424242',
+    MM_GITHUB_PRIVATE_KEY: PEM,
+    MM_GITHUB_DEFAULT_REPO: 'contoso/marky-store',
+  };
+  const AZURE_ENV = { MM_MODE: 'azure', ENTRA_TENANT_ID: 't', ENTRA_CLIENT_ID: 'c' };
+  const CONNECTION = 'DefaultEndpointsProtocol=https;AccountName=prod;';
+
+  it('U401: defaults to blob, refuses any other value by name, and parses independently of MM_MODE', () => {
+    expect(loadConfig({}).storageBackend).toBe('blob');
+    expect(loadConfig({ MM_STORAGE_BACKEND: 'blob' }).storageBackend).toBe('blob');
+    expect(() => loadConfig({ MM_STORAGE_BACKEND: 's3' })).toThrowError(
+      /MM_STORAGE_BACKEND must be 'blob' or 'github', got 's3'/,
+    );
+    // All four MM_MODE × backend combinations are legal: mode picks auth and
+    // directory, the knob picks where bytes live.
+    const combinations = [
+      [loadConfig({}), 'local', 'blob'],
+      [loadConfig({ ...GITHUB_ENV }), 'local', 'github'],
+      [loadConfig({ ...AZURE_ENV, AZURE_STORAGE_CONNECTION_STRING: CONNECTION }), 'azure', 'blob'],
+      [loadConfig({ ...AZURE_ENV, ...GITHUB_ENV }), 'azure', 'github'],
+    ] as const;
+    for (const [config, mode, backend] of combinations) {
+      expect([config.mode, config.storageBackend]).toEqual([mode, backend]);
+    }
+    // Blob reproduces today's config exactly, Azurite default included.
+    expect(loadConfig({ MM_STORAGE_BACKEND: 'blob' }).storage).toEqual(loadConfig({}).storage);
+  });
+
+  it('U402: the github backend names every missing variable at once and pins the repo to one owner/repo pair', () => {
+    expect(() => loadConfig({ MM_STORAGE_BACKEND: 'github' })).toThrowError(
+      /MM_STORAGE_BACKEND=github requires environment variables: MM_GITHUB_APP_ID, MM_GITHUB_PRIVATE_KEY, MM_GITHUB_DEFAULT_REPO/,
+    );
+    expect(() => loadConfig({ MM_STORAGE_BACKEND: 'github', MM_GITHUB_APP_ID: '424242' })).toThrowError(
+      /requires environment variables: MM_GITHUB_PRIVATE_KEY, MM_GITHUB_DEFAULT_REPO/,
+    );
+    for (const bad of ['https://github.example/contoso/marky-store', 'contoso', 'contoso/marky/store']) {
+      expect(() => loadConfig({ ...GITHUB_ENV, MM_GITHUB_DEFAULT_REPO: bad })).toThrowError(
+        `MM_GITHUB_DEFAULT_REPO must be one 'owner/repo' pair, got '${bad}'`,
+      );
+    }
+    // Branch defaults to main; the root is optional and slash-trimmed.
+    expect(loadConfig(GITHUB_ENV).github?.defaultRepo).toEqual({
+      owner: 'contoso',
+      repo: 'marky-store',
+      branch: 'main',
+    });
+    expect(
+      loadConfig({ ...GITHUB_ENV, MM_GITHUB_DEFAULT_BRANCH: 'store', MM_GITHUB_DEFAULT_ROOT: '/data/' }).github
+        ?.defaultRepo,
+    ).toEqual({ owner: 'contoso', repo: 'marky-store', branch: 'store', root: 'data' });
+    // A repo-less branch/root is a typo, not a silent no-op.
+    expect(() => loadConfig({ MM_GITHUB_DEFAULT_BRANCH: 'store' })).toThrowError(/need MM_GITHUB_DEFAULT_REPO/);
+  });
+
+  it('U403: an azure-mode github deployment starts with no storage connection string and fabricates none', () => {
+    // No AZURE_STORAGE_CONNECTION_STRING anywhere in the environment: the
+    // account is not merely unused, it does not exist.
+    const config = loadConfig({ ...AZURE_ENV, ...GITHUB_ENV });
+    expect(config.storage.connectionString).toBeUndefined();
+    expect(JSON.stringify(config)).not.toContain('AccountKey');
+    expect(config.azure).toEqual({ tenantId: 't', clientId: 'c' });
+    // The Entra half is still required — only the storage account was dropped.
+    expect(() => loadConfig({ MM_MODE: 'azure', ...GITHUB_ENV })).toThrowError(
+      /requires environment variables: ENTRA_TENANT_ID, ENTRA_CLIENT_ID/,
+    );
   });
 });

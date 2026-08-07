@@ -12,7 +12,16 @@ import { createProviders } from './providers/index.ts';
 
 const config = loadConfig(process.env);
 const providers = createProviders(config);
-await providers.storage.init?.();
+try {
+  // PRD 010 Req 6: the storage backend proves itself BEFORE the listener
+  // accepts anything — on the github backend that is the default repo being
+  // reachable with contents read/write. A deployment that cannot write where
+  // it was pointed exits here with the reason, rather than serving 500s.
+  await providers.storage.init?.();
+} catch (err) {
+  console.error(`marky-mark server: storage is unusable — ${(err as Error).message}`);
+  process.exit(1);
+}
 
 const server = http.createServer(createApp(config.staticDir, providers, config.mode));
 server.listen(config.port, () => {

@@ -40,6 +40,13 @@ export interface FakeInstallationSeed {
   /** Login of the account the App is installed on. */
   account: string;
   repos: FakeRepoSeed[];
+  /**
+   * PRD 010 Req 6: what the installation grants, as the installation lookup
+   * reports it. Defaults to the App's own ask — contents read/write — so a
+   * seed only states this to model a misconfigured installation (e.g.
+   * `{ contents: 'read' }`), which is what the startup check must refuse.
+   */
+  permissions?: Record<string, string>;
 }
 
 export interface GitHubFakeOptions {
@@ -117,6 +124,7 @@ interface RepoState {
 interface InstallationState {
   id: number;
   account: string;
+  permissions: Record<string, string>;
   repos: Map<string, RepoState>;
 }
 
@@ -193,7 +201,12 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
         commits: [{ sha: commitSha(key, 0, 'seed'), message: 'seed', date: '2026-01-01T00:00:00Z' }],
       });
     }
-    installations.set(seed.id, { id: seed.id, account: seed.account, repos });
+    installations.set(seed.id, {
+      id: seed.id,
+      account: seed.account,
+      permissions: seed.permissions ?? { contents: 'write', metadata: 'read' },
+      repos,
+    });
   }
 
   const tokens = new Map<string, { installationId: number; expiresAtMs: number }>();
@@ -274,6 +287,8 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
       id: installation.id,
       account: { login: installation.account, type: 'Organization' },
       app_id: Number(appId),
+      // PRD 010 Req 6: the grant the startup check reads.
+      permissions: installation.permissions,
     };
   }
 

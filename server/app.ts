@@ -9,6 +9,7 @@ import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http
 import { Buffer } from 'node:buffer';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { createWorkspaceBackends, type WorkspaceBackends } from './backends.ts';
 import type { ServerMode } from './config.ts';
 import { cleanRelativePath, readBody, sendJson, tryDecode } from './http.ts';
 import type { Providers, RequestAuth } from './providers/types.ts';
@@ -65,6 +66,7 @@ async function handleApi(
   res: ServerResponse,
   url: URL,
   providers: Providers,
+  backends: WorkspaceBackends,
 ): Promise<void> {
   const { pathname } = url;
 
@@ -147,7 +149,7 @@ async function handleApi(
   // PRD 007 Req 7+13: everything under /api/workspaces is per-workspace
   // scoped and permission-checked (server/workspaces.ts).
   if (pathname === '/api/workspaces' || pathname.startsWith('/api/workspaces/')) {
-    await handleWorkspaceApi(req, res, url, providers.storage, auth);
+    await handleWorkspaceApi(req, res, url, backends, auth);
     return;
   }
 
@@ -274,12 +276,24 @@ function handleStatic(
   createReadStream(target).pipe(res);
 }
 
-export function createApp(staticDir: string, providers: Providers, mode: ServerMode): RequestListener {
+/**
+ * PRD 010 Req 3: `backends` is how workspace-scoped requests find their
+ * storage; per-user files (`/api/me/files`) and the workspace-agnostic
+ * `/api/files` scaffold below always use the deployment default. Defaulted
+ * here so a caller with one provider still wires, and injectable so a test
+ * can hand in a second backend.
+ */
+export function createApp(
+  staticDir: string,
+  providers: Providers,
+  mode: ServerMode,
+  backends: WorkspaceBackends = createWorkspaceBackends({ deploymentDefault: providers.storage }),
+): RequestListener {
   const staticRoot = path.resolve(staticDir);
   return (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-      handleApi(req, res, url, providers).catch((err: unknown) => {
+      handleApi(req, res, url, providers, backends).catch((err: unknown) => {
         console.error('API error:', err);
         if (!res.headersSent) sendJson(res, 500, { error: 'internal server error' });
         else res.end();

@@ -93,8 +93,11 @@ describe('PRD 010 Req 4 installation tokens', () => {
       now: () => clock,
     });
     const installation = await auth.installationForRepo('marky-org', 'docs');
-    expect(installation).toEqual({ id: 7, account: 'marky-org' });
-    expect(await auth.listInstallations()).toEqual([{ id: 7, account: 'marky-org' }]);
+    // PRD 010 Req 6: the lookup also reports what the installation grants —
+    // what startup validation reads before serving anything.
+    const granted = { contents: 'write', metadata: 'read' };
+    expect(installation).toEqual({ id: 7, account: 'marky-org', permissions: granted });
+    expect(await auth.listInstallations()).toEqual([{ id: 7, account: 'marky-org', permissions: granted }]);
 
     const token = await auth.installationToken(installation.id);
     expect(token).toBe(fake.mintedTokens[0]);

@@ -51,15 +51,23 @@ the environment reference is below.
 | `PORT` | both | Listen port. Default `4924`; App Service injects its own. |
 | `MM_STATIC_DIR` | both | Directory of the built SPA. Default `dist`. |
 | `MM_STORAGE_CONTAINER` | both | Blob container for files. Default `marky-mark`. |
-| `AZURE_STORAGE_CONNECTION_STRING` | azure (required); local (optional) | Storage connection string. Local default: Azurite's well-known dev connection string. |
+| `MM_STORAGE_BACKEND` | both | `blob` (default) or `github` — where files live (PRD 010 Req 1). Orthogonal to `MM_MODE`: all four combinations start. |
+| `AZURE_STORAGE_CONNECTION_STRING` | azure + blob backend (required); local (optional) | Storage connection string. Local default: Azurite's well-known dev connection string. Not read at all on the github backend — that deployment needs no storage account. |
 | `ENTRA_TENANT_ID` | azure (required) | Entra ID tenant (single-tenant app registration). |
 | `ENTRA_CLIENT_ID` | azure (required) | Entra ID application (client) id — also the expected token audience. |
-| `MM_GITHUB_APP_ID` | both (optional) | Numeric id of the deployment's GitHub App (PRD 010 Req 4). Required only alongside `MM_GITHUB_PRIVATE_KEY`; nothing uses it yet. |
+| `MM_GITHUB_APP_ID` | both (optional; required on the github backend) | Numeric id of the deployment's GitHub App (PRD 010 Req 4). |
 | `MM_GITHUB_PRIVATE_KEY` | both (optional) | That App's PEM private key (PKCS#1 or PKCS#8), literal or `\n`-escaped newlines — the App Service app-setting shape. The **only** GitHub credential the server accepts: no PAT, no long-lived repo token. |
 | `MM_GITHUB_API_BASE` | both (optional) | GitHub REST root, for GitHub Enterprise. Defaults to the public API (`GITHUB_API_BASE` in `providers/github/auth.ts`, the one place a GitHub host is named). |
+| `MM_GITHUB_DEFAULT_REPO` | github backend (required) | The deployment-default repo as `owner/repo` — never a URL (PRD 010 Req 5). |
+| `MM_GITHUB_DEFAULT_BRANCH` | github backend (optional) | The one branch everything is stored on. Default `main`. |
+| `MM_GITHUB_DEFAULT_ROOT` | github backend (optional) | Repo-relative prefix to store under. Default: the repo root. |
 
 `MM_MODE=azure` refuses to start with any of its required variables missing,
-naming them all at once.
+naming them all at once, and so does `MM_STORAGE_BACKEND=github`. On the
+github backend, startup also checks the default repo before the listener
+accepts anything: an unreachable repo, or an App installation that does not
+grant **Contents: Read and write**, exits non-zero saying which (PRD 010
+Req 6).
 
 ## Workspace storage model (PRD 007 Req 7)
 
@@ -69,8 +77,21 @@ workspace owns a prefix keyed by a server-generated UUID:
 
 ```
 workspaces/<id>/manifest.json     the workspace manifest (below)
+workspaces/<id>/backend.json      which backend backs it (PRD 010 Req 3)
 workspaces/<id>/files/<path>      its Markdown documents and assets
 ```
+
+The same layout is what the github backend stores in the default repo, at
+those repo-relative paths under `MM_GITHUB_DEFAULT_ROOT`, on the one
+configured branch. That repo is **app storage, not intended for human
+browsing** — the human-readable layout is the bring-your-own-repo case
+(#103).
+
+`backend.json` always lives in the deployment default store (the backend has
+to be known before the workspace's own store can be read); no record means
+the deployment default, which is every workspace an existing deployment
+already has. It is server-side only: no API response carries it, and it is
+outside `files/` like the manifest.
 
 The manifest sits *outside* the `files/` prefix, so workspace file listings
 never surface it; the workspace-agnostic `/api/files*` scaffold refuses the
@@ -202,9 +223,9 @@ scopes it is the token whose issuer and audience match what
   reaches github.
 - GitHub storage (PRD 010 Req 2+7–11): `providers/github/storage.ts` is a
   `StorageProvider` over a repo branch — one commit per mutation, authored by
-  the signed-in user and committed by the app, blob shas as ETags. It is
-  **not selectable by configuration yet** (`MM_MODE` still wires `local` and
-  `azure` only); the backend knob is #101. `tests/unit/storage-contract.ts`
+  the signed-in user and committed by the app, blob shas as ETags. Selected
+  by `MM_STORAGE_BACKEND=github` (PRD 010 Req 1+5), with per-workspace
+  resolution in `backends.ts`. `tests/unit/storage-contract.ts`
   is the shared seam contract both it and the in-memory reference provider
   pass.
 - E2E (`npm run test:e2e`): `tests/e2e/hosted.spec.ts` boots this server in
