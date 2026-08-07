@@ -389,10 +389,22 @@ describe('PRD 010 Req 17 BYO and default workspaces over HTTP', () => {
 
     // The listing is the union of the manifest scan and the backend records:
     // the BYO workspace has no manifest in the deployment default at all.
-    const rows = (await (await call('GET', '/api/workspaces')).json()) as Array<{ id: string; name: string }>;
+    const rows = (await (await call('GET', '/api/workspaces')).json()) as Array<{
+      id: string;
+      name: string;
+      retainsHistory?: boolean;
+    }>;
     const named = new Map(rows.map((r) => [r.id, r.name]));
     expect(named.get(plain.id!)).toBe('On the default store');
     expect(named.get(byo.id!)).toBe('On my repo');
+
+    // PRD 010 Req 21: and each row says what a delete there MEANS — the repo
+    // workspace's content is retained by git history, the default store's is
+    // not. This is what the delete confirmations are worded from, and it is on
+    // the pre-permission listing so every member who can delete reads it.
+    const retention = new Map(rows.map((r) => [r.id, r.retainsHistory]));
+    expect(retention.get(byo.id!)).toBe(true);
+    expect(retention.get(plain.id!)).toBe(false);
 
     // Each is saved into its own store, and neither touches the other's.
     await call('PUT', `/api/workspaces/${plain.id}/files/a.md`, '# default');

@@ -98,7 +98,13 @@ const AZURE_BLOB_REQUIRED = [...AZURE_REQUIRED, 'AZURE_STORAGE_CONNECTION_STRING
  * credentials of Req 4 and the default repo of Req 5. Named all at once when
  * any are missing, the way `AZURE_REQUIRED` is.
  */
-const GITHUB_BACKEND_REQUIRED = ['MM_GITHUB_APP_ID', 'MM_GITHUB_PRIVATE_KEY', 'MM_GITHUB_DEFAULT_REPO'] as const;
+// PRD 010 Req 20: exported so the hosting guide's drift guard (U478) can
+// assert docs/HOSTING-GITHUB.md still names every one of them.
+export const GITHUB_BACKEND_REQUIRED = [
+  'MM_GITHUB_APP_ID',
+  'MM_GITHUB_PRIVATE_KEY',
+  'MM_GITHUB_DEFAULT_REPO',
+] as const;
 
 /** `owner/repo` — exactly one pair, no URL, no third segment (Req 5). */
 const OWNER_REPO_RE = /^[^/\s]+\/[^/\s]+$/;

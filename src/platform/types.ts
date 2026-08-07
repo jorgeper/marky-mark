@@ -115,8 +115,15 @@ export interface Platform {
   trashEntry?(path: string): Promise<void>;
   /**
    * SPEC35 §6 + PRD 007 non-goals: true ⇒ `trashEntry` destroys the entry
-   * outright — there is no OS trash behind it and no version history to
-   * restore from — so the confirmation must not promise recovery.
+   * outright — there is no OS trash behind it — so the confirmation must not
+   * offer recovery.
+   *
+   * PRD 010 Req 21: it does NOT decide what the confirmation says on its own
+   * any more. On the github backend the delete is still permanent as far as
+   * the app is concerned, but the repository's history retains the content,
+   * and that is per workspace rather than per platform: the flag is one input
+   * to `deleteRetention()` (src/lib/deleteRetention.ts), the workspace
+   * listing's `retainsHistory` is the other.
    */
   permanentDelete?: boolean;
   /** SPEC35 §1: select the entry in the OS file manager. */

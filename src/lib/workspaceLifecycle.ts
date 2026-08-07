@@ -37,6 +37,17 @@ export interface WorkspaceListing {
    * vanishing from the dialog. Absent on every healthy row.
    */
   attention?: string;
+  /**
+   * PRD 010 Req 21: true when deleting in this workspace leaves the content
+   * in the backing repository's history. Server-supplied on the listing —
+   * which is pre-permission, so every member who can delete has it without
+   * `workspace.settings` and without a GitHub round trip per prompt.
+   *
+   * PRD 010 Req 3 survives it: it says what a delete MEANS, never which
+   * backend a default-storage workspace sits on. Absent (an older server, an
+   * unreachable backend) reads as `false` — the stricter promise.
+   */
+  retainsHistory?: boolean;
 }
 
 /** PRD 007 Req 10: the New Workspace form's state, exactly as the user sees it. */

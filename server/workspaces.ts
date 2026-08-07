@@ -36,6 +36,7 @@ import { isSidecarPath } from '../src/lib/sidecar.ts';
 import { UPLOAD_MAX_LABEL, uploadRejection, uploadTypeRejection } from '../src/lib/fileTransfer.ts';
 import {
   backendRecordWorkspaceId,
+  retainsHistory,
   validateWorkspaceBackend,
   type WorkspaceBackendRecord,
   type WorkspaceBackends,
@@ -512,8 +513,14 @@ async function routeWorkspaceApi(
     const out: WorkspaceListing[] = [];
     for (const id of ids) {
       let manifest: WorkspaceManifest | string | null;
+      // PRD 010 Req 21: the row's own store, kept so the listing can say
+      // whether a delete there is retained by repository history. Resolving it
+      // is the read the listing already does — no extra GitHub round trip, and
+      // certainly none per delete prompt.
+      let store: StorageProvider | null = null;
       try {
-        manifest = await loadManifest(await backends.forWorkspace(id), id);
+        store = await backends.forWorkspace(id);
+        manifest = await loadManifest(store, id);
       } catch (err) {
         // PRD 010 Req 18: a repo-backed workspace whose backend cannot be
         // reached is no longer DROPPED — it was the one row an owner needed
@@ -533,6 +540,10 @@ async function routeWorkspaceApi(
           // the card's settings holders are who can open it to repair it.
           access: card.admins.includes(auth.user.id),
           attention: connectionFailureMessage(err),
+          // PRD 010 Req 21: only if the store itself resolved (the manifest
+          // read is what failed). An unreachable backend answers the stricter
+          // promise rather than a guess about what its history holds.
+          retainsHistory: retainsHistory(store),
         });
         continue;
       }
@@ -548,6 +559,13 @@ async function routeWorkspaceApi(
         modified: manifest.modified,
         owners: workspaceOwnerIds(manifest),
         access: resolvePermissions(manifest, auth.user.id).has('doc.read'),
+        // PRD 010 Req 21: whether a delete here is retained by repository
+        // history. It rides the LISTING — pre-permission, so every member who
+        // can delete reads it, unlike `GET .../connection` which needs
+        // `workspace.settings`. PRD 010 Req 3 still holds: this is one boolean
+        // about what deletion means, not which backend serves the workspace —
+        // no owner, repo, branch or host is on the row.
+        retainsHistory: retainsHistory(store),
       });
     }
     sendJson(res, 200, out);

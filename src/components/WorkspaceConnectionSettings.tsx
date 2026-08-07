@@ -47,8 +47,19 @@ export function WorkspaceConnectionSettings({ lifecycle }: { lifecycle: Workspac
 
   const load = useCallback(async (): Promise<void> => {
     if (!id) return;
-    const [permissions, answer] = await Promise.all([lifecycle.permissions(id), lifecycle.connection(id)]);
+    const permissions = await lifecycle.permissions(id);
     setAllowed(mayManageConnection(permissions));
+    // PRD 010 Req 18: ask about the connection only when the manifest says
+    // this member may manage it, OR when the manifest could not answer at all
+    // (an empty set — no access, or a workspace whose backend is unreachable),
+    // which is exactly the broken-connection case the route's own card-backed
+    // gate exists for. A member who simply lacks `workspace.settings` no
+    // longer spends a request on a 403 the section would discard anyway.
+    if (!mayManageConnection(permissions) && permissions.length > 0) {
+      setPayload(null);
+      return;
+    }
+    const answer = await lifecycle.connection(id);
     // A refusal is not a connection: the section stays silent rather than
     // guessing, and the route has already refused by name.
     setPayload('error' in answer ? null : answer);
