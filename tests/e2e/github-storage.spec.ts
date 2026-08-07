@@ -25,11 +25,14 @@ const GITHUB = `http://localhost:${LANE_SERVER_PORT}`;
 /** The repo the wizard connects, as the pick-repo step names it. */
 const BYO_FULL_NAME = `${LANE_BYO_REPO.owner}/${LANE_BYO_REPO.repo}`;
 
-// Each test here drives the app as a DIFFERENT seeded user. On this backend a
-// per-user file (`users/<id>/foldertree.json`) is a commit on one branch, and
-// PRD 010 Req 11 bounds an unconditional write's retry at one — so two
-// workers running as the same user would race for real. Distinct users make
-// the lane's parallelism a property of the tests, not of that bound.
+// Every test that opens a workspace in the browser drives the app as a seeded
+// user of its own. On this backend a per-user file
+// (`users/<id>/foldertree.json`) is a commit on one branch, and PRD 010 Req 11
+// bounds an unconditional write's retry at one — so two workers writing as the
+// same user would race for real. There are four seeded users
+// (server/providers/mock/users.ts) and five tests here, so `ada` is the one
+// name used twice: E221 opens no workspace, and so never reaches the per-user
+// writes opening one makes.
 const PAGE_USER = { choice: 'ada', wizard: 'grace', restart: 'alan', merge: 'katherine', conflict: 'ada' };
 
 /** Sign in as a seeded mock user and return the bearer token. */
@@ -267,7 +270,7 @@ test('E224: a concurrent save that does not overlap is merged into the repo — 
     ).status(),
   ).toBe(200);
 
-  // Ada's save is stale, merges, and says so without asking anything.
+  // Katherine's save is stale, merges, and says so without asking anything.
   await menuSave(page);
   await expect(page.getByTestId('notice')).toContainText('merged');
   await expect(page.getByTestId('save-conflict-prompt')).toHaveCount(0);

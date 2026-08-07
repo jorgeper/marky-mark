@@ -1,5 +1,5 @@
 // PRD 010 Req 22: what the GitHub-backed e2e lane is made of, in one place
-// both halves read — `server/e2e-github.ts` boots a real server against this
+// both halves read — `server/e2eGithub.ts` boots a real server against this
 // seed, and `tests/e2e/github-storage.spec.ts` drives the running app against
 // the same names. Sharing the module is what keeps the two from drifting: a
 // renamed repo or a moved seed file is a typecheck error, not a red suite.
@@ -25,9 +25,11 @@ export const LANE_ACCOUNT = 'marky-org';
 /**
  * PRD 010 Req 5: the deployment default repo — `MM_STORAGE_BACKEND=github`
  * points the whole deployment's storage at it, so the lane needs no Azurite
- * and no storage account at all.
+ * and no storage account at all. `MM_GITHUB_DEFAULT_REPO` takes the
+ * `owner/repo` spelling; the seed below takes the two halves.
  */
-export const LANE_DEFAULT_REPO = `${LANE_ACCOUNT}/deployment`;
+const DEFAULT_REPO_NAME = 'deployment';
+export const LANE_DEFAULT_REPO = `${LANE_ACCOUNT}/${DEFAULT_REPO_NAME}`;
 
 /**
  * PRD 010 Req 17: the repo an admin connects in the wizard — a repo that
@@ -81,7 +83,7 @@ export function laneInstallations(): FakeInstallationSeed[] {
       repos: [
         {
           owner: LANE_ACCOUNT,
-          repo: LANE_DEFAULT_REPO.split('/')[1],
+          repo: DEFAULT_REPO_NAME,
           branch: 'main',
           // PRD 010 Req 6: the startup check reads the default repo before the
           // listener accepts anything, so it exists here with a commit in it.

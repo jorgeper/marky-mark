@@ -5,8 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SignJWT } from 'jose';
 import { describe, expect, it } from 'vitest';
-import { createGitHubAppAuth } from '../../server/providers/github/auth';
 import { LANE_FAKE_PORT, LANE_SERVER_PORT } from '../../server/e2eGithubLane';
+import { createGitHubAppAuth } from '../../server/providers/github/auth';
 import { createGitHubFake } from '../../server/providers/github/fake';
 
 // PRD 010 Req 4: the local GitHub API fake — the only GitHub the repo's tests
@@ -348,16 +348,17 @@ describe('PRD 010 Req 22 the fake as a whole "GitHub" for a browser', () => {
   });
 });
 
-// PRD 010 Req 22: the no-network rule, pinned where U370 could not see it.
-// U370 scans `server/` and `tests/`; the GitHub-backed e2e lane is also a
-// Playwright config, a package.json script and a spec file, so those are read
-// here by name. A future test or boot script that points at the real GitHub
-// API fails the unit suite rather than the CI network.
+// PRD 010 Req 22: the no-network rule, over every file the lane is made of.
+// U370 already covers the two under `server/` (and `tests/` for the API host
+// alone); the Playwright config, the package.json script and the spec are
+// outside anything it scans, so the whole lane is listed here by name. A
+// future test or boot script that points at the real GitHub API fails the
+// unit suite rather than the CI network.
 describe('PRD 010 Req 22 the GitHub-backed e2e lane is offline by construction', () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
   const read = (rel: string) => readFileSync(path.join(root, rel), 'utf8');
   const LANE_FILES = [
-    'server/e2e-github.ts',
+    'server/e2eGithub.ts',
     'server/e2eGithubLane.ts',
     'playwright.config.ts',
     'package.json',
@@ -372,12 +373,12 @@ describe('PRD 010 Req 22 the GitHub-backed e2e lane is offline by construction',
     }
     // The positive half: the boot script's API and web bases are the URL its
     // OWN fake listener resolved to, so there is nothing else they could be.
-    const boot = read('server/e2e-github.ts');
+    const boot = read('server/e2eGithub.ts');
     expect(boot).toContain("import { createGitHubFake } from './providers/github/fake.ts'");
     expect(boot).toMatch(/MM_GITHUB_API_BASE \?\?= listener\.url;/);
     expect(boot).toMatch(/MM_GITHUB_WEB_BASE \?\?= listener\.url;/);
     // And it is a repo command, not a manual step: one npm script runs it.
-    expect(JSON.parse(read('package.json')).scripts['server:github']).toBe('tsx server/e2e-github.ts');
+    expect(JSON.parse(read('package.json')).scripts['server:github']).toBe('tsx server/e2eGithub.ts');
   });
 
   it('U478: the lane is a webServer entry like the Azurite one — same command, its own loopback port', async () => {
@@ -385,12 +386,12 @@ describe('PRD 010 Req 22 the GitHub-backed e2e lane is offline by construction',
     const servers = config.webServer as { command: string; url: string }[];
     const lane = servers.find((s) => s.command === 'npm run server:github');
     expect(lane, 'playwright.config.ts must boot the GitHub lane').toBeDefined();
-    expect(lane!.url).toBe(`http://localhost:${LANE_SERVER_PORT}`.concat('/'));
+    expect(lane!.url).toBe(`http://localhost:${LANE_SERVER_PORT}/`);
     // Every lane is loopback, and no two share a port.
     const ports = servers.map((s) => new URL(s.url).port);
     expect(new Set(ports).size).toBe(ports.length);
     expect(ports).toContain(String(LANE_SERVER_PORT));
-    expect(String(LANE_FAKE_PORT)).not.toBe(String(LANE_SERVER_PORT));
+    expect(LANE_FAKE_PORT).not.toBe(LANE_SERVER_PORT);
     for (const server of servers) expect(new URL(server.url).hostname).toBe('localhost');
   });
 });

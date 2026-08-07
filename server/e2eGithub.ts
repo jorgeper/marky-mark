@@ -57,7 +57,7 @@ process.env.PORT ??= String(LANE_SERVER_PORT);
 process.env.MM_STATIC_DIR ??= path.join(root, 'dist');
 process.env.MM_STORAGE_BACKEND ??= 'github';
 process.env.MM_GITHUB_APP_ID ??= LANE_APP_ID;
-process.env.MM_GITHUB_PRIVATE_KEY ??= privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
+process.env.MM_GITHUB_PRIVATE_KEY ??= privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
 process.env.MM_GITHUB_DEFAULT_REPO ??= LANE_DEFAULT_REPO;
 process.env.MM_GITHUB_APP_SLUG ??= LANE_APP_SLUG;
 // PRD 010 Req 16: the wizard's install URL is a browser page, so the lane

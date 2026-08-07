@@ -160,6 +160,11 @@ interface FakeResult {
   body: string;
 }
 
+/** The branch head — every repo is seeded with a commit, so there is one. */
+function headCommit(state: RepoState): FakeCommit {
+  return state.commits[state.commits.length - 1];
+}
+
 /** The real git blob object hash — deterministic, and what GitHub returns. */
 function blobSha(bytes: Uint8Array): string {
   return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
@@ -389,14 +394,17 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
   }
 
   /**
-   * The files a ref names: the branch (and its head sha) is the live map, and
-   * any older commit sha is its own snapshot. Null for a ref this repo never
-   * had, which is the 404 the routes below answer.
+   * The files a ref names, and the commit sha it resolves to: the branch (and
+   * its head sha) is the live map, and any older commit sha is its own
+   * snapshot. Null for a ref this repo never had, which is the 404 the routes
+   * below answer. Callers tell head from history by that sha rather than by
+   * which map came back.
    */
-  function filesAt(state: RepoState, ref: string): Map<string, Uint8Array> | null {
-    const head = state.commits[state.commits.length - 1];
-    if (ref === state.branch || ref === head.sha) return state.files;
-    return state.snapshots.get(ref) ?? null;
+  function filesAt(state: RepoState, ref: string): { files: Map<string, Uint8Array>; sha: string } | null {
+    const head = headCommit(state);
+    if (ref === state.branch || ref === head.sha) return { files: state.files, sha: head.sha };
+    const snapshot = state.snapshots.get(ref);
+    return snapshot ? { files: snapshot, sha: ref } : null;
   }
 
   async function route(
@@ -471,7 +479,7 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
       const { state } = found;
       const repoKey = `${owner}/${repo}`.toLowerCase();
 
-      const head = () => state.commits[state.commits.length - 1];
+      const head = () => headCommit(state);
 
       if (repoRoute.path !== undefined) {
         const path = decodeURIComponent(repoRoute.path);
@@ -482,18 +490,18 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
         const at = filesAt(state, ref);
         if (!at) return error(404, 'No commit found for the ref ' + ref);
         if (method === 'GET') {
-          const existing = at.get(path);
+          const existing = at.files.get(path);
           if (existing === undefined) {
             // A directory listing when anything lives under that prefix.
             const prefix = path === '' ? '' : `${path}/`;
-            const children = [...at.keys()].filter((p) => p.startsWith(prefix) && prefix !== p);
+            const children = [...at.files.keys()].filter((p) => p.startsWith(prefix) && prefix !== p);
             if (!children.length) return error(404, 'Not Found');
-            return json(200, children.map((p) => contentsBody(owner, repo, p, at.get(p)!)));
+            return json(200, children.map((p) => contentsBody(owner, repo, p, at.files.get(p)!)));
           }
           return json(200, contentsBody(owner, repo, path, existing));
         }
         // A write addresses the branch, never a historical snapshot.
-        if (at !== state.files) return error(422, 'Refs cannot be written through the contents API');
+        if (at.sha !== head().sha) return error(422, 'Refs cannot be written through the contents API');
         const payload = body
           ? (JSON.parse(body) as {
               message?: string;
@@ -574,7 +582,7 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
         const at = filesAt(state, ref);
         if (!at) return error(404, 'Not Found');
         const recursive = query.get('recursive');
-        const paths = [...at.keys()].sort();
+        const paths = [...at.files.keys()].sort();
         const directories = new Set<string>();
         for (const path of paths) {
           const parts = path.split('/');
@@ -582,7 +590,7 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
         }
         const entries = [
           ...paths.map((path) => {
-            const content = at.get(path)!;
+            const content = at.files.get(path)!;
             return { path, mode: '100644', type: 'blob', sha: blobSha(content), size: content.length };
           }),
           // Nothing ever dereferences a directory's sha — only its `tree`
@@ -592,7 +600,7 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
             .map((path) => ({ path, mode: '040000', type: 'tree', sha: commitSha(repoKey, -1, path) })),
         ];
         return json(200, {
-          sha: at === state.files ? head().sha : ref,
+          sha: at.sha,
           truncated: false,
           // Without `recursive`, GitHub answers the top level only.
           tree: recursive ? entries : entries.filter((e) => !e.path.includes('/')),
@@ -606,15 +614,16 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
         // "The same sha is the same bytes forever" is the promise, so the
         // search spans the branch's history and not just its head — a blob a
         // later commit superseded is still readable by its own sha.
-        const known = [state.files, ...state.snapshots.values()];
-        for (const content of known.flatMap((files) => [...files.values()])) {
-          if (blobSha(content) !== sha) continue;
-          return json(200, {
-            sha,
-            size: content.length,
-            encoding: 'base64',
-            content: Buffer.from(content).toString('base64'),
-          });
+        for (const files of [state.files, ...state.snapshots.values()]) {
+          for (const content of files.values()) {
+            if (blobSha(content) !== sha) continue;
+            return json(200, {
+              sha,
+              size: content.length,
+              encoding: 'base64',
+              content: Buffer.from(content).toString('base64'),
+            });
+          }
         }
         return error(404, 'Not Found');
       }
