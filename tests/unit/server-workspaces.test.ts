@@ -4,84 +4,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../server/app';
 import { createMockAuthProvider } from '../../server/providers/mock/auth';
 import { createMockDirectoryProvider } from '../../server/providers/mock/directory';
-import type { FileStat, StorageProvider } from '../../server/providers/types';
 import { PERMISSIONS, type WorkspaceManifest } from '../../src/lib/hostedWorkspace';
 import { WORKSPACE_ROUTE_PERMISSIONS } from '../../server/workspaces';
+import { createMemoryStorage, describeStorageContract } from './storage-contract';
 
 // PRD 007 Req 7+13: the workspace API's blob layout and permission
 // enforcement, proven offline at the HTTP layer — createApp wired to an
 // in-memory storage seam and the mock auth provider, no network beyond
 // the OS loopback and no Azure anything. The same behaviour runs against
 // real Azurite blobs in tests/e2e/hosted.spec.ts (E172+).
-
-/** An in-memory StorageProvider — the seam contract, no Azure. */
-function createMemoryStorage(): { provider: StorageProvider; blobs: Map<string, string> } {
-  const blobs = new Map<string, string>();
-  // PRD 007 Req 8: blobs written as bytes keep their bytes and media type;
-  // the text view decodes them, exactly as a real blob store behaves.
-  const binaries = new Map<string, { data: Uint8Array; contentType: string }>();
-  let stamp = 0;
-  // PRD 007 Req 20: every write mints a NEW etag for that path, exactly as a
-  // blob store does — that is what makes the conditional write meaningful
-  // rather than a formula both sides can guess.
-  const etags = new Map<string, string>();
-  const stampPath = (path: string): string => {
-    const etag = `e${++stamp}`;
-    etags.set(path, etag);
-    return etag;
-  };
-  const provider: StorageProvider = {
-    kind: 'memory',
-    async read(path) {
-      const content = blobs.get(path);
-      return content === undefined ? null : { content, etag: etags.get(path) ?? '' };
-    },
-    async write(path, content) {
-      binaries.delete(path);
-      blobs.set(path, content);
-      return { etag: stampPath(path) };
-    },
-    async writeIfMatch(path, content, ifMatch) {
-      if (!blobs.has(path) || etags.get(path) !== ifMatch) return null;
-      binaries.delete(path);
-      blobs.set(path, content);
-      return { etag: stampPath(path) };
-    },
-    async readBytes(path) {
-      const raw = binaries.get(path);
-      if (raw) return { ...raw, etag: etags.get(path) ?? '' };
-      const content = blobs.get(path);
-      return content === undefined
-        ? null
-        : {
-            data: new TextEncoder().encode(content),
-            contentType: 'text/plain; charset=utf-8',
-            etag: etags.get(path) ?? '',
-          };
-    },
-    async writeBytes(path, data, contentType) {
-      binaries.set(path, { data, contentType });
-      // The text view decodes the same bytes — a blob store has ONE copy.
-      blobs.set(path, new TextDecoder().decode(data));
-      return { etag: stampPath(path) };
-    },
-    async delete(path) {
-      binaries.delete(path);
-      etags.delete(path);
-      return blobs.delete(path);
-    },
-    async list(prefix) {
-      const out: FileStat[] = [];
-      for (const [path, content] of blobs) {
-        if (path.startsWith(prefix)) {
-          out.push({ path, size: content.length, lastModified: '2026-08-05T00:00:00.000Z', etag: 'e' });
-        }
-      }
-      return out;
-    },
-  };
-  return { provider, blobs };
-}
 
 describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
   const { provider, blobs } = createMemoryStorage();
@@ -882,4 +813,14 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     ]);
     blobs.clear();
   });
+});
+
+// PRD 010 Req 22: the reference provider the HTTP layer above runs on is
+// held to the shared seam contract — the same suite `server-github-storage`
+// runs, so "the GitHub provider passes the contract" means the same thing
+// for both. U374–U382 is this run's block of ids.
+describeStorageContract({
+  label: 'the in-memory reference provider',
+  firstId: 374,
+  create: () => createMemoryStorage().provider,
 });

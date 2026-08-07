@@ -200,6 +200,13 @@ scopes it is the token whose issuer and audience match what
   (installations, contents, refs, commits) every GitHub test runs against —
   injectable as a `fetch`, or mountable on a `node:http` listener. No test
   reaches github.
+- GitHub storage (PRD 010 Req 2+7–11): `providers/github/storage.ts` is a
+  `StorageProvider` over a repo branch — one commit per mutation, authored by
+  the signed-in user and committed by the app, blob shas as ETags. It is
+  **not selectable by configuration yet** (`MM_MODE` still wires `local` and
+  `azure` only); the backend knob is #101. `tests/unit/storage-contract.ts`
+  is the shared seam contract both it and the in-memory reference provider
+  pass.
 - E2E (`npm run test:e2e`): `tests/e2e/hosted.spec.ts` boots this server in
   local mode via Playwright's `webServer` (E159+) — real HTTP against
   Azurite, zero Azure resources or network beyond localhost.

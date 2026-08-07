@@ -88,6 +88,19 @@ export interface StorageProvider {
   delete(path: string): Promise<boolean>;
   /** List files under a prefix ('' lists everything). */
   list(prefix: string): Promise<FileStat[]>;
+  /**
+   * PRD 010 Req 7: a view of this same storage that acts as `user` — for a
+   * backend whose writes are attributable (a GitHub commit's author line),
+   * the acting user has to reach it from the request that is being served.
+   * It arrives as an explicit argument on an explicit call, NOT as a mutable
+   * "current user" module-global, so two requests in flight at once cannot
+   * cross-attribute each other's writes.
+   *
+   * OPTIONAL: a store with no notion of an author (Azure Blob, the in-memory
+   * reference provider) simply omits it, and every caller works unchanged
+   * against the shared instance — `storage.asUser?.(user) ?? storage`.
+   */
+  asUser?(user: AuthUser): StorageProvider;
 }
 
 /** A user as the directory sees them (member pickers, avatars). */

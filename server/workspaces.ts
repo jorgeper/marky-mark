@@ -34,6 +34,7 @@ import {
 import type { WorkspaceListing } from '../src/lib/workspaceLifecycle.ts';
 import { isSidecarPath } from '../src/lib/sidecar.ts';
 import { UPLOAD_MAX_LABEL, uploadRejection, uploadTypeRejection } from '../src/lib/fileTransfer.ts';
+import { contentTypeFor } from './contentTypes.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import type { RequestAuth, StorageProvider } from './providers/types.ts';
 
@@ -44,27 +45,6 @@ const manifestBlob = (id: string): string => `${WORKSPACES_PREFIX}${id}/manifest
 const filesPrefix = (id: string): string => `${WORKSPACES_PREFIX}${id}/files/`;
 
 const MANIFEST_BLOB_RE = /^workspaces\/([^/]+)\/manifest\.json$/;
-
-/**
- * PRD 007 Req 8: the media type a raw blob is stored and served with,
- * derived from its extension ALONE. The uploader's Content-Type is
- * deliberately ignored: these bytes come back from the app's own origin, so
- * letting a caller label an upload `text/html` would turn a pasted "image"
- * into stored same-origin script. Anything unrecognised is a download.
- */
-const RAW_CONTENT_TYPES: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  gif: 'image/gif',
-  webp: 'image/webp',
-  svg: 'application/octet-stream', // SVG is script-capable — never served as an image
-};
-
-function contentTypeFor(filePath: string): string {
-  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
-  return RAW_CONTENT_TYPES[ext] ?? 'application/octet-stream';
-}
 
 /** The last segment of a workspace-relative path — the file's own name. */
 function basenameOf(filePath: string): string {
