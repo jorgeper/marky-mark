@@ -105,6 +105,10 @@ describe('PRD 010 Req 4 GitHub API fake: installations, contents, refs, commits'
           ...(sha ? { sha } : {}),
         }),
       });
+    const read = async <T>(route: string): Promise<T> => {
+      const res = await fake.fetch(`${BASE}/repos/marky-org/docs/${route}`, { headers: auth });
+      return (await res.json()) as T;
+    };
 
     const created = await put('guide.md', 'guide\n');
     expect(created.status).toBe(201);
@@ -117,7 +121,7 @@ describe('PRD 010 Req 4 GitHub API fake: installations, contents, refs, commits'
     expect((await put('guide.md', 'v2\n', createdSha)).status).toBe(200);
     expect(fake.file('marky-org', 'docs', 'guide.md')).toBe('v2\n');
 
-    const updatedSha = ((await (await fake.fetch(`${BASE}/repos/marky-org/docs/contents/guide.md`, { headers: auth })).json()) as { sha: string }).sha;
+    const updatedSha = (await read<{ sha: string }>('contents/guide.md')).sha;
     const removed = await fake.fetch(`${BASE}/repos/marky-org/docs/contents/guide.md`, {
       method: 'DELETE',
       headers: auth,
@@ -126,7 +130,7 @@ describe('PRD 010 Req 4 GitHub API fake: installations, contents, refs, commits'
     expect(removed.status).toBe(200);
     expect(fake.file('marky-org', 'docs', 'guide.md')).toBeUndefined();
 
-    const log = (await (await fake.fetch(`${BASE}/repos/marky-org/docs/commits`, { headers: auth })).json()) as Array<{ commit: { message: string } }>;
+    const log = await read<Array<{ commit: { message: string } }>>('commits');
     expect(log.map((c) => c.commit.message)).toEqual(['drop guide', 'write guide.md', 'write guide.md', 'seed']);
   });
 

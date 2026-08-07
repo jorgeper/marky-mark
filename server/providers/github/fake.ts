@@ -15,7 +15,8 @@
 import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { jwtVerify } from 'jose';
+import { decodeJwt, jwtVerify } from 'jose';
+import type { FetchLike } from './auth.ts';
 
 /** Whatever `jose` accepts as a verification key — no key type is re-declared here. */
 type VerifyKey = Parameters<typeof jwtVerify>[1];
@@ -58,8 +59,6 @@ export interface FakeRequest {
   /** Path with query string, e.g. `/app/installations/7/access_tokens`. */
   path: string;
 }
-
-export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 export interface GitHubFake {
   /** Injectable `fetch` — the form the auth module and provider take. */
@@ -123,6 +122,22 @@ function error(status: number, message: string, headers: Record<string, string> 
   return json(status, { message }, headers);
 }
 
+/**
+ * The three installation-scoped repo routes in one match: exactly one of
+ * `path` (contents, possibly empty for the repo root), `branch` (a ref) and
+ * `commits` participates, so the undefined ones say which route it was.
+ */
+const REPO_ROUTE =
+  /^\/repos\/(?<owner>[^/]+)\/(?<repo>[^/]+)\/(?:contents\/(?<path>.*)|git\/ref\/heads\/(?<branch>.+)|(?<commits>commits))$/;
+
+interface RepoRouteGroups {
+  owner: string;
+  repo: string;
+  path?: string;
+  branch?: string;
+  commits?: string;
+}
+
 class AuthFailure extends Error {}
 
 export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
@@ -174,11 +189,9 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
     const value = credential(headers);
     if (!value) throw new AuthFailure('Requires authentication');
     if (tokens.has(value)) throw new AuthFailure('A JWT signed by the App is required for this endpoint');
-    const parts = value.split('.');
-    if (parts.length !== 3) throw new AuthFailure('A JWT could not be decoded');
-    let claims: { iss?: unknown; iat?: unknown; exp?: unknown };
+    let claims: { iss?: unknown; exp?: unknown };
     try {
-      claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      claims = decodeJwt(value);
     } catch {
       throw new AuthFailure('A JWT could not be decoded');
     }
@@ -244,6 +257,17 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
     };
   }
 
+  /** Every write appends a commit, so `git/ref` and `commits` move with it. */
+  function appendCommit(state: RepoState, repoKey: string, message: string): { sha: string; message: string } {
+    const commit = {
+      sha: commitSha(repoKey, state.commits.length, message),
+      message,
+      date: new Date(now()).toISOString(),
+    };
+    state.commits.push(commit);
+    return { sha: commit.sha, message: commit.message };
+  }
+
   async function route(
     method: string,
     pathname: string,
@@ -272,10 +296,10 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
     }
 
     // --- contents / refs / commits (installation token) -----------------
-    const repoRoute = /^\/repos\/([^/]+)\/([^/]+)\/(contents\/(.*)|git\/ref\/heads\/(.+)|commits)$/.exec(pathname);
+    const repoRoute = REPO_ROUTE.exec(pathname)?.groups as RepoRouteGroups | undefined;
     if (repoRoute) {
-      const owner = decodeURIComponent(repoRoute[1]);
-      const repo = decodeURIComponent(repoRoute[2]);
+      const owner = decodeURIComponent(repoRoute.owner);
+      const repo = decodeURIComponent(repoRoute.repo);
       const found = findRepo(owner, repo);
       if (!found) {
         // Still authenticate first: an unknown repo must not leak past a
@@ -287,8 +311,8 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
       const { state } = found;
       const repoKey = `${owner}/${repo}`.toLowerCase();
 
-      if (repoRoute[4] !== undefined) {
-        const path = decodeURIComponent(repoRoute[4]);
+      if (repoRoute.path !== undefined) {
+        const path = decodeURIComponent(repoRoute.path);
         const ref = query.get('ref') ?? state.branch;
         if (ref !== state.branch) return error(404, 'No commit found for the ref ' + ref);
         if (method === 'GET') {
@@ -313,34 +337,22 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
           }
           const content = Buffer.from(payload.content ?? '', 'base64').toString('utf8');
           state.files.set(path, content);
-          const commit = {
-            sha: commitSha(repoKey, state.commits.length, payload.message ?? ''),
-            message: payload.message ?? '',
-            date: new Date(now()).toISOString(),
-          };
-          state.commits.push(commit);
           return json(current === undefined ? 201 : 200, {
             content: contentsBody(owner, repo, path, content),
-            commit: { sha: commit.sha, message: commit.message },
+            commit: appendCommit(state, repoKey, payload.message ?? ''),
           });
         }
         if (method === 'DELETE') {
           if (current === undefined) return error(404, 'Not Found');
           if (payload.sha !== blobSha(current)) return error(409, 'sha does not match');
           state.files.delete(path);
-          const commit = {
-            sha: commitSha(repoKey, state.commits.length, payload.message ?? ''),
-            message: payload.message ?? '',
-            date: new Date(now()).toISOString(),
-          };
-          state.commits.push(commit);
-          return json(200, { content: null, commit: { sha: commit.sha, message: commit.message } });
+          return json(200, { content: null, commit: appendCommit(state, repoKey, payload.message ?? '') });
         }
         return error(405, 'Method not allowed');
       }
 
-      if (repoRoute[5] !== undefined && method === 'GET') {
-        const branch = decodeURIComponent(repoRoute[5]);
+      if (repoRoute.branch !== undefined && method === 'GET') {
+        const branch = decodeURIComponent(repoRoute.branch);
         if (branch !== state.branch) return error(404, 'Not Found');
         const head = state.commits[state.commits.length - 1];
         return json(200, {
@@ -349,7 +361,7 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
         });
       }
 
-      if (repoRoute[3] === 'commits' && method === 'GET') {
+      if (repoRoute.commits !== undefined && method === 'GET') {
         const commits = [...state.commits].reverse();
         return json(200, commits.map((c) => ({
           sha: c.sha,
@@ -394,35 +406,37 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
     return out;
   }
 
+  function handler(req: IncomingMessage, res: ServerResponse): void {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      const headers: Record<string, string> = {};
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (typeof value === 'string') headers[key.toLowerCase()] = value;
+      }
+      handle(req.method ?? 'GET', req.url ?? '/', headers, Buffer.concat(chunks).toString('utf8'))
+        .then((result) => {
+          res.writeHead(result.status, result.headers);
+          res.end(result.body);
+        })
+        .catch(() => {
+          res.writeHead(500, { 'content-type': 'application/json' });
+          res.end('{"message":"fake failure"}');
+        });
+    });
+  }
+
   return {
     requests,
     mintedTokens,
+    handler,
     async fetch(url: string, init?: RequestInit): Promise<Response> {
       const body = typeof init?.body === 'string' ? init.body : '';
       const result = await handle(init?.method ?? 'GET', url, normalizeHeaders(init), body);
       return new Response(result.body, { status: result.status, headers: result.headers });
     },
-    handler(req: IncomingMessage, res: ServerResponse): void {
-      const chunks: Buffer[] = [];
-      req.on('data', (chunk: Buffer) => chunks.push(chunk));
-      req.on('end', () => {
-        const headers: Record<string, string> = {};
-        for (const [key, value] of Object.entries(req.headers)) {
-          if (typeof value === 'string') headers[key.toLowerCase()] = value;
-        }
-        handle(req.method ?? 'GET', req.url ?? '/', headers, Buffer.concat(chunks).toString('utf8'))
-          .then((result) => {
-            res.writeHead(result.status, result.headers);
-            res.end(result.body);
-          })
-          .catch(() => {
-            res.writeHead(500, { 'content-type': 'application/json' });
-            res.end('{"message":"fake failure"}');
-          });
-      });
-    },
     listen(port = 0): Promise<{ url: string; close: () => Promise<void> }> {
-      const server = createServer(this.handler);
+      const server = createServer(handler);
       return new Promise((resolve) => {
         server.listen(port, '127.0.0.1', () => {
           const address = server.address();

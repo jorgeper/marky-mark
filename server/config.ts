@@ -63,19 +63,19 @@ function loadGitHubConfig(env: Record<string, string | undefined>): ServerConfig
   const apiBase = env.MM_GITHUB_API_BASE?.trim();
   if (!appId && !privateKey && !apiBase) return undefined;
 
-  const missing = [
-    ...(appId ? [] : ['MM_GITHUB_APP_ID']),
-    ...(privateKey ? [] : ['MM_GITHUB_PRIVATE_KEY']),
-  ];
-  if (missing.length) {
+  if (!appId || !privateKey) {
+    const missing = [
+      ...(appId ? [] : ['MM_GITHUB_APP_ID']),
+      ...(privateKey ? [] : ['MM_GITHUB_PRIVATE_KEY']),
+    ];
     throw new Error(`GitHub App configuration is incomplete, missing: ${missing.join(', ')}`);
   }
-  if (!/^\d+$/.test(appId!)) {
+  if (!/^\d+$/.test(appId)) {
     throw new Error(`MM_GITHUB_APP_ID must be the numeric GitHub App id, got '${appId}'`);
   }
   let key: string;
   try {
-    key = normalizeGitHubPrivateKey(privateKey!);
+    key = normalizeGitHubPrivateKey(privateKey);
   } catch (err) {
     // The message names the variable and the expected shape — never the value.
     throw new Error(`MM_GITHUB_PRIVATE_KEY is ${(err as Error).message}`);
@@ -87,7 +87,7 @@ function loadGitHubConfig(env: Record<string, string | undefined>): ServerConfig
       throw new Error(`MM_GITHUB_API_BASE must be an absolute URL, got '${apiBase}'`);
     }
   }
-  return { appId: appId!, privateKey: key, apiBase: apiBase || GITHUB_API_BASE };
+  return { appId, privateKey: key, apiBase: apiBase || GITHUB_API_BASE };
 }
 
 /**

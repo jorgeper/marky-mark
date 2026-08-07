@@ -196,10 +196,9 @@ describe('PRD 010 Req 4 no credential is ever logged', () => {
     const messages: string[] = [];
 
     // 404: an installation lookup for a repo the App is not installed on.
-    await expect(auth.installationForRepo('someone', 'elsewhere')).rejects.toThrowError(
-      /GitHub installation lookup for someone\/elsewhere failed: 404/,
-    );
-    messages.push(await capture(() => auth.installationForRepo('someone', 'elsewhere')));
+    const notFound = await capture(() => auth.installationForRepo('someone', 'elsewhere'));
+    expect(notFound).toMatch(/GitHub installation lookup for someone\/elsewhere failed: 404/);
+    messages.push(notFound);
 
     // 401: the App credentials rejected outright.
     const wrongApp = createGitHubAppAuth({

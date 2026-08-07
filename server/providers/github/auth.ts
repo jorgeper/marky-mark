@@ -33,7 +33,26 @@ const APP_JWT_BACKDATE_SECONDS = 30;
  */
 const TOKEN_REFRESH_MARGIN_MS = 60_000;
 
+/** Sent on every call; the credential and any per-call headers layer on top. */
+const API_HEADERS: Record<string, string> = {
+  Accept: 'application/vnd.github+json',
+  'X-GitHub-Api-Version': '2022-11-28',
+};
+
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * The caller's `init` plus the API headers and a bearer credential, which
+ * always wins. Built through `Headers` rather than an object spread because
+ * `init.headers` may legally be a `Headers` or an entry array, and a spread
+ * would silently mangle either.
+ */
+function authorized(init: RequestInit, credential: string): RequestInit {
+  const headers = new Headers(API_HEADERS);
+  new Headers(init.headers).forEach((value, name) => headers.set(name, value));
+  headers.set('Authorization', `Bearer ${credential}`);
+  return { ...init, headers };
+}
 
 export interface GitHubAppAuthOptions {
   /** Numeric GitHub App id (`MM_GITHUB_APP_ID`). */
@@ -141,10 +160,14 @@ export function createGitHubAppAuth(options: GitHubAppAuthOptions): GitHubAppAut
   // callers share one `access_tokens` request instead of racing two.
   const inFlight = new Map<number, Promise<string>>();
 
-  async function fail(res: Response, operation: string): Promise<never> {
-    // Only the status, the operation and GitHub's own short `message` are
-    // surfaced: no headers (which carry the Authorization we sent), no body
-    // dump, and the whole string is scrubbed of known secrets.
+  /**
+   * The error a failed response becomes — thrown by the caller, so the
+   * control flow stays visible at the call site. Only the status, the
+   * operation and GitHub's own short `message` are surfaced: no headers
+   * (which carry the Authorization we sent), no body dump, and the whole
+   * string is scrubbed of known secrets.
+   */
+  async function apiError(res: Response, operation: string): Promise<GitHubApiError> {
     let detail: string;
     if (res.status === 401) {
       detail = 'the App credentials were rejected — check MM_GITHUB_APP_ID and MM_GITHUB_PRIVATE_KEY';
@@ -168,20 +191,13 @@ export function createGitHubAppAuth(options: GitHubAppAuthOptions): GitHubAppAut
       }
       detail = message || 'unexpected response';
     }
-    throw new GitHubApiError(res.status, operation, redact(detail));
+    return new GitHubApiError(res.status, operation, redact(detail));
   }
 
   async function appRequest(path: string, init: RequestInit, operation: string): Promise<Response> {
     const jwt = await appJwt();
-    const res = await fetchImpl(`${apiBase}${path}`, {
-      ...init,
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        Authorization: `Bearer ${jwt}`,
-      },
-    });
-    if (!res.ok) await fail(res, operation);
+    const res = await fetchImpl(`${apiBase}${path}`, authorized(init, jwt));
+    if (!res.ok) throw await apiError(res, operation);
     return res;
   }
 
@@ -200,19 +216,17 @@ export function createGitHubAppAuth(options: GitHubAppAuthOptions): GitHubAppAut
   }
 
   async function mintInstallationToken(installationId: number): Promise<string> {
-    const res = await appRequest(
-      `/app/installations/${installationId}/access_tokens`,
-      { method: 'POST' },
-      `installation token mint for installation ${installationId}`,
-    );
+    const operation = `installation token mint for installation ${installationId}`;
+    const res = await appRequest(`/app/installations/${installationId}/access_tokens`, { method: 'POST' }, operation);
     const body = (await res.json()) as { token?: unknown; expires_at?: unknown };
     if (typeof body.token !== 'string' || typeof body.expires_at !== 'string') {
-      throw new GitHubApiError(res.status, `installation token mint for installation ${installationId}`,
-        'the response carried no token');
+      throw new GitHubApiError(res.status, operation, 'the response carried no token');
     }
     const expiresAtMs = Date.parse(body.expires_at);
     secrets.add(body.token);
     cache.set(installationId, {
+      // An unreadable `expires_at` caches the token as already expired, so it
+      // is used for this call and re-minted for the next — never trusted.
       token: body.token,
       expiresAtMs: Number.isNaN(expiresAtMs) ? now() : expiresAtMs,
     });
@@ -248,18 +262,10 @@ export function createGitHubAppAuth(options: GitHubAppAuthOptions): GitHubAppAut
       return { id: body.id, account: body.account?.login ?? '' };
     },
     async requestAsInstallation(installationId: number, path: string, init: RequestInit = {}): Promise<Response> {
+      // PRD 010 Req 4: installation-scoped calls carry the installation
+      // token, never the App JWT.
       const token = await installationToken(installationId);
-      return fetchImpl(`${apiBase}${path}`, {
-        ...init,
-        headers: {
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          ...(init.headers as Record<string, string> | undefined),
-          // PRD 010 Req 4: installation-scoped calls carry the installation
-          // token, never the App JWT.
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      return fetchImpl(`${apiBase}${path}`, authorized(init, token));
     },
   };
 }
