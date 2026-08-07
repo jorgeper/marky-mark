@@ -136,6 +136,15 @@ interface RepoState {
   branch: string;
   files: Map<string, Uint8Array>;
   commits: FakeCommit[];
+  /**
+   * PRD 010 Req 10+22: the branch's history, as the tree of each commit. Real
+   * GitHub answers `git/trees/<sha>` for any commit that ever existed, and a
+   * caller that read the ref moments before a concurrent commit landed asks
+   * for exactly that — the e2e lane of #107 is the first place two writers
+   * race on one repo, and without history it saw a 404 for a sha the fake had
+   * itself just issued.
+   */
+  snapshots: Map<string, Map<string, Uint8Array>>;
 }
 
 interface InstallationState {
@@ -216,14 +225,16 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
     for (const repo of seed.repos) {
       const key = `${repo.owner}/${repo.repo}`.toLowerCase();
       const files = new Map(Object.entries(repo.files ?? {}).map(([path, content]) => [path, toBytes(content)]));
+      // A seeded repo starts with one commit, so `git/ref` and `commits`
+      // answer something deterministic before any write.
+      const seedCommit: FakeCommit = { sha: commitSha(key, 0, 'seed'), message: 'seed', date: '2026-01-01T00:00:00Z' };
       repos.set(key, {
         owner: repo.owner,
         repo: repo.repo,
         branch: repo.branch ?? 'main',
         files,
-        // A seeded repo starts with one commit, so `git/ref` and `commits`
-        // answer something deterministic before any write.
-        commits: [{ sha: commitSha(key, 0, 'seed'), message: 'seed', date: '2026-01-01T00:00:00Z' }],
+        commits: [seedCommit],
+        snapshots: new Map([[seedCommit.sha, new Map(files)]]),
       });
     }
     installations.set(seed.id, {
@@ -371,7 +382,21 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
       committer: identity(payload.committer),
     };
     state.commits.push(commit);
+    // The tree this commit left behind, so a later read of it answers what it
+    // answered then — the same promise `git/blobs/<sha>` makes for bytes.
+    state.snapshots.set(commit.sha, new Map(state.files));
     return { sha: commit.sha, message: commit.message };
+  }
+
+  /**
+   * The files a ref names: the branch (and its head sha) is the live map, and
+   * any older commit sha is its own snapshot. Null for a ref this repo never
+   * had, which is the 404 the routes below answer.
+   */
+  function filesAt(state: RepoState, ref: string): Map<string, Uint8Array> | null {
+    const head = state.commits[state.commits.length - 1];
+    if (ref === state.branch || ref === head.sha) return state.files;
+    return state.snapshots.get(ref) ?? null;
   }
 
   async function route(
@@ -381,6 +406,22 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
     headers: Record<string, string>,
     body: string,
   ): Promise<FakeResult> {
+    // PRD 010 Req 16+22: the one WEB page the connect-your-repo flow visits —
+    // the App's install/consent page. It is not an API route and takes no
+    // credential; it exists so the e2e lane can point MM_GITHUB_WEB_BASE at
+    // this fake and have "leave for GitHub" land on a served page rather than
+    // a 404. It installs nothing: the return leg is the browser navigating
+    // back to the app with the parameters GitHub would have carried.
+    const consent = /^\/apps\/([^/]+)\/installations\/new$/.exec(pathname);
+    if (consent && method === 'GET') {
+      const slug = decodeURIComponent(consent[1]).replace(/[&<>]/g, '');
+      return {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+        body: `<!doctype html><meta charset="utf-8"><title>Install ${slug}</title><p>Install ${slug}?</p>`,
+      };
+    }
+
     // --- installations (App JWT) ---------------------------------------
     const mint = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(pathname);
     if (mint && method === 'POST') {
@@ -436,21 +477,23 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
         const path = decodeURIComponent(repoRoute.path);
         const ref = query.get('ref') ?? state.branch;
         // A commit sha is as valid a ref as the branch name, and reading a
-        // path at an explicit head sha is how a caller pins a snapshot.
-        if (ref !== state.branch && ref !== head().sha) {
-          return error(404, 'No commit found for the ref ' + ref);
-        }
+        // path at an explicit sha is how a caller pins a snapshot — including
+        // one a concurrent commit has already superseded.
+        const at = filesAt(state, ref);
+        if (!at) return error(404, 'No commit found for the ref ' + ref);
         if (method === 'GET') {
-          const existing = state.files.get(path);
+          const existing = at.get(path);
           if (existing === undefined) {
             // A directory listing when anything lives under that prefix.
             const prefix = path === '' ? '' : `${path}/`;
-            const children = [...state.files.keys()].filter((p) => p.startsWith(prefix) && prefix !== p);
+            const children = [...at.keys()].filter((p) => p.startsWith(prefix) && prefix !== p);
             if (!children.length) return error(404, 'Not Found');
-            return json(200, children.map((p) => contentsBody(owner, repo, p, state.files.get(p)!)));
+            return json(200, children.map((p) => contentsBody(owner, repo, p, at.get(p)!)));
           }
           return json(200, contentsBody(owner, repo, path, existing));
         }
+        // A write addresses the branch, never a historical snapshot.
+        if (at !== state.files) return error(422, 'Refs cannot be written through the contents API');
         const payload = body
           ? (JSON.parse(body) as {
               message?: string;
@@ -528,9 +571,10 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
       // is caught.
       if (repoRoute.tree !== undefined && method === 'GET') {
         const ref = decodeURIComponent(repoRoute.tree);
-        if (ref !== state.branch && ref !== head().sha) return error(404, 'Not Found');
+        const at = filesAt(state, ref);
+        if (!at) return error(404, 'Not Found');
         const recursive = query.get('recursive');
-        const paths = [...state.files.keys()].sort();
+        const paths = [...at.keys()].sort();
         const directories = new Set<string>();
         for (const path of paths) {
           const parts = path.split('/');
@@ -538,7 +582,7 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
         }
         const entries = [
           ...paths.map((path) => {
-            const content = state.files.get(path)!;
+            const content = at.get(path)!;
             return { path, mode: '100644', type: 'blob', sha: blobSha(content), size: content.length };
           }),
           // Nothing ever dereferences a directory's sha — only its `tree`
@@ -548,7 +592,7 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
             .map((path) => ({ path, mode: '040000', type: 'tree', sha: commitSha(repoKey, -1, path) })),
         ];
         return json(200, {
-          sha: head().sha,
+          sha: at === state.files ? head().sha : ref,
           truncated: false,
           // Without `recursive`, GitHub answers the top level only.
           tree: recursive ? entries : entries.filter((e) => !e.path.includes('/')),
@@ -559,7 +603,11 @@ export function createGitHubFake(options: GitHubFakeOptions = {}): GitHubFake {
       // which is what lets the provider cache blob content unconditionally.
       if (repoRoute.blob !== undefined && method === 'GET') {
         const sha = decodeURIComponent(repoRoute.blob);
-        for (const content of state.files.values()) {
+        // "The same sha is the same bytes forever" is the promise, so the
+        // search spans the branch's history and not just its head — a blob a
+        // later commit superseded is still readable by its own sha.
+        const known = [state.files, ...state.snapshots.values()];
+        for (const content of known.flatMap((files) => [...files.values()])) {
           if (blobSha(content) !== sha) continue;
           return json(200, {
             sha,

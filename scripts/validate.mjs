@@ -206,7 +206,11 @@ record('CLAUDE.md resolves to AGENTS.md', Date.now() - linkStart);
 // (cd37b03, owner call — chronically load-flaky) after the split was specced.
 // 161 as of issue #70: the suite had grown to 155 collected, and the hosted
 // backend scaffold added E159–E164 (tests/e2e/hosted.spec.ts).
-const E2E_TEST_FLOOR = 161;
+// 226 as of issue #107: the floor had drifted far below the suite it guards
+// (221 collected before this issue), and the GitHub-backed lane added E221–
+// E225 (tests/e2e/github-storage.spec.ts). Re-pinned to the collected count
+// so it means "this many tests exist" again.
+const E2E_TEST_FLOOR = 226;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {

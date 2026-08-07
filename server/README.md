@@ -29,6 +29,18 @@ starts the server at <http://localhost:4924>. Sign in via
 `POST /api/auth/sign-in` with `{"username": "ada"}` (see the seeded users in
 `providers/mock/users.ts`). Everything runs offline — no Azure resources.
 
+For the github storage backend (PRD 010) there is the same one command:
+
+```sh
+npm run server:github
+```
+
+It starts the local fake of the GitHub API (`providers/github/fake.ts`, seeded
+by `e2eGithubLane.ts`) on 4926, generates a throwaway App keypair, and boots
+the server against it at <http://localhost:4925> with
+`MM_STORAGE_BACKEND=github`. No account, no token, no Azurite — this is the
+lane `tests/e2e/github-storage.spec.ts` (E221+) runs against.
+
 ## Production (Azure App Service, Linux)
 
 The server starts under plain `node` on current Node LTS (≥ 22.18, which

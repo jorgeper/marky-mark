@@ -5,11 +5,12 @@
 // the server in local mode (mock auth/directory + Azurite-backed storage).
 // The e2e suite uses this same script as its Playwright webServer command.
 
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import process from 'node:process';
+import { ensureSpaBuilt } from './devSpa.ts';
 
 const root = path.resolve(import.meta.dirname, '..');
 const AZURITE_PORT = 10000; // the well-known dev-storage blob port
@@ -34,28 +35,9 @@ async function waitForPort(port: number, timeoutMs: number): Promise<void> {
   throw new Error(`port ${port} did not open within ${timeoutMs}ms`);
 }
 
-/** Newest mtime under a path (recursively for directories). */
-function newestMtimeMs(p: string): number {
-  const stat = statSync(p);
-  if (!stat.isDirectory()) return stat.mtimeMs;
-  let newest = 0;
-  for (const entry of readdirSync(p)) newest = Math.max(newest, newestMtimeMs(path.join(p, entry)));
-  return newest;
-}
-
-// 1. A built SPA to serve — build when dist/ is absent OR older than the SPA
-// sources. PRD 007 Req 5: the served bundle carries the hosted sign-in gate,
-// so the e2e suite booting through this script must never test a stale dist.
-const distIndex = path.join(root, 'dist', 'index.html');
-const sources = ['src', 'index.html', 'vite.config.ts', 'package.json'].map((s) => path.join(root, s));
-const stale =
-  !existsSync(distIndex) ||
-  statSync(distIndex).mtimeMs < Math.max(...sources.filter(existsSync).map(newestMtimeMs));
-if (stale) {
-  console.log('server:local — dist/ is missing or older than src/, building the SPA (npm run build)…');
-  const build = spawnSync('npm', ['run', 'build'], { cwd: root, stdio: 'inherit' });
-  if (build.status !== 0) process.exit(build.status ?? 1);
-}
+// 1. A built SPA to serve — the shared step of server/devSpa.ts, which the
+// GitHub-backed lane boots through too.
+ensureSpaBuilt(root);
 
 // 2. Azurite on the well-known dev endpoint, reused when already running
 // (e.g. a second `server:local` or a developer's own emulator).

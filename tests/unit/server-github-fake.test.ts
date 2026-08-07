@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { SignJWT } from 'jose';
 import { describe, expect, it } from 'vitest';
 import { createGitHubAppAuth } from '../../server/providers/github/auth';
+import { LANE_FAKE_PORT, LANE_SERVER_PORT } from '../../server/e2eGithubLane';
 import { createGitHubFake } from '../../server/providers/github/fake';
 
 // PRD 010 Req 4: the local GitHub API fake — the only GitHub the repo's tests
@@ -276,5 +277,120 @@ describe('PRD 010 Req 18 the fake can lose an installation', () => {
     expect(fake.file('ada', 'notes', 'a.md')).toBeUndefined();
     expect(fake.commits('ada', 'notes').length).toBe(before + 1);
     expect(() => fake.removeFile('ada', 'nope', 'a.md')).toThrowError(/no such repo in the fake/);
+  });
+});
+
+// PRD 010 Req 22: what the GitHub-backed e2e lane needed the fake to answer —
+// the one WEB page the connect-your-repo flow visits, and a branch that has a
+// history, because the lane is the first place two writers race on one repo.
+describe('PRD 010 Req 22 the fake as a whole "GitHub" for a browser', () => {
+  it('U475: the App install page is served as a page, with no credential, and only at the App path', async () => {
+    const fake = fakeWith();
+    const res = await fake.fetch(`${BASE}/apps/marky-mark-e2e/installations/new?state=abc`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    expect(await res.text()).toContain('marky-mark-e2e');
+    // It is a web page, not an API route: nothing else under /apps is served,
+    // and the API routes still demand their credential.
+    expect((await fake.fetch(`${BASE}/apps/marky-mark-e2e/settings`)).status).toBe(404);
+    expect((await fake.fetch(`${BASE}/repos/marky-org/docs/contents/README.md`)).status).toBe(401);
+  });
+
+  it('U476: a tree and a blob a later commit superseded still read back at their own sha', async () => {
+    const fake = fakeWith();
+    const token = await mint(fake);
+    const headers = { Authorization: `Bearer ${token}` };
+    const before = (await (await fake.fetch(`${BASE}/repos/marky-org/docs/git/ref/heads/main`, { headers })).json()) as {
+      object: { sha: string };
+    };
+    const oldBlob = (
+      (await (await fake.fetch(`${BASE}/repos/marky-org/docs/contents/notes/one.md`, { headers })).json()) as {
+        sha: string;
+      }
+    ).sha;
+
+    // A second writer moves the branch on: a new file and a changed one.
+    fake.setFile('marky-org', 'docs', 'notes/two.md', 'two\n');
+    fake.setFile('marky-org', 'docs', 'notes/one.md', 'one, edited\n');
+
+    // The tree of the sha read a moment ago is what that commit held — this is
+    // exactly the read a listing makes after another writer got in first.
+    const tree = (await (
+      await fake.fetch(`${BASE}/repos/marky-org/docs/git/trees/${before.object.sha}?recursive=1`, { headers })
+    ).json()) as { sha: string; tree: { path: string }[] };
+    expect(tree.sha).toBe(before.object.sha);
+    expect(tree.tree.map((e) => e.path)).not.toContain('notes/two.md');
+    // …while the branch name always answers the head.
+    const head = (await (
+      await fake.fetch(`${BASE}/repos/marky-org/docs/git/trees/main?recursive=1`, { headers })
+    ).json()) as { tree: { path: string }[] };
+    expect(head.tree.map((e) => e.path)).toContain('notes/two.md');
+
+    // Contents at that ref, and the superseded blob by its own sha, likewise:
+    // the same sha is the same bytes forever.
+    const pinned = (await (
+      await fake.fetch(`${BASE}/repos/marky-org/docs/contents/notes/one.md?ref=${before.object.sha}`, { headers })
+    ).json()) as { content: string };
+    expect(Buffer.from(pinned.content, 'base64').toString('utf8')).toBe('one\n');
+    const blob = (await (await fake.fetch(`${BASE}/repos/marky-org/docs/git/blobs/${oldBlob}`, { headers })).json()) as {
+      content: string;
+    };
+    expect(Buffer.from(blob.content, 'base64').toString('utf8')).toBe('one\n');
+
+    // A ref this repo never had is still a 404, and history is not writable.
+    expect((await fake.fetch(`${BASE}/repos/marky-org/docs/git/trees/deadbeef`, { headers })).status).toBe(404);
+    const write = await fake.fetch(`${BASE}/repos/marky-org/docs/contents/notes/one.md?ref=${before.object.sha}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ message: 'rewrite history', content: Buffer.from('nope').toString('base64') }),
+    });
+    expect(write.status).toBe(422);
+  });
+});
+
+// PRD 010 Req 22: the no-network rule, pinned where U370 could not see it.
+// U370 scans `server/` and `tests/`; the GitHub-backed e2e lane is also a
+// Playwright config, a package.json script and a spec file, so those are read
+// here by name. A future test or boot script that points at the real GitHub
+// API fails the unit suite rather than the CI network.
+describe('PRD 010 Req 22 the GitHub-backed e2e lane is offline by construction', () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+  const read = (rel: string) => readFileSync(path.join(root, rel), 'utf8');
+  const LANE_FILES = [
+    'server/e2e-github.ts',
+    'server/e2eGithubLane.ts',
+    'playwright.config.ts',
+    'package.json',
+    'tests/e2e/github-storage.spec.ts',
+  ];
+
+  it('U477: no file the lane boots from names a GitHub host, and the server is pointed at the fake it started', () => {
+    // Built from parts so this guard is not itself a hit.
+    const host = new RegExp(['github', 'com'].join('\\.'));
+    for (const file of LANE_FILES) {
+      expect(host.test(read(file)), `${file} must name no GitHub host`).toBe(false);
+    }
+    // The positive half: the boot script's API and web bases are the URL its
+    // OWN fake listener resolved to, so there is nothing else they could be.
+    const boot = read('server/e2e-github.ts');
+    expect(boot).toContain("import { createGitHubFake } from './providers/github/fake.ts'");
+    expect(boot).toMatch(/MM_GITHUB_API_BASE \?\?= listener\.url;/);
+    expect(boot).toMatch(/MM_GITHUB_WEB_BASE \?\?= listener\.url;/);
+    // And it is a repo command, not a manual step: one npm script runs it.
+    expect(JSON.parse(read('package.json')).scripts['server:github']).toBe('tsx server/e2e-github.ts');
+  });
+
+  it('U478: the lane is a webServer entry like the Azurite one — same command, its own loopback port', async () => {
+    const config = (await import('../../playwright.config')).default;
+    const servers = config.webServer as { command: string; url: string }[];
+    const lane = servers.find((s) => s.command === 'npm run server:github');
+    expect(lane, 'playwright.config.ts must boot the GitHub lane').toBeDefined();
+    expect(lane!.url).toBe(`http://localhost:${LANE_SERVER_PORT}`.concat('/'));
+    // Every lane is loopback, and no two share a port.
+    const ports = servers.map((s) => new URL(s.url).port);
+    expect(new Set(ports).size).toBe(ports.length);
+    expect(ports).toContain(String(LANE_SERVER_PORT));
+    expect(String(LANE_FAKE_PORT)).not.toBe(String(LANE_SERVER_PORT));
+    for (const server of servers) expect(new URL(server.url).hostname).toBe('localhost');
   });
 });

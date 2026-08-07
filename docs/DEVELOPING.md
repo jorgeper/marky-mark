@@ -51,7 +51,9 @@ session here can run the tiers for you:
 ## Odds and ends
 
 - The hosted flavor runs offline with `npm run server:local` (Azurite +
-  mock auth, no Azure resources); [`server/README.md`](../server/README.md)
+  mock auth, no Azure resources), and on the GitHub storage backend with
+  `npm run server:github` (the local GitHub API fake + an App keypair made at
+  boot); [`server/README.md`](../server/README.md)
   is its backend reference and
   [HOSTING-AZURE.md](HOSTING-AZURE.md) the operator guide for deploying it
   to a real subscription.
