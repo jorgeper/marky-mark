@@ -38,6 +38,13 @@ describe('PRD 002 §B5 scope inventory', () => {
       hotkeys: 'U',
       commentsEnabled: 'U',
       author: 'U!',
+      // PRD 011 Req 7: the LLM credential and the configuration that reaches
+      // it are user-only identity — honored at the User layer and ignored
+      // everywhere else, so no shared layer can supply any of them.
+      llmProvider: 'U!',
+      llmModel: 'U!',
+      llmApiKey: 'U!',
+      llmBaseUrl: 'U!',
       commentStorage: 'W',
       imageFolder: 'W',
       imageNamePattern: 'W',

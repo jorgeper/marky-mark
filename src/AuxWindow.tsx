@@ -5,15 +5,18 @@ import {
   EV_AUX_INIT,
   EV_AUX_READY,
   EV_AUX_REQUEST,
+  EV_LLM_TEST_RESULT,
   EV_SETTINGS_CHANGED,
   EV_SETTINGS_EDIT,
   EV_THEMES_CHANGED,
+  sanitizeLlmTestResult,
   type AuxInit,
   type AuxKind,
   type AuxRequest,
   type SettingsBroadcast,
   type SettingsEdit,
 } from './lib/auxProtocol';
+import type { LlmTestResult } from './lib/llmSettings';
 import type { Theme } from './lib/themes';
 import { applyThemeCss } from './themeRuntime';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -94,6 +97,34 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
   const request = (r: AuxRequest) => void platform.busEmit!(EV_AUX_REQUEST, r);
   const close = () => void platform.closeNow();
 
+  /**
+   * PRD 011 Req 10: the desktop round trip. This window holds no LLM
+   * capability — it never calls `runLlmRequest`, never reads
+   * `platform.llmTransport` and never invokes an IPC command. It asks the main
+   * window over the existing bus and renders whatever comes back, which is the
+   * seam's already-redacted verdict and carries no key material.
+   */
+  const testLlm = (): Promise<LlmTestResult> =>
+    new Promise((resolve) => {
+      let off: (() => void) | undefined;
+      let settled = false;
+      void platform
+        .busListen!(EV_LLM_TEST_RESULT, (payload) => {
+          const result = sanitizeLlmTestResult(payload);
+          if (!result || settled) return;
+          settled = true;
+          off?.();
+          resolve(result);
+        })
+        .then((dispose) => {
+          off = dispose;
+          if (settled) dispose();
+          // Emitted only once the listener is attached, so a main window that
+          // answers immediately cannot beat us to it.
+          else request({ req: 'llmTestConnection' });
+        });
+    });
+
   return (
     <div
       className="theme-root aux-root"
@@ -116,6 +147,8 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
             const edit: SettingsEdit = { scope, patch };
             void platform.busEmit!(EV_SETTINGS_EDIT, edit);
           }}
+          llmCapabilities={init.llm}
+          onLlmTest={testLlm}
           onReloadThemes={() => request({ req: 'reloadThemes' })}
           onRevealThemesDir={() => request({ req: 'revealThemesDir' })}
           onClose={close}

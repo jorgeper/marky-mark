@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import { buildAuxInit, sanitizeSettingsEdit } from '../../src/lib/auxProtocol';
+import {
+  buildAuxInit,
+  sanitizeAuxRequest,
+  sanitizeLlmTestResult,
+  sanitizeSettingsEdit,
+} from '../../src/lib/auxProtocol';
 import { DEFAULT_SETTINGS } from '../../src/lib/settings';
 import type { Theme } from '../../src/lib/themes';
 
@@ -15,6 +20,7 @@ describe('SPEC13 aux protocol', () => {
       themes: [theme],
       isMac: true,
       version: '9.9.9',
+      llm: { transport: false, hosted: null },
     });
     expect(init.settings).toEqual(DEFAULT_SETTINGS);
     expect(init.layers).toEqual(layers);
@@ -51,5 +57,63 @@ describe('SPEC13 aux protocol', () => {
     expect(sanitizeSettingsEdit({ scope: 'user', patch: null })).toBeNull();
     expect(sanitizeSettingsEdit({ scope: 'user', patch: { splitRatio: 0.5 } })).toBeNull();
     expect(sanitizeSettingsEdit({ scope: 'workspace', patch: { author: 'Eve' } })).toBeNull();
+  });
+
+  test('U574: PRD 011 Req 7 — a workspace-scoped patch carrying llmApiKey is dropped entirely', () => {
+    // The key cannot be written into a `.marky-workspace` file, so it cannot
+    // be committed or shared by opening a workspace. Neither can the provider,
+    // model or base URL that reach it.
+    expect(
+      sanitizeSettingsEdit({
+        scope: 'workspace',
+        patch: { llmApiKey: 'sk-secret', llmProvider: 'openai', llmModel: 'gpt-5', llmBaseUrl: 'https://x/v1' },
+      })
+    ).toBeNull();
+    // A workspace patch that also carries an eligible key keeps only that one.
+    expect(sanitizeSettingsEdit({ scope: 'workspace', patch: { llmApiKey: 'sk-secret', vimNav: true } })).toEqual({
+      scope: 'workspace',
+      patch: { vimNav: true },
+    });
+    // The User layer is where they belong, and there they travel.
+    expect(sanitizeSettingsEdit({ scope: 'user', patch: { llmApiKey: 'sk-secret' } })).toEqual({
+      scope: 'user',
+      patch: { llmApiKey: 'sk-secret' },
+    });
+  });
+});
+
+describe('PRD 011 Req 10 aux test-connection round trip', () => {
+  test('U575: the request and the result round-trip, and malformed payloads are refused', () => {
+    // Request: carries no configuration and no credential — the main window
+    // already owns the settings.
+    expect(sanitizeAuxRequest({ req: 'llmTestConnection' })).toEqual({ req: 'llmTestConnection' });
+    expect(sanitizeAuxRequest({ req: 'llmTestConnection', apiKey: 'sk-secret' })).toEqual({
+      req: 'llmTestConnection',
+    });
+    // Its neighbours still round-trip through the same validator.
+    expect(sanitizeAuxRequest({ req: 'reloadThemes' })).toEqual({ req: 'reloadThemes' });
+    expect(sanitizeAuxRequest({ req: 'revealThemesDir' })).toEqual({ req: 'revealThemesDir' });
+    expect(sanitizeAuxRequest({ req: 'openExternal', url: 'https://example.com' })).toEqual({
+      req: 'openExternal',
+      url: 'https://example.com',
+    });
+    // Refused rather than trusted.
+    expect(sanitizeAuxRequest(null)).toBeNull();
+    expect(sanitizeAuxRequest('llmTestConnection')).toBeNull();
+    expect(sanitizeAuxRequest({ req: 'rmRf' })).toBeNull();
+    expect(sanitizeAuxRequest({ req: 'openExternal' })).toBeNull();
+
+    // Result: the seam's verdict, narrowed. Success carries nothing else.
+    expect(sanitizeLlmTestResult({ ok: true })).toEqual({ ok: true });
+    expect(sanitizeLlmTestResult({ ok: true, text: 'chatty', apiKey: 'sk-secret' })).toEqual({ ok: true });
+    expect(
+      sanitizeLlmTestResult({ ok: false, failure: { kind: 'rate-limited', message: 'slow down', retryAfterSeconds: 5 } })
+    ).toEqual({ ok: false, failure: { kind: 'rate-limited', message: 'slow down', retryAfterSeconds: 5 } });
+    // A failure with an unknown kind, no sentence, or no failure at all is refused.
+    expect(sanitizeLlmTestResult({ ok: false })).toBeNull();
+    expect(sanitizeLlmTestResult({ ok: false, failure: { kind: 'meltdown', message: 'x' } })).toBeNull();
+    expect(sanitizeLlmTestResult({ ok: false, failure: { kind: 'bad-key', message: '' } })).toBeNull();
+    expect(sanitizeLlmTestResult({ ok: 'yes' })).toBeNull();
+    expect(sanitizeLlmTestResult(null)).toBeNull();
   });
 });

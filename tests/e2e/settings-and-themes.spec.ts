@@ -190,16 +190,20 @@ test('E26: settings shows four left tabs with the right content on each; control
   await page.getByTestId('menu-settings').click();
   await page.getByTestId('settings-panel').waitFor();
   const tabs = page.getByTestId('settings-tabs');
-  await expect(tabs.locator('button')).toHaveCount(4); // SPEC20 §1 added Editor
+  // SPEC20 §1 added Editor; PRD 011 Req 4 added LLM providers as its own page.
+  await expect(tabs.locator('button')).toHaveCount(5);
+  await expect(page.getByTestId('settings-tab-llm')).toHaveText('LLM providers');
   // Issue #21: General is listed first and is the default tab.
   await expect(tabs.locator('button').first()).toHaveText('General');
   await expect(page.getByTestId('settings-tab-general')).toHaveClass(/active/);
 
-  // General (default): comments + navigation, no appearance/hotkeys controls.
+  // General (default): comments + navigation, no appearance/hotkeys/LLM controls.
   await expect(page.getByTestId('comment-storage')).toBeVisible();
   await expect(page.getByTestId('settings-vimnav')).toBeVisible();
   await expect(page.getByTestId('zoom-select')).toHaveCount(0);
   await expect(page.getByTestId('hotkey-toggleEdit')).toHaveCount(0);
+  // PRD 011 Req 4: the LLM area is a page of its own, never a row on General.
+  await expect(page.getByTestId('llm-provider')).toHaveCount(0);
 
   // Appearance: font size present, General content absent.
   await page.getByTestId('settings-tab-appearance').click();
@@ -462,4 +466,103 @@ test('E156: issue #52 — the line-number gutter follows the theme instead of st
   await expect.poll(async () => (await colors()).bg).toBe('rgb(39, 40, 34)'); // --mm-bg
   await expect.poll(async () => (await colors()).fg).toBe('rgb(165, 159, 133)'); // --mm-fg-muted
   expect(await activeBg()).toBe('rgba(0, 0, 0, 0)');
+});
+
+// --- PRD 011 Reqs 4/6/7/9/10: the LLM providers area -------------------------
+// Every request here runs against src/lib/llmFake.ts, wired into the desktop
+// shim as its `llmTransport` (PRD 011 Req 35) — no real provider is contacted.
+
+test('E226: the LLM providers tab is its own User-scope page; with nothing configured it says why, and the test action is disabled', async ({
+  page,
+}) => {
+  await openSettings(page, 'llm');
+
+  // Req 4: a page of its own in the tab rail, not a row on another tab.
+  await expect(page.getByTestId('settings-tab-llm')).toBeVisible();
+  await expect(page.getByTestId('llm-provider')).toBeVisible();
+
+  // Req 5: exactly the seam's five kinds, and no sixth.
+  const provider = page.getByTestId('llm-provider');
+  await expect(provider.locator('option')).toHaveCount(5);
+  for (const kind of ['openai', 'anthropic', 'gemini', 'openrouter', 'custom']) {
+    await expect(provider.locator(`option[value="${kind}"]`)).toHaveCount(1);
+  }
+
+  // Req 9: it states why it is unavailable, phrased so the reader knows what
+  // to do next, and offers no action that cannot work.
+  await expect(page.getByTestId('llm-availability')).toContainText('No API key configured');
+  await expect(page.getByTestId('llm-test')).toBeDisabled();
+
+  // Req 7: the key field is masked.
+  await expect(page.getByTestId('llm-api-key')).toHaveAttribute('type', 'password');
+
+  // Req 4: User-scope only, following the Hotkeys precedent — the tab rail
+  // offers both User-only tabs together, and the Workspace scope offers
+  // neither (it is disabled here because no workspace is open).
+  await expect(page.getByTestId('settings-tab-hotkeys')).toBeVisible();
+  await expect(page.getByTestId('settings-scope-workspace')).toBeDisabled();
+});
+
+test('E227: configuring a provider, a curated model and a key enables Test connection, and the result is reported', async ({
+  page,
+}) => {
+  await openSettings(page, 'llm');
+
+  // Req 6: the curated list fills the free-text field, which stays editable.
+  await page.getByTestId('llm-model-preset').selectOption('claude-opus-5');
+  await expect(page.getByTestId('llm-model')).toHaveValue('claude-opus-5');
+  // …and any id the provider accepts can be typed instead.
+  await page.getByTestId('llm-model').fill('claude-shipped-tomorrow');
+  await expect(page.getByTestId('llm-availability')).toContainText('No API key configured');
+
+  await page.getByTestId('llm-api-key').fill('sk-e227-secret');
+  await expect(page.getByTestId('llm-availability')).toContainText('Ready');
+
+  // Req 10: one user-invoked request, reported as success or a specific failure.
+  await page.getByTestId('llm-test').click();
+  await expect(page.getByTestId('llm-test-result')).toContainText('succeeded');
+
+  // Req 7: the key persists to the User layer of settings.json and appears
+  // nowhere in the rendered page — not in a hint, a title or a notice.
+  await expect
+    .poll(async () => {
+      const raw = await fsRead(page, '/config/settings.json');
+      return raw ? (JSON.parse(raw) as { llmApiKey?: string }).llmApiKey : undefined;
+    })
+    .toBe('sk-e227-secret');
+  // The masked field is the ONE place the value lives: strip that input and
+  // the key appears in no hint, title, indicator, scope note or result.
+  const shown = await page.getByTestId('settings-panel').innerHTML();
+  expect(shown.replace(/<input[^>]*data-testid="llm-api-key"[^>]*>/g, '')).not.toContain('sk-e227-secret');
+  // The free-text model survived the round trip through the settings layer.
+  await expect(page.getByTestId('llm-model')).toHaveValue('claude-shipped-tomorrow');
+});
+
+test('E228: on desktop the settings window round-trips Test connection through the main window', async ({ page }) => {
+  await freshNativeMenuApp(page);
+  const popupPromise = page.waitForEvent('popup');
+  await menuClick(page, 'settings');
+  const sp = await popupPromise;
+  await sp.getByTestId('settings-panel').waitFor();
+
+  await sp.getByTestId('settings-tab-llm').click();
+  await sp.getByTestId('llm-model-preset').selectOption('claude-sonnet-5');
+  await sp.getByTestId('llm-api-key').fill('sk-e228-secret');
+  await expect(sp.getByTestId('llm-availability')).toContainText('Ready');
+
+  // Req 10: the aux window holds no capability — the request travels to the
+  // main window over the bus and the verdict comes back for it to render.
+  await sp.getByTestId('llm-test').click();
+  await expect(sp.getByTestId('llm-test-result')).toContainText('succeeded');
+
+  // Req 7: no key crosses into anything the main window renders or persists
+  // outside the User layer, and the settings window never shows it back.
+  const rendered = await sp.getByTestId('settings-panel').innerHTML();
+  expect(rendered.replace(/<input[^>]*data-testid="llm-api-key"[^>]*>/g, '')).not.toContain('sk-e228-secret');
+  await expect
+    .poll(async () => {
+      const raw = await fsRead(page, '/config/settings.json');
+      return raw ? (JSON.parse(raw) as { llmApiKey?: string }).llmApiKey : undefined;
+    })
+    .toBe('sk-e228-secret');
 });

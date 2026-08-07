@@ -6,6 +6,8 @@ import {
   type SettingsScopeTab,
 } from './settings';
 import type { Theme } from './themes';
+import type { LlmCapabilities, LlmTestResult } from './llmSettings';
+import type { LlmFailureKind } from './llmSeam';
 
 /**
  * SPEC13 §3: the event protocol between the main window (sole owner of
@@ -23,6 +25,12 @@ export const EV_SETTINGS_EDIT = 'mm://settings-edit'; // aux → main, payload S
 export const EV_AUX_REQUEST = 'mm://aux-request'; // aux → main, payload AuxRequest
 export const EV_SETTINGS_CHANGED = 'mm://settings-changed'; // main → aux, payload SettingsBroadcast
 export const EV_THEMES_CHANGED = 'mm://themes-changed'; // main → aux, payload Theme[]
+/**
+ * PRD 011 Req 10: main → aux, payload {@link LlmTestResult}. The aux settings
+ * window holds no LLM capability of its own — it asks for a test over
+ * {@link EV_AUX_REQUEST} and renders whatever comes back here.
+ */
+export const EV_LLM_TEST_RESULT = 'mm://llm-test-result';
 
 /** PRD 002 §E18–§E19: the per-layer data the settings panel renders from. */
 export interface SettingsBroadcast {
@@ -38,6 +46,13 @@ export interface AuxInit extends SettingsBroadcast {
   themes: Theme[];
   isMac: boolean;
   version: string;
+  /**
+   * PRD 011 Req 9: what the MAIN window's platform can do about LLM requests.
+   * The aux window has no platform capabilities of its own, so availability is
+   * told to it rather than discovered — and it still branches on capabilities,
+   * never on a flavor.
+   */
+  llm: LlmCapabilities;
 }
 
 /** An aux settings edit: which layer to write, and only the changed keys. */
@@ -49,7 +64,14 @@ export interface SettingsEdit {
 export type AuxRequest =
   | { req: 'reloadThemes' }
   | { req: 'revealThemesDir' }
-  | { req: 'openExternal'; url: string };
+  | { req: 'openExternal'; url: string }
+  /**
+   * PRD 011 Req 10: "test the connection". It carries NO configuration and no
+   * credential — the main window already owns the settings, so it resolves the
+   * active provider itself and nothing sensitive crosses the bus in either
+   * direction.
+   */
+  | { req: 'llmTestConnection' };
 
 /** Everything an aux view needs to render (SPEC13 §3.2). */
 export function buildAuxInit(args: AuxInit): AuxInit {
@@ -60,6 +82,65 @@ export function buildAuxInit(args: AuxInit): AuxInit {
     themes: args.themes,
     isMac: args.isMac,
     version: args.version,
+    llm: args.llm,
+  };
+}
+
+/**
+ * SPEC13 §3.5 + PRD 011 Req 10: an incoming aux request, validated rather than
+ * trusted. Same precedent as {@link sanitizeSettingsEdit} — an unknown `req`,
+ * a missing url, or a non-object payload is refused, so a malformed event
+ * cannot reach a handler.
+ */
+export function sanitizeAuxRequest(raw: unknown): AuxRequest | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const { req, url } = raw as { req?: unknown; url?: unknown };
+  if (req === 'reloadThemes' || req === 'revealThemesDir' || req === 'llmTestConnection') return { req };
+  if (req === 'openExternal' && typeof url === 'string' && url) return { req, url };
+  return null;
+}
+
+/**
+ * PRD 011 Req 10: the failure kinds as values, keyed by the seam's own union so
+ * adding a kind fails the typecheck until it is named here (the `TRIGGERS`
+ * precedent in `llmDeployment.ts`).
+ */
+const FAILURE_KINDS: Record<LlmFailureKind, true> = {
+  'bad-key': true,
+  'unknown-model': true,
+  'unreachable-host': true,
+  'rate-limited': true,
+  'invalid-config': true,
+  unexpected: true,
+};
+
+/** Is this untrusted value one of the seam's failure kinds? (`isLlmTrigger` precedent.) */
+function isLlmFailureKind(value: unknown): value is LlmFailureKind {
+  return typeof value === 'string' && Object.hasOwn(FAILURE_KINDS, value);
+}
+
+/**
+ * PRD 011 Req 10: a test-connection result read back off the bus. Every field
+ * is checked — a failure with an unknown kind or no sentence is refused rather
+ * than rendered — and only the fields the area shows are carried through, so
+ * nothing extra a sender attached rides along.
+ */
+export function sanitizeLlmTestResult(raw: unknown): LlmTestResult | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const { ok, failure } = raw as { ok?: unknown; failure?: unknown };
+  if (ok === true) return { ok: true };
+  if (ok !== false || typeof failure !== 'object' || failure === null) return null;
+  const f = failure as { kind?: unknown; message?: unknown; retryAfterSeconds?: unknown };
+  if (!isLlmFailureKind(f.kind)) return null;
+  if (typeof f.message !== 'string' || !f.message) return null;
+  const retry = f.retryAfterSeconds;
+  return {
+    ok: false,
+    failure: {
+      kind: f.kind,
+      message: f.message,
+      ...(typeof retry === 'number' && Number.isFinite(retry) ? { retryAfterSeconds: retry } : {}),
+    },
   };
 }
 

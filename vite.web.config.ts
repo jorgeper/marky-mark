@@ -56,11 +56,59 @@ function stubTauriPlatform(): Plugin {
   };
 }
 
+/**
+ * PRD 011 Req 14 / SPEC11 §3.2 (amended, issue #114): the static web build has
+ * **no LLM path at all**. `src/platform/web.ts` declares neither the hosted
+ * `llm` capability nor the desktop `llmTransport`, so every provider adapter in
+ * `src/lib/llmProviders.ts` is already dead code here — but dead code still
+ * ships. This page is a single inlined file, so code splitting cannot help:
+ * `vite-plugin-singlefile` inlines every dynamic chunk, and both importers of
+ * that module are reachable (`llmSeam.ts` from `App.tsx`'s test-connection
+ * path, `llmFake.ts` from the `?shim` dev platform). Without this stub the four
+ * provider hosts land in dist-web/index.html — which is exactly what
+ * `tests/unit/static-web-no-llm.test.ts` U558 fails on.
+ *
+ * So resolve the module away for this target only, the same move
+ * `stubTauriPlatform` makes above. Desktop and hosted (`vite.config.ts`) keep
+ * the real adapters. The stub keeps the module's shape for its two importers:
+ * `providerFor` answers the seam's own typed `invalid-config` failure rather
+ * than throwing, so a `?shim` page on a deployed static build degrades to "no
+ * LLM path" — Req 14's stated behaviour — instead of crashing. Its endpoint
+ * constants exist only so `llmFake.ts`'s provider labelling still resolves;
+ * they name no host, and nothing in this build can reach one anyway
+ * (`connect-src 'none'`).
+ */
+function stubWebLlmProviders(): Plugin {
+  const STUB = '\0mm-llm-providers-stub';
+  const NO_LLM = 'The static web build has no LLM path.';
+  return {
+    name: 'mm-stub-web-llm-providers',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (source.endsWith('/llmProviders') && !!importer?.includes('/src/lib/')) return STUB;
+      return null;
+    },
+    load(id) {
+      if (id !== STUB) return null;
+      return [
+        // Not the real hosts: `llmFake.ts` only compares a request URL against
+        // these to label which provider a fake call went to.
+        "export const OPENAI_ENDPOINT = 'llm-disabled:openai';",
+        "export const OPENROUTER_ENDPOINT = 'llm-disabled:openrouter';",
+        `const unavailable = { kind: 'invalid-config', message: ${JSON.stringify(NO_LLM)} };`,
+        'export function providerFor() {',
+        '  return { buildRequest: () => unavailable, readResponse: () => ({ ok: false, failure: unavailable }) };',
+        '}',
+      ].join('\n');
+    },
+  };
+}
+
 // The static-web target (SPEC2 §3): everything — JS, CSS, themes, fixtures —
 // inlined into one self-contained dist-web/index.html with zero external
 // requests. Dynamic imports (the lazy CodeMirror chunk) are inlined too.
 export default defineConfig({
-  plugins: [stubTauriPlatform(), react(), viteSingleFile(), injectCsp()],
+  plugins: [stubTauriPlatform(), stubWebLlmProviders(), react(), viteSingleFile(), injectCsp()],
   // Same build-time version constant as the desktop config (SPEC10 §2).
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   build: {

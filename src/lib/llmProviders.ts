@@ -28,6 +28,7 @@ import type {
   LlmUsage,
 } from './llmSeam';
 import { USAGE_UNKNOWN } from './llmSeam';
+import { customEndpoint } from './llmCustomEndpoint';
 
 /** PRD 011 Req 5: where each hosted provider lives. Only `custom` is user-supplied. */
 export const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
@@ -44,8 +45,12 @@ export const UNKNOWN_MODEL_MESSAGE =
   'The provider does not recognise that model id. Check the model in settings.';
 export const RATE_LIMITED_MESSAGE = 'The provider is rate limiting requests. Try again in a moment.';
 export const MALFORMED_MESSAGE = 'The provider returned a reply the app could not read.';
-export const INVALID_BASE_URL_MESSAGE =
-  'The custom endpoint must be an absolute http:// or https:// URL.';
+
+// PRD 011 Req 14: `customEndpoint` and its message live in the host-free leaf
+// `llmCustomEndpoint.ts` so the settings area can validate a base URL without
+// dragging this module's provider hosts into the static web build. Re-exported
+// here because this module is still the seam's single custom-endpoint answer.
+export { customEndpoint, INVALID_BASE_URL_MESSAGE } from './llmCustomEndpoint';
 
 const JSON_HEADERS = { 'content-type': 'application/json' };
 
@@ -249,27 +254,6 @@ function geminiRetryDelay(error: Record<string, unknown> | undefined): number | 
 // ---------------------------------------------------------------------------
 // The custom OpenAI-compatible endpoint
 // ---------------------------------------------------------------------------
-
-/**
- * PRD 011 Req 5: normalize a user-typed base URL so `https://host/v1` and
- * `https://host/v1/` produce the same endpoint. A URL that is not an absolute
- * http(s) one is a configuration failure, not a request; any credentials,
- * query or fragment the user pasted are dropped, so nothing secret can be
- * carried into the URL.
- */
-export function customEndpoint(baseUrl: string): string | LlmFailure {
-  let parsed: URL;
-  try {
-    parsed = new URL(baseUrl.trim());
-  } catch {
-    return { kind: 'invalid-config', message: INVALID_BASE_URL_MESSAGE };
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return { kind: 'invalid-config', message: INVALID_BASE_URL_MESSAGE };
-  }
-  const path = parsed.pathname.replace(/\/+$/, '');
-  return `${parsed.origin}${path}/chat/completions`;
-}
 
 // ---------------------------------------------------------------------------
 // The five implementations

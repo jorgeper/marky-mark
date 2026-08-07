@@ -1,5 +1,7 @@
 import { DEFAULT_HOTKEYS, type HotkeyMap } from './hotkeys';
 import { isValidImageFolder } from './imagePaste';
+import { isLlmProviderKind } from './llmSettings';
+import type { LlmProviderKind } from './llmSeam';
 
 export type CommentStorage = 'sidecar' | 'embedded';
 export type Margins = 'default' | 'super-narrow' | 'narrow' | 'medium' | 'wide';
@@ -70,6 +72,23 @@ export interface Settings {
   /** Minimum content width per pane (px); narrower panes scroll sideways. */
   paneMinWidth: number;
   hotkeys: HotkeyMap;
+  /**
+   * PRD 011 Req 5: the one active provider kind. The settings store a kind, a
+   * model and (desktop only) a credential; `resolveLlmProvider`
+   * (`src/lib/llmSettings.ts`) turns those four into exactly one
+   * `LlmProviderConfig`, so two live providers cannot be represented.
+   */
+  llmProvider: LlmProviderKind;
+  /** PRD 011 Req 6: the model id, free text — a new model needs no release. */
+  llmModel: string;
+  /**
+   * PRD 011 Req 7: the desktop credential. `U!`-scoped below, so no workspace
+   * layer can supply it and it can never be written into a `.marky-workspace`
+   * file, committed, or shared by opening a workspace.
+   */
+  llmApiKey: string;
+  /** PRD 011 Req 5: the OpenAI-compatible endpoint the `custom` kind points at. */
+  llmBaseUrl: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -103,6 +122,13 @@ export const DEFAULT_SETTINGS: Settings = {
   folderWidth: 240,
   paneMinWidth: 768,
   hotkeys: { ...DEFAULT_HOTKEYS },
+  // PRD 011 Req 7: the defaults leave the app UNCONFIGURED — an empty key and
+  // no fabricated model, so a fresh install reports itself unavailable rather
+  // than looking configured and failing on the first request.
+  llmProvider: 'anthropic',
+  llmModel: '',
+  llmApiKey: '',
+  llmBaseUrl: '',
 };
 
 /**
@@ -149,9 +175,26 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   folderWidth: 'M',
   paneMinWidth: 'U',
   hotkeys: 'U',
+  // PRD 011 Req 7: all four are `U!` — user-only identity, honored at the User
+  // layer and ignored everywhere else. That is a hard requirement for the key
+  // and the right answer for the rest: a provider/model/endpoint is chosen
+  // together WITH the credential that reaches it, so a workspace pinning one
+  // half would name a provider the user has no key for. `U!` also keeps every
+  // one of them out of WORKSPACE_PINNABLE_KEYS by construction (it filters on
+  // `U`), so none can travel to a shared layer.
+  llmProvider: 'U!',
+  llmModel: 'U!',
+  llmApiKey: 'U!',
+  llmBaseUrl: 'U!',
 };
 
 const bool = (raw: unknown): boolean | undefined => (typeof raw === 'boolean' ? raw : undefined);
+/**
+ * PRD 011 Req 6: any string, INCLUDING the empty one. A model id is free text
+ * and the unconfigured state is a real value, so `''` must survive a save and
+ * reload rather than falling back to a default that would look configured.
+ */
+const anyString = (raw: unknown): string | undefined => (typeof raw === 'string' ? raw : undefined);
 const nonEmptyString = (raw: unknown): string | undefined => (typeof raw === 'string' && raw ? raw : undefined);
 const clampedInt =
   (min: number, max: number) =>
@@ -217,6 +260,13 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
     }
     return out;
   },
+  // PRD 011 Req 5: the kind is validated against the seam's own union, so a
+  // hand-edited settings.json naming a provider that does not exist falls back
+  // to the default rather than reaching `providerFor` with a bad key.
+  llmProvider: (raw) => (isLlmProviderKind(raw) ? raw : undefined),
+  llmModel: anyString,
+  llmApiKey: anyString,
+  llmBaseUrl: anyString,
 };
 
 /**
