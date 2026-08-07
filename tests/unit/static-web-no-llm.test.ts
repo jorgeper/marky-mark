@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { LLM_REQUEST_COMMAND } from '../../src/lib/llmDesktopTransport';
 import { ANTHROPIC_ENDPOINT, GEMINI_BASE, OPENAI_ENDPOINT, OPENROUTER_ENDPOINT } from '../../src/lib/llmProviders';
+import { effectiveCode } from './source-scan';
 
 /**
  * PRD 011 Req 14 / SPEC11 §3.2 (amended, issue #114): the static web build has
@@ -42,7 +43,7 @@ function newestMtime(rel: string): number {
 }
 
 /** The inputs `npm run build:web` reads: a change to any of them stales the bundle. */
-const BUILD_INPUTS = ['src', 'vite.web.config.ts', 'package.json'];
+const BUILD_INPUTS = ['src', 'index.html', 'vite.web.config.ts', 'package.json'];
 
 beforeAll(() => {
   const newestInput = Math.max(...BUILD_INPUTS.map(newestMtime));
@@ -50,36 +51,14 @@ beforeAll(() => {
   // ~2s, and only when the artifact is missing or behind its sources — the
   // alternative (assert only when it happens to exist) is a guard that goes
   // quiet exactly when someone has just changed the code it guards.
-  execFileSync('npm', ['run', 'build:web'], { cwd: ROOT, stdio: 'pipe' });
-}, 300_000);
-
-/** Blank out comments and string literals, so prose can neither mask nor fake a reference. */
-function code(source: string): string {
-  const out: string[] = [];
-  let inBlock = false;
-  for (const raw of source.split('\n')) {
-    let line = raw;
-    if (inBlock) {
-      const close = line.indexOf('*/');
-      if (close === -1) {
-        out.push('');
-        continue;
-      }
-      line = line.slice(close + 2);
-      inBlock = false;
-    }
-    line = line.replace(/\/\*.*?\*\//g, ' ');
-    const open = line.indexOf('/*');
-    if (open !== -1) {
-      inBlock = true;
-      line = line.slice(0, open);
-    }
-    line = line.replace(/'[^'\n]*'|"[^"\n]*"|`[^`\n]*`/g, "''");
-    line = line.replace(/\/\/.*$/, '');
-    out.push(line);
+  try {
+    execFileSync('npm', ['run', 'build:web'], { cwd: ROOT, stdio: 'pipe' });
+  } catch (error) {
+    // Captured output, or a failing build reads as a bare "Command failed".
+    const { stdout, stderr } = error as { stdout?: Buffer; stderr?: Buffer };
+    throw new Error(`npm run build:web failed:\n${stderr ?? ''}${stdout ?? ''}`);
   }
-  return out.join('\n');
-}
+}, 300_000);
 
 /** The built page, proven to be the real bundle before anything is read out of it. */
 function bundle(): string {
@@ -98,8 +77,8 @@ describe('PRD 011 Req 14 the static web build has no LLM path', () => {
   test('U556: the static-web Platform declares neither llm nor llmTransport', () => {
     // `src/platform/index.ts` resolves a browser without the hosted marker to
     // this module, so this file is the whole of the static flavor's seam.
-    expect(code(read('src/platform/index.ts'))).toContain("m.createWebPlatform()");
-    const web = code(read('src/platform/web.ts'));
+    expect(effectiveCode(read('src/platform/index.ts'))).toContain('m.createWebPlatform()');
+    const web = effectiveCode(read('src/platform/web.ts'));
     // Both seam capabilities by name (SPEC11 §3.2 amended: hosted has `llm`,
     // desktop has `llmTransport`, static web has neither) — and, stricter, no
     // mention of an LLM at all in effective code.
@@ -140,6 +119,9 @@ describe('PRD 011 Req 14 the static web build has no LLM path', () => {
     const hosts = [OPENAI_ENDPOINT, ANTHROPIC_ENDPOINT, GEMINI_BASE, OPENROUTER_ENDPOINT].map(
       (endpoint) => new URL(endpoint).host,
     );
+    // First that the needles are real strings and not empty ones, which would
+    // make every "does not contain" below trivially true.
+    for (const needle of [...hosts, LLM_REQUEST_COMMAND]) expect(needle.length).toBeGreaterThan(3);
     for (const host of hosts) {
       expect(html.includes(host), `dist-web/index.html reaches provider host ${host}`).toBe(false);
     }
@@ -149,8 +131,5 @@ describe('PRD 011 Req 14 the static web build has no LLM path', () => {
       html.includes(LLM_REQUEST_COMMAND),
       `dist-web/index.html names the desktop ${LLM_REQUEST_COMMAND} command`,
     ).toBe(false);
-    // Sanity that the needles are real strings and not empty ones, which would
-    // make every assertion above trivially true.
-    for (const needle of [...hosts, LLM_REQUEST_COMMAND]) expect(needle.length).toBeGreaterThan(3);
   });
 });

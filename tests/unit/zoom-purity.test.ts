@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { effectiveCode } from './source-scan';
 
 /**
  * PRD 011 Req 34: the semantic-zoom core is pure — no network, no DOM, no
@@ -11,38 +12,6 @@ const MODULES = ['sectionModel.ts', 'zoomLevels.ts', 'sectionExcerpt.ts', 'summa
 
 const read = (name: string): string =>
   readFileSync(fileURLToPath(new URL(`../../src/lib/${name}`, import.meta.url)), 'utf8');
-
-/**
- * Blank out comments and string literals line by line, so prose about "the
- * document" and a `'document'` entry id can never mask — or fake — a real
- * global reference.
- */
-function code(source: string): string {
-  const out: string[] = [];
-  let inBlock = false;
-  for (const raw of source.split('\n')) {
-    let line = raw;
-    if (inBlock) {
-      const close = line.indexOf('*/');
-      if (close === -1) {
-        out.push('');
-        continue;
-      }
-      line = line.slice(close + 2);
-      inBlock = false;
-    }
-    line = line.replace(/\/\*.*?\*\//g, ' ');
-    const open = line.indexOf('/*');
-    if (open !== -1) {
-      inBlock = true;
-      line = line.slice(0, open);
-    }
-    line = line.replace(/'[^'\n]*'|"[^"\n]*"|`[^`\n]*`/g, "''");
-    line = line.replace(/\/\/.*$/, '');
-    out.push(line);
-  }
-  return out.join('\n');
-}
 
 const FORBIDDEN: Array<[string, RegExp]> = [
   ['DOM globals', /\b(?:document|window|globalThis|navigator|localStorage|sessionStorage|DOMParser)\b/],
@@ -55,7 +24,7 @@ const FORBIDDEN_IMPORTS = /^(?:react|react-dom)$|\/platform\/|\/components\//;
 describe('PRD 011 Req 34 — the semantic-zoom core stays pure', () => {
   test('U515: the modules reference no DOM, network or non-deterministic global', () => {
     for (const name of MODULES) {
-      const body = code(read(name));
+      const body = effectiveCode(read(name));
       for (const [label, pattern] of FORBIDDEN) {
         const hit = pattern.exec(body);
         expect(hit?.[0], `${name} must not touch ${label}: ${hit?.[0]}`).toBeUndefined();

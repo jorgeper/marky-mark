@@ -53,7 +53,11 @@ cache, which declare no call site of their own and reuse
 `platform/hosted.ts`'s `api(...)`. None is reachable unless the served HTML
 carries the hosted marker. `npm run validate`'s bundle scan pins that number:
 `FETCH_ALLOWLIST = 6`, three sites × two bundles, each justified in
-`scripts/validate.mjs`. No provider host string exists anywhere in `src/`.)*
+`scripts/validate.mjs`. Every one of the three addresses this app's own
+origin: the provider endpoints in `src/` (`src/lib/llmProviders.ts`) are
+request descriptors for the desktop path — the Rust shell sends them, no
+browser code fetches them, and none of them reaches the static web build
+(U558).)*
 
 The app is **almost** fully local. Application code contains **zero network
 calls** (no fetch/XHR/WebSocket/beacon anywhere in `src/`), the Rust host has
@@ -83,7 +87,9 @@ by CSP and proven by tests*.
 - **App code**: the only URL in `src/` is the About dialog's GitHub link. No
   network APIs anywhere. React/CodeMirror/remark stack is local-only.
   *(Superseded by the PRD 011 amendment above: `src/` now holds three
-  same-origin hosted `fetch(` wrappers, and no provider host string.)*
+  same-origin hosted `fetch(` wrappers, plus the four provider endpoint URLs
+  in `src/lib/llmProviders.ts` — descriptors the desktop Rust shell is asked
+  to send to, fetched by no browser code.)*
 - **Rust host**: `tauri`, `plugin-fs`, `plugin-dialog`, `plugin-window-state`,
   `plugin-opener`, `serde` — nothing that can open a socket on its own. No
   auto-updater, no crash reporting, no telemetry.

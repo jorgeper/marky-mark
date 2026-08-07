@@ -61,10 +61,13 @@ live in `review-checklist.md`; only Marky Mark-specific rules belong here.
   backends (`tauri.ts`, `browser.ts`, `web.ts`), or declared optional
   (`setAppMenu?`, `commitFile?`, …) together with the behaviour hosts that
   omit it fall back to.
-- Shipped code contains no network call site: no `fetch(`, `XMLHttpRequest`,
-  `WebSocket`, `sendBeacon` or `EventSource`. The bundle scan in
-  `scripts/validate.mjs` allows exactly zero, so a new one fails the gate as
-  well as the review.
+- Shipped code opens no network call site of its own: `XMLHttpRequest`,
+  `WebSocket`, `sendBeacon` and `EventSource` are forbidden outright, and
+  `fetch(` is pinned by the bundle scan in `scripts/validate.mjs` to a
+  committed allowlist of audited same-origin hosted wrappers
+  (`FETCH_ALLOWLIST`, justified there per site). A new call site fails the
+  gate as well as the review; reuse the wrapper your flavor already has
+  (SPEC11 §6.6, amended by issue #114).
 - A user-visible action is a named command in `src/lib/commands.ts`, reached
   via `dispatchCommand(id, source)`; toolbar, native menu and hotkeys all
   dispatch rather than calling handlers directly, and `buildMenuSpec` returns

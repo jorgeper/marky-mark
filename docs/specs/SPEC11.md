@@ -34,8 +34,11 @@ tests** that render adversarial content and assert zero non-local traffic.
 >      `http://ipc.localhost`, so the webview itself still opens nothing.
 >    - **Hosted** — from the browser to the **app's own origin**
 >      (`/api/llm…`), never to a provider host (PRD 011 Req 13). The key is
->      the operator's, held server-side; no provider host string exists in
->      `src/`.
+>      the operator's, held server-side, and the hosted client
+>      (`src/platform/hostedLlm.ts`) knows only that one origin. The provider
+>      endpoints that do live in `src/` (`src/lib/llmProviders.ts`) are
+>      request *descriptors* for the desktop path — the Rust shell sends
+>      them; no browser code fetches them.
 >    - **Static web** (the single-file build) — **no LLM path at all** (PRD
 >      011 Req 14). Its CSP keeps `connect-src 'none'`, so its zero-outbound
 >      property stays *unconditional*. Guarded in the fast tier by U556–U558

@@ -315,8 +315,10 @@ if (externalRef) {
 const bytes = statSync(path.join(distWeb, 'index.html')).size;
 console.log(`dist-web/index.html is self-contained (single file, no external script/style refs), ${bytes} bytes`);
 
-// SPEC11 §6.6 — static bundle scan: the shipped JS may contain no network
-// call sites. fetch( occurrences must equal the committed allowlist below.
+// SPEC11 §6.6 (amended, issue #114) — static bundle scan: the shipped JS may
+// contain no network call site the allowlist below has not audited. The
+// FORBIDDEN APIs must not appear at all; fetch( occurrences must equal
+// FETCH_ALLOWLIST exactly, so a new one — in either direction — fails here.
 console.log('\n=== validate: static bundle scan (network call sites) ===');
 // Three call sites, each of them a single same-origin wrapper, counted once per
 // bundle (dist/ and dist-web/) — 3 × 2 = 6. All three are reachable only when

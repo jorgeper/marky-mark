@@ -7,8 +7,10 @@
  * Two things it deliberately is not:
  *
  *  - it is NOT a provider client. It knows one origin — this app's own — and
- *    no provider host string appears anywhere in `src/`. The key lives on the
- *    server, and nothing here could send one even if it had it.
+ *    names no provider host: the endpoints in `src/lib/llmProviders.ts` are
+ *    the desktop path's descriptors, sent by the Rust shell, never fetched
+ *    from a browser. The key lives on the server, and nothing here could send
+ *    one even if it had it.
  *  - it declares NO new network call site. Every request goes through the
  *    `api(...)` wrapper handed in by `platform/hosted.ts` (same-origin,
  *    bearer-authenticated), which is the one call site the bundle scan's
