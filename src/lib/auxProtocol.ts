@@ -114,6 +114,11 @@ const FAILURE_KINDS: Record<LlmFailureKind, true> = {
   unexpected: true,
 };
 
+/** Is this untrusted value one of the seam's failure kinds? (`isLlmTrigger` precedent.) */
+function isLlmFailureKind(value: unknown): value is LlmFailureKind {
+  return typeof value === 'string' && Object.hasOwn(FAILURE_KINDS, value);
+}
+
 /**
  * PRD 011 Req 10: a test-connection result read back off the bus. Every field
  * is checked — a failure with an unknown kind or no sentence is refused rather
@@ -126,13 +131,13 @@ export function sanitizeLlmTestResult(raw: unknown): LlmTestResult | null {
   if (ok === true) return { ok: true };
   if (ok !== false || typeof failure !== 'object' || failure === null) return null;
   const f = failure as { kind?: unknown; message?: unknown; retryAfterSeconds?: unknown };
-  if (typeof f.kind !== 'string' || !Object.hasOwn(FAILURE_KINDS, f.kind)) return null;
+  if (!isLlmFailureKind(f.kind)) return null;
   if (typeof f.message !== 'string' || !f.message) return null;
   const retry = f.retryAfterSeconds;
   return {
     ok: false,
     failure: {
-      kind: f.kind as LlmFailureKind,
+      kind: f.kind,
       message: f.message,
       ...(typeof retry === 'number' && Number.isFinite(retry) ? { retryAfterSeconds: retry } : {}),
     },

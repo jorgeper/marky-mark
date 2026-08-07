@@ -515,7 +515,7 @@ test('E227: configuring a provider, a curated model and a key enables Test conne
   await page.getByTestId('llm-model').fill('claude-shipped-tomorrow');
   await expect(page.getByTestId('llm-availability')).toContainText('No API key configured');
 
-  await page.getByTestId('llm-api-key').fill('sk-e226-secret');
+  await page.getByTestId('llm-api-key').fill('sk-e227-secret');
   await expect(page.getByTestId('llm-availability')).toContainText('Ready');
 
   // Req 10: one user-invoked request, reported as success or a specific failure.
@@ -529,11 +529,11 @@ test('E227: configuring a provider, a curated model and a key enables Test conne
       const raw = await fsRead(page, '/config/settings.json');
       return raw ? (JSON.parse(raw) as { llmApiKey?: string }).llmApiKey : undefined;
     })
-    .toBe('sk-e226-secret');
+    .toBe('sk-e227-secret');
   // The masked field is the ONE place the value lives: strip that input and
   // the key appears in no hint, title, indicator, scope note or result.
   const shown = await page.getByTestId('settings-panel').innerHTML();
-  expect(shown.replace(/<input[^>]*data-testid="llm-api-key"[^>]*>/g, '')).not.toContain('sk-e226-secret');
+  expect(shown.replace(/<input[^>]*data-testid="llm-api-key"[^>]*>/g, '')).not.toContain('sk-e227-secret');
   // The free-text model survived the round trip through the settings layer.
   await expect(page.getByTestId('llm-model')).toHaveValue('claude-shipped-tomorrow');
 });

@@ -62,8 +62,7 @@ export function LlmSettings({ values, capabilities, onChange, onTest }: Props) {
   }, []);
 
   const area = llmAreaState(capabilities, values);
-  const provider = LLM_PROVIDERS[values.llmProvider];
-  const presets = provider.models;
+  const presets = LLM_PROVIDERS[values.llmProvider].models;
   // The preset dropdown mirrors the free-text field: a typed id the curated
   // list does not have simply shows as the custom entry (PRD 011 Req 6 — no
   // validation rejects an id for being absent from the list).
@@ -87,6 +86,9 @@ export function LlmSettings({ values, capabilities, onChange, onTest }: Props) {
     );
   };
 
+  // Every branch below opens with this; they differ only in which controls the
+  // capability makes it honest to draw.
+  const heading = <h3 className="tab-section">LLM provider</h3>;
   const availability = (
     <p className="hotkey-hint" data-testid="llm-availability">
       {area.message}
@@ -97,15 +99,11 @@ export function LlmSettings({ values, capabilities, onChange, onTest }: Props) {
   if (area.state === 'no-path') {
     return (
       <>
-        <h3 className="tab-section">LLM provider</h3>
+        {heading}
         {availability}
       </>
     );
   }
-
-  // PRD 011 Req 8+9: hosted. The credential is the operator's, so there is no
-  // key field to render and the provider/model are read-only facts.
-  const hosted = area.state === 'hosted' || area.state === 'operator-unconfigured';
 
   const testable = canTestConnection(area) && onTest !== undefined;
   const testButton = (
@@ -130,10 +128,12 @@ export function LlmSettings({ values, capabilities, onChange, onTest }: Props) {
     </div>
   );
 
-  if (hosted) {
+  // PRD 011 Req 8+9: hosted. The credential is the operator's, so there is no
+  // key field to render and the provider/model are read-only facts.
+  if (area.state === 'hosted' || area.state === 'operator-unconfigured') {
     return (
       <>
-        <h3 className="tab-section">LLM provider</h3>
+        {heading}
         {availability}
         {area.state === 'hosted' && (
           <div className="field">
@@ -150,7 +150,7 @@ export function LlmSettings({ values, capabilities, onChange, onTest }: Props) {
 
   return (
     <>
-      <h3 className="tab-section">LLM provider</h3>
+      {heading}
       <div className="field">
         <label htmlFor="llm-provider">Provider</label>
         <select

@@ -25,7 +25,7 @@ import {
 import { SMART_EDIT_NAME } from '../lib/smartEdit';
 import { expandImageName, isValidImageFolder } from '../lib/imagePaste';
 import { LlmSettings } from './LlmSettings';
-import type { LlmCapabilities, LlmTestResult } from '../lib/llmSettings';
+import { NO_LLM_CAPABILITIES, type LlmCapabilities, type LlmTestResult } from '../lib/llmSettings';
 
 interface Props {
   /** The EFFECTIVE (resolved) settings — every row displays these (§E19). */
@@ -823,7 +823,7 @@ export function SettingsPanel({
   const llmTab = (
     <LlmSettings
       values={settings}
-      capabilities={llmCapabilities ?? { transport: false, hosted: null }}
+      capabilities={llmCapabilities ?? NO_LLM_CAPABILITIES}
       onChange={(patch) => onChange({ ...settings, ...patch })}
       onTest={onLlmTest}
     />

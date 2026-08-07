@@ -67,7 +67,7 @@ export const LLM_PROVIDERS: Record<
 };
 
 /** The five kinds as values, in the order the chooser offers them. */
-export const LLM_PROVIDER_KINDS = Object.keys(LLM_PROVIDERS) as LlmProviderKind[];
+export const LLM_PROVIDER_KINDS: readonly LlmProviderKind[] = Object.keys(LLM_PROVIDERS) as LlmProviderKind[];
 
 /** PRD 011 Req 5: is this untrusted value one of the seam's provider kinds? */
 export function isLlmProviderKind(value: unknown): value is LlmProviderKind {
@@ -115,6 +115,13 @@ export interface LlmCapabilities {
   /** Hosted: what the deployment answered, or null when there is no `llm` client. */
   hosted: LlmAvailability | null;
 }
+
+/**
+ * PRD 011 Req 9: the no-capability value — neither a desktop transport nor a
+ * hosted client. Stated once so a mount point that was handed no capabilities
+ * does not spell out what "none" means (it is the static web build's state).
+ */
+export const NO_LLM_CAPABILITIES: LlmCapabilities = { transport: false, hosted: null };
 
 /** PRD 011 Req 9: why a desktop configuration cannot be used yet. */
 export type LlmMissing = 'key' | 'model' | 'base-url';
