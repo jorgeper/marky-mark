@@ -47,8 +47,20 @@ export function WorkspaceConnectionSettings({ lifecycle }: { lifecycle: Workspac
 
   const load = useCallback(async (): Promise<void> => {
     if (!id) return;
-    const [permissions, answer] = await Promise.all([lifecycle.permissions(id), lifecycle.connection(id)]);
-    setAllowed(mayManageConnection(permissions));
+    const permissions = await lifecycle.permissions(id);
+    const may = mayManageConnection(permissions);
+    setAllowed(may);
+    // PRD 010 Req 18 + PRD 007 Req 17: a member whose permissions RESOLVED
+    // without `workspace.settings` is already answered — asking the route
+    // could only earn a 403, which the browser logs as a page error for a
+    // question this section never had to ask. An empty set is different: the
+    // manifest was unreadable, which is exactly what a broken connection
+    // looks like, so there the route's own card-backed gate still decides.
+    if (!may && permissions.length > 0) {
+      setPayload(null);
+      return;
+    }
+    const answer = await lifecycle.connection(id);
     // A refusal is not a connection: the section stays silent rather than
     // guessing, and the route has already refused by name.
     setPayload('error' in answer ? null : answer);
