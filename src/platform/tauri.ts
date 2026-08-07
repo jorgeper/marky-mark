@@ -1,4 +1,5 @@
 import type { Platform } from './types';
+import { createFileSummaryCache } from './summaryCacheFiles';
 import type { MenuItemSpec, MenuSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
 import { dispatchRecent, dispatchCommand } from '../lib/commands';
@@ -394,5 +395,10 @@ export async function createTauriPlatform(): Promise<Platform> {
       return false;
     },
   };
+
+  // PRD 011 Req 29: the byte-capped summary store, under `configDir()` beside
+  // positions.json and draft.json — never beside the document. `Date.now` is
+  // injected here, at the edge, so the store itself stays pinnable by tests.
+  platform.summaryCache = createFileSummaryCache(platform, { now: () => Date.now() });
   return platform;
 }

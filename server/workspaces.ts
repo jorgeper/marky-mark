@@ -43,6 +43,14 @@ import {
 } from './backends.ts';
 import { contentTypeFor } from './contentTypes.ts';
 import {
+  clearSummaryCache,
+  readCachedSummary,
+  readSummaryCacheKey,
+  summaryCacheUsage,
+  validateSummaryCacheEntry,
+  writeCachedSummary,
+} from './summaryCache.ts';
+import {
   connectionFailureMessage,
   connectionFailureStatus,
   connectionPayload,
@@ -126,6 +134,10 @@ export const WORKSPACE_ROUTE_PERMISSIONS: readonly WorkspaceRouteRequirement[] =
   { method: 'DELETE', path: 'roles/<role>', required: 'workspace.roles', why: 'nor deleting one' },
   { method: 'GET', path: 'connection', required: 'workspace.settings', why: 'PRD 010 Req 18: the connection is a workspace setting, shown to nobody else' },
   { method: 'POST', path: 'connection', required: 'workspace.settings', why: 'PRD 010 Req 18: repairing it is the same authority as changing it' },
+  { method: 'GET', path: 'summary-cache', required: 'doc.read', why: 'PRD 011 Req 30: how much the shared summary cache holds' },
+  { method: 'DELETE', path: 'summary-cache', required: 'workspace.settings', why: 'PRD 011 Req 30: Clear throws away every member’s summaries, not just the caller’s' },
+  { method: 'GET', path: 'summary-cache/entry', required: 'doc.read', why: 'PRD 011 Req 28: a summary of content this caller may already read' },
+  { method: 'PUT', path: 'summary-cache/entry', required: 'doc.read', why: 'PRD 011 Req 29: caching what a reader just generated is still a read of the document' },
   { method: 'GET', path: 'files', required: 'doc.read', why: 'the file listing is workspace content' },
   { method: 'GET', path: 'files/<existing>', required: 'doc.read', why: 'reading a document or a pasted image' },
   { method: 'PUT', path: 'files/<existing>', required: 'doc.edit', why: 'a PUT over an existing blob is a save' },
@@ -659,6 +671,11 @@ async function routeWorkspaceApi(
     await backends.forget(id);
     // PRD 010 Req 18: and the card, so nothing of the workspace outlives it.
     await forgetWorkspaceCard(deploymentDefault, id);
+    // PRD 011 Req 29: and its summary cache. On a deployment-default
+    // workspace the sweep above already took those blobs and this is a
+    // no-op; on a BYO-repo one this is the only thing that removes them,
+    // because they were never in that workspace's own store.
+    await clearSummaryCache(deploymentDefault, id);
     sendJson(res, 200, { deleted: id });
     return;
   }
@@ -701,6 +718,68 @@ async function routeWorkspaceApi(
       // PRD 010 Req 18: the card follows the manifest here too.
       await rememberWorkspaceCard(deploymentDefault, id, manifest);
       sendJson(res, 200, { id, manifest });
+      return;
+    }
+  }
+
+  // PRD 011 Req 28+29+30: this workspace's summary cache — get a key, put a
+  // key, report roughly what it holds, throw it away. Membership and the 401
+  // are the ones every route here already has; the verbs are the catalog's
+  // existing ones (PRD 007 Req 13), no fifteenth added.
+  //
+  // Every branch reads and writes `deploymentDefault`, NEVER `storage`: on a
+  // workspace connected to a BYO repository the cache must not follow its
+  // files into the user's repo (server/summaryCache.ts states the layout and
+  // the three consequences it buys).
+  if (
+    segments[1] === 'summary-cache' &&
+    (segments.length === 2 || (segments.length === 3 && segments[2] === 'entry'))
+  ) {
+    const isEntryRoute = segments.length === 3;
+    if (isEntryRoute && (req.method === 'GET' || req.method === 'PUT')) {
+      // Required permission: doc.read — a summary is derived from content the
+      // caller may already read, and storing one they just generated is not a
+      // change to any document.
+      if (!(await requirePermission(res, storage, id, auth, 'doc.read'))) return;
+      if (req.method === 'GET') {
+        // The key rides the query string, so the ONE key-carrying path segment
+        // that would otherwise need escaping never exists.
+        const key = readSummaryCacheKey(url.searchParams.get('key'));
+        if (!key) {
+          sendJson(res, 400, { error: 'invalid cache key' });
+          return;
+        }
+        // A miss is 200 with `entry: null`, not 404: "nothing cached yet" is
+        // the ordinary answer, and a client must not read a status code to
+        // tell it apart from a failure it should report.
+        sendJson(res, 200, { entry: await readCachedSummary(deploymentDefault, id, key) });
+        return;
+      }
+      const body = await readJsonBody(req, res);
+      if (body === undefined) return;
+      const entry = validateSummaryCacheEntry(body);
+      if (typeof entry === 'string') {
+        sendJson(res, 400, { error: entry });
+        return;
+      }
+      // The server stamps the time, as it does for manifests and cards.
+      await writeCachedSummary(deploymentDefault, id, entry, Date.now());
+      sendJson(res, 200, { key: entry.key });
+      return;
+    }
+    if (!isEntryRoute && req.method === 'GET') {
+      // Required permission: doc.read — the size is about content the caller
+      // can already reach (PRD 011 Req 30's inspect half, #120's to render).
+      if (!(await requirePermission(res, storage, id, auth, 'doc.read'))) return;
+      sendJson(res, 200, await summaryCacheUsage(deploymentDefault, id));
+      return;
+    }
+    if (!isEntryRoute && req.method === 'DELETE') {
+      // Required permission: workspace.settings — Clear discards summaries
+      // every member shares, so it is the workspace-wide authority and not
+      // the reader's (PRD 011 Req 30's clear half).
+      if (!(await requirePermission(res, storage, id, auth, 'workspace.settings'))) return;
+      sendJson(res, 200, { cleared: await clearSummaryCache(deploymentDefault, id) });
       return;
     }
   }

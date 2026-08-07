@@ -2,6 +2,7 @@ import type { MenuSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
 import type { WorkspaceLifecycle } from './hostedWorkspaces';
 import type { LlmClient } from './hostedLlm';
+import type { SummaryCacheStore } from '../lib/summaryCacheStore';
 import type { FileGrants } from '../lib/fileGrants';
 
 /**
@@ -263,6 +264,21 @@ export interface Platform {
    * on which flavor is running.
    */
   llm?: LlmClient;
+
+  /**
+   * PRD 011 Req 28+29: where generated summaries are kept so unchanged content
+   * is never summarized twice — across zoom cycles, document reopens and app
+   * restarts. Both flavors that have one present the SAME interface, and they
+   * keep it in different places for the same reason: never beside the document
+   * and never in the user's repository. Desktop holds a byte-capped file in
+   * the app config directory; hosted holds it server-side, scoped to the
+   * workspace, so members reuse each other's summaries.
+   *
+   * The static web build leaves it undefined — it has no server and no LLM, so
+   * it has nothing to cache. App code mounts on this capability being present,
+   * never on which flavor is running.
+   */
+  summaryCache?: SummaryCacheStore;
 
   updates?: {
     /** null ⇒ already up to date. Throws on network/manifest/signature errors. */

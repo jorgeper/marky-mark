@@ -92,8 +92,15 @@ workspace owns a prefix keyed by a server-generated UUID:
 ```
 workspaces/<id>/manifest.json     the workspace manifest (below)
 workspaces/<id>/backend.json      which backend backs it (PRD 010 Req 3)
+workspaces/<id>/summary-cache/    cached LLM summaries (PRD 011 Req 29)
 workspaces/<id>/files/<path>      its Markdown documents and assets
 ```
+
+`summary-cache/` holds one blob per content-hash key (`server/summaryCache.ts`).
+Like `backend.json` and `card.json` it lives in the **deployment default**
+store and **outside** `files/`, so it is never listed as a workspace file and —
+crucially for a workspace connected to a BYO repository — machine-generated
+summaries are never committed into the user's repo.
 
 The same layout is what the github backend stores in the default repo, at
 those repo-relative paths under `MM_GITHUB_DEFAULT_ROOT`, on the one
@@ -285,6 +292,10 @@ on the doc/file verbs.
 | `DELETE /api/workspaces/<id>/folders/<path>` | `folder.manage` | Delete a folder and everything under it. There is no trash, no undelete and no version browsing (PRD 007 non-goals): on the blob backend the bytes are gone; on the github backend the commit removes them from the branch and the repository's history retains them (PRD 010 Req 21). 404 when empty/absent. |
 | `PUT /api/workspaces/<id>/upload/<path>` | `file.upload` | Single-file upload of raw bytes (PRD 007 Req 19). The shared rule in `src/lib/fileTransfer.ts` is applied here independently of the client: 415 for a type outside the Markdown + rendered-asset allowlist, 413 past the 20 MB cap, 409 when the path is taken (an upload never silently overwrites). → `201 {path, etag, size}`. |
 | `GET /api/workspaces/<id>/download/<path>` | `file.download` | Single-file download: the blob's bytes with a `Content-Disposition` naming its basename. Bulk transfer is out of scope. 404 when absent. |
+| `GET /api/workspaces/<id>/summary-cache/entry?key=` | `doc.read` | PRD 011 Req 28: read one cached summary by #110's content-hash key → `{entry}`. A key nothing wrote — or a blob that no longer parses as an entry — is `{entry: null}` at **200**, never a 404 or a 500: a miss is an ordinary answer. |
+| `PUT /api/workspaces/<id>/summary-cache/entry` | `doc.read` | PRD 011 Req 29: store `{key, summary, providerId, modelId, promptVersion, usage?}` → `{key}`. The server stamps `at`. Storing a summary the caller just generated is not a change to any document, so it stays on the read verb. |
+| `GET /api/workspaces/<id>/summary-cache` | `doc.read` | PRD 011 Req 30: roughly what this workspace's cache holds → `{bytes, entries}`, from the blob listing with no read. |
+| `DELETE /api/workspaces/<id>/summary-cache` | `workspace.settings` | PRD 011 Req 30: Clear → `{cleared}`. It discards summaries every member shares, so it takes the workspace-wide authority rather than the reader's. |
 | `GET /api/me/files` | — (signed-in; scoped to the token's user) | List the caller's own blobs, user-relative paths (PRD 007 Req 9: the roaming User settings layer). |
 | `GET /api/me/files/<path>` | — (signed-in; scoped to the token's user) | Read: `{path, content, etag}`, or 404. |
 | `PUT /api/me/files/<path>` | — (signed-in; scoped to the token's user) | Write body as content → `{path, etag}`. |
