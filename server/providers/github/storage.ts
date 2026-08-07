@@ -288,11 +288,16 @@ export function createGitHubStorageProvider(options: GitHubStorageOptions): Stor
     return bytes;
   }
 
+  /**
+   * The same read for a sha the tree itself named moments ago: its absence is
+   * a real fault rather than a null answer, reported through the same failure
+   * vocabulary as any other bad response.
+   */
   async function blobBytes(sha: string, operation: string): Promise<Uint8Array> {
     const found = await blobBytesOrNull(sha, operation);
-    // The tree named this sha moments ago, so its absence is a real fault —
-    // reported through the same failure vocabulary as any other bad response.
-    if (!found) throw new GitHubApiError(404, operation, 'the tree names a blob the repository does not hold');
+    if (found === null) {
+      throw new GitHubApiError(404, operation, 'the tree names a blob the repository does not hold');
+    }
     return found;
   }
 
@@ -533,7 +538,7 @@ export function createGitHubStorageProvider(options: GitHubStorageOptions): Stor
        */
       async readAtVersion(path: string, version: string): Promise<string | null> {
         const found = await blobBytesOrNull(version, `merge-base read of ${repoPath(path)}`);
-        return found && Buffer.from(found).toString('utf8');
+        return found === null ? null : Buffer.from(found).toString('utf8');
       },
       asUser: (user: AuthUser) => view(user),
     };

@@ -12,11 +12,12 @@ describe('PRD 010 Req 12 three-way line merge', () => {
     const base = doc('# Title', '', 'alpha', 'beta', 'gamma', 'delta', '');
     const ours = doc('# Title', '', 'ALPHA', 'beta', 'gamma', 'delta', '');
     const theirs = doc('# Title', '', 'alpha', 'beta', 'gamma', 'DELTA', '');
-    const merged = mergeThreeWay(base, ours, theirs);
-    expect(merged).toEqual({ clean: true, text: doc('# Title', '', 'ALPHA', 'beta', 'gamma', 'DELTA', '') });
-    // Both sides' changes are actually in there — not just one of them.
-    expect((merged as { text: string }).text).toContain('ALPHA');
-    expect((merged as { text: string }).text).toContain('DELTA');
+    // Both sides' changes are in the answer — not just one of them, and not
+    // one of them plus the base's version of the other.
+    expect(mergeThreeWay(base, ours, theirs)).toEqual({
+      clean: true,
+      text: doc('# Title', '', 'ALPHA', 'beta', 'gamma', 'DELTA', ''),
+    });
   });
 
   it('U416: both sides saved the same text, and a client that changed nothing', () => {
@@ -46,13 +47,12 @@ describe('PRD 010 Req 12 three-way line merge', () => {
   });
 
   it('U419: newline fidelity — no trailing newline stays that way, untouched line endings survive', () => {
-    // A file that does not end in a newline still does not after a merge.
+    // A file that does not end in a newline still does not after a merge —
+    // `doc(…)` joins without a trailing one, so the expectation below says it.
     const base = doc('alpha', 'beta', 'omega');
     const ours = doc('ALPHA', 'beta', 'omega');
     const theirs = doc('alpha', 'BETA', 'omega');
-    const merged = mergeThreeWay(base, ours, theirs);
-    expect(merged).toEqual({ clean: true, text: doc('ALPHA', 'BETA', 'omega') });
-    expect((merged as { text: string }).text.endsWith('\n')).toBe(false);
+    expect(mergeThreeWay(base, ours, theirs)).toEqual({ clean: true, text: doc('ALPHA', 'BETA', 'omega') });
 
     // A CRLF line neither side touched is copied back byte-for-byte.
     const crlf = 'first\r\nsecond\r\nthird\r\n';

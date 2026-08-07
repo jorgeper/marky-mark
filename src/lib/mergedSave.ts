@@ -55,8 +55,7 @@ export function planMergedSave(input: MergedSaveInput): MergedSavePlan {
   // bytes leave the document in the same state, dirty flag included.
   const split = splitEmbedded(input.mergedText);
   const buffer = normalizeEol(split.content);
-  const limit = buffer.length;
-  const clamp = (offset: number): number => (offset < 0 ? 0 : offset > limit ? limit : offset);
+  const clamp = (offset: number): number => Math.min(Math.max(offset, 0), buffer.length);
   return {
     buffer,
     savedText: buffer,

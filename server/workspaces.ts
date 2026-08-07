@@ -170,6 +170,24 @@ async function blobExists(storage: StorageProvider, path: string): Promise<boole
 }
 
 /**
+ * PRD 010 Req 12: the structured-file guard. A LINE merge knows nothing about
+ * syntax, so two clean edits to different lines of a JSON document can produce
+ * a file that no longer parses — and the comment sidecars (`src/lib/sidecar.ts`)
+ * are exactly such documents. A merged `.json` that does not `JSON.parse` is
+ * refused, so the 412 and its dialog are what the user gets rather than a
+ * committed file the app can no longer read.
+ */
+function mergeKeepsFileWellFormed(filePath: string, text: string): boolean {
+  if (!/\.json$/i.test(filePath)) return true;
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * PRD 010 Req 12: how many times the read-merge-write is re-run when the
  * merged commit itself loses a race. Small on purpose: each attempt is a
  * fresh head read and a fresh merge, so a branch busy enough to beat this
@@ -219,31 +237,13 @@ async function mergeStaleSave(
     const merged = mergeThreeWay(base, ours, head.content);
     if (!merged.clean) return null;
     if (!mergeKeepsFileWellFormed(filePath, merged.text)) return null;
-    // PRD 010 Req 7: one commit like any other mutation — authored by the
-    // saving user (the storage handed in is already their `asUser` view) with
-    // a message naming the action and the path.
+    // PRD 010 Req 7: one commit like any other mutation — it goes through the
+    // very same provider write a plain save uses, so a merged commit is
+    // authored and named exactly as an unmerged one would have been.
     const written = await storage.writeIfMatch(blobPath, merged.text, head.etag);
     if (written) return { etag: written.etag, content: merged.text };
   }
   return null;
-}
-
-/**
- * PRD 010 Req 12: the structured-file guard. A LINE merge knows nothing about
- * syntax, so two clean edits to different lines of a JSON document can produce
- * a file that no longer parses — and the comment sidecars (`src/lib/sidecar.ts`)
- * are exactly such documents. A merged `.json` that does not `JSON.parse` is
- * refused, so the 412 and its dialog are what the user gets rather than a
- * committed file the app can no longer read.
- */
-function mergeKeepsFileWellFormed(filePath: string, text: string): boolean {
-  if (!/\.json$/i.test(filePath)) return true;
-  try {
-    JSON.parse(text);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** Copy one blob's bytes (and media type) to a new path, then drop the old. */

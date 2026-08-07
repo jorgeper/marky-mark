@@ -18,7 +18,9 @@ import DiffMatchPatch from 'diff-match-patch';
 /** A clean merge carries its text; a conflict carries nothing to commit. */
 export type MergeResult = { clean: true; text: string } | { clean: false };
 
-const CONFLICT: MergeResult = { clean: false };
+// One instance for the module, as `diffLines.ts` does: it holds only the
+// algorithm's settings, never per-diff state.
+const dmp = new DiffMatchPatch();
 
 /**
  * Lines keep their own terminator, so joining is concatenation and a line
@@ -45,7 +47,6 @@ interface Change {
  * paragraph is one change rather than two.
  */
 function changesFrom(base: string, other: string): Change[] {
-  const dmp = new DiffMatchPatch();
   const { chars1, chars2, lineArray } = dmp.diff_linesToChars_(base, other);
   const diffs = dmp.diff_main(chars1, chars2, false) as Array<[number, string]>;
   dmp.diff_charsToLines_(diffs, lineArray);
@@ -108,15 +109,16 @@ export function mergeThreeWay(base: string, ours: string, theirs: string): Merge
   const ourChanges = changesFrom(base, ours);
   const theirChanges = changesFrom(base, theirs);
 
+  /** Where a side's next unconsumed change starts; past the end when it has none. */
+  const nextStart = (changes: Change[], at: number): number =>
+    at < changes.length ? changes[at].baseStart : Number.MAX_SAFE_INTEGER;
+
   const out: string[] = [];
   let copied = 0;
   let o = 0;
   let t = 0;
   while (o < ourChanges.length || t < theirChanges.length) {
-    const start = Math.min(
-      o < ourChanges.length ? ourChanges[o].baseStart : Number.MAX_SAFE_INTEGER,
-      t < theirChanges.length ? theirChanges[t].baseStart : Number.MAX_SAFE_INTEGER,
-    );
+    const start = Math.min(nextStart(ourChanges, o), nextStart(theirChanges, t));
     out.push(...baseLines.slice(copied, start));
 
     // Grow the region to a fixpoint. Two changes belong together when one
@@ -150,7 +152,7 @@ export function mergeThreeWay(base: string, ours: string, theirs: string): Merge
     else {
       const ourText = render(ourGroup, baseLines, start, end).join('');
       const theirText = render(theirGroup, baseLines, start, end).join('');
-      if (ourText !== theirText) return CONFLICT;
+      if (ourText !== theirText) return { clean: false };
       out.push(ourText);
     }
     copied = end;
