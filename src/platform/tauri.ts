@@ -2,6 +2,7 @@ import type { Platform } from './types';
 import type { MenuItemSpec, MenuSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
 import { dispatchRecent, dispatchCommand } from '../lib/commands';
+import { createDesktopLlmTransport } from '../lib/llmDesktopTransport';
 import { parseCombo } from '../lib/hotkeys';
 
 /**
@@ -344,6 +345,14 @@ export async function createTauriPlatform(): Promise<Platform> {
     async busListen(event, cb) {
       return listen(event, (e) => cb(e.payload));
     },
+
+    // PRD 011 Req 12: the LLM request leaves from the Rust shell, not from
+    // here — this is one IPC call into the `llm_request` command, so the
+    // webview opens no outbound connection and `connect-src` in
+    // src-tauri/tauri.conf.json stays `ipc: http://ipc.localhost`. The mapping
+    // is pure and lives in lib/llmDesktopTransport.ts; this file only supplies
+    // the real `invoke`, being the one place in src/ that may import Tauri.
+    llmTransport: createDesktopLlmTransport((command, args) => invoke(command, args)),
 
     updates: (() => {
       // The Update object must survive from check() to downloadAndInstall().

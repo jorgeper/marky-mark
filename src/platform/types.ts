@@ -1,3 +1,4 @@
+import type { LlmTransport } from '../lib/llmSeam';
 import type { MenuSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
 import type { WorkspaceLifecycle } from './hostedWorkspaces';
@@ -258,11 +259,23 @@ export interface Platform {
    * OPERATOR'S — configured in the server's environment, never handed to a
    * member and not changeable by one — and every provider call is made
    * server-side through the app's own origin. The static web build and the
-   * desktop shell leave it undefined (desktop's own path is issue #112), so
+   * desktop shell leave it undefined (desktop's own path is `llmTransport`), so
    * app code mounts LLM affordances on this capability being present and never
    * on which flavor is running.
    */
   llm?: LlmClient;
+
+  /**
+   * PRD 011 Req 12: the send half of the LLM seam (`src/lib/llmSeam.ts`) — the
+   * one way a provider is ever contacted. Absent ⇒ this host has no LLM path
+   * at all, so no feature that needs one may run and none is offered; the
+   * static web build leaves it undefined for good (Req 14) and the dev/e2e
+   * shim until it has a fake to answer with. Desktop defines it as an IPC call
+   * into the Rust shell (the `llm_request` command), so the request leaves the
+   * host process rather than the webview and the webview's `connect-src` stays
+   * IPC-only; the hosted flavor answers it through its own same-origin server.
+   */
+  llmTransport?: LlmTransport;
 
   updates?: {
     /** null ⇒ already up to date. Throws on network/manifest/signature errors. */

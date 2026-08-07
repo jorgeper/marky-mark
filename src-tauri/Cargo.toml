@@ -25,6 +25,19 @@ tauri-plugin-process = "2.3.1"
 # SPEC35 §1: move-to-Trash for the sidebar delete. No network, no features.
 trash = "5"
 tauri-plugin-clipboard-manager = "2.3.2"
+# PRD 011 Req 12: the HTTP client behind the `llm_request` command — the one
+# place a provider is contacted. Already in the lock file (0.13.4, rustls) via
+# tauri-plugin-updater, so this edge adds no package and no second TLS stack;
+# default features stay off and the features the updater already enables are
+# what this uses.
+reqwest = { version = "0.13", default-features = false }
+# PRD 011 Req 12: not a second TLS stack — the same rustls 0.23 the updater
+# already depends on, with the same `ring` provider, so the lock gains no
+# package. It is here because the updater's reqwest is built `rustls-no-provider`
+# and reqwest *panics* if no process-level provider is installed; the updater
+# installs one only when it checks for updates, which the LLM path must not
+# depend on. See `llm_client` in src/lib.rs.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 [profile.release]
 codegen-units = 1
