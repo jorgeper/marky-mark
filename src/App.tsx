@@ -4973,18 +4973,16 @@ export default function App() {
   // the pure module from the platform's delete semantics and the bound
   // workspace's own retention fact. Computed here rather than in the modal so
   // the JSX below stays the thin shell that renders what it is handed.
-  const folderDeleteCopy = entryDeletePrompt(
-    deleteRetention({ permanentDelete: platform.permanentDelete, retainsHistory: managedWsRetainsHistory }),
-    {
-      name: folderDeletePrompt ? platform.basename(folderDeletePrompt.path) : '',
-      isDir: folderDeletePrompt?.isDir === true,
-      dirty:
-        !!folderDeletePrompt &&
-        dirty &&
-        !!docPath &&
-        remapPath(docPath, folderDeletePrompt.path, folderDeletePrompt.path) !== null,
-    },
-  );
+  const folderDeleteCopy =
+    folderDeletePrompt &&
+    entryDeletePrompt(
+      deleteRetention({ permanentDelete: platform.permanentDelete, retainsHistory: managedWsRetainsHistory }),
+      {
+        name: platform.basename(folderDeletePrompt.path),
+        isDir: folderDeletePrompt.isDir,
+        dirty: dirty && !!docPath && remapPath(docPath, folderDeletePrompt.path, folderDeletePrompt.path) !== null,
+      },
+    );
 
   return (
     <div className={`theme-root${!nativeMenu ? ' has-toolbar' : ''}${!nativeMenu && !settings.autoHideToolbar ? ' toolbar-static' : ''}`} ref={rootRef}>
@@ -5651,7 +5649,7 @@ export default function App() {
         </div>
       )}
 
-      {folderDeletePrompt && (
+      {folderDeletePrompt && folderDeleteCopy && (
         <div className="overlay">
           <div
             className="modal"

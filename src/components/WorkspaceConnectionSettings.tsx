@@ -48,14 +48,15 @@ export function WorkspaceConnectionSettings({ lifecycle }: { lifecycle: Workspac
   const load = useCallback(async (): Promise<void> => {
     if (!id) return;
     const permissions = await lifecycle.permissions(id);
-    setAllowed(mayManageConnection(permissions));
+    const mayManage = mayManageConnection(permissions);
+    setAllowed(mayManage);
     // PRD 010 Req 18: ask about the connection only when the manifest says
     // this member may manage it, OR when the manifest could not answer at all
     // (an empty set — no access, or a workspace whose backend is unreachable),
     // which is exactly the broken-connection case the route's own card-backed
     // gate exists for. A member who simply lacks `workspace.settings` no
     // longer spends a request on a 403 the section would discard anyway.
-    if (!mayManageConnection(permissions) && permissions.length > 0) {
+    if (!mayManage && permissions.length > 0) {
       setPayload(null);
       return;
     }

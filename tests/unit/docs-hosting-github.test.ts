@@ -40,10 +40,11 @@ describe('the operator hosting guide for the github backend (docs/HOSTING-GITHUB
       expect(guide, name).toContain(name);
     }
     // …and it marks them required, in the same sentence shape loadConfig
-    // refuses with, so an operator can match the log line to the guide.
-    expect(guide).toContain(
-      `MM_STORAGE_BACKEND=github requires environment variables: ${GITHUB_BACKEND_REQUIRED.slice(1).join(', ')}`,
-    );
+    // refuses with, so an operator can match the log line to the guide. The
+    // worked example there is a deployment that set only the App id, so the
+    // message names the other two, in the order the constant lists them.
+    const missing = GITHUB_BACKEND_REQUIRED.filter((name) => name !== 'MM_GITHUB_APP_ID');
+    expect(guide).toContain(`MM_STORAGE_BACKEND=github requires environment variables: ${missing.join(', ')}`);
 
     // No variable that does not exist: every MM_* the guide names is one the
     // config loader really reads.
@@ -108,4 +109,3 @@ describe('the operator hosting guide for the github backend (docs/HOSTING-GITHUB
     }
   });
 });
-

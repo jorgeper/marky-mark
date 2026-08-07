@@ -78,7 +78,7 @@ account, so no user-to-server token exists anywhere in `server/`.
 Set **Setup URL** to your deployment's origin, and tick **Redirect on update**:
 
 ```
-https://$APP.azurewebsites.net/
+$ORIGIN/
 ```
 
 This is where GitHub returns an admin who has just installed the App from the
@@ -205,7 +205,8 @@ secret, no token, no installation id: the installation is looked up per repo
 from the App credentials.
 
 On App Service (the Azure guide's steps 3–5 build the payload, create the app
-and add the custom domain — all of that is unchanged):
+and add the custom domain — all of that is unchanged, `$RG` included: it is the
+resource group you exported there):
 
 ```sh
 az webapp config appsettings set --name "$APP" --resource-group "$RG" --settings \
