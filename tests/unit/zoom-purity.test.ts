@@ -8,7 +8,20 @@ import { effectiveCode } from './source-scan';
  * host. Convention would let that rot silently, so this scan is the gate:
  * precedent is the file-scanning guards already in this suite.
  */
-const MODULES = ['sectionModel.ts', 'zoomLevels.ts', 'sectionExcerpt.ts', 'summaryCache.ts', 'llmCost.ts'];
+// #118 added the three pure modules real summaries decide with. Its fourth,
+// `summaryEngine.ts`, is deliberately absent: it legitimately holds the
+// orchestration (promises, the cache store, the runner), and smuggling it in
+// here would only weaken what this list means.
+const MODULES = [
+  'sectionModel.ts',
+  'zoomLevels.ts',
+  'sectionExcerpt.ts',
+  'summaryCache.ts',
+  'llmCost.ts',
+  'summaryPlan.ts',
+  'summaryPrompt.ts',
+  'llmRunner.ts',
+];
 
 const read = (name: string): string =>
   readFileSync(fileURLToPath(new URL(`../../src/lib/${name}`, import.meta.url)), 'utf8');

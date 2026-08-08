@@ -2893,3 +2893,16 @@ mark.hl.ghost {
   opacity: 0.65;
   font-size: 0.9em;
 }
+/* PRD 011 Reqs 26+27: a slot still waiting, and one whose summary failed —
+   each visibly distinct from a summary and from an excerpt, and neither
+   removing the heading and folded-in list above it. */
+.semantic-zoom-body.pending {
+  opacity: 0.55;
+  font-style: italic;
+  cursor: default;
+}
+.semantic-zoom-body.failed {
+  cursor: default;
+  font-size: 0.9em;
+  opacity: 0.85;
+}

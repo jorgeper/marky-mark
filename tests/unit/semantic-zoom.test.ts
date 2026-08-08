@@ -1,9 +1,15 @@
 import { describe, expect, test } from 'vitest';
 import { parseSections } from '../../src/lib/sectionModel';
 import { EXCERPT_PLACEHOLDER } from '../../src/lib/sectionExcerpt';
-import { ZOOM_LEVEL_FULL, type ZoomLevel } from '../../src/lib/zoomLevels';
+import type { LlmFailure } from '../../src/lib/llmSeam';
+import { testFailureMessage } from '../../src/lib/llmSettings';
+import { summaryKeyForEntry, type SummaryKeyContext } from '../../src/lib/summaryCache';
+import type { SummarySlotState } from '../../src/lib/summaryPlan';
+import { zoomView, ZOOM_LEVEL_FULL, type ZoomLevel } from '../../src/lib/zoomLevels';
 import {
   buildZoomDocument,
+  zoomBlockBody,
+  SUMMARY_NOTICE,
   canStepZoom,
   diveFrom,
   focusLine,
@@ -13,8 +19,17 @@ import {
   EXCERPT_NOTICE,
   SEMANTIC_ZOOM_COMBOS,
   ZOOM_LEVEL_LABELS,
+  type ZoomBlock,
 } from '../../src/lib/semanticZoom';
 import { combosConflict, DEFAULT_HOTKEYS, type HotkeyMap } from '../../src/lib/hotkeys';
+
+/**
+ * #118 widened `ZoomBlock.body` to the four-state union. With no summaries
+ * passed in, every block is still the excerpt these tests were written for —
+ * this only narrows the union so the text is readable.
+ */
+const bodyText = (block: ZoomBlock | undefined): string =>
+  block && 'text' in block.body ? block.body.text : '';
 
 const DOC = `# Marky Mark
 
@@ -69,14 +84,14 @@ describe('PRD 011 Req 17 five levels, rendered from the existing model', () => {
   test('U584: nothing is silently dropped — a folded descendant is named and feeds its host block', () => {
     const editing = buildZoomDocument(doc, 3).blocks.find((b) => b.title === 'Editing');
     expect(editing?.folded.map((f) => f.title)).toEqual(['Smart edit']);
-    expect(editing?.body.text).toContain('Editing prose.');
-    expect(editing?.body.text).toContain('Smart edit prose.');
+    expect(bodyText(editing)).toContain('Editing prose.');
+    expect(bodyText(editing)).toContain('Smart edit prose.');
   });
 
   test('U585: every block is an excerpt, never a summary — EXCERPT_PLACEHOLDER covers an empty section', () => {
     const view = zoomDocumentFromSource('# Title\n\n## Empty\n', 4);
     for (const block of view.blocks) expect(block.body.kind).toBe('excerpt');
-    expect(view.blocks.find((b) => b.title === 'Empty')?.body.text).toBe(EXCERPT_PLACEHOLDER);
+    expect(bodyText(view.blocks.find((b) => b.title === 'Empty'))).toBe(EXCERPT_PLACEHOLDER);
     expect(EXCERPT_NOTICE).toMatch(/excerpts/i);
   });
 
@@ -91,6 +106,63 @@ describe('PRD 011 Req 17 five levels, rendered from the existing model', () => {
       }
     }
     expect(zoomDocumentFromSource('', 1, 'notes.md').title).toBe('notes.md');
+  });
+});
+
+describe('PRD 011 Reqs 22+26+27 — the four states a block can be in', () => {
+  const doc = parseSections(DOC);
+  const ctx: SummaryKeyContext = { level: 4, providerId: 'anthropic', modelId: 'claude-opus-5' };
+  const keys = zoomView(doc, 4).entries.map((entry) => summaryKeyForEntry(entry, ctx));
+
+  test('U618: with no provider the blocks are excerpts and the view claims nothing else', () => {
+    const view = buildZoomDocument(doc, 4);
+    expect(view.summarized).toBe(false);
+    for (const block of view.blocks) {
+      expect(block.body.kind).toBe('excerpt');
+      // No key means no retry: there is nothing to re-request.
+      expect(block.summaryKey).toBeNull();
+    }
+    // #117's copy, unchanged, for exactly this case.
+    expect(EXCERPT_NOTICE).toMatch(/excerpts/i);
+  });
+
+  test('U619: with a provider a block is pending until its own result lands', () => {
+    const states = new Map<string, SummarySlotState>([[keys[1], { status: 'summary', text: 'Editing, briefly.' }]]);
+    const view = buildZoomDocument(doc, 4, undefined, { ctx, states });
+    expect(view.summarized).toBe(true);
+    // The one that landed is a summary; the rest are pending — never a silent
+    // excerpt sitting under a "these are summaries" notice.
+    expect(view.blocks.map((b) => b.body.kind)).toEqual(['pending', 'summary', 'pending', 'pending']);
+    expect(view.blocks[1].body).toEqual({ kind: 'summary', text: 'Editing, briefly.' });
+    expect(view.blocks.map((b) => b.summaryKey)).toEqual(keys);
+    // The structure is there whatever the body says (Req 17).
+    for (const block of view.blocks) expect(block.title).toBeTruthy();
+    expect(view.blocks[1].folded.map((f) => f.title)).toEqual([]);
+  });
+
+  test('U620: a failed block renders the seam’s own sentence, and its siblings keep their summaries', () => {
+    const failure: LlmFailure = { kind: 'rate-limited', message: 'Rate limited by the provider.', retryAfterSeconds: 9 };
+    const states = new Map<string, SummarySlotState>([
+      [keys[0], { status: 'summary', text: 'The document, briefly.' }],
+      [keys[1], { status: 'failed', failure }],
+    ]);
+    const blocks = buildZoomDocument(doc, 4, undefined, { ctx, states }).blocks;
+    // The seam's own wording, through the SAME helper the settings area uses —
+    // no second sentence per failure kind, and the retry hint carried along.
+    expect(blocks[1].body).toEqual({ kind: 'failure', message: testFailureMessage(failure) });
+    expect(testFailureMessage(failure)).toContain('retry in 9s');
+    // A sibling's failure costs neither the summarized block nor the structure.
+    expect(blocks[0].body).toEqual({ kind: 'summary', text: 'The document, briefly.' });
+    expect(blocks[1].title).toBe('Editing');
+    expect(blocks[1].summaryKey).toBe(keys[1]);
+    // The pure rule, exercised directly: four inputs, four distinguishable states.
+    const excerpt = { kind: 'excerpt', text: 'raw', truncated: false, placeholder: false } as const;
+    expect(zoomBlockBody(excerpt, false, undefined)).toBe(excerpt);
+    expect(zoomBlockBody(excerpt, true, undefined)).toEqual({ kind: 'pending' });
+    expect(zoomBlockBody(excerpt, true, { status: 'pending' })).toEqual({ kind: 'pending' });
+    expect(zoomBlockBody(excerpt, true, { status: 'summary', text: 'ok' })).toEqual({ kind: 'summary', text: 'ok' });
+    expect(zoomBlockBody(excerpt, true, { status: 'failed', failure }).kind).toBe('failure');
+    expect(SUMMARY_NOTICE).not.toMatch(/excerpt/i);
   });
 });
 

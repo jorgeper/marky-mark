@@ -3,9 +3,11 @@
  * level control.
  *
  * The component holds no rules: `lib/semanticZoom.ts` decides what a level
- * shows, what a level means, whether it is read-only and where a click lands.
- * Nothing here reaches an LLM — every block is an excerpt (Req 22), and the
- * copy says so once for the whole view.
+ * shows, what a level means, whether it is read-only, where a click lands and
+ * — since #118 — which of the four states each block is in (excerpt, pending,
+ * summary, failure). Nothing here reaches an LLM itself; it renders the state
+ * a run reported and says once, for the whole view, which kind of text these
+ * blocks are (Reqs 22+26+27).
  *
  * PRD 011 Req 17: document text reaches the DOM as JSX text nodes, escaped by
  * React. No `innerHTML`, no hand-built HTML string.
@@ -17,7 +19,9 @@ import {
   stepZoomLevel,
   EXCERPT_CONFIGURE_HINT,
   EXCERPT_NOTICE,
+  SUMMARY_NOTICE,
   ZOOM_LEVEL_LABELS,
+  type ZoomBlock,
   type ZoomDocument,
 } from '../lib/semanticZoom';
 import { clampZoomLevel, ZOOM_LEVEL_MAX, ZOOM_LEVEL_MIN, type ZoomLevel } from '../lib/zoomLevels';
@@ -84,6 +88,58 @@ interface ViewProps {
   onFull: () => void;
   /** PRD 011 Req 22: open the LLM providers settings area. */
   onConfigureLlm: () => void;
+  /** PRD 011 Req 27: re-request exactly one failed section, by its cache key. */
+  onRetrySummary: (summaryKey: string) => void;
+}
+
+/** PRD 011 Req 26: what a block says while its summary is still in flight. */
+const PENDING_TEXT = 'Summarizing…';
+
+/**
+ * PRD 011 Reqs 22+26+27: one block's text, in whichever of the four states
+ * `semanticZoom.ts` put it in. Each state is separately addressable: an
+ * excerpt and a summary share the body id but declare their kind, a pending
+ * slot and a failure have ids of their own.
+ */
+function ZoomBody({
+  block,
+  onDive,
+  onRetry,
+}: {
+  block: ZoomBlock;
+  onDive: () => void;
+  onRetry: () => void;
+}) {
+  if (block.body.kind === 'pending') {
+    return (
+      <p className="semantic-zoom-body pending" data-testid="semantic-zoom-pending">
+        {PENDING_TEXT}
+      </p>
+    );
+  }
+  if (block.body.kind === 'failure') {
+    // PRD 011 Req 27: the failure costs the summary, not the block — the
+    // heading, depth and folded-in list above are rendered either way, and the
+    // retry re-requests this section alone.
+    return (
+      <p className="semantic-zoom-body failed" data-testid="semantic-zoom-failure">
+        {block.body.message}{' '}
+        <button className="linklike" data-testid="semantic-zoom-retry" onClick={onRetry}>
+          Retry this section
+        </button>
+      </p>
+    );
+  }
+  return (
+    <p
+      className={`semantic-zoom-body${block.body.kind === 'excerpt' && block.body.placeholder ? ' placeholder' : ''}`}
+      data-testid="semantic-zoom-body"
+      data-body-kind={block.body.kind}
+      onClick={onDive}
+    >
+      {block.body.text}
+    </p>
+  );
 }
 
 /**
@@ -99,7 +155,14 @@ function depthClass(depth: number): string {
  * is editable — the buffer is only read, so entering a level from edit mode
  * leaves it byte-identical and returning to L5 restores it untouched.
  */
-export function SemanticZoomView({ doc, llmArea, onDive, onFull, onConfigureLlm }: ViewProps) {
+export function SemanticZoomView({
+  doc,
+  llmArea,
+  onDive,
+  onFull,
+  onConfigureLlm,
+  onRetrySummary,
+}: ViewProps) {
   // PRD 011 Req 22 + Req 9: where no LLM path exists at all, say so rather
   // than offering a control that cannot work.
   const noPath = llmArea.state === 'no-path';
@@ -116,17 +179,25 @@ export function SemanticZoomView({ doc, llmArea, onDive, onFull, onConfigureLlm 
             </button>
           </div>
 
-          {/* PRD 011 Req 22: stated ONCE for the view, never per block. */}
-          <p className="semantic-zoom-notice" data-testid="semantic-zoom-excerpt-note">
-            {EXCERPT_NOTICE}{' '}
-            {noPath ? (
-              <span data-testid="semantic-zoom-no-llm">{llmArea.message}</span>
-            ) : (
-              <button className="linklike" data-testid="semantic-zoom-configure" onClick={onConfigureLlm}>
-                {EXCERPT_CONFIGURE_HINT}
-              </button>
-            )}
-          </p>
+          {/* PRD 011 Req 22: stated ONCE for the view, never per block — and
+              the view says which kind of text these blocks are, so an excerpt
+              is never announced as a summary or the other way round. */}
+          {doc.summarized ? (
+            <p className="semantic-zoom-notice" data-testid="semantic-zoom-summary-note">
+              {SUMMARY_NOTICE}
+            </p>
+          ) : (
+            <p className="semantic-zoom-notice" data-testid="semantic-zoom-excerpt-note">
+              {EXCERPT_NOTICE}{' '}
+              {noPath ? (
+                <span data-testid="semantic-zoom-no-llm">{llmArea.message}</span>
+              ) : (
+                <button className="linklike" data-testid="semantic-zoom-configure" onClick={onConfigureLlm}>
+                  {EXCERPT_CONFIGURE_HINT}
+                </button>
+              )}
+            </p>
+          )}
 
           {doc.blocks.map((block) => (
             <section
@@ -144,13 +215,11 @@ export function SemanticZoomView({ doc, llmArea, onDive, onFull, onConfigureLlm 
               >
                 {block.title}
               </button>
-              <p
-                className={`semantic-zoom-body${block.body.placeholder ? ' placeholder' : ''}`}
-                data-testid="semantic-zoom-body"
-                onClick={() => onDive(block.id)}
-              >
-                {block.body.text}
-              </p>
+              <ZoomBody
+                block={block}
+                onDive={() => onDive(block.id)}
+                onRetry={() => block.summaryKey && onRetrySummary(block.summaryKey)}
+              />
               {/* PRD 011 Req 17: folded descendants are named, never dropped. */}
               {block.folded.length > 0 && (
                 <p className="semantic-zoom-folded" data-testid="semantic-zoom-folded">

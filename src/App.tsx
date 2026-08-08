@@ -102,16 +102,27 @@ import {
   type SettingsBroadcast,
 } from './lib/auxProtocol';
 import { LLM_UNCONFIGURED, type LlmAvailability } from './lib/llmDeployment';
-import { runLlmRequest } from './lib/llmSeam';
+import { selectLlmRunner, summaryKeyContextFor } from './lib/llmRunner';
 import { llmAreaState, testConnection, type LlmCapabilities, type LlmTestResult } from './lib/llmSettings';
+// PRD 011 Reqs 25–27: real summaries in the zoom view — planned purely,
+// generated through the seam, cancelled by run identity.
+import { runSummaries } from './lib/summaryEngine';
+import {
+  NO_SUMMARY_STATES,
+  planSummarySlots,
+  retrySlots,
+  summaryRunId,
+  type SummarySlotState,
+  type SummaryStates,
+} from './lib/summaryPlan';
 // PRD 011 Reqs 17–23: the semantic-zoom view — an ADDITIONAL render path taken
 // only at levels 1–4. L5 keeps today's `renderMarkdown` → innerHTML injection
 // and its data-mm-line anchors exactly as they were.
 import { SemanticZoomControl, SemanticZoomView } from './components/SemanticZoomView';
 import { parseSections } from './lib/sectionModel';
-import { ZOOM_LEVEL_FULL, type ZoomLevel } from './lib/zoomLevels';
+import { zoomView, ZOOM_LEVEL_FULL, type ZoomLevel } from './lib/zoomLevels';
 import {
-  buildZoomDocument,
+  buildZoomDocumentFromView,
   diveFrom,
   focusLine,
   isZoomReadOnly,
@@ -3861,8 +3872,15 @@ export default function App() {
     () => (zoomActive ? parseSections(canonicalOf(buffer)) : null),
     [zoomActive, buffer]
   );
-  const zoomDoc = useMemo(
-    () => (zoomSections ? buildZoomDocument(zoomSections, zoomLevel, zoomFallbackTitle) : null),
+  /**
+   * PRD 011 Req 17: the level's entries. `zoomDoc` (the rendered blocks) and
+   * the summary plan are both derived from this ONE view, so the level→content
+   * mapping is computed once and the plan can never describe a different set of
+   * blocks than the one on screen. `zoomDoc` itself is built further down,
+   * where the LLM availability that decides excerpt-vs-summary is known.
+   */
+  const zoomEntryView = useMemo(
+    () => (zoomSections ? zoomView(zoomSections, zoomLevel, { fallbackTitle: zoomFallbackTitle }) : null),
     [zoomSections, zoomLevel, zoomFallbackTitle]
   );
 
@@ -4110,16 +4128,131 @@ export default function App() {
    */
   const runLlmTest = useCallback(async (): Promise<LlmTestResult> => {
     const area = llmAreaState(llmCapabilities, stateRef.current.settings);
-    const client = stateRef.current.platform?.llm;
-    if (area.state === 'hosted' && client) return testConnection((req) => client.run(req));
-    const transport = stateRef.current.platform?.llmTransport;
-    if (area.state === 'ready' && transport) {
-      return testConnection((req) => runLlmRequest(transport, area.config, req));
-    }
+    // PRD 011 Req 25: the ONE capability-based runner selection, shared with
+    // the zoom view's summaries — hosted client server-side, desktop transport
+    // through the seam, and nothing branching on `platform.kind`.
+    const runner = selectLlmRunner(area, {
+      hosted: stateRef.current.platform?.llm,
+      transport: stateRef.current.platform?.llmTransport,
+    });
+    if (runner) return testConnection(runner);
     // Nothing to send: report it as the seam's own typed failure carrying the
     // area's own sentence, rather than inventing a second wording.
     return { ok: false, failure: { kind: 'invalid-config', message: area.message } };
   }, [llmCapabilities]);
+
+  // --- PRD 011 Reqs 25–27: real summaries in the zoom view -------------------
+  /** PRD 011 Req 9: this render's availability answer, computed once. */
+  const llmArea = useMemo(() => llmAreaState(llmCapabilities, settings), [llmCapabilities, settings]);
+  /**
+   * PRD 011 Req 25: which provider/model/level a summary would be keyed under —
+   * null wherever nothing can send, which is exactly where the view keeps
+   * #117's excerpts (Req 22).
+   */
+  const summaryCtx = useMemo(() => summaryKeyContextFor(llmArea, zoomLevel), [llmArea, zoomLevel]);
+  const [summaryStates, setSummaryStates] = useState<SummaryStates>(NO_SUMMARY_STATES);
+  /**
+   * PRD 011 Req 25: a session-level memo of the SAME keys the store uses. It is
+   * filled only from a store hit or a summary this session generated, so it can
+   * never answer for a key the store missed.
+   */
+  const summaryMemoRef = useRef(new Map<string, string>());
+  /** PRD 011 Req 26: the run every in-flight result is checked against. */
+  const summaryRunRef = useRef<string | null>(null);
+
+  const zoomSummaries = useMemo(
+    () => (zoomActive && summaryCtx ? { ctx: summaryCtx, states: summaryStates } : null),
+    [zoomActive, summaryCtx, summaryStates]
+  );
+  const zoomDoc = useMemo(
+    () => (zoomEntryView ? buildZoomDocumentFromView(zoomEntryView, zoomSummaries) : null),
+    [zoomEntryView, zoomSummaries]
+  );
+
+  /**
+   * PRD 011 Req 26: the run identity — the document, its content, the level and
+   * the key context. Any of them changing ends the run, which is what makes
+   * leaving the level, closing or switching the document, editing the buffer,
+   * changing provider and turning the feature off all abandon outstanding work
+   * by the same rule. Null means "nothing to summarize here".
+   */
+  const summaryRun = useMemo(
+    () =>
+      zoomActive && summaryCtx
+        ? summaryRunId({
+            documentId: docPath ?? (untitled ? 'untitled' : 'none'),
+            content: canonicalOf(buffer),
+            level: zoomLevel,
+            ctx: summaryCtx,
+          })
+        : null,
+    [zoomActive, summaryCtx, docPath, untitled, buffer, zoomLevel, canonicalOf]
+  );
+
+  /** Everything a run reads, mirrored so the effect depends on the run alone. */
+  const summarySourcesRef = useRef({ view: zoomEntryView, ctx: summaryCtx, area: llmArea, platform });
+  summarySourcesRef.current = { view: zoomEntryView, ctx: summaryCtx, area: llmArea, platform };
+
+  const applySummaryState = useCallback((key: string, state: SummarySlotState) => {
+    setSummaryStates((prev) => new Map(prev).set(key, state));
+  }, []);
+
+  /**
+   * PRD 011 Req 25: the ONE place a summary run starts — entering a zoomed
+   * level with a provider available. Not on app start, not on document open,
+   * not on a settings change, not on a timer: this effect fires when the run
+   * identity changes, and at L5 (or with no provider) there is no identity.
+   */
+  useEffect(() => {
+    summaryRunRef.current = summaryRun;
+    setSummaryStates(NO_SUMMARY_STATES);
+    const { view, ctx, area, platform: host } = summarySourcesRef.current;
+    if (!summaryRun || !view || !ctx) return;
+    const runner = selectLlmRunner(area, { hosted: host?.llm, transport: host?.llmTransport });
+    if (!runner) return;
+    void runSummaries({
+      slots: planSummarySlots(view, ctx),
+      ctx,
+      run: runner,
+      store: host?.summaryCache,
+      memo: summaryMemoRef.current,
+      onState: applySummaryState,
+      // PRD 011 Req 26: the whole cancellation guard — a result whose run is no
+      // longer the current one reaches no view state.
+      isCancelled: () => summaryRunRef.current !== summaryRun,
+    });
+    return () => {
+      summaryRunRef.current = null;
+    };
+  }, [summaryRun, applySummaryState]);
+
+  /**
+   * PRD 011 Req 27: retry ONE failed section. It re-plans from the level's own
+   * slots and keeps exactly the one key, so no sibling is re-requested and no
+   * summarized block reverts — and it belongs to the same run, so leaving the
+   * level still drops its result.
+   */
+  const retrySummarySection = useCallback(
+    (summaryKey: string) => {
+      const { view, ctx, area, platform: host } = summarySourcesRef.current;
+      const run = summaryRunRef.current;
+      if (!run || !view || !ctx) return;
+      const runner = selectLlmRunner(area, { hosted: host?.llm, transport: host?.llmTransport });
+      if (!runner) return;
+      const slots = retrySlots(planSummarySlots(view, ctx), summaryKey);
+      if (slots.length === 0) return;
+      void runSummaries({
+        slots,
+        ctx,
+        run: runner,
+        store: host?.summaryCache,
+        memo: summaryMemoRef.current,
+        onState: applySummaryState,
+        isCancelled: () => summaryRunRef.current !== run,
+      });
+    },
+    [applySummaryState]
+  );
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
@@ -5388,9 +5521,10 @@ export default function App() {
            mode byte-identical. */
         <SemanticZoomView
           doc={zoomDoc}
-          llmArea={llmAreaState(llmCapabilities, settings)}
+          llmArea={llmArea}
           onDive={diveIntoSection}
           onFull={() => setZoomLevel(ZOOM_LEVEL_FULL)}
+          onRetrySummary={retrySummarySection}
           onConfigureLlm={() => {
             // PRD 011 Req 22: land on the LLM providers area itself, not on
             // General with the reader left to hunt for the tab.

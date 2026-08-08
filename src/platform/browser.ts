@@ -528,6 +528,18 @@ export function createBrowserPlatform(): Platform {
   // only the sending is replaced — no real provider is ever contacted. Only
   // this shim gets it: `tauri.ts` keeps the Rust-backed transport, `hosted.ts`
   // its same-origin client, and `web.ts` no LLM capability at all.
-  platform.llmTransport = createFakeLlm().transport;
+  const fake = createFakeLlm();
+  // PRD 011 Req 35: an e2e needs to script an outcome (a per-section failure,
+  // a slow reply) and count what was asked. The handle is the shim's, NOT the
+  // fake's — `createFakeLlm`'s surface is unchanged, and `delayMs` is a shim
+  // wrapper around the transport so a test can observe the pending state
+  // without racing it. It exists only here: `tauri.ts`, `hosted.ts` and
+  // `web.ts` have no such window property.
+  const shimFake = { fake, delayMs: 0 };
+  (window as unknown as { __mmFakeLlm?: typeof shimFake }).__mmFakeLlm = shimFake;
+  platform.llmTransport = async (request) => {
+    if (shimFake.delayMs > 0) await new Promise((resolve) => setTimeout(resolve, shimFake.delayMs));
+    return fake.transport(request);
+  };
   return platform;
 }

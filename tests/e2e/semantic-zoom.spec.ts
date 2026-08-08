@@ -234,3 +234,193 @@ test('E234: PRD 011 Req 22 — the excerpt notice routes to the LLM providers ar
   await expect(page.getByTestId('experimental-semantic-zoom')).toBeChecked();
   await page.getByTestId('settings-close').click();
 });
+
+// --- PRD 011 Reqs 25–27 (#118): real summaries, on demand -------------------
+// Everything below configures a provider through the LLM providers tab and
+// drives the shim's LOCAL FAKE (PRD 011 Req 35) — no real provider is ever
+// contacted. The fake is scripted through the shim's own handle
+// (`src/platform/browser.ts`), which exists in no other flavor.
+
+/** The shim's fake, as an e2e sees it: script an outcome, count what was asked. */
+interface ShimFakeHandle {
+  fake: {
+    calls: unknown[];
+    respondWith(outcome: unknown): void;
+    queue(...outcomes: unknown[]): void;
+    reset(): void;
+  };
+  delayMs: number;
+}
+
+declare global {
+  interface Window {
+    __mmFakeLlm?: ShimFakeHandle;
+  }
+}
+
+/** Settings → LLM providers → a configured, ready provider (PRD 011 Req 9). */
+async function configureProvider(page: Page): Promise<void> {
+  await openSettings(page, 'llm');
+  await page.getByTestId('llm-model-preset').selectOption('claude-opus-5');
+  await page.getByTestId('llm-api-key').fill('sk-e235-secret');
+  await expect(page.getByTestId('llm-availability')).toContainText('Ready');
+  await page.getByTestId('settings-close').click();
+}
+
+const fakeCalls = (page: Page): Promise<number> =>
+  page.evaluate(() => window.__mmFakeLlm?.fake.calls.length ?? 0);
+
+const scriptFake = (page: Page, script: { text?: string; delayMs?: number; queue?: unknown[] }): Promise<void> =>
+  page.evaluate((s) => {
+    const handle = window.__mmFakeLlm;
+    if (!handle) throw new Error('the shim installed no fake LLM');
+    handle.fake.reset();
+    handle.delayMs = s.delayMs ?? 0;
+    if (s.text !== undefined) handle.fake.respondWith({ outcome: 'text', text: s.text });
+    if (s.queue) handle.fake.queue(...s.queue);
+  }, script);
+
+test('E235: PRD 011 Req 25 — a zoomed level fills its blocks, and typing, saving and opening ask nothing', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  await setSemanticZoom(page, true);
+  await configureProvider(page);
+  await scriptFake(page, { text: 'A generated summary.' });
+
+  // Opening the document and typing at L5 cost NOTHING: no request is made on
+  // open, on a settings change, on mount or on a timer (PRD 011 Req 16).
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('typed at L5 ');
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty')).toHaveCount(0);
+  expect(await fakeCalls(page)).toBe(0);
+
+  // Entering L4 is what asks. Every block is a real summary, and the view says
+  // these are summaries rather than claiming they are excerpts.
+  await page.getByTestId('semantic-zoom-out').click();
+  await expect(page.getByTestId('semantic-zoom-view')).toBeVisible();
+  await expect(page.getByTestId('semantic-zoom-entry')).toHaveCount(4);
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  await expect(page.getByTestId('semantic-zoom-body').first()).toContainText('A generated summary.');
+  await expect(page.getByTestId('semantic-zoom-summary-note')).toHaveCount(1);
+  await expect(page.getByTestId('semantic-zoom-excerpt-note')).toHaveCount(0);
+  expect(await fakeCalls(page)).toBe(4);
+
+  // Re-entering the SAME level asks nothing again: every key is a cache hit.
+  await page.getByTestId('semantic-zoom-full').click();
+  await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await expect(page.getByTestId('semantic-zoom-body').first()).toContainText('A generated summary.');
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  expect(await fakeCalls(page)).toBe(4);
+});
+
+test('E236: PRD 011 Req 26 — blocks show their structure pending, and leaving the level abandons the work', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  await setSemanticZoom(page, true);
+  await configureProvider(page);
+  // A deliberately slow reply, so the pending state is observed rather than raced.
+  await scriptFake(page, { text: 'Slow summary.', delayMs: 2000 });
+
+  await page.getByTestId('semantic-zoom-slider').fill('3');
+  await expect(page.getByTestId('semantic-zoom-view')).toBeVisible();
+  // The structure is there immediately — heading, depth and folded-in list —
+  // with a pending state where each summary will land.
+  await expect(page.getByTestId('semantic-zoom-entry')).toHaveCount(3);
+  await expect(page.getByTestId('semantic-zoom-pending')).toHaveCount(3);
+  await expect(page.getByTestId('semantic-zoom-heading').first()).toContainText('Field Notes');
+  await expect(page.getByTestId('semantic-zoom-folded').first()).toContainText('Smart edit');
+  await expect(page.getByTestId('semantic-zoom-title')).toContainText('Field Notes');
+
+  // Leaving the level abandons the run: the late results reach no view state.
+  await page.getByTestId('semantic-zoom-full').click();
+  await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
+  await page.waitForTimeout(2500);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  expect(await page.locator('body').innerText()).not.toContain('Slow summary.');
+
+  // Re-entering re-plans from the cache: what completed before the run was
+  // abandoned is a hit, so those blocks fill immediately.
+  await scriptFake(page, { text: 'Second pass.', delayMs: 0 });
+  await page.getByTestId('semantic-zoom-slider').fill('3');
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(3);
+  await expect(page.getByTestId('semantic-zoom-body').first()).toContainText('Slow summary.');
+
+  // Turning the Experimental feature off from a zoomed level abandons it too.
+  await scriptFake(page, { text: 'Third pass.', delayMs: 2000 });
+  await page.getByTestId('semantic-zoom-slider').fill('2');
+  await expect(page.getByTestId('semantic-zoom-pending')).toHaveCount(1);
+  await setSemanticZoom(page, false);
+  await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
+  await page.waitForTimeout(2500);
+  expect(await page.locator('body').innerText()).not.toContain('Third pass.');
+});
+
+test('E237: PRD 011 Req 27 — a failed section says why, retries alone, and its siblings stay summarized', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  await setSemanticZoom(page, true);
+  await configureProvider(page);
+  // The second of the three L3 blocks fails; the others succeed.
+  await scriptFake(page, {
+    text: 'A generated summary.',
+    queue: [
+      { outcome: 'text', text: 'A generated summary.' },
+      { outcome: 'failure', kind: 'rate-limited', retryAfterSeconds: 9 },
+    ],
+  });
+
+  await page.getByTestId('semantic-zoom-slider').fill('3');
+  await expect(page.getByTestId('semantic-zoom-entry')).toHaveCount(3);
+  await expect(page.getByTestId('semantic-zoom-failure')).toHaveCount(1);
+  // The seam's OWN reason, with its retry hint — not a sentence this view wrote.
+  await expect(page.getByTestId('semantic-zoom-failure')).toContainText('retry in 9s');
+  // The failure costs the summary, not the structure: heading and folded list stay.
+  await expect(page.getByTestId('semantic-zoom-heading')).toHaveCount(3);
+  await expect(page.getByTestId('semantic-zoom-folded').first()).toContainText('Smart edit');
+  // …and the sibling blocks keep their summaries.
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(2);
+  await expect(page.getByTestId('semantic-zoom-body').first()).toContainText('A generated summary.');
+  const beforeRetry = await fakeCalls(page);
+
+  // A retry that fails again stays retryable — nothing is one-shot.
+  await page.evaluate(() =>
+    window.__mmFakeLlm?.fake.queue({ outcome: 'failure', kind: 'unreachable-host' })
+  );
+  await page.getByTestId('semantic-zoom-retry').click();
+  await expect(page.getByTestId('semantic-zoom-failure')).toContainText('Could not reach the provider');
+  await expect(page.getByTestId('semantic-zoom-retry')).toHaveCount(1);
+  expect(await fakeCalls(page)).toBe(beforeRetry + 1);
+
+  // The successful retry re-requests exactly that section: one more call, and
+  // no sibling reverts to pending or to an excerpt.
+  await page.getByTestId('semantic-zoom-retry').click();
+  await expect(page.getByTestId('semantic-zoom-failure')).toHaveCount(0);
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(3);
+  expect(await fakeCalls(page)).toBe(beforeRetry + 2);
+  await expect(page.getByTestId('semantic-zoom-excerpt-note')).toHaveCount(0);
+
+  // One failure never empties the view: a level where every section fails still
+  // renders every heading, its title and the way back.
+  await scriptFake(page, {});
+  await page.evaluate(() => window.__mmFakeLlm?.fake.respondWith({ outcome: 'failure', kind: 'bad-key' }));
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await expect(page.getByTestId('semantic-zoom-entry')).toHaveCount(4);
+  await expect(page.getByTestId('semantic-zoom-failure')).toHaveCount(4);
+  await expect(page.getByTestId('semantic-zoom-title')).toContainText('Field Notes');
+  await expect(page.getByTestId('semantic-zoom-full')).toBeVisible();
+  await page.getByTestId('semantic-zoom-full').click();
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+});
