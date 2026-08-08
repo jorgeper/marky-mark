@@ -52,6 +52,13 @@ export type CommandId =
   | 'zoomIn'
   | 'zoomOut'
   | 'zoomReset'
+  // PRD 011 Req 23: semantic zoom is a DISTINCT feature from SPEC4 §4 text
+  // zoom — its own ids, so nothing about `zoomIn`/`zoomOut`/`zoomReset` or
+  // the `settings.zoom` multiplier changes. Inert while the Experimental
+  // flag is off (PRD 011 Req 2).
+  | 'semanticZoomIn'
+  | 'semanticZoomOut'
+  | 'semanticZoomReset'
   | 'close'
   // SPEC43 §5.2: Smart Edit — silent no-ops outside edit mode.
   | 'smartMenu'

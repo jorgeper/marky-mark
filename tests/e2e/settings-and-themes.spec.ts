@@ -190,9 +190,11 @@ test('E26: settings shows four left tabs with the right content on each; control
   await page.getByTestId('menu-settings').click();
   await page.getByTestId('settings-panel').waitFor();
   const tabs = page.getByTestId('settings-tabs');
-  // SPEC20 §1 added Editor; PRD 011 Req 4 added LLM providers as its own page.
-  await expect(tabs.locator('button')).toHaveCount(5);
+  // SPEC20 §1 added Editor; PRD 011 Req 4 added LLM providers as its own page;
+  // PRD 011 Req 1 added Experimental as the last one.
+  await expect(tabs.locator('button')).toHaveCount(6);
   await expect(page.getByTestId('settings-tab-llm')).toHaveText('LLM providers');
+  await expect(page.getByTestId('settings-tab-experimental')).toHaveText('Experimental');
   // Issue #21: General is listed first and is the default tab.
   await expect(tabs.locator('button').first()).toHaveText('General');
   await expect(page.getByTestId('settings-tab-general')).toHaveClass(/active/);

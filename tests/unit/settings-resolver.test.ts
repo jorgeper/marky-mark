@@ -25,6 +25,8 @@ describe('PRD 002 §B5 scope inventory', () => {
       lineNumbers: 'U',
       editorSyntax: 'U',
       livePreview: 'U',
+      // PRD 011 Req 1: the Experimental section's switch — user-personal.
+      semanticZoom: 'U',
       tableGridView: 'U',
       inlineImages: 'U',
       showFrontmatter: 'U',

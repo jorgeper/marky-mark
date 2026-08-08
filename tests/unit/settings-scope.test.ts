@@ -9,6 +9,7 @@ import {
   WORKSPACE_ELIGIBLE_KEYS,
   WORKSPACE_PINNABLE_KEYS,
   type Settings,
+  EXPERIMENTAL_KEYS,
 } from '../../src/lib/settings';
 
 describe('PRD 002 §E18 workspace-eligible keys', () => {
@@ -26,11 +27,28 @@ describe('PRD 002 §E18 workspace-eligible keys', () => {
     for (const k of WORKSPACE_PINNABLE_KEYS) expect(SETTINGS_SCOPES[k]).toBe('U');
   });
 
-  test('U33: issue #21 — every U key except hotkeys is pinnable; hotkeys stay User-only', () => {
+  test('U33: issue #21 — every U key except hotkeys and the experiments is pinnable; hotkeys stay User-only', () => {
     const uKeys = (Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>).filter((k) => SETTINGS_SCOPES[k] === 'U');
-    expect([...WORKSPACE_PINNABLE_KEYS].sort()).toEqual(uKeys.filter((k) => k !== 'hotkeys').sort());
+    // PRD 011 Req 1 widened the exception list: an Experimental switch is
+    // user-personal like the rest, but never workspace-editable.
+    const withheld = ['hotkeys', ...EXPERIMENTAL_KEYS];
+    expect([...WORKSPACE_PINNABLE_KEYS].sort()).toEqual(uKeys.filter((k) => !withheld.includes(k)).sort());
     expect(WORKSPACE_PINNABLE_KEYS).not.toContain('hotkeys');
     expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain('hotkeys');
+  });
+
+  test('U580: PRD 011 Req 1 — no Experimental key is workspace-editable', () => {
+    expect(EXPERIMENTAL_KEYS).toContain('semanticZoom');
+    for (const k of EXPERIMENTAL_KEYS) {
+      expect(WORKSPACE_PINNABLE_KEYS).not.toContain(k);
+      expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain(k);
+      // Shown on the Workspace tab, but the workspace layer cannot supply it.
+      expect(settingsRowStatus(k, 'workspace', {}).userOnly).toBe(true);
+    }
+    // `U` all the same: a user's own layer is what the Settings window writes,
+    // and with no layer supplying one the experiment stays off.
+    expect(resolveSettings({ user: {} }).semanticZoom).toBe(false);
+    expect(resolveSettings({ user: { semanticZoom: true } }).semanticZoom).toBe(true);
   });
 
   test('U576: PRD 011 Req 7 — no LLM key is workspace-editable, and no layer but User supplies one', () => {

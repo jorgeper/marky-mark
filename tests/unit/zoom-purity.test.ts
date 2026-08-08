@@ -50,8 +50,12 @@ describe('PRD 011 Req 34 — the semantic-zoom core stays pure', () => {
     // Everything the core needs is already in the tree (the render pipeline's parser).
     expect(Object.keys(pkg.dependencies)).toContain('remark-parse');
 
-    // The consumers land in #111/#115/#116/#117/#119; nothing dispatches here yet.
+    // Issue #117 landed the first consumer, so the registry now NAMES the
+    // three semantic-zoom command ids. What stays true — and is what this
+    // test was ever about — is that the registry imports none of the core:
+    // the ids are strings, and no zoom module joins its dependency graph.
     const commands = readFileSync(fileURLToPath(new URL('../../src/lib/commands.ts', import.meta.url)), 'utf8');
-    expect(commands).not.toMatch(/zoomView|semanticZoom|summaryCacheKey/);
+    expect(commands).not.toMatch(/from\s+['"][^'"]*(?:zoomLevels|sectionModel|sectionExcerpt|semanticZoom|summaryCache)/);
+    expect(commands).not.toMatch(/zoomView\(|summaryCacheKey/);
   });
 });

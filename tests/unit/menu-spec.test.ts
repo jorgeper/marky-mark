@@ -525,3 +525,42 @@ describe('PRD 007 Req 17: document-write items follow the permission', () => {
     }
   });
 });
+
+describe('PRD 011 Reqs 2+23: semantic zoom is absent until the Experimental flag is on', () => {
+  const SEMANTIC = ['semanticZoomIn', 'semanticZoomOut', 'semanticZoomReset'];
+
+  test('U593: with the flag off — and with the field absent entirely — no View row exists', () => {
+    for (const state of [base, { ...base, semanticZoom: false }]) {
+      const ids = commandsIn(state, 'View').map((i) => i.command);
+      for (const id of SEMANTIC) expect(ids).not.toContain(id);
+    }
+  });
+
+  test('U594: with the flag on the three rows appear, carrying exactly the PRD’s accelerators', () => {
+    const on = { ...base, semanticZoom: true };
+    expect(find(on, 'View', 'semanticZoomOut')).toMatchObject({
+      label: 'Zoom Out Semantically',
+      accelerator: 'Mod+Shift+-',
+    });
+    expect(find(on, 'View', 'semanticZoomIn')).toMatchObject({
+      label: 'Zoom In Semantically',
+      accelerator: 'Mod+Shift+=',
+    });
+    expect(find(on, 'View', 'semanticZoomReset')).toMatchObject({
+      label: 'Full Document',
+      accelerator: 'Mod+Shift+0',
+    });
+  });
+
+  test('U595: SPEC4 §4 text zoom is untouched — same rows, same labels, same combos, either way', () => {
+    for (const state of [base, { ...base, semanticZoom: true }]) {
+      expect(find(state, 'View', 'zoomIn')).toMatchObject({ label: 'Zoom In', accelerator: 'Mod+=' });
+      expect(find(state, 'View', 'zoomOut')).toMatchObject({ label: 'Zoom Out', accelerator: 'Mod+-' });
+      expect(find(state, 'View', 'zoomReset')).toMatchObject({ label: 'Actual Size', accelerator: 'Mod+0' });
+    }
+    // Turning the feature on ADDS rows and changes nothing else.
+    const off = commandsIn(base, 'View').map((i) => i.command);
+    const on = commandsIn({ ...base, semanticZoom: true }, 'View').map((i) => i.command);
+    expect(on.filter((id) => !SEMANTIC.includes(id))).toEqual(off);
+  });
+});

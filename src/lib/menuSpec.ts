@@ -133,6 +133,13 @@ export interface ViewMenuState {
   appMode: AppMode;
   /** Issue #22: a document (file or untitled buffer) is open — gates Close File. */
   docOpen: boolean;
+  /**
+   * PRD 011 Reqs 2+23: the Experimental semantic-zoom switch. OPTIONAL so
+   * every pre-#117 ViewMenuState call site (and frozen test fixtures) keeps
+   * its exact View menu: absent reads as off, and the rows are simply not
+   * there — absent, not disabled.
+   */
+  semanticZoom?: boolean;
 }
 
 /** Everything the whole native menu bar is derived from (SPEC12 §3.2). */
@@ -237,6 +244,17 @@ export function buildViewItems(s: ViewMenuState): MenuItemSpec[] {
     cmd('zoomIn', 'Zoom In', 'Mod+='),
     cmd('zoomOut', 'Zoom Out', 'Mod+-'),
     cmd('zoomReset', 'Actual Size', 'Mod+0'),
+    // PRD 011 Reqs 2+23: the semantic-zoom rows exist only while the
+    // Experimental feature is on, and are labelled so the two zooms are not
+    // confusable with the three text-zoom rows directly above.
+    ...(s.semanticZoom
+      ? [
+          sep,
+          cmd('semanticZoomOut', 'Zoom Out Semantically', 'Mod+Shift+-'),
+          cmd('semanticZoomIn', 'Zoom In Semantically', 'Mod+Shift+='),
+          cmd('semanticZoomReset', 'Full Document', 'Mod+Shift+0'),
+        ]
+      : []),
     ...(s.isMac ? [sep, pre('Fullscreen')] : []),
   ];
 }

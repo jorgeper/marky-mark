@@ -89,6 +89,12 @@ export interface Settings {
   llmApiKey: string;
   /** PRD 011 Req 5: the OpenAI-compatible endpoint the `custom` kind points at. */
   llmBaseUrl: string;
+  /**
+   * PRD 011 Reqs 1+2: the Experimental section's semantic-zoom switch, off by
+   * default. It is the ONLY switch the feature reads: off means the control,
+   * the View rows, the commands and the accelerators do not exist.
+   */
+  semanticZoom: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -129,6 +135,8 @@ export const DEFAULT_SETTINGS: Settings = {
   llmModel: '',
   llmApiKey: '',
   llmBaseUrl: '',
+  // PRD 011 Req 1: every Experimental feature ships off.
+  semanticZoom: false,
 };
 
 /**
@@ -186,7 +194,18 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   llmModel: 'U!',
   llmApiKey: 'U!',
   llmBaseUrl: 'U!',
+  // PRD 011 Req 1: user-personal — an experiment is a reader's own choice.
+  // It is kept out of WORKSPACE_PINNABLE_KEYS explicitly below, so no shared
+  // layer can switch an experiment on for someone else.
+  semanticZoom: 'U',
 };
+
+/**
+ * PRD 011 Req 1: the Experimental section's keys. U-scoped so a user sets
+ * them for themselves, but never workspace-editable: they appear in neither
+ * WORKSPACE_PINNABLE_KEYS nor WORKSPACE_ELIGIBLE_KEYS.
+ */
+export const EXPERIMENTAL_KEYS: ReadonlyArray<keyof Settings> = ['semanticZoom'];
 
 const bool = (raw: unknown): boolean | undefined => (typeof raw === 'boolean' ? raw : undefined);
 /**
@@ -267,6 +286,7 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   llmModel: anyString,
   llmApiKey: anyString,
   llmBaseUrl: anyString,
+  semanticZoom: bool,
 };
 
 /**
@@ -385,7 +405,7 @@ export type SettingsScopeTab = 'user' | 'workspace';
  */
 export const WORKSPACE_PINNABLE_KEYS: ReadonlyArray<keyof Settings> = (
   Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>
-).filter((k) => SETTINGS_SCOPES[k] === 'U' && k !== 'hotkeys');
+).filter((k) => SETTINGS_SCOPES[k] === 'U' && k !== 'hotkeys' && !EXPERIMENTAL_KEYS.includes(k));
 
 /** Everything Workspace scope may edit: the W-scoped keys plus the pinnable set. */
 export const WORKSPACE_ELIGIBLE_KEYS: ReadonlyArray<keyof Settings> = [

@@ -188,3 +188,14 @@ describe('PRD 011 Req 6+7 LLM provider settings', () => {
     expect(parseSettings('{"llmApiKey":{"leak":1}}').llmApiKey).toBe('');
   });
 });
+
+describe('PRD 011 Req 1: the Experimental section ships off', () => {
+  test('U596: semanticZoom defaults to false and round-trips as a plain boolean', () => {
+    expect(DEFAULT_SETTINGS.semanticZoom).toBe(false);
+    expect(parseSettings('{}').semanticZoom).toBe(false);
+    expect(parseSettings('{"semanticZoom":true}').semanticZoom).toBe(true);
+    // A non-boolean is rejected rather than coerced — the feature stays off.
+    expect(parseSettings('{"semanticZoom":"yes"}').semanticZoom).toBe(false);
+    expect(parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, semanticZoom: true })).semanticZoom).toBe(true);
+  });
+});

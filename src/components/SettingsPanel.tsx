@@ -74,6 +74,13 @@ interface Props {
    * calls the seam or an IPC command.
    */
   onLlmTest?: () => Promise<LlmTestResult>;
+  /**
+   * PRD 011 Req 22: the tab to land on, so a caller that already knows where
+   * the reader is headed — the zoomed view's "configure a provider" route —
+   * opens the LLM providers area itself rather than General. Absent keeps the
+   * default, so every existing mount point is unchanged.
+   */
+  initialTab?: SettingsTab;
 }
 
 const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
@@ -144,10 +151,34 @@ const MARGIN_LABELS: Array<{ value: Margins; label: string }> = [
 
 // PRD 011 Req 4: the LLM providers area is a page of its own, not a row
 // appended to General, Editor or Appearance.
-type SettingsTab = 'appearance' | 'general' | 'editor' | 'hotkeys' | 'llm';
+type SettingsTab = 'appearance' | 'general' | 'editor' | 'hotkeys' | 'llm' | 'experimental';
+
+/**
+ * PRD 011 Req 1: the Experimental features, as DATA. A second experiment is
+ * one more entry here — a key, a label and one line saying what turning it on
+ * DOES — not a copy of the row markup below.
+ */
+const EXPERIMENTAL_FEATURES: Array<{
+  key: keyof Settings;
+  testId: string;
+  label: string;
+  description: string;
+}> = [
+  {
+    key: 'semanticZoom',
+    testId: 'experimental-semantic-zoom',
+    label: 'Semantic zoom',
+    description:
+      'Adds a level control to the document view that collapses the document through five levels — every heading with a short block, down to the whole document in a paragraph — and back.',
+  },
+];
+
+/** PRD 011 Req 1: said once, for the whole section. */
+const EXPERIMENTAL_WARNING =
+  'These features are experiments. They may change, or be removed, in any release.';
 
 /** PRD 011 Req 4 (following issue #21's Hotkeys precedent): User-scope-only tabs. */
-const USER_ONLY_TABS: ReadonlyArray<SettingsTab> = ['hotkeys', 'llm'];
+const USER_ONLY_TABS: ReadonlyArray<SettingsTab> = ['hotkeys', 'llm', 'experimental'];
 
 // Issue #21: General leads, and Hotkeys is a User-scope-only tab.
 const TABS: Array<{ id: SettingsTab; label: string }> = [
@@ -157,6 +188,9 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'hotkeys', label: 'Hotkeys' },
   // PRD 011 Req 4: unconditional — no experimental flag gates it.
   { id: 'llm', label: 'LLM providers' },
+  // PRD 011 Req 1: the Experimental area is a page of its own, User-scope
+  // only — it reads as *the* place experiments live, and it is last.
+  { id: 'experimental', label: 'Experimental' },
 ];
 
 export function SettingsPanel({
@@ -178,8 +212,9 @@ export function SettingsPanel({
   workspaceActions,
   llmCapabilities,
   onLlmTest,
+  initialTab,
 }: Props) {
-  const [tab, setTab] = useState<SettingsTab>('general');
+  const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'general');
   // §E18: which layer this window writes. Without the selector (web) it is
   // permanently 'user'; closing the workspace kicks the view back to User.
   const [scope, setScope] = useState<SettingsScopeTab>('user');
@@ -829,6 +864,36 @@ export function SettingsPanel({
     />
   );
 
+  // PRD 011 Req 1: one row per data entry — off by default, each carrying the
+  // one line that says what turning it on does.
+  const experimentalTab = (
+    <>
+      <p className="hotkey-hint experimental-warning" data-testid="experimental-warning">
+        {EXPERIMENTAL_WARNING}
+      </p>
+      {EXPERIMENTAL_FEATURES.map((f) => (
+        <div className="experimental-row" key={f.key}>
+          <div className="checkbox-row">
+            <input
+              id={f.testId}
+              type="checkbox"
+              data-testid={f.testId}
+              checked={settings[f.key] === true}
+              onChange={(e) => onChange({ ...settings, [f.key]: e.target.checked })}
+            />
+            <label htmlFor={f.testId} style={{ margin: 0, fontWeight: 400 }}>
+              {f.label}
+            </label>
+            {scopeNote(f.key)}
+          </div>
+          <p className="hotkey-hint experimental-desc" data-testid={`${f.testId}-description`}>
+            {f.description}
+          </p>
+        </div>
+      ))}
+    </>
+  );
+
   const doneButton = !frameless && (
     <div className="actions">
       <button className="primary" data-testid="settings-close" onClick={onClose}>
@@ -885,6 +950,7 @@ export function SettingsPanel({
           {tab === 'editor' && editorTab}
           {tab === 'hotkeys' && scope === 'user' && hotkeysTab}
           {tab === 'llm' && scope === 'user' && llmTab}
+          {tab === 'experimental' && scope === 'user' && experimentalTab}
           {doneButton}
         </div>
       </div>

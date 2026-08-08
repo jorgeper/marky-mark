@@ -74,7 +74,9 @@ export async function openSettings(
   page: Page,
   // PRD 011 Req 4: widened for the LLM providers tab — same helper, one more
   // destination, so no caller is duplicated or replaced.
-  tab: 'appearance' | 'general' | 'hotkeys' | 'editor' | 'llm' = 'appearance'
+  // PRD 011 Req 1: widened again for the Experimental tab — same helper, one
+  // more destination.
+  tab: 'appearance' | 'general' | 'hotkeys' | 'editor' | 'llm' | 'experimental' = 'appearance'
 ): Promise<void> {
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();

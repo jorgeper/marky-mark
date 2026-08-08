@@ -104,6 +104,20 @@ import {
 import { LLM_UNCONFIGURED, type LlmAvailability } from './lib/llmDeployment';
 import { runLlmRequest } from './lib/llmSeam';
 import { llmAreaState, testConnection, type LlmCapabilities, type LlmTestResult } from './lib/llmSettings';
+// PRD 011 Reqs 17–23: the semantic-zoom view — an ADDITIONAL render path taken
+// only at levels 1–4. L5 keeps today's `renderMarkdown` → innerHTML injection
+// and its data-mm-line anchors exactly as they were.
+import { SemanticZoomControl, SemanticZoomView } from './components/SemanticZoomView';
+import { parseSections } from './lib/sectionModel';
+import { ZOOM_LEVEL_FULL, type ZoomLevel } from './lib/zoomLevels';
+import {
+  buildZoomDocument,
+  diveFrom,
+  focusLine,
+  isZoomReadOnly,
+  stepZoomLevel,
+  SEMANTIC_ZOOM_COMBOS,
+} from './lib/semanticZoom';
 import { VimNavResolver } from './lib/vimnav';
 import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, renderedOffsetForSource, sourceOffsetForRendered, sourceRangeForVisibleMatch, visibleTextForRange } from './lib/selectionMap';
 import { blockLineFor, wordAt } from './lib/activePosition';
@@ -408,6 +422,12 @@ export default function App() {
   // PRD 010 Req 18: a reconnect returning from GitHub opens Workspace
   // settings on arrival — that is where the repair surface lives.
   const [settingsOpen, setSettingsOpen] = useState(() => reconnectReturnTarget() !== null);
+  /**
+   * PRD 011 Req 22: the tab the next inline Settings open lands on. Set only by
+   * the zoomed view's "configure a provider" route, and cleared on close, so
+   * every other way in still opens on General.
+   */
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'llm' | undefined>(undefined);
   // PRD 011 Req 13: what the hosted deployment says it has. Null until asked —
   // and it is only asked once the reader opens Settings (below), never at
   // startup (PRD 011 Req 16).
@@ -449,6 +469,14 @@ export default function App() {
   const [prefersDark, setPrefersDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
 
   const docRef = useRef<HTMLDivElement>(null);
+  /**
+   * PRD 011 Req 20: the semantic-zoom level is VIEW state and nothing else —
+   * a plain useState, written to no settings key, no workspace file, no
+   * sidecar and no draft. Every document therefore opens at L5.
+   */
+  const [zoomLevel, setZoomLevel] = useState<ZoomLevel>(ZOOM_LEVEL_FULL);
+  /** PRD 011 Req 19: the line a dive to L5 should land on, once it renders. */
+  const pendingZoomLineRef = useRef<number | null>(null);
   const splitDocRef = useRef<HTMLDivElement>(null);
   const splitPreviewRef = useRef<HTMLDivElement>(null);
   // Parked CodeMirror state (doc + undo history), so toggling preview↔edit
@@ -3387,6 +3415,30 @@ export default function App() {
     [updateSettings]
   );
 
+  /**
+   * PRD 011 Req 21: the one level step every route takes — `+`/`−`, the
+   * handle, the View rows and the accelerators. With the Experimental flag
+   * off it is inert (PRD 011 Req 2); clamping is `clampZoomLevel()`.
+   */
+  const stepSemanticZoom = useCallback((delta: 1 | -1) => {
+    if (!stateRef.current.settings.semanticZoom) return;
+    setZoomLevel((level) => stepZoomLevel(level, delta));
+  }, []);
+
+  /**
+   * SPEC16 §4: the ONE preview scroll-to-line path — the heading palette's,
+   * reused by a PRD 011 Req 19 dive that lands at L5 rather than reimplemented.
+   * Returns false while the line has not been rendered yet.
+   */
+  const scrollPreviewToLine = useCallback((line: number): boolean => {
+    const ws = workspaceRef.current;
+    const el = docRef.current?.querySelector<HTMLElement>(`[data-mm-line="${line}"]`);
+    if (!ws || !el) return false;
+    // Content-coordinate top of the heading → viewport top.
+    ws.scrollTop = el.getBoundingClientRect().top - (ws.getBoundingClientRect().top - ws.scrollTop);
+    return true;
+  }, []);
+
   /** SPEC14 §1: step activation through the open comments in position order. */
   const navigateComment = useCallback((dir: 1 | -1) => {
     const s = stateRef.current;
@@ -3688,6 +3740,16 @@ export default function App() {
       zoomIn: () => stepZoom(1),
       zoomOut: () => stepZoom(-1),
       zoomReset: () => updateSettings({ ...stateRef.current.settings, zoom: 100 }),
+      // PRD 011 Reqs 2+23: semantic zoom, distinct from the three text-zoom
+      // handlers directly above. `CommandHandlers` is exhaustive over
+      // `CommandId`, so the ids are registered — but with the Experimental
+      // flag off each one returns immediately, so dispatching them is a
+      // no-op and nothing about the feature exists.
+      semanticZoomIn: () => stepSemanticZoom(1),
+      semanticZoomOut: () => stepSemanticZoom(-1),
+      semanticZoomReset: () => {
+        if (stateRef.current.settings.semanticZoom) setZoomLevel(ZOOM_LEVEL_FULL);
+      },
       // SPEC43 §5.2: format commands forward to the mounted editor (the ref
       // is null outside edit mode ⇒ silent no-ops). A focused text input
       // (find bar, composer, settings) keeps its own Mod-combos.
@@ -3774,6 +3836,70 @@ export default function App() {
 
   // Issue #22: the derived three-mode model — splash | file | workspace.
   const docOpen = docPath !== null || untitled;
+
+  // --- PRD 011 Reqs 17–22: the semantic-zoom render path (levels 1–4) ------------
+  /** PRD 011 Req 17: the title an untitled/heading-less document falls back to. */
+  const zoomFallbackTitle = docPath ? (platform?.basename(docPath) ?? docPath) : 'Untitled document';
+  /** PRD 011 Req 2: the flag is the only switch; off ⇒ nothing below exists. */
+  const zoomActive = settings.semanticZoom && isZoomReadOnly(zoomLevel) && docOpen;
+  const zoomSections = useMemo(
+    () => (zoomActive ? parseSections(canonicalOf(buffer)) : null),
+    [zoomActive, buffer]
+  );
+  const zoomDoc = useMemo(
+    () => (zoomSections ? buildZoomDocument(zoomSections, zoomLevel, zoomFallbackTitle) : null),
+    [zoomSections, zoomLevel, zoomFallbackTitle]
+  );
+
+  // PRD 011 Req 20: every document opens at L5 — a new file, a tab switch back
+  // to one, a reopened file. The level is never carried across documents.
+  useEffect(() => {
+    setZoomLevel(ZOOM_LEVEL_FULL);
+  }, [docPath, untitled]);
+
+  // PRD 011 Req 2: turning the feature off snaps the view back to the full
+  // document within the session — no restart, nothing left behind.
+  useEffect(() => {
+    if (!settings.semanticZoom) setZoomLevel(ZOOM_LEVEL_FULL);
+  }, [settings.semanticZoom]);
+
+  /**
+   * PRD 011 Req 19: one click moves one level toward L5, focused on the
+   * clicked section. The decision is `diveFrom()`; arriving at L5 scrolls
+   * through the heading palette's own path once the document has rendered.
+   */
+  const diveIntoSection = useCallback(
+    (sectionId: string) => {
+      const target = diveFrom(zoomLevel, sectionId);
+      const line = zoomSections ? focusLine(zoomSections, target.focusId) : null;
+      if (target.level === ZOOM_LEVEL_FULL && line !== null) pendingZoomLineRef.current = line;
+      setZoomLevel(target.level);
+    },
+    [zoomLevel, zoomSections]
+  );
+
+  // PRD 011 Req 19: the dive's landing scroll, retried until the full document
+  // has been injected (the render loop is debounced).
+  useEffect(() => {
+    if (zoomLevel !== ZOOM_LEVEL_FULL || pendingZoomLineRef.current === null) return;
+    const line = pendingZoomLineRef.current;
+    if (stateRef.current.mode === 'edit') {
+      pendingZoomLineRef.current = null;
+      editorSyncRef.current?.scrollToLine(line);
+      return;
+    }
+    let tries = 0;
+    let raf = 0;
+    const tick = () => {
+      if (scrollPreviewToLine(line) || tries++ > 30) {
+        pendingZoomLineRef.current = null;
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [zoomLevel, html, scrollPreviewToLine]);
   const appMode = deriveAppMode(docOpen, wsKind);
 
   /**
@@ -3806,6 +3932,9 @@ export default function App() {
       openOnly: folderOpenOnly,
       // Issue #84: gates View → Next/Previous Open File.
       openFileCount: openFiles.length,
+      // PRD 011 Reqs 2+23: off ⇒ buildViewItems omits the rows entirely, on
+      // both the native menu bar and the in-app View ▸ flyout.
+      semanticZoom: settings.semanticZoom,
     }),
     [
       platform,
@@ -3825,6 +3954,7 @@ export default function App() {
       settings.showFolders,
       folderOpenOnly,
       openFiles.length,
+      settings.semanticZoom,
     ]
   );
 
@@ -4117,6 +4247,25 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement | null)?.closest?.('[data-hotkey-recorder]')) return;
       const hk = stateRef.current.settings.hotkeys;
+      // PRD 011 Reqs 2+23: the three semantic-zoom combos, matched through the
+      // same `eventMatches` the rest of the app uses. They are checked before
+      // the rebindable map only so a future rebind cannot shadow them; with
+      // the Experimental flag off none of them is even looked at, so the
+      // accelerators do nothing at all.
+      if (stateRef.current.settings.semanticZoom) {
+        const semantic: Array<[string, CommandId]> = [
+          [SEMANTIC_ZOOM_COMBOS.semanticZoomIn, 'semanticZoomIn'],
+          [SEMANTIC_ZOOM_COMBOS.semanticZoomOut, 'semanticZoomOut'],
+          [SEMANTIC_ZOOM_COMBOS.semanticZoomReset, 'semanticZoomReset'],
+        ];
+        for (const [combo, id] of semantic) {
+          if (eventMatches(e, combo)) {
+            e.preventDefault();
+            dispatchCommand(id, 'hotkey');
+            return;
+          }
+        }
+      }
       if (eventMatches(e, hk.toggleEdit)) {
         e.preventDefault();
         dispatchCommand('toggleMode', 'hotkey');
@@ -4405,7 +4554,10 @@ export default function App() {
     // SPEC44 §3.2: re-derive the placement cues the re-injection wiped.
     const cue = activeCueRef.current;
     if (cue) applyActiveCues(doc, cue.head, cue.headLine, cue.hasSel);
-  }, [html, mode, reanchorAndHighlight, applyActiveCues]);
+  // PRD 011 Req 17: `zoomLevel` joins the deps because the `.doc` container is
+  // UNMOUNTED at levels 1–4 — returning to L5 must re-inject the same html
+  // into the fresh element, or the full document would come back blank.
+  }, [html, mode, zoomLevel, reanchorAndHighlight, applyActiveCues]);
 
   // Into preview: once the doc is injected, map the carried line back to a
   // pixel offset (block-anchored, so code blocks don't skew it).
@@ -4541,7 +4693,7 @@ export default function App() {
     // SPEC44 §3.2: a re-render wiped the synthetic cues — re-derive them.
     const cue = activeCueRef.current;
     if (cue) applyActiveCues(el, cue.head, cue.headLine, cue.hasSel);
-  }, [html, mode, settings.splitEdit, reanchorAndHighlight, applyActiveCues]);
+  }, [html, mode, zoomLevel, settings.splitEdit, reanchorAndHighlight, applyActiveCues]);
 
   // --- SPEC15: synchronized split scrolling ------------------------------------
   // Whichever pane the user scrolls leads; the other follows within a frame.
@@ -5219,7 +5371,24 @@ export default function App() {
           <PreviewToggleButton open={settings.splitEdit} onClick={() => dispatchCommand('toggleSplit')} />
         )}
 
-      {mode === 'preview' ? (
+      {zoomDoc ? (
+        /* PRD 011 Reqs 17+18: levels 1–4 replace the document view outright —
+           the editor is not mounted, so the buffer cannot be typed into,
+           pasted over or reformatted, and returning to L5 restores it and the
+           mode byte-identical. */
+        <SemanticZoomView
+          doc={zoomDoc}
+          llmArea={llmAreaState(llmCapabilities, settings)}
+          onDive={diveIntoSection}
+          onFull={() => setZoomLevel(ZOOM_LEVEL_FULL)}
+          onConfigureLlm={() => {
+            // PRD 011 Req 22: land on the LLM providers area itself, not on
+            // General with the reader left to hunt for the tab.
+            setSettingsInitialTab('llm');
+            dispatchCommand('settings');
+          }}
+        />
+      ) : mode === 'preview' ? (
         <div className="workspace" ref={workspaceRef}>
           <div className="docwrap">
             {frontMatter && showFrontmatter && (
@@ -5456,6 +5625,14 @@ export default function App() {
         </button>
       )}
 
+      {/* PRD 011 Req 21: the docked level indicator. Present whenever the
+          Experimental feature is on and a document is open — never at the
+          splash, never gated on LLM availability, never branched on
+          platform.kind. It sits bottom-RIGHT, clear of the word-count chip. */}
+      {settings.semanticZoom && docOpen && (
+        <SemanticZoomControl level={zoomLevel} onLevel={setZoomLevel} />
+      )}
+
       {/* SPEC16 §5: quiet word-count chip, bottom-left (toggleable). */}
       {chip && settings.showWordCount && (
         <div className="word-chip" data-testid="word-chip">
@@ -5507,12 +5684,7 @@ export default function App() {
               editorSyncRef.current?.scrollToLine(h.line);
               return;
             }
-            const ws = workspaceRef.current;
-            const doc = docRef.current;
-            const el = doc?.querySelector<HTMLElement>(`[data-mm-line="${h.line}"]`);
-            if (!ws || !el) return;
-            // Content-coordinate top of the heading → viewport top.
-            ws.scrollTop = el.getBoundingClientRect().top - (ws.getBoundingClientRect().top - ws.scrollTop);
+            scrollPreviewToLine(h.line);
           }}
         />
       )}
@@ -5556,7 +5728,12 @@ export default function App() {
               : undefined
           }
           onRevealThemesDir={platform.revealThemesDir ? () => void platform.revealThemesDir!() : undefined}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            setSettingsOpen(false);
+            setSettingsInitialTab(undefined);
+          }}
+          // PRD 011 Req 22: undefined for every route but the zoomed view's.
+          initialTab={settingsInitialTab}
           docName={docPath ? platform.basename(docPath).replace(/\.[^.]+$/, '') : undefined}
           // PRD 011 Reqs 9+10: this window holds the capability, so the panel
           // renders from it directly — the aux round trip is the desktop path,

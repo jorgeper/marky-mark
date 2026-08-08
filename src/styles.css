@@ -2788,3 +2788,108 @@ mark.hl.ghost {
   opacity: 0.45;
   cursor: default;
 }
+
+/* PRD 011 Req 1: the Experimental settings section. */
+.experimental-warning {
+  margin: 0 0 12px;
+  font-style: italic;
+}
+.experimental-row {
+  margin-bottom: 14px;
+}
+.experimental-desc {
+  margin: 4px 0 0 24px;
+  max-width: 46rem;
+}
+
+/* PRD 011 Req 21: the docked semantic-zoom level indicator. Bottom-RIGHT, so
+   it never overlaps the SPEC16 §5 word-count chip (bottom-left) or the
+   toolbar, and it is only mounted with a document open. */
+.semantic-zoom-control {
+  position: fixed;
+  right: 14px;
+  bottom: 10px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  opacity: 0.85;
+  background: var(--mm-panel-bg, rgba(127, 127, 127, 0.14));
+  color: var(--mm-fg, inherit);
+}
+.semantic-zoom-control:hover {
+  opacity: 1;
+}
+.semantic-zoom-step {
+  min-width: 22px;
+  padding: 0 6px;
+  font-size: 14px;
+  line-height: 1.6;
+  background: none;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+}
+.semantic-zoom-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.semantic-zoom-slider {
+  width: 96px;
+}
+.semantic-zoom-level {
+  white-space: nowrap;
+}
+
+/* PRD 011 Reqs 17+22: the zoomed levels 1–4. */
+.semantic-zoom-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.semantic-zoom-notice {
+  font-size: 0.9em;
+  opacity: 0.8;
+  border-left: 3px solid currentColor;
+  padding-left: 10px;
+}
+.semantic-zoom-entry {
+  margin: 0 0 18px;
+}
+.semantic-zoom-heading {
+  display: block;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.semantic-zoom-heading.depth-1 {
+  font-size: 1.5em;
+}
+.semantic-zoom-heading.depth-2 {
+  font-size: 1.25em;
+}
+.semantic-zoom-heading.depth-3 {
+  font-size: 1.1em;
+}
+.semantic-zoom-heading:hover {
+  text-decoration: underline;
+}
+.semantic-zoom-body {
+  margin: 4px 0 0;
+  cursor: pointer;
+}
+.semantic-zoom-body.placeholder,
+.semantic-zoom-folded {
+  opacity: 0.65;
+  font-size: 0.9em;
+}
