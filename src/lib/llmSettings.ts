@@ -205,6 +205,18 @@ export function canTestConnection(state: LlmAreaState): boolean {
 }
 
 /**
+ * PRD 011 Req 3: is a "Remove key" action honest in this state? Only where the
+ * key is the READER's own — the two desktop states. On `hosted` and
+ * `operator-unconfigured` the credential is the operator's and no field for it
+ * is drawn, and `no-path` has nowhere to store one; offering the action there
+ * would claim an authority the reader has not got. Whether there is anything to
+ * remove is a separate question — the field's own value answers that.
+ */
+export function canRemoveLlmKey(state: LlmAreaState): boolean {
+  return state.state === 'ready' || state.state === 'unconfigured';
+}
+
+/**
  * PRD 011 Req 10: the ONE test-connection request, built once. Every path —
  * desktop through the seam, hosted through the app's own server, the aux
  * window's round trip — sends exactly this, so there is no second

@@ -8,8 +8,12 @@ import {
   EV_LLM_TEST_RESULT,
   EV_SETTINGS_CHANGED,
   EV_SETTINGS_EDIT,
+  EV_SUMMARY_CACHE_CLEAR_RESULT,
+  EV_SUMMARY_CACHE_SIZE_RESULT,
   EV_THEMES_CHANGED,
   sanitizeLlmTestResult,
+  sanitizeSummaryCacheClearResult,
+  sanitizeSummaryCacheSizeResult,
   type AuxInit,
   type AuxKind,
   type AuxRequest,
@@ -17,6 +21,7 @@ import {
   type SettingsEdit,
 } from './lib/auxProtocol';
 import type { LlmTestResult } from './lib/llmSettings';
+import type { SummaryCacheClearResult, SummaryCacheSizeResult } from './lib/summaryCacheReport';
 import type { Theme } from './lib/themes';
 import { applyThemeCss } from './themeRuntime';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -98,19 +103,20 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
   const close = () => void platform.closeNow();
 
   /**
-   * PRD 011 Req 10: the desktop round trip. This window holds no LLM
-   * capability — it never calls `runLlmRequest`, never reads
-   * `platform.llmTransport` and never invokes an IPC command. It asks the main
-   * window over the existing bus and renders whatever comes back, which is the
-   * seam's already-redacted verdict and carries no key material.
+   * PRD 011 Reqs 10+30: the desktop round trip, written ONCE for all three
+   * capability-holding actions. This window holds no capability of its own — it
+   * never calls `runLlmRequest`, never reads `platform.llmTransport`, never
+   * touches `platform.summaryCache` and never invokes an IPC command. It asks
+   * the main window over the existing bus and renders whatever the payload's
+   * own sanitizer accepts; anything else is dropped rather than rendered.
    */
-  const testLlm = (): Promise<LlmTestResult> =>
+  const askMain = <T,>(event: string, sanitize: (raw: unknown) => T | null, req: AuxRequest): Promise<T> =>
     new Promise((resolve) => {
       let off: (() => void) | undefined;
       let settled = false;
       void platform
-        .busListen!(EV_LLM_TEST_RESULT, (payload) => {
-          const result = sanitizeLlmTestResult(payload);
+        .busListen!(event, (payload) => {
+          const result = sanitize(payload);
           if (!result || settled) return;
           settled = true;
           off?.();
@@ -121,9 +127,20 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
           if (settled) dispose();
           // Emitted only once the listener is attached, so a main window that
           // answers immediately cannot beat us to it.
-          else request({ req: 'llmTestConnection' });
+          else request(req);
         });
     });
+
+  const testLlm = (): Promise<LlmTestResult> =>
+    askMain(EV_LLM_TEST_RESULT, sanitizeLlmTestResult, { req: 'llmTestConnection' });
+
+  // PRD 011 Req 30: the same round trip for the two stand-down actions. The
+  // main window owns the store AND the session memo a clear has to drop, so
+  // both happen there and only the verdict comes back.
+  const summaryCacheSize = (): Promise<SummaryCacheSizeResult> =>
+    askMain(EV_SUMMARY_CACHE_SIZE_RESULT, sanitizeSummaryCacheSizeResult, { req: 'summaryCacheSize' });
+  const summaryCacheClear = (): Promise<SummaryCacheClearResult> =>
+    askMain(EV_SUMMARY_CACHE_CLEAR_RESULT, sanitizeSummaryCacheClearResult, { req: 'summaryCacheClear' });
 
   return (
     <div
@@ -149,6 +166,11 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
           }}
           llmCapabilities={init.llm}
           onLlmTest={testLlm}
+          // PRD 011 Reqs 9+30: the capability travelled with the init; the two
+          // actions are round trips to the window that actually holds it.
+          summaryCacheAvailable={init.summaryCache}
+          onSummaryCacheSize={summaryCacheSize}
+          onSummaryCacheClear={summaryCacheClear}
           onReloadThemes={() => request({ req: 'reloadThemes' })}
           onRevealThemesDir={() => request({ req: 'revealThemesDir' })}
           onClose={close}

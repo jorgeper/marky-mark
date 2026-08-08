@@ -96,11 +96,22 @@ import {
   EV_LLM_TEST_RESULT,
   EV_SETTINGS_CHANGED,
   EV_SETTINGS_EDIT,
+  EV_SUMMARY_CACHE_CLEAR_RESULT,
+  EV_SUMMARY_CACHE_SIZE_RESULT,
   EV_THEMES_CHANGED,
   sanitizeAuxRequest,
   sanitizeSettingsEdit,
   type SettingsBroadcast,
 } from './lib/auxProtocol';
+// PRD 011 Req 30: the stand-down sentences and the failure rule are pure and
+// live in `lib/`; this window supplies the store and the session memo.
+import {
+  summaryCacheClearFailureMessage,
+  SUMMARY_CACHE_CLEAR_FAILED,
+  SUMMARY_CACHE_UNREADABLE_MESSAGE,
+  type SummaryCacheClearResult,
+  type SummaryCacheSizeResult,
+} from './lib/summaryCacheReport';
 import { LLM_UNCONFIGURED, type LlmAvailability } from './lib/llmDeployment';
 import { selectLlmRunner, summaryKeyContextFor } from './lib/llmRunner';
 import { llmAreaState, testConnection, type LlmCapabilities, type LlmTestResult } from './lib/llmSettings';
@@ -4258,6 +4269,55 @@ export default function App() {
     [startSummaryRun]
   );
 
+  // --- PRD 011 Reqs 3+30: standing the feature down --------------------------
+  /**
+   * PRD 011 Reqs 9+30: does THIS window reach a summary cache store? A
+   * CAPABILITY, never a flavor — the static web build installs none, and the
+   * settings page draws no cache section where there is nothing to report.
+   */
+  const summaryCacheAvailable = platform?.summaryCache !== undefined;
+
+  /**
+   * PRD 011 Reqs 16+30: what the cache holds, read from the STORE — never from
+   * a count this window kept. It is a store read (a file read on desktop, the
+   * existing same-origin GET on hosted) and issues no LLM request; it runs when
+   * the settings page asks, which is when it is opened and after a clear.
+   */
+  const readSummaryCacheSize = useCallback(async (): Promise<SummaryCacheSizeResult> => {
+    const store = stateRef.current.platform?.summaryCache;
+    if (!store) return { ok: false, message: SUMMARY_CACHE_UNREADABLE_MESSAGE };
+    try {
+      return { ok: true, size: await store.size() };
+    } catch {
+      return { ok: false, message: SUMMARY_CACHE_UNREADABLE_MESSAGE };
+    }
+  }, []);
+
+  /**
+   * PRD 011 Req 30: clear the cache outright, in one action — the store AND the
+   * session memo, plus the summary state already on screen. Without the memo
+   * drop, "cleared" is a lie until restart: re-entering a zoomed level would
+   * still be filled from memory even though the store is empty.
+   *
+   * It issues NO LLM request of its own and starts no run: the run identity is
+   * untouched, so a level refills only through the ordinary rule the code
+   * already has (leaving it and coming back). A refusal — the hosted DELETE
+   * needs `workspace.settings` — is reported through the pure rule, which never
+   * lets a server sentence through, and deletes nothing.
+   */
+  const clearSummaryCache = useCallback(async (): Promise<SummaryCacheClearResult> => {
+    const store = stateRef.current.platform?.summaryCache;
+    if (!store) return { ok: false, message: SUMMARY_CACHE_CLEAR_FAILED };
+    try {
+      await store.clear();
+    } catch (err) {
+      return { ok: false, message: summaryCacheClearFailureMessage(err) };
+    }
+    summaryMemoRef.current.clear();
+    setSummaryStates(NO_SUMMARY_STATES);
+    return { ok: true };
+  }, []);
+
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----
   useEffect(() => {
     if (!platform?.busListen || !platform.busEmit) return;
@@ -4277,6 +4337,9 @@ export default function App() {
             // PRD 011 Req 9: the aux window holds no capability of its own, so
             // what this window can do travels with the init.
             llm: llmCapabilities,
+            // PRD 011 Req 30: and whether this window reached a cache store,
+            // for the same reason — the aux window has no capability of its own.
+            summaryCache: summaryCacheAvailable,
           })
         );
       });
@@ -4299,6 +4362,14 @@ export default function App() {
         else if (r.req === 'llmTestConnection') {
           void runLlmTest().then((result) => platform.busEmit!(EV_LLM_TEST_RESULT, result));
         }
+        // PRD 011 Req 30: the two stand-down actions run HERE, in the window
+        // that holds the store and the session memo, and only the verdict goes
+        // back — exactly the test-connection shape.
+        else if (r.req === 'summaryCacheSize') {
+          void readSummaryCacheSize().then((result) => platform.busEmit!(EV_SUMMARY_CACHE_SIZE_RESULT, result));
+        } else if (r.req === 'summaryCacheClear') {
+          void clearSummaryCache().then((result) => platform.busEmit!(EV_SUMMARY_CACHE_CLEAR_RESULT, result));
+        }
       });
       if (disposed) [ready, edit, req].forEach((off) => off());
       else offs.push(ready, edit, req);
@@ -4307,7 +4378,17 @@ export default function App() {
       disposed = true;
       offs.forEach((off) => off());
     };
-  }, [platform, applySettingsEdit, currentLayerView, reloadThemes, llmCapabilities, runLlmTest]);
+  }, [
+    platform,
+    applySettingsEdit,
+    currentLayerView,
+    reloadThemes,
+    llmCapabilities,
+    runLlmTest,
+    summaryCacheAvailable,
+    readSummaryCacheSize,
+    clearSummaryCache,
+  ]);
 
   // §3.5 canonical echo: every settings/layer change broadcasts, whatever its source.
   useEffect(() => {
@@ -5888,6 +5969,12 @@ export default function App() {
           // not a new indirection for everyone.
           llmCapabilities={llmCapabilities}
           onLlmTest={runLlmTest}
+          // PRD 011 Req 30: this window holds the store and the session memo,
+          // so the inline panel calls straight through — same page, same props
+          // as the aux window's round trip.
+          summaryCacheAvailable={summaryCacheAvailable}
+          onSummaryCacheSize={readSummaryCacheSize}
+          onSummaryCacheClear={clearSummaryCache}
           workspaceActions={
             // PRD 007 Req 12 (+15/16): a capability check, not a flavor check
             // — only a platform offering the workspace lifecycle has a

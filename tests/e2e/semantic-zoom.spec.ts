@@ -424,3 +424,156 @@ test('E237: PRD 011 Req 27 — a failed section says why, retries alone, and its
   await page.getByTestId('semantic-zoom-full').click();
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
 });
+
+// --- PRD 011 Reqs 3+30 (#120): standing the feature down --------------------
+// The two one-click actions live on the LLM providers page, and the switch that
+// turns the feature off leaves nothing running and deletes nothing. Still the
+// shim's local fake throughout (PRD 011 Req 35).
+
+test('E238: PRD 011 Req 30 — the page reports what the cache holds, and one click really empties it', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  await setSemanticZoom(page, true);
+  await configureProvider(page);
+  await scriptFake(page, { text: 'A generated summary.' });
+
+  // Summarize one level, so the store holds exactly what that run produced.
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  expect(await fakeCalls(page)).toBe(4);
+  await page.getByTestId('semantic-zoom-full').click();
+
+  // Opening the page is the whole action: the size is read from the store and
+  // reported in a sentence. The desktop cache is the reader's own, so there is
+  // no shared-cache warning.
+  await openSettings(page, 'llm');
+  await expect(page.getByTestId('summary-cache-size')).toContainText('4 summaries');
+  await expect(page.getByTestId('summary-cache-size')).toContainText('about');
+  await expect(page.getByTestId('summary-cache-shared')).toHaveCount(0);
+
+  // One click clears. The report updates in place, without reopening Settings,
+  // and clearing asks the provider for nothing.
+  await page.getByTestId('summary-cache-clear').click();
+  await expect(page.getByTestId('summary-cache-size')).toContainText('Empty');
+  await expect(page.getByTestId('summary-cache-clear-failure')).toHaveCount(0);
+  expect(await fakeCalls(page)).toBe(4);
+  await page.getByTestId('settings-close').click();
+
+  // The store really is empty: a fresh read on a reopened page says so too.
+  await openSettings(page, 'llm');
+  await expect(page.getByTestId('summary-cache-size')).toContainText('Empty');
+  await page.getByTestId('settings-close').click();
+
+  // …and the session memo went with it. Re-entering the SAME level asks the
+  // fake again instead of being served from memory.
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  await expect(page.getByTestId('semantic-zoom-body').first()).toContainText('A generated summary.');
+  expect(await fakeCalls(page)).toBe(8);
+});
+
+test('E239: PRD 011 Req 3 — the Experimental row routes to Remove key, and removal drops back to excerpts', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  await setSemanticZoom(page, true);
+  await configureProvider(page);
+  await scriptFake(page, { text: 'A generated summary.' });
+
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  const before = await fakeCalls(page);
+
+  // Discoverability: the Experimental row names where the stand-down actions
+  // are and lands on that page itself, in one click.
+  await openSettings(page, 'experimental');
+  await expect(page.getByTestId('experimental-semantic-zoom-stand-down')).toContainText('deletes nothing');
+  await page.getByTestId('experimental-semantic-zoom-stand-down-link').click();
+  await expect(page.getByTestId('llm-api-key')).toBeVisible();
+
+  // One click takes the key out, and the area answers with the no-key sentence.
+  await page.getByTestId('llm-remove-key').click();
+  await expect(page.getByTestId('llm-api-key')).toHaveValue('');
+  await expect(page.getByTestId('llm-availability')).toContainText('No API key configured');
+  await expect(page.getByTestId('llm-test')).toBeDisabled();
+  await expect(page.getByTestId('llm-test')).toHaveAttribute('title', /No API key configured/);
+  // With nothing to remove, the action cannot claim to have removed anything.
+  await expect(page.getByTestId('llm-remove-key')).toBeDisabled();
+  // Removing the key did NOT clear the cache: two actions, side by side.
+  await expect(page.getByTestId('summary-cache-size')).toContainText('4 summaries');
+  await page.getByTestId('settings-close').click();
+
+  // The open level falls back to #117's excerpts and its notice — no error
+  // state, no empty view, and no request made along the way.
+  await expect(page.getByTestId('semantic-zoom-view')).toBeVisible();
+  await expect(page.getByTestId('semantic-zoom-excerpt-note')).toHaveCount(1);
+  await expect(page.getByTestId('semantic-zoom-body').first()).toContainText('Opening prose');
+  expect(await fakeCalls(page)).toBe(before);
+
+  // The key is gone from the file it was stored in, and appears in no other.
+  expect((await fsRead(page, '/config/settings.json')) ?? '').not.toContain('sk-e235-secret');
+});
+
+test('E240: PRD 011 Req 3 — off leaves nothing running, deletes nothing, and back on still serves the cache', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  await setSemanticZoom(page, true);
+  await configureProvider(page);
+  await scriptFake(page, { text: 'A generated summary.' });
+
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  expect(await fakeCalls(page)).toBe(4);
+  await page.getByTestId('semantic-zoom-full').click();
+
+  // Off, then on again: the feature comes back with no restart, and the cache
+  // still serves — turning the switch off deleted nothing behind the reader.
+  await setSemanticZoom(page, false);
+  await expect(page.getByTestId('semantic-zoom-control')).toHaveCount(0);
+  await setSemanticZoom(page, true);
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  expect(await fakeCalls(page)).toBe(4);
+  await page.getByTestId('semantic-zoom-full').click();
+  await setSemanticZoom(page, false);
+
+  // With the feature off, on a document that HAS cached summaries: nothing is
+  // asked on a document open, on typing, on saving, or from any of the three
+  // accelerators — the feature is absent, so no path can build a request.
+  await fsWrite(page, '/docs/other.md', '# Other\n\nOther prose.\n');
+  await page.goto('/#open=/docs/other.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Other');
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  expect(await fakeCalls(page)).toBe(4);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.type('typed with the feature off ');
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty')).toHaveCount(0);
+  await page.keyboard.press('Control+Shift+Minus');
+  await page.keyboard.press('Control+Shift+Equal');
+  await page.keyboard.press('Control+Shift+0');
+  await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
+  expect(await fakeCalls(page)).toBe(4);
+
+  // And the switch destroyed nothing: the pasted key and the paid-for cache are
+  // both still there, offered for removal rather than removed.
+  await openSettings(page, 'llm');
+  await expect(page.getByTestId('llm-api-key')).toHaveValue('sk-e235-secret');
+  await expect(page.getByTestId('llm-availability')).toContainText('Ready');
+  await expect(page.getByTestId('summary-cache-size')).toContainText('4 summaries');
+  // PRD 011 Req 4: the page, its tab and Test connection are not gated on the
+  // Experimental switch at all.
+  await expect(page.getByTestId('llm-test')).toBeEnabled();
+  await page.getByTestId('settings-close').click();
+});

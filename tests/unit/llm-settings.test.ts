@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
+  canRemoveLlmKey,
   canTestConnection,
   hostedReadyMessage,
   llmAreaState,
@@ -237,5 +238,37 @@ describe('PRD 011 Req 10 test connection', () => {
     );
     expect(result).toEqual({ ok: true });
     expect(JSON.stringify(result)).not.toContain('chatty');
+  });
+});
+
+describe('PRD 011 Req 3 removing the key', () => {
+  test('U627: Remove key is offered only where the key is the reader own', () => {
+    // Desktop, key present and everything else in place: the reader owns it.
+    expect(canRemoveLlmKey(llmAreaState(desktop, configured))).toBe(true);
+    // Desktop with something missing — still the reader's own credential slot,
+    // so the action stays put rather than appearing and vanishing per keystroke.
+    expect(canRemoveLlmKey(llmAreaState(desktop, { ...configured, llmApiKey: '' }))).toBe(true);
+    expect(canRemoveLlmKey(llmAreaState(desktop, { ...configured, llmModel: ' ' }))).toBe(true);
+    // Hosted: the credential is the operator's, configured or not.
+    expect(canRemoveLlmKey(llmAreaState({ transport: false, hosted: { configured: false } }, configured))).toBe(false);
+    expect(
+      canRemoveLlmKey(
+        llmAreaState(
+          { transport: false, hosted: { configured: true, provider: 'anthropic', model: 'claude-opus-5' } },
+          configured
+        )
+      )
+    ).toBe(false);
+    // No LLM path at all: nowhere to store a key, so nothing to remove.
+    expect(canRemoveLlmKey(llmAreaState({ transport: false, hosted: null }, configured))).toBe(false);
+  });
+
+  test('U628: a removed key lands back in the unconfigured state with its own sentence', () => {
+    // What the panel writes is `llmApiKey: ''` through the ordinary edit path;
+    // this is the state the same values then resolve to.
+    const after = llmAreaState(desktop, { ...configured, llmApiKey: '' });
+    expect(after.state).toBe('unconfigured');
+    expect(after.message).toBe(NO_KEY_MESSAGE);
+    expect(canTestConnection(after)).toBe(false);
   });
 });

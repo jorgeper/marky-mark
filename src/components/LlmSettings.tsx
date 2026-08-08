@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  canRemoveLlmKey,
   canTestConnection,
   LLM_PROVIDER_KINDS,
   LLM_PROVIDERS,
@@ -9,6 +10,15 @@ import {
   type LlmSettingsValues,
   type LlmTestResult,
 } from '../lib/llmSettings';
+import {
+  offersSummaryCacheSection,
+  summaryCacheIsShared,
+  summaryCacheReport,
+  SUMMARY_CACHE_SHARED_NOTE,
+  SUMMARY_CACHE_UNREADABLE_MESSAGE,
+  type SummaryCacheClearResult,
+  type SummaryCacheSizeResult,
+} from '../lib/summaryCacheReport';
 import type { LlmProviderKind } from '../lib/llmSeam';
 
 /**
@@ -44,12 +54,48 @@ interface Props {
    * as an unavailable area: the action is then disabled with its reason.
    */
   onTest?: () => Promise<LlmTestResult>;
+  /**
+   * PRD 011 Reqs 9+30: did the window holding the platform reach a
+   * `SummaryCacheStore`? A CAPABILITY, not a flavor — false draws no Summary
+   * cache section at all rather than a dead size line and a disabled button.
+   */
+  summaryCacheAvailable?: boolean;
+  /**
+   * PRD 011 Req 30: read what the cache holds. A store read, never an LLM
+   * request. Supplied by whichever window holds the store — the main window
+   * inline, or the aux window's round trip over the bus.
+   */
+  onCacheSize?: () => Promise<SummaryCacheSizeResult>;
+  /**
+   * PRD 011 Req 30: clear the store AND the session memo behind it, in one
+   * action. Supplied by the same window, because dropping the memo is half of
+   * what makes a cleared cache really empty.
+   */
+  onCacheClear?: () => Promise<SummaryCacheClearResult>;
 }
 
 /** PRD 011 Req 10: the action's own state — idle until the user clicks. */
 type TestState = { phase: 'idle' } | { phase: 'running' } | { phase: 'done'; result: LlmTestResult };
 
-export function LlmSettings({ values, capabilities, onChange, onTest }: Props) {
+/**
+ * PRD 011 Req 30: what the Summary cache section shows right now. `reading` is
+ * the state the page opens in; a refused read and a refused clear are states of
+ * their own, so neither can be mistaken for an empty cache.
+ */
+type CacheState =
+  | { phase: 'reading' }
+  | { phase: 'size'; report: string }
+  | { phase: 'error'; message: string };
+
+export function LlmSettings({
+  values,
+  capabilities,
+  onChange,
+  onTest,
+  summaryCacheAvailable,
+  onCacheSize,
+  onCacheClear,
+}: Props) {
   const [test, setTest] = useState<TestState>({ phase: 'idle' });
   // A result that lands after the panel closed must not set state on a dead
   // component; the round trip through the main window is genuinely async.
@@ -85,6 +131,100 @@ export function LlmSettings({ values, capabilities, onChange, onTest }: Props) {
       }
     );
   };
+
+  // --- PRD 011 Req 30: the Summary cache section -----------------------------
+  const [cache, setCache] = useState<CacheState>({ phase: 'reading' });
+  const [clearing, setClearing] = useState(false);
+  const [clearFailure, setClearFailure] = useState<string | null>(null);
+  // PRD 011 Req 9: whether the section exists at all is the pure rule's answer,
+  // over the capability this window was handed and the area state.
+  const cacheOffered = offersSummaryCacheSection(area, summaryCacheAvailable === true);
+  // The reader supplies a fresh closure on every render of the mount point;
+  // holding it in a ref keeps the read below a mount-time effect rather than
+  // something that re-fires on each render (PRD 011 Req 16 — no polling).
+  const sizeRef = useRef(onCacheSize);
+  sizeRef.current = onCacheSize;
+
+  const readCacheSize = () => {
+    const read = sizeRef.current;
+    if (!read) {
+      setCache({ phase: 'error', message: SUMMARY_CACHE_UNREADABLE_MESSAGE });
+      return;
+    }
+    setCache({ phase: 'reading' });
+    void read().then(
+      (result) => {
+        if (!live.current) return;
+        setCache(
+          result.ok
+            ? { phase: 'size', report: summaryCacheReport(result.size) }
+            : { phase: 'error', message: result.message }
+        );
+      },
+      () => {
+        if (live.current) setCache({ phase: 'error', message: SUMMARY_CACHE_UNREADABLE_MESSAGE });
+      }
+    );
+  };
+
+  /**
+   * PRD 011 Req 30: read when the page is SHOWN, and never again on a timer.
+   * The only other read is the one after a successful clear, below.
+   */
+  useEffect(() => {
+    if (cacheOffered) readCacheSize();
+  }, [cacheOffered]);
+
+  /**
+   * PRD 011 Req 30: one click clears. It issues no LLM request of its own and
+   * starts no run — it clears the store, and the handler the mount point
+   * supplied drops the session memo with it. A refusal is reported in place and
+   * the displayed size is left exactly as it was, because nothing was deleted.
+   */
+  const clearCache = () => {
+    if (!onCacheClear || clearing) return;
+    setClearing(true);
+    setClearFailure(null);
+    void onCacheClear().then(
+      (result) => {
+        if (!live.current) return;
+        setClearing(false);
+        if (result.ok) readCacheSize();
+        else setClearFailure(result.message);
+      },
+      () => {
+        if (!live.current) return;
+        setClearing(false);
+        setClearFailure(SUMMARY_CACHE_UNREADABLE_MESSAGE);
+      }
+    );
+  };
+
+  const cacheSection = cacheOffered && (
+    <>
+      <h3 className="tab-section">Summary cache</h3>
+      <p className="hotkey-hint" data-testid="summary-cache-size">
+        {cache.phase === 'reading' ? 'Reading the cache…' : cache.phase === 'size' ? cache.report : cache.message}
+      </p>
+      {/* PRD 011 Req 30: on hosted the cache is the workspace's, so what Clear
+          throws away is said before the click rather than after it. */}
+      {summaryCacheIsShared(area) && (
+        <p className="hotkey-hint" data-testid="summary-cache-shared">
+          {SUMMARY_CACHE_SHARED_NOTE}
+        </p>
+      )}
+      <div className="row" style={{ marginBottom: 12 }}>
+        <button data-testid="summary-cache-clear" disabled={!onCacheClear || clearing} onClick={clearCache}>
+          {clearing ? 'Clearing…' : 'Clear cache'}
+        </button>
+        {clearFailure && (
+          <span className="hotkey-hint" data-testid="summary-cache-clear-failure">
+            {clearFailure}
+          </span>
+        )}
+      </div>
+    </>
+  );
 
   // Every branch below opens with this; they differ only in which controls the
   // capability makes it honest to draw.
@@ -144,6 +284,8 @@ export function LlmSettings({ values, capabilities, onChange, onTest }: Props) {
           </div>
         )}
         {testButton}
+        {/* PRD 011 Req 30: hosted has no key field, but it does have a cache. */}
+        {cacheSection}
       </>
     );
   }
@@ -230,10 +372,29 @@ export function LlmSettings({ values, capabilities, onChange, onTest }: Props) {
           Stored with your personal settings on this machine. It is never written to a workspace file, so it cannot be
           committed or shared by opening a workspace.
         </p>
+        {/* PRD 011 Req 3: one click takes the key out, through the ordinary
+            settings-edit path — no second persistence route, and nothing
+            workspace-scoped. It is disabled when there is nothing to remove, so
+            it can never claim to have removed something it did not, and it says
+            NOTHING about the key's value (PRD 011 Req 7). It does not touch the
+            cache: the two stand-down actions are separate, one click each. */}
+        {canRemoveLlmKey(area) && (
+          <div className="row" style={{ marginBottom: 12 }}>
+            <button
+              data-testid="llm-remove-key"
+              disabled={values.llmApiKey === ''}
+              title={values.llmApiKey === '' ? 'No key is stored.' : undefined}
+              onClick={() => onChange({ llmApiKey: '' })}
+            >
+              Remove key
+            </button>
+          </div>
+        )}
       </div>
 
       {availability}
       {testButton}
+      {cacheSection}
     </>
   );
 }

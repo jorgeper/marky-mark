@@ -26,6 +26,7 @@ import { SMART_EDIT_NAME } from '../lib/smartEdit';
 import { expandImageName, isValidImageFolder } from '../lib/imagePaste';
 import { LlmSettings } from './LlmSettings';
 import { NO_LLM_CAPABILITIES, type LlmCapabilities, type LlmTestResult } from '../lib/llmSettings';
+import type { SummaryCacheClearResult, SummaryCacheSizeResult } from '../lib/summaryCacheReport';
 
 interface Props {
   /** The EFFECTIVE (resolved) settings — every row displays these (§E19). */
@@ -74,6 +75,18 @@ interface Props {
    * calls the seam or an IPC command.
    */
   onLlmTest?: () => Promise<LlmTestResult>;
+  /**
+   * PRD 011 Reqs 9+30: whether the window holding the platform reached a
+   * summary-cache store. Absent means none, which draws no cache section.
+   */
+  summaryCacheAvailable?: boolean;
+  /**
+   * PRD 011 Req 30: read the cache size, and clear it. Supplied by whoever
+   * holds the store — the main window inline, or the aux window's round trip —
+   * so the panel itself reaches no store and invokes no IPC command.
+   */
+  onSummaryCacheSize?: () => Promise<SummaryCacheSizeResult>;
+  onSummaryCacheClear?: () => Promise<SummaryCacheClearResult>;
   /**
    * PRD 011 Req 22: the tab to land on, so a caller that already knows where
    * the reader is headed — the zoomed view's "configure a provider" route —
@@ -163,6 +176,13 @@ const EXPERIMENTAL_FEATURES: Array<{
   testId: string;
   label: string;
   description: string;
+  /**
+   * PRD 011 Req 3: where an experiment's stored data and credentials are
+   * removed. A reader standing the feature down must not have to hunt for the
+   * actions, so the row names the page and routes there in one click (the
+   * excerpt notice's route to the same tab is the precedent).
+   */
+  standDown?: { tab: SettingsTab; sentence: string; linkLabel: string };
 }> = [
   {
     key: 'semanticZoom',
@@ -170,6 +190,12 @@ const EXPERIMENTAL_FEATURES: Array<{
     label: 'Semantic zoom',
     description:
       'Adds a level control to the document view that collapses the document through five levels — every heading with a short block, down to the whole document in a paragraph — and back.',
+    standDown: {
+      tab: 'llm',
+      sentence:
+        'Turning this off stops every summary but deletes nothing. Your API key and the cached summaries are removed on the LLM providers page, one action each:',
+      linkLabel: 'Remove the key or clear the summary cache',
+    },
   },
 ];
 
@@ -212,6 +238,9 @@ export function SettingsPanel({
   workspaceActions,
   llmCapabilities,
   onLlmTest,
+  summaryCacheAvailable,
+  onSummaryCacheSize,
+  onSummaryCacheClear,
   initialTab,
 }: Props) {
   const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'general');
@@ -861,6 +890,11 @@ export function SettingsPanel({
       capabilities={llmCapabilities ?? NO_LLM_CAPABILITIES}
       onChange={(patch) => onChange({ ...settings, ...patch })}
       onTest={onLlmTest}
+      // PRD 011 Req 30: the cache capability and its two actions, forwarded
+      // from whichever window holds the store.
+      summaryCacheAvailable={summaryCacheAvailable}
+      onCacheSize={onSummaryCacheSize}
+      onCacheClear={onSummaryCacheClear}
     />
   );
 
@@ -889,6 +923,20 @@ export function SettingsPanel({
           <p className="hotkey-hint experimental-desc" data-testid={`${f.testId}-description`}>
             {f.description}
           </p>
+          {/* PRD 011 Req 3: standing down is OFFERED, never imposed — the row
+              says the switch deletes nothing and routes to where it is done. */}
+          {f.standDown && (
+            <p className="hotkey-hint experimental-desc" data-testid={`${f.testId}-stand-down`}>
+              {f.standDown.sentence}{' '}
+              <button
+                className="linklike"
+                data-testid={`${f.testId}-stand-down-link`}
+                onClick={() => setTab(f.standDown!.tab)}
+              >
+                {f.standDown.linkLabel}
+              </button>
+            </p>
+          )}
         </div>
       ))}
     </>

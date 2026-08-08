@@ -4,6 +4,8 @@ import {
   sanitizeAuxRequest,
   sanitizeLlmTestResult,
   sanitizeSettingsEdit,
+  sanitizeSummaryCacheClearResult,
+  sanitizeSummaryCacheSizeResult,
 } from '../../src/lib/auxProtocol';
 import { DEFAULT_SETTINGS } from '../../src/lib/settings';
 import type { Theme } from '../../src/lib/themes';
@@ -21,6 +23,8 @@ describe('SPEC13 aux protocol', () => {
       isMac: true,
       version: '9.9.9',
       llm: { transport: false, hosted: null },
+      // PRD 011 Req 30: the cache capability travels beside `llm`.
+      summaryCache: false,
     });
     expect(init.settings).toEqual(DEFAULT_SETTINGS);
     expect(init.layers).toEqual(layers);
@@ -115,5 +119,56 @@ describe('PRD 011 Req 10 aux test-connection round trip', () => {
     expect(sanitizeLlmTestResult({ ok: false, failure: { kind: 'bad-key', message: '' } })).toBeNull();
     expect(sanitizeLlmTestResult({ ok: 'yes' })).toBeNull();
     expect(sanitizeLlmTestResult(null)).toBeNull();
+  });
+});
+
+describe('PRD 011 Req 30 the summary cache round trip', () => {
+  test('U629: the two stand-down requests cross the bus and carry nothing with them', () => {
+    expect(sanitizeAuxRequest({ req: 'summaryCacheSize' })).toEqual({ req: 'summaryCacheSize' });
+    expect(sanitizeAuxRequest({ req: 'summaryCacheClear' })).toEqual({ req: 'summaryCacheClear' });
+    // A hostile extra payload is dropped: the main window owns the store and
+    // resolves the workspace itself, so nothing a sender attached is honoured.
+    expect(sanitizeAuxRequest({ req: 'summaryCacheClear', workspaceId: 'someone-else', apiKey: 'sk-secret' })).toEqual({
+      req: 'summaryCacheClear',
+    });
+    expect(sanitizeAuxRequest({ req: 'summaryCacheWipe' })).toBeNull();
+  });
+
+  test('U630: a size result is accepted only in the real shape, never invented', () => {
+    expect(sanitizeSummaryCacheSizeResult({ ok: true, size: { bytes: 34_500, entries: 12 } })).toEqual({
+      ok: true,
+      size: { bytes: 34_500, entries: 12 },
+    });
+    // Only the two fields the report uses travel; extras ride nowhere.
+    expect(
+      sanitizeSummaryCacheSizeResult({ ok: true, size: { bytes: 1, entries: 1, summaries: ['secret'] } })
+    ).toEqual({ ok: true, size: { bytes: 1, entries: 1 } });
+    expect(sanitizeSummaryCacheSizeResult({ ok: false, message: 'could not read it' })).toEqual({
+      ok: false,
+      message: 'could not read it',
+    });
+    // Junk: wrong type, missing field, impossible count, no payload at all.
+    expect(sanitizeSummaryCacheSizeResult({ ok: true })).toBeNull();
+    expect(sanitizeSummaryCacheSizeResult({ ok: true, size: { bytes: '34kb', entries: 12 } })).toBeNull();
+    expect(sanitizeSummaryCacheSizeResult({ ok: true, size: { bytes: 1 } })).toBeNull();
+    expect(sanitizeSummaryCacheSizeResult({ ok: true, size: { bytes: -1, entries: 1 } })).toBeNull();
+    expect(sanitizeSummaryCacheSizeResult({ ok: true, size: { bytes: Number.NaN, entries: 1 } })).toBeNull();
+    expect(sanitizeSummaryCacheSizeResult({ ok: false })).toBeNull();
+    expect(sanitizeSummaryCacheSizeResult({ ok: 'yes' })).toBeNull();
+    expect(sanitizeSummaryCacheSizeResult(null)).toBeNull();
+    expect(sanitizeSummaryCacheSizeResult('12 summaries')).toBeNull();
+  });
+
+  test('U631: a clear verdict without a reason is refused rather than read as a success', () => {
+    expect(sanitizeSummaryCacheClearResult({ ok: true })).toEqual({ ok: true });
+    expect(sanitizeSummaryCacheClearResult({ ok: true, entries: 3 })).toEqual({ ok: true });
+    expect(sanitizeSummaryCacheClearResult({ ok: false, message: 'not cleared' })).toEqual({
+      ok: false,
+      message: 'not cleared',
+    });
+    expect(sanitizeSummaryCacheClearResult({ ok: false })).toBeNull();
+    expect(sanitizeSummaryCacheClearResult({ ok: false, message: '' })).toBeNull();
+    expect(sanitizeSummaryCacheClearResult({ cleared: true })).toBeNull();
+    expect(sanitizeSummaryCacheClearResult(null)).toBeNull();
   });
 });

@@ -8,6 +8,7 @@ import {
 import type { Theme } from './themes';
 import type { LlmCapabilities, LlmTestResult } from './llmSettings';
 import type { LlmFailureKind } from './llmSeam';
+import type { SummaryCacheClearResult, SummaryCacheSizeResult } from './summaryCacheReport';
 
 /**
  * SPEC13 §3: the event protocol between the main window (sole owner of
@@ -31,6 +32,14 @@ export const EV_THEMES_CHANGED = 'mm://themes-changed'; // main → aux, payload
  * {@link EV_AUX_REQUEST} and renders whatever comes back here.
  */
 export const EV_LLM_TEST_RESULT = 'mm://llm-test-result';
+/**
+ * PRD 011 Req 30: main → aux, payload {@link SummaryCacheSizeResult}. Same
+ * shape of round trip as the test connection above — the aux settings window
+ * reaches no store, so it asks for the size and renders what comes back.
+ */
+export const EV_SUMMARY_CACHE_SIZE_RESULT = 'mm://summary-cache-size-result';
+/** PRD 011 Req 30: main → aux, payload {@link SummaryCacheClearResult}. */
+export const EV_SUMMARY_CACHE_CLEAR_RESULT = 'mm://summary-cache-clear-result';
 
 /** PRD 002 §E18–§E19: the per-layer data the settings panel renders from. */
 export interface SettingsBroadcast {
@@ -53,6 +62,13 @@ export interface AuxInit extends SettingsBroadcast {
    * never on a flavor.
    */
   llm: LlmCapabilities;
+  /**
+   * PRD 011 Reqs 9+30: whether the MAIN window reached a summary-cache store.
+   * The capability travels beside `llm` for the same reason — the aux window
+   * holds none of its own — so the Summary cache section is drawn from what the
+   * capability-holding window can actually do, never from a flavor.
+   */
+  summaryCache: boolean;
 }
 
 /** An aux settings edit: which layer to write, and only the changed keys. */
@@ -71,7 +87,16 @@ export type AuxRequest =
    * active provider itself and nothing sensitive crosses the bus in either
    * direction.
    */
-  | { req: 'llmTestConnection' };
+  | { req: 'llmTestConnection' }
+  /**
+   * PRD 011 Req 30: "how much does the summary cache hold?" and "clear it".
+   * Neither carries configuration or a credential: the main window owns the
+   * store, so nothing sensitive crosses the bus in either direction, and the
+   * clear is executed by the window that also holds the session memo the same
+   * action has to drop.
+   */
+  | { req: 'summaryCacheSize' }
+  | { req: 'summaryCacheClear' };
 
 /** Everything an aux view needs to render (SPEC13 §3.2). */
 export function buildAuxInit(args: AuxInit): AuxInit {
@@ -83,6 +108,7 @@ export function buildAuxInit(args: AuxInit): AuxInit {
     isMac: args.isMac,
     version: args.version,
     llm: args.llm,
+    summaryCache: args.summaryCache === true,
   };
 }
 
@@ -95,9 +121,55 @@ export function buildAuxInit(args: AuxInit): AuxInit {
 export function sanitizeAuxRequest(raw: unknown): AuxRequest | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const { req, url } = raw as { req?: unknown; url?: unknown };
-  if (req === 'reloadThemes' || req === 'revealThemesDir' || req === 'llmTestConnection') return { req };
+  if (
+    req === 'reloadThemes' ||
+    req === 'revealThemesDir' ||
+    req === 'llmTestConnection' ||
+    // PRD 011 Req 30: the two stand-down requests carry no payload either.
+    req === 'summaryCacheSize' ||
+    req === 'summaryCacheClear'
+  ) {
+    return { req };
+  }
   if (req === 'openExternal' && typeof url === 'string' && url) return { req, url };
   return null;
+}
+
+/** Both counters are non-negative finite whole numbers, or the payload is junk. */
+const isCount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0;
+
+/**
+ * PRD 011 Req 30: a size read back off the bus, validated rather than trusted —
+ * the `sanitizeLlmTestResult` precedent. A payload that is not the expected
+ * shape (a missing field, a string where a count belongs, a negative count) is
+ * REFUSED, never rendered, and only the two fields the report uses are carried
+ * through so nothing extra a sender attached rides along.
+ */
+export function sanitizeSummaryCacheSizeResult(raw: unknown): SummaryCacheSizeResult | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const { ok, size, message } = raw as { ok?: unknown; size?: unknown; message?: unknown };
+  if (ok === true) {
+    if (typeof size !== 'object' || size === null) return null;
+    const { bytes, entries } = size as { bytes?: unknown; entries?: unknown };
+    if (!isCount(bytes) || !isCount(entries)) return null;
+    return { ok: true, size: { bytes, entries } };
+  }
+  if (ok !== false || typeof message !== 'string' || !message) return null;
+  return { ok: false, message };
+}
+
+/**
+ * PRD 011 Req 30: a clear verdict read back off the bus. A failure without a
+ * sentence is refused rather than rendered as a silent success — a clear that
+ * did not happen must never look like one that did.
+ */
+export function sanitizeSummaryCacheClearResult(raw: unknown): SummaryCacheClearResult | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const { ok, message } = raw as { ok?: unknown; message?: unknown };
+  if (ok === true) return { ok: true };
+  if (ok !== false || typeof message !== 'string' || !message) return null;
+  return { ok: false, message };
 }
 
 /**
