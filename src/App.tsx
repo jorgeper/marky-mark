@@ -349,6 +349,15 @@ function reconnectReturnTarget(): string | null {
   return reconnectTargetOf(window.localStorage.getItem(WIZARD_STATE_KEY));
 }
 
+/**
+ * PRD 011 Req 31: the curated price for the provider/model pair a run would
+ * use, or null. A `providerId` the seam does not know — and any model id the
+ * table does not carry — is unpriced rather than priced by a neighbour's rate.
+ */
+function summaryPriceFor(ctx: { providerId: string; modelId: string }): TokenPrice | null {
+  return isLlmProviderKind(ctx.providerId) ? priceFor(ctx.providerId, ctx.modelId) : null;
+}
+
 export default function App() {
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -4203,9 +4212,9 @@ export default function App() {
    * ask the same question twice.
    */
   const summaryApprovedRef = useRef(new Set<string>());
-  /** PRD 011 Req 33: the open question, and the run the reader turned down. */
+  /** PRD 011 Req 33: the open question, and whether this run was turned down. */
   const [summaryAsk, setSummaryAsk] = useState<{ runId: string; estimate: JobEstimate } | null>(null);
-  const [summaryDeclined, setSummaryDeclined] = useState<string | null>(null);
+  const [summaryDeclined, setSummaryDeclined] = useState(false);
   /**
    * PRD 011 Req 33: the confirmation's "don't ask again" tick. It is applied on
    * Proceed only — a reader who ticks it and then cancels has not agreed to
@@ -4218,7 +4227,7 @@ export default function App() {
    * blocks for work nobody agreed to. Both are cleared whenever the run
    * identity changes, which is what makes re-entering the level ask again.
    */
-  const summariesGated = summaryAsk !== null || summaryDeclined !== null;
+  const summariesGated = summaryAsk !== null || summaryDeclined;
 
   const zoomSummaries = useMemo(
     () => (zoomActive && summaryCtx && !summariesGated ? { ctx: summaryCtx, states: summaryStates } : null),
@@ -4278,10 +4287,6 @@ export default function App() {
     [applySettingsEdit]
   );
 
-  /** PRD 011 Req 31: the curated price for the pair this run would use, or null. */
-  const summaryPriceFor = (ctx: { providerId: string; modelId: string }): TokenPrice | null =>
-    isLlmProviderKind(ctx.providerId) ? priceFor(ctx.providerId, ctx.modelId) : null;
-
   /**
    * PRD 011 Reqs 25+27: start a run of summaries for `runId` — the whole level
    * when `retryKey` is null, and exactly the one failed section when it is not.
@@ -4336,8 +4341,11 @@ export default function App() {
       // to spend — the level keeps its excerpts (Req 22).
       if (!selectLlmRunner(area, { hosted: host?.llm, transport: host?.llmTransport })) return;
       const memo = summaryMemoRef.current;
-      for (const slot of slotsToRequest(planSummarySlots(view, ctx))) {
-        if (memo.has(slot.key)) continue;
+      // The same planning rule the engine uses: duplicate keys collapse, and a
+      // key the memo already answers is not looked up again. What is left is
+      // exactly the set of keys a run would send, so the store is read for
+      // those and no others.
+      for (const slot of slotsToRequest(planSummarySlots(view, ctx), new Set(memo.keys()))) {
         const hit = await cachedSummary(host?.summaryCache, slot.key);
         if (hit !== null) memo.set(slot.key, hit);
       }
@@ -4373,7 +4381,7 @@ export default function App() {
     summaryRunRef.current = summaryRun;
     setSummaryStates(NO_SUMMARY_STATES);
     setSummaryAsk(null);
-    setSummaryDeclined(null);
+    setSummaryDeclined(false);
     if (summaryRun) void prepareSummaryRun(summaryRun);
     return () => {
       summaryRunRef.current = null;
@@ -4389,7 +4397,7 @@ export default function App() {
     if (!ask) return;
     summaryApprovedRef.current.add(ask.runId);
     setSummaryAsk(null);
-    setSummaryDeclined(null);
+    setSummaryDeclined(false);
     // PRD 011 Req 33: persisted as an ordinary settings edit, and reversible
     // from the LLM providers area — never a one-way door.
     if (summaryDontAsk) applySettingsEdit('user', { llmConfirmSummaries: false });
@@ -4398,13 +4406,14 @@ export default function App() {
   }, [summaryAsk, summaryDontAsk, applySettingsEdit, startSummaryRun]);
 
   /**
-   * PRD 011 Req 33: Cancel. Zero LLM requests: the run is never started, the
-   * level falls back to the deterministic excerpts, and the decline is keyed to
-   * this run identity so leaving and re-entering asks again — no reload needed.
+   * PRD 011 Req 33: Cancel. Zero LLM requests: the run is never started and the
+   * level falls back to the deterministic excerpts. The decline lasts exactly as
+   * long as this run identity — the effect above clears it with the identity —
+   * so leaving and re-entering the level asks again, no reload needed.
    */
   const declineSummaryRun = useCallback(() => {
     if (!summaryAsk) return;
-    setSummaryDeclined(summaryAsk.runId);
+    setSummaryDeclined(true);
     setSummaryAsk(null);
   }, [summaryAsk]);
 

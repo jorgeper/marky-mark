@@ -54,8 +54,12 @@ export function tallyCalls(tally: UsageTally): number {
   return tally.measuredCalls + tally.unmeasuredCalls;
 }
 
-/** PRD 011 Req 32: is every number in this tally knowable and priced? */
-export function tallyCostKnown(tally: UsageTally): boolean {
+/**
+ * PRD 011 Req 32: is every number in this tally knowable and priced? Written as
+ * a type guard so a caller that has asked may then read `cost` as a number,
+ * rather than asserting one past the null the type still admits.
+ */
+export function tallyCostKnown(tally: UsageTally): tally is UsageTally & { cost: number } {
   return tally.cost !== null && tally.unpricedCalls === 0;
 }
 
@@ -72,14 +76,16 @@ export function addUsage(tally: UsageTally, usage: LlmUsage, price?: TokenPrice 
   if (!measured.known) {
     return { ...tally, unmeasuredCalls: tally.unmeasuredCalls + 1 };
   }
-  const priced = measured.totalCost !== null;
+  // A null cost is the unpriced case: the tokens still count, the money does
+  // not, and the tally's own `cost` is left exactly as it was.
+  const cost = measured.totalCost;
   return {
     measuredCalls: tally.measuredCalls + 1,
     unmeasuredCalls: tally.unmeasuredCalls,
-    unpricedCalls: tally.unpricedCalls + (priced ? 0 : 1),
+    unpricedCalls: tally.unpricedCalls + (cost === null ? 1 : 0),
     inputTokens: tally.inputTokens + measured.inputTokens,
     outputTokens: tally.outputTokens + measured.outputTokens,
-    cost: priced ? (tally.cost ?? 0) + (measured.totalCost as number) : tally.cost,
+    cost: cost === null ? tally.cost : (tally.cost ?? 0) + cost,
   };
 }
 
@@ -134,7 +140,7 @@ export function usageSentence(tally: UsageTally, currency: string = PRICE_CURREN
   if (tally.measuredCalls === 0) {
     return `${NO_USAGE_DATA_MESSAGE} ${callCount(tally.unmeasuredCalls)} could not be measured.`;
   }
-  const cost = tallyCostKnown(tally) ? formatMoney(tally.cost as number, currency) : COST_UNKNOWN_MESSAGE;
+  const cost = tallyCostKnown(tally) ? formatMoney(tally.cost, currency) : COST_UNKNOWN_MESSAGE;
   const parts = [
     `${tally.inputTokens.toLocaleString('en-US')} input + ${tally.outputTokens.toLocaleString(
       'en-US'

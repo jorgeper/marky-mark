@@ -17,14 +17,7 @@
 import type { JobEstimate } from './llmCost';
 import { formatMoney, PRICE_CURRENCY } from './llmPricing';
 
-/** PRD 011 Req 33: what the reader is being asked about, as plain data. */
-export interface SummaryConfirmation {
-  /** The run identity (`summaryRunId()`) this answer applies to. */
-  runId: string;
-  estimate: JobEstimate;
-  currency: string;
-}
-
+/** PRD 011 Req 33: everything the "should we ask?" rule reads, as plain data. */
 export interface ConfirmSummariesInput {
   /** What the run would do — `estimateJob()`'s answer for this level. */
   estimate: JobEstimate;
