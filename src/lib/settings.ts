@@ -1,6 +1,9 @@
 import { DEFAULT_HOTKEYS, type HotkeyMap } from './hotkeys';
 import { isValidImageFolder } from './imagePaste';
 import { isLlmProviderKind } from './llmSettings';
+// PRD 011 Req 32: the accounting shape and its validator, defined once beside
+// the fold that produces it rather than re-declared here.
+import { EMPTY_USAGE_TALLY, isUsageTally, type UsageTally } from './llmUsage';
 import type { LlmProviderKind } from './llmSeam';
 
 export type CommentStorage = 'sidecar' | 'embedded';
@@ -90,6 +93,22 @@ export interface Settings {
   /** PRD 011 Req 5: the OpenAI-compatible endpoint the `custom` kind points at. */
   llmBaseUrl: string;
   /**
+   * PRD 011 Req 32: measured usage for the most recent summarization run, and
+   * the running total the reader can reset. They live in the settings layer
+   * because that is what already reaches the desktop settings window — usage
+   * arrives there on the ordinary `EV_SETTINGS_CHANGED` broadcast and a reset
+   * travels back as an ordinary settings edit, so the aux window gains no
+   * capability and no new bus round trip for this.
+   */
+  llmUsageLast: UsageTally;
+  llmUsageTotal: UsageTally;
+  /**
+   * PRD 011 Req 33: ask before a zoomed level spends anything. On by default;
+   * the confirmation's "don't ask again" turns it off, and the LLM providers
+   * area turns it back on — no one-way door.
+   */
+  llmConfirmSummaries: boolean;
+  /**
    * PRD 011 Reqs 1+2: the Experimental section's semantic-zoom switch, off by
    * default. It is the ONLY switch the feature reads: off means the control,
    * the View rows, the commands and the accelerators do not exist.
@@ -135,6 +154,12 @@ export const DEFAULT_SETTINGS: Settings = {
   llmModel: '',
   llmApiKey: '',
   llmBaseUrl: '',
+  // PRD 011 Req 32: a fresh install has spent nothing, and says so rather than
+  // reporting a measured zero.
+  llmUsageLast: EMPTY_USAGE_TALLY,
+  llmUsageTotal: EMPTY_USAGE_TALLY,
+  // PRD 011 Req 33: the reader is asked before the first spend, not after it.
+  llmConfirmSummaries: true,
   // PRD 011 Req 1: every Experimental feature ships off.
   semanticZoom: false,
 };
@@ -194,6 +219,15 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   llmModel: 'U!',
   llmApiKey: 'U!',
   llmBaseUrl: 'U!',
+  // PRD 011 Req 32: what THIS reader spent through their own key, on their own
+  // machine. `U!` for the same reason as the four above, and so the accounting
+  // can never reach a workspace layer where it would be someone else's numbers
+  // (`U!` keeps it out of WORKSPACE_PINNABLE_KEYS by construction).
+  llmUsageLast: 'U!',
+  llmUsageTotal: 'U!',
+  // PRD 011 Req 33: a spending confirmation is the reader's own call, and no
+  // shared layer may waive it on their behalf.
+  llmConfirmSummaries: 'U!',
   // PRD 011 Req 1: user-personal — an experiment is a reader's own choice.
   // It is kept out of WORKSPACE_PINNABLE_KEYS explicitly below, so no shared
   // layer can switch an experiment on for someone else.
@@ -286,6 +320,11 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   llmModel: anyString,
   llmApiKey: anyString,
   llmBaseUrl: anyString,
+  // PRD 011 Req 32: a hand-edited file must not put a NaN or a negative count
+  // into the accounting — the shape's own validator answers that, once.
+  llmUsageLast: (raw) => (isUsageTally(raw) ? raw : undefined),
+  llmUsageTotal: (raw) => (isUsageTally(raw) ? raw : undefined),
+  llmConfirmSummaries: bool,
   semanticZoom: bool,
 };
 

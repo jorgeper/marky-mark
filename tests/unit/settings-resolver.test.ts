@@ -47,6 +47,11 @@ describe('PRD 002 §B5 scope inventory', () => {
       llmModel: 'U!',
       llmApiKey: 'U!',
       llmBaseUrl: 'U!',
+      // PRD 011 Reqs 32+33: this reader's own spend, and their own decision to
+      // be asked before spending — never a shared layer's to set.
+      llmUsageLast: 'U!',
+      llmUsageTotal: 'U!',
+      llmConfirmSummaries: 'U!',
       commentStorage: 'W',
       imageFolder: 'W',
       imageNamePattern: 'W',

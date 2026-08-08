@@ -20,6 +20,7 @@ import { NO_LLM_CONFIGURED_MESSAGE, type LlmAvailability } from './llmDeployment
 // PRD 011 Req 14: from the host-free leaf, not `llmProviders.ts` — settings
 // reach every flavor, and the static web build must carry no provider host.
 import { customEndpoint } from './llmCustomEndpoint';
+import type { UsageTally } from './llmUsage';
 import type {
   LlmFailure,
   LlmProviderConfig,
@@ -103,6 +104,19 @@ export function resolveLlmProvider(values: LlmSettingsValues): LlmProviderConfig
     default:
       return { kind: values.llmProvider, apiKey, model };
   }
+}
+
+/**
+ * PRD 011 Reqs 32+33: the three further `Settings` keys the area reads and
+ * writes — the measured-usage read-out and the confirmation switch. Named
+ * structurally and kept SEPARATE from {@link LlmSettingsValues} so the four
+ * keys that resolve into a provider config stay exactly four: nothing here
+ * takes part in `resolveLlmProvider` or `llmAreaState`.
+ */
+export interface LlmUsageValues {
+  llmUsageLast: UsageTally;
+  llmUsageTotal: UsageTally;
+  llmConfirmSummaries: boolean;
 }
 
 /**

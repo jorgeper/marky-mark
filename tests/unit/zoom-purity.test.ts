@@ -21,6 +21,11 @@ const MODULES = [
   'summaryPlan.ts',
   'summaryPrompt.ts',
   'llmRunner.ts',
+  // #119's three: the curated price table, the measured-usage fold, and the
+  // pre-summarization confirmation's rules and sentences.
+  'llmPricing.ts',
+  'llmUsage.ts',
+  'summaryConfirm.ts',
 ];
 
 const read = (name: string): string =>

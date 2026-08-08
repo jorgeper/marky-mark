@@ -21,6 +21,14 @@ import {
   type SummaryCacheSizeResult,
 } from '../lib/summaryCacheReport';
 import type { LlmProviderKind } from '../lib/llmSeam';
+import type { LlmUsageValues } from '../lib/llmSettings';
+import {
+  NO_RECOMMENDATION_MESSAGE,
+  PRICING_CAVEAT,
+  priceLine,
+  recommendationFor,
+} from '../lib/llmPricing';
+import { EMPTY_USAGE_TALLY, usageSentence } from '../lib/llmUsage';
 
 /**
  * PRD 011 Reqs 4+5+6+7+9+10: the LLM providers settings page. It is the
@@ -43,12 +51,17 @@ import type { LlmProviderKind } from '../lib/llmSeam';
  *    nowhere else — no title, no hint, no scope note, no notice, no log.
  */
 interface Props {
-  /** The four persisted values (PRD 011 Req 7). */
-  values: LlmSettingsValues;
+  /**
+   * The four provider values (PRD 011 Req 7), plus the three #119 added: the
+   * measured-usage read-out and the confirmation switch (PRD 011 Reqs 32+33).
+   * They arrive by the same route from both mount points, which is why the
+   * desktop settings window needs no capability of its own for usage.
+   */
+  values: LlmSettingsValues & LlmUsageValues;
   /** PRD 011 Req 9: what the capability-holding window can do. */
   capabilities: LlmCapabilities;
   /** Write the changed keys to the settings layer this panel targets. */
-  onChange(patch: Partial<LlmSettingsValues>): void;
+  onChange(patch: Partial<LlmSettingsValues & LlmUsageValues>): void;
   /**
    * PRD 011 Req 10: run exactly one `trigger: 'test-connection'` request.
    * Absent when no window offered one, which is the same "cannot work" answer
@@ -242,6 +255,76 @@ export function LlmSettings({
     </>
   );
 
+  // --- PRD 011 Req 31: the curated recommendation and its price -------------
+  /**
+   * PRD 011 Req 31: which provider this section speaks for. On hosted it is the
+   * OPERATOR's provider (the reader's own chooser is not in play there); on the
+   * desktop states it is the one currently selected.
+   */
+  const pricedKind: LlmProviderKind = area.state === 'hosted' ? area.provider : values.llmProvider;
+  const recommendation = recommendationFor(pricedKind);
+  const pricingSection = (
+    <>
+      <h3 className="tab-section">Recommended model and price</h3>
+      {recommendation ? (
+        <>
+          <p className="hotkey-hint" data-testid="llm-recommended-model">
+            {`${LLM_PROVIDERS[pricedKind].label}: ${recommendation.modelId}`}
+          </p>
+          <p className="hotkey-hint" data-testid="llm-recommended-price">
+            {priceLine(recommendation)}
+          </p>
+        </>
+      ) : (
+        /* PRD 011 Req 31: `custom` gets its own sentence — never a blank price
+           and never a fabricated 0. */
+        <p className="hotkey-hint" data-testid="llm-recommended-none">
+          {NO_RECOMMENDATION_MESSAGE}
+        </p>
+      )}
+      <p className="hotkey-hint" data-testid="llm-price-caveat">
+        {PRICING_CAVEAT}
+      </p>
+    </>
+  );
+
+  // --- PRD 011 Req 32: what the summaries actually cost ----------------------
+  /**
+   * PRD 011 Req 32: both figures, rendered from the pure fold's own sentences.
+   * Reset zeroes the RUNNING TOTAL and nothing else — it travels as an ordinary
+   * settings edit, so it touches no key, no provider, no model and no cache.
+   */
+  const usageSection = (
+    <>
+      <h3 className="tab-section">Measured usage</h3>
+      <p className="hotkey-hint" data-testid="llm-usage-last">
+        {`Most recent summarization: ${usageSentence(values.llmUsageLast)}`}
+      </p>
+      <p className="hotkey-hint" data-testid="llm-usage-total">
+        {`Running total: ${usageSentence(values.llmUsageTotal)}`}
+      </p>
+      <div className="row" style={{ marginBottom: 12 }}>
+        <button data-testid="llm-usage-reset" onClick={() => onChange({ llmUsageTotal: EMPTY_USAGE_TALLY })}>
+          Reset total
+        </button>
+      </div>
+      {/* PRD 011 Req 33: the reversible half of "don't ask again". The
+          confirmation can turn itself off; this is where it comes back on, so
+          the suppression is never a one-way door. */}
+      <div className="checkbox-row">
+        <label>
+          <input
+            type="checkbox"
+            data-testid="llm-confirm-summaries"
+            checked={values.llmConfirmSummaries}
+            onChange={(e) => onChange({ llmConfirmSummaries: e.target.checked })}
+          />
+          Ask before summarizing a zoomed level
+        </label>
+      </div>
+    </>
+  );
+
   // Every branch below opens with this; they differ only in which controls the
   // capability makes it honest to draw.
   const heading = <h3 className="tab-section">LLM provider</h3>;
@@ -300,6 +383,11 @@ export function LlmSettings({
           </div>
         )}
         {testButton}
+        {/* PRD 011 Reqs 31+32: the operator's provider is still priced, and the
+            requests are still made in this reader's session, so both sections
+            belong here too. */}
+        {pricingSection}
+        {usageSection}
         {/* PRD 011 Req 30: hosted has no key field, but it does have a cache. */}
         {cacheSection}
       </>
@@ -410,6 +498,8 @@ export function LlmSettings({
 
       {availability}
       {testButton}
+      {pricingSection}
+      {usageSection}
       {cacheSection}
     </>
   );

@@ -20,6 +20,7 @@
  * clicked a retry.
  */
 
+import type { LlmUsage } from './llmSeam';
 import type { LlmRunner } from './llmSettings';
 import {
   SUMMARY_MAX_IN_FLIGHT,
@@ -52,12 +53,25 @@ export interface SummaryRunOptions {
   memo?: Map<string, string> | null;
   /** Called whenever a block's state changes; never called once cancelled. */
   onState: (key: string, state: SummarySlotState) => void;
+  /**
+   * PRD 011 Req 32: what the provider said each call spent. Reported straight
+   * through — this module adds no rule of its own about what usage MEANS
+   * (`llmUsage.ts` folds it, and knows that unknown is not zero). A cache or
+   * memo hit makes no call and therefore reports nothing at all.
+   */
+  onUsage?: (usage: LlmUsage) => void;
   /** PRD 011 Req 26: the run identity guard, asked before every emission. */
   isCancelled: () => boolean;
 }
 
-/** A store read that answers a miss for anything it cannot answer (Req 25). */
-async function cachedSummary(store: SummaryCacheStore | null | undefined, key: string): Promise<string | null> {
+/**
+ * A store read that answers a miss for anything it cannot answer (Req 25).
+ *
+ * Exported so the caller that asks "would this level spend anything?" before
+ * showing #119's confirmation (PRD 011 Req 33) resolves cache hits by exactly
+ * this rule, rather than growing a second one that could disagree.
+ */
+export async function cachedSummary(store: SummaryCacheStore | null | undefined, key: string): Promise<string | null> {
   if (!store) return null;
   try {
     const entry = await store.get(key);
@@ -110,7 +124,7 @@ async function storeSummary(
  * issues no further request and emits no further state.
  */
 export async function runSummaries(opts: SummaryRunOptions): Promise<void> {
-  const { slots, ctx, run, store, memo, onState, isCancelled } = opts;
+  const { slots, ctx, run, store, memo, onState, onUsage, isCancelled } = opts;
   const emit = (key: string, state: SummarySlotState): void => {
     if (!isCancelled()) onState(key, state);
   };
@@ -147,6 +161,11 @@ export async function runSummaries(opts: SummaryRunOptions): Promise<void> {
         emit(slot.key, { status: 'failed', failure: response.failure });
         continue;
       }
+      // PRD 011 Req 32: a call that reached the provider is reported to the
+      // caller's accounting whether or not the run was abandoned — the tokens
+      // were spent either way, and a total that quietly dropped them would
+      // understate what the reader paid.
+      onUsage?.(response.usage);
       const text = response.text.trim();
       memo?.set(slot.key, text);
       await storeSummary(store, slot.key, text, ctx, summaryUsageForStore(response.usage));

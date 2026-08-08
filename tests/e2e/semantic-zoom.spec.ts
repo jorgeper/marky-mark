@@ -267,6 +267,17 @@ async function configureProvider(page: Page): Promise<void> {
   await page.getByTestId('settings-close').click();
 }
 
+/**
+ * PRD 011 Req 33 (#119): entering a level that would actually spend something
+ * now asks first. Proceed starts exactly the run #118 already started, so every
+ * case below that expects real summaries clicks through this one confirmation.
+ */
+async function proceedSummaries(page: Page): Promise<void> {
+  await expect(page.getByTestId('summary-confirm')).toBeVisible();
+  await page.getByTestId('summary-confirm-proceed').click();
+  await expect(page.getByTestId('summary-confirm')).toHaveCount(0);
+}
+
 const fakeCalls = (page: Page): Promise<number> =>
   page.evaluate(() => window.__mmFakeLlm?.fake.calls.length ?? 0);
 
@@ -303,6 +314,7 @@ test('E235: PRD 011 Req 25 — a zoomed level fills its blocks, and typing, savi
   // Entering L4 is what asks. Every block is a real summary, and the view says
   // these are summaries rather than claiming they are excerpts.
   await page.getByTestId('semantic-zoom-out').click();
+  await proceedSummaries(page);
   await expect(page.getByTestId('semantic-zoom-view')).toBeVisible();
   await expect(page.getByTestId('semantic-zoom-entry')).toHaveCount(4);
   await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
@@ -332,6 +344,7 @@ test('E236: PRD 011 Req 26 — blocks show their structure pending, and leaving 
   await scriptFake(page, { text: 'Slow summary.', delayMs: 2000 });
 
   await page.getByTestId('semantic-zoom-slider').fill('3');
+  await proceedSummaries(page);
   await expect(page.getByTestId('semantic-zoom-view')).toBeVisible();
   // The structure is there immediately — heading, depth and folded-in list —
   // with a pending state where each summary will land.
@@ -358,6 +371,7 @@ test('E236: PRD 011 Req 26 — blocks show their structure pending, and leaving 
   // Turning the Experimental feature off from a zoomed level abandons it too.
   await scriptFake(page, { text: 'Third pass.', delayMs: 2000 });
   await page.getByTestId('semantic-zoom-slider').fill('2');
+  await proceedSummaries(page);
   await expect(page.getByTestId('semantic-zoom-pending')).toHaveCount(1);
   await setSemanticZoom(page, false);
   await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
@@ -383,6 +397,7 @@ test('E237: PRD 011 Req 27 — a failed section says why, retries alone, and its
   });
 
   await page.getByTestId('semantic-zoom-slider').fill('3');
+  await proceedSummaries(page);
   await expect(page.getByTestId('semantic-zoom-entry')).toHaveCount(3);
   await expect(page.getByTestId('semantic-zoom-failure')).toHaveCount(1);
   // The seam's OWN reason, with its retry hint — not a sentence this view wrote.
@@ -417,6 +432,7 @@ test('E237: PRD 011 Req 27 — a failed section says why, retries alone, and its
   await scriptFake(page, {});
   await page.evaluate(() => window.__mmFakeLlm?.fake.respondWith({ outcome: 'failure', kind: 'bad-key' }));
   await page.getByTestId('semantic-zoom-slider').fill('4');
+  await proceedSummaries(page);
   await expect(page.getByTestId('semantic-zoom-entry')).toHaveCount(4);
   await expect(page.getByTestId('semantic-zoom-failure')).toHaveCount(4);
   await expect(page.getByTestId('semantic-zoom-title')).toContainText('Field Notes');
@@ -442,6 +458,7 @@ test('E238: PRD 011 Req 30 — the page reports what the cache holds, and one cl
 
   // Summarize one level, so the store holds exactly what that run produced.
   await page.getByTestId('semantic-zoom-slider').fill('4');
+  await proceedSummaries(page);
   await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
   expect(await fakeCalls(page)).toBe(4);
   await page.getByTestId('semantic-zoom-full').click();
@@ -470,6 +487,10 @@ test('E238: PRD 011 Req 30 — the page reports what the cache holds, and one cl
   // …and the session memo went with it. Re-entering the SAME level asks the
   // fake again instead of being served from memory.
   await page.getByTestId('semantic-zoom-slider').fill('4');
+  // PRD 011 Req 33: no second confirmation — this is the SAME run identity the
+  // reader already approved above (same document, content, level and
+  // provider/model), and the question is asked at most once per identity.
+  await expect(page.getByTestId('summary-confirm')).toHaveCount(0);
   await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
   await expect(page.getByTestId('semantic-zoom-body').first()).toContainText('A generated summary.');
   expect(await fakeCalls(page)).toBe(8);
@@ -486,6 +507,7 @@ test('E239: PRD 011 Req 3 — the Experimental row routes to Remove key, and rem
   await scriptFake(page, { text: 'A generated summary.' });
 
   await page.getByTestId('semantic-zoom-slider').fill('4');
+  await proceedSummaries(page);
   await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
   const before = await fakeCalls(page);
 
@@ -530,6 +552,7 @@ test('E240: PRD 011 Req 3 — off leaves nothing running, deletes nothing, and b
   await scriptFake(page, { text: 'A generated summary.' });
 
   await page.getByTestId('semantic-zoom-slider').fill('4');
+  await proceedSummaries(page);
   await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
   expect(await fakeCalls(page)).toBe(4);
   await page.getByTestId('semantic-zoom-full').click();
@@ -575,5 +598,159 @@ test('E240: PRD 011 Req 3 — off leaves nothing running, deletes nothing, and b
   // PRD 011 Req 4: the page, its tab and Test connection are not gated on the
   // Experimental switch at all.
   await expect(page.getByTestId('llm-test')).toBeEnabled();
+  await page.getByTestId('settings-close').click();
+});
+
+// --- PRD 011 Reqs 31–33 (#119): cost transparency ---------------------------
+// The curated recommendation and its price, the measured usage the providers
+// actually reported, and the question asked before anything is spent. Still the
+// shim's local fake throughout (PRD 011 Req 35) — no provider is contacted.
+
+/** Script the fake with an outcome that carries provider-reported usage. */
+const scriptFakeWithUsage = (page: Page, usage: { inputTokens: number; outputTokens: number } | null): Promise<void> =>
+  page.evaluate((u) => {
+    const handle = window.__mmFakeLlm;
+    if (!handle) throw new Error('the shim installed no fake LLM');
+    handle.fake.reset();
+    handle.delayMs = 0;
+    handle.fake.respondWith({ outcome: 'text', text: 'A generated summary.', ...(u ? { usage: u } : {}) });
+  }, usage);
+
+test('E241: PRD 011 Req 31 — the page names a recommended model, its price and the caveat', async ({ page }) => {
+  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+
+  await openSettings(page, 'llm');
+  // The default provider is Anthropic: a curated model, both prices, one caveat.
+  await expect(page.getByTestId('llm-recommended-model')).toContainText('claude-haiku-4-5');
+  await expect(page.getByTestId('llm-recommended-price')).toContainText('per million input tokens');
+  await expect(page.getByTestId('llm-recommended-price')).toContainText('per million output tokens');
+  await expect(page.getByTestId('llm-recommended-price')).toContainText('USD');
+  await expect(page.getByTestId('llm-price-caveat')).toContainText('as of');
+  await expect(page.getByTestId('llm-price-caveat')).toContainText('check the provider');
+  await expect(page.getByTestId('llm-recommended-none')).toHaveCount(0);
+
+  // The recommendation is selectable from the chooser it names.
+  await page.getByTestId('llm-model-preset').selectOption('claude-haiku-4-5');
+  await expect(page.getByTestId('llm-model')).toHaveValue('claude-haiku-4-5');
+
+  // PRD 011 Req 31: a custom endpoint has its own sentence — no blank, no zero.
+  await page.getByTestId('llm-provider').selectOption('custom');
+  await expect(page.getByTestId('llm-recommended-none')).toContainText('custom endpoint');
+  await expect(page.getByTestId('llm-recommended-price')).toHaveCount(0);
+  await expect(page.getByTestId('llm-price-caveat')).toContainText('as of');
+  await page.getByTestId('settings-close').click();
+});
+
+test('E242: PRD 011 Reqs 32+33 — Cancel spends nothing, Proceed reports what it spent', async ({ page }) => {
+  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  await setSemanticZoom(page, true);
+  await configureProvider(page);
+  await scriptFakeWithUsage(page, { inputTokens: 1_000_000, outputTokens: 200_000 });
+
+  // Entering a level that would spend asks first, naming the sections and an
+  // estimate — and it is labelled an estimate, not a measurement.
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await expect(page.getByTestId('summary-confirm')).toBeVisible();
+  await expect(page.getByTestId('summary-confirm-sections')).toContainText('4 sections');
+  await expect(page.getByTestId('summary-confirm-cost')).toContainText('Estimated');
+  await expect(page.getByTestId('summary-confirm-note')).toContainText('estimates');
+  expect(await fakeCalls(page)).toBe(0);
+
+  // Cancel makes zero requests, and the level stays usable on the excerpts.
+  await page.getByTestId('summary-confirm-cancel').click();
+  await expect(page.getByTestId('summary-confirm')).toHaveCount(0);
+  await expect(page.getByTestId('semantic-zoom-view')).toBeVisible();
+  await expect(page.getByTestId('semantic-zoom-excerpt-note')).toHaveCount(1);
+  await expect(page.getByTestId('semantic-zoom-body').first()).toContainText('Opening prose');
+  expect(await fakeCalls(page)).toBe(0);
+
+  // Leaving and re-entering asks again — no reload needed.
+  await page.getByTestId('semantic-zoom-full').click();
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await expect(page.getByTestId('summary-confirm')).toBeVisible();
+  await page.getByTestId('summary-confirm-proceed').click();
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  await expect(page.getByTestId('semantic-zoom-body').first()).toContainText('A generated summary.');
+  expect(await fakeCalls(page)).toBe(4);
+
+  // PRD 011 Req 32: the measured figures, from the counts the provider returned.
+  await openSettings(page, 'llm');
+  await expect(page.getByTestId('llm-usage-last')).toContainText('4,000,000 input');
+  await expect(page.getByTestId('llm-usage-last')).toContainText('800,000 output');
+  await expect(page.getByTestId('llm-usage-total')).toContainText('4,000,000 input');
+  await expect(page.getByTestId('llm-usage-total')).not.toContainText('Nothing summarized yet');
+  await page.getByTestId('settings-close').click();
+});
+
+test('E243: PRD 011 Reqs 32+33 — “don’t ask again” is reversible, and Reset empties only the total', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  await setSemanticZoom(page, true);
+  await configureProvider(page);
+  await scriptFakeWithUsage(page, { inputTokens: 500_000, outputTokens: 100_000 });
+
+  // Tick "don't ask again" on the way through the first confirmation.
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await expect(page.getByTestId('summary-confirm')).toBeVisible();
+  await page.getByTestId('summary-confirm-dont-ask').check();
+  await page.getByTestId('summary-confirm-proceed').click();
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  await page.getByTestId('semantic-zoom-full').click();
+
+  // A later level with real work to do summarizes with no confirmation at all.
+  await page.getByTestId('semantic-zoom-slider').fill('3');
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(3);
+  await expect(page.getByTestId('summary-confirm')).toHaveCount(0);
+  expect(await fakeCalls(page)).toBe(7);
+  await page.getByTestId('semantic-zoom-full').click();
+
+  await openSettings(page, 'llm');
+  // The suppression is visible where it can be undone — no one-way door.
+  await expect(page.getByTestId('llm-confirm-summaries')).not.toBeChecked();
+  await expect(page.getByTestId('llm-usage-total')).toContainText('3,500,000 input');
+
+  // Reset empties the running total in one click and touches nothing else.
+  await page.getByTestId('llm-usage-reset').click();
+  await expect(page.getByTestId('llm-usage-total')).toContainText('Nothing summarized yet');
+  await expect(page.getByTestId('llm-usage-last')).toContainText('1,500,000 input');
+  await expect(page.getByTestId('llm-api-key')).toHaveValue('sk-e235-secret');
+  await expect(page.getByTestId('llm-model')).toHaveValue('claude-opus-5');
+  await expect(page.getByTestId('summary-cache-size')).toContainText('7 summaries');
+
+  // Turning confirmations back on makes the next spending level ask again.
+  await page.getByTestId('llm-confirm-summaries').check();
+  await page.getByTestId('settings-close').click();
+  await page.getByTestId('semantic-zoom-slider').fill('2');
+  await expect(page.getByTestId('summary-confirm')).toBeVisible();
+  await page.getByTestId('summary-confirm-cancel').click();
+  expect(await fakeCalls(page)).toBe(7);
+});
+
+test('E244: PRD 011 Req 32 — a provider that returns no usage is said so, not shown as zero', async ({ page }) => {
+  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  await setSemanticZoom(page, true);
+  await configureProvider(page);
+  // The same scripted reply, with no usage block at all.
+  await scriptFakeWithUsage(page, null);
+
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await proceedSummaries(page);
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  expect(await fakeCalls(page)).toBe(4);
+
+  await openSettings(page, 'llm');
+  await expect(page.getByTestId('llm-usage-last')).toContainText('The provider returned no usage data');
+  await expect(page.getByTestId('llm-usage-last')).toContainText('4 calls could not be measured');
+  await expect(page.getByTestId('llm-usage-last')).not.toContainText('USD 0.00');
+  await expect(page.getByTestId('llm-usage-total')).toContainText('The provider returned no usage data');
   await page.getByTestId('settings-close').click();
 });

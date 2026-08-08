@@ -114,19 +114,39 @@ import {
 } from './lib/summaryCacheReport';
 import { LLM_UNCONFIGURED, type LlmAvailability } from './lib/llmDeployment';
 import { selectLlmRunner, summaryKeyContextFor } from './lib/llmRunner';
-import { llmAreaState, testConnection, type LlmCapabilities, type LlmTestResult } from './lib/llmSettings';
+import {
+  isLlmProviderKind,
+  llmAreaState,
+  testConnection,
+  type LlmCapabilities,
+  type LlmTestResult,
+} from './lib/llmSettings';
+import type { LlmUsage } from './lib/llmSeam';
 // PRD 011 Reqs 25–27: real summaries in the zoom view — planned purely,
 // generated through the seam, cancelled by run identity.
-import { runSummaries } from './lib/summaryEngine';
+import { cachedSummary, runSummaries } from './lib/summaryEngine';
 import {
   acceptsSummaryResult,
   NO_SUMMARY_STATES,
   planSummarySlots,
   retrySlots,
+  slotsToRequest,
   summaryRunId,
   type SummarySlotState,
   type SummaryStates,
 } from './lib/summaryPlan';
+// PRD 011 Reqs 31–33: what a summarization would cost, what it did cost, and
+// the question asked before the first one runs.
+import { estimateJob, type JobEstimate, type TokenPrice } from './lib/llmCost';
+import { priceFor } from './lib/llmPricing';
+import { addUsage, mergeTally, EMPTY_USAGE_TALLY, type UsageTally } from './lib/llmUsage';
+import {
+  CONFIRM_ESTIMATE_NOTE,
+  CONFIRM_SUMMARIES_TITLE,
+  confirmCostLine,
+  confirmSectionsLine,
+  shouldConfirmSummaries,
+} from './lib/summaryConfirm';
 // PRD 011 Reqs 17–23: the semantic-zoom view — an ADDITIONAL render path taken
 // only at levels 1–4. L5 keeps today's `renderMarkdown` → innerHTML injection
 // and its data-mm-line anchors exactly as they were.
@@ -4171,10 +4191,38 @@ export default function App() {
   const summaryMemoRef = useRef(new Map<string, string>());
   /** PRD 011 Req 26: the run every in-flight result is checked against. */
   const summaryRunRef = useRef<string | null>(null);
+  /**
+   * PRD 011 Req 32: this run's measured usage so far, and the running total it
+   * started from. The base is read ONCE per run, so several calls landing at
+   * the same time each add to the same baseline instead of racing a re-read.
+   */
+  const summaryUsageRef = useRef<{ runId: string; run: UsageTally; baseTotal: UsageTally } | null>(null);
+  /**
+   * PRD 011 Req 33: run identities the reader already approved this session, so
+   * a per-section retry — or a re-entry after a partly failed run — does not
+   * ask the same question twice.
+   */
+  const summaryApprovedRef = useRef(new Set<string>());
+  /** PRD 011 Req 33: the open question, and the run the reader turned down. */
+  const [summaryAsk, setSummaryAsk] = useState<{ runId: string; estimate: JobEstimate } | null>(null);
+  const [summaryDeclined, setSummaryDeclined] = useState<string | null>(null);
+  /**
+   * PRD 011 Req 33: the confirmation's "don't ask again" tick. It is applied on
+   * Proceed only — a reader who ticks it and then cancels has not agreed to
+   * spend anything, so nothing is suppressed on their way out.
+   */
+  const [summaryDontAsk, setSummaryDontAsk] = useState(false);
+  /**
+   * PRD 011 Req 33: while the question is open — or after Cancel — the level
+   * shows #117's deterministic excerpts (Req 22) rather than a wall of pending
+   * blocks for work nobody agreed to. Both are cleared whenever the run
+   * identity changes, which is what makes re-entering the level ask again.
+   */
+  const summariesGated = summaryAsk !== null || summaryDeclined !== null;
 
   const zoomSummaries = useMemo(
-    () => (zoomActive && summaryCtx ? { ctx: summaryCtx, states: summaryStates } : null),
-    [zoomActive, summaryCtx, summaryStates]
+    () => (zoomActive && summaryCtx && !summariesGated ? { ctx: summaryCtx, states: summaryStates } : null),
+    [zoomActive, summaryCtx, summaryStates, summariesGated]
   );
   const zoomDoc = useMemo(
     () => (zoomEntryView ? buildZoomDocumentFromView(zoomEntryView, zoomSummaries) : null),
@@ -4210,6 +4258,31 @@ export default function App() {
   }, []);
 
   /**
+   * PRD 011 Req 32: fold ONE call's provider-reported usage into the run's
+   * figure and the running total, and persist both through the ordinary
+   * settings edit. That is the whole reason usage reaches the desktop settings
+   * window: it rides `EV_SETTINGS_CHANGED` like any other key, so the aux
+   * window gains no capability and no new bus message for this.
+   */
+  const recordSummaryUsage = useCallback(
+    (runId: string, usage: LlmUsage, price: TokenPrice | null) => {
+      const prev = summaryUsageRef.current;
+      const base =
+        prev && prev.runId === runId
+          ? prev
+          : { runId, run: EMPTY_USAGE_TALLY, baseTotal: stateRef.current.settings.llmUsageTotal };
+      const run = addUsage(base.run, usage, price);
+      summaryUsageRef.current = { runId, run, baseTotal: base.baseTotal };
+      applySettingsEdit('user', { llmUsageLast: run, llmUsageTotal: mergeTally(base.baseTotal, run) });
+    },
+    [applySettingsEdit]
+  );
+
+  /** PRD 011 Req 31: the curated price for the pair this run would use, or null. */
+  const summaryPriceFor = (ctx: { providerId: string; modelId: string }): TokenPrice | null =>
+    isLlmProviderKind(ctx.providerId) ? priceFor(ctx.providerId, ctx.modelId) : null;
+
+  /**
    * PRD 011 Reqs 25+27: start a run of summaries for `runId` — the whole level
    * when `retryKey` is null, and exactly the one failed section when it is not.
    * Both callers below share this, so the runner selection, the plan and the
@@ -4224,6 +4297,7 @@ export default function App() {
       const planned = planSummarySlots(view, ctx);
       const slots = retryKey === null ? planned : retrySlots(planned, retryKey);
       if (slots.length === 0) return;
+      const price = summaryPriceFor(ctx);
       void runSummaries({
         slots,
         ctx,
@@ -4231,13 +4305,58 @@ export default function App() {
         store: host?.summaryCache,
         memo: summaryMemoRef.current,
         onState: applySummaryState,
+        // PRD 011 Req 32: measured usage, priced by the curated table — null
+        // where the model is not in it, which reports tokens with the cost
+        // stated as unknown rather than as a fabricated amount.
+        onUsage: (usage) => recordSummaryUsage(runId, usage, price),
         // PRD 011 Req 26: the whole cancellation guard, and the pure rule
         // itself — a result whose run is no longer the current one reaches no
         // view state.
         isCancelled: () => !acceptsSummaryResult(summaryRunRef.current, runId),
       });
     },
-    [applySummaryState]
+    [applySummaryState, recordSummaryUsage]
+  );
+
+  /**
+   * PRD 011 Req 33: the step before the run — work out whether it would spend
+   * anything, and if so ask. Cache hits are resolved through the engine's OWN
+   * store rule first, so a level whose every slot is already answered proceeds
+   * silently and makes no request; only what is left is estimated and priced.
+   *
+   * It starts exactly the run below: same `summaryRunId` identity, same
+   * cancellation rule, same per-section retry. Proceeding is one call to
+   * `startSummaryRun`, so nothing double-starts.
+   */
+  const prepareSummaryRun = useCallback(
+    async (runId: string) => {
+      const { view, ctx, area, platform: host } = summarySourcesRef.current;
+      if (!view || !ctx) return;
+      // PRD 011 Req 33: with no runner there is nothing to confirm and nothing
+      // to spend — the level keeps its excerpts (Req 22).
+      if (!selectLlmRunner(area, { hosted: host?.llm, transport: host?.llmTransport })) return;
+      const memo = summaryMemoRef.current;
+      for (const slot of slotsToRequest(planSummarySlots(view, ctx))) {
+        if (memo.has(slot.key)) continue;
+        const hit = await cachedSummary(host?.summaryCache, slot.key);
+        if (hit !== null) memo.set(slot.key, hit);
+      }
+      // The reader may have left the level while the store was being read.
+      if (summaryRunRef.current !== runId) return;
+      const estimate = estimateJob(view, { ctx, cachedKeys: memo.keys(), price: summaryPriceFor(ctx) });
+      if (
+        !shouldConfirmSummaries({
+          estimate,
+          suppressed: !stateRef.current.settings.llmConfirmSummaries,
+          approved: summaryApprovedRef.current.has(runId),
+        })
+      ) {
+        startSummaryRun(runId, null);
+        return;
+      }
+      setSummaryAsk({ runId, estimate });
+    },
+    [startSummaryRun]
   );
 
   /**
@@ -4245,15 +4364,49 @@ export default function App() {
    * level with a provider available. Not on app start, not on document open,
    * not on a settings change, not on a timer: this effect fires when the run
    * identity changes, and at L5 (or with no provider) there is no identity.
+   *
+   * PRD 011 Req 33: it now goes through the confirmation gate, which is why
+   * leaving and re-entering a level the reader cancelled asks again — the ask
+   * and the decline are both cleared here, with the run identity.
    */
   useEffect(() => {
     summaryRunRef.current = summaryRun;
     setSummaryStates(NO_SUMMARY_STATES);
-    if (summaryRun) startSummaryRun(summaryRun, null);
+    setSummaryAsk(null);
+    setSummaryDeclined(null);
+    if (summaryRun) void prepareSummaryRun(summaryRun);
     return () => {
       summaryRunRef.current = null;
     };
-  }, [summaryRun, startSummaryRun]);
+  }, [summaryRun, prepareSummaryRun]);
+
+  /**
+   * PRD 011 Req 33: Proceed. It records the approval — so a retry within this
+   * run never re-asks — and starts the one run #118 already starts.
+   */
+  const acceptSummaryRun = useCallback(() => {
+    const ask = summaryAsk;
+    if (!ask) return;
+    summaryApprovedRef.current.add(ask.runId);
+    setSummaryAsk(null);
+    setSummaryDeclined(null);
+    // PRD 011 Req 33: persisted as an ordinary settings edit, and reversible
+    // from the LLM providers area — never a one-way door.
+    if (summaryDontAsk) applySettingsEdit('user', { llmConfirmSummaries: false });
+    setSummaryDontAsk(false);
+    startSummaryRun(ask.runId, null);
+  }, [summaryAsk, summaryDontAsk, applySettingsEdit, startSummaryRun]);
+
+  /**
+   * PRD 011 Req 33: Cancel. Zero LLM requests: the run is never started, the
+   * level falls back to the deterministic excerpts, and the decline is keyed to
+   * this run identity so leaving and re-entering asks again — no reload needed.
+   */
+  const declineSummaryRun = useCallback(() => {
+    if (!summaryAsk) return;
+    setSummaryDeclined(summaryAsk.runId);
+    setSummaryAsk(null);
+  }, [summaryAsk]);
 
   /**
    * PRD 011 Req 27: retry ONE failed section. It re-plans from the level's own
@@ -6128,6 +6281,54 @@ export default function App() {
                 onClick={() => void resolveSaveConflict('reload')}
               >
                 Reload
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PRD 011 Req 33: before the first summarization of this document at
+          this level, say what it would do — roughly how many sections and the
+          estimated cost — and let the reader proceed or cancel. Every number is
+          the pure estimator's, labelled an estimate; nothing here is measured
+          usage, and nothing here caps or blocks spending. No run is started
+          behind it: the summaries only begin on Proceed. */}
+      {summaryAsk && (
+        <div className="overlay">
+          <div
+            className="modal"
+            data-testid="summary-confirm"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') declineSummaryRun(); // Esc ⇒ cancel, as elsewhere
+            }}
+          >
+            <h2>{CONFIRM_SUMMARIES_TITLE}</h2>
+            <p style={{ fontSize: 13.5 }} data-testid="summary-confirm-sections">
+              {confirmSectionsLine(summaryAsk.estimate)}
+            </p>
+            <p style={{ fontSize: 13.5 }} data-testid="summary-confirm-cost">
+              {confirmCostLine(summaryAsk.estimate)}
+            </p>
+            <p className="hotkey-hint" data-testid="summary-confirm-note">
+              {CONFIRM_ESTIMATE_NOTE}
+            </p>
+            <div className="checkbox-row">
+              <label>
+                <input
+                  type="checkbox"
+                  data-testid="summary-confirm-dont-ask"
+                  checked={summaryDontAsk}
+                  onChange={(e) => setSummaryDontAsk(e.target.checked)}
+                />
+                Don’t ask again
+              </label>
+            </div>
+            <div className="actions">
+              <button data-testid="summary-confirm-cancel" autoFocus onClick={declineSummaryRun}>
+                Cancel
+              </button>
+              <button className="primary" data-testid="summary-confirm-proceed" onClick={acceptSummaryRun}>
+                Summarize
               </button>
             </div>
           </div>
