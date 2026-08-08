@@ -2,13 +2,10 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
-import {
-  ANTHROPIC_ENDPOINT,
-  GEMINI_BASE,
-  OPENAI_ENDPOINT,
-  OPENROUTER_ENDPOINT,
-} from '../../src/lib/llmProviders';
-import { offsiteOrigin } from '../../tests/e2e/offsite';
+// Imported as a namespace, not by name, because U651 asks the module what it
+// publishes as well as reading the four constants it publishes today.
+import * as llmProviders from '../../src/lib/llmProviders';
+import { offsiteOrigin } from '../e2e/offsite';
 
 /**
  * PRD 011 Req 35 (#121): "no test may contact a real provider" lived only in
@@ -23,16 +20,31 @@ import { offsiteOrigin } from '../../tests/e2e/offsite';
  *    appears anywhere outside the allowlist below, so a vendor host cannot
  *    even be typed into a test that never runs; U653 proves that scan bites.
  *
- * Every needle is derived from the provider descriptors, never hand-copied: a
- * sixth provider is covered here the day it is added. Same rule as
+ * Every needle is derived from the provider descriptors, never hand-copied, and
+ * U651 cross-checks the list against everything the module publishes — so a
+ * sixth provider's endpoint fails here until it is covered too. Same rule as
  * `tests/unit/static-web-no-llm.test.ts`, which scans the shipped bundle.
  */
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
 /** The vendor hosts, straight from the descriptors that own them. */
-const PROVIDER_HOSTS = [OPENAI_ENDPOINT, ANTHROPIC_ENDPOINT, GEMINI_BASE, OPENROUTER_ENDPOINT].map(
-  (endpoint) => new URL(endpoint).host,
+const PROVIDER_HOSTS = [
+  llmProviders.OPENAI_ENDPOINT,
+  llmProviders.ANTHROPIC_ENDPOINT,
+  llmProviders.GEMINI_BASE,
+  llmProviders.OPENROUTER_ENDPOINT,
+].map((endpoint) => new URL(endpoint).host);
+
+/**
+ * Every absolute URL `src/lib/llmProviders.ts` exports, whether or not the list
+ * above names it. This is what keeps that list from going quietly stale: the
+ * module is asked, rather than a reader being trusted to remember. `<unknown>`
+ * because the module's exports are literal-typed, so without it the narrowing
+ * below would be a type predicate over that union rather than over strings.
+ */
+const EXPORTED_ENDPOINTS = Object.values<unknown>(llmProviders).filter(
+  (value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value),
 );
 
 /**
@@ -65,6 +77,18 @@ describe('PRD 011 Req 35 no test can reach a real provider', () => {
     // assertions below trivially true.
     expect(PROVIDER_HOSTS).toHaveLength(4);
     for (const host of PROVIDER_HOSTS) expect(host.length).toBeGreaterThan(3);
+
+    // …and they are ALL of them: a sixth provider arrives as a sixth endpoint
+    // constant, which a hand-kept needle list would never hear about. Asking
+    // the module what it exports turns that into a failure here — right where
+    // someone is already editing the provider set — instead of a guard that
+    // silently stops covering the newest vendor.
+    expect(EXPORTED_ENDPOINTS.length).toBeGreaterThanOrEqual(PROVIDER_HOSTS.length);
+    for (const endpoint of EXPORTED_ENDPOINTS) {
+      expect(PROVIDER_HOSTS, `${endpoint} is exported but not scanned for`).toContain(
+        new URL(endpoint).host,
+      );
+    }
 
     // Reached by the app, by a fulfilled `page.route`, or by an evaluated
     // script — the classifier only ever sees the URL, and it refuses all four.
