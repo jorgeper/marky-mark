@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 /** Long enough that the full document really scrolls (PRD 011 Req 19). */
-const filler = (word: string) => `${`${word} padding prose.\n\n`.repeat(40)}`;
+const filler = (word: string) => `${word} padding prose.\n\n`.repeat(40);
 
 const ZOOM_DOC = `# Field Notes
 
@@ -184,28 +184,6 @@ test('E232: PRD 011 Req 19 — clicking a heading dives one level, and L5 lands 
   await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
 });
 
-test('E234: PRD 011 Req 22 — the excerpt notice routes to the LLM providers area itself', async ({ page }) => {
-  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
-  await page.goto('/#open=/docs/zoom.md');
-  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
-  await setSemanticZoom(page, true);
-
-  await page.getByTestId('semantic-zoom-out').click();
-  await expect(page.getByTestId('semantic-zoom-view')).toBeVisible();
-  // The desktop shim has an LLM path, so the notice offers the route rather
-  // than the no-path message.
-  await expect(page.getByTestId('semantic-zoom-no-llm')).toHaveCount(0);
-  await page.getByTestId('semantic-zoom-configure').click();
-  // Landing on the providers tab itself — not on General with the tab to hunt.
-  await expect(page.getByTestId('llm-provider')).toBeVisible();
-  await page.getByTestId('settings-close').click();
-
-  // Every other way in still opens on General, unchanged.
-  await openSettings(page, 'experimental');
-  await expect(page.getByTestId('experimental-semantic-zoom')).toBeChecked();
-  await page.getByTestId('settings-close').click();
-});
-
 test('E233: PRD 011 Req 20 — the level is view state: every document opens at L5', async ({ page }) => {
   await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
   await fsWrite(page, '/docs/other.md', '# Other\n\nOther prose.\n');
@@ -233,4 +211,26 @@ test('E233: PRD 011 Req 20 — the level is view state: every document opens at 
   const settings = (await fsRead(page, '/config/settings.json')) ?? '';
   expect(settings).toContain('semanticZoom');
   expect(settings).not.toMatch(/zoomLevel|semanticZoomLevel|"semanticZoom":\s*[0-9]/);
+});
+
+test('E234: PRD 011 Req 22 — the excerpt notice routes to the LLM providers area itself', async ({ page }) => {
+  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  await setSemanticZoom(page, true);
+
+  await page.getByTestId('semantic-zoom-out').click();
+  await expect(page.getByTestId('semantic-zoom-view')).toBeVisible();
+  // The desktop shim has an LLM path, so the notice offers the route rather
+  // than the no-path message.
+  await expect(page.getByTestId('semantic-zoom-no-llm')).toHaveCount(0);
+  await page.getByTestId('semantic-zoom-configure').click();
+  // Landing on the providers tab itself — not on General with the tab to hunt.
+  await expect(page.getByTestId('llm-provider')).toBeVisible();
+  await page.getByTestId('settings-close').click();
+
+  // Every other way in still opens on General, unchanged.
+  await openSettings(page, 'experimental');
+  await expect(page.getByTestId('experimental-semantic-zoom')).toBeChecked();
+  await page.getByTestId('settings-close').click();
 });

@@ -285,6 +285,17 @@ function unreadableStoreMessage(stores: DocStores): string {
 }
 
 /**
+ * PRD 011 Reqs 2+23: the semantic-zoom accelerators, paired with the commands
+ * they fire. Fixed rather than rebindable, so the table is built once here and
+ * not on every keystroke inside the global key handler.
+ */
+const SEMANTIC_ZOOM_KEYS: ReadonlyArray<[combo: string, id: CommandId]> = [
+  [SEMANTIC_ZOOM_COMBOS.semanticZoomIn, 'semanticZoomIn'],
+  [SEMANTIC_ZOOM_COMBOS.semanticZoomOut, 'semanticZoomOut'],
+  [SEMANTIC_ZOOM_COMBOS.semanticZoomReset, 'semanticZoomReset'],
+];
+
+/**
  * PRD 010 Req 18: the workspace a return from GitHub is REPAIRING, or null.
  * The deployment's setup URL is one fixed address, so a reconnect comes back
  * at the start page: this is what makes the app rebind to that workspace and
@@ -3838,8 +3849,12 @@ export default function App() {
   const docOpen = docPath !== null || untitled;
 
   // --- PRD 011 Reqs 17–22: the semantic-zoom render path (levels 1–4) ------------
-  /** PRD 011 Req 17: the title an untitled/heading-less document falls back to. */
-  const zoomFallbackTitle = docPath ? (platform?.basename(docPath) ?? docPath) : 'Untitled document';
+  /**
+   * PRD 011 Req 17: the title a heading-less document falls back to — the file
+   * name. Undefined for an untitled buffer, where `zoomView()` supplies its own
+   * `UNTITLED_DOCUMENT`.
+   */
+  const zoomFallbackTitle = docPath ? (platform?.basename(docPath) ?? docPath) : undefined;
   /** PRD 011 Req 2: the flag is the only switch; off ⇒ nothing below exists. */
   const zoomActive = settings.semanticZoom && isZoomReadOnly(zoomLevel) && docOpen;
   const zoomSections = useMemo(
@@ -4253,12 +4268,7 @@ export default function App() {
       // the Experimental flag off none of them is even looked at, so the
       // accelerators do nothing at all.
       if (stateRef.current.settings.semanticZoom) {
-        const semantic: Array<[string, CommandId]> = [
-          [SEMANTIC_ZOOM_COMBOS.semanticZoomIn, 'semanticZoomIn'],
-          [SEMANTIC_ZOOM_COMBOS.semanticZoomOut, 'semanticZoomOut'],
-          [SEMANTIC_ZOOM_COMBOS.semanticZoomReset, 'semanticZoomReset'],
-        ];
-        for (const [combo, id] of semantic) {
+        for (const [combo, id] of SEMANTIC_ZOOM_KEYS) {
           if (eventMatches(e, combo)) {
             e.preventDefault();
             dispatchCommand(id, 'hotkey');

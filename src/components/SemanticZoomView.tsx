@@ -20,7 +20,7 @@ import {
   ZOOM_LEVEL_LABELS,
   type ZoomDocument,
 } from '../lib/semanticZoom';
-import { ZOOM_LEVEL_FULL, ZOOM_LEVEL_MAX, ZOOM_LEVEL_MIN, type ZoomLevel } from '../lib/zoomLevels';
+import { clampZoomLevel, ZOOM_LEVEL_MAX, ZOOM_LEVEL_MIN, type ZoomLevel } from '../lib/zoomLevels';
 
 interface ControlProps {
   level: ZoomLevel;
@@ -30,8 +30,8 @@ interface ControlProps {
 /**
  * PRD 011 Req 21: the docked level indicator — the current level and what it
  * means, `+` / `−`, and a draggable handle across all five levels. It branches
- * on nothing: not on `platform.kind`, not on LLM availability. Clamping is
- * `clampZoomLevel()` by way of `stepZoomLevel()`, so neither end wraps.
+ * on nothing: not on `platform.kind`, not on LLM availability. Every route
+ * clamps through `clampZoomLevel()`, so neither end wraps.
  */
 export function SemanticZoomControl({ level, onLevel }: ControlProps) {
   return (
@@ -55,7 +55,7 @@ export function SemanticZoomControl({ level, onLevel }: ControlProps) {
         step={1}
         value={level}
         aria-label="Semantic zoom level"
-        onChange={(e) => onLevel(stepZoomLevel(ZOOM_LEVEL_MIN, Number(e.target.value) - ZOOM_LEVEL_MIN))}
+        onChange={(e) => onLevel(clampZoomLevel(Number(e.target.value)))}
       />
       <button
         className="semantic-zoom-step"
@@ -82,8 +82,16 @@ interface ViewProps {
   onDive: (sectionId: string) => void;
   /** PRD 011 Req 19: back to the full document, from any level. */
   onFull: () => void;
-  /** PRD 011 Req 22: open the LLM providers settings area; absent ⇒ no route. */
-  onConfigureLlm?: () => void;
+  /** PRD 011 Req 22: open the LLM providers settings area. */
+  onConfigureLlm: () => void;
+}
+
+/**
+ * The entry's heading size: the whole-document entry (depth 0) reads as a
+ * title, and anything past h6 stops growing.
+ */
+function depthClass(depth: number): string {
+  return `depth-${Math.min(6, Math.max(1, depth))}`;
 }
 
 /**
@@ -129,7 +137,7 @@ export function SemanticZoomView({ doc, llmArea, onDive, onFull, onConfigureLlm 
               data-depth={block.depth}
             >
               <button
-                className={`semantic-zoom-heading depth-${Math.max(1, Math.min(6, block.depth || 1))}`}
+                className={`semantic-zoom-heading ${depthClass(block.depth)}`}
                 data-testid="semantic-zoom-heading"
                 data-section-id={block.id}
                 onClick={() => onDive(block.id)}
@@ -156,6 +164,3 @@ export function SemanticZoomView({ doc, llmArea, onDive, onFull, onConfigureLlm 
     </div>
   );
 }
-
-/** PRD 011 Req 20: exported for the caller's reset — the level is view state. */
-export const SEMANTIC_ZOOM_HOME: ZoomLevel = ZOOM_LEVEL_FULL;
