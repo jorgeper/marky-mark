@@ -144,7 +144,9 @@ export function zoomBlockBody(
       // PRD 011 Req 27: the seam's OWN sentence, through the one helper the
       // settings area's test connection already uses. No second wording.
       return { kind: 'failure', message: testFailureMessage(state.failure) };
-    default:
+    // Exhaustive on purpose: a fifth slot state has to decide what it renders
+    // here rather than falling silently into the pending case.
+    case 'pending':
       return { kind: 'pending' };
   }
 }

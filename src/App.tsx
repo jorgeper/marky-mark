@@ -108,6 +108,7 @@ import { llmAreaState, testConnection, type LlmCapabilities, type LlmTestResult 
 // generated through the seam, cancelled by run identity.
 import { runSummaries } from './lib/summaryEngine';
 import {
+  acceptsSummaryResult,
   NO_SUMMARY_STATES,
   planSummarySlots,
   retrySlots,
@@ -4198,6 +4199,37 @@ export default function App() {
   }, []);
 
   /**
+   * PRD 011 Reqs 25+27: start a run of summaries for `runId` — the whole level
+   * when `retryKey` is null, and exactly the one failed section when it is not.
+   * Both callers below share this, so the runner selection, the plan and the
+   * cancellation rule are each written once.
+   */
+  const startSummaryRun = useCallback(
+    (runId: string, retryKey: string | null) => {
+      const { view, ctx, area, platform: host } = summarySourcesRef.current;
+      if (!view || !ctx) return;
+      const runner = selectLlmRunner(area, { hosted: host?.llm, transport: host?.llmTransport });
+      if (!runner) return;
+      const planned = planSummarySlots(view, ctx);
+      const slots = retryKey === null ? planned : retrySlots(planned, retryKey);
+      if (slots.length === 0) return;
+      void runSummaries({
+        slots,
+        ctx,
+        run: runner,
+        store: host?.summaryCache,
+        memo: summaryMemoRef.current,
+        onState: applySummaryState,
+        // PRD 011 Req 26: the whole cancellation guard, and the pure rule
+        // itself — a result whose run is no longer the current one reaches no
+        // view state.
+        isCancelled: () => !acceptsSummaryResult(summaryRunRef.current, runId),
+      });
+    },
+    [applySummaryState]
+  );
+
+  /**
    * PRD 011 Req 25: the ONE place a summary run starts — entering a zoomed
    * level with a provider available. Not on app start, not on document open,
    * not on a settings change, not on a timer: this effect fires when the run
@@ -4206,25 +4238,11 @@ export default function App() {
   useEffect(() => {
     summaryRunRef.current = summaryRun;
     setSummaryStates(NO_SUMMARY_STATES);
-    const { view, ctx, area, platform: host } = summarySourcesRef.current;
-    if (!summaryRun || !view || !ctx) return;
-    const runner = selectLlmRunner(area, { hosted: host?.llm, transport: host?.llmTransport });
-    if (!runner) return;
-    void runSummaries({
-      slots: planSummarySlots(view, ctx),
-      ctx,
-      run: runner,
-      store: host?.summaryCache,
-      memo: summaryMemoRef.current,
-      onState: applySummaryState,
-      // PRD 011 Req 26: the whole cancellation guard — a result whose run is no
-      // longer the current one reaches no view state.
-      isCancelled: () => summaryRunRef.current !== summaryRun,
-    });
+    if (summaryRun) startSummaryRun(summaryRun, null);
     return () => {
       summaryRunRef.current = null;
     };
-  }, [summaryRun, applySummaryState]);
+  }, [summaryRun, startSummaryRun]);
 
   /**
    * PRD 011 Req 27: retry ONE failed section. It re-plans from the level's own
@@ -4234,24 +4252,10 @@ export default function App() {
    */
   const retrySummarySection = useCallback(
     (summaryKey: string) => {
-      const { view, ctx, area, platform: host } = summarySourcesRef.current;
       const run = summaryRunRef.current;
-      if (!run || !view || !ctx) return;
-      const runner = selectLlmRunner(area, { hosted: host?.llm, transport: host?.llmTransport });
-      if (!runner) return;
-      const slots = retrySlots(planSummarySlots(view, ctx), summaryKey);
-      if (slots.length === 0) return;
-      void runSummaries({
-        slots,
-        ctx,
-        run: runner,
-        store: host?.summaryCache,
-        memo: summaryMemoRef.current,
-        onState: applySummaryState,
-        isCancelled: () => summaryRunRef.current !== run,
-      });
+      if (run) startSummaryRun(run, summaryKey);
     },
-    [applySummaryState]
+    [startSummaryRun]
   );
 
   // --- aux windows (SPEC13 §3): main owns state; views handshake and edit over the bus ----

@@ -101,7 +101,7 @@ const PENDING_TEXT = 'Summarizing…';
  * excerpt and a summary share the body id but declare their kind, a pending
  * slot and a failure have ids of their own.
  */
-function ZoomBody({
+function BlockBody({
   block,
   onDive,
   onRetry,
@@ -215,10 +215,12 @@ export function SemanticZoomView({
               >
                 {block.title}
               </button>
-              <ZoomBody
+              <BlockBody
                 block={block}
                 onDive={() => onDive(block.id)}
-                onRetry={() => block.summaryKey && onRetrySummary(block.summaryKey)}
+                onRetry={() => {
+                  if (block.summaryKey) onRetrySummary(block.summaryKey);
+                }}
               />
               {/* PRD 011 Req 17: folded descendants are named, never dropped. */}
               {block.folded.length > 0 && (

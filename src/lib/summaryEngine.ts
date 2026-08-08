@@ -54,7 +54,6 @@ export interface SummaryRunOptions {
   onState: (key: string, state: SummarySlotState) => void;
   /** PRD 011 Req 26: the run identity guard, asked before every emission. */
   isCancelled: () => boolean;
-  maxInFlight?: number;
 }
 
 /** A store read that answers a miss for anything it cannot answer (Req 25). */
@@ -104,8 +103,8 @@ async function storeSummary(
 /**
  * PRD 011 Reqs 25+26: fill these slots. Every slot is looked up in the cache
  * BEFORE any request is built; misses are requested in document order, at most
- * `maxInFlight` at a time, and each block's state is reported as it lands so a
- * slow section never holds up a fast one.
+ * {@link SUMMARY_MAX_IN_FLIGHT} at a time, and each block's state is reported as
+ * it lands so a slow section never holds up a fast one.
  *
  * The promise resolves when the run is done or abandoned. A cancelled run
  * issues no further request and emits no further state.
@@ -125,7 +124,7 @@ export async function runSummaries(opts: SummaryRunOptions): Promise<void> {
   for (const slot of wanted) {
     if (isCancelled()) return;
     const hit = memo?.get(slot.key) ?? (await cachedSummary(store, slot.key));
-    if (hit !== undefined && hit !== null) {
+    if (hit !== null) {
       memo?.set(slot.key, hit);
       emit(slot.key, { status: 'summary', text: hit });
     } else {
@@ -134,7 +133,7 @@ export async function runSummaries(opts: SummaryRunOptions): Promise<void> {
   }
 
   // PRD 011 Req 26: a fixed pool over one shared cursor — requests leave in
-  // document order, and never more than `maxInFlight` are outstanding.
+  // document order, and never more than SUMMARY_MAX_IN_FLIGHT are outstanding.
   let next = 0;
   const worker = async (): Promise<void> => {
     for (;;) {
@@ -155,6 +154,6 @@ export async function runSummaries(opts: SummaryRunOptions): Promise<void> {
     }
   };
 
-  const width = Math.max(1, Math.min(opts.maxInFlight ?? SUMMARY_MAX_IN_FLIGHT, todo.length));
+  const width = Math.max(1, Math.min(SUMMARY_MAX_IN_FLIGHT, todo.length));
   await Promise.all(Array.from({ length: width }, () => worker()));
 }
