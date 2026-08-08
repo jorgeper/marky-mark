@@ -1,5 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from './fixtures';
+// PRD 011 Req 9 (#121): the static-web sentence comes from the module that
+// owns it, so a reword fails W14 rather than passing against a stale copy.
+import { NO_LLM_PLATFORM_MESSAGE } from '../../src/lib/llmSettings';
 
 /**
  * W-tests (SPEC2 §7): run against the BUILT single-file web app
@@ -37,7 +40,9 @@ async function openWelcomeViaHelp(page: import('@playwright/test').Page) {
 
 async function openSettings(
   page: import('@playwright/test').Page,
-  tab: 'appearance' | 'general' | 'hotkeys' = 'appearance'
+  // PRD 011 Reqs 9+22 (#121): widened for the two tabs the web build's LLM
+  // story lives on — same helper, two more destinations, no caller replaced.
+  tab: 'appearance' | 'general' | 'hotkeys' | 'llm' | 'experimental' = 'appearance'
 ) {
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
@@ -470,4 +475,110 @@ test('W13: the single-file web start page offers the drag hint and Open File —
   await page.getByTestId('start-openFile').click();
   await (await chooser).setFiles({ name: 'picked.md', mimeType: 'text/markdown', buffer: Buffer.from(SAMPLE_MD) });
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Web Sample');
+});
+
+// --- PRD 011 Reqs 9+22+35 (#121): the static build's whole LLM story ---------
+// Req 35 enumerates "the settings area's availability states on each flavor";
+// desktop is E226–E228, hosted is E246, and this is the static web one. Req 22
+// names the only semantic-zoom behaviour this build has — excerpts — and it is
+// pinned here on the BUILT single-file page rather than inferred from the shim.
+// Neither test can contact a provider even in principle: the bundle carries no
+// provider host and its CSP forbids every outbound connection (U556–U558), and
+// the shared fixture fails any request that leaves loopback (Req 35).
+
+const ZOOM_DOC = `# Field Notes
+
+Opening prose for the whole document. It runs a little long on purpose.
+
+## Editing
+
+Editing prose lives here. A second sentence follows it.
+
+### Smart edit
+
+Smart edit prose sits one level deeper.
+
+## Viewing
+
+Viewing prose lives here.
+`;
+
+test('W14: PRD 011 Reqs 8+9 — the LLM providers area says the platform has no path, and offers not one control', async ({
+  page,
+}) => {
+  await openSettings(page, 'llm');
+
+  // The `no-path` sentence, from the module that owns it: it names the two
+  // flavors that do have a path rather than leaving the reader stuck.
+  await expect(page.getByTestId('llm-availability')).toHaveText(NO_LLM_PLATFORM_MESSAGE);
+
+  // Req 9: never a control that cannot work. Not one of them is drawn — no key
+  // to type, no key to remove, no provider or model to pick, no connection to
+  // test, and no cache to report or clear, because there is no store behind it.
+  for (const id of [
+    'llm-provider',
+    'llm-model',
+    'llm-model-preset',
+    'llm-base-url',
+    'llm-api-key',
+    'llm-remove-key',
+    'llm-test',
+    'llm-test-result',
+    'llm-hosted-provider',
+    'summary-cache-size',
+    'summary-cache-clear',
+  ]) {
+    await expect(page.getByTestId(id), `${id} is drawn on a platform that cannot use it`).toHaveCount(0);
+  }
+  await page.getByTestId('settings-close').click();
+});
+
+test('W15: PRD 011 Req 22 — all five levels work on excerpts, and the view says they are excerpts', async ({
+  page,
+}) => {
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-semantic-zoom').check();
+  await page.getByTestId('settings-close').click();
+  await dropFile(page, 'zoom.md', ZOOM_DOC);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+
+  // L5: the untouched document, and `+` is inert at the top of the range.
+  await expect(page.getByTestId('semantic-zoom-level')).toContainText('Full document');
+  await expect(page.getByTestId('semantic-zoom-in')).toBeDisabled();
+  await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
+
+  // L4: every heading, one block each — and each block is a deterministic
+  // excerpt of that section's own opening prose, never a summary claim.
+  await page.getByTestId('semantic-zoom-out').click();
+  await expect(page.getByTestId('semantic-zoom-view')).toBeVisible();
+  await expect(page.getByTestId('semantic-zoom-entry')).toHaveCount(4);
+  await expect(page.getByTestId('semantic-zoom-body').first()).toContainText('Opening prose');
+  await expect(page.getByTestId('semantic-zoom-summary-note')).toHaveCount(0);
+  await expect(page.getByTestId('semantic-zoom-excerpt-note')).toContainText('excerpts');
+
+  // Req 22 + Req 9: the notice tells the truth about THIS platform. There is
+  // nowhere to configure a provider, so it says so instead of offering a route
+  // that would land on a page with no controls (the desktop route is E234).
+  await expect(page.getByTestId('semantic-zoom-no-llm')).toHaveText(NO_LLM_PLATFORM_MESSAGE);
+  await expect(page.getByTestId('semantic-zoom-configure')).toHaveCount(0);
+
+  // L3: headings to depth 2, the deeper one folded into its kept ancestor.
+  await page.getByTestId('semantic-zoom-out').click();
+  await expect(page.getByTestId('semantic-zoom-entry')).toHaveCount(3);
+  await expect(page.getByTestId('semantic-zoom-folded').first()).toContainText('Smart edit');
+
+  // L2: top-level headings only. L1: the document in one block, and `−` is
+  // inert at the bottom rather than wrapping.
+  await page.getByTestId('semantic-zoom-out').click();
+  await expect(page.getByTestId('semantic-zoom-entry')).toHaveCount(1);
+  await page.getByTestId('semantic-zoom-out').click();
+  await expect(page.getByTestId('semantic-zoom-level')).toContainText('Whole document');
+  await expect(page.getByTestId('semantic-zoom-entry')).toHaveCount(1);
+  await expect(page.getByTestId('semantic-zoom-out')).toBeDisabled();
+  await expect(page.getByTestId('semantic-zoom-excerpt-note')).toHaveCount(1);
+
+  // Back to full: the document is exactly what was dropped, unchanged.
+  await page.getByTestId('semantic-zoom-full').click();
+  await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
 });

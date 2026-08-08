@@ -1,6 +1,9 @@
 import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { addComment, menuSave, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
+// PRD 011 Req 9 (#121): the sentence under test comes from the module that
+// owns it, so a reworded message fails E246 rather than passing a stale copy.
+import { NO_LLM_CONFIGURED_MESSAGE } from '../../src/lib/llmDeployment';
 
 // PRD 007 Req 1+4: the hosted backend in local dev mode — booted by the
 // second `webServer` entry in playwright.config.ts (`npm run server:local`:
@@ -2231,4 +2234,51 @@ test('E220: dropping a local file with a workspace open crosses into single-file
   expect(new URL(page.url()).search).toBe('');
   expect(await listFiles(request, ada, id)).toEqual(['theirs.md']);
   expect(await readAs(request, ada, id, 'theirs.md')).toBe('# Theirs\n');
+});
+
+// --- PRD 011 Reqs 8+9+35 (#121): the hosted flavor's LLM availability state --
+// Req 35 enumerates "the settings area's availability states on each flavor".
+// Desktop is E226–E228 and static web is W14; this is the hosted one. The local
+// dev server names no MM_LLM_* variable, so the deployment answers
+// `configured: false` and the area is in its `operator-unconfigured` state —
+// the flavor's honest resting state, and the one a member is most likely to
+// meet. Nothing here contacts a provider: the server makes no outbound request
+// until a POST asks it to, and no test posts one.
+
+test('E246: PRD 011 Reqs 8+9 — hosted with no operator provider says so, and offers a member no key field', async ({
+  page,
+}) => {
+  await signInTo(page, 'ada');
+  await revealToolbar(page);
+  await openSettings(page, 'llm');
+
+  // The sentence is the deployment's own (src/lib/llmDeployment.ts), not one
+  // this panel composed: it names what is missing and who can fix it.
+  await expect(page.getByTestId('llm-availability')).toHaveText(NO_LLM_CONFIGURED_MESSAGE);
+
+  // Req 8: the credential is the operator's. A member is offered no field to
+  // type one into, and no action to remove one they never had.
+  await expect(page.getByTestId('llm-api-key')).toHaveCount(0);
+  await expect(page.getByTestId('llm-remove-key')).toHaveCount(0);
+  // …and no provider or model control either: choosing them is not theirs.
+  await expect(page.getByTestId('llm-provider')).toHaveCount(0);
+  await expect(page.getByTestId('llm-model')).toHaveCount(0);
+  await expect(page.getByTestId('llm-model-preset')).toHaveCount(0);
+  await expect(page.getByTestId('llm-base-url')).toHaveCount(0);
+  // Nothing is configured, so there is nothing to name as in use.
+  await expect(page.getByTestId('llm-hosted-provider')).toHaveCount(0);
+
+  // Req 9: no control that cannot work. Test connection is rendered but inert,
+  // and the reason it is inert is the availability sentence itself — not a
+  // second wording invented for the button.
+  await expect(page.getByTestId('llm-test')).toBeDisabled();
+  await expect(page.getByTestId('llm-test')).toHaveAttribute('title', NO_LLM_CONFIGURED_MESSAGE);
+  await expect(page.getByTestId('llm-test-result')).toHaveCount(0);
+
+  // Req 9+30, the same rule again: on hosted the cache belongs to the
+  // workspace (src/platform/hosted.ts), and this session has none open — so
+  // the section is absent rather than drawn over a store that does not exist.
+  await expect(page.getByTestId('summary-cache-size')).toHaveCount(0);
+  await expect(page.getByTestId('summary-cache-clear')).toHaveCount(0);
+  await page.getByTestId('settings-close').click();
 });

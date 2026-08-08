@@ -754,3 +754,72 @@ test('E244: PRD 011 Req 32 — a provider that returns no usage is said so, not 
   await expect(page.getByTestId('llm-usage-total')).toContainText('The provider returned no usage data');
   await page.getByTestId('settings-close').click();
 });
+
+// --- PRD 011 Req 35 (#121): the enumerated item the audit found uncovered ----
+// "The cache prevents a second call for unchanged content" is pinned within one
+// session by E235 (re-entering the same level) and across the Experimental
+// switch by E240. Neither survives a RELOAD, and the reload is the interesting
+// case: the store's whole point is that a document reopen and an app restart
+// are the same code path as any other get (src/platform/summaryCacheFiles.ts),
+// and the in-page fake's call counter is destroyed by the reload — so a cache
+// that quietly re-asked would show up here as calls the reader paid for twice.
+
+test('E245: PRD 011 Reqs 28+29 — reopening the document serves the cache, and only a changed section is re-asked', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/zoom.md', ZOOM_DOC);
+  await page.goto('/#open=/docs/zoom.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  await setSemanticZoom(page, true);
+  await configureProvider(page);
+  await scriptFake(page, { text: 'A generated summary.' });
+
+  // Pay for L4 once: four sections, four calls, four summaries on the file.
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await proceedSummaries(page);
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  expect(await fakeCalls(page)).toBe(4);
+  await page.getByTestId('semantic-zoom-full').click();
+
+  // Reopen: a real reload, so the app rebuilds its cache store from
+  // <configDir>/summary-cache.json and the fake starts from zero calls. The
+  // key and the Experimental switch come back with it — both are settings.
+  await page.reload();
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+  expect(await fakeCalls(page)).toBe(0);
+
+  // Entering the same level on unchanged content asks NOTHING: no request, and
+  // no spend confirmation either, because there is nothing left to spend on.
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  await expect(page.getByTestId('semantic-zoom-body').first()).toContainText('A generated summary.');
+  await expect(page.getByTestId('summary-confirm')).toHaveCount(0);
+  await expect(page.getByTestId('semantic-zoom-excerpt-note')).toHaveCount(0);
+  expect(await fakeCalls(page)).toBe(0);
+  await page.getByTestId('semantic-zoom-full').click();
+
+  // Now change ONE section's prose. The cache is keyed by section content, so
+  // exactly that section is re-asked and its three siblings are still served.
+  await scriptFake(page, { text: 'A regenerated summary.' });
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  // The document's opening section — CodeMirror only renders the lines in
+  // view, so the edit goes where the caret can reach without scrolling.
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'Opening prose' }).first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' Now with an extra sentence.');
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty')).toHaveCount(0);
+
+  await page.getByTestId('semantic-zoom-slider').fill('4');
+  await proceedSummaries(page);
+  await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
+  expect(await fakeCalls(page)).toBe(1);
+  await expect(page.getByTestId('semantic-zoom-body').filter({ hasText: 'A regenerated summary.' })).toHaveCount(1);
+  await expect(page.getByTestId('semantic-zoom-body').filter({ hasText: 'A generated summary.' })).toHaveCount(3);
+
+  // The cache grew by that one entry rather than being rebuilt from scratch.
+  await openSettings(page, 'llm');
+  await expect(page.getByTestId('summary-cache-size')).toContainText('5 summaries');
+  await page.getByTestId('settings-close').click();
+});

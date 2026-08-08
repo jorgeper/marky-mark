@@ -216,7 +216,18 @@ record('CLAUDE.md resolves to AGENTS.md', Date.now() - linkStart);
 // hosted proxy (#113) and summary cache (#115) are server routes; all three
 // are covered by unit tests (U490+, U536+) and the hosted lane, none of which
 // this floor counts. Unchanged, not stale.
-const E2E_TEST_FLOOR = 226;
+// 247 as of issue #121: that #114 note went stale the moment the LLM work
+// reached the UI. The reader-facing halves of PRD 011 landed as desktop-shim
+// tests after it — E226–E228 (the LLM providers page, #116) and E229–E244 (the
+// semantic zoom view, #117–#120) — leaving the floor 19 behind the 245 the
+// suite already collected. This issue's audit added the two the enumeration in
+// Req 35 was still missing: E245 (the cache survives a document reopen,
+// tests/e2e/semantic-zoom.spec.ts) and E246 (the hosted flavor's LLM
+// availability state, tests/e2e/hosted.spec.ts). Re-pinned to the collected
+// count so it means "this many tests exist" again. The web suite's new W14/W15
+// are not counted here — `testIgnore` keeps web.spec.ts to
+// playwright.web.config.ts, as it always has.
+const E2E_TEST_FLOOR = 247;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {
