@@ -87,7 +87,7 @@ describe('PRD 011 Req 30 — cache size and clear', () => {
     expect(summaryCacheIsShared(areas['no-path'])).toBe(false);
   });
 
-  test('U626: a refused clear says why in the reader words and never repeats the server', () => {
+  test('U626: a refused clear says why in the reader’s words and never repeats the server', () => {
     // What `createHostedSummaryCache.clear` throws when the route answers 403.
     expect(summaryCacheClearFailureMessage(new Error('forbidden'))).toBe(SUMMARY_CACHE_CLEAR_DENIED);
     expect(summaryCacheClearFailureMessage('HTTP 403')).toBe(SUMMARY_CACHE_CLEAR_DENIED);

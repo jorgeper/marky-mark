@@ -905,40 +905,43 @@ export function SettingsPanel({
       <p className="hotkey-hint experimental-warning" data-testid="experimental-warning">
         {EXPERIMENTAL_WARNING}
       </p>
-      {EXPERIMENTAL_FEATURES.map((f) => (
-        <div className="experimental-row" key={f.key}>
-          <div className="checkbox-row">
-            <input
-              id={f.testId}
-              type="checkbox"
-              data-testid={f.testId}
-              checked={settings[f.key] === true}
-              onChange={(e) => onChange({ ...settings, [f.key]: e.target.checked })}
-            />
-            <label htmlFor={f.testId} style={{ margin: 0, fontWeight: 400 }}>
-              {f.label}
-            </label>
-            {scopeNote(f.key)}
-          </div>
-          <p className="hotkey-hint experimental-desc" data-testid={`${f.testId}-description`}>
-            {f.description}
-          </p>
-          {/* PRD 011 Req 3: standing down is OFFERED, never imposed — the row
-              says the switch deletes nothing and routes to where it is done. */}
-          {f.standDown && (
-            <p className="hotkey-hint experimental-desc" data-testid={`${f.testId}-stand-down`}>
-              {f.standDown.sentence}{' '}
-              <button
-                className="linklike"
-                data-testid={`${f.testId}-stand-down-link`}
-                onClick={() => setTab(f.standDown!.tab)}
-              >
-                {f.standDown.linkLabel}
-              </button>
+      {EXPERIMENTAL_FEATURES.map((f) => {
+        const { standDown } = f;
+        return (
+          <div className="experimental-row" key={f.key}>
+            <div className="checkbox-row">
+              <input
+                id={f.testId}
+                type="checkbox"
+                data-testid={f.testId}
+                checked={settings[f.key] === true}
+                onChange={(e) => onChange({ ...settings, [f.key]: e.target.checked })}
+              />
+              <label htmlFor={f.testId} style={{ margin: 0, fontWeight: 400 }}>
+                {f.label}
+              </label>
+              {scopeNote(f.key)}
+            </div>
+            <p className="hotkey-hint experimental-desc" data-testid={`${f.testId}-description`}>
+              {f.description}
             </p>
-          )}
-        </div>
-      ))}
+            {/* PRD 011 Req 3: standing down is OFFERED, never imposed — the row
+                says the switch deletes nothing and routes to where it is done. */}
+            {standDown && (
+              <p className="hotkey-hint experimental-desc" data-testid={`${f.testId}-stand-down`}>
+                {standDown.sentence}{' '}
+                <button
+                  className="linklike"
+                  data-testid={`${f.testId}-stand-down-link`}
+                  onClick={() => setTab(standDown.tab)}
+                >
+                  {standDown.linkLabel}
+                </button>
+              </p>
+            )}
+          </div>
+        );
+      })}
     </>
   );
 

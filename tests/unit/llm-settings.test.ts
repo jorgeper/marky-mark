@@ -242,7 +242,7 @@ describe('PRD 011 Req 10 test connection', () => {
 });
 
 describe('PRD 011 Req 3 removing the key', () => {
-  test('U627: Remove key is offered only where the key is the reader own', () => {
+  test('U627: Remove key is offered only where the key is the reader’s own', () => {
     // Desktop, key present and everything else in place: the reader owns it.
     expect(canRemoveLlmKey(llmAreaState(desktop, configured))).toBe(true);
     // Desktop with something missing — still the reader's own credential slot,

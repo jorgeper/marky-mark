@@ -14,6 +14,7 @@ import {
   offersSummaryCacheSection,
   summaryCacheIsShared,
   summaryCacheReport,
+  SUMMARY_CACHE_CLEAR_FAILED,
   SUMMARY_CACHE_SHARED_NOTE,
   SUMMARY_CACHE_UNREADABLE_MESSAGE,
   type SummaryCacheClearResult,
@@ -86,6 +87,18 @@ type CacheState =
   | { phase: 'reading' }
   | { phase: 'size'; report: string }
   | { phase: 'error'; message: string };
+
+/** The one line the section shows for the state it is in — one sentence each. */
+function cacheSentence(state: CacheState): string {
+  switch (state.phase) {
+    case 'reading':
+      return 'Reading the cache…';
+    case 'size':
+      return state.report;
+    case 'error':
+      return state.message;
+  }
+}
 
 export function LlmSettings({
   values,
@@ -193,9 +206,12 @@ export function LlmSettings({
         else setClearFailure(result.message);
       },
       () => {
+        // A broken bus, not a refusal the store reported — but the reader's
+        // question is the same one, so it gets the answer about the CLEAR
+        // ("nothing was deleted"), never the read failure's sentence.
         if (!live.current) return;
         setClearing(false);
-        setClearFailure(SUMMARY_CACHE_UNREADABLE_MESSAGE);
+        setClearFailure(SUMMARY_CACHE_CLEAR_FAILED);
       }
     );
   };
@@ -204,7 +220,7 @@ export function LlmSettings({
     <>
       <h3 className="tab-section">Summary cache</h3>
       <p className="hotkey-hint" data-testid="summary-cache-size">
-        {cache.phase === 'reading' ? 'Reading the cache…' : cache.phase === 'size' ? cache.report : cache.message}
+        {cacheSentence(cache)}
       </p>
       {/* PRD 011 Req 30: on hosted the cache is the workspace's, so what Clear
           throws away is said before the click rather than after it. */}
