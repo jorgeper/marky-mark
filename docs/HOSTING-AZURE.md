@@ -15,6 +15,13 @@ Read [Known limitations](#known-limitations) before you set aside an afternoon
 for this: the documented start command does not get past its own imports yet,
 and tenant user search and avatars do not work against a real tenant.
 
+> **Prefer clicking to typing?** [HOSTING-AZURE-PORTAL.md](HOSTING-AZURE-PORTAL.md)
+> is the same deployment as a portal walkthrough — every blade named, every field
+> spelled out, written for an operator who knows Azure a little rather than well.
+> Use this file when you want to script the deployment or drop it into CI; use
+> that one when you want to click through it once. They pin the same values and
+> carry the same limitations.
+
 ## Before you start
 
 - An **Azure subscription** you can create resource groups in.
