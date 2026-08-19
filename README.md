@@ -57,7 +57,9 @@ Either way it's a one-time step — the app opens normally afterwards.
   HTML reading page: your themed document with comments as numbered notes,
   zero scripts, opens anywhere — with or without comments and word counts,
   in the theme of your choice (the app remembers it). File → Print… (⌘P)
-  prints the document natively — and the print dialog does PDF.
+  prints that same rendered document — all of it, from reading, editing or
+  split view, on light paper whatever theme you read in — and the print
+  dialog does PDF.
 - **A real desktop citizen** — native menus (macOS menu bar / Windows menu
   bar), a chromeless window with no in-app toolbar, and real Settings (⌘,)
   and About windows — not in-page pop-overs.

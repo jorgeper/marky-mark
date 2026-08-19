@@ -1,4 +1,5 @@
 import type { Platform } from './types';
+import { PRINT_ROOT_ID } from '../lib/printDoc';
 import { createFileSummaryCache } from './summaryCacheFiles';
 import { createFakeLlm } from '../lib/llmFake';
 import { FIXTURES } from '../bundled';
@@ -83,6 +84,14 @@ declare global {
     __mmReveals?: string[];
     /** SPEC35 §1: strings handed to copyText, newest last. */
     __mmClipboard?: string[];
+    /** SPEC18 §2: native print invocations recorded by the shim (E67). */
+    __mmPrints?: string[];
+    /**
+     * issue #124: the body that WOULD have gone to paper — whatever the
+     * print root held when printCurrent() was called, which is exactly what
+     * @media print puts on the page (null if no root was mounted).
+     */
+    __mmPrintHtml?: string | null;
     /**
      * SPEC19 §2.3: the shim's updater mock — tests set `next` (null = up to
      * date, a version = available, {error} = failure) and read back what
@@ -248,9 +257,12 @@ export function createBrowserPlatform(): Platform {
     ...(nativeMenu ? { setAppMenu, openAuxWindow, closeFocusedAuxWindow } : {}),
     busEmit,
     busListen,
-    // The shim never opens print UI — record invocations for e2e (E67).
+    // The shim never opens print UI — it records the invocation for e2e (E67,
+    // whose exact string is untouched) and, per issue #124, the print root's
+    // body alongside it.
     async printCurrent() {
-      ((window as unknown as { __mmPrints?: string[] }).__mmPrints ??= []).push('print-current');
+      (window.__mmPrints ??= []).push('print-current');
+      window.__mmPrintHtml = document.getElementById(PRINT_ROOT_ID)?.innerHTML ?? null;
     },
     // SPEC19 §2.3: mocked updater, driven by window.__mmUpdate (E69/E70).
     updates: {

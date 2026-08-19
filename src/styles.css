@@ -1698,23 +1698,87 @@ mark.hl.ghost {
   background: color-mix(in srgb, var(--mm-accent, #0969da) 16%, transparent);
 }
 
-/* --- File → Print…: paper shows the document, not the app chrome --- */
+/* --- File → Print… (issue #124; SPEC18 §2): paper shows the DOCUMENT ------
+   Two paths through one block.
+
+   PATH 1 — the app's own Print… (App.tsx runPrint): a print-only root
+   (#mm-print-root) holding the rendered document under the light theme is
+   mounted, <body> gets .mm-printing, and paper shows only that root. The
+   screen app is hidden wholesale, which is what unclips long documents:
+   .workspace is a scroll box, so printing it can only ever yield the one
+   screenful that is inside it — the print root has no such box and flows
+   across as many pages as the document needs. Its own styles arrive scoped
+   to #mm-print-root (src/lib/printDoc.ts), so nothing here dresses it.
+
+   PATH 2 — FAIL-SAFE, no root mounted: a browser-initiated ⌘P on the web
+   build, or the webview printing on its own, must still produce the
+   chrome-free document rather than a blank page. Everything outside the
+   .mm-printing rules stands on its own for exactly that case.
+
+   Print… has no options dialog either way: comment highlights, the comments
+   panel and the word-count chip stay off paper — Export… is the route for
+   comments and stats. */
 @media print {
+  /* Chrome that is never on paper, on either path. */
   .toolbar-shell,
   .toolbar-hotzone,
+  .folder-panel,
+  .folder-slide,
+  .folder-expand,
+  .edge-cluster,
   .comment-nav,
   .word-chip,
   .split-divider,
-  .panel {
+  .panel,
+  .editor-wrap,
+  .fm-card,
+  .find-bar,
+  .palette-scrim,
+  .palette,
+  .img-resize-overlay,
+  .overlay {
     display: none !important;
   }
-  .workspace {
+
+  /* Path 2: unclip the scroll box, flatten the page, and keep paper light —
+     a dark theme would otherwise print a slab (path 1 picks a light theme
+     instead, so these must not reach the mounted root). */
+  body:not(.mm-printing) .workspace {
     overflow: visible !important;
   }
-  .doc {
+  body:not(.mm-printing) .doc {
     max-width: none;
     padding: 0;
   }
+  body:not(.mm-printing) .theme-root {
+    --mm-bg: #ffffff;
+    --mm-fg: #1f2328;
+    --mm-heading: #1f2328;
+    --mm-fg-muted: #59636e;
+    --mm-code-bg: #f6f8fa;
+    --mm-code-fg: #1f2328;
+    --mm-border: #d1d9e0;
+    background: #ffffff !important;
+    color: #1f2328 !important;
+  }
+  body:not(.mm-printing) mark.hl {
+    background: none !important;
+  }
+
+  /* Path 1: the app is off paper, the print root is on it. */
+  body.mm-printing > #root {
+    display: none !important;
+  }
+  #mm-print-root {
+    display: block !important;
+  }
+}
+
+/* The print root is never on screen — it exists only between the mount and
+   the teardown around the native print call, and must not flash or shift
+   the layout while it is there. */
+#mm-print-root {
+  display: none;
 }
 
 /* --- SPEC19: update dialog --- */

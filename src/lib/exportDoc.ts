@@ -55,16 +55,13 @@ ${items}
 </section>`;
 }
 
-export function buildStaticHtml(page: StaticPage): string {
-  return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(page.title)}</title>
-<style>
-${page.themeCss}
-body { margin: 0; }
+/**
+ * The static reading page's own rules — everything but the theme, which the
+ * caller prepends. Exported because File → Print… (issue #124) dresses its
+ * transient print root in exactly these rules rather than duplicating them:
+ * one style block, so paper and the exported HTML never drift apart.
+ */
+export const STATIC_PAGE_CSS = `body { margin: 0; }
 .theme-root {
   min-height: 100vh;
   background: var(--mm-bg, #fff);
@@ -92,7 +89,18 @@ sup.mm-ref a { color: var(--mm-accent, #0969da); text-decoration: none; font-wei
 .mm-comments blockquote { font-style: italic; }
 .mm-comment-reply { margin-left: 1.4em; }
 .mm-stats { margin-top: 2.5em; border-top: 1px solid var(--mm-border, #d1d9e0); padding-top: 0.8em; color: var(--mm-fg-muted, #59636e); font-size: 0.85em; }
-@media print { .doc { padding: 0; max-width: none; } }
+@media print { .doc { padding: 0; max-width: none; } }`;
+
+export function buildStaticHtml(page: StaticPage): string {
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(page.title)}</title>
+<style>
+${page.themeCss}
+${STATIC_PAGE_CSS}
 </style>
 </head>
 <body>
