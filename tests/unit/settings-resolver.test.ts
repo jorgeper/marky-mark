@@ -57,6 +57,9 @@ describe('PRD 002 §B5 scope inventory', () => {
       imageNamePattern: 'W',
       splitEdit: 'M',
       splitRatio: 'M',
+      // Issue #125: the remembered view mode is this reader's own layout
+      // state, like the split keys beside it.
+      lastViewMode: 'M',
       showFolders: 'M',
       folderWidth: 'M',
     };

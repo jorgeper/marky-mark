@@ -264,7 +264,7 @@ test('E92: crash-safe drafts — shadow write, restore, discard, staleness after
   await expect(page.getByTestId('restore-prompt')).toContainText('welcome.md');
   await page.getByTestId('restore-yes').click();
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
-  await page.keyboard.press('Control+e');
+  // Issue #125: the restored document reopens in the remembered edit mode.
   await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('DRAFTMARK');
   await expect.poll(() => fsRead(page, '/config/draft.json')).toBeNull();
 

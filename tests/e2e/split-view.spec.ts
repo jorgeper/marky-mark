@@ -734,3 +734,117 @@ test('E128: cue-anchored split sync — the selected word stays level in both pa
     expect(Math.abs(d! - base!)).toBeLessThan(15);
   }
 });
+
+test('E247: issue #125 — the edit/preview switch sits left of the preview chevron and flips the mode', async ({
+  page,
+}) => {
+  const sw = page.getByTestId('mode-switch');
+  const collapse = page.getByTestId('preview-collapse');
+
+  // Preview: the switch is up (a document is open and editable), names the
+  // move it makes, and its live segment says which mode is CURRENT.
+  await expect(sw).toBeVisible();
+  await expect(sw).toHaveAttribute('data-mode', 'preview');
+  await expect(sw).toHaveAttribute('title', 'Switch to edit');
+  await expect(sw).toHaveAttribute('aria-label', 'Switch to edit');
+  await expect(page.getByTestId('mode-switch-preview')).toHaveClass(/\bon\b/);
+  await expect(page.getByTestId('mode-switch-edit')).not.toHaveClass(/\bon\b/);
+  // PRD 003 Reqs 6–7: full preview is not a closed split — no chevron there,
+  // so the switch has the corner to itself and hugs the right edge.
+  await expect(collapse).toHaveCount(0);
+  await expect(page.getByTestId('preview-expand')).toHaveCount(0);
+  const viewport = page.viewportSize()!;
+  const soloBox = (await stableBox(sw))!;
+  expect(soloBox.x + soloBox.width).toBeGreaterThan(viewport.width - 24);
+
+  // It dispatches toggleMode: preview → edit, exactly like ⌘E.
+  await sw.click();
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('doc')).toHaveCount(0);
+  await expect(sw).toHaveAttribute('data-mode', 'edit');
+  await expect(sw).toHaveAttribute('title', 'Switch to preview');
+  await expect(page.getByTestId('mode-switch-edit')).toHaveClass(/\bon\b/);
+  await expect(page.getByTestId('mode-switch-preview')).not.toHaveClass(/\bon\b/);
+
+  // In edit mode both tabs are up, and the switch sits immediately to the
+  // LEFT of the chevron — adjacent, on the same row, never overlapping.
+  await expect(collapse).toBeVisible();
+  const switchBox = (await stableBox(sw))!;
+  const chevronBox = (await stableBox(collapse))!;
+  expect(switchBox.x + switchBox.width).toBeLessThanOrEqual(chevronBox.x + 1);
+  expect(chevronBox.x - (switchBox.x + switchBox.width)).toBeLessThan(8);
+  expect(Math.abs(switchBox.y - chevronBox.y)).toBeLessThan(4);
+  expect(chevronBox.x + chevronBox.width).toBeGreaterThan(viewport.width - 24);
+
+  // The chevron still drives the split alone — the switch does not move.
+  await collapse.click();
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await expect(sw).toHaveAttribute('data-mode', 'edit');
+  await page.getByTestId('preview-expand').click();
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+
+  // And back: edit → preview through the same switch.
+  await sw.click();
+  await expect(page.getByTestId('doc')).toBeVisible();
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(sw).toHaveAttribute('data-mode', 'preview');
+
+  // PRD 007 Req 17 + issue #40: no document, no switch — the splash is
+  // preview-only, the same gate the toolbar's Edit button uses.
+  await page.goto('/');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(sw).toHaveCount(0);
+});
+
+test('E248: issue #125 — the last chosen mode is remembered: a new document, and a restart, land in it', async ({
+  page,
+}) => {
+  await page.evaluate(() => {
+    window.__mmfs!.write('/docs/one.md', '# One\n\nFirst document.\n');
+    window.__mmfs!.write('/docs/two.md', '# Two\n\nSecond document.\n');
+  });
+
+  // Preview is still the shipped default: nothing chosen yet, so a fresh open
+  // reads as it always did.
+  await page.goto('/#open=/docs/one.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('One');
+  // Nothing chosen yet ⇒ nothing recorded: the User layer carries the key
+  // only once the reader picks a mode.
+  expect(await fsRead(page, '/config/settings.json')).not.toContain('lastViewMode');
+
+  // Choose edit through the new switch — the choice is persisted, not just
+  // held in memory.
+  await page.getByTestId('mode-switch').click();
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"lastViewMode": "edit"');
+
+  // Opening a DIFFERENT document now lands in edit mode — and with splitEdit
+  // on (the default), that is the editor plus the live preview.
+  await page.goto('/#open=/docs/two.md');
+  await expect(page.locator('.cm-content')).toContainText('Second document');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect(page.getByTestId('split-preview').locator('h1')).toContainText('Two');
+
+  // Switching back to an already-open (parked) tab keeps the remembered mode.
+  await page.goto('/#open=/docs/one.md');
+  await expect(page.locator('.cm-content')).toContainText('First document');
+  await expect(page.getByTestId('editor')).toBeVisible();
+
+  // A restart reads the mode back off disk: relaunch, open a document, and
+  // the editor is what comes up.
+  await page.reload();
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.locator('.cm-content')).toContainText('First document');
+  await page.goto('/#open=/docs/two.md');
+  await expect(page.locator('.cm-content')).toContainText('Second document');
+  await expect(page.getByTestId('editor')).toBeVisible();
+
+  // Choosing preview again is remembered the same way, in both directions.
+  await page.getByTestId('mode-switch').click();
+  await expect(page.getByTestId('doc')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"lastViewMode": "preview"');
+  await page.goto('/#open=/docs/one.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('One');
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+});

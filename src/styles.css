@@ -1904,13 +1904,12 @@ mark.hl.ghost {
    sit when the pane is open. Themed via the same vars as the header.
    .folder-expand (Reqs 2–3) reopens the closed folder pane at the body
    row's top-left; .preview-edge (Reqs 6–7) collapses/expands the split
-   preview at the top-right, the same tab mirrored. Each overlays only its
-   own tab; the pane content keeps its full width underneath. */
+   preview at the top-right, the same tab mirrored, joined there by
+   .mode-edge (issue #125). Each overlays only its own tab; the pane content
+   keeps its full width underneath. */
 .folder-expand,
-.preview-edge {
-  position: absolute;
-  top: 9px;
-  z-index: 3;
+.preview-edge,
+.mode-edge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1919,26 +1918,61 @@ mark.hl.ghost {
   color: var(--mm-fg-muted, #59636e);
 }
 .folder-expand {
+  position: absolute;
+  top: 9px;
+  z-index: 3;
   left: 0;
   padding: 3px 4px 3px 2px;
   border-left: none;
   border-radius: 0 5px 5px 0;
 }
-.preview-edge {
+/* Issue #125: the right edge carries TWO tabs now — the edit/preview switch
+   and, in edit mode, the preview chevron. One absolutely-positioned row owns
+   the corner and lays them out in order, so the switch sits immediately left
+   of the chevron and neither can overlap the other in either mode. */
+.edge-cluster {
+  position: absolute;
   right: 0;
+  top: 9px;
+  z-index: 3;
+  display: flex;
+  align-items: stretch;
+}
+.preview-edge {
   padding: 3px 2px 3px 4px;
   border-right: none;
   border-radius: 5px 0 0 5px;
 }
+.mode-edge {
+  padding: 2px;
+  gap: 2px;
+  border-right: none;
+  border-radius: 5px 0 0 5px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+/* The switch shows the CURRENT mode: the live segment is the accented one. */
+.mode-seg {
+  padding: 0 5px;
+  border-radius: 3px;
+}
+.mode-seg.on {
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-accent, #0969da);
+  box-shadow: inset 0 0 0 1px var(--mm-accent, #0969da);
+}
 .folder-expand:hover,
-.preview-edge:hover {
+.preview-edge:hover,
+.mode-edge:hover {
   background: var(--mm-bg, #ffffff);
   color: var(--mm-fg, #1f2328);
 }
 /* The static toolbar overlays the top of the body row (web/shim static
    mode) — clear it, as .folder-panel does. */
 .theme-root.toolbar-static .folder-expand,
-.theme-root.toolbar-static .preview-edge {
+.theme-root.toolbar-static .edge-cluster {
   top: 51px;
 }
 /* PRD 003 Reqs 9/11: the pane opens/closes as a horizontal slide — a 180ms

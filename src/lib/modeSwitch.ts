@@ -1,4 +1,5 @@
 import type { AppMode } from './appMode';
+import type { ViewMode } from './settings';
 
 /**
  * PRD 009 Req 4/5: the mode-switch decision, as one pure function. The app
@@ -39,4 +40,16 @@ export function planModeSwitch(mode: AppMode, target: ModeTarget, exclusive: boo
   if (!exclusive || mode === 'splash') return 'enter';
   if (target === 'file') return mode === 'workspace' ? 'close-workspace-first' : 'enter';
   return mode === 'file' ? 'close-files-first' : 'enter';
+}
+
+/**
+ * Issue #125: the view mode a document opens in. The reader's remembered
+ * choice wins — that is the whole point of the setting — except where a guard
+ * says otherwise: PRD 007 Req 17, a document this reader may not change opens
+ * in the reading preview, whatever they were last doing. Pure so the rule is
+ * pinned by a unit test, rather than only reachable through a flavor that has
+ * a permission model.
+ */
+export function viewModeForOpen(remembered: ViewMode, mayEdit: boolean): ViewMode {
+  return mayEdit ? remembered : 'preview';
 }

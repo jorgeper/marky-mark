@@ -276,9 +276,9 @@ test('E121: the rendered view — widgets by default, caret-reveal, both switche
   await page.getByTestId('settings-close').click();
   await expect(editor.locator('.mm-image-widget')).toHaveCount(0);
   await page.reload();
-  await expect(page.getByTestId('doc')).toContainText('top');
-  await page.keyboard.press('Control+e');
+  // Issue #125: the reload reopens in the remembered edit mode.
   await expect(content).toBeVisible();
+  await expect(content).toContainText('top');
   await expect(content).toContainText('![p](img116.png)');
   await expect(editor.locator('.mm-image-widget')).toHaveCount(0);
 
