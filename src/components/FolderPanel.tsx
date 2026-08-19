@@ -181,6 +181,7 @@ const CHEVRON_PATHS = {
   down: 'M3.5 6 L8 10.5 L12.5 6',
 } as const;
 
+/** The disclosure/edge triangle — shared with the sidebar's TOC view (PRD 012). */
 export function Chevron({ open, dir }: { open?: boolean; dir?: 'left' | 'right' }) {
   const direction = dir ?? (open ? 'down' : 'right');
   return (
@@ -190,6 +191,49 @@ export function Chevron({ open, dir }: { open?: boolean; dir?: 'left' | 'right' 
       </svg>
     </span>
   );
+}
+
+/**
+ * SPEC34 §3: the pane's width drag — the split divider's pointer-capture
+ * pattern. The live width lands on the slide wrapper's `--mm-folders` (the
+ * wrapper and the panel both read it, so they track the pointer together) and
+ * only the settled width is handed back to the owner to persist.
+ *
+ * PRD 012 Req 1: both views of the one pane drag the one `settings.folderWidth`
+ * — shared from here so the two panels cannot drift apart.
+ */
+export function paneWidthDrag({
+  panelRef,
+  slideRef,
+  width,
+  onWidth,
+}: {
+  panelRef: React.RefObject<HTMLDivElement | null>;
+  slideRef: React.RefObject<HTMLDivElement | null>;
+  width: number;
+  onWidth(width: number): void;
+}) {
+  return (e: React.PointerEvent<HTMLDivElement>) => {
+    const panel = panelRef.current;
+    const slideEl = slideRef.current;
+    if (!panel || !slideEl) return;
+    e.preventDefault();
+    const divider = e.currentTarget;
+    divider.setPointerCapture(e.pointerId);
+    const left = panel.getBoundingClientRect().left;
+    let w = width;
+    const onMove = (ev: PointerEvent) => {
+      w = Math.min(FOLDER_WIDTH_MAX, Math.max(FOLDER_WIDTH_MIN, ev.clientX - left));
+      slideEl.style.setProperty('--mm-folders', `${w}px`);
+    };
+    const onUp = () => {
+      divider.removeEventListener('pointermove', onMove);
+      divider.removeEventListener('pointerup', onUp);
+      onWidth(Math.round(w));
+    };
+    divider.addEventListener('pointermove', onMove);
+    divider.addEventListener('pointerup', onUp);
+  };
 }
 
 /**
@@ -559,29 +603,7 @@ export function FolderPanel(p: FolderPanelProps) {
     list.scrollLeft = x;
   }, [p.selectedPath, p.expanded, p.children, p.openOnly]);
 
-  const dragWidth = (e: React.PointerEvent<HTMLDivElement>) => {
-    const panel = panelRef.current;
-    const slideEl = slideRef.current;
-    if (!panel || !slideEl) return;
-    e.preventDefault();
-    const divider = e.currentTarget;
-    divider.setPointerCapture(e.pointerId);
-    const left = panel.getBoundingClientRect().left;
-    let w = p.width;
-    const onMove = (ev: PointerEvent) => {
-      w = Math.min(FOLDER_WIDTH_MAX, Math.max(FOLDER_WIDTH_MIN, ev.clientX - left));
-      // On the wrapper: the slide wrapper's width and the panel's own width
-      // both read the variable, so they track the drag together.
-      slideEl.style.setProperty('--mm-folders', `${w}px`);
-    };
-    const onUp = () => {
-      divider.removeEventListener('pointermove', onMove);
-      divider.removeEventListener('pointerup', onUp);
-      p.onWidth(Math.round(w));
-    };
-    divider.addEventListener('pointermove', onMove);
-    divider.addEventListener('pointerup', onUp);
-  };
+  const dragWidth = paneWidthDrag({ panelRef, slideRef, width: p.width, onWidth: p.onWidth });
 
   // PRD 003 Req 9: the slide wrapper animates its width (the workspace
   // follows) while the panel inside keeps its full width and translates —

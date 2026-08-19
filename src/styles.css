@@ -2399,11 +2399,8 @@ mark.hl.ghost {
   align-items: center;
   justify-content: center;
   flex: none;
-  /* The childless rows reserve the triangle's slot so titles at one depth
-     line up whether or not the heading has children. */
-  width: 16px;
-}
-.toc-twisty-empty {
+  /* Fixed, so a childless row's empty slot is the same width as a triangle
+     and titles at one depth line up either way. */
   width: 16px;
 }
 .toc-label {

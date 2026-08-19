@@ -77,7 +77,7 @@ import { uploadRejection } from './lib/fileTransfer';
 import { isSaveConflict, planSaveConflict, type SaveConflictChoice } from './lib/saveConflict';
 import { planMergedSave } from './lib/mergedSave';
 import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton } from './components/FolderPanel';
-import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
+import { SidebarViewSwitch, TocPanel, type SidebarView } from './components/TocPanel';
 import {
   SLIDE_SETTLE_MS,
   slideClasses,
@@ -200,6 +200,7 @@ const grantsFor = (p: Platform, path?: string): Promise<FileGrants> =>
   p.fileGrants ? p.fileGrants(path) : Promise.resolve(ALL_FILE_GRANTS);
 
 const CARD_GAP = 8;
+
 /**
  * PRD 012 Req 4: the "nothing collapsed" set, shared so a document with no
  * folds yet keeps `visibleTocEntries` memo-stable instead of re-running on
@@ -518,8 +519,7 @@ export default function App() {
    * Session state, not a setting — Reqs 10–11 (persisting it) are issue #134.
    * `settings.showFolders` keeps its meaning: whether that pane shows at all.
    */
-  const [sidebarView, setSidebarView] = useState<'folders' | 'toc'>('folders');
-  const sidebarViewRef = useRef<'folders' | 'toc'>('folders');
+  const [sidebarView, setSidebarView] = useState<SidebarView>('folders');
   /**
    * PRD 012 Req 4: collapsed TOC entry ids per file, for the app session only.
    * A plain in-memory map keyed by the document — switching to another open
@@ -532,11 +532,6 @@ export default function App() {
    * pays for a parse per keystroke — the SPEC16 §2 idiom.
    */
   const [tocBuffer, setTocBuffer] = useState('');
-  /** PRD 012 Req 1: set the pane's view, keeping the ref every route reads. */
-  const setSidebarViewNow = useCallback((view: 'folders' | 'toc') => {
-    sidebarViewRef.current = view;
-    setSidebarView(view);
-  }, []);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteHeadings, setPaletteHeadings] = useState<PaletteHeading[]>([]);
   const [chip, setChip] = useState('');
@@ -753,6 +748,7 @@ export default function App() {
     html,
     docGrants,
     folderGrants,
+    sidebarView,
   });
   stateRef.current = {
     settings,
@@ -776,6 +772,9 @@ export default function App() {
     // PRD 009 Req 13: New File writes into the workspace, so it asks the
     // SIDEBAR's grants (file.create) — not the open document's.
     folderGrants,
+    // PRD 012 Req 9: the view buttons are stable handlers that must read the
+    // view live — which of the two the pane is showing decides show vs hide.
+    sidebarView,
   };
 
   /**
@@ -2705,7 +2704,7 @@ export default function App() {
         await listFolderDir(p, picked);
         for (const dir of expanded) if (dir !== picked) void listFolderDir(p, dir);
         if (!stateRef.current.settings.showFolders) {
-          setSidebarViewNow('folders'); // PRD 012 Req 1: a folder route opens the folders view
+          setSidebarView('folders'); // PRD 012 Req 1: a folder route opens the folders view
           updateSettings({ ...stateRef.current.settings, showFolders: true });
         }
       })();
@@ -2747,7 +2746,7 @@ export default function App() {
         commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
         for (const dir of new Set([...folders, ...expanded])) void listFolderDir(p, dir);
         if (!stateRef.current.settings.showFolders) {
-          setSidebarViewNow('folders'); // PRD 012 Req 1: a folder route opens the folders view
+          setSidebarView('folders'); // PRD 012 Req 1: a folder route opens the folders view
           updateSettings({ ...stateRef.current.settings, showFolders: true });
         }
       } catch {
@@ -2799,7 +2798,7 @@ export default function App() {
     updateWorkspace(next, p);
     await listFolderDir(p, picked);
     if (!stateRef.current.settings.showFolders) {
-      setSidebarViewNow('folders'); // PRD 012 Req 1: a folder route opens the folders view
+      setSidebarView('folders'); // PRD 012 Req 1: a folder route opens the folders view
       updateSettings({ ...stateRef.current.settings, showFolders: true });
     }
   }, [listFolderDir, updateWorkspace, updateSettings]);
@@ -2832,7 +2831,7 @@ export default function App() {
         updateWorkspace({ kind: 'named', file, folders: [], settings: {} }, p);
         commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
         if (!stateRef.current.settings.showFolders) {
-          setSidebarViewNow('folders'); // PRD 012 Req 1: a folder route opens the folders view
+          setSidebarView('folders'); // PRD 012 Req 1: a folder route opens the folders view
           updateSettings({ ...stateRef.current.settings, showFolders: true });
         }
       })();
@@ -3375,26 +3374,34 @@ export default function App() {
     setFolderOpenOnly(next);
     persistFolderState();
     // PRD 012 Req 1: the only-open view is a folders-view surface.
-    setSidebarViewNow('folders');
+    setSidebarView('folders');
     if (next && !st.settings.showFolders) updateSettings({ ...st.settings, showFolders: true });
   }, [persistFolderState, updateSettings]);
 
   /**
-   * PRD 012 Req 9: the TOC button's whole rule. Pressing it while the TOC is
-   * the view on screen hides the sidebar; otherwise it shows the sidebar in
-   * TOC view, opening it if it was closed. Symmetric with `toggleFolders`
-   * below, and — Req 12 — it asks nothing about the folder seam.
+   * PRD 012 Req 9: the rule BOTH view buttons follow, stated once. Pressing
+   * the view already on screen hides the sidebar; pressing the other one puts
+   * it on screen, opening the sidebar if it was closed. Only the press that
+   * actually flips visibility arms the slide (PRD 003 Reqs 9/12) — a press
+   * that merely swaps views leaves the pane where it is.
+   *
+   * Req 12: nothing here asks about the folder seam; the folders route's own
+   * gating stays in the `toggleFolders` command that calls this.
    */
-  const toggleTocView = useCallback(() => {
-    const st = stateRef.current;
-    armFolderSlide.current = true;
-    if (st.settings.showFolders && sidebarViewRef.current === 'toc') {
-      updateSettings({ ...st.settings, showFolders: false });
-      return;
-    }
-    setSidebarViewNow('toc');
-    if (!st.settings.showFolders) updateSettings({ ...st.settings, showFolders: true });
-  }, [setSidebarViewNow, updateSettings]);
+  const showSidebarView = useCallback(
+    (view: SidebarView) => {
+      const st = stateRef.current;
+      const open = st.settings.showFolders;
+      const hiding = open && st.sidebarView === view;
+      setSidebarView(view);
+      if (open && !hiding) return; // a plain view swap — the pane stays put
+      armFolderSlide.current = true;
+      updateSettings({ ...st.settings, showFolders: !hiding });
+    },
+    [updateSettings]
+  );
+  /** PRD 012 Req 9: the TOC button (and the TOC header's hide chevron). */
+  const toggleTocView = useCallback(() => showSidebarView('toc'), [showSidebarView]);
 
   /**
    * SPEC36 §7: advance the quit walk — activate the next dirty doc and show
@@ -3768,16 +3775,12 @@ export default function App() {
         if (curWorkspaceRef.current.kind === 'none') return;
         // PRD 003 Reqs 9/12: chevrons, View menu and the hotkey all dispatch
         // this command — the explicit toggle is what slides the pane.
-        armFolderSlide.current = true;
-        // PRD 012 Req 9: the folders route is symmetric with the TOC button —
-        // while the pane shows the TOC it SWITCHES the pane to Folders rather
+        // PRD 012 Req 9: and it is the folders half of the one view rule, so
+        // a press while the pane shows the TOC SWITCHES it to Folders rather
         // than hiding it. With the TOC view never entered (every route before
-        // this issue) `sidebarViewRef` is always 'folders', so this stays the
-        // plain visibility toggle it has always been.
-        const switching = st.settings.showFolders && sidebarViewRef.current !== 'folders';
-        setSidebarViewNow('folders');
-        if (switching) return;
-        updateSettings({ ...st.settings, showFolders: !st.settings.showFolders });
+        // this issue) the view is always 'folders', leaving this the plain
+        // visibility toggle it has always been.
+        showSidebarView('folders');
       },
       openFolder: openFolderCmd,
       // Issue #22: Close File — down to the splash through the dirty guard.
@@ -3949,7 +3952,7 @@ export default function App() {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, showSidebarView, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
@@ -5758,6 +5761,10 @@ export default function App() {
   // Keyed on the settings alone: entering workspace mode (openFolder) or edit
   // mode must swap panes in instantly, as before — only toggles slide.
   const folderSlide = usePaneSlide(settings.showFolders, armFolderSlide);
+  // PRD 003 Req 9 + PRD 012 Req 1: whether the ONE pane is in the DOM at all —
+  // open, or still sliding out. Which of the two views fills it is the extra
+  // condition each render below adds.
+  const sidebarMounted = slideMounted(folderSlide, settings.showFolders);
   const splitSlide = usePaneSlide(settings.splitEdit, armSplitSlide);
   const { sliding: previewSliding, out: previewOut } = slideClasses(splitSlide);
 
@@ -5864,7 +5871,7 @@ export default function App() {
             PRD 003 Req 9: it stays mounted through the exit slide. */}
         {/* PRD 012 Req 1: exactly one view of the one pane renders — the
             folders tree only while it is the chosen view. */}
-        {folderSeam && sidebarView === 'folders' && slideMounted(folderSlide, settings.showFolders) && (
+        {folderSeam && sidebarView === 'folders' && sidebarMounted && (
           <FolderPanel
             viewSwitch={sidebarSwitch}
             slide={folderSlide}
@@ -5955,7 +5962,7 @@ export default function App() {
         {/* PRD 012 Reqs 1/2: the sidebar's other view. Req 12: gated on an
             open document alone — no folder seam, no workspace mode, so it
             renders in `file` mode and in the web build too. */}
-        {sidebarView === 'toc' && docOpen && slideMounted(folderSlide, settings.showFolders) && (
+        {docOpen && sidebarView === 'toc' && sidebarMounted && (
           <TocPanel
             viewSwitch={sidebarSwitch}
             rows={tocRows}

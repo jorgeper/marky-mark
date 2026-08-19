@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { editorTopGutterLine, freshApp, fsWrite, openFolderRoot, openPath, seedFolders } from './helpers';
 
@@ -50,12 +51,12 @@ const TREE_DOC = [
   '',
 ].join('\n');
 
-const rowLabels = (page: import('@playwright/test').Page) =>
+const rowLabels = (page: Page) =>
   page.$$eval('[data-testid="toc-item"]', (els) =>
     els.map((e) => `${e.getAttribute('data-depth')}:${e.querySelector('.toc-label')!.textContent}`)
   );
 
-const openTree = async (page: import('@playwright/test').Page) => {
+const openTree = async (page: Page) => {
   await fsWrite(page, '/docs/tree.md', TREE_DOC);
   await openPath(page, '/docs/tree.md');
   await expect(page.getByTestId('doc')).toContainText('Alpha');

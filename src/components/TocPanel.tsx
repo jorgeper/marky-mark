@@ -1,8 +1,10 @@
 import { useRef, type CSSProperties, type ReactNode } from 'react';
-import { Chevron } from './FolderPanel';
-import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN } from '../lib/settings';
+import { Chevron, paneWidthDrag } from './FolderPanel';
 import { slideClasses, type SlidePhase } from '../lib/paneSlide';
 import type { VisibleTocEntry } from '../lib/tocModel';
+
+/** PRD 012 Req 1: the two mutually exclusive views of the one sidebar pane. */
+export type SidebarView = 'folders' | 'toc';
 
 /**
  * PRD 012 Reqs 1–4: the Table of Contents view of the sidebar — the second,
@@ -27,8 +29,8 @@ export interface TocPanelProps {
   viewSwitch?: ReactNode;
   /** PRD 012 Req 4: the disclosure triangle — the owner flips the collapse set. */
   onToggle(id: string): void;
-  /** PRD 012 Reqs 5–6: a row click — the owner navigates to this source line. */
-  onSelect(entry: VisibleTocEntry): void;
+  /** PRD 012 Reqs 5–6: a row click — the owner navigates to this row's line. */
+  onSelect(row: VisibleTocEntry): void;
   onClose(): void;
   onWidth(width: number): void;
 }
@@ -42,7 +44,15 @@ export interface TocPanelProps {
  * PRD 012 Req 3: the key and `data-toc-id` are the positional `SectionNode`
  * id, never the title, so two identically-titled headings stay two rows.
  */
-function TocRow({ row, onToggle, onSelect }: { row: VisibleTocEntry; onToggle(id: string): void; onSelect(row: VisibleTocEntry): void }) {
+function TocRow({
+  row,
+  onToggle,
+  onSelect,
+}: {
+  row: VisibleTocEntry;
+  onToggle(id: string): void;
+  onSelect(row: VisibleTocEntry): void;
+}) {
   const { entry, hasChildren, collapsed } = row;
   return (
     <button
@@ -76,7 +86,9 @@ function TocRow({ row, onToggle, onSelect }: { row: VisibleTocEntry; onToggle(id
           <Chevron open={!collapsed} />
         </span>
       ) : (
-        <span className="toc-twisty toc-twisty-empty" aria-hidden="true" />
+        // The slot stays reserved so titles at one depth line up whether or
+        // not the heading has children.
+        <span className="toc-twisty" aria-hidden="true" />
       )}
       <span className="toc-label">{entry.title}</span>
     </button>
@@ -87,29 +99,9 @@ export function TocPanel(p: TocPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const slideRef = useRef<HTMLDivElement>(null);
 
-  // PRD 012 Req 1: the folder pane's width drag, verbatim — one pane, one
+  // PRD 012 Req 1: the folder pane's own width drag — one pane, one
   // `settings.folderWidth`, so dragging in either view moves the same edge.
-  const dragWidth = (e: React.PointerEvent<HTMLDivElement>) => {
-    const panel = panelRef.current;
-    const slideEl = slideRef.current;
-    if (!panel || !slideEl) return;
-    e.preventDefault();
-    const divider = e.currentTarget;
-    divider.setPointerCapture(e.pointerId);
-    const left = panel.getBoundingClientRect().left;
-    let w = p.width;
-    const onMove = (ev: PointerEvent) => {
-      w = Math.min(FOLDER_WIDTH_MAX, Math.max(FOLDER_WIDTH_MIN, ev.clientX - left));
-      slideEl.style.setProperty('--mm-folders', `${w}px`);
-    };
-    const onUp = () => {
-      divider.removeEventListener('pointermove', onMove);
-      divider.removeEventListener('pointerup', onUp);
-      p.onWidth(Math.round(w));
-    };
-    divider.addEventListener('pointermove', onMove);
-    divider.addEventListener('pointerup', onUp);
-  };
+  const dragWidth = paneWidthDrag({ panelRef, slideRef, width: p.width, onWidth: p.onWidth });
 
   const { sliding, out } = slideClasses(p.slide);
   return (
@@ -169,7 +161,7 @@ export function SidebarViewSwitch({
   onToc,
 }: {
   /** The view on screen, or null while the sidebar is hidden. */
-  active: 'folders' | 'toc' | null;
+  active: SidebarView | null;
   /** Whether the folders button exists at all (the folder seam, Req 12). */
   folders: boolean;
   /** Whether the TOC button exists at all (a document is open, Req 12). */
