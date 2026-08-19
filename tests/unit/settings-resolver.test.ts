@@ -62,6 +62,9 @@ describe('PRD 002 §B5 scope inventory', () => {
       lastViewMode: 'M',
       showFolders: 'M',
       folderWidth: 'M',
+      // PRD 012 Req 11: the sidebar's remembered view joins its two
+      // machine-scoped neighbours — a reader's own layout, never a team's.
+      sidebarView: 'M',
     };
     expect(SETTINGS_SCOPES).toEqual(expected);
     // The inventory covers the runtime key set exactly — no extras, no gaps.

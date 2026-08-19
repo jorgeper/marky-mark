@@ -2,9 +2,14 @@ import { useRef, type CSSProperties, type ReactNode } from 'react';
 import { Chevron, paneWidthDrag } from './FolderPanel';
 import { slideClasses, type SlidePhase } from '../lib/paneSlide';
 import type { VisibleTocEntry } from '../lib/tocModel';
+import type { SidebarView } from '../lib/settings';
 
-/** PRD 012 Req 1: the two mutually exclusive views of the one sidebar pane. */
-export type SidebarView = 'folders' | 'toc';
+/**
+ * PRD 012 Req 1: the two mutually exclusive views of the one sidebar pane —
+ * declared with the setting that persists them (PRD 012 Req 11), re-exported
+ * here so this view's importers keep their one import.
+ */
+export type { SidebarView };
 
 /**
  * PRD 012 Reqs 1–4: the Table of Contents view of the sidebar — the second,

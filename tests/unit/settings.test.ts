@@ -7,6 +7,7 @@ import {
   SETTINGS_SCOPES,
   WORKSPACE_ELIGIBLE_KEYS,
 } from '../../src/lib/settings';
+import { combosConflict, DEFAULT_HOTKEYS, type HotkeyMap } from '../../src/lib/hotkeys';
 
 describe('v3 settings', () => {
   test('U13: new fields parse with defaults, invalid values fall back, legacy `theme` migrates to themeLight', () => {
@@ -232,5 +233,69 @@ describe('issue #125: the remembered view mode', () => {
     // 'M' keeps it out of the workspace-editable set by construction, like
     // splitEdit and splitRatio beside it.
     expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain('lastViewMode');
+  });
+});
+
+describe('PRD 012 Req 10: the toggleToc hotkey', () => {
+  test('U671: toggleToc defaults to Mod+Shift+T, merges into older settings files, and rebinds round-trip', () => {
+    expect(DEFAULT_HOTKEYS.toggleToc).toBe('Mod+Shift+T');
+    expect(parseSettings('{}').hotkeys.toggleToc).toBe('Mod+Shift+T');
+
+    // A settings file written before this issue has no toggleToc key — it
+    // gains the default without disturbing the bindings already stored.
+    const old = parseSettings('{"hotkeys":{"toggleFolders":"Mod+Shift+D"}}');
+    expect(old.hotkeys.toggleToc).toBe('Mod+Shift+T');
+    expect(old.hotkeys.toggleFolders).toBe('Mod+Shift+D');
+
+    // Remappable and persisted like every other row of the map.
+    const round = parseSettings(
+      serializeSettings({ ...DEFAULT_SETTINGS, hotkeys: { ...DEFAULT_SETTINGS.hotkeys, toggleToc: 'Mod+Alt+T' } })
+    );
+    expect(round.hotkeys.toggleToc).toBe('Mod+Alt+T');
+    // An absent or invalid stored value falls back to the default.
+    expect(parseSettings('{"hotkeys":{"toggleToc":"   "}}').hotkeys.toggleToc).toBe('Mod+Shift+T');
+    expect(parseSettings('{"hotkeys":{"toggleToc":7}}').hotkeys.toggleToc).toBe('Mod+Shift+T');
+  });
+
+  test('U672: no two shipped defaults fire on one keypress — toggleToc included', () => {
+    const actions = Object.keys(DEFAULT_HOTKEYS) as Array<keyof HotkeyMap>;
+    expect(actions).toContain('toggleToc');
+    for (const a of actions) {
+      for (const b of actions) {
+        if (a === b) continue;
+        // combosConflict, not string equality: Mod matches ⌘-or-Ctrl, so two
+        // differently-spelled defaults could still collide as chords.
+        expect(combosConflict(DEFAULT_HOTKEYS[a], DEFAULT_HOTKEYS[b]), `${a} vs ${b}`).toBe(false);
+      }
+    }
+    // The folders view keeps its own binding, unchanged and distinct.
+    expect(DEFAULT_HOTKEYS.toggleFolders).toBe('Mod+Shift+E');
+  });
+});
+
+describe('PRD 012 Req 11: the remembered sidebar view', () => {
+  test('U673: sidebarView defaults to folders, takes only the two known views, and round-trips', () => {
+    expect(DEFAULT_SETTINGS.sidebarView).toBe('folders');
+    expect(parseSettings('{}').sidebarView).toBe('folders');
+
+    expect(parseSettings('{"sidebarView":"toc"}').sidebarView).toBe('toc');
+    expect(parseSettings('{"sidebarView":"folders"}').sidebarView).toBe('folders');
+
+    // Anything else — a retired view name, a case slip, a wrong type — falls
+    // back to the folder tree rather than reaching the app as an empty pane.
+    expect(parseSettings('{"sidebarView":"outline"}').sidebarView).toBe('folders');
+    expect(parseSettings('{"sidebarView":"TOC"}').sidebarView).toBe('folders');
+    expect(parseSettings('{"sidebarView":true}').sidebarView).toBe('folders');
+    expect(parseSettings('{"sidebarView":null}').sidebarView).toBe('folders');
+
+    // Save → reload keeps the view, which is the whole point of the key.
+    expect(parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, sidebarView: 'toc' })).sidebarView).toBe('toc');
+  });
+
+  test('U674: it is machine-scoped, like the sidebar’s visibility and width', () => {
+    expect(SETTINGS_SCOPES.sidebarView).toBe('M');
+    expect(SETTINGS_SCOPES.showFolders).toBe('M');
+    expect(SETTINGS_SCOPES.folderWidth).toBe('M');
+    expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain('sidebarView');
   });
 });

@@ -12,6 +12,8 @@ export interface HotkeyMap {
   openFile: string;
   find: string;
   toggleFolders: string;
+  /** PRD 012 Req 10: the TOC view of the sidebar — the toolbar button's twin. */
+  toggleToc: string;
   toggleComments: string;
   save: string;
   nextComment: string;
@@ -51,6 +53,9 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   openFile: 'Mod+O',
   find: 'Mod+F',
   toggleFolders: 'Mod+Shift+E',
+  // PRD 012 Req 10: T for Table of contents, in the Mod+Shift+<letter> family
+  // the sidebar's other view already uses, and bound to nothing else shipped.
+  toggleToc: 'Mod+Shift+T',
   toggleComments: 'Mod+Shift+C',
   save: 'Mod+S',
   nextComment: 'Mod+Alt+ArrowDown',

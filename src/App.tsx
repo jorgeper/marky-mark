@@ -517,10 +517,13 @@ export default function App() {
   const [diff, setDiff] = useState<DiffLineSets | null>(null);
   /**
    * PRD 012 Req 1: which of the ONE sidebar pane's two views is on screen.
-   * Session state, not a setting — Reqs 10–11 (persisting it) are issue #134.
    * `settings.showFolders` keeps its meaning: whether that pane shows at all.
+   *
+   * PRD 012 Req 11 (issue #134): a persisted setting, not session state — the
+   * app reopens on the view the reader left it on, so every write goes through
+   * `updateSettings` like the sidebar's other two machine-scoped keys.
    */
-  const [sidebarView, setSidebarView] = useState<SidebarView>('folders');
+  const sidebarView = settings.sidebarView;
   /**
    * PRD 012 Req 4: collapsed TOC entry ids per file, for the app session only.
    * A plain in-memory map keyed by the document — switching to another open
@@ -2625,6 +2628,20 @@ export default function App() {
   );
 
   /**
+   * PRD 012 Req 1: what EVERY folder route (Open Folder…, Open/New Workspace,
+   * the only-open view) does to the one pane — put it on screen showing the
+   * folder tree. Stated once here rather than inline at each route.
+   *
+   * Unconditional, unlike the pre-#134 version: with the view persisted (Req
+   * 11) the pane can come back on the TOC, and a folder route that left it
+   * there would open a pane with no tree in it. An already-open folders view
+   * diffs to no change, so nothing re-slides and nothing is rewritten.
+   */
+  const revealFolderPane = useCallback(() => {
+    updateSettings({ ...stateRef.current.settings, showFolders: true, sidebarView: 'folders' });
+  }, [updateSettings]);
+
+  /**
    * Issue #22: run `proceed` through the changed-workspace guard. A changed
    * untitled workspace (non-empty workspace settings or 2+ folders) is about
    * to be discarded — Save / Don't Save / Cancel prompt first. Named
@@ -2704,13 +2721,10 @@ export default function App() {
         if (session) await restoreSessionOpenFiles(p, session, [picked]);
         await listFolderDir(p, picked);
         for (const dir of expanded) if (dir !== picked) void listFolderDir(p, dir);
-        if (!stateRef.current.settings.showFolders) {
-          setSidebarView('folders'); // PRD 012 Req 1: a folder route opens the folders view
-          updateSettings({ ...stateRef.current.settings, showFolders: true });
-        }
+        revealFolderPane(); // PRD 012 Req 1: a folder route shows the folder tree
       })();
     });
-  }, [guardWorkspaceDiscard, restoreSessionOpenFiles, listFolderDir, updateWorkspace, updateSettings]);
+  }, [guardWorkspaceDiscard, restoreSessionOpenFiles, listFolderDir, updateWorkspace, revealFolderPane]);
 
   /**
    * PRD 002 §D14: make `file` the current named workspace — corruption-
@@ -2746,15 +2760,12 @@ export default function App() {
         await restoreSessionOpenFiles(p, session, folders);
         commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
         for (const dir of new Set([...folders, ...expanded])) void listFolderDir(p, dir);
-        if (!stateRef.current.settings.showFolders) {
-          setSidebarView('folders'); // PRD 012 Req 1: a folder route opens the folders view
-          updateSettings({ ...stateRef.current.settings, showFolders: true });
-        }
+        revealFolderPane(); // PRD 012 Req 1: a folder route shows the folder tree
       } catch {
         showNotice(`Couldn’t open “${p.basename(file)}”`);
       }
     },
-    [restoreSessionOpenFiles, updateWorkspace, commitRecentWs, listFolderDir, updateSettings, showNotice]
+    [restoreSessionOpenFiles, updateWorkspace, commitRecentWs, listFolderDir, revealFolderPane, showNotice]
   );
 
   /** PRD 002 §D14: Open Workspace… — dialog filtered to .marky-workspace. */
@@ -2798,11 +2809,8 @@ export default function App() {
     folderStateRef.current = { ...folderStateRef.current, roots, expanded };
     updateWorkspace(next, p);
     await listFolderDir(p, picked);
-    if (!stateRef.current.settings.showFolders) {
-      setSidebarView('folders'); // PRD 012 Req 1: a folder route opens the folders view
-      updateSettings({ ...stateRef.current.settings, showFolders: true });
-    }
-  }, [listFolderDir, updateWorkspace, updateSettings]);
+    revealFolderPane(); // PRD 012 Req 1: a folder route shows the folder tree
+  }, [listFolderDir, updateWorkspace, revealFolderPane]);
 
   /**
    * PRD 007 Req 22 (PRD 002 §D14/§C11): New Workspace… for the LOCAL flavors —
@@ -2831,13 +2839,10 @@ export default function App() {
         // updateWorkspace writes the file for a named workspace (§C12).
         updateWorkspace({ kind: 'named', file, folders: [], settings: {} }, p);
         commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
-        if (!stateRef.current.settings.showFolders) {
-          setSidebarView('folders'); // PRD 012 Req 1: a folder route opens the folders view
-          updateSettings({ ...stateRef.current.settings, showFolders: true });
-        }
+        revealFolderPane(); // PRD 012 Req 1: a folder route shows the folder tree
       })();
     });
-  }, [guardWorkspaceDiscard, updateWorkspace, commitRecentWs, updateSettings]);
+  }, [guardWorkspaceDiscard, updateWorkspace, commitRecentWs, revealFolderPane]);
 
   /**
    * PRD 002 §D14/§C11: Save Workspace As… — untitled (or named) → named.
@@ -3374,10 +3379,11 @@ export default function App() {
     folderStateRef.current = { ...folderStateRef.current, openOnly: next };
     setFolderOpenOnly(next);
     persistFolderState();
-    // PRD 012 Req 1: the only-open view is a folders-view surface.
-    setSidebarView('folders');
-    if (next && !st.settings.showFolders) updateSettings({ ...st.settings, showFolders: true });
-  }, [persistFolderState, updateSettings]);
+    // PRD 012 Req 1: the only-open view is a folders-view surface — and only
+    // TURNING IT ON reveals the pane, as it always did.
+    if (next) revealFolderPane();
+    else updateSettings({ ...st.settings, sidebarView: 'folders' });
+  }, [persistFolderState, revealFolderPane, updateSettings]);
 
   /**
    * PRD 012 Req 9: the rule BOTH view buttons follow, stated once. Pressing
@@ -3393,11 +3399,16 @@ export default function App() {
     (view: SidebarView) => {
       const st = stateRef.current;
       const open = st.settings.showFolders;
-      const hiding = open && st.sidebarView === view;
-      setSidebarView(view);
-      if (open && !hiding) return; // a plain view swap — the pane stays put
+      const hiding = open && st.settings.sidebarView === view;
+      if (open && !hiding) {
+        // A plain view swap — the pane stays put, only the view key moves.
+        updateSettings({ ...st.settings, sidebarView: view });
+        return;
+      }
       armFolderSlide.current = true;
-      updateSettings({ ...st.settings, showFolders: !hiding });
+      // PRD 012 Req 11: the view and the visibility travel as ONE settings
+      // write, so a reopen never lands on the pane's previous view for a frame.
+      updateSettings({ ...st.settings, sidebarView: view, showFolders: !hiding });
     },
     [updateSettings]
   );
@@ -3822,6 +3833,20 @@ export default function App() {
         // visibility toggle it has always been.
         showSidebarView('folders');
       },
+      /**
+       * PRD 012 Req 10: the TOC hotkey and the TOC toolbar button are one
+       * command — both land here, and here calls the same `toggleTocView`
+       * (the one view rule) the button always called.
+       *
+       * Req 12: the only gate is an open document — exactly the condition
+       * that decides whether the button exists. No folder seam is consulted,
+       * so the hotkey works in `file` mode and on the web.
+       */
+      toggleToc: () => {
+        const st = stateRef.current;
+        if (st.docPath === null && !st.untitled) return;
+        toggleTocView();
+      },
       openFolder: openFolderCmd,
       // Issue #22: Close File — down to the splash through the dirty guard.
       closeFile: () => {
@@ -3992,7 +4017,7 @@ export default function App() {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, showSidebarView, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard, runPrint]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, showSidebarView, toggleTocView, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard, runPrint]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
@@ -4896,6 +4921,12 @@ export default function App() {
       } else if (eventMatches(e, hk.toggleFolders)) {
         e.preventDefault();
         dispatchCommand('toggleFolders', 'hotkey');
+      } else if (eventMatches(e, hk.toggleToc)) {
+        // PRD 012 Req 10: a standard row of the map — matched by the same
+        // `eventMatches(e, hk.<action>)` as every binding above it, so a
+        // rebind in Settings moves it with no code here to change.
+        e.preventDefault();
+        dispatchCommand('toggleToc', 'hotkey');
       } else if (eventMatches(e, hk.toggleComments)) {
         e.preventDefault();
         dispatchCommand('toggleComments', 'hotkey');
@@ -5839,7 +5870,9 @@ export default function App() {
       folders={folderSeam}
       toc={docOpen}
       onFolders={() => dispatchCommand('toggleFolders')}
-      onToc={toggleTocView}
+      // PRD 012 Req 10: the button dispatches the command the hotkey dispatches
+      // — one action with two surfaces, not two copies of it.
+      onToc={() => dispatchCommand('toggleToc')}
     />
   );
 
