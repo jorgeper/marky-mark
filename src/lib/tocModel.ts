@@ -39,9 +39,9 @@ export interface TocEntry {
 }
 
 /**
- * PRD 012 Req 2 + Req 4: a flattened row, carrying the depth-derived indent and
- * whether it has children to disclose, so the view renders a list rather than
- * re-walking the tree.
+ * PRD 012 Req 2 + Req 4: one row of the flattened list the sidebar draws, so
+ * the view renders a list rather than re-walking the tree. The indent is
+ * `entry.depth`; the two fields here are what the tree shape alone cannot say.
  */
 export interface VisibleTocEntry {
   entry: TocEntry;
@@ -63,16 +63,16 @@ export interface VisibleTocEntry {
  * is never walked — content before the first heading produces no row.
  */
 export function buildTocTree(doc: DocumentSections): TocEntry[] {
-  const map = (nodes: SectionNode[]): TocEntry[] =>
+  const toEntries = (nodes: SectionNode[]): TocEntry[] =>
     nodes.map((n) => ({
       id: n.id,
       depth: n.depth,
       title: n.title,
       headingLine: n.headingLine,
       endLine: n.endLine,
-      children: map(n.children),
+      children: toEntries(n.children),
     }));
-  return map(doc.sections);
+  return toEntries(doc.sections);
 }
 
 /** Depth-first entry list in document order — the tree, ignoring collapse state. */
@@ -99,19 +99,17 @@ export function findTocEntry(entries: TocEntry[], id: string): TocEntry | null {
  * unknown id — the caller's reveal is then a no-op rather than an error.
  */
 export function tocAncestorIds(entries: TocEntry[], id: string): string[] {
-  const chain: string[] = [];
-  const walk = (nodes: TocEntry[], path: string[]): boolean => {
+  // `path` is the chain built so far; the first node that matches returns it,
+  // and a miss returns null so an unknown id falls through to the empty chain.
+  const pathTo = (nodes: TocEntry[], path: string[]): string[] | null => {
     for (const n of nodes) {
-      if (n.id === id) {
-        chain.push(...path);
-        return true;
-      }
-      if (walk(n.children, [...path, n.id])) return true;
+      if (n.id === id) return path;
+      const hit = pathTo(n.children, [...path, n.id]);
+      if (hit) return hit;
     }
-    return false;
+    return null;
   };
-  walk(entries, []);
-  return chain;
+  return pathTo(entries, []) ?? [];
 }
 
 /**

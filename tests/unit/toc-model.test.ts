@@ -110,8 +110,9 @@ describe('PRD 012 Req 2 — TOC tree derivation from the section model', () => {
       ].join('\n')
     );
 
-    expect(flattenToc(entries).map((e) => e.title)).toEqual(['Real', 'Really real']);
-    expect(flattenToc(entries).some((e) => e.title.includes('fake') || e.title.includes('Fake'))).toBe(false);
+    const titles = flattenToc(entries).map((e) => e.title);
+    expect(titles).toEqual(['Real', 'Really real']);
+    expect(titles.some((t) => t.toLowerCase().includes('fake'))).toBe(false);
   });
 });
 
