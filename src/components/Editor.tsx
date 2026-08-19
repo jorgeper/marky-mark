@@ -338,14 +338,17 @@ const mmHighlight = HighlightStyle.define([
 // decoration — at `Prec.highest`, which is what nests it *inside* the
 // highlighter's code span (CodeMirror opens the lowest-precedence mark first,
 // so the highest-precedence one ends up deepest), putting its background above
-// the code background and below the code text, which stays legible. `InlineCode` / `CodeText` are exactly the nodes
-// @lezer/markdown gives `tags.monospace`, i.e. the ones styled `mm-md-code`.
+// the code background and below the code text, which stays legible.
+// `InlineCode` / `CodeText` are exactly the nodes @lezer/markdown gives
+// `tags.monospace`, i.e. the ones styled `mm-md-code`.
 const codeSelMark = Decoration.mark({ class: 'mm-code-sel' });
 
 function codeSelectionDeco(view: EditorView): DecorationSet {
   const sel: CodeRange[] = [];
   for (const r of view.state.selection.ranges) if (!r.empty) sel.push({ from: r.from, to: r.to });
   if (!sel.length) return Decoration.none;
+  // Visible ranges only: past them the tree is parsed lazily, and there is
+  // nothing on screen to paint over anyway.
   const code: CodeRange[] = [];
   const tree = syntaxTree(view.state);
   for (const { from, to } of view.visibleRanges) {
@@ -357,19 +360,22 @@ function codeSelectionDeco(view: EditorView): DecorationSet {
       },
     });
   }
-  if (!code.length) return Decoration.none;
   const builder = new RangeSetBuilder<Decoration>();
   for (const r of intersectCodeSelection(code, sel)) builder.add(r.from, r.to, codeSelMark);
   return builder.finish();
 }
 
+const codeSelectionExt: Extension = Prec.highest(EditorView.decorations.of(codeSelectionDeco));
+
 /**
- * SPEC23 §3 (issue #123): rides the same compartment as the highlighting that
- * paints the code background — no code background, nothing to paint over.
+ * SPEC23 §3: the markdown highlighting, plus the tint that repaints the
+ * selection over the code background it draws (issue #123) — the two ride one
+ * compartment because no highlighting means no code background, and so nothing
+ * to paint over. One definition for the mount and the live reconfigure, which
+ * must never drift apart.
  */
-function codeSelectionExt(): Extension {
-  return Prec.highest(EditorView.decorations.of(codeSelectionDeco));
-}
+const syntaxExt = (on: boolean): Extension =>
+  on ? [syntaxHighlighting(mmHighlight), codeSelectionExt] : [];
 
 /**
  * CodeMirror 6 markdown editor. This module is loaded lazily (React.lazy) so
@@ -1015,9 +1021,7 @@ export default function Editor({
       // reconfigures live, undo history intact. PRD 006 §12: while live
       // preview is on it supersedes the setting — revealed raw lines keep
       // the mm-md-* highlight styling whatever `editorSyntax` says.
-      syntaxComp.current.of(
-        syntax || livePreview ? [syntaxHighlighting(mmHighlight), codeSelectionExt()] : [],
-      ),
+      syntaxComp.current.of(syntaxExt(syntax || livePreview)),
       // PRD 006 §1: the experimental live-preview extension, present only
       // while the setting is on — off ⇒ an empty compartment, zero behavior.
       lpComp.current.of(livePreview ? livePreviewExt() : []),
@@ -1427,9 +1431,7 @@ export default function Editor({
   useEffect(() => {
     viewRef.current?.dispatch({
       effects: [
-        syntaxComp.current.reconfigure(
-          syntax || livePreview ? [syntaxHighlighting(mmHighlight), codeSelectionExt()] : [],
-        ),
+        syntaxComp.current.reconfigure(syntaxExt(syntax || livePreview)),
         lpComp.current.reconfigure(livePreview ? livePreviewExt() : []),
       ],
     });

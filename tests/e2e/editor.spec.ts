@@ -1,3 +1,4 @@
+import type { Locator } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
   freshApp,
@@ -471,13 +472,12 @@ test('E261: selection over code — the tint paints above --mm-code-bg in the ed
     await expect(page.locator('.cm-content').first()).toBeVisible();
   };
   /** Put the whole of the line holding `text` in the selection. */
-  const selectLine = async (pane: ReturnType<typeof page.locator>, text: string) => {
+  const selectLine = async (pane: Locator, text: string) => {
     await pane.locator('.cm-line', { hasText: text }).first().click();
     await page.keyboard.press('Home');
     await page.keyboard.press('Shift+End');
   };
-  const bgOf = (loc: ReturnType<typeof page.locator>) =>
-    loc.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const bgOf = (loc: Locator) => loc.evaluate((el) => getComputedStyle(el).backgroundColor);
 
   // --- full-width editor, crisp (--mm-code-bg fully opaque) ------------------
   await boot({ splitEdit: false, themeLight: 'crisp' });
@@ -504,7 +504,9 @@ test('E261: selection over code — the tint paints above --mm-code-bg in the ed
   // A selection that starts in prose and runs through an inline code span is
   // tinted continuously — the same token, only the code part needs the mark.
   await selectLine(editor, 'prose with');
-  const inline = editor.locator('.cm-line', { hasText: 'prose with' }).locator('.mm-md-code .mm-code-sel');
+  const inline = editor
+    .locator('.cm-line', { hasText: 'prose with' })
+    .locator('.mm-md-code .mm-code-sel');
   await expect(inline.first()).toBeVisible();
   expect((await inline.first().textContent())!.trim()).toBe('inline code');
   expect(await bgOf(inline.first())).toBe('rgba(9, 105, 218, 0.18)');
@@ -530,7 +532,7 @@ test('E261: selection over code — the tint paints above --mm-code-bg in the ed
   await expect(splitTint.first()).toBeVisible();
   expect(await bgOf(splitTint.first())).toBe('rgba(9, 105, 218, 0.18)');
   // The preview pane paints its selection natively, over .doc code/pre — the
-  // theme's tint reaches it through .theme-root ::selection (styles.css §51).
+  // theme's tint reaches it through .theme-root ::selection (styles.css:51).
   expect(
     await page
       .locator('.split-preview .doc pre code')
