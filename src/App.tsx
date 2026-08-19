@@ -3933,6 +3933,9 @@ export default function App() {
 
   // Issue #22: the derived three-mode model — splash | file | workspace.
   const docOpen = docPath !== null || untitled;
+  // PRD 007 Req 17: the edit gate the toolbar's Edit button and the edge
+  // switch (issue #125) share — an open document this reader may change.
+  const mayToggleMode = docOpen && docGrants.edit;
 
   // --- PRD 011 Reqs 17–22: the semantic-zoom render path (levels 1–4) ------------
   /**
@@ -5797,9 +5800,9 @@ export default function App() {
             PRD 007 Req 17: the switch takes the toolbar Edit button's gate —
             an open document this reader may change — so it is absent on the
             splash and for a read-only document, in both modes. */}
-        {(mode === 'edit' || (docOpen && docGrants.edit)) && (
+        {(mode === 'edit' || mayToggleMode) && (
           <div className="edge-cluster">
-            {docOpen && docGrants.edit && <ModeSwitchButton mode={mode} onClick={() => dispatchCommand('toggleMode')} />}
+            {mayToggleMode && <ModeSwitchButton mode={mode} onClick={() => dispatchCommand('toggleMode')} />}
             {mode === 'edit' && (
               <PreviewToggleButton open={settings.splitEdit} onClick={() => dispatchCommand('toggleSplit')} />
             )}

@@ -1904,8 +1904,9 @@ mark.hl.ghost {
    sit when the pane is open. Themed via the same vars as the header.
    .folder-expand (Reqs 2–3) reopens the closed folder pane at the body
    row's top-left; .preview-edge (Reqs 6–7) collapses/expands the split
-   preview at the top-right, the same tab mirrored. Each overlays only its
-   own tab; the pane content keeps its full width underneath. */
+   preview at the top-right, the same tab mirrored, joined there by
+   .mode-edge (issue #125). Each overlays only its own tab; the pane content
+   keeps its full width underneath. */
 .folder-expand,
 .preview-edge,
 .mode-edge {

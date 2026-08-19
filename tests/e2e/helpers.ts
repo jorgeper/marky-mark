@@ -13,29 +13,42 @@ export async function revealToolbar(page: Page): Promise<void> {
 }
 
 /**
+ * Issue #125: the view mode is remembered now, so a document can open in edit
+ * mode because an earlier interaction — on hosted, an earlier test, since the
+ * mock users keep their settings.json — chose it. Tests whose subject is
+ * something else are written against the reading preview: this lands them
+ * there. The memory itself is E248's subject.
+ */
+export async function landInPreview(page: Page): Promise<void> {
+  // Read the DOM as it stands rather than waiting on the locator: a document
+  // the reader may not edit has no switch at all — and loses it again the
+  // moment late-arriving grants say so — so a waiting read would hang on that
+  // unmount. No switch (or one already in preview) ⇒ nothing to do.
+  const mode = await page.evaluate(
+    () => document.querySelector('[data-testid="mode-switch"]')?.getAttribute('data-mode') ?? null
+  );
+  if (mode !== 'edit') return;
+  const modeSwitch = page.getByTestId('mode-switch');
+  await modeSwitch.click();
+  await expect(modeSwitch).toHaveAttribute('data-mode', 'preview');
+  // commands.ts CROSS_SOURCE_DEDUP_MS: a toggleMode from another source within
+  // 150ms of this click is dropped as a duplicate — let the window pass so the
+  // caller's own ⌘E is not swallowed by this setup.
+  await page.waitForTimeout(200);
+}
+
+/**
  * Open the welcome/help document through the menu (SPEC4 clean start),
- * landing in the reading preview. Issue #125: the view mode is remembered
- * now, so a test that entered edit earlier reopens there — this helper is
- * shared setup for tests whose subject is something else, so it normalizes
- * back to the preview they are written against. The remembered mode itself
- * is E248's subject.
+ * landing in the reading preview (issue #125 — see landInPreview above).
  */
 export async function openWelcomeViaHelp(page: Page): Promise<void> {
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('menu-help').click();
-  // The switch appears as soon as the document is open, and names the mode
-  // it came up in — wait on it rather than racing the open.
-  const modeSwitch = page.getByTestId('mode-switch');
-  await expect(modeSwitch).toBeVisible();
-  if ((await modeSwitch.getAttribute('data-mode')) === 'edit') {
-    await modeSwitch.click();
-    await expect(modeSwitch).toHaveAttribute('data-mode', 'preview');
-    // commands.ts CROSS_SOURCE_DEDUP_MS: a toggleMode from another source
-    // within 150ms of this click is dropped as a duplicate — let the window
-    // pass so the caller's own ⌘E is not swallowed by this setup.
-    await page.waitForTimeout(200);
-  }
+  // The switch appears as soon as the document is open, and names the mode it
+  // came up in — wait on it rather than racing the open.
+  await expect(page.getByTestId('mode-switch')).toBeVisible();
+  await landInPreview(page);
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
 }
 

@@ -1,6 +1,6 @@
 import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { addComment, menuSave, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
+import { addComment, landInPreview, menuSave, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
 // PRD 011 Req 9 (#121): the sentence under test comes from the module that
 // owns it, so a reworded message fails E246 rather than passing a stale copy.
 import { NO_LLM_CONFIGURED_MESSAGE } from '../../src/lib/llmDeployment';
@@ -392,34 +392,6 @@ async function signInTo(page: Page, username: string, workspace?: string): Promi
 /** Drop the stored session so the next load is a fresh signed-out browser. */
 async function signOut(page: Page): Promise<void> {
   await page.evaluate(() => window.localStorage.clear());
-}
-
-/**
- * Issue #125: the view mode is a remembered setting, and on hosted it lives in
- * the signed-in user's own settings.json on the server — which the mock users
- * keep between tests. A document can therefore open in edit mode because an
- * earlier test chose it. The tests below are written against a document that
- * opens in the reading preview, so land there; the memory itself is E248's
- * subject.
- */
-async function landInPreview(page: Page): Promise<void> {
-  // The switch renders with the open document and names the mode it came up
-  // in; a document the member may not edit has none and is preview-only.
-  const modeSwitch = page.getByTestId('mode-switch');
-  // Read the DOM as it stands rather than waiting on the locator: a member
-  // without doc.edit loses the switch again the moment their grants land, and
-  // a waiting read would hang on that unmount.
-  const mode = await page.evaluate(
-    () => document.querySelector('[data-testid="mode-switch"]')?.getAttribute('data-mode') ?? null
-  );
-  if (mode === null) return; // a document they may not edit: preview-only already
-  if (mode === 'edit') {
-    await modeSwitch.click();
-    await expect(modeSwitch).toHaveAttribute('data-mode', 'preview');
-    // commands.ts CROSS_SOURCE_DEDUP_MS: give the 150ms cross-source window
-    // time to pass, so the caller's own toggle is not dropped as a duplicate.
-    await page.waitForTimeout(200);
-  }
 }
 
 /** Open a document from the hosted workspace's folder sidebar. */
