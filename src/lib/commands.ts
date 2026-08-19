@@ -26,6 +26,9 @@ export type CommandId =
   | 'clearRecent'
   | 'find'
   | 'toggleFolders'
+  // PRD 012 Req 10: the TOC view — the toolbar button and the hotkey both
+  // dispatch this one id rather than calling the handler twice over.
+  | 'toggleToc'
   | 'toggleOpenOnly'
   | 'nextFile'
   | 'prevFile'

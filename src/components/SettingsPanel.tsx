@@ -103,6 +103,8 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   openFile: 'Open file',
   find: 'Find',
   toggleFolders: 'Show / hide folders',
+  // PRD 012 Req 10: listed, rebindable and reset-to-default like every row.
+  toggleToc: 'Show / hide table of contents',
   toggleComments: 'Show / hide comments',
   save: 'Save',
   nextComment: 'Next comment',

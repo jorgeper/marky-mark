@@ -1,11 +1,15 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { editorTopGutterLine, freshApp, fsWrite, openFolderRoot, openPath, seedFolders } from './helpers';
+import { editorTopGutterLine, freshApp, fsRead, fsWrite, openFolderRoot, openPath, seedFolders } from './helpers';
 
 // PRD 012 (issue #132): the sidebar's second view — the table of contents.
 // Reqs 1–6, 8, 9, 12: one pane with two mutually exclusive views, the heading
 // tree from the section model, expand/collapse, click-to-navigate in both
 // modes, live re-derivation, and the two buttons that drive it.
+//
+// PRD 012 (issue #134): Reqs 10–11 — the toggleToc hotkey, which is the TOC
+// button's action reached from the keyboard, and the persisted last view the
+// app reopens the sidebar in.
 
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
@@ -180,7 +184,9 @@ test('E251: TOC expand/collapse — default expanded, the collapsed row stays, s
   const before = await page.evaluate(() => window.__mmfs!.list().sort());
   await page.reload();
   await openPath(page, '/docs/tree.md');
-  await page.getByTestId('sidebar-view-toc').click();
+  // PRD 012 Req 11 (issue #134): no click needed — the VIEW is persisted, so
+  // the pane comes back on the TOC. The folds inside it are what does not.
+  await expect(page.getByTestId('toc-panel')).toBeVisible();
   await expect.poll(() => rowLabels(page)).toEqual([
     '1:Alpha',
     '2:Notes',
@@ -524,4 +530,149 @@ test('E257: scrolling into a manually collapsed subtree auto-expands the chain t
   await fsWrite(page, '/docs/tree.md', TREE_DOC);
   await openPath(page, '/docs/tree.md');
   await expect.poll(() => rowLabels(page)).toEqual(['1:Alpha', '2:Notes', '3:Deep one', '2:Notes', '1:Beta']);
+});
+
+test('E258: the toggleToc hotkey opens the sidebar on the TOC, hides it again, and is inert with no document open', async ({
+  page,
+}) => {
+  // PRD 012 Req 12: the splash — no document, so no TOC button exists and the
+  // hotkey has nothing to show. Issue #81: a hash-less launch lands here.
+  await page.goto('/');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('sidebar-view-toc')).toHaveCount(0);
+  await page.keyboard.press('Control+Shift+T');
+  await expect(page.getByTestId('toc-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  // Inert means inert: nothing was opened and nothing was written.
+  const seeded = JSON.parse((await fsRead(page, '/config/settings.json'))!);
+  expect(seeded.showFolders).toBeUndefined();
+  expect(seeded.sidebarView).toBeUndefined();
+
+  await openTree(page);
+
+  // PRD 012 Req 10: sidebar hidden → it opens showing the TOC.
+  await page.keyboard.press('Control+Shift+T');
+  await expect(page.getByTestId('toc-panel')).toBeVisible();
+  await expect(page.getByTestId('sidebar-view-toc')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => rowLabels(page)).toEqual([
+    '1:Alpha',
+    '2:Notes',
+    '3:Deep one',
+    '2:Notes',
+    '1:Beta',
+  ]);
+
+  // PRD 012 Req 10: showing the TOC → the sidebar hides.
+  await page.keyboard.press('Control+Shift+T');
+  await expect(page.getByTestId('toc-panel')).toHaveCount(0);
+  await expect(page.getByTestId('sidebar-view-toc')).toHaveAttribute('aria-pressed', 'false');
+
+  // Exactly the button's action, from either surface: the button opens it and
+  // the hotkey hides what the button opened.
+  await page.getByTestId('sidebar-view-toc').click();
+  await expect(page.getByTestId('toc-panel')).toBeVisible();
+  // Past SPEC12 §1.3's exactly-once window first: button and hotkey dispatch
+  // the SAME command id, so a keypress inside 150ms of the click is swallowed
+  // as a duplicate arrival — which is itself the proof they are one action.
+  await page.waitForTimeout(200);
+  await page.keyboard.press('Control+Shift+T');
+  await expect(page.getByTestId('toc-panel')).toHaveCount(0);
+});
+
+test('E259: with the folder tree showing, the hotkey switches the pane to the TOC in place, and Mod+Shift+E keeps its meaning', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await openFolderRoot(page);
+  await fsWrite(page, '/notes/sub/head.md', '# Head\n\n## Sub head\n');
+
+  // Folder state worth losing: an expanded subdirectory and a selected file.
+  await page.getByTestId('folder-item').filter({ hasText: 'sub' }).first().click();
+  const headRow = page.locator('[data-testid="folder-item"][data-path="/notes/sub/head.md"]');
+  await expect(headRow).toBeVisible();
+  await headRow.click();
+  await expect(headRow).toHaveClass(/selected/);
+
+  // PRD 012 Req 10: sidebar showing folders → the pane switches to the TOC.
+  const folderBox = (await page.getByTestId('folder-panel').boundingBox())!;
+  await page.keyboard.press('Control+Shift+T');
+  await expect(page.getByTestId('toc-panel')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect.poll(() => rowLabels(page)).toEqual(['1:Head', '2:Sub head']);
+
+  // …and it stays put: same edge, same width, and the closed pane's edge
+  // chevron never appeared, so nothing slid.
+  const tocBox = (await page.getByTestId('toc-panel').boundingBox())!;
+  expect(Math.round(tocBox.x)).toBe(Math.round(folderBox.x));
+  expect(Math.round(tocBox.width)).toBe(Math.round(folderBox.width));
+  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
+
+  // Mod+Shift+E keeps its existing meaning — the folders route — and the tree
+  // is exactly as it was left.
+  await page.keyboard.press('Control+Shift+E');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('toc-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-header')).toContainText('notes');
+  await expect(headRow).toBeVisible();
+  await expect(headRow).toHaveClass(/selected/);
+
+  // From folders, the TOC hotkey switches again; pressed on the TOC it hides
+  // the pane, and the folders seam's chevron is back.
+  await page.keyboard.press('Control+Shift+T');
+  await expect(page.getByTestId('toc-panel')).toBeVisible();
+  await page.keyboard.press('Control+Shift+T');
+  await expect(page.getByTestId('toc-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toBeVisible();
+});
+
+test('E260: the sidebar reopens in the view it was left on — the TOC across a restart, folders unchanged', async ({
+  page,
+}) => {
+  await openTree(page);
+  await page.keyboard.press('Control+Shift+T');
+  await expect(page.getByTestId('toc-panel')).toBeVisible();
+
+  // PRD 012 Req 11: the view lives in the existing settings store beside the
+  // two SPEC34 keys — no new persistence file.
+  await expect
+    .poll(async () => JSON.parse((await fsRead(page, '/config/settings.json'))!).sidebarView)
+    .toBe('toc');
+  const files = await page.evaluate(() => window.__mmfs!.list().sort());
+
+  // Restart with the same document open: the pane comes back on the TOC, with
+  // no click, and the store gained no file for it.
+  await page.goto('/#open=/docs/tree.md');
+  await expect(page.getByTestId('doc')).toContainText('Alpha');
+  await expect(page.getByTestId('toc-panel')).toBeVisible();
+  await expect(page.getByTestId('sidebar-view-toc')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => rowLabels(page)).toEqual([
+    '1:Alpha',
+    '2:Notes',
+    '3:Deep one',
+    '2:Notes',
+    '1:Beta',
+  ]);
+  expect(await page.evaluate(() => window.__mmfs!.list().sort())).toEqual(files);
+  // SPEC34 §2.2: the sidebar's own visibility key is untouched by all this —
+  // it still says "open", and the new key only says which view is in the pane.
+  const stored = JSON.parse((await fsRead(page, '/config/settings.json'))!);
+  expect(stored.showFolders).toBe(true);
+
+  // Left on the folders view, the existing behaviour is unchanged: a folder
+  // route puts the pane on the tree, and a restart reopens it there.
+  await seedFolders(page);
+  await openFolderRoot(page);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('toc-panel')).toHaveCount(0);
+  await expect
+    .poll(async () => JSON.parse((await fsRead(page, '/config/settings.json'))!).sidebarView)
+    .toBe('folders');
+
+  // Issue #81: a hash-less restart lands on the splash; reopening the folder
+  // shows the tree, not the TOC the reader left two steps ago.
+  await page.goto('/');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await openFolderRoot(page);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('toc-panel')).toHaveCount(0);
 });

@@ -9,6 +9,12 @@ import type { LlmProviderKind } from './llmSeam';
 export type CommentStorage = 'sidecar' | 'embedded';
 /** Issue #125: the document view mode — the reading preview or the editor. */
 export type ViewMode = 'preview' | 'edit';
+/**
+ * PRD 012 Req 1/Req 11: the sidebar pane's two mutually exclusive views. It
+ * lives here, with the setting that persists it, so the pure settings layer
+ * names the union it validates instead of reaching into a React component.
+ */
+export type SidebarView = 'folders' | 'toc';
 export type Margins = 'default' | 'super-narrow' | 'narrow' | 'medium' | 'wide';
 
 export const ZOOM_LEVELS = [50, 75, 90, 100, 110, 125, 150, 175, 200] as const;
@@ -81,6 +87,8 @@ export interface Settings {
   showFolders: boolean;
   /** SPEC34 §3.6: sidebar width in px, clamped [160, 480]. */
   folderWidth: number;
+  /** PRD 012 Req 11: which of the pane's two views the sidebar last showed. */
+  sidebarView: SidebarView;
   /** Minimum content width per pane (px); narrower panes scroll sideways. */
   paneMinWidth: number;
   hotkeys: HotkeyMap;
@@ -157,6 +165,9 @@ export const DEFAULT_SETTINGS: Settings = {
   showFrontmatter: true,
   showFolders: false,
   folderWidth: 240,
+  // PRD 012 Req 11: a fresh install opens the pane on the folder tree — the
+  // only view there was before the TOC.
+  sidebarView: 'folders',
   paneMinWidth: 768,
   hotkeys: { ...DEFAULT_HOTKEYS },
   // PRD 011 Req 7: the defaults leave the app UNCONFIGURED — an empty key and
@@ -222,6 +233,9 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   showFrontmatter: 'U',
   showFolders: 'M',
   folderWidth: 'M',
+  // PRD 012 Req 11: machine-scoped like the sidebar's other two keys — which
+  // view a reader left the pane on is theirs, not a workspace's to dictate.
+  sidebarView: 'M',
   paneMinWidth: 'U',
   hotkeys: 'U',
   // PRD 011 Req 7: all four are `U!` — user-only identity, honored at the User
@@ -319,6 +333,9 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   showFrontmatter: bool,
   showFolders: bool,
   folderWidth: clampedInt(FOLDER_WIDTH_MIN, FOLDER_WIDTH_MAX),
+  // PRD 012 Req 11: only the two views that exist; a hand-edited settings.json
+  // naming anything else reopens on the folder tree rather than an empty pane.
+  sidebarView: (raw) => (raw === 'folders' || raw === 'toc' ? raw : undefined),
   paneMinWidth: clampedInt(PANE_MIN_WIDTH_MIN, PANE_MIN_WIDTH_MAX),
   // A hotkeys object is accepted as a whole map: valid entries land on top of
   // the defaults, blank/invalid bindings fall back per key.
