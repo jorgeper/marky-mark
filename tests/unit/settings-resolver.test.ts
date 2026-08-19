@@ -24,6 +24,9 @@ describe('PRD 002 §B5 scope inventory', () => {
       paneMinWidth: 'U',
       lineNumbers: 'U',
       editorSyntax: 'U',
+      // Issue #122: code-block colouring sits beside editorSyntax — a reader's
+      // own preference, honored at the User layer like its neighbour.
+      codeSyntax: 'U',
       livePreview: 'U',
       // PRD 011 Req 1: the Experimental section's switch — user-personal.
       semanticZoom: 'U',

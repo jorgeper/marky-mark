@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useMemo, useEffect, useLayoutEffect, useRe
 import { getPlatform, type Platform, type WriteResult } from './platform';
 import { renderMarkdown } from './lib/markdown';
 import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
+import { decorateCodeBlocks } from './lib/codeCopy';
 import { getDocText, highlightRange, offsetsToRange, rangeToOffsets, rectForOffsets } from './lib/domtext';
 import { readSidecar, serializeSidecar, sidecarPathFor } from './lib/sidecar';
 import { attachEmbedded, mergeComments, splitEmbedded } from './lib/embedded';
@@ -3752,10 +3753,22 @@ export default function App() {
   // SPEC35 seam (the shim records it for e2e); a missing seam falls back to
   // the browser clipboard. Read resolves null on any failure — Paste then
   // simply inserts nothing.
-  const copyToClipboard = useCallback((text: string) => {
+  // Issue #122: the code-block copy button shares this seam and needs to know
+  // whether the write landed (it confirms only on success), so it resolves a
+  // boolean; callers that ignore the promise behave exactly as before.
+  const copyToClipboard = useCallback(async (text: string): Promise<boolean> => {
     const p = stateRef.current.platform;
-    if (p?.copyText) void p.copyText(text);
-    else void navigator.clipboard?.writeText(text).catch(() => undefined);
+    try {
+      if (p?.copyText) {
+        await p.copyText(text);
+        return true;
+      }
+      if (!navigator.clipboard) return false;
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
   const readFromClipboard = useCallback(async (): Promise<string | null> => {
     try {
@@ -5297,6 +5310,10 @@ export default function App() {
       const href = a.getAttribute('href') ?? '';
       if (/^https?:\/\//i.test(href)) a.setAttribute('title', href);
     });
+    // Issue #122: the per-block copy buttons — grafted here, after injection,
+    // so they never enter the pipeline's HTML (exports, print) nor the plain
+    // text comment anchors are offsets into (lib/codeCopy.ts).
+    decorateCodeBlocks(doc, copyToClipboard);
 
     if (!reanchorAndHighlight(doc)) return;
     injectionCompleteRef.current = true; // SPEC25 §2: this DOM is final for now
@@ -5306,7 +5323,7 @@ export default function App() {
   // PRD 011 Req 17: `zoomLevel` joins the deps because the `.doc` container is
   // UNMOUNTED at levels 1–4 — returning to L5 must re-inject the same html
   // into the fresh element, or the full document would come back blank.
-  }, [html, mode, zoomLevel, reanchorAndHighlight, applyActiveCues]);
+  }, [html, mode, zoomLevel, reanchorAndHighlight, applyActiveCues, copyToClipboard]);
 
   // Into preview: once the doc is injected, map the carried line back to a
   // pixel offset (block-anchored, so code blocks don't skew it).
@@ -5437,12 +5454,13 @@ export default function App() {
         else img.removeAttribute('src');
       });
     }
+    decorateCodeBlocks(el, copyToClipboard); // Issue #122: split view behaves the same
 
     if (!reanchorAndHighlight(el)) return;
     // SPEC44 §3.2: a re-render wiped the synthetic cues — re-derive them.
     const cue = activeCueRef.current;
     if (cue) applyActiveCues(el, cue.head, cue.headLine, cue.hasSel);
-  }, [html, mode, zoomLevel, settings.splitEdit, reanchorAndHighlight, applyActiveCues]);
+  }, [html, mode, zoomLevel, settings.splitEdit, reanchorAndHighlight, applyActiveCues, copyToClipboard]);
 
   // --- SPEC15: synchronized split scrolling ------------------------------------
   // Whichever pane the user scrolls leads; the other follows within a frame.
@@ -6252,7 +6270,10 @@ export default function App() {
               </div>
             )}
             <div
-              className="doc"
+              // Issue #122: the setting off adds mm-code-plain, which
+              // neutralizes the pipeline's hljs colours in CSS. The rendered
+              // HTML never changes — its text is the anchor coordinate space.
+              className={settings.codeSyntax ? 'doc' : 'doc mm-code-plain'}
               data-testid="doc"
               ref={docRef}
               onClick={(e) => {
@@ -6298,6 +6319,7 @@ export default function App() {
                 onPasteImages={pasteImages}
                 insertRef={editorInsertRef}
                 syntax={settings.editorSyntax}
+                codeSyntax={settings.codeSyntax}
                 livePreview={settings.livePreview}
                 onOpenExternal={(u) => void platform?.openExternal(u)}
                 vimNav={settings.vimNav}
@@ -6346,7 +6368,7 @@ export default function App() {
                 <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
               )}
               <div
-                className="doc"
+                className={settings.codeSyntax ? 'doc' : 'doc mm-code-plain'} // Issue #122
                 ref={splitDocRef}
                 onClick={(e) => {
                   // Highlights activate their card here too (#19).
@@ -6375,6 +6397,7 @@ export default function App() {
               onPasteImages={pasteImages}
               insertRef={editorInsertRef}
               syntax={settings.editorSyntax}
+              codeSyntax={settings.codeSyntax}
               livePreview={settings.livePreview}
               onOpenExternal={(u) => void platform?.openExternal(u)}
               vimNav={settings.vimNav}

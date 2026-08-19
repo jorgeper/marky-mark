@@ -784,6 +784,22 @@ export function SettingsPanel({
         </label>
         {scopeNote('editorSyntax')}
       </div>
+      {/* Issue #122: code-block colouring — a different thing from the row
+          above (that one colours the markdown you are typing; this one colours
+          what is inside a fenced block, in the preview and the editor alike). */}
+      <div className="checkbox-row">
+        <input
+          id="code-syntax"
+          type="checkbox"
+          data-testid="code-syntax"
+          checked={settings.codeSyntax}
+          onChange={(e) => onChange({ ...settings, codeSyntax: e.target.checked })}
+        />
+        <label htmlFor="code-syntax" style={{ margin: 0, fontWeight: 400 }}>
+          Code block syntax coloring
+        </label>
+        {scopeNote('codeSyntax')}
+      </div>
       {/* PRD 006 §1: the experimental live-preview opt-in, off by default. */}
       <div className="checkbox-row">
         <input

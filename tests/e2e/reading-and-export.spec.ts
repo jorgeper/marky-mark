@@ -6,6 +6,7 @@ import {
   freshApp,
   freshNativeMenuApp,
   fsRead,
+  fsWrite,
   menuClick,
   NAV_P1,
   NAV_P3,
@@ -478,4 +479,107 @@ test('E70: update-check failures are honest and recoverable — never a crash', 
   });
   await menuClick(page, 'checkUpdates');
   await expect(page.getByTestId('update-available')).toContainText('9.9.9');
+});
+
+// --- Issue #122: the per-code-block copy button ------------------------------
+
+const CODE_DOC = [
+  '# Snippets',
+  '',
+  'Prose with `inline code` in it.',
+  '',
+  '```js',
+  'const a = 1;',
+  'const b = 2;',
+  '```',
+  '',
+  'Tail prose so anchoring has something after the block.',
+  '',
+].join('\n');
+
+test('E262: every preview code block carries a copy button that puts the block\'s exact source on the clipboard', async ({
+  page,
+}) => {
+  // Intent: the whole copy half of issue #122 in one pass — the button exists
+  // per fenced block and nowhere else, it is a real keyboard-reachable button,
+  // it copies the code characters only (no language label, no button label, no
+  // extra trailing newline, no hljs markup), it confirms and reverts, and it
+  // leaves the preview's plain text — the comment-anchor coordinate space —
+  // byte-identical.
+  await fsWrite(page, '/docs/code.md', CODE_DOC);
+  await page.goto('/#open=/docs/code.md');
+  const doc = page.getByTestId('doc');
+  await expect(doc.locator('pre')).toHaveCount(1);
+
+  // One button, on the fenced block; the inline `code` span gets none.
+  await expect(doc.getByTestId('mm-copy-code')).toHaveCount(1);
+  const btn = doc.getByTestId('mm-copy-code');
+  await expect(btn).toHaveAttribute('aria-label', 'Copy code');
+  expect(await btn.evaluate((el) => el.tagName)).toBe('BUTTON');
+  expect(await doc.locator('code:not(.hljs) button').count()).toBe(0);
+
+  // The preview's plain text is unchanged by the chrome: no text node anywhere
+  // under the button or its wrapper (the label is a ::after pseudo-element).
+  expect(await doc.evaluate((el) => el.querySelector('.mm-codeblock')!.textContent)).toBe(
+    'const a = 1;\nconst b = 2;\n'
+  );
+
+  // Clicking copies exactly the two code lines through platform.copyText.
+  await doc.locator('pre').hover();
+  await btn.click();
+  await expect.poll(() => page.evaluate(() => window.__mmClipboard?.at(-1))).toBe('const a = 1;\nconst b = 2;');
+
+  // Brief confirmation, then back to resting state — never stuck.
+  await expect(btn).toHaveAttribute('aria-label', 'Copied');
+  await expect(btn).toHaveAttribute('aria-label', 'Copy code', { timeout: 4000 });
+
+});
+
+test('E264: the copy button is chrome, not content — it never reaches the exported page', async ({ page }) => {
+  // Intent: the button is grafted onto the live preview DOM only, so the
+  // export (which re-renders the markdown into its own holder) cannot carry
+  // it. Guards the boundary the moment anyone moves the button into the
+  // markdown pipeline.
+  await freshNativeMenuApp(page);
+  await fsWrite(page, '/docs/code.md', CODE_DOC);
+  await page.goto('/?nativeMenu=1#open=/docs/code.md');
+  await expect(page.getByTestId('doc').getByTestId('mm-copy-code')).toHaveCount(1);
+
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/code.export.html';
+  });
+  await menuClick(page, 'exportDoc');
+  await expect(page.getByTestId('export-dialog')).toBeVisible();
+  await page.getByTestId('export-run').click();
+  await expect.poll(async () => ((await fsRead(page, '/docs/code.export.html')) ? 'written' : 'missing')).toBe('written');
+
+  const exported = (await fsRead(page, '/docs/code.export.html'))!;
+  // The code itself is there (as the pipeline's own hljs markup, unaltered).
+  expect(exported).toContain('class="hljs language-js"');
+  expect(exported).toContain('>const</span> a = ');
+  expect(exported).not.toContain('mm-copy-code');
+  expect(exported).not.toContain('mm-codeblock');
+  expect(exported).not.toContain('Copy code');
+});
+
+test('E263: the copy button leaves comment anchoring alone — a comment over a document with code blocks still resolves', async ({
+  page,
+}) => {
+  // Intent: getDocText() over the preview root is the anchor coordinate space.
+  // The button and its wrapper contribute no text nodes, so an anchor placed
+  // after a code block lands on the same characters with the buttons present.
+  await fsWrite(page, '/docs/code.md', CODE_DOC);
+  await page.goto('/#open=/docs/code.md');
+  const doc = page.getByTestId('doc');
+  await expect(doc.getByTestId('mm-copy-code')).toHaveCount(1);
+
+  // The rendered plain text reads exactly as it would with no chrome at all.
+  const text = await doc.evaluate((el) => el.textContent);
+  expect(text).toBe('Snippets\nProse with inline code in it.\nconst a = 1;\nconst b = 2;\n\nTail prose so anchoring has something after the block.');
+
+  await addComment(page, 'Tail prose', 'after the fence');
+  await expect(doc.locator('mark.hl')).toHaveCount(1);
+  await expect(doc.locator('mark.hl')).toHaveText('Tail prose');
+  // A re-injection (the anchor refresh) re-runs the decoration: still one button.
+  await expect(doc.getByTestId('mm-copy-code')).toHaveCount(1);
 });

@@ -568,3 +568,72 @@ test('E228: on desktop the settings window round-trips Test connection through t
     })
     .toBe('sk-e228-secret');
 });
+
+// --- Issue #122: the code-block syntax-coloring setting ----------------------
+
+const SYNTAX_DOC = [
+  '# Colour',
+  '',
+  '```js',
+  'const answer = 42; // the number',
+  '```',
+  '',
+  'Tail prose.',
+  '',
+].join('\n');
+
+test('E265: issue #122 — code block syntax coloring is on by default, toggles live in both panes, and persists', async ({
+  page,
+}) => {
+  // Intent: the setting half of issue #122 end to end. On (the default) both
+  // panes colour a labelled fence by language — the preview through
+  // rehype-highlight's hljs classes, the editor through the mm-code-* classes
+  // on the same --mm-syn-* theme tokens. Off, neither pane shows a token
+  // colour while the code background survives, the toggle applies live with no
+  // reopen, and the choice lands in settings.json.
+  await fsWrite(page, '/docs/colour.md', SYNTAX_DOC);
+  await page.goto('/#open=/docs/colour.md');
+  const doc = page.getByTestId('doc');
+  await expect(doc.locator('pre code.hljs')).toHaveCount(1);
+  // Default ON: the preview's colours are live (the neutralizer class is off).
+  await expect(doc).not.toHaveClass(/mm-code-plain/);
+  await expect(doc.locator('.hljs-keyword').first()).toHaveText('const');
+  const litKeyword = await doc.locator('.hljs-keyword').first().evaluate((el) => getComputedStyle(el).color);
+  const litPlain = await doc.locator('pre code').evaluate((el) => getComputedStyle(el).color);
+  expect(litKeyword).not.toBe(litPlain); // actually coloured, not just classed
+
+  // The editor pane colours the same fence, and keeps the code background.
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor).toBeVisible();
+  await expect(editor.locator('.mm-code-keyword').first()).toHaveText('const');
+  await expect(editor.locator('.mm-code-comment').first()).toContainText('the number');
+  await expect(editor.locator('.mm-md-code').first()).toBeVisible(); // SPEC23 §3 fence background intact
+
+  // Toggle it off from Settings ▸ Editor ▸ Syntax — live, no reopen.
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-tab-editor').click();
+  await page.getByTestId('code-syntax').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect(editor.locator('[class*="mm-code-"]:not(.mm-code-sel)')).toHaveCount(0);
+  // The markdown highlighting beside it is untouched — the two are independent.
+  await expect(editor.locator('.mm-md-code').first()).toBeVisible();
+
+  await page.keyboard.press('Control+e');
+  await expect(doc).toHaveClass(/mm-code-plain/);
+  // The hljs markup is still emitted (the rendered text must not vary with a
+  // setting) but paints in the plain code foreground.
+  await expect(doc.locator('.hljs-keyword').first()).toHaveText('const');
+  const offKeyword = await doc.locator('.hljs-keyword').first().evaluate((el) => getComputedStyle(el).color);
+  const offPlain = await doc.locator('pre code').evaluate((el) => getComputedStyle(el).color);
+  expect(offKeyword).toBe(offPlain);
+  // The code background is unchanged by the setting.
+  const bg = await doc.locator('pre').evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(bg).not.toBe('rgba(0, 0, 0, 0)');
+
+  // Persisted, and honored on a cold boot.
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"codeSyntax": false');
+  await page.reload();
+  await page.goto('/#open=/docs/colour.md');
+  await expect(page.getByTestId('doc')).toHaveClass(/mm-code-plain/);
+});

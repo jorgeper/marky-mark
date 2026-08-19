@@ -492,12 +492,17 @@ test('E261: selection over code — the tint paints above --mm-code-bg in the ed
   await selectLine(editor, 'const answer');
   const tint = editor.locator('.mm-md-code .mm-code-sel'); // nested => paints on top
   await expect(tint.first()).toBeVisible();
-  expect(await tint.first().textContent()).toBe('const answer = 42;');
+  // Issue #122: the fence is coloured by language now (codeSyntax is on by
+  // default), so the innermost mark is cut at every token boundary. The
+  // contract is unchanged — the whole selected code is tinted — it is just
+  // spelled across several spans.
+  expect((await tint.allTextContents()).join('')).toBe('const answer = 42;');
   expect(await bgOf(tint.first())).toBe('rgba(9, 105, 218, 0.18)'); // --mm-selection
-  // Legible: the code foreground is untouched under the tint, and the code
-  // background behind it is still the theme's.
+  // Legible: the code foreground is untouched under the tint (it inherits from
+  // whatever token span encloses it), and the code background behind it is
+  // still the theme's.
   expect(await tint.first().evaluate((el) => getComputedStyle(el).color)).toBe(
-    await fenced.first().evaluate((el) => getComputedStyle(el).color),
+    await tint.first().evaluate((el) => getComputedStyle(el.parentElement!).color),
   );
   expect(await bgOf(fenced.first())).toBe('rgb(246, 248, 250)');
 

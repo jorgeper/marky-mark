@@ -75,6 +75,12 @@ export interface Settings {
   imageNamePattern: string;
   /** SPEC23 §3: markdown syntax highlighting in the editor (on by default). */
   editorSyntax: boolean;
+  /**
+   * Issue #122: colour fenced code blocks by language — in the preview (the
+   * rehype-highlight output) and in the editor pane. Independent of
+   * `editorSyntax`, which is markdown highlighting; on by default.
+   */
+  codeSyntax: boolean;
   /** PRD 006 §1: live preview in the edit pane — experimental, off by default. */
   livePreview: boolean;
   /** SPEC40 §1: show ALL tables as fitted grids in the editor (default on). */
@@ -159,6 +165,7 @@ export const DEFAULT_SETTINGS: Settings = {
   imageFolder: 'images',
   imageNamePattern: '{doc} {n}',
   editorSyntax: true,
+  codeSyntax: true,
   livePreview: false,
   tableGridView: true,
   inlineImages: true,
@@ -227,6 +234,9 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   imageFolder: 'W',
   imageNamePattern: 'W',
   editorSyntax: 'U',
+  // Issue #122: User scope, matching its neighbour editorSyntax — whether
+  // code reads in colour is a reader's preference, not a workspace's to set.
+  codeSyntax: 'U',
   livePreview: 'U',
   tableGridView: 'U',
   inlineImages: 'U',
@@ -327,6 +337,7 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   imageFolder: (raw) => (typeof raw === 'string' && isValidImageFolder(raw) ? raw.trim() : undefined),
   imageNamePattern: (raw) => (typeof raw === 'string' && raw.trim() ? raw : undefined),
   editorSyntax: bool,
+  codeSyntax: bool,
   livePreview: bool,
   tableGridView: bool,
   inlineImages: bool,

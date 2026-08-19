@@ -27,10 +27,18 @@ import {
   historyKeymap,
   isolateHistory,
 } from '@codemirror/commands';
-import { HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language';
+import { HighlightStyle, LanguageDescription, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { closeSearchPanel, findNext, findPrevious, getSearchQuery, openSearchPanel, replaceAll, replaceNext, search, searchPanelOpen, SearchQuery, setSearchQuery } from '@codemirror/search';
+import { NodeProp } from '@lezer/common';
 import { tags } from '@lezer/highlight';
 import { markdown } from '@codemirror/lang-markdown';
+// Issue #122: the three fenced-code languages the editor colours. All three
+// already ship inside @codemirror/lang-markdown's own dependency tree; they
+// are declared in package.json so the imports are honest, and no other
+// language package is pulled in.
+import { css as cssLanguage } from '@codemirror/lang-css';
+import { html as htmlLanguage } from '@codemirror/lang-html';
+import { javascript as jsLanguage } from '@codemirror/lang-javascript';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
 import { mapOffsetByLineFlat, wordAt } from '../lib/activePosition';
 import { intersectCodeSelection, type CodeRange } from '../lib/codeSelection';
@@ -235,6 +243,11 @@ interface Props {
   insertRef?: MutableRefObject<((text: string) => void) | null>;
   /** SPEC23 §3: markdown syntax highlighting (live-reconfigured, no remount). */
   syntax: boolean;
+  /**
+   * Issue #122: colour fenced code by language. Independent of `syntax` above
+   * (that one is markdown highlighting) and live-reconfigured the same way.
+   */
+  codeSyntax: boolean;
   /** PRD 006 §1: live preview (experimental) — compartment-reconfigured live, no remount. */
   livePreview: boolean;
   /** PRD 006 §5: receives the URL of a cmd/ctrl-clicked rendered link (platform.openExternal). */
@@ -374,8 +387,97 @@ const codeSelectionExt: Extension = Prec.highest(EditorView.decorations.of(codeS
  * to paint over. One definition for the mount and the live reconfigure, which
  * must never drift apart.
  */
+/**
+ * Issue #122: SPEC23 §3's `mm-md-code` over a fence whose language a nested
+ * parser owns. @lezer/highlight deliberately drops the outer node's class over
+ * a mounted range (`inheritedClass = ""`), so once `codeLanguages` is in play
+ * `tags.monospace` stops painting the fence body — the code background,
+ * radius and the issue #123 selection tint that nests inside it would all
+ * vanish from exactly the fences the new colouring applies to. Re-assert the
+ * class as a mark decoration, and ONLY over mounted bodies: an unlabelled
+ * fence still gets it from the highlighter, and doubling the span would double
+ * a translucent theme's --mm-code-bg.
+ *
+ * Default precedence, so it nests OUTSIDE the highlighter's own spans
+ * (Prec.high) and outside the Prec.highest selection tint — the same
+ * `.mm-md-code .mm-code-sel` nesting as before.
+ */
+const codeBodyMark = Decoration.mark({ class: 'mm-md-code' });
+
+function mountedCodeDeco(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  const tree = syntaxTree(view.state);
+  for (const { from, to } of view.visibleRanges) {
+    tree.iterate({
+      from,
+      to,
+      enter: (n) => {
+        if (n.name !== 'CodeText') return;
+        // The mount sits on the enclosing FencedCode (its overlay covers
+        // exactly this body); an unlabelled fence has none, and the
+        // highlighter still paints it, so it must not be doubled.
+        if (!n.node.parent?.tree?.prop(NodeProp.mounted)) return;
+        builder.add(n.from, n.to, codeBodyMark);
+      },
+    });
+  }
+  return builder.finish();
+}
+
+const mountedCodeExt: Extension = EditorView.decorations.of(mountedCodeDeco);
+
 const syntaxExt = (on: boolean): Extension =>
-  on ? [syntaxHighlighting(mmHighlight), codeSelectionExt] : [];
+  on ? [syntaxHighlighting(mmHighlight), mountedCodeExt, codeSelectionExt] : [];
+
+/**
+ * Issue #122: fenced-code colouring in the editor, mapped onto the same eight
+ * --mm-syn-* theme tokens the preview's `.doc .hljs-*` rules consume (keyword,
+ * string, comment, number, title, attr, literal, meta), so all 27 bundled
+ * themes drive both panes from one palette with no theme-file change. The tags
+ * here come from the NESTED language parsers below, never from markdown's own
+ * tags — `tags.monospace` stays `mm-md-code`, so the fence keeps its
+ * background whether this style is installed or not.
+ */
+const mmCodeHighlight = HighlightStyle.define([
+  { tag: [tags.keyword, tags.tagName], class: 'mm-code-keyword' },
+  { tag: [tags.string, tags.regexp, tags.escape], class: 'mm-code-string' },
+  { tag: [tags.comment], class: 'mm-code-comment' },
+  { tag: [tags.number], class: 'mm-code-number' },
+  {
+    tag: [tags.function(tags.variableName), tags.function(tags.propertyName), tags.definition(tags.variableName), tags.className],
+    class: 'mm-code-title',
+  },
+  { tag: [tags.propertyName, tags.attributeName, tags.angleBracket], class: 'mm-code-attr' },
+  { tag: [tags.bool, tags.null, tags.atom, tags.self, tags.typeName, tags.unit, tags.color], class: 'mm-code-literal' },
+  { tag: [tags.meta, tags.annotation], class: 'mm-code-meta' },
+]);
+
+/**
+ * Issue #122: the languages the editor colours inside a fence — JavaScript
+ * (with its TypeScript and JSX dialects) and CSS and HTML, i.e. exactly the
+ * three CodeMirror language packages already in the tree. A fence in any other
+ * language, an unlabelled fence, or a fence with a bogus info string is simply
+ * not matched here: @lezer/markdown leaves the body as plain code text, with
+ * no error and nothing lost.
+ */
+const CODE_LANGUAGES = [
+  LanguageDescription.of({
+    name: 'javascript',
+    alias: ['js', 'jsx', 'ts', 'tsx', 'typescript', 'node'],
+    load: async () => jsLanguage({ jsx: true, typescript: true }),
+  }),
+  LanguageDescription.of({ name: 'css', load: async () => cssLanguage() }),
+  LanguageDescription.of({ name: 'html', alias: ['htm', 'xhtml'], load: async () => htmlLanguage() }),
+];
+
+/**
+ * Issue #122: the code-colour compartment's content. Only the highlight style
+ * rides it — the nested parsers stay installed either way, so toggling is a
+ * pure restyle (no re-parse, no history touched). Independent of `syntaxExt`
+ * above: markdown highlighting off with code colour on, or the reverse, are
+ * both coherent states, and PRD 006's live preview supersedes neither.
+ */
+const codeSyntaxExt = (on: boolean): Extension => (on ? syntaxHighlighting(mmCodeHighlight) : []);
 
 /**
  * CodeMirror 6 markdown editor. This module is loaded lazily (React.lazy) so
@@ -499,6 +601,7 @@ export default function Editor({
   onPasteImages,
   insertRef,
   syntax,
+  codeSyntax,
   livePreview,
   onOpenExternal,
   vimNav,
@@ -536,6 +639,7 @@ export default function Editor({
   const gutterComp = useRef(new Compartment());
   const diffComp = useRef(new Compartment());
   const syntaxComp = useRef(new Compartment());
+  const codeSynComp = useRef(new Compartment()); // Issue #122
   // PRD 006 §1: live preview rides its own compartment, same live-toggle pattern.
   const lpComp = useRef(new Compartment());
   const smartComp = useRef(new Compartment());
@@ -1022,6 +1126,9 @@ export default function Editor({
       // preview is on it supersedes the setting — revealed raw lines keep
       // the mm-md-* highlight styling whatever `editorSyntax` says.
       syntaxComp.current.of(syntaxExt(syntax || livePreview)),
+      // Issue #122: fenced-code colouring, on its own compartment so it
+      // toggles live and independently of the markdown highlighting above.
+      codeSynComp.current.of(codeSyntaxExt(codeSyntax)),
       // PRD 006 §1: the experimental live-preview extension, present only
       // while the setting is on — off ⇒ an empty compartment, zero behavior.
       lpComp.current.of(livePreview ? livePreviewExt() : []),
@@ -1053,7 +1160,7 @@ export default function Editor({
           return { dom };
         },
       }),
-      markdown(),
+      markdown({ codeLanguages: CODE_LANGUAGES }), // Issue #122: nested fence parsers
       EditorView.lineWrapping,
       // SPEC23 §2: the vim modal layer runs ahead of every keymap. Gated on
       // the setting; typing mode passes everything through untouched.
@@ -1432,11 +1539,14 @@ export default function Editor({
     viewRef.current?.dispatch({
       effects: [
         syntaxComp.current.reconfigure(syntaxExt(syntax || livePreview)),
+        // Issue #122: the same compartment pattern — restyle only, so an open
+        // document keeps its undo history across the toggle.
+        codeSynComp.current.reconfigure(codeSyntaxExt(codeSyntax)),
         lpComp.current.reconfigure(livePreview ? livePreviewExt() : []),
       ],
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syntax, livePreview]);
+  }, [syntax, codeSyntax, livePreview]);
 
   // SPEC40 §1.3/§2.2: the global view — gridify on (initial mount included),
   // collapse off; both history-transparent inside the helpers.

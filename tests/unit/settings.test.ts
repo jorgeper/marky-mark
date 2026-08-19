@@ -154,6 +154,27 @@ describe('SPEC23 settings', () => {
   });
 });
 
+describe('Issue #122 code-block syntax colouring setting', () => {
+  // Intent: the new switch has to behave exactly like its neighbour U51 —
+  // colour is ON for a fresh install, a hand-written `false` is obeyed, and
+  // anything that is not a boolean in settings.json falls back to the default
+  // rather than reaching the panes as a truthy string.
+  test('U676: codeSyntax defaults true, explicit false honored, malformed falls back, round-trips', () => {
+    expect(parseSettings('{}').codeSyntax).toBe(true);
+    expect(DEFAULT_SETTINGS.codeSyntax).toBe(true);
+    expect(parseSettings('{"codeSyntax":false}').codeSyntax).toBe(false);
+    expect(parseSettings('{"codeSyntax":true}').codeSyntax).toBe(true);
+    expect(parseSettings('{"codeSyntax":"off"}').codeSyntax).toBe(true); // malformed → default
+    expect(parseSettings('{"codeSyntax":0}').codeSyntax).toBe(true);
+    const round = parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, codeSyntax: false }));
+    expect(round.codeSyntax).toBe(false);
+    // Independent of editorSyntax: turning one off leaves the other alone.
+    const one = parseSettings('{"codeSyntax":false}');
+    expect(one.editorSyntax).toBe(true);
+    expect(parseSettings('{"editorSyntax":false}').codeSyntax).toBe(true);
+  });
+});
+
 describe('PRD 011 Req 6+7 LLM provider settings', () => {
   test('U577: the defaults leave the app unconfigured — empty key, no fabricated model', () => {
     const d = parseSettings('{}');

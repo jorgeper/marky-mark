@@ -494,6 +494,70 @@ button {
   color: var(--mm-syn-meta, #953800);
 }
 
+/* Issue #122: the codeSyntax setting off ⇒ no per-language colour in the
+   preview. The markdown pipeline still emits the hljs classes — its text
+   output is the coordinate space comment anchors are offsets into, so it must
+   not vary with a setting — and the colours are neutralized here instead.
+   Code paints in the plain code foreground; the code background, mono font,
+   radius and the SPEC23 §3 selection tint are untouched. */
+.doc.mm-code-plain [class*='hljs-'] {
+  color: inherit;
+  font-style: normal;
+}
+
+/* ---------- Issue #122: the per-code-block copy button ---------- */
+
+/* The wrapper is grafted around each <pre> after injection (lib/codeCopy.ts):
+   a plain block box with no padding or border, so the <pre>'s own margins
+   collapse straight through it and nothing about the block's layout moves. It
+   exists only to be the positioning context, which the <pre> itself cannot be
+   — it scrolls sideways (overflow-x: auto), and an absolutely positioned
+   child would scroll away with the code. */
+.doc .mm-codeblock {
+  position: relative;
+}
+
+.doc .mm-copy-code {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 9px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 6px;
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg-muted, #57606a);
+  font-family: inherit;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+/* The label is pseudo-element content on purpose: the button then holds no
+   text node, so getDocText() over the preview root is byte-identical with the
+   buttons present and every comment anchor still resolves (lib/codeCopy.ts). */
+.doc .mm-copy-code::after {
+  content: 'Copy';
+}
+.doc .mm-copy-code.is-copied::after {
+  content: 'Copied';
+}
+
+/* Revealed on hover of the block, and on keyboard focus — the button is a real
+   tab stop, so focus-within has to light it up as well as the pointer. */
+.doc .mm-codeblock:hover .mm-copy-code,
+.doc .mm-codeblock:focus-within .mm-copy-code,
+.doc .mm-copy-code.is-copied {
+  opacity: 1;
+  pointer-events: auto;
+}
+.doc .mm-copy-code:hover {
+  color: var(--mm-fg, #1f2328);
+  border-color: var(--mm-accent, #0969da);
+}
+
 /* ---------- comment highlights ---------- */
 
 mark.hl {
@@ -777,6 +841,38 @@ mark.hl.ghost {
    decoration nests inside .mm-lp-code the same way. */
 .editor-wrap .cm-content .mm-code-sel {
   background: var(--mm-selection, rgba(9, 105, 218, 0.18));
+}
+
+/* Issue #122: fenced-code colouring in the editor pane. The eight classes map
+   onto exactly the --mm-syn-* tokens the preview's .doc .hljs-* rules above
+   consume, so all 27 bundled themes drive both panes from one palette with no
+   theme-file change. They follow .mm-md-code deliberately: same specificity,
+   so the token colour wins over the flat code foreground while that rule's
+   background and radius still paint the fence. */
+.editor-wrap .mm-code-keyword {
+  color: var(--mm-syn-keyword, #cf222e);
+}
+.editor-wrap .mm-code-string {
+  color: var(--mm-syn-string, #0a3069);
+}
+.editor-wrap .mm-code-comment {
+  color: var(--mm-syn-comment, #59636e);
+  font-style: italic;
+}
+.editor-wrap .mm-code-number {
+  color: var(--mm-syn-number, #0550ae);
+}
+.editor-wrap .mm-code-title {
+  color: var(--mm-syn-title, #6639ba);
+}
+.editor-wrap .mm-code-attr {
+  color: var(--mm-syn-attr, #0550ae);
+}
+.editor-wrap .mm-code-literal {
+  color: var(--mm-syn-literal, #0550ae);
+}
+.editor-wrap .mm-code-meta {
+  color: var(--mm-syn-meta, #953800);
 }
 .editor-wrap .mm-md-link {
   color: var(--mm-link, var(--mm-accent, #0969da));
@@ -1747,6 +1843,8 @@ mark.hl.ghost {
   .palette-scrim,
   .palette,
   .img-resize-overlay,
+  /* Issue #122: the copy button is chrome — never on paper. */
+  .mm-copy-code,
   .overlay {
     display: none !important;
   }
