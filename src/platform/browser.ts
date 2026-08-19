@@ -1,4 +1,5 @@
 import type { Platform } from './types';
+import { PRINT_ROOT_ID } from '../lib/printDoc';
 import { createFileSummaryCache } from './summaryCacheFiles';
 import { createFakeLlm } from '../lib/llmFake';
 import { FIXTURES } from '../bundled';
@@ -248,9 +249,14 @@ export function createBrowserPlatform(): Platform {
     ...(nativeMenu ? { setAppMenu, openAuxWindow, closeFocusedAuxWindow } : {}),
     busEmit,
     busListen,
-    // The shim never opens print UI — record invocations for e2e (E67).
+    // The shim never opens print UI — record invocations for e2e (E67), and
+    // (issue #124) the body that WOULD have gone to paper: whatever the print
+    // root holds at the moment of the call, which is exactly what @media
+    // print puts on the page. E67's recorded string is untouched.
     async printCurrent() {
       ((window as unknown as { __mmPrints?: string[] }).__mmPrints ??= []).push('print-current');
+      (window as unknown as { __mmPrintHtml?: string | null }).__mmPrintHtml =
+        document.getElementById(PRINT_ROOT_ID)?.innerHTML ?? null;
     },
     // SPEC19 §2.3: mocked updater, driven by window.__mmUpdate (E69/E70).
     updates: {

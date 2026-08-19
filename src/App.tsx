@@ -30,6 +30,7 @@ import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
 import type { EditorSearchHandle, EditorSyncHandle, SmartEditHandle, SmartFormatOp } from './components/Editor';
 import { extractReviewPayload } from './lib/reviewBundle';
 import { buildStaticHtml, statsLine, type StaticComment } from './lib/exportDoc';
+import { buildPrintRootHtml, pickPrintTheme, PRINT_BODY_CLASS, PRINT_ROOT_ID } from './lib/printDoc';
 import { ExportDialog, type ExportRequest } from './components/ExportDialog';
 import { SavePicker } from './components/SavePicker';
 import {
@@ -3629,6 +3630,42 @@ export default function App() {
     })();
   }, []);
 
+  /**
+   * File → Print… (issue #124; SPEC18 §2). Paper gets the DOCUMENT, not a
+   * picture of the app window: render the open buffer exactly as Export
+   * does, mount it as a transient print-only root, fire the SAME native
+   * print command as before (`printCurrent` → Rust `print_view`; neither
+   * `window.print()` nor a throwaway window may come back), then take the
+   * root out again. styles.css does the rest — under @media print only the
+   * root is on paper, so the output is identical from preview, edit and
+   * split, and unclipped by .workspace's scroll box.
+   *
+   * Print… has no options dialog: comment highlights, numbered refs, the
+   * Comments section and the word-count line are Export…'s job and are
+   * never built here. Paper always wears the LIGHT theme — a dark theme
+   * would print a dark slab.
+   */
+  const runPrint = useCallback(async () => {
+    const s = stateRef.current;
+    if (!s.docPath) return; // no document → silent no-op (E67)
+    const bodyHtml = await renderMarkdown(s.buffer);
+    const theme = pickPrintTheme(s.themes, s.settings.themeLight);
+    // A print already in flight owns the only root there may be — replacing
+    // it keeps ids unique rather than stacking a second copy in the DOM.
+    document.getElementById(PRINT_ROOT_ID)?.remove();
+    const root = document.createElement('div');
+    root.id = PRINT_ROOT_ID;
+    root.innerHTML = buildPrintRootHtml({ bodyHtml, themeCss: theme?.css ?? '' });
+    document.body.appendChild(root);
+    document.body.classList.add(PRINT_BODY_CLASS);
+    try {
+      await s.platform?.printCurrent?.();
+    } finally {
+      root.remove();
+      document.body.classList.remove(PRINT_BODY_CLASS);
+    }
+  }, []);
+
   // SPEC43 §4.5–4.6: the menu's clipboard row endpoints. Copy prefers the
   // SPEC35 seam (the shim records it for e2e); a missing seam falls back to
   // the browser clipboard. Read resolves null on any failure — Paste then
@@ -3691,10 +3728,9 @@ export default function App() {
       exportDoc: () => {
         if (stateRef.current.docPath) setExportOpen(true);
       },
-      // File → Print…: native print of this window; print CSS trims chrome.
-      printDoc: () => {
-        if (stateRef.current.docPath) void stateRef.current.platform?.printCurrent?.();
-      },
+      // File → Print… (issue #124): the rendered document on paper, from any
+      // view mode — runPrint mounts it, prints it natively, takes it back out.
+      printDoc: () => void runPrint(),
       // SPEC19 §2: strictly manual update check (no-op where unsupported).
       checkUpdates: () => {
         if (stateRef.current.platform?.updates) setUpdateOpen(true);
@@ -3885,7 +3921,7 @@ export default function App() {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard, runPrint]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.

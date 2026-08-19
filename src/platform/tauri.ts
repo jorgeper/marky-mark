@@ -28,6 +28,13 @@ function toAccelerator(combo: string): string | undefined {
 }
 
 /** One extension filter per open/save dialog kind. */
+/**
+ * issue #124: how long the print root stays mounted after `print_view` when
+ * the webview never fires 'afterprint' (WKWebView does not). Long enough for
+ * the OS print panel to be answered; the root is off-screen the whole time.
+ */
+const PRINT_SETTLE_MS = 60_000;
+
 const DIALOG_FILTERS = {
   markdown: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
   html: [{ name: 'HTML', extensions: ['html'] }],
@@ -386,10 +393,27 @@ export async function createTauriPlatform(): Promise<Platform> {
     })(),
 
     async printCurrent() {
-      // Native print of THIS window (Rust print_view command) — no throwaway
-      // print window whose teardown can kill the OS dialog. Print CSS trims
-      // the app chrome so the paper shows just the document.
+      // SPEC18 §2: native print of THIS window (Rust print_view command) — no
+      // throwaway print window whose teardown can kill the OS dialog, and not
+      // window.print() (a WKWebView no-op). Print CSS trims the app chrome so
+      // the paper shows just the document.
       await invoke('print_view');
+      // issue #124: the caller mounts the print root, awaits this, then tears
+      // it down — so this promise must not resolve while the OS still needs
+      // the DOM. print_view returns as soon as the panel is up (macOS runs it
+      // modally against the window and paginates once the user confirms), so
+      // wait for 'afterprint' where the webview fires it and fall back to a
+      // grace period where it does not. The root is invisible on screen, so
+      // over-waiting costs nothing; under-waiting would print an empty page.
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          window.removeEventListener('afterprint', done);
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(done, PRINT_SETTLE_MS);
+        window.addEventListener('afterprint', done);
+      });
     },
 
     async closeFocusedAuxWindow() {

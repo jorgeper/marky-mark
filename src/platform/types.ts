@@ -223,9 +223,13 @@ export interface Platform {
   /**
    * File → Print… : the webview's REAL native print of the current window
    * (Rust print_view command — window.print() is a WKWebView no-op). The
-   * OS dialog offers Save as PDF. Print CSS hides the app chrome. The shim
-   * records invocations on window.__mmPrints; web leaves it undefined (the
-   * browser's own ⌘P already covers it).
+   * OS dialog offers Save as PDF. Issue #124: the caller has mounted the
+   * print-only root by the time this is called and tears it down when the
+   * promise resolves, so an implementation must not resolve before the OS
+   * is done reading the DOM. The shim records invocations on
+   * window.__mmPrints (and the printed body on window.__mmPrintHtml); web
+   * leaves it undefined — the browser's own ⌘P already covers it, and the
+   * fail-safe @media print rules make that a document, not a blank page.
    */
   printCurrent?(): Promise<void>;
 

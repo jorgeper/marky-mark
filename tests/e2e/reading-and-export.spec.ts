@@ -8,8 +8,10 @@ import {
   menuClick,
   NAV_P1,
   NAV_P3,
+  openFolderRoot,
   openWelcomeViaHelp,
   PHRASE,
+  revealToolbar,
   selectPhrase,
   splitApp,
 } from './helpers';
@@ -266,6 +268,135 @@ test('E67: File → Print… invokes the platform native print of the current wi
   expect(await page.evaluate(() => (window as unknown as { __mmPrints: string[] }).__mmPrints[0])).toBe(
     'print-current'
   );
+});
+
+// --- File → Print… (issue #124): paper gets the document, not the app -------
+
+/** Fire Print… through the command seam and return what would have printed. */
+async function printAndRead(page: import('@playwright/test').Page): Promise<string> {
+  await page.evaluate(() => {
+    (window as unknown as { __mmPrintHtml?: string | null }).__mmPrintHtml = null;
+    window.__mmDispatch!('printDoc');
+  });
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __mmPrintHtml?: string | null }).__mmPrintHtml))
+    .not.toBeNull();
+  return page.evaluate(() => (window as unknown as { __mmPrintHtml: string }).__mmPrintHtml);
+}
+
+test('E249: Print… puts the RENDERED document on paper — the same page from preview and from edit mode', async ({
+  page,
+}) => {
+  // Preview first: the rendered document, no app chrome anywhere near it.
+  const fromPreview = await printAndRead(page);
+  expect(fromPreview).toContain('Welcome to Marky Mark');
+  expect(fromPreview).toContain('<h1');
+  for (const chrome of ['toolbar-shell', 'folder-panel', 'comment-nav', 'word-chip', 'cm-editor', 'fm-card']) {
+    expect(fromPreview).not.toContain(chrome);
+  }
+
+  // Edit mode prints the same page — not the raw editor it shows on screen.
+  await page.keyboard.press('Control+e');
+  await expect(page.locator('.cm-content')).toBeVisible();
+  await expect(page.getByTestId('doc')).toHaveCount(0);
+  const fromEdit = await printAndRead(page);
+  expect(fromEdit).toContain('Welcome to Marky Mark');
+  expect(fromEdit).not.toContain('cm-content');
+  expect(fromEdit).not.toMatch(/# Welcome to Marky Mark/);
+  expect(fromEdit).toBe(fromPreview);
+});
+
+test('E250: Print… from split mode prints the WHOLE document, not the visible screenful', async ({ page }) => {
+  await splitApp(page); // long fixture (40 sections), split edit
+  const printed = await printAndRead(page);
+  // On screen the workspace is a scroll box showing the first sections only;
+  // on paper every one of them is there, ready to flow across pages.
+  expect(printed).toContain('Marker 1');
+  expect(printed).toContain('Marker 40');
+  expect(printed).not.toContain('cm-content');
+  await expect(page.locator('.cm-content')).toBeVisible(); // screen untouched
+});
+
+test('E251: a browser-initiated print with no print root still yields the document, not the app and not a blank page', async ({
+  page,
+}) => {
+  await addComment(page, PHRASE, 'a note');
+  await openFolderRoot(page, '/docs');
+  await revealToolbar(page);
+  await page.emulateMedia({ media: 'print' });
+  try {
+    // Nothing was mounted — this is the fail-safe path (web ⌘P, or the
+    // webview printing on its own).
+    await expect(page.locator('#mm-print-root')).toHaveCount(0);
+    await expect(page.getByTestId('doc')).toBeVisible();
+    await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+    for (const sel of ['.toolbar-shell', '.folder-panel', '.panel', '.editor-wrap', '.comment-nav', '.word-chip']) {
+      await expect(page.locator(sel)).toBeHidden();
+    }
+  } finally {
+    await page.emulateMedia({ media: null });
+  }
+});
+
+test('E252: the screen DOM is exactly as it was once printing is done', async ({ page }) => {
+  const before = await page.evaluate(() => document.body.innerHTML.length);
+  const printed = await printAndRead(page);
+  expect(printed).toContain('Welcome to Marky Mark');
+
+  // The transient root is gone, its body class with it, and the screen's own
+  // document is still the one and only [data-testid="doc"].
+  await expect.poll(() => page.locator('#mm-print-root').count()).toBe(0);
+  expect(await page.evaluate(() => document.body.classList.contains('mm-printing'))).toBe(false);
+  await expect(page.getByTestId('doc')).toHaveCount(1);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  expect(await page.evaluate(() => document.body.innerHTML.length)).toBe(before);
+});
+
+test('E253: with the print root mounted, paper shows only it — light, whatever dark theme the screen wears', async ({
+  page,
+}) => {
+  // Dark theme on screen (the seeded default pair: crisp light / one-dark).
+  const screenBg = () =>
+    page.locator('#root .theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect.poll(screenBg).toBe('rgb(40, 44, 52)');
+  const printed = await printAndRead(page);
+
+  // Re-mount exactly what the print invocation had on the page: the shim
+  // never opens print UI, so this is the only way to hold that state still.
+  await page.evaluate((html) => {
+    const root = document.createElement('div');
+    root.id = 'mm-print-root';
+    root.innerHTML = html;
+    document.body.appendChild(root);
+    document.body.classList.add('mm-printing');
+  }, printed);
+  try {
+    // On screen: invisible, and the app keeps its own dark theme — the print
+    // copy's styles are scoped to the root, so nothing flashes or shifts.
+    await expect(page.locator('#mm-print-root')).toBeHidden();
+    await expect(page.getByTestId('doc')).toBeVisible();
+    expect(await screenBg()).toBe('rgb(40, 44, 52)');
+
+    // On paper: only the print root, on a light page.
+    await page.emulateMedia({ media: 'print' });
+    await expect(page.locator('#mm-print-root .doc')).toBeVisible();
+    await expect(page.locator('#mm-print-root .doc h1')).toContainText('Welcome to Marky Mark');
+    await expect(page.locator('#root')).toBeHidden();
+    const paper = await page.evaluate(() => {
+      const el = document.querySelector('#mm-print-root .theme-root')!;
+      const cs = getComputedStyle(el);
+      return { bg: cs.backgroundColor, fg: cs.color };
+    });
+    expect(paper.bg).toBe('rgb(255, 255, 255)');
+    expect(paper.fg).toBe('rgb(31, 35, 40)');
+  } finally {
+    await page.emulateMedia({ media: null, colorScheme: null });
+    await page.evaluate(() => {
+      document.getElementById('mm-print-root')?.remove();
+      document.body.classList.remove('mm-printing');
+    });
+  }
 });
 
 test('E68: word count off is honored — no count anywhere in the exported page', async ({ page }) => {
