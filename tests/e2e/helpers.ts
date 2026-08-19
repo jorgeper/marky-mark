@@ -28,7 +28,14 @@ export async function openWelcomeViaHelp(page: Page): Promise<void> {
   // it came up in — wait on it rather than racing the open.
   const modeSwitch = page.getByTestId('mode-switch');
   await expect(modeSwitch).toBeVisible();
-  if ((await modeSwitch.getAttribute('data-mode')) === 'edit') await modeSwitch.click();
+  if ((await modeSwitch.getAttribute('data-mode')) === 'edit') {
+    await modeSwitch.click();
+    await expect(modeSwitch).toHaveAttribute('data-mode', 'preview');
+    // commands.ts CROSS_SOURCE_DEDUP_MS: a toggleMode from another source
+    // within 150ms of this click is dropped as a duplicate — let the window
+    // pass so the caller's own ⌘E is not swallowed by this setup.
+    await page.waitForTimeout(200);
+  }
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
 }
 

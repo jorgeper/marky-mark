@@ -406,9 +406,20 @@ async function landInPreview(page: Page): Promise<void> {
   // The switch renders with the open document and names the mode it came up
   // in; a document the member may not edit has none and is preview-only.
   const modeSwitch = page.getByTestId('mode-switch');
-  if ((await modeSwitch.count()) === 0) return; // a document they may not edit: preview-only already
-  if ((await modeSwitch.getAttribute('data-mode')) === 'edit') await modeSwitch.click();
-  await expect(modeSwitch).toHaveAttribute('data-mode', 'preview');
+  // Read the DOM as it stands rather than waiting on the locator: a member
+  // without doc.edit loses the switch again the moment their grants land, and
+  // a waiting read would hang on that unmount.
+  const mode = await page.evaluate(
+    () => document.querySelector('[data-testid="mode-switch"]')?.getAttribute('data-mode') ?? null
+  );
+  if (mode === null) return; // a document they may not edit: preview-only already
+  if (mode === 'edit') {
+    await modeSwitch.click();
+    await expect(modeSwitch).toHaveAttribute('data-mode', 'preview');
+    // commands.ts CROSS_SOURCE_DEDUP_MS: give the 150ms cross-source window
+    // time to pass, so the caller's own toggle is not dropped as a duplicate.
+    await page.waitForTimeout(200);
+  }
 }
 
 /** Open a document from the hosted workspace's folder sidebar. */
