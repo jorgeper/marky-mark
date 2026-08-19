@@ -442,3 +442,99 @@ test('E90: find & replace in the editor — CM decorations, replace one/all on t
   await expect(page.getByTestId('find-count')).toContainText('of');
   expect(await page.locator('.doc mark.mm-find').count()).toBeGreaterThan(0);
 });
+
+// Issue #123 (SPEC23 §3): CodeMirror paints its drawn selection in a layer
+// *behind* .cm-content, so the opaque --mm-code-bg on .mm-md-code covered it —
+// selecting inside a code block showed no selection at all. The tint now rides
+// an .mm-code-sel span nested INSIDE the code span, so it paints above the code
+// background and below the code text. Against the pre-fix build that span never
+// exists and every tint assertion below fails.
+test('E261: selection over code — the tint paints above --mm-code-bg in the editor and the split pane, opaque theme and translucent alike', async ({
+  page,
+}) => {
+  const DOC = '# T\n\nprose with `inline code` inside\n\n```js\nconst answer = 42;\n```\n\ntail\n';
+
+  /** Boot the app on DOC with a settings patch applied, in edit mode. */
+  const boot = async (patch: Record<string, unknown>) => {
+    await fsWrite(page, '/docs/sel.md', DOC);
+    await page.evaluate((p) => {
+      const raw = window.__mmfs!.read('/config/settings.json');
+      const s = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...s, ...p }));
+    }, patch);
+    await page.reload();
+    await page.goto('/#open=/docs/sel.md');
+    // Issue #125: the relaunch may come up in edit mode already — only ask for
+    // it when the preview is what we got.
+    await expect(page.locator('.doc h1, .cm-content').first()).toBeVisible();
+    if ((await page.locator('.cm-content').count()) === 0) await page.keyboard.press('Control+e');
+    await expect(page.locator('.cm-content').first()).toBeVisible();
+  };
+  /** Put the whole of the line holding `text` in the selection. */
+  const selectLine = async (pane: ReturnType<typeof page.locator>, text: string) => {
+    await pane.locator('.cm-line', { hasText: text }).first().click();
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Shift+End');
+  };
+  const bgOf = (loc: ReturnType<typeof page.locator>) =>
+    loc.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+  // --- full-width editor, crisp (--mm-code-bg fully opaque) ------------------
+  await boot({ splitEdit: false, themeLight: 'crisp' });
+  const editor = page.getByTestId('editor');
+  const fenced = editor.locator('.cm-line', { hasText: 'const answer' }).locator('.mm-md-code');
+  await expect(fenced.first()).toBeVisible();
+  // The precondition of the bug, and the thing the fix must not disturb: the
+  // code background is the theme's opaque one, and nothing is tinted yet.
+  expect(await bgOf(fenced.first())).toBe('rgb(246, 248, 250)');
+  await expect(editor.locator('.mm-code-sel')).toHaveCount(0);
+
+  await selectLine(editor, 'const answer');
+  const tint = editor.locator('.mm-md-code .mm-code-sel'); // nested => paints on top
+  await expect(tint.first()).toBeVisible();
+  expect(await tint.first().textContent()).toBe('const answer = 42;');
+  expect(await bgOf(tint.first())).toBe('rgba(9, 105, 218, 0.18)'); // --mm-selection
+  // Legible: the code foreground is untouched under the tint, and the code
+  // background behind it is still the theme's.
+  expect(await tint.first().evaluate((el) => getComputedStyle(el).color)).toBe(
+    await fenced.first().evaluate((el) => getComputedStyle(el).color),
+  );
+  expect(await bgOf(fenced.first())).toBe('rgb(246, 248, 250)');
+
+  // A selection that starts in prose and runs through an inline code span is
+  // tinted continuously — the same token, only the code part needs the mark.
+  await selectLine(editor, 'prose with');
+  const inline = editor.locator('.cm-line', { hasText: 'prose with' }).locator('.mm-md-code .mm-code-sel');
+  await expect(inline.first()).toBeVisible();
+  expect((await inline.first().textContent())!.trim()).toBe('inline code');
+  expect(await bgOf(inline.first())).toBe('rgba(9, 105, 218, 0.18)');
+
+  // Collapse the selection: the mark goes away and code looks as it did.
+  await page.keyboard.press('End');
+  await expect(editor.locator('.mm-code-sel')).toHaveCount(0);
+  expect(await bgOf(fenced.first())).toBe('rgb(246, 248, 250)');
+
+  // --- claude, whose --mm-code-bg is translucent -----------------------------
+  await boot({ splitEdit: false, themeLight: 'claude' });
+  await selectLine(page.getByTestId('editor'), 'const answer');
+  expect(await bgOf(page.getByTestId('editor').locator('.mm-md-code .mm-code-sel').first())).toBe(
+    'rgba(217, 119, 87, 0.35)',
+  );
+
+  // --- split view: the editor pane beside the preview ------------------------
+  await boot({ splitEdit: true, themeLight: 'crisp' });
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  const splitEditor = page.locator('.split-editor');
+  await selectLine(splitEditor, 'const answer');
+  const splitTint = splitEditor.locator('.mm-md-code .mm-code-sel');
+  await expect(splitTint.first()).toBeVisible();
+  expect(await bgOf(splitTint.first())).toBe('rgba(9, 105, 218, 0.18)');
+  // The preview pane paints its selection natively, over .doc code/pre — the
+  // theme's tint reaches it through .theme-root ::selection (styles.css §51).
+  expect(
+    await page
+      .locator('.split-preview .doc pre code')
+      .first()
+      .evaluate((el) => getComputedStyle(el, '::selection').backgroundColor),
+  ).toBe('rgba(9, 105, 218, 0.18)');
+});

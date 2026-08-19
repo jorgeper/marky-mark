@@ -767,6 +767,17 @@ mark.hl.ghost {
   background: var(--mm-code-bg, rgba(175, 184, 193, 0.2));
   border-radius: 3px;
 }
+
+/* SPEC23 §3 (issue #123): the selection tint, re-painted inside the code span.
+   CodeMirror draws the selection behind .cm-content, so the (usually opaque)
+   --mm-code-bg above hid it; this span is nested inside the code span — same
+   --mm-selection token as .cm-selectionBackground, so a selection running from
+   prose into code reads as one continuous tint — and the code text paints on
+   top of it, unchanged. Covers PRD 006's live-preview code spans too: the
+   decoration nests inside .mm-lp-code the same way. */
+.editor-wrap .cm-content .mm-code-sel {
+  background: var(--mm-selection, rgba(9, 105, 218, 0.18));
+}
 .editor-wrap .mm-md-link {
   color: var(--mm-link, var(--mm-accent, #0969da));
 }
