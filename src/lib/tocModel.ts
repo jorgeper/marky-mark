@@ -187,6 +187,14 @@ export function activeTocEntryId(entries: TocEntry[], line: number): string | nu
   return active;
 }
 
+/** PRD 012 Req 7: what `activeTocReveal` answers — the highlighted row, and the folds that show it. */
+export interface ActiveTocReveal {
+  /** The active entry's id, or null in the preamble / a heading-less document. */
+  id: string | null;
+  /** The collapse set to render with — `collapsed` itself when unchanged. */
+  collapsed: ReadonlySet<string>;
+}
+
 /**
  * PRD 012 Req 7: the active entry AND the collapse set that makes its row
  * visible, resolved in one call — the whole of the highlight's rule, so the
@@ -202,13 +210,6 @@ export function activeTocEntryId(entries: TocEntry[], line: number): string | nu
  * section they are reading folded it on purpose, and `expandTocAncestors`
  * leaves unrelated folds elsewhere in the tree alone.
  */
-export interface ActiveTocReveal {
-  /** The active entry's id, or null in the preamble / a heading-less document. */
-  id: string | null;
-  /** The collapse set to render with — `collapsed` itself when unchanged. */
-  collapsed: ReadonlySet<string>;
-}
-
 export function activeTocReveal(
   entries: TocEntry[],
   collapsed: ReadonlySet<string>,

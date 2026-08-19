@@ -4097,16 +4097,76 @@ export default function App() {
    * — `viewTopLine()` is fractional (both modes interpolate), the resolver's
    * ranges are whole lines, and rounding also means this state changes only
    * when the reader actually crosses a line. Kept fresh by the subscription
-   * further down; null whenever the TOC is not on screen.
+   * just below; null whenever the TOC is not on screen.
    */
   const [tocTopLine, setTocTopLine] = useState<number | null>(null);
   /**
-   * PRD 012 Req 7: which row is highlighted — `activeTocReveal`'s answer. The
-   * rule lives in `src/lib/tocModel.ts`; this file supplies the line and
-   * renders what comes back.
+   * PRD 012 Req 7: track the top of the viewport while the TOC is showing.
+   *
+   * The subscription exists ONLY while `tocOpen` — scrolling with the view
+   * closed adds no new work at all — and is torn down when the view closes,
+   * the sidebar hides, the mode switches or the document closes. Throttling is
+   * the SPEC45 split-sync listeners' rAF, and a measurement re-reads anchors
+   * that are already in the DOM: no markdown re-parse per scroll event.
    */
-  const tocActive = useMemo(
-    () => (tocTree ? activeTocReveal(tocTree, tocCollapsedNow, tocTopLine) : null),
+  useEffect(() => {
+    if (!tocOpen) {
+      setTocTopLine(null);
+      return;
+    }
+    let raf = 0;
+    let disposed = false;
+    const measure = () => {
+      raf = 0;
+      const line = viewTopLine();
+      setTocTopLine(line === null ? null : Math.round(line));
+    };
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(measure);
+    };
+    measure(); // the answer the moment the view opens, before any scrolling
+
+    // Preview scrolls the workspace; edit mode reads the editor's own top line
+    // (in the split too — whichever pane leads, SPEC15 moves the editor with
+    // it, and the handle's scroll event fires for programmatic writes as well).
+    const ws = workspaceRef.current;
+    ws?.addEventListener('scroll', onScroll);
+    let offEditor: (() => void) | null = null;
+    // The editor mounts lazily AND is replaced when the split toggles, so the
+    // bounded retry (SPEC45's idiom) watches the handle's IDENTITY rather than
+    // its mere existence — subscribing once would leave the listener attached
+    // to a discarded CodeMirror and the highlight frozen. The html-keyed rerun
+    // gives it a fresh window; between windows nothing polls.
+    let subscribed: EditorSyncHandle | null = null;
+    let frames = 120; // ~2s of frames
+    const follow = () => {
+      if (disposed) return;
+      const ed = editorSyncRef.current;
+      if (ed !== subscribed) {
+        offEditor?.();
+        subscribed = ed;
+        offEditor = ed ? ed.onScroll(onScroll) : null;
+        measure();
+      }
+      if (frames-- > 0) requestAnimationFrame(follow);
+    };
+    if (mode === 'edit') follow();
+    return () => {
+      disposed = true;
+      if (raf) cancelAnimationFrame(raf);
+      ws?.removeEventListener('scroll', onScroll);
+      offEditor?.();
+    };
+  }, [tocOpen, mode, settings.splitEdit, html, viewTopLine]);
+  /**
+   * PRD 012 Req 7: which row is highlighted — the id half of
+   * `activeTocReveal`'s answer, whose other half the reveal effect below
+   * applies. The rule lives in `src/lib/tocModel.ts`; this file supplies the
+   * line and renders what comes back.
+   */
+  const tocActiveId = useMemo(
+    () => (tocTree ? activeTocReveal(tocTree, tocCollapsedNow, tocTopLine).id : null),
     [tocTree, tocCollapsedNow, tocTopLine]
   );
   /** PRD 012 Req 4: the rows to draw — the module decides, the view renders. */
@@ -4170,65 +4230,6 @@ export default function App() {
     },
     [scrollPreviewToLine]
   );
-  /**
-   * PRD 012 Req 7: track the top of the viewport while the TOC is showing.
-   *
-   * The subscription exists ONLY while `tocOpen` — scrolling with the view
-   * closed adds no new work at all — and is torn down when the view closes,
-   * the sidebar hides, the mode switches or the document closes. Throttling is
-   * the SPEC45 split-sync listeners' rAF, and a measurement re-reads anchors
-   * that are already in the DOM: no markdown re-parse per scroll event.
-   */
-  useEffect(() => {
-    if (!tocOpen) {
-      setTocTopLine(null);
-      return;
-    }
-    let raf = 0;
-    let disposed = false;
-    const measure = () => {
-      raf = 0;
-      const line = viewTopLine();
-      setTocTopLine(line === null ? null : Math.round(line));
-    };
-    const onScroll = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(measure);
-    };
-    measure(); // the answer the moment the view opens, before any scrolling
-
-    // Preview scrolls the workspace; edit mode reads the editor's own top line
-    // (in the split too — whichever pane leads, SPEC15 moves the editor with
-    // it, and the handle's scroll event fires for programmatic writes as well).
-    const ws = workspaceRef.current;
-    ws?.addEventListener('scroll', onScroll);
-    let offEditor: (() => void) | null = null;
-    // The editor mounts lazily AND is replaced when the split toggles, so the
-    // bounded retry (SPEC45's idiom) watches the handle's IDENTITY rather than
-    // its mere existence — subscribing once would leave the listener attached
-    // to a discarded CodeMirror and the highlight frozen. The html-keyed rerun
-    // gives it a fresh window; between windows nothing polls.
-    let subscribed: EditorSyncHandle | null = null;
-    let frames = 120; // ~2s of frames
-    const follow = () => {
-      if (disposed) return;
-      const ed = editorSyncRef.current;
-      if (ed !== subscribed) {
-        offEditor?.();
-        subscribed = ed;
-        offEditor = ed ? ed.onScroll(onScroll) : null;
-        measure();
-      }
-      if (frames-- > 0) requestAnimationFrame(follow);
-    };
-    if (mode === 'edit') follow();
-    return () => {
-      disposed = true;
-      if (raf) cancelAnimationFrame(raf);
-      ws?.removeEventListener('scroll', onScroll);
-      offEditor?.();
-    };
-  }, [tocOpen, mode, settings.splitEdit, html, viewTopLine]);
 
   // --- PRD 011 Reqs 17–22: the semantic-zoom render path (levels 1–4) ------------
   /**
@@ -6121,7 +6122,7 @@ export default function App() {
           <TocPanel
             viewSwitch={sidebarSwitch}
             rows={tocRows}
-            activeId={tocActive?.id ?? null}
+            activeId={tocActiveId}
             slide={folderSlide}
             width={settings.folderWidth}
             onToggle={toggleTocEntry}
