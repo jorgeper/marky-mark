@@ -17,6 +17,7 @@ import {
   type Settings,
   type SettingsLayers,
   type SettingsScopeTab,
+  type SidebarView,
   type ViewMode,
 } from './lib/settings';
 import { displayCombo, eventMatches } from './lib/hotkeys';
@@ -78,7 +79,7 @@ import { uploadRejection } from './lib/fileTransfer';
 import { isSaveConflict, planSaveConflict, type SaveConflictChoice } from './lib/saveConflict';
 import { planMergedSave } from './lib/mergedSave';
 import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton } from './components/FolderPanel';
-import { SidebarViewSwitch, TocPanel, type SidebarView } from './components/TocPanel';
+import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
 import {
   SLIDE_SETTLE_MS,
   slideClasses,
@@ -752,7 +753,6 @@ export default function App() {
     html,
     docGrants,
     folderGrants,
-    sidebarView,
   });
   stateRef.current = {
     settings,
@@ -776,9 +776,6 @@ export default function App() {
     // PRD 009 Req 13: New File writes into the workspace, so it asks the
     // SIDEBAR's grants (file.create) — not the open document's.
     folderGrants,
-    // PRD 012 Req 9: the view buttons are stable handlers that must read the
-    // view live — which of the two the pane is showing decides show vs hide.
-    sidebarView,
   };
 
   /**
@@ -3400,20 +3397,15 @@ export default function App() {
       const st = stateRef.current;
       const open = st.settings.showFolders;
       const hiding = open && st.settings.sidebarView === view;
-      if (open && !hiding) {
-        // A plain view swap — the pane stays put, only the view key moves.
-        updateSettings({ ...st.settings, sidebarView: view });
-        return;
-      }
-      armFolderSlide.current = true;
+      // PRD 003 Reqs 9/12: only a press that flips visibility slides the pane.
+      if (!open || hiding) armFolderSlide.current = true;
       // PRD 012 Req 11: the view and the visibility travel as ONE settings
       // write, so a reopen never lands on the pane's previous view for a frame.
+      // (On a swap `showFolders` is already true, so it diffs to nothing.)
       updateSettings({ ...st.settings, sidebarView: view, showFolders: !hiding });
     },
     [updateSettings]
   );
-  /** PRD 012 Req 9: the TOC button (and the TOC header's hide chevron). */
-  const toggleTocView = useCallback(() => showSidebarView('toc'), [showSidebarView]);
 
   /**
    * SPEC36 §7: advance the quit walk — activate the next dirty doc and show
@@ -3834,9 +3826,10 @@ export default function App() {
         showSidebarView('folders');
       },
       /**
-       * PRD 012 Req 10: the TOC hotkey and the TOC toolbar button are one
-       * command — both land here, and here calls the same `toggleTocView`
-       * (the one view rule) the button always called.
+       * PRD 012 Req 10: every TOC surface — the hotkey, the switch's TOC
+       * button, the panel's hide chevron — lands here, and here is the TOC
+       * half of the one view rule, exactly as `toggleFolders` above is the
+       * folders half.
        *
        * Req 12: the only gate is an open document — exactly the condition
        * that decides whether the button exists. No folder seam is consulted,
@@ -3845,7 +3838,7 @@ export default function App() {
       toggleToc: () => {
         const st = stateRef.current;
         if (st.docPath === null && !st.untitled) return;
-        toggleTocView();
+        showSidebarView('toc');
       },
       openFolder: openFolderCmd,
       // Issue #22: Close File — down to the splash through the dirty guard.
@@ -4017,7 +4010,7 @@ export default function App() {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, showSidebarView, toggleTocView, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard, runPrint]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, showSidebarView, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard, runPrint]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
@@ -6043,7 +6036,7 @@ export default function App() {
             width={settings.folderWidth}
             onToggle={toggleTocEntry}
             onSelect={(row) => jumpToTocEntry(row.entry.headingLine)}
-            onClose={toggleTocView}
+            onClose={() => dispatchCommand('toggleToc')}
             onWidth={(w) => updateSettings({ ...stateRef.current.settings, folderWidth: w })}
           />
         )}
