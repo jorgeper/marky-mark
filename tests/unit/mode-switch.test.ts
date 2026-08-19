@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { modesAreExclusive, planModeSwitch, type Flavor } from '../../src/lib/modeSwitch';
+import { modesAreExclusive, planModeSwitch, viewModeForOpen, type Flavor } from '../../src/lib/modeSwitch';
 
 /**
  * PRD 009 Req 4/5: the crossing decision — the pure half of "the two modes are
@@ -49,5 +49,17 @@ describe('PRD 009 Req 4: the mode-switch plan', () => {
         expect(planModeSwitch(mode, target, false), `${mode}→${target}`).toBe('enter');
       }
     }
+  });
+});
+
+describe('issue #125: the view mode a document opens in', () => {
+  test('U656: the remembered mode wins, except where the edit grant says preview', () => {
+    // The point of the setting: opening a file while editing keeps editing.
+    expect(viewModeForOpen('edit', true)).toBe('edit');
+    expect(viewModeForOpen('preview', true)).toBe('preview');
+    // PRD 007 Req 17: a document this reader may not change opens in the
+    // reading preview, whatever they were last doing.
+    expect(viewModeForOpen('edit', false)).toBe('preview');
+    expect(viewModeForOpen('preview', false)).toBe('preview');
   });
 });

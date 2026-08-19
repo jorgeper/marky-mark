@@ -276,9 +276,10 @@ test('E82: markdown highlighting — themed token classes on by default, live to
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"editorSyntax": false');
   await page.reload();
   await page.goto('/#open=/docs/hl.md');
-  await expect(page.getByTestId('doc').locator('h1')).toContainText('Big Title'); // app booted
-  await page.keyboard.press('Control+e');
+  // Issue #125: the mode is remembered across the relaunch too, so the
+  // document comes up in the editor this test left in — no ⌘E needed.
   await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('Big Title'); // app booted
   await expect(page.getByTestId('editor').locator('[class*="mm-md-"]')).toHaveCount(0);
 });
 

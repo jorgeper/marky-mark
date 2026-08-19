@@ -229,6 +229,38 @@ export function PreviewToggleButton({ open, onClick }: { open: boolean; onClick(
 }
 
 /**
+ * Issue #125: the edit/preview switch, the second tab in the workspace's
+ * top-right edge cluster — immediately left of the preview chevron above.
+ * Two labelled segments show which mode is CURRENT (not the target), so a
+ * reader tells edit from preview without clicking. PRD 003 Reqs 6-7: it is
+ * the same compact edge tab as PreviewToggleButton, and it lives here for
+ * the same reason — one place owns the edge-tab pattern. The owner
+ * dispatches the existing `toggleMode` command, so the selection and
+ * reading-position carry-over, autosave-on-toggle and the edit-grant guard
+ * behave exactly as they do for the toolbar button and Mod+E.
+ */
+export function ModeSwitchButton({ mode, onClick }: { mode: 'preview' | 'edit'; onClick(): void }) {
+  const label = mode === 'edit' ? 'Switch to preview' : 'Switch to edit';
+  return (
+    <button
+      className="mode-edge"
+      data-testid="mode-switch"
+      data-mode={mode}
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+    >
+      <span className={`mode-seg${mode === 'edit' ? ' on' : ''}`} data-testid="mode-switch-edit">
+        Edit
+      </span>
+      <span className={`mode-seg${mode === 'preview' ? ' on' : ''}`} data-testid="mode-switch-preview">
+        Preview
+      </span>
+    </button>
+  );
+}
+
+/**
  * SPEC35 §5: the row's label swapped for a text input. Enter commits, Esc
  * cancels, blur commits; an invalid or unchanged value cancels instead.
  * Validation runs on every keystroke — name rules plus a case-insensitive

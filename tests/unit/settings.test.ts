@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_SETTINGS, MARGIN_WIDTHS, parseSettings, serializeSettings } from '../../src/lib/settings';
+import {
+  DEFAULT_SETTINGS,
+  MARGIN_WIDTHS,
+  parseSettings,
+  serializeSettings,
+  SETTINGS_SCOPES,
+  WORKSPACE_ELIGIBLE_KEYS,
+} from '../../src/lib/settings';
 
 describe('v3 settings', () => {
   test('U13: new fields parse with defaults, invalid values fall back, legacy `theme` migrates to themeLight', () => {
@@ -197,5 +204,33 @@ describe('PRD 011 Req 1: the Experimental section ships off', () => {
     // A non-boolean is rejected rather than coerced — the feature stays off.
     expect(parseSettings('{"semanticZoom":"yes"}').semanticZoom).toBe(false);
     expect(parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, semanticZoom: true })).semanticZoom).toBe(true);
+  });
+});
+
+describe('issue #125: the remembered view mode', () => {
+  test('U654: lastViewMode defaults to preview, takes only the two real modes, and round-trips', () => {
+    // The default is today's behaviour: a fresh install still opens documents
+    // in the reading preview.
+    expect(DEFAULT_SETTINGS.lastViewMode).toBe('preview');
+    expect(parseSettings('{}').lastViewMode).toBe('preview');
+
+    expect(parseSettings('{"lastViewMode":"edit"}').lastViewMode).toBe('edit');
+    expect(parseSettings('{"lastViewMode":"preview"}').lastViewMode).toBe('preview');
+
+    // A hand-edited garbage value never reaches the app.
+    expect(parseSettings('{"lastViewMode":"split"}').lastViewMode).toBe('preview');
+    expect(parseSettings('{"lastViewMode":"EDIT"}').lastViewMode).toBe('preview');
+    expect(parseSettings('{"lastViewMode":true}').lastViewMode).toBe('preview');
+    expect(parseSettings('{"lastViewMode":null}').lastViewMode).toBe('preview');
+
+    // Save → reload keeps the choice, which is the whole point of the key.
+    expect(parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, lastViewMode: 'edit' })).lastViewMode).toBe('edit');
+  });
+
+  test('U655: it is machine-local — no workspace or team layer can force a reader’s view mode', () => {
+    expect(SETTINGS_SCOPES.lastViewMode).toBe('M');
+    // 'M' keeps it out of the workspace-editable set by construction, like
+    // splitEdit and splitRatio beside it.
+    expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain('lastViewMode');
   });
 });

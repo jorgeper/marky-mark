@@ -7,6 +7,8 @@ import { EMPTY_USAGE_TALLY, isUsageTally, type UsageTally } from './llmUsage';
 import type { LlmProviderKind } from './llmSeam';
 
 export type CommentStorage = 'sidecar' | 'embedded';
+/** Issue #125: the document view mode — the reading preview or the editor. */
+export type ViewMode = 'preview' | 'edit';
 export type Margins = 'default' | 'super-narrow' | 'narrow' | 'medium' | 'wide';
 
 export const ZOOM_LEVELS = [50, 75, 90, 100, 110, 125, 150, 175, 200] as const;
@@ -49,6 +51,13 @@ export interface Settings {
   splitEdit: boolean;
   /** Editor pane fraction in split-edit mode, clamped to [0.2, 0.8]. */
   splitRatio: number;
+  /**
+   * Issue #125: the last view mode the reader chose. Remembered state, not a
+   * preference with a Settings row — every mode switch records it and every
+   * document open lands in it, so opening a file while editing keeps editing
+   * (in the split layout when `splitEdit` is on).
+   */
+  lastViewMode: ViewMode;
   author: string;
   autosaveOnToggle: boolean;
   commentStorage: CommentStorage;
@@ -132,6 +141,9 @@ export const DEFAULT_SETTINGS: Settings = {
   typeToComment: true,
   splitEdit: true,
   splitRatio: 0.5,
+  // Issue #125: today's behaviour is the default — a fresh install opens
+  // documents in the reading preview until the reader chooses otherwise.
+  lastViewMode: 'preview',
   author: 'Reviewer',
   autosaveOnToggle: false,
   commentStorage: 'sidecar',
@@ -193,6 +205,10 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   typeToComment: 'U',
   splitEdit: 'M',
   splitRatio: 'M',
+  // Issue #125: machine/session-local, like its layout neighbours above — a
+  // reader's current view mode is theirs, and no workspace or team layer may
+  // force what mode someone else's documents open in.
+  lastViewMode: 'M',
   author: 'U!',
   autosaveOnToggle: 'U',
   commentStorage: 'W',
@@ -287,6 +303,9 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
     typeof raw === 'number' && Number.isFinite(raw)
       ? Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, raw))
       : undefined,
+  // Issue #125: only the two real modes; a hand-edited settings.json naming
+  // anything else falls back to the default rather than reaching the app.
+  lastViewMode: (raw) => (raw === 'preview' || raw === 'edit' ? raw : undefined),
   author: nonEmptyString,
   autosaveOnToggle: bool,
   commentStorage: (raw) => (raw === 'embedded' || raw === 'sidecar' ? raw : undefined),

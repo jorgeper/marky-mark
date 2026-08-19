@@ -202,6 +202,9 @@ test('E102: Ctrl+Tab cycles in tree order with wrap, Ctrl+Shift+Tab reverses, ed
   await page.keyboard.press('Control+Shift+Tab');
   await expect(page.getByTestId('docname')).toContainText('b.md');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  // Issue #125: the cycle lands b in the remembered edit mode — step back to
+  // the preview this block reads the buffer from.
+  await page.keyboard.press('Control+e');
   await expect(page.getByTestId('doc')).toContainText('CYCLEDIRTY');
   expect(await page.evaluate(() => document.querySelector('[data-testid="doc"]')!.textContent)).not.toContain('\t');
 });

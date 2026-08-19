@@ -394,11 +394,29 @@ async function signOut(page: Page): Promise<void> {
   await page.evaluate(() => window.localStorage.clear());
 }
 
+/**
+ * Issue #125: the view mode is a remembered setting, and on hosted it lives in
+ * the signed-in user's own settings.json on the server — which the mock users
+ * keep between tests. A document can therefore open in edit mode because an
+ * earlier test chose it. The tests below are written against a document that
+ * opens in the reading preview, so land there; the memory itself is E248's
+ * subject.
+ */
+async function landInPreview(page: Page): Promise<void> {
+  // The switch renders with the open document and names the mode it came up
+  // in; a document the member may not edit has none and is preview-only.
+  const modeSwitch = page.getByTestId('mode-switch');
+  if ((await modeSwitch.count()) === 0) return; // a document they may not edit: preview-only already
+  if ((await modeSwitch.getAttribute('data-mode')) === 'edit') await modeSwitch.click();
+  await expect(modeSwitch).toHaveAttribute('data-mode', 'preview');
+}
+
 /** Open a document from the hosted workspace's folder sidebar. */
 async function openFromSidebar(page: Page, name: string): Promise<void> {
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await page.getByTestId('folder-item').filter({ hasText: name }).first().click();
   await expect(page.getByTestId('docname')).toContainText(name);
+  await landInPreview(page);
 }
 
 const PHRASE = 'anchored in the shared document';
@@ -1544,6 +1562,7 @@ test('E202: a local Markdown file opened on the hosted start page renders client
 
   // It opens, renders and is editable — with no workspace open behind it.
   await expect(page.getByTestId('docname')).toContainText('local-only.md');
+  await landInPreview(page);
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Local only');
   await expect(page.getByTestId('docname-workspace')).toHaveCount(0);
   await page.getByTestId('edit-toggle').click();
@@ -1824,6 +1843,7 @@ test('E212: on hosted, Open File… with a workspace open crosses into single-fi
   await expect(page.getByTestId('folder-expand')).toHaveCount(0);
 
   // …and it is a local document: fully editable, nothing uploaded.
+  await landInPreview(page);
   await page.getByTestId('edit-toggle').click();
   await page.locator('.cm-content').click();
   await page.keyboard.type('typed locally ');
@@ -1899,6 +1919,7 @@ test('E213: on hosted, a handle-backed local file saves in place through the han
   await page.getByTestId('start-openFile').click();
   await expect(page.getByTestId('docname')).toContainText('stubbed.md');
 
+  await landInPreview(page);
   await page.getByTestId('edit-toggle').click();
   await page.locator('.cm-content').click();
   await page.keyboard.type('typed in place ');
@@ -1933,6 +1954,7 @@ test('E213: on hosted, a handle-backed local file saves in place through the han
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await page.getByTestId('start-openFile').click();
   await expect(page.getByTestId('docname')).toContainText('stubbed.md');
+  await landInPreview(page);
   await page.getByTestId('edit-toggle').click();
   await page.locator('.cm-content').click();
   await page.keyboard.type('typed while denied ');
@@ -2168,7 +2190,9 @@ test('E219: workspace Save As… writes the copy through the picker and switches
   expect(await readAs(request, ada, id, 'original.md')).toBe('# Original\n\nFirst draft.\n');
 
   // Typing now lands in the copy, never back in the original. (Opening the
-  // copy is a fresh openDoc, so it lands in preview mode like any other.)
+  // copy is a fresh openDoc — issue #125: it lands in the remembered mode
+  // like any other open.)
+  await landInPreview(page);
   await page.getByTestId('edit-toggle').click();
   await page.locator('.cm-content').click();
   await page.keyboard.type('Only here. ');
@@ -2227,6 +2251,7 @@ test('E220: dropping a local file with a workspace open crosses into single-file
   await expect(page.getByTestId('empty-hint')).toHaveCount(0);
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
   await expect(page.getByTestId('docname-workspace')).toHaveCount(0);
+  await landInPreview(page);
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Dropped');
 
   // Req 6: the binding went with the workspace, and the drop uploaded nothing

@@ -510,9 +510,9 @@ test('E120: the global toggle — both tables flip together, originals restore, 
   // The setting persists: reload, reopen, still raw.
   await page.keyboard.press('Control+s');
   await page.reload();
-  await expect(page.getByTestId('doc')).toContainText('top');
-  await page.keyboard.press('Control+e');
+  // Issue #125: the reload reopens in the remembered edit mode.
   await expect(content).toBeVisible();
+  await expect(content).toContainText('top');
   await expect.poll(gridLines).toBe(0);
 
   // Back on from the menu: both grid again.

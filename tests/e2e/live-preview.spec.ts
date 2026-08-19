@@ -77,8 +77,7 @@ test('E142: live preview toggle — off by default with zero effect; on renders 
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"livePreview": true');
   await page.reload();
   await page.goto('/#open=/docs/lp.md');
-  await expect(page.getByTestId('doc').locator('h1')).toContainText('Big Title');
-  await page.keyboard.press('Control+e');
+  // Issue #125: the relaunch reopens in the remembered edit mode.
   await expect(page.getByTestId('editor').locator('.mm-lp-strong').first()).toContainText('bold');
 });
 

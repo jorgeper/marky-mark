@@ -17,13 +17,14 @@ import {
   type Settings,
   type SettingsLayers,
   type SettingsScopeTab,
+  type ViewMode,
 } from './lib/settings';
 import { displayCombo, eventMatches } from './lib/hotkeys';
 import { dispatchCommand, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
 import { buildMenuSpec, type ViewMenuState } from './lib/menuSpec';
 import { deriveAppMode } from './lib/appMode';
 import { buildAppMenu } from './lib/appMenu';
-import { modesAreExclusive, planModeSwitch, type ModeTarget } from './lib/modeSwitch';
+import { modesAreExclusive, planModeSwitch, viewModeForOpen, type ModeTarget } from './lib/modeSwitch';
 import { stepComment } from './lib/commentNav';
 import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
 import type { EditorSearchHandle, EditorSyncHandle, SmartEditHandle, SmartFormatOp } from './components/Editor';
@@ -75,7 +76,7 @@ import { ALL_FILE_GRANTS, type FileGrants } from './lib/fileGrants';
 import { uploadRejection } from './lib/fileTransfer';
 import { isSaveConflict, planSaveConflict, type SaveConflictChoice } from './lib/saveConflict';
 import { planMergedSave } from './lib/mergedSave';
-import { FolderExpandButton, FolderPanel, PreviewToggleButton } from './components/FolderPanel';
+import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton } from './components/FolderPanel';
 import {
   SLIDE_SETTLE_MS,
   slideClasses,
@@ -202,7 +203,9 @@ export const TOOLBAR_GRACE_MS = 2500;
 export const TOOLBAR_HIDE_DELAY_MS = 400;
 
 type Positions = Record<string, ReanchorMatch | null>;
-type Mode = 'preview' | 'edit';
+// Issue #125: the mode is a remembered setting now, so its type is the
+// settings module's — one union, not two that could drift apart.
+type Mode = ViewMode;
 
 /** SPEC36 §7: the quit walk's stand-in for a dirty untitled buffer. */
 const UNTITLED_SENTINEL = '\u0000untitled';
@@ -1850,6 +1853,13 @@ export default function App() {
   );
 
   const openDoc = useCallback(async (p: Platform, path: string) => {
+    // Issue #125: the document opens in the reader's last chosen view mode
+    // instead of always in preview — every route lands here (a fresh open, a
+    // folder-panel pick, a switch to a parked tab, a recent file, and the boot
+    // restore of the previous session). PRD 007 Req 17: never past the edit
+    // grant — a document this reader may not change opens in preview, asked
+    // per path before the mode is decided so no edit surface ever flashes.
+    const mayEdit = (await grantsFor(p, path)).edit;
     let content: string;
     let saved: string;
     let stored: CommentData[];
@@ -1940,7 +1950,7 @@ export default function App() {
     setPositions({});
     setActiveId(null);
     setPending(null);
-    setMode('preview');
+    setMode(viewModeForOpen(stateRef.current.settings.lastViewMode, mayEdit)); // issue #125
     setShowDiff(false); // SPEC16 §2: the diff toggle resets per document
     setDiff(null);
 
@@ -2371,6 +2381,12 @@ export default function App() {
       // §E18: the panel's layer view boots alongside the resolved settings.
       setLayerView(currentLayerView());
       setSettings(loaded);
+      // Issue #125: the OS/hash open registered below can fire before React
+      // has re-rendered with these settings, and openDoc reads the remembered
+      // view mode off this ref — mirror the resolved values across now, so the
+      // first document of the session opens in the mode the reader left in
+      // rather than in the pre-boot defaults.
+      stateRef.current = { ...stateRef.current, settings: loaded };
       setThemes(themeList);
 
       // Clean start (SPEC4 §5): no auto-opened welcome — only explicit opens.
@@ -3163,6 +3179,22 @@ export default function App() {
     [saveConflict, openDoc]
   );
 
+  /**
+   * Issue #125: record the reader's latest view choice. `toggleMode` below is
+   * the single gated switch point every surface funnels through — the toolbar
+   * Edit button, the edge switch, Mod+E and the app/native menu row all
+   * dispatch `toggleMode` — so this one write covers all four. It rides the
+   * ordinary `updateSettings` seam, so the value persists to settings.json and
+   * reaches the desktop settings window like any other setting.
+   */
+  const rememberViewMode = useCallback(
+    (next: ViewMode) => {
+      const s = stateRef.current.settings;
+      if (s.lastViewMode !== next) updateSettings({ ...s, lastViewMode: next });
+    },
+    [updateSettings]
+  );
+
   const toggleMode = useCallback(() => {
     const s = stateRef.current;
     // Issue #40: entering edit mode requires an open document (file or
@@ -3193,6 +3225,7 @@ export default function App() {
           : null;
       recordPosition(s.docPath, pendingScrollLineRef.current); // SPEC16 §3.2
       setMode('edit');
+      rememberViewMode('edit');
     } else {
       pendingScrollLineRef.current = editorSyncRef.current?.topLine() ?? null;
       recordPosition(s.docPath, pendingScrollLineRef.current); // SPEC16 §3.2
@@ -3200,10 +3233,11 @@ export default function App() {
       // surprise Save As dialog mid-toggle; it just stays dirty.
       if (s.settings.autosaveOnToggle && s.dirty && s.docPath) void saveDoc();
       setMode('preview');
+      rememberViewMode('preview');
     }
     setSelInfo(null);
     setPending(null);
-  }, [saveDoc, sourceRangeFromDomSelection]);
+  }, [saveDoc, sourceRangeFromDomSelection, rememberViewMode]);
 
   /**
    * Split divider drag (SPEC7 §5.4): pointer-captured; the live resize writes
@@ -5753,12 +5787,23 @@ export default function App() {
           <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />
         )}
 
-        {/* PRD 003 Reqs 6–7: the preview's edge chevron at the workspace's
-            right edge — collapses the open split, reopens the closed one.
-            Never in full preview: that's a different surface, not a closed
-            split (and the splash is preview-only, so it never shows one). */}
-        {mode === 'edit' && (
-          <PreviewToggleButton open={settings.splitEdit} onClick={() => dispatchCommand('toggleSplit')} />
+        {/* The workspace's top-right edge cluster: the edit/preview switch
+            (issue #125), then the preview chevron. Rendered as one row so the
+            switch always sits immediately to the chevron's left.
+            PRD 003 Reqs 6–7: the preview's edge chevron collapses the open
+            split and reopens the closed one. Never in full preview: that's a
+            different surface, not a closed split (and the splash is
+            preview-only, so it never shows one).
+            PRD 007 Req 17: the switch takes the toolbar Edit button's gate —
+            an open document this reader may change — so it is absent on the
+            splash and for a read-only document, in both modes. */}
+        {(mode === 'edit' || (docOpen && docGrants.edit)) && (
+          <div className="edge-cluster">
+            {docOpen && docGrants.edit && <ModeSwitchButton mode={mode} onClick={() => dispatchCommand('toggleMode')} />}
+            {mode === 'edit' && (
+              <PreviewToggleButton open={settings.splitEdit} onClick={() => dispatchCommand('toggleSplit')} />
+            )}
+          </div>
         )}
 
       {zoomDoc ? (

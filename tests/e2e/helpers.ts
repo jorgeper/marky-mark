@@ -12,11 +12,23 @@ export async function revealToolbar(page: Page): Promise<void> {
   await expect(page.getByTestId('menu-btn')).toBeVisible();
 }
 
-/** Open the welcome/help document through the menu (SPEC4 clean start). */
+/**
+ * Open the welcome/help document through the menu (SPEC4 clean start),
+ * landing in the reading preview. Issue #125: the view mode is remembered
+ * now, so a test that entered edit earlier reopens there — this helper is
+ * shared setup for tests whose subject is something else, so it normalizes
+ * back to the preview they are written against. The remembered mode itself
+ * is E248's subject.
+ */
 export async function openWelcomeViaHelp(page: Page): Promise<void> {
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('menu-help').click();
+  // The switch appears as soon as the document is open, and names the mode
+  // it came up in — wait on it rather than racing the open.
+  const modeSwitch = page.getByTestId('mode-switch');
+  await expect(modeSwitch).toBeVisible();
+  if ((await modeSwitch.getAttribute('data-mode')) === 'edit') await modeSwitch.click();
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
 }
 
