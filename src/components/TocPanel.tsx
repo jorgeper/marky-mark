@@ -21,6 +21,12 @@ export type SidebarView = 'folders' | 'toc';
 export interface TocPanelProps {
   /** PRD 012 Req 4: `visibleTocEntries()` output — the rows, already filtered. */
   rows: VisibleTocEntry[];
+  /**
+   * PRD 012 Req 7: the entry the viewport is currently in — `activeTocReveal`'s
+   * answer, decided by `src/lib/tocModel.ts`. Null in the preamble and in a
+   * heading-less document, and then no row claims to be active.
+   */
+  activeId: string | null;
   /** PRD 003 Req 9: the shared pane's open/close slide phase (App owns timing). */
   slide: SlidePhase;
   /** PRD 012 Req 1: `settings.folderWidth` — one width for the one pane. */
@@ -43,21 +49,31 @@ export interface TocPanelProps {
  *
  * PRD 012 Req 3: the key and `data-toc-id` are the positional `SectionNode`
  * id, never the title, so two identically-titled headings stay two rows.
+ *
+ * PRD 012 Req 7: the active row says so with `aria-current="true"` and
+ * `data-active` — "you are here", which is why it is `aria-current` and not the
+ * folder row's `selected` (that one means "you picked this", and pairs with a
+ * different treatment). At most one row carries it: the id comes from one
+ * resolver call.
  */
 function TocRow({
   row,
+  active,
   onToggle,
   onSelect,
 }: {
   row: VisibleTocEntry;
+  active: boolean;
   onToggle(id: string): void;
   onSelect(row: VisibleTocEntry): void;
 }) {
   const { entry, hasChildren, collapsed } = row;
   return (
     <button
-      className="folder-item toc-item"
+      className={`folder-item toc-item${active ? ' toc-active' : ''}`}
       data-testid="toc-item"
+      aria-current={active ? 'true' : undefined}
+      data-active={active ? 'true' : 'false'}
       data-toc-id={entry.id}
       data-depth={entry.depth}
       data-line={entry.headingLine}
@@ -132,7 +148,13 @@ export function TocPanel(p: TocPanelProps) {
         ) : (
           <div className="folder-list toc-list">
             {p.rows.map((row) => (
-              <TocRow key={row.entry.id} row={row} onToggle={p.onToggle} onSelect={p.onSelect} />
+              <TocRow
+                key={row.entry.id}
+                row={row}
+                active={row.entry.id === p.activeId}
+                onToggle={p.onToggle}
+                onSelect={p.onSelect}
+              />
             ))}
           </div>
         )}

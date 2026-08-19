@@ -2471,6 +2471,23 @@ mark.hl.ghost {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* PRD 012 Req 7: "you are here" — the section the viewport is in. Deliberately
+   NOT the `.folder-item.selected` tab pill: that one says "you picked this" and
+   lifts a row onto the front plane, while this is a passive readout that moves
+   under the reader's scrolling. So it stays flat on the panel's plane and
+   speaks in the accent: a bar down the left edge, an accent tint, accent text.
+   No layout property changes, so the highlight moving never shifts a row. */
+.folder-item.toc-active {
+  background: rgba(9, 105, 218, 0.1);
+  background: color-mix(in srgb, var(--mm-accent, #0969da) 12%, transparent);
+  color: var(--mm-accent, #0969da);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 0 var(--mm-accent, #0969da);
+}
+.folder-item.toc-active:hover:not(:disabled) {
+  background: rgba(9, 105, 218, 0.16);
+  background: color-mix(in srgb, var(--mm-accent, #0969da) 20%, transparent);
+}
 .folder-divider {
   position: absolute;
   top: 0;

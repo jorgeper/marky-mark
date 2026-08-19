@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { parseSections } from '../../src/lib/sectionModel';
 import {
   activeTocEntryId,
+  activeTocReveal,
   buildTocTree,
   expandTocAncestors,
   findTocEntry,
@@ -235,5 +236,45 @@ describe('PRD 012 Req 13 — the empty document', () => {
       expect([...toggleTocCollapsed(entries, new Set(), '1')]).toEqual([]);
       expect([...expandTocAncestors(entries, new Set(), '1')]).toEqual([]);
     }
+  });
+});
+
+describe('PRD 012 Req 7 — the active entry and its reveal, resolved together', () => {
+  test('U671: the resolver returns the active id with the collapse set the reveal needs, and the SAME set when nothing had to move', () => {
+    const entries = tree(doc);
+
+    // Nothing collapsed: the id is `activeTocEntryId`'s answer and the caller's
+    // own set comes back BY IDENTITY — a scroll inside an already-visible
+    // subtree must not look like a state change to the caller.
+    const open = new Set<string>();
+    const inAlphaOne = activeTocReveal(entries, open, 15);
+    expect(inAlphaOne.id).toBe('1.2.1');
+    expect(inAlphaOne.collapsed).toBe(open);
+
+    // Buried under collapsed ancestors: the chain expands, and only the chain.
+    const folded = new Set(['1', '1.2', '1.3']);
+    const revealed = activeTocReveal(entries, folded, 15);
+    expect(revealed.id).toBe('1.2.1');
+    expect(revealed.collapsed).not.toBe(folded);
+    expect([...revealed.collapsed]).toEqual(['1.3']); // the unrelated fold stays
+    expect(visibleTocEntries(entries, revealed.collapsed).map((v) => v.entry.id)).toContain('1.2.1');
+
+    // The ACTIVE entry's own fold is not opened — it is its ancestors that hide
+    // it, and a reader who folded the active section keeps that fold.
+    const selfFolded = new Set(['1.2.1']);
+    const self = activeTocReveal(entries, selfFolded, 15);
+    expect(self.id).toBe('1.2.1');
+    expect(self.collapsed).toBe(selfFolded);
+
+    // No line (the mode has none yet) and a preamble line: no id, no reveal.
+    expect(activeTocReveal(entries, folded, null)).toEqual({ id: null, collapsed: folded });
+    expect(activeTocReveal(entries, folded, null).collapsed).toBe(folded);
+    const preamble = activeTocReveal(entries, folded, 1);
+    expect(preamble.id).toBeNull();
+    expect(preamble.collapsed).toBe(folded);
+
+    // A heading-less document resolves to nothing and leaves the set alone.
+    const none = new Set<string>(['x']);
+    expect(activeTocReveal(tree('Just prose.\n'), none, 1)).toEqual({ id: null, collapsed: none });
   });
 });

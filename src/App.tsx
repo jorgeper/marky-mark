@@ -155,7 +155,7 @@ import {
 // and its data-mm-line anchors exactly as they were.
 import { SemanticZoomControl, SemanticZoomView } from './components/SemanticZoomView';
 import { parseSections } from './lib/sectionModel';
-import { buildTocTree, toggleTocCollapsed, visibleTocEntries } from './lib/tocModel';
+import { activeTocReveal, buildTocTree, toggleTocCollapsed, visibleTocEntries } from './lib/tocModel';
 import { zoomView, ZOOM_LEVEL_FULL, type ZoomLevel } from './lib/zoomLevels';
 import {
   buildZoomDocumentFromView,
@@ -1371,16 +1371,28 @@ export default function App() {
     };
   }, []);
 
-  /** Source line at the top of the current view, whatever the mode. */
-  const currentTopLine = useCallback((): number | null => {
+  /**
+   * Source line at the top of the current view, whatever the mode — the
+   * measurement alone, with no opinion about which documents deserve it.
+   * Fractional, like `EditorSyncHandle.topLine()` and `lineAtOffset`.
+   */
+  const viewTopLine = useCallback((): number | null => {
     const s = stateRef.current;
-    if (!s.docPath) return null;
     if (s.mode === 'edit') return editorSyncRef.current?.topLine() ?? null;
     const ws = workspaceRef.current;
     const doc = docRef.current;
     if (!ws || !doc || ws.scrollHeight === 0) return null;
     return lineAtOffset(collectAnchors(ws, doc), ws.scrollHeight, ws.scrollTop);
   }, []);
+
+  /**
+   * SPEC16 §3: the same line, for the reading-position callers — they store it
+   * under a path, so a pathless buffer has nowhere to put one and gets null.
+   */
+  const currentTopLine = useCallback(
+    (): number | null => (stateRef.current.docPath ? viewTopLine() : null),
+    [viewTopLine]
+  );
 
   /** SPEC16 §3: remember where we are in the given doc, write-through. */
   const recordPosition = useCallback((path: string | null, line: number | null) => {
@@ -4080,11 +4092,55 @@ export default function App() {
     () => (tocOpen ? buildTocTree(parseSections(canonicalOf(tocBuffer))) : null),
     [tocOpen, tocBuffer, canonicalOf]
   );
+  /**
+   * PRD 012 Req 7: the source line at the top of the viewport, as a WHOLE line
+   * — `viewTopLine()` is fractional (both modes interpolate), the resolver's
+   * ranges are whole lines, and rounding also means this state changes only
+   * when the reader actually crosses a line. Kept fresh by the subscription
+   * further down; null whenever the TOC is not on screen.
+   */
+  const [tocTopLine, setTocTopLine] = useState<number | null>(null);
+  /**
+   * PRD 012 Req 7: which row is highlighted — `activeTocReveal`'s answer. The
+   * rule lives in `src/lib/tocModel.ts`; this file supplies the line and
+   * renders what comes back.
+   */
+  const tocActive = useMemo(
+    () => (tocTree ? activeTocReveal(tocTree, tocCollapsedNow, tocTopLine) : null),
+    [tocTree, tocCollapsedNow, tocTopLine]
+  );
   /** PRD 012 Req 4: the rows to draw — the module decides, the view renders. */
   const tocRows = useMemo(
     () => (tocTree ? visibleTocEntries(tocTree, tocCollapsedNow) : []),
     [tocTree, tocCollapsedNow]
   );
+  /**
+   * PRD 012 Req 7: the auto-reveal — the same resolver's collapse set, written
+   * back so the highlighted row is on screen and a later manual toggle starts
+   * from what the reader can see.
+   *
+   * It fires on a CHANGE OF LINE, which is what "scrolling into a collapsed
+   * subtree" means. Folding the section you are reading therefore sticks — the
+   * reveal is a consequence of the reader moving, not a rule that outvotes
+   * them — and the ref makes that independent of re-derivations of the tree.
+   * The two guards together (the line ref, and `activeTocReveal` returning the
+   * caller's own set by identity) mean a scroll that leaves the active row
+   * visible produces no collapse-set state change at all.
+   */
+  const tocRevealedAtRef = useRef<{ key: string; line: number | null }>({ key: '', line: null });
+  useEffect(() => {
+    if (!tocOpen || !tocTree || tocTopLine === null) return;
+    const seen = tocRevealedAtRef.current;
+    if (seen.key === tocKey && seen.line === tocTopLine) return;
+    tocRevealedAtRef.current = { key: tocKey, line: tocTopLine };
+    setTocCollapsed((cur) => {
+      const now = cur[tocKey] ?? EMPTY_TOC_COLLAPSED;
+      const { collapsed } = activeTocReveal(tocTree, now, tocTopLine);
+      // Identity ⇒ nothing to reveal: return `cur` so React bails out of the
+      // render, and every other document's folds stay the objects they were.
+      return collapsed === now ? cur : { ...cur, [tocKey]: new Set(collapsed) };
+    });
+  }, [tocOpen, tocTree, tocTopLine, tocKey]);
   /** PRD 012 Req 4: fold/unfold one entry, through the module's rule. */
   const toggleTocEntry = useCallback(
     (id: string) => {
@@ -4114,6 +4170,65 @@ export default function App() {
     },
     [scrollPreviewToLine]
   );
+  /**
+   * PRD 012 Req 7: track the top of the viewport while the TOC is showing.
+   *
+   * The subscription exists ONLY while `tocOpen` — scrolling with the view
+   * closed adds no new work at all — and is torn down when the view closes,
+   * the sidebar hides, the mode switches or the document closes. Throttling is
+   * the SPEC45 split-sync listeners' rAF, and a measurement re-reads anchors
+   * that are already in the DOM: no markdown re-parse per scroll event.
+   */
+  useEffect(() => {
+    if (!tocOpen) {
+      setTocTopLine(null);
+      return;
+    }
+    let raf = 0;
+    let disposed = false;
+    const measure = () => {
+      raf = 0;
+      const line = viewTopLine();
+      setTocTopLine(line === null ? null : Math.round(line));
+    };
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(measure);
+    };
+    measure(); // the answer the moment the view opens, before any scrolling
+
+    // Preview scrolls the workspace; edit mode reads the editor's own top line
+    // (in the split too — whichever pane leads, SPEC15 moves the editor with
+    // it, and the handle's scroll event fires for programmatic writes as well).
+    const ws = workspaceRef.current;
+    ws?.addEventListener('scroll', onScroll);
+    let offEditor: (() => void) | null = null;
+    // The editor mounts lazily AND is replaced when the split toggles, so the
+    // bounded retry (SPEC45's idiom) watches the handle's IDENTITY rather than
+    // its mere existence — subscribing once would leave the listener attached
+    // to a discarded CodeMirror and the highlight frozen. The html-keyed rerun
+    // gives it a fresh window; between windows nothing polls.
+    let subscribed: EditorSyncHandle | null = null;
+    let frames = 120; // ~2s of frames
+    const follow = () => {
+      if (disposed) return;
+      const ed = editorSyncRef.current;
+      if (ed !== subscribed) {
+        offEditor?.();
+        subscribed = ed;
+        offEditor = ed ? ed.onScroll(onScroll) : null;
+        measure();
+      }
+      if (frames-- > 0) requestAnimationFrame(follow);
+    };
+    if (mode === 'edit') follow();
+    return () => {
+      disposed = true;
+      if (raf) cancelAnimationFrame(raf);
+      ws?.removeEventListener('scroll', onScroll);
+      offEditor?.();
+    };
+  }, [tocOpen, mode, settings.splitEdit, html, viewTopLine]);
 
   // --- PRD 011 Reqs 17–22: the semantic-zoom render path (levels 1–4) ------------
   /**
@@ -6006,6 +6121,7 @@ export default function App() {
           <TocPanel
             viewSwitch={sidebarSwitch}
             rows={tocRows}
+            activeId={tocActive?.id ?? null}
             slide={folderSlide}
             width={settings.folderWidth}
             onToggle={toggleTocEntry}

@@ -308,3 +308,220 @@ test('E254: one pane, two views — the buttons switch and hide, folder-tree sta
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await expect(page.getByTestId('toc-panel')).toHaveCount(0);
 });
+
+// PRD 012 Req 7 (issue #133): the TOC tracks the reader — the section at the
+// top of the viewport is the highlighted one, in both modes, and a highlighted
+// row buried under a collapsed ancestor digs itself out.
+
+/** The `data-toc-id` of the one row claiming to be active, or null for none. */
+const activeTocId = (page: Page) =>
+  page.$$eval('[data-testid="toc-item"]', (els) => {
+    const on = els.filter((e) => e.getAttribute('aria-current') === 'true');
+    // Never more than one: the highlight is one resolver answer, not a set.
+    if (on.length > 1) return `MULTIPLE(${on.length})`;
+    const row = on[0];
+    if (!row) return null;
+    // The class and `data-active` hook must agree with the ARIA state.
+    if (!row.classList.contains('toc-active') || row.getAttribute('data-active') !== 'true') {
+      return `DISAGREES(${row.className}|${row.getAttribute('data-active')})`;
+    }
+    return row.getAttribute('data-toc-id');
+  });
+
+/** Scroll the preview so the given source line sits at the viewport top. */
+const scrollPreviewToLine = (page: Page, line: number) =>
+  page.evaluate((l) => {
+    const ws = document.querySelector('.workspace')!;
+    const el = document.querySelector(`.doc [data-mm-line="${l}"]`)!;
+    ws.scrollTop += el.getBoundingClientRect().top - ws.getBoundingClientRect().top;
+  }, line);
+
+/**
+ * Scroll the EDITOR so the given source line sits at its viewport top. One
+ * nudge per poll: CodeMirror only renders gutters near the viewport, so a far
+ * line is reached by extrapolating from a rendered neighbour and re-measuring.
+ */
+const scrollEditorToLine = async (page: Page, line: number) => {
+  await expect
+    .poll(
+      async () => {
+        await page.evaluate((l) => {
+          const s = document.querySelector('.cm-scroller')!;
+          const base = s.getBoundingClientRect().top;
+          const gs = Array.from(document.querySelectorAll('.cm-lineNumbers .cm-gutterElement'))
+            .map((el) => ({ n: Number(el.textContent), r: el.getBoundingClientRect() }))
+            // CodeMirror's gutter carries a zero-height width SPACER ('999')
+            // ahead of the real numbers — measuring off it inverts everything.
+            .filter((g) => Number.isFinite(g.n) && g.n > 0 && g.r.height > 0)
+            .sort((a, b) => a.r.top - b.r.top);
+          if (gs.length === 0) return;
+          const exact = gs.find((g) => g.n === l);
+          if (exact) {
+            s.scrollTop += exact.r.top - base;
+            return;
+          }
+          const span = gs[gs.length - 1].n - gs[0].n;
+          const h = span > 0 ? (gs[gs.length - 1].r.top - gs[0].r.top) / span : 20;
+          s.scrollTop += gs[0].r.top - base + (l - gs[0].n) * h;
+        }, line);
+        return editorTopGutterLine(page);
+      },
+      { timeout: 20000 }
+    )
+    .toBe(line);
+};
+
+/** `data-line` of every TOC row, keyed by its `data-toc-id`. */
+const rowLines = (page: Page) =>
+  page.$$eval('[data-testid="toc-item"]', (els) =>
+    Object.fromEntries(els.map((e) => [e.getAttribute('data-toc-id')!, Number(e.getAttribute('data-line'))]))
+  );
+
+test('E255: the preview scroll moves the highlight to the section at the viewport top, the preamble highlights nothing, and a click leaves its own row active', async ({
+  page,
+}) => {
+  await openTree(page);
+  await page.getByTestId('sidebar-view-toc').click();
+  await expect(page.getByTestId('toc-item')).toHaveCount(5);
+  const lines = await rowLines(page);
+
+  // PRD 012 Req 7: parked in the preamble — above the first heading — nothing
+  // claims to be active. The preamble is not a row, so it cannot be one.
+  await expect.poll(() => activeTocId(page)).toBeNull();
+
+  // Scrolling alone moves the highlight — no click anywhere in this block.
+  await scrollPreviewToLine(page, lines['1']); // # Alpha
+  await expect.poll(() => activeTocId(page)).toBe('1');
+  await scrollPreviewToLine(page, lines['1.1']); // ## Notes
+  await expect.poll(() => activeTocId(page)).toBe('1.1');
+  await scrollPreviewToLine(page, lines['1.1.1']); // ### Deep one
+  await expect.poll(() => activeTocId(page)).toBe('1.1.1');
+  await scrollPreviewToLine(page, lines['2']); // # Beta
+  await expect.poll(() => activeTocId(page)).toBe('2');
+
+  // Body text below a heading still belongs to that heading, and scrolling
+  // back to the very top gives the highlight up again.
+  await scrollPreviewToLine(page, lines['2'] + 2);
+  await expect.poll(() => activeTocId(page)).toBe('2');
+  await page.evaluate(() => {
+    document.querySelector('.workspace')!.scrollTop = 0;
+  });
+  await expect.poll(() => activeTocId(page)).toBeNull();
+
+  // PRD 012 Reqs 5–7: a clicked row is the active row once the scroll settles —
+  // the second `Notes`, so the duplicate title cannot be what matched.
+  await page.getByTestId('toc-item').filter({ hasText: 'Notes' }).nth(1).click();
+  await expect.poll(() => activeTocId(page)).toBe('1.2');
+
+  // The highlight is a readout, not a selection: it never steals focus from
+  // the document, and it is not the folder row's `selected` treatment.
+  expect(await page.evaluate(() => document.querySelectorAll('.toc-item.selected').length)).toBe(0);
+});
+
+test('E256: scrolling the editor moves the highlight too, in the split and in full edit', async ({
+  page,
+}) => {
+  test.slow();
+  await openTree(page);
+  await page.getByTestId('sidebar-view-toc').click();
+  await expect(page.getByTestId('toc-item')).toHaveCount(5);
+  const lines = await rowLines(page);
+
+  // `splitEdit` is on by default, so this is the SPLIT: the editor pane on the
+  // left, the preview on the right, one scroll position between them.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+
+  // PRD 012 Req 7 in edit mode: the editor's own top visible line decides.
+  await scrollEditorToLine(page, lines['1']);
+  await expect.poll(() => activeTocId(page)).toBe('1');
+  await scrollEditorToLine(page, lines['1.1.1']); // ### Deep one
+  await expect.poll(() => activeTocId(page)).toBe('1.1.1');
+  await scrollEditorToLine(page, lines['1.2']); // the second ## Notes
+  await expect.poll(() => activeTocId(page)).toBe('1.2');
+
+  // Back above the first heading: no row again.
+  await page.evaluate(() => {
+    document.querySelector('.cm-scroller')!.scrollTop = 0;
+  });
+  await expect.poll(() => activeTocId(page)).toBeNull();
+
+  // Full edit — the same, with no preview pane in the picture at all. Wait for
+  // the split's slide-out to finish: while it runs, SPEC15 is still holding
+  // the two panes together and would undo the scroll under the test.
+  await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  await scrollEditorToLine(page, lines['2']); // # Beta
+  await expect.poll(() => activeTocId(page)).toBe('2');
+
+  // PRD 012 Reqs 6–7: a click in edit mode leaves its own row active.
+  await page.getByTestId('toc-item').filter({ hasText: 'Deep one' }).click();
+  await expect.poll(() => activeTocId(page)).toBe('1.1.1');
+});
+
+/**
+ * Two sibling trees, so "the chain expanded and NOTHING else did" is a
+ * statement this document can actually make.
+ */
+const REVEAL_DOC = [
+  'Preamble before any heading.',
+  '',
+  '# One',
+  '',
+  filler('one'),
+  '',
+  '## One A',
+  '',
+  filler('one-a'),
+  '',
+  '### One A deep',
+  '',
+  filler('one-a-deep'),
+  '',
+  '# Two',
+  '',
+  filler('two'),
+  '',
+  '## Two A',
+  '',
+  filler('two-a', 60),
+  '',
+].join('\n');
+
+test('E257: scrolling into a manually collapsed subtree auto-expands the chain to reveal the active row, and only that chain', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/reveal.md', REVEAL_DOC);
+  await openPath(page, '/docs/reveal.md');
+  await page.getByTestId('sidebar-view-toc').click();
+  await expect.poll(() => rowLabels(page)).toEqual(['1:One', '2:One A', '3:One A deep', '1:Two', '2:Two A']);
+  const lines = await rowLines(page);
+
+  // PRD 012 Req 4: fold both top-level sections by hand.
+  await page.getByTestId('toc-item').filter({ hasText: 'One' }).first().getByTestId('toc-twisty').click();
+  await page.getByTestId('toc-item').filter({ hasText: 'Two' }).first().getByTestId('toc-twisty').click();
+  await expect.poll(() => rowLabels(page)).toEqual(['1:One', '1:Two']);
+
+  // PRD 012 Req 7: scrolling into the buried `### One A deep` digs out its
+  // ancestors — and `Two`'s unrelated fold survives untouched.
+  await scrollPreviewToLine(page, lines['1.1.1']);
+  await expect.poll(() => rowLabels(page)).toEqual(['1:One', '2:One A', '3:One A deep', '1:Two']);
+  await expect.poll(() => activeTocId(page)).toBe('1.1.1');
+
+  // A further scroll that leaves the active row visible changes no folds: the
+  // reveal is idempotent, so `Two` stays exactly as the reader left it.
+  await scrollPreviewToLine(page, lines['1.1.1'] + 2);
+  await expect.poll(() => activeTocId(page)).toBe('1.1.1');
+  expect(await rowLabels(page)).toEqual(['1:One', '2:One A', '3:One A deep', '1:Two']);
+
+  // The reveal became the document's own state: the re-expanded `One` folds
+  // again by hand, and the collapse set did not accumulate anything strange.
+  await page.getByTestId('toc-item').filter({ hasText: 'One' }).first().getByTestId('toc-twisty').click();
+  await expect.poll(() => rowLabels(page)).toEqual(['1:One', '1:Two']);
+
+  // PRD 012 Req 4: another document's folds were never touched.
+  await fsWrite(page, '/docs/tree.md', TREE_DOC);
+  await openPath(page, '/docs/tree.md');
+  await expect.poll(() => rowLabels(page)).toEqual(['1:Alpha', '2:Notes', '3:Deep one', '2:Notes', '1:Beta']);
+});

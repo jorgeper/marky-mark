@@ -186,3 +186,38 @@ export function activeTocEntryId(entries: TocEntry[], line: number): string | nu
   }
   return active;
 }
+
+/**
+ * PRD 012 Req 7: the active entry AND the collapse set that makes its row
+ * visible, resolved in one call — the whole of the highlight's rule, so the
+ * React wiring supplies a line and renders an answer without deriving either
+ * half itself.
+ *
+ * The set comes back BY IDENTITY when nothing had to move (no active entry, or
+ * its chain was already expanded). That is the contract a scroll handler needs:
+ * an unchanged reference means "no collapse-set state change", so scrolling
+ * inside an already-visible subtree cannot loop through a re-render.
+ *
+ * Only the ancestors are expanded, never `id` itself: a reader who folded the
+ * section they are reading folded it on purpose, and `expandTocAncestors`
+ * leaves unrelated folds elsewhere in the tree alone.
+ */
+export interface ActiveTocReveal {
+  /** The active entry's id, or null in the preamble / a heading-less document. */
+  id: string | null;
+  /** The collapse set to render with — `collapsed` itself when unchanged. */
+  collapsed: ReadonlySet<string>;
+}
+
+export function activeTocReveal(
+  entries: TocEntry[],
+  collapsed: ReadonlySet<string>,
+  /** The 1-based top-of-viewport line, or null when the view has none yet. */
+  line: number | null
+): ActiveTocReveal {
+  const id = line === null ? null : activeTocEntryId(entries, line);
+  if (id === null) return { id: null, collapsed };
+  const next = expandTocAncestors(entries, collapsed, id);
+  // `expandTocAncestors` only ever deletes, so an equal size means an equal set.
+  return { id, collapsed: next.size === collapsed.size ? collapsed : next };
+}
