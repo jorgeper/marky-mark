@@ -191,6 +191,13 @@ export interface EditorSyncHandle {
   topLine(): number;
   /** Scroll so the given fractional line sits at the top of the viewport. */
   scrollToLine(line: number): void;
+  /**
+   * PRD 012 Req 6: scroll to a 1-based source line AND place the caret on it —
+   * the TOC's edit-mode jump. A sibling of `scrollToLine` rather than a flag on
+   * it, so every existing scroll-only caller (mode-switch restore, split sync,
+   * the heading palette) keeps moving the viewport and nothing else.
+   */
+  goToLine(line: number): void;
   scrollInfo(): { top: number; max: number };
   /** SPEC45: caret line's top in CONTENT coordinates (cue-anchored sync). */
   headTop(): number;
@@ -1235,6 +1242,20 @@ export default function Editor({
           const doc = view.state.doc;
           const n = Math.min(Math.max(Math.round(line), 1), doc.lines);
           view.dispatch({ effects: EditorView.scrollIntoView(doc.line(n).from, { y: 'start' }) });
+        },
+        goToLine(line) {
+          // PRD 012 Req 6: same clamp and same scroll effect as scrollToLine,
+          // plus the selection — one dispatch so the caret and the viewport
+          // never disagree. Focus follows so typing continues where the click
+          // landed.
+          const doc = view.state.doc;
+          const n = Math.min(Math.max(Math.round(line), 1), doc.lines);
+          const pos = doc.line(n).from;
+          view.dispatch({
+            selection: { anchor: pos, head: pos },
+            effects: EditorView.scrollIntoView(pos, { y: 'start' }),
+          });
+          view.focus();
         },
         headTop() {
           return view.lineBlockAt(view.state.selection.main.head).top;

@@ -100,6 +100,13 @@ export interface FolderPanelProps {
   renameError: string | null;
   onRenameCommit(oldPath: string, newName: string): void;
   onRenameCancel(): void;
+  /**
+   * PRD 012 Req 9: the sidebar's Folders/TOC switch, handed in as a node so
+   * this panel keeps knowing nothing about the other view. It renders at the
+   * head of the header, where the TOC view puts the identical control — the
+   * two views read as one pane with one switch.
+   */
+  viewSwitch?: React.ReactNode;
 }
 
 type MenuTarget = { kind: 'dir' | 'file' | 'root'; path: string; x: number; y: number };
@@ -174,7 +181,7 @@ const CHEVRON_PATHS = {
   down: 'M3.5 6 L8 10.5 L12.5 6',
 } as const;
 
-function Chevron({ open, dir }: { open?: boolean; dir?: 'left' | 'right' }) {
+export function Chevron({ open, dir }: { open?: boolean; dir?: 'left' | 'right' }) {
   const direction = dir ?? (open ? 'down' : 'right');
   return (
     <span className="folder-chevron" aria-hidden="true">
@@ -596,6 +603,7 @@ export function FolderPanel(p: FolderPanelProps) {
         onContextMenu={(e) => e.preventDefault()} // SPEC35 §3.1: no native menu in the panel
       >
         <div className="folder-header" data-testid="folder-header">
+          {p.viewSwitch}
           <span className="folder-title">{p.roots.length === 1 ? p.basename(p.roots[0]) : 'Folders'}</span>
           <button
             data-testid="folder-open-only"

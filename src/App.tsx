@@ -77,6 +77,7 @@ import { uploadRejection } from './lib/fileTransfer';
 import { isSaveConflict, planSaveConflict, type SaveConflictChoice } from './lib/saveConflict';
 import { planMergedSave } from './lib/mergedSave';
 import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton } from './components/FolderPanel';
+import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
 import {
   SLIDE_SETTLE_MS,
   slideClasses,
@@ -153,6 +154,7 @@ import {
 // and its data-mm-line anchors exactly as they were.
 import { SemanticZoomControl, SemanticZoomView } from './components/SemanticZoomView';
 import { parseSections } from './lib/sectionModel';
+import { buildTocTree, toggleTocCollapsed, visibleTocEntries } from './lib/tocModel';
 import { zoomView, ZOOM_LEVEL_FULL, type ZoomLevel } from './lib/zoomLevels';
 import {
   buildZoomDocumentFromView,
@@ -198,6 +200,13 @@ const grantsFor = (p: Platform, path?: string): Promise<FileGrants> =>
   p.fileGrants ? p.fileGrants(path) : Promise.resolve(ALL_FILE_GRANTS);
 
 const CARD_GAP = 8;
+/**
+ * PRD 012 Req 4: the "nothing collapsed" set, shared so a document with no
+ * folds yet keeps `visibleTocEntries` memo-stable instead of re-running on
+ * every render against a fresh empty Set.
+ */
+const EMPTY_TOC_COLLAPSED: ReadonlySet<string> = new Set<string>();
+
 /** Auto-hiding toolbar timings (SPEC4 §2). */
 export const TOOLBAR_GRACE_MS = 2500;
 export const TOOLBAR_HIDE_DELAY_MS = 400;
@@ -504,6 +513,30 @@ export default function App() {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [diff, setDiff] = useState<DiffLineSets | null>(null);
+  /**
+   * PRD 012 Req 1: which of the ONE sidebar pane's two views is on screen.
+   * Session state, not a setting — Reqs 10–11 (persisting it) are issue #134.
+   * `settings.showFolders` keeps its meaning: whether that pane shows at all.
+   */
+  const [sidebarView, setSidebarView] = useState<'folders' | 'toc'>('folders');
+  const sidebarViewRef = useRef<'folders' | 'toc'>('folders');
+  /**
+   * PRD 012 Req 4: collapsed TOC entry ids per file, for the app session only.
+   * A plain in-memory map keyed by the document — switching to another open
+   * file and back keeps the folds, a restart starts empty, and nothing is
+   * written anywhere (the PRD's "no new persistence file").
+   */
+  const [tocCollapsed, setTocCollapsed] = useState<Record<string, Set<string>>>({});
+  /**
+   * PRD 012 Req 8: the buffer the TOC last parsed. Debounced, so typing never
+   * pays for a parse per keystroke — the SPEC16 §2 idiom.
+   */
+  const [tocBuffer, setTocBuffer] = useState('');
+  /** PRD 012 Req 1: set the pane's view, keeping the ref every route reads. */
+  const setSidebarViewNow = useCallback((view: 'folders' | 'toc') => {
+    sidebarViewRef.current = view;
+    setSidebarView(view);
+  }, []);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteHeadings, setPaletteHeadings] = useState<PaletteHeading[]>([]);
   const [chip, setChip] = useState('');
@@ -2672,6 +2705,7 @@ export default function App() {
         await listFolderDir(p, picked);
         for (const dir of expanded) if (dir !== picked) void listFolderDir(p, dir);
         if (!stateRef.current.settings.showFolders) {
+          setSidebarViewNow('folders'); // PRD 012 Req 1: a folder route opens the folders view
           updateSettings({ ...stateRef.current.settings, showFolders: true });
         }
       })();
@@ -2713,6 +2747,7 @@ export default function App() {
         commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
         for (const dir of new Set([...folders, ...expanded])) void listFolderDir(p, dir);
         if (!stateRef.current.settings.showFolders) {
+          setSidebarViewNow('folders'); // PRD 012 Req 1: a folder route opens the folders view
           updateSettings({ ...stateRef.current.settings, showFolders: true });
         }
       } catch {
@@ -2764,6 +2799,7 @@ export default function App() {
     updateWorkspace(next, p);
     await listFolderDir(p, picked);
     if (!stateRef.current.settings.showFolders) {
+      setSidebarViewNow('folders'); // PRD 012 Req 1: a folder route opens the folders view
       updateSettings({ ...stateRef.current.settings, showFolders: true });
     }
   }, [listFolderDir, updateWorkspace, updateSettings]);
@@ -2796,6 +2832,7 @@ export default function App() {
         updateWorkspace({ kind: 'named', file, folders: [], settings: {} }, p);
         commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
         if (!stateRef.current.settings.showFolders) {
+          setSidebarViewNow('folders'); // PRD 012 Req 1: a folder route opens the folders view
           updateSettings({ ...stateRef.current.settings, showFolders: true });
         }
       })();
@@ -3337,8 +3374,27 @@ export default function App() {
     folderStateRef.current = { ...folderStateRef.current, openOnly: next };
     setFolderOpenOnly(next);
     persistFolderState();
+    // PRD 012 Req 1: the only-open view is a folders-view surface.
+    setSidebarViewNow('folders');
     if (next && !st.settings.showFolders) updateSettings({ ...st.settings, showFolders: true });
   }, [persistFolderState, updateSettings]);
+
+  /**
+   * PRD 012 Req 9: the TOC button's whole rule. Pressing it while the TOC is
+   * the view on screen hides the sidebar; otherwise it shows the sidebar in
+   * TOC view, opening it if it was closed. Symmetric with `toggleFolders`
+   * below, and — Req 12 — it asks nothing about the folder seam.
+   */
+  const toggleTocView = useCallback(() => {
+    const st = stateRef.current;
+    armFolderSlide.current = true;
+    if (st.settings.showFolders && sidebarViewRef.current === 'toc') {
+      updateSettings({ ...st.settings, showFolders: false });
+      return;
+    }
+    setSidebarViewNow('toc');
+    if (!st.settings.showFolders) updateSettings({ ...st.settings, showFolders: true });
+  }, [setSidebarViewNow, updateSettings]);
 
   /**
    * SPEC36 §7: advance the quit walk — activate the next dirty doc and show
@@ -3713,6 +3769,14 @@ export default function App() {
         // PRD 003 Reqs 9/12: chevrons, View menu and the hotkey all dispatch
         // this command — the explicit toggle is what slides the pane.
         armFolderSlide.current = true;
+        // PRD 012 Req 9: the folders route is symmetric with the TOC button —
+        // while the pane shows the TOC it SWITCHES the pane to Folders rather
+        // than hiding it. With the TOC view never entered (every route before
+        // this issue) `sidebarViewRef` is always 'folders', so this stays the
+        // plain visibility toggle it has always been.
+        const switching = st.settings.showFolders && sidebarViewRef.current !== 'folders';
+        setSidebarViewNow('folders');
+        if (switching) return;
         updateSettings({ ...st.settings, showFolders: !st.settings.showFolders });
       },
       openFolder: openFolderCmd,
@@ -3937,6 +4001,77 @@ export default function App() {
   // switch (issue #125) share — an open document this reader may change.
   const mayToggleMode = docOpen && docGrants.edit;
 
+  // --- PRD 012: the Table of Contents view of the sidebar -----------------------
+  /**
+   * PRD 012 Req 1: the pane shows the TOC when the pane shows at all and the
+   * TOC is the chosen view. Req 12: the only other condition is an open
+   * document — never `folderSeam`, so `file` mode and the web build get the
+   * TOC with no folder DOM anywhere near it.
+   */
+  const tocOpen = settings.showFolders && sidebarView === 'toc' && docOpen;
+  /**
+   * PRD 012 Req 4: the collapse set's key — the document the folds belong to,
+   * named by the same `docIdentity` every other per-document map uses (issue
+   * #42), so an untitled buffer keeps its own folds too.
+   */
+  const tocKey = docIdentity(docPath, untitled) ?? '';
+  const tocCollapsedNow = tocCollapsed[tocKey] ?? EMPTY_TOC_COLLAPSED;
+  /**
+   * PRD 012 Req 8: re-derive from the BUFFER on a 200ms debounce (the SPEC16 §2
+   * idiom), so a heading typed, renamed or deleted shows up without saving and
+   * without a parse per keystroke. Nothing is scheduled while the view is
+   * closed — the pane costs nothing when it is not on screen.
+   */
+  useEffect(() => {
+    if (!tocOpen) return;
+    const t = setTimeout(() => setTocBuffer(buffer), 200);
+    return () => clearTimeout(t);
+  }, [tocOpen, buffer]);
+  /**
+   * PRD 012 Reqs 2/13: the heading tree, from the section model — the same
+   * `parseSections(canonicalOf(...))` call `zoomSections` makes. No rendered
+   * HTML and no `data-mm-line` anchor is consulted, which is exactly why a `#`
+   * line inside a fenced code block never becomes a row.
+   */
+  const tocTree = useMemo(
+    () => (tocOpen ? buildTocTree(parseSections(canonicalOf(tocBuffer))) : null),
+    [tocOpen, tocBuffer, canonicalOf]
+  );
+  /** PRD 012 Req 4: the rows to draw — the module decides, the view renders. */
+  const tocRows = useMemo(
+    () => (tocTree ? visibleTocEntries(tocTree, tocCollapsedNow) : []),
+    [tocTree, tocCollapsedNow]
+  );
+  /** PRD 012 Req 4: fold/unfold one entry, through the module's rule. */
+  const toggleTocEntry = useCallback(
+    (id: string) => {
+      if (!tocTree) return;
+      setTocCollapsed((cur) => ({
+        ...cur,
+        [tocKey]: toggleTocCollapsed(tocTree, cur[tocKey] ?? EMPTY_TOC_COLLAPSED, id),
+      }));
+    },
+    [tocTree, tocKey]
+  );
+  /**
+   * PRD 012 Reqs 5–6: one click, two modes, no new scroll implementation.
+   * Preview goes through `scrollPreviewToLine` (SPEC16 §4, the heading
+   * palette's path); edit goes through the editor handle — `goToLine`, which
+   * is `scrollToLine` plus the caret Req 6 asks for. The in-flight mode-switch
+   * restore is cancelled first for the same reason the palette cancels it.
+   */
+  const jumpToTocEntry = useCallback(
+    (line: number) => {
+      if (stateRef.current.mode === 'edit') {
+        pendingScrollLineRef.current = null;
+        editorSyncRef.current?.goToLine(line);
+        return;
+      }
+      scrollPreviewToLine(line);
+    },
+    [scrollPreviewToLine]
+  );
+
   // --- PRD 011 Reqs 17–22: the semantic-zoom render path (levels 1–4) ------------
   /**
    * PRD 011 Req 17: the title a heading-less document falls back to — the file
@@ -4039,7 +4174,10 @@ export default function App() {
       showFrontmatter,
       // Issue #10: the View checkbox mirrors the persisted gutter setting.
       lineNumbers: settings.lineNumbers,
-      showFolders: settings.showFolders,
+      // PRD 012 Req 9: the View checkbox says whether the FOLDERS view is on
+      // screen. Before the TOC existed the pane had one view, so this is the
+      // same value it always was for every pre-#132 route.
+      showFolders: settings.showFolders && sidebarView === 'folders',
       openOnly: folderOpenOnly,
       // Issue #84: gates View → Next/Previous Open File.
       openFileCount: openFiles.length,
@@ -4063,6 +4201,7 @@ export default function App() {
       showFrontmatter,
       settings.lineNumbers,
       settings.showFolders,
+      sidebarView,
       folderOpenOnly,
       openFiles.length,
       settings.semanticZoom,
@@ -5604,6 +5743,14 @@ export default function App() {
   // Issue #22 / PRD 003 Req 5: the folder seam — pane or its edge chevron —
   // exists only in workspace mode on platforms with the folder capabilities.
   const folderSeam = !!platform?.readDirEntries && !!platform?.openFolderDialog && appMode === 'workspace';
+  /**
+   * PRD 012 Req 9: whether the ONE pane has anything on screen — the setting
+   * says "open", but a view also has to exist to fill it (the folders view
+   * needs the seam, the TOC needs a document). This is what the edge cluster
+   * and the switch's pressed state read, and with the TOC never chosen it is
+   * exactly the `folderSeam && settings.showFolders` the chevron used before.
+   */
+  const sidebarShown = settings.showFolders && (sidebarView === 'toc' ? docOpen : folderSeam);
 
   // PRD 003 Reqs 9–12: every toggle surface funnels into these two settings,
   // so phasing the render on them animates chevron, menu, hotkey and Settings
@@ -5630,6 +5777,24 @@ export default function App() {
         dirty: dirty && !!docPath && remapPath(docPath, folderDeletePrompt.path, folderDeletePrompt.path) !== null,
       },
     );
+
+  /**
+   * PRD 012 Req 9: the one Folders/TOC switch, built here and handed to
+   * whichever surface is up — the open panel's header, or the closed pane's
+   * edge cluster. One instance is mounted at a time, so `sidebar-view-folders`
+   * and `sidebar-view-toc` each resolve to exactly one element in every state.
+   * A button exists only where its view could: folders needs the seam (and so
+   * keeps the folders route's existing gating), the TOC needs a document.
+   */
+  const sidebarSwitch = (
+    <SidebarViewSwitch
+      active={sidebarShown ? sidebarView : null}
+      folders={folderSeam}
+      toc={docOpen}
+      onFolders={() => dispatchCommand('toggleFolders')}
+      onToc={toggleTocView}
+    />
+  );
 
   return (
     <div className={`theme-root${!nativeMenu ? ' has-toolbar' : ''}${!nativeMenu && !settings.autoHideToolbar ? ' toolbar-static' : ''}`} ref={rootRef}>
@@ -5697,8 +5862,11 @@ export default function App() {
       <div className="body-row">
         {/* Issue #22: the folder sidebar is a workspace-mode surface only.
             PRD 003 Req 9: it stays mounted through the exit slide. */}
-        {folderSeam && slideMounted(folderSlide, settings.showFolders) && (
+        {/* PRD 012 Req 1: exactly one view of the one pane renders — the
+            folders tree only while it is the chosen view. */}
+        {folderSeam && sidebarView === 'folders' && slideMounted(folderSlide, settings.showFolders) && (
           <FolderPanel
+            viewSwitch={sidebarSwitch}
             slide={folderSlide}
             roots={folderRoots}
             children={folderChildren}
@@ -5784,10 +5952,30 @@ export default function App() {
           />
         )}
 
+        {/* PRD 012 Reqs 1/2: the sidebar's other view. Req 12: gated on an
+            open document alone — no folder seam, no workspace mode, so it
+            renders in `file` mode and in the web build too. */}
+        {sidebarView === 'toc' && docOpen && slideMounted(folderSlide, settings.showFolders) && (
+          <TocPanel
+            viewSwitch={sidebarSwitch}
+            rows={tocRows}
+            slide={folderSlide}
+            width={settings.folderWidth}
+            onToggle={toggleTocEntry}
+            onSelect={(row) => jumpToTocEntry(row.entry.headingLine)}
+            onClose={toggleTocView}
+            onWidth={(w) => updateSettings({ ...stateRef.current.settings, folderWidth: w })}
+          />
+        )}
+
         {/* PRD 003 Req 2: with the pane closed, a chevron at the workspace's
-            left edge reopens it. */}
-        {folderSeam && !settings.showFolders && (
-          <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />
+            left edge reopens it — PRD 012 Req 9 seats the view switch beside
+            it in one row, so the two edge tabs cannot overlap. */}
+        {!sidebarShown && (folderSeam || docOpen) && (
+          <div className="edge-cluster-left">
+            {folderSeam && <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />}
+            {sidebarSwitch}
+          </div>
         )}
 
         {/* The workspace's top-right edge cluster: the edit/preview switch

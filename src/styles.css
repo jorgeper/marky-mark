@@ -1938,6 +1938,59 @@ mark.hl.ghost {
   display: flex;
   align-items: stretch;
 }
+/* PRD 012 Req 9: the left edge mirrors it — with the pane closed the folder
+   chevron and the Folders/TOC switch sit side by side in one absolutely
+   positioned row, so neither can overlap the other. `.folder-expand` keeps
+   its own rules for its own look; only its positioning yields to the row. */
+.edge-cluster-left {
+  position: absolute;
+  left: 0;
+  top: 9px;
+  z-index: 3;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.edge-cluster-left .folder-expand {
+  position: static;
+  top: auto;
+}
+/* PRD 012 Req 9: the switch itself — the same compact edge tab as its
+   neighbours when it rides the closed pane's cluster, and (below) the
+   header's own icon buttons when it rides an open panel's header. */
+.edge-cluster-left .sidebar-switch {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-left: none;
+  border-radius: 0 5px 5px 0;
+  background: var(--mm-bg-elevated, #f6f8fa);
+}
+.edge-cluster-left .sidebar-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--mm-fg-muted, #59636e);
+}
+.edge-cluster-left .sidebar-switch-btn:hover {
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg, #1f2328);
+}
+/* The header flavour: the switch is the header's leading pair of icon
+   buttons, and the live view is accented exactly like `.filter-on`. */
+.folder-header .sidebar-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.folder-header .sidebar-switch-btn.on {
+  color: var(--mm-accent, #0969da);
+  background: var(--mm-bg, #ffffff);
+}
 .preview-edge {
   padding: 3px 2px 3px 4px;
   border-right: none;
@@ -1972,7 +2025,8 @@ mark.hl.ghost {
 /* The static toolbar overlays the top of the body row (web/shim static
    mode) — clear it, as .folder-panel does. */
 .theme-root.toolbar-static .folder-expand,
-.theme-root.toolbar-static .edge-cluster {
+.theme-root.toolbar-static .edge-cluster,
+.theme-root.toolbar-static .edge-cluster-left {
   top: 51px;
 }
 /* PRD 003 Reqs 9/11: the pane opens/closes as a horizontal slide — a 180ms
@@ -2336,6 +2390,25 @@ mark.hl.ghost {
   border-radius: 999px;
   font-size: 13px;
   color: var(--mm-fg-muted, #59636e);
+}
+/* PRD 012 Reqs 2/4: the TOC rows are folder rows — `.folder-item` supplies
+   the hit area, hover and `--mm-depth` indent; these add only what a heading
+   row needs that a file row does not. */
+.toc-twisty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  /* The childless rows reserve the triangle's slot so titles at one depth
+     line up whether or not the heading has children. */
+  width: 16px;
+}
+.toc-twisty-empty {
+  width: 16px;
+}
+.toc-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .folder-divider {
   position: absolute;
