@@ -86,7 +86,9 @@ function scopeBlock(css: string, scope: string): string {
       else if (css[j] === '}') depth--;
       j++;
     }
-    const body = css.slice(brace + 1, j - (depth === 0 ? 1 : 0));
+    // j sits just past the matching '}' — or at the end of a block the
+    // stylesheet never closed, whose body simply runs to there.
+    const body = css.slice(brace + 1, depth === 0 ? j - 1 : j);
     if (prelude.startsWith('@')) {
       const name = /^@([a-zA-Z-]+)/.exec(prelude)?.[1].toLowerCase() ?? '';
       const conditional = ['media', 'supports', 'container', 'layer', 'scope'].includes(name);
@@ -135,5 +137,13 @@ export function pickPrintTheme<T extends { id: string; variant: 'light' | 'dark'
 ): T | undefined {
   const configured = themes.find((t) => t.id === lightThemeId);
   if (configured?.variant === 'light') return configured;
-  return themes.find((t) => t.id === 'crisp') ?? themes.find((t) => t.variant === 'light') ?? configured ?? themes[0];
+  // The slot is empty or (somehow) holds a dark theme: fall back down the
+  // ladder — the shipped light default, then any light theme, then whatever
+  // is installed, since a themed page beats an unstyled one.
+  return (
+    themes.find((t) => t.id === 'crisp') ??
+    themes.find((t) => t.variant === 'light') ??
+    configured ??
+    themes[0]
+  );
 }

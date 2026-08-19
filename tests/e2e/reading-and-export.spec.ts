@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
   addComment,
@@ -273,15 +274,13 @@ test('E67: File → Print… invokes the platform native print of the current wi
 // --- File → Print… (issue #124): paper gets the document, not the app -------
 
 /** Fire Print… through the command seam and return what would have printed. */
-async function printAndRead(page: import('@playwright/test').Page): Promise<string> {
+async function printAndRead(page: Page): Promise<string> {
   await page.evaluate(() => {
-    (window as unknown as { __mmPrintHtml?: string | null }).__mmPrintHtml = null;
+    window.__mmPrintHtml = null;
     window.__mmDispatch!('printDoc');
   });
-  await expect
-    .poll(() => page.evaluate(() => (window as unknown as { __mmPrintHtml?: string | null }).__mmPrintHtml))
-    .not.toBeNull();
-  return page.evaluate(() => (window as unknown as { __mmPrintHtml: string }).__mmPrintHtml);
+  await expect.poll(() => page.evaluate(() => window.__mmPrintHtml)).not.toBeNull();
+  return page.evaluate(() => window.__mmPrintHtml!);
 }
 
 test('E249: Print… puts the RENDERED document on paper — the same page from preview and from edit mode', async ({

@@ -27,7 +27,6 @@ function toAccelerator(combo: string): string | undefined {
   return parts.join('+');
 }
 
-/** One extension filter per open/save dialog kind. */
 /**
  * issue #124: how long the print root stays mounted after `print_view` when
  * the webview never fires 'afterprint' (WKWebView does not). Long enough for
@@ -35,6 +34,7 @@ function toAccelerator(combo: string): string | undefined {
  */
 const PRINT_SETTLE_MS = 60_000;
 
+/** One extension filter per open/save dialog kind. */
 const DIALOG_FILTERS = {
   markdown: [{ name: 'Markdown', extensions: ['md', 'markdown'] }],
   html: [{ name: 'HTML', extensions: ['html'] }],

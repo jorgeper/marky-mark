@@ -3662,7 +3662,11 @@ export default function App() {
       await s.platform?.printCurrent?.();
     } finally {
       root.remove();
-      document.body.classList.remove(PRINT_BODY_CLASS);
+      // On desktop this resolves only once the OS print panel has settled, by
+      // which time a second Print… may have mounted its own root — the body
+      // class belongs to whichever root is mounted now, so only the last one
+      // out turns the light off.
+      if (!document.getElementById(PRINT_ROOT_ID)) document.body.classList.remove(PRINT_BODY_CLASS);
     }
   }, []);
 
