@@ -2750,10 +2750,14 @@ mark.hl.ghost {
    the group header's count badge and the match line's highlight. */
 .search-query-row {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   padding: 6px 8px 4px;
 }
 .search-query {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   box-sizing: border-box;
   font-size: 12.5px;
   padding: 4px 8px;
@@ -2761,6 +2765,40 @@ mark.hl.ghost {
   border-radius: 6px;
   background: var(--mm-bg, #ffffff);
   color: var(--mm-fg, #1f2328);
+}
+/* PRD 014 Req 6 (issue #152): the query toggles — the header switch's compact
+   icon-button treatment (`.sidebar-switch-btn`), with the same accented `.on`
+   pressed state, riding the query box they modify. */
+.search-options {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 2px;
+}
+.search-opt {
+  padding: 2px 3px;
+  border-radius: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--mm-fg-muted, #59636e);
+}
+.search-opt:hover {
+  background: var(--mm-bg-elevated, #f6f8fa);
+  color: var(--mm-fg, #1f2328);
+}
+.search-opt.on {
+  color: var(--mm-accent, #0969da);
+  background: var(--mm-bg, #ffffff);
+  box-shadow: inset 0 0 0 1px var(--mm-accent, #0969da);
+}
+/* PRD 014 Req 6: the inline invalid-regex message, under the query row. */
+.search-error {
+  flex: none;
+  padding: 2px 10px 4px;
+  font-size: 11.5px;
+  color: var(--mm-danger, #cf222e);
+  overflow-wrap: anywhere;
 }
 .search-twisty {
   display: inline-flex;

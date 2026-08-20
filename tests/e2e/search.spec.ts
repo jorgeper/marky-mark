@@ -242,3 +242,161 @@ test('E276: with no folder root open the Search view says so plainly', async ({ 
   await expect(page.getByTestId('search-no-roots')).toContainText('Open a folder');
   await expect(page.getByTestId('search-file')).toHaveCount(0);
 });
+
+// PRD 014 Req 6 (issue #152): the query box's three toggles — case-sensitive,
+// whole-word, regex — combine, re-run the current query live with no
+// re-typing, and an invalid regex shows compileQuery's inline error while
+// matching nothing (never a literal fallback).
+
+/** The toggle tree E280–E283 build on top of seedFolders' /notes. */
+const seedToggleTree = async (page: Page) => {
+  await seedFolders(page);
+  await fsWrite(page, '/notes/words.md', 'Cat sat\nconcatenate\ncut\n');
+  await fsWrite(page, '/notes/case.md', 'CAT CALLED\n');
+};
+
+const openSearchView = async (page: Page) => {
+  await openFolderRoot(page);
+  await page.getByTestId('sidebar-view-search').click();
+  await expect(page.getByTestId('search-panel')).toBeVisible();
+};
+
+test('E280: the case-sensitive toggle — pressed state, a changed multi-file result set, and a live re-run with no re-typing', async ({
+  page,
+}) => {
+  await seedToggleTree(page);
+  await openSearchView(page);
+
+  // PRD 014 Req 6: three labelled toggles ride the query box, each with a
+  // pressed state — and the default is all off.
+  for (const id of ['search-opt-case', 'search-opt-word', 'search-opt-regex']) {
+    await expect(page.getByTestId(id)).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByTestId(id)).toHaveAttribute('data-active', 'false');
+  }
+  await expect(page.getByTestId('search-opt-case')).toHaveAttribute('aria-label', 'Match case');
+  await expect(page.getByTestId('search-opt-word')).toHaveAttribute('aria-label', 'Whole word');
+  await expect(page.getByTestId('search-opt-regex')).toHaveAttribute('aria-label', 'Regular expression');
+
+  // All off = case-insensitive literal: 'cat' hits words.md (Cat, concatenate)
+  // and case.md (CAT) — two files, three matches.
+  await searchFor(page, 'cat');
+  await expect(page.getByTestId('search-file')).toHaveCount(2);
+  await expect(page.getByTestId('search-match')).toHaveCount(3);
+
+  // One click — no re-typing, the input untouched — repaints the result set:
+  // case-sensitive 'cat' leaves only 'concatenate', so case.md drops out.
+  await page.getByTestId('search-opt-case').click();
+  await expect(page.getByTestId('search-opt-case')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('search-opt-case')).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('search-input')).toHaveValue('cat');
+  await expect(page.getByTestId('search-file')).toHaveCount(1);
+  await expect(page.getByTestId('search-file')).toHaveAttribute('data-path', '/notes/words.md');
+  await expect(page.getByTestId('search-match')).toHaveCount(1);
+  await expect(page.getByTestId('search-match').locator('mark')).toHaveText('cat');
+
+  // Flipping it back restores the wider set — still the same typed query.
+  await page.getByTestId('search-opt-case').click();
+  await expect(page.getByTestId('search-opt-case')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('search-file')).toHaveCount(2);
+  await expect(page.getByTestId('search-match')).toHaveCount(3);
+});
+
+test('E281: the whole-word toggle stops substring containment — and combined with case-sensitive the two apply as a conjunction', async ({
+  page,
+}) => {
+  await seedToggleTree(page);
+  await openSearchView(page);
+
+  await searchFor(page, 'cat');
+  await expect(page.getByTestId('search-match')).toHaveCount(3);
+
+  // PRD 014 Req 6: whole-word 'cat' keeps the word hits (Cat, CAT) and drops
+  // 'concatenate' — still case-insensitive, still both files.
+  await page.getByTestId('search-opt-word').click();
+  await expect(page.getByTestId('search-opt-word')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('search-file')).toHaveCount(2);
+  await expect(page.getByTestId('search-match')).toHaveCount(2);
+  // Both surviving hits are the standalone word, never the substring.
+  for (const hit of await page.getByTestId('search-match').locator('mark').allTextContents()) {
+    expect(hit.toLowerCase()).toBe('cat');
+  }
+
+  // PRD 014 Req 6: whole-word AND case-sensitive — no lowercase word 'cat'
+  // exists anywhere, so the conjunction finds nothing at all.
+  await page.getByTestId('search-opt-case').click();
+  await expect(page.getByTestId('search-file')).toHaveCount(0);
+  await expect(page.getByTestId('search-match')).toHaveCount(0);
+  await expect(page.getByTestId('search-input')).toHaveValue('cat');
+});
+
+test('E282: the regex toggle compiles the pattern — c.t matches cat where literal mode does not — and case-sensitive regex combines', async ({
+  page,
+}) => {
+  await seedToggleTree(page);
+  await openSearchView(page);
+
+  // Literal 'c.t' matches nothing: no file contains that exact text.
+  await searchFor(page, 'c.t');
+  await expect(page.getByTestId('search-file')).toHaveCount(0);
+
+  // PRD 014 Req 6: regex on — the same typed query now matches Cat, the cat
+  // inside concatenate, cut and CAT.
+  await page.getByTestId('search-opt-regex').click();
+  await expect(page.getByTestId('search-opt-regex')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('search-file')).toHaveCount(2);
+  await expect(page.getByTestId('search-match')).toHaveCount(4);
+
+  // PRD 014 Req 6: case-sensitive regex is the conjunction — the uppercase
+  // hits (Cat, CAT) drop, the lowercase ones stay.
+  await page.getByTestId('search-opt-case').click();
+  await expect(page.getByTestId('search-file')).toHaveCount(1);
+  await expect(page.getByTestId('search-file')).toHaveAttribute('data-path', '/notes/words.md');
+  await expect(page.getByTestId('search-match')).toHaveCount(2);
+});
+
+test('E283: an invalid regex shows the inline error and matches NOTHING — no literal fallback — and correcting it (or regex off) recovers live', async ({
+  page,
+}) => {
+  await seedToggleTree(page);
+  // '[cherry' exists LITERALLY in this file — the proof that an invalid
+  // pattern is never quietly re-run as a literal.
+  await fsWrite(page, '/notes/brackets.md', 'pick [cherry today\n');
+  await openSearchView(page);
+  const pageErrors: Error[] = [];
+  page.on('pageerror', (e) => pageErrors.push(e));
+
+  // A valid regex query first, so the error state has results to clear.
+  await page.getByTestId('search-opt-regex').click();
+  await searchFor(page, 'c.t');
+  await expect(page.getByTestId('search-file')).toHaveCount(2);
+  await expect(page.getByTestId('search-error')).toHaveCount(0);
+
+  // PRD 014 Req 6: '[cherry' is an invalid pattern — the inline error shows
+  // (compileQuery's own message names the input), the previous results clear,
+  // and the literal hit in brackets.md is NOT found: no fallback, no throw.
+  await searchFor(page, '[cherry');
+  await expect(page.getByTestId('search-error')).toBeVisible();
+  await expect(page.getByTestId('search-error')).toContainText('[cherry');
+  await expect(page.getByTestId('search-file')).toHaveCount(0);
+  await expect(page.getByTestId('search-match')).toHaveCount(0);
+
+  // Turning regex OFF clears the error and the same text matches literally.
+  await page.getByTestId('search-opt-regex').click();
+  await expect(page.getByTestId('search-error')).toHaveCount(0);
+  await expect(page.getByTestId('search-file')).toHaveCount(1);
+  await expect(page.getByTestId('search-file')).toHaveAttribute('data-path', '/notes/brackets.md');
+
+  // Regex back on: invalid again. Correcting the pattern to '\[cherry'
+  // clears the error and results return on the debounce path — no reload,
+  // no re-focus, no extra keystroke beyond the edit itself.
+  await page.getByTestId('search-opt-regex').click();
+  await expect(page.getByTestId('search-error')).toBeVisible();
+  await expect(page.getByTestId('search-file')).toHaveCount(0);
+  await searchFor(page, '\\[cherry');
+  await expect(page.getByTestId('search-error')).toHaveCount(0);
+  await expect(page.getByTestId('search-file')).toHaveCount(1);
+  await expect(page.getByTestId('search-match').locator('mark')).toHaveText('[cherry');
+
+  // PRD 014 Req 6: nothing escaped to the page — the invalid state never threw.
+  expect(pageErrors).toEqual([]);
+});

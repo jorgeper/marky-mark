@@ -84,7 +84,8 @@ import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton 
 import { FileTabStrip } from './components/FileTabStrip';
 import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
 import { SearchPanel } from './components/SearchPanel';
-import { compileQuery, searchFiles, type LineMatch, type SearchResults } from './lib/searchCore';
+import { compileQuery, searchFiles, type LineMatch, type SearchOptions, type SearchResults } from './lib/searchCore';
+import { DEFAULT_SEARCH_OPTIONS } from './lib/searchOptions';
 import { collectMarkdownFiles, loadSearchFiles, matchDocOffsets } from './lib/searchScan';
 import {
   SLIDE_SETTLE_MS,
@@ -6090,6 +6091,21 @@ export default function App() {
   /** The query as typed — the input's live value; the scan runs on the debounced copy. */
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
+  /**
+   * PRD 014 Req 6 (issue #152): the three toggle states. Deliberately
+   * session-local, not a `settings.ts` setting — the options reset with the
+   * app like the query text itself does.
+   */
+  const [searchOptions, setSearchOptions] = useState<SearchOptions>(DEFAULT_SEARCH_OPTIONS);
+  /**
+   * PRD 014 Req 6: query + options compiled by `searchCore.compileQuery` —
+   * the ONLY compilation step; no regex is built anywhere in the UI. A new
+   * object per (query, options) pair, so it also drives the scan effect:
+   * flipping a toggle re-runs the current query exactly like typing does.
+   */
+  const searchCompiled = useMemo(() => compileQuery(searchDebounced, searchOptions), [searchDebounced, searchOptions]);
+  /** PRD 014 Req 6: the inline invalid-regex message — compileQuery's own, or null. */
+  const searchError = searchCompiled.kind === 'invalid-regex' ? searchCompiled.message : null;
   /** PRD 014 Req 7: the last scan's grouped results; null while the query is empty. */
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
   /** PRD 014 Req 7: the collapsed file groups — reset when the query changes. */
@@ -6114,18 +6130,20 @@ export default function App() {
   /**
    * PRD 014 Req 7: a group's collapsed/expanded state survives exactly while
    * the query is unchanged — a new query starts with every group expanded.
+   * Req 6: a toggle flip is a new query in this sense too — it repaints the
+   * result set, so stale fold state must not carry over.
    */
   useEffect(() => {
     setSearchCollapsed(EMPTY_SEARCH_COLLAPSED);
-  }, [searchDebounced]);
+  }, [searchDebounced, searchOptions]);
   /**
    * PRD 014 Reqs 4/5/7: the scan. Scope and text loading are
    * `src/lib/searchScan.ts` (the folder tree's own predicates over the
    * platform seams, open buffers overriding stale disk text); matching and
-   * grouping are `src/lib/searchCore.ts`. This view runs the module's default
-   * options — the toggles are issue #152's scope, so with regex off the
-   * compile cannot come back invalid. The epoch guard drops a scan a newer
-   * query has overtaken — before its file reads, and again before it paints.
+   * grouping are `src/lib/searchCore.ts`. Req 6 (issue #152): the compiled
+   * query is an input, so a toggle flip re-runs the scan exactly like a new
+   * query — and the SAME epoch guard drops a scan a newer query OR option
+   * state has overtaken, before its file reads and again before it paints.
    */
   useEffect(() => {
     const epoch = ++searchEpochRef.current;
@@ -6137,11 +6155,17 @@ export default function App() {
     // closed or swapped-away view keeps its list (and rescans on return);
     // closing only stops the scanning.
     if (!searchOpen) return;
+    // PRD 014 Req 6: an invalid regex matches NOTHING — the previous query's
+    // results clear rather than sit stale under the inline error, and the
+    // pattern is never re-run as a literal.
+    if (searchCompiled.kind !== 'matcher') {
+      setSearchResults(null);
+      return;
+    }
     const p = stateRef.current.platform;
     const readDirEntries = p?.readDirEntries?.bind(p);
     if (!p || !readDirEntries) return;
-    const compiled = compileQuery(searchDebounced, { caseSensitive: false, wholeWord: false, regex: false });
-    if (compiled.kind !== 'matcher') return;
+    const matcher = searchCompiled.matcher;
     void (async () => {
       const entries = await collectMarkdownFiles(folderRoots, {
         readDirEntries,
@@ -6157,9 +6181,9 @@ export default function App() {
       if (s.docPath) overrides.set(s.docPath, canonicalOf(s.buffer));
       const files = await loadSearchFiles(entries, overrides, (path) => p.readTextFile(path));
       if (searchEpochRef.current !== epoch) return; // a newer query owns the panel
-      setSearchResults(searchFiles(files, compiled.matcher));
+      setSearchResults(searchFiles(files, matcher));
     })();
-  }, [searchOpen, searchDebounced, folderRoots, canonicalOf]);
+  }, [searchOpen, searchDebounced, searchCompiled, folderRoots, canonicalOf]);
   /** PRD 014 Req 7: fold/unfold one file group (the disclosure triangle). */
   const toggleSearchFile = useCallback((path: string) => {
     setSearchCollapsed((cur) => {
@@ -6493,6 +6517,8 @@ export default function App() {
           <SearchPanel
             viewSwitch={sidebarSwitch}
             query={searchQuery}
+            options={searchOptions}
+            error={searchError}
             results={searchResults}
             noRoots={folderRoots.length === 0}
             collapsed={searchCollapsed}
@@ -6500,6 +6526,7 @@ export default function App() {
             slide={folderSlide}
             width={settings.folderWidth}
             onQuery={setSearchQuery}
+            onOptions={setSearchOptions}
             onToggleFile={toggleSearchFile}
             onOpenMatch={openSearchResult}
             onClose={() => dispatchCommand('toggleSearch')}

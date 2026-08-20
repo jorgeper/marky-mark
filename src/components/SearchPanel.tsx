@@ -1,7 +1,45 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { Chevron, paneWidthDrag } from './FolderPanel';
 import { slideClasses, type SlidePhase } from '../lib/paneSlide';
-import type { FileSearchResult, LineMatch, SearchResults } from '../lib/searchCore';
+import type { FileSearchResult, LineMatch, SearchOptions, SearchResults } from '../lib/searchCore';
+import { SEARCH_OPTION_TOGGLES, toggleSearchOption } from '../lib/searchOptions';
+
+/**
+ * PRD 014 Req 6 (issue #152): the three query toggles — case-sensitive,
+ * whole-word, regex — as a reusable control: a `SearchOptions` value in, the
+ * flipped value out, state owned by the caller. The find bar (#154) mounts
+ * this same control, so it carries no sidebar assumptions (no width, slide or
+ * result coupling) and no matching logic — every semantic lives in
+ * `searchCore.ts`'s `compileQuery`. Same pressed-state idiom as
+ * `SidebarViewSwitch` (aria-pressed, data-active, an accented `.on` state).
+ */
+export function SearchOptionsBar({
+  options,
+  onChange,
+}: {
+  options: SearchOptions;
+  onChange(next: SearchOptions): void;
+}) {
+  return (
+    <span className="search-options" data-testid="search-options">
+      {SEARCH_OPTION_TOGGLES.map((t) => (
+        <button
+          key={t.key}
+          className={`search-opt${options[t.key] ? ' on' : ''}`}
+          data-testid={t.testId}
+          data-active={options[t.key] ? 'true' : 'false'}
+          aria-pressed={options[t.key]}
+          title={t.label}
+          aria-label={t.label}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onChange(toggleSearchOption(options, t.key))}
+        >
+          {t.glyph}
+        </button>
+      ))}
+    </span>
+  );
+}
 
 /**
  * PRD 014 Reqs 2/4/7/8 (issue #151): the Search view of the sidebar — the
@@ -18,6 +56,14 @@ import type { FileSearchResult, LineMatch, SearchResults } from '../lib/searchCo
 export interface SearchPanelProps {
   /** The live (undebounced) query the input shows — the owner debounces the scan. */
   query: string;
+  /** PRD 014 Req 6: the toggle states — owned by App, compiled by `searchCore`. */
+  options: SearchOptions;
+  /**
+   * PRD 014 Req 6: the invalid-regex message from `compileQuery`'s
+   * `{ kind: 'invalid-regex' }` result, or null when the query compiles —
+   * rendered inline on the query box, never invented here.
+   */
+  error: string | null;
   /**
    * PRD 014 Req 7: the grouped results for the last scanned query — null
    * while the query is empty (nothing to say yet; the loud no-results state
@@ -37,6 +83,8 @@ export interface SearchPanelProps {
   /** PRD 012 Req 9: the view switch, rendered at the head of the header. */
   viewSwitch?: ReactNode;
   onQuery(query: string): void;
+  /** PRD 014 Req 6: a toggle flip — the owner re-runs the current query with the new state. */
+  onOptions(next: SearchOptions): void;
   /** PRD 014 Req 7: the group's disclosure triangle — the owner flips the set. */
   onToggleFile(path: string): void;
   /**
@@ -182,7 +230,16 @@ export function SearchPanel(p: SearchPanelProps) {
             value={p.query}
             onChange={(e) => p.onQuery(e.target.value)}
           />
+          {/* PRD 014 Req 6: the toggles ride the query box they modify. */}
+          <SearchOptionsBar options={p.options} onChange={p.onOptions} />
         </div>
+        {/* PRD 014 Req 6: an invalid regex says so inline — compileQuery's own
+            message — while the result list below stays empty. */}
+        {p.error !== null && (
+          <div className="search-error" data-testid="search-error" role="alert">
+            {p.error}
+          </div>
+        )}
         {/* PRD 014 Req 4: no roots ⇒ say so plainly, never an empty result list. */}
         {p.noRoots ? (
           <div className="folder-open-empty" data-testid="search-no-roots">
