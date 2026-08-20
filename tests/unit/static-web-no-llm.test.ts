@@ -133,3 +133,31 @@ describe('PRD 011 Req 14 the static web build has no LLM path', () => {
     ).toBe(false);
   });
 });
+
+// PRD 013 Req 8 (issue #161): the web build's mermaid story is the mirror of
+// the desktop's (tests/unit/static-desktop-mermaid.test.ts). There is no lazy
+// chunk to keep out here — under this page's CSP (`connect-src 'none'`,
+// asserted byte-for-byte by U557 above) an un-inlined async chunk could never
+// be fetched and the feature would fail silently — so mermaid must be inlined
+// *into* the one self-contained file. This guard lives in this file to share
+// its rebuild-when-stale `beforeAll` and `bundle()` sentinels: two fast-tier
+// files rebuilding dist-web concurrently would race in the same outDir.
+describe('PRD 013 Req 8 the static web build inlines mermaid into its single file', () => {
+  test('U752: dist-web is exactly one self-contained index.html with mermaid inlined into it', () => {
+    // Exactly one file: an emitted-but-unreferenced async chunk would sit
+    // beside index.html, unreachable under the CSP.
+    expect(readdirSync(path.dirname(DIST_WEB))).toEqual(['index.html']);
+    const html = bundle();
+    // Self-contained: the same shapes the full gate's single-file check
+    // rejects (scripts/validate.mjs), here in the tier that runs without Rust.
+    expect(html, 'dist-web/index.html loads an external script').not.toMatch(/<script[^>]+src=/);
+    expect(html, 'dist-web/index.html loads an external stylesheet').not.toMatch(/<link[^>]+rel="stylesheet"[^>]+href=/);
+    // Mermaid is inside: diagram-type detector ids that live only in
+    // mermaid's own code (nothing under src/ mentions them). These are
+    // positive assertions, so a mermaid release renaming one fails loudly
+    // here rather than leaving the property unchecked.
+    for (const needle of ['sequenceDiagram', 'classDiagram', 'flowchart-v2']) {
+      expect(html.includes(needle), `mermaid's ${needle} is not inlined in dist-web/index.html`).toBe(true);
+    }
+  });
+});

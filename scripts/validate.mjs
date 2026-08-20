@@ -29,6 +29,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, statSyn
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { countFetchCallSites } from './bundle-scan.mjs';
 
 const QUICK = process.argv.includes('--quick');
 
@@ -328,8 +329,14 @@ console.log(`dist-web/index.html is self-contained (single file, no external scr
 
 // SPEC11 §6.6 (amended, issue #114) — static bundle scan: the shipped JS may
 // contain no network call site the allowlist below has not audited. The
-// FORBIDDEN APIs must not appear at all; fetch( occurrences must equal
+// FORBIDDEN APIs must not appear at all; fetch( call sites must equal
 // FETCH_ALLOWLIST exactly, so a new one — in either direction — fails here.
+// What counts as a call site is defined (and unit-tested) in
+// scripts/bundle-scan.mjs: a bare `fetch(...)` call. A `foo.fetch(...)`
+// member call or a `fetch(params){…}` method definition is not one — mermaid
+// (PRD 013, issue #161) pulls in katex, whose *parser method* is named
+// `fetch` (~27 member calls plus one definition per bundle), none of which
+// can reach the network.
 console.log('\n=== validate: static bundle scan (network call sites) ===');
 // Three call sites, each of them a single same-origin wrapper, counted once per
 // bundle (dist/ and dist-web/) — 3 × 2 = 6. All three are reachable only when
@@ -354,6 +361,10 @@ console.log('\n=== validate: static bundle scan (network call sites) ===');
 // cache (src/platform/hostedSummaryCache.ts) are handed the `api(...)` wrapper
 // of site 2 rather than opening their own. SPEC11 §6.6 (amended): this number
 // is the count of same-origin wrappers that ship, not a claim of zero.
+// PRD 013 (issue #161) added no site either: mermaid renders offline (Req 12)
+// — audited over both fresh mermaid-carrying bundles, its chunks contain no
+// bare fetch( call and none of the FORBIDDEN tokens below; katex's `fetch`
+// parser method is excluded by the counting rule, not by widening this number.
 const FETCH_ALLOWLIST = 6;
 const FORBIDDEN = ['XMLHttpRequest(', 'new WebSocket', 'sendBeacon', 'new EventSource'];
 const bundleTargets = [
@@ -369,7 +380,7 @@ for (const t of bundleTargets) {
   for (const token of FORBIDDEN) {
     if (text.includes(token)) scanViolations.push(`${path.relative(root, t)}: ${token}`);
   }
-  fetchCount += (text.match(/\bfetch\s*\(/g) ?? []).length;
+  fetchCount += countFetchCallSites(text);
 }
 if (scanViolations.length || fetchCount !== FETCH_ALLOWLIST) {
   for (const v of scanViolations) console.error(`  forbidden network call site: ${v}`);

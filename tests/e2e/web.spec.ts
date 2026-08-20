@@ -604,3 +604,29 @@ test('W16: PRD 013 Req 14 (issue #149) — the file tab strip is desktop-only: n
   await expect(flyout.getByTestId('menu-view-toggleMode')).toBeVisible();
   await expect(flyout.getByTestId('menu-view-toggleFileTabs')).toHaveCount(0);
 });
+
+test('W17: PRD 013 Req 8 (issue #161) — a mermaid fence draws on the built single-file page with zero network requests', async ({
+  page,
+}) => {
+  // Same watcher shape as W4: after the initial load (done in beforeEach),
+  // nothing may be fetched — mermaid is inlined, and under this page's CSP
+  // (`connect-src 'none'`) a lazy chunk left un-inlined could never load, so
+  // a fetch attempt here is exactly the failure this test exists to catch.
+  const extraRequests: string[] = [];
+  page.on('request', (req) => {
+    if (!req.url().startsWith('data:') && !req.url().startsWith('blob:')) extraRequests.push(req.url());
+  });
+
+  await dropFile(page, 'diagram.md', '# Diagram Doc\n\n```mermaid\ngraph TD\n  A[Start] --> B[Finish]\n```\n');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Diagram Doc');
+
+  // The same success shape E309 asserts on desktop (PRD 013 Req 2): the
+  // fence drew automatically and its code block is hidden but still present.
+  const diagram = page.getByTestId('doc').getByTestId('mm-diagram');
+  await expect(diagram).toBeVisible({ timeout: 20_000 });
+  await expect(diagram.locator('svg')).toBeVisible();
+  const drawnPre = page.getByTestId('doc').locator('pre[data-mm-diagram="done"]');
+  await expect(drawnPre).toBeHidden();
+
+  expect(extraRequests).toEqual([]);
+});
