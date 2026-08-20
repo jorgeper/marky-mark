@@ -2569,24 +2569,31 @@ mark.hl.ghost {
   background: rgba(31, 35, 40, 0.08);
   background: color-mix(in srgb, var(--mm-fg, #1f2328) 9%, transparent);
 }
-/* SPEC34 polish: the open file reads as a TAB on the front plane — the
-   workspace's own surface, rounded on the left, flush right, lifted by a
-   soft shadow that punches through the panel's inset shadow. */
-.folder-item.selected {
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-fg, #1f2328);
-  font-weight: 600;
+/* SPEC34 polish / SPEC36 §4.1: the tab pill geometry — one rule for the
+   ACTIVE row and every open-but-inactive row, because their labels must land
+   on the same column as each other and as a plain sibling (issue #126: the
+   two rules drifted apart and opening a file read as an indent). The pill
+   floats clear of the window edge; the inner padding gives that margin back
+   so the label stays EXACTLY where an untabbed row at the same depth puts
+   it — neither selecting nor opening may read as indentation. min-width
+   restores the margin so the pill stays flush right WITHOUT widening the
+   scroll range — otherwise the reveal's scrollIntoView chases the overflow
+   and scrolls the gap off-screen. */
+.folder-item.selected,
+.folder-item.open {
   border-radius: 7px 0 0 7px;
-  /* The pill floats clear of the window edge; the inner padding gives the
-     margin back so the label stays EXACTLY where its unselected siblings
-     sit — selection must not read as indentation. min-width restores the
-     margin so the pill stays flush right WITHOUT widening the scroll
-     range — otherwise the reveal's scrollIntoView chases the overflow and
-     scrolls the gap off-screen. */
   margin-left: 10px;
   min-width: calc(100% - 10px);
   padding-left: max(0px, calc(var(--mm-depth, 10px) - 10px));
   position: relative;
+}
+/* SPEC34 polish: the ACTIVE file reads as a TAB on the front plane — the
+   workspace's own surface, lifted by a soft shadow that punches through the
+   panel's inset shadow. */
+.folder-item.selected {
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg, #1f2328);
+  font-weight: 600;
   z-index: 2; /* the front plane — above the open-tab middle plane */
   box-shadow:
     0 2px 6px rgba(0, 0, 0, 0.18),
@@ -2596,21 +2603,14 @@ mark.hl.ghost {
   background: var(--mm-bg, #ffffff); /* the tab doesn't flicker on hover */
 }
 /* SPEC36 §4.1 (amended by owner): three planes. The tree sits deepest; every
-   open file is a REAL tab on a middle plane — the same pill geometry as
-   .selected (identical 10px left gap, inner padding given back so the label
-   sits EXACTLY where closed siblings and the active tab put theirs — issue
-   #126: opening must not read as indentation), a near-workspace surface one
-   shade back, and its own soft shadow — and the ACTIVE tab stacks above them
-   all (z-index 2, stronger shadow, solid workspace surface). Depth reads
-   from surface + shadow strength, not from the seam alone. */
+   open file is a REAL tab on a middle plane — the pill geometry above, a
+   near-workspace surface one shade back, and its own soft shadow — and the
+   ACTIVE tab stacks above them all (z-index 2, stronger shadow, solid
+   workspace surface). Depth reads from surface + shadow strength, not from
+   the seam alone. */
 .folder-item.open {
   background: #ededf0;
   background: color-mix(in srgb, var(--mm-bg, #ffffff) 72%, var(--mm-bg-elevated, #f6f8fa));
-  border-radius: 7px 0 0 7px;
-  margin-left: 10px;
-  min-width: calc(100% - 10px);
-  padding-left: max(0px, calc(var(--mm-depth, 10px) - 10px));
-  position: relative;
   z-index: 1;
   /* The tab's own lift only — the seam hairline + workspace cast shadow are
      painted by the panel-edge overlay above, so rows wider than the panel
