@@ -29,6 +29,9 @@ export type CommandId =
   // PRD 012 Req 10: the TOC view — the toolbar button and the hotkey both
   // dispatch this one id rather than calling the handler twice over.
   | 'toggleToc'
+  // PRD 014 Req 2: the Search view — the switch's button and the panel's own
+  // chrome dispatch this one id (issue #155's hotkey joins them later).
+  | 'toggleSearch'
   | 'toggleOpenOnly'
   // PRD 013 Req 13: show/hide the file tab strip — the View item and the
   // in-app flyout dispatch this one id; deliberately no hotkey (non-goal).

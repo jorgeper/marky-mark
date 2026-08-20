@@ -321,12 +321,14 @@ describe('PRD 012 Req 10: the toggleToc hotkey', () => {
 });
 
 describe('PRD 012 Req 11: the remembered sidebar view', () => {
-  test('U673: sidebarView defaults to folders, takes only the two known views, and round-trips', () => {
+  test('U673: sidebarView defaults to folders, takes only the known views, and round-trips', () => {
     expect(DEFAULT_SETTINGS.sidebarView).toBe('folders');
     expect(parseSettings('{}').sidebarView).toBe('folders');
 
     expect(parseSettings('{"sidebarView":"toc"}').sidebarView).toBe('toc');
     expect(parseSettings('{"sidebarView":"folders"}').sidebarView).toBe('folders');
+    // PRD 014 Req 1: the Search view persists like the other two.
+    expect(parseSettings('{"sidebarView":"search"}').sidebarView).toBe('search');
 
     // Anything else — a retired view name, a case slip, a wrong type — falls
     // back to the folder tree rather than reaching the app as an empty pane.

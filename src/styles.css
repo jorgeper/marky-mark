@@ -2682,6 +2682,74 @@ mark.hl.ghost {
   background: rgba(9, 105, 218, 0.16);
   background: color-mix(in srgb, var(--mm-accent, #0969da) 20%, transparent);
 }
+/* PRD 014 Req 7 (issue #151): the Search view — its rows are folder rows
+   (`.folder-item` supplies hit area and hover); these add only the query box,
+   the group header's count badge and the match line's highlight. */
+.search-query-row {
+  flex: none;
+  padding: 6px 8px 4px;
+}
+.search-query {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12.5px;
+  padding: 4px 8px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 6px;
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg, #1f2328);
+}
+.search-twisty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px; /* the TOC slot: childless rows keep names aligned */
+}
+.search-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.search-file-count {
+  flex: none;
+  margin-left: auto;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--mm-fg-muted, #59636e);
+  background: rgba(31, 35, 40, 0.08);
+  background: color-mix(in srgb, var(--mm-fg, #1f2328) 8%, transparent);
+}
+.search-match {
+  --mm-depth: 30px; /* match rows indent under their file header */
+}
+.search-match-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mm-fg-muted, #59636e);
+}
+.search-match-text mark {
+  background: var(--mm-comment-tint-active, rgba(255, 193, 37, 0.6));
+  color: var(--mm-fg, #1f2328);
+  border-radius: 2px;
+}
+/* PRD 014 Req 8: the landed match's block, flashed the way an activated
+   comment highlight is — a fade that leaves no steady-state style behind. */
+.doc .search-flash {
+  animation: mm-search-flash 0.9s ease-out;
+}
+@keyframes mm-search-flash {
+  0%,
+  55% {
+    background: var(--mm-comment-tint-active, rgba(255, 193, 37, 0.6));
+  }
+  100% {
+    background: transparent;
+  }
+}
 .folder-divider {
   position: absolute;
   top: 0;

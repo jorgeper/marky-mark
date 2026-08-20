@@ -82,6 +82,9 @@ import { planMergedSave } from './lib/mergedSave';
 import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton } from './components/FolderPanel';
 import { FileTabStrip } from './components/FileTabStrip';
 import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
+import { SearchPanel } from './components/SearchPanel';
+import { compileQuery, searchFiles, type LineMatch, type SearchResults } from './lib/searchCore';
+import { collectMarkdownFiles, loadSearchFiles, matchDocOffsets } from './lib/searchScan';
 import {
   SLIDE_SETTLE_MS,
   slideClasses,
@@ -211,6 +214,9 @@ const CARD_GAP = 8;
  * every render against a fresh empty Set.
  */
 const EMPTY_TOC_COLLAPSED: ReadonlySet<string> = new Set<string>();
+
+/** PRD 014 Req 7: the Search view's own "nothing collapsed" set, same idiom. */
+const EMPTY_SEARCH_COLLAPSED: ReadonlySet<string> = new Set<string>();
 
 /** Auto-hiding toolbar timings (SPEC4 §2). */
 export const TOOLBAR_GRACE_MS = 2500;
@@ -3876,6 +3882,23 @@ export default function App() {
         if (st.docPath === null && !st.untitled) return;
         showSidebarView('toc');
       },
+      /**
+       * PRD 014 Req 2: every Search surface — the switch's button, the
+       * panel's close chrome, and issue #155's hotkey when it lands — is the
+       * Search third of the one view rule, through the same showSidebarView
+       * write. Gated exactly as toggleFolders above: the scan's scope is the
+       * folder tree, so no seam or no workspace means no Search view. A press
+       * that opens or swaps to the view also focuses the query box; a press
+       * while Search is showing hides the sidebar.
+       */
+      toggleSearch: () => {
+        const st = stateRef.current;
+        if (!st.platform?.readDirEntries) return;
+        if (curWorkspaceRef.current.kind === 'none') return;
+        const hiding = st.settings.showFolders && st.settings.sidebarView === 'search';
+        showSidebarView('search');
+        if (!hiding) setSearchFocusTick((t) => t + 1);
+      },
       openFolder: openFolderCmd,
       // Issue #22: Close File — down to the splash through the dirty guard.
       closeFile: () => {
@@ -5982,6 +6005,179 @@ export default function App() {
    */
   const sidebarShown = settings.showFolders && (sidebarView === 'toc' ? docOpen : folderSeam);
 
+  // --- PRD 014 (issue #151): the Search view of the sidebar ----------------------
+  /**
+   * PRD 014 Req 1: the pane shows Search when the pane shows at all and
+   * Search is the chosen view. Req 4: its scope IS the folder tree, so it
+   * exists exactly where the folders view does — behind the folder seam.
+   */
+  const searchOpen = settings.showFolders && sidebarView === 'search' && folderSeam;
+  /** The query as typed — the input's live value; the scan runs on the debounced copy. */
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
+  /** PRD 014 Req 7: the last scan's grouped results; null while the query is empty. */
+  const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
+  /** PRD 014 Req 7: the collapsed file groups — reset when the query changes. */
+  const [searchCollapsed, setSearchCollapsed] = useState<ReadonlySet<string>>(EMPTY_SEARCH_COLLAPSED);
+  /** PRD 014 Req 2: bumped by the Search button so the panel focuses its query box. */
+  const [searchFocusTick, setSearchFocusTick] = useState(0);
+  /** A scan that finished after a newer one started must not paint (stale results). */
+  const searchEpochRef = useRef(0);
+  /** PRD 014 Req 8: a clicked match waiting for its file to open and render. */
+  const searchJumpRef = useRef<{ path: string; match: LineMatch } | null>(null);
+
+  /**
+   * PRD 014 Req 7: live as the user types, through a debounce (the SPEC16 §2
+   * idiom the TOC uses) — the scan runs per pause, never per keystroke, and
+   * nothing is scheduled while the view is closed.
+   */
+  useEffect(() => {
+    if (!searchOpen) return;
+    const t = setTimeout(() => setSearchDebounced(searchQuery), 200);
+    return () => clearTimeout(t);
+  }, [searchOpen, searchQuery]);
+  /**
+   * PRD 014 Req 7: a group's collapsed/expanded state survives exactly while
+   * the query is unchanged — a new query starts with every group expanded.
+   */
+  useEffect(() => {
+    setSearchCollapsed(EMPTY_SEARCH_COLLAPSED);
+  }, [searchDebounced]);
+  /**
+   * PRD 014 Reqs 4/5/7: the scan. Scope and text loading are
+   * `src/lib/searchScan.ts` (the folder tree's own predicates over the
+   * platform seams, open buffers overriding stale disk text); matching and
+   * grouping are `src/lib/searchCore.ts`. This view runs the module's default
+   * options — the toggles are issue #152's scope, so with regex off the
+   * compile cannot come back invalid. The epoch guard drops a slow scan that
+   * finishes after a newer query's.
+   */
+  useEffect(() => {
+    const epoch = ++searchEpochRef.current;
+    if (searchDebounced === '') {
+      setSearchResults(null);
+      return;
+    }
+    // Req 8: the results change only when the user changes the query — a
+    // closed or swapped-away view keeps its list (and rescans on return);
+    // closing only stops the scanning.
+    if (!searchOpen) return;
+    const p = stateRef.current.platform;
+    const readDirEntries = p?.readDirEntries?.bind(p);
+    if (!p || !readDirEntries) return;
+    const compiled = compileQuery(searchDebounced, { caseSensitive: false, wholeWord: false, regex: false });
+    if (compiled.kind !== 'matcher') return;
+    void (async () => {
+      const entries = await collectMarkdownFiles(folderRoots, {
+        readDirEntries,
+        readTextFile: (path) => p.readTextFile(path),
+        join: (...parts) => p.join(...parts),
+      });
+      // Req 5: the in-memory texts — every parked open file's parked buffer,
+      // and the active document's buffer (canonical, like the park entries).
+      const s = stateRef.current;
+      const overrides = new Map<string, string>();
+      for (const [path, parked] of parkRef.current) overrides.set(path, parked.buffer);
+      if (s.docPath) overrides.set(s.docPath, canonicalOf(s.buffer));
+      const files = await loadSearchFiles(entries, overrides, (path) => p.readTextFile(path));
+      if (searchEpochRef.current !== epoch) return; // a newer query owns the panel
+      setSearchResults(searchFiles(files, compiled.matcher));
+    })();
+  }, [searchOpen, searchDebounced, folderRoots, canonicalOf]);
+  /** PRD 014 Req 7: fold/unfold one file group (the disclosure triangle). */
+  const toggleSearchFile = useCallback((path: string) => {
+    setSearchCollapsed((cur) => {
+      const next = new Set(cur);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+  /**
+   * PRD 014 Req 8: land on a match in the CURRENT document — the same mode
+   * split `jumpToTocEntry` makes. Edit goes through the editor handle
+   * (`goToLine`'s caret + scroll, then the SPEC23 mirrored selection paints
+   * the hit itself). Preview goes through the SPEC16 anchor interpolation the
+   * position restore uses — a match line inside a paragraph has no
+   * `data-mm-line` anchor of its own, so the heading palette's exact-anchor
+   * path cannot serve — and flashes the block the match sits in.
+   */
+  const landSearchMatch = useCallback(
+    (match: LineMatch) => {
+      if (stateRef.current.mode === 'edit') {
+        pendingScrollLineRef.current = null; // the click outvotes a queued restore
+        editorSyncRef.current?.goToLine(match.line);
+        const off = matchDocOffsets(stateRef.current.buffer, match);
+        if (off) editorSelectRef.current?.(off.from, off.to);
+        return;
+      }
+      const ws = workspaceRef.current;
+      const doc = docRef.current;
+      if (!ws || !doc || doc.childElementCount === 0) return;
+      pendingScrollLineRef.current = null;
+      ws.scrollTop = offsetForLine(collectAnchors(ws, doc), Math.max(ws.scrollHeight, 1), match.line);
+      // The highlight: the nearest anchored block at or above the match's
+      // line, flashed the way an activated comment's mark is (SPEC14 §1.3).
+      let target: HTMLElement | null = null;
+      let best = -1;
+      for (const el of doc.querySelectorAll<HTMLElement>('[data-mm-line]')) {
+        const line = Number(el.dataset.mmLine);
+        if (line > best && line <= match.line) {
+          best = line;
+          target = el;
+        }
+      }
+      if (target) {
+        target.classList.add('search-flash');
+        setTimeout(() => target.classList.remove('search-flash'), 900);
+      }
+    },
+    []
+  );
+  /**
+   * PRD 014 Req 8: a result click. A match in the file already on screen
+   * lands immediately; any other file opens through `openDocGuarded` — the
+   * SAME activation call every open surface makes — and the landing effect
+   * below finishes the jump once the document has rendered. The Search view's
+   * own state (query, results, collapse) is never touched here, which is what
+   * keeps the result list intact across the open.
+   */
+  const openSearchResult = useCallback(
+    (path: string, match: LineMatch | null) => {
+      const p = stateRef.current.platform;
+      if (!p) return;
+      if (stateRef.current.docPath === path) {
+        if (match) landSearchMatch(match);
+        return;
+      }
+      searchJumpRef.current = match ? { path, match } : null;
+      openDocGuarded(p, path);
+    },
+    [landSearchMatch, openDocGuarded]
+  );
+  /**
+   * PRD 014 Req 8: the cross-file half of the landing — wait for the opened
+   * document's surface, then land through the same call the same-file click
+   * makes. Commit-driven, never frame-polled: between openDoc and the fresh
+   * render the OLD document's DOM is still injected (and looks perfectly
+   * ready), so the only safe "now" is the effect pass of the commit that
+   * carries the new surface — the editor mounts and syncs in child effects
+   * that run before this one, and the preview's fresh injection is the
+   * `html` layout effect that both clears `renderPendingRef`'s stale-html
+   * gate and precedes this pass.
+   */
+  useEffect(() => {
+    const jump = searchJumpRef.current;
+    if (!jump || jump.path !== docPath) return;
+    if (stateRef.current.mode === 'edit') {
+      if (!editorSyncRef.current) return; // the editor mounts on a later commit
+    } else if (renderPendingRef.current || (docRef.current?.childElementCount ?? 0) === 0) {
+      return; // stale html — the fresh render's commit re-runs this effect
+    }
+    searchJumpRef.current = null;
+    landSearchMatch(jump.match);
+  }, [docPath, html, mode, landSearchMatch]);
+
   // PRD 003 Reqs 9–12: every toggle surface funnels into these two settings,
   // so phasing the render on them animates chevron, menu, hotkey and Settings
   // toggles alike. Above the platform guard — hooks must run every render.
@@ -6025,10 +6221,16 @@ export default function App() {
       active={sidebarShown ? sidebarView : null}
       folders={folderSeam}
       toc={docOpen}
+      // PRD 014 Req 2: the Search button exists exactly where its view could
+      // show — the folder seam, the scan's scope.
+      search={folderSeam}
       onFolders={() => dispatchCommand('toggleFolders')}
       // PRD 012 Req 10: the button dispatches the command the hotkey dispatches
       // — one action with two surfaces, not two copies of it.
       onToc={() => dispatchCommand('toggleToc')}
+      // PRD 014 Req 2: the button dispatches the named command, like its two
+      // neighbours — showSidebarView is the shared path underneath all three.
+      onSearch={() => dispatchCommand('toggleSearch')}
     />
   );
 
@@ -6204,6 +6406,27 @@ export default function App() {
             onToggle={toggleTocEntry}
             onSelect={(row) => jumpToTocEntry(row.entry.headingLine)}
             onClose={() => dispatchCommand('toggleToc')}
+            onWidth={(w) => updateSettings({ ...stateRef.current.settings, folderWidth: w })}
+          />
+        )}
+
+        {/* PRD 014 Reqs 1/2/4: the sidebar's third view. Gated on the folder
+            seam like the folders view — its scope IS the folder tree — and on
+            the same one-view rule, so exactly one panel renders at a time. */}
+        {folderSeam && sidebarView === 'search' && sidebarMounted && (
+          <SearchPanel
+            viewSwitch={sidebarSwitch}
+            query={searchQuery}
+            results={searchResults}
+            noRoots={folderRoots.length === 0}
+            collapsed={searchCollapsed}
+            focusTick={searchFocusTick}
+            slide={folderSlide}
+            width={settings.folderWidth}
+            onQuery={setSearchQuery}
+            onToggleFile={toggleSearchFile}
+            onOpenMatch={openSearchResult}
+            onClose={() => dispatchCommand('toggleSearch')}
             onWidth={(w) => updateSettings({ ...stateRef.current.settings, folderWidth: w })}
           />
         )}

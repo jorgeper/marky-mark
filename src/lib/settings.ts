@@ -10,11 +10,12 @@ export type CommentStorage = 'sidecar' | 'embedded';
 /** Issue #125: the document view mode — the reading preview or the editor. */
 export type ViewMode = 'preview' | 'edit';
 /**
- * PRD 012 Req 1/Req 11: the sidebar pane's two mutually exclusive views. It
+ * PRD 012 Req 1/Req 11: the sidebar pane's mutually exclusive views. It
  * lives here, with the setting that persists it, so the pure settings layer
  * names the union it validates instead of reaching into a React component.
+ * PRD 014 Req 1: the Search view is the pane's third occupant.
  */
-export type SidebarView = 'folders' | 'toc';
+export type SidebarView = 'folders' | 'toc' | 'search';
 export type Margins = 'default' | 'super-narrow' | 'narrow' | 'medium' | 'wide';
 
 export const ZOOM_LEVELS = [50, 75, 90, 100, 110, 125, 150, 175, 200] as const;
@@ -352,9 +353,10 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   showFrontmatter: bool,
   showFolders: bool,
   folderWidth: clampedInt(FOLDER_WIDTH_MIN, FOLDER_WIDTH_MAX),
-  // PRD 012 Req 11: only the two views that exist; a hand-edited settings.json
-  // naming anything else reopens on the folder tree rather than an empty pane.
-  sidebarView: (raw) => (raw === 'folders' || raw === 'toc' ? raw : undefined),
+  // PRD 012 Req 11 + PRD 014 Req 1: only the views that exist; a hand-edited
+  // settings.json naming anything else reopens on the folder tree rather than
+  // an empty pane.
+  sidebarView: (raw) => (raw === 'folders' || raw === 'toc' || raw === 'search' ? raw : undefined),
   // PRD 013 Req 13: a hand-edited "off"/0 falls back to the default (on)
   // rather than reaching the strip as a truthy string.
   fileTabs: bool,

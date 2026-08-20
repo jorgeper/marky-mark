@@ -163,22 +163,27 @@ export function TocPanel(p: TocPanelProps) {
 }
 
 /**
- * PRD 012 Req 9: the two-button switch that says which view the one pane is
- * showing and puts either one on screen. It renders in exactly one place at a
+ * PRD 012 Req 9: the switch that says which view the one pane is showing and
+ * puts any of them on screen. It renders in exactly one place at a
  * time — inside whichever panel header is up, or in the closed pane's edge
  * cluster — so a test's `getByTestId` always resolves to one button.
  *
  * Each button is its own toggle: pressing the view that is already showing
- * hides the sidebar, pressing the other one switches to it (opening the
+ * hides the sidebar, pressing another one switches to it (opening the
  * sidebar if it was closed). `aria-pressed` and `data-active` carry which is
  * live; the owner decides all of it, this only reports the clicks.
+ *
+ * PRD 014 Req 2: the Search button is the third member, with the same
+ * semantics and its own stable testid.
  */
 export function SidebarViewSwitch({
   active,
   folders,
   toc,
+  search,
   onFolders,
   onToc,
+  onSearch,
 }: {
   /** The view on screen, or null while the sidebar is hidden. */
   active: SidebarView | null;
@@ -186,8 +191,11 @@ export function SidebarViewSwitch({
   folders: boolean;
   /** Whether the TOC button exists at all (a document is open, Req 12). */
   toc: boolean;
+  /** Whether the Search button exists at all (the folder seam — PRD 014 Req 4's scope). */
+  search: boolean;
   onFolders(): void;
   onToc(): void;
+  onSearch(): void;
 }) {
   return (
     <span className="sidebar-switch" data-testid="sidebar-switch">
@@ -226,6 +234,25 @@ export function SidebarViewSwitch({
               <line x1="5.4" y1="6.9" x2="13.6" y2="6.9" />
               <line x1="5.4" y1="10.1" x2="13.6" y2="10.1" />
               <line x1="2.4" y1="13.4" x2="13.6" y2="13.4" />
+            </g>
+          </svg>
+        </button>
+      )}
+      {search && (
+        <button
+          className={`sidebar-switch-btn${active === 'search' ? ' on' : ''}`}
+          data-testid="sidebar-view-search"
+          data-active={active === 'search' ? 'true' : 'false'}
+          aria-pressed={active === 'search'}
+          title={active === 'search' ? 'Hide the sidebar' : 'Search in files'}
+          aria-label={active === 'search' ? 'Hide the sidebar' : 'Search in files'}
+          onClick={onSearch}
+        >
+          {/* A magnifier. */}
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round">
+              <circle cx="7" cy="7" r="4.2" />
+              <line x1="10.2" y1="10.2" x2="13.6" y2="13.6" />
             </g>
           </svg>
         </button>
