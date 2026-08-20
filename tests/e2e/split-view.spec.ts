@@ -742,13 +742,12 @@ test('E247: issue #125 — the edit/preview switch sits left of the preview chev
   const collapse = page.getByTestId('preview-collapse');
 
   // Preview: the switch is up (a document is open and editable), names the
-  // move it makes, and its live segment says which mode is CURRENT.
+  // move it makes, and its glyph shows the mode a click moves TO (pencil).
   await expect(sw).toBeVisible();
   await expect(sw).toHaveAttribute('data-mode', 'preview');
   await expect(sw).toHaveAttribute('title', 'Switch to edit');
   await expect(sw).toHaveAttribute('aria-label', 'Switch to edit');
-  await expect(page.getByTestId('mode-switch-preview')).toHaveClass(/\bon\b/);
-  await expect(page.getByTestId('mode-switch-edit')).not.toHaveClass(/\bon\b/);
+  await expect(page.getByTestId('mode-switch-icon')).toHaveAttribute('data-icon', 'pencil');
   // PRD 003 Reqs 6–7: full preview is not a closed split — no chevron there,
   // so the switch has the corner to itself and hugs the right edge.
   await expect(collapse).toHaveCount(0);
@@ -763,8 +762,7 @@ test('E247: issue #125 — the edit/preview switch sits left of the preview chev
   await expect(page.getByTestId('doc')).toHaveCount(0);
   await expect(sw).toHaveAttribute('data-mode', 'edit');
   await expect(sw).toHaveAttribute('title', 'Switch to preview');
-  await expect(page.getByTestId('mode-switch-edit')).toHaveClass(/\bon\b/);
-  await expect(page.getByTestId('mode-switch-preview')).not.toHaveClass(/\bon\b/);
+  await expect(page.getByTestId('mode-switch-icon')).toHaveAttribute('data-icon', 'eye');
 
   // In edit mode both tabs are up, and the switch sits immediately to the
   // LEFT of the chevron — adjacent, on the same row, never overlapping.

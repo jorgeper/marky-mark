@@ -281,18 +281,18 @@ export function PreviewToggleButton({ open, onClick }: { open: boolean; onClick(
 }
 
 /**
- * Issue #125: the edit/preview switch, the second tab in the workspace's
- * top-right edge cluster — immediately left of the preview chevron above.
- * Two labelled segments show which mode is CURRENT (not the target), so a
- * reader tells edit from preview without clicking. PRD 003 Reqs 6–7: it is
- * the same compact edge tab as PreviewToggleButton, and it lives here for
- * the same reason — one place owns the edge-tab pattern. The owner
- * dispatches the existing `toggleMode` command, so the selection and
- * reading-position carry-over, autosave-on-toggle and the edit-grant guard
- * behave exactly as they do for the toolbar button and Mod+E.
+ * Issue #125: the edit/preview switch — immediately left of the preview
+ * chevron in the workspace's top-right cluster. One icon button in the
+ * chevron's own style; the glyph names the mode a click moves TO (pencil ⇒
+ * edit, eye ⇒ read), like the chevron points where it will take you, and
+ * `data-mode` still carries the current mode. The owner dispatches the
+ * existing `toggleMode` command, so the selection and reading-position
+ * carry-over, autosave-on-toggle and the edit-grant guard behave exactly as
+ * they do for the toolbar button and Mod+E.
  */
 export function ModeSwitchButton({ mode, onClick }: { mode: ViewMode; onClick(): void }) {
-  const label = mode === 'edit' ? 'Switch to preview' : 'Switch to edit';
+  const toEdit = mode !== 'edit';
+  const label = toEdit ? 'Switch to edit' : 'Switch to preview';
   return (
     <button
       className="mode-edge"
@@ -302,12 +302,19 @@ export function ModeSwitchButton({ mode, onClick }: { mode: ViewMode; onClick():
       aria-label={label}
       onClick={onClick}
     >
-      <span className={`mode-seg${mode === 'edit' ? ' on' : ''}`} data-testid="mode-switch-edit">
-        Edit
-      </span>
-      <span className={`mode-seg${mode === 'preview' ? ' on' : ''}`} data-testid="mode-switch-preview">
-        Preview
-      </span>
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" data-testid="mode-switch-icon" data-icon={toEdit ? 'pencil' : 'eye'}>
+        {toEdit ? (
+          <g stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11.2 2.6l2.2 2.2L5.6 12.6l-3 .8.8-3z" />
+            <path d="M9.8 4l2.2 2.2" />
+          </g>
+        ) : (
+          <g stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1.6 8c1.6-2.9 3.8-4.4 6.4-4.4S12.8 5.1 14.4 8c-1.6 2.9-3.8 4.4-6.4 4.4S3.2 10.9 1.6 8z" />
+            <circle cx="8" cy="8" r="2.1" />
+          </g>
+        )}
+      </svg>
     </button>
   );
 }
@@ -595,6 +602,18 @@ export function FolderPanel(p: FolderPanelProps) {
         onContextMenu={(e) => e.preventDefault()} // SPEC35 §3.1: no native menu in the panel
       >
         <div className="folder-header" data-testid="folder-header">
+          {/* The collapse chevron leads the header, so it sits exactly where
+              the closed pane's reopen chevron sits (FolderExpandButton at the
+              head of the left cluster): open or closed, one spot, one glyph
+              that only flips direction. */}
+          <button
+            data-testid="folder-collapse"
+            title="Hide the folder panel"
+            aria-label="Hide the folder panel"
+            onClick={p.onClose}
+          >
+            <Chevron dir="left" />
+          </button>
           {p.viewSwitch}
           <span className="folder-title">{p.roots.length === 1 ? p.basename(p.roots[0]) : 'Folders'}</span>
           <button
@@ -644,14 +663,6 @@ export function FolderPanel(p: FolderPanelProps) {
                 <line x1="12.8" y1="8" x2="15.1" y2="8" />
               </g>
             </svg>
-          </button>
-          <button
-            data-testid="folder-collapse"
-            title="Hide the folder panel"
-            aria-label="Hide the folder panel"
-            onClick={p.onClose}
-          >
-            <Chevron dir="left" />
           </button>
         </div>
         {p.openOnly ? (

@@ -6578,6 +6578,34 @@ export default function App() {
     />
   );
 
+  // The workspace's corner controls. With the file tab strip up they ride in
+  // its end slots (FileTabStrip leading/trailing) so the closed pane's
+  // chevron keeps the exact spot the open pane's header gives it and the
+  // right-hand pair sits on the strip's row; with the strip hidden the same
+  // nodes overlay the workspace's corners (.edge-cluster-left / .edge-cluster).
+  // PRD 003 Req 2 + PRD 012 Req 9: left = reopen chevron + view switch, only
+  // while the pane is closed. PRD 003 Reqs 6–7 + issue #125 + PRD 007 Req 17:
+  // right = the mode switch (gated like the toolbar Edit button — absent on
+  // the splash and for a read-only document) and, in edit mode, the preview
+  // chevron (never in full preview: that's a different surface, not a
+  // closed split).
+  const leftCluster =
+    !sidebarShown && (folderSeam || docOpen) ? (
+      <>
+        {folderSeam && <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />}
+        {sidebarSwitch}
+      </>
+    ) : null;
+  const rightCluster =
+    mode === 'edit' || mayToggleMode ? (
+      <>
+        {mayToggleMode && <ModeSwitchButton mode={mode} onClick={() => dispatchCommand('toggleMode')} />}
+        {mode === 'edit' && (
+          <PreviewToggleButton open={settings.splitEdit} onClick={() => dispatchCommand('toggleSplit')} />
+        )}
+      </>
+    ) : null;
+
   return (
     <div className={`theme-root${!nativeMenu ? ' has-toolbar' : ''}${!nativeMenu && !settings.autoHideToolbar ? ' toolbar-static' : ''}`} ref={rootRef}>
       {/* SPEC12 §2.1: with a native menu the header does not render at all. */}
@@ -6787,12 +6815,7 @@ export default function App() {
         {/* PRD 003 Req 2: with the pane closed, a chevron at the workspace's
             left edge reopens it — PRD 012 Req 9 seats the view switch beside
             it in one row, so the two edge tabs cannot overlap. */}
-        {!sidebarShown && (folderSeam || docOpen) && (
-          <div className="edge-cluster-left">
-            {folderSeam && <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />}
-            {sidebarSwitch}
-          </div>
-        )}
+        {!showFileTabs && leftCluster && <div className="edge-cluster-left">{leftCluster}</div>}
 
         {/* The workspace's top-right edge cluster: the edit/preview switch
             (issue #125), then the preview chevron. Rendered as one row so the
@@ -6804,14 +6827,7 @@ export default function App() {
             PRD 007 Req 17: the switch takes the toolbar Edit button's gate —
             an open document this reader may change — so it is absent on the
             splash and for a read-only document, in both modes. */}
-        {(mode === 'edit' || mayToggleMode) && (
-          <div className="edge-cluster">
-            {mayToggleMode && <ModeSwitchButton mode={mode} onClick={() => dispatchCommand('toggleMode')} />}
-            {mode === 'edit' && (
-              <PreviewToggleButton open={settings.splitEdit} onClick={() => dispatchCommand('toggleSplit')} />
-            )}
-          </div>
-        )}
+        {!showFileTabs && rightCluster && <div className="edge-cluster">{rightCluster}</div>}
 
       {/* PRD 013 Reqs 1–2: the strip + document column. The wrapper is layout
           only — it takes the flex slot the workspace held and turns it into a
@@ -6823,6 +6839,8 @@ export default function App() {
       <div className={`workspace-stack${showFileTabs ? ' with-tabs' : ''}`}>
       {showFileTabs && (
         <FileTabStrip
+          leading={leftCluster}
+          trailing={rightCluster}
           openFiles={openFiles}
           activePath={docPath}
           untitled={untitled}

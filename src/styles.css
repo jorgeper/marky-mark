@@ -2172,85 +2172,77 @@ mark.hl.ghost {
   align-items: stretch;
   position: relative; /* anchors the edge chevrons */
 }
-/* PRD 003: the compact edge tabs, at the height the pane header's buttons
-   sit when the pane is open. Themed via the same vars as the header.
-   .folder-expand (Reqs 2–3) reopens the closed folder pane at the body
-   row's top-left; .preview-edge (Reqs 6–7) collapses/expands the split
-   preview at the top-right, the same tab mirrored, joined there by
-   .mode-edge (issue #125). Each overlays only its own tab; the pane content
-   keeps its full width underneath. */
-.folder-expand,
-.preview-edge,
-.mode-edge {
-  display: inline-flex;
+/* PRD 003 / PRD 012 Req 9 / issue #125: the workspace's corner controls —
+   .folder-expand (the closed pane's reopen chevron) + the view switch at the
+   left, .mode-edge (edit/preview) + .preview-edge (the split chevron) at the
+   right. They are the pane header's icon buttons, verbatim: same padding,
+   radius, colour and hover, so the chevron that closes the pane and the one
+   that reopens it are one glyph in one spot. With the file tab strip up they
+   live in its end slots (.file-tab-strip-lead / -trail); with the strip
+   hidden the clusters below overlay the workspace's corners instead. */
+.edge-cluster-left,
+.edge-cluster,
+.file-tab-strip-lead,
+.file-tab-strip-trail {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  border: 1px solid var(--mm-border, #d1d9e0);
-  background: var(--mm-bg-elevated, #f6f8fa);
-  color: var(--mm-fg-muted, #59636e);
-}
-.folder-expand {
-  position: absolute;
-  top: 9px;
-  z-index: 3;
-  left: 0;
-  padding: 3px 4px 3px 2px;
-  border-left: none;
-  border-radius: 0 5px 5px 0;
-}
-/* Issue #125: the right edge carries TWO tabs now — the edit/preview switch
-   and, in edit mode, the preview chevron. One absolutely-positioned row owns
-   the corner and lays them out in order, so the switch sits immediately left
-   of the chevron and neither can overlap the other in either mode. */
-.edge-cluster {
-  position: absolute;
-  right: 0;
-  top: 9px;
-  z-index: 3;
-  display: flex;
-  align-items: stretch;
-}
-/* PRD 012 Req 9: the left edge mirrors it — with the pane closed the folder
-   chevron and the Folders/TOC switch sit side by side in one absolutely
-   positioned row, so neither can overlap the other. `.folder-expand` keeps
-   its own rules for its own look; only its positioning yields to the row. */
-.edge-cluster-left {
-  position: absolute;
-  left: 0;
-  top: 9px;
-  z-index: 3;
-  display: flex;
-  align-items: stretch;
   gap: 4px;
 }
-.edge-cluster-left .folder-expand {
-  position: static;
-  top: auto;
-}
-/* PRD 012 Req 9: the switch itself — the same compact edge tab as its
-   neighbours when it rides the closed pane's cluster, and (below) the
-   header's own icon buttons when it rides an open panel's header. */
-.edge-cluster-left .sidebar-switch {
-  display: inline-flex;
-  align-items: stretch;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-left: none;
-  border-radius: 0 5px 5px 0;
-  background: var(--mm-bg-elevated, #f6f8fa);
-}
-.edge-cluster-left .sidebar-switch-btn {
+.edge-cluster-left button,
+.edge-cluster button,
+.file-tab-strip-lead button,
+.file-tab-strip-trail button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 1px 4px;
-  border-radius: 3px;
+  padding: 3px 5px;
+  border-radius: 5px;
+  font-size: 16px;
+  line-height: 1;
   color: var(--mm-fg-muted, #59636e);
 }
-.edge-cluster-left .sidebar-switch-btn:hover {
+.edge-cluster-left button:hover,
+.edge-cluster button:hover,
+.file-tab-strip-lead button:hover,
+.file-tab-strip-trail button:hover {
   background: var(--mm-bg, #ffffff);
   color: var(--mm-fg, #1f2328);
+}
+/* The view switch rides the clusters as a plain pair of icon buttons — the
+   header flavour (below) is the same thing with the live view accented. */
+.edge-cluster-left .sidebar-switch,
+.file-tab-strip-lead .sidebar-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.edge-cluster-left .sidebar-switch-btn,
+.file-tab-strip-lead .sidebar-switch-btn {
+  padding: 3px 4px;
+}
+/* The strip-hidden fallback: the same controls float at the workspace's
+   corners, at the header's own inset (12px / 9px) so they keep their spot,
+   on a pane-coloured pill so they read over the document. */
+.edge-cluster-left,
+.edge-cluster {
+  position: absolute;
+  top: 9px;
+  z-index: 3;
+  padding: 0 4px;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  border: 1px solid var(--mm-border, #d1d9e0);
+}
+.edge-cluster-left {
+  left: 0;
+  padding-left: 11px; /* 12px header inset, less the border */
+  border-left: none;
+  border-radius: 0 7px 7px 0;
+}
+.edge-cluster {
+  right: 0;
+  padding-right: 7px; /* 8px header inset, less the border */
+  border-right: none;
+  border-radius: 7px 0 0 7px;
 }
 /* The header flavour: the switch is the header's leading pair of icon
    buttons, and the live view is accented exactly like `.filter-on`. */
@@ -2269,40 +2261,8 @@ mark.hl.ghost {
   color: var(--mm-accent, #0969da);
   background: var(--mm-bg, #ffffff);
 }
-.preview-edge {
-  padding: 3px 2px 3px 4px;
-  border-right: none;
-  border-radius: 5px 0 0 5px;
-}
-.mode-edge {
-  padding: 2px;
-  gap: 2px;
-  border-right: none;
-  border-radius: 5px 0 0 5px;
-  font: inherit;
-  font-size: 11px;
-  line-height: 1.4;
-  cursor: pointer;
-}
-/* The switch shows the CURRENT mode: the live segment is the accented one. */
-.mode-seg {
-  padding: 0 5px;
-  border-radius: 3px;
-}
-.mode-seg.on {
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-accent, #0969da);
-  box-shadow: inset 0 0 0 1px var(--mm-accent, #0969da);
-}
-.folder-expand:hover,
-.preview-edge:hover,
-.mode-edge:hover {
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-fg, #1f2328);
-}
 /* The static toolbar overlays the top of the body row (web/shim static
    mode) — clear it, as .folder-panel does. */
-.theme-root.toolbar-static .folder-expand,
 .theme-root.toolbar-static .edge-cluster,
 .theme-root.toolbar-static .edge-cluster-left {
   top: 51px;
@@ -2386,6 +2346,24 @@ mark.hl.ghost {
    the rail fills the strip's content box and the hidden scrollbar takes no
    layout space. position: relative makes the rail the tabs' offsetParent,
    so the reveal math reads offsetLeft in rail-content coordinates. */
+/* The end slots span the strip's full height (its top padding is the tabs'
+   shadow headroom, not theirs), centring their buttons on the header's
+   button row. The lead sits above the rail's 8px lead-in (z) so its last
+   button keeps its clicks; its 4px inset + 5px button padding lands the
+   chevron's glyph where the header's does (12px + 5px). */
+.file-tab-strip-lead,
+.file-tab-strip-trail {
+  align-self: stretch;
+  margin-top: -9px;
+  position: relative;
+  z-index: 2;
+}
+.file-tab-strip-lead {
+  padding: 0 8px 0 4px;
+}
+.file-tab-strip-trail {
+  padding-left: 8px;
+}
 .file-tab-rail {
   position: relative;
   flex: 1;
@@ -2567,24 +2545,14 @@ mark.hl.ghost {
   z-index: 60;
   min-width: 180px;
 }
-/* PRD 013 Req 1: with the strip up, the absolutely-anchored corner tabs drop
-   below it — visible and clickable, never behind or over the strip. */
-.body-row.with-tabs .edge-cluster,
-.body-row.with-tabs .edge-cluster-left {
-  top: calc(var(--mm-tabstrip-h) + 9px);
-}
 /* Static-toolbar mode (web/shim): the strip clears the overlaying toolbar
-   the way .folder-panel does, the workspace's own 42px clearance moves onto
-   it, and the corner tabs clear both. */
+   the way .folder-panel does, and the workspace's own 42px clearance moves
+   onto it (the corner controls ride the strip, so nothing else to clear). */
 .theme-root.toolbar-static .workspace-stack.with-tabs .file-tab-strip {
   margin-top: 42px;
 }
 .theme-root.toolbar-static .workspace-stack.with-tabs .workspace {
   padding-top: 0;
-}
-.theme-root.toolbar-static .body-row.with-tabs .edge-cluster,
-.theme-root.toolbar-static .body-row.with-tabs .edge-cluster-left {
-  top: calc(51px + var(--mm-tabstrip-h));
 }
 /* PRD 003 Reqs 9/11: the pane opens/closes as a horizontal slide — a 180ms
    transform on the shared --mm-slide-ease curve (#8; the toolbar keeps its
@@ -2638,7 +2606,7 @@ mark.hl.ghost {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 10px 8px 6px 12px;
+  padding: 9px 8px 6px 12px; /* 38px with the rule: the tab strip's height */
   border-bottom: 1px solid var(--mm-border, #d1d9e0);
 }
 
@@ -2647,14 +2615,18 @@ mark.hl.ghost {
 .theme-root.toolbar-static .folder-panel {
   padding-top: 42px;
 }
+/* The root's name is not printed (owner: icons only in the header) — it stays
+   in the DOM for assistive tech and the header's accessible name, and a
+   flexible spacer pushes the trailing icons to the right edge. */
 .folder-title {
   flex: 1;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--mm-fg-muted, #59636e);
+  min-width: 0;
+  align-self: stretch; /* keeps its hit area — the empty header surface */
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  color: transparent;
+  font-size: 12px;
+  user-select: none;
 }
 .folder-header button {
   display: inline-flex;

@@ -8,7 +8,7 @@
  * Its only state is transient UI: the Req 7 context menu's anchor.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   fileTabContextMenu,
   railArrowState,
@@ -67,6 +67,16 @@ export interface FileTabStripProps {
    * The untitled tab's ✕ and middle-click both call this; no second path.
    */
   onCloseUntitled(): void;
+  /**
+   * The strip's end slots: with the strip up, the workspace's corner
+   * controls ride IN it — `leading` the closed pane's reopen chevron + view
+   * switch (so the chevron keeps the spot the open pane's header gives it),
+   * `trailing` the edit/preview switch + preview chevron. The tabs flow
+   * between them; with the strip hidden the owner overlays the same
+   * controls at the workspace's corners instead.
+   */
+  leading?: ReactNode;
+  trailing?: ReactNode;
 }
 
 /** One tab: a real keyboard-reachable button, ellipsis-clipped, tooltipped. */
@@ -310,6 +320,7 @@ export function FileTabStrip(p: FileTabStripProps) {
 
   return (
     <div className="file-tab-strip" data-testid="file-tab-strip" ref={stripRef}>
+      {p.leading && <div className="file-tab-strip-lead">{p.leading}</div>}
       {/* PRD 013 Req 9: the arrows sit OUTSIDE the rail at the strip's ends,
           so they stay put while it scrolls; when the tabs fit they are not
           rendered at all and a one- or two-tab strip is untouched. Plain
@@ -361,6 +372,7 @@ export function FileTabStrip(p: FileTabStripProps) {
         )}
       </div>
       {arrows.overflow && <ScrollArrow dir={1} enabled={arrows.rightEnabled} onStep={() => step(1)} />}
+      {p.trailing && <div className="file-tab-strip-trail">{p.trailing}</div>}
       {menu && (
         // PRD 013 Req 7: the tab menu — theme-menu chrome, pointer-anchored
         // and dismissed per SPEC35 §3.2 like the sidebar's folder-menu, with
