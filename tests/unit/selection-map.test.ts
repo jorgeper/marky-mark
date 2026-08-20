@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import { findNormalized, mapSelectionToSource, stripInline, visibleTextForRange } from '../../src/lib/selectionMap';
+import {
+  findNormalized,
+  mapSelectionToSource,
+  sourceOffsetForRendered,
+  sourceRangeForVisibleMatch,
+  stripInline,
+  visibleTextForRange,
+} from '../../src/lib/selectionMap';
 
 describe('SPEC23 selection mapping', () => {
   test('U50: stripInline visible text + offset maps; mapSelectionToSource exact offsets and null fallbacks', () => {
@@ -80,5 +87,78 @@ describe('SPEC23 selection mapping', () => {
     expect(findNormalized(hay, 'zebra')).toBeNull();
     expect(findNormalized('abc abc', 'abc')).toBeNull();
     expect(findNormalized(hay, '   ')).toBeNull();
+  });
+
+  // Issue #138: fenced code blocks render verbatim — the mapping layer must
+  // not strip their content as if it were prose, and the fence delimiter
+  // lines (which the preview never renders) must contribute no visible text.
+  test('U713: fence body maps verbatim — list/heading/emphasis/underscore/link-looking code keeps every character', () => {
+    const body = ['- item', '# not a heading', 'a * b * c', 'snake_case_name', 'x = *ptr;', '[label](url)'];
+    const src = '```js\n' + body.join('\n') + '\n```\n';
+    for (const line of body) {
+      const lineStart = src.indexOf(line);
+      // The rendered text of the whole line is the source line, character
+      // for character, and offsets round-trip exactly.
+      expect(visibleTextForRange(src, lineStart, lineStart + line.length)).toBe(line);
+    }
+    // A rendered-side selection of code that looks like markdown maps back
+    // to the identical source characters.
+    const hit = mapSelectionToSource(src, 2, 3, '- item # not a heading');
+    expect(hit).not.toBeNull();
+    expect(src.slice(hit!.from, hit!.to)).toBe('- item\n# not a heading');
+  });
+
+  test('U714: fence delimiter lines (``` / ```js / ~~~) contribute no visible characters', () => {
+    const src = 'before\n\n```js\ncode line\n```\n\n~~~\ntilde body\n~~~\n\nafter\n';
+    // Ranges covering only a delimiter line render as nothing.
+    expect(visibleTextForRange(src, src.indexOf('```js'), src.indexOf('```js') + 5)).toBe('');
+    expect(visibleTextForRange(src, src.indexOf('~~~'), src.indexOf('~~~') + 3)).toBe('');
+    // A range spanning a fence boundary shows only prose + code — no
+    // literal backticks or language tag poison the haystack.
+    expect(visibleTextForRange(src, 0, src.indexOf('code line') + 'code line'.length)).toBe('before code line');
+    // The close delimiter is equally invisible from the code side out.
+    expect(visibleTextForRange(src, src.indexOf('code line'), src.indexOf('after') + 5)).toBe(
+      'code line tilde body after'
+    );
+  });
+
+  test('U715: a selection spanning prose→fence→prose maps to exact source offsets', () => {
+    const src = 'The intro line.\n\n```\nlet x = 1;\n```\n\nThe outro line.\n';
+    const hit = mapSelectionToSource(src, 1, 7, 'intro line. let x = 1; The outro');
+    expect(hit).not.toBeNull();
+    expect(src.slice(hit!.from, hit!.to)).toBe('intro line.\n\n```\nlet x = 1;\n```\n\nThe outro');
+    // And the forward direction agrees: the same span's visible text is the
+    // needle a rendered-text search can find.
+    expect(visibleTextForRange(src, hit!.from, hit!.to)).toBe('intro line. let x = 1; The outro');
+  });
+
+  test('U716: fence body containing backticks stays verbatim; fence state derives from the document start', () => {
+    const src = '# Doc\n\n````md\nuse `inline code` here\n```\nnested fence text\n```\n````\n\ntail prose\n';
+    const line = 'use `inline code` here';
+    const at = src.indexOf(line);
+    expect(visibleTextForRange(src, at, at + line.length)).toBe(line);
+    // A range that BEGINS mid-fence is still recognised as code: the
+    // backticks are not eaten as inline-code markers, because fence state
+    // is scanned from the top of the document, not from the range start.
+    const nested = src.indexOf('nested fence text');
+    expect(visibleTextForRange(src, at, nested + 'nested fence text'.length)).toBe(
+      'use `inline code` here ``` nested fence text'
+    );
+    // sourceRangeForVisibleMatch sees the same verbatim haystack.
+    const hit = sourceRangeForVisibleMatch(src, 3, 8, 'use `inline code` here', 0);
+    expect(hit).not.toBeNull();
+    expect(src.slice(hit!.from, hit!.to)).toBe(line);
+  });
+
+  test('U717: sourceOffsetForRendered lands inside a fence body, not on stripped phantom text', () => {
+    const src = '```py\nvalue = a * b\n```\n';
+    // Rendered <pre> text is the body verbatim (plus a trailing newline).
+    const rendered = 'value = a * b\n';
+    // The rendered offset of '*' maps to the '*' in the source — under the
+    // old prose stripping the asterisk had no visible slot at all.
+    const star = rendered.indexOf('*');
+    const at = sourceOffsetForRendered(src, 1, 3, rendered, star);
+    expect(at).not.toBeNull();
+    expect(src[at!]).toBe('*');
   });
 });

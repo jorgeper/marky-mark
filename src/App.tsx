@@ -5890,6 +5890,14 @@ export default function App() {
   useEffect(() => {
     if (mode !== 'edit' || !settings.splitEdit) return;
     let t: ReturnType<typeof setTimeout> | null = null;
+    // Issue #138: true while a pointer drag that started inside the pane is
+    // still in progress. Mirroring a HALF-BUILT drag selection dispatches an
+    // editor selection mid-drag, and a CodeMirror that still believes it has
+    // focus writes that selection into its own contenteditable DOM — which
+    // destroys the user's in-progress preview selection (worst over code
+    // blocks, where a short partial needle is ambiguous and used to yank the
+    // editor to the whole covering fence). Hold the mirror until pointerup.
+    let dragging = false;
     const apply = () => {
       const pane = splitDocRef.current;
       if (!pane) return;
@@ -5897,13 +5905,29 @@ export default function App() {
       if (mapped) editorSelectRef.current?.(mapped.from, mapped.to);
     };
     const onSel = () => {
+      if (dragging) return;
       if (t) clearTimeout(t);
       t = setTimeout(apply, 150);
     };
+    const onPointerDown = (e: PointerEvent) => {
+      const pane = splitDocRef.current;
+      if (e.button === 0 && pane && e.target instanceof Node && pane.contains(e.target)) dragging = true;
+    };
+    const onPointerEnd = () => {
+      if (!dragging) return;
+      dragging = false;
+      onSel(); // settle once, on the completed drag selection
+    };
     document.addEventListener('selectionchange', onSel);
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('pointerup', onPointerEnd, true);
+    document.addEventListener('pointercancel', onPointerEnd, true);
     return () => {
       if (t) clearTimeout(t);
       document.removeEventListener('selectionchange', onSel);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('pointerup', onPointerEnd, true);
+      document.removeEventListener('pointercancel', onPointerEnd, true);
     };
   }, [mode, settings.splitEdit, sourceRangeFromDomSelection]);
 

@@ -103,6 +103,60 @@ export function stripInline(line: string): StripResult {
 }
 
 /**
+ * Issue #138: fenced code blocks render verbatim, so stripping their lines
+ * as prose corrupts every haystack that touches one — worst on the fence
+ * delimiter lines, which the preview renders as NOTHING while stripInline
+ * emits the literal backticks plus the language tag. Classify each line of
+ * the whole document (state scans from the start, so a range beginning
+ * mid-fence is still recognised as code): backtick/tilde fences of length
+ * ≥3, up to 3 leading spaces, closed by a same-char run at least as long
+ * with nothing after it (CommonMark). An unclosed fence runs to the end.
+ * Indented (4-space) code blocks are NOT classified — they keep today's
+ * prose stripping.
+ */
+export type LineKind = 'prose' | 'fence-open' | 'fence-body' | 'fence-close';
+
+export function classifyLines(lines: string[]): LineKind[] {
+  const kinds: LineKind[] = new Array(lines.length).fill('prose');
+  let fence: { ch: string; len: number } | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!fence) {
+      const m = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+      // A backtick fence's info string may not contain backticks.
+      if (m && !(m[1][0] === '`' && m[2].includes('`'))) {
+        fence = { ch: m[1][0], len: m[1].length };
+        kinds[i] = 'fence-open';
+      }
+    } else {
+      const m = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+      if (m && m[1][0] === fence.ch && m[1].length >= fence.len) {
+        fence = null;
+        kinds[i] = 'fence-close';
+      } else {
+        kinds[i] = 'fence-body';
+      }
+    }
+  }
+  return kinds;
+}
+
+/**
+ * Issue #138: the per-line visible text, fence-aware — delimiters show
+ * nothing, fence bodies show every source character unmodified (identity
+ * offset map), prose strips as before.
+ */
+function lineVisible(line: string, kind: LineKind): StripResult {
+  if (kind === 'fence-open' || kind === 'fence-close') return { visible: '', map: [] };
+  if (kind === 'fence-body') {
+    const map: number[] = [];
+    for (let i = 0; i < line.length; i++) map.push(i);
+    return { visible: line, map };
+  }
+  return stripInline(line);
+}
+
+/**
  * Locate `selectedText` (as rendered) within source lines
  * `fromLine..toLine` (1-based, inclusive) and return exact source offsets,
  * or null when it cannot be located unambiguously.
@@ -126,8 +180,9 @@ export function mapSelectionToSource(
   const hay: string[] = [];
   const hayMap: number[] = [];
   let pendingSpace = false;
+  const kinds = classifyLines(lines); // Issue #138: fences map verbatim
   for (let n = lo; n <= hi; n++) {
-    const stripped = stripInline(lines[n - 1]);
+    const stripped = lineVisible(lines[n - 1], kinds[n - 1]);
     for (let k = 0; k < stripped.visible.length; k++) {
       const ch = stripped.visible[k];
       if (/\s/.test(ch)) {
@@ -166,12 +221,14 @@ export function mapSelectionToSource(
 export function visibleTextForRange(source: string, from: number, to: number): string {
   if (to <= from) return '';
   const lines = source.split('\n');
+  const kinds = classifyLines(lines); // Issue #138: fences map verbatim
   const parts: string[] = [];
   let lineStart = 0;
-  for (const line of lines) {
+  for (let n = 0; n < lines.length; n++) {
+    const line = lines[n];
     const lineEnd = lineStart + line.length;
     if (lineEnd >= from && lineStart < to) {
-      const { visible, map } = stripInline(line);
+      const { visible, map } = lineVisible(line, kinds[n]);
       let piece = '';
       for (let k = 0; k < visible.length; k++) {
         const abs = lineStart + map[k];
@@ -286,6 +343,7 @@ export function sourceOffsetForRendered(
 ): number | null {
   const n = flattenWhitespace(rendered.slice(0, Math.max(0, local))).hay.length;
   const lines = source.split('\n');
+  const kinds = classifyLines(lines); // Issue #138: fences map verbatim
   const abs: number[] = [];
   const visible: string[] = [];
   let lineStart = 0;
@@ -295,7 +353,7 @@ export function sourceOffsetForRendered(
         visible.push(' ');
         abs.push(lineStart);
       }
-      const { visible: v, map } = stripInline(lines[k]);
+      const { visible: v, map } = lineVisible(lines[k], kinds[k]);
       for (let i = 0; i < v.length; i++) {
         visible.push(v[i]);
         abs.push(lineStart + map[i]);
@@ -338,6 +396,7 @@ export function sourceRangeForVisibleMatch(
   const want = needle.replace(/\s+/g, ' ').trim();
   if (!want || nth < 0) return null;
   const lines = source.split('\n');
+  const kinds = classifyLines(lines); // Issue #138: fences map verbatim
   const visible: string[] = [];
   const abs: number[] = [];
   let lineStart = 0;
@@ -348,7 +407,7 @@ export function sourceRangeForVisibleMatch(
         visible.push(' ');
         abs.push(lineStart); // the joiner anchors to the next line's start
       }
-      const { visible: v, map } = stripInline(line);
+      const { visible: v, map } = lineVisible(line, kinds[n]);
       for (let k = 0; k < v.length; k++) {
         visible.push(v[k]);
         abs.push(lineStart + map[k]);
