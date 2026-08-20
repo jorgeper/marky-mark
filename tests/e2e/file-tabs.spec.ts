@@ -1084,28 +1084,12 @@ const channels = (color: string): number[] => {
 
 const bgOf = (loc: Locator) => loc.evaluate((el) => getComputedStyle(el).backgroundColor);
 
-/** Open two files under /notes so the strip holds one active + one inactive
- *  tab, with the folder pane open beside it. */
-async function openTwoTabs(page: Page): Promise<void> {
-  await seedFolders(page);
-  await openNotesRoot(page);
-  // Drop the out-of-root welcome.md so exactly two known tabs remain.
-  await page.evaluate(() => window.__mmDispatch!('closeFile'));
-  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
-  await page.locator('[data-path="/notes/a.md"]').click();
-  await expect(page.getByTestId('docname')).toContainText('a.md');
-  await page.locator('[data-path="/notes/sub"]').click();
-  await page.locator('[data-path="/notes/sub/b.md"]').click();
-  await expect(page.getByTestId('docname')).toContainText('b.md');
-  await expect(page.getByTestId('file-tab')).toHaveCount(2);
-}
-
-/** The issue #148 plane assertions, valid under any theme currently on. */
+/** The issue #148 plane assertions, valid under any theme currently on and
+ *  any number of open-but-inactive tabs (openThree leaves two of them). */
 async function assertTabPlanes(page: Page): Promise<void> {
   const active = page.locator('.file-tab.active');
   const inactive = page.locator('.file-tab:not(.active)');
   await expect(active).toHaveCount(1);
-  await expect(inactive).toHaveCount(1);
 
   // Req 10: the strip paints the folder pane's own surface — one continuous
   // L-shaped backdrop around the workspace's top-left corner.
@@ -1115,44 +1099,54 @@ async function assertTabPlanes(page: Page): Promise<void> {
 
   // Front plane: the active tab IS the workspace surface (the theme root's
   // --mm-bg — .workspace itself is transparent over it), distinct from the
-  // strip surface behind it and from its inactive neighbor.
+  // strip surface behind it.
   const workspaceBg = channels(await bgOf(page.locator('.theme-root')));
   const activeBg = channels(await bgOf(active));
   expect(activeBg).toEqual(workspaceBg);
   expect(activeBg).not.toEqual(stripBg);
-  const inactiveBg = channels(await bgOf(inactive));
-  expect(inactiveBg).not.toEqual(activeBg);
-  expect(inactiveBg).not.toEqual(stripBg);
 
-  // Middle plane: the inactive tab's surface sits BETWEEN the strip's and
-  // the workspace's, channel by channel — one shade back from the front.
-  for (let i = 0; i < 3; i++) {
-    const lo = Math.min(stripBg[i], activeBg[i]);
-    const hi = Math.max(stripBg[i], activeBg[i]);
-    expect(inactiveBg[i]).toBeGreaterThanOrEqual(lo);
-    expect(inactiveBg[i]).toBeLessThanOrEqual(hi);
+  // Middle plane: EVERY inactive tab reads as one surface distinct from both
+  // the strip's and the front plane's, sitting BETWEEN them channel by
+  // channel — one shade back from the front.
+  const inactiveBgs = await inactive.evaluateAll((els) =>
+    els.map((el) => getComputedStyle(el).backgroundColor)
+  );
+  expect(inactiveBgs.length).toBeGreaterThan(0);
+  for (const bg of inactiveBgs) {
+    const inactiveBg = channels(bg);
+    expect(inactiveBg).not.toEqual(activeBg);
+    expect(inactiveBg).not.toEqual(stripBg);
+    for (let i = 0; i < 3; i++) {
+      const lo = Math.min(stripBg[i], activeBg[i]);
+      const hi = Math.max(stripBg[i], activeBg[i]);
+      expect(inactiveBg[i]).toBeGreaterThanOrEqual(lo);
+      expect(inactiveBg[i]).toBeLessThanOrEqual(hi);
+    }
   }
 
   // The lift: both planes carry a real shadow (the active one is asserted
   // stronger by stacking, not by parsing blur radii), and the active tab
-  // stacks ABOVE its neighbor so that shadow falls over it, not under.
+  // stacks ABOVE every neighbor so that shadow falls over them, not under.
   expect(await active.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe('none');
-  expect(await inactive.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe('none');
-  const zOf = (loc: Locator) => loc.evaluate((el) => Number(getComputedStyle(el).zIndex));
-  expect(await zOf(active)).toBeGreaterThan(await zOf(inactive));
+  expect(await inactive.first().evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe('none');
+  const activeZ = await active.evaluate((el) => Number(getComputedStyle(el).zIndex));
+  const neighborZ = await inactive.evaluateAll((els) =>
+    els.map((el) => Number(getComputedStyle(el).zIndex))
+  );
+  expect(Math.max(...neighborZ)).toBeLessThan(activeZ);
 }
 
-test('E305: the three planes from computed styles — strip on the pane surface, active tab on the workspace surface stacked above its lifted neighbor', async ({
+test('E305: the three planes from computed styles — strip on the pane surface, active tab on the workspace surface stacked above its lifted neighbors', async ({
   page,
 }) => {
-  await openTwoTabs(page);
+  await openThree(page);
   await assertTabPlanes(page);
 });
 
 test('E306: the plane ordering holds in a dark theme — strip < inactive < active, the active tab still the workspace surface (One Dark)', async ({
   page,
 }) => {
-  await openTwoTabs(page);
+  await openThree(page);
   await openSettings(page);
   await page.getByTestId('settings-theme-light').selectOption('crisp');
   await page.getByTestId('settings-theme-dark').selectOption('one-dark');
