@@ -192,6 +192,19 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{"hotkeys":{"save":"Mod+S"}}').hotkeys.toggleSplit).toBe('Mod+\\');
   });
 
+  test('U763: issue #167 — View carries Sync Scrolling beside Split Edit when supplied; checkbox tracks, hotkey-less', () => {
+    // The frozen baseline omits the key, so every pre-#167 expectation holds.
+    expect(find(base, 'View', 'toggleSyncScroll')).toBeUndefined();
+    for (const on of [true, false]) {
+      const s = { ...base, syncScroll: on };
+      const view = commandsIn(s, 'View').map((i) => i.command);
+      expect(view.indexOf('toggleSyncScroll')).toBe(view.indexOf('toggleSplit') + 1);
+      expect(find(s, 'View', 'toggleSyncScroll')!.label).toBe('Sync Scrolling');
+      expect(find(s, 'View', 'toggleSyncScroll')!.checked).toBe(on);
+      expect(find(s, 'View', 'toggleSyncScroll')!.accelerator).toBeUndefined();
+    }
+  });
+
   test('U55: View carries Front Matter after Word Count — checkbox, no accelerator; setting defaults true', () => {
     for (const s of [base, { ...base, isMac: false }]) {
       const view = commandsIn(s, 'View').map((i) => i.command);

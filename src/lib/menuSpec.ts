@@ -150,6 +150,15 @@ export interface ViewMenuState {
    * there — absent, not disabled.
    */
   semanticZoom?: boolean;
+  /**
+   * Issue #167: the split panes' sync-scroll checkbox. OPTIONAL so every
+   * pre-#167 ViewMenuState call site (and frozen test fixtures) keeps its
+   * exact View menu: absent reads as "no row". Supplied, the row rides
+   * beside Split Edit and dispatches the same `toggleSyncScroll` command as
+   * the corner button, so the state stays reachable when
+   * `showSyncScrollButton` hides that button.
+   */
+  syncScroll?: boolean;
 }
 
 /** Everything the whole native menu bar is derived from (SPEC12 §3.2). */
@@ -231,6 +240,10 @@ export function buildViewItems(s: ViewMenuState): MenuItemSpec[] {
     cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit', !s.docOpen || noEdit),
     // SPEC25 §3: split is a first-class toggle, not just a Settings checkbox.
     cmd('toggleSplit', 'Split Edit', s.hotkeys.toggleSplit, s.splitEdit),
+    // Issue #167: sync scrolling rides directly under the split it modifies —
+    // a checkbox mirroring the persisted `syncScroll`, hotkey-less, on both
+    // menu surfaces, so it stays reachable with the corner button hidden.
+    ...(s.syncScroll !== undefined ? [cmd('toggleSyncScroll', 'Sync Scrolling', undefined, s.syncScroll)] : []),
     // Master switch off (SPEC7 §2): the comments UI is gone, menu included —
     // navigation items too (SPEC14 §2.3).
     ...(s.commentsEnabled

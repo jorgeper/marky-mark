@@ -201,6 +201,33 @@ describe('PRD 013 Req 13 file tab strip setting', () => {
   });
 });
 
+describe('Issue #167 scrollbar and sync-scroll settings', () => {
+  // Intent: the three keys follow their neighbours' boolean contract — all
+  // three ship ON, a hand-written `false` is obeyed, and a non-boolean in
+  // settings.json falls back to the default instead of reaching the app.
+  test('U761: autoHideScrollbars / syncScroll / showSyncScrollButton default true, malformed falls back, round-trip', () => {
+    for (const key of ['autoHideScrollbars', 'syncScroll', 'showSyncScrollButton'] as const) {
+      expect(DEFAULT_SETTINGS[key]).toBe(true);
+      expect(parseSettings('{}')[key]).toBe(true);
+      expect(parseSettings(`{"${key}":false}`)[key]).toBe(false);
+      expect(parseSettings(`{"${key}":"off"}`)[key]).toBe(true); // malformed → default
+      expect(parseSettings(`{"${key}":0}`)[key]).toBe(true);
+      const round = parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, [key]: false }));
+      expect(round[key]).toBe(false);
+    }
+  });
+
+  test('U762: the fade and button keys are user-personal; syncScroll is machine-local like its split neighbours', () => {
+    expect(SETTINGS_SCOPES.autoHideScrollbars).toBe('U');
+    expect(SETTINGS_SCOPES.showSyncScrollButton).toBe('U');
+    expect(SETTINGS_SCOPES.syncScroll).toBe('M');
+    expect(SETTINGS_SCOPES.splitEdit).toBe('M');
+    // 'M' keeps it out of the workspace-editable set by construction — no
+    // shared layer can link (or unlink) someone else's panes.
+    expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain('syncScroll');
+  });
+});
+
 describe('PRD 011 Req 6+7 LLM provider settings', () => {
   test('U577: the defaults leave the app unconfigured — empty key, no fabricated model', () => {
     const d = parseSettings('{}');

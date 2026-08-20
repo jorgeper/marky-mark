@@ -637,3 +637,59 @@ test('E265: issue #122 — code block syntax coloring is on by default, toggles 
   await page.goto('/#open=/docs/colour.md');
   await expect(page.getByTestId('doc')).toHaveClass(/mm-code-plain/);
 });
+
+test('E314: issue #167 — scrollbars fade after the idle delay without reflow; the setting restores always-visible bars and persists', async ({
+  page,
+}) => {
+  // A doc tall enough that the full-preview workspace scrolls.
+  await page.evaluate(() => {
+    const parts: string[] = [];
+    for (let i = 1; i <= 60; i++) parts.push(`## Section ${i}\n\n` + `Body for section ${i}. `.repeat(10) + '\n');
+    window.__mmfs!.write('/docs/tall.md', parts.join('\n'));
+  });
+  await page.goto('/#open=/docs/tall.md');
+  const ws = page.locator('.workspace');
+  await expect(ws.locator('h2').first()).toContainText('Section 1');
+
+  // The default is ON: the root carries the mode class before any scroll.
+  await expect(page.locator('.theme-root')).toHaveClass(/autohide-scrollbars/);
+
+  // Hiding is paint-only: the gutter is reserved, so the content box and the
+  // wrapped text hold the same geometry in the shown and hidden states.
+  const geom = () =>
+    ws.evaluate((el) => {
+      const doc = el.querySelector('[data-testid="doc"]')!.getBoundingClientRect();
+      return { cw: el.clientWidth, x: Math.round(doc.x), w: Math.round(doc.width) };
+    });
+
+  // Scrolling shows the bar (data-scrollbars=active)…
+  await ws.evaluate((el) => (el.scrollTop = 400));
+  await expect(ws).toHaveAttribute('data-scrollbars', 'active');
+  const shown = await geom();
+  // …and one idle delay later it fades on its own, with no reflow.
+  await expect(ws).toHaveAttribute('data-scrollbars', 'idle', { timeout: 4000 });
+  expect(await geom()).toEqual(shown);
+  // A new scroll restarts the cycle.
+  await ws.evaluate((el) => (el.scrollTop = 800));
+  await expect(ws).toHaveAttribute('data-scrollbars', 'active');
+  expect(await geom()).toEqual(shown);
+
+  // The Settings checkbox rides beside the auto-hide-toolbar row and takes
+  // effect live: mode class gone, attribute stripped, no timer re-arming it.
+  await openSettings(page, 'general');
+  await expect(page.getByTestId('settings-autohide-scrollbars')).toBeChecked();
+  await page.getByTestId('settings-autohide-scrollbars').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect(page.locator('.theme-root')).not.toHaveClass(/autohide-scrollbars/);
+  await expect(ws).not.toHaveAttribute('data-scrollbars');
+  await ws.evaluate((el) => (el.scrollTop = 200));
+  await page.waitForTimeout(200);
+  await expect(ws).not.toHaveAttribute('data-scrollbars');
+
+  // Persisted: the choice reaches disk and a restart boots with plain
+  // always-visible bars.
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"autoHideScrollbars": false');
+  await page.reload();
+  await expect(ws.locator('h2').first()).toContainText('Section 1');
+  await expect(page.locator('.theme-root')).not.toHaveClass(/autohide-scrollbars/);
+});

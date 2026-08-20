@@ -50,14 +50,20 @@ export interface Settings {
   lineNumbers: boolean;
   vimNav: boolean;
   autoHideToolbar: boolean;
+  /** Issue #167: scrollbars fade when idle and return on scroll/hover (default on). */
+  autoHideScrollbars: boolean;
   /** SPEC16 §5 + follow-up: the word-count chip is a visible-by-default toggle. */
   showWordCount: boolean;
+  /** Issue #167: the corner sync-scroll button's visibility (the showWordCount precedent). */
+  showSyncScrollButton: boolean;
   showResolved: boolean;
   commentsEnabled: boolean;
   typeToComment: boolean;
   splitEdit: boolean;
   /** Editor pane fraction in split-edit mode, clamped to [0.2, 0.8]. */
   splitRatio: number;
+  /** Issue #167: the split panes scroll together (default on); off frees them. */
+  syncScroll: boolean;
   /**
    * Issue #125: the last view mode the reader chose. Remembered state, not a
    * preference with a Settings row — every mode switch records it and every
@@ -156,12 +162,18 @@ export const DEFAULT_SETTINGS: Settings = {
   lineNumbers: true,
   vimNav: false,
   autoHideToolbar: false,
+  // Issue #167: bars fade by default; the setting exists to turn fading off.
+  autoHideScrollbars: true,
   showWordCount: true,
+  // Issue #167: the button ships visible, like the word-count chip.
+  showSyncScrollButton: true,
   showResolved: true,
   commentsEnabled: true,
   typeToComment: true,
   splitEdit: true,
   splitRatio: 0.5,
+  // Issue #167: panes scroll together until this reader says otherwise.
+  syncScroll: true,
   // Issue #125: today's behaviour is the default — a fresh install opens
   // documents in the reading preview until the reader chooses otherwise.
   lastViewMode: 'preview',
@@ -230,12 +242,20 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   lineNumbers: 'U',
   vimNav: 'U',
   autoHideToolbar: 'U',
+  // Issue #167: user-personal like its autoHideToolbar neighbour — how the
+  // chrome fades is a reader's preference, not a workspace's to dictate.
+  autoHideScrollbars: 'U',
   showWordCount: 'U',
+  // Issue #167: user-personal, the showWordCount precedent.
+  showSyncScrollButton: 'U',
   showResolved: 'U',
   commentsEnabled: 'U',
   typeToComment: 'U',
   splitEdit: 'M',
   splitRatio: 'M',
+  // Issue #167: machine/session-local like its layout neighbours above —
+  // whether THIS screen's panes track each other is this reader's layout.
+  syncScroll: 'M',
   // Issue #125: machine/session-local, like its layout neighbours above — a
   // reader's current view mode is theirs, and no workspace or team layer may
   // force what mode someone else's documents open in.
@@ -341,11 +361,16 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   lineNumbers: bool,
   vimNav: bool,
   autoHideToolbar: bool,
+  // Issue #167: a hand-edited non-boolean falls back to the default.
+  autoHideScrollbars: bool,
   showWordCount: bool,
+  showSyncScrollButton: bool,
   showResolved: bool,
   commentsEnabled: bool,
   typeToComment: bool,
   splitEdit: bool,
+  // Issue #167: boolean like splitEdit beside it.
+  syncScroll: bool,
   splitRatio: (raw) =>
     typeof raw === 'number' && Number.isFinite(raw)
       ? Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, raw))

@@ -43,6 +43,8 @@ const viewState = (over: Partial<ViewMenuState> = {}): ViewMenuState => ({
   // PRD 013 Req 13: the tab-strip seam exists in the frozen baseline, so the
   // File Tabs row is part of every flyout expectation below.
   fileTabs: true,
+  // Issue #167: the sync-scroll row is part of the baseline flyout too.
+  syncScroll: true,
   ...over,
 });
 
@@ -262,6 +264,8 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
       'toggleFileTabs',
       'toggleMode',
       'toggleSplit',
+      // Issue #167: sync scrolling rides directly under the split it modifies.
+      'toggleSyncScroll',
       'toggleComments',
       'nextComment',
       'prevComment',
@@ -351,6 +355,7 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
       'toggleFileTabs', // PRD 013 Req 13
       'toggleMode',
       'toggleSplit',
+      'toggleSyncScroll', // issue #167
       'toggleComments',
       'nextComment',
       'prevComment',

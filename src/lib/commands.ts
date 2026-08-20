@@ -13,6 +13,9 @@ export type CommandId =
   | 'printDoc'
   | 'toggleMode'
   | 'toggleSplit'
+  // Issue #167: flip the split panes' synchronized scrolling — the corner
+  // button and the View ▸ row dispatch this one id; deliberately no hotkey.
+  | 'toggleSyncScroll'
   | 'toggleComments'
   | 'nextComment'
   | 'prevComment'

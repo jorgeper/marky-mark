@@ -320,6 +320,38 @@ export function ModeSwitchButton({ mode, onClick }: { mode: ViewMode; onClick():
 }
 
 /**
+ * Issue #167: the sync-scroll toggle — immediately beside the mode switch in
+ * the workspace's top-right cluster, split edit only (the owner gates it).
+ * Same edge-tab style as its two neighbours above; the glyph is two pane
+ * arrows, linked while the panes scroll together, and the label names the
+ * move a click makes. The owner dispatches the `toggleSyncScroll` command —
+ * only `settings.syncScroll` flips, so the View ▸ checkbox stays in step and
+ * the button holds no toggle logic of its own.
+ */
+export function SyncScrollButton({ on, onClick }: { on: boolean; onClick(): void }) {
+  const label = on ? 'Scroll panes independently' : 'Scroll panes together';
+  return (
+    <button
+      className="sync-edge"
+      data-testid="sync-scroll-toggle"
+      data-state={on ? 'on' : 'off'}
+      aria-pressed={on}
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <g stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4.5 3v10M2.7 5l1.8-2 1.8 2M2.7 11l1.8 2 1.8-2" />
+          <path d="M11.5 3v10M9.7 5l1.8-2 1.8 2M9.7 11l1.8 2 1.8-2" />
+          {on ? <path d="M6.5 8h3" /> : <path d="M6 10.5l4-5" />}
+        </g>
+      </svg>
+    </button>
+  );
+}
+
+/**
  * SPEC35 §5: the row's label swapped for a text input. Enter commits, Esc
  * cancels, blur commits; an invalid or unchanged value cancels instead.
  * Validation runs on every keystroke — name rules plus a case-insensitive
