@@ -18,11 +18,19 @@ export interface FileTabStripProps {
   /** The active document's path (its tab renders active); null = none. */
   activePath: string | null;
   /**
-   * PRD 013 Req 8 (scoped to #144): an untitled buffer is open — it renders
-   * as an active tab labeled "Untitled" after the open set's tabs. Its close
-   * affordance and Save As replacement land in issue #146.
+   * PRD 013 Req 8: an untitled buffer is open — it renders as an active tab
+   * labeled "Untitled" after the open set's tabs, carrying the same trailing
+   * ●/✕ slot (its ✕ and middle-click close through `onCloseUntitled`). On
+   * Save As the owner clears this flag and opens the saved file, so the
+   * ephemeral tab is replaced by the real one (SPEC36, via openDoc's addOpen).
    */
   untitled: boolean;
+  /**
+   * PRD 013 Req 8 (SPEC36 §2.6): the untitled buffer's unsaved-changes flag —
+   * App's own `dirty`, because an untitled buffer sits outside the open set
+   * and therefore outside `dirtyFiles`. Drives the untitled tab's ●.
+   */
+  untitledDirty: boolean;
   /** PRD 013 Req 5 (SPEC36 §3.6): open files with unsaved changes — their
    *  tabs carry the dirty ●. The very set the sidebar's rows read. */
   dirtyFiles: ReadonlySet<string>;
@@ -45,6 +53,13 @@ export interface FileTabStripProps {
   onCloseOthers(path: string): void;
   /** PRD 013 Req 7: Close All — the owner walks the whole open set. */
   onCloseAll(): void;
+  /**
+   * PRD 013 Req 8: close the untitled buffer through the owner's EXISTING
+   * dirty-untitled guard — the very call File → Close File makes (App's
+   * `closeFile` command: dirty ⇒ the close-untitled prompt, clean ⇒ splash).
+   * The untitled tab's ✕ and middle-click both call this; no second path.
+   */
+  onCloseUntitled(): void;
 }
 
 /** One tab: a real keyboard-reachable button, ellipsis-clipped, tooltipped. */
@@ -55,8 +70,13 @@ function Tab({ active, label, title, path, dirty, onClick, onClose, onMenu }: {
   path: string;
   dirty?: boolean;
   onClick?: () => void;
-  /** Absent (the untitled tab, #146) ⇒ no slot, no middle-click, no menu. */
-  onClose?: () => void;
+  /** Every tab closes — open-set tabs via SPEC36 §3.4, the untitled tab via
+   *  the owner's dirty-untitled guard (PRD 013 Req 8). Gates the ●/✕ slot
+   *  and middle-click alike. */
+  onClose: () => void;
+  /** Absent (the untitled tab) ⇒ no context menu: Close Others / Close All
+   *  are SPEC36 open-set walks, which the untitled buffer sits outside
+   *  (§2.6), so its close affordances are the ✕ and middle-click only. */
   onMenu?: (e: React.MouseEvent) => void;
 }) {
   return (
@@ -80,52 +100,46 @@ function Tab({ active, label, title, path, dirty, onClick, onClose, onMenu }: {
       // PRD 013 Req 6: middle-click closes through the same SPEC36 §3.4 call
       // as the ✕ — never activates, and never autoscrolls/pastes (the
       // default is suppressed on the middle mousedown AND the auxclick).
-      onMouseDown={onClose ? (e) => { if (e.button === 1) e.preventDefault(); } : undefined}
-      onAuxClick={
-        onClose
-          ? (e) => {
-              if (e.button !== 1) return;
-              e.preventDefault();
-              onClose();
-            }
-          : undefined
-      }
+      onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
+      onAuxClick={(e) => {
+        if (e.button !== 1) return;
+        e.preventDefault();
+        onClose();
+      }}
       // PRD 013 Req 7: right-click opens the tab menu (owner-suppressed OS
       // menu, no activation — activation rides onClick, main button only).
       onContextMenu={onMenu}
     >
       <span className="file-tab-label">{label}</span>
-      {onClose && (
-        // PRD 013 Req 5 (SPEC36 §3.4/§3.6 rotated up): the trailing slot —
-        // the dirty ● swaps for the ✕ on tab hover (styles.css); the slot
-        // always renders so the label never reflows when they swap. The ✕
-        // is a span[role=button], not a nested <button> (the tab is one),
-        // with its own testids distinct from the sidebar's folder-* ids.
-        <span className="file-tab-slot">
-          {dirty && <span className="file-tab-dirty" data-testid="file-tab-dirty" aria-hidden="true" />}
-          <span
-            className="file-tab-close"
-            data-testid="file-tab-close"
-            role="button"
-            title="Close file"
-            // PRD 013 Req 5: the ✕'s pointer events never reach the tab —
-            // an inactive tab's close must not first activate it (a dirty
-            // file still activates, but through the §3.4 close path).
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose();
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
-              <g stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
-                <line x1="4.4" y1="4.4" x2="11.6" y2="11.6" />
-                <line x1="11.6" y1="4.4" x2="4.4" y2="11.6" />
-              </g>
-            </svg>
-          </span>
+      {/* PRD 013 Req 5 (SPEC36 §3.4/§3.6 rotated up): the trailing slot —
+          the dirty ● swaps for the ✕ on tab hover (styles.css); the slot
+          always renders so the label never reflows when they swap. The ✕
+          is a span[role=button], not a nested <button> (the tab is one),
+          with its own testids distinct from the sidebar's folder-* ids. */}
+      <span className="file-tab-slot">
+        {dirty && <span className="file-tab-dirty" data-testid="file-tab-dirty" aria-hidden="true" />}
+        <span
+          className="file-tab-close"
+          data-testid="file-tab-close"
+          role="button"
+          title="Close file"
+          // PRD 013 Req 5: the ✕'s pointer events never reach the tab —
+          // an inactive tab's close must not first activate it (a dirty
+          // file still activates, but through the §3.4 close path).
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+            <g stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+              <line x1="4.4" y1="4.4" x2="11.6" y2="11.6" />
+              <line x1="11.6" y1="4.4" x2="4.4" y2="11.6" />
+            </g>
+          </svg>
         </span>
-      )}
+      </span>
     </button>
   );
 }
@@ -163,12 +177,15 @@ export function FileTabStrip(p: FileTabStripProps) {
         );
       })}
       {p.untitled && (
-        // PRD 013 Req 8 (scoped to #144): the untitled buffer sits outside
-        // the SPEC36 set (§2.6), so its tab is appended here rather than
-        // derived from openFiles; it is always the active one (docPath is
-        // null while untitled), and clicking it is inert — no close slot,
-        // no middle-click, no context menu until issue #146.
-        <Tab active label="Untitled" title="Untitled" path="" />
+        // PRD 013 Req 8: the untitled buffer sits outside the SPEC36 set
+        // (§2.6), so its tab is appended here rather than derived from
+        // openFiles; it is always the active one (docPath is null while
+        // untitled), and clicking it is inert. It carries the same ●/✕ slot
+        // as the open-set tabs — the ● from `untitledDirty` — and its ✕ and
+        // middle-click close through the owner's dirty-untitled guard.
+        // No onMenu: the tab context menu's walks are open-set walks, which
+        // this buffer sits outside, so right-click opens nothing here.
+        <Tab active label="Untitled" title="Untitled" path="" dirty={p.untitledDirty} onClose={p.onCloseUntitled} />
       )}
       {menu && (
         // PRD 013 Req 7: the tab menu — theme-menu chrome, pointer-anchored

@@ -2317,7 +2317,10 @@ mark.hl.ghost {
   flex: none;
   margin-left: auto;
   padding-left: 4px;
-  min-width: 16px;
+  /* PRD 013 Req 8: the reserve covers the 16px affordance PLUS this border-box
+     padding, so an EMPTY slot (a clean tab — the untitled one included) is as
+     wide as one holding ● or ✕ and hover never grows the tab. */
+  min-width: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;

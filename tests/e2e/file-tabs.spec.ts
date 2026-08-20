@@ -8,6 +8,9 @@ import { dirtyActiveDoc, freshApp, fsRead, fsWrite, openNotesRoot, revealToolbar
 // behaviour it mirrors stays covered by its own suites.
 // PRD 013 Reqs 5–7 (issue #145, E272+): the close affordances — the ●/✕
 // trailing slot, middle-click, and the tab context menu's close walks.
+// PRD 013 Req 8 (issue #146, E292+): the untitled tab's close affordances —
+// the same slot, closing through App's existing dirty-untitled guard, and
+// the Save As replacement by the saved file's real tab.
 
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
@@ -552,4 +555,233 @@ test('E279: Close All closes every open-set file one at a time and lands on the 
   await expect(page.locator('.folder-item.selected')).toHaveCount(0);
   await expect(page.locator('.folder-item.open')).toHaveCount(0);
   expect(await fsRead(page, '/notes/sub/b.md')).not.toContain('ALLB');
+});
+
+/** The ephemeral untitled tab — SPEC36 §2.6 keeps it outside the open set,
+ *  so it renders with an empty data-tab after the set's tabs. */
+const untitledTab = (page: Page) => page.locator('[data-tab=""]');
+
+/** E292+ setup: the untitled tab alone — welcome closed, then File → New. */
+async function openUntitledAlone(page: Page): Promise<void> {
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.evaluate(() => window.__mmDispatch!('newFile'));
+  await expect(page.getByTestId('file-tab')).toHaveCount(1);
+  await expect(untitledTab(page)).toHaveAttribute('data-active', 'true');
+}
+
+/** Type into the untitled buffer (startUntitled lands in edit mode). */
+async function dirtyUntitled(page: Page, text: string): Promise<void> {
+  await page.locator('.cm-line').first().click();
+  await page.keyboard.type(text);
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+}
+
+test('E292: the untitled tab carries the trailing slot — clean shows neither, dirty shows the ● from App\'s own flag, hover swaps it for ✕, no width jitter', async ({
+  page,
+}) => {
+  await openUntitledAlone(page);
+  const t = untitledTab(page);
+  // Clean, pointer clear: neither ● nor ✕ — same as a clean open-set tab.
+  await page.mouse.move(4, 300);
+  await expect(t.getByTestId('file-tab-dirty')).toHaveCount(0);
+  await expect(t.getByTestId('file-tab-close')).toBeHidden();
+
+  // Clean hover: the ✕ appears; the always-reserved slot keeps the width
+  // fixed, so the "Untitled" label never reflows.
+  const before = (await t.boundingBox())!;
+  await t.hover();
+  await expect(t.getByTestId('file-tab-close')).toBeVisible();
+  expect(Math.round((await t.boundingBox())!.width)).toBe(Math.round(before.width));
+
+  // Dirty the buffer: the ● shows — read from App's dirty flag, since the
+  // untitled buffer sits outside dirtyOpenFiles (SPEC36 §2.6).
+  await dirtyUntitled(page, 'UDOT ');
+  await page.mouse.move(4, 300);
+  await expect(t.getByTestId('file-tab-dirty')).toBeVisible();
+  await expect(t.getByTestId('file-tab-close')).toBeHidden();
+
+  // Hover swaps ● for ✕ with no width change; off again, the ● returns.
+  await t.hover();
+  await expect(t.getByTestId('file-tab-dirty')).toBeHidden();
+  await expect(t.getByTestId('file-tab-close')).toBeVisible();
+  expect(Math.round((await t.boundingBox())!.width)).toBe(Math.round(before.width));
+  await page.mouse.move(4, 300);
+  await expect(t.getByTestId('file-tab-dirty')).toBeVisible();
+  await expect(t.getByTestId('file-tab-close')).toBeHidden();
+});
+
+test('E293: a CLEAN untitled tab closes silently — ✕ and middle-click both land on the splash through closeFile, no prompt', async ({
+  page,
+}) => {
+  await openUntitledAlone(page);
+  // ✕: exactly closeFile's clean-untitled arm — closeToSplash, no modal.
+  await untitledTab(page).hover();
+  await untitledTab(page).getByTestId('file-tab-close').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
+
+  // Middle-click on a fresh clean untitled tab: the same silent path.
+  await page.evaluate(() => window.__mmDispatch!('newFile'));
+  await expect(untitledTab(page)).toBeVisible();
+  await untitledTab(page).click({ button: 'middle' });
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
+});
+
+test('E294: dirty untitled ✕ raises the close-untitled prompt — Cancel and a cancelled Save As leave it open and dirty; Don\'t save discards', async ({
+  page,
+}) => {
+  await openUntitledAlone(page);
+  await dirtyUntitled(page, 'UGUARD ');
+  const t = untitledTab(page);
+
+  // ✕ ⇒ the very prompt File → Close File raises, naming the buffer.
+  await t.hover();
+  await t.getByTestId('file-tab-close').click();
+  await expect(page.getByTestId('open-prompt')).toContainText('Untitled');
+
+  // Cancel: still open, active and dirty — the tab keeps its ●.
+  await page.getByTestId('open-cancel').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(t).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.mouse.move(4, 300);
+  await expect(t.getByTestId('file-tab-dirty')).toBeVisible();
+
+  // Save with the Save As dialog cancelled (SPEC22 §2.3): the close aborts
+  // — the buffer stays open and dirty rather than closing.
+  await t.hover();
+  await t.getByTestId('file-tab-close').click();
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = null;
+  });
+  await page.getByTestId('open-save').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(t).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.mouse.move(4, 300);
+  await expect(t.getByTestId('file-tab-dirty')).toBeVisible();
+
+  // Don't save: the buffer discards to the splash, nothing written.
+  await t.hover();
+  await t.getByTestId('file-tab-close').click();
+  await page.getByTestId('open-discard').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
+});
+
+test('E295: Save in the untitled close prompt runs Save As (SPEC22 §2.2), writes the buffer, then finishes the close', async ({
+  page,
+}) => {
+  await openUntitledAlone(page);
+  await dirtyUntitled(page, 'UKEEP ');
+  await untitledTab(page).hover();
+  await untitledTab(page).getByTestId('file-tab-close').click();
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/docs/kept.md';
+  });
+  await page.getByTestId('open-save').click();
+  // Save As landed the bytes, then the close-untitled intent completed —
+  // the splash, with no tab (Untitled or kept.md) left behind.
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
+  expect(await fsRead(page, '/docs/kept.md')).toContain('UKEEP');
+});
+
+test('E296: dirty untitled middle-click prompts through the same guard; right-click opens NO tab menu; an open-set tab\'s menu still walks only the set', async ({
+  page,
+}) => {
+  await openThree(page);
+  await page.evaluate(() => window.__mmDispatch!('newFile'));
+  await expect(page.getByTestId('file-tab')).toHaveCount(4);
+  await dirtyUntitled(page, 'UMID ');
+  const t = untitledTab(page);
+
+  // Middle-click: the same close-untitled prompt; Cancel keeps it open,
+  // active and dirty.
+  await t.click({ button: 'middle' });
+  await expect(page.getByTestId('open-prompt')).toContainText('Untitled');
+  await page.getByTestId('open-cancel').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(t).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Right-click: NO tab context menu — its walks are SPEC36 open-set walks
+  // and the untitled buffer sits outside the set (§2.6).
+  await t.click({ button: 'right' });
+  await expect(page.getByTestId('file-tab-menu')).toHaveCount(0);
+
+  // The menu from an OPEN-SET tab is unchanged: Close All walks c, b, a
+  // (clean — no prompts) and leaves the untitled buffer as the active
+  // document, its edit intact.
+  await tab(page, '/notes/sub/deep/c.md').click({ button: 'right' });
+  await expect(page.getByTestId('file-tab-menu')).toBeVisible();
+  await page.getByTestId('file-tab-menu-close-all').click();
+  await expect.poll(() => tabPaths(page)).toEqual(['']);
+  await expect(t).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect(page.locator('.cm-content').first()).toContainText('UMID');
+});
+
+test('E297: the untitled tab never joins the open set — tabs, sidebar rows and the persisted session carry no Untitled entry, and none appears after a restart', async ({
+  page,
+}) => {
+  await openThree(page);
+  await page.evaluate(() => window.__mmDispatch!('newFile'));
+  await expect(page.getByTestId('file-tab')).toHaveCount(4);
+
+  // The strip: the three open-set tabs plus the appended untitled one — the
+  // set itself is untouched, and the sidebar shows the same three rows.
+  expect(await tabPaths(page)).toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md', '/notes/a.md', '']);
+  await expect(page.locator('.folder-item.open')).toHaveCount(3);
+  await expect(page.getByTestId('folder-panel')).not.toContainText('Untitled');
+
+  // The persisted open-set state (issue #81's session slot): the three
+  // paths and no "Untitled" entry.
+  await expect.poll(() => fsRead(page, '/config/session/untitled.json')).toContain('/notes/a.md');
+  const session = (await fsRead(page, '/config/session/untitled.json'))!;
+  expect(session).toContain('/notes/sub/b.md');
+  expect(session).toContain('/notes/sub/deep/c.md');
+  expect(session).not.toContain('Untitled');
+
+  // Restart: the revival brings back exactly the three files — the
+  // ephemeral tab does not reappear.
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await openNotesRoot(page);
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md', '/notes/a.md']);
+  await expect(untitledTab(page)).toHaveCount(0);
+});
+
+test('E298: Save As replaces the untitled tab with the saved file\'s real tab — active, in the open set, exactly one', async ({
+  page,
+}) => {
+  await openThree(page);
+  await page.evaluate(() => window.__mmDispatch!('newFile'));
+  await expect(page.getByTestId('file-tab')).toHaveCount(4);
+  await dirtyUntitled(page, 'USAVED ');
+
+  // Save As through the armed dialog: the existing writeDocCopyTo → openDoc
+  // path clears untitled and adds the saved path to the set (addOpen).
+  await page.evaluate(() => {
+    window.__mmfs!.nextSavePath = '/notes/saved.md';
+    window.__mmDispatch!('saveAs');
+  });
+  await expect(page.getByTestId('docname')).toContainText('saved.md');
+
+  // No Untitled tab remains; exactly one tab for the saved path — active,
+  // and a member of the open set in its tree-order position.
+  await expect(untitledTab(page)).toHaveCount(0);
+  await expect(page.locator('[data-tab="/notes/saved.md"]')).toHaveCount(1);
+  await expect(page.locator('[data-tab="/notes/saved.md"]')).toHaveAttribute('data-active', 'true');
+  await expect
+    .poll(() => tabPaths(page))
+    .toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md', '/notes/a.md', '/notes/saved.md']);
+
+  // On disk with the typed text, and in the persisted open set (SPEC36).
+  expect(await fsRead(page, '/notes/saved.md')).toContain('USAVED');
+  await expect.poll(() => fsRead(page, '/config/session/untitled.json')).toContain('/notes/saved.md');
 });

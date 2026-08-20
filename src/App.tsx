@@ -2175,7 +2175,11 @@ export default function App() {
       // (and openDoc's tail) keeps live synchronously — the close walk calls
       // in here between renders, where stateRef.docPath is still the PREVIOUS
       // active file. For every single-close caller the two always agree.
-      const wasActive = activeFileRef.current === path;
+      // PRD 013 Req 8 (SPEC36 §2.6): while an untitled buffer is on screen no
+      // open-set file is truly active — activeFileRef still holds the stale
+      // pre-⌘N value (startUntitled leaves it to self-correct) — so a close
+      // must not activate a §3.5 neighbour over the untitled document.
+      const wasActive = !stateRef.current.untitled && activeFileRef.current === path;
       commitOpenSet(list, wasActive ? null : activeFileRef.current);
       if (!wasActive) return;
       // Awaited so a walk's next step only starts once nextActive has landed.
@@ -6658,6 +6662,10 @@ export default function App() {
           openFiles={openFiles}
           activePath={docPath}
           untitled={untitled}
+          // PRD 013 Req 8 (SPEC36 §2.6): the untitled buffer sits outside
+          // the open set — and so outside dirtyOpenFiles — so its tab's ●
+          // reads App's own dirty flag instead.
+          untitledDirty={untitled && dirty}
           // PRD 013 Req 5 (SPEC36 §3.6): the same dirty set the sidebar rows
           // read — active or parked, one source of truth.
           dirtyFiles={dirtyOpenFiles}
@@ -6672,6 +6680,11 @@ export default function App() {
           // tree order (openFiles IS that order, SPEC36 §1).
           onCloseOthers={(path) => startCloseWalk(closeOthersTargets(openFilesRef.current, path))}
           onCloseAll={() => startCloseWalk([...openFilesRef.current])}
+          // PRD 013 Req 8: the untitled tab's ✕ / middle-click dispatch the
+          // very command File → Close File does — its untitled branch is the
+          // existing dirty-untitled guard (dirty ⇒ the close-untitled
+          // prompt, clean ⇒ splash). No second close path.
+          onCloseUntitled={() => dispatchCommand('closeFile')}
         />
       )}
       {zoomDoc ? (
