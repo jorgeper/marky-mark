@@ -35,6 +35,8 @@ describe('PRD 002 §B5 scope inventory', () => {
       // Issue #157: the fenced-code card view sits beside its two view
       // neighbours — a reader's own preference.
       codeBlockView: 'U',
+      // PRD 013 Req 5: the edit-pane diagram view, the same reader-owned scope.
+      diagramView: 'U',
       showFrontmatter: 'U',
       showWordCount: 'U',
       showResolved: 'U',

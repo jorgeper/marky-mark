@@ -33,7 +33,7 @@
  */
 
 import { codeBlockText } from './codeCopy';
-import { fenceLanguage, type FenceRenderer, type FenceRenderResult } from './fenceRenderers';
+import { fenceLanguage, renderSafely, type FenceRenderer } from './fenceRenderers';
 
 /** The diagram host — carries the SVG in its shadow root; also its testid. */
 export const DIAGRAM_CLASS = 'mm-diagram';
@@ -100,15 +100,9 @@ async function renderOne(
   theme: 'light' | 'dark',
   token: string
 ): Promise<void> {
-  let result: FenceRenderResult;
-  try {
-    result = await renderer(source, { theme });
-  } catch (error) {
-    // PRD 013 Req 10: the seam says renderers resolve failures rather than
-    // throw, but one that breaks its contract still must not blank the block
-    // or stop the rest of the document.
-    result = { ok: false, message: errorMessage(error) };
-  }
+  // PRD 013 Req 10: `renderSafely` turns a contract-breaking rejection into
+  // the typed failure, so it can't blank the block or stop the document.
+  const result = await renderSafely(renderer, source, { theme });
   // PRD 013 Req 11: stale-result guard — the tree was re-injected (node no
   // longer connected) or a newer pass stamped this block. Paint nothing.
   if (!pre.isConnected || pre.dataset.mmDiagramRun !== token) return;
@@ -159,9 +153,4 @@ function graftShadow(pre: HTMLElement, className: string): ShadowRoot {
 /** PRD 013 Req 11: record where the block stands, for CSS and for tests. */
 function markState(pre: HTMLElement, state: DiagramState): void {
   pre.dataset.mmDiagram = state;
-}
-
-/** A renderer that broke the seam contract and rejected, as a short message. */
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : 'Diagram could not be rendered.';
 }

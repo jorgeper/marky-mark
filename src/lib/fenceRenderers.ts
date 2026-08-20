@@ -81,6 +81,27 @@ export function fenceRendererFor(tag: string | null | undefined): FenceRenderer 
 }
 
 /**
+ * PRD 013 Req 10: invoke `renderer` under the seam's no-throw guarantee. The
+ * contract says renderers resolve their failure variant rather than throw,
+ * but a renderer that breaks it still must not blank a block or stop the
+ * rest of a document — every consumer (the preview graft, the edit-pane
+ * widget) calls through here so a rejection lands as the typed failure.
+ */
+export async function renderSafely(
+  renderer: FenceRenderer,
+  source: string,
+  options: FenceRenderOptions,
+): Promise<FenceRenderResult> {
+  try {
+    return await renderer(source, options);
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message ? error.message : 'Diagram could not be rendered.';
+    return { ok: false, message };
+  }
+}
+
+/**
  * PRD 013 Req 1: the fence-language reader, over both shapes consumers
  * actually hold: an mdast/hast code node's `lang`/info string ("lang", or
  * "lang meta…"), and a rendered `<code>` element's `class` value — the

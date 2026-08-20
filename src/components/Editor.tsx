@@ -63,6 +63,8 @@ import {
 } from '../lib/smartEdit';
 import { SmartEditMenu } from './SmartEditMenu';
 import { codeBlockViewExtension } from './codeBlockView';
+import { diagramViewExtension } from './diagramView';
+import { fenceRendererFor } from '../lib/fenceRenderers';
 import { imageViewExtension, setImageView } from './imageView';
 import { livePreviewExtension } from './livePreview';
 import { allImageRefs, applyImageRewrite, deleteImageAt, type ImageRef } from '../lib/imageResize';
@@ -328,6 +330,12 @@ interface Props {
   codeBlockView: boolean;
   /** Issue #157: the Code Block ▸ toggle flips the setting (App persists it). */
   onToggleCodeBlockView?(): void;
+  /** PRD 013 Req 5: render ALL registered-language fences as diagrams (the global view setting). */
+  diagramView: boolean;
+  /** PRD 013 Req 6: the Diagram ▸ toggle flips the setting (App persists it). */
+  onToggleDiagramView?(): void;
+  /** PRD 013 Req 9: the app's active theme side — diagram widgets draw to match. */
+  themeVariant?: 'light' | 'dark';
 }
 
 /**
@@ -637,6 +645,9 @@ export default function Editor({
   onInsertImage,
   codeBlockView,
   onToggleCodeBlockView,
+  diagramView,
+  onToggleDiagramView,
+  themeVariant = 'light',
   readOnly = false,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -658,6 +669,8 @@ export default function Editor({
   const lpComp = useRef(new Compartment());
   // Issue #157: the fenced-code card view, same live-toggle pattern.
   const codeCardComp = useRef(new Compartment());
+  // PRD 013 Req 5: the edit-pane diagram view, same live-toggle pattern.
+  const diagramComp = useRef(new Compartment());
   const smartComp = useRef(new Compartment());
   // PRD 007 Req 17: read-only rides a compartment like every other live prop.
   const readOnlyComp = useRef(new Compartment());
@@ -684,8 +697,8 @@ export default function Editor({
   inlineImagesRef.current = inlineImages;
   const resolveImageSrcRef = useRef(resolveImageSrc);
   resolveImageSrcRef.current = resolveImageSrc;
-  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView });
-  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView };
+  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView });
+  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView };
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const valueRef = useRef(value);
@@ -738,6 +751,8 @@ export default function Editor({
         imageView: sp.inlineImages,
         // Issue #157: the fenced-code card view state, same pattern.
         codeView: sp.codeBlockView,
+        // PRD 013 Req 6: the diagram view state, same pattern.
+        diagramView: sp.diagramView,
       }),
     });
   };
@@ -873,6 +888,12 @@ export default function Editor({
     // Issue #157: the fenced-code card view's global toggle, same pattern.
     if (id === 'toggle-code-blocks') {
       sp.onToggleCodeBlockView?.();
+      view.focus();
+      return;
+    }
+    // PRD 013 Req 6: the diagram view's global toggle, same pattern.
+    if (id === 'toggle-diagrams') {
+      sp.onToggleDiagramView?.();
       view.focus();
       return;
     }
@@ -1171,6 +1192,12 @@ export default function Editor({
       // while the setting is on; after table mode so it can read the grid
       // spans it must exclude.
       codeCardComp.current.of(codeBlockView ? codeBlockViewExtension() : []),
+      // PRD 013 Req 5: the edit-pane diagram view — pure decoration over the
+      // fence-renderer seam, present only while the setting is on; after
+      // table mode so it can read the grid spans it must exclude.
+      diagramComp.current.of(
+        diagramView ? diagramViewExtension({ rendererFor: fenceRendererFor, theme: themeVariant }) : []
+      ),
       history(),
       highlightActiveLine(),
       // SPEC44 §2: word-under-caret decoration (cleared while selecting).
@@ -1605,6 +1632,17 @@ export default function Editor({
       effects: codeCardComp.current.reconfigure(codeBlockView ? codeBlockViewExtension() : []),
     });
   }, [codeBlockView]);
+
+  // PRD 013 Req 5/Req 9: the diagram-view toggle — and a theme-side change,
+  // which redraws every on-screen diagram for the new side — are compartment
+  // reconfigures: restyle only, so no text, no history, no dirty dot, ever.
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: diagramComp.current.reconfigure(
+        diagramView ? diagramViewExtension({ rendererFor: fenceRendererFor, theme: themeVariant }) : []
+      ),
+    });
+  }, [diagramView, themeVariant]);
 
   // SPEC41 §2.3: flipping the image view is an effect-only dispatch — no
   // text, no history, no dirty dot, ever.

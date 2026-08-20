@@ -109,3 +109,107 @@ test('E311: switching the active theme redraws the on-screen diagram with the ne
     .not.toBe(lightSide);
   await expect(svg).toBeVisible();
 });
+
+// PRD 013 Req 12 (issue #162): the edit-pane side, over the bundled fixture
+// document (fixtures/diagrams.md — seeded into the shim's vfs at /docs).
+const FIXTURE_PATH = '/docs/diagrams.md';
+
+async function openFixtureInEditor(page: import('@playwright/test').Page) {
+  await freshApp(page);
+  await openPath(page, FIXTURE_PATH);
+  await landInPreview(page);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Diagrams');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  return editor;
+}
+
+test('E312: edit pane — the valid fence draws as an in-place widget by default, the invalid one keeps its source plus the error note, and a click yields the source back at the caret', async ({
+  page,
+}) => {
+  const editor = await openFixtureInEditor(page);
+  const content = editor.locator('.cm-content');
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+
+  // PRD 013 Req 5: the valid fence is simply a DIAGRAM — SVG drawn, raw
+  // syntax hidden, no toggle touched, the dirty dot off.
+  const drawn = editor.getByTestId('mm-diagram');
+  await expect(drawn).toBeVisible(FIRST_DRAW);
+  await expect(drawn.locator('svg')).toBeVisible();
+  await expect.poll(text).not.toContain('A[Write]');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // PRD 013 Req 10: the invalid fence keeps its source visible in the
+  // widget, plus the renderer's message in the unobtrusive badge — and it
+  // never stopped the valid one from drawing.
+  await expect(editor.getByTestId('mm-diagram-error')).toBeVisible(FIRST_DRAW);
+  expect(await text()).toContain('this is not a diagram at all');
+  await expect(editor.locator('.mm-editor-diagram')).toHaveCount(2);
+
+  // Fences in unregistered languages keep today's edit-pane rendering.
+  expect(await text()).toContain('const x = 1;');
+
+  // PRD 013 Req 5: a click on the diagram yields the fence source back at
+  // the caret; the other diagram fence stays put.
+  await drawn.click();
+  await expect(content).toContainText('A[Write]');
+  await expect(editor.getByTestId('mm-diagram')).toHaveCount(0);
+  await expect(editor.getByTestId('mm-diagram-error')).toBeVisible();
+
+  // Moving the caret out re-renders it. Nothing was ever text-changed.
+  await editor.locator('.cm-line').filter({ hasText: 'Ordinary code blocks' }).click();
+  await expect(editor.getByTestId('mm-diagram')).toBeVisible(FIRST_DRAW);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
+
+test('E313: the Diagram ▸ toggle and the Settings checkbox flip and persist ONE setting; the preview pane is unaffected by it', async ({
+  page,
+}) => {
+  const editor = await openFixtureInEditor(page);
+  const content = editor.locator('.cm-content');
+  await expect(editor.getByTestId('mm-diagram')).toBeVisible(FIRST_DRAW);
+
+  // PRD 013 Req 6: Diagram ▸ "Show Raw Diagrams" — every fence drops to
+  // source at once, with no text change.
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-diagram').click();
+  await expect(page.getByTestId('smart-edit-toggle-diagrams')).toHaveText(/Show Raw Diagrams/);
+  await page.getByTestId('smart-edit-toggle-diagrams').click();
+  await expect(editor.locator('.mm-editor-diagram')).toHaveCount(0);
+  // Raw means today's rendering: the fence body is editor text again (the
+  // issue #157 card, since codeBlockView is on, hides only the delimiters).
+  await expect(content).toContainText('A[Write]');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // Both surfaces agree: the menu label flipped, and the Settings checkbox
+  // reads the same state and drives the diagrams back on.
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-diagram').click();
+  await expect(page.getByTestId('smart-edit-toggle-diagrams')).toHaveText(/Show Rendered Diagrams/);
+  await page.getByTestId('smart-edit-toggle-diagrams').click();
+  await expect(editor.getByTestId('mm-diagram')).toBeVisible(FIRST_DRAW);
+
+  await openSettings(page, 'editor');
+  await expect(page.getByTestId('settings-diagram-view')).toBeChecked();
+  await page.getByTestId('settings-diagram-view').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect(editor.locator('.mm-editor-diagram')).toHaveCount(0);
+  await expect(content).toContainText('A[Write]');
+
+  // The setting survives a reload: reopen the document into the edit pane —
+  // the fences are still raw.
+  await page.reload();
+  await openPath(page, FIXTURE_PATH);
+  await landInPreview(page);
+  await page.keyboard.press('Control+e');
+  await expect(content).toBeVisible();
+  await expect(content).toContainText('A[Write]');
+  await expect(editor.locator('.mm-editor-diagram')).toHaveCount(0);
+
+  // …and the preview pane is unaffected by its value: diagrams still draw.
+  await page.keyboard.press('Control+e');
+  const doc = page.getByTestId('doc');
+  await expect(doc.getByTestId('mm-diagram')).toBeVisible(FIRST_DRAW);
+  await expect(doc.getByTestId('mm-diagram-error')).toBeVisible();
+});

@@ -586,6 +586,39 @@ button {
   color: var(--mm-fg-muted, #57606a);
 }
 
+/* PRD 013 Req 5: the edit-pane diagram widget — a block replacing its fence
+   as pure decoration. A pointer says the whole block is clickable (a click
+   reveals the fence source at the caret). */
+.editor-wrap .mm-editor-diagram {
+  cursor: pointer;
+  padding: 0.25em 0;
+}
+
+/* PRD 013 Req 11: while the renderer works the fence source holds the space —
+   monospace and muted so the pending block reads as "being drawn", and kept
+   at the source's natural height so nothing collapses. */
+.editor-wrap .mm-editor-diagram .mm-editor-diagram-source {
+  margin: 0;
+  font-family: var(--mm-mono, ui-monospace, monospace);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  opacity: 0.75;
+}
+
+/* PRD 013 Req 9: same overflow fallback as the preview host — a fixed-width
+   SVG scrolls inside its block rather than widening the editor line. */
+.editor-wrap .mm-editor-diagram .mm-diagram {
+  overflow-x: auto;
+}
+
+/* PRD 013 Req 10: the same unobtrusive failure note as the preview, under
+   the still-visible fence source. */
+.editor-wrap .mm-editor-diagram .mm-diagram-error {
+  margin-top: 0.35em;
+  font-size: 0.78rem;
+  color: var(--mm-fg-muted, #57606a);
+}
+
 /* ---------- comment highlights ---------- */
 
 mark.hl {

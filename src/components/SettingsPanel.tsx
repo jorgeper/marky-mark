@@ -866,6 +866,22 @@ export function SettingsPanel({
         </label>
         {scopeNote('codeBlockView')}
       </div>
+
+      {/* PRD 013 Req 6: the edit-pane diagram view, beside its three view kin. */}
+      <h3 className="tab-section">Diagrams</h3>
+      <div className="checkbox-row">
+        <input
+          id="settings-diagram-view"
+          type="checkbox"
+          data-testid="settings-diagram-view"
+          checked={settings.diagramView}
+          onChange={(e) => onChange({ ...settings, diagramView: e.target.checked })}
+        />
+        <label htmlFor="settings-diagram-view" style={{ margin: 0, fontWeight: 400 }}>
+          Show diagrams in the editor
+        </label>
+        {scopeNote('diagramView')}
+      </div>
     </>
   );
 

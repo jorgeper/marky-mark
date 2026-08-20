@@ -31,7 +31,9 @@ const read = (rel: string): string => readFileSync(path.join(ROOT, rel), 'utf8')
 const DIST_WEB = path.join(ROOT, 'dist-web', 'index.html');
 
 /** The inputs `npm run build:web` reads: a change to any of them stales the bundle. */
-const BUILD_INPUTS = ['src', 'index.html', 'vite.web.config.ts', 'package.json'];
+// `fixtures` is a build input too — src/bundled.ts globs /fixtures/*.md
+// into the entry (issue #162), so a fixture change must stale the bundle.
+const BUILD_INPUTS = ['src', 'fixtures', 'index.html', 'vite.web.config.ts', 'package.json'];
 
 beforeAll(() => buildWhenStale(DIST_WEB, BUILD_INPUTS, 'build:web'), 300_000);
 

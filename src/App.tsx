@@ -747,6 +747,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // PRD 013 Req 6: the Diagram ▸ toggle and the Settings checkbox flip this.
+  const toggleDiagramView = useCallback(() => {
+    const s = stateRef.current.settings;
+    updateSettings({ ...s, diagramView: !s.diagramView });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // SPEC41 §2.1: the edit-pane widgets resolve local srcs through the same
   // asset seam the preview uses; identity without a platform or saved doc.
   const resolveEditorImage = useCallback((src: string) => {
@@ -6982,6 +6989,9 @@ export default function App() {
                 onInsertImage={() => void insertImage()}
                 codeBlockView={settings.codeBlockView}
                 onToggleCodeBlockView={toggleCodeBlockView}
+                diagramView={settings.diagramView}
+                onToggleDiagramView={toggleDiagramView}
+                themeVariant={activeThemeVariant}
               />
             </Suspense>
           </div>
@@ -7062,6 +7072,9 @@ export default function App() {
               onInsertImage={() => void insertImage()}
               codeBlockView={settings.codeBlockView}
               onToggleCodeBlockView={toggleCodeBlockView}
+              diagramView={settings.diagramView}
+              onToggleDiagramView={toggleDiagramView}
+              themeVariant={activeThemeVariant}
             />
           </Suspense>
         </div>

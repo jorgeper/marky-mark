@@ -90,6 +90,8 @@ export interface Settings {
   inlineImages: boolean;
   /** Issue #157: fenced code blocks render as preview-style cards in the editor (default on). */
   codeBlockView: boolean;
+  /** PRD 013 Req 5: registered-language fences render as diagrams in the editor (default on). */
+  diagramView: boolean;
   /** SPEC26 §3: show the front-matter card by default when a doc has one. */
   showFrontmatter: boolean;
   /** SPEC34 §2.2: the folder sidebar's visibility (persisted toggle). */
@@ -176,6 +178,8 @@ export const DEFAULT_SETTINGS: Settings = {
   inlineImages: true,
   // Issue #157: like tables and images, code blocks ship rendered.
   codeBlockView: true,
+  // PRD 013 Req 5: like its three view neighbours, diagrams ship rendered.
+  diagramView: true,
   showFrontmatter: true,
   showFolders: false,
   folderWidth: 240,
@@ -252,6 +256,9 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   // Issue #157: User scope like its two view neighbours above — how code
   // reads in someone's editor is theirs, not a workspace's to dictate.
   codeBlockView: 'U',
+  // PRD 013 Req 5: User scope, the tableGridView/inlineImages precedent —
+  // whether diagrams draw in someone's editor is a reader's preference.
+  diagramView: 'U',
   showFrontmatter: 'U',
   showFolders: 'M',
   folderWidth: 'M',
@@ -358,6 +365,8 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   tableGridView: bool,
   inlineImages: bool,
   codeBlockView: bool,
+  // PRD 013 Req 5: a hand-edited non-boolean falls back to the default.
+  diagramView: bool,
   showFrontmatter: bool,
   showFolders: bool,
   folderWidth: clampedInt(FOLDER_WIDTH_MIN, FOLDER_WIDTH_MAX),

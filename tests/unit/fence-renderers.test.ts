@@ -3,6 +3,7 @@ import {
   fenceLanguage,
   fenceRendererFor,
   registerFenceRenderer,
+  renderSafely,
   type FenceRenderer,
   type FenceRenderResult,
 } from '../../src/lib/fenceRenderers';
@@ -110,5 +111,33 @@ describe('PRD 013 Req 1 fence-renderer registry', () => {
     } finally {
       restore();
     }
+  });
+
+  test('U759: renderSafely passes results through and turns a contract-breaking throw into the typed failure', async () => {
+    // A well-behaved renderer's result crosses untouched, both variants.
+    expect(await renderSafely(okRenderer('<svg/>'), 'a --> b', options)).toEqual({
+      ok: true,
+      svg: '<svg/>',
+    });
+    const failing: FenceRenderer = async () => ({ ok: false, message: 'bad diagram source' });
+    expect(await renderSafely(failing, 'x', options)).toEqual({
+      ok: false,
+      message: 'bad diagram source',
+    });
+    // PRD 013 Req 10: a rejection lands as the failure shape — its message
+    // when it has one, the generic fallback otherwise — never a throw.
+    const throwing: FenceRenderer = async () => {
+      throw new Error('renderer exploded');
+    };
+    expect(await renderSafely(throwing, 'x', options)).toEqual({
+      ok: false,
+      message: 'renderer exploded',
+    });
+    const messageless: FenceRenderer = async () => {
+      throw 'not-an-error';
+    };
+    const fallback = await renderSafely(messageless, 'x', options);
+    expect(fallback.ok).toBe(false);
+    if (!fallback.ok) expect(fallback.message).toBe('Diagram could not be rendered.');
   });
 });

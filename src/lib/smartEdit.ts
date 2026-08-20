@@ -364,6 +364,8 @@ export interface SmartMenuCtx {
   imageView: boolean;
   /** Issue #157: the global fenced-code card view is on. */
   codeView: boolean;
+  /** PRD 013 Req 6: the global edit-pane diagram view is on. */
+  diagramView: boolean;
 }
 
 export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
@@ -411,6 +413,16 @@ export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
   out.push(
     item('code-block-view', 'Code Block', {
       submenu: [item('toggle-code-blocks', ctx.codeView ? 'Show Raw Code' : 'Show Rendered Code')],
+    })
+  );
+  // PRD 013 Req 6: the Diagram submenu — the edit-pane diagram view's global
+  // toggle, mirroring Table/Image/Code Block above. Its ids collide with
+  // nothing existing ('diagram' and 'toggle-diagrams' are both new).
+  out.push(
+    item('diagram', 'Diagram', {
+      submenu: [
+        item('toggle-diagrams', ctx.diagramView ? 'Show Raw Diagrams' : 'Show Rendered Diagrams'),
+      ],
     })
   );
   out.push('sep');

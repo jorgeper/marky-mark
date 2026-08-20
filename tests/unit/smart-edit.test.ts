@@ -25,6 +25,7 @@ const ctx = (over: Partial<SmartMenuCtx> = {}): SmartMenuCtx => ({
   gridView: true, // SPEC40 §6 amendment to U65
   imageView: true, // SPEC41 §8 amendment to U65
   codeView: true, // Issue #157 amendment to U65
+  diagramView: true, // PRD 013 Req 6 amendment to U65
   ...over,
 });
 
@@ -45,8 +46,9 @@ describe('SPEC43 smart edit', () => {
     // SPEC41 §8 amendment: the Image submenu sits below Table (always
     // present); the SPEC43 top-level resize-image stub is gone.
     // Issue #157 amendment: the Code Block submenu joins them, after Image.
+    // PRD 013 Req 6 amendment: the Diagram submenu joins them, after Code Block.
     expect(ids(buildSmartMenu(ctx()))).toEqual([
-      'table', 'image', 'code-block-view',
+      'table', 'image', 'code-block-view', 'diagram',
       'sep',
       'bold', 'italic', 'strike', 'code', 'link',
       'sep',
@@ -177,6 +179,17 @@ describe('SPEC43 smart edit', () => {
     const top = buildSmartMenu(ctx());
     expect(find(top, 'code').label).toBe('Inline Code');
     expect(find(top, 'code-block').label).toBe('Code Block');
+  });
+
+  test('U760: PRD 013 Req 6 — the Diagram submenu carries the always-enabled global toggle, labeled by the view state', () => {
+    const sub = (c: SmartMenuCtx) =>
+      find(buildSmartMenu(c), 'diagram').submenu!.map((e) => e !== 'sep' && [e.id, e.label, e.enabled]);
+    // Rendered (the default): the toggle offers the way back to raw.
+    expect(sub(ctx({ diagramView: true }))).toEqual([['toggle-diagrams', 'Show Raw Diagrams', true]]);
+    // Raw: it offers the diagrams, mirroring its three view neighbours.
+    expect(sub(ctx({ diagramView: false }))).toEqual([
+      ['toggle-diagrams', 'Show Rendered Diagrams', true],
+    ]);
   });
 
   test('U66: inline toggles and link', () => {

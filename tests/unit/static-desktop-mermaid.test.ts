@@ -26,8 +26,9 @@ import { MERMAID_NEEDLES, ROOT, buildWhenStale } from './built-artifact';
 const DIST_HTML = path.join(ROOT, 'dist', 'index.html');
 const ASSETS = path.join(ROOT, 'dist', 'assets');
 
-/** The inputs `npm run build` reads: a change to any of them stales the bundle. */
-const BUILD_INPUTS = ['src', 'index.html', 'vite.config.ts', 'package.json'];
+/** The inputs `npm run build` reads: a change to any of them stales the bundle.
+ * `fixtures` is one — src/bundled.ts globs /fixtures/*.md into the entry. */
+const BUILD_INPUTS = ['src', 'fixtures', 'index.html', 'vite.config.ts', 'package.json'];
 
 beforeAll(() => buildWhenStale(DIST_HTML, BUILD_INPUTS, 'build'), 300_000);
 
@@ -90,12 +91,17 @@ describe('PRD 013 Req 7 — desktop build keeps mermaid out of the startup load 
     }
 
     // Stricter: every mention of mermaid in the entry is either the fence tag
-    // literal ('mermaid', the registration in src/lib/mermaidRenderer.ts) or
-    // the chunk specifier rollup rewrote `import('mermaid')` into.
+    // literal ('mermaid', the registration in src/lib/mermaidRenderer.ts), the
+    // chunk specifier rollup rewrote `import('mermaid')` into, or — issue #162
+    // — a bundled fixture document's ```mermaid fence delimiter (fixtures/*.md
+    // ship raw in the entry via src/bundled.ts; a fence tag in markdown text
+    // is not library code).
     for (const match of entry.matchAll(/mermaid/g)) {
-      const context = entry.slice(Math.max(0, match.index - 2), match.index + 40);
+      const context = entry.slice(Math.max(0, match.index - 8), match.index + 46);
       expect(
-        /["']mermaid["']/.test(context) || /mermaid\.core-[\w-]+\.js/.test(context),
+        /["']mermaid["']/.test(context) ||
+          /mermaid\.core-[\w-]+\.js/.test(context) ||
+          /(?:\\?`){3}mermaid/.test(context),
         `unexpected mermaid mention in the entry chunk: …${context}…`,
       ).toBe(true);
     }
