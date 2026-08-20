@@ -223,14 +223,20 @@ export function FileTabStrip(p: FileTabStripProps) {
   // minimal (nearest edge; already visible ⇒ no movement, railRevealTarget)
   // and horizontal-only: writing scrollLeft directly instead of
   // scrollIntoView means no ancestor's scroll can be disturbed. offsetLeft
-  // is rail-content-relative: the rail is the tabs' offsetParent
-  // (position: relative in styles.css).
+  // is rail-relative: the rail is the tabs' offsetParent (position: relative
+  // in styles.css). The rail's left padding (shadow headroom for the first
+  // tab) goes along so a left-edge reveal keeps it in view.
   const revealActive = () => {
     const rail = railRef.current;
     if (!rail) return;
     const el = rail.querySelector<HTMLElement>('.file-tab[data-active="true"]');
     if (!el) return;
-    rail.scrollLeft = railRevealTarget(rail, el.offsetLeft, el.offsetWidth);
+    const paddingLeft = parseFloat(getComputedStyle(rail).paddingLeft) || 0;
+    rail.scrollLeft = railRevealTarget(
+      { scrollLeft: rail.scrollLeft, clientWidth: rail.clientWidth, scrollWidth: rail.scrollWidth, paddingLeft },
+      el.offsetLeft,
+      el.offsetWidth,
+    );
   };
 
   // PRD 013 Req 9: arrows track the tab list — adds, removes and renames all

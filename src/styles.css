@@ -2254,7 +2254,7 @@ mark.hl.ghost {
    strip spans the workspace's full width — and only the workspace's: the
    sidebar is a body-row sibling outside this column. */
 .theme-root {
-  --mm-tabstrip-h: 34px;
+  --mm-tabstrip-h: 38px; /* 29px tab + 9px headroom for the tabs' lift shadow */
 }
 .workspace-stack {
   flex: 1;
@@ -2265,10 +2265,46 @@ mark.hl.ghost {
 .workspace-stack > .workspace {
   min-height: 0; /* the column's scroll box — the strip drives no overflow */
 }
+/* PRD 013 Reqs 10–12 (issue #148) + SPEC36 §4.1: THE seam, painted once.
+   The workspace floats "in front" of the L-shaped backdrop (strip above,
+   folder pane left), so its hairline + cast shadow are an OUTWARD shadow on
+   a transparent overlay the exact size of the workspace — falling onto the
+   strip and the pane alike and wrapping the (square) top-left corner in
+   one continuous gradient, instead of two per-box overlays that cut each
+   other off at the corner.
+   The stack does not clip and .body-row does not either, so the shadow
+   reaches the pane (a body-row sibling); clip-path trims the bleed to the
+   top and left edges only. Stacking: z 1 in the body-row context — above
+   the tree/strip surfaces and the z-1 middle plane (the overlay is later
+   in tree order), under the z-2 active tab/row that alone breaks the seam.
+   Themeable via --mm-panel-shadow (the same optional key as before). */
+.workspace-stack {
+  position: relative;
+}
+.workspace-stack::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: -60px; /* no strip: only the left edge shows — the top is clipped */
+  pointer-events: none;
+  z-index: 1;
+  clip-path: inset(60px 0 0 -48px);
+  box-shadow:
+    0 0 0 1px var(--mm-border, #d1d9e0),
+    var(--mm-panel-shadow, 0 0 24px 2px rgba(0, 0, 0, 0.14));
+}
+.workspace-stack.with-tabs::after {
+  top: var(--mm-tabstrip-h);
+  clip-path: inset(-48px 0 0 -48px);
+}
+.theme-root.toolbar-static .workspace-stack.with-tabs::after {
+  top: calc(42px + var(--mm-tabstrip-h));
+}
 /* PRD 013 Req 10 (issue #148): the strip sits on the folder pane's own
    surface, so with the pane open the two form one continuous L-shaped
-   backdrop around the workspace's top-left corner. position: relative
-   anchors the ::after seam overlay below. */
+   backdrop around the workspace's top-left corner. */
 .file-tab-strip {
   flex: none;
   box-sizing: border-box;
@@ -2276,30 +2312,12 @@ mark.hl.ghost {
   height: var(--mm-tabstrip-h);
   display: flex;
   align-items: flex-end;
-  padding: 5px 8px 0;
+  padding: 9px 8px 0;
   background: var(--mm-bg-elevated, #f6f8fa);
 }
-/* PRD 013 Reqs 10–12 (issue #148): the strip/workspace seam, painted ONCE —
-   .folder-panel::after rotated to the top edge. The workspace floats "in
-   front" below the strip: its cast shadow + the seam hairline live on this
-   overlay pinned to the strip's bottom edge (replacing the #144
-   border-bottom), painting above the open-tab middle plane (z 1; the
-   overlay is the strip's last box, so it wins the tie) and under the
-   active tab alone (z 2) — the one tab that truly breaks the seam.
-   Themeable via the same optional key the sidebar honors. */
-.file-tab-strip::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 16px;
-  pointer-events: none;
-  z-index: 1;
-  box-shadow:
-    inset 0 -1px 0 var(--mm-border, #d1d9e0),
-    var(--mm-panel-shadow, inset 0 -12px 14px -12px rgba(0, 0, 0, 0.28));
-}
+/* PRD 013 Reqs 10–12 (issue #148): the strip/workspace seam is painted by
+   .workspace-stack::after below — one overlay for the whole L, not a
+   per-box one here (that cut the cast off at the corner). */
 /* PRD 013 Req 9 (issue #147): overflow scrolls instead of clipping — the
    tabs live in this inner rail, a one-row horizontal scroll box between the
    end-anchored arrows. No native scrollbar shows (the arrows and the wheel
@@ -2311,7 +2329,19 @@ mark.hl.ghost {
   position: relative;
   flex: 1;
   min-width: 0;
-  height: 100%;
+  /* The rail is a scroll box, so it clips vertically too: it reaches up
+     through the strip's top padding so the tabs' lift shadow has the full
+     headroom to fade out instead of being sliced at the rail's edge. The
+     shadows below are sized to finish inside that 9px. */
+  height: calc(100% + 9px);
+  margin-top: -9px;
+  /* Likewise sideways: the rail reaches into the strip's 8px left padding
+     (as scroll-box padding, so the tabs still start 8px in) and the first
+     tab's shadow casts left instead of being sliced at the rail's edge.
+     Reveal math is unaffected — offsetLeft and scrollLeft both count from
+     the rail's padding edge. */
+  margin-left: -8px;
+  padding-left: 8px;
   display: flex;
   align-items: flex-end;
   gap: 3px;
@@ -2380,11 +2410,11 @@ mark.hl.ghost {
   cursor: pointer;
   position: relative;
   z-index: 1;
-  /* Issue #156: the lift is a soft ambient cast, not a hard dark edge —
-     lower alpha over a wider blur than the #148 values. */
+  /* The lift: a soft cast sized to fade out inside the strip's 9px headroom
+     (the rail above reclaims it), never sliced by the scroll box's edge. */
   box-shadow:
-    0 -1px 4px rgba(0, 0, 0, 0.07),
-    0 -3px 10px rgba(0, 0, 0, 0.05);
+    0 -1px 3px rgba(0, 0, 0, 0.11),
+    0 -2px 6px rgba(0, 0, 0, 0.08);
 }
 .file-tab:hover {
   color: var(--mm-fg, #1f2328);
@@ -2409,8 +2439,8 @@ mark.hl.ghost {
   /* Issue #156: softened like .file-tab above, but still the strongest
      cast in the strip so the front plane keeps its extra lift. */
   box-shadow:
-    0 -2px 9px rgba(0, 0, 0, 0.1),
-    0 -7px 22px rgba(0, 0, 0, 0.08);
+    0 -2px 6px rgba(0, 0, 0, 0.115),
+    0 -4px 9px rgba(0, 0, 0, 0.08);
 }
 .file-tab-label {
   min-width: 0;
@@ -2536,25 +2566,13 @@ mark.hl.ghost {
   -webkit-user-select: none; /* WKWebView belt to the unprefixed suspenders */
   user-select: none;
 }
-/* The workspace floats "in front": its cast shadow + a seam hairline live on
-   an overlay PINNED to the panel's right edge (not on per-row edges — rows
-   are max-content wide, so a long name's own edge sits off-screen). The
-   overlay paints above the tree AND the open-tab middle plane (z 1, last
-   child wins the tie) and under the active tab alone (z 2) — the one row
-   that truly breaks the seam. Themeable. */
-.folder-panel::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 16px;
-  pointer-events: none;
-  z-index: 1;
-  box-shadow:
-    inset -1px 0 0 var(--mm-border, #d1d9e0),
-    var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
-}
+/* The workspace floats "in front": its cast shadow + the seam hairline are
+   painted ONCE by .workspace-stack::after (see the tab-strip section) — an
+   overlay on the workspace rect whose outward shadow falls onto this panel
+   and the strip alike, so rows wider than the panel (long names) get the
+   seam at the true boundary and the strip/pane corner casts continuously.
+   It paints above the tree AND the open-tab middle plane (z 1) and under
+   the active tab alone (z 2) — the one row that truly breaks the seam. */
 .folder-header {
   display: flex;
   align-items: center;
@@ -2653,9 +2671,12 @@ mark.hl.ghost {
   color: var(--mm-fg, #1f2328);
   font-weight: 600;
   z-index: 2; /* the front plane — above the open-tab middle plane */
+  /* The same lift as .file-tab.active — same offsets, blur and alpha, so
+     the top edge reads identically — nudged a touch left, off the seam. */
   box-shadow:
-    0 2px 6px rgba(0, 0, 0, 0.18),
-    0 5px 16px rgba(0, 0, 0, 0.14);
+    -1px -2px 6px rgba(0, 0, 0, 0.115),
+    -2px -4px 9px rgba(0, 0, 0, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.08); /* rows float free below too — a faint bottom edge */
 }
 .folder-item.selected:hover:not(:disabled) {
   background: var(--mm-bg, #ffffff); /* the tab doesn't flicker on hover */
@@ -2671,11 +2692,12 @@ mark.hl.ghost {
   background: color-mix(in srgb, var(--mm-bg, #ffffff) 72%, var(--mm-bg-elevated, #f6f8fa));
   z-index: 1;
   /* The tab's own lift only — the seam hairline + workspace cast shadow are
-     painted by the panel-edge overlay above, so rows wider than the panel
+     painted by .workspace-stack::after, so rows wider than the panel
      (long names) get them at the true boundary too. */
   box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.14),
-    0 2px 7px rgba(0, 0, 0, 0.09);
+    -1px -1px 3px rgba(0, 0, 0, 0.11),
+    -1px -2px 6px rgba(0, 0, 0, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.07); /* rows float free below too — a faint bottom edge */
 }
 .folder-item.open:hover:not(:disabled) {
   background: #f4f4f6;

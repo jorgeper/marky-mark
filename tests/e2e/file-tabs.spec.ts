@@ -877,7 +877,7 @@ test('E299: no arrows while the tabs fit; overflow grows them in, a resize that 
   await expect(page.getByTestId('file-tab-scroll-right')).toHaveCount(0);
   expect(await railMax(page)).toBeLessThanOrEqual(1);
   const stripBox = (await page.getByTestId('file-tab-strip').boundingBox())!;
-  expect(Math.round(stripBox.height)).toBe(34); // --mm-tabstrip-h
+  expect(Math.round(stripBox.height)).toBe(38); // --mm-tabstrip-h
 
   // Make the FIRST tab the active one, so the resize below (which keeps the
   // active tab revealed) parks the rail at its left end deterministically.
@@ -895,7 +895,7 @@ test('E299: no arrows while the tabs fit; overflow grows them in, a resize that 
   await expect(page.getByTestId('file-tab-scroll-right')).toBeEnabled();
   expect(await railScroll(page)).toBe(0);
   const narrow = (await page.getByTestId('file-tab-strip').boundingBox())!;
-  expect(Math.round(narrow.height)).toBe(34);
+  expect(Math.round(narrow.height)).toBe(38);
   // Every tab sits on the same row (one bottom edge), scrolled or clipped —
   // never wrapped below.
   const bottoms = await page

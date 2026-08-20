@@ -116,6 +116,14 @@ describe('PRD 013 Req 9 rail overflow math', () => {
     expect(railRevealTarget(m, 700, 500)).toBe(600); // 700 clamped to max 600
   });
 
+  test('U722: railRevealTarget — a left-edge reveal backs off by the rail\'s leading padding (the first tab\'s shadow headroom), right-edge reveals unchanged', () => {
+    const m = { scrollLeft: 500, clientWidth: 400, scrollWidth: 1000, paddingLeft: 8 };
+    expect(railRevealTarget(m, 8, 160)).toBe(0); // first tab: padding in view
+    expect(railRevealTarget(m, 208, 160)).toBe(200);
+    expect(railRevealTarget({ ...m, scrollLeft: 0 }, 700, 160)).toBe(700 + 160 - 400);
+    expect(railRevealTarget({ ...m, scrollLeft: 0 }, 900, 160)).toBe(600);
+  });
+
   test('U716: railWheelDelta — the dominant axis wins, so a plain vertical wheel drives horizontal scroll', () => {
     // Pure horizontal (trackpad): passes through.
     expect(railWheelDelta(80, 0)).toBe(80);

@@ -31,6 +31,9 @@ export interface RailMetrics {
   scrollLeft: number;
   clientWidth: number;
   scrollWidth: number;
+  /** The rail's leading (scroll-box) padding — shadow headroom for the first
+   *  tab. A left-edge reveal backs off by it so the headroom stays in view. */
+  paddingLeft?: number;
 }
 
 export interface RailArrowState {
@@ -81,11 +84,13 @@ export function railStepTarget(m: RailMetrics, direction: -1 | 1): number {
 
 /**
  * PRD 013 Req 9: the minimal reveal — the scroll target that brings a tab at
- * `tabLeft`/`tabWidth` (rail-content coordinates) fully into view. Already
- * visible ⇒ the current position, byte-for-byte: activation must not nudge a
- * rail the user can see the tab in. Otherwise the NEAREST edge, never a
- * centring scroll, clamped to the range (FolderPanel's `block: 'nearest'`
- * reveal, rotated to the horizontal axis).
+ * `tabLeft`/`tabWidth` (offsetLeft coordinates: from the rail's padding
+ * edge) fully into view. Already visible ⇒ the current position,
+ * byte-for-byte: activation must not nudge a rail the user can see the tab
+ * in. Otherwise the NEAREST edge, never a centring scroll, clamped to the
+ * range (FolderPanel's `block: 'nearest'` reveal, rotated to the horizontal
+ * axis). A left-edge alignment lands `paddingLeft` before the tab, so the
+ * first tab's reveal is scrollLeft 0 — its shadow headroom included.
  */
 export function railRevealTarget(m: RailMetrics, tabLeft: number, tabWidth: number): number {
   const hiddenLeft = m.scrollLeft - tabLeft > RAIL_EPSILON;
@@ -93,7 +98,7 @@ export function railRevealTarget(m: RailMetrics, tabLeft: number, tabWidth: numb
   if (!hiddenLeft && !hiddenRight) return m.scrollLeft;
   const max = railMaxScroll(m);
   // A tab wider than the window can't be fully shown: its left edge wins.
-  if (hiddenLeft || tabWidth > m.clientWidth) return clamp(tabLeft, 0, max);
+  if (hiddenLeft || tabWidth > m.clientWidth) return clamp(tabLeft - (m.paddingLeft ?? 0), 0, max);
   return clamp(tabLeft + tabWidth - m.clientWidth, 0, max);
 }
 
