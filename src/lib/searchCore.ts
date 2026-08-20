@@ -39,12 +39,25 @@ export interface SearchMatcher {
 }
 
 /**
+ * PRD 014 Req 10 (issue #154): the final pattern behind a compiled matcher —
+ * escaping, whole-word wrapping and the case decision already applied — for
+ * an engine that runs its own regex over the same semantics. The find bar's
+ * edit mode builds CodeMirror's `SearchQuery` from exactly this source, so
+ * the two modes cannot diverge on escaping, word boundaries or flags.
+ */
+export interface CompiledPattern {
+  /** Regex source, ready for `new RegExp` — empty for the empty query. */
+  source: string;
+  caseSensitive: boolean;
+}
+
+/**
  * PRD 014 Req 6: compilation is a discriminated result, never a throw — an
  * invalid regex comes back as `kind: 'invalid-regex'` with a message the UI
  * renders inline, and is never silently matched as a literal instead.
  */
 export type CompiledQuery =
-  | { kind: 'matcher'; matcher: SearchMatcher }
+  | { kind: 'matcher'; matcher: SearchMatcher; pattern: CompiledPattern }
   | { kind: 'invalid-regex'; message: string };
 
 /** PRD 014 Req 6: an empty query finds nothing — it never matches everything. */
@@ -85,7 +98,10 @@ function matcherFrom(source: string, flags: string): SearchMatcher {
  * does not match `concatenate`.
  */
 export function compileQuery(query: string, options: SearchOptions): CompiledQuery {
-  if (query === '') return { kind: 'matcher', matcher: NEVER };
+  if (query === '') {
+    // The empty pattern source means "no query" to a downstream engine.
+    return { kind: 'matcher', matcher: NEVER, pattern: { source: '', caseSensitive: options.caseSensitive } };
+  }
   if (options.regex) {
     // Validate the pattern exactly as the user wrote it, before any wrapping,
     // so the error message names their input and not our scaffolding.
@@ -97,7 +113,42 @@ export function compileQuery(query: string, options: SearchOptions): CompiledQue
   }
   let source = options.regex ? `(?:${query})` : escapeRegExp(query);
   if (options.wholeWord) source = `\\b(?:${source})\\b`;
-  return { kind: 'matcher', matcher: matcherFrom(source, options.caseSensitive ? '' : 'i') };
+  return {
+    kind: 'matcher',
+    matcher: matcherFrom(source, options.caseSensitive ? '' : 'i'),
+    pattern: { source, caseSensitive: options.caseSensitive },
+  };
+}
+
+/**
+ * PRD 014 Req 10 (issue #154): every match in one text as absolute [start,
+ * end) offsets — the same line-scoped scan as `findMatches` (each terminator
+ * is one break, no pattern spans one), mapped back into the whole string for
+ * surfaces that highlight by document offset (the find bar's preview marks).
+ */
+export function findMatchRanges(text: string, matcher: SearchMatcher): MatchRange[] {
+  const out: MatchRange[] = [];
+  // Capturing split: even slots are lines, odd slots the terminators between
+  // them, so the running offset stays exact for every terminator width.
+  const parts = text.split(/(\r\n|\n|\r)/);
+  let at = 0;
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 0) {
+      for (const r of matcher.findAll(parts[i])) out.push({ start: at + r.start, end: at + r.end });
+    }
+    at += parts[i].length;
+  }
+  return out;
+}
+
+/**
+ * PRD 014 Req 10 (issue #154): a replace text for a regex-mode engine while
+ * the user's query is NOT in regex mode — `$` group references neutralized
+ * (`$$` is the engine's escape for a literal `$`), so the replacement stays
+ * byte-literal exactly as the literal engine behaved.
+ */
+export function literalReplacement(replace: string): string {
+  return replace.replace(/\$/g, '$$$$');
 }
 
 /**

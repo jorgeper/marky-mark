@@ -444,6 +444,257 @@ test('E90: find & replace in the editor — CM decorations, replace one/all on t
   expect(await page.locator('.doc mark.mm-find').count()).toBeGreaterThan(0);
 });
 
+// PRD 014 Req 10–11 (issue #154): the find bar's toggles and hit state — the
+// Search view's SearchOptionsBar mounted in the bar, both engines compiled by
+// searchCore.compileQuery, and a hit state that cannot be missed.
+
+test('E287: find-bar toggles in preview — case, whole-word, regex and a combo change the matches live, the counter tracks stepping, and a close resets them', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/find-toggles.md', 'Cat sat\n\nconcatenate cat\n\ncut\n');
+  await page.goto('/#open=/docs/find-toggles.md');
+  await expect(page.getByTestId('doc')).toContainText('concatenate');
+
+  await page.keyboard.press('Control+f');
+  await expect(page.getByTestId('find-bar')).toBeVisible();
+  // The Search view's control — same test ids, same pressed state, all off.
+  for (const id of ['search-opt-case', 'search-opt-word', 'search-opt-regex']) {
+    await expect(page.getByTestId(id)).toHaveAttribute('aria-pressed', 'false');
+  }
+  await page.getByTestId('find-input').fill('cat');
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 3'); // Cat, concatenate, cat
+  expect(await page.locator('.doc mark.mm-find').count()).toBe(3);
+
+  // Case-sensitive: ONE click — no re-typing — repaints; 'Cat' drops out.
+  await page.getByTestId('search-opt-case').click();
+  await expect(page.getByTestId('search-opt-case')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('find-input')).toHaveValue('cat');
+  await expect(page.getByTestId('find-input')).toBeFocused(); // the caret stayed in the box
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 2');
+  await page.getByTestId('search-opt-case').click();
+
+  // Whole-word stops substring containment: 'concatenate' drops out.
+  await page.getByTestId('search-opt-word').click();
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 2'); // Cat, cat
+  // Two toggles combine as a conjunction: only the lone lowercase word is left.
+  await page.getByTestId('search-opt-case').click();
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 1');
+  await page.getByTestId('search-opt-case').click();
+  await page.getByTestId('search-opt-word').click();
+
+  // Regex: 'c.t' matches nothing literally, four ways compiled.
+  await page.getByTestId('find-input').fill('c.t');
+  await expect(page.getByTestId('find-count')).toHaveText('No matches');
+  await page.getByTestId('search-opt-regex').click();
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 4'); // Cat, cat, cat, cut
+
+  // The counter tracks every stepping surface, wrap included.
+  await page.getByTestId('find-next').click();
+  await expect(page.getByTestId('find-count')).toHaveText('2 of 4');
+  await page.getByTestId('find-input').press('Enter');
+  await expect(page.getByTestId('find-count')).toHaveText('3 of 4');
+  await page.getByTestId('find-input').press('Shift+Enter');
+  await expect(page.getByTestId('find-count')).toHaveText('2 of 4');
+  await page.getByTestId('find-prev').click();
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 4');
+  expect(await page.locator('.doc mark.mm-find').count()).toBe(4);
+  await expect(page.locator('.doc mark.mm-find-active')).toHaveCount(1);
+
+  // Closing the bar resets the toggles — options never leak across a close.
+  await page.getByTestId('find-input').press('Escape');
+  await expect(page.getByTestId('find-bar')).toHaveCount(0);
+  await page.keyboard.press('Control+f');
+  await expect(page.getByTestId('find-bar')).toBeVisible();
+  for (const id of ['search-opt-case', 'search-opt-word', 'search-opt-regex']) {
+    await expect(page.getByTestId(id)).toHaveAttribute('aria-pressed', 'false');
+  }
+});
+
+test('E288: find-bar toggles drive the editor — regex and whole-word change the CM decorations, the counter steps, and replace stays byte-literal with regex off', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/find-edit.md', '# T\n\nCat sat\nconcatenate cat\ncut\n');
+  await page.goto('/#open=/docs/find-edit.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('T');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+
+  await page.keyboard.press('Control+f');
+  await page.getByTestId('find-input').fill('cat');
+  await expect(page.getByTestId('find-count')).toContainText('of 3');
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(3);
+
+  // Regex in EDIT mode: the same compiled pattern reaches CodeMirror.
+  await page.getByTestId('find-input').fill('c.t');
+  await expect(page.getByTestId('find-count')).toHaveText('No matches');
+  await page.getByTestId('search-opt-regex').click();
+  await expect(page.getByTestId('find-count')).toContainText('of 4');
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(4);
+  await page.getByTestId('search-opt-regex').click();
+
+  // Whole-word in EDIT mode: one flip, no re-typing, the substring drops.
+  await page.getByTestId('find-input').fill('cat');
+  await expect(page.getByTestId('find-count')).toContainText('of 3');
+  await page.getByTestId('search-opt-word').click();
+  await expect(page.getByTestId('find-count')).toContainText('of 2');
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(2);
+
+  // The counter tracks stepping in edit mode too.
+  const before = await page.getByTestId('find-count').textContent();
+  await page.getByTestId('find-next').click();
+  await expect(page.getByTestId('find-count')).not.toHaveText(before!);
+  await expect(page.getByTestId('find-count')).toContainText('of 2');
+
+  // SPEC30 §1.4 replace under the toggles is a working, deliberate choice:
+  // whole-word replace-all touches only the word matches...
+  await page.getByTestId('find-replace-input').fill('dog');
+  await page.getByTestId('find-replace-all').click();
+  await expect(page.getByTestId('notice')).toContainText('Replaced 2 matches');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('dog sat');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('concatenate'); // untouched
+  // ...and with regex OFF the replacement is byte-literal even for `$&`.
+  await page.getByTestId('find-input').fill('sat');
+  await expect(page.getByTestId('find-count')).toContainText('of 1');
+  await page.getByTestId('find-replace-input').fill('$&!');
+  await page.getByTestId('find-replace-one').click();
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('$&!');
+});
+
+test('E289: an invalid regex shows compileQuery\'s message inline and matches NOTHING in both modes — no throw, no literal fallback — and recovers live', async ({
+  page,
+}) => {
+  // '[cherry' exists LITERALLY in the document — the proof that an invalid
+  // pattern is never quietly re-run as a literal.
+  await fsWrite(page, '/docs/find-invalid.md', 'pick [cherry today\n');
+  await page.goto('/#open=/docs/find-invalid.md');
+  await expect(page.getByTestId('doc')).toContainText('pick');
+  const pageErrors: Error[] = [];
+  page.on('pageerror', (e) => pageErrors.push(e));
+
+  await page.keyboard.press('Control+f');
+  await page.getByTestId('search-opt-regex').click();
+  await page.getByTestId('find-input').fill('[cherry');
+  await expect(page.getByTestId('find-error')).toBeVisible();
+  await expect(page.getByTestId('find-error')).toContainText('[cherry'); // compileQuery's own message
+  await expect(page.getByTestId('find-count')).toHaveText('No matches');
+  expect(await page.locator('.doc mark.mm-find').count()).toBe(0);
+  await expect(page.getByTestId('find-prev')).toBeDisabled();
+  await expect(page.getByTestId('find-next')).toBeDisabled();
+
+  // Correcting the pattern clears the error and matches return live.
+  await page.getByTestId('find-input').fill('\\[cherry');
+  await expect(page.getByTestId('find-error')).toHaveCount(0);
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 1');
+  expect(await page.locator('.doc mark.mm-find').count()).toBe(1);
+
+  // Turning regex OFF clears the error too — the same text matches literally.
+  await page.getByTestId('find-input').fill('[cherry');
+  await expect(page.getByTestId('find-error')).toBeVisible();
+  await page.getByTestId('search-opt-regex').click();
+  await expect(page.getByTestId('find-error')).toHaveCount(0);
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 1');
+
+  // Edit mode alike: the invalid pattern never reaches CodeMirror.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await expect(page.getByTestId('find-bar')).toBeVisible();
+  await page.getByTestId('search-opt-regex').click();
+  await expect(page.getByTestId('find-error')).toBeVisible();
+  await expect(page.getByTestId('find-count')).toHaveText('No matches');
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(0);
+  await expect(page.getByTestId('find-next')).toBeDisabled();
+  await page.getByTestId('find-input').fill('\\[cherry');
+  await expect(page.getByTestId('find-error')).toHaveCount(0);
+  await expect(page.getByTestId('find-count')).toContainText('of 1');
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(1);
+
+  // Nothing escaped to the page — the invalid state never threw.
+  expect(pageErrors).toEqual([]);
+});
+
+test('E290: a query that matches nothing turns the bar itself loud — an asserted state and an accented input — and it clears the moment the query matches', async ({
+  page,
+}) => {
+  await page.keyboard.press('Control+f');
+  await expect(page.getByTestId('find-bar')).toBeVisible();
+  const inputStyle = () =>
+    page.getByTestId('find-input').evaluate((el) => {
+      const s = getComputedStyle(el);
+      return `${s.borderTopColor} ${s.backgroundColor}`;
+    });
+
+  await page.getByTestId('find-input').fill('markdown');
+  await expect(page.getByTestId('find-bar')).toHaveAttribute('data-state', 'ok');
+  const matched = await inputStyle();
+
+  await page.getByTestId('find-input').fill('zzqqxx-nothing');
+  await expect(page.getByTestId('find-count')).toHaveText('No matches');
+  await expect(page.getByTestId('find-bar')).toHaveAttribute('data-state', 'no-match');
+  expect(await inputStyle()).not.toBe(matched); // the input itself turned, not just the text
+
+  await page.getByTestId('find-input').fill('markdown');
+  await expect(page.getByTestId('find-bar')).toHaveAttribute('data-state', 'ok');
+  expect(await inputStyle()).toBe(matched);
+});
+
+test('E291: every match carries its own foreground and the current one is a distinct colour — light and dark themes, preview and edit mode', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/find-theme.md', 'cat cat cat\n');
+  await page.goto('/#open=/docs/find-theme.md');
+  await expect(page.getByTestId('doc')).toContainText('cat cat cat');
+
+  await openSettings(page);
+  await page.getByTestId('settings-theme-light').selectOption('crisp');
+  await page.getByTestId('settings-theme-dark').selectOption('one-dark');
+  const useDark = page.getByTestId('use-dark-theme');
+  if (!(await useDark.isChecked())) await useDark.check();
+  await page.getByTestId('settings-close').click();
+
+  const style = (loc: ReturnType<typeof page.locator>) =>
+    loc.evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { bg: s.backgroundColor, fg: s.color };
+    });
+  // The self-contained treatment: own foreground on every mark, the current
+  // match's background distinct from the rest (styles.css fallbacks — no
+  // bundled theme defines --mm-find*).
+  const assertDistinct = async (activeSel: string, otherSel: string) => {
+    const active = await style(page.locator(activeSel).first());
+    const other = await style(page.locator(otherSel).first());
+    expect(active.bg).toBe('rgb(240, 136, 62)'); // --mm-find-active fallback
+    expect(other.bg).toBe('rgb(255, 223, 93)'); // --mm-find fallback
+    expect(active.fg).toBe('rgb(31, 35, 40)'); // own foreground, not the theme's
+    expect(other.fg).toBe('rgb(31, 35, 40)');
+  };
+
+  const themeBg = () => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect.poll(themeBg).toBe('rgb(255, 255, 255)'); // Crisp
+
+  await page.keyboard.press('Control+f');
+  await page.getByTestId('find-input').fill('cat');
+  await expect(page.getByTestId('find-count')).toHaveText('1 of 3');
+  await expect(page.locator('.doc mark.mm-find-active')).toHaveCount(1);
+  await assertDistinct('.doc mark.mm-find.mm-find-active', '.doc mark.mm-find:not(.mm-find-active)');
+
+  // Edit mode, light theme.
+  await page.keyboard.press('Control+e');
+  await expect(page.locator('.cm-searchMatch')).toHaveCount(3);
+  await expect(page.locator('.cm-searchMatch-selected')).toHaveCount(1);
+  await assertDistinct('.cm-searchMatch.cm-searchMatch-selected', '.cm-searchMatch:not(.cm-searchMatch-selected)');
+
+  // Dark theme: same distinction, same self-contained legibility.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect.poll(themeBg).toBe('rgb(40, 44, 52)'); // One Dark
+  await assertDistinct('.cm-searchMatch.cm-searchMatch-selected', '.cm-searchMatch:not(.cm-searchMatch-selected)');
+
+  // Back to preview, still dark.
+  await page.keyboard.press('Control+e');
+  await expect(page.locator('.doc mark.mm-find-active')).toHaveCount(1);
+  await assertDistinct('.doc mark.mm-find.mm-find-active', '.doc mark.mm-find:not(.mm-find-active)');
+});
+
 // Issue #123 (SPEC23 §3): CodeMirror paints its drawn selection in a layer
 // *behind* .cm-content, so the opaque --mm-code-bg on .mm-md-code covered it —
 // selecting inside a code block showed no selection at all. The tint now rides

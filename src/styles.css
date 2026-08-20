@@ -2055,16 +2055,52 @@ mark.hl.ghost {
 .find-bar button:disabled {
   opacity: 0.4;
 }
+/* PRD 014 Req 11 (issue #154): the loud no-match state — the bar itself
+   turns, not just the muted count text; FindBar sets data-state. */
+.find-bar[data-state='no-match'] input {
+  border-color: var(--mm-danger, #cf222e);
+  box-shadow: inset 0 0 0 1px var(--mm-danger, #cf222e);
+  background: rgba(207, 34, 46, 0.1);
+  background: color-mix(in srgb, var(--mm-danger, #cf222e) 10%, var(--mm-bg, #ffffff));
+}
+.find-bar[data-state='no-match'] .find-count {
+  color: var(--mm-danger, #cf222e);
+  font-weight: 700;
+}
+/* PRD 014 Req 10 (issue #154): the inline invalid-regex message —
+   compileQuery's own text, same treatment as the Search view's .search-error. */
+.find-bar .find-error {
+  max-width: 320px;
+  font-size: 11.5px;
+  color: var(--mm-danger, #cf222e);
+  overflow-wrap: anywhere;
+}
 
-/* SPEC30 §1.3: preview match marks — never the comment styling. */
+/* SPEC30 §1.3: preview match marks — never the comment styling.
+   PRD 014 Req 11 (issue #154): high-contrast and self-contained — foreground
+   AND background set here, so legibility never depends on the theme's text
+   colour. No bundled theme defines --mm-find*: these fallbacks are what
+   renders, in light and dark alike, and the active hue is distinct. */
 .doc mark.mm-find {
-  background: var(--mm-find, rgba(255, 200, 60, 0.45));
-  color: inherit;
+  background: var(--mm-find, #ffdf5d);
+  color: var(--mm-find-fg, #1f2328);
   padding: 0;
   border-radius: 2px;
 }
 .doc mark.mm-find.mm-find-active {
-  background: var(--mm-find-active, rgba(255, 160, 20, 0.85));
+  background: var(--mm-find-active, #f0883e);
+  color: var(--mm-find-fg, #1f2328);
+}
+/* PRD 014 Req 11 (issue #154): edit mode's match decorations get the same
+   treatment as the preview marks — CodeMirror's faint defaults are illegible
+   on dark themes. Three classes outrank CM's injected two-class base theme. */
+.editor-wrap .cm-editor .cm-searchMatch {
+  background: var(--mm-find, #ffdf5d);
+  color: var(--mm-find-fg, #1f2328);
+}
+.editor-wrap .cm-editor .cm-searchMatch.cm-searchMatch-selected {
+  background: var(--mm-find-active, #f0883e);
+  color: var(--mm-find-fg, #1f2328);
 }
 
 /* SPEC34: the folder sidebar — left of the workspace, all modes. */

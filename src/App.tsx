@@ -84,7 +84,7 @@ import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton 
 import { FileTabStrip } from './components/FileTabStrip';
 import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
 import { SearchPanel } from './components/SearchPanel';
-import { compileQuery, searchFiles, type LineMatch, type SearchOptions, type SearchResults } from './lib/searchCore';
+import { compileQuery, findMatchRanges, literalReplacement, searchFiles, type LineMatch, type SearchMatcher, type SearchOptions, type SearchResults } from './lib/searchCore';
 import { DEFAULT_SEARCH_OPTIONS } from './lib/searchOptions';
 import { collectMarkdownFiles, loadSearchFiles, matchDocOffsets } from './lib/searchScan';
 import {
@@ -497,6 +497,22 @@ export default function App() {
   const [findCount, setFindCount] = useState(0);
   const [findCurrent, setFindCurrent] = useState(0);
   const [findFocusTick, setFindFocusTick] = useState(0);
+  /**
+   * PRD 014 Req 10 (issue #154): the find bar's toggle states — the same
+   * `SearchOptions` shape the Search view holds, session-local like it, and
+   * reset when the bar closes or the document changes (never leaks across).
+   */
+  const [findOptions, setFindOptions] = useState<SearchOptions>(DEFAULT_SEARCH_OPTIONS);
+  /**
+   * PRD 014 Req 10 (issue #154): query + options compiled by
+   * `searchCore.compileQuery` — the ONLY compilation step, exactly as the
+   * Search view does it; no regex is built anywhere in the find path. A new
+   * object per (query, options) pair, so a toggle flip re-runs the engines
+   * exactly like typing does.
+   */
+  const findCompiled = useMemo(() => compileQuery(findDebounced, findOptions), [findDebounced, findOptions]);
+  /** PRD 014 Req 10: the inline invalid-regex message — compileQuery's own, or null. */
+  const findError = findCompiled.kind === 'invalid-regex' ? findCompiled.message : null;
   // SPEC30 §3: the boot-time draft offer.
   const [restorePrompt, setRestorePrompt] = useState<Draft | null>(null);
   const [pending, setPending] = useState<{ start: number; end: number } | null>(null);
@@ -919,18 +935,21 @@ export default function App() {
     findMarksRef.current[i]?.[0]?.scrollIntoView({ block: 'center' });
   }, []);
 
-  /** Wrap every case-insensitive literal match; returns the match count. */
+  /**
+   * Wrap every match of the compiled matcher; returns the match count.
+   * PRD 014 Req 10 (issue #154): the matches come from `searchCore` — the
+   * same compiled query (and the same line-scoped rule) as the Search view
+   * and the edit engine, replacing the old literal `toLowerCase`/`indexOf`
+   * scan. No matching logic lives here.
+   */
   const applyFindMarks = useCallback(
-    (query: string): number => {
+    (matcher: SearchMatcher): number => {
       const pane = docRef.current;
       clearFindMarks();
-      if (!pane || !query) return 0;
-      const text = docTextRef.current;
-      const hay = text.toLowerCase();
-      const needle = query.toLowerCase();
+      if (!pane) return 0;
       const groups: HTMLElement[][] = [];
-      for (let at = hay.indexOf(needle); at !== -1; at = hay.indexOf(needle, at + needle.length)) {
-        const marks = highlightRange(pane, at, at + needle.length, '__find__');
+      for (const { start, end } of findMatchRanges(docTextRef.current, matcher)) {
+        const marks = highlightRange(pane, start, end, '__find__');
         for (const m of marks) {
           m.className = 'mm-find';
           delete m.dataset.cid; // never the comment machinery's business
@@ -965,6 +984,9 @@ export default function App() {
     editorSearchRef.current?.clear();
     setFindCount(0);
     setFindCurrent(0);
+    // PRD 014 Req 10 (issue #154): the toggles never leak across a close —
+    // the next open starts at the all-off default, like the count and marks.
+    setFindOptions(DEFAULT_SEARCH_OPTIONS);
   }, [clearFindMarks]);
 
   const stepFind = useCallback(
@@ -1236,7 +1258,12 @@ export default function App() {
     (all: boolean) => {
       const h = editorSearchRef.current;
       if (!h || stateRef.current.mode !== 'edit') return;
-      h.setQuery(findDebounced, findReplace, false); // refresh replace text in place
+      if (findCompiled.kind !== 'matcher') return; // invalid regex: replace is inert
+      // Refresh the replace text in place. PRD 014 Req 10 (issue #154): with
+      // the regex toggle ON, `$&`/`$1` work as group references (the regex
+      // engine's own replace rules); with it off the text is `$`-neutralized
+      // and stays byte-literal, exactly as before the toggles existed.
+      h.setQuery(findCompiled.pattern, findOptions.regex ? findReplace : literalReplacement(findReplace), false);
       if (all) {
         const n = h.replaceAllMatches();
         showNotice(`Replaced ${n} ${n === 1 ? 'match' : 'matches'}`);
@@ -1248,7 +1275,7 @@ export default function App() {
         setFindCurrent(res.current);
       }
     },
-    [findDebounced, findReplace, showNotice]
+    [findCompiled, findOptions.regex, findReplace, showNotice]
   );
 
 
@@ -1992,6 +2019,7 @@ export default function App() {
     setFindOpen(false); // SPEC30 §1.5: find never crosses documents
     setFindQuery('');
     setFindDebounced('');
+    setFindOptions(DEFAULT_SEARCH_OPTIONS); // PRD 014 Req 10 (issue #154): options never cross either
     // SPEC34 §5.1: reveal in the sidebar — only when the panel is visible.
     if (stateRef.current.settings.showFolders && p.readDirEntries) void revealInFolders(p, path);
 
@@ -3429,6 +3457,7 @@ export default function App() {
     setFindOpen(false); // SPEC30 §1.5
     setFindQuery('');
     setFindDebounced('');
+    setFindOptions(DEFAULT_SEARCH_OPTIONS); // PRD 014 Req 10 (issue #154)
     setDocPath(null);
     setUntitled(true);
     setBuffer('');
@@ -5516,7 +5545,10 @@ export default function App() {
   useLayoutEffect(() => {
     if (mode !== 'preview') return;
     if (!injectionCompleteRef.current) return;
-    if (!findOpen || !findDebounced) {
+    // PRD 014 Req 10 (issue #154): an invalid regex matches NOTHING — zero
+    // marks, a zero count — and is never re-run as a literal; the inline
+    // error is the bar's own rendering of compileQuery's message.
+    if (!findOpen || !findDebounced || findCompiled.kind !== 'matcher') {
       clearFindMarks();
       if (findOpen) {
         setFindCount(0);
@@ -5524,11 +5556,11 @@ export default function App() {
       }
       return;
     }
-    const n = applyFindMarks(findDebounced);
+    const n = applyFindMarks(findCompiled.matcher);
     setFindCount(n);
     setFindCurrent(n > 0 ? 1 : 0);
     if (n > 0) activateFindMatch(0);
-  }, [mode, findOpen, findDebounced, html, comments, showComments, settings.showResolved, settings.commentsEnabled, applyFindMarks, activateFindMatch, clearFindMarks]);
+  }, [mode, findOpen, findDebounced, findCompiled, html, comments, showComments, settings.showResolved, settings.commentsEnabled, applyFindMarks, activateFindMatch, clearFindMarks]);
 
   // SPEC30 §1.4: edit engine — the bar drives CM once the editor is mounted.
   useEffect(() => {
@@ -5542,7 +5574,14 @@ export default function App() {
         if (tries-- > 0) requestAnimationFrame(attempt);
         return;
       }
-      const res = h.setQuery(findDebounced, findReplace);
+      // PRD 014 Req 10 (issue #154): the editor gets the compiled pattern —
+      // an invalid regex never reaches CodeMirror (null clears instead) —
+      // and, with the regex toggle off, a `$`-neutralized replace text so
+      // replacement stays byte-literal under the regex-mode engine.
+      const res = h.setQuery(
+        findCompiled.kind === 'matcher' ? findCompiled.pattern : null,
+        findOptions.regex ? findReplace : literalReplacement(findReplace)
+      );
       setFindCount(res.count);
       setFindCurrent(res.current);
     };
@@ -5553,7 +5592,7 @@ export default function App() {
     // findReplace intentionally read fresh at call time via the closure; the
     // replace text re-installs without advancing in the handler below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, findOpen, findDebounced]);
+  }, [mode, findOpen, findDebounced, findCompiled]);
 
   // --- split-edit live preview pane (SPEC7 §5, issue #19): live reading pane
   // that is also a comments surface — same re-anchor + highlight pass as the
@@ -6393,8 +6432,11 @@ export default function App() {
           replace={findReplace}
           count={findCount}
           current={findCurrent}
+          options={findOptions}
+          error={findError}
           focusTick={findFocusTick}
           onQuery={setFindQuery}
+          onOptions={setFindOptions}
           onReplace={setFindReplace}
           onNext={() => stepFind(1)}
           onPrev={() => stepFind(-1)}

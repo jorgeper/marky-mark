@@ -1,9 +1,16 @@
 import { useEffect, useRef } from 'react';
+import type { SearchOptions } from '../lib/searchCore';
+import { SearchOptionsBar } from './SearchPanel';
 
 /**
  * SPEC30 §1: the one find bar for both modes. Pure UI — the engines live
  * in the owner (preview: doc-text marks; edit: the CodeMirror search
  * handle). Replace controls render only in edit mode.
+ *
+ * PRD 014 Req 10 (issue #154): the bar mounts the Search view's
+ * `SearchOptionsBar` — the same three toggles, the same option state shape —
+ * and renders `compileQuery`'s invalid-regex message inline. No matching
+ * logic here: options in, flips and query text out.
  */
 export function FindBar({
   mode,
@@ -11,8 +18,11 @@ export function FindBar({
   replace,
   count,
   current,
+  options,
+  error,
   focusTick,
   onQuery,
+  onOptions,
   onReplace,
   onNext,
   onPrev,
@@ -25,9 +35,13 @@ export function FindBar({
   replace: string;
   count: number;
   current: number;
+  options: SearchOptions;
+  /** compileQuery's own invalid-regex message, or null when the query compiles. */
+  error: string | null;
   /** Bumped by the owner to refocus the input (⌘F while already open). */
   focusTick: number;
   onQuery(q: string): void;
+  onOptions(next: SearchOptions): void;
   onReplace(r: string): void;
   onNext(): void;
   onPrev(): void;
@@ -55,9 +69,12 @@ export function FindBar({
   };
 
   const countText = query === '' ? '' : count === 0 ? 'No matches' : `${Math.max(current, 1)} of ${count}`;
+  // PRD 014 Req 11 (issue #154): the loud no-match state rides the bar itself
+  // (styles.css keys on it), not just the muted count text.
+  const noMatch = query !== '' && count === 0;
 
   return (
-    <div className="find-bar" data-testid="find-bar">
+    <div className="find-bar" data-testid="find-bar" data-state={noMatch ? 'no-match' : 'ok'}>
       <div className="find-row">
         <input
           ref={inputRef}
@@ -68,6 +85,7 @@ export function FindBar({
           onChange={(e) => onQuery(e.target.value)}
           onKeyDown={onKey}
         />
+        <SearchOptionsBar options={options} onChange={onOptions} />
         <span className="find-count" data-testid="find-count">
           {countText}
         </span>
@@ -81,6 +99,11 @@ export function FindBar({
           ×
         </button>
       </div>
+      {error !== null && (
+        <div className="find-error" data-testid="find-error" role="alert">
+          {error}
+        </div>
+      )}
       {mode === 'edit' && (
         <div className="find-row">
           <input

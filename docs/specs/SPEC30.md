@@ -18,6 +18,12 @@ case-insensitive only), find across files, replace in preview (read-only
 surface), multiple drafts (one, the most recent dirty buffer), draft
 encryption, session restore beyond the single last document.
 
+> **Amendment (issue #154, 2026-08-20):** PRD 014 Req 10 brought the find
+> options into scope — the bar mounts the Search view's case-sensitive /
+> whole-word / regex toggles and both modes compile through
+> `searchCore.compileQuery`. PRD 014 Req 3 (issue #155) added find across
+> files as the Search view. The other exclusions stand.
+
 ---
 
 ## 1. Find (FR-FIND)
@@ -33,6 +39,14 @@ encryption, session restore beyond the single last document.
    Enter = next, Shift+Enter = previous, Esc closes. Matching is
    **literal and case-insensitive**, live (debounced ≤ 200 ms). Count
    reads "3 of 17" ("No matches" when none, empty query shows neither).
+   > **Amendment (issue #154, 2026-08-20):** "literal and
+   > case-insensitive" is now the all-toggles-off **default**, not the
+   > only mode — PRD 014 Req 10 added the case-sensitive / whole-word /
+   > regex toggles (the Search view's `SearchOptionsBar`, compiled by
+   > `searchCore.compileQuery`; an invalid regex shows an inline error
+   > and matches nothing), and Req 11 made the hit state loud (self-
+   > contained mark colours, a distinct current match, a no-match state
+   > on the bar itself). Everything else in this section stands.
 3. **Preview:** matches are computed over the rendered doc text
    (`getDocText` space) and wrapped via the existing `highlightRange`
    machinery restyled as `mm-find` marks (`mm-find-active` on the

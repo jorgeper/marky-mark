@@ -40,6 +40,7 @@ import { css as cssLanguage } from '@codemirror/lang-css';
 import { html as htmlLanguage } from '@codemirror/lang-html';
 import { javascript as jsLanguage } from '@codemirror/lang-javascript';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
+import type { CompiledPattern } from '../lib/searchCore';
 import { mapOffsetByLineFlat, wordAt } from '../lib/activePosition';
 import { intersectCodeSelection, type CodeRange } from '../lib/codeSelection';
 import type { DiffLineSets } from '../lib/diffLines';
@@ -152,8 +153,14 @@ export interface SmartEditHandle {
  * document sizes this app targets.
  */
 export interface EditorSearchHandle {
-  /** Install the query (live); advance=false refreshes without moving. */
-  setQuery(query: string, replace: string, advance?: boolean): { count: number; current: number };
+  /**
+   * Install the query (live); advance=false refreshes without moving.
+   * PRD 014 Req 10 (issue #154): the query arrives as the compiled pattern
+   * from `searchCore.compileQuery` — never a raw user string — so this
+   * engine's matches are the same regex the preview and the Search view run.
+   * `null` (or an empty source) clears.
+   */
+  setQuery(pattern: CompiledPattern | null, replace: string, advance?: boolean): { count: number; current: number };
   next(): { count: number; current: number };
   prev(): { count: number; current: number };
   /** Replace the current match, advance. */
@@ -1318,7 +1325,9 @@ export default function Editor({
     if (searchRef) {
       const stats = () => {
         const q = getSearchQuery(view.state);
-        if (!q.search) return { count: 0, current: 0 };
+        // `valid` guards the cursor: CM compiles with the `u` flag, so a
+        // pattern it rejects must never reach getCursor (it would throw).
+        if (!q.search || !q.valid) return { count: 0, current: 0 };
         let count = 0;
         let current = 0;
         const sel = view.state.selection.main;
@@ -1330,12 +1339,22 @@ export default function Editor({
         return { count, current };
       };
       searchRef.current = {
-        setQuery(query, replace, advance = true) {
-          if (query && !searchPanelOpen(view.state)) openSearchPanel(view); // arms the highlighter
-          view.dispatch({
-            effects: setSearchQuery.of(new SearchQuery({ search: query, caseSensitive: false, literal: true, replace })),
+        setQuery(pattern, replace, advance = true) {
+          const search = pattern?.source ?? '';
+          if (search && !searchPanelOpen(view.state)) openSearchPanel(view); // arms the highlighter
+          // PRD 014 Req 10 (issue #154): always regexp mode over the compiled
+          // source — case, whole-word and escaping were decided in searchCore,
+          // no regex is assembled here. literal keeps the replace text's
+          // backslashes unquoted, as the string engine did.
+          const q = new SearchQuery({
+            search,
+            regexp: true,
+            caseSensitive: pattern?.caseSensitive ?? false,
+            literal: true,
+            replace,
           });
-          if (query && advance) findNext(view); // land on the first match from the cursor
+          view.dispatch({ effects: setSearchQuery.of(q) });
+          if (search && q.valid && advance) findNext(view); // land on the first match from the cursor
           return stats();
         },
         next() {

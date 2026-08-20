@@ -2,7 +2,9 @@ import { describe, expect, test } from 'vitest';
 import {
   compileQuery,
   findMatches,
+  findMatchRanges,
   groupResults,
+  literalReplacement,
   searchFile,
   searchFiles,
   type SearchFile,
@@ -214,5 +216,104 @@ describe('PRD 014 Req 7 — result grouping and ordering', () => {
       'alpha.md',
       'beta.md',
     ]);
+  });
+});
+
+describe('PRD 014 Req 10 (issue #154) — the compiled pattern and find-bar/Search-view parity', () => {
+  /** Compile expecting success — the whole matcher arm, pattern included. */
+  const compiled = (query: string, over: Partial<SearchOptions> = {}) => {
+    const c = compileQuery(query, opts(over));
+    if (c.kind !== 'matcher') throw new Error(`expected matcher, got ${c.kind}`);
+    return c;
+  };
+
+  test('U706: the matcher arm carries the pattern the engines share — source and case decision', () => {
+    // Literal mode: metacharacters escaped, case-insensitive by default.
+    expect(compiled('a.b').pattern).toEqual({ source: 'a\\.b', caseSensitive: false });
+    expect(compiled('cat', { caseSensitive: true }).pattern.caseSensitive).toBe(true);
+    // Whole-word wraps, regex passes through grouped — exactly what matched.
+    expect(compiled('cat', { wholeWord: true }).pattern.source).toBe('\\b(?:cat)\\b');
+    expect(compiled('c.t', { regex: true }).pattern.source).toBe('(?:c.t)');
+    expect(compiled('c.t', { regex: true, wholeWord: true }).pattern.source).toBe('\\b(?:(?:c.t))\\b');
+    // The empty query's pattern is the empty source — "no query" downstream.
+    expect(compiled('').pattern.source).toBe('');
+    // The pattern IS what the matcher runs: rebuilt, it finds the same hits.
+    const { matcher: m, pattern } = compiled('cat', { wholeWord: true });
+    const re = new RegExp(pattern.source, pattern.caseSensitive ? 'g' : 'gi');
+    expect([...'Cat concatenate cat'.matchAll(re)].map((h) => h.index)).toEqual(
+      m.findAll('Cat concatenate cat').map((h) => h.start)
+    );
+  });
+
+  test('U707: CodeMirror driven by the pattern agrees with compileQuery over the option table', async () => {
+    // The find bar's edit engine builds CM's SearchQuery from the compiled
+    // pattern (regexp mode, no CM wholeWord) — this pins that the two modes
+    // return the same ranges for every option combination. Patterns with
+    // class escapes like \s are excluded: CM's multiline cursor lets those
+    // span line breaks where searchCore is line-scoped by contract (U695).
+    const { SearchQuery } = await import('@codemirror/search');
+    const { Text } = await import('@codemirror/state');
+    const doc = 'Cat sat\nconcatenate cat\ncut Cot CAT\ncafé au lait';
+    const table: Array<[string, Partial<SearchOptions>]> = [
+      ['cat', {}],
+      ['cat', { caseSensitive: true }],
+      ['cat', { wholeWord: true }],
+      ['cat', { caseSensitive: true, wholeWord: true }],
+      ['c.t', { regex: true }],
+      ['c.t', { regex: true, caseSensitive: true }],
+      ['c.t', { regex: true, wholeWord: true }],
+      ['c[au]t', { regex: true, caseSensitive: true, wholeWord: true }],
+      // The unicode word-boundary corner: \b is searchCore's rule, and the
+      // edit engine runs the same \b — NOT CM's own categorizer-based rule.
+      ['café', { wholeWord: true }],
+      ['a.b', {}], // literal-mode escaping reaches CM escaped too
+    ];
+    for (const [query, over] of table) {
+      const { matcher: m, pattern } = compiled(query, over);
+      const ours = findMatchRanges(doc, m).map((r) => [r.start, r.end]);
+      const q = new SearchQuery({ search: pattern.source, regexp: true, caseSensitive: pattern.caseSensitive, literal: true });
+      const cursor = q.getCursor(Text.of(doc.split('\n'))) as Iterator<{ from: number; to: number }>;
+      const cms: number[][] = [];
+      for (let r = cursor.next(); !r.done; r = cursor.next()) cms.push([r.value.from, r.value.to]);
+      expect(cms, `query=${JSON.stringify(query)} options=${JSON.stringify(over)}`).toEqual(ours);
+    }
+  });
+
+  test('U708: findMatchRanges maps the line-scoped scan to absolute offsets across every terminator', () => {
+    const text = 'cat\r\nno hit\rcat cat\nx^cat';
+    const m = matcher('cat');
+    expect(findMatchRanges(text, m)).toEqual([
+      { start: 0, end: 3 },
+      { start: 12, end: 15 },
+      { start: 16, end: 19 },
+      { start: 22, end: 25 },
+    ]);
+    // Same hits, same order as findMatches — only the offset space differs.
+    expect(findMatchRanges(text, m).length).toBe(findMatches(text, m).length);
+    // Line-scoped like findMatches: nothing spans a terminator.
+    expect(findMatchRanges('one\ntwo', matcher('one\\ntwo', { regex: true }))).toEqual([]);
+    expect(findMatchRanges('', m)).toEqual([]);
+  });
+
+  test('U709: literalReplacement neutralizes every $ so a regex-mode engine replaces byte-literally', async () => {
+    expect(literalReplacement('plain')).toBe('plain');
+    expect(literalReplacement('$& $1 $$ $')).toBe('$$& $$1 $$$$ $$');
+    // Proof against the real engine: CM's regex replace of the neutralized
+    // text yields exactly what the user typed.
+    const { SearchQuery } = await import('@codemirror/search');
+    const { Text } = await import('@codemirror/state');
+    const { pattern } = compiled('cat');
+    const q = new SearchQuery({
+      search: pattern.source,
+      regexp: true,
+      caseSensitive: pattern.caseSensitive,
+      literal: true,
+      replace: literalReplacement('$& costs $1'),
+    });
+    const cursor = q.getCursor(Text.of(['a cat'])) as Iterator<{ from: number; to: number }>;
+    const first = cursor.next();
+    if (first.done) throw new Error('expected a match');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((q as any).create().getReplacement(first.value)).toBe('$& costs $1');
   });
 });
