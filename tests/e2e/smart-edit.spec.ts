@@ -83,10 +83,12 @@ test('E105: smart-edit gutter button — cursor line only, follows the caret, ri
   // outside point moved right — same dismissal contract.
   await btn.click();
   await expect(menu).toBeVisible();
+  const content = editor.locator('.cm-content');
   const menuBox = (await menu.boundingBox())!;
-  const cBox = (await editor.locator('.cm-content').boundingBox())!;
-  expect(menuBox.x + menuBox.width + 20).toBeLessThan(cBox.x + cBox.width); // the point IS outside
-  await editor.locator('.cm-content').click({ position: { x: menuBox.x + menuBox.width + 20 - cBox.x, y: 10 } });
+  const paneBox = (await content.boundingBox())!;
+  const outsideX = menuBox.x + menuBox.width + 20; // 20px clear of the menu's right edge
+  expect(outsideX).toBeLessThan(paneBox.x + paneBox.width); // the point IS inside the pane
+  await content.click({ position: { x: outsideX - paneBox.x, y: 10 } });
   await expect(menu).toHaveCount(0);
 
   // Preview mode shows no gutter button.

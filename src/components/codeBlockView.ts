@@ -19,11 +19,22 @@ import type { Extension } from '@codemirror/state';
 import { computeCodeCards } from '../lib/codeBlockSpans';
 import { tableModeField } from './tableMode';
 
+/** The delimiter marks + info string vanish visually; the text stays. */
 const HIDE = Decoration.replace({});
-const LINE = Decoration.line({ class: 'mm-fence-card' });
-const FIRST = Decoration.line({ class: 'mm-fence-card mm-fence-card-first' });
-const LAST = Decoration.line({ class: 'mm-fence-card mm-fence-card-last' });
-const ONLY = Decoration.line({ class: 'mm-fence-card mm-fence-card-first mm-fence-card-last' });
+
+// The card ring is painted per line, so which edges a line draws depends on
+// where in the block it sits (styles.css rounds the corners to match).
+const CARD_MIDDLE = Decoration.line({ class: 'mm-fence-card' });
+const CARD_FIRST = Decoration.line({ class: 'mm-fence-card mm-fence-card-first' });
+const CARD_LAST = Decoration.line({ class: 'mm-fence-card mm-fence-card-last' });
+const CARD_ONLY = Decoration.line({ class: 'mm-fence-card mm-fence-card-first mm-fence-card-last' });
+
+function cardLineDeco(index: number, lastIndex: number): Decoration {
+  if (lastIndex === 0) return CARD_ONLY; // a one-line block draws all four edges
+  if (index === 0) return CARD_FIRST;
+  if (index === lastIndex) return CARD_LAST;
+  return CARD_MIDDLE;
+}
 
 function buildDecorations(view: EditorView): DecorationSet {
   // Grid exclusion, like SPEC41 §2.4: gridded spans keep their own geometry.
@@ -31,11 +42,8 @@ function buildDecorations(view: EditorView): DecorationSet {
   const cards = computeCodeCards(view.state, true, grid?.spans ?? []);
   const ranges = [];
   for (const card of cards) {
-    const lastIdx = card.lines.length - 1;
-    for (let i = 0; i <= lastIdx; i++) {
-      const deco = lastIdx === 0 ? ONLY : i === 0 ? FIRST : i === lastIdx ? LAST : LINE;
-      ranges.push(deco.range(card.lines[i]));
-    }
+    const lastIndex = card.lines.length - 1;
+    for (let i = 0; i <= lastIndex; i++) ranges.push(cardLineDeco(i, lastIndex).range(card.lines[i]));
     for (const h of card.hide) ranges.push(HIDE.range(h.from, h.to));
   }
   return Decoration.set(ranges, true);

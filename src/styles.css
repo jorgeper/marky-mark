@@ -3194,28 +3194,31 @@ mark.hl.ghost {
    never shifts and toggling the view moves no text. The hidden delimiter
    lines stay as blank rows — they read as the card's vertical padding. */
 .editor-wrap .cm-line.mm-fence-card {
+  /* One source for the ring color: every rule below inherits it from here,
+     since a first/last line always carries .mm-fence-card too. */
+  --mm-fence-ring: var(--mm-border, #d1d9e0);
   background: var(--mm-code-bg, #f6f8fa);
   box-shadow:
-    inset 1px 0 var(--mm-border, #d1d9e0),
-    inset -1px 0 var(--mm-border, #d1d9e0);
+    inset 1px 0 var(--mm-fence-ring),
+    inset -1px 0 var(--mm-fence-ring);
 }
 .editor-wrap .cm-line.mm-fence-card-first {
   border-radius: 9px 9px 0 0;
   box-shadow:
-    inset 0 1px var(--mm-border, #d1d9e0),
-    inset 1px 0 var(--mm-border, #d1d9e0),
-    inset -1px 0 var(--mm-border, #d1d9e0);
+    inset 0 1px var(--mm-fence-ring),
+    inset 1px 0 var(--mm-fence-ring),
+    inset -1px 0 var(--mm-fence-ring);
 }
 .editor-wrap .cm-line.mm-fence-card-last {
   border-radius: 0 0 9px 9px;
   box-shadow:
-    inset 0 -1px var(--mm-border, #d1d9e0),
-    inset 1px 0 var(--mm-border, #d1d9e0),
-    inset -1px 0 var(--mm-border, #d1d9e0);
+    inset 0 -1px var(--mm-fence-ring),
+    inset 1px 0 var(--mm-fence-ring),
+    inset -1px 0 var(--mm-fence-ring);
 }
 .editor-wrap .cm-line.mm-fence-card-first.mm-fence-card-last {
   border-radius: 9px;
-  box-shadow: inset 0 0 0 1px var(--mm-border, #d1d9e0);
+  box-shadow: inset 0 0 0 1px var(--mm-fence-ring);
 }
 
 /* §4: the chip layer — overlay only, children opt back into pointer events. */

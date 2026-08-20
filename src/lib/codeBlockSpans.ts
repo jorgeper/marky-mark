@@ -32,9 +32,12 @@ export interface CodeCard {
 }
 
 /**
- * Every fenced code block as a card spec. Caret-reveal matches the rule in
- * src/components/imageView.ts: while the selection head sits inside a block
- * that block's delimiters show as raw text; other blocks stay rendered.
+ * Every fenced code block as a card spec. Caret-reveal, like the SPEC41
+ * image view: while the selection head sits inside a block that block's
+ * delimiters show as raw text; other blocks stay rendered. Both boundaries
+ * count as inside — imageView excludes its start boundary so a click parking
+ * the caret there keeps the widget, but here the delimiter lines survive as
+ * blank rows, so a caret landing on one must reveal the block it opens.
  * `excluded` spans (the SPEC40 table-grid regions — allTableRegions is not
  * fence-aware, so a piped "table" inside a fence can be gridded) drop their
  * block entirely: the grid's geometry owns those lines. Disabled callers
