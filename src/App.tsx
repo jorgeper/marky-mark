@@ -72,6 +72,7 @@ import {
   type WorkspaceSession,
 } from './lib/workspace';
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
+import { closeOthersTargets } from './lib/fileTabs';
 import { isDirtyText, normalizeEol } from './lib/dirty';
 import { deleteRetention, entryDeletePrompt } from './lib/deleteRetention';
 import { moveTarget, relativePath, remapPath, uniqueChildName } from './lib/folderOps';
@@ -605,6 +606,14 @@ export default function App() {
   const activeFileRef = useRef<string | null>(null);
   /** SPEC36 §7: the quit walk's remaining dirty targets (null = no walk). */
   const quitQueueRef = useRef<string[] | null>(null);
+  /**
+   * PRD 013 Req 7: the tab menu's close walk (Close Others / Close All) —
+   * remaining targets in tree order, null = no walk. Each file's dirtiness
+   * is SNAPSHOTTED at menu time: mid-walk a clean close's nextActive churn
+   * makes openDoc consume a dirty park entry, and stateRef only refreshes
+   * on render — a live re-read would misjudge that file as clean.
+   */
+  const closeQueueRef = useRef<Array<{ path: string; dirty: boolean }> | null>(null);
   /**
    * Issue #22: what an exhausted quit walk does. Close Workspace borrows the
    * walk (every dirty tab guards first) and finishes here instead of closing
@@ -2125,13 +2134,18 @@ export default function App() {
 
   /** SPEC36 §3.5: drop `path` from the set; neighbor activates, else splash. */
   const finishCloseFile = useCallback(
-    (p: Platform, path: string) => {
+    async (p: Platform, path: string) => {
       const { list, nextActive } = closeOpen(openFilesRef.current, path);
       parkRef.current.delete(path);
-      const wasActive = stateRef.current.docPath === path;
+      // PRD 013 Req 7: active-or-not reads activeFileRef, which commitOpenSet
+      // (and openDoc's tail) keeps live synchronously — the close walk calls
+      // in here between renders, where stateRef.docPath is still the PREVIOUS
+      // active file. For every single-close caller the two always agree.
+      const wasActive = activeFileRef.current === path;
       commitOpenSet(list, wasActive ? null : activeFileRef.current);
       if (!wasActive) return;
-      if (nextActive) void openDoc(p, nextActive);
+      // Awaited so a walk's next step only starts once nextActive has landed.
+      if (nextActive) await openDoc(p, nextActive);
       else closeToSplash();
     },
     [commitOpenSet, openDoc, closeToSplash]
@@ -2151,10 +2165,71 @@ export default function App() {
           setOpenPrompt({ kind: 'close-file', path });
           return;
         }
-        finishCloseFile(p, path);
+        await finishCloseFile(p, path);
       })();
     },
     [parkAndOpen, finishCloseFile, parkedDirty]
+  );
+
+  /**
+   * PRD 013 Req 7: the tab menu's Close Others / Close All — one file at a
+   * time, in the strip's tree order, each through the same SPEC36 §3.4 close
+   * the ✕ makes. Mirrors the quit walk (quitQueueRef / processQuitWalk — a
+   * separate queue because that one belongs to quitting and ends by closing
+   * the window): clean targets close inline, awaited so §3.5's nextActive
+   * has landed before the next step; the first dirty one activates (visible
+   * behind the modal) and raises the shared close-file prompt, whose
+   * resolution re-enters this walk — exactly ONE modal on screen at a time.
+   * Cancel (or a cancelled Save As, SPEC22 §2.3) nulls the queue there, so
+   * every file after the cancelled one stays open, parked and dirty.
+   */
+  const processCloseWalk = useCallback(async () => {
+    const p = stateRef.current.platform;
+    const q = closeQueueRef.current;
+    if (!p || !q) return;
+    while (q.length > 0) {
+      const t = q[0];
+      if (!openFilesRef.current.includes(t.path)) {
+        q.shift(); // already closed (a resolved prompt lands here)
+        continue;
+      }
+      if (t.dirty) {
+        // §3.4: the file is activated first, then the modal names it.
+        if (activeFileRef.current !== t.path) await parkAndOpen(p, t.path);
+        setOpenPrompt({ kind: 'close-file', path: t.path });
+        return;
+      }
+      q.shift();
+      await finishCloseFile(p, t.path);
+    }
+    closeQueueRef.current = null;
+  }, [parkAndOpen, finishCloseFile]);
+
+  /**
+   * PRD 013 Req 7: a close-file prompt resolved (Save or Don't save) — finish
+   * that close, then hand back to the walk if one armed the queue. Both the
+   * single ✕'s prompt and a walk step's prompt land here; with no walk armed
+   * the second half is a no-op.
+   */
+  const finishCloseFileStep = useCallback(
+    async (p: Platform, path: string) => {
+      await finishCloseFile(p, path);
+      if (closeQueueRef.current) await processCloseWalk();
+    },
+    [finishCloseFile, processCloseWalk]
+  );
+
+  /** PRD 013 Req 7: arm the walk — targets with dirtiness snapshotted now. */
+  const startCloseWalk = useCallback(
+    (targets: string[]) => {
+      const s = stateRef.current;
+      closeQueueRef.current = targets.map((path) => ({
+        path,
+        dirty: path === s.docPath ? s.dirty : parkedDirty(path),
+      }));
+      void processCloseWalk();
+    },
+    [parkedDirty, processCloseWalk]
   );
 
   /** SPEC36 §6.3: Ctrl+Tab / Ctrl+Shift+Tab — tree order, wrap, no prompts. */
@@ -6474,10 +6549,20 @@ export default function App() {
           openFiles={openFiles}
           activePath={docPath}
           untitled={untitled}
+          // PRD 013 Req 5 (SPEC36 §3.6): the same dirty set the sidebar rows
+          // read — active or parked, one source of truth.
+          dirtyFiles={dirtyOpenFiles}
           basename={platform.basename}
           // PRD 013 Req 3: the SAME activation call the sidebar's open row
           // makes (openDocGuarded → park-and-restore) — no second path.
           onActivate={(path) => openDocGuarded(platform, path)}
+          // PRD 013 Reqs 5–7: ✕ / middle-click / menu Close all route through
+          // the sidebar row ✕'s SPEC36 §3.4 close — no second close path.
+          onClose={closeOpenFile}
+          // PRD 013 Req 7: the menu's walks — targets in the strip's own
+          // tree order (openFiles IS that order, SPEC36 §1).
+          onCloseOthers={(path) => startCloseWalk(closeOthersTargets(openFilesRef.current, path))}
+          onCloseAll={() => startCloseWalk([...openFilesRef.current])}
         />
       )}
       {zoomDoc ? (
@@ -6941,7 +7026,16 @@ export default function App() {
               ?
             </p>
             <div className="actions">
-              <button data-testid="open-cancel" onClick={() => setOpenPrompt(null)}>
+              <button
+                data-testid="open-cancel"
+                onClick={() => {
+                  // PRD 013 Req 7: Cancel stops a running tab-menu close walk
+                  // — files already closed stay closed, everything after this
+                  // one stays open (no-op when no walk armed the queue).
+                  closeQueueRef.current = null;
+                  setOpenPrompt(null);
+                }}
+              >
                 Cancel
               </button>
               <button
@@ -6950,7 +7044,7 @@ export default function App() {
                   const intent = openPrompt;
                   setOpenPrompt(null);
                   if (intent.kind === 'open') void parkAndOpen(platform, intent.path);
-                  else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
+                  else if (intent.kind === 'close-file') void finishCloseFileStep(platform, intent.path);
                   else if (intent.kind === 'close-untitled') closeToSplash(); // issue #22
                   // PRD 009 Req 13: the guard cleared — New File resumes on
                   // whichever path this platform has (untitled buffer / picker).
@@ -6965,15 +7059,20 @@ export default function App() {
                 onClick={async () => {
                   const intent = openPrompt;
                   setOpenPrompt(null);
-                  // SPEC22 §2.3: a cancelled Save As aborts the pending action.
-                  if (!(await saveDoc())) return;
+                  // SPEC22 §2.3: a cancelled Save As aborts the pending action
+                  // — and (PRD 013 Req 7) the rest of a tab-menu close walk,
+                  // exactly as Cancel does.
+                  if (!(await saveDoc())) {
+                    closeQueueRef.current = null;
+                    return;
+                  }
                   if (intent.kind === 'open') void parkAndOpen(platform, intent.path);
-                  else if (intent.kind === 'close-file') finishCloseFile(platform, intent.path);
+                  else if (intent.kind === 'close-file') await finishCloseFileStep(platform, intent.path);
                   else if (intent.kind === 'close-untitled') {
                     // Issue #22: the untitled buffer just became a real file
                     // (Save As ran inside saveDoc) — now close it for real.
                     const saved = stateRef.current.docPath;
-                    if (saved) finishCloseFile(platform, saved);
+                    if (saved) void finishCloseFile(platform, saved);
                     else closeToSplash();
                   } else beginNewFile(); // PRD 009 Req 13
                 }}

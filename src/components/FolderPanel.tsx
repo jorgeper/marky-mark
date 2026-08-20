@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { displayEntries, isMarkdownFile, type DirEntry } from '../lib/folderTree';
 import { folderContextMenu, validateEntryName } from '../lib/folderOps';
 import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN, type ViewMode } from '../lib/settings';
 import { slideClasses, type SlidePhase } from '../lib/paneSlide';
+import { useAnchoredMenu } from './anchoredMenu';
 
 /**
  * SPEC34 §3: the folder sidebar — pure view. The owner (App) holds the
@@ -516,7 +517,6 @@ export function FolderPanel(p: FolderPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const slideRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const [dropOver, setDropOver] = useState<string | null>(null);
   const draggingRef = useRef<string | null>(null);
@@ -554,39 +554,9 @@ export function FolderPanel(p: FolderPanelProps) {
     setMenu({ kind, path, x: e.clientX, y: e.clientY });
   };
 
-  // SPEC35 §3.2: positioned at the pointer, clamped to the viewport.
-  useLayoutEffect(() => {
-    const el = menuRef.current;
-    if (!el || !menu) return;
-    const r = el.getBoundingClientRect();
-    el.style.left = `${Math.max(4, Math.min(menu.x, window.innerWidth - r.width - 4))}px`;
-    el.style.top = `${Math.max(4, Math.min(menu.y, window.innerHeight - r.height - 4))}px`;
-  }, [menu]);
-
-  // SPEC35 §3.2: dismissed by Esc, any outside pointer-down, scroll, resize.
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    const onDown = (e: PointerEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) close();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        close();
-      }
-    };
-    document.addEventListener('pointerdown', onDown);
-    document.addEventListener('keydown', onKey, true);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    return () => {
-      document.removeEventListener('pointerdown', onDown);
-      document.removeEventListener('keydown', onKey, true);
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
-    };
-  }, [menu]);
+  // SPEC35 §3.2: anchored at the pointer, dismissed by Esc / outside
+  // pointer-down / scroll / resize — the shared menu behaviour.
+  const menuRef = useAnchoredMenu(menu, () => setMenu(null));
 
   // Reveal follow-through: whenever the selection changes, bring its row
   // into view (the owner has already expanded the ancestors).
