@@ -559,7 +559,7 @@ test('E279: Close All closes every open-set file one at a time and lands on the 
 
 /** The ephemeral untitled tab — SPEC36 §2.6 keeps it outside the open set,
  *  so it renders with an empty data-tab after the set's tabs. */
-const untitledTab = (page: Page) => page.locator('[data-tab=""]');
+const untitledTab = (page: Page) => tab(page, '');
 
 /** E292+ setup: the untitled tab alone — welcome closed, then File → New. */
 async function openUntitledAlone(page: Page): Promise<void> {
@@ -615,17 +615,18 @@ test('E293: a CLEAN untitled tab closes silently — ✕ and middle-click both l
   page,
 }) => {
   await openUntitledAlone(page);
+  const t = untitledTab(page);
   // ✕: exactly closeFile's clean-untitled arm — closeToSplash, no modal.
-  await untitledTab(page).hover();
-  await untitledTab(page).getByTestId('file-tab-close').click();
+  await t.hover();
+  await t.getByTestId('file-tab-close').click();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await expect(page.getByTestId('open-prompt')).toHaveCount(0);
   await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
 
   // Middle-click on a fresh clean untitled tab: the same silent path.
   await page.evaluate(() => window.__mmDispatch!('newFile'));
-  await expect(untitledTab(page)).toBeVisible();
-  await untitledTab(page).click({ button: 'middle' });
+  await expect(t).toBeVisible();
+  await t.click({ button: 'middle' });
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await expect(page.getByTestId('open-prompt')).toHaveCount(0);
   await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
@@ -678,8 +679,9 @@ test('E295: Save in the untitled close prompt runs Save As (SPEC22 §2.2), write
 }) => {
   await openUntitledAlone(page);
   await dirtyUntitled(page, 'UKEEP ');
-  await untitledTab(page).hover();
-  await untitledTab(page).getByTestId('file-tab-close').click();
+  const t = untitledTab(page);
+  await t.hover();
+  await t.getByTestId('file-tab-close').click();
   await page.evaluate(() => {
     window.__mmfs!.nextSavePath = '/docs/kept.md';
   });
@@ -775,8 +777,8 @@ test('E298: Save As replaces the untitled tab with the saved file\'s real tab �
   // No Untitled tab remains; exactly one tab for the saved path — active,
   // and a member of the open set in its tree-order position.
   await expect(untitledTab(page)).toHaveCount(0);
-  await expect(page.locator('[data-tab="/notes/saved.md"]')).toHaveCount(1);
-  await expect(page.locator('[data-tab="/notes/saved.md"]')).toHaveAttribute('data-active', 'true');
+  await expect(tab(page, '/notes/saved.md')).toHaveCount(1);
+  await expect(tab(page, '/notes/saved.md')).toHaveAttribute('data-active', 'true');
   await expect
     .poll(() => tabPaths(page))
     .toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md', '/notes/a.md', '/notes/saved.md']);

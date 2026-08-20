@@ -69,10 +69,11 @@ function Tab({ active, label, title, path, dirty, onClick, onClose, onMenu }: {
   title: string;
   path: string;
   dirty?: boolean;
+  /** Absent (the ACTIVE tab, and the untitled one) ⇒ clicking it is inert. */
   onClick?: () => void;
   /** Every tab closes — open-set tabs via SPEC36 §3.4, the untitled tab via
-   *  the owner's dirty-untitled guard (PRD 013 Req 8). Gates the ●/✕ slot
-   *  and middle-click alike. */
+   *  the owner's dirty-untitled guard (PRD 013 Req 8). Behind the ✕ and the
+   *  middle-click alike. */
   onClose: () => void;
   /** Absent (the untitled tab) ⇒ no context menu: Close Others / Close All
    *  are SPEC36 open-set walks, which the untitled buffer sits outside
@@ -179,13 +180,17 @@ export function FileTabStrip(p: FileTabStripProps) {
       {p.untitled && (
         // PRD 013 Req 8: the untitled buffer sits outside the SPEC36 set
         // (§2.6), so its tab is appended here rather than derived from
-        // openFiles; it is always the active one (docPath is null while
-        // untitled), and clicking it is inert. It carries the same ●/✕ slot
-        // as the open-set tabs — the ● from `untitledDirty` — and its ✕ and
-        // middle-click close through the owner's dirty-untitled guard.
-        // No onMenu: the tab context menu's walks are open-set walks, which
-        // this buffer sits outside, so right-click opens nothing here.
-        <Tab active label="Untitled" title="Untitled" path="" dirty={p.untitledDirty} onClose={p.onCloseUntitled} />
+        // openFiles, and it is always the active one (docPath is null while
+        // untitled). No onMenu: the menu's walks are open-set walks this
+        // buffer sits outside, so right-click opens nothing here.
+        <Tab
+          active
+          label="Untitled"
+          title="Untitled"
+          path=""
+          dirty={p.untitledDirty}
+          onClose={p.onCloseUntitled}
+        />
       )}
       {menu && (
         // PRD 013 Req 7: the tab menu — theme-menu chrome, pointer-anchored
