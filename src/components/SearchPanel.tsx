@@ -22,21 +22,26 @@ export function SearchOptionsBar({
 }) {
   return (
     <span className="search-options" data-testid="search-options">
-      {SEARCH_OPTION_TOGGLES.map((t) => (
-        <button
-          key={t.key}
-          className={`search-opt${options[t.key] ? ' on' : ''}`}
-          data-testid={t.testId}
-          data-active={options[t.key] ? 'true' : 'false'}
-          aria-pressed={options[t.key]}
-          title={t.label}
-          aria-label={t.label}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onChange(toggleSearchOption(options, t.key))}
-        >
-          {t.glyph}
-        </button>
-      ))}
+      {SEARCH_OPTION_TOGGLES.map(({ key, label, testId, glyph }) => {
+        const on = options[key];
+        return (
+          <button
+            key={key}
+            className={`search-opt${on ? ' on' : ''}`}
+            data-testid={testId}
+            data-active={on ? 'true' : 'false'}
+            aria-pressed={on}
+            title={label}
+            aria-label={label}
+            // The caret stays in the query box across a flip: the button takes
+            // the click without taking focus, so typing continues uninterrupted.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onChange(toggleSearchOption(options, key))}
+          >
+            {glyph}
+          </button>
+        );
+      })}
     </span>
   );
 }
@@ -63,7 +68,7 @@ export interface SearchPanelProps {
    * `{ kind: 'invalid-regex' }` result, or null when the query compiles —
    * rendered inline on the query box, never invented here.
    */
-  error: string | null;
+  queryError: string | null;
   /**
    * PRD 014 Req 7: the grouped results for the last scanned query — null
    * while the query is empty (nothing to say yet; the loud no-results state
@@ -235,9 +240,9 @@ export function SearchPanel(p: SearchPanelProps) {
         </div>
         {/* PRD 014 Req 6: an invalid regex says so inline — compileQuery's own
             message — while the result list below stays empty. */}
-        {p.error !== null && (
+        {p.queryError !== null && (
           <div className="search-error" data-testid="search-error" role="alert">
-            {p.error}
+            {p.queryError}
           </div>
         )}
         {/* PRD 014 Req 4: no roots ⇒ say so plainly, never an empty result list. */}

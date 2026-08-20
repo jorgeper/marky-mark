@@ -6518,7 +6518,7 @@ export default function App() {
             viewSwitch={sidebarSwitch}
             query={searchQuery}
             options={searchOptions}
-            error={searchError}
+            queryError={searchError}
             results={searchResults}
             noRoots={folderRoots.length === 0}
             collapsed={searchCollapsed}

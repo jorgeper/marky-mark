@@ -283,6 +283,14 @@ test('E280: the case-sensitive toggle — pressed state, a changed multi-file re
   await expect(page.getByTestId('search-file')).toHaveCount(2);
   await expect(page.getByTestId('search-match')).toHaveCount(3);
 
+  // PRD 014 Req 7 + Req 6: a toggle flip is a NEW query for the fold state
+  // too, so collapse words.md first — the match counts below then only add up
+  // if the flip re-expanded it, rather than carrying the stale fold over.
+  await page
+    .locator('[data-testid="search-file"][data-path="/notes/words.md"] [data-testid="search-twisty"]')
+    .click();
+  await expect(page.getByTestId('search-match')).toHaveCount(1);
+
   // One click — no re-typing, the input untouched — repaints the result set:
   // case-sensitive 'cat' leaves only 'concatenate', so case.md drops out.
   await page.getByTestId('search-opt-case').click();
