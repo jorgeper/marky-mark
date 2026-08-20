@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'vitest';
+import { SearchQuery } from '@codemirror/search';
+import { Text } from '@codemirror/state';
 import {
   compileQuery,
   findMatches,
@@ -7,6 +9,7 @@ import {
   literalReplacement,
   searchFile,
   searchFiles,
+  type CompiledPattern,
   type SearchFile,
   type SearchMatcher,
   type SearchOptions,
@@ -219,6 +222,29 @@ describe('PRD 014 Req 7 — result grouping and ordering', () => {
   });
 });
 
+/** One hit as CodeMirror's search cursor reports it (it carries more; these are the fields under test). */
+interface CmMatch {
+  from: number;
+  to: number;
+}
+
+/**
+ * The edit engine's query, built exactly as `Editor.tsx` builds it from a
+ * compiled pattern: regexp mode over the compiled source, CM's own whole-word
+ * and escaping deliberately unused. This is the oracle the parity tests below
+ * measure `searchCore` against, so it must not drift from that call site.
+ */
+const cmQuery = (pattern: CompiledPattern, replace?: string): SearchQuery =>
+  new SearchQuery({ search: pattern.source, regexp: true, caseSensitive: pattern.caseSensitive, literal: true, replace });
+
+/** Every match CM's own cursor finds in `doc`, in order. */
+const cmMatches = (query: SearchQuery, doc: string): CmMatch[] => {
+  const cursor = query.getCursor(Text.of(doc.split('\n'))) as Iterator<CmMatch>;
+  const out: CmMatch[] = [];
+  for (let r = cursor.next(); !r.done; r = cursor.next()) out.push(r.value);
+  return out;
+};
+
 describe('PRD 014 Req 10 (issue #154) — the compiled pattern and find-bar/Search-view parity', () => {
   /** Compile expecting success — the whole matcher arm, pattern included. */
   const compiled = (query: string, over: Partial<SearchOptions> = {}) => {
@@ -245,14 +271,11 @@ describe('PRD 014 Req 10 (issue #154) — the compiled pattern and find-bar/Sear
     );
   });
 
-  test('U707: CodeMirror driven by the pattern agrees with compileQuery over the option table', async () => {
-    // The find bar's edit engine builds CM's SearchQuery from the compiled
-    // pattern (regexp mode, no CM wholeWord) — this pins that the two modes
-    // return the same ranges for every option combination. Patterns with
-    // class escapes like \s are excluded: CM's multiline cursor lets those
-    // span line breaks where searchCore is line-scoped by contract (U695).
-    const { SearchQuery } = await import('@codemirror/search');
-    const { Text } = await import('@codemirror/state');
+  test('U707: CodeMirror driven by the pattern agrees with compileQuery over the option table', () => {
+    // This pins that the two modes return the same ranges for every option
+    // combination. Patterns with class escapes like \s are excluded: CM's
+    // multiline cursor lets those span line breaks where searchCore is
+    // line-scoped by contract (U695).
     const doc = 'Cat sat\nconcatenate cat\ncut Cot CAT\ncafé au lait';
     const table: Array<[string, Partial<SearchOptions>]> = [
       ['cat', {}],
@@ -271,10 +294,7 @@ describe('PRD 014 Req 10 (issue #154) — the compiled pattern and find-bar/Sear
     for (const [query, over] of table) {
       const { matcher: m, pattern } = compiled(query, over);
       const ours = findMatchRanges(doc, m).map((r) => [r.start, r.end]);
-      const q = new SearchQuery({ search: pattern.source, regexp: true, caseSensitive: pattern.caseSensitive, literal: true });
-      const cursor = q.getCursor(Text.of(doc.split('\n'))) as Iterator<{ from: number; to: number }>;
-      const cms: number[][] = [];
-      for (let r = cursor.next(); !r.done; r = cursor.next()) cms.push([r.value.from, r.value.to]);
+      const cms = cmMatches(cmQuery(pattern), doc).map((r) => [r.from, r.to]);
       expect(cms, `query=${JSON.stringify(query)} options=${JSON.stringify(over)}`).toEqual(ours);
     }
   });
@@ -295,25 +315,17 @@ describe('PRD 014 Req 10 (issue #154) — the compiled pattern and find-bar/Sear
     expect(findMatchRanges('', m)).toEqual([]);
   });
 
-  test('U709: literalReplacement neutralizes every $ so a regex-mode engine replaces byte-literally', async () => {
+  test('U709: literalReplacement neutralizes every $ so a regex-mode engine replaces byte-literally', () => {
     expect(literalReplacement('plain')).toBe('plain');
     expect(literalReplacement('$& $1 $$ $')).toBe('$$& $$1 $$$$ $$');
     // Proof against the real engine: CM's regex replace of the neutralized
     // text yields exactly what the user typed.
-    const { SearchQuery } = await import('@codemirror/search');
-    const { Text } = await import('@codemirror/state');
-    const { pattern } = compiled('cat');
-    const q = new SearchQuery({
-      search: pattern.source,
-      regexp: true,
-      caseSensitive: pattern.caseSensitive,
-      literal: true,
-      replace: literalReplacement('$& costs $1'),
-    });
-    const cursor = q.getCursor(Text.of(['a cat'])) as Iterator<{ from: number; to: number }>;
-    const first = cursor.next();
-    if (first.done) throw new Error('expected a match');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((q as any).create().getReplacement(first.value)).toBe('$& costs $1');
+    const q = cmQuery(compiled('cat').pattern, literalReplacement('$& costs $1'));
+    const first = cmMatches(q, 'a cat')[0];
+    if (!first) throw new Error('expected a match');
+    // `create()` is CM's internal query object — the only route to its
+    // replacement expansion without mounting an editor.
+    const created = (q as unknown as { create(): { getReplacement(m: CmMatch): string } }).create();
+    expect(created.getReplacement(first)).toBe('$& costs $1');
   });
 });

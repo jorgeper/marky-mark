@@ -513,6 +513,14 @@ export default function App() {
   const findCompiled = useMemo(() => compileQuery(findDebounced, findOptions), [findDebounced, findOptions]);
   /** PRD 014 Req 10: the inline invalid-regex message — compileQuery's own, or null. */
   const findError = findCompiled.kind === 'invalid-regex' ? findCompiled.message : null;
+  /**
+   * PRD 014 Req 10 (issue #154): the replace text as the edit engine — always
+   * in regexp mode now — must receive it. With the regex toggle ON, `$&`/`$1`
+   * are group references (the regex engine's own replace rules); with it off
+   * the `$`s are neutralized so the replacement stays byte-literal, exactly as
+   * it was before the toggles existed.
+   */
+  const findReplaceText = findOptions.regex ? findReplace : literalReplacement(findReplace);
   // SPEC30 §3: the boot-time draft offer.
   const [restorePrompt, setRestorePrompt] = useState<Draft | null>(null);
   const [pending, setPending] = useState<{ start: number; end: number } | null>(null);
@@ -1259,11 +1267,7 @@ export default function App() {
       const h = editorSearchRef.current;
       if (!h || stateRef.current.mode !== 'edit') return;
       if (findCompiled.kind !== 'matcher') return; // invalid regex: replace is inert
-      // Refresh the replace text in place. PRD 014 Req 10 (issue #154): with
-      // the regex toggle ON, `$&`/`$1` work as group references (the regex
-      // engine's own replace rules); with it off the text is `$`-neutralized
-      // and stays byte-literal, exactly as before the toggles existed.
-      h.setQuery(findCompiled.pattern, findOptions.regex ? findReplace : literalReplacement(findReplace), false);
+      h.setQuery(findCompiled.pattern, findReplaceText, false); // refresh the replace text in place
       if (all) {
         const n = h.replaceAllMatches();
         showNotice(`Replaced ${n} ${n === 1 ? 'match' : 'matches'}`);
@@ -1275,7 +1279,7 @@ export default function App() {
         setFindCurrent(res.current);
       }
     },
-    [findCompiled, findOptions.regex, findReplace, showNotice]
+    [findCompiled, findReplaceText, showNotice]
   );
 
 
@@ -5575,13 +5579,8 @@ export default function App() {
         return;
       }
       // PRD 014 Req 10 (issue #154): the editor gets the compiled pattern —
-      // an invalid regex never reaches CodeMirror (null clears instead) —
-      // and, with the regex toggle off, a `$`-neutralized replace text so
-      // replacement stays byte-literal under the regex-mode engine.
-      const res = h.setQuery(
-        findCompiled.kind === 'matcher' ? findCompiled.pattern : null,
-        findOptions.regex ? findReplace : literalReplacement(findReplace)
-      );
+      // an invalid regex never reaches CodeMirror (null clears instead).
+      const res = h.setQuery(findCompiled.kind === 'matcher' ? findCompiled.pattern : null, findReplaceText);
       setFindCount(res.count);
       setFindCurrent(res.current);
     };
@@ -5589,8 +5588,8 @@ export default function App() {
     return () => {
       disposed = true;
     };
-    // findReplace intentionally read fresh at call time via the closure; the
-    // replace text re-installs without advancing in the handler below.
+    // findReplaceText intentionally read fresh at call time via the closure;
+    // the replace text re-installs without advancing in the handler below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, findOpen, findDebounced, findCompiled]);
 
