@@ -1,8 +1,7 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, test } from 'vitest';
+import { MERMAID_NEEDLES, ROOT, buildWhenStale } from './built-artifact';
 
 /**
  * PRD 013 Req 7 (issue #161), the build-shape half: mermaid's weight stays
@@ -15,45 +14,22 @@ import { beforeAll, describe, expect, test } from 'vitest';
  * otherwise an accident no fast-tier gate would notice breaking (the full
  * gate's bundle steps need Rust on PATH).
  *
- * Same shape as tests/unit/static-web-no-llm.test.ts: never assert against a
- * stale or absent artifact (`beforeAll` rebuilds `dist/` when it is missing
- * or older than its inputs), prove the files read are the real bundle before
+ * Same shape as tests/unit/static-web-no-llm.test.ts, down to the shared
+ * `buildWhenStale` (tests/unit/built-artifact.ts): never assert against a
+ * stale or absent artifact, prove the files read are the real bundle before
  * reading anything out of them, and derive needles from the code that owns
  * them where possible — mermaid's own internals have no importable constant
  * to derive from, so those needles are instead proven present in the built
  * mermaid chunks before their absence from the entry chunk means anything.
  */
 
-const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const DIST_HTML = path.join(ROOT, 'dist', 'index.html');
 const ASSETS = path.join(ROOT, 'dist', 'assets');
-
-/** Newest mtime under a path, so a stale bundle is rebuilt rather than trusted. */
-function newestMtime(rel: string): number {
-  const abs = path.join(ROOT, rel);
-  const stat = statSync(abs);
-  if (!stat.isDirectory()) return stat.mtimeMs;
-  let newest = stat.mtimeMs;
-  for (const entry of readdirSync(abs)) newest = Math.max(newest, newestMtime(path.join(rel, entry)));
-  return newest;
-}
 
 /** The inputs `npm run build` reads: a change to any of them stales the bundle. */
 const BUILD_INPUTS = ['src', 'index.html', 'vite.config.ts', 'package.json'];
 
-beforeAll(() => {
-  const newestInput = Math.max(...BUILD_INPUTS.map(newestMtime));
-  if (existsSync(DIST_HTML) && statSync(DIST_HTML).mtimeMs >= newestInput) return;
-  // ~5s, and only when the artifact is missing or behind its sources — the
-  // alternative (assert only when it happens to exist) is a guard that goes
-  // quiet exactly when someone has just changed the code it guards.
-  try {
-    execFileSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'pipe' });
-  } catch (error) {
-    const { stdout, stderr } = error as { stdout?: Buffer; stderr?: Buffer };
-    throw new Error(`npm run build failed:\n${stderr ?? ''}${stdout ?? ''}`);
-  }
-}, 300_000);
+beforeAll(() => buildWhenStale(DIST_HTML, BUILD_INPUTS, 'build'), 300_000);
 
 /** dist/index.html, proven to be the real shell page before anything is read out of it. */
 function shellHtml(): string {
@@ -64,13 +40,15 @@ function shellHtml(): string {
   return html;
 }
 
-/**
- * Strings that live only inside mermaid's own code (diagram-type detector
- * ids); nothing under src/ mentions them. Their presence in the lazy chunks
- * is asserted first, so a mermaid release renaming one fails the sentinel
- * loudly instead of leaving the entry-chunk assertion vacuously green.
- */
-const MERMAID_NEEDLES = ['sequenceDiagram', 'classDiagram', 'flowchart-v2'];
+/** The one script the shell page loads: the entry chunk, `/assets/index-<hash>.js`. */
+const ENTRY_SCRIPT_SRC = /src="\/assets\/(index-[^"]+\.js)"/;
+
+/** The entry chunk's filename, read off the shell page — absent, there is nothing to assert over. */
+function entryChunkName(html: string): string {
+  const name = ENTRY_SCRIPT_SRC.exec(html)?.[1];
+  if (!name) throw new Error('dist/index.html names no entry chunk');
+  return name;
+}
 
 describe('PRD 013 Req 7 — desktop build keeps mermaid out of the startup load set (issue #161)', () => {
   test('U750: dist/index.html loads the entry script and stylesheet only — nothing preloads a mermaid chunk', () => {
@@ -78,7 +56,7 @@ describe('PRD 013 Req 7 — desktop build keeps mermaid out of the startup load 
     // The whole load set: one module script (the entry) plus one stylesheet.
     const scripts = [...html.matchAll(/<script\b[^>]*>/g)].map((m) => m[0]);
     expect(scripts, 'dist/index.html must load exactly one script').toHaveLength(1);
-    expect(scripts[0]).toMatch(/src="\/assets\/index-[^"]+\.js"/);
+    expect(scripts[0]).toMatch(ENTRY_SCRIPT_SRC);
     const links = [...html.matchAll(/<link\b[^>]*>/g)].map((m) => m[0]);
     expect(links.filter((l) => l.includes('rel="stylesheet"'))).toHaveLength(1);
     // No <link rel="modulepreload"> at all: startup neither downloads nor
@@ -89,10 +67,8 @@ describe('PRD 013 Req 7 — desktop build keeps mermaid out of the startup load 
   });
 
   test('U751: the entry chunk carries no mermaid library code — only the rewritten dynamic-import site', () => {
-    const html = shellHtml();
-    const entryName = /src="\/assets\/(index-[^"]+\.js)"/.exec(html)?.[1];
-    expect(entryName, 'dist/index.html names no entry chunk').toBeTruthy();
-    const entry = readFileSync(path.join(ASSETS, entryName as string), 'utf8');
+    const entryName = entryChunkName(shellHtml());
+    const entry = readFileSync(path.join(ASSETS, entryName), 'utf8');
     // Sentinel: the real app entry — the adapter's diagram id prefix, whose
     // owner is src/lib/mermaidRenderer.ts (statically imported by App.tsx).
     const idPrefix = 'mm-diagram-';
@@ -102,9 +78,8 @@ describe('PRD 013 Req 7 — desktop build keeps mermaid out of the startup load 
     // The library needles are real for the installed mermaid: each appears in
     // at least one chunk other than the entry (the lazy mermaid graph).
     const otherChunks = readdirSync(ASSETS).filter((f) => f.endsWith('.js') && f !== entryName);
-    expect(otherChunks.some((f) => /^mermaid\.core-.+\.js$/.test(f)), 'no mermaid.core-*.js lazy chunk was emitted').toBe(
-      true,
-    );
+    const hasMermaidChunk = otherChunks.some((f) => /^mermaid\.core-.+\.js$/.test(f));
+    expect(hasMermaidChunk, 'no mermaid.core-*.js lazy chunk was emitted').toBe(true);
     const others = otherChunks.map((f) => readFileSync(path.join(ASSETS, f), 'utf8'));
     for (const needle of MERMAID_NEEDLES) {
       expect(

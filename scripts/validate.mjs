@@ -332,11 +332,12 @@ console.log(`dist-web/index.html is self-contained (single file, no external scr
 // FORBIDDEN APIs must not appear at all; fetch( call sites must equal
 // FETCH_ALLOWLIST exactly, so a new one — in either direction — fails here.
 // What counts as a call site is defined (and unit-tested) in
-// scripts/bundle-scan.mjs: a bare `fetch(...)` call. A `foo.fetch(...)`
-// member call or a `fetch(params){…}` method definition is not one — mermaid
-// (PRD 013, issue #161) pulls in katex, whose *parser method* is named
-// `fetch` (~27 member calls plus one definition per bundle), none of which
-// can reach the network.
+// scripts/bundle-scan.mjs: a call to the global `fetch`. A `foo.fetch(...)`
+// member call on some other object, or a `fetch(params){…}` method
+// definition, is not one — mermaid (PRD 013, issue #161) pulls in katex,
+// whose *parser method* is named `fetch` (~27 member calls plus one
+// definition per bundle), none of which can reach the network. A call
+// written `window.fetch(...)` still counts: it is the global.
 console.log('\n=== validate: static bundle scan (network call sites) ===');
 // Three call sites, each of them a single same-origin wrapper, counted once per
 // bundle (dist/ and dist-web/) — 3 × 2 = 6. All three are reachable only when

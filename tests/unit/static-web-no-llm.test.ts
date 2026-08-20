@@ -1,10 +1,9 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, test } from 'vitest';
 import { LLM_REQUEST_COMMAND } from '../../src/lib/llmDesktopTransport';
 import { ANTHROPIC_ENDPOINT, GEMINI_BASE, OPENAI_ENDPOINT, OPENROUTER_ENDPOINT } from '../../src/lib/llmProviders';
+import { MERMAID_NEEDLES, ROOT, buildWhenStale } from './built-artifact';
 import { effectiveCode } from './source-scan';
 
 /**
@@ -28,37 +27,13 @@ import { effectiveCode } from './source-scan';
  * read is a real Marky Mark web bundle.
  */
 
-const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const read = (rel: string): string => readFileSync(path.join(ROOT, rel), 'utf8');
 const DIST_WEB = path.join(ROOT, 'dist-web', 'index.html');
-
-/** Newest mtime under a path, so a stale bundle is rebuilt rather than trusted. */
-function newestMtime(rel: string): number {
-  const abs = path.join(ROOT, rel);
-  const stat = statSync(abs);
-  if (!stat.isDirectory()) return stat.mtimeMs;
-  let newest = stat.mtimeMs;
-  for (const entry of readdirSync(abs)) newest = Math.max(newest, newestMtime(path.join(rel, entry)));
-  return newest;
-}
 
 /** The inputs `npm run build:web` reads: a change to any of them stales the bundle. */
 const BUILD_INPUTS = ['src', 'index.html', 'vite.web.config.ts', 'package.json'];
 
-beforeAll(() => {
-  const newestInput = Math.max(...BUILD_INPUTS.map(newestMtime));
-  if (existsSync(DIST_WEB) && statSync(DIST_WEB).mtimeMs >= newestInput) return;
-  // ~2s, and only when the artifact is missing or behind its sources — the
-  // alternative (assert only when it happens to exist) is a guard that goes
-  // quiet exactly when someone has just changed the code it guards.
-  try {
-    execFileSync('npm', ['run', 'build:web'], { cwd: ROOT, stdio: 'pipe' });
-  } catch (error) {
-    // Captured output, or a failing build reads as a bare "Command failed".
-    const { stdout, stderr } = error as { stdout?: Buffer; stderr?: Buffer };
-    throw new Error(`npm run build:web failed:\n${stderr ?? ''}${stdout ?? ''}`);
-  }
-}, 300_000);
+beforeAll(() => buildWhenStale(DIST_WEB, BUILD_INPUTS, 'build:web'), 300_000);
 
 /** The built page, proven to be the real bundle before anything is read out of it. */
 function bundle(): string {
@@ -152,11 +127,10 @@ describe('PRD 013 Req 8 the static web build inlines mermaid into its single fil
     // rejects (scripts/validate.mjs), here in the tier that runs without Rust.
     expect(html, 'dist-web/index.html loads an external script').not.toMatch(/<script[^>]+src=/);
     expect(html, 'dist-web/index.html loads an external stylesheet').not.toMatch(/<link[^>]+rel="stylesheet"[^>]+href=/);
-    // Mermaid is inside: diagram-type detector ids that live only in
-    // mermaid's own code (nothing under src/ mentions them). These are
-    // positive assertions, so a mermaid release renaming one fails loudly
-    // here rather than leaving the property unchecked.
-    for (const needle of ['sequenceDiagram', 'classDiagram', 'flowchart-v2']) {
+    // Mermaid is inside: the shared detector-id needles, asserted positively,
+    // so a mermaid release renaming one fails loudly here rather than leaving
+    // the property unchecked.
+    for (const needle of MERMAID_NEEDLES) {
       expect(html.includes(needle), `mermaid's ${needle} is not inlined in dist-web/index.html`).toBe(true);
     }
   });
