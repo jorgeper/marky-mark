@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { AuxWindow } from './AuxWindow';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { HostedShell } from './components/HostedSignIn';
 import { detectHostedMode } from './lib/hostedGate';
 import { windowRole } from './lib/windowRole';
@@ -17,6 +18,10 @@ const hostedMode = detectHostedMode(document);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    {role !== 'main' ? <AuxWindow kind={role} /> : hostedMode ? <HostedShell mode={hostedMode} /> : <App />}
+    {/* Issue #136: a render-time throw used to unmount the bare tree to a
+        permanently blank window — the boundary keeps a recoverable surface. */}
+    <ErrorBoundary>
+      {role !== 'main' ? <AuxWindow kind={role} /> : hostedMode ? <HostedShell mode={hostedMode} /> : <App />}
+    </ErrorBoundary>
   </React.StrictMode>
 );

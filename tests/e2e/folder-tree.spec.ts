@@ -3,8 +3,10 @@ import {
   freshApp,
   freshNativeMenuApp,
   fsRead,
+  fsWrite,
   menuClick,
   openFolderRoot,
+  openNotesRoot,
   seedFolders,
   stableBox,
 } from './helpers';
@@ -532,4 +534,65 @@ test('E99: delete — cancel no-op, dim file trashes, open dirty file to splash,
   await expect.poll(() => fsRead(page, '/config/foldertree.json')).not.toContain('/notes/sub');
   await expect.poll(() => fsRead(page, '/config/recent.json')).not.toContain('c.md');
   expect(await page.evaluate(() => window.__mmTrash)).toEqual(['/notes/pic.png', '/notes/sub/b.md', '/notes/sub']);
+});
+
+test('E292: rapid successive opens from the folder pane — the last click always wins, superseded opens commit nothing, no parked buffer is lost (issue #136)', async ({
+  page,
+}) => {
+  await fsWrite(page, '/notes/a.md', '# Alpha\n');
+  await fsWrite(page, '/notes/b.md', '# Bravo\n');
+  await fsWrite(page, '/notes/c.md', '# Charlie\n');
+  await openNotesRoot(page);
+
+  // Issue #136: three opens fired back-to-back in ONE task — the next click
+  // lands before the previous open's async loads settle, exactly the reported
+  // "click several files quickly" gesture. React handles a dispatched click
+  // synchronously, so all three openDoc calls are in flight together.
+  const burst = (paths: string[]) =>
+    page.evaluate((ps) => {
+      for (const p of ps) {
+        (document.querySelector(`[data-path="${p}"]`) as HTMLElement).click();
+      }
+    }, paths);
+
+  await burst(['/notes/a.md', '/notes/b.md', '/notes/c.md']);
+  // The app is never left blank: the LAST-clicked file renders, its tab is
+  // the active one, and the window title names it.
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Charlie');
+  await expect(page.locator('[data-tab="/notes/c.md"]')).toHaveAttribute('data-active', 'true');
+  await expect(page).toHaveTitle('c.md — Marky Mark');
+  // Superseded opens committed NOTHING: no tabs for a/b — the open set is
+  // welcome.md (pre-burst) plus the one open that won.
+  await expect(page.getByTestId('file-tab')).toHaveCount(2);
+
+  // A burst ending on the ALREADY-committed doc: the early "same path" no-op
+  // used to compare only committed state, so the earlier click's open won and
+  // the app ended on the wrong file.
+  await burst(['/notes/a.md', '/notes/c.md']);
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Charlie');
+  await expect(page.getByTestId('file-tab')).toHaveCount(2);
+
+  // Dirty c in edit mode, park it by opening a — then race c against b. The
+  // superseded reopen of c must NOT discard its parked dirty buffer (it used
+  // to delete the park entry before its awaits, losing the unsaved text).
+  await page.keyboard.press('Control+e');
+  await page.locator('.cm-line').first().click();
+  await page.keyboard.type('RACEKEEP ');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+
+  await burst(['/notes/c.md', '/notes/b.md']);
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  // Issue #125: b opens in the last chosen view mode (edit) — the buffer is
+  // b's alone, not a mix of the two racing documents.
+  await expect(page.locator('.cm-content').first()).toContainText('Bravo');
+
+  // Reopening the file whose open lost the race still shows its unsaved text.
+  await page.locator('[data-path="/notes/c.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect(page.locator('.cm-content').first()).toContainText('RACEKEEP');
 });
