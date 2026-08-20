@@ -30,6 +30,9 @@ export type CommandId =
   // dispatch this one id rather than calling the handler twice over.
   | 'toggleToc'
   | 'toggleOpenOnly'
+  // PRD 013 Req 13: show/hide the file tab strip — the View item and the
+  // in-app flyout dispatch this one id; deliberately no hotkey (non-goal).
+  | 'toggleFileTabs'
   | 'nextFile'
   | 'prevFile'
   | 'openFolder'

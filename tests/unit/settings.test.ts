@@ -175,6 +175,32 @@ describe('Issue #122 code-block syntax colouring setting', () => {
   });
 });
 
+describe('PRD 013 Req 13 file tab strip setting', () => {
+  // Intent: same contract as its boolean neighbours (U676 / U51) — the strip
+  // is ON for a fresh install, a hand-written `false` is obeyed, and anything
+  // that is not a boolean in settings.json falls back to the default rather
+  // than reaching the strip as a truthy string.
+  test('U678: fileTabs defaults true, explicit false honored, malformed falls back, round-trips', () => {
+    expect(DEFAULT_SETTINGS.fileTabs).toBe(true);
+    expect(parseSettings('{}').fileTabs).toBe(true);
+    expect(parseSettings('{"fileTabs":false}').fileTabs).toBe(false);
+    expect(parseSettings('{"fileTabs":true}').fileTabs).toBe(true);
+    expect(parseSettings('{"fileTabs":"off"}').fileTabs).toBe(true); // malformed → default
+    expect(parseSettings('{"fileTabs":0}').fileTabs).toBe(true);
+    expect(parseSettings('{"fileTabs":null}').fileTabs).toBe(true);
+    const round = parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, fileTabs: false }));
+    expect(round.fileTabs).toBe(false);
+  });
+
+  test('U679: it is machine-scoped, like its layout neighbours the sidebar keys', () => {
+    expect(SETTINGS_SCOPES.fileTabs).toBe('M');
+    expect(SETTINGS_SCOPES.showFolders).toBe('M');
+    // 'M' keeps it out of the workspace-editable set by construction — no
+    // shared layer can force a tab strip onto (or off) someone else's screen.
+    expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain('fileTabs');
+  });
+});
+
 describe('PRD 011 Req 6+7 LLM provider settings', () => {
   test('U577: the defaults leave the app unconfigured — empty key, no fabricated model', () => {
     const d = parseSettings('{}');

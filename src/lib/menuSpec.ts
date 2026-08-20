@@ -134,6 +134,16 @@ export interface ViewMenuState {
   /** Issue #22: a document (file or untitled buffer) is open — gates Close File. */
   docOpen: boolean;
   /**
+   * PRD 013 Reqs 13–14: the file tab strip's checkbox. OPTIONAL so every
+   * pre-#144 ViewMenuState call site (and frozen test fixtures) keeps its
+   * exact View menu: absent reads as "no tab-strip seam" and the row is
+   * simply not there — the semanticZoom idiom, chosen over the
+   * WORKSPACE_VIEW_COMMANDS omission set (lib/appMenu.ts) because that set
+   * keys on the workspace capability, which the hosted flavor HAS while its
+   * build must still show no strip (PRD 013 non-goal).
+   */
+  fileTabs?: boolean;
+  /**
    * PRD 011 Reqs 2+23: the Experimental semantic-zoom switch. OPTIONAL so
    * every pre-#117 ViewMenuState call site (and frozen test fixtures) keeps
    * its exact View menu: absent reads as off, and the rows are simply not
@@ -211,6 +221,11 @@ export function buildViewItems(s: ViewMenuState): MenuItemSpec[] {
     // hotkey-only — accelerators follow the live map.
     cmd('nextFile', 'Next Open File', s.hotkeys.nextFile, undefined, noCycle),
     cmd('prevFile', 'Previous Open File', s.hotkeys.prevFile, undefined, noCycle),
+    // PRD 013 Req 13: the strip's checkbox closes the workspace/layout group.
+    // Present only where the tab-strip seam exists (state supplied — see the
+    // ViewMenuState field above); grayed with no document open, where the
+    // strip cannot render (Req 1). Deliberately hotkey-less (PRD non-goal).
+    ...(s.fileTabs !== undefined ? [cmd('toggleFileTabs', 'File Tabs', undefined, s.fileTabs, !s.docOpen)] : []),
     // Issue #40: edit mode needs an open document (file or untitled) —
     // grayed on the splash and workspace-no-file states alike.
     cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit', !s.docOpen || noEdit),

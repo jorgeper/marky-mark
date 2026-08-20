@@ -80,6 +80,7 @@ import { uploadRejection } from './lib/fileTransfer';
 import { isSaveConflict, planSaveConflict, type SaveConflictChoice } from './lib/saveConflict';
 import { planMergedSave } from './lib/mergedSave';
 import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton } from './components/FolderPanel';
+import { FileTabStrip } from './components/FileTabStrip';
 import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
 import {
   SLIDE_SETTLE_MS,
@@ -3850,6 +3851,16 @@ export default function App() {
         // visibility toggle it has always been.
         showSidebarView('folders');
       },
+      // PRD 013 Req 13: View → File Tabs flips the persisted setting through
+      // the ordinary settings write path, so the strip and the checkmark
+      // follow together and the open set, the active file, the park map and
+      // dirty state are untouched. Silent no-op without the tab-strip seam
+      // (web/hosted) — the toggleFolders discipline.
+      toggleFileTabs: () => {
+        const st = stateRef.current;
+        if (!st.platform?.localFolders) return;
+        updateSettings({ ...st.settings, fileTabs: !st.settings.fileTabs });
+      },
       /**
        * PRD 012 Req 10: every TOC surface — the hotkey, the switch's TOC
        * button, the panel's hide chevron — lands here, and here is the TOC
@@ -4371,6 +4382,10 @@ export default function App() {
       openOnly: folderOpenOnly,
       // Issue #84: gates View → Next/Previous Open File.
       openFileCount: openFiles.length,
+      // PRD 013 Reqs 13–14: undefined (no tab-strip seam — web/hosted) ⇒ the
+      // File Tabs row is not there at all; supplied ⇒ a checkbox mirroring
+      // the persisted setting, on the native bar and the in-app flyout alike.
+      fileTabs: platform?.localFolders ? settings.fileTabs : undefined,
       // PRD 011 Reqs 2+23: off ⇒ buildViewItems omits the rows entirely, on
       // both the native menu bar and the in-app View ▸ flyout.
       semanticZoom: settings.semanticZoom,
@@ -4394,6 +4409,7 @@ export default function App() {
       sidebarView,
       folderOpenOnly,
       openFiles.length,
+      settings.fileTabs,
       settings.semanticZoom,
     ]
   );
@@ -5945,6 +5961,19 @@ export default function App() {
   // exists only in workspace mode on platforms with the folder capabilities.
   const folderSeam = !!platform?.readDirEntries && !!platform?.openFolderDialog && appMode === 'workspace';
   /**
+   * PRD 013 Reqs 1–2 + 14: the tab-strip seam. Gated on `localFolders` — not
+   * the folderSeam above — because the strip must exist OUTSIDE workspace
+   * mode too (a single opened file, an untitled buffer) and must not exist in
+   * the web/hosted build: `localFolders` is the one capability exactly the
+   * two desktop shells (tauri + the e2e shim) declare, marking the local
+   * multi-file session SPEC36's open set models. Never `platform.kind`.
+   */
+  const tabStripSeam = !!platform?.localFolders;
+  // PRD 013 Req 1: the strip renders only with a document open (an open-set
+  // file or an untitled buffer) and the setting on. Semantic zoom replaces
+  // the document view outright (PRD 011 Req 17), so the strip yields there.
+  const showFileTabs = tabStripSeam && settings.fileTabs && docOpen && !zoomDoc;
+  /**
    * PRD 012 Req 9: whether the ONE pane has anything on screen — the setting
    * says "open", but a view also has to exist to fill it (the folders view
    * needs the seam, the TOC needs a document). This is what the edge cluster
@@ -6066,7 +6095,10 @@ export default function App() {
         />
       )}
 
-      <div className="body-row">
+      {/* PRD 013 Req 1: `with-tabs` drops the absolutely-anchored edge
+          clusters below the strip, so they stay visible and clickable rather
+          than sitting behind it (styles.css). */}
+      <div className={`body-row${showFileTabs ? ' with-tabs' : ''}`}>
         {/* Issue #22: the folder sidebar is a workspace-mode surface only.
             PRD 003 Req 9: it stays mounted through the exit slide. */}
         {/* PRD 012 Req 1: exactly one view of the one pane renders — the
@@ -6205,6 +6237,25 @@ export default function App() {
           </div>
         )}
 
+      {/* PRD 013 Reqs 1–2: the strip + document column. The wrapper is layout
+          only — it takes the flex slot the workspace held and turns it into a
+          column, so the strip spans the full width of the WORKSPACE alone
+          (the sidebar is a body-row sibling it can never extend over), above
+          the preview, split and full-edit branches alike. Its `with-tabs`
+          hands the workspace's static-toolbar clearance to the strip, which
+          is now the column's top edge (styles.css). */}
+      <div className={`workspace-stack${showFileTabs ? ' with-tabs' : ''}`}>
+      {showFileTabs && (
+        <FileTabStrip
+          openFiles={openFiles}
+          activePath={docPath}
+          untitled={untitled}
+          basename={platform.basename}
+          // PRD 013 Req 3: the SAME activation call the sidebar's open row
+          // makes (openDocGuarded → park-and-restore) — no second path.
+          onActivate={(path) => openDocGuarded(platform, path)}
+        />
+      )}
       {zoomDoc ? (
         /* PRD 011 Reqs 17+18: levels 1–4 replace the document view outright —
            the editor is not mounted, so the buffer cannot be typed into,
@@ -6423,6 +6474,7 @@ export default function App() {
           </Suspense>
         </div>
       )}
+      </div>
 
       </div>
 

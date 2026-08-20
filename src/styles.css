@@ -1833,6 +1833,8 @@ mark.hl.ghost {
   .folder-slide,
   .folder-expand,
   .edge-cluster,
+  /* PRD 013 Req 1: the tab strip is chrome — never on paper. */
+  .file-tab-strip,
   .comment-nav,
   .word-chip,
   .split-divider,
@@ -2201,6 +2203,89 @@ mark.hl.ghost {
 .theme-root.toolbar-static .edge-cluster,
 .theme-root.toolbar-static .edge-cluster-left {
   top: 51px;
+}
+
+/* ---------- PRD 013: the file tab strip (issue #144) ---------- */
+
+/* PRD 013 Reqs 1–2: the strip + document column. The wrapper takes the flex
+   slot the workspace held in .body-row and stacks the strip above it, so the
+   strip spans the workspace's full width — and only the workspace's: the
+   sidebar is a body-row sibling outside this column. */
+.theme-root {
+  --mm-tabstrip-h: 34px;
+}
+.workspace-stack {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.workspace-stack > .workspace {
+  min-height: 0; /* the column's scroll box — the strip drives no overflow */
+}
+.file-tab-strip {
+  flex: none;
+  box-sizing: border-box;
+  height: var(--mm-tabstrip-h);
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 5px 8px 0;
+  overflow: hidden; /* overflow arrows + wheel scrolling land in issue #147 */
+  background: var(--mm-bg-elevated, #f6f8fa);
+  border-bottom: 1px solid var(--mm-border, #d1d9e0);
+}
+/* PRD 013 Req 4: one tab — bounded width; the label span clips with an
+   ellipsis (no wrap, no strip-height growth) and the button's title carries
+   the full path. Req 3: a basic active/inactive tint only — the sidebar's
+   plane-and-shadow treatment rotated up here is issue #148. */
+.file-tab {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 160px;
+  padding: 4px 10px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: transparent;
+  color: var(--mm-fg-muted, #59636e);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.file-tab:hover {
+  color: var(--mm-fg, #1f2328);
+}
+.file-tab.active {
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg, #1f2328);
+}
+.file-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* PRD 013 Req 1: with the strip up, the absolutely-anchored corner tabs drop
+   below it — visible and clickable, never behind or over the strip. */
+.body-row.with-tabs .edge-cluster,
+.body-row.with-tabs .edge-cluster-left {
+  top: calc(var(--mm-tabstrip-h) + 9px);
+}
+/* Static-toolbar mode (web/shim): the strip clears the overlaying toolbar
+   the way .folder-panel does, the workspace's own 42px clearance moves onto
+   it, and the corner tabs clear both. */
+.theme-root.toolbar-static .workspace-stack.with-tabs .file-tab-strip {
+  margin-top: 42px;
+}
+.theme-root.toolbar-static .workspace-stack.with-tabs .workspace {
+  padding-top: 0;
+}
+.theme-root.toolbar-static .body-row.with-tabs .edge-cluster,
+.theme-root.toolbar-static .body-row.with-tabs .edge-cluster-left {
+  top: calc(51px + var(--mm-tabstrip-h));
 }
 /* PRD 003 Reqs 9/11: the pane opens/closes as a horizontal slide — a 180ms
    transform on the shared --mm-slide-ease curve (#8; the toolbar keeps its
