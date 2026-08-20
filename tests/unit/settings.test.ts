@@ -320,6 +320,50 @@ describe('PRD 012 Req 10: the toggleToc hotkey', () => {
   });
 });
 
+describe('PRD 014 Req 3: the searchAllFiles hotkey', () => {
+  test('U702: searchAllFiles defaults to Mod+Shift+F, merges into older settings files, and rebinds round-trip', () => {
+    expect(DEFAULT_HOTKEYS.searchAllFiles).toBe('Mod+Shift+F');
+    expect(parseSettings('{}').hotkeys.searchAllFiles).toBe('Mod+Shift+F');
+
+    // A settings file written before this issue has no searchAllFiles key —
+    // it gains the default without disturbing the bindings already stored.
+    const old = parseSettings('{"hotkeys":{"toggleFolders":"Mod+Shift+D"}}');
+    expect(old.hotkeys.searchAllFiles).toBe('Mod+Shift+F');
+    expect(old.hotkeys.toggleFolders).toBe('Mod+Shift+D');
+
+    // Remappable and persisted like every other row of the map.
+    const round = parseSettings(
+      serializeSettings({
+        ...DEFAULT_SETTINGS,
+        hotkeys: { ...DEFAULT_SETTINGS.hotkeys, searchAllFiles: 'Mod+Alt+F' },
+      })
+    );
+    expect(round.hotkeys.searchAllFiles).toBe('Mod+Alt+F');
+    // A blank or non-string stored value falls back to the default.
+    expect(parseSettings('{"hotkeys":{"searchAllFiles":"   "}}').hotkeys.searchAllFiles).toBe('Mod+Shift+F');
+    expect(parseSettings('{"hotkeys":{"searchAllFiles":7}}').hotkeys.searchAllFiles).toBe('Mod+Shift+F');
+  });
+
+  test('U703: no two shipped defaults fire on one keypress — searchAllFiles included — and no sibling binding moved', () => {
+    const actions = Object.keys(DEFAULT_HOTKEYS) as Array<keyof HotkeyMap>;
+    expect(actions).toContain('searchAllFiles');
+    for (const a of actions) {
+      for (const b of actions) {
+        if (a === b) continue;
+        // combosConflict, not string equality: Mod matches ⌘-or-Ctrl, so two
+        // differently-spelled defaults could still collide as chords.
+        expect(combosConflict(DEFAULT_HOTKEYS[a], DEFAULT_HOTKEYS[b]), `${a} vs ${b}`).toBe(false);
+      }
+    }
+    // The neighbours keep their shipped meanings, unchanged and distinct:
+    // Mod+F stays the in-document find, and Shift keeps the two apart.
+    expect(DEFAULT_HOTKEYS.find).toBe('Mod+F');
+    expect(DEFAULT_HOTKEYS.toggleFolders).toBe('Mod+Shift+E');
+    expect(DEFAULT_HOTKEYS.toggleToc).toBe('Mod+Shift+T');
+    expect(combosConflict(DEFAULT_HOTKEYS.find, DEFAULT_HOTKEYS.searchAllFiles)).toBe(false);
+  });
+});
+
 describe('PRD 012 Req 11: the remembered sidebar view', () => {
   test('U673: sidebarView defaults to folders, takes only the known views, and round-trips', () => {
     expect(DEFAULT_SETTINGS.sidebarView).toBe('folders');

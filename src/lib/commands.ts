@@ -29,8 +29,9 @@ export type CommandId =
   // PRD 012 Req 10: the TOC view — the toolbar button and the hotkey both
   // dispatch this one id rather than calling the handler twice over.
   | 'toggleToc'
-  // PRD 014 Req 2: the Search view — the switch's button and the panel's own
-  // chrome dispatch this one id (issue #155's hotkey joins them later).
+  // PRD 014 Req 2: the Search view — the switch's button, the panel's own
+  // chrome and the searchAllFiles hotkey (Req 3) dispatch this one id rather
+  // than each carrying its own copy of the show/switch/focus/hide logic.
   | 'toggleSearch'
   | 'toggleOpenOnly'
   // PRD 013 Req 13: show/hide the file tab strip — the View item and the

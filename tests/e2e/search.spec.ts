@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { editorTopGutterLine, freshApp, fsWrite, openFolderRoot, seedFolders } from './helpers';
+import { editorTopGutterLine, freshApp, fsRead, fsWrite, openFolderRoot, seedFolders } from './helpers';
 
 // PRD 014 (issue #151): the Search view of the sidebar — the third, mutually
 // exclusive occupant of the PRD 012 pane. Reqs 1–2: the switch button and the
@@ -407,4 +407,118 @@ test('E283: an invalid regex shows the inline error and matches NOTHING — no l
 
   // PRD 014 Req 6: nothing escaped to the page — the invalid state never threw.
   expect(pageErrors).toEqual([]);
+});
+
+// PRD 014 Req 3 (issue #155): the searchAllFiles hotkey (Mod+Shift+F) is the
+// Search switch button's action from the keyboard — the same `toggleSearch`
+// command id, so it shows, switches in place, focuses the query box and hides
+// exactly as the button does, without crossing Mod+F's in-document find.
+
+test('E284: the searchAllFiles hotkey opens the sidebar on Search with the query box focused, hides it again — even from inside the box — and never crosses with Mod+F', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await openFolderRoot(page);
+  // A document for Mod+F to act on: `find` is gated on an open document.
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.locator('.folder-item.selected[data-path="/notes/a.md"]')).toBeVisible();
+
+  // PRD 014 Req 3: Mod+F keeps its `find` meaning — the in-document bar, not
+  // the Search view.
+  await page.keyboard.press('Control+F');
+  await expect(page.getByTestId('find-bar')).toBeVisible();
+  await expect(page.getByTestId('search-panel')).toHaveCount(0);
+  await page.getByTestId('find-input').press('Escape');
+  await expect(page.getByTestId('find-bar')).toHaveCount(0);
+
+  // Sidebar hidden → the hotkey opens it in Search view with the query box
+  // focused, and the in-document find bar never appeared.
+  await page.keyboard.press('Control+Shift+E');
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await page.keyboard.press('Control+Shift+F');
+  await expect(page.getByTestId('search-panel')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('toc-panel')).toHaveCount(0);
+  await expect(page.getByTestId('sidebar-view-search')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('search-input')).toBeFocused();
+  await expect(page.getByTestId('find-bar')).toHaveCount(0);
+
+  // PRD 014 Req 3: showing Search → the sidebar hides, INCLUDING when focus
+  // sits inside the query box — the listener runs in the capture phase.
+  await page.keyboard.press('Control+Shift+F');
+  await expect(page.getByTestId('search-panel')).toHaveCount(0);
+  await expect(page.getByTestId('sidebar-view-search')).toHaveAttribute('aria-pressed', 'false');
+
+  // Exactly the button's action, from either surface: the button opens it and
+  // the hotkey hides what the button opened.
+  await page.getByTestId('sidebar-view-search').click();
+  await expect(page.getByTestId('search-panel')).toBeVisible();
+  // Past SPEC12 §1.3's exactly-once window first: button and hotkey dispatch
+  // the SAME command id, so a keypress inside 150ms of the click is swallowed
+  // as a duplicate arrival — which is itself the proof they are one action.
+  await page.waitForTimeout(200);
+  await page.keyboard.press('Control+Shift+F');
+  await expect(page.getByTestId('search-panel')).toHaveCount(0);
+});
+
+test('E285: with the folder tree showing, the hotkey switches the pane to Search in place, and Mod+Shift+E keeps its meaning', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await openFolderRoot(page);
+
+  // Folder state worth losing: an expanded subdirectory and a selected file.
+  await page.locator('[data-path="/notes/sub"]').click();
+  const bRow = page.locator('[data-testid="folder-item"][data-path="/notes/sub/b.md"]');
+  await expect(bRow).toBeVisible();
+  await bRow.click();
+  await expect(bRow).toHaveClass(/selected/);
+
+  // PRD 014 Req 3: sidebar showing folders → the pane switches to Search in
+  // place, query box focused.
+  const folderBox = (await page.getByTestId('folder-panel').boundingBox())!;
+  await page.keyboard.press('Control+Shift+F');
+  await expect(page.getByTestId('search-panel')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('search-input')).toBeFocused();
+
+  // …and it stays put: same edge, same width, and the closed pane's edge
+  // chevron never appeared, so nothing slid.
+  const searchBox = (await page.getByTestId('search-panel').boundingBox())!;
+  expect(Math.round(searchBox.x)).toBe(Math.round(folderBox.x));
+  expect(Math.round(searchBox.width)).toBe(Math.round(folderBox.width));
+  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
+
+  // Mod+Shift+E keeps its existing meaning — the folders route — and the tree
+  // is exactly as it was left.
+  await page.keyboard.press('Control+Shift+E');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('search-panel')).toHaveCount(0);
+  await expect(bRow).toBeVisible();
+  await expect(bRow).toHaveClass(/selected/);
+
+  // From folders, the Search hotkey switches again; pressed on Search it
+  // hides the pane, and the folders seam's chevron is back.
+  await page.keyboard.press('Control+Shift+F');
+  await expect(page.getByTestId('search-panel')).toBeVisible();
+  await page.keyboard.press('Control+Shift+F');
+  await expect(page.getByTestId('search-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toBeVisible();
+});
+
+test('E286: with no workspace open the searchAllFiles hotkey is inert — nothing opens and nothing is written', async ({
+  page,
+}) => {
+  // PRD 014 Req 3: the splash — no workspace, so the toggleSearch gate has
+  // nothing to show. Issue #81: a hash-less launch lands here.
+  await page.goto('/');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('sidebar-view-search')).toHaveCount(0);
+  await page.keyboard.press('Control+Shift+F');
+  await expect(page.getByTestId('search-panel')).toHaveCount(0);
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  // Inert means inert: nothing was opened and nothing was written.
+  const seeded = JSON.parse((await fsRead(page, '/config/settings.json'))!);
+  expect(seeded.showFolders).toBeUndefined();
+  expect(seeded.sidebarView).toBeUndefined();
 });
