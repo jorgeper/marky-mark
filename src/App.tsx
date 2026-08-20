@@ -3,6 +3,9 @@ import { getPlatform, type Platform, type WriteResult } from './platform';
 import { renderMarkdown } from './lib/markdown';
 import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
 import { decorateCodeBlocks } from './lib/codeCopy';
+import { renderFenceDiagrams } from './lib/fenceDiagrams';
+import { fenceRendererFor } from './lib/fenceRenderers';
+import { registerMermaidRenderer } from './lib/mermaidRenderer';
 import { getDocText, highlightRange, offsetsToRange, rangeToOffsets, rectForOffsets } from './lib/domtext';
 import { readSidecar, serializeSidecar, sidecarPathFor } from './lib/sidecar';
 import { attachEmbedded, mergeComments, splitEmbedded } from './lib/embedded';
@@ -199,6 +202,11 @@ import { startActions, startCapabilities, type StartActionId } from './lib/start
 import { AboutDialog } from './components/AboutDialog';
 
 const Editor = lazy(() => import('./components/Editor'));
+
+// PRD 013 Req 1: mermaid joins the fence-renderer registry once per app
+// session. This is the only place the adapter is named — the preview graft
+// below reaches every diagram language through the registry lookup alone.
+registerMermaidRenderer();
 
 /**
  * PRD 007 Req 17: what this user may do — with one document, or with the
@@ -2744,12 +2752,27 @@ export default function App() {
   }, []);
 
   // --- theme application: light/dark pair ------------------------------------------
-  useEffect(() => {
-    if (themes.length === 0) return;
+  const activeTheme = useMemo(() => {
+    if (themes.length === 0) return null;
     const wanted = prefersDark && settings.useDarkTheme ? settings.themeDark : settings.themeLight;
-    const theme = themes.find((t) => t.id === wanted) ?? themes.find((t) => t.id === 'crisp') ?? themes[0];
-    applyThemeCss(theme.css);
+    return themes.find((t) => t.id === wanted) ?? themes.find((t) => t.id === 'crisp') ?? themes[0];
   }, [themes, settings.themeLight, settings.themeDark, settings.useDarkTheme, prefersDark]);
+  useEffect(() => {
+    if (activeTheme) applyThemeCss(activeTheme.css);
+  }, [activeTheme]);
+
+  // PRD 013 Req 9: the diagram side is the ACTIVE theme's declared variant —
+  // a dark theme sitting in the light slot draws dark diagrams — never the OS
+  // scheme alone. The ref feeds the injection effects (no re-injection on a
+  // theme change); the effect below redraws in place what is already on screen.
+  const activeThemeVariant: 'light' | 'dark' = activeTheme?.variant ?? 'light';
+  const activeThemeVariantRef = useRef(activeThemeVariant);
+  useEffect(() => {
+    activeThemeVariantRef.current = activeThemeVariant;
+    for (const el of [docRef.current, splitDocRef.current]) {
+      if (el) void renderFenceDiagrams(el, { rendererFor: fenceRendererFor, theme: activeThemeVariant });
+    }
+  }, [activeThemeVariant]);
 
   // --- appearance overrides: font size, margins, zoom (SPEC3 §2) ---------------------
   useEffect(() => {
@@ -5563,6 +5586,11 @@ export default function App() {
     // so they never enter the pipeline's HTML (exports, print) nor the plain
     // text comment anchors are offsets into (lib/codeCopy.ts).
     decorateCodeBlocks(doc, copyToClipboard);
+    // PRD 013 Req 2: registered fence languages draw as diagrams — same
+    // post-injection graft, same reason: the SVG never enters the pipeline's
+    // HTML or the anchor text space (lib/fenceDiagrams.ts). Async completion
+    // guards itself against a re-injection racing it.
+    void renderFenceDiagrams(doc, { rendererFor: fenceRendererFor, theme: activeThemeVariantRef.current });
 
     if (!reanchorAndHighlight(doc)) return;
     injectionCompleteRef.current = true; // SPEC25 §2: this DOM is final for now
@@ -5709,6 +5737,10 @@ export default function App() {
       });
     }
     decorateCodeBlocks(el, copyToClipboard); // Issue #122: split view behaves the same
+    // PRD 013 Req 2: the split reading pane draws diagrams the same way — this
+    // effect re-runs per keystroke, so the graft's idempotence and stale-result
+    // guard (lib/fenceDiagrams.ts) do the heavy lifting here.
+    void renderFenceDiagrams(el, { rendererFor: fenceRendererFor, theme: activeThemeVariantRef.current });
 
     if (!reanchorAndHighlight(el)) return;
     // SPEC44 §3.2: a re-render wiped the synthetic cues — re-derive them.

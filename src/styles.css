@@ -558,6 +558,34 @@ button {
   border-color: var(--mm-accent, #0969da);
 }
 
+/* ---------- PRD 013: fence diagrams in the rendered panes ---------- */
+
+/* PRD 013 Req 3: a drawn fence's code is hidden, never removed — getDocText's
+   TreeWalker ignores CSS, so the block's text nodes keep anchoring comments
+   while the diagram host (whose SVG is shadow-rooted and contributes no text
+   nodes) shows in its place. `pending` and `error` blocks stay visible
+   (Reqs 10–11: code while loading, code beside the failure badge). */
+.doc pre[data-mm-diagram='done'] {
+  display: none;
+}
+
+/* PRD 013 Req 9: a diagram wider than the pane scrolls inside its own block
+   rather than overflowing it (a renderer's own width:100%/max-width sizing
+   scales down first; this is the fallback for fixed-width SVGs). */
+.doc .mm-diagram {
+  overflow-x: auto;
+  margin: 1em 0; /* the hidden <pre>'s default margin, restated on its stand-in */
+}
+
+/* PRD 013 Req 10: the unobtrusive failure note under the untouched code
+   block. Its message text lives in a shadow root (zero text nodes in the
+   anchor space); color and font inherit across the boundary. */
+.doc .mm-diagram-error {
+  margin: -0.5em 0 1em;
+  font-size: 0.78rem;
+  color: var(--mm-fg-muted, #57606a);
+}
+
 /* ---------- comment highlights ---------- */
 
 mark.hl {

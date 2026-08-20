@@ -30,6 +30,10 @@ export interface MermaidApi {
     securityLevel: 'strict';
     theme: 'default' | 'dark';
     flowchart: { htmlLabels: false };
+    // PRD 013 Req 10: a failed render is reported through the failure variant
+    // only — without this, mermaid ≥10.9 also paints its own error artwork
+    // into a body-level container it leaves behind.
+    suppressErrorRendering: true;
   }): void;
   render(id: string, source: string): Promise<{ svg: string }>;
 }
@@ -74,6 +78,7 @@ export function createMermaidRenderer(load: MermaidLoader = loadMermaid): FenceR
         securityLevel: 'strict',
         theme: options.theme === 'dark' ? 'dark' : 'default',
         flowchart: { htmlLabels: false },
+        suppressErrorRendering: true,
       });
       const { svg } = await mermaid.render(`mm-diagram-${nextId++}`, source);
       return { ok: true, svg: scrubDiagramSvg(svg) };

@@ -56,6 +56,9 @@ describe('PRD 013 Req 4 mermaid adapter security posture', () => {
       expect(config.startOnLoad).toBe(false);
       expect(config.securityLevel).toBe('strict');
       expect(config.flowchart.htmlLabels).toBe(false);
+      // PRD 013 Req 10 (issue #160): failures surface only through the typed
+      // failure variant — mermaid's own error artwork stays suppressed.
+      expect(config.suppressErrorRendering).toBe(true);
     }
     expect(fake.initConfigs[0].theme).toBe('default');
     expect(fake.initConfigs[1].theme).toBe('dark');
