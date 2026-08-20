@@ -83,6 +83,17 @@ export function licenseAllowed(expr) {
   return i >= tokens.length && result;
 }
 
+/**
+ * npm packages whose manifest omits `license` but that ship a verbatim
+ * permissive license text — verified by hand against the file named here,
+ * keyed by exact name@version so a version bump forces re-verification.
+ */
+const NPM_LICENSE_OVERRIDES = new Map([
+  // Issue #159: mermaid's color library declares nothing in package.json but
+  // ships the MIT text at node_modules/khroma/license (fabiospampinato/khroma).
+  ['khroma@2.1.0', 'MIT'],
+]);
+
 function normalizeNpmLicense(field) {
   if (typeof field === 'string') return field;
   if (Array.isArray(field)) return field.map((f) => normalizeNpmLicense(f)).join(' OR ');
@@ -106,6 +117,7 @@ function main() {
     } catch {
       /* not installed (e.g. skipped optional) — leave null and let the guard decide */
     }
+    license ??= NPM_LICENSE_OVERRIDES.get(`${name}@${entry.version}`) ?? null;
     npmPkgs.set(`${name}@${entry.version}`, { name, version: entry.version, license });
   }
 
