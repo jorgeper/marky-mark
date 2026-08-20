@@ -109,3 +109,14 @@ export function railRevealTarget(m: RailMetrics, tabLeft: number, tabWidth: numb
 export function railWheelDelta(deltaX: number, deltaY: number): number {
   return Math.abs(deltaX) >= Math.abs(deltaY) ? deltaX : deltaY;
 }
+
+/**
+ * PRD 013 Req 9: one wheel event's scroll target — the mapped delta applied
+ * to the current position and clamped to the range, in railStepTarget's
+ * mold. Returning the CURRENT position when the rail cannot move is what
+ * lets the caller tell "consumed" from "fell through": at an end of the
+ * range the event stays the surroundings' to handle.
+ */
+export function railWheelTarget(m: RailMetrics, deltaX: number, deltaY: number): number {
+  return clamp(m.scrollLeft + railWheelDelta(deltaX, deltaY), 0, railMaxScroll(m));
+}

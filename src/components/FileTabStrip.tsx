@@ -14,7 +14,7 @@ import {
   railArrowState,
   railRevealTarget,
   railStepTarget,
-  railWheelDelta,
+  railWheelTarget,
   type RailArrowState,
 } from '../lib/fileTabs';
 import { useAnchoredMenu } from './anchoredMenu';
@@ -157,18 +157,19 @@ function Tab({ active, label, title, path, dirty, onClick, onClose, onMenu }: {
  *  keeps a stable footprint while the rail scrolls. Scrolling never touches
  *  the open set: this button only ever moves `scrollLeft`. */
 function ScrollArrow({ dir, enabled, onStep }: { dir: -1 | 1; enabled: boolean; onStep: () => void }) {
+  const left = dir < 0;
   return (
     <button
       className="file-tab-scroll"
-      data-testid={dir < 0 ? 'file-tab-scroll-left' : 'file-tab-scroll-right'}
+      data-testid={left ? 'file-tab-scroll-left' : 'file-tab-scroll-right'}
       type="button"
-      aria-label={dir < 0 ? 'Scroll tabs left' : 'Scroll tabs right'}
+      aria-label={left ? 'Scroll tabs left' : 'Scroll tabs right'}
       disabled={!enabled}
       onClick={onStep}
     >
       <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
         <path
-          d={dir < 0 ? 'M10 3.5 5.5 8 10 12.5' : 'M6 3.5 10.5 8 6 12.5'}
+          d={left ? 'M10 3.5 5.5 8 10 12.5' : 'M6 3.5 10.5 8 6 12.5'}
           fill="none"
           stroke="currentColor"
           strokeWidth="1.9"
@@ -257,7 +258,7 @@ export function FileTabStrip(p: FileTabStripProps) {
   }, []);
 
   // PRD 013 Req 9: wheel/trackpad scrolling over the strip drives the rail —
-  // the dominant-axis mapping (railWheelDelta) so a plain vertical wheel
+  // the dominant-axis mapping (railWheelTarget) so a plain vertical wheel
   // reaches hidden tabs too. A native non-passive listener, NOT React's
   // onWheel: root-delegated wheel listeners are passive, so preventDefault —
   // the thing that keeps the document/preview from also scrolling or
@@ -270,10 +271,7 @@ export function FileTabStrip(p: FileTabStripProps) {
     const onWheel = (e: WheelEvent) => {
       const rail = railRef.current;
       if (!rail) return;
-      const target = Math.min(
-        Math.max(rail.scrollLeft + railWheelDelta(e.deltaX, e.deltaY), 0),
-        Math.max(0, rail.scrollWidth - rail.clientWidth)
-      );
+      const target = railWheelTarget(rail, e.deltaX, e.deltaY);
       if (target === rail.scrollLeft) return;
       e.preventDefault();
       userParkedRef.current = true;
@@ -318,43 +316,43 @@ export function FileTabStrip(p: FileTabStripProps) {
         ref={railRef}
         onScroll={measure}
       >
-      {p.openFiles.map((path) => {
-        const active = path === p.activePath;
-        return (
+        {p.openFiles.map((path) => {
+          const active = path === p.activePath;
+          return (
+            <Tab
+              key={path}
+              active={active}
+              label={p.basename(path)}
+              title={path}
+              path={path}
+              dirty={p.dirtyFiles.has(path)}
+              // PRD 013 Req 3: clicking the ACTIVE tab is a no-op — no re-open,
+              // no re-read from disk, no park/restore churn. The guard sits
+              // here so the owner's handler stays exactly the sidebar's call.
+              onClick={active ? undefined : () => p.onActivate(path)}
+              onClose={() => p.onClose(path)}
+              onMenu={(e) => {
+                e.preventDefault();
+                setMenu({ path, x: e.clientX, y: e.clientY });
+              }}
+            />
+          );
+        })}
+        {p.untitled && (
+          // PRD 013 Req 8: the untitled buffer sits outside the SPEC36 set
+          // (§2.6), so its tab is appended here rather than derived from
+          // openFiles, and it is always the active one (docPath is null while
+          // untitled). No onMenu: the menu's walks are open-set walks this
+          // buffer sits outside, so right-click opens nothing here.
           <Tab
-            key={path}
-            active={active}
-            label={p.basename(path)}
-            title={path}
-            path={path}
-            dirty={p.dirtyFiles.has(path)}
-            // PRD 013 Req 3: clicking the ACTIVE tab is a no-op — no re-open,
-            // no re-read from disk, no park/restore churn. The guard sits
-            // here so the owner's handler stays exactly the sidebar's call.
-            onClick={active ? undefined : () => p.onActivate(path)}
-            onClose={() => p.onClose(path)}
-            onMenu={(e) => {
-              e.preventDefault();
-              setMenu({ path, x: e.clientX, y: e.clientY });
-            }}
+            active
+            label="Untitled"
+            title="Untitled"
+            path=""
+            dirty={p.untitledDirty}
+            onClose={p.onCloseUntitled}
           />
-        );
-      })}
-      {p.untitled && (
-        // PRD 013 Req 8: the untitled buffer sits outside the SPEC36 set
-        // (§2.6), so its tab is appended here rather than derived from
-        // openFiles, and it is always the active one (docPath is null while
-        // untitled). No onMenu: the menu's walks are open-set walks this
-        // buffer sits outside, so right-click opens nothing here.
-        <Tab
-          active
-          label="Untitled"
-          title="Untitled"
-          path=""
-          dirty={p.untitledDirty}
-          onClose={p.onCloseUntitled}
-        />
-      )}
+        )}
       </div>
       {arrows.overflow && <ScrollArrow dir={1} enabled={arrows.rightEnabled} onStep={() => step(1)} />}
       {menu && (

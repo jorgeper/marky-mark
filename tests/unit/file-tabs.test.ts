@@ -6,6 +6,7 @@ import {
   railRevealTarget,
   railStepTarget,
   railWheelDelta,
+  railWheelTarget,
 } from '../../src/lib/fileTabs';
 
 // PRD 013 Req 7: the tab context menu's pure rules — the item model and the
@@ -126,5 +127,20 @@ describe('PRD 013 Req 9 rail overflow math', () => {
     expect(railWheelDelta(-90, 30)).toBe(-90);
     expect(railWheelDelta(50, 50)).toBe(50);
     expect(railWheelDelta(0, 0)).toBe(0);
+  });
+
+  test('U717: railWheelTarget — the mapped delta applied and clamped; an end of the range returns the current position unmoved', () => {
+    const m = { scrollLeft: 300, clientWidth: 400, scrollWidth: 1000 };
+    expect(railWheelTarget(m, 0, 120)).toBe(420); // vertical wheel drives it sideways
+    expect(railWheelTarget(m, -80, 0)).toBe(220); // trackpad's horizontal delta
+    // Clamped at both ends — a big delta lands ON the boundary, never past.
+    expect(railWheelTarget(m, 0, 900)).toBe(600);
+    expect(railWheelTarget(m, 0, -900)).toBe(0);
+    // At an end, a further push returns scrollLeft unchanged: the caller
+    // reads that as "nothing to consume" and lets the event fall through.
+    expect(railWheelTarget({ ...m, scrollLeft: 600 }, 0, 240)).toBe(600);
+    expect(railWheelTarget({ ...m, scrollLeft: 0 }, 0, -240)).toBe(0);
+    // No overflow ⇒ nowhere to go at all.
+    expect(railWheelTarget({ scrollLeft: 0, clientWidth: 400, scrollWidth: 300 }, 0, 240)).toBe(0);
   });
 });
