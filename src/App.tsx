@@ -5737,9 +5737,10 @@ export default function App() {
       });
     }
     decorateCodeBlocks(el, copyToClipboard); // Issue #122: split view behaves the same
-    // PRD 013 Req 2: the split reading pane draws diagrams the same way — this
-    // effect re-runs per keystroke, so the graft's idempotence and stale-result
-    // guard (lib/fenceDiagrams.ts) do the heavy lifting here.
+    // PRD 013 Req 2: the split reading pane draws diagrams the same way — and
+    // this effect re-runs per keystroke, rebuilding the pane's DOM under any
+    // render still in flight, so the stale-result guard (lib/fenceDiagrams.ts)
+    // is what keeps a late diagram out of the tree that replaced it.
     void renderFenceDiagrams(el, { rendererFor: fenceRendererFor, theme: activeThemeVariantRef.current });
 
     if (!reanchorAndHighlight(el)) return;

@@ -11,15 +11,21 @@
  * PRD 013 Req 3: the graft contributes ZERO text nodes to the anchor
  * coordinate space. The fence's own `<pre><code>` stays in the tree (hidden
  * by CSS on success — `getDocText`'s TreeWalker ignores CSS, so its text
- * survives in place and in order), and the SVG lives inside a closed-over
- * shadow root on the host element. A shadow root was chosen over an `<img>`
- * data URL because `document.createTreeWalker(root, SHOW_TEXT)` never
- * descends into shadow trees — the SVG's `<text>` label nodes are therefore
- * invisible to `getDocText`/`offsetsToRange` — while the SVG still renders
- * crisply at any zoom, inherits the theme's fonts (inheritable properties
- * cross the shadow boundary), and can be swapped in place on a theme change
- * without re-encoding. The failure badge's message text sits in a shadow root
- * for the same reason.
+ * survives in place and in order), and the SVG lives inside a shadow root on
+ * the host element beside it. A shadow root was chosen over an `<img>` data
+ * URL because `document.createTreeWalker(root, SHOW_TEXT)` never descends
+ * into shadow trees — the SVG's `<text>` label nodes are therefore invisible
+ * to `getDocText`/`offsetsToRange` — while the SVG still renders crisply at
+ * any zoom, inherits the theme's fonts (inheritable properties cross the
+ * shadow boundary), and can be swapped in place on a theme change without
+ * re-encoding. The shadow root is `open` so tests can read what was drawn.
+ * The failure badge's message text sits in a shadow root for the same reason.
+ *
+ * PRD 013 Req 4: what a renderer returns is injected as post-sanitize markup,
+ * the same trust posture as the image widgets — so scrubbing an SVG down to
+ * something safe to inject is the renderer's own contract (`mermaidRenderer`
+ * does it), never this pass's. A failure message is injected as a text node,
+ * so a renderer's message can carry no markup at all.
  *
  * PRD 013 Req 1: this module names no fence language. Candidates are found
  * through the seam's `fenceLanguage`, and renderers come from the injected
@@ -66,8 +72,9 @@ let pass = 0;
  */
 export function renderFenceDiagrams(root: HTMLElement, options: FenceDiagramOptions): Promise<void> {
   const jobs: Array<Promise<void>> = [];
-  for (const code of Array.from(root.querySelectorAll('pre > code'))) {
-    const pre = code.parentElement as HTMLElement;
+  for (const pre of Array.from(root.querySelectorAll('pre'))) {
+    const code = pre.querySelector('code');
+    if (!code) continue; // not a fenced block
     const tag = fenceLanguage(code.getAttribute('class'));
     if (tag == null) continue;
     const renderer = options.rendererFor(tag);
@@ -80,69 +87,81 @@ export function renderFenceDiagrams(root: HTMLElement, options: FenceDiagramOpti
     // renderer (and, first time, its lazily loaded library) works. A block
     // being redrawn keeps its previous state (`done`/`error`) until the new
     // result lands, so the reader never sees a flash of raw code.
-    if (!pre.dataset.mmDiagram) pre.dataset.mmDiagram = 'pending';
-    jobs.push(renderOne(pre, code as HTMLElement, renderer, options.theme, token));
+    if (!pre.dataset.mmDiagram) markState(pre, 'pending');
+    jobs.push(renderOne(pre, codeBlockText(code.textContent ?? ''), renderer, options.theme, token));
   }
   return Promise.all(jobs).then(() => undefined);
 }
 
 async function renderOne(
   pre: HTMLElement,
-  code: HTMLElement,
+  source: string,
   renderer: FenceRenderer,
   theme: 'light' | 'dark',
   token: string
 ): Promise<void> {
   let result: FenceRenderResult;
   try {
-    result = await renderer(codeBlockText(code.textContent ?? ''), { theme });
+    result = await renderer(source, { theme });
   } catch (error) {
     // PRD 013 Req 10: the seam says renderers resolve failures rather than
     // throw, but one that breaks its contract still must not blank the block
     // or stop the rest of the document.
-    result = { ok: false, message: error instanceof Error && error.message ? error.message : 'Diagram could not be rendered.' };
+    result = { ok: false, message: errorMessage(error) };
   }
   // PRD 013 Req 11: stale-result guard — the tree was re-injected (node no
   // longer connected) or a newer pass stamped this block. Paint nothing.
   if (!pre.isConnected || pre.dataset.mmDiagramRun !== token) return;
 
-  const doc = pre.ownerDocument;
-  const previous = graftAfter(pre);
   if (result.ok) {
-    // PRD 013 Req 2: the diagram host, reused on redraw so the swap is in place.
-    const host = previous?.classList.contains(DIAGRAM_CLASS) ? previous : doc.createElement('div');
-    if (previous && previous !== host) previous.remove();
-    host.className = DIAGRAM_CLASS;
-    host.dataset.testid = DIAGRAM_CLASS;
     // PRD 013 Req 3: the SVG (and its <text> labels) enters the shadow tree
     // only — see the module header for why this keeps getDocText byte-identical.
-    const shadow = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
+    const shadow = graftShadow(pre, DIAGRAM_CLASS);
     shadow.innerHTML = `<style>:host { display: block; } svg { display: block; }</style>${result.svg}`;
-    if (!host.parentNode) pre.after(host);
-    pre.dataset.mmDiagram = 'done';
+    markState(pre, 'done');
   } else {
     // PRD 013 Req 10: the code block stays exactly as rendered; the badge —
     // unobtrusive, text shadow-rooted — carries the renderer's message.
-    const badge = previous?.classList.contains(DIAGRAM_ERROR_CLASS) ? previous : doc.createElement('div');
-    if (previous && previous !== badge) previous.remove();
-    badge.className = DIAGRAM_ERROR_CLASS;
-    badge.dataset.testid = DIAGRAM_ERROR_CLASS;
-    const shadow = badge.shadowRoot ?? badge.attachShadow({ mode: 'open' });
+    const shadow = graftShadow(pre, DIAGRAM_ERROR_CLASS);
     shadow.innerHTML = '<style>:host { display: block; }</style>';
-    shadow.append(doc.createTextNode(result.message));
-    if (!badge.parentNode) pre.after(badge);
-    pre.dataset.mmDiagram = 'error';
+    shadow.append(pre.ownerDocument.createTextNode(result.message));
+    markState(pre, 'error');
   }
 }
 
-/** The block's existing graft — always inserted immediately after its `<pre>`. */
-function graftAfter(pre: HTMLElement): HTMLElement | null {
+/**
+ * The block's graft — always the element immediately after its `<pre>`, so a
+ * redraw reuses what is there and swaps its content in place. A graft of the
+ * other kind (a diagram where a failure now stands, or the reverse) is
+ * replaced. Returns the host's shadow root for the caller to fill.
+ */
+function graftShadow(pre: HTMLElement, className: string): ShadowRoot {
   const next = pre.nextElementSibling;
-  if (
+  const previous =
     next instanceof HTMLElement &&
     (next.classList.contains(DIAGRAM_CLASS) || next.classList.contains(DIAGRAM_ERROR_CLASS))
-  ) {
-    return next;
+      ? next
+      : null;
+  let host = previous;
+  if (previous && !previous.classList.contains(className)) {
+    previous.remove();
+    host = null;
   }
-  return null;
+  if (!host) {
+    host = pre.ownerDocument.createElement('div');
+    pre.after(host);
+  }
+  host.className = className;
+  host.dataset.testid = className;
+  return host.shadowRoot ?? host.attachShadow({ mode: 'open' });
+}
+
+/** PRD 013 Req 11: record where the block stands, for CSS and for tests. */
+function markState(pre: HTMLElement, state: DiagramState): void {
+  pre.dataset.mmDiagram = state;
+}
+
+/** A renderer that broke the seam contract and rejected, as a short message. */
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : 'Diagram could not be rendered.';
 }

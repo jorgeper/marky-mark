@@ -114,6 +114,29 @@ describe('PRD 013 Req 10: a failing fence keeps its code, says why, and stops no
     expect(pre.dataset.mmDiagram).toBe('error');
     expect((pre.nextElementSibling as HTMLElement).shadowRoot!.textContent).toContain('contract broken');
   });
+
+  test('U745: a redraw that fails replaces the diagram with the badge, and a later success replaces it back', async () => {
+    let fails = false;
+    const flaky: FenceRenderer = (source, options) =>
+      fails ? Promise.resolve({ ok: false, message: 'gone bad' }) : okRenderer(source, options);
+    const root = makeRoot(FENCE);
+    // Only a theme change redraws a settled block (Req 9), so each pass flips it.
+    await renderFenceDiagrams(root, { rendererFor: lookup(flaky), theme: 'light' });
+    const pre = root.querySelector('pre') as HTMLElement;
+    expect(pre.dataset.mmDiagram).toBe('done');
+
+    fails = true;
+    await renderFenceDiagrams(root, { rendererFor: lookup(flaky), theme: 'dark' });
+    expect(pre.dataset.mmDiagram).toBe('error'); // CSS shows the code again
+    expect(root.querySelectorAll(`.${DIAGRAM_CLASS}`)).toHaveLength(0);
+    expect(root.querySelectorAll(`.${DIAGRAM_ERROR_CLASS}`)).toHaveLength(1);
+
+    fails = false;
+    await renderFenceDiagrams(root, { rendererFor: lookup(flaky), theme: 'light' });
+    expect(pre.dataset.mmDiagram).toBe('done');
+    expect(root.querySelectorAll(`.${DIAGRAM_CLASS}`)).toHaveLength(1);
+    expect(root.querySelectorAll(`.${DIAGRAM_ERROR_CLASS}`)).toHaveLength(0);
+  });
 });
 
 describe('PRD 013 Req 11: loading keeps the code; a stale result never paints', () => {
