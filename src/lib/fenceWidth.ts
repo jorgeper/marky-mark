@@ -13,24 +13,47 @@
  * preserved like any other unknown token.
  */
 
-// PRD 015 Req 3: only `width=<plain run of digits>` qualifies, name matched
-// case-insensitively. `width`, `width=`, `width=abc`, `width=500px`,
-// `width=12.5` never match; `width=0` matches and is rejected by value.
-const WIDTH_TOKEN = /^width=(\d+)$/i;
+// PRD 015 Req 3: only `width=<plain run of digits>` qualifies as a value the
+// reader returns, name matched case-insensitively. `width`, `width=`,
+// `width=abc`, `width=500px`, `width=12.5` never match; `width=0` matches and
+// is rejected by value. WIDTH_NAME is the looser "this token is the width
+// slot" test the rewriter uses, so a malformed value is overwritten in place
+// rather than left beside a second, well-formed token.
+const WIDTH_VALUE = /^width=(\d+)$/i;
 const WIDTH_NAME = /^width=/i;
+
+interface MetaToken {
+  text: string;
+  /** Offsets into the info string the token was read from. */
+  start: number;
+  end: number;
+}
+
+/**
+ * PRD 015 Req 1: the meta tokens of an info string — every whitespace-
+ * delimited token *after* the language word, with its offsets. Both exports
+ * go through here, so they agree on what counts as meta: the first word is
+ * the language and is never a width token.
+ */
+function metaTokens(info: string): MetaToken[] {
+  const tokens: MetaToken[] = [];
+  const re = /\S+/g;
+  for (let m = re.exec(info); m; m = re.exec(info)) {
+    tokens.push({ text: m[0], start: m.index, end: m.index + m[0].length });
+  }
+  return tokens.slice(1);
+}
 
 /**
  * PRD 015 Req 3: read the width out of an info string (the same value
  * `fenceLanguage` is handed — "lang", or "lang meta…"). Returns the width as
  * a positive integer, or null for: no string, no meta, no `width` token, a
- * malformed value, or zero/negative. The first qualifying token wins. The
- * first word is the language and is never read as a width token.
+ * malformed value, or zero/negative. The first qualifying token wins.
  */
 export function readFenceWidth(info: string | null | undefined): number | null {
   if (info == null) return null;
-  const tokens = info.split(/\s+/).filter(Boolean);
-  for (const token of tokens.slice(1)) {
-    const m = WIDTH_TOKEN.exec(token);
+  for (const { text } of metaTokens(info)) {
+    const m = WIDTH_VALUE.exec(text);
     if (m) {
       const n = Number(m[1]);
       if (n > 0) return n;
@@ -68,38 +91,34 @@ export function rewriteFenceWidth(line: string, width: number | null): string {
   // No language word ⇒ no write: `width=N` must never become the language.
   if (!/\S/.test(info)) return line;
 
-  // Locate every `width=…` meta token (the language word never counts).
-  const spans: Array<{ start: number; end: number }> = [];
-  const tokenRe = /\S+/g;
-  let sawLanguage = false;
-  for (let t = tokenRe.exec(info); t; t = tokenRe.exec(info)) {
-    if (!sawLanguage) {
-      sawLanguage = true;
-      continue;
-    }
-    if (WIDTH_NAME.test(t[0])) spans.push({ start: t.index, end: t.index + t[0].length });
-  }
+  const present = metaTokens(info).filter((t) => WIDTH_NAME.test(t.text));
+  if (width === null && present.length === 0) return line; // no-op: nothing to remove
+
+  // The first `width=…` is the one the reader sees, so it is the one a write
+  // replaces in place; every other is a duplicate. On a removal all of them
+  // go, which is what leaves a repeated rewrite idempotent either way.
+  const keep = width !== null && present.length > 0 ? present[0] : null;
+  const drop = present.filter((t) => t !== keep);
 
   let out = info;
-  // Right to left, so earlier span offsets stay valid: drop every duplicate
-  // (and, on removal, the first too), each with the single space before it.
-  const keepFirst = width !== null && spans.length > 0;
-  for (let i = spans.length - 1; i >= (keepFirst ? 1 : 0); i--) {
-    const { start, end } = spans[i];
-    const cut = start > 0 && /[ \t]/.test(out[start - 1]) ? start - 1 : start;
+  // Right to left, so the offsets of the tokens still to come stay valid.
+  // Each deleted token takes the single space before it with it.
+  for (let i = drop.length - 1; i >= 0; i--) {
+    const { start, end } = drop[i];
+    const cut = /[ \t]/.test(out[start - 1]) ? start - 1 : start;
     out = out.slice(0, cut) + out.slice(end);
   }
+
   if (width !== null) {
     const token = `width=${width}`; // writing always emits lowercase
-    if (keepFirst) {
-      out = out.slice(0, spans[0].start) + token + out.slice(spans[0].end);
+    if (keep) {
+      out = out.slice(0, keep.start) + token + out.slice(keep.end);
     } else {
+      // Append at the end of the meta, leaving any trailing whitespace last.
       const trailing = /\s*$/.exec(out)?.[0] ?? '';
       const content = trailing ? out.slice(0, -trailing.length) : out;
       out = `${content} ${token}${trailing}`;
     }
-  } else if (spans.length === 0) {
-    return line; // explicit no-op: nothing to remove
   }
   return indent + run + out + eol;
 }

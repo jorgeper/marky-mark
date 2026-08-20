@@ -60,6 +60,9 @@ describe('PRD 015 Req 2 — surgical rewrite of the opening fence line', () => {
     );
     // Replacement always emits lowercase, wherever it sits.
     expect(rewriteFenceWidth('```mermaid Width=300 theme=dark', 500)).toBe('```mermaid width=500 theme=dark');
+    // A token whose value the reader rejects is still the width slot: it is
+    // overwritten in place, never left beside a second width token.
+    expect(rewriteFenceWidth('```mermaid width=500px theme=dark', 500)).toBe('```mermaid width=500 theme=dark');
   });
 
   test('U768: removal deletes only the token and the single space before it; removing from a widthless line is a no-op', () => {
@@ -125,8 +128,11 @@ describe('PRD 015 Req 1 — the token rides the info string after the language w
     '```mermaid width=300\r',
   ];
 
+  // The info string as `fenceLanguage` and `readFenceWidth` are handed it:
+  // the opening fence line minus indentation, fence run and line ending.
+  const infoOf = (line: string) => line.replace(/^[ \t]*(`{3,}|~{3,})/, '').replace(/[\r\n]+$/, '');
+
   test('U774: round-trip — read(rewrite(line, N)) === N and read(rewrite(line, null)) === null across the matrix', () => {
-    const infoOf = (line: string) => line.replace(/^[ \t]*(`{3,}|~{3,})/, '').replace(/[\r\n]+$/, '');
     for (const line of matrix) {
       expect(readFenceWidth(infoOf(rewriteFenceWidth(line, 640)))).toBe(640);
       expect(readFenceWidth(infoOf(rewriteFenceWidth(line, null)))).toBeNull();
@@ -135,7 +141,6 @@ describe('PRD 015 Req 1 — the token rides the info string after the language w
 
   test('U775: the language word stays first — fenceLanguage still detects it after every rewrite', () => {
     for (const line of matrix) {
-      const infoOf = (l: string) => l.replace(/^[ \t]*(`{3,}|~{3,})/, '').replace(/[\r\n]+$/, '');
       expect(fenceLanguage(infoOf(rewriteFenceWidth(line, 640)))).toBe('mermaid');
       expect(fenceLanguage(infoOf(rewriteFenceWidth(line, null)))).toBe('mermaid');
     }
