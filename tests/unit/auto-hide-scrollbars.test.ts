@@ -16,7 +16,7 @@ import {
 const world = () => {
   const states: ScrollbarFadeState[] = [];
   let pending: (() => void) | null = null;
-  let delays: number[] = [];
+  const delays: number[] = [];
   const machine = createScrollbarFade({
     set: (s) => states.push(s),
     setTimer: (fn, ms) => {

@@ -23,11 +23,16 @@ export const SCROLLBAR_FADE_SELECTOR = '.workspace, .split-preview, .cm-scroller
 
 export type ScrollbarFadeState = 'active' | 'idle';
 
-/** The seams the pure machine below drives — DOM-free, so unit-testable. */
-export interface ScrollbarFadeHooks {
+/**
+ * The seams the pure machine below drives — DOM-free, so unit-testable. The
+ * timer token is the host's own (`window.setTimeout`'s number in the app, a
+ * stand-in in the tests) and stays opaque to the machine: generic, so
+ * neither side needs a cast.
+ */
+export interface ScrollbarFadeHooks<T = unknown> {
   set(state: ScrollbarFadeState): void;
-  setTimer(fn: () => void, ms: number): unknown;
-  clearTimer(timer: unknown): void;
+  setTimer(fn: () => void, ms: number): T;
+  clearTimer(timer: T): void;
 }
 
 export interface ScrollbarFade {
@@ -47,8 +52,8 @@ export interface ScrollbarFade {
  * to finish before the countdown re-arms — the bar never disappears out
  * from under an interaction in progress.
  */
-export function createScrollbarFade(h: ScrollbarFadeHooks): ScrollbarFade {
-  let timer: unknown = null;
+export function createScrollbarFade<T>(h: ScrollbarFadeHooks<T>): ScrollbarFade {
+  let timer: T | null = null;
   let holds = 0;
   const stop = () => {
     if (timer !== null) {
@@ -123,10 +128,20 @@ export function installScrollbarFade(doc: Document, selector: string = SCROLLBAR
   const machineFor = (el: HTMLElement): ScrollbarFade => {
     let m = machines.get(el);
     if (!m) {
+      // A surface that remounted (the lazy editor, the split coming and
+      // going) left its old element detached: drop those as new ones arrive
+      // so a long session holds no dead subtrees and no orphan timers.
+      for (const [old, dead] of machines) {
+        if (!old.isConnected) {
+          dead.dispose();
+          machines.delete(old);
+          hovering.delete(old);
+        }
+      }
       m = createScrollbarFade({
-        set: (s) => el.setAttribute('data-scrollbars', s),
+        set: (state) => el.setAttribute('data-scrollbars', state),
         setTimer: (fn, ms) => window.setTimeout(fn, ms),
-        clearTimer: (t) => window.clearTimeout(t as number),
+        clearTimer: (t) => window.clearTimeout(t),
       });
       machines.set(el, m);
     }
@@ -145,9 +160,25 @@ export function installScrollbarFade(doc: Document, selector: string = SCROLLBAR
     };
   };
 
+  /** The pointer reached a gutter: pin that surface's bar until it leaves. */
+  const holdGutter = (el: HTMLElement) => {
+    if (hovering.has(el)) return;
+    hovering.add(el);
+    machineFor(el).hold();
+  };
+
+  /** Every held surface lets go — the idle countdown restarts from now. */
   const releaseAll = () => {
-    for (const el of hovering) machineFor(el).release();
+    for (const el of hovering) machines.get(el)?.release();
     hovering.clear();
+  };
+
+  /** The surface whose scrollbar gutter this pointer sits over, if any. */
+  const gutterTarget = (e: PointerEvent): HTMLElement | null => {
+    const t = e.target;
+    return t instanceof HTMLElement && t.matches(selector) && inScrollbarGutter(metrics(t), e.clientX, e.clientY)
+      ? t
+      : null;
   };
 
   // The scroll target IS the surface (scroll doesn't bubble) — each surface
@@ -159,46 +190,31 @@ export function installScrollbarFade(doc: Document, selector: string = SCROLLBAR
   };
 
   const onPointerMove = (e: PointerEvent) => {
-    const t = e.target;
-    const overGutter =
-      t instanceof HTMLElement && t.matches(selector) && inScrollbarGutter(metrics(t), e.clientX, e.clientY);
-    if (overGutter && e.buttons === 0) {
-      if (!hovering.has(t)) {
-        hovering.add(t);
-        machineFor(t).hold();
-      }
-    } else if (!overGutter || e.buttons === 0) {
-      // Left the gutter (or a swallowed pointerup ended a drag): the idle
-      // countdown restarts now, not from the last scroll event.
-      if (hovering.size) releaseAll();
-    }
+    const el = gutterTarget(e);
+    // Off the gutter: the idle countdown restarts now, not from the last
+    // scroll event. Over it with a button down is a thumb drag mid-flight —
+    // the hold pointerdown took is already pinning the bar.
+    if (!el) releaseAll();
+    else if (e.buttons === 0) holdGutter(el);
   };
 
   const onPointerDown = (e: PointerEvent) => {
-    const t = e.target;
-    if (!(t instanceof HTMLElement) || !t.matches(selector)) return;
-    if (!inScrollbarGutter(metrics(t), e.clientX, e.clientY)) return;
-    if (!hovering.has(t)) {
-      hovering.add(t);
-      machineFor(t).hold();
-    }
-  };
-
-  const onPointerUp = () => {
-    if (hovering.size) releaseAll();
+    const el = gutterTarget(e);
+    if (el) holdGutter(el);
   };
 
   doc.addEventListener('scroll', onScroll, true);
   doc.addEventListener('pointermove', onPointerMove, true);
   doc.addEventListener('pointerdown', onPointerDown, true);
-  doc.addEventListener('pointerup', onPointerUp, true);
-  doc.addEventListener('pointercancel', onPointerUp, true);
+  // A finished (or cancelled) drag ends every hold it took.
+  doc.addEventListener('pointerup', releaseAll, true);
+  doc.addEventListener('pointercancel', releaseAll, true);
   return () => {
     doc.removeEventListener('scroll', onScroll, true);
     doc.removeEventListener('pointermove', onPointerMove, true);
     doc.removeEventListener('pointerdown', onPointerDown, true);
-    doc.removeEventListener('pointerup', onPointerUp, true);
-    doc.removeEventListener('pointercancel', onPointerUp, true);
+    doc.removeEventListener('pointerup', releaseAll, true);
+    doc.removeEventListener('pointercancel', releaseAll, true);
     for (const [el, m] of machines) {
       m.dispose();
       el.removeAttribute('data-scrollbars');
