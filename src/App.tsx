@@ -1919,14 +1919,25 @@ export default function App() {
   // that cleanup would still repopulate `html` under the splash.
   const docEpochRef = useRef(0);
 
+  // Issue #136: the concurrent-open guard. Every openDoc takes a fresh token
+  // from this counter; an open whose token has been overtaken by a later open
+  // (or by closeToSplash) commits NOTHING — no state writes, no park delete,
+  // no watcher. Without it, two folder-pane clicks in flight interleave their
+  // awaits and the committed state can mix both documents (the reported blank
+  // screen). openTargetRef holds the in-flight open's path so the SPEC36
+  // same-path checks compare against where the app is GOING, not the
+  // still-uncommitted docPath — the last click always wins.
+  const openSeqRef = useRef(0);
+  const openTargetRef = useRef<string | null>(null);
+
   // --- document loading ------------------------------------------------------
   /** Watch `path` for external changes (replacing any previous watcher). */
   const installWatcher = useCallback(
-    async (p: Platform, path: string) => {
+    async (p: Platform, path: string, isCurrent?: () => boolean) => {
       unwatchRef.current?.();
       unwatchRef.current = null;
       try {
-        unwatchRef.current = await p.watchFile(path, async () => {
+        const unwatch = await p.watchFile(path, async () => {
           const s = stateRef.current;
           if (s.dirty || s.mode === 'edit') return; // never clobber local edits
           try {
@@ -1940,6 +1951,11 @@ export default function App() {
             /* file briefly unavailable mid-write; next event will catch up */
           }
         });
+        // Issue #136: a doc switch landed while watchFile was in flight —
+        // this watcher belongs to a superseded open, so dispose it instead
+        // of installing it over the current document's.
+        if (isCurrent && !isCurrent()) unwatch();
+        else unwatchRef.current = unwatch;
       } catch {
         /* watching is best-effort */
       }
@@ -1948,6 +1964,11 @@ export default function App() {
   );
 
   const openDoc = useCallback(async (p: Platform, path: string) => {
+    // Issue #136: take the open token synchronously — a later openDoc (or a
+    // close) overtakes this one, and an overtaken open commits nothing.
+    const seq = ++openSeqRef.current;
+    openTargetRef.current = path;
+    const isCurrent = () => seq === openSeqRef.current;
     // Issue #125: the document opens in the reader's last chosen view mode
     // instead of always in preview — every route lands here (a fresh open, a
     // folder-panel pick, a switch to a parked tab, a recent file, and the boot
@@ -1965,7 +1986,9 @@ export default function App() {
     // A dirty parked buffer ALWAYS wins, the watcher's never-clobber rule.
     const parked = parkRef.current.get(path);
     if (parked) {
-      parkRef.current.delete(path);
+      // Issue #136: the park entry is only deleted at commit (below) — an
+      // open superseded during the awaits here must not discard the parked
+      // (possibly dirty) buffer it never got to restore.
       // Issue #64: a comment write flushed by parkActive may still be in
       // flight — drain the queue so the freshness read below sees it.
       if (commentWriteRef.current) await commentWriteRef.current;
@@ -2011,10 +2034,26 @@ export default function App() {
       try {
         ({ content, comments: stored, stores: storeState } = await loadDocParts(p, path));
       } catch {
-        return; // unreadable path (e.g. deleted file in a stale open event)
+        // Unreadable path (e.g. deleted file in a stale open event). Issue
+        // #136: settle the in-flight marker so later clicks compare against
+        // the committed doc again — unless a newer open already owns it.
+        if (isCurrent()) openTargetRef.current = null;
+        return;
       }
       saved = content;
     }
+    // Issue #136: the single supersede gate — everything above only loaded
+    // data; everything below writes state. An open overtaken during its
+    // awaits stops here and commits nothing, so no committed state can mix
+    // two documents and no stale watcher or open-set entry lands.
+    if (!isCurrent()) return;
+    if (parked) parkRef.current.delete(path);
+    // Issue #136: bump the document epoch on a doc SWITCH, not only on
+    // close-to-splash — a markdown render started for the outgoing document
+    // (SPEC7 §5 effect) must never setHtml over the incoming one. A same-path
+    // re-open keeps its epoch: its buffer may be unchanged, so the effect
+    // would not re-run and a bump would orphan the render already in flight.
+    if (stateRef.current.docPath !== path) docEpochRef.current++;
     // SPEC16 §3: park the outgoing doc's position, queue the incoming one's.
     recordPosition(stateRef.current.docPath, currentTopLine());
     pendingScrollLineRef.current = positionFor(positionsRef.current, path);
@@ -2052,7 +2091,8 @@ export default function App() {
 
     // SPEC36 §3: the active document is always a member of the open set.
     commitOpenSet(addOpen(openFilesRef.current, path), path);
-    await installWatcher(p, path);
+    openTargetRef.current = null; // issue #136: committed — the doc IS current
+    await installWatcher(p, path, isCurrent);
   }, [loadDocParts, recordPosition, currentTopLine, commitRecent, revealInFolders, commitOpenSet, installWatcher]);
 
   /**
@@ -2085,7 +2125,12 @@ export default function App() {
    */
   const parkAndOpen = useCallback(
     async (p: Platform, path: string) => {
-      if (stateRef.current.docPath === path) return;
+      // Issue #136: "already there" means where the app is GOING — the
+      // in-flight open's target when one exists, the committed doc otherwise.
+      // Comparing only the committed docPath made a rapid click back onto the
+      // committed doc a no-op while an earlier click's open was still in
+      // flight, so the EARLIER file won instead of the last-clicked one.
+      if ((openTargetRef.current ?? stateRef.current.docPath) === path) return;
       parkActive();
       await openDoc(p, path);
     },
@@ -2100,7 +2145,12 @@ export default function App() {
   const openDocGuarded = useCallback(
     (p: Platform, path: string) => {
       const s = stateRef.current;
-      if (s.docPath === path) {
+      // Issue #136: an open already in flight for this exact path needs no
+      // second one; and the same-path re-open only applies when the committed
+      // doc really is `path` with nothing else on the way (otherwise the
+      // click must supersede the in-flight open via parkAndOpen below).
+      if (openTargetRef.current === path) return;
+      if (s.docPath === path && openTargetRef.current === null) {
         void openDoc(p, path); // same-path re-open (existing semantics)
         return;
       }
@@ -2134,6 +2184,8 @@ export default function App() {
   const closeToSplash = useCallback(() => {
     recordPosition(stateRef.current.docPath, currentTopLine());
     docEpochRef.current++; // issue #43: orphan any in-flight markdown render
+    openSeqRef.current++; // issue #136: orphan any in-flight open — close wins
+    openTargetRef.current = null;
     // Issue #43: the preview panes are imperative (`innerHTML`), so scrub
     // them here, synchronously — no React effect ordering can then leave the
     // closed document's DOM behind for the splash to composite over.
