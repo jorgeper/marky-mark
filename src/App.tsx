@@ -4082,15 +4082,21 @@ export default function App() {
       openFolder: openFolderCmd,
       // Issue #22: Close File — down to the splash through the dirty guard.
       closeFile: () => {
-        const s = stateRef.current;
-        if (!s.platform) return;
-        if (s.docPath) {
-          closeOpenFile(s.docPath); // dirty ⇒ three-way prompt; clean ⇒ close
-          return;
-        }
-        if (!s.untitled) return; // splash — nothing to close
-        if (s.dirty) setOpenPrompt({ kind: 'close-untitled' });
-        else closeToSplash();
+        void (async () => {
+          const s = stateRef.current;
+          if (!s.platform) return;
+          // Issue #158 (SPEC13 §1.3): ⌘W is now this command's native
+          // accelerator, and on macOS it fires in main's JS even while
+          // Settings/About holds focus — close that window, touch no document.
+          if (s.platform.closeFocusedAuxWindow && (await s.platform.closeFocusedAuxWindow())) return;
+          if (s.docPath) {
+            closeOpenFile(s.docPath); // dirty ⇒ three-way prompt; clean ⇒ close
+            return;
+          }
+          if (!s.untitled) return; // splash — nothing to close
+          if (s.dirty) setOpenPrompt({ kind: 'close-untitled' });
+          else closeToSplash();
+        })();
       },
       // PRD 002 §D14 + PRD 007 Req 21/22: the workspace flows (silent no-ops
       // without the seam). A platform that MANAGES workspaces (the hosted
@@ -5256,6 +5262,12 @@ export default function App() {
       } else if (eventMatches(e, hk.openFile)) {
         e.preventDefault();
         dispatchCommand('open', 'hotkey');
+      } else if (eventMatches(e, hk.closeFile)) {
+        // Issue #158: ⌘W/Ctrl+W closes the current FILE — the existing
+        // closeFile command (dirty prompt, neighbour activates per SPEC36
+        // §3.4/§3.5, silent no-op on the splash), never the window or app.
+        e.preventDefault();
+        dispatchCommand('closeFile', 'hotkey');
       } else if (eventMatches(e, hk.find)) {
         e.preventDefault();
         dispatchCommand('find', 'hotkey');

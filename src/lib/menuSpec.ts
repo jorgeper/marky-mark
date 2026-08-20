@@ -367,7 +367,9 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             cmd('addFolderToWorkspace', 'Add Folder to Workspace…', undefined, undefined, !wsOpen),
             cmd('saveWorkspaceAs', 'Save Workspace As…', undefined, undefined, !wsOpen),
             // Issue #22: the close cluster — both land on the splash.
-            cmd('closeFile', 'Close File', undefined, undefined, !s.docOpen),
+            // Issue #158: Close File carries the rebindable Mod+W (the map's
+            // default), taken over from Close Window below.
+            cmd('closeFile', 'Close File', s.hotkeys.closeFile, undefined, !s.docOpen),
             cmd('closeWorkspace', 'Close Workspace', undefined, undefined, !wsOpen),
             sep,
             // PRD 007 Req 19: single-file transfer, present only where the
@@ -379,7 +381,10 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
             cmd('exportDoc', 'Export…'),
             cmd('printDoc', 'Print…', 'Mod+P'),
             sep,
-            cmd('close', 'Close Window', 'Mod+W'),
+            // Issue #158: ⌘W now belongs to Close File above — this row keeps
+            // no accelerator so no two enabled items claim one chord. ⌘Q still
+            // quits; a focused aux window still closes via SPEC13 §1.3.
+            cmd('close', 'Close Window'),
           ],
         },
         editMenu,
@@ -405,7 +410,8 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
           cmd('addFolderToWorkspace', 'Add Folder to Workspace…', undefined, undefined, !wsOpen),
           cmd('saveWorkspaceAs', 'Save Workspace As…', undefined, undefined, !wsOpen),
           // Issue #22: the close cluster — both land on the splash.
-          cmd('closeFile', 'Close File', undefined, undefined, !s.docOpen),
+          // Issue #158: same rebindable chord as the mac branch (Ctrl+W here).
+          cmd('closeFile', 'Close File', s.hotkeys.closeFile, undefined, !s.docOpen),
           cmd('closeWorkspace', 'Close Workspace', undefined, undefined, !wsOpen),
           sep,
           // PRD 007 Req 19: single-file transfer, present only where the

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { buildMenuSpec, type CommandItemSpec, type MenuState } from '../../src/lib/menuSpec';
-import { DEFAULT_HOTKEYS } from '../../src/lib/hotkeys';
+import { combosConflict, DEFAULT_HOTKEYS } from '../../src/lib/hotkeys';
 import { parseSettings } from '../../src/lib/settings';
 
 const base: MenuState = {
@@ -597,5 +597,38 @@ describe('PRD 013 Req 13: the File Tabs View item', () => {
     const withRow = commandsIn(base, 'View').map((i) => i.command);
     const withoutRow = commandsIn(without, 'View').map((i) => i.command);
     expect(withRow.filter((c) => c !== 'toggleFileTabs')).toEqual(withoutRow);
+  });
+
+  test('U724: issue #158 — Close File carries the rebindable Mod+W on both layouts; mac Close Window gave the chord up; no menu holds two enabled items on one chord', () => {
+    const win = { ...base, isMac: false };
+    for (const s of [base, win]) {
+      expect(find(s, 'File', 'closeFile')!.accelerator).toBe(DEFAULT_HOTKEYS.closeFile);
+      expect(find(s, 'File', 'closeFile')!.accelerator).toBe('Mod+W');
+      // A rebind in Settings moves the accelerator with it (the save idiom).
+      const rebound = { ...s, hotkeys: { ...DEFAULT_HOTKEYS, closeFile: 'Mod+Shift+U' } };
+      expect(find(rebound, 'File', 'closeFile')!.accelerator).toBe('Mod+Shift+U');
+    }
+    // The mac close row ("Close Window") no longer claims Mod+W — or anything.
+    expect(find(base, 'File', 'close')!.label).toBe('Close Window');
+    expect(find(base, 'File', 'close')!.accelerator).toBeUndefined();
+    // ⌘Q still quits from the app menu.
+    expect(find(base, 'Marky Mark', 'close')!.accelerator).toBe('Mod+Q');
+    // Sweep both layouts: within each submenu, no two enabled accelerators
+    // collide as chords (combosConflict, not string equality — Issue #84).
+    for (const s of [base, win]) {
+      for (const menu of buildMenuSpec(s).submenus) {
+        const accel = menu.items.filter(
+          (i): i is CommandItemSpec => i.type === 'command' && !!i.accelerator && !i.disabled
+        );
+        for (let a = 0; a < accel.length; a++) {
+          for (let b = a + 1; b < accel.length; b++) {
+            expect(
+              combosConflict(accel[a].accelerator!, accel[b].accelerator!),
+              `${menu.title}: ${accel[a].command} vs ${accel[b].command}`
+            ).toBe(false);
+          }
+        }
+      }
+    }
   });
 });

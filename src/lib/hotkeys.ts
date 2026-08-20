@@ -10,6 +10,8 @@ export interface HotkeyMap {
   toggleSplit: string;
   newFile: string;
   openFile: string;
+  /** Issue #158: close the active file (SPEC36 §3.4/§3.5) — never the window. */
+  closeFile: string;
   find: string;
   toggleFolders: string;
   /** PRD 012 Req 10: the TOC view of the sidebar — the toolbar button's twin. */
@@ -53,6 +55,10 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   toggleSplit: 'Mod+\\',
   newFile: 'Mod+N',
   openFile: 'Mod+O',
+  // Issue #158: the platform close-tab chord, taken from mac's Close Window
+  // (menuSpec.ts) deliberately. Distinct from Mod+Shift+W (word count) —
+  // eventMatches compares Shift strictly.
+  closeFile: 'Mod+W',
   find: 'Mod+F',
   toggleFolders: 'Mod+Shift+E',
   // PRD 012 Req 10: T for Table of contents, in the Mod+Shift+<letter> family

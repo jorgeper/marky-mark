@@ -168,6 +168,8 @@ describe('PRD 009 Req 8: the groups and their order', () => {
     expect(hints).toEqual([
       ['menu-new', 'newFile'],
       ['menu-open', 'openFile'],
+      // Issue #158: Close File hints its new rebindable chord.
+      ['menu-close-file', 'closeFile'],
       ['menu-save', 'save'],
     ]);
   });
