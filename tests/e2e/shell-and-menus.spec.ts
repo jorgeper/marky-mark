@@ -395,9 +395,13 @@ test('E47: nativeMenu mode renders no header; the window title is the only filen
   await menuClick(page, 'help');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
   await expect(page).toHaveTitle('welcome.md — Marky Mark');
-  // The document area starts at the very top of the window.
+  // Still chromeless above the document area: the file tab strip (PRD 013,
+  // issue #144) is the only thing there — it starts at the very top of the
+  // window and the workspace sits directly under it. No toolbar band.
+  const strip = await page.getByTestId('file-tab-strip').boundingBox();
+  expect(strip!.y).toBe(0);
   const box = await page.locator('.workspace').boundingBox();
-  expect(box!.y).toBe(0);
+  expect(box!.y).toBe(strip!.y + strip!.height);
 
   await menuClick(page, 'toggleMode');
   await page.getByTestId('editor').locator('.cm-line').first().click();
