@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
   addComment,
+  dragAcrossText,
   editorTopGutterLine,
   freshApp,
   freshNativeMenuApp,
@@ -582,4 +583,39 @@ test('E263: the copy button leaves comment anchoring alone — a comment over a 
   await expect(doc.locator('mark.hl')).toHaveText('Tail prose');
   // A re-injection (the anchor refresh) re-runs the decoration: still one button.
   await expect(doc.getByTestId('mm-copy-code')).toHaveCount(1);
+});
+
+test('E302: issue #138 — a pointer drag inside a code block in the read-only preview selects that code only; ⌘A still takes everything', async ({
+  page,
+}) => {
+  // A plain fence (no language tag; detect:false in markdown.ts) keeps the
+  // whole block one text node, so the drag helper can aim at code substrings.
+  await fsWrite(
+    page,
+    '/docs/fence-drag.md',
+    '# Drag Fence\n\nLead paragraph before the code.\n\n```\nconst alpha = 1;\nconst beta = alpha * 2;\n```\n\nTail paragraph after the code.\n'
+  );
+  await page.goto('/#open=/docs/fence-drag.md');
+  const doc = page.getByTestId('doc');
+  await expect(doc.locator('h1')).toContainText('Drag Fence');
+  await expect(doc.locator('pre')).toHaveCount(1);
+
+  // A real mouse drag (down/move/up) across both code lines, both endpoints
+  // on code text inside the one fenced block.
+  await dragAcrossText(page, '[data-testid="doc"]', 'alpha = 1', 'beta = alpha');
+  const sel = await page.evaluate(() => document.getSelection()?.toString() ?? '');
+  // Every selected character comes from the block — the selection (which is
+  // exactly what a copy puts on the clipboard) is a substring of the code:
+  // no surrounding prose, no Copy/Copied button label (a ::after pseudo-
+  // element contributes no selectable text), no neighbouring newline.
+  expect(sel).toContain('beta');
+  expect('const alpha = 1;\nconst beta = alpha * 2;\n').toContain(sel);
+
+  // Non-regression: Select All still spans the whole document, code included.
+  await doc.click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('ControlOrMeta+a');
+  const all = await page.evaluate(() => document.getSelection()?.toString() ?? '');
+  expect(all).toContain('Lead paragraph before the code.');
+  expect(all).toContain('const beta = alpha * 2;');
+  expect(all).toContain('Tail paragraph after the code.');
 });

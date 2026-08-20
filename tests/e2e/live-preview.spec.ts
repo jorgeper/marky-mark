@@ -5,6 +5,7 @@
 import { expect, test } from './fixtures';
 import {
   clickClearOfToolbar,
+  dragAcrossText,
   editorTopGutterLine,
   freshApp,
   fsRead,
@@ -364,4 +365,109 @@ test('E157: table grid + live preview (#55) — grid lines keep raw cell markdow
   );
   expect(lengths.length).toBeGreaterThanOrEqual(4);
   expect(new Set(lengths).size).toBe(1);
+});
+
+// Issue #138: selections touching fenced code blocks used to widen to the
+// whole stamped region (code plus surrounding whitespace, and to the end of
+// the document when the fence closed it) because the selection map stripped
+// fence lines as prose and the rendered-text search never matched. The plain
+// fence (no language tag; detect:false) keeps the block one text node.
+const FENCE_SEL_DOC = [
+  '# Fence Sel',
+  '',
+  'Lead paragraph before the code.',
+  '',
+  '```',
+  'const alpha = 1;',
+  'const beta = alpha * 2;',
+  '```',
+  '',
+  'Tail paragraph after the code.',
+  '',
+].join('\n');
+
+test('E299: issue #138 — an editor selection inside a fenced block mirrors as marks over that code only', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/fence-sel.md', FENCE_SEL_DOC);
+  await page.goto('/#open=/docs/fence-sel.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Fence Sel');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+
+  // Select the asterisk-bearing code line — the old prose stripping ate the
+  // `*` and the needle never matched, firing the whole-region fallback.
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'beta' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('const beta = alpha * 2;');
+
+  // The mirror paints exactly that code text, all of it inside the <pre> —
+  // no tint on the first code line, the whitespace, or the tail paragraph.
+  const marks = page.locator('[data-testid="split-preview"] .doc mark.mm-mirror-sel');
+  await expect.poll(async () => (await marks.allTextContents()).join('')).toBe('const beta = alpha * 2;');
+  expect(await marks.evaluateAll((els) => els.every((el) => el.closest('pre') !== null))).toBe(true);
+
+  // Fence as the document's LAST block: the miss used to widen the marks to
+  // pane.lastChild — everything from the <pre> to the end of the document.
+  await fsWrite(page, '/docs/fence-tail.md', '# Tail Fence\n\nProse up front.\n\n```\nfirst_code();\nsecond_code();\n```\n');
+  await page.goto('/#open=/docs/fence-tail.md');
+  // Mode memory (issue #125): the new doc opens straight in split edit.
+  await expect(page.getByTestId('split-preview').locator('h1')).toContainText('Tail Fence');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'second_code' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('second_code();');
+  await expect.poll(async () => (await marks.allTextContents()).join('')).toBe('second_code();');
+});
+
+test('E300: issue #138 — a fenced-code selection carries across ⌘E as a native selection of the code only', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/fence-carry.md', FENCE_SEL_DOC);
+  await page.goto('/#open=/docs/fence-carry.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Fence Sel');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  if (await page.getByTestId('split-preview').count()) await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'beta' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('const beta = alpha * 2;');
+
+  // Switch to preview: the restored NATIVE selection covers the code text
+  // only — before the fix it spanned the whole block region plus the tail
+  // paragraph (this is the path the issue reporter most likely saw).
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Fence Sel');
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? '')).toBe(
+    'const beta = alpha * 2;'
+  );
+});
+
+test('E301: issue #138 — a pointer drag inside a code block in the split preview selects that code only', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/fence-drag-split.md', FENCE_SEL_DOC);
+  await page.goto('/#open=/docs/fence-drag-split.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Fence Sel');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  // The lazy editor must be mounted first — its mount focuses the editor,
+  // and a mount landing mid-drag would steal the selection being built.
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+
+  // A real mouse drag across both code lines, start and end on code text.
+  // The editor pane holds focus (fresh from the mode switch): the SPEC23
+  // mirror must not push the half-built drag selection into CodeMirror.
+  await dragAcrossText(page, '[data-testid="split-preview"] .doc', 'alpha = 1', 'beta = alpha');
+  const sel = await page.evaluate(() => document.getSelection()?.toString() ?? '');
+  // Non-empty, and every selected character comes from the block: the whole
+  // selection is a substring of the block's code — no 'Lead', no 'Tail'.
+  expect(sel).toContain('beta');
+  expect('const alpha = 1;\nconst beta = alpha * 2;\n').toContain(sel);
 });

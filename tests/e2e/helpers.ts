@@ -303,6 +303,49 @@ export async function selectSpanInPane(
   );
 }
 
+/**
+ * Issue #138: a REAL pointer drag (mouse down/move/up, not a programmatic
+ * Range) from the start of `phraseA` to the end of `phraseB` inside a pane.
+ * Each phrase must sit inside a single text node — an unhighlighted fence
+ * (no language tag; markdown.ts uses detect:false) keeps its whole body in
+ * one node, so any code substring qualifies.
+ */
+export async function dragAcrossText(
+  page: Page,
+  containerSelector: string,
+  phraseA: string,
+  phraseB: string
+): Promise<void> {
+  const pointFor = (phrase: string, edge: 'start' | 'end') =>
+    page.evaluate(
+      ([selector, needle, which]) => {
+        const pane = document.querySelector(selector);
+        if (!pane) throw new Error(`pane not found: ${selector}`);
+        const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
+        let node: Node | null;
+        while ((node = walker.nextNode())) {
+          const idx = node.nodeValue?.indexOf(needle) ?? -1;
+          if (idx !== -1) {
+            const range = document.createRange();
+            range.setStart(node, idx);
+            range.setEnd(node, idx + needle.length);
+            const r = range.getBoundingClientRect();
+            const y = r.top + r.height / 2;
+            return which === 'start' ? { x: r.left + 1, y } : { x: r.right - 1, y };
+          }
+        }
+        throw new Error(`phrase not found in pane: ${needle}`);
+      },
+      [containerSelector, phrase, edge] as const
+    );
+  const from = await pointFor(phraseA, 'start');
+  const to = await pointFor(phraseB, 'end');
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
+}
+
 // ---------------------------------------------------------------------------
 // Moved out of the former tests/e2e/app.spec.ts when it was split by feature
 // area (issue #31): one definition here, imported by the files that need it.
