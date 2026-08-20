@@ -891,6 +891,8 @@ test('E214: PRD 009 Req 12 — View ▸ opens the shared View items: checked, gr
     'menu-view-toggleOpenOnly',
     'menu-view-nextFile',
     'menu-view-prevFile',
+    // PRD 013 Req 13 (issue #144): the strip's toggle rides the layout rows.
+    'menu-view-toggleFileTabs',
     'menu-view-toggleMode',
     'menu-view-toggleSplit',
     'menu-view-toggleComments',

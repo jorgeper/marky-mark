@@ -40,6 +40,9 @@ const viewState = (over: Partial<ViewMenuState> = {}): ViewMenuState => ({
   showFolders: true,
   openOnly: false,
   openFileCount: 3,
+  // PRD 013 Req 13: the tab-strip seam exists in the frozen baseline, so the
+  // File Tabs row is part of every flyout expectation below.
+  fileTabs: true,
   ...over,
 });
 
@@ -253,6 +256,8 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
       'toggleOpenOnly',
       'nextFile',
       'prevFile',
+      // PRD 013 Req 13: the strip's toggle rides with the layout rows.
+      'toggleFileTabs',
       'toggleMode',
       'toggleSplit',
       'toggleComments',
@@ -303,6 +308,20 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
     for (const c of gated) expect(inWs.find((r) => r.command === c)?.disabled, c).toBeFalsy();
   });
 
+  test('U682: PRD 013 Req 13 — no tab-strip seam ⇒ no File Tabs row, even where workspaces exist', () => {
+    // The hosted flavor HAS the workspace capability (CAPS.hosted), so the
+    // WORKSPACE_VIEW_COMMANDS omission set cannot gate the strip's row — the
+    // absent-state idiom does: fileTabs undefined ⇒ the row is simply gone.
+    const without = viewRows(state({ view: viewState({ fileTabs: undefined }) })).map((r) => r.command);
+    expect(without).not.toContain('toggleFileTabs');
+    // With the seam it is there, checked per the setting, greyed per docOpen.
+    const rows = viewRows();
+    expect(rows.find((r) => r.command === 'toggleFileTabs')?.checked).toBe(true);
+    expect(rows.find((r) => r.command === 'toggleFileTabs')?.disabled).toBeFalsy();
+    const noDoc = viewRows(state({ view: viewState({ docOpen: false }) }));
+    expect(noDoc.find((r) => r.command === 'toggleFileTabs')?.disabled).toBe(true);
+  });
+
   test('U352: checked and disabled survive the mapping, item for item', () => {
     for (const over of [{}, { mode: 'edit' as const }, { appMode: 'file' as const }, { docOpen: false }]) {
       const rows = viewRows(state({ view: viewState(over) }));
@@ -327,6 +346,7 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
       'toggleOpenOnly',
       'nextFile',
       'prevFile',
+      'toggleFileTabs', // PRD 013 Req 13
       'toggleMode',
       'toggleSplit',
       'toggleComments',

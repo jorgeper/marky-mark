@@ -95,6 +95,8 @@ export interface Settings {
   folderWidth: number;
   /** PRD 012 Req 11: which of the pane's two views the sidebar last showed. */
   sidebarView: SidebarView;
+  /** PRD 013 Reqs 13–14: the file tab strip's visibility (persisted, on by default). */
+  fileTabs: boolean;
   /** Minimum content width per pane (px); narrower panes scroll sideways. */
   paneMinWidth: number;
   hotkeys: HotkeyMap;
@@ -175,6 +177,8 @@ export const DEFAULT_SETTINGS: Settings = {
   // PRD 012 Req 11: a fresh install opens the pane on the folder tree — the
   // only view there was before the TOC.
   sidebarView: 'folders',
+  // PRD 013 Req 13: the strip ships visible — the setting exists to turn it off.
+  fileTabs: true,
   paneMinWidth: 768,
   hotkeys: { ...DEFAULT_HOTKEYS },
   // PRD 011 Req 7: the defaults leave the app UNCONFIGURED — an empty key and
@@ -246,6 +250,10 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   // PRD 012 Req 11: machine-scoped like the sidebar's other two keys — which
   // view a reader left the pane on is theirs, not a workspace's to dictate.
   sidebarView: 'M',
+  // PRD 013 Req 13: machine/session-local like its layout neighbours above
+  // (showFolders / folderWidth / sidebarView) — whether the tab strip shows
+  // is this reader's screen arrangement, not a workspace's to dictate.
+  fileTabs: 'M',
   paneMinWidth: 'U',
   hotkeys: 'U',
   // PRD 011 Req 7: all four are `U!` — user-only identity, honored at the User
@@ -347,6 +355,9 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   // PRD 012 Req 11: only the two views that exist; a hand-edited settings.json
   // naming anything else reopens on the folder tree rather than an empty pane.
   sidebarView: (raw) => (raw === 'folders' || raw === 'toc' ? raw : undefined),
+  // PRD 013 Req 13: a hand-edited "off"/0 falls back to the default (on)
+  // rather than reaching the strip as a truthy string.
+  fileTabs: bool,
   paneMinWidth: clampedInt(PANE_MIN_WIDTH_MIN, PANE_MIN_WIDTH_MAX),
   // A hotkeys object is accepted as a whole map: valid entries land on top of
   // the defaults, blank/invalid bindings fall back per key.

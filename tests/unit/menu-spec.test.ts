@@ -19,6 +19,9 @@ const base: MenuState = {
   showFolders: false, // SPEC34 §4: fixture-level only — no assertion changed
   appMode: 'workspace', // issue #22: everything enabled — U120 covers the gating
   docOpen: true,
+  // PRD 013 Req 13: the tab-strip seam exists in the frozen baseline, so the
+  // File Tabs row is part of every View expectation below (U680 owns it).
+  fileTabs: true,
 };
 
 const titles = (s: MenuState) => buildMenuSpec(s).submenus.map((m) => m.title);
@@ -562,5 +565,38 @@ describe('PRD 011 Reqs 2+23: semantic zoom is absent until the Experimental flag
     const off = commandsIn(base, 'View').map((i) => i.command);
     const on = commandsIn({ ...base, semanticZoom: true }, 'View').map((i) => i.command);
     expect(on.filter((id) => !SEMANTIC.includes(id))).toEqual(off);
+  });
+});
+
+describe('PRD 013 Req 13: the File Tabs View item', () => {
+  test('U680: File Tabs closes the layout group — checkbox tracks the setting, no accelerator, grayed with no document', () => {
+    for (const s of [base, { ...base, isMac: false }]) {
+      // Grouped with the workspace/layout rows: straight after the open-file
+      // cycle pair, ahead of the mode toggles.
+      const view = commandsIn(s, 'View').map((i) => i.command);
+      expect(view.indexOf('toggleFileTabs')).toBe(view.indexOf('prevFile') + 1);
+      expect(view.indexOf('toggleFileTabs')).toBe(view.indexOf('toggleMode') - 1);
+      expect(find(s, 'View', 'toggleFileTabs')!.label).toBe('File Tabs');
+      // A checkbox mirroring the persisted setting…
+      expect(find(s, 'View', 'toggleFileTabs')!.checked).toBe(true);
+      expect(find({ ...s, fileTabs: false }, 'View', 'toggleFileTabs')!.checked).toBe(false);
+      // …deliberately hotkey-less (PRD 013 non-goal: menu item + setting only).
+      expect(find(s, 'View', 'toggleFileTabs')!.accelerator).toBeUndefined();
+      // Grayed exactly where the strip cannot render: no document open — the
+      // splash and the workspace-no-file state alike (the toggleMode shape).
+      expect(find(s, 'View', 'toggleFileTabs')!.disabled).toBeUndefined();
+      expect(find({ ...s, docOpen: false }, 'View', 'toggleFileTabs')!.disabled).toBe(true);
+    }
+  });
+
+  test('U681: without the tab-strip seam the row is absent, not disabled — pre-#144 states keep their exact menu', () => {
+    // fileTabs undefined = a flavor with no strip (web/hosted): no row at
+    // all, and every other View item is exactly what it was.
+    const { fileTabs: _fileTabs, ...rest } = base;
+    const without = rest as MenuState;
+    expect(find(without, 'View', 'toggleFileTabs')).toBeUndefined();
+    const withRow = commandsIn(base, 'View').map((i) => i.command);
+    const withoutRow = commandsIn(without, 'View').map((i) => i.command);
+    expect(withRow.filter((c) => c !== 'toggleFileTabs')).toEqual(withoutRow);
   });
 });
