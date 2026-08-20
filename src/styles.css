@@ -2265,15 +2265,40 @@ mark.hl.ghost {
 .workspace-stack > .workspace {
   min-height: 0; /* the column's scroll box — the strip drives no overflow */
 }
+/* PRD 013 Req 10 (issue #148): the strip sits on the folder pane's own
+   surface, so with the pane open the two form one continuous L-shaped
+   backdrop around the workspace's top-left corner. position: relative
+   anchors the ::after seam overlay below. */
 .file-tab-strip {
   flex: none;
   box-sizing: border-box;
+  position: relative;
   height: var(--mm-tabstrip-h);
   display: flex;
   align-items: flex-end;
   padding: 5px 8px 0;
   background: var(--mm-bg-elevated, #f6f8fa);
-  border-bottom: 1px solid var(--mm-border, #d1d9e0);
+}
+/* PRD 013 Reqs 10–12 (issue #148): the strip/workspace seam, painted ONCE —
+   .folder-panel::after rotated to the top edge. The workspace floats "in
+   front" below the strip: its cast shadow + the seam hairline live on this
+   overlay pinned to the strip's bottom edge (replacing the #144
+   border-bottom), painting above the open-tab middle plane (z 1; the
+   overlay is the strip's last box, so it wins the tie) and under the
+   active tab alone (z 2) — the one tab that truly breaks the seam.
+   Themeable via the same optional key the sidebar honors. */
+.file-tab-strip::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 16px;
+  pointer-events: none;
+  z-index: 1;
+  box-shadow:
+    inset 0 -1px 0 var(--mm-border, #d1d9e0),
+    var(--mm-panel-shadow, inset 0 -12px 14px -12px rgba(0, 0, 0, 0.28));
 }
 /* PRD 013 Req 9 (issue #147): overflow scrolls instead of clipping — the
    tabs live in this inner rail, a one-row horizontal scroll box between the
@@ -2298,8 +2323,9 @@ mark.hl.ghost {
   display: none;
 }
 /* PRD 013 Req 9: the scroll arrows — plain theme-variable chrome (the #148
-   plane/shadow pass owns the strip's final look), centred in the strip and
-   outside the rail so they hold still while it scrolls. */
+   plane treatment leaves them on the strip surface, unpositioned so the
+   seam overlay and both tab planes paint above them), centred in the strip
+   and outside the rail so they hold still while it scrolls. */
 .file-tab-scroll {
   flex: none;
   align-self: center;
@@ -2326,8 +2352,14 @@ mark.hl.ghost {
 }
 /* PRD 013 Req 4: one tab — bounded width; the label span clips with an
    ellipsis (no wrap, no strip-height growth) and the button's title carries
-   the full path. Req 3: a basic active/inactive tint only — the sidebar's
-   plane-and-shadow treatment rotated up here is issue #148. */
+   the full path.
+   PRD 013 Reqs 10–12 (issue #148): the sidebar's three planes rotated to
+   the top edge (SPEC36 §4.1's system, .folder-item.open's analogue). Every
+   open-but-inactive tab is the MIDDLE plane: a near-workspace surface one
+   shade back, rounded top corners, its own soft lift — no border; depth
+   reads from surface + shadow strength, exactly as the sidebar rows do.
+   z-index 1 ties with the seam overlay above, which paints over these tabs
+   (later box wins), so the strip's bottom hairline cuts across them. */
 .file-tab {
   display: flex;
   align-items: center;
@@ -2337,22 +2369,44 @@ mark.hl.ghost {
   flex-shrink: 0;
   max-width: 160px;
   padding: 4px 10px;
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-bottom: none;
+  border: none;
   border-radius: 6px 6px 0 0;
-  background: transparent;
+  background: #ededf0;
+  background: color-mix(in srgb, var(--mm-bg, #ffffff) 72%, var(--mm-bg-elevated, #f6f8fa));
   color: var(--mm-fg-muted, #59636e);
   font: inherit;
   font-size: 12px;
   line-height: 1.4;
   cursor: pointer;
+  position: relative;
+  z-index: 1;
+  box-shadow:
+    0 -1px 3px rgba(0, 0, 0, 0.14),
+    0 -2px 7px rgba(0, 0, 0, 0.09);
 }
 .file-tab:hover {
   color: var(--mm-fg, #1f2328);
 }
+/* Issue #148: middle-plane hover lightens toward the workspace surface
+   (.folder-item.open:hover's mix); the ACTIVE tab is exempt — the front
+   plane never flickers on hover, like .folder-item.selected:hover. */
+.file-tab:hover:not(.active) {
+  background: #f4f4f6;
+  background: color-mix(in srgb, var(--mm-bg, #ffffff) 86%, var(--mm-bg-elevated, #f6f8fa));
+}
+/* PRD 013 Reqs 10–12 (issue #148): the ACTIVE tab is the FRONT plane —
+   .folder-item.selected rotated up: the workspace's own surface, rounded
+   top corners, flush bottom (its solid box paints over the seam overlay,
+   so the hairline + cast shadow break at exactly this tab and its surface
+   merges into the workspace below), and a stronger lift cast over the
+   neighboring tabs — z-index 2 stacks it above them AND the z-1 seam. */
 .file-tab.active {
   background: var(--mm-bg, #ffffff);
   color: var(--mm-fg, #1f2328);
+  z-index: 2;
+  box-shadow:
+    0 -2px 6px rgba(0, 0, 0, 0.18),
+    0 -5px 16px rgba(0, 0, 0, 0.14);
 }
 .file-tab-label {
   min-width: 0;

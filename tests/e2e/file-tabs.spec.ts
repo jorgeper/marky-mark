@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { dirtyActiveDoc, freshApp, fsRead, fsWrite, openNotesRoot, revealToolbar, seedFolders } from './helpers';
+import { dirtyActiveDoc, freshApp, fsRead, fsWrite, openNotesRoot, openSettings, revealToolbar, seedFolders } from './helpers';
 
 // PRD 013 (issue #144): the file tab strip — presence, the tab list,
 // activation, labels and the View-menu toggle. A pure view of the SPEC36
@@ -11,6 +11,9 @@ import { dirtyActiveDoc, freshApp, fsRead, fsWrite, openNotesRoot, revealToolbar
 // PRD 013 Req 8 (issue #146, E292+): the untitled tab's close affordances —
 // the same slot, closing through App's existing dirty-untitled guard, and
 // the Save As replacement by the saved file's real tab.
+// PRD 013 Reqs 10–12 (issue #148, E305+): the plane treatment — the three
+// surfaces (strip / inactive middle / active front) read from computed
+// styles, in the light default and a dark theme.
 
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
@@ -1061,4 +1064,104 @@ test('E304: File → New with an overflowing strip leaves the Untitled tab in vi
   expect(await tabInView(page, '')).toBe(true);
   // The open set itself is untouched — ten files plus the appended ephemeral.
   expect(await tabPaths(page)).toEqual([...Array(10).keys()].map((i) => ovf(i + 1)).concat(['']));
+});
+
+// ---- PRD 013 Reqs 10–12 (issue #148): the plane treatment, from computed
+// styles. The sidebar's SPEC36 §4.1 three-plane system rotated to the top
+// edge: strip on the folder pane's surface, active tab on the workspace's
+// front plane, open-but-inactive tabs one shade back between the two.
+
+/** A computed color's 0–255 channels — accepts the rgb()/rgba() legacy
+ *  serialization AND color(srgb r g b), which is how Chromium serializes a
+ *  color-mix(in srgb, …) computed value (the middle plane's background). */
+const channels = (color: string): number[] => {
+  const rgb = color.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/);
+  if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+  const srgb = color.match(/color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+  if (!srgb) throw new Error(`unexpected computed color: ${color}`);
+  return [Number(srgb[1]), Number(srgb[2]), Number(srgb[3])].map((v) => v * 255);
+};
+
+const bgOf = (loc: Locator) => loc.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+/** Open two files under /notes so the strip holds one active + one inactive
+ *  tab, with the folder pane open beside it. */
+async function openTwoTabs(page: Page): Promise<void> {
+  await seedFolders(page);
+  await openNotesRoot(page);
+  // Drop the out-of-root welcome.md so exactly two known tabs remain.
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await page.locator('[data-path="/notes/sub"]').click();
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await expect(page.getByTestId('file-tab')).toHaveCount(2);
+}
+
+/** The issue #148 plane assertions, valid under any theme currently on. */
+async function assertTabPlanes(page: Page): Promise<void> {
+  const active = page.locator('.file-tab.active');
+  const inactive = page.locator('.file-tab:not(.active)');
+  await expect(active).toHaveCount(1);
+  await expect(inactive).toHaveCount(1);
+
+  // Req 10: the strip paints the folder pane's own surface — one continuous
+  // L-shaped backdrop around the workspace's top-left corner.
+  const stripBg = channels(await bgOf(page.getByTestId('file-tab-strip')));
+  const panelBg = channels(await bgOf(page.getByTestId('folder-panel')));
+  expect(stripBg).toEqual(panelBg);
+
+  // Front plane: the active tab IS the workspace surface (the theme root's
+  // --mm-bg — .workspace itself is transparent over it), distinct from the
+  // strip surface behind it and from its inactive neighbor.
+  const workspaceBg = channels(await bgOf(page.locator('.theme-root')));
+  const activeBg = channels(await bgOf(active));
+  expect(activeBg).toEqual(workspaceBg);
+  expect(activeBg).not.toEqual(stripBg);
+  const inactiveBg = channels(await bgOf(inactive));
+  expect(inactiveBg).not.toEqual(activeBg);
+  expect(inactiveBg).not.toEqual(stripBg);
+
+  // Middle plane: the inactive tab's surface sits BETWEEN the strip's and
+  // the workspace's, channel by channel — one shade back from the front.
+  for (let i = 0; i < 3; i++) {
+    const lo = Math.min(stripBg[i], activeBg[i]);
+    const hi = Math.max(stripBg[i], activeBg[i]);
+    expect(inactiveBg[i]).toBeGreaterThanOrEqual(lo);
+    expect(inactiveBg[i]).toBeLessThanOrEqual(hi);
+  }
+
+  // The lift: both planes carry a real shadow (the active one is asserted
+  // stronger by stacking, not by parsing blur radii), and the active tab
+  // stacks ABOVE its neighbor so that shadow falls over it, not under.
+  expect(await active.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe('none');
+  expect(await inactive.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe('none');
+  const zOf = (loc: Locator) => loc.evaluate((el) => Number(getComputedStyle(el).zIndex));
+  expect(await zOf(active)).toBeGreaterThan(await zOf(inactive));
+}
+
+test('E305: the three planes from computed styles — strip on the pane surface, active tab on the workspace surface stacked above its lifted neighbor', async ({
+  page,
+}) => {
+  await openTwoTabs(page);
+  await assertTabPlanes(page);
+});
+
+test('E306: the plane ordering holds in a dark theme — strip < inactive < active, the active tab still the workspace surface (One Dark)', async ({
+  page,
+}) => {
+  await openTwoTabs(page);
+  await openSettings(page);
+  await page.getByTestId('settings-theme-light').selectOption('crisp');
+  await page.getByTestId('settings-theme-dark').selectOption('one-dark');
+  const useDark = page.getByTestId('use-dark-theme');
+  if (!(await useDark.isChecked())) await useDark.check();
+  await page.getByTestId('settings-close').click();
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect
+    .poll(() => bgOf(page.locator('.theme-root')))
+    .toBe('rgb(40, 44, 52)'); // One Dark #282c34
+  await assertTabPlanes(page);
 });
