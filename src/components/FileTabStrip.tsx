@@ -8,8 +8,15 @@
  * Its only state is transient UI: the Req 7 context menu's anchor.
  */
 
-import { useState } from 'react';
-import { fileTabContextMenu } from '../lib/fileTabs';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  fileTabContextMenu,
+  railArrowState,
+  railRevealTarget,
+  railStepTarget,
+  railWheelDelta,
+  type RailArrowState,
+} from '../lib/fileTabs';
 import { useAnchoredMenu } from './anchoredMenu';
 
 export interface FileTabStripProps {
@@ -145,6 +152,34 @@ function Tab({ active, label, title, path, dirty, onClick, onClose, onMenu }: {
   );
 }
 
+/** PRD 013 Req 9: one scroll-arrow button — a real keyboard-reachable
+ *  `button`, disabled (not hidden) at its own end of the range so the pair
+ *  keeps a stable footprint while the rail scrolls. Scrolling never touches
+ *  the open set: this button only ever moves `scrollLeft`. */
+function ScrollArrow({ dir, enabled, onStep }: { dir: -1 | 1; enabled: boolean; onStep: () => void }) {
+  return (
+    <button
+      className="file-tab-scroll"
+      data-testid={dir < 0 ? 'file-tab-scroll-left' : 'file-tab-scroll-right'}
+      type="button"
+      aria-label={dir < 0 ? 'Scroll tabs left' : 'Scroll tabs right'}
+      disabled={!enabled}
+      onClick={onStep}
+    >
+      <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+        <path
+          d={dir < 0 ? 'M10 3.5 5.5 8 10 12.5' : 'M6 3.5 10.5 8 6 12.5'}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  );
+}
+
 export function FileTabStrip(p: FileTabStripProps) {
   // PRD 013 Req 7: the context menu's anchor — transient UI state only.
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
@@ -153,8 +188,136 @@ export function FileTabStrip(p: FileTabStripProps) {
   // folder-menu gets, from the one shared hook.
   const menuRef = useAnchoredMenu(menu, () => setMenu(null));
 
+  // PRD 013 Req 9 (issue #147): the scrolling rail and the arrows' state —
+  // transient UI, derived from the rail's live geometry, never persisted.
+  const stripRef = useRef<HTMLDivElement>(null);
+  const railRef = useRef<HTMLDivElement>(null);
+  const [arrows, setArrows] = useState<RailArrowState>({
+    overflow: false,
+    leftEnabled: false,
+    rightEnabled: false,
+  });
+
+  // Re-read the rail and keep the arrows honest; identical readings keep the
+  // previous state object so scroll events don't re-render for nothing.
+  const measure = () => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const next = railArrowState(rail);
+    setArrows((prev) =>
+      prev.overflow === next.overflow &&
+      prev.leftEnabled === next.leftEnabled &&
+      prev.rightEnabled === next.rightEnabled
+        ? prev
+        : next
+    );
+  };
+
+  // PRD 013 Req 9: true once the user scrolls the rail by wheel or arrow;
+  // an activation reveal clears it. While set, nothing may move the rail
+  // out from under the user (the reveal-on-resize below stands down).
+  const userParkedRef = useRef(false);
+
+  // PRD 013 Req 9: bring the active tab fully into the rail's window —
+  // minimal (nearest edge; already visible ⇒ no movement, railRevealTarget)
+  // and horizontal-only: writing scrollLeft directly instead of
+  // scrollIntoView means no ancestor's scroll can be disturbed. offsetLeft
+  // is rail-content-relative: the rail is the tabs' offsetParent
+  // (position: relative in styles.css).
+  const revealActive = () => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const el = rail.querySelector<HTMLElement>('.file-tab[data-active="true"]');
+    if (!el) return;
+    rail.scrollLeft = railRevealTarget(rail, el.offsetLeft, el.offsetWidth);
+  };
+
+  // PRD 013 Req 9: arrows track the tab list — adds, removes and renames all
+  // arrive as a new openFiles (or untitled) value. Layout effect, so the
+  // first paint already shows the right arrows.
+  useLayoutEffect(measure, [p.openFiles, p.untitled]);
+
+  // PRD 013 Req 9: the rail's WIDTH changes without the strip owning any of
+  // those events — window resizes, the folder pane's open/close slide and
+  // width drag, split/preview layout changes. Each one re-reads the arrows
+  // (a resize that removes the overflow removes them), and — unless the
+  // user has parked the rail somewhere deliberate — keeps the active tab
+  // revealed, so a boot restore whose reveal ran mid pane-slide still ends
+  // with the tab in view once the layout settles.
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const ro = new ResizeObserver(() => {
+      if (!userParkedRef.current) revealActive();
+      measure();
+    });
+    ro.observe(rail);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // PRD 013 Req 9: wheel/trackpad scrolling over the strip drives the rail —
+  // the dominant-axis mapping (railWheelDelta) so a plain vertical wheel
+  // reaches hidden tabs too. A native non-passive listener, NOT React's
+  // onWheel: root-delegated wheel listeners are passive, so preventDefault —
+  // the thing that keeps the document/preview from also scrolling or
+  // bouncing — would be ignored. The event is consumed ONLY when the rail
+  // actually moves; at an end of the range it falls through untouched, so
+  // surrounding scroll behaviour keeps working.
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const onWheel = (e: WheelEvent) => {
+      const rail = railRef.current;
+      if (!rail) return;
+      const target = Math.min(
+        Math.max(rail.scrollLeft + railWheelDelta(e.deltaX, e.deltaY), 0),
+        Math.max(0, rail.scrollWidth - rail.clientWidth)
+      );
+      if (target === rail.scrollLeft) return;
+      e.preventDefault();
+      userParkedRef.current = true;
+      rail.scrollLeft = target;
+    };
+    strip.addEventListener('wheel', onWheel, { passive: false });
+    return () => strip.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // PRD 013 Req 9: reveal-on-activation — whenever the active document
+  // changes (sidebar row, tab click, Ctrl+Tab, boot restore, File → New's
+  // untitled), its tab ends up fully in view: FolderPanel's selectedPath
+  // reveal rotated to the horizontal axis. Keyed on the ACTIVE path alone,
+  // so user scrolling by arrow or wheel never snaps back — no dependency
+  // re-runs it, and it clears the parked flag: a fresh activation is the
+  // one thing that legitimately outranks where the user left the rail.
+  useLayoutEffect(() => {
+    userParkedRef.current = false;
+    revealActive();
+    measure();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.activePath, p.untitled]);
+
+  const step = (dir: -1 | 1) => {
+    const rail = railRef.current;
+    if (!rail) return;
+    userParkedRef.current = true;
+    rail.scrollLeft = railStepTarget(rail, dir);
+  };
+
   return (
-    <div className="file-tab-strip" data-testid="file-tab-strip" role="tablist">
+    <div className="file-tab-strip" data-testid="file-tab-strip" ref={stripRef}>
+      {/* PRD 013 Req 9: the arrows sit OUTSIDE the rail at the strip's ends,
+          so they stay put while it scrolls; when the tabs fit they are not
+          rendered at all and a one- or two-tab strip is untouched. Plain
+          theme-variable styling — the plane/shadow treatment is issue #148. */}
+      {arrows.overflow && <ScrollArrow dir={-1} enabled={arrows.leftEnabled} onStep={() => step(-1)} />}
+      <div
+        className="file-tab-rail"
+        data-testid="file-tab-rail"
+        role="tablist"
+        ref={railRef}
+        onScroll={measure}
+      >
       {p.openFiles.map((path) => {
         const active = path === p.activePath;
         return (
@@ -192,6 +355,8 @@ export function FileTabStrip(p: FileTabStripProps) {
           onClose={p.onCloseUntitled}
         />
       )}
+      </div>
+      {arrows.overflow && <ScrollArrow dir={1} enabled={arrows.rightEnabled} onStep={() => step(1)} />}
       {menu && (
         // PRD 013 Req 7: the tab menu — theme-menu chrome, pointer-anchored
         // and dismissed per SPEC35 §3.2 like the sidebar's folder-menu, with

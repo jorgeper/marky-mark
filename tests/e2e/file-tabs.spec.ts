@@ -787,3 +787,278 @@ test('E298: Save As replaces the untitled tab with the saved file\'s real tab �
   expect(await fsRead(page, '/notes/saved.md')).toContain('USAVED');
   await expect.poll(() => fsRead(page, '/config/session/untitled.json')).toContain('/notes/saved.md');
 });
+
+// PRD 013 Req 9 (issue #147, E299+): overflow — the scrolling rail, the
+// end-anchored arrows, wheel scrolling and reveal-on-activation.
+
+/** A basename long enough to pin its tab at the 160px max width. */
+const ovf = (i: number) => `/notes/ovf-t${String(i).padStart(2, '0')}-abcdefghijklmnopqrstuvwx.md`;
+
+/**
+ * E299+ setup: n max-width tabs, opened via real sidebar clicks (each open
+ * is an activation, so the reveal keeps the newest tab in view). Ten 160px
+ * tabs overflow the default 1280px viewport's rail; four fit it.
+ */
+async function openOverflow(page: Page, n: number): Promise<string[]> {
+  await seedFolders(page);
+  const paths: string[] = [];
+  for (let i = 1; i <= n; i++) {
+    paths.push(ovf(i));
+    await fsWrite(page, ovf(i), `# T${i}\n`);
+  }
+  await openNotesRoot(page);
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  for (let i = 1; i <= n; i++) {
+    await page.locator(`[data-path="${ovf(i)}"]`).click();
+    await expect(page.getByTestId('docname')).toContainText(`ovf-t${String(i).padStart(2, '0')}`);
+  }
+  await expect(page.getByTestId('file-tab')).toHaveCount(n);
+  return paths;
+}
+
+const rail = (page: Page) => page.getByTestId('file-tab-rail');
+const railScroll = (page: Page) => rail(page).evaluate((el) => Math.round(el.scrollLeft));
+const railMax = (page: Page) => rail(page).evaluate((el) => el.scrollWidth - el.clientWidth);
+
+/** The tab is FULLY inside the rail's visible window (sub-pixel slack). */
+const tabInView = (page: Page, path: string) =>
+  rail(page).evaluate((el, p) => {
+    const t = el.querySelector(`[data-tab="${CSS.escape(p)}"]`) as HTMLElement | null;
+    if (!t) return false;
+    return (
+      t.offsetLeft >= el.scrollLeft - 1.5 &&
+      t.offsetLeft + t.offsetWidth <= el.scrollLeft + el.clientWidth + 1.5
+    );
+  }, path);
+
+/** Wheel over the strip's midpoint (moves the pointer there first). */
+async function wheelOverStrip(page: Page, deltaX: number, deltaY: number): Promise<void> {
+  const box = (await page.getByTestId('file-tab-strip').boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(deltaX, deltaY);
+}
+
+test('E299: no arrows while the tabs fit; overflow grows them in, a resize that removes the overflow removes them — one row, fixed strip height', async ({
+  page,
+}) => {
+  // Four max-width tabs fit the default 1280px rail: no arrow occupies strip
+  // space and the rail has nowhere to scroll — the strip looks as it did.
+  await openOverflow(page, 4);
+  await expect(page.getByTestId('file-tab-scroll-left')).toHaveCount(0);
+  await expect(page.getByTestId('file-tab-scroll-right')).toHaveCount(0);
+  expect(await railMax(page)).toBeLessThanOrEqual(1);
+  const stripBox = (await page.getByTestId('file-tab-strip').boundingBox())!;
+  expect(Math.round(stripBox.height)).toBe(34); // --mm-tabstrip-h
+
+  // Make the FIRST tab the active one, so the resize below (which keeps the
+  // active tab revealed) parks the rail at its left end deterministically.
+  await page.locator(`[data-path="${ovf(1)}"]`).click();
+  await expect(page.getByTestId('docname')).toContainText('ovf-t01');
+
+  // Narrow the window until the four tabs no longer fit: both arrows render,
+  // the left one dead at scrollLeft 0 (the active first tab stays revealed),
+  // the right one live — and the strip is still exactly one --mm-tabstrip-h
+  // row, no wrap, no native scrollbar.
+  await page.setViewportSize({ width: 700, height: 720 });
+  await expect(page.getByTestId('file-tab-scroll-left')).toBeVisible();
+  await expect(page.getByTestId('file-tab-scroll-right')).toBeVisible();
+  await expect(page.getByTestId('file-tab-scroll-left')).toBeDisabled();
+  await expect(page.getByTestId('file-tab-scroll-right')).toBeEnabled();
+  expect(await railScroll(page)).toBe(0);
+  const narrow = (await page.getByTestId('file-tab-strip').boundingBox())!;
+  expect(Math.round(narrow.height)).toBe(34);
+  // Every tab sits on the same row (one bottom edge), scrolled or clipped —
+  // never wrapped below.
+  const bottoms = await page
+    .getByTestId('file-tab')
+    .evaluateAll((els) => [...new Set(els.map((el) => Math.round(el.getBoundingClientRect().bottom)))]);
+  expect(bottoms).toHaveLength(1);
+  // No visible native scrollbar: the rail's scrollbar is suppressed.
+  expect(await rail(page).evaluate((el) => getComputedStyle(el).getPropertyValue('scrollbar-width'))).toBe('none');
+
+  // Widen again: the overflow is gone and so are the arrows.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(page.getByTestId('file-tab-scroll-left')).toHaveCount(0);
+  await expect(page.getByTestId('file-tab-scroll-right')).toHaveCount(0);
+  expect(await railMax(page)).toBeLessThanOrEqual(1);
+});
+
+test('E300: arrows step the rail and die at their own ends — the open set, active file and tab order untouched by all of it', async ({
+  page,
+}) => {
+  const paths = await openOverflow(page, 10);
+  const before = await tabPaths(page);
+
+  // The last open (t10) was the last activation: the rail sits revealed at
+  // its far-right end — right arrow dead, left live.
+  expect(await tabInView(page, ovf(10))).toBe(true);
+  await expect(page.getByTestId('file-tab-scroll-right')).toBeDisabled();
+  await expect(page.getByTestId('file-tab-scroll-left')).toBeEnabled();
+
+  // One left step: the rail moves toward 0 and the right arrow revives.
+  const atMax = await railScroll(page);
+  await page.getByTestId('file-tab-scroll-left').click();
+  const stepped = await railScroll(page);
+  expect(stepped).toBeLessThan(atMax);
+  await expect(page.getByTestId('file-tab-scroll-right')).toBeEnabled();
+  await expect(page.getByTestId('file-tab-scroll-left')).toBeEnabled(); // mid-range: both live
+
+  // Walk to the far left: the left arrow goes dead exactly at 0.
+  for (let i = 0; i < 12 && (await railScroll(page)) > 0; i++) {
+    await page.getByTestId('file-tab-scroll-left').click();
+  }
+  expect(await railScroll(page)).toBe(0);
+  await expect(page.getByTestId('file-tab-scroll-left')).toBeDisabled();
+  await expect(page.getByTestId('file-tab-scroll-right')).toBeEnabled();
+  expect(await tabInView(page, ovf(1))).toBe(true);
+
+  // And back to the far right: the right arrow dies at max scroll.
+  for (let i = 0; i < 12 && (await railScroll(page)) < Math.floor(await railMax(page)); i++) {
+    await page.getByTestId('file-tab-scroll-right').click();
+  }
+  await expect(page.getByTestId('file-tab-scroll-right')).toBeDisabled();
+  expect(await railScroll(page)).toBeGreaterThanOrEqual(Math.floor(await railMax(page)) - 1);
+
+  // All that clicking activated, closed and reordered NOTHING: same tabs in
+  // the same order, t10 still the active document, no prompt anywhere.
+  expect(await tabPaths(page)).toEqual(before);
+  await expect(page.getByTestId('docname')).toContainText('ovf-t10');
+  await expect(page.locator(`[data-tab="${paths[9]}"]`)).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+});
+
+test('E301: wheel over the strip scrolls the rail — plain vertical and horizontal deltas alike — without moving the preview or the page, even at the range ends', async ({
+  page,
+}) => {
+  await openOverflow(page, 10);
+  const before = await tabPaths(page);
+  const scrollTops = () =>
+    page.evaluate(() => ({
+      doc: document.scrollingElement!.scrollTop,
+      workspace: document.querySelector('.workspace')!.scrollTop,
+    }));
+  const rest = await scrollTops();
+
+  // The rail sits at its right end (t10 revealed). A plain VERTICAL wheel —
+  // a mouse with no horizontal axis — scrolls the strip horizontally: the
+  // issue #139 mapping. Wheel-up walks left…
+  const atMax = await railScroll(page);
+  await wheelOverStrip(page, 0, -240);
+  const afterUp = await railScroll(page);
+  expect(afterUp).toBeLessThan(atMax);
+  // …and wheel-down walks right again.
+  await wheelOverStrip(page, 0, 120);
+  expect(await railScroll(page)).toBeGreaterThan(afterUp);
+
+  // A HORIZONTAL (trackpad) delta drives it directly.
+  await wheelOverStrip(page, -240, 0);
+  expect(await railScroll(page)).toBeLessThan(afterUp + 120 + 1);
+
+  // Nothing else scrolled or bounced: the page and the preview column sit
+  // exactly where they were.
+  expect(await scrollTops()).toEqual(rest);
+
+  // At an end of the range the strip cannot move — and must not trap the
+  // event in a broken way: wheeling further neither moves the rail past its
+  // end nor scrolls the surroundings.
+  for (let i = 0; i < 12 && (await railScroll(page)) > 0; i++) {
+    await wheelOverStrip(page, 0, -480);
+  }
+  expect(await railScroll(page)).toBe(0);
+  await wheelOverStrip(page, 0, -480);
+  expect(await railScroll(page)).toBe(0);
+  expect(await scrollTops()).toEqual(rest);
+
+  // The open set is untouched by all the wheeling.
+  expect(await tabPaths(page)).toEqual(before);
+  await expect(page.getByTestId('docname')).toContainText('ovf-t10');
+});
+
+test('E302: activation reveals the tab from every path — sidebar row and Ctrl+Tab — minimally, and user scrolling never snaps back', async ({
+  page,
+}) => {
+  await openOverflow(page, 10);
+
+  // Sidebar row click on t01, whose tab is far off-view to the LEFT: the
+  // reveal brings it fully in, left-aligned (nearest edge ⇒ scrollLeft 0 for
+  // the first tab), not centred.
+  await page.locator(`[data-path="${ovf(1)}"]`).click();
+  await expect(page.getByTestId('docname')).toContainText('ovf-t01');
+  expect(await tabInView(page, ovf(1))).toBe(true);
+  expect(await railScroll(page)).toBe(0);
+
+  // Minimal: activating the NEIGHBOUR t02 — already fully visible — moves
+  // the rail not a pixel.
+  await page.locator(`[data-tab="${ovf(2)}"]`).click();
+  await expect(page.getByTestId('docname')).toContainText('ovf-t02');
+  expect(await railScroll(page)).toBe(0);
+
+  // Sidebar row click on t10, far off-view to the RIGHT: revealed at the
+  // right edge.
+  await page.locator(`[data-path="${ovf(10)}"]`).click();
+  await expect(page.getByTestId('docname')).toContainText('ovf-t10');
+  expect(await tabInView(page, ovf(10))).toBe(true);
+
+  // Ctrl+Tab cycling: wherever it lands, the newly active tab is in view.
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('Control+Tab');
+    const active = await page
+      .locator('.file-tab[data-active="true"]')
+      .getAttribute('data-tab');
+    expect(active).toBeTruthy();
+    expect(await tabInView(page, active!)).toBe(true);
+  }
+
+  // No fighting the user: park the rail where the ACTIVE tab is out of view,
+  // then re-render the strip without an activation (dirtying the document
+  // changes dirtyFiles) — the rail stays exactly where the user put it.
+  await page.locator(`[data-path="${ovf(10)}"]`).click();
+  await expect(page.getByTestId('docname')).toContainText('ovf-t10');
+  for (let i = 0; i < 12 && (await railScroll(page)) > 0; i++) {
+    await page.getByTestId('file-tab-scroll-left').click();
+  }
+  expect(await railScroll(page)).toBe(0);
+  expect(await tabInView(page, ovf(10))).toBe(false); // active t10 parked out of view
+  await dirtyActiveDoc(page, 'NOSNAP ');
+  await expect(page.locator(`[data-tab="${ovf(10)}"] [data-testid="file-tab-dirty"]`)).toHaveCount(1);
+  expect(await railScroll(page)).toBe(0); // still where the user left it
+});
+
+test('E303: boot restore — the revived session\'s active tab is in view on first paint, arrows already live, without touching anything', async ({
+  page,
+}) => {
+  await openOverflow(page, 10);
+  await expect.poll(() => fsRead(page, '/config/session/untitled.json')).toContain(ovf(10));
+
+  // Restart: revival brings the ten tabs and the persisted active file (t10)
+  // back — its tab must be fully in view without any user scrolling, and the
+  // overflow arrows are already correct (right dead at the revealed end).
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await openNotesRoot(page);
+  await expect.poll(() => tabPaths(page).then((t) => t.length)).toBe(10);
+  await expect(page.getByTestId('docname')).toContainText('ovf-t10');
+  await expect(page.locator(`[data-tab="${ovf(10)}"]`)).toHaveAttribute('data-active', 'true');
+  expect(await tabInView(page, ovf(10))).toBe(true);
+  await expect(page.getByTestId('file-tab-scroll-left')).toBeEnabled();
+  await expect(page.getByTestId('file-tab-scroll-right')).toBeDisabled();
+});
+
+test('E304: File → New with an overflowing strip leaves the Untitled tab in view — appended past the far right and revealed', async ({
+  page,
+}) => {
+  await openOverflow(page, 10);
+  // Park the rail at the far LEFT so the appended untitled tab (rightmost)
+  // starts as far out of view as it can be.
+  for (let i = 0; i < 12 && (await railScroll(page)) > 0; i++) {
+    await page.getByTestId('file-tab-scroll-left').click();
+  }
+  expect(await railScroll(page)).toBe(0);
+
+  await page.evaluate(() => window.__mmDispatch!('newFile'));
+  await expect(page.getByTestId('file-tab')).toHaveCount(11);
+  await expect(untitledTab(page)).toHaveAttribute('data-active', 'true');
+  expect(await tabInView(page, '')).toBe(true);
+  // The open set itself is untouched — ten files plus the appended ephemeral.
+  expect(await tabPaths(page)).toEqual([...Array(10).keys()].map((i) => ovf(i + 1)).concat(['']));
+});

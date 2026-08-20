@@ -2271,11 +2271,58 @@ mark.hl.ghost {
   height: var(--mm-tabstrip-h);
   display: flex;
   align-items: flex-end;
-  gap: 3px;
   padding: 5px 8px 0;
-  overflow: hidden; /* overflow arrows + wheel scrolling land in issue #147 */
   background: var(--mm-bg-elevated, #f6f8fa);
   border-bottom: 1px solid var(--mm-border, #d1d9e0);
+}
+/* PRD 013 Req 9 (issue #147): overflow scrolls instead of clipping — the
+   tabs live in this inner rail, a one-row horizontal scroll box between the
+   end-anchored arrows. No native scrollbar shows (the arrows and the wheel
+   are the affordances), and the strip stays exactly --mm-tabstrip-h tall:
+   the rail fills the strip's content box and the hidden scrollbar takes no
+   layout space. position: relative makes the rail the tabs' offsetParent,
+   so the reveal math reads offsetLeft in rail-content coordinates. */
+.file-tab-rail {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.file-tab-rail::-webkit-scrollbar {
+  display: none;
+}
+/* PRD 013 Req 9: the scroll arrows — plain theme-variable chrome (the #148
+   plane/shadow pass owns the strip's final look), centred in the strip and
+   outside the rail so they hold still while it scrolls. */
+.file-tab-scroll {
+  flex: none;
+  align-self: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mm-fg-muted, #59636e);
+  cursor: pointer;
+}
+.file-tab-scroll:hover:not(:disabled) {
+  background: rgba(31, 35, 40, 0.12);
+  background: color-mix(in srgb, var(--mm-fg, #1f2328) 12%, transparent);
+  color: var(--mm-fg, #1f2328);
+}
+.file-tab-scroll:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 /* PRD 013 Req 4: one tab — bounded width; the label span clips with an
    ellipsis (no wrap, no strip-height growth) and the button's title carries
@@ -2285,6 +2332,9 @@ mark.hl.ghost {
   display: flex;
   align-items: center;
   min-width: 0;
+  /* PRD 013 Req 9: tabs never shrink to fit — overflow (the rail scrolls)
+     is what happens instead, keeping the #144 sizing intact. */
+  flex-shrink: 0;
   max-width: 160px;
   padding: 4px 10px;
   border: 1px solid var(--mm-border, #d1d9e0);
