@@ -5911,7 +5911,11 @@ export default function App() {
     };
     const onPointerDown = (e: PointerEvent) => {
       const pane = splitDocRef.current;
-      if (e.button === 0 && pane && e.target instanceof Node && pane.contains(e.target)) dragging = true;
+      if (e.button !== 0 || !pane || !(e.target instanceof Node) || !pane.contains(e.target)) return;
+      dragging = true;
+      // A debounce armed just before the drag would still fire mid-drag,
+      // which is the very thing `dragging` exists to prevent: drop it.
+      if (t) clearTimeout(t);
     };
     const onPointerEnd = () => {
       if (!dragging) return;

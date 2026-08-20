@@ -150,6 +150,19 @@ describe('SPEC23 selection mapping', () => {
     expect(src.slice(hit!.from, hit!.to)).toBe(line);
   });
 
+  test('U718: fence OPENING rules — a backtick info string is not a fence; an unclosed fence runs to the end', () => {
+    // CommonMark: a backtick fence's info string may not contain backticks,
+    // so this first line is a paragraph and the list line stays prose.
+    const notAFence = '```md`x`\n- item\n';
+    const atProse = notAFence.indexOf('- item');
+    expect(visibleTextForRange(notAFence, atProse, atProse + '- item'.length)).toBe('item');
+    // With a real opener that never closes, the same line is code to the end
+    // of the document — the list marker is content, not a marker.
+    const unclosed = '```md\n- item\n';
+    const atCode = unclosed.indexOf('- item');
+    expect(visibleTextForRange(unclosed, atCode, atCode + '- item'.length)).toBe('- item');
+  });
+
   test('U717: sourceOffsetForRendered lands inside a fence body, not on stripped phantom text', () => {
     const src = '```py\nvalue = a * b\n```\n';
     // Rendered <pre> text is the body verbatim (plus a trailing newline).
