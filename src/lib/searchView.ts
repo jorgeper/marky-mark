@@ -53,26 +53,34 @@ export function searchTotalsLabel(results: SearchResults): string {
   return `${matches} in ${files}`;
 }
 
+/**
+ * PRD 014 Req 9: the settle state, in precedence order — the first branch
+ * that claims the panel wins, which is what keeps the surfaces exclusive.
+ */
+function settleState(input: SearchViewInput): SearchViewState {
+  // An emptied query settles instantly — indicator and totals both drop,
+  // whatever a still-resolving scan or the previous results might say.
+  if (input.query === '') return 'idle';
+  // The inline search-error owns this state; nothing else shows beside it.
+  if (input.error) return 'error';
+  if (input.scanning) return 'scanning';
+  // Nothing scanned yet (no seam, view never opened) — say nothing.
+  if (input.results === null) return 'idle';
+  return input.results.fileCount === 0 ? 'no-results' : 'results';
+}
+
 /** PRD 014 Req 9: the one derivation of everything the panel reports. */
 export function deriveSearchView(input: SearchViewInput): SearchViewModel {
-  const state: SearchViewState =
-    input.query === ''
-      ? 'idle' // an emptied query settles instantly — indicator and totals both drop
-      : input.error
-        ? 'error' // the inline search-error owns this state; nothing else shows
-        : input.scanning
-          ? 'scanning'
-          : input.results === null
-            ? 'idle' // nothing scanned yet (no seam, view never opened) — say nothing
-            : input.results.fileCount === 0
-              ? 'no-results'
-              : 'results';
-  const showTotals =
-    (state === 'results' || state === 'scanning') && input.results !== null && input.results.fileCount > 0;
+  const state = settleState(input);
+  const results = input.results;
+  // A result set is labelled while it is on screen — settled, or still up
+  // beside the indicator during a rescan (where the totals stay the OLD
+  // set's, since the new query's numbers arrive only with its results).
+  const showTotals = (state === 'results' || state === 'scanning') && results !== null && results.fileCount > 0;
   return {
     state,
     scanning: state === 'scanning',
-    totals: showTotals ? searchTotalsLabel(input.results as SearchResults) : null,
+    totals: showTotals ? searchTotalsLabel(results) : null,
     noResultsFor: state === 'no-results' ? input.query : null,
   };
 }

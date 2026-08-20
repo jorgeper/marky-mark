@@ -8,6 +8,10 @@
  * that `src/lib/searchCore.ts` scans. Issues #152–#155 extend the same
  * plumbing rather than rewriting it.
  *
+ * PRD 014 Req 9 (issue #153) sits on top (`runSearchScan`): the same
+ * enumeration and loading, paced in bounded chunks that yield to the event
+ * loop and abandoned the moment a newer query supersedes the run.
+ *
  * PRD 014 Req 8 rides along at the bottom (`matchDocOffsets`): the same
  * line-numbering rule read backwards, turning a result row's line-relative
  * match into the document offsets the edit pane selects.
@@ -45,8 +49,9 @@ export interface ScanEntry {
  * directory is skipped rather than failing the whole walk.
  */
 export async function collectMarkdownFiles(roots: string[], seams: ScanSeams): Promise<ScanEntry[]> {
-  // An ungated walk can never be abandoned, so the result is never null.
-  return (await walkRoots(roots, seams, async () => true)) as ScanEntry[];
+  // An always-open gate can never abandon the walk, so the null branch is
+  // unreachable here — `?? []` states that without asserting a type.
+  return (await walkRoots(roots, seams, async () => true)) ?? [];
 }
 
 /**
@@ -100,22 +105,33 @@ export async function loadSearchFiles(
   overrides: ReadonlyMap<string, string>,
   readTextFile: (path: string) => Promise<string>
 ): Promise<SearchFile[]> {
-  // The return type is `searchCore`'s own unit of scope, so the scan's output
-  // and the matcher's input can never drift apart.
   const out: SearchFile[] = [];
   for (const e of entries) {
-    const override = overrides.get(e.path);
-    if (override !== undefined) {
-      out.push({ ...e, text: override });
-      continue;
-    }
-    try {
-      out.push({ ...e, text: await readTextFile(e.path) });
-    } catch {
-      /* unreadable file — skipped (Req 4) */
-    }
+    const file = await loadSearchFile(e, overrides, readTextFile);
+    if (file) out.push(file);
   }
   return out;
+}
+
+/**
+ * PRD 014 Req 5 for one entry — the whole rule in one place, so the batch
+ * above and `runSearchScan`'s file-at-a-time chunking cannot drift apart.
+ * The `SearchFile` return type is `searchCore`'s own unit of scope, so the
+ * scan's output and the matcher's input cannot drift either. Null is an
+ * unreadable file: skipped rather than failing the scan (Req 4).
+ */
+async function loadSearchFile(
+  entry: ScanEntry,
+  overrides: ReadonlyMap<string, string>,
+  readTextFile: (path: string) => Promise<string>
+): Promise<SearchFile | null> {
+  const override = overrides.get(entry.path);
+  if (override !== undefined) return { ...entry, text: override };
+  try {
+    return { ...entry, text: await readTextFile(entry.path) };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -187,7 +203,7 @@ export async function runSearchScan(
     // Req 5 unchanged: the override where one exists, the disk text
     // otherwise, an unreadable file skipped — one entry at a time so the
     // matching happens inside the same chunked cadence as the loading.
-    const [file] = await loadSearchFiles([entry], overrides, seams.readTextFile);
+    const file = await loadSearchFile(entry, overrides, seams.readTextFile);
     if (file) perFile.push(searchFile(file, matcher));
   }
   // The finish line is a check too: a run superseded during its last chunk
