@@ -2268,6 +2268,61 @@ mark.hl.ghost {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* PRD 013 Req 5: the trailing slot — the sidebar's SPEC36 §3.4/§3.6 ●/✕
+   swap rotated up onto the tab. The slot always reserves the affordance's
+   footprint, so the label neither reflows nor re-clips when ● and ✕ swap. */
+.file-tab-slot {
+  flex: none;
+  margin-left: auto;
+  padding-left: 4px;
+  min-width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.file-tab-dirty {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.file-tab-dirty::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--mm-accent, #0969da);
+}
+.file-tab-close {
+  display: none;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--mm-fg-muted, #59636e);
+}
+.file-tab:hover .file-tab-close {
+  display: inline-flex;
+}
+.file-tab:hover .file-tab-dirty {
+  display: none; /* hover swaps ● for ✕ */
+}
+.file-tab-close:hover {
+  background: rgba(31, 35, 40, 0.12);
+  background: color-mix(in srgb, var(--mm-fg, #1f2328) 12%, transparent);
+  color: var(--mm-fg, #1f2328);
+}
+/* PRD 013 Req 7: the tab menu — theme-menu look, pointer-anchored like
+   .folder-menu (SPEC35 §3.2). */
+.file-tab-menu {
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: 60;
+  min-width: 180px;
+}
 /* PRD 013 Req 1: with the strip up, the absolutely-anchored corner tabs drop
    below it — visible and clickable, never behind or over the strip. */
 .body-row.with-tabs .edge-cluster,

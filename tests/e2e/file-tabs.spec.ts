@@ -1,11 +1,13 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { freshApp, fsRead, fsWrite, openNotesRoot, revealToolbar, seedFolders } from './helpers';
+import { dirtyActiveDoc, freshApp, fsRead, fsWrite, openNotesRoot, revealToolbar, seedFolders } from './helpers';
 
 // PRD 013 (issue #144): the file tab strip — presence, the tab list,
 // activation, labels and the View-menu toggle. A pure view of the SPEC36
 // open set: every assertion here reads the strip while the sidebar/model
 // behaviour it mirrors stays covered by its own suites.
+// PRD 013 Reqs 5–7 (issue #145, E272+): the close affordances — the ●/✕
+// trailing slot, middle-click, and the tab context menu's close walks.
 
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
@@ -278,4 +280,276 @@ test('E271: a pure view of the open set — Ctrl+Tab moves the active tab; a ren
   await expect.poll(() => tabPaths(page)).toEqual(['/notes/z.md']);
   await expect(page.getByTestId('docname')).toContainText('z.md');
   await expect(page.locator('[data-tab="/notes/z.md"]')).toHaveAttribute('data-active', 'true');
+});
+
+/** E272+ setup: a, sub/b and deep/c open (strip order c, b, a), c active. */
+async function openThree(page: Page): Promise<void> {
+  await seedFolders(page);
+  await openNotesRoot(page);
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await page.locator('[data-path="/notes/sub"]').click();
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
+  await page.locator('[data-path="/notes/sub/deep"]').click();
+  await page.locator('[data-path="/notes/sub/deep/c.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  expect(await tabPaths(page)).toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md', '/notes/a.md']);
+}
+
+const tab = (page: Page, path: string) => page.locator(`[data-tab="${path}"]`);
+
+test('E272: the trailing slot — dirty ● on the active and on a parked dirty tab, hover swaps it for ✕, a clean unhovered tab shows neither, no width jitter', async ({
+  page,
+}) => {
+  await openThree(page);
+  // All clean, pointer over the sidebar (last click): no ● anywhere, ✕ hidden.
+  await expect(page.getByTestId('file-tab-dirty')).toHaveCount(0);
+  await expect(tab(page, '/notes/sub/deep/c.md').getByTestId('file-tab-close')).toBeHidden();
+
+  // Dirty the ACTIVE c: its tab carries the ● (pointer moved clear first).
+  await dirtyActiveDoc(page, 'DOTC ');
+  await page.mouse.move(4, 300);
+  const cTab = tab(page, '/notes/sub/deep/c.md');
+  await expect(cTab.getByTestId('file-tab-dirty')).toBeVisible();
+  await expect(cTab.getByTestId('file-tab-close')).toBeHidden();
+
+  // Park c dirty by activating b: the ● stays on the PARKED tab (SPEC36 §3.6
+  // via dirtyOpenFiles — same source as the sidebar row's ●).
+  await tab(page, '/notes/sub/b.md').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await page.mouse.move(4, 300);
+  await expect(cTab).toHaveAttribute('data-active', 'false');
+  await expect(cTab.getByTestId('file-tab-dirty')).toBeVisible();
+
+  // Hover swaps ● for ✕ — and the slot reserves the footprint, so the tab
+  // neither grows nor reflows its label (#144/E268 clipping intact).
+  const before = (await cTab.boundingBox())!;
+  await cTab.hover();
+  await expect(cTab.getByTestId('file-tab-dirty')).toBeHidden();
+  await expect(cTab.getByTestId('file-tab-close')).toBeVisible();
+  const during = (await cTab.boundingBox())!;
+  expect(Math.round(during.width)).toBe(Math.round(before.width));
+  // Off again: the ● comes back.
+  await page.mouse.move(4, 300);
+  await expect(cTab.getByTestId('file-tab-dirty')).toBeVisible();
+  await expect(cTab.getByTestId('file-tab-close')).toBeHidden();
+
+  // The clean active b: neither ● nor (unhovered) ✕ in its slot.
+  await expect(tab(page, '/notes/sub/b.md').getByTestId('file-tab-dirty')).toHaveCount(0);
+  await expect(tab(page, '/notes/sub/b.md').getByTestId('file-tab-close')).toBeHidden();
+});
+
+test('E273: ✕ on a clean INACTIVE tab removes it without activating it — active file, buffer and mode untouched, no modal', async ({
+  page,
+}) => {
+  await openThree(page);
+  const aTab = tab(page, '/notes/a.md');
+  await aTab.hover();
+  await expect(aTab.getByTestId('file-tab-close')).toBeVisible();
+  await aTab.getByTestId('file-tab-close').click();
+
+  // a left the set; c never lost the active state (the ✕'s pointerdown/click
+  // are stopped, so the close did not first switch tabs), and no prompt.
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md']);
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  await expect(tab(page, '/notes/sub/deep/c.md')).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.locator('[data-path="/notes/a.md"]')).not.toHaveClass(/\bopen\b/);
+});
+
+test('E274: ✕ on the ACTIVE tab activates closeOpen\'s nextActive; the last close lands on the splash', async ({
+  page,
+}) => {
+  await openThree(page);
+  // Close active c: the tree-order neighbour b activates (SPEC36 §3.5).
+  const cTab = tab(page, '/notes/sub/deep/c.md');
+  await cTab.hover();
+  await cTab.getByTestId('file-tab-close').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/a.md']);
+  await expect(tab(page, '/notes/sub/b.md')).toHaveAttribute('data-active', 'true');
+
+  // Close active b: a activates.
+  await tab(page, '/notes/sub/b.md').hover();
+  await tab(page, '/notes/sub/b.md').getByTestId('file-tab-close').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/a.md']);
+
+  // Close the LAST open file: the in-workspace splash, and no strip at all.
+  await tab(page, '/notes/a.md').hover();
+  await tab(page, '/notes/a.md').getByTestId('file-tab-close').click();
+  await expect(page.getByTestId('workspace-empty-hint')).toBeVisible();
+  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
+});
+
+test('E275: ✕ on a dirty parked tab activates it and prompts — Cancel keeps it open and dirty, Don\'t Save closes, Save writes then closes', async ({
+  page,
+}) => {
+  await openThree(page);
+  // Dirty b, then park it by activating a.
+  await tab(page, '/notes/sub/b.md').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await dirtyActiveDoc(page, 'BDIRT ');
+  await tab(page, '/notes/a.md').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+
+  // ✕ on parked dirty b: it activates FIRST (visible behind the modal,
+  // SPEC36 §3.4) and the modal names it.
+  const bTab = tab(page, '/notes/sub/b.md');
+  await bTab.hover();
+  await bTab.getByTestId('file-tab-close').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await expect(page.getByTestId('open-prompt')).toContainText('b.md');
+
+  // Cancel: b stays open, active and dirty; nothing closed.
+  await page.getByTestId('open-cancel').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  expect(await tabPaths(page)).toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md', '/notes/a.md']);
+  await expect(bTab).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Don't Save: b closes unwritten; the neighbour a activates (§3.5).
+  await bTab.hover();
+  await bTab.getByTestId('file-tab-close').click();
+  await page.getByTestId('open-discard').click();
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/deep/c.md', '/notes/a.md']);
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  expect(await fsRead(page, '/notes/sub/b.md')).not.toContain('BDIRT');
+
+  // Save: the dirty ACTIVE a writes to disk, then closes.
+  await dirtyActiveDoc(page, 'ASAVE ');
+  const aTab = tab(page, '/notes/a.md');
+  await aTab.hover();
+  await aTab.getByTestId('file-tab-close').click();
+  await expect(page.getByTestId('open-prompt')).toContainText('a.md');
+  await page.getByTestId('open-save').click();
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/deep/c.md']);
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  expect(await fsRead(page, '/notes/a.md')).toContain('ASAVE');
+});
+
+test('E276: middle-click closes through the same path — a clean tab goes silently without activating, a dirty one activates and prompts', async ({
+  page,
+}) => {
+  await openThree(page);
+  // Clean inactive a: middle-click closes it; c never loses the active state.
+  await tab(page, '/notes/a.md').click({ button: 'middle' });
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md']);
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+
+  // Dirty parked b: middle-click activates it and raises the SAME prompt.
+  await tab(page, '/notes/sub/b.md').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await dirtyActiveDoc(page, 'MIDB ');
+  await tab(page, '/notes/sub/deep/c.md').click();
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  await tab(page, '/notes/sub/b.md').click({ button: 'middle' });
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await expect(page.getByTestId('open-prompt')).toContainText('b.md');
+  await page.getByTestId('open-discard').click();
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/deep/c.md']);
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+});
+
+test('E277: the tab context menu — exactly Close, Close Others, Close All; right-click never activates; Escape and outside clicks dismiss; Close = the ✕', async ({
+  page,
+}) => {
+  await openThree(page);
+  // Right-click the INACTIVE a: the menu opens, the tab does NOT activate.
+  await tab(page, '/notes/a.md').click({ button: 'right' });
+  await expect(page.getByTestId('file-tab-menu')).toBeVisible();
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  await expect(tab(page, '/notes/a.md')).toHaveAttribute('data-active', 'false');
+  // Exactly three items, in order.
+  await expect(page.getByTestId('file-tab-menu').locator('button')).toHaveText([
+    'Close',
+    'Close Others',
+    'Close All',
+  ]);
+
+  // Escape dismisses without closing anything.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('file-tab-menu')).toHaveCount(0);
+  expect(await tabPaths(page)).toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md', '/notes/a.md']);
+
+  // An outside pointer-down dismisses too.
+  await tab(page, '/notes/a.md').click({ button: 'right' });
+  await expect(page.getByTestId('file-tab-menu')).toBeVisible();
+  await page.getByTestId('doc').click();
+  await expect(page.getByTestId('file-tab-menu')).toHaveCount(0);
+
+  // Close on a clean inactive tab: identical to its ✕ — removed, no
+  // activation, no modal.
+  await tab(page, '/notes/a.md').click({ button: 'right' });
+  await page.getByTestId('file-tab-menu-close').click();
+  await expect(page.getByTestId('file-tab-menu')).toHaveCount(0);
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md']);
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+});
+
+test('E278: Close Others walks tree order one prompt at a time — Cancel stops the rest; a re-run completes and leaves the kept file active', async ({
+  page,
+}) => {
+  await openThree(page);
+  // Dirty b (parked), then make a the active file: strip is [c, b, a].
+  await tab(page, '/notes/sub/b.md').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await dirtyActiveDoc(page, 'OTHERSB ');
+  await tab(page, '/notes/a.md').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+
+  // Close Others on a: targets [c, b] in tree order. Clean c goes at once;
+  // dirty b activates and prompts — exactly one modal, naming b.
+  await tab(page, '/notes/a.md').click({ button: 'right' });
+  await page.getByTestId('file-tab-menu-close-others').click();
+  await expect(page.getByTestId('open-prompt')).toContainText('b.md');
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/a.md']);
+
+  // Cancel: the walk stops. c stays closed, b stays open/active/dirty, a
+  // stays open — and no further prompt appears.
+  await page.getByTestId('open-cancel').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  expect(await tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/a.md']);
+  await expect(tab(page, '/notes/sub/b.md')).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+
+  // Asked again: the prompt resumes on b; Don't Save finishes the walk —
+  // the right-clicked a is the only open file AND the active one.
+  await tab(page, '/notes/a.md').click({ button: 'right' });
+  await page.getByTestId('file-tab-menu-close-others').click();
+  await expect(page.getByTestId('open-prompt')).toContainText('b.md');
+  await page.getByTestId('open-discard').click();
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/a.md']);
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await expect(tab(page, '/notes/a.md')).toHaveAttribute('data-active', 'true');
+  expect(await fsRead(page, '/notes/sub/b.md')).not.toContain('OTHERSB');
+});
+
+test('E279: Close All closes every open-set file one at a time and lands on the splash with the tree selection cleared', async ({
+  page,
+}) => {
+  await openThree(page);
+  // Dirty b (parked); c stays the active file.
+  await tab(page, '/notes/sub/b.md').click();
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await dirtyActiveDoc(page, 'ALLB ');
+  await tab(page, '/notes/sub/deep/c.md').click();
+  await expect(page.getByTestId('docname')).toContainText('c.md');
+
+  // Close All: clean active c closes (b activates as its §3.5 neighbour),
+  // dirty b prompts in turn — Don't Save — then clean a closes, ending on
+  // the splash: empty open set, no strip, no selected row.
+  await tab(page, '/notes/sub/deep/c.md').click({ button: 'right' });
+  await page.getByTestId('file-tab-menu-close-all').click();
+  await expect(page.getByTestId('open-prompt')).toContainText('b.md');
+  await page.getByTestId('open-discard').click();
+  await expect(page.getByTestId('workspace-empty-hint')).toBeVisible();
+  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
+  await expect(page.locator('.folder-item.selected')).toHaveCount(0);
+  await expect(page.locator('.folder-item.open')).toHaveCount(0);
+  expect(await fsRead(page, '/notes/sub/b.md')).not.toContain('ALLB');
 });
