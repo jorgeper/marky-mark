@@ -2597,17 +2597,19 @@ mark.hl.ghost {
 }
 /* SPEC36 §4.1 (amended by owner): three planes. The tree sits deepest; every
    open file is a REAL tab on a middle plane — the same pill geometry as
-   .selected, a near-workspace surface one shade back, and its own soft
-   shadow — and the ACTIVE tab stacks above them all (z-index 2, stronger
-   shadow, solid workspace surface). Depth reads from surface + shadow
-   strength, not from the seam alone. */
+   .selected (identical 10px left gap, inner padding given back so the label
+   sits EXACTLY where closed siblings and the active tab put theirs — issue
+   #126: opening must not read as indentation), a near-workspace surface one
+   shade back, and its own soft shadow — and the ACTIVE tab stacks above them
+   all (z-index 2, stronger shadow, solid workspace surface). Depth reads
+   from surface + shadow strength, not from the seam alone. */
 .folder-item.open {
   background: #ededf0;
   background: color-mix(in srgb, var(--mm-bg, #ffffff) 72%, var(--mm-bg-elevated, #f6f8fa));
   border-radius: 7px 0 0 7px;
-  margin-left: 14px;
-  min-width: calc(100% - 14px);
-  padding-left: calc(var(--mm-depth, 10px) + 6px);
+  margin-left: 10px;
+  min-width: calc(100% - 10px);
+  padding-left: max(0px, calc(var(--mm-depth, 10px) - 10px));
   position: relative;
   z-index: 1;
   /* The tab's own lift only — the seam hairline + workspace cast shadow are
