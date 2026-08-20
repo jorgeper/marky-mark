@@ -70,11 +70,29 @@ export interface SearchPanelProps {
    */
   queryError: string | null;
   /**
-   * PRD 014 Req 7: the grouped results for the last scanned query — null
-   * while the query is empty (nothing to say yet; the loud no-results state
-   * is issue #153's scope).
+   * PRD 014 Req 7: the grouped results for the last COMPLETED scan — null
+   * while the query is empty (nothing to say yet). Req 9: a superseded scan's
+   * results never arrive here, so the list always matches one settled query.
    */
   results: SearchResults | null;
+  /**
+   * PRD 014 Req 9 (issue #153): a scan of the current query is in flight —
+   * derived by `src/lib/searchView.ts`, which owns every settle path; this
+   * view only shows the indicator.
+   */
+  scanning: boolean;
+  /**
+   * PRD 014 Req 9: the totals line (`5 matches in 2 files`), or null when
+   * there is nothing to total — worded by `searchView.ts` from
+   * `SearchResults.fileCount` / `matchCount`; nothing is re-counted here.
+   */
+  totals: string | null;
+  /**
+   * PRD 014 Req 9: the query the loud no-results block names, or null while
+   * it must not show (scan in flight, empty query, invalid regex) — the
+   * exclusions live in `searchView.ts`, not here.
+   */
+  noResultsFor: string | null;
   /** PRD 014 Req 4: no folder root open — the panel says so instead of an empty list. */
   noRoots: boolean;
   /** PRD 014 Req 7: the collapsed file groups (paths), per unchanged query. */
@@ -245,6 +263,21 @@ export function SearchPanel(p: SearchPanelProps) {
             {p.queryError}
           </div>
         )}
+        {/* PRD 014 Req 9 (issue #153): the scan status line — the in-flight
+            indicator while a scan runs, the settled totals while results
+            exist. Both derived upstream; a rescan keeps the previous list and
+            its totals on screen under the indicator. */}
+        {p.scanning && (
+          <div className="search-scanning" data-testid="search-scanning" role="status">
+            <span className="search-scanning-spinner" aria-hidden="true" />
+            Scanning…
+          </div>
+        )}
+        {p.totals !== null && (
+          <div className="search-totals" data-testid="search-totals">
+            {p.totals}
+          </div>
+        )}
         {/* PRD 014 Req 4: no roots ⇒ say so plainly, never an empty result list. */}
         {p.noRoots ? (
           <div className="folder-open-empty" data-testid="search-no-roots">
@@ -252,6 +285,15 @@ export function SearchPanel(p: SearchPanelProps) {
           </div>
         ) : (
           <div className="folder-list search-list">
+            {/* PRD 014 Req 9: a settled query that matched nothing says so
+                LOUDLY in the result area — a styled block naming the query,
+                never a silently empty list (and never beside the inline
+                search-error: searchView.ts keeps the two exclusive). */}
+            {p.noResultsFor !== null && (
+              <div className="search-no-results" data-testid="search-no-results" role="status">
+                No results for <strong>“{p.noResultsFor}”</strong>
+              </div>
+            )}
             {p.results?.files.map((file) => (
               <FileGroup
                 key={file.path}

@@ -14,7 +14,15 @@
  */
 
 import { isMarkdownFile, visibleEntries, type DirEntry } from './folderTree';
-import type { LineMatch, SearchFile } from './searchCore';
+import {
+  groupResults,
+  searchFile,
+  type FileSearchResult,
+  type LineMatch,
+  type SearchFile,
+  type SearchMatcher,
+  type SearchResults,
+} from './searchCore';
 
 /** The two filesystem seams the scan walks, plus the path joiner. */
 export interface ScanSeams {
@@ -37,8 +45,28 @@ export interface ScanEntry {
  * directory is skipped rather than failing the whole walk.
  */
 export async function collectMarkdownFiles(roots: string[], seams: ScanSeams): Promise<ScanEntry[]> {
+  // An ungated walk can never be abandoned, so the result is never null.
+  return (await walkRoots(roots, seams, async () => true)) as ScanEntry[];
+}
+
+/**
+ * PRD 014 Req 9 (issue #153): the shared walk under `collectMarkdownFiles` and
+ * `runSearchScan` — same scope predicates, but gated: `gate()` runs before
+ * every directory read, and a false return abandons the walk (null) without
+ * issuing another seam call.
+ */
+async function walkRoots(
+  roots: string[],
+  seams: ScanSeams,
+  gate: () => Promise<boolean>
+): Promise<ScanEntry[] | null> {
   const out: ScanEntry[] = [];
+  let live = true;
   const walk = async (dir: string): Promise<void> => {
+    if (!(await gate())) {
+      live = false;
+      return;
+    }
     let entries: DirEntry[];
     try {
       entries = await seams.readDirEntries(dir);
@@ -46,13 +74,17 @@ export async function collectMarkdownFiles(roots: string[], seams: ScanSeams): P
       return; // unreadable directory — skip it, keep the rest of the scan
     }
     for (const e of visibleEntries(entries)) {
+      if (!live) return;
       const path = seams.join(dir, e.name);
       if (e.isDir) await walk(path);
       else if (isMarkdownFile(e.name)) out.push({ path, name: e.name });
     }
   };
-  for (const root of roots) await walk(root);
-  return out;
+  for (const root of roots) {
+    if (!live) break;
+    await walk(root);
+  }
+  return live ? out : null;
 }
 
 /**
@@ -84,6 +116,83 @@ export async function loadSearchFiles(
     }
   }
   return out;
+}
+
+/**
+ * PRD 014 Req 9 (issue #153): how a scan run is paced and abandoned. All
+ * three knobs are injectable so unit tests can drive the run with fake seams
+ * and count exactly which calls happen after a supersession.
+ */
+export interface ScanControl {
+  /**
+   * False once a newer (query, options) pair owns the panel. Checked between
+   * chunks and once more before the results are returned, so a superseded
+   * scan stops issuing seam calls instead of merely dropping its result.
+   */
+  isCurrent?: () => boolean;
+  /** The yield between chunks — a macrotask by default, immediate in tests. */
+  yieldNow?: () => Promise<void>;
+  /** Seam operations (directory reads + file loads) per chunk. */
+  chunkSize?: number;
+}
+
+/** PRD 014 Req 9: one event-loop turn — the default between-chunk yield. */
+export function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * PRD 014 Req 9: bounded chunks. Small enough that a keystroke never waits
+ * behind more than a handful of seam calls, large enough that a ~200-file
+ * tree costs only a few yields.
+ */
+const DEFAULT_SCAN_CHUNK = 16;
+
+/**
+ * PRD 014 Req 9 (issue #153): the whole scan as ONE cancellable run —
+ * enumerate (Req 4's scope), load (Req 5's overrides) and match (Req 7's
+ * grouping) in bounded chunks that yield to the event loop between them, so a
+ * folder-wide scan never blocks typing or editing. Returns the grouped
+ * results of a completed scan, or null when `isCurrent()` reported the run
+ * superseded — in which case no further seam call was issued after the check,
+ * and the caller must paint nothing: the newer run owns the panel.
+ */
+export async function runSearchScan(
+  roots: string[],
+  seams: ScanSeams,
+  overrides: ReadonlyMap<string, string>,
+  matcher: SearchMatcher,
+  control: ScanControl = {}
+): Promise<SearchResults | null> {
+  const isCurrent = control.isCurrent ?? (() => true);
+  const yieldNow = control.yieldNow ?? yieldToEventLoop;
+  const chunk = control.chunkSize ?? DEFAULT_SCAN_CHUNK;
+  let ops = 0;
+  // The chunk boundary: after every `chunk` seam operations, yield one
+  // event-loop turn (keystrokes, paints and the debounce land here) and
+  // re-check ownership before issuing the next seam call.
+  const gate = async (): Promise<boolean> => {
+    if (ops > 0 && ops % chunk === 0) {
+      await yieldNow();
+      if (!isCurrent()) return false;
+    }
+    ops++;
+    return true;
+  };
+  const entries = await walkRoots(roots, seams, gate);
+  if (entries === null) return null;
+  const perFile: FileSearchResult[] = [];
+  for (const entry of entries) {
+    if (!(await gate())) return null;
+    // Req 5 unchanged: the override where one exists, the disk text
+    // otherwise, an unreadable file skipped — one entry at a time so the
+    // matching happens inside the same chunked cadence as the loading.
+    const [file] = await loadSearchFiles([entry], overrides, seams.readTextFile);
+    if (file) perFile.push(searchFile(file, matcher));
+  }
+  // The finish line is a check too: a run superseded during its last chunk
+  // must not hand back results the caller could mistake for current.
+  return isCurrent() ? groupResults(perFile) : null;
 }
 
 /**

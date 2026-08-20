@@ -35,6 +35,12 @@ declare global {
       nextWorkspacePath?: string | null;
       /** Test observability: set when revealThemesDir() was invoked. */
       revealedThemesDir?: boolean;
+      /**
+       * PRD 014 Req 9 (issue #153) test hook: delay every readTextFile by
+       * this many ms, so a folder-wide scan is observably in flight for the
+       * scanning-indicator, responsiveness and supersession e2e tests.
+       */
+      readDelayMs?: number;
     };
     /**
      * Issue #22: e2e command seam for menu-less shim runs — the FolderPanel
@@ -288,6 +294,9 @@ export function createBrowserPlatform(): Platform {
     isMac: navigator.platform.toLowerCase().includes('mac'),
 
     async readTextFile(path) {
+      // PRD 014 Req 9 (issue #153): the e2e slow-disk hook — see __mmfs above.
+      const delay = window.__mmfs?.readDelayMs;
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
       const v = fs.read(path);
       if (v === null) throw new Error(`ENOENT: ${path}`);
       return v;

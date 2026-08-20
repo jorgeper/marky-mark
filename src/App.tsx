@@ -84,9 +84,10 @@ import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton 
 import { FileTabStrip } from './components/FileTabStrip';
 import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
 import { SearchPanel } from './components/SearchPanel';
-import { compileQuery, searchFiles, type LineMatch, type SearchOptions, type SearchResults } from './lib/searchCore';
+import { compileQuery, type LineMatch, type SearchOptions, type SearchResults } from './lib/searchCore';
 import { DEFAULT_SEARCH_OPTIONS } from './lib/searchOptions';
-import { collectMarkdownFiles, loadSearchFiles, matchDocOffsets } from './lib/searchScan';
+import { matchDocOffsets, runSearchScan } from './lib/searchScan';
+import { deriveSearchView } from './lib/searchView';
 import {
   SLIDE_SETTLE_MS,
   slideClasses,
@@ -6113,8 +6114,10 @@ export default function App() {
   const searchCompiled = useMemo(() => compileQuery(searchDebounced, searchOptions), [searchDebounced, searchOptions]);
   /** PRD 014 Req 6: the inline invalid-regex message — compileQuery's own, or null. */
   const searchError = searchCompiled.kind === 'invalid-regex' ? searchCompiled.message : null;
-  /** PRD 014 Req 7: the last scan's grouped results; null while the query is empty. */
+  /** PRD 014 Req 7: the last COMPLETED scan's grouped results; null while the query is empty. */
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
+  /** PRD 014 Req 9 (issue #153): a scan of the current (query, options) is in flight. */
+  const [searchScanning, setSearchScanning] = useState(false);
   /** PRD 014 Req 7: the collapsed file groups — reset when the query changes. */
   const [searchCollapsed, setSearchCollapsed] = useState<ReadonlySet<string>>(EMPTY_SEARCH_COLLAPSED);
   /** PRD 014 Req 2: bumped by the Search button so the panel focuses its query box. */
@@ -6144,53 +6147,81 @@ export default function App() {
     setSearchCollapsed(EMPTY_SEARCH_COLLAPSED);
   }, [searchDebounced, searchOptions]);
   /**
-   * PRD 014 Reqs 4/5/7: the scan. Scope and text loading are
-   * `src/lib/searchScan.ts` (the folder tree's own predicates over the
-   * platform seams, open buffers overriding stale disk text); matching and
-   * grouping are `src/lib/searchCore.ts`. Req 6 (issue #152): the compiled
-   * query is an input, so a toggle flip re-runs the scan exactly like a new
-   * query — and the SAME epoch guard drops a scan a newer query OR option
-   * state has overtaken, before its file reads and again before it paints.
+   * PRD 014 Reqs 4/5/7 + Req 9 (issue #153): the scan. Scope, text loading,
+   * chunking and abandonment are ONE run in `src/lib/searchScan.ts`
+   * (`runSearchScan`: the folder tree's own predicates over the platform
+   * seams, open buffers overriding stale disk text, bounded chunks yielding
+   * to the event loop); matching and grouping are `src/lib/searchCore.ts`.
+   * Req 6 (issue #152): the compiled query is an input, so a toggle flip
+   * re-runs the scan exactly like a new query. The epoch feeds the run's
+   * `isCurrent()` predicate — checked between chunks and at the finish line
+   * INSIDE the runner, so a superseded run stops reading and resolves null,
+   * and nothing here needs to re-guard the paint.
    */
   useEffect(() => {
     const epoch = ++searchEpochRef.current;
     if (searchDebounced === '') {
       setSearchResults(null);
+      setSearchScanning(false);
       return;
     }
     // Req 8: the results change only when the user changes the query — a
     // closed or swapped-away view keeps its list (and rescans on return);
-    // closing only stops the scanning.
-    if (!searchOpen) return;
+    // closing only stops the scanning. Req 9: and clears the indicator.
+    if (!searchOpen) {
+      setSearchScanning(false);
+      return;
+    }
     // PRD 014 Req 6: an invalid regex matches NOTHING — the previous query's
     // results clear rather than sit stale under the inline error, and the
-    // pattern is never re-run as a literal.
+    // pattern is never re-run as a literal. Req 9: no scan, no indicator.
     if (searchCompiled.kind !== 'matcher') {
       setSearchResults(null);
+      setSearchScanning(false);
       return;
     }
     const p = stateRef.current.platform;
     const readDirEntries = p?.readDirEntries?.bind(p);
-    if (!p || !readDirEntries) return;
-    const matcher = searchCompiled.matcher;
-    void (async () => {
-      const entries = await collectMarkdownFiles(folderRoots, {
+    if (!p || !readDirEntries) {
+      setSearchScanning(false);
+      return;
+    }
+    // Req 5: the in-memory texts — every parked open file's parked buffer,
+    // and the active document's buffer (canonical, like the park entries).
+    const s = stateRef.current;
+    const overrides = new Map<string, string>();
+    for (const [path, parked] of parkRef.current) overrides.set(path, parked.buffer);
+    if (s.docPath) overrides.set(s.docPath, canonicalOf(s.buffer));
+    setSearchScanning(true);
+    void runSearchScan(
+      folderRoots,
+      {
         readDirEntries,
         readTextFile: (path) => p.readTextFile(path),
         join: (...parts) => p.join(...parts),
-      });
-      if (searchEpochRef.current !== epoch) return; // superseded — never read the tree for it
-      // Req 5: the in-memory texts — every parked open file's parked buffer,
-      // and the active document's buffer (canonical, like the park entries).
-      const s = stateRef.current;
-      const overrides = new Map<string, string>();
-      for (const [path, parked] of parkRef.current) overrides.set(path, parked.buffer);
-      if (s.docPath) overrides.set(s.docPath, canonicalOf(s.buffer));
-      const files = await loadSearchFiles(entries, overrides, (path) => p.readTextFile(path));
-      if (searchEpochRef.current !== epoch) return; // a newer query owns the panel
-      setSearchResults(searchFiles(files, matcher));
-    })();
+      },
+      overrides,
+      searchCompiled.matcher,
+      { isCurrent: () => searchEpochRef.current === epoch }
+    ).then((results) => {
+      // Req 9: null = superseded. The newer run owns the panel AND the
+      // indicator — painting or clearing anything here would race it.
+      if (results === null) return;
+      setSearchResults(results);
+      setSearchScanning(false);
+    });
   }, [searchOpen, searchDebounced, searchCompiled, folderRoots, canonicalOf]);
+  /**
+   * PRD 014 Req 9: everything the panel reports about the scan — indicator,
+   * totals, no-results — derived by `src/lib/searchView.ts`'s state machine.
+   * App wires inputs; neither App nor the panel re-derives or re-counts.
+   */
+  const searchVm = deriveSearchView({
+    query: searchDebounced,
+    error: searchError !== null,
+    scanning: searchScanning,
+    results: searchResults,
+  });
   /** PRD 014 Req 7: fold/unfold one file group (the disclosure triangle). */
   const toggleSearchFile = useCallback((path: string) => {
     setSearchCollapsed((cur) => {
@@ -6527,6 +6558,9 @@ export default function App() {
             options={searchOptions}
             queryError={searchError}
             results={searchResults}
+            scanning={searchVm.scanning}
+            totals={searchVm.totals}
+            noResultsFor={searchVm.noResultsFor}
             noRoots={folderRoots.length === 0}
             collapsed={searchCollapsed}
             focusTick={searchFocusTick}
