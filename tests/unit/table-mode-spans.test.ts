@@ -25,27 +25,22 @@ function gridded(): EditorState {
   return state.update({ effects: setGridSet.of({ spans, width: 80 }) }).state;
 }
 
-/** Realize every decoration set the state provides, as a mounted view would. */
+/** Assemble every decoration set the state computes — where the crash was.
+ * Reading the facet runs each provider; the view-function providers a
+ * mounted editor would add contribute nothing to a headless state. */
 function computeDecos(state: EditorState): void {
-  for (const d of state.facet(EditorView.decorations)) {
-    if (typeof d !== 'function') void d.size;
-  }
+  state.facet(EditorView.decorations);
 }
 
 describe('Issue #156: grid spans across a whole-document replace', () => {
   test('U719: a tab-switch full-doc replace drops every stale span — the decorations still assemble', () => {
     const state = gridded();
     const NEXT = `other doc\n\n${T1}\n\nwith\nmore\nlines`;
-    let after: EditorState | null = null;
-    expect(() => {
-      after = state.update({
-        changes: { from: 0, to: state.doc.length, insert: NEXT },
-      }).state;
-      computeDecos(after);
-    }).not.toThrow();
+    const after = state.update({ changes: { from: 0, to: state.doc.length, insert: NEXT } }).state;
+    expect(() => computeDecos(after)).not.toThrow();
     // The old document's spans are gone (the watcher re-grids the new one);
     // nothing coincides on {0, newLength}.
-    expect(after!.field(tableModeField)!.spans).toEqual([]);
+    expect(after.field(tableModeField)!.spans).toEqual([]);
   });
 
   test('U720: an in-span edit still maps the spans instead of dropping them', () => {

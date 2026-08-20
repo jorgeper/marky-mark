@@ -46,6 +46,12 @@ export interface GridSpan {
 }
 
 export interface GridSet {
+  /**
+   * Sorted by `from` and non-overlapping. Every consumer leans on it, the
+   * line-decoration builder most sharply: out-of-order spans make
+   * `RangeSetBuilder.add` throw (issue #156). Producers sort; the mapping in
+   * `tableModeField` below drops spans rather than break it.
+   */
   spans: GridSpan[];
   width: number;
 }
@@ -59,19 +65,21 @@ export const tableModeField = StateField.define<GridSet | null>({
   create: () => null,
   update(value, tr) {
     if (value && tr.docChanged) {
-      // Issue #156: TrackDel — a span whose edge was deleted outright (the
-      // tab-switch whole-document replace in Editor.tsx) is GONE, not moved.
-      // Plain mapPos collapsed every such span onto the insertion, so two
-      // grids both became {0, newLength} and tableModeDecos re-walked the
-      // same lines per span — RangeSetBuilder.add threw on the backwards
-      // `from`. Dropped spans re-grid via the watcher as soon as they parse.
+      // Issue #156: a span the change replaced outright — the tab-switch
+      // whole-document replace in Editor.tsx — is GONE, not moved. Plain
+      // mapPos collapsed each of them onto the insertion, so several grids
+      // became the same {0, newLength} range and tableModeDecos re-walked
+      // those lines once per span; RangeSetBuilder.add then threw on the
+      // backwards `from`. TrackDel drops them instead, and the watcher
+      // re-grids the new document's tables as soon as they parse.
       const spans: GridSpan[] = [];
       for (const s of value.spans) {
         const from = tr.changes.mapPos(s.from, -1, MapMode.TrackDel);
         const to = tr.changes.mapPos(s.to, 1, MapMode.TrackDel);
         if (from === null || to === null || from >= to) continue;
-        // The decoration invariant, enforced where spans are made: sorted
-        // and non-overlapping, so every builder downstream stays in order.
+        // Mapping can also carry one span's end past the next span's start;
+        // drop the loser so GridSet's sorted, non-overlapping invariant
+        // survives the transaction.
         if (spans.length && from < spans[spans.length - 1].to) continue;
         spans.push({ ...s, from, to });
       }
