@@ -171,7 +171,8 @@ export function buildAppMenu(s: AppMenuState): AppMenuGroup[] {
     ...(inWorkspace && s.canNewFile ? [row('newFile', 'New File', 'menu-new', 'newFile')] : []),
     row('open', 'Open File…', 'menu-open', 'openFile'),
     // PRD 009 Req 9: nothing to close with no document open.
-    ...(s.docOpen ? [row('closeFile', 'Close File', 'menu-close-file')] : []),
+    // Issue #158: the hint follows the rebindable map, like New/Open above.
+    ...(s.docOpen ? [row('closeFile', 'Close File', 'menu-close-file', 'closeFile')] : []),
   ];
 
   const workspace: AppMenuRow[] = [

@@ -9,7 +9,7 @@ import {
   treeOrderCompare,
 } from '../../src/lib/openFiles';
 import { parseFolderState, serializeFolderState, type FolderState } from '../../src/lib/folderTree';
-import { comboFromEvent, combosConflict, displayCombo, eventMatches, parseCombo } from '../../src/lib/hotkeys';
+import { comboFromEvent, combosConflict, DEFAULT_HOTKEYS, displayCombo, eventMatches, parseCombo } from '../../src/lib/hotkeys';
 
 const ev = (over: Partial<{ key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }>) => ({
   key: 'Tab',
@@ -174,5 +174,28 @@ describe('SPEC36 open files', () => {
     expect(combosConflict('Mod+Ctrl+Tab', 'Ctrl+Tab')).toBe(false);
     expect(combosConflict('Mod+S', 'Mod+Shift+S')).toBe(false);
     expect(combosConflict('Mod+S', 'Mod+S')).toBe(true);
+  });
+
+  test('U723: issue #158 — closeFile defaults to Mod+W and no keypress fires it plus another shipped default', () => {
+    expect(DEFAULT_HOTKEYS.closeFile).toBe('Mod+W');
+    // Whole-map sweep: Mod+Shift+W (word count) stays a distinct chord
+    // because eventMatches/combosConflict compare Shift strictly.
+    for (const [action, combo] of Object.entries(DEFAULT_HOTKEYS)) {
+      if (action === 'closeFile') continue;
+      expect(combosConflict(DEFAULT_HOTKEYS.closeFile, combo), `closeFile vs ${action}`).toBe(false);
+    }
+    // The chord itself: ⌘W and Ctrl+W both match (Mod is either), ⇧ refuses.
+    const w = (over: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }>) => ({
+      key: 'w',
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      ...over,
+    });
+    expect(eventMatches(w({ metaKey: true }), DEFAULT_HOTKEYS.closeFile)).toBe(true);
+    expect(eventMatches(w({ ctrlKey: true }), DEFAULT_HOTKEYS.closeFile)).toBe(true);
+    expect(eventMatches(w({ metaKey: true, shiftKey: true }), DEFAULT_HOTKEYS.closeFile)).toBe(false);
+    expect(eventMatches(w({ ctrlKey: true, shiftKey: true }), DEFAULT_HOTKEYS.toggleWordCount)).toBe(true);
   });
 });

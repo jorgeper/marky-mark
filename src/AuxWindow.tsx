@@ -32,8 +32,9 @@ import { AboutDialog } from './components/AboutDialog';
  * authoritative state. Handshakes mm://aux-ready → mm://aux-init, renders
  * nothing until init arrives, edits go up as whole-Settings events, and
  * canonical broadcasts come back down. Esc and Mod+W close the window
- * (macOS ⌘W also arrives via the native accelerator → main's close command
- * → closeFocusedAuxWindow; both paths are idempotent).
+ * (macOS ⌘W also arrives via the native accelerator → main's closeFile
+ * command since issue #158 → closeFocusedAuxWindow; both paths are
+ * idempotent).
  */
 export function AuxWindow({ kind }: { kind: AuxKind }) {
   const [platform, setPlatform] = useState<Platform | null>(null);

@@ -214,9 +214,10 @@ export interface Platform {
   /** Subscribe; resolves to an unlisten function. */
   busListen?(event: string, cb: (payload: unknown) => void): Promise<() => void>;
   /**
-   * Close the focused aux window if any (the ⌘W path — the native Close
-   * Window accelerator runs in the main window's JS regardless of window
-   * focus). Resolves true if an aux window was focused and closed.
+   * Close the focused aux window if any (the ⌘W path — a native accelerator
+   * runs in the main window's JS regardless of window focus; ⌘W is Close
+   * File's since issue #158). Resolves true if an aux window was focused and
+   * closed.
    */
   closeFocusedAuxWindow?(): Promise<boolean>;
 

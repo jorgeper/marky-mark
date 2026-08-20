@@ -101,6 +101,8 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   toggleSplit: 'Split edit',
   newFile: 'New file',
   openFile: 'Open file',
+  // Issue #158: listed, rebindable and reset-to-default like every row.
+  closeFile: 'Close file',
   find: 'Find',
   toggleFolders: 'Show / hide folders',
   // PRD 012 Req 10: listed, rebindable and reset-to-default like every row.

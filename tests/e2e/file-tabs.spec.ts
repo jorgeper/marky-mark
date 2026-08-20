@@ -1256,3 +1256,43 @@ test('E307: Ctrl+Tab across multi-table documents — the wrap past the last tab
 
   expect(errors, 'no page errors while cycling tabs').toEqual([]);
 });
+
+// Issue #158: the closeFile hotkey — Mod+W closes the current FILE through
+// the existing command, never the window or the app.
+test('E308: issue #158 — Ctrl+W closes only the active file (neighbour activates, app keeps running); on the splash the chord is a silent no-op', async ({
+  page,
+}) => {
+  await openThree(page);
+  // The real chord, not a __mmDispatch: Chromium can swallow Ctrl+W, so the
+  // press itself is what this test proves. If the shim ever stops delivering
+  // it, the assertions below fail rather than pass on a synthetic event.
+  await page.keyboard.press('Control+w');
+  // Active c closed alone; tree-order neighbour b activated (SPEC36 §3.5),
+  // a stayed open, no prompt (clean file), and the app is still running.
+  await expect(page.getByTestId('docname')).toContainText('b.md');
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/a.md']);
+  await expect(tab(page, '/notes/sub/b.md')).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+
+  // Walk the rest down: the last close lands on the in-workspace splash —
+  // the same landing as the tab ✕ (E274), still no window close.
+  await page.keyboard.press('Control+w');
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await page.keyboard.press('Control+w');
+  await expect(page.getByTestId('workspace-empty-hint')).toBeVisible();
+  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
+
+  // On the splash the chord changes NOTHING: no quit walk (whose workspace/
+  // dirty prompts would surface), no prompt, the window still alive and
+  // responsive.
+  await page.keyboard.press('Control+w');
+  await expect(page.getByTestId('workspace-empty-hint')).toBeVisible();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  // The quit walk's own prompts (SPEC12 §1.5) never surfaced either.
+  await expect(page.getByTestId('ws-close-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('close-prompt')).toHaveCount(0);
+  expect(page.isClosed()).toBe(false);
+  // Still fully interactive: a fresh open works.
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+});
