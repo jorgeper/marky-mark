@@ -1931,7 +1931,13 @@ export default function App() {
   const openTargetRef = useRef<string | null>(null);
 
   // --- document loading ------------------------------------------------------
-  /** Watch `path` for external changes (replacing any previous watcher). */
+  /**
+   * Watch `path` for external changes (replacing any previous watcher).
+   * Issue #136: `isCurrent` is the caller's supersede test — `watchFile` is
+   * async, so an open overtaken while it was in flight passes one and gets
+   * its watcher disposed instead of installed. Callers that cannot be
+   * overtaken (the rename remap) omit it.
+   */
   const installWatcher = useCallback(
     async (p: Platform, path: string, isCurrent?: () => boolean) => {
       unwatchRef.current?.();
@@ -1969,130 +1975,138 @@ export default function App() {
     const seq = ++openSeqRef.current;
     openTargetRef.current = path;
     const isCurrent = () => seq === openSeqRef.current;
-    // Issue #125: the document opens in the reader's last chosen view mode
-    // instead of always in preview — every route lands here (a fresh open, a
-    // folder-panel pick, a switch to a parked tab, a recent file, and the boot
-    // restore of the previous session). PRD 007 Req 17: never past the edit
-    // grant — a document this reader may not change opens in preview, asked
-    // per path before the mode is decided so no edit surface ever flashes.
-    const mayEdit = (await grantsFor(p, path)).edit;
-    let content: string;
-    let saved: string;
-    let stored: CommentData[];
-    let storeState: DocStores = CLEAN_STORES;
-    let history: unknown = null;
-    // SPEC36 §2: a parked file restores from its bundle — unless it is clean
-    // and the disk moved on underneath (then the disk wins, fresh history).
-    // A dirty parked buffer ALWAYS wins, the watcher's never-clobber rule.
-    const parked = parkRef.current.get(path);
-    if (parked) {
-      // Issue #136: the park entry is only deleted at commit (below) — an
-      // open superseded during the awaits here must not discard the parked
-      // (possibly dirty) buffer it never got to restore.
-      // Issue #64: a comment write flushed by parkActive may still be in
-      // flight — drain the queue so the freshness read below sees it.
-      if (commentWriteRef.current) await commentWriteRef.current;
-      let disk: { content: string; comments: CommentData[]; stores: DocStores } | null = null;
-      try {
-        disk = await loadDocParts(p, path);
-      } catch {
-        /* unreadable right now — the parked bundle carries on */
-      }
-      // Issue #42: both checks ride the shared predicate — a parked buffer
-      // clean modulo EOL is clean, and a disk that moved only in EOL
-      // representation has not moved on.
-      // Issue #64: reopening a file lands here now that plain opens are
-      // additive (it used to be a fresh disk read) — so "the disk moved on"
-      // must also cover the comment stores (PRD 004: a trailer turned
-      // unreadable, or readable again, underneath the clean parked buffer)
-      // and the comments themselves (an external tool — e.g. the sibling
-      // md-with-comments app — edited the sidecar or trailer). Comments
-      // compare by canonical serialization (PRD 004 Req 27: same data ⇒
-      // identical bytes, whatever the in-memory key order); parkActive's
-      // flush plus the queue drain above guarantee an in-app edit sitting
-      // mid-debounce has already landed on disk, so it never misreads as an
-      // external change.
-      if (
-        disk &&
-        !isDirtyText(parked.buffer, parked.savedText) &&
-        (isDirtyText(disk.content, parked.savedText) ||
-          JSON.stringify(disk.stores) !== JSON.stringify(parked.stores) ||
-          serializeSidecar(disk.comments) !== serializeSidecar(parked.comments))
-      ) {
-        content = disk.content;
-        saved = disk.content;
-        stored = disk.comments;
-        storeState = disk.stores;
+    try {
+      // Issue #125: the document opens in the reader's last chosen view mode
+      // instead of always in preview — every route lands here (a fresh open, a
+      // folder-panel pick, a switch to a parked tab, a recent file, and the boot
+      // restore of the previous session). PRD 007 Req 17: never past the edit
+      // grant — a document this reader may not change opens in preview, asked
+      // per path before the mode is decided so no edit surface ever flashes.
+      const mayEdit = (await grantsFor(p, path)).edit;
+      let content: string;
+      let saved: string;
+      let stored: CommentData[];
+      let storeState: DocStores = CLEAN_STORES;
+      let history: unknown = null;
+      // SPEC36 §2: a parked file restores from its bundle — unless it is clean
+      // and the disk moved on underneath (then the disk wins, fresh history).
+      // A dirty parked buffer ALWAYS wins, the watcher's never-clobber rule.
+      const parked = parkRef.current.get(path);
+      if (parked) {
+        // Issue #136: the park entry is only deleted at commit (below) — an
+        // open superseded during the awaits here must not discard the parked
+        // (possibly dirty) buffer it never got to restore.
+        // Issue #64: a comment write flushed by parkActive may still be in
+        // flight — drain the queue so the freshness read below sees it.
+        if (commentWriteRef.current) await commentWriteRef.current;
+        let disk: { content: string; comments: CommentData[]; stores: DocStores } | null = null;
+        try {
+          disk = await loadDocParts(p, path);
+        } catch {
+          /* unreadable right now — the parked bundle carries on */
+        }
+        // Issue #42: both checks ride the shared predicate — a parked buffer
+        // clean modulo EOL is clean, and a disk that moved only in EOL
+        // representation has not moved on.
+        // Issue #64: reopening a file lands here now that plain opens are
+        // additive (it used to be a fresh disk read) — so "the disk moved on"
+        // must also cover the comment stores (PRD 004: a trailer turned
+        // unreadable, or readable again, underneath the clean parked buffer)
+        // and the comments themselves (an external tool — e.g. the sibling
+        // md-with-comments app — edited the sidecar or trailer). Comments
+        // compare by canonical serialization (PRD 004 Req 27: same data ⇒
+        // identical bytes, whatever the in-memory key order); parkActive's
+        // flush plus the queue drain above guarantee an in-app edit sitting
+        // mid-debounce has already landed on disk, so it never misreads as an
+        // external change.
+        if (
+          disk &&
+          !isDirtyText(parked.buffer, parked.savedText) &&
+          (isDirtyText(disk.content, parked.savedText) ||
+            JSON.stringify(disk.stores) !== JSON.stringify(parked.stores) ||
+            serializeSidecar(disk.comments) !== serializeSidecar(parked.comments))
+        ) {
+          content = disk.content;
+          saved = disk.content;
+          stored = disk.comments;
+          storeState = disk.stores;
+        } else {
+          content = parked.buffer;
+          saved = parked.savedText;
+          stored = parked.comments;
+          storeState = parked.stores;
+          history = parked.editorHistory;
+        }
       } else {
-        content = parked.buffer;
-        saved = parked.savedText;
-        stored = parked.comments;
-        storeState = parked.stores;
-        history = parked.editorHistory;
+        try {
+          ({ content, comments: stored, stores: storeState } = await loadDocParts(p, path));
+        } catch {
+          return; // unreadable path (e.g. deleted file in a stale open event)
+        }
+        saved = content;
       }
-    } else {
-      try {
-        ({ content, comments: stored, stores: storeState } = await loadDocParts(p, path));
-      } catch {
-        // Unreadable path (e.g. deleted file in a stale open event). Issue
-        // #136: settle the in-flight marker so later clicks compare against
-        // the committed doc again — unless a newer open already owns it.
-        if (isCurrent()) openTargetRef.current = null;
-        return;
-      }
-      saved = content;
+      // Issue #136: the single supersede gate — everything above only loaded
+      // data; everything below writes state. An open overtaken during its
+      // awaits stops here and commits nothing, so no committed state can mix
+      // two documents and no stale watcher or open-set entry lands.
+      if (!isCurrent()) return;
+      if (parked) parkRef.current.delete(path);
+      // Issue #136: bump the document epoch on a doc SWITCH, not only on
+      // close-to-splash — a markdown render started for the outgoing document
+      // (SPEC7 §5 effect) must never setHtml over the incoming one. A same-path
+      // re-open keeps its epoch: its buffer may be unchanged, so the effect
+      // would not re-run and a bump would orphan the render already in flight.
+      if (stateRef.current.docPath !== path) docEpochRef.current++;
+      // SPEC16 §3: park the outgoing doc's position, queue the incoming one's.
+      recordPosition(stateRef.current.docPath, currentTopLine());
+      pendingScrollLineRef.current = positionFor(positionsRef.current, path);
+      renderPendingRef.current = true; // consume the restore only against fresh html
+
+      commitRecent(rememberRecent(recentRef.current, path, new Date().toISOString()), p); // SPEC29 §2.1
+      setFindOpen(false); // SPEC30 §1.5: find never crosses documents
+      setFindQuery('');
+      setFindDebounced('');
+      setFindOptions(DEFAULT_SEARCH_OPTIONS); // PRD 014 Req 10 (issue #154): options never cross either
+      // SPEC34 §5.1: reveal in the sidebar — only when the panel is visible.
+      if (stateRef.current.settings.showFolders && p.readDirEntries) void revealInFolders(p, path);
+
+      skipSaveRef.current = true;
+      // Fresh doc ⇒ fresh (null) history; parked ⇒ its own. Installed by the
+      // post-commit effect — an unmounting editor's snapshot lands after us.
+      pendingHistoryRef.current = { value: history };
+      pendingEditorSelRef.current = null; // SPEC25: selection never crosses documents
+      activeCueRef.current = null; // SPEC44: cues re-derive from the new caret
+      pendingPreviewSelRef.current = null;
+      lastEditorSelRef.current = { from: 0, to: 0 };
+      setFmOverride(null); // SPEC26 §3.3: a new document follows the setting
+      setDocPath(path);
+      setUntitled(false); // SPEC22 §3.3: a real document replaces any untitled buffer
+      setBuffer(content);
+      setSavedText(saved);
+      setComments(stored);
+      setStores(storeState); // PRD 004 Req 13: per document, never per session
+      setPositions({});
+      setActiveId(null);
+      setPending(null);
+      setMode(viewModeForOpen(stateRef.current.settings.lastViewMode, mayEdit)); // issue #125
+      setShowDiff(false); // SPEC16 §2: the diff toggle resets per document
+      setDiff(null);
+
+      // SPEC36 §3: the active document is always a member of the open set.
+      commitOpenSet(addOpen(openFilesRef.current, path), path);
+      // Issue #136: committed — the doc IS current, so the marker settles
+      // here rather than in the `finally` below, keeping a same-path re-open
+      // reachable while the watcher install is still in flight.
+      openTargetRef.current = null;
+      await installWatcher(p, path, isCurrent);
+    } finally {
+      // Issue #136: however this open ended — committed, superseded, or an
+      // await that REJECTED (grantsFor is a network round trip in the hosted
+      // flavor) — it is no longer in flight. A stale marker would make every
+      // later click on `path` a silent no-op. A superseded open leaves it
+      // alone: the newer open owns the marker now.
+      if (isCurrent()) openTargetRef.current = null;
     }
-    // Issue #136: the single supersede gate — everything above only loaded
-    // data; everything below writes state. An open overtaken during its
-    // awaits stops here and commits nothing, so no committed state can mix
-    // two documents and no stale watcher or open-set entry lands.
-    if (!isCurrent()) return;
-    if (parked) parkRef.current.delete(path);
-    // Issue #136: bump the document epoch on a doc SWITCH, not only on
-    // close-to-splash — a markdown render started for the outgoing document
-    // (SPEC7 §5 effect) must never setHtml over the incoming one. A same-path
-    // re-open keeps its epoch: its buffer may be unchanged, so the effect
-    // would not re-run and a bump would orphan the render already in flight.
-    if (stateRef.current.docPath !== path) docEpochRef.current++;
-    // SPEC16 §3: park the outgoing doc's position, queue the incoming one's.
-    recordPosition(stateRef.current.docPath, currentTopLine());
-    pendingScrollLineRef.current = positionFor(positionsRef.current, path);
-    renderPendingRef.current = true; // consume the restore only against fresh html
-
-    commitRecent(rememberRecent(recentRef.current, path, new Date().toISOString()), p); // SPEC29 §2.1
-    setFindOpen(false); // SPEC30 §1.5: find never crosses documents
-    setFindQuery('');
-    setFindDebounced('');
-    setFindOptions(DEFAULT_SEARCH_OPTIONS); // PRD 014 Req 10 (issue #154): options never cross either
-    // SPEC34 §5.1: reveal in the sidebar — only when the panel is visible.
-    if (stateRef.current.settings.showFolders && p.readDirEntries) void revealInFolders(p, path);
-
-    skipSaveRef.current = true;
-    // Fresh doc ⇒ fresh (null) history; parked ⇒ its own. Installed by the
-    // post-commit effect — an unmounting editor's snapshot lands after us.
-    pendingHistoryRef.current = { value: history };
-    pendingEditorSelRef.current = null; // SPEC25: selection never crosses documents
-    activeCueRef.current = null; // SPEC44: cues re-derive from the new caret
-    pendingPreviewSelRef.current = null;
-    lastEditorSelRef.current = { from: 0, to: 0 };
-    setFmOverride(null); // SPEC26 §3.3: a new document follows the setting
-    setDocPath(path);
-    setUntitled(false); // SPEC22 §3.3: a real document replaces any untitled buffer
-    setBuffer(content);
-    setSavedText(saved);
-    setComments(stored);
-    setStores(storeState); // PRD 004 Req 13: per document, never per session
-    setPositions({});
-    setActiveId(null);
-    setPending(null);
-    setMode(viewModeForOpen(stateRef.current.settings.lastViewMode, mayEdit)); // issue #125
-    setShowDiff(false); // SPEC16 §2: the diff toggle resets per document
-    setDiff(null);
-
-    // SPEC36 §3: the active document is always a member of the open set.
-    commitOpenSet(addOpen(openFilesRef.current, path), path);
-    openTargetRef.current = null; // issue #136: committed — the doc IS current
-    await installWatcher(p, path, isCurrent);
   }, [loadDocParts, recordPosition, currentTopLine, commitRecent, revealInFolders, commitOpenSet, installWatcher]);
 
   /**
