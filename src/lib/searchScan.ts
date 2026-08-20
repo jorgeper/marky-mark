@@ -7,10 +7,14 @@
  * the in-memory overrides for open buffers, and gets back the `SearchFile[]`
  * that `src/lib/searchCore.ts` scans. Issues #152–#155 extend the same
  * plumbing rather than rewriting it.
+ *
+ * PRD 014 Req 8 rides along at the bottom (`matchDocOffsets`): the same
+ * line-numbering rule read backwards, turning a result row's line-relative
+ * match into the document offsets the edit pane selects.
  */
 
 import { isMarkdownFile, visibleEntries, type DirEntry } from './folderTree';
-import type { LineMatch } from './searchCore';
+import type { LineMatch, SearchFile } from './searchCore';
 
 /** The two filesystem seams the scan walks, plus the path joiner. */
 export interface ScanSeams {
@@ -63,8 +67,10 @@ export async function loadSearchFiles(
   entries: ScanEntry[],
   overrides: ReadonlyMap<string, string>,
   readTextFile: (path: string) => Promise<string>
-): Promise<Array<ScanEntry & { text: string }>> {
-  const out: Array<ScanEntry & { text: string }> = [];
+): Promise<SearchFile[]> {
+  // The return type is `searchCore`'s own unit of scope, so the scan's output
+  // and the matcher's input can never drift apart.
+  const out: SearchFile[] = [];
   for (const e of entries) {
     const override = overrides.get(e.path);
     if (override !== undefined) {
@@ -86,7 +92,8 @@ export async function loadSearchFiles(
  * pane's selection needs to highlight the hit. Line terminators are counted
  * with the SAME rule `findMatches` split on (`\r\n`, `\n`, and a lone `\r`
  * are each one break), so the offsets cannot skew against the match. Null
- * when the text no longer has that line (it changed since the scan).
+ * when the text cannot hold the match at all — fewer lines than the match
+ * names, or offsets past its end — both signs it changed since the scan.
  */
 export function matchDocOffsets(text: string, match: LineMatch): { from: number; to: number } | null {
   let line = 1;

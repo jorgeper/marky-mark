@@ -6049,8 +6049,8 @@ export default function App() {
    * platform seams, open buffers overriding stale disk text); matching and
    * grouping are `src/lib/searchCore.ts`. This view runs the module's default
    * options — the toggles are issue #152's scope, so with regex off the
-   * compile cannot come back invalid. The epoch guard drops a slow scan that
-   * finishes after a newer query's.
+   * compile cannot come back invalid. The epoch guard drops a scan a newer
+   * query has overtaken — before its file reads, and again before it paints.
    */
   useEffect(() => {
     const epoch = ++searchEpochRef.current;
@@ -6073,6 +6073,7 @@ export default function App() {
         readTextFile: (path) => p.readTextFile(path),
         join: (...parts) => p.join(...parts),
       });
+      if (searchEpochRef.current !== epoch) return; // superseded — never read the tree for it
       // Req 5: the in-memory texts — every parked open file's parked buffer,
       // and the active document's buffer (canonical, like the park entries).
       const s = stateRef.current;
