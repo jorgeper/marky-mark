@@ -2162,6 +2162,12 @@ mark.hl.ghost {
   align-items: center;
   gap: 2px;
 }
+/* PRD 014 Req 2: the switch carries three buttons now — compact them so the
+   header's title keeps real width at the pane's 240px default instead of
+   being flexed to zero behind the icon row. */
+.folder-header .sidebar-switch-btn {
+  padding: 3px 4px;
+}
 .folder-header .sidebar-switch-btn.on {
   color: var(--mm-accent, #0969da);
   background: var(--mm-bg, #ffffff);
@@ -2373,7 +2379,9 @@ mark.hl.ghost {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 3px 7px;
+  /* 5px, not 7: the PRD 014 switch made the icon row one button wider, and
+     the title's flex share pays for every horizontal pixel here. */
+  padding: 3px 5px;
   border-radius: 5px;
   font-size: 16px;
   line-height: 1;
