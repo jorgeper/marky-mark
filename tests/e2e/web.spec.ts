@@ -582,3 +582,25 @@ test('W15: PRD 011 Req 22 — all five levels work on excerpts, and the view say
   await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
 });
+
+test('W16: PRD 013 Req 14 (issue #149) — the file tab strip is desktop-only: no strip with a document open, no View ▸ File Tabs item', async ({
+  page,
+}) => {
+  // The beforeEach left the welcome document open — exactly the state where
+  // the desktop strip must render (PRD 013 Req 1). Here: nothing, not even
+  // an empty bar.
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
+  await expect(page.getByTestId('file-tab')).toHaveCount(0);
+
+  // The View ▸ flyout renders its usual rows but no File Tabs checkbox —
+  // menuSpec omits the item wherever the tab-strip seam is absent, rather
+  // than shipping a dead toggle.
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-view').click();
+  const flyout = page.getByTestId('app-menu-view');
+  await expect(flyout).toBeVisible();
+  await expect(flyout.getByTestId('menu-view-toggleMode')).toBeVisible();
+  await expect(flyout.getByTestId('menu-view-toggleFileTabs')).toHaveCount(0);
+});

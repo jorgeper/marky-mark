@@ -14,6 +14,9 @@ import { dirtyActiveDoc, freshApp, fsRead, fsWrite, openNotesRoot, openSettings,
 // PRD 013 Reqs 10–12 (issue #148, E305+): the plane treatment — the three
 // surfaces (strip / inactive middle / active front) read from computed
 // styles, in the light default and a dark theme.
+// PRD 013 Req 16 (issue #149): the coverage sweep — E271 and E302 extended
+// (only-open mode, a watched external write, a partly clipped tab click);
+// the web guard for Req 14 is W16 in web.spec.ts.
 
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
@@ -246,7 +249,7 @@ test('E270: the setting persists across a restart — off stays off (item unchec
   await expect(page.getByTestId('file-tab')).toHaveCount(1);
 });
 
-test('E271: a pure view of the open set — Ctrl+Tab moves the active tab; a rename remaps label and position; a delete prunes', async ({
+test('E271: a pure view of the open set — Ctrl+Tab moves the active tab; a rename remaps label and position; a delete prunes; only-open mode and a watched external write change nothing', async ({
   page,
 }) => {
   await seedFolders(page);
@@ -286,6 +289,29 @@ test('E271: a pure view of the open set — Ctrl+Tab moves the active tab; a ren
   await expect.poll(() => tabPaths(page)).toEqual(['/notes/z.md']);
   await expect(page.getByTestId('docname')).toContainText('z.md');
   await expect(page.locator('[data-tab="/notes/z.md"]')).toHaveAttribute('data-active', 'true');
+
+  // PRD 013 Reqs 3+15 (issue #149): only-open-files mode is a SIDEBAR view
+  // (SPEC36 §5) — the strip keeps the same tree-ordered tabs, and a tab click
+  // still activates while the flat list is up.
+  await page.locator('[data-path="/notes/sub"]').click();
+  await page.locator('[data-path="/notes/sub/b.md"]').click();
+  await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/z.md']);
+  await page.getByTestId('folder-open-only').click();
+  await expect(page.getByTestId('folder-open-only')).toHaveClass(/filter-on/);
+  expect(await tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/z.md']);
+  await expect(page.locator('[data-tab="/notes/sub/b.md"]')).toHaveAttribute('data-active', 'true');
+  await page.locator('[data-tab="/notes/z.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('z.md');
+  await expect(page.locator('[data-tab="/notes/z.md"]')).toHaveAttribute('data-active', 'true');
+
+  // PRD 013 Req 15 (issue #149): an external write reaching the clean active
+  // doc through the file watcher refreshes the CONTENT only — same tabs, same
+  // active one, and no dirty ● (the reload is not a local edit).
+  await fsWrite(page, '/notes/z.md', '# Z fresh\n');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Z fresh');
+  expect(await tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/z.md']);
+  await expect(page.locator('[data-tab="/notes/z.md"]')).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('file-tab-dirty')).toHaveCount(0);
 });
 
 /** E272+ setup: a, sub/b and deep/c open (strip order c, b, a), c active. */
@@ -977,7 +1003,7 @@ test('E301: wheel over the strip scrolls the rail — plain vertical and horizon
   await expect(page.getByTestId('docname')).toContainText('ovf-t10');
 });
 
-test('E302: activation reveals the tab from every path — sidebar row and Ctrl+Tab — minimally, and user scrolling never snaps back', async ({
+test('E302: activation reveals the tab from every path — sidebar row, Ctrl+Tab and a click on a partly clipped tab — minimally, and user scrolling never snaps back', async ({
   page,
 }) => {
   await openOverflow(page, 10);
@@ -1025,6 +1051,23 @@ test('E302: activation reveals the tab from every path — sidebar row and Ctrl+
   await dirtyActiveDoc(page, 'NOSNAP ');
   await expect(page.locator(`[data-tab="${ovf(10)}"] [data-testid="file-tab-dirty"]`)).toHaveCount(1);
   expect(await railScroll(page)).toBe(0); // still where the user left it
+
+  // PRD 013 Req 9 (issue #149): "by any means" includes the tab itself — a
+  // click on a PARTLY CLIPPED tab. Park the rail so t08 sits half over the
+  // right edge, then click its visible left corner with the raw mouse (a
+  // locator click would auto-scroll the tab in and defeat the assertion):
+  // the click activates it and the app's own reveal pulls it fully in.
+  const clip = await rail(page).evaluate((el) => {
+    const t = el.querySelectorAll<HTMLElement>('.file-tab')[7];
+    el.scrollLeft = Math.max(0, t.offsetLeft + t.offsetWidth / 2 - el.clientWidth);
+    return { path: t.dataset.tab!, x: t.offsetLeft - el.scrollLeft };
+  });
+  expect(await tabInView(page, clip.path)).toBe(false); // clipped, not hidden
+  const railBox = (await rail(page).boundingBox())!;
+  await page.mouse.click(railBox.x + clip.x + 10, railBox.y + railBox.height / 2);
+  await expect(page.getByTestId('docname')).toContainText('ovf-t08');
+  await expect(page.locator(`[data-tab="${clip.path}"]`)).toHaveAttribute('data-active', 'true');
+  expect(await tabInView(page, clip.path)).toBe(true);
 });
 
 test('E303: boot restore — the revived session\'s active tab is in view on first paint, arrows already live, without touching anything', async ({
