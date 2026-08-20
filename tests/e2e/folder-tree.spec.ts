@@ -596,3 +596,62 @@ test('E292: rapid successive opens from the folder pane — the last click alway
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
   await expect(page.locator('.cm-content').first()).toContainText('RACEKEEP');
 });
+
+test('E305: open rows do not indent — open, closed and active labels share one column per depth, in tree and only-open views', async ({
+  page,
+}) => {
+  // Issue #126 / SPEC36 §4.1: the open-tab pill keeps the SAME left gap as
+  // `.selected`, compensated by inner padding, so opening a file never reads
+  // as indentation. Label x is measured the same way E249/E31 do: rect left
+  // plus the row's own padding-left (margins are inside rect left already).
+  await seedFolders(page);
+  await fsWrite(page, '/notes/e.md', '# E doc\n'); // becomes the active row
+  await fsWrite(page, '/notes/f.md', '# F doc\n'); // closed sibling, depth 1
+  await fsWrite(page, '/notes/sub/x.md', '# X doc\n'); // closed sibling, depth 2
+  await openNotesRoot(page);
+
+  const labelLeft = (path: string) =>
+    page
+      .locator(`[data-path="${path}"]`)
+      .evaluate((el) => el.getBoundingClientRect().left + parseFloat(getComputedStyle(el).paddingLeft));
+
+  // Open a.md, expand sub, add b.md, then activate e.md — leaving a.md and
+  // b.md open-but-inactive next to closed siblings at their depths.
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await page.locator('[data-path="/notes/sub"]').click();
+  await page.locator('[data-path="/notes/sub/b.md"]').click({ modifiers: ['ControlOrMeta'] });
+  await page.locator('[data-path="/notes/e.md"]').click({ modifiers: ['ControlOrMeta'] });
+  await expect(page.locator('[data-path="/notes/a.md"]')).toHaveClass(/\bopen\b/);
+  await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/\bopen\b/);
+  await expect(page.locator('[data-path="/notes/e.md"]')).toHaveClass(/selected/);
+
+  // (a) Depth 1: the open row, a closed sibling and the active row line up
+  // on one column — opening must not shift the label.
+  const openL = await labelLeft('/notes/a.md');
+  expect(Math.abs(openL - (await labelLeft('/notes/f.md')))).toBeLessThanOrEqual(1);
+  expect(Math.abs(openL - (await labelLeft('/notes/e.md')))).toBeLessThanOrEqual(1);
+
+  // (b) Depth 2: the nested open row still indents relative to depth 1 (the
+  // indent comes from the tree, not from open state) and matches its own
+  // closed sibling.
+  const nestedL = await labelLeft('/notes/sub/b.md');
+  expect(nestedL).toBeGreaterThan(openL);
+  expect(Math.abs(nestedL - (await labelLeft('/notes/sub/x.md')))).toBeLessThanOrEqual(1);
+
+  // Deactivating shifts nothing: activate a.md so e.md drops to open —
+  // e.md's label stays put through selected → open.
+  const eBefore = await labelLeft('/notes/e.md');
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.locator('[data-path="/notes/e.md"]')).toHaveClass(/\bopen\b/);
+  expect(Math.abs((await labelLeft('/notes/e.md')) - eBefore)).toBeLessThanOrEqual(1);
+
+  // (c) SPEC36 §5.3: only-open mode is a FLAT list — every row, active and
+  // inactive alike, sits on one flush left column.
+  await page.getByTestId('folder-open-only').click();
+  await expect(page.getByTestId('folder-open-only')).toHaveClass(/filter-on/);
+  const lefts = await page.$$eval('[data-testid="folder-item"]', (els) =>
+    els.map((e) => Math.round(e.getBoundingClientRect().left + parseFloat(getComputedStyle(e).paddingLeft)))
+  );
+  expect(lefts.length).toBe(4); // welcome.md (the boot doc) + a, b, e
+  for (const l of lefts) expect(Math.abs(l - lefts[0])).toBeLessThanOrEqual(1);
+});
