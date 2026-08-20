@@ -3959,7 +3959,7 @@ export default function App() {
       },
       /**
        * PRD 014 Req 2: every Search surface — the switch's button, the
-       * panel's close chrome, and issue #155's hotkey when it lands — is the
+       * panel's close chrome, and the searchAllFiles hotkey (Req 3) — is the
        * Search third of the one view rule, through the same showSidebarView
        * write. Gated exactly as toggleFolders above: the scan's scope is the
        * folder tree, so no seam or no workspace means no Search view. A press
@@ -5163,6 +5163,13 @@ export default function App() {
         // rebind in Settings moves it with no code here to change.
         e.preventDefault();
         dispatchCommand('toggleToc', 'hotkey');
+      } else if (eventMatches(e, hk.searchAllFiles)) {
+        // PRD 014 Req 3: the Search button's action from the keyboard — the
+        // same `toggleSearch` command id, so its gates and the show/switch/
+        // focus/hide logic live there alone and a rebind in Settings moves
+        // the hotkey with no code here to change.
+        e.preventDefault();
+        dispatchCommand('toggleSearch', 'hotkey');
       } else if (eventMatches(e, hk.toggleComments)) {
         e.preventDefault();
         dispatchCommand('toggleComments', 'hotkey');

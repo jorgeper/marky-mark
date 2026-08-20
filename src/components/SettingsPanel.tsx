@@ -105,6 +105,8 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   toggleFolders: 'Show / hide folders',
   // PRD 012 Req 10: listed, rebindable and reset-to-default like every row.
   toggleToc: 'Show / hide table of contents',
+  // PRD 014 Req 3: listed, rebindable and reset-to-default like every row.
+  searchAllFiles: 'Search all files',
   toggleComments: 'Show / hide comments',
   save: 'Save',
   nextComment: 'Next comment',

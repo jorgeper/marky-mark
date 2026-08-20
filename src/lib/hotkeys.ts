@@ -14,6 +14,8 @@ export interface HotkeyMap {
   toggleFolders: string;
   /** PRD 012 Req 10: the TOC view of the sidebar — the toolbar button's twin. */
   toggleToc: string;
+  /** PRD 014 Req 3: the Search view of the sidebar — the toolbar button's twin. */
+  searchAllFiles: string;
   toggleComments: string;
   save: string;
   nextComment: string;
@@ -56,6 +58,10 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   // PRD 012 Req 10: T for Table of contents, in the Mod+Shift+<letter> family
   // the sidebar's other view already uses, and bound to nothing else shipped.
   toggleToc: 'Mod+Shift+T',
+  // PRD 014 Req 3: F for Find-across-files, in the Mod+Shift+<letter> family
+  // of the sibling views; Shift keeps it a distinct chord from Mod+F's
+  // in-document find (eventMatches compares Shift strictly).
+  searchAllFiles: 'Mod+Shift+F',
   toggleComments: 'Mod+Shift+C',
   save: 'Mod+S',
   nextComment: 'Mod+Alt+ArrowDown',
