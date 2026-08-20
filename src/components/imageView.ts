@@ -122,7 +122,10 @@ function buildDecos(state: EditorState, enabled: boolean, cfg: ImageViewConfig):
     const url = isRemoteSrc(r.src) ? null : (cfg.resolve ? cfg.resolve(r.src) : r.src);
     ranges.push(Decoration.replace({ widget: new ImageWidget(r, url) }).range(r.start, r.end));
   }
-  return Decoration.set(ranges);
+  // Issue #156 audit: sort=true — allImageRefs returns start-sorted refs
+  // today, but an unsorted handoff would hit the same RangeSet throw as the
+  // grid spans did, so the ordering is guaranteed at the assembly site.
+  return Decoration.set(ranges, true);
 }
 
 /** The image-view bundle: decoration field + widget click handling. */

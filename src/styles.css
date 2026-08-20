@@ -2380,9 +2380,11 @@ mark.hl.ghost {
   cursor: pointer;
   position: relative;
   z-index: 1;
+  /* Issue #156: the lift is a soft ambient cast, not a hard dark edge —
+     lower alpha over a wider blur than the #148 values. */
   box-shadow:
-    0 -1px 3px rgba(0, 0, 0, 0.14),
-    0 -2px 7px rgba(0, 0, 0, 0.09);
+    0 -1px 4px rgba(0, 0, 0, 0.07),
+    0 -3px 10px rgba(0, 0, 0, 0.05);
 }
 .file-tab:hover {
   color: var(--mm-fg, #1f2328);
@@ -2404,9 +2406,11 @@ mark.hl.ghost {
   background: var(--mm-bg, #ffffff);
   color: var(--mm-fg, #1f2328);
   z-index: 2;
+  /* Issue #156: softened like .file-tab above, but still the strongest
+     cast in the strip so the front plane keeps its extra lift. */
   box-shadow:
-    0 -2px 6px rgba(0, 0, 0, 0.18),
-    0 -5px 16px rgba(0, 0, 0, 0.14);
+    0 -2px 9px rgba(0, 0, 0, 0.1),
+    0 -7px 22px rgba(0, 0, 0, 0.08);
 }
 .file-tab-label {
   min-width: 0;

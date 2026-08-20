@@ -1,4 +1,4 @@
-import { EditorState, StateEffect, StateField, Transaction, Prec, RangeSetBuilder } from '@codemirror/state';
+import { EditorState, MapMode, StateEffect, StateField, Transaction, Prec, RangeSetBuilder } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, keymap, type ViewUpdate } from '@codemirror/view';
 import {
   allTableRegions,
@@ -59,13 +59,22 @@ export const tableModeField = StateField.define<GridSet | null>({
   create: () => null,
   update(value, tr) {
     if (value && tr.docChanged) {
-      const spans = value.spans
-        .map((s) => {
-          const from = tr.changes.mapPos(s.from, -1);
-          const to = tr.changes.mapPos(s.to, 1);
-          return from < to ? { ...s, from, to } : null;
-        })
-        .filter((s): s is GridSpan => s !== null);
+      // Issue #156: TrackDel — a span whose edge was deleted outright (the
+      // tab-switch whole-document replace in Editor.tsx) is GONE, not moved.
+      // Plain mapPos collapsed every such span onto the insertion, so two
+      // grids both became {0, newLength} and tableModeDecos re-walked the
+      // same lines per span — RangeSetBuilder.add threw on the backwards
+      // `from`. Dropped spans re-grid via the watcher as soon as they parse.
+      const spans: GridSpan[] = [];
+      for (const s of value.spans) {
+        const from = tr.changes.mapPos(s.from, -1, MapMode.TrackDel);
+        const to = tr.changes.mapPos(s.to, 1, MapMode.TrackDel);
+        if (from === null || to === null || from >= to) continue;
+        // The decoration invariant, enforced where spans are made: sorted
+        // and non-overlapping, so every builder downstream stays in order.
+        if (spans.length && from < spans[spans.length - 1].to) continue;
+        spans.push({ ...s, from, to });
+      }
       value = { spans, width: value.width };
     }
     for (const e of tr.effects) if (e.is(setGridSet)) value = e.value;

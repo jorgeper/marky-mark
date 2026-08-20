@@ -1206,3 +1206,53 @@ test('E306: the plane ordering holds in a dark theme — strip < inactive < acti
     .toBe('rgb(40, 44, 52)'); // One Dark #282c34
   await assertTabPlanes(page);
 });
+
+test('E307: Ctrl+Tab across multi-table documents — the wrap past the last tab lands the new document in the editor with no page error', async ({
+  page,
+}) => {
+  // Issue #156 (SPEC36 §6.3 cycling over SPEC40 grids): switching tabs in
+  // edit mode swaps the buffer with one whole-document replace; the OLD
+  // document's grid spans used to collapse onto {0, newLength} and the
+  // line-decoration builder threw "Ranges must be added sorted by `from`
+  // position and `startSide`". Two tables per document is the minimum that
+  // reproduced it.
+  const errors: Error[] = [];
+  page.on('pageerror', (e) => errors.push(e));
+  const tables = (title: string) =>
+    `# ${title}\n\n| a | b |\n| --- | --- |\n| ${title}1 | 2 |\n\nbetween\n\n| c | d |\n| --- | --- |\n| 3 | 4 |\n`;
+  await seedFolders(page);
+  await fsWrite(page, '/notes/t1.md', tables('One'));
+  await fsWrite(page, '/notes/t2.md', tables('Two'));
+  await openNotesRoot(page);
+  await page.evaluate(() => window.__mmDispatch!('closeFile'));
+  await page.locator('[data-path="/notes/t1.md"]').click();
+  await page.locator('[data-path="/notes/t2.md"]').click();
+  expect(await tabPaths(page)).toEqual(['/notes/t1.md', '/notes/t2.md']);
+
+  // Full-screen edit with the grid view on (its default): both tables grid.
+  await openSettings(page);
+  await page.getByTestId('settings-tab-general').click();
+  await page.getByTestId('set-split-edit').uncheck();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(6);
+
+  // t2.md is last in tree order, so this first cycle WRAPS past the end.
+  await page.keyboard.press('Control+Tab');
+  await expect(page.getByTestId('docname')).toContainText('t1.md');
+  await expect(page.locator('[data-tab="/notes/t1.md"]')).toHaveAttribute('data-active', 'true');
+  await expect(editor.locator('.cm-content')).toContainText('One1');
+  // The new document's tables re-grid (the debounced watcher) — and having
+  // live spans again arms the NEXT switch, the same shape as the crash.
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(6);
+
+  await page.keyboard.press('Control+Tab');
+  await expect(page.getByTestId('docname')).toContainText('t2.md');
+  await expect(page.locator('[data-tab="/notes/t2.md"]')).toHaveAttribute('data-active', 'true');
+  await expect(editor.locator('.cm-content')).toContainText('Two1');
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(6);
+
+  expect(errors, 'no page errors while cycling tabs').toEqual([]);
+});
