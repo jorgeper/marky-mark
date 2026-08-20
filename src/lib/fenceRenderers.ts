@@ -13,7 +13,7 @@
  *
  * PRD 013 Req 4: what a renderer returns is injected as a **post-sanitize**
  * DOM enhancement, equivalent in trust posture to the existing image widgets
- * (`src/components/imageView.ts`, SPEC41) — which is why the sanitize schema
+ * (`src/components/imageView.ts`) — which is why the sanitize schema
  * in `lib/markdown.ts` does not widen for diagrams. PRD 013 Req 3: rendering
  * must not perturb the comment-anchor coordinate space that `lib/markdown.ts`
  * defines — the same reason `lib/codeCopy.ts` grafts its button onto the live
@@ -91,14 +91,12 @@ export function fenceRendererFor(tag: string | null | undefined): FenceRenderer 
 export function fenceLanguage(value: string | null | undefined): string | null {
   if (value == null) return null;
   const tokens = value.split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return null;
   for (const token of tokens) {
-    const lower = token.toLowerCase();
-    if (lower.startsWith('language-')) {
-      const tag = normalizeTag(lower.slice('language-'.length));
-      return tag || null;
+    // A class value: `language-<tag>` wins wherever it sits among the classes.
+    if (/^language-/i.test(token)) {
+      return normalizeTag(token.slice('language-'.length)) || null;
     }
   }
   // An info string: the language is its first word, the rest is meta.
-  return normalizeTag(tokens[0]) || null;
+  return tokens.length > 0 ? normalizeTag(tokens[0]) : null;
 }

@@ -109,6 +109,9 @@ describe('PRD 013 Req 4 mermaid adapter security posture', () => {
     const render = createMermaidRenderer(fake.load);
     const result = await render('graph TD; a-->', light);
     expect(result).toEqual({ ok: false, message: 'Parse error on line 2' });
+    // A bad diagram says nothing about the library, which stays loaded.
+    await render('graph TD; b-->', light);
+    expect(fake.loads).toBe(1);
   });
 
   test('U734: a failing loader resolves to the failure variant, and a later render retries the load', async () => {

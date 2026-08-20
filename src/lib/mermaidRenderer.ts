@@ -16,13 +16,20 @@
 
 import { registerFenceRenderer, type FenceRenderer, type FenceRenderResult } from './fenceRenderers';
 
-/** The slice of mermaid's API the adapter touches; tests fake exactly this. */
+/**
+ * The slice of mermaid's API the adapter touches; tests fake exactly this.
+ * The config members are literal types, not `boolean`/`string`: PRD 013 Req 4's
+ * posture is then the only config this interface can express, so a regression
+ * to `securityLevel: 'loose'` or HTML labels fails the typecheck as well as
+ * the unit tests. The real `Mermaid` object satisfies this shape structurally,
+ * so `loadMermaid` needs no cast.
+ */
 export interface MermaidApi {
   initialize(config: {
-    startOnLoad: boolean;
-    securityLevel: string;
-    theme: string;
-    flowchart: { htmlLabels: boolean };
+    startOnLoad: false;
+    securityLevel: 'strict';
+    theme: 'default' | 'dark';
+    flowchart: { htmlLabels: false };
   }): void;
   render(id: string, source: string): Promise<{ svg: string }>;
 }
@@ -34,7 +41,7 @@ export type MermaidLoader = () => Promise<MermaidApi>;
 // `import('mermaid')` in the app, evaluated on first render, never at import.
 const loadMermaid: MermaidLoader = async () => {
   const mod = await import('mermaid');
-  return mod.default as unknown as MermaidApi;
+  return mod.default;
 };
 
 /**
@@ -48,9 +55,17 @@ export function createMermaidRenderer(load: MermaidLoader = loadMermaid): FenceR
   let api: Promise<MermaidApi> | undefined;
   let nextId = 0;
   return async (source, options): Promise<FenceRenderResult> => {
+    let mermaid: MermaidApi;
     try {
       api ??= load();
-      const mermaid = await api;
+      mermaid = await api;
+    } catch (error) {
+      // Drop the rejected promise: a failed load must not poison every later
+      // render with a stale rejection, so the next call retries the load.
+      api = undefined;
+      return { ok: false, message: errorMessage(error) };
+    }
+    try {
       // PRD 013 Req 4: strictest security level, no auto-start, no HTML
       // labels. Re-initialized per render so a theme change (Req 9) takes
       // effect on the next diagram without extra plumbing.
@@ -63,9 +78,8 @@ export function createMermaidRenderer(load: MermaidLoader = loadMermaid): FenceR
       const { svg } = await mermaid.render(`mm-diagram-${nextId++}`, source);
       return { ok: true, svg: scrubDiagramSvg(svg) };
     } catch (error) {
-      // A failed load must not poison every later render with a stale
-      // rejected promise.
-      api = undefined;
+      // PRD 013 Req 10: bad diagram source is a typed failure, not a throw —
+      // and it says nothing about the library, which stays loaded.
       return { ok: false, message: errorMessage(error) };
     }
   };
