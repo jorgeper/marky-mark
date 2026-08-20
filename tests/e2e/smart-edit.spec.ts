@@ -78,10 +78,17 @@ test('E105: smart-edit gutter button — cursor line only, follows the caret, ri
   // Esc dismisses…
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
-  // …and so does an outside pointer-down.
+  // …and so does an outside pointer-down. Issue #157 amendment: the menu
+  // grew a row (Code Block) and now viewport-clamps up over x≈200, so the
+  // outside point moved right — same dismissal contract.
   await btn.click();
   await expect(menu).toBeVisible();
-  await editor.locator('.cm-content').click({ position: { x: 200, y: 10 } });
+  const content = editor.locator('.cm-content');
+  const menuBox = (await menu.boundingBox())!;
+  const paneBox = (await content.boundingBox())!;
+  const outsideX = menuBox.x + menuBox.width + 20; // 20px clear of the menu's right edge
+  expect(outsideX).toBeLessThan(paneBox.x + paneBox.width); // the point IS inside the pane
+  await content.click({ position: { x: outsideX - paneBox.x, y: 10 } });
   await expect(menu).toHaveCount(0);
 
   // Preview mode shows no gutter button.

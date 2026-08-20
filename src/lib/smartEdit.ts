@@ -362,6 +362,8 @@ export interface SmartMenuCtx {
   gridView: boolean;
   /** SPEC41 §1.2: the global inline-image view is on. */
   imageView: boolean;
+  /** Issue #157: the global fenced-code card view is on. */
+  codeView: boolean;
 }
 
 export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
@@ -401,6 +403,14 @@ export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
         item('delete-image', 'Delete Image', { enabled: ctx.image }),
         item('resize-image', 'Resize Image', { enabled: ctx.image }),
       ],
+    })
+  );
+  // Issue #157: the Code Block submenu — the fenced-code card view's global
+  // toggle, mirroring Table/Image above. Its ids stay clear of the existing
+  // top-level 'code' (Inline Code) and 'code-block' (insert) items.
+  out.push(
+    item('code-block-view', 'Code Block', {
+      submenu: [item('toggle-code-blocks', ctx.codeView ? 'Show Raw Code' : 'Show Rendered Code')],
     })
   );
   out.push('sep');
