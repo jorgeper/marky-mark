@@ -598,12 +598,14 @@ describe('PRD 013 Req 13: the File Tabs View item', () => {
     const withoutRow = commandsIn(without, 'View').map((i) => i.command);
     expect(withRow.filter((c) => c !== 'toggleFileTabs')).toEqual(withoutRow);
   });
+});
 
-  test('U724: issue #158 — Close File carries the rebindable Mod+W on both layouts; mac Close Window gave the chord up; no menu holds two enabled items on one chord', () => {
+describe('Issue #158: the Close File accelerator', () => {
+  test('U724: Close File carries the rebindable Mod+W on both layouts; mac Close Window gave the chord up; no menu holds two enabled items on one chord', () => {
     const win = { ...base, isMac: false };
+    expect(DEFAULT_HOTKEYS.closeFile).toBe('Mod+W');
     for (const s of [base, win]) {
       expect(find(s, 'File', 'closeFile')!.accelerator).toBe(DEFAULT_HOTKEYS.closeFile);
-      expect(find(s, 'File', 'closeFile')!.accelerator).toBe('Mod+W');
       // A rebind in Settings moves the accelerator with it (the save idiom).
       const rebound = { ...s, hotkeys: { ...DEFAULT_HOTKEYS, closeFile: 'Mod+Shift+U' } };
       expect(find(rebound, 'File', 'closeFile')!.accelerator).toBe('Mod+Shift+U');

@@ -1263,9 +1263,9 @@ test('E308: issue #158 — Ctrl+W closes only the active file (neighbour activat
   page,
 }) => {
   await openThree(page);
-  // The REAL chord (the spec's hazard: Chromium may swallow Ctrl+W — in the
-  // headless desktop shim the press reaches the page, asserted right here;
-  // no fallback dispatch is used).
+  // The real chord, not a __mmDispatch: Chromium can swallow Ctrl+W, so the
+  // press itself is what this test proves. If the shim ever stops delivering
+  // it, the assertions below fail rather than pass on a synthetic event.
   await page.keyboard.press('Control+w');
   // Active c closed alone; tree-order neighbour b activated (SPEC36 §3.5),
   // a stayed open, no prompt (clean file), and the app is still running.

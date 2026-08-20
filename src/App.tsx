@@ -3977,6 +3977,18 @@ export default function App() {
     else h.applyFormat(op);
   }, []);
 
+  /**
+   * SPEC13 §1.3: a native accelerator always runs in the MAIN window's JS,
+   * whichever window has focus — so every close path asks the seam first: if
+   * Settings/About was focused, that window closes and nothing else happens.
+   * Resolves true when the press was spent on an aux window.
+   */
+  const closeFocusedAux = useCallback(async () => {
+    const p = stateRef.current.platform;
+    if (!p?.closeFocusedAuxWindow) return false;
+    return await p.closeFocusedAuxWindow();
+  }, []);
+
   // --- command registry (SPEC12 §3.1): the single dispatch point for the DOM
   // toolbar (web), the native menu (desktop), and the hotkey listener.
   useEffect(() => {
@@ -4081,14 +4093,13 @@ export default function App() {
       },
       openFolder: openFolderCmd,
       // Issue #22: Close File — down to the splash through the dirty guard.
+      // Issue #158: ⌘W/Ctrl+W is this command's accelerator now, so a focused
+      // Settings/About window spends the press before any document does.
       closeFile: () => {
         void (async () => {
+          if (await closeFocusedAux()) return;
           const s = stateRef.current;
           if (!s.platform) return;
-          // Issue #158 (SPEC13 §1.3): ⌘W is now this command's native
-          // accelerator, and on macOS it fires in main's JS even while
-          // Settings/About holds focus — close that window, touch no document.
-          if (s.platform.closeFocusedAuxWindow && (await s.platform.closeFocusedAuxWindow())) return;
           if (s.docPath) {
             closeOpenFile(s.docPath); // dirty ⇒ three-way prompt; clean ⇒ close
             return;
@@ -4242,20 +4253,20 @@ export default function App() {
       toggleOpenOnly,
       nextFile: () => cycleFile(1),
       prevFile: () => cycleFile(-1),
-      // SPEC12 §1.5 + SPEC13 §1.3: ⌘W with an aux window focused closes that
-      // window (the native accelerator always lands here, in main's JS);
-      // otherwise Quit/Exit/Close walk EVERY dirty document (SPEC36 §7).
+      // SPEC12 §1.5 + SPEC13 §1.3: Quit/Exit/Close Window with an aux window
+      // focused closes that window instead (⌘W stopped landing here with issue
+      // #158; ⌘Q still does); otherwise the walk covers EVERY dirty document
+      // (SPEC36 §7).
       close: () => {
         void (async () => {
-          const p = stateRef.current.platform;
-          if (p?.closeFocusedAuxWindow && (await p.closeFocusedAuxWindow())) return;
+          if (await closeFocusedAux()) return;
           // Issue #22: one entry point — the changed-workspace prompt, then
           // the dirty-docs walk (the same path the native close guard takes).
           startQuitWalkRef.current();
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, showSidebarView, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard, runPrint]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, showSidebarView, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard, runPrint, closeFocusedAux]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
