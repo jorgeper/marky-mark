@@ -1057,17 +1057,21 @@ test('E302: activation reveals the tab from every path — sidebar row, Ctrl+Tab
   // right edge, then click its visible left corner with the raw mouse (a
   // locator click would auto-scroll the tab in and defeat the assertion):
   // the click activates it and the app's own reveal pulls it fully in.
-  const clip = await rail(page).evaluate((el) => {
-    const t = el.querySelectorAll<HTMLElement>('.file-tab')[7];
+  const clipped = ovf(8);
+  const corner = await rail(page).evaluate((el, p) => {
+    const t = el.querySelector<HTMLElement>(`[data-tab="${CSS.escape(p)}"]`)!;
     el.scrollLeft = Math.max(0, t.offsetLeft + t.offsetWidth / 2 - el.clientWidth);
-    return { path: t.dataset.tab!, x: t.offsetLeft - el.scrollLeft };
-  });
-  expect(await tabInView(page, clip.path)).toBe(false); // clipped, not hidden
-  const railBox = (await rail(page).boundingBox())!;
-  await page.mouse.click(railBox.x + clip.x + 10, railBox.y + railBox.height / 2);
+    // The rail scrolls instantly (no scroll-behavior), so the rect read here
+    // already carries the parked position — viewport coordinates for a
+    // mouse click, no rail-box arithmetic needed.
+    const box = t.getBoundingClientRect();
+    return { x: box.x, y: box.y + box.height / 2 };
+  }, clipped);
+  expect(await tabInView(page, clipped)).toBe(false); // clipped, not hidden
+  await page.mouse.click(corner.x + 10, corner.y); // 10px in from its left corner
   await expect(page.getByTestId('docname')).toContainText('ovf-t08');
-  await expect(page.locator(`[data-tab="${clip.path}"]`)).toHaveAttribute('data-active', 'true');
-  expect(await tabInView(page, clip.path)).toBe(true);
+  await expect(page.locator(`[data-tab="${clipped}"]`)).toHaveAttribute('data-active', 'true');
+  expect(await tabInView(page, clipped)).toBe(true);
 });
 
 test('E303: boot restore — the revived session\'s active tab is in view on first paint, arrows already live, without touching anything', async ({
