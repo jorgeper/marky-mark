@@ -44,6 +44,11 @@ describe('PRD 002 §B5 scope inventory', () => {
       typeToComment: 'U',
       autosaveOnToggle: 'U',
       autoHideToolbar: 'U',
+      // Issue #167: how the chrome fades is a reader's preference, like the
+      // toolbar key beside it; the corner button's visibility follows the
+      // showWordCount precedent.
+      autoHideScrollbars: 'U',
+      showSyncScrollButton: 'U',
       exportTheme: 'U',
       hotkeys: 'U',
       commentsEnabled: 'U',
@@ -65,6 +70,9 @@ describe('PRD 002 §B5 scope inventory', () => {
       imageNamePattern: 'W',
       splitEdit: 'M',
       splitRatio: 'M',
+      // Issue #167: whether THIS screen's split panes track each other is
+      // the reader's own layout, like the two split keys beside it.
+      syncScroll: 'M',
       // Issue #125: the remembered view mode is this reader's own layout
       // state, like the split keys beside it.
       lastViewMode: 'M',

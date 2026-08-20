@@ -846,3 +846,93 @@ test('E248: issue #125 — the last chosen mode is remembered: a new document, a
   await expect(page.getByTestId('doc').locator('h1')).toContainText('One');
   await expect(page.getByTestId('editor')).toHaveCount(0);
 });
+
+test('E315: issue #167 — the sync toggle rides beside the mode switch, frees the panes, realigns on re-enable, hides via Settings', async ({
+  page,
+}) => {
+  await splitApp(page);
+  const btn = page.getByTestId('sync-scroll-toggle');
+  const sw = page.getByTestId('mode-switch');
+
+  // On by default, saying the move a click makes, immediately LEFT of the
+  // edit/preview switch — adjacent, same row (the E247 idiom).
+  await expect(btn).toBeVisible();
+  await expect(btn).toHaveAttribute('data-state', 'on');
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  await expect(btn).toHaveAttribute('title', 'Scroll panes independently');
+  const b = (await stableBox(btn))!;
+  const s = (await stableBox(sw))!;
+  expect(b.x + b.width).toBeLessThanOrEqual(s.x + 1);
+  expect(s.x - (b.x + b.width)).toBeLessThan(8);
+  expect(Math.abs(b.y - s.y)).toBeLessThan(4);
+
+  // Absent where sync can mean nothing: full preview, and the collapsed split.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('doc')).toBeVisible();
+  await expect(btn).toHaveCount(0);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await page.getByTestId('preview-collapse').click();
+  await expect(btn).toHaveCount(0);
+  await page.getByTestId('preview-expand').click();
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+
+  // Off: the persisted flag flips and the panes free-scroll both ways.
+  await btn.click();
+  await expect(btn).toHaveAttribute('data-state', 'off');
+  await expect(btn).toHaveAttribute('aria-pressed', 'false');
+  await expect(btn).toHaveAttribute('title', 'Scroll panes together');
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"syncScroll": false');
+
+  const editor = page.locator('.cm-scroller');
+  const preview = page.getByTestId('split-preview');
+  // Let any boot-time restore scrolls go idle so the fade assertion is clean.
+  await expect
+    .poll(() => preview.evaluate((el) => el.getAttribute('data-scrollbars')), { timeout: 4000 })
+    .not.toBe('active');
+
+  const previewTop = await preview.evaluate((el) => el.scrollTop);
+  await editor.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.5));
+  await page.waitForTimeout(300);
+  expect(Math.abs((await preview.evaluate((el) => el.scrollTop)) - previewTop)).toBeLessThan(2);
+  // Issue #167 auto-hide is per surface: the editor's own bar woke, the idle
+  // preview's did not.
+  await expect(editor).toHaveAttribute('data-scrollbars', 'active');
+  await expect(preview).not.toHaveAttribute('data-scrollbars', 'active');
+
+  await preview.evaluate((el) => (el.scrollTop = 600));
+  const editorTop = await editor.evaluate((el) => el.scrollTop);
+  await page.waitForTimeout(300);
+  expect(Math.abs((await editor.evaluate((el) => el.scrollTop)) - editorTop)).toBeLessThan(2);
+
+  // Back on: the preview realigns to the editor's half-way point THIS instant
+  // — no new scroll event is fired here, only the toggle.
+  await preview.evaluate((el) => (el.scrollTop = 0));
+  await btn.click();
+  await expect(btn).toHaveAttribute('data-state', 'on');
+  await expect.poll(() => preview.evaluate((el) => el.scrollTop), { timeout: 2000 }).toBeGreaterThan(100);
+
+  // Off again, restart: the persisted value survives and the button agrees
+  // with it on load.
+  await btn.click();
+  await expect(btn).toHaveAttribute('data-state', 'off');
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"syncScroll": false');
+  await page.reload();
+  await expect(page.getByTestId('split-divider')).toBeVisible({ timeout: 20_000 });
+  await expect(btn).toHaveAttribute('data-state', 'off');
+  // Still free after the restart — wherever the restore left the preview, a
+  // fresh editor scroll does not move it.
+  await page.waitForTimeout(300); // let any boot-time restore scrolls settle
+  const restoredTop = await preview.evaluate((el) => el.scrollTop);
+  await editor.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.25));
+  await page.waitForTimeout(300);
+  expect(Math.abs((await preview.evaluate((el) => el.scrollTop)) - restoredTop)).toBeLessThan(2);
+
+  // The Settings switch hides only the button — the sync state is untouched.
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-sync-scroll-button').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect(btn).toHaveCount(0);
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"showSyncScrollButton": false');
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"syncScroll": false');
+});

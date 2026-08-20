@@ -3742,3 +3742,39 @@ mark.hl.ghost {
   font-size: 0.9em;
   opacity: 0.85;
 }
+
+/* Issue #167: auto-hiding scrollbars — app-drawn bars on the document
+   scrollers (full-preview workspace, split preview, the editor's CodeMirror
+   scroller) and the sidebar/search lists, identical in the desktop shell and
+   the web build instead of deferring to the OS overlay behaviour. The list
+   below matches SCROLLBAR_FADE_SELECTOR in src/lib/autoHideScrollbars.ts,
+   which writes data-scrollbars per surface; .file-tab-rail keeps its
+   deliberate bar-less contract (PRD 013 Req 9) by not being in it. The
+   gutter is reserved permanently (fixed ::-webkit-scrollbar width — only the
+   thumb's PAINT changes), so a fade never reflows the wrapped content; the
+   :hover/:active thumb rules keep the bar under a pointer that rests on it
+   or a thumb mid-drag, whatever the attribute says. Colors ride the theme
+   contract with literal fallbacks, so no theme file changes. */
+.theme-root.autohide-scrollbars :is(.workspace, .split-preview, .cm-scroller, .folder-list)::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+  background: transparent;
+}
+.theme-root.autohide-scrollbars
+  :is(.workspace, .split-preview, .cm-scroller, .folder-list)::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.theme-root.autohide-scrollbars :is(.workspace, .split-preview, .cm-scroller, .folder-list)::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+  border: 3px solid transparent; /* insets the thumb inside its gutter */
+  background-clip: padding-box;
+  background-color: transparent;
+}
+.theme-root.autohide-scrollbars
+  :is(.workspace, .split-preview, .cm-scroller, .folder-list)[data-scrollbars='active']::-webkit-scrollbar-thumb,
+.theme-root.autohide-scrollbars
+  :is(.workspace, .split-preview, .cm-scroller, .folder-list)::-webkit-scrollbar-thumb:hover,
+.theme-root.autohide-scrollbars
+  :is(.workspace, .split-preview, .cm-scroller, .folder-list)::-webkit-scrollbar-thumb:active {
+  background-color: var(--mm-fg-muted, #59636e);
+}

@@ -736,6 +736,38 @@ export function SettingsPanel({
         </div>
       )}
 
+      {/* Issue #167: scrollbars fade when idle; off restores always-visible
+          bars. Takes effect live — the fade installer keys off the value. */}
+      <div className="checkbox-row">
+        <input
+          id="settings-autohide-scrollbars"
+          type="checkbox"
+          data-testid="settings-autohide-scrollbars"
+          checked={settings.autoHideScrollbars}
+          onChange={(e) => onChange({ ...settings, autoHideScrollbars: e.target.checked })}
+        />
+        <label htmlFor="settings-autohide-scrollbars" style={{ margin: 0, fontWeight: 400 }}>
+          Auto-hide scrollbars (show while scrolling or under the pointer)
+        </label>
+        {scopeNote('autoHideScrollbars')}
+      </div>
+
+      {/* Issue #167: hides only the corner button — the sync state itself
+          stays where it is, reachable through View ▸ Sync Scrolling. */}
+      <div className="checkbox-row">
+        <input
+          id="settings-sync-scroll-button"
+          type="checkbox"
+          data-testid="settings-sync-scroll-button"
+          checked={settings.showSyncScrollButton}
+          onChange={(e) => onChange({ ...settings, showSyncScrollButton: e.target.checked })}
+        />
+        <label htmlFor="settings-sync-scroll-button" style={{ margin: 0, fontWeight: 400 }}>
+          Show the sync-scroll button in the split view's corner
+        </label>
+        {scopeNote('showSyncScrollButton')}
+      </div>
+
       <div className="checkbox-row">
         <input
           id="settings-frontmatter"

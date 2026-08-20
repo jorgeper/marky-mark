@@ -32,6 +32,7 @@ import { buildAppMenu } from './lib/appMenu';
 import { modesAreExclusive, planModeSwitch, viewModeForOpen, type ModeTarget } from './lib/modeSwitch';
 import { stepComment } from './lib/commentNav';
 import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
+import { installScrollbarFade } from './lib/autoHideScrollbars';
 import type { EditorSearchHandle, EditorSyncHandle, SmartEditHandle, SmartFormatOp } from './components/Editor';
 import { extractReviewPayload } from './lib/reviewBundle';
 import { buildStaticHtml, statsLine, type StaticComment } from './lib/exportDoc';
@@ -83,7 +84,7 @@ import { ALL_FILE_GRANTS, type FileGrants } from './lib/fileGrants';
 import { uploadRejection } from './lib/fileTransfer';
 import { isSaveConflict, planSaveConflict, type SaveConflictChoice } from './lib/saveConflict';
 import { planMergedSave } from './lib/mergedSave';
-import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton } from './components/FolderPanel';
+import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton, SyncScrollButton } from './components/FolderPanel';
 import { FileTabStrip } from './components/FileTabStrip';
 import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
 import { SearchPanel } from './components/SearchPanel';
@@ -4218,6 +4219,12 @@ export default function App() {
         const st = stateRef.current.settings;
         updateSettings({ ...st, splitEdit: !st.splitEdit });
       },
+      // Issue #167: same shape as Split Edit — the persisted key IS the
+      // state, and the SPEC15 sync effect re-runs off it live.
+      toggleSyncScroll: () => {
+        const st = stateRef.current.settings;
+        updateSettings({ ...st, syncScroll: !st.syncScroll });
+      },
       toggleComments: () => {
         // Master switch off (SPEC7 §2): the comments UI is gone, commands included.
         if (stateRef.current.settings.commentsEnabled) setShowComments((v) => !v);
@@ -4646,6 +4653,9 @@ export default function App() {
       // PRD 011 Reqs 2+23: off ⇒ buildViewItems omits the rows entirely, on
       // both the native menu bar and the in-app View ▸ flyout.
       semanticZoom: settings.semanticZoom,
+      // Issue #167: the sync-scroll checkbox, on both menu surfaces — the
+      // route that stays when showSyncScrollButton hides the corner button.
+      syncScroll: settings.syncScroll,
     }),
     [
       platform,
@@ -4668,6 +4678,7 @@ export default function App() {
       openFiles.length,
       settings.fileTabs,
       settings.semanticZoom,
+      settings.syncScroll,
     ]
   );
 
@@ -5763,12 +5774,32 @@ export default function App() {
     if (cue) applyActiveCues(el, cue.head, cue.headLine, cue.hasSel);
   }, [html, mode, zoomLevel, settings.splitEdit, reanchorAndHighlight, applyActiveCues, copyToClipboard]);
 
+  // Issue #167: auto-hiding scrollbars — ONE document-level installer covers
+  // every fading surface (workspace, split preview, editor, sidebar/search
+  // lists), present and future; off ⇒ nothing installed, no timer running,
+  // and the always-visible bars of before.
+  useEffect(() => {
+    if (!settings.autoHideScrollbars) return;
+    return installScrollbarFade(document);
+  }, [settings.autoHideScrollbars]);
+
+  // Issue #167: true while the split panes were last seen free-scrolling —
+  // the SPEC15 effect below realigns them the moment syncScroll flips on.
+  const syncScrollWasOffRef = useRef(false);
+
   // --- SPEC15: synchronized split scrolling ------------------------------------
   // Whichever pane the user scrolls leads; the other follows within a frame.
   // Programmatic follower writes are counted in `suppress` so they never
   // re-lead (no feedback loop). Ends clamp mutually reachable (§1.3).
   useEffect(() => {
     if (mode !== 'edit' || !settings.splitEdit) return;
+    // Issue #167: syncScroll off ⇒ the panes free-scroll — no subscriptions
+    // at all — and the ref remembers, so the flip back on realigns them
+    // immediately instead of waiting for the next scroll event.
+    if (!settings.syncScroll) {
+      syncScrollWasOffRef.current = true;
+      return;
+    }
     const docEl = splitDocRef.current;
     const scroller = splitPreviewRef.current; // .split-preview (the doc sits in a .docwrap since #19)
     if (!docEl || !scroller) return;
@@ -5850,8 +5881,15 @@ export default function App() {
     const subscribe = () => {
       if (disposed) return;
       const ed = editorSyncRef.current;
-      if (ed) offEditor = ed.onScroll(onEditorScroll);
-      else if (retries-- > 0) requestAnimationFrame(subscribe);
+      if (ed) {
+        offEditor = ed.onScroll(onEditorScroll);
+        // Issue #167: the toggle just flipped back on — the editor leads,
+        // so both panes show the same content again this instant.
+        if (syncScrollWasOffRef.current) {
+          syncScrollWasOffRef.current = false;
+          editorLeads();
+        }
+      } else if (retries-- > 0) requestAnimationFrame(subscribe);
     };
     subscribe();
     scroller.addEventListener('scroll', onPreviewScroll);
@@ -5861,7 +5899,7 @@ export default function App() {
       offEditor?.();
       scroller.removeEventListener('scroll', onPreviewScroll);
     };
-  }, [mode, settings.splitEdit, html]);
+  }, [mode, settings.splitEdit, settings.syncScroll, html]);
 
   // --- active highlight styling -----------------------------------------------------
   useEffect(() => {
@@ -6599,6 +6637,12 @@ export default function App() {
   const rightCluster =
     mode === 'edit' || mayToggleMode ? (
       <>
+        {/* Issue #167: the sync toggle exists only where synchronized
+            scrolling can mean anything — edit mode with the split open —
+            and only while the Settings switch shows it. */}
+        {mode === 'edit' && settings.splitEdit && settings.showSyncScrollButton && (
+          <SyncScrollButton on={settings.syncScroll} onClick={() => dispatchCommand('toggleSyncScroll')} />
+        )}
         {mayToggleMode && <ModeSwitchButton mode={mode} onClick={() => dispatchCommand('toggleMode')} />}
         {mode === 'edit' && (
           <PreviewToggleButton open={settings.splitEdit} onClick={() => dispatchCommand('toggleSplit')} />
@@ -6607,7 +6651,7 @@ export default function App() {
     ) : null;
 
   return (
-    <div className={`theme-root${!nativeMenu ? ' has-toolbar' : ''}${!nativeMenu && !settings.autoHideToolbar ? ' toolbar-static' : ''}`} ref={rootRef}>
+    <div className={`theme-root${!nativeMenu ? ' has-toolbar' : ''}${!nativeMenu && !settings.autoHideToolbar ? ' toolbar-static' : ''}${settings.autoHideScrollbars ? ' autohide-scrollbars' : ''}`} ref={rootRef}>
       {/* SPEC12 §2.1: with a native menu the header does not render at all. */}
       {!nativeMenu && (
         <>

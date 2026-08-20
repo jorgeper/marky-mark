@@ -899,6 +899,8 @@ test('E214: PRD 009 Req 12 — View ▸ opens the shared View items: checked, gr
     'menu-view-toggleFileTabs',
     'menu-view-toggleMode',
     'menu-view-toggleSplit',
+    // Issue #167: sync scrolling rides directly under the split it modifies.
+    'menu-view-toggleSyncScroll',
     'menu-view-toggleComments',
     'menu-view-nextComment',
     'menu-view-prevComment',
