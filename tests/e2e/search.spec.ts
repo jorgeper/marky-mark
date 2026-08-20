@@ -522,3 +522,158 @@ test('E286: with no workspace open the searchAllFiles hotkey is inert — nothin
   expect(seeded.showFolders).toBeUndefined();
   expect(seeded.sidebarView).toBeUndefined();
 });
+
+// PRD 014 Req 9 (issue #153): scan state — the totals line while results
+// exist, the loud no-results block for a query that matches nothing, the
+// scanning indicator that clears on every settle path, and chunked scans that
+// keep the UI responsive with supersession checked between chunks.
+
+/** Seed `count` bulk files (each one 'needle' hit) plus one 'needle42' file. */
+const seedBulkTree = async (page: Page, count: number) => {
+  await seedFolders(page);
+  await page.evaluate((n) => {
+    for (let i = 0; i < n; i++) {
+      window.__mmfs!.write(`/notes/bulk/n-${String(i).padStart(3, '0')}.md`, 'a needle sits here\n');
+    }
+    window.__mmfs!.write('/notes/bulk/special.md', 'the needle42 hit\n');
+  }, count);
+};
+
+/** PRD 014 Req 9: make every readTextFile slow, so a scan is observably in flight. */
+const setReadDelay = (page: Page, ms: number) =>
+  page.evaluate((n) => {
+    window.__mmfs!.readDelayMs = n;
+  }, ms);
+
+test('E287: while results exist the panel totals BOTH numbers — grammatical at 1, updating as the query narrows, absent with nothing to total', async ({
+  page,
+}) => {
+  await seedSearchTree(page);
+  await openSearchView(page);
+
+  // PRD 014 Req 9: one element, both numbers — apple.md's 3 content matches
+  // plus cherry.md's name-only hit make 3 matches across 2 files.
+  await searchFor(page, 'cherry');
+  await expect(page.getByTestId('search-file')).toHaveCount(2);
+  await expect(page.getByTestId('search-totals')).toHaveText('3 matches in 2 files');
+
+  // Narrowing the query updates the totals — and at 1 the wording is
+  // grammatical ('1 match', '1 file' — never '1 files').
+  await searchFor(page, 'cherry again');
+  await expect(page.getByTestId('search-totals')).toHaveText('1 match in 1 file');
+
+  // A name-only hit is a real result with 0 content matches.
+  await searchFor(page, 'apple');
+  await expect(page.getByTestId('search-totals')).toHaveText('0 matches in 1 file');
+
+  // Nothing to total: an emptied query drops the totals with the results.
+  await searchFor(page, '');
+  await expect(page.getByTestId('search-totals')).toHaveCount(0);
+  await expect(page.getByTestId('search-file')).toHaveCount(0);
+});
+
+test('E288: a query that matches nothing shows the LOUD no-results block naming the query — clearing when it matches again, never beside the inline error', async ({
+  page,
+}) => {
+  await seedSearchTree(page);
+  await openSearchView(page);
+
+  // PRD 014 Req 9: a styled block naming the query, not a silently empty list
+  // — and no totals, because there is nothing to total.
+  await searchFor(page, 'xyzzy-nothing');
+  await expect(page.getByTestId('search-no-results')).toBeVisible();
+  await expect(page.getByTestId('search-no-results')).toContainText('xyzzy-nothing');
+  await expect(page.getByTestId('search-file')).toHaveCount(0);
+  await expect(page.getByTestId('search-totals')).toHaveCount(0);
+
+  // A query that matches again clears the block and repaints results.
+  await searchFor(page, 'cherry');
+  await expect(page.getByTestId('search-file')).toHaveCount(2);
+  await expect(page.getByTestId('search-no-results')).toHaveCount(0);
+
+  // An invalid regex is the inline search-error's state ALONE — the two
+  // never show at once (the literal '[cherry' text exists in no file, so
+  // without the exclusion the block would claim this state).
+  await page.getByTestId('search-opt-regex').click();
+  await searchFor(page, '[cherry');
+  await expect(page.getByTestId('search-error')).toBeVisible();
+  await expect(page.getByTestId('search-no-results')).toHaveCount(0);
+
+  // And an emptied query shows neither — nothing was searched.
+  await searchFor(page, '');
+  await expect(page.getByTestId('search-no-results')).toHaveCount(0);
+  await expect(page.getByTestId('search-error')).toHaveCount(0);
+});
+
+test('E289: the scanning indicator shows while a scan is in flight and clears on every settle — results, no-results, an emptied query, an invalid regex', async ({
+  page,
+}) => {
+  await seedBulkTree(page, 120);
+  await openSearchView(page);
+  await setReadDelay(page, 5); // ~120 slow reads: the scan is observably in flight
+
+  // In flight → indicator up; settled on results → indicator gone, totals up.
+  await searchFor(page, 'needle');
+  await expect(page.getByTestId('search-scanning')).toBeVisible();
+  await expect(page.getByTestId('search-scanning')).toHaveCount(0, { timeout: 15000 });
+  await expect(page.getByTestId('search-totals')).toContainText('matches in');
+
+  // Settling on a NO-RESULTS outcome clears it too — the block never shows
+  // while the scan is still in flight (the indicator owns that window).
+  await searchFor(page, 'zqxwv-none');
+  await expect(page.getByTestId('search-scanning')).toBeVisible();
+  await expect(page.getByTestId('search-no-results')).toHaveCount(0);
+  await expect(page.getByTestId('search-scanning')).toHaveCount(0, { timeout: 15000 });
+  await expect(page.getByTestId('search-no-results')).toBeVisible();
+
+  // The query going EMPTY clears the indicator immediately — no waiting for
+  // the abandoned scan to finish its reads.
+  await searchFor(page, 'needle');
+  await expect(page.getByTestId('search-scanning')).toBeVisible();
+  await searchFor(page, '');
+  await expect(page.getByTestId('search-scanning')).toHaveCount(0);
+  await expect(page.getByTestId('search-totals')).toHaveCount(0);
+
+  // An invalid regex mid-flight clears it the same way — the inline error
+  // owns the panel, never a stuck spinner beside it.
+  await page.getByTestId('search-opt-regex').click();
+  await searchFor(page, 'needle');
+  await expect(page.getByTestId('search-scanning')).toBeVisible();
+  await searchFor(page, 'needle[');
+  await expect(page.getByTestId('search-error')).toBeVisible();
+  await expect(page.getByTestId('search-scanning')).toHaveCount(0);
+});
+
+test('E290: a large tree scan never blocks typing — keystrokes land while the indicator is up, and a superseded query\'s late results never paint over the newer one', async ({
+  page,
+}) => {
+  await seedBulkTree(page, 200); // the ~200-file tree the sidebar's seams realistically hand back
+  await openSearchView(page);
+  await setReadDelay(page, 5);
+
+  // Start a broad scan (201 matching files, ~1s of slow reads)…
+  await searchFor(page, 'needle');
+  await expect(page.getByTestId('search-scanning')).toBeVisible();
+
+  // …and keep typing WHILE it runs. Responsiveness is asserted through the
+  // observable interaction — every keystroke lands in the input, character by
+  // character — not through wall-clock thresholds.
+  await page.getByTestId('search-input').press('4');
+  await expect(page.getByTestId('search-input')).toHaveValue('needle4');
+  await page.getByTestId('search-input').press('2');
+  await expect(page.getByTestId('search-input')).toHaveValue('needle42');
+
+  // The narrowed query settles: exactly the one file that holds 'needle42',
+  // labelled with ITS totals.
+  await expect(page.getByTestId('search-totals')).toHaveText('1 match in 1 file', { timeout: 15000 });
+  await expect(page.getByTestId('search-file')).toHaveCount(1);
+  await expect(page.getByTestId('search-file')).toHaveAttribute('data-path', '/notes/bulk/special.md');
+  await expect(page.getByTestId('search-scanning')).toHaveCount(0);
+
+  // The superseded 'needle' scan (201 files) was abandoned between chunks —
+  // give any late stragglers time to arrive, then confirm nothing repainted:
+  // the panel still shows one completed scan of the CURRENT query.
+  await page.waitForTimeout(600);
+  await expect(page.getByTestId('search-file')).toHaveCount(1);
+  await expect(page.getByTestId('search-totals')).toHaveText('1 match in 1 file');
+});
