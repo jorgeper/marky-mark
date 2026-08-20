@@ -33,7 +33,12 @@
  */
 
 import { codeBlockText } from './codeCopy';
-import { fenceLanguage, renderSafely, type FenceRenderer } from './fenceRenderers';
+import {
+  fenceLanguage,
+  renderSafely,
+  type FenceRenderer,
+  type FenceRenderResult,
+} from './fenceRenderers';
 
 /** The diagram host — carries the SVG in its shadow root; also its testid. */
 export const DIAGRAM_CLASS = 'mm-diagram';
@@ -110,16 +115,32 @@ async function renderOne(
   if (result.ok) {
     // PRD 013 Req 3: the SVG (and its <text> labels) enters the shadow tree
     // only — see the module header for why this keeps getDocText byte-identical.
-    const shadow = graftShadow(pre, DIAGRAM_CLASS);
-    shadow.innerHTML = `<style>:host { display: block; } svg { display: block; }</style>${result.svg}`;
+    paintDiagramResult(graftHost(pre, DIAGRAM_CLASS), result);
     markState(pre, 'done');
   } else {
     // PRD 013 Req 10: the code block stays exactly as rendered; the badge —
     // unobtrusive, text shadow-rooted — carries the renderer's message.
-    const shadow = graftShadow(pre, DIAGRAM_ERROR_CLASS);
-    shadow.innerHTML = '<style>:host { display: block; }</style>';
-    shadow.append(pre.ownerDocument.createTextNode(result.message));
+    paintDiagramResult(graftHost(pre, DIAGRAM_ERROR_CLASS), result);
     markState(pre, 'error');
+  }
+}
+
+/**
+ * PRD 013 Req 3/Req 4: fill a host element's shadow root with what a renderer
+ * returned — the SVG as post-sanitize markup (scrubbing it is the renderer's
+ * own contract), a failure message as a TEXT NODE, so a message can carry no
+ * markup at all. Both consumers paint through here — this preview pass and
+ * the edit-pane widget (`components/diagramView.ts`) — so the shadow shape
+ * and that trust posture are stated in one place. The host keeps whatever
+ * shadow root it already has, so a redraw swaps content in place.
+ */
+export function paintDiagramResult(host: HTMLElement, result: FenceRenderResult): void {
+  const shadow = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
+  if (result.ok) {
+    shadow.innerHTML = `<style>:host { display: block; } svg { display: block; }</style>${result.svg}`;
+  } else {
+    shadow.innerHTML = '<style>:host { display: block; }</style>';
+    shadow.append(host.ownerDocument.createTextNode(result.message));
   }
 }
 
@@ -127,9 +148,9 @@ async function renderOne(
  * The block's graft — always the element immediately after its `<pre>`, so a
  * redraw reuses what is there and swaps its content in place. A graft of the
  * other kind (a diagram where a failure now stands, or the reverse) is
- * replaced. Returns the host's shadow root for the caller to fill.
+ * replaced. Returns the host element for `paintDiagramResult` to fill.
  */
-function graftShadow(pre: HTMLElement, className: string): ShadowRoot {
+function graftHost(pre: HTMLElement, className: string): HTMLElement {
   const next = pre.nextElementSibling;
   const previous =
     next instanceof HTMLElement &&
@@ -147,7 +168,7 @@ function graftShadow(pre: HTMLElement, className: string): ShadowRoot {
   }
   host.className = className;
   host.dataset.testid = className;
-  return host.shadowRoot ?? host.attachShadow({ mode: 'open' });
+  return host;
 }
 
 /** PRD 013 Req 11: record where the block stands, for CSS and for tests. */

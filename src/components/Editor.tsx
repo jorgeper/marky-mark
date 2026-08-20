@@ -335,7 +335,7 @@ interface Props {
   /** PRD 013 Req 6: the Diagram ▸ toggle flips the setting (App persists it). */
   onToggleDiagramView?(): void;
   /** PRD 013 Req 9: the app's active theme side — diagram widgets draw to match. */
-  themeVariant?: 'light' | 'dark';
+  themeVariant: 'light' | 'dark';
 }
 
 /**
@@ -647,7 +647,7 @@ export default function Editor({
   onToggleCodeBlockView,
   diagramView,
   onToggleDiagramView,
-  themeVariant = 'light',
+  themeVariant,
   readOnly = false,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);

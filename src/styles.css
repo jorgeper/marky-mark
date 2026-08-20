@@ -558,7 +558,7 @@ button {
   border-color: var(--mm-accent, #0969da);
 }
 
-/* ---------- PRD 013: fence diagrams in the rendered panes ---------- */
+/* ---------- PRD 013: fence diagrams, preview pane then edit pane ---------- */
 
 /* PRD 013 Req 3: a drawn fence's code is hidden, never removed — getDocText's
    TreeWalker ignores CSS, so the block's text nodes keep anchoring comments
@@ -599,7 +599,7 @@ button {
    at the source's natural height so nothing collapses. */
 .editor-wrap .mm-editor-diagram .mm-editor-diagram-source {
   margin: 0;
-  font-family: var(--mm-mono, ui-monospace, monospace);
+  font-family: var(--mm-font-mono, monospace);
   font-size: 0.85em;
   white-space: pre-wrap;
   opacity: 0.75;
