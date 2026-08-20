@@ -850,6 +850,22 @@ export function SettingsPanel({
       </div>
       {imageFolderRow}
       {imagePatternRow}
+
+      {/* Issue #157: the fenced-code card view, beside its Tables/Images kin. */}
+      <h3 className="tab-section">Code</h3>
+      <div className="checkbox-row">
+        <input
+          id="settings-code-block-view"
+          type="checkbox"
+          data-testid="settings-code-block-view"
+          checked={settings.codeBlockView}
+          onChange={(e) => onChange({ ...settings, codeBlockView: e.target.checked })}
+        />
+        <label htmlFor="settings-code-block-view" style={{ margin: 0, fontWeight: 400 }}>
+          Show code blocks as cards in the editor
+        </label>
+        {scopeNote('codeBlockView')}
+      </div>
     </>
   );
 

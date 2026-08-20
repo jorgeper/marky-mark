@@ -62,6 +62,7 @@ import {
   type SmartMenuEntry,
 } from '../lib/smartEdit';
 import { SmartEditMenu } from './SmartEditMenu';
+import { codeBlockViewExtension } from './codeBlockView';
 import { imageViewExtension, setImageView } from './imageView';
 import { livePreviewExtension } from './livePreview';
 import { allImageRefs, applyImageRewrite, deleteImageAt, type ImageRef } from '../lib/imageResize';
@@ -323,6 +324,10 @@ interface Props {
   onToggleInlineImages?(): void;
   /** SPEC41 §1.2: Insert Image… dispatches the SPEC20 picker flow. */
   onInsertImage?(): void;
+  /** Issue #157: render ALL fenced code blocks as cards (the global view setting). */
+  codeBlockView: boolean;
+  /** Issue #157: the Code Block ▸ toggle flips the setting (App persists it). */
+  onToggleCodeBlockView?(): void;
 }
 
 /**
@@ -630,6 +635,8 @@ export default function Editor({
   resolveImageSrc,
   onToggleInlineImages,
   onInsertImage,
+  codeBlockView,
+  onToggleCodeBlockView,
   readOnly = false,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -649,6 +656,8 @@ export default function Editor({
   const codeSynComp = useRef(new Compartment()); // Issue #122
   // PRD 006 §1: live preview rides its own compartment, same live-toggle pattern.
   const lpComp = useRef(new Compartment());
+  // Issue #157: the fenced-code card view, same live-toggle pattern.
+  const codeCardComp = useRef(new Compartment());
   const smartComp = useRef(new Compartment());
   // PRD 007 Req 17: read-only rides a compartment like every other live prop.
   const readOnlyComp = useRef(new Compartment());
@@ -675,8 +684,8 @@ export default function Editor({
   inlineImagesRef.current = inlineImages;
   const resolveImageSrcRef = useRef(resolveImageSrc);
   resolveImageSrcRef.current = resolveImageSrc;
-  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage });
-  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage };
+  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView });
+  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView };
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const valueRef = useRef(value);
@@ -727,6 +736,8 @@ export default function Editor({
         // SPEC40 §1.2 / SPEC41 §1.2: the global view states at menu-open.
         gridView: sp.tableGridView,
         imageView: sp.inlineImages,
+        // Issue #157: the fenced-code card view state, same pattern.
+        codeView: sp.codeBlockView,
       }),
     });
   };
@@ -856,6 +867,12 @@ export default function Editor({
     }
     if (id === 'toggle-images') {
       sp.onToggleInlineImages?.();
+      view.focus();
+      return;
+    }
+    // Issue #157: the fenced-code card view's global toggle, same pattern.
+    if (id === 'toggle-code-blocks') {
+      sp.onToggleCodeBlockView?.();
       view.focus();
       return;
     }
@@ -1150,6 +1167,10 @@ export default function Editor({
         resolve: (src) => (resolveImageSrcRef.current ? resolveImageSrcRef.current(src) : src),
         onSelect: (ref) => setSelectedImage(ref),
       }),
+      // Issue #157: the fenced-code card view — pure decoration, present only
+      // while the setting is on; after table mode so it can read the grid
+      // spans it must exclude.
+      codeCardComp.current.of(codeBlockView ? codeBlockViewExtension() : []),
       history(),
       highlightActiveLine(),
       // SPEC44 §2: word-under-caret decoration (cleared while selecting).
@@ -1576,6 +1597,14 @@ export default function Editor({
     else collapseAllGrids(view);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableGridView]);
+
+  // Issue #157: the card-view toggle is a compartment reconfigure — restyle
+  // only, so no text, no history, no dirty dot, ever.
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: codeCardComp.current.reconfigure(codeBlockView ? codeBlockViewExtension() : []),
+    });
+  }, [codeBlockView]);
 
   // SPEC41 §2.3: flipping the image view is an effect-only dispatch — no
   // text, no history, no dirty dot, ever.

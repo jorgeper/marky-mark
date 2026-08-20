@@ -732,6 +732,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Issue #157: the Code Block ▸ toggle and the Settings checkbox flip this.
+  const toggleCodeBlockView = useCallback(() => {
+    const s = stateRef.current.settings;
+    updateSettings({ ...s, codeBlockView: !s.codeBlockView });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // SPEC41 §2.1: the edit-pane widgets resolve local srcs through the same
   // asset seam the preview uses; identity without a platform or saved doc.
   const resolveEditorImage = useCallback((src: string) => {
@@ -6940,6 +6947,8 @@ export default function App() {
                 resolveImageSrc={resolveEditorImage}
                 onToggleInlineImages={toggleInlineImages}
                 onInsertImage={() => void insertImage()}
+                codeBlockView={settings.codeBlockView}
+                onToggleCodeBlockView={toggleCodeBlockView}
               />
             </Suspense>
           </div>
@@ -7018,6 +7027,8 @@ export default function App() {
               resolveImageSrc={resolveEditorImage}
               onToggleInlineImages={toggleInlineImages}
               onInsertImage={() => void insertImage()}
+              codeBlockView={settings.codeBlockView}
+              onToggleCodeBlockView={toggleCodeBlockView}
             />
           </Suspense>
         </div>

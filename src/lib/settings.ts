@@ -88,6 +88,8 @@ export interface Settings {
   tableGridView: boolean;
   /** SPEC41 §1: render ALL images inline in the editor (default on). */
   inlineImages: boolean;
+  /** Issue #157: fenced code blocks render as preview-style cards in the editor (default on). */
+  codeBlockView: boolean;
   /** SPEC26 §3: show the front-matter card by default when a doc has one. */
   showFrontmatter: boolean;
   /** SPEC34 §2.2: the folder sidebar's visibility (persisted toggle). */
@@ -172,6 +174,8 @@ export const DEFAULT_SETTINGS: Settings = {
   livePreview: false,
   tableGridView: true,
   inlineImages: true,
+  // Issue #157: like tables and images, code blocks ship rendered.
+  codeBlockView: true,
   showFrontmatter: true,
   showFolders: false,
   folderWidth: 240,
@@ -245,6 +249,9 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   livePreview: 'U',
   tableGridView: 'U',
   inlineImages: 'U',
+  // Issue #157: User scope like its two view neighbours above — how code
+  // reads in someone's editor is theirs, not a workspace's to dictate.
+  codeBlockView: 'U',
   showFrontmatter: 'U',
   showFolders: 'M',
   folderWidth: 'M',
@@ -350,6 +357,7 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   livePreview: bool,
   tableGridView: bool,
   inlineImages: bool,
+  codeBlockView: bool,
   showFrontmatter: bool,
   showFolders: bool,
   folderWidth: clampedInt(FOLDER_WIDTH_MIN, FOLDER_WIDTH_MAX),

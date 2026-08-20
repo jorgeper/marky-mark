@@ -32,6 +32,9 @@ describe('PRD 002 §B5 scope inventory', () => {
       semanticZoom: 'U',
       tableGridView: 'U',
       inlineImages: 'U',
+      // Issue #157: the fenced-code card view sits beside its two view
+      // neighbours — a reader's own preference.
+      codeBlockView: 'U',
       showFrontmatter: 'U',
       showWordCount: 'U',
       showResolved: 'U',

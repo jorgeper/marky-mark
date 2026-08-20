@@ -24,6 +24,7 @@ const ctx = (over: Partial<SmartMenuCtx> = {}): SmartMenuCtx => ({
   isMac: true,
   gridView: true, // SPEC40 §6 amendment to U65
   imageView: true, // SPEC41 §8 amendment to U65
+  codeView: true, // Issue #157 amendment to U65
   ...over,
 });
 
@@ -43,8 +44,9 @@ describe('SPEC43 smart edit', () => {
     // always-present Table submenu; Resize Image… stays contextual.
     // SPEC41 §8 amendment: the Image submenu sits below Table (always
     // present); the SPEC43 top-level resize-image stub is gone.
+    // Issue #157 amendment: the Code Block submenu joins them, after Image.
     expect(ids(buildSmartMenu(ctx()))).toEqual([
-      'table', 'image',
+      'table', 'image', 'code-block-view',
       'sep',
       'bold', 'italic', 'strike', 'code', 'link',
       'sep',
@@ -162,6 +164,19 @@ describe('SPEC43 smart edit', () => {
     // A plain link is not an image.
     const link = 'see [alt](pics/a.png) now';
     expect(detectContext(link, link.indexOf('alt')).image).toBe(false);
+  });
+
+  test('U736: issue #157 — the Code Block submenu carries the always-enabled global toggle, labeled by the view state', () => {
+    const sub = (c: SmartMenuCtx) =>
+      find(buildSmartMenu(c), 'code-block-view').submenu!.map((e) => e !== 'sep' && [e.id, e.label, e.enabled]);
+    // Rendered (the default): the toggle offers the way back to raw.
+    expect(sub(ctx({ codeView: true }))).toEqual([['toggle-code-blocks', 'Show Raw Code', true]]);
+    // Raw: it offers the cards, mirroring Show Raw Tables / Show Raw Images.
+    expect(sub(ctx({ codeView: false }))).toEqual([['toggle-code-blocks', 'Show Rendered Code', true]]);
+    // The submenu's ids stay clear of the top-level Inline Code / insert items.
+    const top = buildSmartMenu(ctx());
+    expect(find(top, 'code').label).toBe('Inline Code');
+    expect(find(top, 'code-block').label).toBe('Code Block');
   });
 
   test('U66: inline toggles and link', () => {

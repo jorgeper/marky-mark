@@ -796,3 +796,89 @@ test('E261: selection over code — the tint paints above --mm-code-bg in the ed
       .evaluate((el) => getComputedStyle(el, '::selection').backgroundColor),
   ).toBe('rgba(9, 105, 218, 0.18)');
 });
+
+// --- Issue #157: fenced code blocks as cards in the edit pane ----------------
+
+test('E309: issue #157 — code blocks render as cards by default, caret reveal, the Smart Edit toggle and the Settings checkbox flip and persist, preview untouched', async ({
+  page,
+}) => {
+  const DOC = 'intro\n\n```js\nconst a = 1;\nconst b = 2;\n```\n\noutro\n';
+  await fsWrite(page, '/docs/code157.md', DOC);
+  await page.goto('/#open=/docs/code157.md');
+  await expect(page.getByTestId('doc')).toContainText('intro');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  await expect(content).toBeVisible();
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+
+  // Rendered by default: card chrome on all four block lines (delimiters
+  // included — they read as the card's padding rows), the fence marks and
+  // info string hidden, the body still real highlighted editor text, and
+  // the caret-park on line one keeps the block un-revealed.
+  await editor.locator('.cm-line').filter({ hasText: 'intro' }).click();
+  await expect(editor.locator('.cm-line.mm-fence-card')).toHaveCount(4);
+  await expect(editor.locator('.cm-line.mm-fence-card-first')).toHaveCount(1);
+  await expect(editor.locator('.cm-line.mm-fence-card-last')).toHaveCount(1);
+  await expect(content).toContainText('const a = 1;');
+  await expect(editor.locator('.mm-code-keyword').first()).toBeVisible(); // codeSyntax still colours
+  expect(await text()).not.toContain('```');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // Caret reveal: click INTO the body — that block's delimiters show raw.
+  await editor.locator('.cm-line').filter({ hasText: 'const a' }).click();
+  await expect(content).toContainText('```js');
+  // The body is ordinary editable text: typing lands in the document…
+  await page.keyboard.press('End');
+  await page.keyboard.type(' // note');
+  await expect(content).toContainText('const a = 1; // note');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  // …and one undo restores the buffer (and the clean state).
+  await page.keyboard.press('Control+z');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  // Caret out — the delimiters hide again.
+  await editor.locator('.cm-line').filter({ hasText: 'outro' }).click();
+  expect(await text()).not.toContain('```');
+
+  // Code Block ▸ "Show Raw Code": every block drops to raw fences at once.
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-code-block-view').click();
+  await expect(page.getByTestId('smart-edit-toggle-code-blocks')).toHaveText(/Show Raw Code/);
+  await page.getByTestId('smart-edit-toggle-code-blocks').click();
+  await expect(editor.locator('.cm-line.mm-fence-card')).toHaveCount(0);
+  await expect(content).toContainText('```js');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // The Settings checkbox reflects the flip and drives it back on.
+  await openSettings(page);
+  await page.getByTestId('settings-tab-editor').click();
+  await expect(page.getByTestId('settings-code-block-view')).not.toBeChecked();
+  await page.getByTestId('settings-code-block-view').check();
+  await page.getByTestId('settings-close').click();
+  await expect(editor.locator('.cm-line.mm-fence-card')).toHaveCount(4);
+
+  // Off again, and the setting survives a reload.
+  await openSettings(page);
+  await page.getByTestId('settings-tab-editor').click();
+  await page.getByTestId('settings-code-block-view').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect(editor.locator('.cm-line.mm-fence-card')).toHaveCount(0);
+  await page.reload();
+  // Issue #125: the reload reopens in the remembered edit mode.
+  await expect(content).toBeVisible();
+  await expect(content).toContainText('```js');
+  await expect(editor.locator('.cm-line.mm-fence-card')).toHaveCount(0);
+
+  // The menu label flipped; it brings the cards back — and no text changed
+  // anywhere in the journey.
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-code-block-view').click();
+  await expect(page.getByTestId('smart-edit-toggle-code-blocks')).toHaveText(/Show Rendered Code/);
+  await page.getByTestId('smart-edit-toggle-code-blocks').click();
+  await expect(editor.locator('.cm-line.mm-fence-card')).toHaveCount(4);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // The preview pane is byte-identical either way: the split preview shows
+  // the same rehype code card regardless of the editor setting.
+  await expect(page.getByTestId('split-preview').locator('pre code')).toContainText('const a = 1;');
+});

@@ -3186,6 +3186,38 @@ mark.hl.ghost {
   background: var(--mm-code-bg, rgba(9, 105, 218, 0.05));
 }
 
+/* ---------- Issue #157: fenced code blocks as cards in the edit pane ---------- */
+
+/* The preview's code-card look (.doc pre: --mm-code-bg, 9px radius) painted
+   per line, with a 1px --mm-border ring drawn as inset box-shadow. No padding
+   and no real border: the lines keep their exact raw geometry, so the caret
+   never shifts and toggling the view moves no text. The hidden delimiter
+   lines stay as blank rows — they read as the card's vertical padding. */
+.editor-wrap .cm-line.mm-fence-card {
+  background: var(--mm-code-bg, #f6f8fa);
+  box-shadow:
+    inset 1px 0 var(--mm-border, #d1d9e0),
+    inset -1px 0 var(--mm-border, #d1d9e0);
+}
+.editor-wrap .cm-line.mm-fence-card-first {
+  border-radius: 9px 9px 0 0;
+  box-shadow:
+    inset 0 1px var(--mm-border, #d1d9e0),
+    inset 1px 0 var(--mm-border, #d1d9e0),
+    inset -1px 0 var(--mm-border, #d1d9e0);
+}
+.editor-wrap .cm-line.mm-fence-card-last {
+  border-radius: 0 0 9px 9px;
+  box-shadow:
+    inset 0 -1px var(--mm-border, #d1d9e0),
+    inset 1px 0 var(--mm-border, #d1d9e0),
+    inset -1px 0 var(--mm-border, #d1d9e0);
+}
+.editor-wrap .cm-line.mm-fence-card-first.mm-fence-card-last {
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 1px var(--mm-border, #d1d9e0);
+}
+
 /* §4: the chip layer — overlay only, children opt back into pointer events. */
 .table-chip-layer {
   position: absolute;
