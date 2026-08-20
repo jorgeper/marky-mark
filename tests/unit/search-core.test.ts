@@ -138,11 +138,14 @@ describe('PRD 014 Req 7 — per-file match extraction with line context', () => 
   });
 
   test('U689: zero-length regex matches advance instead of looping forever', () => {
-    const hits = findMatches('ab', matcher('a*', { regex: true }));
-    // Terminates, and still reports the real 'a' run alongside the empty hits.
-    expect(hits).toContainEqual({ line: 1, lineText: 'ab', start: 0, end: 1 });
-    expect(hits.length).toBeLessThanOrEqual(3);
-    for (const h of hits) expect(h.end).toBeGreaterThanOrEqual(h.start);
+    // Terminates, reports the real 'a' run, and each empty hit sits one
+    // position further on — the exact sequence, so a regression in the
+    // advance shows up as a diff rather than as a hang.
+    expect(findMatches('ab', matcher('a*', { regex: true }))).toEqual([
+      { line: 1, lineText: 'ab', start: 0, end: 1 },
+      { line: 1, lineText: 'ab', start: 1, end: 1 },
+      { line: 1, lineText: 'ab', start: 2, end: 2 },
+    ]);
   });
 
   test('U690: \\r\\n and \\n line endings produce the same line numbers and text', () => {
@@ -151,6 +154,15 @@ describe('PRD 014 Req 7 — per-file match extraction with line context', () => 
     const expected = [{ line: 2, lineText: 'two cat', start: 4, end: 7 }];
     expect(findMatches(unix, matcher('cat'))).toEqual(expected);
     expect(findMatches(windows, matcher('cat'))).toEqual(expected);
+  });
+
+  test('U695: matching is per line — anchors bind to the line, and no pattern spans a break', () => {
+    const text = 'one\ntwo one';
+    // `^` and `$` bind to each line, not to the file: `one$` hits both lines.
+    expect(findMatches(text, matcher('one$', { regex: true })).map((h) => h.line)).toEqual([1, 2]);
+    expect(findMatches(text, matcher('^one', { regex: true })).map((h) => h.line)).toEqual([1]);
+    // The terminator is not part of any line, so nothing can match across one.
+    expect(findMatches(text, matcher('one\\ntwo', { regex: true }))).toEqual([]);
   });
 });
 

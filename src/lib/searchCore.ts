@@ -59,22 +59,17 @@ function escapeRegExp(literal: string): string {
 }
 
 function matcherFrom(source: string, flags: string): SearchMatcher {
-  // Two instances because `g` makes `lastIndex` sticky state: `findAll` owns
-  // the global one (reset on entry), `test` uses a stateless twin.
+  // Two instances because `g` turns `lastIndex` into carried-over state, and
+  // `RegExp.test` would advance it between calls. `matchAll` is immune: it
+  // iterates a clone, so `finder.lastIndex` never moves and one matcher scans
+  // any number of files. PRD 014 Req 6: `matchAll` is also what makes a
+  // zero-length match (e.g. `a*`) advance past its position rather than
+  // re-match it forever, so the scan cannot loop.
   const finder = new RegExp(source, `${flags}g`);
   const tester = new RegExp(source, flags);
   return {
     findAll(text: string): MatchRange[] {
-      const out: MatchRange[] = [];
-      finder.lastIndex = 0;
-      let m: RegExpExecArray | null;
-      while ((m = finder.exec(text)) !== null) {
-        out.push({ start: m.index, end: m.index + m[0].length });
-        // PRD 014 Req 6: a zero-length match (e.g. `a*`) advances past its
-        // position instead of re-matching it forever.
-        if (m[0].length === 0) finder.lastIndex++;
-      }
-      return out;
+      return [...text.matchAll(finder)].map((m) => ({ start: m.index, end: m.index + m[0].length }));
     },
     test(text: string): boolean {
       return tester.test(text);
@@ -123,8 +118,14 @@ export interface LineMatch {
 
 /**
  * PRD 014 Req 7: every match in one file's text, in document order — multiple
- * hits on a line each get their own entry. Matching runs per line, so offsets
- * are already line-relative and `\n` vs `\r\n` cannot skew line numbers.
+ * hits on a line each get their own entry.
+ *
+ * The matcher runs against one line at a time, which buys two things and costs
+ * one. It buys line-relative offsets for free, and it makes every terminator
+ * (`\n`, `\r\n`, and a lone `\r`) count as exactly one break, so line numbers
+ * cannot skew. It costs cross-line matching: `^` and `$` anchor to each line
+ * rather than to the file, and no pattern can span a line break. Both surfaces
+ * sharing this module get that same rule, which is the point.
  */
 export function findMatches(text: string, matcher: SearchMatcher): LineMatch[] {
   const out: LineMatch[] = [];
