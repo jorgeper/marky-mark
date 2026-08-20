@@ -2159,7 +2159,7 @@ export default function App() {
           setOpenPrompt({ kind: 'close-file', path });
           return;
         }
-        void finishCloseFile(p, path);
+        await finishCloseFile(p, path);
       })();
     },
     [parkAndOpen, finishCloseFile, parkedDirty]
@@ -2198,6 +2198,20 @@ export default function App() {
     }
     closeQueueRef.current = null;
   }, [parkAndOpen, finishCloseFile]);
+
+  /**
+   * PRD 013 Req 7: a close-file prompt resolved (Save or Don't save) — finish
+   * that close, then hand back to the walk if one armed the queue. Both the
+   * single ✕'s prompt and a walk step's prompt land here; with no walk armed
+   * the second half is a no-op.
+   */
+  const finishCloseFileStep = useCallback(
+    async (p: Platform, path: string) => {
+      await finishCloseFile(p, path);
+      if (closeQueueRef.current) await processCloseWalk();
+    },
+    [finishCloseFile, processCloseWalk]
+  );
 
   /** PRD 013 Req 7: arm the walk — targets with dirtiness snapshotted now. */
   const startCloseWalk = useCallback(
@@ -6806,12 +6820,7 @@ export default function App() {
                   const intent = openPrompt;
                   setOpenPrompt(null);
                   if (intent.kind === 'open') void parkAndOpen(platform, intent.path);
-                  else if (intent.kind === 'close-file')
-                    void (async () => {
-                      await finishCloseFile(platform, intent.path);
-                      // PRD 013 Req 7: a walk step resolved — next target.
-                      if (closeQueueRef.current) void processCloseWalk();
-                    })();
+                  else if (intent.kind === 'close-file') void finishCloseFileStep(platform, intent.path);
                   else if (intent.kind === 'close-untitled') closeToSplash(); // issue #22
                   // PRD 009 Req 13: the guard cleared — New File resumes on
                   // whichever path this platform has (untitled buffer / picker).
@@ -6834,11 +6843,8 @@ export default function App() {
                     return;
                   }
                   if (intent.kind === 'open') void parkAndOpen(platform, intent.path);
-                  else if (intent.kind === 'close-file') {
-                    await finishCloseFile(platform, intent.path);
-                    // PRD 013 Req 7: a walk step resolved — next target.
-                    if (closeQueueRef.current) void processCloseWalk();
-                  } else if (intent.kind === 'close-untitled') {
+                  else if (intent.kind === 'close-file') await finishCloseFileStep(platform, intent.path);
+                  else if (intent.kind === 'close-untitled') {
                     // Issue #22: the untitled buffer just became a real file
                     // (Save As ran inside saveDoc) — now close it for real.
                     const saved = stateRef.current.docPath;

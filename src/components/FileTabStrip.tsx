@@ -8,8 +8,9 @@
  * Its only state is transient UI: the Req 7 context menu's anchor.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { fileTabContextMenu } from '../lib/fileTabs';
+import { useAnchoredMenu } from './anchoredMenu';
 
 export interface FileTabStripProps {
   /** SPEC36 §1: the open set, tree-ordered — exactly one tab each. */
@@ -132,41 +133,10 @@ function Tab({ active, label, title, path, dirty, onClick, onClose, onMenu }: {
 export function FileTabStrip(p: FileTabStripProps) {
   // PRD 013 Req 7: the context menu's anchor — transient UI state only.
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // SPEC35 §3.2: positioned at the pointer, clamped to the viewport.
-  useLayoutEffect(() => {
-    const el = menuRef.current;
-    if (!el || !menu) return;
-    const r = el.getBoundingClientRect();
-    el.style.left = `${Math.max(4, Math.min(menu.x, window.innerWidth - r.width - 4))}px`;
-    el.style.top = `${Math.max(4, Math.min(menu.y, window.innerHeight - r.height - 4))}px`;
-  }, [menu]);
-
-  // SPEC35 §3.2: dismissed by Esc, any outside pointer-down, scroll, resize.
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    const onDown = (e: PointerEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) close();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        close();
-      }
-    };
-    document.addEventListener('pointerdown', onDown);
-    document.addEventListener('keydown', onKey, true);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    return () => {
-      document.removeEventListener('pointerdown', onDown);
-      document.removeEventListener('keydown', onKey, true);
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
-    };
-  }, [menu]);
+  // SPEC35 §3.2: anchored at the pointer and dismissed by Esc / outside
+  // pointer-down / scroll / resize — the very behaviour the sidebar's
+  // folder-menu gets, from the one shared hook.
+  const menuRef = useAnchoredMenu(menu, () => setMenu(null));
 
   return (
     <div className="file-tab-strip" data-testid="file-tab-strip" role="tablist">
@@ -216,11 +186,19 @@ export function FileTabStrip(p: FileTabStripProps) {
               className="theme-option"
               data-testid={`file-tab-menu-${it.id}`}
               onClick={() => {
-                const m = menu;
+                const target = menu.path;
                 setMenu(null);
-                if (it.id === 'close') p.onClose(m.path);
-                else if (it.id === 'close-others') p.onCloseOthers(m.path);
-                else p.onCloseAll();
+                switch (it.id) {
+                  case 'close':
+                    p.onClose(target);
+                    break;
+                  case 'close-others':
+                    p.onCloseOthers(target);
+                    break;
+                  case 'close-all':
+                    p.onCloseAll();
+                    break;
+                }
               }}
             >
               <span>{it.label}</span>
