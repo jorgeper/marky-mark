@@ -6241,7 +6241,9 @@ export default function App() {
           only — it takes the flex slot the workspace held and turns it into a
           column, so the strip spans the full width of the WORKSPACE alone
           (the sidebar is a body-row sibling it can never extend over), above
-          the preview, split and full-edit branches alike. */}
+          the preview, split and full-edit branches alike. Its `with-tabs`
+          hands the workspace's static-toolbar clearance to the strip, which
+          is now the column's top edge (styles.css). */}
       <div className={`workspace-stack${showFileTabs ? ' with-tabs' : ''}`}>
       {showFileTabs && (
         <FileTabStrip

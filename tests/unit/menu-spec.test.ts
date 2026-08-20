@@ -592,8 +592,7 @@ describe('PRD 013 Req 13: the File Tabs View item', () => {
   test('U681: without the tab-strip seam the row is absent, not disabled — pre-#144 states keep their exact menu', () => {
     // fileTabs undefined = a flavor with no strip (web/hosted): no row at
     // all, and every other View item is exactly what it was.
-    const { fileTabs: _fileTabs, ...rest } = base;
-    const without = rest as MenuState;
+    const { fileTabs: _fileTabs, ...without } = base;
     expect(find(without, 'View', 'toggleFileTabs')).toBeUndefined();
     const withRow = commandsIn(base, 'View').map((i) => i.command);
     const withoutRow = commandsIn(without, 'View').map((i) => i.command);

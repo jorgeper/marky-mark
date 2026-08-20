@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { freshApp, fsRead, fsWrite, openNotesRoot, revealToolbar, seedFolders } from './helpers';
 
@@ -15,25 +15,25 @@ test.beforeEach(async ({ page }) => {
 const tabPaths = (page: Page) =>
   page.getByTestId('file-tab').evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.tab));
 
-/** Open the in-app View ▸ flyout and click the File Tabs row. */
-async function toggleFileTabsViaMenu(page: Page): Promise<void> {
+/** Open the in-app View ▸ flyout and hand back its File Tabs row. */
+async function openFileTabsRow(page: Page): Promise<Locator> {
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('menu-view').click();
-  await page.getByTestId('app-menu-view').getByTestId('menu-view-toggleFileTabs').click();
+  return page.getByTestId('app-menu-view').getByTestId('menu-view-toggleFileTabs');
+}
+
+/** Choose View ▸ File Tabs (the click closes the whole menu itself). */
+async function toggleFileTabsViaMenu(page: Page): Promise<void> {
+  await (await openFileTabsRow(page)).click();
 }
 
 /** The File Tabs row's aria-checked, read with the flyout open, then closed. */
 async function fileTabsChecked(page: Page): Promise<string | null> {
-  await revealToolbar(page);
-  await page.getByTestId('menu-btn').click();
-  await page.getByTestId('menu-view').click();
-  const checked = await page
-    .getByTestId('app-menu-view')
-    .getByTestId('menu-view-toggleFileTabs')
-    .getAttribute('aria-checked');
-  // The menu dismisses on an outside mousedown (Toolbar.tsx), not Escape.
-  await page.mouse.click(1000, 600);
+  const checked = await (await openFileTabsRow(page)).getAttribute('aria-checked');
+  // The menu dismisses on an outside mousedown (Toolbar.tsx), not Escape —
+  // the inert `.docname` span is E215's dismiss target.
+  await page.getByTestId('docname').click();
   await expect(page.getByTestId('app-menu')).toHaveCount(0);
   return checked;
 }
