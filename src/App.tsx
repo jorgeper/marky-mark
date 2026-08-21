@@ -93,6 +93,7 @@ import { DEFAULT_SEARCH_OPTIONS } from './lib/searchOptions';
 import { matchDocOffsets, runSearchScan } from './lib/searchScan';
 import { deriveSearchView } from './lib/searchView';
 import {
+  centeredColumnOffset,
   SLIDE_SETTLE_MS,
   slideClasses,
   slideMounted,
@@ -2814,6 +2815,63 @@ export default function App() {
   // restores) switch instantly, exactly as before this PRD.
   const armFolderSlide = useRef(false);
   const armSplitSlide = useRef(false);
+  // Issue #165: the centred text column's offset from its pane's left edge —
+  // the distance the column glides during the split slide. Measured at toggle
+  // time (the only moment both end states are known) and published to CSS as
+  // --mm-split-text-nudge on the workspace element.
+  const splitNudgeRef = useRef(0);
+  // Issue #165: an opening toggle's pre-render is in flight — a second
+  // splitEdit edit inside that window commits directly instead of stacking
+  // another render (the html it needs is already on the way).
+  const splitPrerenderRef = useRef(false);
+
+  /**
+   * Issue #165: where the centred text column WOULD sit at full pane width —
+   * both ends of the split slide (open starts there, close lands there), so
+   * one measurement serves both directions. The full width is the
+   * workspace's, floored at the editor wrap's min width (past that the
+   * workspace scrolls sideways instead of crushing the column).
+   */
+  const measureSplitNudge = useCallback((): number => {
+    const ws = workspaceRef.current;
+    const wrap = ws?.querySelector<HTMLElement>('.editor-wrap');
+    const scroller = wrap?.querySelector<HTMLElement>('.cm-editor .cm-scroller');
+    const content = scroller?.querySelector<HTMLElement>('.cm-content');
+    if (!ws || !wrap || !scroller || !content) return 0;
+    const maxW = parseFloat(getComputedStyle(content).maxWidth);
+    if (!Number.isFinite(maxW)) return 0; // an uncapped column fills the pane
+    const minW = parseFloat(getComputedStyle(wrap).minWidth);
+    const full = Math.max(ws.clientWidth, Number.isFinite(minW) ? minW : 0);
+    const gutters = scroller.querySelector<HTMLElement>('.cm-gutters');
+    return centeredColumnOffset(full, gutters?.offsetWidth ?? 0, maxW);
+  }, []);
+
+  /**
+   * Issue #165: render the buffer BEFORE an opening split toggle flips the
+   * setting, so the pane mounts already holding its content and the slide
+   * never runs over a blank pane. This is the named "the split just opened"
+   * path; keystroke re-renders keep their 200ms coalescing debounce in the
+   * SPEC7 §5 effect. `commit` runs either way — a render that fails, or that
+   * lands after a doc swap (the epoch moved), still flips the setting and
+   * lets the debounced path fill the pane as before.
+   */
+  const prerenderSplitPane = useCallback(
+    (commit: () => void) => {
+      splitPrerenderRef.current = true;
+      const epoch = docEpochRef.current;
+      void renderMarkdown(canonicalOf(stateRef.current.buffer))
+        .catch(() => null)
+        .then((rendered) => {
+          splitPrerenderRef.current = false;
+          if (rendered !== null && epoch === docEpochRef.current) {
+            renderPendingRef.current = false; // fresh html — restores may consume
+            setHtml(rendered);
+          }
+          commit();
+        });
+    },
+    [canonicalOf]
+  );
 
   // --- settings persistence ---------------------------------------------------
   /**
@@ -2826,31 +2884,44 @@ export default function App() {
   const applySettingsEdit = useCallback(
     (scope: SettingsScopeTab, patch: Partial<Settings>) => {
       if (Object.keys(patch).length === 0) return;
+      const commit = () => {
+        if (scope === 'workspace') {
+          const ws = curWorkspaceRef.current;
+          if (ws.kind === 'none') return;
+          updateWorkspace({ ...ws, settings: sanitizeWorkspaceSettings({ ...ws.settings, ...patch }) });
+          return;
+        }
+        // An explicit user edit beats any session-only override of the same key.
+        for (const k of Object.keys(patch) as Array<keyof Settings>) delete sessionOverridesRef.current[k];
+        settingsLayersRef.current.user = { ...settingsLayersRef.current.user, ...patch };
+        applyResolved();
+        const p = stateRef.current.platform;
+        if (!p) return;
+        void (async () => {
+          const path = p.join(await p.configDir(), 'settings.json');
+          await p.writeTextFile(path, serializeSettingsLayer(settingsLayersRef.current.user));
+        })();
+      };
       // PRD 003 Req 12: an explicit splitEdit edit slides the pane. Every
       // surface — the toggleSplit command (chevrons, View menu, Mod+\) and
       // the Settings checkbox in the overlay or the aux window — lands here;
       // programmatic resolution changes (workspace open/close) never do.
       if (patch.splitEdit !== undefined && patch.splitEdit !== stateRef.current.settings.splitEdit) {
         armSplitSlide.current = true;
+        // Issue #165: capture the glide distance while the toggle-time layout
+        // is still measurable — the same full-width offset serves the open's
+        // from-state and the close's to-state.
+        if (stateRef.current.mode === 'edit') splitNudgeRef.current = measureSplitNudge();
+        // Issue #165: an OPENING toggle waits on one render first, so the
+        // pane mounts already holding its content (prerenderSplitPane).
+        if (patch.splitEdit && stateRef.current.mode === 'edit' && !splitPrerenderRef.current) {
+          prerenderSplitPane(commit);
+          return;
+        }
       }
-      if (scope === 'workspace') {
-        const ws = curWorkspaceRef.current;
-        if (ws.kind === 'none') return;
-        updateWorkspace({ ...ws, settings: sanitizeWorkspaceSettings({ ...ws.settings, ...patch }) });
-        return;
-      }
-      // An explicit user edit beats any session-only override of the same key.
-      for (const k of Object.keys(patch) as Array<keyof Settings>) delete sessionOverridesRef.current[k];
-      settingsLayersRef.current.user = { ...settingsLayersRef.current.user, ...patch };
-      applyResolved();
-      const p = stateRef.current.platform;
-      if (!p) return;
-      void (async () => {
-        const path = p.join(await p.configDir(), 'settings.json');
-        await p.writeTextFile(path, serializeSettingsLayer(settingsLayersRef.current.user));
-      })();
+      commit();
     },
-    [applyResolved, updateWorkspace]
+    [applyResolved, updateWorkspace, measureSplitNudge, prerenderSplitPane]
   );
 
   /** Whole-Settings seam kept for in-app controls: the changed keys become a User-layer patch. */
@@ -6571,7 +6642,12 @@ export default function App() {
   // condition each render below adds.
   const sidebarMounted = slideMounted(folderSlide, settings.showFolders);
   const splitSlide = usePaneSlide(settings.splitEdit, armSplitSlide);
-  const { sliding: previewSliding, out: previewOut } = slideClasses(splitSlide);
+  const { sliding: previewSliding, out: previewOut, pre: previewPre } = slideClasses(splitSlide);
+  // Issue #165: the split layout is on screen — open, or still sliding out.
+  // The merged edit branch below keys the workspace class and the
+  // divider/preview mount on it, so the Editor subtree itself is shared by
+  // both layouts and survives the toggle.
+  const splitActive = slideMounted(splitSlide, settings.splitEdit);
 
   if (!platform) return <div className="theme-root" />;
 
@@ -7007,11 +7083,31 @@ export default function App() {
           </div>
           {panelAside}
         </div>
-      ) : slideMounted(splitSlide, settings.splitEdit) ? (
+      ) : (
+        // Issue #165: ONE branch for both edit layouts. Split and plain used
+        // to be sibling ternary arms, so React unmounted the whole Editor
+        // subtree at exactly the frame the slide started — a main-thread
+        // stall through its opening frames, and scroll/caret lost. Sharing
+        // the elements keeps the CodeMirror instance alive through the
+        // toggle; outside split mode the .split-editor wrapper collapses to
+        // display:contents (styles.css) so the plain layout is unchanged.
         <div
-          className={`workspace split${previewSliding ? ' preview-sliding' : ''}${previewOut ? ' preview-out' : ''}`}
+          className={
+            splitActive
+              ? `workspace split${previewSliding ? ' preview-sliding' : ''}${previewOut ? ' preview-out' : ''}${previewPre ? ' preview-pre' : ''}`
+              : 'workspace'
+          }
           ref={workspaceRef}
-          style={{ '--mm-split': `${settings.splitRatio * 100}%` } as React.CSSProperties}
+          style={
+            splitActive
+              ? ({
+                  '--mm-split': `${settings.splitRatio * 100}%`,
+                  // Issue #165: the centred column offset the text glides
+                  // across during the slide (measured at toggle time).
+                  '--mm-split-text-nudge': `${splitNudgeRef.current}px`,
+                } as React.CSSProperties)
+              : { overflowY: 'hidden', overflowX: 'auto' }
+          }
         >
           <div className="split-editor">
             <Suspense fallback={<div className="editor-wrap" data-testid="editor-loading" />}>
@@ -7057,88 +7153,47 @@ export default function App() {
               />
             </Suspense>
           </div>
-          <div
-            className="split-divider"
-            data-testid="split-divider"
-            onPointerDown={dragDivider}
-            onDoubleClick={() => updateSettings({ ...stateRef.current.settings, splitRatio: 0.5 })}
-          />
-          <div
-            className="split-preview"
-            data-testid="split-preview"
-            ref={splitPreviewRef}
-            // SPEC23 §1: a focused CodeMirror re-asserts its own DOM selection,
-            // which would kill a preview drag-selection mid-gesture. Selecting
-            // in the preview starts with a pointerdown — release the editor's
-            // focus first so the native selection can live in this pane.
-            onPointerDownCapture={() => {
-              const ae = document.activeElement as HTMLElement | null;
-              if (ae?.closest('.editor-wrap')) ae.blur();
-            }}
-          >
-            <div className="docwrap">
-              {frontMatter && showFrontmatter && (
-                <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
-              )}
+          {splitActive && (
+            <>
               <div
-                className={settings.codeSyntax ? 'doc' : 'doc mm-code-plain'} // Issue #122
-                ref={splitDocRef}
-                onClick={(e) => {
-                  // Highlights activate their card here too (#19).
-                  const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
-                  if (mark?.dataset.cid && showComments) handleMarkClick(mark.dataset.cid);
-                  else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
-                  placeFromPreviewClick(splitDocRef.current, e);
-                }}
+                className="split-divider"
+                data-testid="split-divider"
+                onPointerDown={dragDivider}
+                onDoubleClick={() => updateSettings({ ...stateRef.current.settings, splitRatio: 0.5 })}
               />
-            </div>
-            {panelAside}
-          </div>
-        </div>
-      ) : (
-        <div className="workspace" ref={workspaceRef} style={{ overflowY: 'hidden', overflowX: 'auto' }}>
-          <Suspense fallback={<div className="editor-wrap" data-testid="editor-loading" />}>
-            <Editor
-              value={buffer}
-              // PRD 007 Req 17: a role without doc.edit types nothing.
-              readOnly={docReadOnly}
-              lineNumbers={settings.lineNumbers}
-              onChange={editorChanged}
-              historyRef={editorHistoryRef}
-              syncRef={editorSyncRef}
-              diff={diff}
-              onPasteImages={pasteImages}
-              insertRef={editorInsertRef}
-              syntax={settings.editorSyntax}
-              codeSyntax={settings.codeSyntax}
-              livePreview={settings.livePreview}
-              onOpenExternal={(u) => void platform?.openExternal(u)}
-              vimNav={settings.vimNav}
-              onVimModeChange={seamVimMode}
-              onEditState={handleEditState}
-              selectRangeRef={editorSelectRef}
-                activeWordSuppressed={findOpen}
-              pendingSelectionRef={pendingEditorSelRef}
-              searchRef={editorSearchRef}
-              hotkeys={settings.hotkeys}
-              isMac={platform?.isMac ?? true}
-              canPaste={!!platform?.readClipboardText}
-              onCopyText={copyToClipboard}
-              onReadClipboard={readFromClipboard}
-              smartRef={smartEditRef}
-              tableGridView={settings.tableGridView}
-              onToggleTableGrid={toggleTableGrid}
-              inlineImages={settings.inlineImages}
-              resolveImageSrc={resolveEditorImage}
-              onToggleInlineImages={toggleInlineImages}
-              onInsertImage={() => void insertImage()}
-              codeBlockView={settings.codeBlockView}
-              onToggleCodeBlockView={toggleCodeBlockView}
-              diagramView={settings.diagramView}
-              onToggleDiagramView={toggleDiagramView}
-              themeVariant={activeThemeVariant}
-            />
-          </Suspense>
+              <div
+                className="split-preview"
+                data-testid="split-preview"
+                ref={splitPreviewRef}
+                // SPEC23 §1: a focused CodeMirror re-asserts its own DOM selection,
+                // which would kill a preview drag-selection mid-gesture. Selecting
+                // in the preview starts with a pointerdown — release the editor's
+                // focus first so the native selection can live in this pane.
+                onPointerDownCapture={() => {
+                  const ae = document.activeElement as HTMLElement | null;
+                  if (ae?.closest('.editor-wrap')) ae.blur();
+                }}
+              >
+                <div className="docwrap">
+                  {frontMatter && showFrontmatter && (
+                    <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
+                  )}
+                  <div
+                    className={settings.codeSyntax ? 'doc' : 'doc mm-code-plain'} // Issue #122
+                    ref={splitDocRef}
+                    onClick={(e) => {
+                      // Highlights activate their card here too (#19).
+                      const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
+                      if (mark?.dataset.cid && showComments) handleMarkClick(mark.dataset.cid);
+                      else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
+                      placeFromPreviewClick(splitDocRef.current, e);
+                    }}
+                  />
+                </div>
+                {panelAside}
+              </div>
+            </>
+          )}
         </div>
       )}
       </div>

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
+  centeredColumnOffset,
   SLIDE_MS,
   SLIDE_SETTLE_MS,
   slideClasses,
@@ -59,15 +60,34 @@ describe('PRD 003 Reqs 9-12 pane slide phases', () => {
     expect(slideMounted('closed', true)).toBe(true);
 
     // CSS hooks: transitions armed only while sliding; `out` marks the
-    // off-screen position (the pre-open frame and the whole close).
-    expect(slideClasses('open')).toEqual({ sliding: false, out: false });
-    expect(slideClasses('closed')).toEqual({ sliding: false, out: false });
-    expect(slideClasses('pre-open')).toEqual({ sliding: true, out: true });
-    expect(slideClasses('opening')).toEqual({ sliding: true, out: false });
-    expect(slideClasses('closing')).toEqual({ sliding: true, out: true });
+    // off-screen position (the pre-open frame and the whole close); `pre`
+    // marks ONLY the pre-open frame (issue #165: the persistent editor's
+    // from-state must land without a transition — a fresh pane's insertion
+    // suppresses transitions for free, a surviving subtree's does not).
+    expect(slideClasses('open')).toEqual({ sliding: false, out: false, pre: false });
+    expect(slideClasses('closed')).toEqual({ sliding: false, out: false, pre: false });
+    expect(slideClasses('pre-open')).toEqual({ sliding: true, out: true, pre: true });
+    expect(slideClasses('opening')).toEqual({ sliding: true, out: false, pre: false });
+    expect(slideClasses('closing')).toEqual({ sliding: true, out: true, pre: false });
 
     // The settle timer must outlive the transition it waits for.
     expect(SLIDE_MS).toBe(180);
     expect(SLIDE_SETTLE_MS).toBeGreaterThan(SLIDE_MS);
+  });
+
+  test('U776: centeredColumnOffset — the glide distance of the split slide\'s text column (#165)', () => {
+    // The plain-edit geometry: a 46rem (736px) column centred in a wide
+    // scroller — the leftover splits evenly either side of the pair.
+    expect(centeredColumnOffset(2000, 0, 736)).toBe((2000 - 736) / 2);
+    // With line numbers the gutter+content PAIR is centred as one group.
+    expect(centeredColumnOffset(2000, 50, 736)).toBe((2000 - 50 - 736) / 2);
+    // A scroller narrower than the column has no slack: the column fills it
+    // and the offset is zero — the slide has nothing to glide.
+    expect(centeredColumnOffset(700, 0, 736)).toBe(0);
+    expect(centeredColumnOffset(700, 50, 736)).toBe(0);
+    // Exact fit: flush is centred, offset zero.
+    expect(centeredColumnOffset(786, 50, 736)).toBe(0);
+    // Degenerate widths never go negative.
+    expect(centeredColumnOffset(0, 50, 736)).toBe(0);
   });
 });
