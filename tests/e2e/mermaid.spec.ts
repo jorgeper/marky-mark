@@ -608,17 +608,13 @@ test('E324: PRD 015 Req 9 — comments above and below a diagram keep resolving,
   };
   await expectResolved();
 
-  // The sidecar autosave (debounced 800 ms) has landed both anchors.
-  const anchorsOf = async () => {
-    const raw = (await fsRead(page, ANCHOR_SIDECAR_PATH))!;
-    return JSON.parse(raw).comments.map((c: { anchor: unknown }) => c.anchor);
+  // The stored anchors, or none while the sidecar is still unwritten.
+  const anchorsOf = async (): Promise<unknown[]> => {
+    const raw = await fsRead(page, ANCHOR_SIDECAR_PATH);
+    return raw ? JSON.parse(raw).comments.map((c: { anchor: unknown }) => c.anchor) : [];
   };
-  await expect
-    .poll(async () => {
-      const raw = await fsRead(page, ANCHOR_SIDECAR_PATH);
-      return raw ? JSON.parse(raw).comments.length : 0;
-    })
-    .toBe(2);
+  // Wait for the sidecar autosave (debounced 800 ms) to land both anchors.
+  await expect.poll(async () => (await anchorsOf()).length).toBe(2);
   const anchorsBefore = await anchorsOf();
 
   const docText = () => doc.evaluate((el) => el.textContent ?? '');

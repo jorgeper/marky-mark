@@ -654,12 +654,12 @@ test('W18: PRD 015 Req 12 (issue #172) — the corner-drag resize persists width
   await expect(page.getByTestId('diagram-size-badge')).toBeVisible();
   const start = await stableBox(svg);
   const handle = await stableBox(page.getByTestId('diagram-resize-handle-se'));
+  const hx = handle.x + handle.width / 2;
+  const hy = handle.y + handle.height / 2;
   const target = Math.max(50, Math.round(vbW * 0.6));
-  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.move(hx, hy);
   await page.mouse.down();
-  await page.mouse.move(handle.x + handle.width / 2 + (target - start.width), handle.y + handle.height / 2, {
-    steps: 4,
-  });
+  await page.mouse.move(hx + (target - start.width), hy, { steps: 4 });
   await page.mouse.up();
 
   // The release wrote through the buffer path: dirty dot up, and the fence
