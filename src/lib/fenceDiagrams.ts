@@ -103,16 +103,16 @@ export function renderFenceDiagrams(root: HTMLElement, options: FenceDiagramOpti
 /**
  * PRD 015 Req 4: the persisted width the pipeline stamped on the fence's
  * `<code>` (`data-mm-width`, lib/markdown.ts). The pipeline stamps only the
- * parsed positive integer, but this re-check keeps a hand-built or mutated
- * DOM from smuggling a non-integer into the inline style below. Absent or
- * intolerable (PRD 015 Req 3) ⇒ null: the diagram draws at natural size,
- * exactly as today.
+ * parsed positive integer, and re-reading it as one here keeps a hand-built
+ * or mutated DOM from smuggling anything else into the inline style below.
+ * Absent or intolerable (PRD 015 Req 3) ⇒ null: the diagram draws at natural
+ * size, exactly as today.
  */
 function fenceWidthOf(code: HTMLElement): number | null {
-  const raw = code.dataset.mmWidth;
-  if (raw == null || !/^\d+$/.test(raw)) return null;
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : null;
+  const raw = code.dataset.mmWidth ?? '';
+  if (!/^\d+$/.test(raw)) return null; // digits only, like the token itself
+  const width = Number(raw);
+  return width > 0 ? width : null;
 }
 
 async function renderOne(
@@ -156,28 +156,31 @@ export function paintDiagramResult(host: HTMLElement, result: FenceRenderResult,
   const shadow = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
   if (result.ok) {
     shadow.innerHTML = `<style>:host { display: block; } svg { display: block; }</style>${result.svg}`;
-    // PRD 015 Req 4: the persisted width is applied to the SVG the renderer
-    // already produced — never by re-invoking it (no extra render pass).
-    // Inline on the element so it outranks mermaid's own inline `max-width`,
-    // which would otherwise veto a width past the natural layout (a larger
-    // persisted width is still honoured at draw time — the natural-width
-    // clamp belongs to the drag gesture, issue #171). `height: auto` leaves
-    // the height to the SVG's viewBox aspect ratio, so the whole drawing
-    // scales and nothing crops, clips or letterboxes; PRD 013 Req 9's
-    // `overflow-x: auto` on the host still scrolls anything wider than the
-    // pane. A null width touches nothing: natural size, exactly as today.
-    if (width !== null) {
-      const svg = shadow.querySelector('svg');
-      if (svg) {
-        svg.style.width = `${width}px`;
-        svg.style.height = 'auto';
-        svg.style.maxWidth = 'none';
-      }
-    }
+    // A null width touches nothing: natural size, exactly as today.
+    if (width !== null) sizeDrawnSvg(shadow, width);
   } else {
     shadow.innerHTML = '<style>:host { display: block; }</style>';
     shadow.append(host.ownerDocument.createTextNode(result.message));
   }
+}
+
+/**
+ * PRD 015 Req 4: the persisted width, applied to the SVG the renderer already
+ * produced — never by re-invoking it (no extra render pass). Inline on the
+ * element so it outranks mermaid's own inline `max-width`, which would
+ * otherwise veto a width past the natural layout (a larger persisted width is
+ * still honoured at draw time — the natural-width clamp belongs to the drag
+ * gesture, issue #171). `height: auto` leaves the height to the SVG's viewBox
+ * aspect ratio, so the whole drawing scales and nothing crops, clips or
+ * letterboxes; PRD 013 Req 9's `overflow-x: auto` on the host still scrolls
+ * anything wider than the pane.
+ */
+function sizeDrawnSvg(shadow: ShadowRoot, width: number): void {
+  const svg = shadow.querySelector('svg');
+  if (!svg) return;
+  svg.style.width = `${width}px`;
+  svg.style.height = 'auto';
+  svg.style.maxWidth = 'none';
 }
 
 /**

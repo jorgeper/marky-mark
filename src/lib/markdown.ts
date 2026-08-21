@@ -202,21 +202,30 @@ function stampSourceLines() {
  */
 function stampFenceWidths() {
   const visit = (node: HastNode) => {
-    if (node.type === 'element' && node.tagName === 'code' && typeof node.data?.meta === 'string') {
-      const classes = node.properties?.className;
-      const lang = Array.isArray(classes)
-        ? classes.map(String).find((c) => /^language-/i.test(c))?.slice('language-'.length)
-        : undefined;
+    const meta = node.data?.meta;
+    if (node.type === 'element' && node.tagName === 'code' && typeof meta === 'string') {
       // `readFenceWidth` reads a FULL info string (first word = language);
       // `data.meta` is the meta alone, so reconstitute before reading. Meta
       // without a language cannot occur (the info string's first word IS the
       // language), so a missing class means no fence width to read.
-      const width = lang ? readFenceWidth(`${lang} ${node.data.meta}`) : null;
+      const lang = fenceLanguageClass(node.properties);
+      const width = lang ? readFenceWidth(`${lang} ${meta}`) : null;
       if (width !== null) node.properties = { ...node.properties, dataMmWidth: width };
     }
     for (const child of node.children ?? []) visit(child);
   };
   return (tree: HastNode) => visit(tree);
+}
+
+/** The fence's language word, out of the `language-…` class remark-rehype wrote. */
+function fenceLanguageClass(properties: HastNode['properties']): string | null {
+  const classes = properties?.className;
+  if (!Array.isArray(classes)) return null;
+  for (const name of classes) {
+    const m = /^language-(.+)$/i.exec(String(name));
+    if (m) return m[1];
+  }
+  return null;
 }
 
 const processor = unified()
