@@ -983,8 +983,11 @@ mark.hl.ghost {
    pane — exactly what the issue's screenshot shows. Hugging the seam keeps the
    leftover width on the inside, next to the preview's own page margin.
    Scoped through .editor-wrap (the split pane's own wrapper) so it outranks
-   the rule above on specificity rather than on source order. */
-.split-editor .editor-wrap .cm-editor .cm-scroller {
+   the rule above on specificity rather than on source order. Issue #165: the
+   wrapper now persists in plain edit mode too (display:contents, so the
+   Editor survives the split toggle), so the flush-left rule keys on the
+   workspace's .split class — plain edit stays centred. */
+.workspace.split .split-editor .editor-wrap .cm-editor .cm-scroller {
   justify-content: flex-start;
 }
 
@@ -1072,6 +1075,14 @@ mark.hl.ghost {
   overflow-y: hidden;
 }
 
+/* Issue #165: outside split mode the wrapper contributes no box at all — the
+   editor stays the workspace's own flex child, the exact pre-split layout —
+   but the element (and the CodeMirror subtree inside it) survives the split
+   toggle, so opening the pane never tears the editor down mid-slide. */
+.workspace:not(.split) .split-editor {
+  display: contents;
+}
+
 /* Seam mirrors the folder-pane treatment (.folder-panel::after): the preview
    floats "in front" of the editor. The element is an invisible col-resize grab
    zone; the visible hairline + cast shadow live on the ::before overlay, whose
@@ -1153,8 +1164,34 @@ mark.hl.ghost {
    sliding left edge. `.preview-sliding` arms the transitions only for the
    phases, so the split-ratio drag stays live; the workspace is already
    position:relative (SPEC20 §4.2). */
-.workspace.split.preview-sliding .split-editor {
+/* Issue #165: the editor half persists across the toggle now, so its armed
+   transitions must skip the pre-open frame (.preview-pre) — on a surviving
+   element the browser WOULD transition to the painted from-state values,
+   running the entry's first frame backwards. The freshly inserted
+   .split-preview never had that problem (no transition on insertion). */
+.workspace.split.preview-sliding:not(.preview-pre) .split-editor {
   transition: width 180ms var(--mm-slide-ease);
+}
+/* Issue #165: the text column rides the same 180ms curve instead of snapping
+   centred → flush the frame the class flips. flex-start is the base for the
+   whole run (the scroller rule above), and the centred position is expressed
+   as a transform of the scroller's children — gutters, content AND
+   CodeMirror's cursor/selection layers, which are scroller children too, so
+   caret and selection glide with the text. Transform, not margin: the
+   compositor carries it, and both settled states stay transform-free (a
+   resting transform would become the containing block for fixed-position
+   menus — the reason .sliding/.preview-sliding exist at all). */
+.workspace.split.preview-sliding:not(.preview-pre) .split-editor .cm-editor .cm-scroller > * {
+  transition: transform 180ms var(--mm-slide-ease);
+}
+.workspace.split.preview-out .split-editor .cm-editor .cm-scroller > * {
+  transform: translateX(var(--mm-split-text-nudge, 0px));
+}
+/* Issue #165: mid-flight the translated column can hang a few px past the
+   narrowing scroller before both settle; never surface that as a transient
+   horizontal scrollbar. Vertical scrolling stays live. */
+.workspace.split.preview-sliding .split-editor .cm-editor .cm-scroller {
+  overflow-x: hidden;
 }
 .workspace.split.preview-sliding .split-preview {
   position: absolute;
@@ -1179,7 +1216,11 @@ mark.hl.ghost {
 @media (prefers-reduced-motion: reduce) {
   .folder-slide.sliding,
   .folder-slide.sliding .folder-panel,
-  .workspace.split.preview-sliding .split-editor,
+  /* Issue #165: the :not(.preview-pre) forms match the armed rules above at
+     equal-or-higher specificity, so this carve-out still wins by source
+     order — including the text column's transform transition. */
+  .workspace.split.preview-sliding:not(.preview-pre) .split-editor,
+  .workspace.split.preview-sliding:not(.preview-pre) .split-editor .cm-editor .cm-scroller > *,
   .workspace.split.preview-sliding .split-preview {
     transition: none;
   }

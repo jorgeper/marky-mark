@@ -407,6 +407,10 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
   // the left rule stays off rather than doubling up on the seam.
   await menuClick(page, 'toggleSplit');
   await expect(page.getByTestId('split-preview')).toBeVisible();
+  // Issue #165: the column now GLIDES to the seam through the 180ms slide
+  // instead of snapping flush on its first frame — poll for the settled
+  // geometry (the contract is the resting state, not the flight).
+  await expect.poll(async () => (await gutter()).inset).toBeLessThanOrEqual(2);
   const flush = await gutter();
   expect(flush.inset).toBeLessThanOrEqual(2);
   expect(flush.left).toMatch(/^0px /);

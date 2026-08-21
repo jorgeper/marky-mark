@@ -936,3 +936,137 @@ test('E315: issue #167 — the sync toggle rides beside the mode switch, frees t
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"showSyncScrollButton": false');
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"syncScroll": false');
 });
+
+test('E316: issue #165 — the split slide opens over rendered content, the editor instance survives with scroll and caret, reduced motion stays instant', async ({
+  page,
+}) => {
+  // Full edit on the long doc, pane closed — the state an opening toggle
+  // slides from.
+  await splitApp(page, false);
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+
+  // State a fresh CodeMirror mount would lose: a scrolled viewport, a caret
+  // parked on a mid-document line, and a marker stamped on the live
+  // .cm-editor node itself. The caret goes onto a VISIBLE line (the long
+  // doc's paragraphs are unique per section) so its line stays rendered
+  // through the toggle despite CodeMirror's viewport virtualization.
+  await page.evaluate(() => {
+    const cm = document.querySelector('.cm-editor') as HTMLElement;
+    cm.dataset.mm165 = 'survivor';
+    (cm.querySelector('.cm-scroller') as HTMLElement).scrollTop = 600;
+  });
+  const eb = (await page.getByTestId('editor').boundingBox())!;
+  await page.mouse.click(eb.x + 120, eb.y + eb.height / 2);
+  const before = await page.evaluate(() => ({
+    scrollTop: Math.round(document.querySelector('.cm-scroller')!.scrollTop),
+    activeText: document.querySelector('.cm-activeLine')?.textContent ?? '',
+  }));
+  expect(before.scrollTop).toBeGreaterThan(0); // the scroll check must have teeth
+  expect(before.activeText.length).toBeGreaterThan(0);
+  const topLineBefore = await editorTopGutterLine(page);
+  expect(topLineBefore).toBeGreaterThan(1); // really scrolled away from the top
+
+  // Watch the toggle happen: what the preview pane holds THE MOMENT it enters
+  // the DOM (issue #165's blank-pane symptom: it used to arrive empty and
+  // fill ~200ms later), whether the slide really armed, and whether the
+  // Suspense fallback (= an Editor remount) ever appeared. Structural facts,
+  // not frame sampling — E135 was removed for that flakiness.
+  const watchToggle = () =>
+    page.evaluate(() => {
+      const rec = ((window as unknown as Record<string, unknown>).__mm165 = {
+        paneSeen: false,
+        docChildrenAtMount: -1,
+        loadingSeen: false,
+        slideSeen: false,
+      } as Record<string, unknown>);
+      const mo = new MutationObserver(() => {
+        if (!rec.paneSeen) {
+          const pane = document.querySelector('[data-testid="split-preview"]');
+          if (pane) {
+            rec.paneSeen = true;
+            rec.docChildrenAtMount = pane.querySelector('.doc')?.childElementCount ?? 0;
+          }
+        }
+        if (document.querySelector('[data-testid="editor-loading"]')) rec.loadingSeen = true;
+        if (document.querySelector('.workspace.preview-sliding')) rec.slideSeen = true;
+      });
+      mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+      (rec as { stop?: () => void }).stop = () => mo.disconnect();
+    });
+  const watched = () =>
+    page.evaluate(() => {
+      const rec = (window as unknown as Record<string, unknown>).__mm165 as Record<string, unknown> & {
+        stop: () => void;
+      };
+      rec.stop();
+      return {
+        docChildrenAtMount: rec.docChildrenAtMount as number,
+        loadingSeen: rec.loadingSeen as boolean,
+        slideSeen: rec.slideSeen as boolean,
+      };
+    });
+
+  await watchToggle();
+  await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  // Settled: the steady state carries no transform (fixed-position menus).
+  await expect
+    .poll(() => page.getByTestId('split-preview').evaluate((el) => getComputedStyle(el).transform))
+    .toBe('none');
+  const open = await watched();
+  expect(open.slideSeen).toBe(true); // the observer really saw the slide run
+  expect(open.docChildrenAtMount).toBeGreaterThan(0); // content from the first frame
+  expect(open.loadingSeen).toBe(false); // no Suspense fallback = no remount window
+
+  // The very same editor instance, same caret line, same scroll position.
+  const afterOpen = await page.evaluate(() => ({
+    marker: (document.querySelector('.cm-editor') as HTMLElement)?.dataset.mm165 ?? null,
+    activeText: document.querySelector('.cm-activeLine')?.textContent ?? '',
+  }));
+  expect(afterOpen.marker).toBe('survivor');
+  // Numeric scrollTop legitimately shifts when the narrower pane rewraps
+  // lines (CodeMirror anchors the visible content) — the READING POSITION is
+  // what must hold: the same document line still tops the viewport, and the
+  // caret still sits on the same (uniquely worded) line.
+  expect(Math.abs((await editorTopGutterLine(page)) - topLineBefore)).toBeLessThanOrEqual(2);
+  expect(afterOpen.activeText).toBe(before.activeText);
+  // And the text column settles transform-free too (issue #165's glide is
+  // strictly a mid-slide affair).
+  const columnTransform = () =>
+    page
+      .locator('.split-editor .cm-scroller > .cm-content')
+      .evaluate((el) => getComputedStyle(el).transform);
+  await expect.poll(columnTransform).toBe('none');
+
+  // Close plays the same motion in reverse and hands back the same editor.
+  await page.waitForTimeout(250); // SPEC12 §1.3 cross-source dedup window
+  await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  const afterClose = await page.evaluate(() => {
+    const cm = document.querySelector('.cm-editor') as HTMLElement;
+    return {
+      marker: cm?.dataset.mm165 ?? null,
+      activeText: document.querySelector('.cm-activeLine')?.textContent ?? '',
+      scrollerTransform: getComputedStyle(cm.querySelector('.cm-scroller')!.firstElementChild!).transform,
+    };
+  });
+  expect(afterClose.marker).toBe('survivor');
+  expect(afterClose.activeText).toBe(before.activeText);
+  expect(Math.abs((await editorTopGutterLine(page)) - topLineBefore)).toBeLessThanOrEqual(2);
+  expect(afterClose.scrollerTransform).toBe('none');
+
+  // PRD 003 Req 11: reduced motion still switches instantly — no slide
+  // phases at all — and the pane STILL arrives already holding content.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.waitForTimeout(250);
+  await watchToggle();
+  await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  const reduced = await watched();
+  expect(reduced.slideSeen).toBe(false);
+  expect(reduced.docChildrenAtMount).toBeGreaterThan(0);
+  expect(
+    await page.getByTestId('split-preview').evaluate((el) => getComputedStyle(el).transform)
+  ).toBe('none');
+});
