@@ -6,6 +6,7 @@ import {
   fsWrite,
   openGridDoc,
   openSettings,
+  wordRect,
 } from './helpers';
 
 // Tables: the grid is how tables look — one global view, chips, wrapping,
@@ -522,4 +523,82 @@ test('E120: the global toggle — both tables flip together, originals restore, 
   await page.getByTestId('smart-edit-toggle-grid').click();
   await expect.poll(gridLines).toBe(6);
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
+
+test('E324: issue #164 — a selection inside a rendered grid cell paints the band above the wash: drag, Shift+Arrow, ⌘A, and the preview table stays selectable', async ({
+  page,
+}) => {
+  await openGridDoc(page, '/docs/v164.md', `top\n\n${COMPACT}\n\nbottom`, 'top');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+  await expect.poll(text).toContain('| 1   | 2   |');
+
+  // The stacking that kills the reporter's symptom (the same shape as the
+  // #163 fence-card fix, asserted E317-style): the wash lives on a ::before
+  // BELOW drawSelection's .cm-selectionLayer, and the grid line itself is
+  // transparent — relative order, not the numbers CodeMirror hands out.
+  const headerLine = editor.locator('.cm-line').filter({ hasText: '| aaa | b   |' }).first();
+  const stack = await headerLine.evaluate((el) => ({
+    line: getComputedStyle(el).backgroundColor,
+    beforeZ: Number(getComputedStyle(el, '::before').zIndex),
+    beforeBg: getComputedStyle(el, '::before').backgroundColor,
+    layerZ: Number(
+      getComputedStyle(el.closest('.cm-scroller')!.querySelector('.cm-selectionLayer')!).zIndex
+    ),
+  }));
+  expect(stack.line).toBe('rgba(0, 0, 0, 0)');
+  expect(stack.beforeBg).not.toBe('rgba(0, 0, 0, 0)');
+  expect(stack.beforeZ).toBeLessThan(stack.layerZ);
+
+  // The header cell's glyphs, and the probe every case below shares: does some
+  // .cm-selectionBackground rect of real width cover their midpoint?
+  const aaa = await wordRect(page, '[data-testid="editor"] .cm-line.mm-table-mode-line', 'aaa');
+  const mid = { x: aaa.x + aaa.width / 2, y: aaa.y + aaa.height / 2 };
+  const bandCoversMid = () =>
+    editor.locator('.cm-selectionBackground').evaluateAll(
+      (els, pt) =>
+        els.some((el) => {
+          const r = el.getBoundingClientRect();
+          return r.top <= pt.y && r.bottom >= pt.y && r.left <= pt.x && r.right >= pt.x && r.width > 0;
+        }),
+      mid
+    );
+
+  // ⌘A: the SPEC39 §2.1 cell-select path — 'aaa' is selected in state AND its
+  // glyphs sit under a drawn band.
+  await caretInto(page, '| aaa | b   |', 3);
+  await page.keyboard.press('ControlOrMeta+a');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('aaa');
+  await expect.poll(bandCoversMid).toBe(true);
+
+  // Shift+Arrow: a one-character selection inside the cell is tinted too.
+  await caretInto(page, '| aaa | b   |', 3);
+  await page.keyboard.press('Shift+ArrowRight');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('a');
+  await expect.poll(bandCoversMid).toBe(true);
+
+  // Mouse drag across the cell's glyphs: non-empty in state, tinted on screen.
+  await page.mouse.move(aaa.x + 1, mid.y);
+  await page.mouse.down();
+  await page.mouse.move(aaa.x + aaa.width - 1, mid.y, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText ?? '')).toMatch(/^aa?a?$/);
+  await expect.poll(bandCoversMid).toBe(true);
+
+  // Selections dirtied nothing and the grid never moved.
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(editor.locator('.cm-line.mm-table-mode-line')).toHaveCount(3);
+
+  // The preview pane's real <table> stays selectable by mouse (the other
+  // reading of the report).
+  await page.keyboard.press('Control+e');
+  const th = page.getByTestId('doc').locator('th').first();
+  await expect(th).toHaveText('aaa');
+  const box = (await th.boundingBox())!;
+  await page.mouse.move(box.x + 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? '')).toMatch(/aa/);
 });

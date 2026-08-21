@@ -534,9 +534,18 @@ export async function goToDocStart(page: Page): Promise<void> {
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowUp' : 'Control+Home');
 }
 
-/** Center of the nth visible occurrence of `word` inside `paneSel`; click it. */
-export const clickWord = async (page: Page, paneSel: string, word: string, nth = 0) => {
-  const pt = await page.evaluate(
+/**
+ * Screen rect of the nth occurrence of `word` inside `paneSel` — a Range over
+ * the glyphs themselves, so it works for rendered markdown and for CodeMirror
+ * lines alike. Throws when the word is not on screen.
+ */
+export async function wordRect(
+  page: Page,
+  paneSel: string,
+  word: string,
+  nth = 0
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  return page.evaluate(
     ([sel, w, n]) => {
       const pane = document.querySelector(sel as string)!;
       const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
@@ -550,7 +559,7 @@ export const clickWord = async (page: Page, paneSel: string, word: string, nth =
             r.setStart(node, at);
             r.setEnd(node, at + (w as string).length);
             const b = r.getBoundingClientRect();
-            return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+            return { x: b.left, y: b.top, width: b.width, height: b.height };
           }
         }
       }
@@ -558,7 +567,12 @@ export const clickWord = async (page: Page, paneSel: string, word: string, nth =
     },
     [paneSel, word, nth] as const
   );
-  await page.mouse.click(pt.x, pt.y);
+}
+
+/** Center of the nth visible occurrence of `word` inside `paneSel`; click it. */
+export const clickWord = async (page: Page, paneSel: string, word: string, nth = 0) => {
+  const r = await wordRect(page, paneSel, word, nth);
+  await page.mouse.click(r.x + r.width / 2, r.y + r.height / 2);
 };
 
 /** Open `path` through the menu's Open dialog (the shim accepts the string). */

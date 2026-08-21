@@ -3259,8 +3259,25 @@ mark.hl.ghost {
 
 /* ---------- SPEC37: aligned table mode ---------- */
 
-/* §3.4: the grid wash on every table line while the mode is on. */
+/* §3.4: the grid wash on every table line while the mode is on.
+   Issue #164: the wash lives on a ::before at z-index -3, not on the line, so
+   drawSelection()'s layer paints above it — an opaque background on the
+   .cm-line itself covered the band, and a drag/Shift+Arrow/⌘A selection
+   inside a grid cell was invisible. Same stacking and same reason as
+   .mm-fence-card below (issue #163), whose header comment spells out the
+   .cm-layer numbering. The line goes position: relative to anchor the
+   ::before and keeps z-index auto — a z-index here would open a stacking
+   context and trap the -3 instead of letting it escape to the scroller's.
+   The wash reads identically at rest; E324 asserts the relative order, not
+   the numbers. */
 .editor-wrap .cm-line.mm-table-mode-line {
+  position: relative;
+}
+.editor-wrap .cm-line.mm-table-mode-line::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -3;
   background: var(--mm-code-bg, rgba(9, 105, 218, 0.05));
 }
 
