@@ -78,11 +78,16 @@ export function computeCodeCards(
       const lines: number[] = [];
       const last = doc.lineAt(n.to).number;
       for (let ln = doc.lineAt(n.from).number; ln <= last; ln++) lines.push(doc.line(ln).from);
-      // Issue #163: the copy-control body. Two marks ⇒ a closed block, whose
-      // body ends where the closing-fence line starts; an unclosed block runs
-      // to the node's end (through the trailing newline, per the U739 shape).
+      // Issue #163: the copy-control body — the interior lines only. It opens
+      // on the line after the opening fence and, for a closed block, ends where
+      // the closing-fence line starts, so it keeps the newline that delimiter
+      // implies; an unclosed block runs to the node's end instead (through the
+      // trailing newline, per the U739 shape). Both ends clamp so a block with
+      // no interior — `` ``` `` alone, or an empty one — reads as an empty span
+      // rather than an inverted one.
+      const closed = marks.length >= 2;
       const bodyFrom = Math.min(doc.lineAt(n.from).to + 1, n.to);
-      const bodyTo = Math.max(marks.length >= 2 ? doc.lineAt(n.to).from : n.to, bodyFrom);
+      const bodyTo = Math.max(closed ? doc.lineAt(n.to).from : n.to, bodyFrom);
       cards.push({ from: n.from, to: n.to, revealed, hide, lines, body: { from: bodyFrom, to: bodyTo } });
       return false; // fences never nest — no need to descend into the body
     },

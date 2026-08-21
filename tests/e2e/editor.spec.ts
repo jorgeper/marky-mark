@@ -903,9 +903,10 @@ test('E317: issue #163 — the card copy control copies the body only, a selecti
   await expect(bodyLine).toHaveCSS('padding-left', '16px');
 
   // The stacking that kills the issue's artefact: the card chrome lives on a
-  // ::before BELOW drawSelection's layer (inline z-index -1), and the line
-  // itself is transparent — so the drawn selection band paints above the
-  // card background and below the text.
+  // ::before BELOW drawSelection's layer (which the view numbers by inline
+  // style), and the line itself is transparent — so the drawn selection band
+  // paints above the card background and below the text. The assertion is the
+  // relative order, not the numbers CodeMirror happens to hand out.
   const stack = await bodyLine.evaluate((el) => ({
     line: getComputedStyle(el).backgroundColor,
     beforeZ: Number(getComputedStyle(el, '::before').zIndex),

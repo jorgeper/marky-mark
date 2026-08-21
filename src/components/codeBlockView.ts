@@ -24,7 +24,7 @@ import {
 } from '@codemirror/view';
 import type { Extension } from '@codemirror/state';
 import { computeCodeCards, type Span } from '../lib/codeBlockSpans';
-import { codeBlockText, COPIED_CLASS, CONFIRM_MS } from '../lib/codeCopy';
+import { createCopyButton } from '../lib/codeCopy';
 import { tableModeField } from './tableMode';
 
 export interface CodeBlockViewConfig {
@@ -82,36 +82,21 @@ class CardCopyWidget extends WidgetType {
   }
 
   toDOM(view: EditorView): HTMLElement {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = CARD_COPY_CLASS;
-    btn.dataset.testid = CARD_COPY_CLASS;
-    btn.setAttribute('aria-label', 'Copy code');
+    // Same button as the preview's, down to the confirmation timing — only the
+    // text source differs: the live document under the body span, sliced at
+    // click time, with codeBlockText the one trailing-newline rule for both.
+    const btn = createCopyButton(
+      view.dom.ownerDocument,
+      CARD_COPY_CLASS,
+      () => view.state.sliceDoc(this.body.from, this.body.to),
+      this.copy
+    );
     // Inert chrome: the mousedown never reaches CodeMirror and never focuses
     // the button, so the caret does not move, the block does not reveal, and
-    // nothing is dispatched — the label is CSS ::after, so no text node either.
+    // nothing is dispatched.
     btn.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
-    });
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // The one trailing-newline rule is codeBlockText — the body span ends
-      // with the newline the closing delimiter implies (codeBlockSpans).
-      const text = codeBlockText(view.state.sliceDoc(this.body.from, this.body.to));
-      void (async () => {
-        const ok = (await this.copy(text)) === true;
-        if (!ok) return; // a failed write says nothing rather than lying
-        btn.classList.add(COPIED_CLASS);
-        btn.setAttribute('aria-label', 'Copied');
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => {
-          btn.classList.remove(COPIED_CLASS);
-          btn.setAttribute('aria-label', 'Copy code');
-        }, CONFIRM_MS);
-      })();
     });
     return btn;
   }
