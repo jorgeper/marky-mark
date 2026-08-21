@@ -937,6 +937,21 @@ test('E315: issue #167 — the sync toggle rides beside the mode switch, frees t
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"syncScroll": false');
 });
 
+/** What E316's toggle observer records, parked on `window` so it outlives the
+ *  evaluate that installs it (issue #165). */
+interface ToggleWatch {
+  /** The preview pane has been seen in the DOM — the fields below are set. */
+  paneSeen: boolean;
+  /** Rendered children of `.doc` at the frame the pane entered the DOM. */
+  docChildrenAtMount: number;
+  /** The Suspense fallback appeared at any point — i.e. the Editor remounted. */
+  loadingSeen: boolean;
+  /** The workspace carried a slide phase at any point. */
+  slideSeen: boolean;
+  /** Disconnects the observer. */
+  stop: () => void;
+}
+
 test('E316: issue #165 — the split slide opens over rendered content, the editor instance survives with scroll and caret, reduced motion stays instant', async ({
   page,
 }) => {
@@ -966,6 +981,12 @@ test('E316: issue #165 — the split slide opens over rendered content, the edit
   expect(before.activeText.length).toBeGreaterThan(0);
   const topLineBefore = await editorTopGutterLine(page);
   expect(topLineBefore).toBeGreaterThan(1); // really scrolled away from the top
+  // The glide's own probe: the column's transform, which must be 'none' in
+  // both settled states (a resting transform would become the containing
+  // block for fixed-position menus).
+  const columnTransform = () =>
+    page.locator('.split-editor .cm-scroller > .cm-content').evaluate((el) => getComputedStyle(el).transform);
+  expect(await columnTransform()).toBe('none');
 
   // Watch the toggle happen: what the preview pane holds THE MOMENT it enters
   // the DOM (issue #165's blank-pane symptom: it used to arrive empty and
@@ -974,12 +995,13 @@ test('E316: issue #165 — the split slide opens over rendered content, the edit
   // not frame sampling — E135 was removed for that flakiness.
   const watchToggle = () =>
     page.evaluate(() => {
-      const rec = ((window as unknown as Record<string, unknown>).__mm165 = {
+      const rec: ToggleWatch = {
         paneSeen: false,
         docChildrenAtMount: -1,
         loadingSeen: false,
         slideSeen: false,
-      } as Record<string, unknown>);
+        stop: () => {},
+      };
       const mo = new MutationObserver(() => {
         if (!rec.paneSeen) {
           const pane = document.querySelector('[data-testid="split-preview"]');
@@ -992,19 +1014,15 @@ test('E316: issue #165 — the split slide opens over rendered content, the edit
         if (document.querySelector('.workspace.preview-sliding')) rec.slideSeen = true;
       });
       mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-      (rec as { stop?: () => void }).stop = () => mo.disconnect();
+      rec.stop = () => mo.disconnect();
+      (window as unknown as { __mm165: ToggleWatch }).__mm165 = rec;
     });
   const watched = () =>
     page.evaluate(() => {
-      const rec = (window as unknown as Record<string, unknown>).__mm165 as Record<string, unknown> & {
-        stop: () => void;
-      };
+      const rec = (window as unknown as { __mm165: ToggleWatch }).__mm165;
       rec.stop();
-      return {
-        docChildrenAtMount: rec.docChildrenAtMount as number,
-        loadingSeen: rec.loadingSeen as boolean,
-        slideSeen: rec.slideSeen as boolean,
-      };
+      const { docChildrenAtMount, loadingSeen, slideSeen } = rec;
+      return { docChildrenAtMount, loadingSeen, slideSeen };
     });
 
   await watchToggle();
@@ -1033,28 +1051,20 @@ test('E316: issue #165 — the split slide opens over rendered content, the edit
   expect(afterOpen.activeText).toBe(before.activeText);
   // And the text column settles transform-free too (issue #165's glide is
   // strictly a mid-slide affair).
-  const columnTransform = () =>
-    page
-      .locator('.split-editor .cm-scroller > .cm-content')
-      .evaluate((el) => getComputedStyle(el).transform);
   await expect.poll(columnTransform).toBe('none');
 
   // Close plays the same motion in reverse and hands back the same editor.
   await page.waitForTimeout(250); // SPEC12 §1.3 cross-source dedup window
   await page.keyboard.press('Control+\\');
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
-  const afterClose = await page.evaluate(() => {
-    const cm = document.querySelector('.cm-editor') as HTMLElement;
-    return {
-      marker: cm?.dataset.mm165 ?? null,
-      activeText: document.querySelector('.cm-activeLine')?.textContent ?? '',
-      scrollerTransform: getComputedStyle(cm.querySelector('.cm-scroller')!.firstElementChild!).transform,
-    };
-  });
+  const afterClose = await page.evaluate(() => ({
+    marker: (document.querySelector('.cm-editor') as HTMLElement)?.dataset.mm165 ?? null,
+    activeText: document.querySelector('.cm-activeLine')?.textContent ?? '',
+  }));
   expect(afterClose.marker).toBe('survivor');
   expect(afterClose.activeText).toBe(before.activeText);
   expect(Math.abs((await editorTopGutterLine(page)) - topLineBefore)).toBeLessThanOrEqual(2);
-  expect(afterClose.scrollerTransform).toBe('none');
+  await expect.poll(columnTransform).toBe('none'); // back to centred, transform-free
 
   // PRD 003 Req 11: reduced motion still switches instantly — no slide
   // phases at all — and the pane STILL arrives already holding content.

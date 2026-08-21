@@ -2825,7 +2825,6 @@ export default function App() {
   // another render (the html it needs is already on the way).
   const splitPrerenderRef = useRef(false);
 
-  // --- settings persistence ---------------------------------------------------
   /**
    * Issue #165: where the centred text column WOULD sit at full pane width —
    * both ends of the split slide (open starts there, close lands there), so
@@ -2847,6 +2846,34 @@ export default function App() {
     return centeredColumnOffset(full, gutters?.offsetWidth ?? 0, maxW);
   }, []);
 
+  /**
+   * Issue #165: render the buffer BEFORE an opening split toggle flips the
+   * setting, so the pane mounts already holding its content and the slide
+   * never runs over a blank pane. This is the named "the split just opened"
+   * path; keystroke re-renders keep their 200ms coalescing debounce in the
+   * SPEC7 §5 effect. `commit` runs either way — a render that fails, or that
+   * lands after a doc swap (the epoch moved), still flips the setting and
+   * lets the debounced path fill the pane as before.
+   */
+  const prerenderSplitPane = useCallback(
+    (commit: () => void) => {
+      splitPrerenderRef.current = true;
+      const epoch = docEpochRef.current;
+      void renderMarkdown(canonicalOf(stateRef.current.buffer))
+        .catch(() => null)
+        .then((rendered) => {
+          splitPrerenderRef.current = false;
+          if (rendered !== null && epoch === docEpochRef.current) {
+            renderPendingRef.current = false; // fresh html — restores may consume
+            setHtml(rendered);
+          }
+          commit();
+        });
+    },
+    [canonicalOf]
+  );
+
+  // --- settings persistence ---------------------------------------------------
   /**
    * PRD 002 §E18 layer-targeted writes: a 'user' patch lands ONLY in
    * settings.json (the raw User layer); a 'workspace' patch lands ONLY in the
@@ -2885,32 +2912,16 @@ export default function App() {
         // is still measurable — the same full-width offset serves the open's
         // from-state and the close's to-state.
         if (stateRef.current.mode === 'edit') splitNudgeRef.current = measureSplitNudge();
-        // Issue #165: an OPENING toggle renders the document BEFORE the
-        // setting flips, so the pane mounts already holding its content and
-        // the slide never runs over a blank pane. This is the named "the
-        // split just opened" path; keystroke re-renders keep their 200ms
-        // coalescing debounce in the SPEC7 §5 effect. A render that fails or
-        // arrives after a doc swap (epoch moved) still commits the flip —
-        // the debounced path then fills the pane as before.
+        // Issue #165: an OPENING toggle waits on one render first, so the
+        // pane mounts already holding its content (prerenderSplitPane).
         if (patch.splitEdit && stateRef.current.mode === 'edit' && !splitPrerenderRef.current) {
-          splitPrerenderRef.current = true;
-          const epoch = docEpochRef.current;
-          void renderMarkdown(canonicalOf(stateRef.current.buffer))
-            .catch(() => null)
-            .then((rendered) => {
-              splitPrerenderRef.current = false;
-              if (rendered !== null && epoch === docEpochRef.current) {
-                renderPendingRef.current = false; // fresh html — restores may consume
-                setHtml(rendered);
-              }
-              commit();
-            });
+          prerenderSplitPane(commit);
           return;
         }
       }
       commit();
     },
-    [applyResolved, updateWorkspace, measureSplitNudge, canonicalOf]
+    [applyResolved, updateWorkspace, measureSplitNudge, prerenderSplitPane]
   );
 
   /** Whole-Settings seam kept for in-app controls: the changed keys become a User-layer patch. */
