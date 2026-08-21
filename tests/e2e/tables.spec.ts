@@ -6,6 +6,7 @@ import {
   fsWrite,
   openGridDoc,
   openSettings,
+  wordRect,
 } from './helpers';
 
 // Tables: the grid is how tables look — one global view, chips, wrapping,
@@ -550,59 +551,40 @@ test('E324: issue #164 — a selection inside a rendered grid cell paints the ba
   expect(stack.beforeBg).not.toBe('rgba(0, 0, 0, 0)');
   expect(stack.beforeZ).toBeLessThan(stack.layerZ);
 
-  // A drawn band that covers the point — some .cm-selectionBackground rect
-  // spans it with real width.
-  const bandCovers = (x: number, y: number) =>
+  // The header cell's glyphs, and the probe every case below shares: does some
+  // .cm-selectionBackground rect of real width cover their midpoint?
+  const aaa = await wordRect(page, '[data-testid="editor"] .cm-line.mm-table-mode-line', 'aaa');
+  const mid = { x: aaa.x + aaa.width / 2, y: aaa.y + aaa.height / 2 };
+  const bandCoversMid = () =>
     editor.locator('.cm-selectionBackground').evaluateAll(
       (els, pt) =>
         els.some((el) => {
           const r = el.getBoundingClientRect();
           return r.top <= pt.y && r.bottom >= pt.y && r.left <= pt.x && r.right >= pt.x && r.width > 0;
         }),
-      { x, y }
+      mid
     );
-  // Screen rect of the first `needle` run inside a grid line.
-  const glyphRect = (needle: string) =>
-    editor.evaluate((root, w) => {
-      const line = Array.from(root.querySelectorAll('.cm-line.mm-table-mode-line')).find((l) =>
-        (l.textContent ?? '').includes(w)
-      )!;
-      const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
-      let node: Node | null;
-      while ((node = walker.nextNode())) {
-        const at = (node.nodeValue ?? '').indexOf(w);
-        if (at !== -1) {
-          const range = document.createRange();
-          range.setStart(node, at);
-          range.setEnd(node, at + w.length);
-          const r = range.getBoundingClientRect();
-          return { x: r.x, y: r.y, w: r.width, h: r.height };
-        }
-      }
-      throw new Error(`glyphs not found: ${w}`);
-    }, needle);
 
   // ⌘A: the SPEC39 §2.1 cell-select path — 'aaa' is selected in state AND its
   // glyphs sit under a drawn band.
   await caretInto(page, '| aaa | b   |', 3);
   await page.keyboard.press('ControlOrMeta+a');
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('aaa');
-  const aaa = await glyphRect('aaa');
-  await expect.poll(() => bandCovers(aaa.x + aaa.w / 2, aaa.y + aaa.h / 2)).toBe(true);
+  await expect.poll(bandCoversMid).toBe(true);
 
   // Shift+Arrow: a one-character selection inside the cell is tinted too.
   await caretInto(page, '| aaa | b   |', 3);
   await page.keyboard.press('Shift+ArrowRight');
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('a');
-  await expect.poll(() => bandCovers(aaa.x + aaa.w / 2, aaa.y + aaa.h / 2)).toBe(true);
+  await expect.poll(bandCoversMid).toBe(true);
 
   // Mouse drag across the cell's glyphs: non-empty in state, tinted on screen.
-  await page.mouse.move(aaa.x + 1, aaa.y + aaa.h / 2);
+  await page.mouse.move(aaa.x + 1, mid.y);
   await page.mouse.down();
-  await page.mouse.move(aaa.x + aaa.w - 1, aaa.y + aaa.h / 2, { steps: 4 });
+  await page.mouse.move(aaa.x + aaa.width - 1, mid.y, { steps: 4 });
   await page.mouse.up();
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText ?? '')).toMatch(/^aa?a?$/);
-  await expect.poll(() => bandCovers(aaa.x + aaa.w / 2, aaa.y + aaa.h / 2)).toBe(true);
+  await expect.poll(bandCoversMid).toBe(true);
 
   // Selections dirtied nothing and the grid never moved.
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
