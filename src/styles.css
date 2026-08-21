@@ -3263,36 +3263,103 @@ mark.hl.ghost {
 /* ---------- Issue #157: fenced code blocks as cards in the edit pane ---------- */
 
 /* The preview's code-card look (.doc pre: --mm-code-bg, 9px radius) painted
-   per line, with a 1px --mm-border ring drawn as inset box-shadow. No padding
-   and no real border: the lines keep their exact raw geometry, so the caret
-   never shifts and toggling the view moves no text. The hidden delimiter
-   lines stay as blank rows — they read as the card's vertical padding. */
+   per line, with a 1px --mm-border ring drawn as inset box-shadow. No real
+   border and no vertical padding, so toggling the view moves no text; the
+   hidden delimiter lines stay as blank rows — they read as the card's
+   vertical padding. Issue #163 overrides the old "no padding" stance for the
+   LEFT edge only: the 16px inset matches .doc pre's horizontal padding, and
+   the caret stays glued to its glyph because CodeMirror measures the DOM.
+
+   Issue #163: the chrome lives on a ::before at z-index -3, not on the line.
+   drawSelection() paints into a .cm-layer inside .cm-scroller's stacking
+   context (position relative, z-index 0); the view numbers its below-layers
+   downward from -1 by inline style, and the selection layer lands at -2 in
+   this configuration (E317 asserts the relative order, not the numbers), so
+   an opaque background on the line itself covers the selection band. Behind
+   that layer at -3, the card keeps its look while a selection crossing it
+   tints ABOVE the card and BELOW the text — one continuous band from prose
+   through the block, rounded corners included. The line goes position:
+   relative (z-index auto: no new stacking context, so -3 still escapes to
+   the scroller's) to anchor both the ::before and the copy control. */
 .editor-wrap .cm-line.mm-fence-card {
   /* One source for the ring color: every rule below inherits it from here,
      since a first/last line always carries .mm-fence-card too. */
   --mm-fence-ring: var(--mm-border, #d1d9e0);
+  position: relative;
+  padding-left: 16px;
+}
+.editor-wrap .cm-line.mm-fence-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -3;
   background: var(--mm-code-bg, #f6f8fa);
   box-shadow:
     inset 1px 0 var(--mm-fence-ring),
     inset -1px 0 var(--mm-fence-ring);
 }
-.editor-wrap .cm-line.mm-fence-card-first {
+.editor-wrap .cm-line.mm-fence-card-first::before {
   border-radius: 9px 9px 0 0;
   box-shadow:
     inset 0 1px var(--mm-fence-ring),
     inset 1px 0 var(--mm-fence-ring),
     inset -1px 0 var(--mm-fence-ring);
 }
-.editor-wrap .cm-line.mm-fence-card-last {
+.editor-wrap .cm-line.mm-fence-card-last::before {
   border-radius: 0 0 9px 9px;
   box-shadow:
     inset 0 -1px var(--mm-fence-ring),
     inset 1px 0 var(--mm-fence-ring),
     inset -1px 0 var(--mm-fence-ring);
 }
-.editor-wrap .cm-line.mm-fence-card-first.mm-fence-card-last {
+.editor-wrap .cm-line.mm-fence-card-first.mm-fence-card-last::before {
   border-radius: 9px;
   box-shadow: inset 0 0 0 1px var(--mm-fence-ring);
+}
+
+/* Issue #163: the card's copy control — the preview button's look
+   (.doc .mm-copy-code above), anchored to the card's first line, which is a
+   blank delimiter row, so 8px/8px lands it where the preview's sits in its
+   <pre>. z-index 1 keeps it above the card lines below it (they are
+   positioned siblings painted later in document order). Revealed by the
+   hover walk in codeBlockView.ts (.is-hover), by keyboard focus, and while
+   confirming — the label is ::after content, so the button holds no text
+   node and the document text stays byte-identical. */
+.editor-wrap .mm-copy-code-editor {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  padding: 4px 9px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 6px;
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg-muted, #57606a);
+  /* The preview button inherits .doc's body font; inside the editor "inherit"
+     would mean the mono editor font, so name the body token directly. */
+  font-family: var(--mm-font-body, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.editor-wrap .mm-copy-code-editor::after {
+  content: 'Copy';
+}
+.editor-wrap .mm-copy-code-editor.is-copied::after {
+  content: 'Copied';
+}
+.editor-wrap .mm-copy-code-editor.is-hover,
+.editor-wrap .mm-copy-code-editor:focus-visible,
+.editor-wrap .mm-copy-code-editor.is-copied {
+  opacity: 1;
+  pointer-events: auto;
+}
+.editor-wrap .mm-copy-code-editor:hover {
+  color: var(--mm-fg, #1f2328);
+  border-color: var(--mm-accent, #0969da);
 }
 
 /* §4: the chip layer — overlay only, children opt back into pointer events. */

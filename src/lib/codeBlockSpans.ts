@@ -29,6 +29,14 @@ export interface CodeCard {
   hide: Span[];
   /** Start offset of every line the block covers, for the card line chrome. */
   lines: number[];
+  /**
+   * Issue #163: what the card's copy control copies — the interior lines,
+   * with no delimiters and no info string. A closed block's span ends at the
+   * closing-fence line's start, so it keeps the newline that delimiter
+   * implies (the preview's `<code>` textContent shape), and `codeBlockText`
+   * stays the one trailing-newline rule for both panes.
+   */
+  body: Span;
 }
 
 /**
@@ -57,9 +65,10 @@ export function computeCodeCards(
       if (n.name !== 'FencedCode') return;
       if (excluded.some((s) => n.from < s.to && n.to > s.from)) return false;
       const revealed = n.from <= head && head <= n.to;
+      const marks = n.node.getChildren('CodeMark');
       const hide: Span[] = [];
       if (!revealed) {
-        for (const mark of n.node.getChildren('CodeMark')) hide.push({ from: mark.from, to: mark.to });
+        for (const mark of marks) hide.push({ from: mark.from, to: mark.to });
         const info = n.node.getChild('CodeInfo');
         if (info) hide.push({ from: info.from, to: info.to });
         // The info string sits between the opening and closing marks —
@@ -69,7 +78,12 @@ export function computeCodeCards(
       const lines: number[] = [];
       const last = doc.lineAt(n.to).number;
       for (let ln = doc.lineAt(n.from).number; ln <= last; ln++) lines.push(doc.line(ln).from);
-      cards.push({ from: n.from, to: n.to, revealed, hide, lines });
+      // Issue #163: the copy-control body. Two marks ⇒ a closed block, whose
+      // body ends where the closing-fence line starts; an unclosed block runs
+      // to the node's end (through the trailing newline, per the U739 shape).
+      const bodyFrom = Math.min(doc.lineAt(n.from).to + 1, n.to);
+      const bodyTo = Math.max(marks.length >= 2 ? doc.lineAt(n.to).from : n.to, bodyFrom);
+      cards.push({ from: n.from, to: n.to, revealed, hide, lines, body: { from: bodyFrom, to: bodyTo } });
       return false; // fences never nest — no need to descend into the body
     },
   });
