@@ -6,6 +6,7 @@ import remarkRehype from 'remark-rehype';
 import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from 'rehype-sanitize';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeStringify from 'rehype-stringify';
+import { readFenceWidth } from './fenceWidth';
 
 /**
  * The rendering pipeline is intentionally identical to ../md-with-comments
@@ -62,6 +63,7 @@ interface HastNode {
   properties?: Record<string, unknown>;
   children?: HastNode[];
   value?: string;
+  data?: { meta?: unknown };
   position?: { start?: { line?: number; offset?: number }; end?: { line?: number; offset?: number } };
 }
 
@@ -185,6 +187,38 @@ function stampSourceLines() {
   };
 }
 
+/**
+ * PRD 015 Req 4: carry a fence's `width=N` meta to the preview WITHOUT
+ * widening the sanitize schema (PRD 015 Req 12). `remark-rehype`'s code
+ * handler leaves the fence meta on the hast `<code>`'s `data.meta` — never in
+ * `properties` — and sanitize clones `data` through untouched, so this pass
+ * runs after `rehypeSanitize` and stamps the width as an inert data
+ * attribute, like `dataMmLine`. The stamped value is the already-parsed
+ * positive integer (never raw document text), and only the attribute is
+ * added: no tag name, protocol or URL surface, and the rendered text — the
+ * comment-anchor coordinate space — is byte-identical. An absent or
+ * intolerable token (PRD 015 Req 3) stamps nothing, so the block renders
+ * exactly as today.
+ */
+function stampFenceWidths() {
+  const visit = (node: HastNode) => {
+    if (node.type === 'element' && node.tagName === 'code' && typeof node.data?.meta === 'string') {
+      const classes = node.properties?.className;
+      const lang = Array.isArray(classes)
+        ? classes.map(String).find((c) => /^language-/i.test(c))?.slice('language-'.length)
+        : undefined;
+      // `readFenceWidth` reads a FULL info string (first word = language);
+      // `data.meta` is the meta alone, so reconstitute before reading. Meta
+      // without a language cannot occur (the info string's first word IS the
+      // language), so a missing class means no fence width to read.
+      const width = lang ? readFenceWidth(`${lang} ${node.data.meta}`) : null;
+      if (width !== null) node.properties = { ...node.properties, dataMmWidth: width };
+    }
+    for (const child of node.children ?? []) visit(child);
+  };
+  return (tree: HastNode) => visit(tree);
+}
+
 const processor = unified()
   .use(remarkParse)
   // SPEC26 §1: a leading ----fenced YAML block parses as a yaml node that
@@ -200,6 +234,9 @@ const processor = unified()
   .use(stampImageSpans)
   .use(blockRemoteImages)
   .use(rehypeSanitize, schema)
+  // PRD 015 Req 4: post-sanitize like rehype-highlight — the width stamp
+  // never widens the schema and never touches rendered text.
+  .use(stampFenceWidths)
   .use(rehypeHighlight, { detect: false })
   .use(rehypeStringify);
 

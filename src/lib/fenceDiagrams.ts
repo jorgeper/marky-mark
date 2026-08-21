@@ -93,9 +93,26 @@ export function renderFenceDiagrams(root: HTMLElement, options: FenceDiagramOpti
     // being redrawn keeps its previous state (`done`/`error`) until the new
     // result lands, so the reader never sees a flash of raw code.
     if (!pre.dataset.mmDiagram) markState(pre, 'pending');
-    jobs.push(renderOne(pre, codeBlockText(code.textContent ?? ''), renderer, options.theme, token));
+    jobs.push(
+      renderOne(pre, codeBlockText(code.textContent ?? ''), renderer, options.theme, token, fenceWidthOf(code))
+    );
   }
   return Promise.all(jobs).then(() => undefined);
+}
+
+/**
+ * PRD 015 Req 4: the persisted width the pipeline stamped on the fence's
+ * `<code>` (`data-mm-width`, lib/markdown.ts). The pipeline stamps only the
+ * parsed positive integer, but this re-check keeps a hand-built or mutated
+ * DOM from smuggling a non-integer into the inline style below. Absent or
+ * intolerable (PRD 015 Req 3) ⇒ null: the diagram draws at natural size,
+ * exactly as today.
+ */
+function fenceWidthOf(code: HTMLElement): number | null {
+  const raw = code.dataset.mmWidth;
+  if (raw == null || !/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 async function renderOne(
@@ -103,7 +120,8 @@ async function renderOne(
   source: string,
   renderer: FenceRenderer,
   theme: 'light' | 'dark',
-  token: string
+  token: string,
+  width: number | null
 ): Promise<void> {
   // PRD 013 Req 10: `renderSafely` turns a contract-breaking rejection into
   // the typed failure, so it can't blank the block or stop the document.
@@ -115,7 +133,7 @@ async function renderOne(
   if (result.ok) {
     // PRD 013 Req 3: the SVG (and its <text> labels) enters the shadow tree
     // only — see the module header for why this keeps getDocText byte-identical.
-    paintDiagramResult(graftHost(pre, DIAGRAM_CLASS), result);
+    paintDiagramResult(graftHost(pre, DIAGRAM_CLASS), result, width);
     markState(pre, 'done');
   } else {
     // PRD 013 Req 10: the code block stays exactly as rendered; the badge —
@@ -134,10 +152,28 @@ async function renderOne(
  * and that trust posture are stated in one place. The host keeps whatever
  * shadow root it already has, so a redraw swaps content in place.
  */
-export function paintDiagramResult(host: HTMLElement, result: FenceRenderResult): void {
+export function paintDiagramResult(host: HTMLElement, result: FenceRenderResult, width: number | null = null): void {
   const shadow = host.shadowRoot ?? host.attachShadow({ mode: 'open' });
   if (result.ok) {
     shadow.innerHTML = `<style>:host { display: block; } svg { display: block; }</style>${result.svg}`;
+    // PRD 015 Req 4: the persisted width is applied to the SVG the renderer
+    // already produced — never by re-invoking it (no extra render pass).
+    // Inline on the element so it outranks mermaid's own inline `max-width`,
+    // which would otherwise veto a width past the natural layout (a larger
+    // persisted width is still honoured at draw time — the natural-width
+    // clamp belongs to the drag gesture, issue #171). `height: auto` leaves
+    // the height to the SVG's viewBox aspect ratio, so the whole drawing
+    // scales and nothing crops, clips or letterboxes; PRD 013 Req 9's
+    // `overflow-x: auto` on the host still scrolls anything wider than the
+    // pane. A null width touches nothing: natural size, exactly as today.
+    if (width !== null) {
+      const svg = shadow.querySelector('svg');
+      if (svg) {
+        svg.style.width = `${width}px`;
+        svg.style.height = 'auto';
+        svg.style.maxWidth = 'none';
+      }
+    }
   } else {
     shadow.innerHTML = '<style>:host { display: block; }</style>';
     shadow.append(host.ownerDocument.createTextNode(result.message));

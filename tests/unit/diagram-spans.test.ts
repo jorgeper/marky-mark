@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { EditorState, type EditorStateConfig } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
-import { computeDiagramSpans } from '../../src/lib/diagramSpans';
+import { computeDiagramSpans, sameDiagramDrawing } from '../../src/lib/diagramSpans';
 
 /** A state whose syntax tree is fully parsed (the code-block-spans rig). */
 function mkState(doc: string, selection?: EditorStateConfig['selection']): EditorState {
@@ -71,5 +71,28 @@ describe('PRD 013 Req 5: edit-pane diagram spans', () => {
   test('U758: disabled ⇒ no spans, whatever the document holds', () => {
     const doc = '```x-diag\nA --> B\n```\n';
     expect(computeDiagramSpans(mkState(doc), false, registered)).toEqual([]);
+  });
+});
+
+describe('PRD 015 Req 4: the span exposes the persisted width for the widget to draw', () => {
+  test('U781: width comes from the full info string, tolerantly — a well-formed token reads, an absent or intolerable one is null (PRD 015 Req 3), and the document is never touched', () => {
+    const doc =
+      '```x-diag width=320\nA --> B\n```\n\n```x-diag\nC --> D\n```\n\n```x-diag width=12.5\nE --> F\n```\n';
+    const state = mkState(doc);
+    const spans = computeDiagramSpans(state, true, registered);
+    expect(spans.map((s) => s.width)).toEqual([320, null, null]);
+    // Reading mutated nothing: same state, same document text.
+    expect(state.doc.toString()).toBe(doc);
+  });
+
+  test('U782: the drawing identity distinguishes two widths of the same source — and ignores position and reveal state', () => {
+    const doc = '```x-diag width=320\nA --> B\n```\n';
+    const [sized] = computeDiagramSpans(mkState(doc), true, registered);
+    const resized = computeDiagramSpans(mkState(doc.replace('width=320', 'width=480')), true, registered)[0];
+    const bare = computeDiagramSpans(mkState('```x-diag\nA --> B\n```\n'), true, registered)[0];
+    expect(sameDiagramDrawing(sized, resized)).toBe(false); // width change ⇒ redraw
+    expect(sameDiagramDrawing(sized, bare)).toBe(false); // width removed ⇒ redraw
+    expect(sameDiagramDrawing(bare, { ...bare, from: 10, to: 40, revealed: true })).toBe(true);
+    expect(sameDiagramDrawing(sized, { ...sized })).toBe(true);
   });
 });

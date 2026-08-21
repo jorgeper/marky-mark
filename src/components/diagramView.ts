@@ -14,7 +14,7 @@
 import { StateField, type EditorState, type Extension } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet } from '@codemirror/view';
 import { ensureSyntaxTree } from '@codemirror/language';
-import { computeDiagramSpans, type DiagramSpan } from '../lib/diagramSpans';
+import { computeDiagramSpans, sameDiagramDrawing, type DiagramSpan } from '../lib/diagramSpans';
 import { renderSafely, type FenceRenderer, type FenceRenderResult } from '../lib/fenceRenderers';
 import { DIAGRAM_CLASS, DIAGRAM_ERROR_CLASS, paintDiagramResult } from '../lib/fenceDiagrams';
 import { tableModeField } from './tableMode';
@@ -75,13 +75,12 @@ class DiagramWidget extends WidgetType {
 
   // Same drawing ⇒ same DOM: CodeMirror keeps the element (and the SVG
   // already swapped into it) across rebuilds — a caret move elsewhere never
-  // re-renders a diagram. A source, tag or theme change makes a fresh widget.
+  // re-renders a diagram. A source, tag, theme or width change makes a fresh
+  // widget (PRD 015 Req 4: a width change must redraw the block — and the
+  // render cache, keyed on theme/tag/source only, makes that redraw a cache
+  // hit: mermaid never re-runs for a width-only change).
   eq(other: DiagramWidget): boolean {
-    return (
-      other.span.source === this.span.source &&
-      other.span.tag === this.span.tag &&
-      other.theme === this.theme
-    );
+    return sameDiagramDrawing(other.span, this.span) && other.theme === this.theme;
   }
 
   toDOM(): HTMLElement {
@@ -116,7 +115,9 @@ class DiagramWidget extends WidgetType {
     const host = wrap.ownerDocument.createElement('div');
     host.className = className;
     host.dataset.testid = className;
-    paintDiagramResult(host, result);
+    // PRD 015 Req 4: the edit-pane widget draws the same persisted width as
+    // the preview — applied by the shared painter to the cached SVG.
+    paintDiagramResult(host, result, this.span.width);
     // A drawing takes the block over; PRD 013 Req 10: a failure note joins
     // the source, which stays visible above it.
     if (result.ok) wrap.replaceChildren(host);

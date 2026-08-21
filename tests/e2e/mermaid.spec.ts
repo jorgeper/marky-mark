@@ -2,7 +2,7 @@
 // panes — the real mermaid library, lazily loaded through the vite dev
 // server, behind the fence-renderer seam. The edit pane is #162's, not here.
 import { expect, test } from './fixtures';
-import { addComment, freshApp, fsWrite, landInPreview, openPath, openSettings } from './helpers';
+import { addComment, freshApp, fsRead, fsWrite, landInPreview, openPath, openSettings } from './helpers';
 
 const DOC_PATH = '/docs/diagrams.md';
 
@@ -212,4 +212,77 @@ test('E313: the Diagram ▸ toggle and the Settings checkbox flip and persist ON
   const doc = page.getByTestId('doc');
   await expect(doc.getByTestId('mm-diagram')).toBeVisible(FIRST_DRAW);
   await expect(doc.getByTestId('mm-diagram-error')).toBeVisible();
+});
+
+// PRD 015 Req 4 (issue #170): both surfaces draw the persisted `width=N`.
+const WIDTH_DOC_PATH = '/docs/sized-diagrams.md';
+const WIDTH_DOC = `# Sized diagrams
+
+\`\`\`mermaid width=500
+graph TD
+  A[Start] --> B[Finish]
+\`\`\`
+
+\`\`\`mermaid
+graph TD
+  A[Start] --> B[Finish]
+\`\`\`
+
+\`\`\`mermaid width=99px
+graph TD
+  A[Start] --> B[Finish]
+\`\`\`
+`;
+
+test('E316: a width=N fence draws at N px in the preview and in the edit-pane widget; unadorned and malformed-width fences stay at natural size, the text untouched', async ({
+  page,
+}) => {
+  await freshApp(page);
+  await fsWrite(page, WIDTH_DOC_PATH, WIDTH_DOC);
+  await openPath(page, WIDTH_DOC_PATH);
+  await landInPreview(page);
+  const doc = page.getByTestId('doc');
+  await expect(doc.locator('h1')).toContainText('Sized diagrams');
+
+  // PRD 015 Req 4, preview: all three fences draw (a malformed width is
+  // ignored, never a failure state — PRD 015 Req 3 / PRD 013 Reqs 10–11).
+  const diagrams = doc.getByTestId('mm-diagram');
+  await expect(diagrams).toHaveCount(3, FIRST_DRAW);
+  await expect(doc.getByTestId('mm-diagram-error')).toHaveCount(0);
+  const svgAt = (i: number) => diagrams.nth(i).locator('svg');
+
+  // The measured box, not a style string: 500 CSS px wide, height following
+  // the drawing's own viewBox aspect — the whole drawing scales, no crop.
+  const sized = await svgAt(0).boundingBox();
+  expect(sized!.width).toBeCloseTo(500, 0);
+  const [vbW, vbH] = (await svgAt(0).getAttribute('viewBox'))!.split(/\s+/).slice(2).map(Number);
+  expect(sized!.height).toBeCloseTo((500 * vbH) / vbW, 0);
+
+  // The unadorned fence keeps its natural width (500 is wider than this
+  // drawing lays out, so honouring the token IS the difference)…
+  const natural = await svgAt(1).boundingBox();
+  expect(natural!.width).toBeGreaterThan(0);
+  expect(Math.abs(natural!.width - 500)).toBeGreaterThan(50);
+  // …and the malformed-width fence draws exactly like it.
+  const malformed = await svgAt(2).boundingBox();
+  expect(malformed!.width).toBeCloseTo(natural!.width, 0);
+
+  // PRD 015 Req 4, edit pane: the same widths inside the mm-editor-diagram
+  // widgets, drawn by the same painter over the same persisted token.
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  const widgets = editor.locator('.mm-editor-diagram').getByTestId('mm-diagram');
+  await expect(widgets).toHaveCount(3, FIRST_DRAW);
+  const widgetSized = await widgets.nth(0).locator('svg').boundingBox();
+  expect(widgetSized!.width).toBeCloseTo(500, 0);
+  const widgetNatural = await widgets.nth(1).locator('svg').boundingBox();
+  expect(Math.abs(widgetNatural!.width - 500)).toBeGreaterThan(50);
+  const widgetMalformed = await widgets.nth(2).locator('svg').boundingBox();
+  expect(widgetMalformed!.width).toBeCloseTo(widgetNatural!.width, 0);
+
+  // PRD 015 Req 3: reading the width mutated nothing — no dirty dot ever
+  // appeared, and the stored document is byte-identical (no rewrite).
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  expect(await fsRead(page, WIDTH_DOC_PATH)).toBe(WIDTH_DOC);
 });

@@ -17,6 +17,7 @@
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
 import { fenceLanguage } from './fenceRenderers';
+import { readFenceWidth } from './fenceWidth';
 import type { Span } from './codeBlockSpans';
 
 /** One qualifying fence's decoration inputs, in document order. */
@@ -28,8 +29,27 @@ export interface DiagramSpan {
   tag: string;
   /** The fence body handed to the renderer: the lines between the delimiters. */
   source: string;
+  /**
+   * PRD 015 Req 4: the persisted `width=N` from the fence's info string
+   * (`readFenceWidth` — tolerant, PRD 015 Req 3: absent or intolerable ⇒
+   * null, natural size). Read-only: computing spans never writes the buffer.
+   */
+  width: number | null;
   /** Caret inside the block — it shows raw source for editing (no widget). */
   revealed: boolean;
+}
+
+/**
+ * PRD 015 Req 4: what makes two spans the SAME DRAWING — source, tag and
+ * persisted width. The widget's `eq` (components/diagramView.ts) keys on
+ * this, so a width change redraws its block (the render cache keyed on
+ * theme/tag/source absorbs the redraw — mermaid never re-runs for a
+ * width-only change) while a caret move elsewhere keeps the DOM. Position
+ * and reveal state are deliberately not identity: the drawing is the same
+ * wherever the fence sits.
+ */
+export function sameDiagramDrawing(a: DiagramSpan, b: DiagramSpan): boolean {
+  return a.source === b.source && a.tag === b.tag && a.width === b.width;
 }
 
 /**
@@ -54,7 +74,8 @@ export function computeDiagramSpans(
       // PRD 013 Req 5: the registry decides — the info string's first word,
       // normalized by the seam's own reader, looked up by the caller.
       const info = n.node.getChild('CodeInfo');
-      const tag = fenceLanguage(info ? doc.sliceString(info.from, info.to) : null);
+      const infoText = info ? doc.sliceString(info.from, info.to) : null;
+      const tag = fenceLanguage(infoText);
       if (tag == null || !isRegistered(tag)) return false;
       // Grid exclusion, like SPEC41 §2.4 / computeCodeCards.
       if (excluded.some((s) => n.from < s.to && n.to > s.from)) return false;
@@ -65,7 +86,9 @@ export function computeDiagramSpans(
       const revealed = from <= head && head <= to;
       const text = n.node.getChild('CodeText');
       const source = text ? doc.sliceString(text.from, text.to) : '';
-      spans.push({ from, to, tag, source, revealed });
+      // PRD 015 Req 4: the CodeInfo slice IS the full info string
+      // (`lang meta…`) — exactly the shape readFenceWidth reads.
+      spans.push({ from, to, tag, source, width: readFenceWidth(infoText), revealed });
       return false; // fences never nest — no need to descend into the body
     },
   });

@@ -69,6 +69,45 @@ describe('PRD 013 Req 2: registered fences draw automatically, others are untouc
   });
 });
 
+describe('PRD 015 Req 4: the drawn SVG carries the persisted width; tolerant where it should be', () => {
+  test('U779: a width-bearing fence draws its SVG at the stamped width, height left to the aspect ratio, mermaid\'s own max-width overridden', async () => {
+    // The pipeline's stamp (data-mm-width, lib/markdown.ts) as the graft sees it.
+    const sized = `<pre><code class="language-${TAG}" data-mm-width="500">a -&gt; b\n</code></pre>`;
+    // A renderer whose SVG carries mermaid's usual own sizing — the persisted
+    // width must outrank the inline max-width (larger-than-natural is honoured).
+    const mermaidish: FenceRenderer = () =>
+      Promise.resolve({ ok: true, svg: '<svg viewBox="0 0 100 50" style="max-width: 120px;"></svg>' });
+    const root = makeRoot(sized);
+    await renderFenceDiagrams(root, { rendererFor: lookup(mermaidish), theme: 'light' });
+    const svg = (root.querySelector(`.${DIAGRAM_CLASS}`) as HTMLElement).shadowRoot!.querySelector('svg')!;
+    expect(svg.style.width).toBe('500px');
+    expect(svg.style.height).toBe('auto'); // height follows the viewBox aspect — nothing crops
+    expect(svg.style.maxWidth).toBe('none');
+  });
+
+  test('U780: a widthless or intolerably-stamped fence draws exactly as before — no inline sizing, no extra renderer call, no error state', async () => {
+    let calls = 0;
+    const counting: FenceRenderer = (source, options) => {
+      calls += 1;
+      return okRenderer(source, options);
+    };
+    const bad = `<pre><code class="language-${TAG}" data-mm-width="12.5">a -&gt; b\n</code></pre>`;
+    const zero = `<pre><code class="language-${TAG}" data-mm-width="0">a -&gt; b\n</code></pre>`;
+    const root = makeRoot(FENCE + bad + zero);
+    await renderFenceDiagrams(root, { rendererFor: lookup(counting), theme: 'light' });
+    expect(calls).toBe(3); // once per block, same as today — the width read adds no render pass
+    const hosts = Array.from(root.querySelectorAll(`.${DIAGRAM_CLASS}`)) as HTMLElement[];
+    expect(hosts).toHaveLength(3); // drawn, not failed: an intolerable width is ignored, no badge
+    for (const host of hosts) {
+      const svg = host.shadowRoot!.querySelector('svg')!;
+      expect(svg.getAttribute('style')).toBeNull(); // natural size: the paint touched no style
+    }
+    for (const pre of Array.from(root.querySelectorAll('pre')) as HTMLElement[]) {
+      expect(pre.dataset.mmDiagram).toBe('done');
+    }
+  });
+});
+
 describe('PRD 013 Req 3: the graft is invisible to the anchor coordinate space', () => {
   test('U738: getDocText is byte-identical with diagrams drawn, failed, and left as code', async () => {
     const html = `<h1>Title</h1>${FENCE}<p>middle paragraph</p>${FENCE}${PLAIN}<p>tail</p>`;
