@@ -567,3 +567,112 @@ test('E322: a pending diagram is inert — while the renderer never settles, cli
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   await page.unroute('**/*mermaid*');
 });
+
+// PRD 015 Req 9 (issue #172): the resize gesture is invisible to the comment
+// layer — the rendered-text coordinate space never moves (the diagram
+// contributes zero text nodes, PRD 013 Req 3), so sidecar anchors above AND
+// below a diagram are the same bytes before and after the whole gesture.
+const ANCHOR_DOC_PATH = '/docs/resize-anchor.md';
+const ANCHOR_SIDECAR_PATH = '/docs/resize-anchor.md.comments.json';
+const ANCHOR_DOC = `# Anchor Invariance
+
+A phrase above the diagram to comment on.
+
+\`\`\`mermaid
+graph TD
+  A[Start] --> B[Finish]
+\`\`\`
+
+A phrase below the diagram to comment on.
+`;
+
+test('E324: PRD 015 Req 9 — comments above and below a diagram keep resolving, their anchor bytes unchanged, across select, corner-drag resize, double-click reset and a cold reopen', async ({
+  page,
+}) => {
+  await freshApp(page);
+  await fsWrite(page, ANCHOR_DOC_PATH, ANCHOR_DOC);
+  await openPath(page, ANCHOR_DOC_PATH);
+  await landInPreview(page);
+  const doc = page.getByTestId('doc');
+  const diagram = doc.getByTestId('mm-diagram');
+  await expect(diagram).toBeVisible(FIRST_DRAW);
+  const svg = diagram.locator('svg');
+
+  await addComment(page, 'above the diagram', 'anchored above');
+  await addComment(page, 'below the diagram', 'anchored below');
+  const expectResolved = async () => {
+    // Both highlights on the same phrases, both cards present, no orphans.
+    await expect(page.locator('mark.hl')).toHaveText(['above the diagram', 'below the diagram']);
+    await expect(page.getByTestId('comment-card')).toHaveCount(2);
+    await expect(page.getByTestId('orphan-badge')).toHaveCount(0);
+  };
+  await expectResolved();
+
+  // The sidecar autosave (debounced 800 ms) has landed both anchors.
+  const anchorsOf = async () => {
+    const raw = (await fsRead(page, ANCHOR_SIDECAR_PATH))!;
+    return JSON.parse(raw).comments.map((c: { anchor: unknown }) => c.anchor);
+  };
+  await expect
+    .poll(async () => {
+      const raw = await fsRead(page, ANCHOR_SIDECAR_PATH);
+      return raw ? JSON.parse(raw).comments.length : 0;
+    })
+    .toBe(2);
+  const anchorsBefore = await anchorsOf();
+
+  const docText = () => doc.evaluate((el) => el.textContent ?? '');
+  const textBefore = await docText();
+
+  // Select: overlay chrome only — text and highlights untouched.
+  await diagram.click();
+  await expect(page.getByTestId('diagram-resize-overlay')).toBeVisible();
+  expect(await docText()).toBe(textBefore);
+  await expectResolved();
+
+  // Corner drag to a mid-range width (E318's shape), released and saved.
+  const [vbW] = await viewBoxOf(diagram);
+  const start = await stableBox(svg);
+  const handle = await stableBox(page.getByTestId('diagram-resize-handle-se'));
+  const hx = handle.x + handle.width / 2;
+  const hy = handle.y + handle.height / 2;
+  const target = Math.max(50, Math.round(vbW * 0.6));
+  await page.mouse.move(hx, hy);
+  await page.mouse.down();
+  await page.mouse.move(hx + (target - start.width), hy, { steps: 4 });
+  expect(await docText()).toBe(textBefore); // mid-drag: still byte-identical
+  await page.mouse.up();
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect
+    .poll(async () => (await fsRead(page, ANCHOR_DOC_PATH)) ?? '', { timeout: 10_000 })
+    .toContain('```mermaid width=');
+  expect(await docText()).toBe(textBefore); // after the release
+  await expectResolved();
+  // PRD 015 Req 9: the same numbers, not merely still-resolving ones.
+  expect(await anchorsOf()).toEqual(anchorsBefore);
+
+  // Double-click reset: the token goes, the bytes return to the original.
+  await diagram.dblclick();
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect
+    .poll(async () => (await fsRead(page, ANCHOR_DOC_PATH)) ?? '', { timeout: 10_000 })
+    .toBe(ANCHOR_DOC);
+  expect(await docText()).toBe(textBefore); // after the reset
+  await expectResolved();
+  expect(await anchorsOf()).toEqual(anchorsBefore);
+
+  // From cold (E310's shape): the untouched sidecar re-resolves against a
+  // freshly drawn diagram.
+  await openPath(page, '/docs/welcome.md');
+  await expect(doc.locator('h1')).toContainText('Welcome to Marky Mark');
+  await openPath(page, ANCHOR_DOC_PATH);
+  await landInPreview(page);
+  await expect(diagram).toBeVisible(FIRST_DRAW);
+  await expectResolved();
+  expect(await docText()).toBe(textBefore);
+  expect(await anchorsOf()).toEqual(anchorsBefore);
+});

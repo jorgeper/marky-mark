@@ -1,5 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from './fixtures';
+// PRD 015 Req 12 (#172): the one drag-geometry helper the desktop resize
+// tests settle on; pure Playwright, nothing shim-bound.
+import { stableBox } from './helpers';
 // PRD 011 Req 9 (#121): the static-web sentence comes from the module that
 // owns it, so a reword fails W14 rather than passing against a stale copy.
 import { NO_LLM_PLATFORM_MESSAGE } from '../../src/lib/llmSettings';
@@ -629,4 +632,46 @@ test('W17: PRD 013 Req 8 (issue #161) — a mermaid fence draws on the built sin
   await expect(drawnPre).toBeHidden();
 
   expect(extraRequests).toEqual([]);
+});
+
+test('W18: PRD 015 Req 12 (issue #172) — the corner-drag resize persists width=N into the document on the built single-file page', async ({
+  page,
+}) => {
+  // Parity guard, not a re-run of the desktop matrix (E317–E323): the same
+  // overlay testids drive the same gesture, and the width lands in the
+  // buffer — there is no filesystem here, so the dirty dot and the edit
+  // pane are the evidence of persistence.
+  await dropFile(page, 'resize.md', '# Resize Doc\n\n```mermaid\ngraph TD\n  A[Start] --> B[Finish]\n```\n');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Resize Doc');
+  const diagram = page.getByTestId('doc').getByTestId('mm-diagram');
+  await expect(diagram).toBeVisible({ timeout: 20_000 });
+  const svg = diagram.locator('svg');
+  await expect(svg).toBeVisible();
+  const vbW = Number((await svg.getAttribute('viewBox'))!.split(/\s+/)[2]);
+
+  await diagram.click();
+  await expect(page.getByTestId('diagram-resize-overlay')).toBeVisible();
+  await expect(page.getByTestId('diagram-size-badge')).toBeVisible();
+  const start = await stableBox(svg);
+  const handle = await stableBox(page.getByTestId('diagram-resize-handle-se'));
+  const target = Math.max(50, Math.round(vbW * 0.6));
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2 + (target - start.width), handle.y + handle.height / 2, {
+    steps: 4,
+  });
+  await page.mouse.up();
+
+  // The release wrote through the buffer path: dirty dot up, and the fence
+  // line carries width=N inside the [40, natural viewBox width] clamp.
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  const buffer = await editorDocText(page);
+  const match = /```mermaid width=(\d+)\n/.exec(buffer);
+  expect(match).not.toBeNull();
+  const n = Number(match![1]);
+  expect(n).toBeGreaterThanOrEqual(40);
+  expect(n).toBeLessThanOrEqual(Math.ceil(vbW));
+  expect(Math.abs(n - target)).toBeLessThanOrEqual(2);
 });
