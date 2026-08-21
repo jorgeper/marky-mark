@@ -278,7 +278,8 @@ button {
   overflow-x: auto;
   display: flex;
   justify-content: center;
-  /* SPEC20 §4.2: offset parent for the image-resize overlay (content coords). */
+  /* SPEC20 §4.2: offset parent for the resize overlay (content coords) —
+     PRD 015 Req 5's diagram overlay is what positions against it today. */
   position: relative;
 }
 

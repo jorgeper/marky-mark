@@ -88,14 +88,23 @@ const CACHE_MAX = 64;
 // make git treat this module as binary), so two triples never share a key.
 const cacheKey = (theme: string, tag: string, source: string) => `${theme}\u0000${tag}\u0000${source}`;
 
+/**
+ * PRD 015 Req 7: the result this triple has ALREADY produced, if any — the
+ * synchronous fast path's whole question. Undefined means "not drawn yet, or
+ * still in flight": render, and paint when it lands.
+ */
+function settledResult(options: FenceDiagramOptions, tag: string, source: string): FenceRenderResult | undefined {
+  return options.cache?.get(cacheKey(options.theme, tag, source))?.settled;
+}
+
 /** The shared render, one in-flight job per (theme, tag, source) triple. */
 function cachedRenderSafely(
-  renderer: FenceRenderer,
-  source: string,
-  theme: 'light' | 'dark',
+  options: FenceDiagramOptions,
   tag: string,
-  cache: DiagramRenderCache | undefined
+  source: string,
+  renderer: FenceRenderer
 ): Promise<FenceRenderResult> {
+  const { cache, theme } = options;
   if (!cache) return renderSafely(renderer, source, { theme });
   const key = cacheKey(theme, tag, source);
   const hit = cache.get(key);
@@ -145,10 +154,9 @@ export function renderFenceDiagrams(root: HTMLElement, options: FenceDiagramOpti
     // no renderer call, no `pending`, no flash of raw fence source. This is
     // what keeps every drawing continuously visible across a re-injection
     // whose fence bodies did not change (a width rewrite, any prose edit).
-    const settled = options.cache?.get(cacheKey(options.theme, tag, source))?.settled;
+    const settled = settledResult(options, tag, source);
     if (settled) {
-      paintDiagramResult(graftHost(pre, settled.ok ? DIAGRAM_CLASS : DIAGRAM_ERROR_CLASS), settled, width);
-      markState(pre, settled.ok ? 'done' : 'error');
+      paintBlock(pre, settled, width);
       continue;
     }
     // PRD 013 Req 11: first sight of this block — show its code while the
@@ -188,19 +196,26 @@ async function renderOne(
   // PRD 013 Req 10: `renderSafely` turns a contract-breaking rejection into
   // the typed failure, so it can't blank the block or stop the document.
   // PRD 015 Req 7: with a cache, identical in-flight triples share one job.
-  const result = await cachedRenderSafely(renderer, source, options.theme, tag, options.cache);
+  const result = await cachedRenderSafely(options, tag, source, renderer);
   // PRD 013 Req 11: stale-result guard — the tree was re-injected (node no
   // longer connected) or a newer pass stamped this block. Paint nothing.
   if (!pre.isConnected || pre.dataset.mmDiagramRun !== token) return;
+  paintBlock(pre, result, width);
+}
 
+/**
+ * A settled result onto its block — the one place either route paints, so an
+ * awaited render and a cache hit can never drift apart. PRD 013 Req 3: on
+ * success the SVG (and its <text> labels) enters the shadow tree only — see
+ * the module header for why that keeps getDocText byte-identical. PRD 013
+ * Req 10: on failure the code block stays exactly as rendered and the badge —
+ * unobtrusive, text shadow-rooted — carries the renderer's message.
+ */
+function paintBlock(pre: HTMLElement, result: FenceRenderResult, width: number | null): void {
   if (result.ok) {
-    // PRD 013 Req 3: the SVG (and its <text> labels) enters the shadow tree
-    // only — see the module header for why this keeps getDocText byte-identical.
     paintDiagramResult(graftHost(pre, DIAGRAM_CLASS), result, width);
     markState(pre, 'done');
   } else {
-    // PRD 013 Req 10: the code block stays exactly as rendered; the badge —
-    // unobtrusive, text shadow-rooted — carries the renderer's message.
     paintDiagramResult(graftHost(pre, DIAGRAM_ERROR_CLASS), result);
     markState(pre, 'error');
   }

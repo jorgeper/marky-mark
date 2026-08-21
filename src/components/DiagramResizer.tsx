@@ -43,27 +43,43 @@ interface Box {
   height: number;
 }
 
+/** What a selection needs: the line to rewrite, and the drawing to rescale. */
 interface DiagramParts {
   line: number;
-  host: HTMLElement;
+  shadow: ShadowRoot;
   svg: SVGSVGElement;
+}
+
+/** The live drag, from the pointerdown on a handle to its pointerup. */
+interface Drag {
+  corner: DiagramCorner;
+  startX: number;
+  startWidth: number;
+  vbWidth: number;
+  vbHeight: number;
+  shadow: ShadowRoot;
+  /** The width last written to the drawing — what the release persists. */
+  width: number;
+  moved: boolean;
 }
 
 const CORNERS: DiagramCorner[] = ['nw', 'ne', 'sw', 'se'];
 
 /**
- * PRD 015 Req 11: the selectable identity behind a click target — the host's
- * own `<pre>`, in the `done` state, carrying a `data-mm-line` stamp, with the
- * drawn SVG reachable in the open shadow root. Anything less is inert.
+ * PRD 015 Req 11: the selectable identity behind a fence's `<pre>` — the
+ * block in the `done` state, carrying a `data-mm-line` stamp, its grafted
+ * host next to it with the drawn SVG reachable in the open shadow root.
+ * Anything less is inert: no line to aim a rewrite at, or nothing drawn yet.
  */
-function partsOf(host: Element | null): DiagramParts | null {
-  if (!(host instanceof HTMLElement) || !host.classList.contains(DIAGRAM_CLASS)) return null;
-  const pre = host.previousElementSibling;
+function partsOf(pre: Element | null): DiagramParts | null {
   if (!(pre instanceof HTMLElement) || pre.dataset.mmDiagram !== 'done') return null;
   if (!/^\d+$/.test(pre.dataset.mmLine ?? '')) return null;
-  const svg = host.shadowRoot?.querySelector('svg');
-  if (!svg) return null;
-  return { line: Number(pre.dataset.mmLine), host, svg };
+  const host = pre.nextElementSibling;
+  if (!(host instanceof HTMLElement) || !host.classList.contains(DIAGRAM_CLASS)) return null;
+  const shadow = host.shadowRoot;
+  const svg = shadow?.querySelector('svg');
+  if (!shadow || !svg) return null;
+  return { line: Number(pre.dataset.mmLine), shadow, svg };
 }
 
 export function DiagramResizer({ active, docRef, workspaceRef, html, onRewrite }: Props) {
@@ -71,27 +87,13 @@ export function DiagramResizer({ active, docRef, workspaceRef, html, onRewrite }
   const [box, setBox] = useState<Box | null>(null);
   const selRef = useRef(sel);
   selRef.current = sel;
-  const dragRef = useRef<{
-    corner: DiagramCorner;
-    startX: number;
-    startWidth: number;
-    vbWidth: number;
-    vbHeight: number;
-    shadow: ShadowRoot;
-    width: number;
-    moved: boolean;
-  } | null>(null);
+  const dragRef = useRef<Drag | null>(null);
   // The click that fires right after a drag's pointerup must not deselect.
   const suppressClickRef = useRef(false);
 
   const findParts = useCallback(
     (line: number | null): DiagramParts | null =>
-      line === null
-        ? null
-        : partsOf(
-            docRef.current?.querySelector(`pre[data-mm-line="${line}"][data-mm-diagram="done"]`)
-              ?.nextElementSibling ?? null
-          ),
+      line === null ? null : partsOf(docRef.current?.querySelector(`pre[data-mm-line="${line}"]`) ?? null),
     [docRef]
   );
 
@@ -112,27 +114,33 @@ export function DiagramResizer({ active, docRef, workspaceRef, html, onRewrite }
     });
   }, [findParts, workspaceRef]);
 
-  // Selection / deselection: delegated clicks. Shadow-tree clicks retarget to
-  // the host element, so the drawn SVG itself is the click surface.
+  // Selection / deselection: delegated clicks, installed only while the
+  // document may be edited (Req 10).
   useEffect(() => {
     if (!active) {
       setSel(null);
       return;
     }
+    // The diagram a mouse event landed on. Shadow-tree clicks retarget to the
+    // host, so the graft's class is the whole test; its `<pre>` — the sibling
+    // before it — carries the identity (`partsOf`). A failure badge is a host
+    // of the OTHER class, so it never matches: pending and error are inert.
+    const diagramAt = (e: MouseEvent): DiagramParts | null => {
+      const host = (e.target as HTMLElement).closest?.(`.${DIAGRAM_CLASS}`);
+      if (!host || !docRef.current?.contains(host)) return null;
+      return partsOf(host.previousElementSibling);
+    };
     const onClick = (e: MouseEvent) => {
       if (suppressClickRef.current) {
         suppressClickRef.current = false;
         return;
       }
-      const t = e.target as HTMLElement;
-      if (t.closest?.('.img-resize-overlay')) return; // handle interaction, not a click-away
-      const host = t.closest?.(`.${DIAGRAM_CLASS}`);
-      const parts = host && docRef.current?.contains(host) ? partsOf(host) : null;
-      setSel(parts ? parts.line : null);
+      // Handle interaction, not a click-away.
+      if ((e.target as HTMLElement).closest?.('.img-resize-overlay')) return;
+      setSel(diagramAt(e)?.line ?? null);
     };
     const onDblClick = (e: MouseEvent) => {
-      const host = (e.target as HTMLElement).closest?.(`.${DIAGRAM_CLASS}`);
-      const parts = host && docRef.current?.contains(host) ? partsOf(host) : null;
+      const parts = diagramAt(e);
       if (!parts) return;
       // PRD 015 Req 8: back to natural size — the token removed. A fence
       // with no width token makes this a no-op the owner skips entirely.
@@ -194,7 +202,7 @@ export function DiagramResizer({ active, docRef, workspaceRef, html, onRewrite }
       startWidth: r.width,
       vbWidth: vb?.width ?? 0,
       vbHeight: vb?.height ?? 0,
-      shadow: parts.svg.getRootNode() as ShadowRoot,
+      shadow: parts.shadow,
       width: Math.round(r.width),
       moved: false,
     };
