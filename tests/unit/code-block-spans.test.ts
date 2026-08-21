@@ -3,6 +3,7 @@ import { EditorState, type EditorStateConfig } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
 import { computeCodeCards, type CodeCard } from '../../src/lib/codeBlockSpans';
+import { codeBlockText } from '../../src/lib/codeCopy';
 
 /** A state whose syntax tree is fully parsed (the live-preview tests' rig). */
 function mkState(doc: string, selection?: EditorStateConfig['selection']): EditorState {
@@ -76,6 +77,45 @@ describe('Issue #157: fenced-code card spans', () => {
     // Moving the caret out re-renders: same doc, caret on the prose line.
     const outside = mkState(doc, { anchor: doc.indexOf('mid') });
     expect(computeCodeCards(outside, true).map((c) => c.revealed)).toEqual([false, false]);
+  });
+
+  test('U783: issue #163 — the body span is the interior lines, delimiters and info string excluded; codeBlockText mirrors the preview clipboard', () => {
+    const doc = 'intro\n\n```js\nconst a = 1;\nconst b = 2;\n```\n\ntail\n';
+    const state = mkState(doc);
+    const [card] = computeCodeCards(state, true);
+    // The span runs from the line after the opening fence to the start of the
+    // closing-fence line — so it carries the newline the closing delimiter
+    // implies, exactly like the preview's <code> textContent…
+    expect(state.doc.sliceString(card.body.from, card.body.to)).toBe('const a = 1;\nconst b = 2;\n');
+    // …which is what lets codeBlockText be the ONLY trailing-newline rule.
+    expect(codeBlockText(state.doc.sliceString(card.body.from, card.body.to))).toBe(
+      'const a = 1;\nconst b = 2;'
+    );
+  });
+
+  test('U784: issue #163 — a trailing blank body line is the block\'s own and survives the copy text', () => {
+    const doc = '```\nkeep\n\n```\n';
+    const state = mkState(doc);
+    const [card] = computeCodeCards(state, true);
+    expect(state.doc.sliceString(card.body.from, card.body.to)).toBe('keep\n\n');
+    expect(codeBlockText(state.doc.sliceString(card.body.from, card.body.to))).toBe('keep\n');
+  });
+
+  test('U785: issue #163 — an empty block and a bare unclosed fence both carry an empty body', () => {
+    const empty = mkState('```js\n```\n');
+    expect(computeCodeCards(empty, true)[0].body).toMatchObject({ from: 6, to: 6 });
+    const bare = mkState('```');
+    const [card] = computeCodeCards(bare, true);
+    expect(card.body.from).toBe(card.body.to);
+  });
+
+  test('U786: issue #163 — an unclosed fence\'s body runs from the line after the opener to the block end', () => {
+    const doc = 'park\n\n```\nstill open\n';
+    const state = mkState(doc);
+    const [card] = computeCodeCards(state, true);
+    // The parser runs the open block through the trailing newline (U739), so
+    // the raw span ends with it — and codeBlockText takes exactly one off.
+    expect(codeBlockText(state.doc.sliceString(card.body.from, card.body.to))).toBe('still open');
   });
 
   test('U741: disabled ⇒ no spans; a grid-overlapped block is excluded like SPEC41 §2.4', () => {

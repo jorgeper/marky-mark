@@ -308,8 +308,13 @@ interface Props {
   isMac: boolean;
   /** The readClipboardText seam exists (§4.6) — absent ⇒ Paste is omitted. */
   canPaste: boolean;
-  /** Cut/Copy route the selection through the platform copyText seam. */
-  onCopyText?(text: string): void;
+  /**
+   * Cut/Copy route the selection through the platform copyText seam.
+   * Issue #163: the card copy control needs the write's outcome for its
+   * "Copied" confirmation, so the seam may report success — a void return
+   * (older callers) reads as a failed write and the control stays at rest.
+   */
+  onCopyText?(text: string): void | boolean | Promise<boolean>;
   /** Paste reads through the seam; resolves null when unavailable/failed. */
   onReadClipboard?(): Promise<string | null>;
   /** SPEC43 §5.2: populated at mount with applyFormat/openSmartMenu. */
@@ -699,6 +704,12 @@ export default function Editor({
   resolveImageSrcRef.current = resolveImageSrc;
   const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView });
   smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView };
+  // Issue #163: the card copy control's clipboard seam — read through the
+  // live props ref, so neither the mount nor a reconfigure ever captures a
+  // stale handler, and only an explicit `true` counts as a landed write.
+  const cardCopyRef = useRef((text: string) =>
+    Promise.resolve(smartPropsRef.current.onCopyText?.(text)).then((ok) => ok === true)
+  );
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const valueRef = useRef(value);
@@ -1191,7 +1202,7 @@ export default function Editor({
       // Issue #157: the fenced-code card view — pure decoration, present only
       // while the setting is on; after table mode so it can read the grid
       // spans it must exclude.
-      codeCardComp.current.of(codeBlockView ? codeBlockViewExtension() : []),
+      codeCardComp.current.of(codeBlockView ? codeBlockViewExtension({ copy: cardCopyRef.current }) : []),
       // PRD 013 Req 5: the edit-pane diagram view — pure decoration over the
       // fence-renderer seam, present only while the setting is on; after
       // table mode so it can read the grid spans it must exclude.
@@ -1629,7 +1640,9 @@ export default function Editor({
   // only, so no text, no history, no dirty dot, ever.
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: codeCardComp.current.reconfigure(codeBlockView ? codeBlockViewExtension() : []),
+      effects: codeCardComp.current.reconfigure(
+        codeBlockView ? codeBlockViewExtension({ copy: cardCopyRef.current }) : []
+      ),
     });
   }, [codeBlockView]);
 

@@ -882,3 +882,115 @@ test('E309: issue #157 — code blocks render as cards by default, caret reveal,
   // the same rehype code card regardless of the editor setting.
   await expect(page.getByTestId('split-preview').locator('pre code')).toContainText('const a = 1;');
 });
+
+test('E317: issue #163 — the card copy control copies the body only, a selection crossing a card tints above it, and the delimiter row is clickable with its fence text selectable', async ({
+  page,
+}) => {
+  const DOC = 'intro\n\n```js\nconst a = 1;\nconst b = 2;\n```\n\noutro\n';
+  await fsWrite(page, '/docs/code163.md', DOC);
+  await page.goto('/#open=/docs/code163.md');
+  await expect(page.getByTestId('doc')).toContainText('intro');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  await expect(content).toBeVisible();
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+
+  // Left inset: rendered card lines carry the preview's 16px breathing room
+  // (.doc pre's horizontal padding) — the code no longer hugs the ring.
+  await editor.locator('.cm-line').filter({ hasText: 'intro' }).click();
+  const bodyLine = editor.locator('.cm-line').filter({ hasText: 'const a' });
+  await expect(bodyLine).toHaveCSS('padding-left', '16px');
+
+  // The stacking that kills the issue's artefact: the card chrome lives on a
+  // ::before BELOW drawSelection's layer (which the view numbers by inline
+  // style), and the line itself is transparent — so the drawn selection band
+  // paints above the card background and below the text. The assertion is the
+  // relative order, not the numbers CodeMirror happens to hand out.
+  const stack = await bodyLine.evaluate((el) => ({
+    line: getComputedStyle(el).backgroundColor,
+    beforeZ: Number(getComputedStyle(el, '::before').zIndex),
+    beforeBg: getComputedStyle(el, '::before').backgroundColor,
+    layerZ: Number(
+      getComputedStyle(el.closest('.cm-scroller')!.querySelector('.cm-selectionLayer')!).zIndex
+    ),
+  }));
+  expect(stack.line).toBe('rgba(0, 0, 0, 0)');
+  expect(stack.beforeBg).not.toBe('rgba(0, 0, 0, 0)');
+  expect(stack.beforeZ).toBeLessThan(stack.layerZ);
+
+  // A selection running from the prose below up through the whole rendered
+  // block (head ends on "intro", so the card stays rendered): the selection
+  // layer's band covers every card row, hidden delimiter rows included.
+  await editor.locator('.cm-line').filter({ hasText: 'outro' }).click();
+  await page.keyboard.press('End');
+  for (let i = 0; i < 6; i++) await page.keyboard.press('Shift+ArrowUp');
+  expect(await text()).not.toContain('```'); // still rendered
+  const first = await editor.locator('.cm-line.mm-fence-card-first').boundingBox();
+  const last = await editor.locator('.cm-line.mm-fence-card-last').boundingBox();
+  const bandCovers = (y: number) =>
+    editor
+      .locator('.cm-selectionBackground')
+      .evaluateAll(
+        (els, mid) =>
+          els.some((el) => {
+            const r = el.getBoundingClientRect();
+            return r.top <= mid && r.bottom >= mid && r.width > 0;
+          }),
+        y
+      );
+  expect(await bandCovers(first!.y + first!.height / 2)).toBe(true);
+  expect(await bandCovers(last!.y + last!.height / 2)).toBe(true);
+
+  // The rendered card carries the preview's hover copy control: hidden at
+  // rest, revealed on hover anywhere on the card, its own testid (the
+  // preview's mm-copy-code stays scoped to the preview root).
+  const btn = editor.getByTestId('mm-copy-code-editor');
+  await expect(btn).toHaveCount(1);
+  await expect(btn).toHaveAttribute('aria-label', 'Copy code');
+  await expect(btn).toHaveCSS('opacity', '0');
+  await bodyLine.hover();
+  await expect(btn).toHaveCSS('opacity', '1');
+
+  // Clicking copies the body EXACTLY as the reader sees it — no fences, no
+  // info string, one implied trailing newline off — through the platform
+  // copyText seam, and confirms briefly.
+  await btn.click();
+  await expect.poll(() => page.evaluate(() => window.__mmClipboard?.at(-1))).toBe(
+    'const a = 1;\nconst b = 2;'
+  );
+  await expect(btn).toHaveAttribute('aria-label', 'Copied');
+  await expect(btn).toHaveAttribute('aria-label', 'Copy code', { timeout: 4000 });
+
+  // Inert chrome: the click revealed nothing, edited nothing, dirtied
+  // nothing — the block is still rendered and the document text unchanged.
+  expect(await text()).not.toContain('```');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  expect(await fsRead(page, '/docs/code163.md')).toBe(DOC);
+
+  // Clicking the hidden delimiter row reveals THAT block's raw fence and
+  // parks the caret on the line the pointer hit.
+  await editor.locator('.cm-line.mm-fence-card-first').click();
+  await expect(content).toContainText('```js');
+  await expect(editor.locator('.cm-line.mm-fence-card-first.cm-activeLine')).toHaveCount(1);
+
+  // Once revealed, the fence characters select by mouse drag…
+  const fence = await editor.locator('.cm-line.mm-fence-card-first').boundingBox();
+  await page.mouse.move(fence!.x + 17, fence!.y + fence!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(fence!.x + 60, fence!.y + fence!.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? '')).toMatch(
+    /^`+j?s?$/
+  );
+
+  // …and by double-click, and type over like any other text (undo restores).
+  await editor.locator('.cm-line.mm-fence-card-first').dblclick({ position: { x: 24, y: 8 } });
+  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString())).toBe('```');
+  await page.keyboard.type('x');
+  await expect(content).toContainText('xjs');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.keyboard.press('Control+z');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(content).toContainText('```js');
+});
