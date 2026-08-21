@@ -293,7 +293,10 @@ button {
   min-width: var(--mm-pane-min, 768px);
 }
 
-/* --- SPEC20 §4.2: preview image resize — selection outline, handles, badge --- */
+/* --- SPEC20 §4.2: selection outline, handles, badge. Images lost their
+   preview overlay (SPEC41 §4); PRD 015 Req 5 reuses this look for the
+   diagram resize overlay (components/DiagramResizer.tsx), which ships its
+   own testids. The print rules below hide the class — chrome, never paper. --- */
 .img-resize-overlay {
   position: absolute;
   z-index: 40;

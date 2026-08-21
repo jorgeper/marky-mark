@@ -1,6 +1,11 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, test } from 'vitest';
-import { DIAGRAM_CLASS, DIAGRAM_ERROR_CLASS, renderFenceDiagrams } from '../../src/lib/fenceDiagrams';
+import {
+  DIAGRAM_CLASS,
+  DIAGRAM_ERROR_CLASS,
+  renderFenceDiagrams,
+  type DiagramRenderCache,
+} from '../../src/lib/fenceDiagrams';
 import type { FenceRenderer } from '../../src/lib/fenceRenderers';
 import { getDocText } from '../../src/lib/domtext';
 
@@ -211,6 +216,73 @@ describe('PRD 013 Req 11: loading keeps the code; a stale result never paints', 
     await done;
     expect(root.querySelector(`.${DIAGRAM_CLASS}`)).toBeNull();
     expect((root.querySelector('pre') as HTMLElement).dataset.mmDiagram).toBeUndefined();
+  });
+});
+
+describe('PRD 015 Req 7: with a render cache, a re-injection re-runs no renderer and never flashes pending', () => {
+  test('U789: one renderer invocation across two passes over re-injected DOM of the same source; the second pass paints synchronously, never entering pending', async () => {
+    let calls = 0;
+    const counting: FenceRenderer = (source, options) => {
+      calls += 1;
+      return okRenderer(source, options);
+    };
+    const cache: DiagramRenderCache = new Map();
+    const opts = { rendererFor: lookup(counting), theme: 'light' as const, cache };
+    const first = makeRoot(FENCE);
+    await renderFenceDiagrams(first, opts);
+    expect(calls).toBe(1);
+
+    // The buffer-write shape: a FRESH tree with the same fence source.
+    const second = makeRoot(FENCE);
+    const pass = renderFenceDiagrams(second, opts);
+    // Before any await: the settled cache repainted synchronously — the block
+    // went straight to 'done' (no pending, no flash of raw fence source) and
+    // the drawing is already in place.
+    const pre = second.querySelector('pre') as HTMLElement;
+    expect(pre.dataset.mmDiagram).toBe('done');
+    expect(second.querySelector(`.${DIAGRAM_CLASS}`)).not.toBeNull();
+    await pass;
+    expect(calls).toBe(1); // the renderer never ran again
+  });
+
+  test('U790: a width-only change is a cache hit — the fresh stamp resizes the synchronously repainted SVG, no renderer call', async () => {
+    let calls = 0;
+    const counting: FenceRenderer = (source, options) => {
+      calls += 1;
+      return okRenderer(source, options);
+    };
+    const cache: DiagramRenderCache = new Map();
+    const opts = { rendererFor: lookup(counting), theme: 'light' as const, cache };
+    await renderFenceDiagrams(makeRoot(FENCE), opts);
+
+    // The release rewrote `width=N`: same body, a new data-mm-width stamp.
+    const resized = makeRoot(
+      `<pre><code class="language-${TAG}" data-mm-width="240">a -&gt; b\n</code></pre>`
+    );
+    void renderFenceDiagrams(resized, opts);
+    const svg = (resized.querySelector(`.${DIAGRAM_CLASS}`) as HTMLElement).shadowRoot!.querySelector('svg')!;
+    expect(svg.style.width).toBe('240px'); // painted synchronously, at the new width
+    expect(calls).toBe(1);
+  });
+
+  test('U791: a fence-body change (and a theme change) each invoke the renderer afresh; identical in-flight fences share one job', async () => {
+    let calls = 0;
+    const counting: FenceRenderer = (source, options) => {
+      calls += 1;
+      return okRenderer(source, options);
+    };
+    const cache: DiagramRenderCache = new Map();
+    const opts = { rendererFor: lookup(counting), theme: 'light' as const, cache };
+    // Two identical fences in one pass: one shared render job.
+    await renderFenceDiagrams(makeRoot(FENCE + FENCE), opts);
+    expect(calls).toBe(1);
+
+    const edited = `<pre><code class="language-${TAG}">a -&gt; b -&gt; c\n</code></pre>`;
+    await renderFenceDiagrams(makeRoot(edited), opts);
+    expect(calls).toBe(2); // mermaid re-runs exactly when the body changes
+
+    await renderFenceDiagrams(makeRoot(FENCE), { ...opts, theme: 'dark' });
+    expect(calls).toBe(3); // a theme change draws the new side, as today
   });
 });
 

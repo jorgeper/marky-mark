@@ -1697,6 +1697,37 @@ test('E206: without doc.edit the editor is read-only with no Edit Mode or Save �
   expect(await readAs(request, ada, id, 'locked.md')).toBe(stored);
 });
 
+test('E323: without doc.edit a diagram still draws but grows no resize overlay — a click selects nothing and the bytes stay put', async ({
+  page,
+  request,
+}) => {
+  // PRD 015 Req 10 (issue #171): handles appear only where the document may
+  // be edited — the gate is docGrants.edit, the same grant as Edit mode. On
+  // a read-only document the click does nothing at all.
+  const ada = await signIn(request, 'ada');
+  const id = await workspaceWithRole(request, ada, `E323 w${test.info().workerIndex}`, 'grace', [
+    'doc.read',
+    'comment.read',
+  ]);
+  const stored = '# Locked diagram\n\n```mermaid width=150\ngraph TD\n  A[Start] --> B[Finish]\n```\n';
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/diagram.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: stored,
+  });
+
+  await signInTo(page, 'grace', id);
+  await openFromSidebar(page, 'diagram.md');
+  await expect(page.getByTestId('read-only-doc')).toBeVisible();
+  const diagram = page.getByTestId('doc').getByTestId('mm-diagram');
+  await expect(diagram).toBeVisible({ timeout: 20_000 }); // cold mermaid import
+  await diagram.click();
+  await expect(page.getByTestId('diagram-resize-overlay')).toHaveCount(0);
+  await expect(page.getByTestId('diagram-size-badge')).toHaveCount(0);
+  await expect(page.getByTestId('diagram-resize-handle-se')).toHaveCount(0);
+  // The stored bytes are untouched.
+  expect(await readAs(request, ada, id, 'diagram.md')).toBe(stored);
+});
+
 test('E207: a role with doc.edit but not file.create may overwrite an existing path and not invent a new one', async ({
   request,
 }) => {

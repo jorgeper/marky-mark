@@ -3,7 +3,9 @@ import { getPlatform, type Platform, type WriteResult } from './platform';
 import { renderMarkdown } from './lib/markdown';
 import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
 import { decorateCodeBlocks } from './lib/codeCopy';
-import { renderFenceDiagrams } from './lib/fenceDiagrams';
+import { renderFenceDiagrams, type DiagramRenderCache } from './lib/fenceDiagrams';
+import { rewriteFenceWidthAt } from './lib/diagramResize';
+import { DiagramResizer } from './components/DiagramResizer';
 import { fenceRendererFor } from './lib/fenceRenderers';
 import { registerMermaidRenderer } from './lib/mermaidRenderer';
 import { getDocText, highlightRange, offsetsToRange, rangeToOffsets, rectForOffsets } from './lib/domtext';
@@ -844,6 +846,27 @@ export default function App() {
     // SIDEBAR's grants (file.create) — not the open document's.
     folderGrants,
   };
+
+  // PRD 015 Req 7: the full preview's render-result cache — a buffer write
+  // re-injects the preview, and this is what keeps the re-render of every
+  // unchanged fence a cache hit (mermaid re-runs only when a fence BODY
+  // changes; a width-only rewrite repaints synchronously, no pending flash).
+  const diagramRenderCacheRef = useRef<DiagramRenderCache>(new Map());
+
+  // PRD 015 Req 7: a resize release (or a Req 8 double-click reset) persists
+  // through the same path typing uses — the fence line rewritten and the
+  // whole buffer set, so the dirty dot, ⌘S and autosave-on-toggle follow
+  // exactly as they do for a typed edit. In preview mode the buffer IS the
+  // canonical text (parking canonicalizes on toggle), so the preview's
+  // data-mm-line stamps index straight into it. A no-op rewrite returns the
+  // buffer itself: nothing is written, no dirty dot, no undo entry.
+  const rewriteDiagramWidth = useCallback((line: number, width: number | null): void => {
+    const s = stateRef.current;
+    // PRD 015 Req 10: the same grant that enables Edit mode.
+    if (!s.docGrants.edit) return;
+    const next = rewriteFenceWidthAt(s.buffer, line, width);
+    if (next !== s.buffer) setBuffer(next);
+  }, []);
 
   /**
    * Issue #42: the document the MOUNTED editor's text belongs to. Assigned
@@ -5685,8 +5708,14 @@ export default function App() {
     // PRD 013 Req 2: registered fence languages draw as diagrams — same
     // post-injection graft, same reason: the SVG never enters the pipeline's
     // HTML or the anchor text space (lib/fenceDiagrams.ts). Async completion
-    // guards itself against a re-injection racing it.
-    void renderFenceDiagrams(doc, { rendererFor: fenceRendererFor, theme: activeThemeVariantRef.current });
+    // guards itself against a re-injection racing it. PRD 015 Req 7: the
+    // cache makes every unchanged-body fence a synchronous repaint, so a
+    // resize release never re-runs mermaid or flashes raw fence source.
+    void renderFenceDiagrams(doc, {
+      rendererFor: fenceRendererFor,
+      theme: activeThemeVariantRef.current,
+      cache: diagramRenderCacheRef.current,
+    });
 
     if (!reanchorAndHighlight(doc)) return;
     injectionCompleteRef.current = true; // SPEC25 §2: this DOM is final for now
@@ -7009,6 +7038,17 @@ export default function App() {
         />
       ) : mode === 'preview' ? (
         <div className="workspace" ref={workspaceRef}>
+          {/* PRD 015 Req 5: the diagram resize overlay — full preview pane
+              only (the split preview and the edit-pane widget get none), a
+              sibling of the rendered document in the workspace's content
+              coordinates. Req 10: gated on the same grant as Edit mode. */}
+          <DiagramResizer
+            active={docGrants.edit}
+            docRef={docRef}
+            workspaceRef={workspaceRef}
+            html={html}
+            onRewrite={rewriteDiagramWidth}
+          />
           <div className="docwrap">
             {frontMatter && showFrontmatter && (
               <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />

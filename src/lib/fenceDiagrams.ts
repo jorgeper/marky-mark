@@ -59,6 +59,57 @@ export interface FenceDiagramOptions {
   rendererFor: (tag: string) => FenceRenderer | undefined;
   /** PRD 013 Req 9: the app's ACTIVE theme side (the resolved theme's variant). */
   theme: 'light' | 'dark';
+  /**
+   * PRD 015 Req 7: optional render-result cache, keyed on (theme, tag,
+   * source) like the edit-pane widget's (`components/diagramView.ts`). The
+   * preview owner passes one so a re-injection whose fence BODIES did not
+   * change — a width-only rewrite, any non-fence edit — never re-invokes the
+   * renderer: a block whose result has already settled repaints
+   * SYNCHRONOUSLY, without ever entering the `pending` state, so the drawing
+   * stays continuously visible across the buffer write. Without a cache the
+   * pass renders exactly as before.
+   */
+  cache?: DiagramRenderCache;
+}
+
+interface DiagramRenderCacheEntry {
+  job: Promise<FenceRenderResult>;
+  /** Set once `job` resolves — the synchronous-repaint fast path reads it. */
+  settled?: FenceRenderResult;
+}
+/** PRD 015 Req 7: the preview-side render cache — one Map per owner. */
+export type DiagramRenderCache = Map<string, DiagramRenderCacheEntry>;
+
+// Insertion-order eviction, like the edit-pane cache: a long session never
+// accumulates unboundedly.
+const CACHE_MAX = 64;
+
+// A separator no fence source can contain (escaped: a literal NUL byte would
+// make git treat this module as binary), so two triples never share a key.
+const cacheKey = (theme: string, tag: string, source: string) => `${theme}\u0000${tag}\u0000${source}`;
+
+/** The shared render, one in-flight job per (theme, tag, source) triple. */
+function cachedRenderSafely(
+  renderer: FenceRenderer,
+  source: string,
+  theme: 'light' | 'dark',
+  tag: string,
+  cache: DiagramRenderCache | undefined
+): Promise<FenceRenderResult> {
+  if (!cache) return renderSafely(renderer, source, { theme });
+  const key = cacheKey(theme, tag, source);
+  const hit = cache.get(key);
+  if (hit) return hit.job;
+  const entry: DiagramRenderCacheEntry = { job: renderSafely(renderer, source, { theme }) };
+  void entry.job.then((result) => {
+    entry.settled = result;
+  });
+  cache.set(key, entry);
+  if (cache.size > CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  return entry.job;
 }
 
 // PRD 013 Req 11: monotonically increasing pass token. Each pass stamps the
@@ -85,17 +136,27 @@ export function renderFenceDiagrams(root: HTMLElement, options: FenceDiagramOpti
     const renderer = options.rendererFor(tag);
     if (!renderer) continue; // unregistered language: today's code block, untouched
     if (pre.dataset.mmDiagram && pre.dataset.mmDiagramTheme === options.theme) continue;
+    const source = codeBlockText(code.textContent ?? '');
+    const width = fenceWidthOf(code);
     const token = String(++pass);
     pre.dataset.mmDiagramTheme = options.theme;
     pre.dataset.mmDiagramRun = token;
+    // PRD 015 Req 7: a result that already settled repaints synchronously —
+    // no renderer call, no `pending`, no flash of raw fence source. This is
+    // what keeps every drawing continuously visible across a re-injection
+    // whose fence bodies did not change (a width rewrite, any prose edit).
+    const settled = options.cache?.get(cacheKey(options.theme, tag, source))?.settled;
+    if (settled) {
+      paintDiagramResult(graftHost(pre, settled.ok ? DIAGRAM_CLASS : DIAGRAM_ERROR_CLASS), settled, width);
+      markState(pre, settled.ok ? 'done' : 'error');
+      continue;
+    }
     // PRD 013 Req 11: first sight of this block — show its code while the
     // renderer (and, first time, its lazily loaded library) works. A block
     // being redrawn keeps its previous state (`done`/`error`) until the new
     // result lands, so the reader never sees a flash of raw code.
     if (!pre.dataset.mmDiagram) markState(pre, 'pending');
-    jobs.push(
-      renderOne(pre, codeBlockText(code.textContent ?? ''), renderer, options.theme, token, fenceWidthOf(code))
-    );
+    jobs.push(renderOne(pre, source, tag, renderer, options, token, width));
   }
   return Promise.all(jobs).then(() => undefined);
 }
@@ -118,14 +179,16 @@ function fenceWidthOf(code: HTMLElement): number | null {
 async function renderOne(
   pre: HTMLElement,
   source: string,
+  tag: string,
   renderer: FenceRenderer,
-  theme: 'light' | 'dark',
+  options: FenceDiagramOptions,
   token: string,
   width: number | null
 ): Promise<void> {
   // PRD 013 Req 10: `renderSafely` turns a contract-breaking rejection into
   // the typed failure, so it can't blank the block or stop the document.
-  const result = await renderSafely(renderer, source, { theme });
+  // PRD 015 Req 7: with a cache, identical in-flight triples share one job.
+  const result = await cachedRenderSafely(renderer, source, options.theme, tag, options.cache);
   // PRD 013 Req 11: stale-result guard — the tree was re-injected (node no
   // longer connected) or a newer pass stamped this block. Paint nothing.
   if (!pre.isConnected || pre.dataset.mmDiagramRun !== token) return;
@@ -174,8 +237,12 @@ export function paintDiagramResult(host: HTMLElement, result: FenceRenderResult,
  * aspect ratio, so the whole drawing scales and nothing crops, clips or
  * letterboxes; PRD 013 Req 9's `overflow-x: auto` on the host still scrolls
  * anything wider than the pane.
+ *
+ * PRD 015 Req 6: exported as the ONE owner of the sizing rule — the resize
+ * overlay (components/DiagramResizer.tsx) rescales the drawn SVG live through
+ * this same function, never a second copy of the style writing.
  */
-function sizeDrawnSvg(shadow: ShadowRoot, width: number): void {
+export function sizeDrawnSvg(shadow: ShadowRoot, width: number): void {
   const svg = shadow.querySelector('svg');
   if (!svg) return;
   svg.style.width = `${width}px`;

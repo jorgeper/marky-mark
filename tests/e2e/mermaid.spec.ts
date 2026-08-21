@@ -2,7 +2,7 @@
 // panes — the real mermaid library, lazily loaded through the vite dev
 // server, behind the fence-renderer seam. The edit pane is #162's, not here.
 import { expect, test } from './fixtures';
-import { addComment, freshApp, fsRead, fsWrite, landInPreview, openPath, openSettings } from './helpers';
+import { addComment, freshApp, fsRead, fsWrite, landInPreview, openPath, openSettings, stableBox } from './helpers';
 
 const DOC_PATH = '/docs/diagrams.md';
 
@@ -285,4 +285,285 @@ test('E316: a width=N fence draws at N px in the preview and in the edit-pane wi
   // appeared, and the stored document is byte-identical (no rewrite).
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   expect(await fsRead(page, WIDTH_DOC_PATH)).toBe(WIDTH_DOC);
+});
+
+// PRD 015 Reqs 5–8/10–11 (issue #171): click-to-select and corner-handle
+// resize for full-preview diagrams. The overlay is chrome beside the doc —
+// its own testids, the SPEC20 CSS — and every release persists through the
+// buffer path typing uses.
+const RESIZE_DOC_PATH = '/docs/resize-diagram.md';
+const RESIZE_DOC = `# Resize
+
+A paragraph to click away on.
+
+\`\`\`mermaid
+graph TD
+  A[Start] --> B[Finish]
+\`\`\`
+`;
+
+async function openResizeDoc(page: import('@playwright/test').Page, doc = RESIZE_DOC) {
+  await freshApp(page);
+  await fsWrite(page, RESIZE_DOC_PATH, doc);
+  await openPath(page, RESIZE_DOC_PATH);
+  await landInPreview(page);
+  const diagram = page.getByTestId('doc').getByTestId('mm-diagram');
+  await expect(diagram).toBeVisible(FIRST_DRAW);
+  return diagram;
+}
+
+/** The drawn SVG's viewBox [width, height] — the drag's natural bounds. */
+async function viewBoxOf(diagram: import('@playwright/test').Locator): Promise<[number, number]> {
+  const vb = (await diagram.locator('svg').getAttribute('viewBox'))!.split(/\s+/).slice(2).map(Number);
+  return [vb[0], vb[1]];
+}
+
+test('E317: a click selects the drawn diagram — outline, four corner handles, a live size badge — and Escape or a click away deselects; all overlay-only', async ({
+  page,
+}) => {
+  const diagram = await openResizeDoc(page);
+  const doc = page.getByTestId('doc');
+  const docText = () => doc.evaluate((el) => el.textContent ?? '');
+  const textBefore = await docText();
+
+  // PRD 015 Req 5: click → outline + four handles + a W × H badge.
+  await diagram.click();
+  const overlay = page.getByTestId('diagram-resize-overlay');
+  await expect(overlay).toBeVisible();
+  for (const corner of ['nw', 'ne', 'sw', 'se']) {
+    await expect(page.getByTestId(`diagram-resize-handle-${corner}`)).toBeVisible();
+  }
+  const svgBox = await stableBox(diagram.locator('svg'));
+  await expect(page.getByTestId('diagram-size-badge')).toHaveText(
+    `${Math.round(svgBox.width)} × ${Math.round(svgBox.height)}`
+  );
+
+  // Escape deselects; a fresh click reselects; a click away deselects.
+  await page.keyboard.press('Escape');
+  await expect(overlay).toHaveCount(0);
+  await diagram.click();
+  await expect(overlay).toBeVisible();
+  await doc.locator('p', { hasText: 'click away' }).click();
+  await expect(overlay).toHaveCount(0);
+
+  // PRD 015 Req 5: overlay-only — no text mutation anywhere: the rendered
+  // text, the stored bytes and the dirty dot are all exactly as before.
+  expect(await docText()).toBe(textBefore);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  expect(await fsRead(page, RESIZE_DOC_PATH)).toBe(RESIZE_DOC);
+});
+
+test('E318: a corner drag rescales the drawing live within [40px, natural]; the release writes width=N through the typing path and mermaid never re-runs', async ({
+  page,
+}) => {
+  const diagram = await openResizeDoc(page);
+  const svg = diagram.locator('svg');
+  await diagram.click();
+  await expect(page.getByTestId('diagram-resize-overlay')).toBeVisible();
+  const [vbW, vbH] = await viewBoxOf(diagram);
+  const start = await stableBox(svg);
+
+  const handle = await stableBox(page.getByTestId('diagram-resize-handle-se'));
+  const hx = handle.x + handle.width / 2;
+  const hy = handle.y + handle.height / 2;
+  await page.mouse.move(hx, hy);
+  await page.mouse.down();
+
+  // PRD 015 Req 6: far past the floor the drawing clamps live at 40px wide,
+  // its height following the viewBox aspect — and the badge tracks it.
+  await page.mouse.move(hx - start.width - 600, hy, { steps: 4 });
+  await expect.poll(async () => (await svg.boundingBox())!.width).toBeCloseTo(40, 0);
+  expect((await svg.boundingBox())!.height).toBeCloseTo((40 * vbH) / vbW, 0);
+  await expect(page.getByTestId('diagram-size-badge')).toHaveText(/^40 × /);
+
+  // Settle on a mid-range width and watch the release: the drawing must stay
+  // continuously visible, and no block may re-enter `pending`.
+  const target = Math.max(50, Math.round(vbW * 0.6));
+  await page.mouse.move(hx + (target - start.width), hy, { steps: 4 });
+  await expect.poll(async () => (await svg.boundingBox())!.width).toBeCloseTo(target, 0);
+  await page.evaluate(() => {
+    const w = { frames: 0, missing: 0, pending: 0, stop: false };
+    (window as unknown as { __mmWatch: typeof w }).__mmWatch = w;
+    const doc = document.querySelector('[data-testid="doc"]');
+    doc?.querySelector<HTMLElement>('.mm-diagram')?.setAttribute('data-mm-before-release', '1');
+    const tick = () => {
+      if (w.stop) return;
+      w.frames += 1;
+      if (!doc?.querySelector('.mm-diagram')?.shadowRoot?.querySelector('svg')) w.missing += 1;
+      if (doc?.querySelector('pre[data-mm-diagram="pending"]')) w.pending += 1;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  await page.mouse.up();
+
+  // PRD 015 Req 7: the buffer path typing uses — the dirty dot is up, the
+  // preview re-rendered with the diagram still selected, the overlay
+  // re-bound to the re-rendered host and the badge reading the new size.
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect.poll(() => diagram.evaluate((el) => el.hasAttribute('data-mm-before-release'))).toBe(false);
+  await expect
+    .poll(async () => Math.abs((await svg.boundingBox())!.width - target))
+    .toBeLessThanOrEqual(2);
+  await expect(page.getByTestId('diagram-resize-overlay')).toBeVisible();
+  await expect(page.getByTestId('diagram-size-badge')).toHaveText(/^\d+ × \d+$/);
+
+  // ⌘S writes the file exactly as a typed edit would: the fence line carries
+  // width=N (inside the clamp, at the pointer), everything else verbatim.
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect
+    .poll(async () => (await fsRead(page, RESIZE_DOC_PATH)) ?? '', { timeout: 10_000 })
+    .toContain('```mermaid width=');
+  const written = (await fsRead(page, RESIZE_DOC_PATH))!;
+  const n = Number(/```mermaid width=(\d+)\n/.exec(written)![1]);
+  expect(Math.abs(n - target)).toBeLessThanOrEqual(2);
+  expect(n).toBeGreaterThanOrEqual(40);
+  expect(n).toBeLessThanOrEqual(Math.ceil(vbW));
+  expect(written).toBe(RESIZE_DOC.replace('```mermaid\n', `\`\`\`mermaid width=${n}\n`));
+  await expect(page.getByTestId('diagram-size-badge')).toHaveText(new RegExp(`^${n} × `));
+
+  // Across the whole release nothing vanished or flashed raw source.
+  const watch = await page.evaluate(() => {
+    const w = (window as unknown as { __mmWatch: { frames: number; missing: number; pending: number; stop: boolean } })
+      .__mmWatch;
+    w.stop = true;
+    return w;
+  });
+  expect(watch.frames).toBeGreaterThan(0);
+  expect(watch.missing).toBe(0); // the drawing never disappeared
+  expect(watch.pending).toBe(0); // no block re-entered pending: mermaid never re-ran
+
+  // PRD 015 Req 7: after ⌘E the edit-pane widget draws the same N.
+  await page.keyboard.press('Control+e');
+  const widget = page.getByTestId('editor').locator('.mm-editor-diagram').getByTestId('mm-diagram');
+  await expect(widget).toBeVisible(FIRST_DRAW);
+  expect((await stableBox(widget.locator('svg'))).width).toBeCloseTo(n, 0);
+});
+
+test('E319: releasing at the width the fence already carries writes nothing — no dirty dot, bytes identical', async ({
+  page,
+}) => {
+  const diagram = await openResizeDoc(page);
+  const svg = diagram.locator('svg');
+  await diagram.click();
+  const [vbW] = await viewBoxOf(diagram);
+
+  // First release: drag far past the natural width — the clamp writes N once.
+  const dragPastMax = async () => {
+    const handle = await stableBox(page.getByTestId('diagram-resize-handle-se'));
+    const hx = handle.x + handle.width / 2;
+    const hy = handle.y + handle.height / 2;
+    await page.mouse.move(hx, hy);
+    await page.mouse.down();
+    await page.mouse.move(hx + 600, hy, { steps: 4 });
+    await page.mouse.up();
+  };
+  await dragPastMax();
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect
+    .poll(async () => (await fsRead(page, RESIZE_DOC_PATH)) ?? '', { timeout: 10_000 })
+    .toContain('width=');
+  const saved = (await fsRead(page, RESIZE_DOC_PATH))!;
+  const n = Number(/width=(\d+)/.exec(saved)![1]);
+  expect(n).toBeLessThanOrEqual(Math.ceil(vbW)); // the natural-width clamp held
+  await expect.poll(async () => (await svg.boundingBox())!.width).toBeCloseTo(n, 0);
+
+  // Second release at the same clamped width: rewriteFenceWidth returns the
+  // line unchanged, so the buffer is never touched — no dirty dot, no save.
+  await expect(page.getByTestId('diagram-resize-overlay')).toBeVisible();
+  await dragPastMax();
+  await page.waitForTimeout(400); // a beat for any (wrong) write to land
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  expect(await fsRead(page, RESIZE_DOC_PATH)).toBe(saved);
+});
+
+test('E320: double-click removes the width token and restores natural size; a second double-click is a no-op', async ({
+  page,
+}) => {
+  const sized = RESIZE_DOC.replace('```mermaid\n', '```mermaid width=100\n');
+  const diagram = await openResizeDoc(page, sized);
+  const svg = diagram.locator('svg');
+  expect((await stableBox(svg)).width).toBeCloseTo(100, 0);
+
+  // PRD 015 Req 8: the token goes (and the single space before it), the
+  // drawing returns to natural size, and the write is a buffer edit.
+  await diagram.dblclick();
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect.poll(async () => (await svg.boundingBox())!.width).toBeGreaterThan(110);
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect
+    .poll(async () => (await fsRead(page, RESIZE_DOC_PATH)) ?? '', { timeout: 10_000 })
+    .toBe(RESIZE_DOC);
+
+  // A widthless fence double-clicked again: no write, no dirty dot.
+  await diagram.dblclick();
+  await page.waitForTimeout(400);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  expect(await fsRead(page, RESIZE_DOC_PATH)).toBe(RESIZE_DOC);
+});
+
+test('E321: an error diagram and a fence without a data-mm-line stamp are inert — no overlay from their code, badge or drawing', async ({
+  page,
+}) => {
+  // A list-nested fence draws but is unstamped (stampSourceLines marks only
+  // direct children of the root) — selecting it could aim a rewrite at the
+  // wrong line, so it must not select at all (PRD 015 Req 11).
+  const doc = `# Inert
+
+- a list item
+  \`\`\`mermaid
+  graph TD
+    A[Start] --> B[Finish]
+  \`\`\`
+
+\`\`\`mermaid
+this is not a diagram at all
+\`\`\`
+`;
+  await freshApp(page);
+  await fsWrite(page, RESIZE_DOC_PATH, doc);
+  await openPath(page, RESIZE_DOC_PATH);
+  await landInPreview(page);
+  const pane = page.getByTestId('doc');
+  const nested = pane.getByTestId('mm-diagram');
+  await expect(nested).toBeVisible(FIRST_DRAW);
+  await expect(pane.getByTestId('mm-diagram-error')).toBeVisible(FIRST_DRAW);
+  const overlay = page.getByTestId('diagram-resize-overlay');
+
+  // The drawn-but-unstamped diagram: a click grows nothing.
+  await nested.click();
+  await expect(overlay).toHaveCount(0);
+
+  // PRD 015 Req 11: the error diagram — its visible code block and its
+  // failure badge both read exactly as today, and neither click selects.
+  await pane.locator('pre[data-mm-diagram="error"]').click();
+  await expect(overlay).toHaveCount(0);
+  await pane.getByTestId('mm-diagram-error').click();
+  await expect(overlay).toHaveCount(0);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  expect(await fsRead(page, RESIZE_DOC_PATH)).toBe(doc);
+});
+
+test('E322: a pending diagram is inert — while the renderer never settles, clicking its code block grows no overlay', async ({
+  page,
+}) => {
+  await freshApp(page);
+  // Stall mermaid's lazy chunk at the network: the fence stays honestly in
+  // the `pending` state (PRD 013 Req 11) for the whole test.
+  await page.route('**/*mermaid*', () => {
+    /* never fulfilled — the import hangs */
+  });
+  await fsWrite(page, RESIZE_DOC_PATH, RESIZE_DOC);
+  await openPath(page, RESIZE_DOC_PATH);
+  await landInPreview(page);
+  const pending = page.getByTestId('doc').locator('pre[data-mm-diagram="pending"]');
+  await expect(pending).toBeVisible();
+  await pending.click();
+  await expect(page.getByTestId('diagram-resize-overlay')).toHaveCount(0);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await page.unroute('**/*mermaid*');
 });
