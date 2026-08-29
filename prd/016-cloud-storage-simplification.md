@@ -178,9 +178,13 @@ PRD's grilling session (2026-08-29).
 
 14. `docs/HOSTING-GITHUB.md` is deleted. Its "The deployment's LLM
     provider (optional)" section already exists in `docs/HOSTING-AZURE.md`
-    (§4), so nothing is relocated; `tests/unit/docs-hosting-llm.test.ts`
-    drops the GitHub guide from its `GUIDES` list and keeps asserting
-    against the Azure guide.
+    (§4), so nothing is relocated. `tests/unit/docs-hosting-llm.test.ts`
+    drops the GitHub guide from its `GUIDES` list and **adds
+    `docs/HOSTING-AZURE-PORTAL.md`**, so its existing parity check — every
+    `MM_*` variable `server/config.ts` reads is documented, and no guide
+    names a variable the loader does not read — now covers both Azure
+    walkthroughs. Removing the knob (Req 2) is what makes the portal
+    guide pass it.
 15. Every GitHub-storage cross-reference is removed: `HOSTING-AZURE-PORTAL.md`
     (§"Storing files in GitHub instead?", the step-4 skip note, the
     further-reading row), `HOSTING-AZURE.md` (the "github-backend
@@ -190,8 +194,20 @@ PRD's grilling session (2026-08-29).
     content, and `AGENTS.md`'s directory map, which now names
     `HOSTING-AZURE` and `HOSTING-AZURE-PORTAL` as the two operator guides
     (CLI and portal walkthroughs of the one backend). `AGENTS.md` stays
-    within its size budget.
-16. `prd/010-github-repo-storage.md`'s status line becomes
+    within its size budget. After this, the two Azure guides are the
+    complete operator story again: PRD 007 Req 23 stands — following
+    only `HOSTING-AZURE.md` (or the portal walkthrough) on a fresh
+    subscription yields a working deployment, with no step that mentions,
+    skips for, or defers to a second backend.
+17. `server/README.md`, the backend reference both guides link to,
+    describes storage as blob-only and documents merge-on-save as a blob
+    capability: the `PUT /api/workspaces/<id>/files/<path>` row states the
+    optional base, the merged `200 { merged: true, content }` answer, and
+    the 412 fallback (Req 7–8); the passage saying a blob ETag cannot
+    name bytes to merge from is gone. Operators need no new variable or
+    Azure feature for merge-on-save, and the guides say nothing about it
+    beyond that reference.
+17. `prd/010-github-repo-storage.md`'s status line becomes
     `**Status:** Superseded by PRD 016 (2026-08-29)`; its body is left
     as written. `prd/007-azure-hosted-workspaces.md`'s "Real-time
     co-editing" non-goal gains one sentence noting that merge-on-save
@@ -200,7 +216,7 @@ PRD's grilling session (2026-08-29).
 
 ### Verification and gate
 
-17. The GitHub-only unit files are deleted: `server-byo-layout`,
+18. The GitHub-only unit files are deleted: `server-byo-layout`,
     `server-github-fake`, `server-github-storage`, `server-github-backend`,
     `server-github-byo`, `server-github-auth`, `github-connect-wizard`,
     `delete-retention`, `docs-hosting-github`, `workspace-connection`.
@@ -210,7 +226,7 @@ PRD's grilling session (2026-08-29).
     contract suite still runs for the memory provider and for every
     non-GitHub test that imports it (`server-workspaces`, `server-llm`,
     `server-summary-cache`).
-18. `tests/e2e/github-storage.spec.ts` is deleted with E221–E223. E224
+19. `tests/e2e/github-storage.spec.ts` is deleted with E221–E223. E224
     (merged concurrent save, no dialog, notice shown) and E225
     (conflicting concurrent save, dialog shown) are rewritten against the
     existing local hosted lane (mock auth + Azurite) and keep their E
@@ -219,13 +235,13 @@ PRD's grilling session (2026-08-29).
     `tests/e2e/offsite.ts`'s lane-port comment is corrected.
     `E2E_TEST_FLOOR` in `scripts/validate.mjs` is re-pinned to the new
     count with the E221–E223 rationale replaced by this PRD's.
-19. A residue guard: a unit test asserts that no file under `server/`,
+20. A residue guard: a unit test asserts that no file under `server/`,
     `src/`, `tests/`, `docs/`, `scripts/`, plus `package.json` and the
     two Playwright configs, contains `MM_STORAGE_BACKEND`, `MM_GITHUB_`,
     `/api/github/`, `providers/github`, or `server:github`. The pattern
     list is deliberately narrow so the SPEC9/SPEC19 GitHub Releases
     tooling and `api.github.com` in the updater stay legal.
-20. `npm run typecheck`, `npm run test:unit`, and `npm run validate:quick`
+21. `npm run typecheck`, `npm run test:unit`, and `npm run validate:quick`
     (`QUICK VALIDATION: ALL PASSED`) pass; the hosted server starts in
     local mode (`npm run server:local`) and in azure mode with only PRD
     007's variables set. `docs/MAP.md` is regenerated (`npm run map`) and
