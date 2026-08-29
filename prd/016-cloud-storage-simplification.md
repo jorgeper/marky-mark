@@ -199,7 +199,7 @@ PRD's grilling session (2026-08-29).
     only `HOSTING-AZURE.md` (or the portal walkthrough) on a fresh
     subscription yields a working deployment, with no step that mentions,
     skips for, or defers to a second backend.
-17. `server/README.md`, the backend reference both guides link to,
+16. `server/README.md`, the backend reference both guides link to,
     describes storage as blob-only and documents merge-on-save as a blob
     capability: the `PUT /api/workspaces/<id>/files/<path>` row states the
     optional base, the merged `200 { merged: true, content }` answer, and
