@@ -289,6 +289,148 @@ describe('PRD 010 Req 14 blob-backed workspaces, verbatim', () => {
   });
 });
 
+/** Save conditionally WITH the base text, the PRD 016 Req 7 JSON body. */
+const conditionalSaveWithBase = (
+  h: Harness,
+  id: string,
+  file: string,
+  text: string,
+  base: string,
+  etag: string,
+): Promise<Response> =>
+  h.call('PUT', `/api/workspaces/${id}/files/${file}`, JSON.stringify({ content: text, base }), {
+    'If-Match': etag,
+    'Content-Type': 'application/json',
+  });
+
+describe('PRD 016 Reqs 7+8 merge-on-save with a client-supplied base, blob-backed', () => {
+  let h: Harness;
+  let id = '';
+  beforeAll(async () => {
+    h = await harness();
+    const store = createMemoryStorage();
+    // The whole point: the blob-backed shape, with no version history at all.
+    expect(store.provider.readAtVersion).toBeUndefined();
+    id = await h.workspaceOn(store.provider, 'blob-base');
+  });
+  afterAll(() => h.close());
+
+  it('U792: a stale save that carries its base merges on a provider with no readAtVersion — 200 {path, etag, merged, content}', async () => {
+    const file = 'notes.md';
+    await h.call('PUT', `/api/workspaces/${id}/files/${file}`, 'alpha\nbeta\ngamma\n');
+    const loaded = await readFile(h, id, file);
+
+    // Someone else saves first — different line region.
+    expect((await conditionalSave(h, id, file, 'alpha\nbeta\nGAMMA\n', loaded.etag)).status).toBe(200);
+
+    const res = await conditionalSaveWithBase(h, id, file, 'ALPHA\nbeta\ngamma\n', loaded.content, loaded.etag);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { path: string; etag: string; merged?: boolean; content?: string };
+    expect(body.merged).toBe(true);
+    expect(body.path).toBe(file);
+    expect(body.content).toBe('ALPHA\nbeta\nGAMMA\n');
+    expect(body.etag).not.toBe(loaded.etag);
+
+    // The merged text is what was stored, at the etag the answer carried.
+    const now = await readFile(h, id, file);
+    expect(now.content).toBe('ALPHA\nbeta\nGAMMA\n');
+    expect(now.etag).toBe(body.etag);
+  });
+
+  it('U793: a conflicting merge and a guard-refused merge each answer 412 with the stored content untouched', async () => {
+    const file = 'clash.md';
+    await h.call('PUT', `/api/workspaces/${id}/files/${file}`, 'the shared line\n');
+    const loaded = await readFile(h, id, file);
+    expect((await conditionalSave(h, id, file, 'their line\n', loaded.etag)).status).toBe(200);
+
+    const res = await conditionalSaveWithBase(h, id, file, 'my line\n', loaded.content, loaded.etag);
+    expect(res.status).toBe(412);
+    expect(await res.json()).toEqual({
+      error: 'the file changed on the server since it was loaded',
+      path: file,
+    });
+    expect((await readFile(h, id, file)).content).toBe('their line\n');
+
+    // The structured-file guard: a clean LINE merge of a .json that no longer
+    // parses is refused the same way, base or no base.
+    const sidecar = 'doc.comments.json';
+    await h.call('PUT', `/api/workspaces/${id}/files/${sidecar}`, '{\n  "a": 1,\n  "b": 2\n}\n');
+    const jsonLoaded = await readFile(h, id, sidecar);
+    const theirs = '{\n  "a": 10,\n  "b": 2\n}\n';
+    expect((await conditionalSave(h, id, sidecar, theirs, jsonLoaded.etag)).status).toBe(200);
+    const ours = '{\n  "a": 1,\n  "b": 2,\n}\n'; // a stray trailing comma
+    const guarded = await conditionalSaveWithBase(h, id, sidecar, ours, jsonLoaded.content, jsonLoaded.etag);
+    expect(guarded.status).toBe(412);
+    expect((await readFile(h, id, sidecar)).content).toBe(theirs);
+  });
+
+  it('U794: the wire shape — a save without base still 412s stale, a JSON body without If-Match overwrites, malformed JSON is 400', async () => {
+    const file = 'shape.md';
+    await h.call('PUT', `/api/workspaces/${id}/files/${file}`, 'one\n');
+    const loaded = await readFile(h, id, file);
+    expect((await conditionalSave(h, id, file, 'two\n', loaded.etag)).status).toBe(200);
+
+    // Stale bare-text save (no base anywhere): today's plain 412, verbatim.
+    const bare = await conditionalSave(h, id, file, 'mine\n', loaded.etag);
+    expect(bare.status).toBe(412);
+    // Stale JSON save that omits base: the same 412 — base is optional, never guessed.
+    const noBase = await h.call('PUT', `/api/workspaces/${id}/files/${file}`, JSON.stringify({ content: 'mine\n' }), {
+      'If-Match': loaded.etag,
+      'Content-Type': 'application/json',
+    });
+    expect(noBase.status).toBe(412);
+    expect((await readFile(h, id, file)).content).toBe('two\n');
+
+    // The JSON shape without If-Match is a deliberate overwrite like any other.
+    const overwrite = await h.call(
+      'PUT',
+      `/api/workspaces/${id}/files/${file}`,
+      JSON.stringify({ content: 'json overwrite\n', base: 'ignored\n' }),
+      { 'Content-Type': 'application/json' },
+    );
+    expect(overwrite.status).toBe(200);
+    expect(Object.keys((await overwrite.json()) as object).sort()).toEqual(['etag', 'path']);
+    expect((await readFile(h, id, file)).content).toBe('json overwrite\n');
+
+    // A JSON-typed body that is not {content: string} is refused, not stored.
+    const before = await readFile(h, id, file);
+    for (const bad of ['not json at all', JSON.stringify({ base: 'x\n' }), JSON.stringify({ content: 7 })]) {
+      const res = await h.call('PUT', `/api/workspaces/${id}/files/${file}`, bad, {
+        'Content-Type': 'application/json',
+      });
+      expect(res.status).toBe(400);
+    }
+    expect((await readFile(h, id, file)).content).toBe(before.content);
+  });
+
+  it('U795: a merged commit that keeps losing on the blob path stops at the bound and answers 412 — never an unconditional write', async () => {
+    const inner = createMemoryStorage();
+    let attempts = 0;
+    // Blob-shaped (no readAtVersion) and every conditional write loses.
+    const racy: StorageProvider = {
+      ...inner.provider,
+      kind: 'always-loses-blob',
+      read: (path) => inner.provider.read(path),
+      async writeIfMatch(): Promise<null> {
+        attempts += 1;
+        return null;
+      },
+    };
+    expect(racy.readAtVersion).toBeUndefined();
+    const racyId = await h.workspaceOn(racy, 'racy-blob');
+    await h.call('PUT', `/api/workspaces/${racyId}/files/race.md`, 'alpha\nbeta\n');
+    const loaded = await readFile(h, racyId, 'race.md');
+
+    const res = await conditionalSaveWithBase(h, racyId, 'race.md', 'ALPHA\nbeta\n', loaded.content, loaded.etag);
+    expect(res.status).toBe(412);
+    // One attempt for the original conditional write, then a bounded number
+    // of merged commits.
+    expect(attempts).toBeGreaterThan(1);
+    expect(attempts).toBeLessThanOrEqual(4);
+    expect((await inner.provider.read(`workspaces/${racyId}/files/race.md`))?.content).toBe('alpha\nbeta\n');
+  });
+});
+
 describe('PRD 010 Req 13 the hosted platform’s handling of a merged save', () => {
   it('U433: a merged 200 re-arms the tracked etag and reports the merged text; a 412 still throws', async () => {
     const h = await harness();
@@ -334,6 +476,59 @@ describe('PRD 010 Req 13 the hosted platform’s handling of a merged save', () 
       await expect(platform.writeTextFile(file, 'ALPHA\nbeta\nGAMMA\nmy tail\n')).rejects.toBeInstanceOf(
         SaveConflictError,
       );
+    } finally {
+      globalThis.fetch = realFetch;
+      (globalThis as { window?: unknown }).window = realWindow;
+      await h.close();
+    }
+  });
+
+  it('U796: the platform sends the base it loaded, so a stale save merges on a blob-backed workspace too', async () => {
+    const h = await harness();
+    const store = createMemoryStorage();
+    // No readAtVersion: if the client did NOT send its base, every stale save
+    // here would be a plain 412 (U432). A merged: true below is therefore
+    // proof the base rode along on the conditional save (PRD 016 Req 9).
+    expect(store.provider.readAtVersion).toBeUndefined();
+    const id = await h.workspaceOn(store.provider, 'blob-client');
+    const file = `${hostedFilesRoot(id)}/notes.md`;
+    await h.call('PUT', `/api/workspaces/${id}/files/notes.md`, 'alpha\nbeta\ngamma\n');
+
+    const realFetch = globalThis.fetch;
+    const realWindow = (globalThis as { window?: unknown }).window;
+    const kv = new Map<string, string>();
+    storeToken({ getItem: (k) => kv.get(k) ?? null, setItem: (k, v) => kv.set(k, v), removeItem: (k) => kv.delete(k) }, h.token);
+    (globalThis as { window?: unknown }).window = {
+      localStorage: { getItem: (k: string) => kv.get(k) ?? null, setItem: () => {}, removeItem: () => {} },
+      location: { search: `?workspace=${id}` },
+    };
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      return realFetch(url.startsWith('http') ? url : `${h.base}${url}`, init);
+    }) as typeof fetch;
+    try {
+      const platform = createHostedPlatform();
+      // Reading arms both the version tag AND the base text.
+      expect(await platform.readTextFile(file)).toBe('alpha\nbeta\ngamma\n');
+      // Someone else saves first, on a different line region.
+      const loaded = await readFile(h, id, 'notes.md');
+      expect((await conditionalSave(h, id, 'notes.md', 'alpha\nbeta\nGAMMA\n', loaded.etag)).status).toBe(200);
+
+      const written = await platform.writeTextFile(file, 'ALPHA\nbeta\ngamma\n');
+      expect(written).toEqual({ merged: true, content: 'ALPHA\nbeta\nGAMMA\n' });
+      // Both the etag and the base re-armed from what LANDED — the merged
+      // text — so the next save is conditional on the merge and lands clean.
+      const again = await platform.writeTextFile(file, 'ALPHA\nbeta\nGAMMA\nnew tail\n');
+      expect(again).toBeUndefined();
+
+      // A conflicting save still throws SaveConflictError — the dialog path.
+      const now = await readFile(h, id, 'notes.md');
+      expect((await conditionalSave(h, id, 'notes.md', 'ALPHA\nbeta\nGAMMA\ntheir tail\n', now.etag)).status).toBe(200);
+      await expect(platform.writeTextFile(file, 'ALPHA\nbeta\nGAMMA\nmy tail\n')).rejects.toBeInstanceOf(
+        SaveConflictError,
+      );
+      // And the refused save left the stored content untouched.
+      expect((await readFile(h, id, 'notes.md')).content).toBe('ALPHA\nbeta\nGAMMA\ntheir tail\n');
     } finally {
       globalThis.fetch = realFetch;
       (globalThis as { window?: unknown }).window = realWindow;

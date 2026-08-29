@@ -231,9 +231,10 @@ const MERGE_ATTEMPTS = 3;
  * lost" and "answer 412". Answers the committed merge, or null for every
  * reason the caller must turn back into today's 412:
  *
- *  - the provider has no merge capability at all (Req 14 — this is the ONLY
- *    thing that decides whether a workspace can merge; no backend name and no
- *    `kind` string is consulted anywhere in this path);
+ *  - no base can be had: the save carried none (PRD 016 Req 8 — a request
+ *    base is what lets providers without version history merge) AND the
+ *    provider cannot resolve one (no backend name and no `kind` string is
+ *    consulted anywhere in this path);
  *  - the base version cannot be resolved (a null base is a 412, never a guess);
  *  - the file is gone from the head;
  *  - the two sides conflict;
@@ -257,9 +258,16 @@ async function mergeStaleSave(
   filePath: string,
   ours: string,
   ifMatch: string,
+  clientBase?: string,
 ): Promise<{ etag: string; content: string } | null> {
-  if (!storage.readAtVersion) return null;
-  const base = await storage.readAtVersion(blobPath, ifMatch);
+  // PRD 016 Req 8: a save that carried its own base text merges against THAT
+  // — no provider capability needed, which is what lets a blob-backed
+  // workspace (memory, Azure) merge at all. The client's base is trusted
+  // unverified: a lying client could at most produce a write it could already
+  // produce with an unconditional save. A save without one still resolves the
+  // base from the provider's version history as before (removal is #176).
+  const base =
+    clientBase ?? (storage.readAtVersion ? await storage.readAtVersion(blobPath, ifMatch) : null);
   if (base === null) return null;
   for (let attempt = 0; attempt < MERGE_ATTEMPTS; attempt += 1) {
     const head = await storage.read(blobPath);
@@ -1128,7 +1136,29 @@ async function routeWorkspaceApi(
         sendJson(res, 200, { path: filePath, etag });
         return;
       }
-      const content = await readBody(req);
+      // PRD 016 Req 7: two body shapes, told apart by Content-Type. The bare
+      // text body is the save as it always was; a JSON `{content, base}` body
+      // additionally carries the text the client LOADED, so a stale save can
+      // merge below even on a backend with no version history. One size limit
+      // (MAX_BODY_BYTES in readBody) covers the whole body either way.
+      const rawBody = await readBody(req);
+      let content = rawBody;
+      let base: string | undefined;
+      if (/^application\/json\b/i.test(req.headers['content-type'] ?? '')) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(rawBody);
+        } catch {
+          parsed = null;
+        }
+        const body = parsed as { content?: unknown; base?: unknown } | null;
+        if (typeof body?.content !== 'string' || (body.base !== undefined && typeof body.base !== 'string')) {
+          sendJson(res, 400, { error: 'expected {content, base?} — the text to save and optionally the text it was edited from' });
+          return;
+        }
+        content = body.content;
+        base = body.base;
+      }
       // PRD 007 Req 20: optimistic concurrency. `If-Match` carries the ETag
       // the client read; the write lands only while the blob still has it.
       // When it does not, the answer is 412 and the STORED CONTENT IS
@@ -1140,10 +1170,11 @@ async function routeWorkspaceApi(
         const written = await storage.writeIfMatch(blobPath, content, ifMatch);
         if (!written) {
           // PRD 010 Req 12: the stale save gets one chance to become a merge
-          // before it becomes a 412 — and only on a backend that can hand
-          // back the version the client loaded (Req 14: blob cannot, so a
-          // blob-backed workspace takes the 412 below verbatim as today).
-          const merged = await mergeStaleSave(storage, blobPath, filePath, content, ifMatch);
+          // before it becomes a 412. PRD 016 Req 8: a save that carried its
+          // base merges on ANY backend; one that did not still needs a
+          // backend that can hand back the version the client loaded, and a
+          // blob-backed workspace takes the 412 below verbatim as today.
+          const merged = await mergeStaleSave(storage, blobPath, filePath, content, ifMatch, base);
           if (merged) {
             sendJson(res, 200, { path: filePath, etag: merged.etag, merged: true, content: merged.content });
             return;

@@ -196,6 +196,14 @@ export function createHostedPlatform(): Platform {
   const etags = new Map<string, string>();
 
   /**
+   * PRD 016 Req 9: the text each path was last read or saved at — the merge
+   * base a conditional workspace save now carries, so a stale save can land
+   * as a server-side three-way merge on any backend (blob included). Armed
+   * and dropped in lockstep with `etags`.
+   */
+  const bases = new Map<string, string>();
+
+  /**
    * PRD 007 Req 17: the signed-in member's verbs in the bound workspace,
    * resolved from its manifest. An unanswerable question — no workspace
    * bound, no session, a manifest that will not parse — resolves to no verbs
@@ -255,8 +263,15 @@ export function createHostedPlatform(): Platform {
       if (!body) throw enoent(path);
       // PRD 007 Req 20: the version this session read — the save that follows
       // is conditional on it.
-      if (body.etag) etags.set(path, body.etag);
-      else etags.delete(path);
+      if (body.etag) {
+        etags.set(path, body.etag);
+        // PRD 016 Req 9: the loaded text is the merge base the next
+        // conditional save will carry.
+        bases.set(path, body.content);
+      } else {
+        etags.delete(path);
+        bases.delete(path);
+      }
       return body.content;
     },
 
@@ -286,10 +301,20 @@ export function createHostedPlatform(): Platform {
       // conflict prompt — it drops the precondition, so the write lands
       // whatever the server now holds, and re-arms the tag for the next save.
       const known = opts?.overwrite ? undefined : etags.get(path);
+      // PRD 016 Req 9: every conditional save of a workspace document this
+      // session loaded carries the base text it loaded, as the JSON body the
+      // server distinguishes by Content-Type — that base is what lets a stale
+      // save merge on a backend with no version history. The per-user files
+      // route knows only the bare-text body, so user-config saves keep it.
+      const base = known !== undefined && target.kind === 'workspace' ? bases.get(path) : undefined;
       const res = await api(apiPathFor(target), {
         method: 'PUT',
-        body: content,
-        ...(known ? { headers: { 'If-Match': known } } : {}),
+        ...(known && base !== undefined
+          ? {
+              body: JSON.stringify({ content, base }),
+              headers: { 'Content-Type': 'application/json', 'If-Match': known },
+            }
+          : { body: content, ...(known ? { headers: { 'If-Match': known } } : {}) }),
       });
       invalidate(target);
       if (res.status === 412) {
@@ -298,8 +323,18 @@ export function createHostedPlatform(): Platform {
       }
       if (!res.ok) throw new Error(await refusal(res, `write failed (${res.status}): ${path}`));
       const written = await json<{ etag: string; merged?: boolean; content?: string }>(res);
-      if (written?.etag) etags.set(path, written.etag);
-      else etags.delete(path);
+      // PRD 016 Req 9: what LANDED is the next save's merge base — the sent
+      // text, or the merged text when the server merged someone else's
+      // changes in. Re-armed (or dropped) in lockstep with the etag,
+      // including the overwrite re-arm.
+      const landed = written?.merged && typeof written.content === 'string' ? written.content : content;
+      if (written?.etag) {
+        etags.set(path, written.etag);
+        bases.set(path, landed);
+      } else {
+        etags.delete(path);
+        bases.delete(path);
+      }
       // PRD 010 Req 12+13: the server merged someone else's changes into this
       // save and committed the result. The etag re-armed just above is the
       // MERGED version's, so the next conditional save is guarded against it;
@@ -377,8 +412,10 @@ export function createHostedPlatform(): Platform {
         const body = await json<{ error?: string }>(res);
         throw new Error(body?.error ?? `move failed (${res.status})`);
       }
-      // The moved blobs answer under their new tags; forget the stale ones.
+      // The moved blobs answer under their new tags; forget the stale ones
+      // (and the merge bases keyed the same way).
       etags.clear();
+      bases.clear();
     },
 
     /**
@@ -407,6 +444,7 @@ export function createHostedPlatform(): Platform {
       invalidate(target);
       if (!res.ok) throw new Error(await refusal(res, `delete failed (${res.status}): ${path}`));
       etags.delete(path);
+      bases.delete(path);
     },
 
     async configDir() {
