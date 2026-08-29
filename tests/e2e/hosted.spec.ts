@@ -1173,7 +1173,10 @@ test('E192: a save against a file another member has written is refused — Relo
   page,
   request,
 }) => {
-  // PRD 007 Req 20: no save silently loses another member's write.
+  // PRD 007 Req 20: no save silently loses another member's write. PRD 016
+  // Req 8: a stale save whose edits do NOT overlap the other member's now
+  // merges instead (U792/U796 cover that on this backend), so both writers
+  // here edit the SAME line — the conflict prompt is for real conflicts.
   const ada = await signIn(request, 'ada');
   const grace = await signIn(request, 'grace');
   const id = await sharedWorkspace(request, ada, `E192 w${test.info().workerIndex}`, [
@@ -1191,8 +1194,10 @@ test('E192: a save against a file another member has written is refused — Relo
   await page.getByTestId('editor').locator('.cm-line').first().click();
   await page.keyboard.type('ada was typing\n');
 
-  // Grace saves first, from another session entirely.
-  expect((await request.put(file, { headers: graceHeaders, data: '# shared\n\ngrace got here first\n' })).status()).toBe(200);
+  // Grace saves first, from another session entirely — rewriting the very
+  // heading line Ada is typing into.
+  const graceDoc = '# shared, grace got here first\n\noriginal line\n';
+  expect((await request.put(file, { headers: graceHeaders, data: graceDoc })).status()).toBe(200);
 
   // Ada's save is refused; the prompt offers two real choices.
   await menuSave(page);
@@ -1201,7 +1206,7 @@ test('E192: a save against a file another member has written is refused — Relo
   await page.getByTestId('save-conflict-cancel').click();
   await expect(page.getByTestId('save-conflict-prompt')).toHaveCount(0);
   expect(((await (await request.get(file, { headers: adaHeaders })).json()) as { content: string }).content).toBe(
-    '# shared\n\ngrace got here first\n',
+    graceDoc,
   );
 
   // Reload brings Grace's newer version into the editor.
