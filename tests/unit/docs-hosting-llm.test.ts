@@ -30,10 +30,10 @@ const configSource = read('../../server/config.ts');
 const variablesInCode = [...new Set(configSource.match(/\bMM_[A-Z_]*[A-Z]\b/g) ?? [])].sort();
 
 describe('PRD 011 Req 8 the LLM section in the operator hosting guides', () => {
-  test('U536: both guides document every LLM variable the loader reads, and invent none', () => {
+  test('U536: the guide documents every LLM variable the loader reads, and no guide invents one', () => {
     for (const [path, guide] of GUIDES) {
       // The loader's own list, not a hand-copied one: adding a knob to
-      // LLM_ENV_VARS fails here until both guides gain a row for it.
+      // LLM_ENV_VARS fails here until the guide gains a row for it.
       for (const name of LLM_ENV_VARS) {
         expect(guide, `${name} is read by server/config.ts but missing from ${path}`).toContain(name);
         // A row, not a passing mention: name, default, required/optional, meaning.
@@ -51,7 +51,7 @@ describe('PRD 011 Req 8 the LLM section in the operator hosting guides', () => {
     }
   });
 
-  test('U537: both guides state the credential is the operator’s, deployment-wide, and optional', () => {
+  test('U537: the guide states the credential is the operator’s, deployment-wide, and optional', () => {
     for (const [path, guide] of GUIDES) {
       const at = guide.indexOf("### The deployment's LLM provider");
       expect(at, `${path} has no LLM section`).toBeGreaterThanOrEqual(0);
@@ -68,7 +68,7 @@ describe('PRD 011 Req 8 the LLM section in the operator hosting guides', () => {
     expect(loadConfig({}).llm).toBeUndefined();
   });
 
-  test('U538: the refusals and the startup line the guides quote are the ones the code produces', () => {
+  test('U538: the refusals and the startup line the guide quotes are the ones the code produces', () => {
     const quoted: [Record<string, string>, string][] = [
       [{ MM_LLM_PROVIDER: 'openai' }, 'LLM configuration is incomplete, missing: MM_LLM_MODEL, MM_LLM_API_KEY'],
       [
@@ -84,7 +84,7 @@ describe('PRD 011 Req 8 the LLM section in the operator hosting guides', () => {
       expect(() => loadConfig(env), message).toThrowError(message);
       for (const [path, guide] of GUIDES) expect(guide, `${path} does not quote: ${message}`).toContain(message);
     }
-    // The startup line both guides promise is the one server/index.ts builds
+    // The startup line the guide promises is the one server/index.ts builds
     // out of the parsed config — kind and model, and nothing else.
     const config = loadConfig({ MM_LLM_PROVIDER: 'openai', MM_LLM_MODEL: 'gpt-4o-mini', MM_LLM_API_KEY: 'sk-secret' });
     for (const [path, guide] of GUIDES) {

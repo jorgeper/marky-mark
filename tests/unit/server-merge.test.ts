@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { mergeThreeWay } from '../../server/merge';
 
-// PRD 016 Req 8: the merge itself, as a pure function — no server, no
-// provider, no GitHub. Everything the save route is allowed to assume about
+// PRD 016 Req 8: the merge itself, as a pure function — no server and no
+// provider. Everything the save route is allowed to assume about
 // "clean or conflicting" is pinned here.
 
 const doc = (...lines: string[]): string => lines.join('\n');

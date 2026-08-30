@@ -20,7 +20,7 @@ import { normalizeEol } from './dirty';
 import { mergeComments, splitEmbedded } from './embedded';
 
 export interface MergedSaveInput {
-  /** The file text the server committed — trailer and all, if it has one. */
+  /** The file text the server stored — trailer and all, if it has one. */
   mergedText: string;
   /** Comments already loaded from the sidecar store, if that mode is active. */
   sidecarComments: CommentData[];

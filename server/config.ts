@@ -62,8 +62,8 @@ function loadStorage(env: Record<string, string | undefined>, mode: ServerMode):
 
 /**
  * PRD 011 Req 8: the LLM section's environment variables — the whole set, in
- * the order an operator meets them. Exported so the hosting guides' drift
- * guard (U536) can assert both documents still name every one of them.
+ * the order an operator meets them. Exported so the hosting guide's drift
+ * guard (U536) can assert the document still names every one of them.
  */
 export const LLM_ENV_VARS = [
   'MM_LLM_PROVIDER',
@@ -85,9 +85,9 @@ const LLM_PROVIDER_KINDS: readonly LlmProviderKind[] = [
 ];
 
 /**
- * PRD 011 Req 8: the optional LLM section, in the shape of
- * {@link loadStorage} — absent unless configured, and refused BY NAME
- * when it is half-configured or malformed. Two rules hold throughout:
+ * PRD 011 Req 8: the optional LLM section — absent unless configured, and
+ * refused BY NAME when it is half-configured or malformed. Two rules hold
+ * throughout:
  *
  *  - no default provider, no default model, no default key. A deployment that
  *    sets none of {@link LLM_ENV_VARS} gets `undefined`, which is what makes

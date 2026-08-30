@@ -1,11 +1,10 @@
 // The StorageProvider contract as ONE suite, run against
 // every implementation of the seam rather than re-described per backend. The
 // in-memory reference provider below is what `server-workspaces.test.ts`
-// drives the HTTP layer with; `server-github-storage.test.ts` runs the very
-// same expectations against a GitHub repo branch. A backend that diverges
-// fails here, not in whichever test happened to notice.
+// drives the HTTP layer with. A backend that diverges fails here, not in
+// whichever test happened to notice.
 //
-// Test ids are computed from a `firstId` per caller so the two runs never
+// Test ids are computed from a `firstId` per caller so no two runs ever
 // share a U number: each caller states its block, and the ids stay stable and
 // unique the way the repo's numbering rule requires.
 

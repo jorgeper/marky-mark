@@ -1,7 +1,7 @@
 // PRD 016 Req 8: the three-way line merge a stale conditional save runs
 // through, as a PURE module — no I/O and no provider import.
 // It answers one question and nothing else: given the version the client
-// loaded (`base`), the client's text (`ours`) and what the branch now holds
+// loaded (`base`), the client's text (`ours`) and what the store now holds
 // (`theirs`), is there a single text that carries both sides' changes?
 //
 // Deliberately conservative: when the two sides touched the same stretch of
@@ -15,7 +15,7 @@
 
 import DiffMatchPatch from 'diff-match-patch';
 
-/** A clean merge carries its text; a conflict carries nothing to commit. */
+/** A clean merge carries its text; a conflict carries nothing to save. */
 export type MergeResult = { clean: true; text: string } | { clean: false };
 
 // One instance for the module, as `diffLines.ts` does: it holds only the

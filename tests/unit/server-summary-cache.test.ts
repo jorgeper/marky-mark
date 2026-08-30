@@ -15,7 +15,7 @@ import { createMemoryStorage } from './storage-contract';
 // this issue ships a store with no producer.
 
 describe('PRD 011 Req 29 — the workspace-scoped summary cache', () => {
-  const { provider: deploymentDefault, blobs } = createMemoryStorage();
+  const { provider: storage, blobs } = createMemoryStorage();
   const auth = createMockAuthProvider();
   let server: Server;
   let base = '';
@@ -25,7 +25,7 @@ describe('PRD 011 Req 29 — the workspace-scoped summary cache', () => {
     server = createServer(
       createApp(
         '/nonexistent-static',
-        { auth, storage: deploymentDefault, directory: createMockDirectoryProvider() },
+        { auth, storage, directory: createMockDirectoryProvider() },
         'local',
       ),
     );
@@ -105,7 +105,7 @@ describe('PRD 011 Req 29 — the workspace-scoped summary cache', () => {
     const cachePath = summaryCacheBlobPath(id, KEY);
     expect([...blobs.keys()]).toContain(cachePath);
     expect(cachePath.startsWith(summaryCachePrefix(id))).toBe(true);
-    // Outside `files/` — the backendRecordPath precedent, and the reason the
+    // Outside `files/` — the manifest's precedent, and the reason the
     // blob is never a document.
     expect(cachePath.startsWith(`workspaces/${id}/files/`)).toBe(false);
     // A key is not a path: it can name nothing outside its own prefix.
@@ -179,9 +179,9 @@ describe('PRD 011 Req 29 — the workspace-scoped summary cache', () => {
     expect(await get('ada', id, 'nothing-wrote-this')).toBeNull();
 
     // A blob that is not an entry any more reads as a miss, never a 500.
-    await deploymentDefault.write(summaryCacheBlobPath(id, KEY), '{"key":"k1","summ');
+    await storage.write(summaryCacheBlobPath(id, KEY), '{"key":"k1","summ');
     expect(await get('ada', id, KEY)).toBeNull();
-    await deploymentDefault.write(summaryCacheBlobPath(id, KEY), '{"key":"k1","summary":42}');
+    await storage.write(summaryCacheBlobPath(id, KEY), '{"key":"k1","summary":42}');
     expect(await get('ada', id, KEY)).toBeNull();
 
     // A key the client did not send is a 400, not a blob named 'undefined'.

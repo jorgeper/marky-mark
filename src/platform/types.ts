@@ -10,7 +10,7 @@ import type { FileGrants } from '../lib/fileGrants';
  * PRD 016 Req 9: what a write reports back. `void` is the whole story for
  * every platform whose save either lands byte-for-byte as written or throws —
  * tauri, browser and web all answer it, and every caller that ignores the
- * result is unaffected. A backend that can merge a stale save (Req 12)
+ * result is unaffected. A backend that can merge a stale save (Req 8)
  * instead says so and carries the text that actually landed, which is NOT
  * what the caller asked to write.
  */

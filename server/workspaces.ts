@@ -209,7 +209,7 @@ const MERGE_ATTEMPTS = 3;
 
 /**
  * PRD 016 Req 8: the merge attempt that sits between "the conditional write
- * lost" and "answer 412". Answers the committed merge, or null for every
+ * lost" and "answer 412". Answers the landed merge, or null for every
  * reason the caller must turn back into today's 412:
  *
  *  - the save carried no base (the client's base is the ONLY possible merge
@@ -232,12 +232,11 @@ async function mergeStaleSave(
   ours: string,
   clientBase?: string,
 ): Promise<{ etag: string; content: string } | null> {
-  const base = clientBase;
-  if (base === undefined) return null;
+  if (clientBase === undefined) return null;
   for (let attempt = 0; attempt < MERGE_ATTEMPTS; attempt += 1) {
     const head = await storage.read(blobPath);
     if (!head) return null;
-    const merged = mergeThreeWay(base, ours, head.content);
+    const merged = mergeThreeWay(clientBase, ours, head.content);
     if (!merged.clean) return null;
     if (!mergeKeepsFileWellFormed(filePath, merged.text)) return null;
     const written = await storage.writeIfMatch(blobPath, merged.text, head.etag);
@@ -498,7 +497,7 @@ export async function handleWorkspaceApi(
   // key, report roughly what it holds, throw it away. Membership and the 401
   // are the ones every route here already has; the verbs are the catalog's
   // existing ones (PRD 007 Req 13), no fifteenth added.
-  //
+
   // GET/PUT /api/workspaces/<id>/summary-cache/entry — one key at a time.
   if (segments.length === 3 && segments[1] === 'summary-cache' && segments[2] === 'entry') {
     if (req.method === 'GET') {
