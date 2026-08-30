@@ -32,11 +32,13 @@ starts the server at <http://localhost:4924>. Sign in via
 The auto-started Azurite persists its store in `node_modules/.cache/azurite`,
 so your files, drafts and workspaces survive restarts; delete that directory
 (with the server stopped) to wipe all local hosted state. The Playwright e2e
-lane never shares that store: `playwright.config.ts` launches this same
+lane keeps its store separate: `playwright.config.ts` launches this same
 script with `MM_AZURITE_IN_MEMORY=1`, which runs Azurite with
 `--inMemoryPersistence` so every gate run starts from an empty, RAM-only
 store (issue #179 — a killed test's crash-safe draft must not poison the
-next run).
+next run). One caveat: a server or Azurite already listening is reused as-is
+(Playwright's `reuseExistingServer`, this script's port probe), so stop a
+hand-run stack before the gate if the lanes must be truly disjoint.
 
 ## Production (Azure App Service, Linux)
 
