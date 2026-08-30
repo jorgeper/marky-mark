@@ -33,11 +33,10 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest 
   const [entries, setEntries] = useState<MemberEntry[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const memberIds = manifest.members.map((m) => m.id);
-  // The effect keys on the ids' serialization, not on the array (a new value
-  // every render) or on the manifest (a role or everyone-access edit is no
-  // reason to re-resolve display names).
-  const memberIdsKey = JSON.stringify(memberIds);
+  // The effect keys on the ids' serialization, not on the members array (a
+  // new value every render) or on the manifest (a role or everyone-access
+  // edit is no reason to re-resolve display names).
+  const memberIdsKey = JSON.stringify(manifest.members.map((m) => m.id));
 
   // Display names come from the directory; when it cannot answer, the
   // manifest's add-time snapshot stands in (issue #180), and only an id

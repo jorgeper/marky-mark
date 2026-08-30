@@ -169,6 +169,7 @@ cannot answer. Setup:
 | Piece | File |
 | --- | --- |
 | Authorize URL, JWKS validation, iss/aud pinning | `server/providers/azure/entra.ts` |
+| On-behalf-of Graph token exchange (directory calls) | `server/providers/azure/obo.ts`, used by `server/providers/azure/graph.ts` |
 | PKCE + state generation, callback parsing, token exchange | `src/lib/hostedAuth.ts` |
 | Sign-in page / hosted marker | `src/components/HostedSignIn.tsx`, `server/app.ts` |
 | Per-request auth guard | `server/providers/types.ts` (`AuthProvider`), used by `server/app.ts` |

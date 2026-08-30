@@ -38,7 +38,7 @@ function toDirectoryUser(u: GraphUser): DirectoryUser {
 }
 
 export function createGraphDirectoryProvider(
-  fetchImpl: FetchLike = fetch,
+  fetchImpl: FetchLike,
   getGraphToken: GraphTokenSource,
 ): DirectoryProvider {
   const headers = async (auth: RequestAuth) => ({
