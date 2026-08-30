@@ -14,6 +14,13 @@ import {
   type MemberEntry,
 } from '../lib/membership';
 
+/** PRD 007 Req 6 (issue #180): the visible guest marker — rendered beside a
+ *  name whenever the directory flags the user a guest of the tenant. */
+function GuestBadge({ entry }: { entry: Pick<DirectoryEntry, 'isGuest'> }) {
+  if (!entry.isGuest) return null;
+  return <span className="membership-guest-badge">Guest</span>;
+}
+
 /** Avatar image when the directory has one, initials disc when it does not
  *  (or when the photo URL answers 404 — Graph users without a photo). */
 function MemberAvatar({ entry }: { entry: Pick<DirectoryEntry, 'displayName' | 'username' | 'avatarUrl'> }) {
@@ -99,6 +106,7 @@ export function MembershipPicker({
               <>
                 <MemberAvatar entry={member} />
                 <span className="membership-name">{member.displayName}</span>
+                <GuestBadge entry={member} />
                 <span className="membership-username">{member.username}</span>
               </>
             ) : (
@@ -141,6 +149,7 @@ export function MembershipPicker({
               >
                 <MemberAvatar entry={user} />
                 <span className="membership-name">{user.displayName}</span>
+                <GuestBadge entry={user} />
                 <span className="membership-username">{user.username}</span>
               </button>
             </li>

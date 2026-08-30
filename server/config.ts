@@ -34,6 +34,14 @@ export interface ServerConfig {
   azure?: {
     tenantId: string;
     clientId: string;
+    /**
+     * PRD 007 Req 6 (issue #180): the confidential-client credential the
+     * on-behalf-of Graph token exchange authenticates with. Like
+     * MM_LLM_API_KEY, its value never appears in any log line, error
+     * message, or HTTP response — refusals name the variable, never its
+     * content.
+     */
+    clientSecret: string;
   };
   /**
    * PRD 011 Req 8: the deployment-wide LLM credential, configured by the
@@ -47,7 +55,12 @@ export interface ServerConfig {
 }
 
 /** Env vars azure mode cannot start without (PRD 007 Req 1). */
-const AZURE_REQUIRED = ['ENTRA_TENANT_ID', 'ENTRA_CLIENT_ID', 'AZURE_STORAGE_CONNECTION_STRING'] as const;
+const AZURE_REQUIRED = [
+  'ENTRA_TENANT_ID',
+  'ENTRA_CLIENT_ID',
+  'ENTRA_CLIENT_SECRET',
+  'AZURE_STORAGE_CONNECTION_STRING',
+] as const;
 
 /**
  * PRD 007 Req 1: where bytes live — Azurite's dev connection string as the
@@ -176,7 +189,11 @@ export function loadConfig(env: Record<string, string | undefined>): ServerConfi
     port,
     staticDir,
     storage,
-    azure: { tenantId: env.ENTRA_TENANT_ID!, clientId: env.ENTRA_CLIENT_ID! },
+    azure: {
+      tenantId: env.ENTRA_TENANT_ID!,
+      clientId: env.ENTRA_CLIENT_ID!,
+      clientSecret: env.ENTRA_CLIENT_SECRET!,
+    },
     ...(llm ? { llm } : {}),
   };
 }

@@ -60,7 +60,9 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     expect(read.status).toBe(200);
     const { manifest } = (await read.json()) as { manifest: WorkspaceManifest };
     expect(manifest.name).toBe('Layout proof');
-    expect(manifest.members).toEqual([{ id: 'mock-ada', role: 'Owner' }]);
+    // Issue #180: the creator's display name is snapshotted at add time —
+    // the fallback member lists render when the directory cannot answer.
+    expect(manifest.members).toEqual([{ id: 'mock-ada', role: 'Owner', displayName: 'Ada Lovelace' }]);
     expect(manifest.everyone).toEqual({ enabled: false, role: 'Viewer' });
     blobs.clear();
   });
@@ -427,9 +429,10 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     const added = await addMember(id, 'mock-grace', 'Viewer');
     expect(added.status).toBe(200);
     const first = ((await added.json()) as { manifest: WorkspaceManifest }).manifest;
+    // Issue #180: each add snapshots the display name the directory knows.
     expect(first.members).toEqual([
-      { id: 'mock-ada', role: 'Owner' },
-      { id: 'mock-grace', role: 'Viewer' },
+      { id: 'mock-ada', role: 'Owner', displayName: 'Ada Lovelace' },
+      { id: 'mock-grace', role: 'Viewer', displayName: 'Grace Hopper' },
     ]);
     // Grace can read but not write — the grant is live, not just recorded.
     await call('ada', 'PUT', `/api/workspaces/${id}/files/a.md`, 'hi');
@@ -443,7 +446,8 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     );
     expect(promoted.status).toBe(200);
     const second = ((await promoted.json()) as { manifest: WorkspaceManifest }).manifest;
-    expect(second.members[1]).toEqual({ id: 'mock-grace', role: 'Editor' });
+    // …and a role change keeps the snapshot (issue #180).
+    expect(second.members[1]).toEqual({ id: 'mock-grace', role: 'Editor', displayName: 'Grace Hopper' });
     // Creation is immutable; the modification stamp is the server's.
     expect(second.created).toBe(first.created);
     expect(Date.parse(second.modified)).toBeGreaterThanOrEqual(Date.parse(first.created));
@@ -452,7 +456,7 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     const removed = await call('ada', 'DELETE', `/api/workspaces/${id}/members/mock-grace`);
     expect(removed.status).toBe(200);
     expect(((await removed.json()) as { manifest: WorkspaceManifest }).manifest.members).toEqual([
-      { id: 'mock-ada', role: 'Owner' },
+      { id: 'mock-ada', role: 'Owner', displayName: 'Ada Lovelace' },
     ]);
     expect((await call('grace', 'GET', `/api/workspaces/${id}/files/a.md`)).status).toBe(403);
     blobs.clear();
@@ -530,7 +534,7 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     const after = ((await renamed.json()) as { manifest: WorkspaceManifest }).manifest;
     expect(after.roles).toEqual([{ name: 'Auditor', permissions: ['doc.read'] }]);
     // Grace came along: she never silently drops to no permissions.
-    expect(after.members[1]).toEqual({ id: 'mock-grace', role: 'Auditor' });
+    expect(after.members[1]).toEqual({ id: 'mock-grace', role: 'Auditor', displayName: 'Grace Hopper' });
     expect((await call('grace', 'GET', `/api/workspaces/${id}/manifest`)).status).toBe(200);
 
     // Held roles cannot be deleted; freeing it first makes the delete legal.

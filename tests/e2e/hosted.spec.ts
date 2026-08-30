@@ -279,7 +279,8 @@ test('E172: creating a workspace yields a manifest blob under its own prefix wit
   };
   expect(manifest.version).toBe(1);
   expect(manifest.name).toBe(name);
-  expect(manifest.members).toEqual([{ id: 'mock-ada', role: 'Owner' }]);
+  // Issue #180: the manifest snapshots the display name known at add time.
+  expect(manifest.members).toEqual([{ id: 'mock-ada', role: 'Owner', displayName: 'Ada Lovelace' }]);
   expect(manifest.everyone).toEqual({ enabled: false, role: 'Viewer' });
 
   // The workspace shows up in the signed-in metadata listing (PRD 007 Req 11)…
@@ -656,8 +657,8 @@ test('E179: POST /api/workspaces takes initial members and everyone-access, vali
     manifest: { members: Array<{ id: string; role: string }>; everyone: unknown };
   };
   expect(manifest.members).toEqual([
-    { id: 'mock-ada', role: 'Owner' },
-    { id: 'mock-grace', role: 'Editor' },
+    { id: 'mock-ada', role: 'Owner', displayName: 'Ada Lovelace' },
+    { id: 'mock-grace', role: 'Editor', displayName: 'Grace Hopper' },
   ]);
   // PRD 007 Req 16: everyone-access with no role named defaults to Viewer.
   expect(manifest.everyone).toEqual({ enabled: true, role: 'Viewer' });
@@ -776,8 +777,8 @@ test('E182: the New Workspace flow names a workspace, grants a member a role, an
   ).json()) as { manifest: { name: string; members: Array<{ id: string; role: string }> } };
   expect(manifest.name).toBe(name);
   expect(manifest.members).toEqual([
-    { id: 'mock-ada', role: 'Owner' },
-    { id: 'mock-grace', role: 'Editor' },
+    { id: 'mock-ada', role: 'Owner', displayName: 'Ada Lovelace' },
+    { id: 'mock-grace', role: 'Editor', displayName: 'Grace Hopper' },
   ]);
 });
 

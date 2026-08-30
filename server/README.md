@@ -66,6 +66,7 @@ the environment reference is below.
 | `MM_AZURITE_IN_MEMORY` | local (dev script only) | `1` makes `npm run server:local` start its Azurite with `--inMemoryPersistence` — a fresh, RAM-only store per boot. Set by the e2e lane; hand-run servers persist by default. |
 | `ENTRA_TENANT_ID` | azure (required) | Entra ID tenant (single-tenant app registration). |
 | `ENTRA_CLIENT_ID` | azure (required) | Entra ID application (client) id — also the expected token audience. |
+| `ENTRA_CLIENT_SECRET` | azure (required) | Client secret of the same registration — authenticates the on-behalf-of Graph token exchange (`providers/azure/obo.ts`). Secret: never logged, never sent to the browser. |
 
 `MM_MODE=azure` refuses to start with any of its required variables missing,
 naming them all at once.

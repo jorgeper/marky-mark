@@ -89,6 +89,14 @@ export interface WorkspaceMember {
   id: string;
   /** A role name: built-in or a custom role defined in the same manifest. */
   role: string;
+  /**
+   * PRD 007 Req 6 (issue #180): the display name known when the member was
+   * added — the fallback `resolveMembers` renders when the directory cannot
+   * answer (Graph unreachable, user left the tenant). Absent in manifests
+   * written before this field existed; never authoritative while the
+   * directory still resolves the id.
+   */
+  displayName?: string;
 }
 
 /** A custom role: a named subset of the permission catalog (PRD 007 Req 15). */
@@ -173,11 +181,17 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
     if (!isPlainObject(m) || !isNonEmptyString(m.id) || !isNonEmptyString(m.role)) {
       return fail('each member must be {id, role} with non-empty strings');
     }
+    // Issue #180: the display-name snapshot is optional — manifests written
+    // before it existed parse unchanged — but a present one must be a
+    // non-empty string, never silently coerced.
+    if (m.displayName !== undefined && !isNonEmptyString(m.displayName)) {
+      return fail('member displayName must be a non-empty string when present');
+    }
     // A role NAME that resolves to nothing stays valid (resolution fails
     // closed); a duplicate member id is a malformed manifest, not a policy.
     if (memberIds.has(m.id)) return fail(`duplicate member id ${JSON.stringify(m.id)}`);
     memberIds.add(m.id);
-    members.push({ id: m.id, role: m.role });
+    members.push({ id: m.id, role: m.role, ...(m.displayName !== undefined ? { displayName: m.displayName } : {}) });
   }
 
   if (!Array.isArray(data.roles)) return fail('manifest roles must be an array');
@@ -382,7 +396,14 @@ export function addWorkspaceMember(manifest: WorkspaceManifest, member: Workspac
   if (!id) return fail('member id must be a non-empty string');
   if (manifest.members.some((m) => m.id === id)) return fail(`${JSON.stringify(id)} is already a member`);
   if (!isKnownRoleName(manifest, member.role)) return fail(`unknown role ${JSON.stringify(member.role)}`);
-  return { ok: true, manifest: { ...manifest, members: [...manifest.members, { id, role: member.role }] } };
+  // Issue #180: the display-name snapshot rides along when the caller has
+  // one (the server stamps it from the directory at add time).
+  const added: WorkspaceMember = {
+    id,
+    role: member.role,
+    ...(member.displayName ? { displayName: member.displayName } : {}),
+  };
+  return { ok: true, manifest: { ...manifest, members: [...manifest.members, added] } };
 }
 
 /**
@@ -410,7 +431,8 @@ export function setWorkspaceMemberRole(
   if (role !== OWNER_ROLE && isLastOwner(manifest, id)) return fail(LAST_OWNER_ERROR);
   return {
     ok: true,
-    manifest: { ...manifest, members: manifest.members.map((m) => (m.id === id ? { id, role } : m)) },
+    // Issue #180: a role change keeps the member's display-name snapshot.
+    manifest: { ...manifest, members: manifest.members.map((m) => (m.id === id ? { ...m, role } : m)) },
   };
 }
 

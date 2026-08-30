@@ -147,14 +147,22 @@ There is currently **no lever** for "who may create workspaces" or
 "who may see workspace names" — the only gate on both is tenant
 membership itself. Making those controllable is filed as issue #181.
 
-## The one known gap
+## How the directory calls authenticate
 
-Tenant user **search and avatars** (the membership picker) call
-Microsoft Graph with the session id_token, but Graph only accepts
-tokens minted *for Graph* — so those two features fail against a real
-tenant until an on-behalf-of exchange is implemented. Sign-in, roles,
-files and everything else are unaffected. Details:
-[HOSTING-AZURE.md](HOSTING-AZURE.md) § Known limitations.
+Tenant user **search and avatars** (the membership picker) go to
+Microsoft Graph, which only accepts tokens minted *for Graph* — never
+the session id_token. So the server runs the **on-behalf-of exchange**
+(`server/providers/azure/obo.ts`): it trades the caller's id_token at
+the tenant token endpoint for a delegated Graph token
+(`User.ReadBasic.All`), cached per user for its validity window, and
+Graph is called with that. The exchange authenticates with the
+registration's client secret (`ENTRA_CLIENT_SECRET`) — the one
+credential in the sign-in story the browser never sees. Guests of the
+tenant come back marked as such and are badged in the People section,
+and each member's display name is snapshotted into the workspace
+manifest at add time, so member lists stay readable even when Graph
+cannot answer. Setup:
+[HOSTING-AZURE.md](HOSTING-AZURE.md) § 1.
 
 ## Where the pieces live
 

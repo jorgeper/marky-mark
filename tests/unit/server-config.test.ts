@@ -23,30 +23,57 @@ describe('PRD 007 Req 1+4 server config', () => {
 
   it('U218: azure mode names every missing required variable at once', () => {
     expect(() => loadConfig({ MM_MODE: 'azure' })).toThrowError(
-      /ENTRA_TENANT_ID, ENTRA_CLIENT_ID, AZURE_STORAGE_CONNECTION_STRING/,
+      /ENTRA_TENANT_ID, ENTRA_CLIENT_ID, ENTRA_CLIENT_SECRET, AZURE_STORAGE_CONNECTION_STRING/,
     );
     // Partially configured: only the still-missing ones are named.
     expect(() => loadConfig({ MM_MODE: 'azure', ENTRA_TENANT_ID: 't' })).toThrowError(
-      /requires environment variables: ENTRA_CLIENT_ID, AZURE_STORAGE_CONNECTION_STRING/,
+      /requires environment variables: ENTRA_CLIENT_ID, ENTRA_CLIENT_SECRET, AZURE_STORAGE_CONNECTION_STRING/,
     );
   });
 
-  it('U219: a fully configured azure mode carries tenant, client, connection string, and PORT override', () => {
+  it('U219: a fully configured azure mode carries tenant, client, client secret, connection string, and PORT override', () => {
     const config = loadConfig({
       MM_MODE: 'azure',
       PORT: '8080',
       ENTRA_TENANT_ID: 'tenant-1',
       ENTRA_CLIENT_ID: 'client-1',
+      ENTRA_CLIENT_SECRET: 'secret-1',
       AZURE_STORAGE_CONNECTION_STRING: 'DefaultEndpointsProtocol=https;AccountName=prod;',
       MM_STORAGE_CONTAINER: 'docs',
     });
     expect(config.mode).toBe('azure');
     expect(config.port).toBe(8080);
-    expect(config.azure).toEqual({ tenantId: 'tenant-1', clientId: 'client-1' });
+    expect(config.azure).toEqual({ tenantId: 'tenant-1', clientId: 'client-1', clientSecret: 'secret-1' });
     expect(config.storage).toEqual({
       connectionString: 'DefaultEndpointsProtocol=https;AccountName=prod;',
       container: 'docs',
     });
+  });
+
+  it('U802: the confidential-client secret is refused by name when missing, and its value never appears in a refusal', () => {
+    // PRD 007 Req 6 (issue #180): the OBO exchange's credential is required
+    // in azure mode with the same all-gaps-at-once refusal style…
+    expect(() =>
+      loadConfig({
+        MM_MODE: 'azure',
+        ENTRA_TENANT_ID: 't',
+        ENTRA_CLIENT_ID: 'c',
+        AZURE_STORAGE_CONNECTION_STRING: 'conn',
+      }),
+    ).toThrowError(/requires environment variables: ENTRA_CLIENT_SECRET$/);
+    // …and never required in local mode, which starts with no config at all.
+    expect(loadConfig({}).azure).toBeUndefined();
+    // The refusal for OTHER gaps names variables, never the secret's value —
+    // the same rule MM_LLM_API_KEY follows.
+    const SECRET = 'entra-secret-DO-NOT-LEAK-4b1d';
+    let message = '';
+    try {
+      loadConfig({ MM_MODE: 'azure', ENTRA_CLIENT_SECRET: SECRET });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/ENTRA_TENANT_ID/);
+    expect(message).not.toContain(SECRET);
   });
 });
 
@@ -98,6 +125,7 @@ describe('PRD 011 Req 8 the operator-configured LLM section', () => {
       MM_MODE: 'azure',
       ENTRA_TENANT_ID: 't',
       ENTRA_CLIENT_ID: 'c',
+      ENTRA_CLIENT_SECRET: 's',
       AZURE_STORAGE_CONNECTION_STRING: 'conn',
     });
     expect(azure.llm?.kind).toBe('openai');

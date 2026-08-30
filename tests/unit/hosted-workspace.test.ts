@@ -208,6 +208,34 @@ describe('PRD 007 Req 7 workspace manifest', () => {
     // resolution fails closed instead (U262).
     expect(validateWorkspaceManifest({ ...base(), members: [{ id: 'a', role: 'Ghost' }] }).ok).toBe(true);
   });
+
+  it('U804: member display-name snapshots round-trip, old manifests without them still parse, and mutations preserve them', () => {
+    // PRD 007 Req 6 (issue #180): the add-time snapshot `resolveMembers`
+    // falls back to when the directory cannot answer.
+    const withSnapshot: WorkspaceManifest = {
+      ...base(),
+      members: [
+        { id: 'mock-ada', role: 'Owner', displayName: 'Ada Lovelace' },
+        { id: 'mock-grace', role: 'Editor' }, // pre-#180 member: no snapshot
+      ],
+    };
+    const parsed = parseWorkspaceManifest(serializeWorkspaceManifest(withSnapshot));
+    expect(parsed).toEqual({ ok: true, manifest: withSnapshot });
+    if (parsed.ok) expect(parsed.manifest.members[1]).not.toHaveProperty('displayName');
+    // A present snapshot must be a non-empty string — never coerced.
+    expect(validateWorkspaceManifest({ ...base(), members: [{ id: 'a', role: 'Owner', displayName: 7 }] }).ok).toBe(false);
+    expect(validateWorkspaceManifest({ ...base(), members: [{ id: 'a', role: 'Owner', displayName: '' }] }).ok).toBe(false);
+    // addWorkspaceMember carries the snapshot in; a role change keeps it.
+    const added = addWorkspaceMember(withSnapshot, { id: 'mock-alan', role: 'Viewer', displayName: 'Alan Turing' });
+    expect(added.ok && added.manifest.members[2]).toEqual({ id: 'mock-alan', role: 'Viewer', displayName: 'Alan Turing' });
+    if (!added.ok) return;
+    const changed = setWorkspaceMemberRole(added.manifest, 'mock-alan', 'Editor');
+    expect(changed.ok && changed.manifest.members[2]).toEqual({ id: 'mock-alan', role: 'Editor', displayName: 'Alan Turing' });
+    // …and one added without a snapshot stays snapshot-free.
+    const bare = addWorkspaceMember(withSnapshot, { id: 'mock-kay', role: 'Viewer' });
+    expect(bare.ok && bare.manifest.members[2]).toEqual({ id: 'mock-kay', role: 'Viewer' });
+    if (bare.ok) expect(bare.manifest.members[2]).not.toHaveProperty('displayName');
+  });
 });
 
 describe('PRD 007 Req 13+16 permission resolution', () => {

@@ -97,6 +97,10 @@ export interface DirectoryUser {
   username: string;
   /** URL the client can fetch an avatar from, when the directory has one. */
   avatarUrl?: string;
+  // PRD 007 Req 6 (issue #180): guests (Graph userType === 'Guest') are
+  // badged in the People UI, so the seam carries the flag through.
+  /** True when the directory marks this user a guest of the tenant. */
+  isGuest?: boolean;
 }
 
 /** A user's profile photo as raw bytes plus its media type. */

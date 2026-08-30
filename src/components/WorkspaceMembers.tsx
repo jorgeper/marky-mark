@@ -39,13 +39,17 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest 
   // reason to re-resolve display names).
   const memberIdsKey = JSON.stringify(memberIds);
 
-  // Display names come from the directory; an id it no longer knows stays a
-  // plain identifier (resolveMembers marks those unresolved).
+  // Display names come from the directory; when it cannot answer, the
+  // manifest's add-time snapshot stands in (issue #180), and only an id
+  // with neither stays a plain identifier (resolveMembers marks those
+  // unresolved either way).
   useEffect(() => {
     let cancelled = false;
-    void lifecycle.resolveUsers(memberIds).then((resolved) => {
-      if (!cancelled) setEntries(resolved);
-    });
+    void lifecycle
+      .resolveUsers(manifest.members.map((m) => ({ id: m.id, displayName: m.displayName })))
+      .then((resolved) => {
+        if (!cancelled) setEntries(resolved);
+      });
     return () => {
       cancelled = true;
     };
@@ -73,6 +77,9 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest 
 
   const roles = grantableRoleNames(manifest);
   const nameOf = (id: string) => entries.find((e) => e.id === id)?.displayName ?? id;
+  // PRD 007 Req 6 (issue #180): guests of the tenant are badged wherever a
+  // member renders — here on the role rows, and in the picker via GuestBadge.
+  const isGuest = (id: string) => entries.find((e) => e.id === id)?.isGuest === true;
 
   return (
     <div className="workspace-members" data-testid="workspace-members-section">
@@ -95,7 +102,14 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest 
       />
       {manifest.members.map((member) => (
         <div className="workspace-role-row" key={member.id}>
-          <span className="workspace-role-name">{nameOf(member.id)}</span>
+          <span className="workspace-role-name">
+            {nameOf(member.id)}
+            {isGuest(member.id) && (
+              <span className="membership-guest-badge" data-testid={`workspace-member-guest-${member.id}`}>
+                Guest
+              </span>
+            )}
+          </span>
           <select
             data-testid={`workspace-member-role-${member.id}`}
             aria-label={`Role for ${nameOf(member.id)}`}

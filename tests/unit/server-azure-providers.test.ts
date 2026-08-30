@@ -3,6 +3,11 @@ import { loadConfig } from '../../server/config';
 import { createProviders } from '../../server/providers/index';
 import { buildAuthorizeUrl, createEntraAuthProvider, entraIssuer } from '../../server/providers/azure/entra';
 import { createGraphDirectoryProvider } from '../../server/providers/azure/graph';
+import {
+  createOboTokenSource,
+  GRAPH_OBO_SCOPE,
+  OBO_EXPIRY_MARGIN_SECONDS,
+} from '../../server/providers/azure/obo';
 
 // PRD 007 Req 3: provider selection and the Azure implementations' offline-
 // verifiable logic (URL shapes, token rejection, Graph request mapping) — the
@@ -20,6 +25,7 @@ describe('PRD 007 Req 3 provider selection', () => {
         MM_MODE: 'azure',
         ENTRA_TENANT_ID: 'tenant-1',
         ENTRA_CLIENT_ID: 'client-1',
+        ENTRA_CLIENT_SECRET: 'secret-1',
         AZURE_STORAGE_CONNECTION_STRING:
           'DefaultEndpointsProtocol=https;AccountName=prod;AccountKey=eA==;EndpointSuffix=core.windows.net',
       }),
@@ -56,17 +62,26 @@ describe('PRD 007 Req 3 Entra ID auth provider', () => {
 });
 
 describe('PRD 007 Req 3 Graph directory provider', () => {
-  const auth = { token: 'caller-token', user: { id: 'u1', username: 'ada', displayName: 'Ada' } };
+  const auth = { token: 'session-id-token', user: { id: 'u1', username: 'ada', displayName: 'Ada' } };
+  // Issue #180: the provider's token comes from the injected source (the OBO
+  // exchange in production) — never from auth.token, whose audience is the
+  // app itself and which Graph rejects.
+  const exchanged = async () => 'graph-token';
 
-  it('U227: search calls Graph /users with $search, the caller token, and the eventual ConsistencyLevel, mapping results', async () => {
+  it('U227: search calls Graph /users with $search, the exchanged Graph token, and the eventual ConsistencyLevel, mapping results', async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     const provider = createGraphDirectoryProvider(async (url, init) => {
       calls.push({ url, init });
       return new Response(
-        JSON.stringify({ value: [{ id: 'g1', displayName: 'Grace Hopper', userPrincipalName: 'grace@contoso.com' }] }),
+        JSON.stringify({
+          value: [
+            { id: 'g1', displayName: 'Grace Hopper', userPrincipalName: 'grace@contoso.com', userType: 'Member' },
+            { id: 'g3', displayName: 'Guest Gwen', userPrincipalName: 'gwen@fabrikam.com', userType: 'Guest' },
+          ],
+        }),
         { status: 200 },
       );
-    });
+    }, exchanged);
     const users = await provider.search('grace', auth);
     expect(users).toEqual([
       {
@@ -75,13 +90,23 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
         username: 'grace@contoso.com',
         // PRD 007 Req 6: results carry the same-origin avatar URL, never a Graph URL.
         avatarUrl: '/api/directory/users/g1/photo',
+        isGuest: false,
+      },
+      // Issue #180: Graph's userType marks guests for the People UI's badge.
+      {
+        id: 'g3',
+        displayName: 'Guest Gwen',
+        username: 'gwen@fabrikam.com',
+        avatarUrl: '/api/directory/users/g3/photo',
+        isGuest: true,
       },
     ]);
     const url = new URL(calls[0].url);
     expect(url.origin + url.pathname).toBe('https://graph.microsoft.com/v1.0/users');
     expect(url.searchParams.get('$search')).toContain('displayName:grace');
+    expect(url.searchParams.get('$select')).toContain('userType');
     const headers = calls[0].init?.headers as Record<string, string>;
-    expect(headers.Authorization).toBe('Bearer caller-token');
+    expect(headers.Authorization).toBe('Bearer graph-token');
     expect(headers.ConsistencyLevel).toBe('eventual');
     // A blank query never leaves the process.
     expect(await provider.search('   ', auth)).toEqual([]);
@@ -94,12 +119,15 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
       status === 200
         ? new Response(JSON.stringify({ id: 'g2', displayName: 'Alan Turing' }), { status })
         : new Response('', { status }),
+      exchanged,
     );
     expect(await provider.getUser('g2', auth)).toEqual({
       id: 'g2',
       displayName: 'Alan Turing',
       username: '',
       avatarUrl: '/api/directory/users/g2/photo',
+      // No userType in the response reads as a regular member, not a guest.
+      isGuest: false,
     });
     status = 404;
     expect(await provider.getUser('gone', auth)).toBeNull();
@@ -107,17 +135,17 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
     await expect(provider.getUser('g2', auth)).rejects.toThrowError(/Graph user lookup failed: 500/);
   });
 
-  it('U243: getUserPhoto calls Graph /users/{id}/photo/$value as the caller and yields the bytes and media type', async () => {
+  it('U243: getUserPhoto calls Graph /users/{id}/photo/$value with the exchanged token and yields the bytes and media type', async () => {
     // PRD 007 Req 6: the photo proxy's upstream — URL shape, bearer, bytes.
     const calls: { url: string; init?: RequestInit }[] = [];
     const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
     const provider = createGraphDirectoryProvider(async (url, init) => {
       calls.push({ url, init });
       return new Response(bytes, { status: 200, headers: { 'Content-Type': 'image/jpeg' } });
-    });
+    }, exchanged);
     const photo = await provider.getUserPhoto('g1/odd id', auth);
     expect(calls[0].url).toBe('https://graph.microsoft.com/v1.0/users/g1%2Fodd%20id/photo/$value');
-    expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer caller-token');
+    expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer graph-token');
     expect(photo).toEqual({ contentType: 'image/jpeg', data: bytes });
   });
 
@@ -125,9 +153,119 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
     // PRD 007 Req 6: Graph answers 404 both for "no photo" and "unknown
     // user"; either way the client renders the initials fallback.
     let status = 404;
-    const provider = createGraphDirectoryProvider(async () => new Response('', { status }));
+    const provider = createGraphDirectoryProvider(async () => new Response('', { status }), exchanged);
     expect(await provider.getUserPhoto('no-photo', auth)).toBeNull();
     status = 503;
     await expect(provider.getUserPhoto('g1', auth)).rejects.toThrowError(/Graph photo fetch failed: 503/);
+  });
+});
+
+// PRD 007 Req 6 (issue #180): the on-behalf-of exchange — the session
+// id_token traded at the tenant token endpoint for a delegated Graph access
+// token, cached per user for its validity window. The token-endpoint fetch is
+// injected, so every branch here runs offline.
+describe('issue #180 on-behalf-of Graph token exchange', () => {
+  const authFor = (id: string, token = `id-token-${id}`) => ({
+    token,
+    user: { id, username: `${id}@contoso.com`, displayName: id },
+  });
+
+  const tokenResponse = (token: string, expiresIn = 3600) =>
+    new Response(JSON.stringify({ token_type: 'Bearer', access_token: token, expires_in: expiresIn }), {
+      status: 200,
+    });
+
+  it('U799: the exchange POSTs the jwt-bearer grant with the caller assertion, delegated Graph scope, and the client credential', async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const getToken = createOboTokenSource({
+      tenantId: 'tenant-1',
+      clientId: 'client-1',
+      clientSecret: 'secret-1',
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return tokenResponse('graph-token');
+      },
+    });
+    expect(await getToken(authFor('u1', 'the-session-assertion'))).toBe('graph-token');
+    expect(calls[0].url).toBe('https://login.microsoftonline.com/tenant-1/oauth2/v2.0/token');
+    expect(calls[0].init?.method).toBe('POST');
+    const body = new URLSearchParams(String(calls[0].init?.body));
+    expect(body.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
+    expect(body.get('client_id')).toBe('client-1');
+    expect(body.get('client_secret')).toBe('secret-1');
+    expect(body.get('assertion')).toBe('the-session-assertion');
+    // Delegated User.ReadBasic.All only — never an application permission.
+    expect(body.get('scope')).toBe(GRAPH_OBO_SCOPE);
+    expect(GRAPH_OBO_SCOPE).toBe('https://graph.microsoft.com/User.ReadBasic.All');
+    expect(body.get('requested_token_use')).toBe('on_behalf_of');
+  });
+
+  it('U800: tokens are cached per user for expires_in minus the safety margin — and concurrent first calls share one exchange', async () => {
+    let nowMs = 0;
+    let exchanges = 0;
+    const getToken = createOboTokenSource({
+      tenantId: 't',
+      clientId: 'c',
+      clientSecret: 's',
+      now: () => nowMs,
+      fetchImpl: async (_url, init) => {
+        exchanges++;
+        const user = new URLSearchParams(String(init?.body)).get('assertion');
+        return tokenResponse(`graph-${user}-${exchanges}`, 3600);
+      },
+    });
+    // Two users, interleaved: one exchange each, cached per user.
+    const [a1, b1] = await Promise.all([getToken(authFor('ada')), getToken(authFor('bob'))]);
+    expect(await getToken(authFor('ada'))).toBe(a1);
+    expect(await getToken(authFor('bob'))).toBe(b1);
+    expect(a1).not.toBe(b1);
+    expect(exchanges).toBe(2);
+    // Concurrent calls before the first resolves share the in-flight exchange.
+    const [c1, c2] = await Promise.all([getToken(authFor('cyd')), getToken(authFor('cyd'))]);
+    expect(c1).toBe(c2);
+    expect(exchanges).toBe(3);
+    // Inside the validity window the cache answers; past expires_in minus
+    // the margin, the exchange runs again.
+    nowMs = (3600 - OBO_EXPIRY_MARGIN_SECONDS) * 1000 - 1;
+    expect(await getToken(authFor('ada'))).toBe(a1);
+    expect(exchanges).toBe(3);
+    nowMs = (3600 - OBO_EXPIRY_MARGIN_SECONDS) * 1000;
+    expect(await getToken(authFor('ada'))).not.toBe(a1);
+    expect(exchanges).toBe(4);
+  });
+
+  it('U801: a refused exchange names the status and OAuth code — never the secret or assertion — and is not cached', async () => {
+    let status = 400;
+    let exchanges = 0;
+    const getToken = createOboTokenSource({
+      tenantId: 't',
+      clientId: 'c',
+      clientSecret: 'obo-secret-DO-NOT-LEAK',
+      fetchImpl: async () => {
+        exchanges++;
+        return status === 200
+          ? tokenResponse('graph-token')
+          : new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'AADSTS50013' }), { status });
+      },
+    });
+    const auth = authFor('u1', 'assertion-DO-NOT-LEAK');
+    let message = '';
+    await getToken(auth).catch((err: Error) => {
+      message = err.message;
+    });
+    expect(message).toBe('Graph token exchange failed: 400 (invalid_grant)');
+    expect(message).not.toContain('DO-NOT-LEAK');
+    // The failure was evicted, so the next call retries — and can succeed.
+    status = 200;
+    expect(await getToken(auth)).toBe('graph-token');
+    expect(exchanges).toBe(2);
+    // A 200 with no access_token is a refusal too, not an empty bearer.
+    const broken = createOboTokenSource({
+      tenantId: 't',
+      clientId: 'c',
+      clientSecret: 's',
+      fetchImpl: async () => new Response(JSON.stringify({ token_type: 'Bearer' }), { status: 200 }),
+    });
+    await expect(broken(auth)).rejects.toThrowError(/answered without an access_token/);
   });
 });

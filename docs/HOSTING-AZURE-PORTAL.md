@@ -22,11 +22,9 @@ them when they arrive:
 
 > ### Read this before you set aside an afternoon
 >
-> **Searching your directory for people to add to a workspace does not work
-> yet** against a real tenant.
-> Sign-in, workspaces, files, comments, roles and permissions all work.
-> The full detail is in [Known limitations](#known-limitations) — please read it
-> now rather than after an hour of debugging your own configuration.
+> Skim [Known limitations](#known-limitations) now rather than after an hour
+> of debugging your own configuration — it is the list of things the
+> deployment deliberately does not do.
 
 **Roughly an hour**, most of it waiting on Azure to create things.
 
@@ -167,10 +165,11 @@ app is built:
 
 - **Single-tenant** — only accounts in your own organization. Personal Microsoft
   accounts and other tenants are out of scope.
-- **Public client, no secret** — the sign-in happens entirely in the browser
-  using auth-code + PKCE. **You will never create a client secret**, and there is
-  nowhere to put one if you did. If a guide (or your instinct) says "now create a
-  client secret", that's a different kind of app; skip it.
+- **Sign-in needs no secret; the directory does.** The sign-in happens entirely
+  in the browser using auth-code + PKCE — no secret is involved in it. The
+  registration still gets **one client secret** (step 3.5), used only by the
+  **server** to exchange a signed-in user's token for a Microsoft Graph token
+  (that's what powers member search and avatars). The browser never sees it.
 
 ### 3.1 Create the registration
 
@@ -184,7 +183,7 @@ app is built:
    right platform type. You'll add it properly in the next step.
 5. **Register**.
 
-You land on the **Overview** page. Leave this tab open; step 3.5 comes back for
+You land on the **Overview** page. Leave this tab open; step 3.6 comes back for
 two values here.
 
 ### 3.2 Add the redirect URI — exactly
@@ -263,12 +262,27 @@ If your organization restricts directory reads more tightly than the default, an
 admin may tell you they'll only approve `User.Read.All` instead. That's fine —
 it covers the same three calls.
 
-> Consent is necessary but **not sufficient today**: these three Graph calls
-> still fail against a real tenant for an unrelated code reason. See
-> [Known limitations](#known-limitations). Grant the consent anyway — you want
-> it in place for when that's fixed, and nothing else is affected.
+### 3.5 Create the client secret
 
-### 3.5 Copy the two IDs
+The server exchanges each signed-in user's token for a Graph token (the
+"on-behalf-of" flow), and that exchange has to prove it really is your app
+calling. The proof is a client secret:
+
+1. In the registration's left menu: **Certificates & secrets**.
+2. **+ New client secret**. Description: `marky-mark-obo` (any label works);
+   expiry: pick what your organization allows — 12 months is a sensible
+   default.
+3. **Add**, then immediately copy the **Value** column — it is shown **only
+   this once**. (Not the "Secret ID" next to it; that GUID is just Azure's
+   name for the entry.)
+
+This value is the app setting `ENTRA_CLIENT_SECRET` in step 5.2. Treat it like
+the storage connection string: a **secret**, never pasted anywhere but the app
+settings. When it expires, member search and avatars stop working while
+everything else carries on — come back here, create a new one, and update the
+app setting.
+
+### 3.6 Copy the two IDs
 
 Back on the registration's **Overview** page, copy these two values somewhere
 you can paste from in step 5:
@@ -375,8 +389,9 @@ end. Saving restarts the app.
 | Name | Value | Notes |
 | --- | --- | --- |
 | `MM_MODE` | `azure` | switches the app from local mock mode to real Entra + Blob Storage. Any value other than `local`/`azure` refuses to start. |
-| `ENTRA_TENANT_ID` | your Directory (tenant) ID | from step 3.5 |
-| `ENTRA_CLIENT_ID` | your Application (client) ID | from step 3.5 |
+| `ENTRA_TENANT_ID` | your Directory (tenant) ID | from step 3.6 |
+| `ENTRA_CLIENT_ID` | your Application (client) ID | from step 3.6 |
+| `ENTRA_CLIENT_SECRET` | the client secret's Value | from step 3.5 — **secret** |
 | `AZURE_STORAGE_CONNECTION_STRING` | the connection string | from step 4.3 — **secret** |
 | `MM_STORAGE_CONTAINER` | `marky-mark` | only needed if you named the container something else, but setting it explicitly is harmless |
 | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `false` | tells App Service to deploy your payload as-is rather than running its own build, which would fail here |
@@ -388,8 +403,9 @@ end. Saving restarts the app.
 > outage.
 
 **Mark the secrets as such if you like:** you can move
-`AZURE_STORAGE_CONNECTION_STRING` into Azure Key Vault and reference it here
-instead of pasting the literal value. That's a good practice and entirely
+`AZURE_STORAGE_CONNECTION_STRING` and `ENTRA_CLIENT_SECRET` into Azure Key
+Vault and reference them here
+instead of pasting the literal values. That's a good practice and entirely
 optional; the app can't tell the difference.
 
 ### 5.3 Set the startup command
@@ -593,24 +609,17 @@ Create a document in that workspace, type something, save. The container gains
 `workspaces/<uuid>/files/<name>.md`. Reload the page and reopen it — your text is
 there.
 
-Those four are what "a working deployment" means here. **Adding a member by
-searching your directory is deliberately not on the list** — see below.
+Those four are what "a working deployment" means here. A fifth worth thirty
+seconds: open a workspace's settings and type a colleague's name into the
+People picker — tenant users (members and guests, the latter badged) appear
+as you type, with photos where they have one. An error there points at the
+client secret or the admin consent — see Troubleshooting.
 
 ---
 
 ## Known limitations
 
 Read these before concluding that something you configured is wrong.
-
-- **Directory search and member avatars don't work against a real tenant.** The
-  app forwards your sign-in token straight to Microsoft Graph, but Graph only
-  accepts tokens minted specifically for it — so it answers `401`, no matter how
-  thoroughly you granted the permissions in step 3.4. In practice: the member
-  picker's user search returns an error instead of results, and member avatars
-  fall back to initials. The fix is a token-exchange step in the code; **granting
-  more Graph permissions will not substitute for it.** Everything else —
-  sign-in, workspaces, files, comments, roles and permission enforcement — is
-  unaffected, because none of it talks to Graph.
 
 - **No trash, no version history.** Deletes are permanent. Blob soft delete
   (step 4.4) is the only recovery path, and you have to opt into it.
@@ -635,11 +644,11 @@ actually landed in `/home/site/wwwroot` — use **Development Tools → SSH**.
 | Log says `MM_MODE must be 'local' or 'azure', got '…'` or `PORT must be a TCP port number, got '…'` | a malformed app setting — typo, stray quote, trailing space | fix the value; never set `PORT` yourself |
 | Startup line reads `auth=mock, storage=azurite, directory=mock` | `MM_MODE` didn't arrive — usually the startup command was overwritten | re-apply the startup command (step 5.3) and the app setting |
 | `502` from the platform, nothing at all in the app log | the app isn't listening on App Service's port, almost always because `PORT` was set as an app setting | delete the `PORT` app setting |
-| Sign-in works, then **every** API call returns `401` | the token's issuer or audience doesn't match what the server expects — normally an **Object ID** pasted into `ENTRA_CLIENT_ID` instead of the Application (client) ID, or a tenant ID from a different directory | re-copy both from the registration's Overview page (step 3.5) and restart |
+| Sign-in works, then **every** API call returns `401` | the token's issuer or audience doesn't match what the server expects — normally an **Object ID** pasted into `ENTRA_CLIENT_ID` instead of the Application (client) ID, or a tenant ID from a different directory | re-copy both from the registration's Overview page (step 3.6) and restart |
 | `AADSTS50011: The redirect URI … does not match` | the origin isn't registered, or is registered without the trailing slash, or was added under the **Web** platform instead of **Single-page application** | register `https://<host>/` — slash included — as a **SPA** redirect URI for *every* host the app answers on (steps 3.2 and 8.3) |
 | The editor appears immediately, no sign-in page | the SPA is being served by something other than this server, so the hosted marker was never injected | serve the app from the App Service origin; the API and SPA must share one origin |
 | `403` naming a permission, e.g. `{"error":"forbidden","required":"file.create"}` | **working as designed** — that user's role in that workspace lacks that verb | change their role in the workspace's member settings; not a deployment fault |
-| Member search errors; avatars never load | the Graph token-exchange gap | nothing to configure; see [Known limitations](#known-limitations) |
+| Member search errors; avatars never load; everything else works | the server's Graph token exchange is failing — an expired or mistyped `ENTRA_CLIENT_SECRET` (the log stream shows e.g. `Graph token exchange failed: 401 (invalid_client)`), or admin consent (step 3.4) was never granted | create a fresh secret (step 3.5), update the `ENTRA_CLIENT_SECRET` app setting, save (which restarts); or have an admin grant the consent |
 | App is very slow to respond after being idle | a Free/Shared tier put the app to sleep | move to Basic B1 or above (**Settings → Scale up**) |
 
 ---

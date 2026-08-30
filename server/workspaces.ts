@@ -45,7 +45,7 @@ import {
 } from './summaryCache.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import { mergeThreeWay } from './merge.ts';
-import type { RequestAuth, StorageProvider } from './providers/types.ts';
+import type { DirectoryProvider, RequestAuth, StorageProvider } from './providers/types.ts';
 
 /** PRD 007 Req 7: the root prefix all workspace data lives under. */
 export const WORKSPACES_PREFIX = 'workspaces/';
@@ -351,6 +351,22 @@ function readRoleBody(body: unknown): { name: string; permissions: string[] } | 
 }
 
 /**
+ * PRD 007 Req 6 (issue #180): the display name to snapshot into the manifest
+ * when a member is added — from the directory when it answers, undefined
+ * (never a blocked add) when it does not. A directory that answers the bare
+ * id as the display name contributes nothing a fallback needs.
+ */
+async function snapshotDisplayName(
+  directory: DirectoryProvider,
+  id: string,
+  auth: RequestAuth,
+): Promise<string | undefined> {
+  const user = await directory.getUser(id, auth).catch(() => null);
+  const name = user?.displayName?.trim();
+  return name && name !== id ? name : undefined;
+}
+
+/**
  * Handle a request under `/api/workspaces`. The caller (app.ts) has already
  * applied the 401 auth guard. Unmatched routes answer 404 here.
  */
@@ -360,6 +376,7 @@ export async function handleWorkspaceApi(
   url: URL,
   storage: StorageProvider,
   auth: RequestAuth,
+  directory: DirectoryProvider,
 ): Promise<void> {
   const pathname = url.pathname;
   const rest = pathname.slice('/api/workspaces'.length);
@@ -382,10 +399,25 @@ export async function handleWorkspaceApi(
       sendJson(res, 400, { error: built.error });
       return;
     }
+    // PRD 007 Req 6 (issue #180): snapshot each initial member's display
+    // name at add time — the creator's from their own token, the rest from
+    // the directory — so `resolveMembers` has a human-readable fallback
+    // when Graph cannot answer later. A directory miss just leaves the
+    // snapshot off; it never blocks creation.
+    const withNames = await Promise.all(
+      built.manifest.members.map(async (m) => {
+        const displayName =
+          m.id === auth.user.id
+            ? auth.user.displayName.trim() || undefined
+            : await snapshotDisplayName(directory, m.id, auth);
+        return displayName ? { ...m, displayName } : m;
+      }),
+    );
+    const manifest: WorkspaceManifest = { ...built.manifest, members: withNames };
     // PRD 007 Req 7: the id is an opaque server-generated UUID.
     const id = randomUUID();
-    await storage.write(manifestBlob(id), serializeWorkspaceManifest(built.manifest));
-    sendJson(res, 201, { id, manifest: built.manifest });
+    await storage.write(manifestBlob(id), serializeWorkspaceManifest(manifest));
+    sendJson(res, 201, { id, manifest });
     return;
   }
 
@@ -751,7 +783,10 @@ export async function handleWorkspaceApi(
       sendJson(res, 400, { error: 'member must be {id, role} with non-empty strings' });
       return;
     }
-    await saveMutation(res, storage, id, existing, addWorkspaceMember(existing, { id: memberId, role }));
+    // PRD 007 Req 6 (issue #180): snapshot the display name known now, so
+    // the list stays readable when the directory cannot answer later.
+    const displayName = await snapshotDisplayName(directory, memberId, auth);
+    await saveMutation(res, storage, id, existing, addWorkspaceMember(existing, { id: memberId, role, displayName }));
     return;
   }
 

@@ -159,7 +159,7 @@ async function handleApi(
   // PRD 007 Req 7+13: everything under /api/workspaces is per-workspace
   // scoped and permission-checked (server/workspaces.ts).
   if (pathname === '/api/workspaces' || pathname.startsWith('/api/workspaces/')) {
-    await handleWorkspaceApi(req, res, url, providers.storage, auth);
+    await handleWorkspaceApi(req, res, url, providers.storage, auth, providers.directory);
     return;
   }
 

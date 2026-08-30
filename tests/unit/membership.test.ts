@@ -144,4 +144,32 @@ describe('PRD 007 Req 6 membership picker logic', () => {
       { id: 'flaky', displayName: 'flaky', username: '', resolved: false },
     ]);
   });
+
+  it('U803: resolveMembers prefers the live directory answer, then the manifest snapshot, then the plain id — and carries the guest flag through', async () => {
+    // PRD 007 Req 6 (issue #180): the fallback ordering that keeps member
+    // lists human-readable when Graph is unreachable or the user left.
+    const entries = await resolveMembers(
+      [
+        // Live answer wins even when a snapshot exists (and isGuest rides along).
+        { id: 'mock-ada', displayName: 'Stale Ada' },
+        // Directory answers null → the snapshot stands in, unresolved.
+        { id: 'gone-user', displayName: 'Grace (as added)' },
+        // Lookup fails outright → the snapshot still stands in.
+        { id: 'flaky', displayName: 'Katherine (as added)' },
+        // No snapshot → the plain identifier, exactly as before.
+        'gone-bare',
+      ],
+      async (id) => {
+        if (id === 'gone-user' || id === 'gone-bare') return null;
+        if (id === 'flaky') throw new Error('503');
+        return { id, displayName: 'Ada Lovelace', username: 'ada@contoso.com', isGuest: true };
+      },
+    );
+    expect(entries).toEqual([
+      { id: 'mock-ada', displayName: 'Ada Lovelace', username: 'ada@contoso.com', isGuest: true, resolved: true },
+      { id: 'gone-user', displayName: 'Grace (as added)', username: '', resolved: false },
+      { id: 'flaky', displayName: 'Katherine (as added)', username: '', resolved: false },
+      { id: 'gone-bare', displayName: 'gone-bare', username: '', resolved: false },
+    ]);
+  });
 });

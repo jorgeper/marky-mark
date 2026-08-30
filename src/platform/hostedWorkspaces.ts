@@ -10,7 +10,7 @@
  */
 
 import { readStoredToken } from '../lib/hostedGate';
-import { resolveMembers, type DirectoryEntry, type MemberEntry } from '../lib/membership';
+import { resolveMembers, type DirectoryEntry, type MemberEntry, type MemberRef } from '../lib/membership';
 import { workspaceIdFromSearch } from '../lib/hostedPaths';
 import {
   resolvePermissions,
@@ -54,8 +54,12 @@ export interface WorkspaceLifecycle {
   deleteRole(id: string, name: string): Promise<ManifestResult>;
   /** Directory search for the membership picker. */
   searchUsers(query: string): Promise<DirectoryEntry[]>;
-  /** Stored ids → display entries; unresolvable ids stay plain identifiers. */
-  resolveUsers(ids: readonly string[]): Promise<MemberEntry[]>;
+  /**
+   * Stored members → display entries. A ref carrying the manifest's
+   * display-name snapshot (issue #180) falls back to it when the directory
+   * cannot answer; a bare id stays a plain identifier.
+   */
+  resolveUsers(members: readonly MemberRef[]): Promise<MemberEntry[]>;
   /** Bind the page to a workspace (null: leave — the start page, no workspace). */
   navigateTo(id: string | null): void;
   /**
@@ -196,8 +200,8 @@ export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
       return found.map(withAvatarToken);
     },
 
-    resolveUsers(ids) {
-      return resolveMembers(ids, getUser);
+    resolveUsers(members) {
+      return resolveMembers(members, getUser);
     },
 
     navigateTo(id) {

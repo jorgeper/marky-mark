@@ -10,6 +10,8 @@ export interface DirectoryEntry {
   displayName: string;
   username: string;
   avatarUrl?: string;
+  /** PRD 007 Req 6 (issue #180): guests of the tenant get a visible badge. */
+  isGuest?: boolean;
 }
 
 /** A stored member id resolved for display — or kept as a plain identifier. */
@@ -18,6 +20,8 @@ export interface MemberEntry {
   displayName: string;
   username: string;
   avatarUrl?: string;
+  /** PRD 007 Req 6 (issue #180): guests of the tenant get a visible badge. */
+  isGuest?: boolean;
   /** False when the directory no longer knows the id (left the tenant). */
   resolved: boolean;
 }
@@ -114,22 +118,40 @@ export function createDirectorySearch(options: {
 }
 
 /**
+ * A member to resolve: a plain id, or an id carrying the display-name
+ * snapshot the workspace manifest took when the member was added
+ * (issue #180). Snapshots keep member lists human-readable when the
+ * directory cannot answer.
+ */
+export type MemberRef = string | { id: string; displayName?: string };
+
+/**
  * Resolve stored member ids to display entries via the injected lookup
- * (`GET /api/directory/users/<id>` shaped: a user, or null on 404). A user
- * the directory no longer knows — or a lookup that fails outright — renders
- * as a plain identifier (`resolved: false`), and never breaks resolution of
- * the rest of the list. Order follows the input ids.
+ * (`GET /api/directory/users/<id>` shaped: a user, or null on 404). The
+ * live directory answer wins; when it is null (left the tenant) or the
+ * lookup fails outright, the manifest's display-name snapshot stands in,
+ * and only a member with neither renders as the plain identifier — either
+ * way `resolved: false`, and one failure never breaks resolution of the
+ * rest of the list. Order follows the input.
  */
 export async function resolveMembers(
-  ids: readonly string[],
+  members: readonly MemberRef[],
   getUser: (id: string) => Promise<DirectoryEntry | null>,
 ): Promise<MemberEntry[]> {
   return Promise.all(
-    ids.map(async (id) => {
+    members.map(async (ref) => {
+      const { id, displayName: snapshot } = typeof ref === 'string' ? { id: ref, displayName: undefined } : ref;
       const user = await getUser(id).catch(() => null);
       return user
-        ? { id: user.id, displayName: user.displayName, username: user.username, avatarUrl: user.avatarUrl, resolved: true }
-        : { id, displayName: id, username: '', resolved: false };
+        ? {
+            id: user.id,
+            displayName: user.displayName,
+            username: user.username,
+            avatarUrl: user.avatarUrl,
+            isGuest: user.isGuest,
+            resolved: true,
+          }
+        : { id, displayName: snapshot || id, username: '', resolved: false };
     }),
   );
 }

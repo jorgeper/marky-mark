@@ -12,7 +12,7 @@ permission catalog, the manifest shape — is `server/README.md`; this guide doe
 not repeat it.
 
 Read [Known limitations](#known-limitations) before you set aside an afternoon
-for this: tenant user search and avatars do not work against a real tenant.
+for this, so you know what the deployment deliberately does not do.
 
 > **Prefer clicking to typing?** [HOSTING-AZURE-PORTAL.md](HOSTING-AZURE-PORTAL.md)
 > is the same deployment as a portal walkthrough — every blade named, every field
@@ -56,9 +56,12 @@ az group create --name "$RG" --location "$LOCATION"
 ## 1. Register the application in Microsoft Entra ID
 
 The app registration is **single-tenant** (PRD 007 non-goals: no multi-tenant,
-no personal Microsoft accounts) and a **public client**: the SPA runs the
-auth-code + PKCE flow in the browser, so **no client secret is ever issued or
-configured** — there is nowhere in `server/config.ts` to put one.
+no personal Microsoft accounts). The SPA signs users in as a **public client**
+(the auth-code + PKCE flow in the browser needs no secret), and the same
+registration also carries **one client secret** (step 1.5) that only the
+server ever sees: it authenticates the on-behalf-of exchange the directory
+provider uses to talk to Microsoft Graph (`server/providers/azure/obo.ts`).
+The browser never receives it.
 
 ### 1.1 Create it
 
@@ -132,8 +135,13 @@ token is then rejected.
 ### 1.4 Microsoft Graph permissions
 
 The directory provider (`server/providers/azure/graph.ts`) makes exactly three
-calls, all **delegated** (as the signed-in user), all against
-`https://graph.microsoft.com/v1.0`:
+calls, all **delegated** (as the signed-in user — no application permissions),
+all against `https://graph.microsoft.com/v1.0`. The Graph access token comes
+from the **on-behalf-of exchange** (`server/providers/azure/obo.ts`): the
+server trades the caller's session id_token at the tenant token endpoint for
+a Graph token scoped `User.ReadBasic.All`, caching it per user for its
+validity window. That exchange is what the client secret in step 1.5
+authenticates.
 
 | Graph call | What it powers | Delegated permission |
 | --- | --- | --- |
@@ -158,11 +166,30 @@ consent to it on first sign-in. If your tenant restricts directory reads more
 tightly than the default, it may insist on `User.Read.All` instead; both cover
 all three calls.
 
-Consent is necessary but not sufficient today: see
-[Known limitations](#known-limitations) for why these three calls still fail
-against real Graph.
+### 1.5 Create the client secret
 
-### 1.5 Copy the two ids
+The on-behalf-of exchange authenticates as a **confidential client**, so the
+registration needs a credential the server presents alongside the caller's
+assertion. Issue a client secret and capture its value — it is shown exactly
+once:
+
+```sh
+export ENTRA_CLIENT_SECRET="$(az ad app credential reset --id "$APP_ID" \
+  --display-name marky-mark-obo --years 1 --query password -o tsv)"
+```
+
+Portal equivalent: **App registrations → Marky Mark → Certificates & secrets →
+New client secret**, then copy the **Value** column (not the Secret ID).
+
+This is the app setting `ENTRA_CLIENT_SECRET` in step 4 — **secret**, like the
+storage connection string: it never belongs in the SPA, in a log line, or in
+this file. A certificate credential works with Entra just as well, but the
+server's exchange sends `client_secret`, so a secret is what this deployment
+consumes. Secrets expire (a year here); when yours does, member search and
+avatars start failing while everything else keeps working — issue a new one
+and update the app setting (see Troubleshooting).
+
+### 1.6 Copy the two ids
 
 ```sh
 export ENTRA_CLIENT_ID="$APP_ID"      # the Application (client) ID from 1.1
@@ -173,8 +200,9 @@ echo "client=$ENTRA_CLIENT_ID tenant=$ENTRA_TENANT_ID"
 In the portal both sit on the registration's **Overview** blade: **Application
 (client) ID** → `ENTRA_CLIENT_ID`, **Directory (tenant) ID** → `ENTRA_TENANT_ID`.
 These are the app settings of the same name in step 4. Neither is secret — the
-client id ends up in the browser by design — but the storage connection string
-in the next step very much is.
+client id ends up in the browser by design — unlike the client secret from
+step 1.5 and the storage connection string in the next step, which very much
+are.
 
 ## 2. Create the storage account and container
 
@@ -279,6 +307,7 @@ az webapp config appsettings set --name "$APP" --resource-group "$RG" --settings
   MM_MODE=azure \
   ENTRA_TENANT_ID="$ENTRA_TENANT_ID" \
   ENTRA_CLIENT_ID="$ENTRA_CLIENT_ID" \
+  ENTRA_CLIENT_SECRET="$ENTRA_CLIENT_SECRET" \
   AZURE_STORAGE_CONNECTION_STRING="$AZURE_STORAGE_CONNECTION_STRING" \
   MM_STORAGE_CONTAINER="$CONTAINER" \
   SCM_DO_BUILD_DURING_DEPLOYMENT=false
@@ -337,7 +366,7 @@ arrived.
 
 ### Environment variables
 
-The complete contract, straight from `server/config.ts`. Seven variables; the
+The complete contract, straight from `server/config.ts`. Eight variables; the
 only others are the optional LLM section in
 [the next subsection](#the-deployments-llm-provider-optional).
 
@@ -350,12 +379,13 @@ only others are the optional LLM section in
 | `AZURE_STORAGE_CONNECTION_STRING` | Azurite's dev string (local mode only) | **required** | Storage account connection string, from the account's Access keys. Secret. |
 | `ENTRA_TENANT_ID` | — | **required** | Directory (tenant) id. Pins the accepted token issuer. |
 | `ENTRA_CLIENT_ID` | — | **required** | Application (client) id. Pins the accepted token audience. |
+| `ENTRA_CLIENT_SECRET` | — | **required** | The registration's client secret (step 1.5). Authenticates the on-behalf-of Graph token exchange. Secret — never logged, never sent to the browser. |
 
 `MM_MODE=azure` **refuses to start** when any required variable is missing, and
 names every missing one at once:
 
 ```
-MM_MODE=azure requires environment variables: ENTRA_CLIENT_ID, AZURE_STORAGE_CONNECTION_STRING
+MM_MODE=azure requires environment variables: ENTRA_CLIENT_ID, ENTRA_CLIENT_SECRET, AZURE_STORAGE_CONNECTION_STRING
 ```
 
 That message in the log stream is your first diagnostic: no partial start, no
@@ -476,24 +506,14 @@ walk these four things:
    list gains `workspaces/<uuid>/files/<name>.md`. Reload the page and reopen
    it: the content is there.
 
-Those four are what "a working deployment" means here. Adding members by
-directory search is not on the list — see below.
+Those four are what "a working deployment" means here. A fifth worth thirty
+seconds: **member search works** — open a workspace's settings, type a
+colleague's name into the People picker, and tenant users (members and
+guests, the latter badged) appear as you type, with avatar photos where they
+have one. An error there points at the client secret — see Troubleshooting.
 
 ## Known limitations
 
-- **Tenant user search and avatars do not work against real Graph yet.**
-  `server/providers/azure/graph.ts` forwards the caller's session bearer — the
-  **id_token**, issued for `openid profile email` with the application's own
-  client id as its audience — straight to Microsoft Graph. Graph only accepts
-  access tokens minted for `https://graph.microsoft.com`, so it answers 401
-  (`InvalidAuthenticationToken`) regardless of how thoroughly you consented to
-  the permissions in step 1.4. In practice: the member picker's user search
-  returns an error instead of results, and member avatars fall back to
-  initials. The fix is an on-behalf-of token exchange in the auth/directory
-  seam; it is not implemented, and granting more Graph permissions will not
-  substitute for it. Everything else — sign-in, workspaces, files, comments,
-  roles and permission enforcement — is unaffected, because none of it talks to
-  Graph.
 - **No trash, no version history.** Deletes are permanent (PRD 007 non-goals).
   Blob soft delete (step 2) is the only recovery path, and you opt into it.
 - **Single tenant only.** The registration is `AzureADMyOrg`; guests and
@@ -509,11 +529,11 @@ directory search is not on the list — see below.
 | The app never starts; the log says `MM_MODE=azure requires environment variables: …` | exactly the named app settings are missing (`loadConfig`, `server/config.ts`) | set them (step 4); the message lists all of them at once, so there is no second round |
 | The log says `MM_MODE must be 'local' or 'azure', got '…'` or `PORT must be a TCP port number, got '…'` | a malformed app setting | fix the value; never set `PORT` yourself |
 | Startup line reads `auth=mock, storage=azurite, directory=mock` | `MM_MODE` did not arrive — the startup command was overwritten | re-apply the startup command from step 4 |
-| Sign-in works, then **every** API call answers `401` | the id_token's issuer or audience does not match what the server pins — normally an `ENTRA_CLIENT_ID` that is not this registration's Application (client) ID (an Object ID pasted by mistake is the classic), or an `ENTRA_TENANT_ID` from another tenant | re-copy both from the registration's Overview blade (step 1.5) and restart |
+| Sign-in works, then **every** API call answers `401` | the id_token's issuer or audience does not match what the server pins — normally an `ENTRA_CLIENT_ID` that is not this registration's Application (client) ID (an Object ID pasted by mistake is the classic), or an `ENTRA_TENANT_ID` from another tenant | re-copy both from the registration's Overview blade (step 1.6) and restart |
 | Entra shows `AADSTS50011: The redirect URI … does not match` | the origin is not registered, or is registered without the trailing slash, or was registered under the **Web** platform instead of **Single-page application** | register `https://<host>/` — slash included — as a **SPA** redirect URI for *every* host the app answers on (steps 1.2 and 5) |
 | The editor appears immediately, no sign-in page | the SPA is being served by something other than this server (a static host, a CDN origin bypassing it), so the `marky-mark-hosted` meta marker was never injected (`injectHostedMarker`, `server/app.ts`) — `dist/` on disk deliberately never carries it | serve the app from the App Service origin; the API and the SPA must share one origin |
 | `403` naming a permission verb, e.g. `{"error":"forbidden","required":"file.create"}` | working as designed: the signed-in user's role in that workspace lacks the verb. Not a deployment fault | change the member's role in the workspace's member settings; the verb-to-role mapping is `server/README.md` § Roles and permissions |
-| Member search returns an error; avatars never load | the on-behalf-of exchange is missing — see [Known limitations](#known-limitations) | nothing to configure; it is a code gap |
+| Member search returns an error; avatars never load; the rest of the app works | the on-behalf-of Graph exchange is failing — an expired or wrong `ENTRA_CLIENT_SECRET` (the log names the token endpoint's status and OAuth code, e.g. `Graph token exchange failed: 401 (invalid_client)`), or admin consent for `User.ReadBasic.All` was never granted (step 1.4) | issue a fresh secret (step 1.5), update the `ENTRA_CLIENT_SECRET` app setting and restart; or grant the admin consent |
 | `502` from the platform, nothing in the app log | the app is not listening on App Service's `PORT`, usually because it was pinned as an app setting | delete the `PORT` app setting |
 
 `az webapp log tail --name "$APP" --resource-group "$RG"` is where all of the

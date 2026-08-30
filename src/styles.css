@@ -3626,6 +3626,22 @@ mark.hl.ghost {
   font-style: italic;
 }
 
+/* PRD 007 Req 6 (issue #180): the guest badge — beside the name in picker
+   rows and the People section's role rows alike. */
+.membership-guest-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mm-muted, #59636e);
+  flex: none;
+}
+
 .membership-remove {
   margin-left: auto;
   border: none;
