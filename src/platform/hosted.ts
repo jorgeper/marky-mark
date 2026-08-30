@@ -231,10 +231,8 @@ export function createHostedPlatform(): Platform {
     const res = await api(apiPathFor({ kind: 'manifest', id }));
     const body = await json<{ manifest: { settings?: Record<string, unknown> } }>(res);
     if (!body) {
-      // PRD 010 Req 18: a workspace whose connected repository cannot be
-      // reached is NOT "no longer there". The server answers the named,
-      // actionable reason at a 400/502; only a real 404 is an absent
-      // workspace, and only that keeps today's ENOENT phrasing.
+      // Only a real 404 is an absent workspace, and only that keeps
+      // today's ENOENT phrasing; any other refusal is reported as itself.
       if (res.status !== 404) throw new Error(await refusal(res, `workspace ${id} could not be opened`));
       throw enoent(`workspace ${id}`);
     }
@@ -335,8 +333,8 @@ export function createHostedPlatform(): Platform {
         etags.delete(path);
         bases.delete(path);
       }
-      // PRD 010 Req 12+13: the server merged someone else's changes into this
-      // save and committed the result. The etag re-armed just above is the
+      // PRD 016 Req 8+9: the server merged someone else's changes into this
+      // save and stored the result. The etag re-armed just above is the
       // MERGED version's, so the next conditional save is guarded against it;
       // the merged text goes up to the caller, because what landed is not
       // what was sent. A 412 still throws SaveConflictError above — this is
@@ -420,16 +418,8 @@ export function createHostedPlatform(): Platform {
 
     /**
      * SPEC35 §1: the sidebar's delete. PRD 007 non-goals: there is no hosted
-     * trash, no undelete and no version browsing — nothing the app offers
-     * brings a deleted entry back, whatever the backend, so the confirmation
-     * may never promise recovery.
-     *
-     * PRD 010 Req 21: what it may say beyond that is per WORKSPACE, not per
-     * platform. On the blob backend the content is gone; on the github
-     * backend (deployment default or a BYO repo) the repository's history
-     * retains it. The listing row carries that fact as `retainsHistory` and
-     * `deleteRetention()` combines the two — this stays a flat `true` because
-     * as far as this platform's own API goes, the delete is final.
+     * trash, no undelete and no version browsing — nothing brings a deleted
+     * entry back, so the confirmation must not promise recovery.
      */
     permanentDelete: true,
 

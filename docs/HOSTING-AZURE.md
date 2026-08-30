@@ -179,15 +179,6 @@ in the next step very much is.
 
 ## 2. Create the storage account and container
 
-<!-- PRD 010 Req 20: the sibling guide's entry point. This whole step is the
-     blob backend's; a github-backend deployment skips it outright. -->
-**Storing files in a Git repository instead?** Then skip this step entirely:
-`MM_STORAGE_BACKEND=github` needs no Azure storage account, never reads
-`AZURE_STORAGE_CONNECTION_STRING`, and replaces everything below with a GitHub
-App and one repository — [HOSTING-GITHUB.md](HOSTING-GITHUB.md) is that
-walkthrough. The backend knob is orthogonal to `MM_MODE`, so the rest of this
-guide (steps 1, 3–6) still applies unchanged.
-
 ```sh
 az storage account create \
   --name "$STORAGE" --resource-group "$RG" --location "$LOCATION" \

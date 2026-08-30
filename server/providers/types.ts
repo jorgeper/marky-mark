@@ -43,21 +43,6 @@ export interface RequestAuth {
   user: AuthUser;
 }
 
-/**
- * PRD 010 Req 17: a path a provider refuses to map AT ALL — not a file that
- * happens to be missing, but one this store will never serve (outside the
- * workspace it backs, escaping its configured root, or app metadata a file
- * route may not reach). Distinct from a generic failure so `server/app.ts`
- * answers 400 rather than 500: the request named an invalid path, the server
- * did not break.
- */
-export class StoragePathError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'StoragePathError';
-  }
-}
-
 /** A stored file's metadata. */
 export interface FileStat {
   path: string;
@@ -103,38 +88,6 @@ export interface StorageProvider {
   delete(path: string): Promise<boolean>;
   /** List files under a prefix ('' lists everything). */
   list(prefix: string): Promise<FileStat[]>;
-  /**
-   * PRD 010 Req 7: a view of this same storage that acts as `user` — for a
-   * backend whose writes are attributable (a GitHub commit's author line),
-   * the acting user has to reach it from the request that is being served.
-   * It arrives as an explicit argument on an explicit call, NOT as a mutable
-   * "current user" module-global, so two requests in flight at once cannot
-   * cross-attribute each other's writes.
-   *
-   * OPTIONAL: a store with no notion of an author (Azure Blob, the in-memory
-   * reference provider) simply omits it, and every caller works unchanged
-   * against the shared instance — `storage.asUser?.(user) ?? storage`.
-   */
-  asUser?(user: AuthUser): StorageProvider;
-  /**
-   * PRD 010 Req 12: the merge capability — read back the content an opaque
-   * version token names, whatever the current content is. It is what makes a
-   * three-way merge possible at all: the merge base is the version the client
-   * loaded, and only a store that can still hand those bytes back can supply
-   * it. A git blob is content-addressed, so an ETag from any earlier read
-   * still names retrievable bytes; a blob-store ETag names only "the version
-   * that was current then", which is unrecoverable once it is not.
-   *
-   * Resolves null when the token names nothing this store can resolve — a
-   * null base is a 412, never a guess.
-   *
-   * OPTIONAL: a store without content-addressed history (Azure Blob, the
-   * in-memory reference provider) simply omits it, and `server/workspaces.ts`
-   * answers every stale conditional save with today's 412. Callers decide
-   * "can this workspace merge?" by whether the provider resolved for that
-   * workspace offers this — never by a backend name or `kind` string.
-   */
-  readAtVersion?(path: string, version: string): Promise<string | null>;
 }
 
 /** A user as the directory sees them (member pickers, avatars). */

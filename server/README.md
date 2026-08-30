@@ -29,18 +29,6 @@ starts the server at <http://localhost:4924>. Sign in via
 `POST /api/auth/sign-in` with `{"username": "ada"}` (see the seeded users in
 `providers/mock/users.ts`). Everything runs offline — no Azure resources.
 
-For the github storage backend (PRD 010) there is the same one command:
-
-```sh
-npm run server:github
-```
-
-It starts the local fake of the GitHub API (`providers/github/fake.ts`, seeded
-by `e2eGithubLane.ts`) on 4926, generates a throwaway App keypair, and boots
-the server against it at <http://localhost:4925> with
-`MM_STORAGE_BACKEND=github`. No account, no token, no Azurite — this is the
-lane `tests/e2e/github-storage.spec.ts` (E221+) runs against.
-
 ## Production (Azure App Service, Linux)
 
 The server starts under plain `node` on current Node LTS (≥ 22.18, which
@@ -63,25 +51,12 @@ the environment reference is below.
 | `PORT` | both | Listen port. Default `4924`; App Service injects its own. |
 | `MM_STATIC_DIR` | both | Directory of the built SPA. Default `dist`. |
 | `MM_STORAGE_CONTAINER` | both | Blob container for files. Default `marky-mark`. |
-| `MM_STORAGE_BACKEND` | both | `blob` (default) or `github` — where files live (PRD 010 Req 1). Orthogonal to `MM_MODE`: all four combinations start. |
-| `AZURE_STORAGE_CONNECTION_STRING` | azure + blob backend (required); local (optional) | Storage connection string. Local default: Azurite's well-known dev connection string. Not read at all on the github backend — that deployment needs no storage account. |
+| `AZURE_STORAGE_CONNECTION_STRING` | azure (required); local (optional) | Storage connection string. Local default: Azurite's well-known dev connection string. |
 | `ENTRA_TENANT_ID` | azure (required) | Entra ID tenant (single-tenant app registration). |
 | `ENTRA_CLIENT_ID` | azure (required) | Entra ID application (client) id — also the expected token audience. |
-| `MM_GITHUB_APP_ID` | both (optional; required on the github backend) | Numeric id of the deployment's GitHub App (PRD 010 Req 4). |
-| `MM_GITHUB_PRIVATE_KEY` | both (optional) | That App's PEM private key (PKCS#1 or PKCS#8), literal or `\n`-escaped newlines — the App Service app-setting shape. The **only** GitHub credential the server accepts: no PAT, no long-lived repo token. |
-| `MM_GITHUB_API_BASE` | both (optional) | GitHub REST root, for GitHub Enterprise. Defaults to the public API (`GITHUB_API_BASE` in `providers/github/auth.ts`, the one place a GitHub host is named). |
-| `MM_GITHUB_APP_SLUG` | both (optional) | That App's URL slug, e.g. `marky-mark` in `github.com/apps/marky-mark`. Only the connect-your-repo wizard needs it (PRD 010 Req 16): without it the New Workspace dialog reports the GitHub choice unavailable instead of offering a dead end. |
-| `MM_GITHUB_WEB_BASE` | both (optional) | Web host the wizard's install URL is built on, for GitHub Enterprise. Defaults to the public one; needs `MM_GITHUB_APP_SLUG`. |
-| `MM_GITHUB_DEFAULT_REPO` | github backend (required) | The deployment-default repo as `owner/repo` — never a URL (PRD 010 Req 5). |
-| `MM_GITHUB_DEFAULT_BRANCH` | github backend (optional) | The one branch everything is stored on. Default `main`. |
-| `MM_GITHUB_DEFAULT_ROOT` | github backend (optional) | Repo-relative prefix to store under. Default: the repo root. |
 
 `MM_MODE=azure` refuses to start with any of its required variables missing,
-naming them all at once, and so does `MM_STORAGE_BACKEND=github`. On the
-github backend, startup also checks the default repo before the listener
-accepts anything: an unreachable repo, or an App installation that does not
-grant **Contents: Read and write**, exits non-zero saying which (PRD 010
-Req 6).
+naming them all at once.
 
 ## Workspace storage model (PRD 007 Req 7)
 
@@ -91,119 +66,25 @@ workspace owns a prefix keyed by a server-generated UUID:
 
 ```
 workspaces/<id>/manifest.json     the workspace manifest (below)
-workspaces/<id>/backend.json      which backend backs it (PRD 010 Req 3)
 workspaces/<id>/summary-cache/    cached LLM summaries (PRD 011 Req 29)
 workspaces/<id>/files/<path>      its Markdown documents and assets
 ```
 
 `summary-cache/` holds one blob per content-hash key (`server/summaryCache.ts`).
-Like `backend.json` and `card.json` it lives in the **deployment default**
-store and **outside** `files/`, so it is never listed as a workspace file and —
-crucially for a workspace connected to a BYO repository — machine-generated
-summaries are never committed into the user's repo.
+It lives **outside** `files/`, so it is never listed as a workspace file.
 
-The same layout is what the github backend stores in the default repo, at
-those repo-relative paths under `MM_GITHUB_DEFAULT_ROOT`, on the one
-configured branch. That repo is **app storage, not intended for human
-browsing**.
-
-### Bring your own repo (PRD 010 Req 17)
-
-A workspace whose `backend.json` names a repo connection (`{kind: 'repo',
-owner, repo, branch, root?}`) is laid out the other way round — for humans:
-
-```
-<root>/<path>                     the workspace's documents, as normal files
-<root>/.marky-mark/manifest.json  app metadata, all of it under one directory
-```
-
-The document the app calls `notes/plan.md` is committed at
-`<root>/notes/plan.md` and reads on GitHub as ordinary Markdown: no id in the
-path, no `files/` segment, no encoding. An empty `root` means the repo root.
-Files already committed under that root **are** workspace documents — that is
-the point of connecting a repo you already have. `.marky-mark/` at the
-connected root is the exception: it never appears in a file listing and is
-not reachable through the `files/<path>` routes.
-
-The connection is server-side only. The workspace id stays an opaque UUID,
-no API response carries the connection, and it is derivable from no URL or
-client payload. `POST /api/workspaces` takes an optional `storage` field
-carrying exactly that record (absent = the deployment default); the repo is
-proved writable before the record, the manifest or any commit exists.
-
-`backend.json` always lives in the deployment default store (the backend has
-to be known before the workspace's own store can be read); no record means
-the deployment default, which is every workspace an existing deployment
-already has. It is server-side only: no API response carries it, and it is
-outside `files/` like the manifest.
-
-One behaviour differs by backend, and only one (PRD 010 Req 12+14): when a
-conditional save arrives against a version the file has moved on from, a
-**github-backed** workspace three-way merges it and saves when the merge is
-clean (answering 200 with the merged text), and 412s when it conflicts; a
-**blob-backed** workspace always 412s. A git blob is content-addressed, so
-the ETag the client loaded still names retrievable bytes to merge from — a
-blob-store ETag does not.
+When a conditional save arrives against a version the file has moved on from,
+and the save carried the text the client loaded (the `{content, base}` body
+below, PRD 016 Req 7+8), the server three-way merges it and saves when the
+merge is clean — answering 200 with the merged text — and 412s when it
+conflicts. The client is the source of the merge base, so no storage feature
+and no extra variable is involved; a save without a base answers the plain
+412.
 
 The manifest sits *outside* the `files/` prefix, so workspace file listings
 never surface it; the workspace-agnostic `/api/files*` scaffold refuses the
 whole `workspaces/` prefix (403, filtered from listings), so workspace data
 is reachable only through the permission-checked endpoints below.
-
-#### Managing the connection (PRD 010 Req 18)
-
-Beside `workspaces/<id>/backend.json` the deployment default also keeps
-`workspaces/<id>/card.json`: the workspace's display name, its creation stamp
-and the ids holding `workspace.settings`. It is derived from the manifest by
-the server every time the manifest is written and is **never**
-client-writable — the create body's `storage` field and
-`validateWorkspaceBackend` are unchanged by it. It exists for exactly one
-moment: when the connected repo cannot be reached, the manifest is
-unreachable with it, and there would otherwise be nothing left to name the
-workspace or to authorise its repair.
-
-That makes three things possible while a connection is broken:
-
-* `GET /api/workspaces` **lists** the workspace with an `attention` reason
-  instead of dropping it, so an owner can still find it. (A corrupt manifest
-  is still skipped; one broken workspace never fails the listing.)
-* `GET /api/workspaces/<id>/connection` reports owner/repo, branch, root and
-  the App installation's status; `POST` to the same path re-runs the connect
-  wizard's result against it. Both are gated on `workspace.settings` — from
-  the manifest when it is readable, from the card when it is not.
-* Opening or saving into the workspace answers the named reason (the App is
-  not installed there, the repo is gone, the rate limit is exhausted, GitHub
-  is unavailable) at `400` or `502`, never a bare `500` and never a hang.
-
-A reconnect is **repair, not migration**. Only a workspace whose record is
-already `kind: 'repo'` has the path at all, and the new target is accepted
-only once it is proved reachable with write access **and** proved to already
-carry this workspace's own `<root>/.marky-mark/manifest.json` (matched on the
-creation stamp in the card). Nothing is written to the target before the
-record changes and the manifest is never re-created there, so a refusal — an
-unrelated repo, a wrong branch, a wrong subdirectory — leaves the stored
-record exactly as it was.
-
-#### Out-of-band edits are legitimate (PRD 010 Req 19)
-
-**GitHub repo permissions are the security boundary for a BYO workspace.**
-Anyone who can push to the connected branch can change the workspace's
-content, whatever their in-app role says; in-app roles bound only what this
-app itself permits, and they are not, and cannot be, a boundary on the repo.
-
-Edits made outside the app — a `git push`, a commit through github.com, a
-pull request merge — are therefore legitimate, expected, and neither detected
-nor policed. They are picked up on the next read once the branch head has
-moved: created files appear in the file listing, deleted files read as
-absent, and a conditional save whose base went stale because of one takes the
-identical merge/412 path as a save made stale by another member — the merge
-decision reads versions and text only and never branches on *who* made the
-other change.
-
-Two consequences worth stating to operators: the connected repo's history
-retains content the app deletes (a delete is a commit, not an erasure), and
-the app's own audit of who changed what is the repo's commit log, not a
-server-side record.
 
 ### The workspace manifest
 
@@ -265,13 +146,8 @@ on the doc/file verbs.
 | --- | --- | --- |
 | `POST /api/auth/sign-in` | — (unauthenticated) | Local: `{username}` → `{kind:'token', token, user}`. Azure: `{kind:'redirect', authorizeUrl}` for the SPA's PKCE flow. The only unauthenticated endpoint. |
 | `GET /api/me` | — (signed-in) | The authenticated user. |
-| `GET /api/github/byo` | — (signed-in) | PRD 010 Req 15: `{available, reason?}` — whether this deployment can connect a repo (it needs the App section **and** `MM_GITHUB_APP_SLUG`). The one route that answers on an unconfigured deployment; the four below then refuse with `409` and the same reason. |
-| `POST /api/github/byo/session` | — (signed-in) | PRD 010 Req 16: start a wizard session → `{session, installUrl}`. `installUrl` is the App's install page carrying the opaque `state` GitHub echoes back to the App's configured setup URL. |
-| `POST /api/github/byo/return` | — (signed-in) | `{session, installationId, setupAction}` → `{installationId, account}`. Confirms the returned installation against the App's own installations and binds it to that session. `404` for a session this server did not issue, one belonging to another user, or an installation the App does not have. |
-| `GET /api/github/byo/repos` | — (signed-in, session-scoped) | `?session=&installation=` → `{repos: [{owner, repo, fullName, defaultBranch}], message?}` for the installation **that session came back from**. `403` for any other installation, `409` before the round trip has completed. |
-| `GET /api/github/byo/branches` | — (signed-in, session-scoped) | `?session=&installation=&owner=&repo=` → `{defaultBranch, branches}`, the same session scoping. |
 | `POST /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 10 — any user may create; the creator is always retained as Owner) | `{name, members?: [{id, role}], everyone?: {enabled, role?}}` → `201 {id, manifest}`. A name-only body is the original behaviour. Role names are validated against the built-ins and the manifest's own custom roles (400 for an unknown one); everyone-access defaults to `Viewer` (Req 16). |
-| `GET /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 11 — metadata is listable by any signed-in user; contents stay permission-checked) | `[{id, name, created, modified, owners, access, retainsHistory}]`. `retainsHistory` is true when that workspace sits on a git-backed store, so a delete there is retained by the repository's history and the confirmation copy says so (PRD 010 Req 21) — one boolean about what deletion MEANS, carried on the pre-permission listing so every member who can delete has it; no owner, repo, branch or host is on the row, so Req 3 stands. `owners` are the Owner-role member ids (whoever can grant membership, when no Owner role is used) and `access` is whether the caller resolves `doc.read` — enough for an Open dialog to tell "open it" from "ask for access" without attempting a forbidden read. Never file contents or workspace-scoped settings. |
+| `GET /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 11 — metadata is listable by any signed-in user; contents stay permission-checked) | `[{id, name, created, modified, owners, access}]`. `owners` are the Owner-role member ids (whoever can grant membership, when no Owner role is used) and `access` is whether the caller resolves `doc.read` — enough for an Open dialog to tell "open it" from "ask for access" without attempting a forbidden read. Never file contents or workspace-scoped settings. |
 | `DELETE /api/workspaces/<id>` | `workspace.delete` | Delete the workspace: every blob under `workspaces/<id>/` — manifest, `files/`, comment sidecars and pasted images alike (PRD 007 Req 12). 404 for an unknown id. |
 | `GET /api/workspaces/<id>/manifest` | `doc.read` | `{id, manifest}`. |
 | `PUT /api/workspaces/<id>/manifest` | `workspace.settings` | Validate + store the full manifest (`created` preserved, `modified` restamped server-side). The finer-grained member and role endpoints below are what settings UI uses. |
@@ -289,7 +165,7 @@ on the doc/file verbs.
 | `POST /api/workspaces/<id>/move-file` | `file.rename` | `{from, to}` → move or rename ONE file (PRD 007 Req 18). 409 when the destination is occupied (the target is never silently destroyed), 404 for an unknown source. |
 | `POST /api/workspaces/<id>/move-folder` | `folder.manage` | `{from, to}` → move or rename a folder, re-keying every blob under its prefix (contents follow). 409 when the destination prefix already holds anything, 404 when the source is empty, 400 for a folder into its own descendant. |
 | `POST /api/workspaces/<id>/folders` | `folder.manage` | `{path}` → create an EMPTY folder as a `.mmkeep` marker blob under its prefix (blob storage has no directories), so a new folder survives a reload. Idempotent. |
-| `DELETE /api/workspaces/<id>/folders/<path>` | `folder.manage` | Delete a folder and everything under it. There is no trash, no undelete and no version browsing (PRD 007 non-goals): on the blob backend the bytes are gone; on the github backend the commit removes them from the branch and the repository's history retains them (PRD 010 Req 21). 404 when empty/absent. |
+| `DELETE /api/workspaces/<id>/folders/<path>` | `folder.manage` | Delete a folder and everything under it. There is no trash, no undelete and no version browsing (PRD 007 non-goals): the bytes are gone. 404 when empty/absent. |
 | `PUT /api/workspaces/<id>/upload/<path>` | `file.upload` | Single-file upload of raw bytes (PRD 007 Req 19). The shared rule in `src/lib/fileTransfer.ts` is applied here independently of the client: 415 for a type outside the Markdown + rendered-asset allowlist, 413 past the 20 MB cap, 409 when the path is taken (an upload never silently overwrites). → `201 {path, etag, size}`. |
 | `GET /api/workspaces/<id>/download/<path>` | `file.download` | Single-file download: the blob's bytes with a `Content-Disposition` naming its basename. Bulk transfer is out of scope. 404 when absent. |
 | `GET /api/workspaces/<id>/summary-cache/entry?key=` | `doc.read` | PRD 011 Req 28: read one cached summary by #110's content-hash key → `{entry}`. A key nothing wrote — or a blob that no longer parses as an entry — is `{entry: null}` at **200**, never a 404 or a 500: a miss is an ordinary answer. |
@@ -304,31 +180,9 @@ on the doc/file verbs.
 | `GET /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` or `users/` path) | Read: `{path, content, etag}`, or 404. |
 | `PUT /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` or `users/` path) | Write body as content → `{path, etag}`. |
 | `DELETE /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` or `users/` path) | Delete; 404 when absent. |
-| `GET /api/workspaces/<id>/connection` | `workspace.settings` | PRD 010 Req 18: the connection (owner/repo, branch, root) and the App installation's status. `{connected:false}` when the workspace is not repo-backed. Answered without reading the repo, so it works while the connection is broken. |
-| `POST /api/workspaces/<id>/connection` | `workspace.settings` | PRD 010 Req 18: repair the connection — `{connection:{kind:'repo',…}}`. Refuses a workspace that is not repo-backed, a target that is unreachable or unwritable, and one that does not already carry this workspace's manifest; never creates a workspace. |
 | `GET /api/directory/search?q=` | — (signed-in) | Directory user search. Results carry a same-origin `avatarUrl` when the user has a photo. |
 | `GET /api/directory/users/<id>` | — (signed-in) | One directory user, or 404. |
 | `GET /api/directory/users/<id>/photo` | — (signed-in) | Profile photo bytes (avatar). 404 when the user has no photo or is unknown. |
-
-### Connecting a repo (PRD 010 Req 15+16)
-
-The five `/api/github/byo/…` routes above are the whole server side of the
-New Workspace flow's **connect your GitHub repo** wizard (`server/
-githubByo.ts`). They exist because the browser never talks to GitHub: every
-GitHub call is made here with the deployment's App credentials, and the SPA
-bundle contains no GitHub host string at all.
-
-Enumeration is deliberately bounded. Nothing hands a signed-in caller the
-deployment's installation list or a repo list they did not just complete an
-install round trip for: an installation is readable only through the wizard
-session that came back from it, sessions belong to the user who started them
-and expire after an hour, and naming any other installation is a `403`. The
-wizard finishes by calling the existing `POST /api/workspaces` with
-`storage: {kind:'repo', …}` — there is no create endpoint of its own.
-
-Registering the App and pointing its setup URL back at the deployment is
-operator documentation rather than part of this surface; it belongs with the
-rest of the hosting walkthrough in `docs/HOSTING-AZURE.md`.
 
 ## Sign-in (PRD 007 Req 5)
 
@@ -353,19 +207,8 @@ scopes it is the token whose issuer and audience match what
 - Unit (`npm run test:unit`): config parsing, provider selection, mock
   auth/directory, Entra URL/token-shape logic, Graph request mapping
   (injected fetch) — `tests/unit/server-*.test.ts`.
-- GitHub (PRD 010 Req 4): `providers/github/auth.ts` mints App JWTs and
-  cached installation tokens against an injected `fetch`;
-  `providers/github/fake.ts` is the local fake of the GitHub REST API
-  (installations, contents, refs, commits) every GitHub test runs against —
-  injectable as a `fetch`, or mountable on a `node:http` listener. No test
-  reaches github.
-- GitHub storage (PRD 010 Req 2+7–11): `providers/github/storage.ts` is a
-  `StorageProvider` over a repo branch — one commit per mutation, authored by
-  the signed-in user and committed by the app, blob shas as ETags. Selected
-  by `MM_STORAGE_BACKEND=github` (PRD 010 Req 1+5), with per-workspace
-  resolution in `backends.ts`. `tests/unit/storage-contract.ts`
-  is the shared seam contract both it and the in-memory reference provider
-  pass.
+  `tests/unit/storage-contract.ts` is the shared seam contract the in-memory
+  reference provider passes.
 - E2E (`npm run test:e2e`): `tests/e2e/hosted.spec.ts` boots this server in
   local mode via Playwright's `webServer` (E159+) — real HTTP against
   Azurite, zero Azure resources or network beyond localhost.

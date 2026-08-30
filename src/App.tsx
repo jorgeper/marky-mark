@@ -80,7 +80,6 @@ import {
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
 import { closeOthersTargets } from './lib/fileTabs';
 import { isDirtyText, normalizeEol } from './lib/dirty';
-import { deleteRetention, entryDeletePrompt } from './lib/deleteRetention';
 import { moveTarget, relativePath, remapPath, uniqueChildName } from './lib/folderOps';
 import { ALL_FILE_GRANTS, type FileGrants } from './lib/fileGrants';
 import { uploadRejection } from './lib/fileTransfer';
@@ -196,11 +195,8 @@ import { AppBadge, Toolbar } from './components/Toolbar';
 import { CommentCard } from './components/CommentCard';
 import { SettingsPanel } from './components/SettingsPanel';
 import { WorkspaceAccessSettings } from './components/WorkspaceAccessSettings';
-import { WorkspaceConnectionSettings } from './components/WorkspaceConnectionSettings';
 import { WorkspaceDangerZone } from './components/WorkspaceDangerZone';
 import { NewWorkspaceDialog, OpenWorkspaceDialog } from './components/WorkspaceSwitcher';
-import { readGitHubReturn, reconnectTargetOf, WIZARD_STATE_KEY } from './lib/githubConnectWizard';
-import { workspaceIdFromSearch } from './lib/hostedPaths';
 import { StartPage } from './components/StartPage';
 import { startActions, startCapabilities, type StartActionId } from './lib/startActions';
 import { AboutDialog } from './components/AboutDialog';
@@ -377,17 +373,6 @@ const SEMANTIC_ZOOM_KEYS: ReadonlyArray<[combo: string, id: CommandId]> = [
 ];
 
 /**
- * PRD 010 Req 18: the workspace a return from GitHub is REPAIRING, or null.
- * The deployment's setup URL is one fixed address, so a reconnect comes back
- * at the start page: this is what makes the app rebind to that workspace and
- * open its settings there, instead of a fresh New Workspace dialog.
- */
-function reconnectReturnTarget(): string | null {
-  if (!readGitHubReturn(window.location.search).present) return null;
-  return reconnectTargetOf(window.localStorage.getItem(WIZARD_STATE_KEY));
-}
-
-/**
  * PRD 011 Req 31: the curated price for the provider/model pair a run would
  * use, or null. A `providerId` the seam does not know — and any model id the
  * table does not carry — is unpriced rather than priced by a neighbour's rate.
@@ -544,9 +529,7 @@ export default function App() {
   // at all). Only presence matters — the range itself rides in
   // lastEditorSelRef and reaches preview through the SPEC25 carry.
   const [editHasSelection, setEditHasSelection] = useState(false);
-  // PRD 010 Req 18: a reconnect returning from GitHub opens Workspace
-  // settings on arrival — that is where the repair surface lives.
-  const [settingsOpen, setSettingsOpen] = useState(() => reconnectReturnTarget() !== null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   /**
    * PRD 011 Req 22: the tab the next inline Settings open lands on. Set only by
    * the zoomed view's "configure a provider" route, and cleared on close, so
@@ -1545,27 +1528,7 @@ export default function App() {
   // PRD 007 Req 21/22: the managed (hosted) workspace dialogs, opened from the
   // start page or the File menu. Mounted on the `workspaces` capability, so
   // this state is simply never reached on a flavor without it.
-  // PRD 010 Req 16: coming back from GitHub's consent page lands on the app's
-  // own URL with GitHub's parameters attached — the New Workspace flow opens
-  // straight away so the wizard resumes at pick-repo rather than dropping the
-  // admin on a bare start page. The dialog itself is still capability-gated,
-  // so this is simply never rendered on a flavor without managed workspaces.
-  const [managedWsDialog, setManagedWsDialog] = useState<'none' | 'new' | 'open'>(() =>
-    // PRD 010 Req 18: a return from GitHub belonging to a RECONNECT run is
-    // not a New Workspace dialog — it lands on the workspace being repaired.
-    readGitHubReturn(window.location.search).present && !reconnectReturnTarget() ? 'new' : 'none',
-  );
-  // PRD 010 Req 18: whatever the reconnect flow needs on return must outlive
-  // an unload, and that includes WHICH workspace it is repairing. GitHub's
-  // parameters ride along so the wizard can still resolve the return once the
-  // page is bound to that workspace.
-  useEffect(() => {
-    const target = reconnectReturnTarget();
-    if (!target || workspaceIdFromSearch(window.location.search) === target) return;
-    const params = new URLSearchParams(window.location.search);
-    params.set('workspace', target);
-    window.location.assign(`/?${params}`);
-  }, []);
+  const [managedWsDialog, setManagedWsDialog] = useState<'none' | 'new' | 'open'>('none');
 
   /** PRD 009 Req 4: bumped by a completed mode close so the crossing can resume. */
   const [modeSwitchTick, setModeSwitchTick] = useState(0);
@@ -3487,7 +3450,7 @@ export default function App() {
       return false;
     }
     await s.platform.commitFile?.(s.docPath); // web download fallback for handle-less files
-    // PRD 010 Req 13: the save landed, but as a MERGE — someone else's
+    // PRD 016 Req 9: the save landed, but as a MERGE — someone else's
     // changes came in with it, so what is stored is not what was sent. The
     // buffer follows the merged bytes (clean at them, caret clamped rather
     // than reset) and the user is told through a non-blocking notice. No
@@ -4813,31 +4776,21 @@ export default function App() {
    * an untitled workspace, by its first folder (lib/workspace.ts).
    */
   const [managedWsName, setManagedWsName] = useState<string | null>(null);
-  /**
-   * PRD 010 Req 21: whether a delete in the bound workspace is retained by
-   * repository history — the same listing row the name comes from, so the
-   * delete prompt costs no request of its own and no `workspace.settings`.
-   */
-  const [managedWsRetainsHistory, setManagedWsRetainsHistory] = useState(false);
   const lifecycle = platform?.workspaces;
   const managedWsId = lifecycle?.currentId() ?? null;
   useEffect(() => {
     if (!lifecycle || !managedWsId) {
       setManagedWsName(null);
-      setManagedWsRetainsHistory(false);
       return;
     }
     let cancelled = false;
     // Never show the previous workspace's name over a new binding: blank it
-    // until the listing answers for THIS id. The retention fact resets with
-    // it — until this id answers, the stricter promise is what a prompt makes.
+    // until the listing answers for THIS id.
     setManagedWsName(null);
-    setManagedWsRetainsHistory(false);
     void lifecycle.list().then((items) => {
       const current = items.find((w) => w.id === managedWsId);
       if (cancelled || !current) return;
       setManagedWsName(current.name);
-      setManagedWsRetainsHistory(current.retainsHistory === true);
     });
     return () => {
       cancelled = true;
@@ -6680,21 +6633,6 @@ export default function App() {
 
   if (!platform) return <div className="theme-root" />;
 
-  // PRD 010 Req 21: the sidebar delete confirmation's two strings, decided by
-  // the pure module from the platform's delete semantics and the bound
-  // workspace's own retention fact. Computed here rather than in the modal so
-  // the JSX below stays the thin shell that renders what it is handed.
-  const folderDeleteCopy =
-    folderDeletePrompt &&
-    entryDeletePrompt(
-      deleteRetention({ permanentDelete: platform.permanentDelete, retainsHistory: managedWsRetainsHistory }),
-      {
-        name: platform.basename(folderDeletePrompt.path),
-        isDir: folderDeletePrompt.isDir,
-        dirty: dirty && !!docPath && remapPath(docPath, folderDeletePrompt.path, folderDeletePrompt.path) !== null,
-      },
-    );
-
   /**
    * PRD 012 Req 9: the one Folders/TOC switch, built here and handed to
    * whichever surface is up — the open panel's header, or the closed pane's
@@ -7408,10 +7346,6 @@ export default function App() {
             platform.workspaces ? (
               <>
                 <WorkspaceAccessSettings lifecycle={platform.workspaces} />
-                {/* PRD 010 Req 18: the connection section lives on the same
-                    `workspaces` capability, never on a flavor check, and gates
-                    itself on the one permission it needs. */}
-                <WorkspaceConnectionSettings lifecycle={platform.workspaces} />
                 <WorkspaceDangerZone lifecycle={platform.workspaces} />
               </>
             ) : undefined
@@ -7621,7 +7555,7 @@ export default function App() {
         </div>
       )}
 
-      {folderDeletePrompt && folderDeleteCopy && (
+      {folderDeletePrompt && (
         <div className="overlay">
           <div
             className="modal"
@@ -7630,14 +7564,19 @@ export default function App() {
               if (e.key === 'Escape') setFolderDeletePrompt(null); // §6.1: Esc ⇒ no-op
             }}
           >
-            {/* PRD 007 non-goals + PRD 010 Req 21: where deletes are permanent
-                (no trash, no version history) the prompt says so instead of
-                naming a Trash the user could go looking in — and where the
-                workspace is git-backed it says the repository's history
-                retains the content instead of promising the opposite. The
-                choice and every string are lib/deleteRetention.ts's. */}
-            <h2>{folderDeleteCopy.title}</h2>
-            <p style={{ fontSize: 13.5 }}>{folderDeleteCopy.body}</p>
+            {/* PRD 007 non-goals: where deletes are permanent (no trash, no
+                version history) the prompt says so instead of naming a Trash
+                the user could go looking in. */}
+            <h2>{platform.permanentDelete ? 'Delete' : 'Move to Trash'}</h2>
+            <p style={{ fontSize: 13.5 }}>
+              {platform.permanentDelete ? 'Permanently delete' : 'Move'} “
+              {platform.basename(folderDeletePrompt.path)}”
+              {folderDeletePrompt.isDir ? ' and its contents' : ''}
+              {platform.permanentDelete ? '? This cannot be undone.' : ' to the Trash?'}
+              {dirty && docPath && remapPath(docPath, folderDeletePrompt.path, folderDeletePrompt.path) !== null
+                ? ' It has unsaved changes.'
+                : ''}
+            </p>
             <div className="actions">
               <button data-testid="folder-delete-cancel" onClick={() => setFolderDeletePrompt(null)}>
                 Cancel

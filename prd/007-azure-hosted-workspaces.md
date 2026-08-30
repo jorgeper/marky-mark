@@ -38,7 +38,9 @@ later without a rewrite.
 ## Non-goals
 
 - **Real-time co-editing.** Concurrent edits are handled by ETag conflict
-  detection (reload-or-overwrite), not CRDTs/OT or live cursors.
+  detection (reload-or-overwrite), not CRDTs/OT or live cursors. PRD 016
+  later added merge-on-save for non-colliding concurrent edits; true
+  conflicts still get the reload-or-overwrite dialog.
 - **Multi-file upload/download.** v1 is single-file both ways; bulk transfer is
   a follow-up.
 - **Shipping non-Azure providers.** Supabase/Google-auth alternatives are an

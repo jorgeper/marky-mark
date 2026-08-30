@@ -91,5 +91,6 @@ Other roots in one breath: `src/` is the React app (`App.tsx` shell,
 `components/`, `platform/` tauri/web shims), `src-tauri/` the Rust host,
 `scripts/` repo tooling (`validate.mjs`, `map.mjs`, release scripts),
 `themes/` the bundled themes, and the rest of `docs/` holds DEVELOPING,
-RELEASING, WINDOWS, HOSTING-AZURE and HOSTING-GITHUB (the two operator
-guides, one per storage backend), and COMMENT-FORMAT.
+RELEASING, WINDOWS, HOSTING-AZURE and HOSTING-AZURE-PORTAL (the two
+operator guides — CLI and portal walkthroughs of the one backend), and
+COMMENT-FORMAT.

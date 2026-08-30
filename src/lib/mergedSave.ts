@@ -1,5 +1,5 @@
 /**
- * PRD 010 Req 13: what a merged save does to the document — as a pure
+ * PRD 016 Req 9: what a merged save does to the document — as a pure
  * function, in the spirit of `planSaveConflict` in lib/saveConflict.ts. No
  * DOM, no platform import: App dispatches this rather than re-deciding
  * inline, so the rules below are unit-testable and stated exactly once.
@@ -46,7 +46,7 @@ export interface MergedSavePlan {
   dialog: false;
 }
 
-/** PRD 010 Req 13: the notice — one wording, so tests and UI cannot disagree. */
+/** PRD 016 Req 9: the notice — one wording, so tests and UI cannot disagree. */
 export const MERGED_SAVE_NOTICE = 'Saved — changes from someone else were merged in';
 
 export function planMergedSave(input: MergedSaveInput): MergedSavePlan {

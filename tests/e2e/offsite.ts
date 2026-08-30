@@ -13,8 +13,7 @@
 /**
  * The loopback host names a browser can be pointed at. The suite's own servers
  * are all here: the shim's vite on 4923, the hosted server on 4924, the web
- * preview on 4925, the GitHub lane's ports and Azurite
- * (`playwright.config.ts`, `server/e2eGithubLane.ts`).
+ * preview on 4925, and Azurite on 10000 (`playwright.config.ts`).
  */
 const LOOPBACK = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\]|0\.0\.0\.0)$/i;
 

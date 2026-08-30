@@ -104,14 +104,6 @@ copy them into step 5:
 | Application (client) ID | the app registration's Overview page |
 | Directory (tenant) ID | the same page |
 
-### Storing files in GitHub instead?
-
-There is a second storage backend: Marky Mark can keep documents in a Git
-repository instead of a blob container. If that's what you want, **skip step 4
-(the storage account) entirely** and follow
-[HOSTING-GITHUB.md](HOSTING-GITHUB.md) for that piece. Every other step here
-still applies unchanged — the storage choice is independent of everything else.
-
 ---
 
 ## Step 1 — Create the resource group
@@ -303,9 +295,6 @@ The connection string in the next step very much is.
 ---
 
 ## Step 4 — Create the storage account
-
-*(Skip this whole step if you're using the GitHub backend — see
-[HOSTING-GITHUB.md](HOSTING-GITHUB.md).)*
 
 This is where every document, workspace and setting is stored.
 
@@ -729,7 +718,5 @@ search actually works.
 
 - [HOSTING-AZURE.md](HOSTING-AZURE.md) — the same deployment as `az` CLI
   commands. Better if you want to script it or put it in CI.
-- [HOSTING-GITHUB.md](HOSTING-GITHUB.md) — the alternative storage backend, with
-  documents living in a Git repository instead of a blob container.
 - `server/README.md` — the backend reference: the API surface, the workspace
   storage layout, and the role-to-permission catalog behind those `403`s.

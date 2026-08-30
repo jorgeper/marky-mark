@@ -51,17 +51,11 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     return ((await res.json()) as { id: string }).id;
   }
 
-  it('U263: creating a workspace writes its manifest and backend record under its own prefix, creator as Owner', async () => {
+  it('U263: creating a workspace writes its manifest under its own prefix, creator as Owner', async () => {
     const id = await createWorkspace('ada', 'Layout proof');
     // Blob layout (Req 7): the manifest is at workspaces/<id>/manifest.json —
-    // a per-workspace prefix in the container. PRD 010 Req 3 adds the backend
-    // record and Req 18 the server-side card, both outside the files/ prefix
-    // and neither client-writable or client-readable; nothing else.
-    expect([...blobs.keys()].sort()).toEqual([
-      `workspaces/${id}/backend.json`,
-      `workspaces/${id}/card.json`,
-      `workspaces/${id}/manifest.json`,
-    ]);
+    // a per-workspace prefix in the container; nothing else is written.
+    expect([...blobs.keys()].sort()).toEqual([`workspaces/${id}/manifest.json`]);
     const read = await call('ada', 'GET', `/api/workspaces/${id}/manifest`);
     expect(read.status).toBe(200);
     const { manifest } = (await read.json()) as { manifest: WorkspaceManifest };
@@ -821,10 +815,9 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
   });
 });
 
-// PRD 010 Req 22: the reference provider the HTTP layer above runs on is
-// held to the shared seam contract — the same suite `server-github-storage`
-// runs, so "the GitHub provider passes the contract" means the same thing
-// for both. U374–U382 is this run's block of ids.
+// The reference provider the HTTP layer above runs on is held to the shared
+// seam contract (tests/unit/storage-contract.ts). U374–U382 is this run's
+// block of ids.
 describeStorageContract({
   label: 'the in-memory reference provider',
   firstId: 374,

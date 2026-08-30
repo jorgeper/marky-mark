@@ -13,7 +13,6 @@
     "sandcastle:issue":     "npx tsx .sandcastle/issue.ts",
     "dev": "vite",
     "server:local": "tsx server/local.ts",
-    "server:github": "tsx server/e2eGithub.ts",
     "build": "vite build",
     "build:web": "vite build --config vite.web.config.ts",
     "preview": "vite preview",

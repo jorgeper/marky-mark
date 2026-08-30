@@ -9,12 +9,10 @@ import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http
 import { Buffer } from 'node:buffer';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { createWorkspaceBackends, type WorkspaceBackends } from './backends.ts';
 import type { ServerMode } from './config.ts';
-import { createGitHubByo, GITHUB_BYO_PREFIX, type GitHubByo } from './githubByo.ts';
 import { cleanRelativePath, readBody, sendJson, tryDecode } from './http.ts';
 import { createLlmApi, LLM_PREFIX, type LlmApi } from './llm.ts';
-import { StoragePathError, type Providers, type RequestAuth } from './providers/types.ts';
+import type { Providers, RequestAuth } from './providers/types.ts';
 import { handleUserFilesApi, USERS_PREFIX } from './userFiles.ts';
 import { handleWorkspaceApi, WORKSPACES_PREFIX } from './workspaces.ts';
 
@@ -68,8 +66,6 @@ async function handleApi(
   res: ServerResponse,
   url: URL,
   providers: Providers,
-  backends: WorkspaceBackends,
-  byo: GitHubByo,
   llm: LlmApi,
 ): Promise<void> {
   const { pathname } = url;
@@ -150,15 +146,6 @@ async function handleApi(
     return;
   }
 
-  // PRD 010 Req 2+16: the connect-your-GitHub-repo wizard's server surface —
-  // inside this same 401 guard like the rest of /api/, and the only place a
-  // GitHub call is made on its behalf (server/githubByo.ts). Absent App
-  // section, the module still answers availability with the named reason.
-  if (pathname === GITHUB_BYO_PREFIX || pathname.startsWith(`${GITHUB_BYO_PREFIX}/`)) {
-    await byo.handle(req, res, url, auth);
-    return;
-  }
-
   // PRD 011 Req 8+13: the deployment's LLM surface (server/llm.ts) — inside
   // this same 401 guard, so an unauthenticated caller is turned away before
   // any provider is contacted, and the operator's key is never spendable by
@@ -172,7 +159,7 @@ async function handleApi(
   // PRD 007 Req 7+13: everything under /api/workspaces is per-workspace
   // scoped and permission-checked (server/workspaces.ts).
   if (pathname === '/api/workspaces' || pathname.startsWith('/api/workspaces/')) {
-    await handleWorkspaceApi(req, res, url, backends, auth);
+    await handleWorkspaceApi(req, res, url, providers.storage, auth);
     return;
   }
 
@@ -299,21 +286,10 @@ function handleStatic(
   createReadStream(target).pipe(res);
 }
 
-/**
- * PRD 010 Req 3: `backends` is how workspace-scoped requests find their
- * storage; per-user files (`/api/me/files`) and the workspace-agnostic
- * `/api/files` scaffold below always use the deployment default. Defaulted
- * here so a caller with one provider still wires, and injectable so a test
- * can hand in a second backend.
- */
 export function createApp(
   staticDir: string,
   providers: Providers,
   mode: ServerMode,
-  backends: WorkspaceBackends = createWorkspaceBackends({ deploymentDefault: providers.storage }),
-  // PRD 010 Req 15+16: defaulted to an unconfigured wizard, so a caller with
-  // no GitHub App still wires and the choice reports itself unavailable.
-  byo: GitHubByo = createGitHubByo(),
   // PRD 011 Req 8: defaulted to a deployment with no LLM section, so a caller
   // that configured none still wires and the routes report themselves
   // unconfigured rather than 500ing.
@@ -323,16 +299,7 @@ export function createApp(
   return (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-      handleApi(req, res, url, providers, backends, byo, llm).catch((err: unknown) => {
-        // PRD 010 Req 17: a path the workspace's store refuses to map at all
-        // (outside the workspace, escaping the connected root, or the
-        // `.marky-mark/` metadata directory) is a bad request, not a broken
-        // server — and nothing was read or written, so it is safe to say so.
-        if (err instanceof StoragePathError) {
-          if (!res.headersSent) sendJson(res, 400, { error: 'invalid file path' });
-          else res.end();
-          return;
-        }
+      handleApi(req, res, url, providers, llm).catch((err: unknown) => {
         console.error('API error:', err);
         if (!res.headersSent) sendJson(res, 500, { error: 'internal server error' });
         else res.end();

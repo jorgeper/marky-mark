@@ -35,8 +35,7 @@ async function waitForPort(port: number, timeoutMs: number): Promise<void> {
   throw new Error(`port ${port} did not open within ${timeoutMs}ms`);
 }
 
-// 1. A built SPA to serve — the shared step of server/devSpa.ts, which the
-// GitHub-backed lane boots through too.
+// 1. A built SPA to serve — the shared step of server/devSpa.ts.
 ensureSpaBuilt(root);
 
 // 2. Azurite on the well-known dev endpoint, reused when already running

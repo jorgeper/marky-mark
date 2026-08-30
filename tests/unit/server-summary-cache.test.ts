@@ -2,7 +2,6 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../server/app';
-import { createWorkspaceBackends } from '../../server/backends';
 import { createMockAuthProvider } from '../../server/providers/mock/auth';
 import { createMockDirectoryProvider } from '../../server/providers/mock/directory';
 import { summaryCacheBlobPath, summaryCachePrefix } from '../../server/summaryCache';
@@ -17,22 +16,17 @@ import { createMemoryStorage } from './storage-contract';
 
 describe('PRD 011 Req 29 — the workspace-scoped summary cache', () => {
   const { provider: deploymentDefault, blobs } = createMemoryStorage();
-  // A second store standing in for a BYO repository connection: nothing in
-  // this file may ever write to it, and the test that proves it reads this map.
-  const { provider: repoStore, blobs: repoBlobs } = createMemoryStorage();
   const auth = createMockAuthProvider();
   let server: Server;
   let base = '';
   const tokens: Record<string, string> = {};
 
   beforeAll(async () => {
-    const backends = createWorkspaceBackends({ deploymentDefault, connect: () => repoStore });
     server = createServer(
       createApp(
         '/nonexistent-static',
         { auth, storage: deploymentDefault, directory: createMockDirectoryProvider() },
         'local',
-        backends,
       ),
     );
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -53,8 +47,8 @@ describe('PRD 011 Req 29 — the workspace-scoped summary cache', () => {
       body,
     });
 
-  async function createWorkspace(user: string, name: string, storage?: unknown): Promise<string> {
-    const res = await call(user, 'POST', '/api/workspaces', JSON.stringify({ name, ...(storage ? { storage } : {}) }));
+  async function createWorkspace(user: string, name: string): Promise<string> {
+    const res = await call(user, 'POST', '/api/workspaces', JSON.stringify({ name }));
     expect(res.status).toBe(201);
     return ((await res.json()) as { id: string }).id;
   }
@@ -129,26 +123,6 @@ describe('PRD 011 Req 29 — the workspace-scoped summary cache', () => {
     expect((await scaffold.json()) as { error: string }).toEqual({
       error: 'reserved data is served by /api/workspaces and /api/me/files',
     });
-  });
-
-  it('U552: a workspace backed by a BYO repository has its cache written to the deployment default, never to the repo', async () => {
-    const id = await createWorkspace('ada', 'Handbook', {
-      kind: 'repo',
-      owner: 'ada',
-      repo: 'handbook',
-      branch: 'main',
-    });
-    const repoBefore = [...repoBlobs.keys()].sort();
-
-    expect((await put('ada', id, KEY, 'never in the repo')).status).toBe(200);
-    expect((await get('ada', id, KEY))?.summary).toBe('never in the repo');
-
-    // Not one write reached the repo-backed provider — machine-generated
-    // summaries must not be committed to the user's repository.
-    expect([...repoBlobs.keys()].sort()).toEqual(repoBefore);
-    expect([...repoBlobs.keys()].some((p) => p.includes('summary-cache'))).toBe(false);
-    // They are in the deployment default instead.
-    expect([...blobs.keys()]).toContain(summaryCacheBlobPath(id, KEY));
   });
 
   it('U553: unauthenticated is 401 and a non-member is 403 naming the verb the route wanted', async () => {

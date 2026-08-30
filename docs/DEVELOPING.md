@@ -51,15 +51,11 @@ session here can run the tiers for you:
 ## Odds and ends
 
 - The hosted flavor runs offline with `npm run server:local` (Azurite +
-  mock auth, no Azure resources), and on the GitHub storage backend with
-  `npm run server:github` (the local GitHub API fake + an App keypair made at
-  boot); [`server/README.md`](../server/README.md)
+  mock auth, no Azure resources);
+  [`server/README.md`](../server/README.md)
   is its backend reference and
   [HOSTING-AZURE.md](HOSTING-AZURE.md) the operator guide for deploying it
-  to a real subscription. Storing files in a Git repository instead of Blob
-  Storage is [HOSTING-GITHUB.md](HOSTING-GITHUB.md) — the backend knob
-  (`MM_STORAGE_BACKEND`) is orthogonal to `MM_MODE`, so a local server can
-  point at a real repo.
+  to a real subscription.
 - The dev shim (`npm run dev`) exposes `window.__mmfs`, `__mmMenu`
   (under `?nativeMenu=1`), and `__mmEdit` — the same seams the e2e
   suite drives.

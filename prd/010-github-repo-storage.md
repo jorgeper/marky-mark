@@ -1,6 +1,6 @@
 # PRD 010: GitHub-backed workspace storage
 
-**Status:** Draft
+**Status:** Superseded by PRD 016 (2026-08-29)
 **Date:** 2026-08-06
 
 ## Problem

@@ -3,17 +3,12 @@
 // summaries instead of each browser paying for the same call.
 //
 // Where the blobs live is the load-bearing decision: `workspaces/<id>/
-// summary-cache/<key>.json` in the DEPLOYMENT DEFAULT store, outside the
-// workspace's `files/` prefix — the `backendRecordPath` precedent in
-// server/backends.ts, for the same reasons and one more:
+// summary-cache/<key>.json`, outside the workspace's `files/` prefix:
 //
 //  - outside `files/`, so `GET /api/workspaces/<id>/files` never lists a
 //    cache blob and no member ever sees one as a document;
 //  - under `workspaces/`, so `RESERVED_PREFIXES` in server/app.ts already
-//    makes it unreachable through the legacy `/api/files/` scaffold;
-//  - in the DEPLOYMENT DEFAULT rather than the workspace's own backend, so a
-//    workspace connected to a BYO repository never has machine-generated
-//    summaries committed into the user's repository and its history.
+//    makes it unreachable through the legacy `/api/files/` scaffold.
 //
 // One blob per key rather than one file per workspace: entries are written
 // independently by concurrent members, and a whole-file rewrite would make

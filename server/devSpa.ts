@@ -1,8 +1,7 @@
-// PRD 007 Req 4 + PRD 010 Req 22: the one "a built SPA to serve" step both
-// offline lanes boot through — `server/local.ts` (Azurite-backed) and
-// `server/e2eGithub.ts` (GitHub-backed). Each serves the built bundle to a
-// real browser, and PRD 007 Req 5 means neither may test a stale dist: the
-// served HTML carries the hosted sign-in gate.
+// PRD 007 Req 4: the one "a built SPA to serve" step the offline lane
+// boots through — `server/local.ts` (Azurite-backed). It serves the built
+// bundle to a real browser, and PRD 007 Req 5 means it may not test a stale
+// dist: the served HTML carries the hosted sign-in gate.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';

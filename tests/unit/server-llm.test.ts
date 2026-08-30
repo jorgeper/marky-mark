@@ -2,8 +2,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../server/app';
-import { createLlmApi } from '../../server/llm';
-import type { FetchLike } from '../../server/providers/github/auth';
+import { createLlmApi, type FetchLike } from '../../server/llm';
 import { createMockAuthProvider } from '../../server/providers/mock/auth';
 import { createMockDirectoryProvider } from '../../server/providers/mock/directory';
 import { createFakeLlm, FAKE_UNREACHABLE_DETAIL, type FakeLlm } from '../../src/lib/llmFake';
@@ -78,8 +77,6 @@ describe('PRD 011 Req 8+13 — the hosted LLM proxy', () => {
         '/nonexistent-static',
         { auth, storage: provider, directory: createMockDirectoryProvider() },
         'local',
-        undefined,
-        undefined,
         api,
       ),
     );

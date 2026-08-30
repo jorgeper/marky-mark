@@ -1234,6 +1234,113 @@ test('E192: a save against a file another member has written is refused — Relo
     .toContain('ada overwrites');
 });
 
+/** Append `text` to the open document's FIRST line, in edit mode. */
+async function editFirstLine(page: Page, text: string): Promise<void> {
+  if ((await page.getByTestId('editor').count()) === 0) await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(text);
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+}
+
+/** The stored text of a workspace file, as the API reports it. */
+async function storedText(request: APIRequestContext, token: string, id: string, path: string): Promise<string> {
+  const res = await request.get(`${HOSTED}/api/workspaces/${id}/files/${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(res.status()).toBe(200);
+  return ((await res.json()) as { content: string }).content;
+}
+
+const MERGE_BASE_DOC = '# Shared\n\nline one\nline two\nline three\n';
+
+test('E224: a concurrent save that does not overlap is merged — merged notice, merged text, clean buffer', async ({
+  page,
+  request,
+}) => {
+  // PRD 016 Req 8+9: the stale conditional save carries the base the client
+  // loaded, so it gets one chance to become a merge before it becomes a 412 —
+  // and the merged bytes are what the editor then holds: saved, no dialog.
+  const worker = test.info().workerIndex;
+  const katherine = await signIn(request, 'katherine');
+  const ada = await signIn(request, 'ada');
+  const id = await sharedWorkspace(request, katherine, `E224 w${worker}`, [{ id: 'mock-ada', role: 'Editor' }]);
+  const file = `${HOSTED}/api/workspaces/${id}/files/shared.md`;
+  expect(
+    (await request.put(file, { headers: { Authorization: `Bearer ${katherine}` }, data: MERGE_BASE_DOC })).status(),
+  ).toBe(200);
+
+  await signInTo(page, 'katherine', id);
+  await openFromSidebar(page, 'shared.md');
+  await editFirstLine(page, ' — katherine edited the heading');
+
+  // The other member saves to the SAME file, at the other end of the
+  // document — a second writer this session knows nothing about.
+  expect(
+    (
+      await request.put(file, {
+        headers: { Authorization: `Bearer ${ada}` },
+        data: `${MERGE_BASE_DOC}ada appended a line\n`,
+      })
+    ).status(),
+  ).toBe(200);
+
+  // Katherine's save is stale, merges, and says so without asking anything.
+  await menuSave(page);
+  await expect(page.getByTestId('notice')).toContainText('merged');
+  await expect(page.getByTestId('save-conflict-prompt')).toHaveCount(0);
+  const surface = page.locator('[data-testid="editor"], [data-testid="doc"]').first();
+  await expect(surface).toContainText('katherine edited the heading');
+  await expect(surface).toContainText('ada appended a line');
+  // The buffer is SAVED at the merged bytes — not dirty, not re-armed.
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  const stored = await storedText(request, katherine, id, 'shared.md');
+  expect(stored).toContain('katherine edited the heading');
+  expect(stored).toContain('ada appended a line');
+});
+
+test('E225: a concurrent save that overlaps still fails 412 and shows the unchanged conflict prompt', async ({
+  page,
+  request,
+}) => {
+  // PRD 016 Req 8: a merge is offered only where the changes do not collide.
+  // An overlapping one keeps PRD 007 Req 20's behaviour byte for byte — the
+  // save-conflict prompt with its three answers.
+  const worker = test.info().workerIndex;
+  const ada = await signIn(request, 'ada');
+  const grace = await signIn(request, 'grace');
+  const id = await sharedWorkspace(request, ada, `E225 w${worker}`, [{ id: 'mock-grace', role: 'Editor' }]);
+  const file = `${HOSTED}/api/workspaces/${id}/files/shared.md`;
+  expect(
+    (await request.put(file, { headers: { Authorization: `Bearer ${ada}` }, data: MERGE_BASE_DOC })).status(),
+  ).toBe(200);
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'shared.md');
+  await editFirstLine(page, ' — ada rewrote the heading');
+
+  // Grace changes the very line Ada is editing.
+  const graceDoc = MERGE_BASE_DOC.replace('# Shared', '# Shared, by grace');
+  expect(
+    (await request.put(file, { headers: { Authorization: `Bearer ${grace}` }, data: graceDoc })).status(),
+  ).toBe(200);
+
+  await menuSave(page);
+  await expect(page.getByTestId('save-conflict-prompt')).toBeVisible();
+  for (const choice of ['save-conflict-cancel', 'save-conflict-overwrite', 'save-conflict-reload']) {
+    await expect(page.getByTestId(choice)).toBeVisible();
+  }
+  await expect(page.getByTestId('notice')).toHaveCount(0);
+
+  // Cancel leaves the buffer dirty and the server holding Grace's text.
+  await page.getByTestId('save-conflict-cancel').click();
+  await expect(page.getByTestId('save-conflict-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  expect(await storedText(request, ada, id, 'shared.md')).toBe(graceDoc);
+});
+
 // --- Workspace settings: membership and custom roles (PRD 007 Req 15+16) -----
 
 /** Open Workspace settings for the bound workspace and wait for its content. */

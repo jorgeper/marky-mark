@@ -1,5 +1,5 @@
-// PRD 010 Req 12: the three-way line merge a stale conditional save runs
-// through, as a PURE module — no I/O, no provider import, no GitHub knowledge.
+// PRD 016 Req 8: the three-way line merge a stale conditional save runs
+// through, as a PURE module — no I/O and no provider import.
 // It answers one question and nothing else: given the version the client
 // loaded (`base`), the client's text (`ours`) and what the branch now holds
 // (`theirs`), is there a single text that carries both sides' changes?
@@ -9,7 +9,7 @@
 // A wrong clean merge silently destroys someone's work; an unnecessary
 // conflict only shows the dialog that already exists.
 //
-// PRD 010 Req 12: no new runtime dependency — `diff-match-patch` is already a
+// PRD 016 Req 8: no new runtime dependency — `diff-match-patch` is already a
 // dependency and `src/lib/diffLines.ts` is the in-repo precedent for driving
 // its line mode.
 
@@ -90,7 +90,7 @@ function render(group: Change[], baseLines: string[], start: number, end: number
 }
 
 /**
- * PRD 010 Req 12: the merge decision. Clean when every region of the base
+ * PRD 016 Req 8: the merge decision. Clean when every region of the base
  * was rewritten by at most one side — or by both sides identically — and a
  * conflict otherwise.
  *

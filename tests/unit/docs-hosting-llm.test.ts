@@ -3,17 +3,26 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import { LLM_ENV_VARS, loadConfig } from '../../server/config.ts';
 
-// PRD 011 Req 8: the drift guard for the LLM section of BOTH operator hosting
-// guides, mirroring U478/U479 (tests/unit/docs-hosting-github.test.ts) so the
-// Azure guide is covered too. Every claim here is read out of the documents and
-// checked against the code, so neither guide can rot while the configuration
-// moves — and neither can invent a variable the loader does not read.
+// PRD 011 Req 8 + PRD 016 Req 14: the drift guard for the LLM section of the
+// operator hosting guides, and the `MM_*` parity check for both Azure
+// walkthroughs. Every claim here is read out of the documents and checked
+// against the code, so neither guide can rot while the configuration moves —
+// and no guide can invent a variable the loader does not read.
 
 const read = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 
 const GUIDES = [
   ['docs/HOSTING-AZURE.md', read('../../docs/HOSTING-AZURE.md')],
-  ['docs/HOSTING-GITHUB.md', read('../../docs/HOSTING-GITHUB.md')],
+] as const;
+
+/**
+ * PRD 016 Req 14: the `MM_*` parity check covers the portal walkthrough too.
+ * It has no LLM section of its own (it links to HOSTING-AZURE.md §4), so only
+ * the variable-parity direction below applies to it.
+ */
+const PARITY_GUIDES = [
+  ...GUIDES,
+  ['docs/HOSTING-AZURE-PORTAL.md', read('../../docs/HOSTING-AZURE-PORTAL.md')],
 ] as const;
 
 /** Every `MM_*` variable `server/config.ts` really reads. */
@@ -32,8 +41,10 @@ describe('PRD 011 Req 8 the LLM section in the operator hosting guides', () => {
           new RegExp(`^\\|\\s*\`${name}\`\\s*\\|.*\\|.*\\|.*\\S.*\\|`, 'm'),
         );
       }
-      // …and the other direction, for every `MM_*` in the document: no guide
-      // names a variable that exists only in prose.
+    }
+    // …and the other direction, for every `MM_*` in every guide: no guide
+    // names a variable the loader does not read.
+    for (const [path, guide] of PARITY_GUIDES) {
       for (const name of guide.match(/\bMM_[A-Z_]*[A-Z]\b/g) ?? []) {
         expect(variablesInCode, `${name} is named in ${path} but read nowhere in server/config.ts`).toContain(name);
       }

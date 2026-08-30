@@ -34,13 +34,6 @@ import {
 import type { WorkspaceListing } from '../src/lib/workspaceLifecycle.ts';
 import { isSidecarPath } from '../src/lib/sidecar.ts';
 import { UPLOAD_MAX_LABEL, uploadRejection, uploadTypeRejection } from '../src/lib/fileTransfer.ts';
-import {
-  backendRecordWorkspaceId,
-  retainsHistory,
-  validateWorkspaceBackend,
-  type WorkspaceBackendRecord,
-  type WorkspaceBackends,
-} from './backends.ts';
 import { contentTypeFor } from './contentTypes.ts';
 import {
   clearSummaryCache,
@@ -50,16 +43,6 @@ import {
   validateSummaryCacheEntry,
   writeCachedSummary,
 } from './summaryCache.ts';
-import {
-  connectionFailureMessage,
-  connectionFailureStatus,
-  connectionPayload,
-  isConnectionFailure,
-  mayRepairConnection,
-  proveReconnect,
-  refusedConnectionStatus,
-} from './workspaceConnection.ts';
-import { forgetWorkspaceCard, readWorkspaceCard, rememberWorkspaceCard } from './workspaceCards.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import { mergeThreeWay } from './merge.ts';
 import type { RequestAuth, StorageProvider } from './providers/types.ts';
@@ -132,8 +115,6 @@ export const WORKSPACE_ROUTE_PERMISSIONS: readonly WorkspaceRouteRequirement[] =
   { method: 'POST', path: 'roles', required: 'workspace.roles', why: 'defining a role is not handing one out' },
   { method: 'PUT', path: 'roles/<role>', required: 'workspace.roles', why: 'nor is editing one' },
   { method: 'DELETE', path: 'roles/<role>', required: 'workspace.roles', why: 'nor deleting one' },
-  { method: 'GET', path: 'connection', required: 'workspace.settings', why: 'PRD 010 Req 18: the connection is a workspace setting, shown to nobody else' },
-  { method: 'POST', path: 'connection', required: 'workspace.settings', why: 'PRD 010 Req 18: repairing it is the same authority as changing it' },
   { method: 'GET', path: 'summary-cache', required: 'doc.read', why: 'PRD 011 Req 30: how much the shared summary cache holds' },
   { method: 'DELETE', path: 'summary-cache', required: 'workspace.settings', why: 'PRD 011 Req 30: Clear throws away every member’s summaries, not just the caller’s' },
   { method: 'GET', path: 'summary-cache/entry', required: 'doc.read', why: 'PRD 011 Req 28: a summary of content this caller may already read' },
@@ -200,7 +181,7 @@ async function blobExists(storage: StorageProvider, path: string): Promise<boole
 }
 
 /**
- * PRD 010 Req 12: the structured-file guard. A LINE merge knows nothing about
+ * PRD 016 Req 8: the structured-file guard. A LINE merge knows nothing about
  * syntax, so two clean edits to different lines of a JSON document can produce
  * a file that no longer parses — and the comment sidecars (`src/lib/sidecar.ts`)
  * are exactly such documents. A merged `.json` that does not `JSON.parse` is
@@ -218,66 +199,47 @@ function mergeKeepsFileWellFormed(filePath: string, text: string): boolean {
 }
 
 /**
- * PRD 010 Req 12: how many times the read-merge-write is re-run when the
- * merged commit itself loses a race. Small on purpose: each attempt is a
- * fresh head read and a fresh merge, so a branch busy enough to beat this
+ * PRD 016 Req 8: how many times the read-merge-write is re-run when the
+ * merged write itself loses a race. Small on purpose: each attempt is a
+ * fresh head read and a fresh merge, so a blob busy enough to beat this
  * many times over is one the user should be told about rather than one to
  * keep hammering. Running out answers 412 — never an unconditional write.
  */
 const MERGE_ATTEMPTS = 3;
 
 /**
- * PRD 010 Req 12: the merge attempt that sits between "the conditional write
+ * PRD 016 Req 8: the merge attempt that sits between "the conditional write
  * lost" and "answer 412". Answers the committed merge, or null for every
  * reason the caller must turn back into today's 412:
  *
- *  - no base can be had: the save carried none (PRD 016 Req 8 — a request
- *    base is what lets providers without version history merge) AND the
- *    provider cannot resolve one (no backend name and no `kind` string is
- *    consulted anywhere in this path);
- *  - the base version cannot be resolved (a null base is a 412, never a guess);
+ *  - the save carried no base (the client's base is the ONLY possible merge
+ *    base — a blob store has no version history to resolve one from);
  *  - the file is gone from the head;
  *  - the two sides conflict;
  *  - the merged text fails the structured-file guard;
- *  - the merged commit kept losing further races.
+ *  - the merged write kept losing further races.
  *
- * PRD 010 Req 10: the head read may come from the provider's cache, because
- * the commit below is CONDITIONAL ON THE ETAG THAT READ RETURNED — the same
- * rule the plain conditional write follows. A cached head that has been
- * superseded therefore cannot be committed over: the write is refused, the
- * provider's cache is invalidated by that attempt, and the next iteration
- * merges against the real head.
- *
- * PRD 010 Req 11: a rate-limited or failing backend throws out of here into
- * the existing failure pathway. It is never swallowed into a silent 412, and
- * nothing in this loop waits, so a save fails fast rather than hanging.
+ * The write below is CONDITIONAL ON THE ETAG THE HEAD READ RETURNED — the
+ * same rule the plain conditional write follows — so a head that moves again
+ * is refused and the next iteration merges against the real head. The client's
+ * base is trusted unverified: a lying client could at most produce a write it
+ * could already produce with an unconditional save.
  */
 async function mergeStaleSave(
   storage: StorageProvider,
   blobPath: string,
   filePath: string,
   ours: string,
-  ifMatch: string,
   clientBase?: string,
 ): Promise<{ etag: string; content: string } | null> {
-  // PRD 016 Req 8: a save that carried its own base text merges against THAT
-  // — no provider capability needed, which is what lets a blob-backed
-  // workspace (memory, Azure) merge at all. The client's base is trusted
-  // unverified: a lying client could at most produce a write it could already
-  // produce with an unconditional save. A save without one still resolves the
-  // base from the provider's version history as before (removal is #176).
-  const base =
-    clientBase ?? (storage.readAtVersion ? await storage.readAtVersion(blobPath, ifMatch) : null);
-  if (base === null) return null;
+  const base = clientBase;
+  if (base === undefined) return null;
   for (let attempt = 0; attempt < MERGE_ATTEMPTS; attempt += 1) {
     const head = await storage.read(blobPath);
     if (!head) return null;
     const merged = mergeThreeWay(base, ours, head.content);
     if (!merged.clean) return null;
     if (!mergeKeepsFileWellFormed(filePath, merged.text)) return null;
-    // PRD 010 Req 7: one commit like any other mutation — it goes through the
-    // very same provider write a plain save uses, so a merged commit is
-    // authored and named exactly as an unmerged one would have been.
     const written = await storage.writeIfMatch(blobPath, merged.text, head.etag);
     if (written) return { etag: written.etag, content: merged.text };
   }
@@ -361,7 +323,6 @@ async function readJsonBody(req: IncomingMessage, res: ServerResponse): Promise<
 async function saveMutation(
   res: ServerResponse,
   storage: StorageProvider,
-  deploymentDefault: StorageProvider,
   id: string,
   existing: WorkspaceManifest,
   result: ManifestResult,
@@ -376,26 +337,7 @@ async function saveMutation(
     modified: new Date().toISOString(),
   };
   await storage.write(manifestBlob(id), serializeWorkspaceManifest(manifest));
-  // PRD 010 Req 18: the card tracks the manifest. A member/role/everyone
-  // mutation can change the display name or who holds `workspace.settings`,
-  // which is exactly what the card is read for when the repo is unreachable.
-  await rememberWorkspaceCard(deploymentDefault, id, manifest);
   sendJson(res, 200, { id, manifest });
-}
-
-/**
- * PRD 010 Req 17: the optional `storage` field on a create body — the ONLY
- * way a repo connection is created in this issue, and what #104's wizard will
- * call. Absent means the deployment default, so a body with no such field
- * behaves byte-identically to before. Validation is
- * `validateWorkspaceBackend`'s and no one else's: one validator for the record
- * the wizard sends and the record that is later read back.
- */
-function readStorageField(body: unknown): WorkspaceBackendRecord | string {
-  const requested = (body as { storage?: unknown } | null)?.storage;
-  if (requested === undefined) return { kind: 'deployment-default' };
-  const validated = validateWorkspaceBackend(requested);
-  return validated.ok ? validated.record : `storage: ${validated.error}`;
 }
 
 /** The untrusted `{name, permissions}` shape a custom-role write carries. */
@@ -412,45 +354,14 @@ function readRoleBody(body: unknown): { name: string; permissions: string[] } | 
 /**
  * Handle a request under `/api/workspaces`. The caller (app.ts) has already
  * applied the 401 auth guard. Unmatched routes answer 404 here.
- *
- * PRD 010 Req 3: storage arrives as a per-workspace RESOLVER, not one
- * process-wide provider — a deployment may hold workspaces on more than one
- * backend, and which one backs a given workspace is a property of that
- * workspace. Everything before an id is known (create, the listing) is the
- * deployment default's, by definition.
  */
 export async function handleWorkspaceApi(
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
-  backends: WorkspaceBackends,
+  storage: StorageProvider,
   auth: RequestAuth,
 ): Promise<void> {
-  // PRD 010 Req 18: THE decision point for a lost connection. Opening a
-  // workspace, listing its files and saving into it all go through the same
-  // store, so they all fail the same way — and they all report it the same
-  // way here: the `githubFailureDetail` sentence the store threw, at the
-  // status `connectionFailureStatus` splits ("GitHub refused or does not have
-  // it" from "GitHub is unavailable"). Never a bare 500 carrying an
-  // `Error.message`, never a raw stack, never an indefinite wait. Anything
-  // that is not a connection failure (a path refusal, a bug) is rethrown to
-  // `server/app.ts` untouched.
-  try {
-    await routeWorkspaceApi(req, res, url, backends, auth);
-  } catch (err) {
-    if (!isConnectionFailure(err) || res.headersSent) throw err;
-    sendJson(res, connectionFailureStatus(err), { error: connectionFailureMessage(err) });
-  }
-}
-
-async function routeWorkspaceApi(
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-  backends: WorkspaceBackends,
-  auth: RequestAuth,
-): Promise<void> {
-  const deploymentDefault = backends.deploymentDefault;
   const pathname = url.pathname;
   const rest = pathname.slice('/api/workspaces'.length);
   // PRD 007 Req 8: `?raw=1` is the byte-level view of the SAME blob the JSON
@@ -472,44 +383,9 @@ async function routeWorkspaceApi(
       sendJson(res, 400, { error: built.error });
       return;
     }
-    // PRD 010 Req 17: a malformed connection is a 400 naming the offending
-    // field, never a created workspace.
-    const record = readStorageField(body);
-    if (typeof record === 'string') {
-      sendJson(res, 400, { error: record });
-      return;
-    }
-    // PRD 007 Req 7 + PRD 010 Req 17: the id stays an opaque server-generated
-    // UUID. Nothing about owner/repo/branch/root appears in it, in the
-    // workspace URL, or in any API response — the connection is read from the
-    // server-side record and from nowhere else.
+    // PRD 007 Req 7: the id is an opaque server-generated UUID.
     const id = randomUUID();
-    let workspaceStore = deploymentDefault;
-    if (record.kind !== 'deployment-default') {
-      // PRD 010 Req 17: fail fast. The repo is proved reachable with
-      // `contents: write` BEFORE anything is written, so a bad connection
-      // leaves no record, no manifest and no commit behind.
-      try {
-        workspaceStore = await backends.connect(record, id);
-        await workspaceStore.init?.();
-      } catch (err) {
-        sendJson(res, refusedConnectionStatus(err), { error: (err as Error).message });
-        return;
-      }
-    }
-    // PRD 010 Req 3: the record goes down BEFORE the manifest — the backend
-    // is what says where the manifest itself belongs, so it can never be the
-    // second thing written.
-    await backends.remember(id, record);
-    // …and the manifest through the workspace's OWN backend, which for a repo
-    // connection lands it at `<root>/.marky-mark/manifest.json` as one commit.
-    await workspaceStore.write(manifestBlob(id), serializeWorkspaceManifest(built.manifest));
-    // PRD 010 Req 18: and the server-side card in the DEPLOYMENT DEFAULT, so
-    // this workspace can still be named and its repair authorised when its
-    // own backend cannot be reached. Derived from the manifest, never from
-    // the request: nothing here is client-writable.
-    await rememberWorkspaceCard(deploymentDefault, id, built.manifest);
-    // The 201 is the existing `{id, manifest}` — no connection details.
+    await storage.write(manifestBlob(id), serializeWorkspaceManifest(built.manifest));
     sendJson(res, 201, { id, manifest: built.manifest });
     return;
   }
@@ -518,55 +394,18 @@ async function routeWorkspaceApi(
   // (id, name, timestamps) is readable to any signed-in user so an Open
   // dialog can list everything; contents stay behind per-workspace checks.
   if (rest === '' && req.method === 'GET') {
-    // PRD 010 Req 3+17: which ids exist is the UNION of two traces in the
-    // deployment default — a `manifest.json` (a workspace on this store, and
-    // every workspace an existing deployment already has) and a
-    // `backend.json` (a workspace whose manifest lives in ITS backend, which
-    // is what a BYO workspace looks like from here). Neither trace is a row
-    // of its own: each id's manifest is loaded through its own backend.
-    const blobs = await deploymentDefault.list(WORKSPACES_PREFIX);
+    // The listing is derived from manifests alone: a `manifest.json` under
+    // the workspaces prefix IS a workspace; any other blob there is not a
+    // row of its own.
+    const blobs = await storage.list(WORKSPACES_PREFIX);
     const ids = new Set<string>();
     for (const blob of blobs) {
-      const id = MANIFEST_BLOB_RE.exec(blob.path)?.[1] ?? backendRecordWorkspaceId(blob.path);
+      const id = MANIFEST_BLOB_RE.exec(blob.path)?.[1];
       if (id) ids.add(id);
     }
     const out: WorkspaceListing[] = [];
     for (const id of ids) {
-      let manifest: WorkspaceManifest | string | null;
-      // PRD 010 Req 21: the row's own store, kept so the listing can say
-      // whether a delete there is retained by repository history. Resolving it
-      // is the read the listing already does — no extra GitHub round trip, and
-      // certainly none per delete prompt.
-      let store: StorageProvider | null = null;
-      try {
-        store = await backends.forWorkspace(id);
-        manifest = await loadManifest(store, id);
-      } catch (err) {
-        // PRD 010 Req 18: a repo-backed workspace whose backend cannot be
-        // reached is no longer DROPPED — it was the one row an owner needed
-        // in order to find and repair it. It is listed as needing attention,
-        // named from the server-side card, with the reason. One broken
-        // workspace still never fails the listing: a workspace with no card
-        // (nothing left to name it with) is skipped as before.
-        const card = await readWorkspaceCard(deploymentDefault, id);
-        if (!card) continue;
-        out.push({
-          id,
-          name: card.name,
-          created: card.created,
-          modified: card.created,
-          owners: card.admins,
-          // Whether this caller may act on it: the manifest is unreadable, so
-          // the card's settings holders are who can open it to repair it.
-          access: card.admins.includes(auth.user.id),
-          attention: connectionFailureMessage(err),
-          // PRD 010 Req 21: only if the store itself resolved (the manifest
-          // read is what failed). An unreachable backend answers the stricter
-          // promise rather than a guess about what its history holds.
-          retainsHistory: retainsHistory(store),
-        });
-        continue;
-      }
+      const manifest = await loadManifest(storage, id);
       if (manifest === null || typeof manifest === 'string') continue; // corrupt: has no listable metadata
       // PRD 007 Req 11: the row carries what the Open dialog needs to tell
       // "openable" from "ask for access" — a resolved access flag and the
@@ -579,13 +418,6 @@ async function routeWorkspaceApi(
         modified: manifest.modified,
         owners: workspaceOwnerIds(manifest),
         access: resolvePermissions(manifest, auth.user.id).has('doc.read'),
-        // PRD 010 Req 21: whether a delete here is retained by repository
-        // history. It rides the LISTING — pre-permission, so every member who
-        // can delete reads it, unlike `GET .../connection` which needs
-        // `workspace.settings`. PRD 010 Req 3 still holds: this is one boolean
-        // about what deletion means, not which backend serves the workspace —
-        // no owner, repo, branch or host is on the row.
-        retainsHistory: retainsHistory(store),
       });
     }
     sendJson(res, 200, out);
@@ -600,56 +432,6 @@ async function routeWorkspaceApi(
     return;
   }
 
-  // PRD 010 Req 18: the connection surface is answered BEFORE the backend is
-  // resolved, and that ordering is the point: a workspace whose repo cannot
-  // be reached must still be able to say so and be repaired. Both routes are
-  // gated on `workspace.settings` — from the manifest when it is readable,
-  // from the server-side card when it is not.
-  if (segments.length === 2 && segments[1] === 'connection' && (req.method === 'GET' || req.method === 'POST')) {
-    const allowed = await mayRepairConnection(backends, id, auth);
-    if (!allowed.ok) {
-      sendJson(res, allowed.status, {
-        error: allowed.error,
-        ...(allowed.status === 403 ? { required: 'workspace.settings' as Permission } : {}),
-      });
-      return;
-    }
-    if (req.method === 'GET') {
-      sendJson(res, 200, await connectionPayload(backends, id));
-      return;
-    }
-    // PRD 010 Req 18: repair, not migration, and not a create. Nothing is
-    // written to the new target, and a refusal leaves the stored record
-    // exactly as it was — the wizard shows the sentence and keeps the picked
-    // values so a step can be corrected.
-    const body = await readJsonBody(req, res);
-    if (body === undefined) return;
-    const proved = await proveReconnect(backends, id, (body as { connection?: unknown } | null)?.connection);
-    if (!proved.ok) {
-      sendJson(res, proved.status, { error: proved.error });
-      return;
-    }
-    await backends.remember(id, proved.record);
-    sendJson(res, 200, await connectionPayload(backends, id));
-    return;
-  }
-
-  // PRD 010 Req 3: one resolution per request, from here on `storage` IS
-  // this workspace's backend. A record that cannot be read is a server-side
-  // data problem, reported like a corrupt manifest — never coerced into the
-  // default, which would serve the workspace from the wrong store.
-  let storage: StorageProvider;
-  try {
-    storage = await backends.forWorkspace(id);
-  } catch (err) {
-    // PRD 010 Req 18: one decision point — a connection failure is left to the
-    // wrapper above, which names it at 400/502. Only a record this deployment
-    // cannot read at all is answered here, and it stays the 500 it always was.
-    if (isConnectionFailure(err)) throw err;
-    sendJson(res, 500, { error: (err as Error).message });
-    return;
-  }
-
   // DELETE /api/workspaces/<id> — destroy the workspace outright.
   if (segments.length === 1 && req.method === 'DELETE') {
     // Required permission: workspace.delete (404 for an unknown id, 403 when
@@ -657,14 +439,10 @@ async function routeWorkspaceApi(
     const manifest = await requirePermission(res, storage, id, auth, 'workspace.delete');
     if (!manifest) return;
     // PRD 007 Req 12: EVERY blob under the workspace prefix goes — manifest,
-    // files/, comment sidecars and pasted images alike. Listing the prefix
-    // (rather than the files/ subtree) is what makes that exhaustive: nothing
-    // of the workspace survives to be listed or read afterwards.
-    // PRD 010 Req 17: on a BYO workspace the same sweep is the connected root
-    // — its files and its `.marky-mark/` — as commits, and nothing outside
-    // that root: the workspace's store cannot address anything else, so the
-    // repo and the branch themselves are never touched. Repo history retains
-    // the content, as git history always does.
+    // files/, comment sidecars, pasted images and the summary cache (PRD 011
+    // Req 29) alike. Listing the prefix (rather than the files/ subtree) is
+    // what makes that exhaustive: nothing of the workspace survives to be
+    // listed or read afterwards.
     const prefix = `${WORKSPACES_PREFIX}${id}/`;
     const blobs = await storage.list(prefix);
     const manifestPath = manifestBlob(id);
@@ -672,18 +450,6 @@ async function routeWorkspaceApi(
     // The manifest goes last: while it exists the permission check above
     // still answers, so an interrupted sweep never leaves unguarded blobs.
     await storage.delete(manifestPath);
-    // PRD 010 Req 3: and the record with it, so nothing of the workspace is
-    // left behind in the deployment default either. When that store IS this
-    // workspace's, the sweep above already took it and this is a no-op; when
-    // it is not, this is the only thing that removes it.
-    await backends.forget(id);
-    // PRD 010 Req 18: and the card, so nothing of the workspace outlives it.
-    await forgetWorkspaceCard(deploymentDefault, id);
-    // PRD 011 Req 29: and its summary cache. On a deployment-default
-    // workspace the sweep above already took those blobs and this is a
-    // no-op; on a BYO-repo one this is the only thing that removes them,
-    // because they were never in that workspace's own store.
-    await clearSummaryCache(deploymentDefault, id);
     sendJson(res, 200, { deleted: id });
     return;
   }
@@ -723,8 +489,6 @@ async function routeWorkspaceApi(
         modified: new Date().toISOString(),
       };
       await storage.write(manifestBlob(id), serializeWorkspaceManifest(manifest));
-      // PRD 010 Req 18: the card follows the manifest here too.
-      await rememberWorkspaceCard(deploymentDefault, id, manifest);
       sendJson(res, 200, { id, manifest });
       return;
     }
@@ -735,11 +499,6 @@ async function routeWorkspaceApi(
   // are the ones every route here already has; the verbs are the catalog's
   // existing ones (PRD 007 Req 13), no fifteenth added.
   //
-  // Both routes below read and write `deploymentDefault`, NEVER `storage`: on
-  // a workspace connected to a BYO repository the cache must not follow its
-  // files into the user's repo (server/summaryCache.ts states the layout and
-  // the three consequences it buys).
-
   // GET/PUT /api/workspaces/<id>/summary-cache/entry — one key at a time.
   if (segments.length === 3 && segments[1] === 'summary-cache' && segments[2] === 'entry') {
     if (req.method === 'GET') {
@@ -756,7 +515,7 @@ async function routeWorkspaceApi(
       // A miss is 200 with `entry: null`, not 404: "nothing cached yet" is
       // the ordinary answer, and a client must not read a status code to
       // tell it apart from a failure it should report.
-      sendJson(res, 200, { entry: await readCachedSummary(deploymentDefault, id, key) });
+      sendJson(res, 200, { entry: await readCachedSummary(storage, id, key) });
       return;
     }
     if (req.method === 'PUT') {
@@ -771,7 +530,7 @@ async function routeWorkspaceApi(
         return;
       }
       // The server stamps the time, as it does for manifests and cards.
-      await writeCachedSummary(deploymentDefault, id, entry, Date.now());
+      await writeCachedSummary(storage, id, entry, Date.now());
       sendJson(res, 200, { key: entry.key });
       return;
     }
@@ -784,7 +543,7 @@ async function routeWorkspaceApi(
       // Required permission: doc.read — the size is about content the caller
       // can already reach (PRD 011 Req 30's inspect half, #120's to render).
       if (!(await requirePermission(res, storage, id, auth, 'doc.read'))) return;
-      sendJson(res, 200, await summaryCacheUsage(deploymentDefault, id));
+      sendJson(res, 200, await summaryCacheUsage(storage, id));
       return;
     }
     if (req.method === 'DELETE') {
@@ -792,7 +551,7 @@ async function routeWorkspaceApi(
       // every member shares, so it is the workspace-wide authority and not
       // the reader's (PRD 011 Req 30's clear half).
       if (!(await requirePermission(res, storage, id, auth, 'workspace.settings'))) return;
-      sendJson(res, 200, { cleared: await clearSummaryCache(deploymentDefault, id) });
+      sendJson(res, 200, { cleared: await clearSummaryCache(storage, id) });
       return;
     }
   }
@@ -993,7 +752,7 @@ async function routeWorkspaceApi(
       sendJson(res, 400, { error: 'member must be {id, role} with non-empty strings' });
       return;
     }
-    await saveMutation(res, storage, deploymentDefault, id, existing, addWorkspaceMember(existing, { id: memberId, role }));
+    await saveMutation(res, storage, id, existing, addWorkspaceMember(existing, { id: memberId, role }));
     return;
   }
 
@@ -1008,7 +767,7 @@ async function routeWorkspaceApi(
       sendJson(res, 400, { error: 'everyone must be {enabled: boolean, role?: string}' });
       return;
     }
-    await saveMutation(res, storage, deploymentDefault, id, existing, setEveryoneAccess(existing, { enabled, role }));
+    await saveMutation(res, storage, id, existing, setEveryoneAccess(existing, { enabled, role }));
     return;
   }
 
@@ -1025,13 +784,13 @@ async function routeWorkspaceApi(
         sendJson(res, 400, { error: 'body must be {role: string}' });
         return;
       }
-      await saveMutation(res, storage, deploymentDefault, id, existing, setWorkspaceMemberRole(existing, memberId, role));
+      await saveMutation(res, storage, id, existing, setWorkspaceMemberRole(existing, memberId, role));
       return;
     }
     if (req.method === 'DELETE') {
       const existing = await requirePermission(res, storage, id, auth, 'workspace.members');
       if (!existing) return;
-      await saveMutation(res, storage, deploymentDefault, id, existing, removeWorkspaceMember(existing, memberId));
+      await saveMutation(res, storage, id, existing, removeWorkspaceMember(existing, memberId));
       return;
     }
   }
@@ -1051,7 +810,7 @@ async function routeWorkspaceApi(
       sendJson(res, 400, { error: role });
       return;
     }
-    await saveMutation(res, storage, deploymentDefault, id, existing, createCustomRole(existing, role));
+    await saveMutation(res, storage, id, existing, createCustomRole(existing, role));
     return;
   }
 
@@ -1068,13 +827,13 @@ async function routeWorkspaceApi(
         sendJson(res, 400, { error: role });
         return;
       }
-      await saveMutation(res, storage, deploymentDefault, id, existing, updateCustomRole(existing, roleName, role));
+      await saveMutation(res, storage, id, existing, updateCustomRole(existing, roleName, role));
       return;
     }
     if (req.method === 'DELETE') {
       const existing = await requirePermission(res, storage, id, auth, 'workspace.roles');
       if (!existing) return;
-      await saveMutation(res, storage, deploymentDefault, id, existing, removeCustomRole(existing, roleName));
+      await saveMutation(res, storage, id, existing, removeCustomRole(existing, roleName));
       return;
     }
   }
@@ -1169,12 +928,10 @@ async function routeWorkspaceApi(
       if (typeof ifMatch === 'string' && ifMatch !== '' && ifMatch !== '*') {
         const written = await storage.writeIfMatch(blobPath, content, ifMatch);
         if (!written) {
-          // PRD 010 Req 12: the stale save gets one chance to become a merge
-          // before it becomes a 412. PRD 016 Req 8: a save that carried its
-          // base merges on ANY backend; one that did not still needs a
-          // backend that can hand back the version the client loaded, and a
-          // blob-backed workspace takes the 412 below verbatim as today.
-          const merged = await mergeStaleSave(storage, blobPath, filePath, content, ifMatch, base);
+          // PRD 016 Req 8: the stale save gets one chance to become a merge
+          // before it becomes a 412 — a save that carried its base merges;
+          // one that did not takes the 412 below verbatim.
+          const merged = await mergeStaleSave(storage, blobPath, filePath, content, base);
           if (merged) {
             sendJson(res, 200, { path: filePath, etag: merged.etag, merged: true, content: merged.content });
             return;

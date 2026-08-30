@@ -7,7 +7,7 @@ import type { SummaryCacheStore } from '../lib/summaryCacheStore';
 import type { FileGrants } from '../lib/fileGrants';
 
 /**
- * PRD 010 Req 13: what a write reports back. `void` is the whole story for
+ * PRD 016 Req 9: what a write reports back. `void` is the whole story for
  * every platform whose save either lands byte-for-byte as written or throws —
  * tauri, browser and web all answer it, and every caller that ignores the
  * result is unaffected. A backend that can merge a stale save (Req 12)
@@ -120,13 +120,6 @@ export interface Platform {
    * SPEC35 §6 + PRD 007 non-goals: true ⇒ `trashEntry` destroys the entry
    * outright — there is no OS trash behind it — so the confirmation must not
    * offer recovery.
-   *
-   * PRD 010 Req 21: it does NOT decide what the confirmation says on its own
-   * any more. On the github backend the delete is still permanent as far as
-   * the app is concerned, but the repository's history retains the content,
-   * and that is per workspace rather than per platform: the flag is one input
-   * to `deleteRetention()` (src/lib/deleteRetention.ts), the workspace
-   * listing's `retainsHistory` is the other.
    */
   permanentDelete?: boolean;
   /** SPEC35 §1: select the entry in the OS file manager. */

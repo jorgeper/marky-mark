@@ -1,4 +1,4 @@
-// PRD 010 Req 22: the StorageProvider contract as ONE suite, run against
+// The StorageProvider contract as ONE suite, run against
 // every implementation of the seam rather than re-described per backend. The
 // in-memory reference provider below is what `server-workspaces.test.ts`
 // drives the HTTP layer with; `server-github-storage.test.ts` runs the very
@@ -102,7 +102,7 @@ export function describeStorageContract(options: StorageContractOptions): void {
   const { label, firstId, create } = options;
   const u = (offset: number, title: string): string => `U${firstId + offset}: ${title}`;
 
-  describe(`PRD 007 Req 8+20 / PRD 010 Req 22 StorageProvider contract — ${label}`, () => {
+  describe(`PRD 007 Req 8+20 StorageProvider contract — ${label}`, () => {
     let storage: StorageProvider;
     beforeEach(async () => {
       storage = await create();
@@ -159,7 +159,7 @@ export function describeStorageContract(options: StorageContractOptions): void {
       expect((await storage.read('workspaces/w1/files/notes.md'))?.content).toBe('mine\n');
     });
 
-    // PRD 007 Req 8 / PRD 010 Req 9: bytes in, the same bytes out — a pasted
+    // PRD 007 Req 8: bytes in, the same bytes out — a pasted
     // PNG is not valid UTF-8, so any text detour shows up here as corruption.
     it(u(6, 'writeBytes/readBytes round-trip non-UTF-8 bytes and answer the extension media type'), async () => {
       await storage.writeBytes('workspaces/w1/files/assets/shot.png', PNG_BYTES, 'image/png');

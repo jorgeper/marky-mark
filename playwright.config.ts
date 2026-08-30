@@ -1,18 +1,11 @@
 import { cpus } from 'node:os';
 import { defineConfig, devices } from '@playwright/test';
-import { LANE_SERVER_PORT } from './server/e2eGithubLane.ts';
 
 const PORT = 4923;
 
 // PRD 007 Req 4: the hosted backend the E159+ tests exercise — a separate
 // port so it never clashes with the shim server above.
 const HOSTED_PORT = 4924;
-
-// PRD 010 Req 22: the GitHub-backed hosted server the E221+ tests exercise
-// (tests/e2e/github-storage.spec.ts). Its port and the loopback port of the
-// GitHub API fake behind it are declared once, in server/e2eGithubLane.ts, and
-// collide with neither 4923 nor 4924.
-const GITHUB_PORT = LANE_SERVER_PORT;
 
 // `fullyParallel` interleaves tests across files, so `workers` is what sets
 // the concurrency. The count was pinned at 2 for the smallest host that runs
@@ -59,16 +52,6 @@ export default defineConfig({
     {
       command: 'npm run server:local',
       url: `http://localhost:${HOSTED_PORT}/`,
-      reuseExistingServer: true,
-      timeout: 180_000,
-    },
-    // PRD 010 Req 22: the same arrangement for the github storage backend —
-    // `npm run server:github` builds the SPA if stale, starts the GitHub API
-    // fake on loopback, generates the App keypair and boots the server against
-    // it. Offline like its sibling, and with no credential to supply.
-    {
-      command: 'npm run server:github',
-      url: `http://localhost:${GITHUB_PORT}/`,
       reuseExistingServer: true,
       timeout: 180_000,
     },

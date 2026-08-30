@@ -208,9 +208,8 @@ record('CLAUDE.md resolves to AGENTS.md', Date.now() - linkStart);
 // 161 as of issue #70: the suite had grown to 155 collected, and the hosted
 // backend scaffold added E159–E164 (tests/e2e/hosted.spec.ts).
 // 226 as of issue #107: the floor had drifted far below the suite it guards
-// (221 collected before this issue), and the GitHub-backed lane added E221–
-// E225 (tests/e2e/github-storage.spec.ts). Re-pinned to the collected count
-// so it means "this many tests exist" again.
+// (221 collected before this issue). Re-pinned to the collected count so it
+// means "this many tests exist" again.
 // 226 still, re-verified for PRD 011 (issue #114): `npx playwright test --list`
 // collects exactly 226. The LLM work added no desktop-shim e2e test — the
 // desktop transport (#112) is Rust-side plus a pure mapping module, and the
@@ -228,7 +227,14 @@ record('CLAUDE.md resolves to AGENTS.md', Date.now() - linkStart);
 // count so it means "this many tests exist" again. The web suite's new W14/W15
 // are not counted here — `testIgnore` keeps web.spec.ts to
 // playwright.web.config.ts, as it always has.
-const E2E_TEST_FLOOR = 247;
+// 346 as of PRD 016 (issue #176): the GitHub storage backend is removed —
+// its spec file went with it, E221–E223 (the storage choice, the
+// connect-your-repo wizard, the abandoned round trip) are gone because the
+// flows they exercised no longer exist, and E224/E225 (merged concurrent
+// save; conflicting concurrent save) are rewritten against the local hosted
+// lane in tests/e2e/hosted.spec.ts, keeping their numbers — merge-on-save is
+// a blob capability now. Re-pinned to the collected count.
+const E2E_TEST_FLOOR = 346;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {

@@ -1,9 +1,7 @@
 // This mapping lives in its own module rather than inside
-// server/workspaces.ts because PRD 010 Req 9 needs the same answer on the far
-// side of the storage seam: GitHub keeps no media type per file, so the
-// GitHub provider derives the content type of the bytes it reads back — and
-// it must derive exactly what the API layer would have written, not a second
-// opinion.
+// server/workspaces.ts so any storage-seam code that needs a content type
+// for a path derives exactly what the API layer would have written, not a
+// second opinion.
 
 /**
  * PRD 007 Req 8: the media type a raw blob is stored and served with,

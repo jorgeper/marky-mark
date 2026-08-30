@@ -7,39 +7,26 @@
 import http from 'node:http';
 import process from 'node:process';
 import { createApp } from './app.ts';
-import { createWorkspaceBackends } from './backends.ts';
 import { loadConfig } from './config.ts';
 import { createLlmApi } from './llm.ts';
-import { createGitHubByoApi, createProviders, createRepoConnector } from './providers/index.ts';
+import { createProviders } from './providers/index.ts';
 
 const config = loadConfig(process.env);
 const providers = createProviders(config);
-// PRD 010 Req 17: where the backends are wired — a workspace whose record
-// names a repo is served from it, through the deployment's GitHub App. Absent
-// App section, absent connector: such a workspace then reports the named
-// refusal from `backends.ts` rather than being served from the wrong store.
-const connect = createRepoConnector(config);
-const backends = createWorkspaceBackends({
-  deploymentDefault: providers.storage,
-  ...(connect ? { connect } : {}),
-});
 try {
-  // PRD 010 Req 6: the storage backend proves itself BEFORE the listener
-  // accepts anything — on the github backend that is the default repo being
-  // reachable with contents read/write. A deployment that cannot write where
-  // it was pointed exits here with the reason, rather than serving 500s.
+  // Storage proves itself (the backing container exists) before the listener
+  // accepts anything, so a misconfigured deployment exits with the reason
+  // rather than serving 500s.
   await providers.storage.init?.();
 } catch (err) {
   console.error(`marky-mark server: storage is unusable — ${(err as Error).message}`);
   process.exit(1);
 }
 
-// PRD 010 Req 15+16: the wizard's routes, built from the same App section.
-const byo = createGitHubByoApi(config);
 // PRD 011 Req 8+13: the LLM routes, built from the optional LLM section. No
 // section ⇒ an api that answers "not configured" and contacts nothing.
 const llm = createLlmApi({ ...(config.llm ? { config: config.llm } : {}) });
-const server = http.createServer(createApp(config.staticDir, providers, config.mode, backends, byo, llm));
+const server = http.createServer(createApp(config.staticDir, providers, config.mode, llm));
 server.listen(config.port, () => {
   console.log(
     `marky-mark server: mode=${config.mode} port=${config.port} static=${config.staticDir} ` +

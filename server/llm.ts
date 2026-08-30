@@ -18,12 +18,11 @@
 //
 // PRD 011 Req 16: nothing in this module runs on import, on server start or on
 // sign-in. The only outbound call is the one a POST carrying a `trigger` asks
-// for, and the transport is injected (the `fetchImpl` precedent in
-// providers/github/auth.ts) so no test performs real network I/O.
+// for, and the transport is injected (`fetchImpl` below) so no test performs
+// real network I/O.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readBody, sendJson } from './http.ts';
-import type { FetchLike } from './providers/github/auth.ts';
 import {
   LLM_UNCONFIGURED,
   noLlmConfiguredResponse,
@@ -38,6 +37,9 @@ import {
   type LlmTransport,
   type LlmTransportResult,
 } from '../src/lib/llmSeam.ts';
+
+/** A `fetch`-shaped transport, injectable so tests never touch the network. */
+export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 /** The route prefix this module owns. */
 export const LLM_PREFIX = '/api/llm';

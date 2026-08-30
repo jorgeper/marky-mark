@@ -3,7 +3,7 @@ import { MERGED_SAVE_NOTICE, planMergedSave } from '../../src/lib/mergedSave';
 import { attachEmbedded } from '../../src/lib/embedded';
 import { createAnchor, type CommentData } from '../../src/lib/anchoring';
 
-// PRD 010 Req 13: what a merged save does to the buffer, the saved marker,
+// PRD 016 Req 9: what a merged save does to the buffer, the saved marker,
 // the caret and the notice — decided by a pure function, proven without a DOM.
 
 const comment = (id: string, body: string): CommentData => ({
@@ -16,7 +16,7 @@ const comment = (id: string, body: string): CommentData => ({
   anchor: createAnchor('# Doc\n\nbody\n', 8, 12),
 });
 
-describe('PRD 010 Req 13 the merged-save plan', () => {
+describe('PRD 016 Req 9 the merged-save plan', () => {
   it('U422: the buffer becomes the merged text, clean at it, with a non-blocking notice and no dialog', () => {
     const plan = planMergedSave({
       mergedText: '# Title\n\nmine\ntheirs\n',
