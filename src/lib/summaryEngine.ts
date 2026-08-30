@@ -20,18 +20,18 @@
  * clicked a retry.
  */
 
-import type { LlmUsage } from './llmSeam';
-import type { LlmRunner } from './llmSettings';
+import type { LlmUsage } from './llmSeam.ts';
+import type { LlmRunner } from './llmSettings.ts';
 import {
   SUMMARY_MAX_IN_FLIGHT,
   slotsToRequest,
   summaryUsageForStore,
   type SummarySlot,
   type SummarySlotState,
-} from './summaryPlan';
-import { buildSummaryRequest } from './summaryPrompt';
-import { SUMMARY_PROMPT_VERSION, type SummaryKeyContext } from './summaryCache';
-import type { SummaryCacheStore } from './summaryCacheStore';
+} from './summaryPlan.ts';
+import { buildSummaryRequest } from './summaryPrompt.ts';
+import { SUMMARY_PROMPT_VERSION, type SummaryKeyContext } from './summaryCache.ts';
+import type { SummaryCacheStore } from './summaryCacheStore.ts';
 
 export interface SummaryRunOptions {
   /** The level's slots, in document order (`planSummarySlots()`). */

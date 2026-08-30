@@ -10,7 +10,7 @@
  * its consumers.
  */
 
-import { flattenSections, type DocumentSections, type SectionNode } from './sectionModel';
+import { flattenSections, type DocumentSections, type SectionNode } from './sectionModel.ts';
 
 export type ZoomLevel = 1 | 2 | 3 | 4 | 5;
 

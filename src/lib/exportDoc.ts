@@ -1,4 +1,4 @@
-import { countWords } from './wordCount';
+import { countWords } from './wordCount.ts';
 
 /**
  * SPEC18: the pure builder behind the Export dialog. One artifact shape for

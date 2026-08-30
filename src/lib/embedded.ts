@@ -1,5 +1,5 @@
-import type { CommentData } from './anchoring';
-import { commentPayload, readCommentPayload } from './commentFormat';
+import type { CommentData } from './anchoring.ts';
+import { commentPayload, readCommentPayload } from './commentFormat.ts';
 
 /**
  * Embedded comment storage (SPEC2 §5): comments live in an invisible HTML

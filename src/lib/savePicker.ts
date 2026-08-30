@@ -9,7 +9,7 @@
  * code.
  */
 
-import { uniqueChildName, validateEntryName } from './folderOps';
+import { uniqueChildName, validateEntryName } from './folderOps.ts';
 
 /** Which action is naming a file — it decides the pre-filled name only. */
 export type SavePickerKind = 'new' | 'saveAs';

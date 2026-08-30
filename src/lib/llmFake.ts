@@ -17,8 +17,8 @@
  * shim — reach it without it moving.
  */
 
-import { OPENAI_ENDPOINT, OPENROUTER_ENDPOINT } from './llmProviders';
-import { runLlmRequest } from './llmSeam';
+import { OPENAI_ENDPOINT, OPENROUTER_ENDPOINT } from './llmProviders.ts';
+import { runLlmRequest } from './llmSeam.ts';
 import type {
   LlmFailureKind,
   LlmHttpRequest,
@@ -30,7 +30,7 @@ import type {
   LlmTransport,
   LlmTransportResult,
   LlmTrigger,
-} from './llmSeam';
+} from './llmSeam.ts';
 
 /**
  * The failures a real provider delivers as an HTTP error status — the rest of

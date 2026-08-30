@@ -6,7 +6,7 @@ import remarkRehype from 'remark-rehype';
 import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from 'rehype-sanitize';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeStringify from 'rehype-stringify';
-import { readFenceWidth } from './fenceWidth';
+import { readFenceWidth } from './fenceWidth.ts';
 
 /**
  * The rendering pipeline is intentionally identical to ../md-with-comments

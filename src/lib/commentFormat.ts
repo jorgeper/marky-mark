@@ -1,4 +1,4 @@
-import type { Anchor, CommentData, RetainedKeys, ThreadReply } from './anchoring';
+import type { Anchor, CommentData, RetainedKeys, ThreadReply } from './anchoring.ts';
 
 /**
  * The comment-format migration seam (PRD 004 §F): the single chokepoint that

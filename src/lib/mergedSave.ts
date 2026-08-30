@@ -15,9 +15,9 @@
  *    so there is nothing to answer and no dialog to show.
  */
 
-import type { CommentData } from './anchoring';
-import { normalizeEol } from './dirty';
-import { mergeComments, splitEmbedded } from './embedded';
+import type { CommentData } from './anchoring.ts';
+import { normalizeEol } from './dirty.ts';
+import { mergeComments, splitEmbedded } from './embedded.ts';
 
 export interface MergedSaveInput {
   /** The file text the server stored — trailer and all, if it has one. */

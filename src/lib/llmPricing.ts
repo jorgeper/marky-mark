@@ -15,8 +15,8 @@
  * fetched — the app opens no network call site to price a model.
  */
 
-import type { TokenPrice } from './llmCost';
-import type { LlmProviderKind } from './llmSeam';
+import type { TokenPrice } from './llmCost.ts';
+import type { LlmProviderKind } from './llmSeam.ts';
 
 /**
  * PRD 011 Req 31: the ONE place the caveat's date is written. Every sentence

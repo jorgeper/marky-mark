@@ -16,18 +16,18 @@
  * {@link testConnection} on behalf of a user action.
  */
 
-import { NO_LLM_CONFIGURED_MESSAGE, type LlmAvailability } from './llmDeployment';
+import { NO_LLM_CONFIGURED_MESSAGE, type LlmAvailability } from './llmDeployment.ts';
 // PRD 011 Req 14: from the host-free leaf, not `llmProviders.ts` — settings
 // reach every flavor, and the static web build must carry no provider host.
-import { customEndpoint } from './llmCustomEndpoint';
-import type { UsageTally } from './llmUsage';
+import { customEndpoint } from './llmCustomEndpoint.ts';
+import type { UsageTally } from './llmUsage.ts';
 import type {
   LlmFailure,
   LlmProviderConfig,
   LlmProviderKind,
   LlmRequest,
   LlmResponse,
-} from './llmSeam';
+} from './llmSeam.ts';
 
 /**
  * PRD 011 Reqs 5+6: the provider chooser's data, keyed by the seam's own union.

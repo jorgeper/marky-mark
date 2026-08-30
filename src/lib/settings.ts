@@ -1,10 +1,10 @@
-import { DEFAULT_HOTKEYS, type HotkeyMap } from './hotkeys';
-import { isValidImageFolder } from './imagePaste';
-import { isLlmProviderKind } from './llmSettings';
+import { DEFAULT_HOTKEYS, type HotkeyMap } from './hotkeys.ts';
+import { isValidImageFolder } from './imagePaste.ts';
+import { isLlmProviderKind } from './llmSettings.ts';
 // PRD 011 Req 32: the accounting shape and its validator, defined once beside
 // the fold that produces it rather than re-declared here.
-import { EMPTY_USAGE_TALLY, isUsageTally, type UsageTally } from './llmUsage';
-import type { LlmProviderKind } from './llmSeam';
+import { EMPTY_USAGE_TALLY, isUsageTally, type UsageTally } from './llmUsage.ts';
+import type { LlmProviderKind } from './llmSeam.ts';
 
 export type CommentStorage = 'sidecar' | 'embedded';
 /** Issue #125: the document view mode — the reading preview or the editor. */

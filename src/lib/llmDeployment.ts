@@ -23,7 +23,7 @@
  * strings and two pure functions.
  */
 
-import type { LlmProviderKind, LlmRequest, LlmResponse, LlmTrigger } from './llmSeam';
+import type { LlmProviderKind, LlmRequest, LlmResponse, LlmTrigger } from './llmSeam.ts';
 
 /**
  * PRD 011 Req 13: the availability answer. `configured: false` is a first-class

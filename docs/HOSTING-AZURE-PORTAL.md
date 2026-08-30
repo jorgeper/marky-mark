@@ -22,12 +22,8 @@ them when they arrive:
 
 > ### Read this before you set aside an afternoon
 >
-> The documented start command **does not currently work**. A payload built and
-> deployed exactly as described below comes up with a `502` and a module-not-found
-> error in the log, because a few shared source files import siblings without a
-> file extension and Node's production loader won't guess extensions. There is a
-> stopgap (step 5.4) that gets past it. Separately, **searching your directory for
-> people to add to a workspace does not work yet** against a real tenant.
+> **Searching your directory for people to add to a workspace does not work
+> yet** against a real tenant.
 > Sign-in, workspaces, files, comments, roles and permissions all work.
 > The full detail is in [Known limitations](#known-limitations) — please read it
 > now rather than after an hour of debugging your own configuration.
@@ -413,33 +409,6 @@ Plain `node`, no build step, no process manager. The path is relative to
 having both means neither a settings edit nor a startup-command edit can quietly
 drop the app back into local mock mode.)
 
-### 5.4 The startup command that actually works today
-
-As flagged at the top: `node server/index.ts` **exits immediately** on the
-current code, because three shared modules import siblings without a `.ts`
-extension and Node's production ESM loader doesn't guess extensions. You'll see
-this in the log:
-
-```
-Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…/src/lib/commentFormat'
-imported from …/src/lib/sidecar.ts
-```
-
-The stopgap is to run under `tsx`, which does resolve those. If you want a
-deployment that comes up today:
-
-- Use this startup command instead:
-
-  ```
-  MM_MODE=azure npx tsx server/index.ts
-  ```
-
-- And in step 6, install `tsx` into the payload as well (the step says where).
-
-Be aware this is a workaround that nothing in this repository documents or
-tests — it is a way to see the app running, not a supported production
-configuration. The real fix is a code change adding those extensions.
-
 ---
 
 ## Step 6 — Build the deployment payload (on your machine)
@@ -457,13 +426,6 @@ cp -R dist server package.json package-lock.json deploy/
 mkdir -p deploy/src && cp -R src/lib deploy/src/lib
 cd deploy
 npm ci --omit=dev
-```
-
-If you're using the `tsx` workaround from step 5.4, also run, still inside
-`deploy/`:
-
-```sh
-npm install tsx
 ```
 
 What's in the payload and why each piece must be there:
@@ -540,7 +502,6 @@ Read that line carefully — it's the best diagnostic in the system:
 - A line starting `MM_MODE=azure requires environment variables: …` — the named
   settings are missing. It lists **all** of them at once, so there's no
   guess-and-retry loop. Add them and restart.
-- `ERR_MODULE_NOT_FOUND` — the known limitation; see step 5.4.
 
 The app refuses to start at all rather than starting half-configured and failing
 mysteriously three requests later. That's deliberate.
@@ -641,19 +602,6 @@ searching your directory is deliberately not on the list** — see below.
 
 Read these before concluding that something you configured is wrong.
 
-- **`node server/index.ts` does not start yet.** The documented start command
-  exits immediately with
-  `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…/src/lib/commentFormat'`.
-  Three shared modules name a sibling without its file extension
-  (`src/lib/sidecar.ts` → `./commentFormat`; `src/lib/workspaceLifecycle.ts` →
-  `./fuzzy` and `./hostedWorkspace`) and Node's ESM resolver doesn't guess
-  extensions. Local development never trips over it because it runs under `tsx`,
-  which does — so this only bites the production path. Until those imports carry
-  `.ts`, a payload staged exactly as in step 6 comes up `502` with that error in
-  the log. The `npx tsx` workaround in step 5.4 gets past it, but nothing in this
-  repo documents or tests that configuration. **Nothing you can configure in the
-  portal fixes this; it is a code gap.**
-
 - **Directory search and member avatars don't work against a real tenant.** The
   app forwards your sign-in token straight to Microsoft Graph, but Graph only
   accepts tokens minted specifically for it — so it answers `401`, no matter how
@@ -683,7 +631,6 @@ actually landed in `/home/site/wwwroot` — use **Development Tools → SSH**.
 
 | What you see | What it means | What to do |
 | --- | --- | --- |
-| Log says `ERR_MODULE_NOT_FOUND: Cannot find module '…/src/lib/commentFormat'` (or `'./fuzzy'`, `'./hostedWorkspace'`) | **not your fault** — the extensionless-import code gap | nothing to configure; use the `tsx` workaround (step 5.4) or wait for the fix |
 | Log says `MM_MODE=azure requires environment variables: …` | exactly the named app settings are missing | add them (step 5.2). The message lists all of them at once |
 | Log says `MM_MODE must be 'local' or 'azure', got '…'` or `PORT must be a TCP port number, got '…'` | a malformed app setting — typo, stray quote, trailing space | fix the value; never set `PORT` yourself |
 | Startup line reads `auth=mock, storage=azurite, directory=mock` | `MM_MODE` didn't arrive — usually the startup command was overwritten | re-apply the startup command (step 5.3) and the app setting |
@@ -709,8 +656,8 @@ npm run server:local
 One command, zero Azure resources: local storage emulation, mock sign-in, and a
 seeded directory of fake users, at <http://localhost:4924>. It's a genuinely
 useful way to understand what you're deploying before you deploy it — and, since
-it runs under `tsx`, it's also the configuration where the member picker's user
-search actually works.
+the directory is mocked, it's also the configuration where the member picker's
+user search actually works.
 
 ---
 

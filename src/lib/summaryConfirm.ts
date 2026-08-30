@@ -14,8 +14,8 @@
  * a caller acting on the reader's click does.
  */
 
-import type { JobEstimate } from './llmCost';
-import { formatMoney, PRICE_CURRENCY } from './llmPricing';
+import type { JobEstimate } from './llmCost.ts';
+import { formatMoney, PRICE_CURRENCY } from './llmPricing.ts';
 
 /** PRD 011 Req 33: everything the "should we ask?" rule reads, as plain data. */
 export interface ConfirmSummariesInput {

@@ -7,7 +7,7 @@
  * compiles or matches anything.
  */
 
-import type { SearchOptions } from './searchCore';
+import type { SearchOptions } from './searchCore.ts';
 
 /** PRD 014 Req 6: all off = today's case-insensitive literal substring. */
 export const DEFAULT_SEARCH_OPTIONS: SearchOptions = {

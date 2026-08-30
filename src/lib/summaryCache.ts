@@ -8,8 +8,8 @@
  * touches no store — the desktop/hosted stores are #115.
  */
 
-import { sectionContent, type SectionNode } from './sectionModel';
-import type { ZoomLevel, ZoomEntry } from './zoomLevels';
+import { sectionContent, type SectionNode } from './sectionModel.ts';
+import type { ZoomLevel, ZoomEntry } from './zoomLevels.ts';
 
 /**
  * Bump when the prompt or the expected summary format changes: old summaries

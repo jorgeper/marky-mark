@@ -9,11 +9,11 @@
  * Pure: no React, no platform import, every branch unit-testable.
  */
 
-import type { AppMode } from './appMode';
-import type { CommandId } from './commands';
-import type { HotkeyMap } from './hotkeys';
-import { buildViewItems, type CommandItemSpec, type ViewMenuState } from './menuSpec';
-import type { StartActionId } from './startActions';
+import type { AppMode } from './appMode.ts';
+import type { CommandId } from './commands.ts';
+import type { HotkeyMap } from './hotkeys.ts';
+import { buildViewItems, type CommandItemSpec, type ViewMenuState } from './menuSpec.ts';
+import type { StartActionId } from './startActions.ts';
 
 /** The groups, in render order (PRD 009 Req 8). */
 export type AppMenuGroupId = 'file' | 'workspace' | 'save' | 'view' | 'app';

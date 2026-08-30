@@ -1,5 +1,5 @@
-import type { CommentData } from './anchoring';
-import { commentPayload, readCommentPayload } from './commentFormat';
+import type { CommentData } from './anchoring.ts';
+import { commentPayload, readCommentPayload } from './commentFormat.ts';
 
 /**
  * Sidecar (.md.comments.json) serialization. The schema is byte-schema

@@ -13,9 +13,9 @@
  * persists the total are all somebody else's job.
  */
 
-import { measuredCost, type TokenPrice } from './llmCost';
-import type { LlmUsage } from './llmSeam';
-import { formatMoney, PRICE_CURRENCY } from './llmPricing';
+import { measuredCost, type TokenPrice } from './llmCost.ts';
+import type { LlmUsage } from './llmSeam.ts';
+import { formatMoney, PRICE_CURRENCY } from './llmPricing.ts';
 
 /**
  * PRD 011 Req 32: one accounting answer. The two counts are what makes it

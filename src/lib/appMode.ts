@@ -1,4 +1,4 @@
-import type { Workspace } from './workspace';
+import type { Workspace } from './workspace.ts';
 
 /**
  * Issue #22: the explicit three-mode model. The mode is DERIVED, never
