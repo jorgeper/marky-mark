@@ -53,7 +53,16 @@ Verify in two tiers, both declared in `.sandcastle/config.mts`:
 - **Run the final gate in the FOREGROUND and wait**, even when it takes
   minutes. Never launch it in the background and end your turn to "wait
   for a notification" — in this harness, ending your turn ends the
-  session: the suite is orphaned and the entire attempt is wasted.
+  session: the suite is orphaned and the entire attempt is wasted. If the
+  harness moves a long gate to the background on its own (the foreground
+  cap), wait on THAT run — never start a second gate while one is still
+  running; two suites at once make every timing-sensitive test fail.
+- **A flake is not a gate failure.** If the gate fails only in the e2e
+  step and `npm run test:e2e:failed` then passes, the gate counts as
+  passed: cite both outputs as the evidence and stop. Do not re-run the
+  full gate to "get a clean pass" — issue #177's attempt did that 13
+  times (7–10 min each) and never converged. A test that fails again on
+  the targeted re-run is a real failure: fix it or report it.
 
 Your repo's CLAUDE.md/AGENTS.md may refine which commands are
 appropriate; it overrides these lists.
