@@ -108,6 +108,45 @@ the member *search* picker fails against a real tenant, so flip the
 workspace's **everyone-in-tenant access** toggle (workspace settings)
 to admit every tenant account at a default role instead.
 
+## Who can do what: the access model
+
+Authentication decides who gets *in*; this section is the map of what
+they can *do* once in. The building metaphor:
+
+- **Signing in = getting into the building.** Controlled entirely at
+  the tenant layer: you decide who is in the directory — members you
+  create, guests you invite. Nobody uninvited gets past the door, and
+  Marky Mark itself has no user database to manage; the tenant is it.
+- **Workspaces = locked rooms.** Contents are guarded per room: every
+  operation on a workspace checks one permission verb from the catalog
+  against your role in *that* workspace (or its everyone-in-tenant
+  setting). No role, no everyone-access → 403 naming the missing verb,
+  whatever the UI showed. Roles are per-workspace: Owner of one, Viewer
+  of another, stranger to the rest.
+- **Two things are open to everyone in the building** (deliberately,
+  PRD 007 Reqs 10–11):
+  1. **Reading the directory of room names.** The Open Workspace dialog
+     lists every workspace's name and last-modified time to any
+     signed-in user, so people can find a workspace and see whom to
+     ask. Contents are never returned without access — only the label
+     on the door.
+  2. **Building new rooms.** Any signed-in user may create a workspace
+     and becomes its sole Owner. A guest creating a workspace costs the
+     operator nothing but blobs in the storage account.
+
+So the control levers today, from coarse to fine:
+
+| Lever | Controls | Where |
+| --- | --- | --- |
+| Tenant membership (create users, invite guests, remove them) | who can sign in at all | Entra ID → Users |
+| Workspace membership + roles (People section) | what each person may do per workspace | Settings… with the workspace open |
+| Everyone-in-tenant toggle + default role | blanket access to one workspace | People section |
+| Custom roles (Roles section) | the exact verb set a role grants | Settings… with the workspace open |
+
+There is currently **no lever** for "who may create workspaces" or
+"who may see workspace names" — the only gate on both is tenant
+membership itself. Making those controllable is filed as issue #181.
+
 ## The one known gap
 
 Tenant user **search and avatars** (the membership picker) call
