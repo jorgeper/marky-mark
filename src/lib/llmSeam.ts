@@ -21,7 +21,7 @@
  * a caller, on behalf of a user action the request itself has to state.
  */
 
-import { providerFor } from './llmProviders';
+import { providerFor } from './llmProviders.ts';
 
 /**
  * PRD 011 Req 5: the five provider kinds, and only these. The custom kind is

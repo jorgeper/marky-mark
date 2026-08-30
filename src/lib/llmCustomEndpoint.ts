@@ -14,7 +14,7 @@
  * still has exactly one custom-endpoint implementation.
  */
 
-import type { LlmFailure } from './llmSeam';
+import type { LlmFailure } from './llmSeam.ts';
 
 /** PRD 011 Req 5: the reader-facing sentence for a base URL the seam cannot use. */
 export const INVALID_BASE_URL_MESSAGE =

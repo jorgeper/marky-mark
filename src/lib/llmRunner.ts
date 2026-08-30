@@ -17,14 +17,14 @@
  * is what a caller invokes on behalf of a user action.
  */
 
-import { runLlmRequest } from './llmSeam';
+import { runLlmRequest } from './llmSeam.ts';
 // Imported as a block, not as inline `type` specifiers: U490 reads this tree
 // for `type Llm(Request|Response)` to prove exactly one module DECLARES those
 // shapes, and re-using them must not read as re-declaring them.
-import type { LlmRequest, LlmResponse, LlmTransport } from './llmSeam';
-import type { LlmAreaState, LlmRunner } from './llmSettings';
-import type { SummaryKeyContext } from './summaryCache';
-import type { ZoomLevel } from './zoomLevels';
+import type { LlmRequest, LlmResponse, LlmTransport } from './llmSeam.ts';
+import type { LlmAreaState, LlmRunner } from './llmSettings.ts';
+import type { SummaryKeyContext } from './summaryCache.ts';
+import type { ZoomLevel } from './zoomLevels.ts';
 
 /**
  * The capabilities a window may hold, structurally — `platform.llm` and

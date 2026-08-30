@@ -4,11 +4,11 @@ import {
   type Settings,
   type SettingsLayers,
   type SettingsScopeTab,
-} from './settings';
-import type { Theme } from './themes';
-import type { LlmCapabilities, LlmTestResult } from './llmSettings';
-import type { LlmFailureKind } from './llmSeam';
-import type { SummaryCacheClearResult, SummaryCacheSizeResult } from './summaryCacheReport';
+} from './settings.ts';
+import type { Theme } from './themes.ts';
+import type { LlmCapabilities, LlmTestResult } from './llmSettings.ts';
+import type { LlmFailureKind } from './llmSeam.ts';
+import type { SummaryCacheClearResult, SummaryCacheSizeResult } from './summaryCacheReport.ts';
 
 /**
  * SPEC13 §3: the event protocol between the main window (sole owner of

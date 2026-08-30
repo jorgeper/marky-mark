@@ -14,7 +14,7 @@
  * without pulling the real library into the vitest run.
  */
 
-import { registerFenceRenderer, type FenceRenderer, type FenceRenderResult } from './fenceRenderers';
+import { registerFenceRenderer, type FenceRenderer, type FenceRenderResult } from './fenceRenderers.ts';
 
 /**
  * The slice of mermaid's API the adapter touches; tests fake exactly this.

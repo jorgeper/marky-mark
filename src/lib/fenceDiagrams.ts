@@ -32,13 +32,13 @@
  * `rendererFor` lookup — registering a second language needs no edit here.
  */
 
-import { codeBlockText } from './codeCopy';
+import { codeBlockText } from './codeCopy.ts';
 import {
   fenceLanguage,
   renderSafely,
   type FenceRenderer,
   type FenceRenderResult,
-} from './fenceRenderers';
+} from './fenceRenderers.ts';
 
 /** The diagram host — carries the SVG in its shadow root; also its testid. */
 export const DIAGRAM_CLASS = 'mm-diagram';

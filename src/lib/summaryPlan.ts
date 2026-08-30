@@ -13,15 +13,15 @@
  * requests; it never makes one.
  */
 
-import type { LlmFailure, LlmUsage } from './llmSeam';
-import { sectionContent } from './sectionModel';
+import type { LlmFailure, LlmUsage } from './llmSeam.ts';
+import { sectionContent } from './sectionModel.ts';
 import {
   contentHash,
   summaryKeyForEntry,
   SUMMARY_PROMPT_VERSION,
   type SummaryKeyContext,
-} from './summaryCache';
-import type { ZoomEntry, ZoomLevel, ZoomView } from './zoomLevels';
+} from './summaryCache.ts';
+import type { ZoomEntry, ZoomLevel, ZoomView } from './zoomLevels.ts';
 
 /**
  * PRD 011 Req 26: how many summary requests may be in flight at once.

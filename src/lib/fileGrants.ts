@@ -7,7 +7,7 @@
  * — everything its own seams already offer. No DOM, no platform imports.
  */
 
-import type { Permission } from './hostedWorkspace';
+import type { Permission } from './hostedWorkspace.ts';
 
 export interface FileGrants {
   /** Modify the open document at all: Edit Mode, Save, Save As…, the editor. */

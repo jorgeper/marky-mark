@@ -1,5 +1,5 @@
-import type { AppMode } from './appMode';
-import type { ViewMode } from './settings';
+import type { AppMode } from './appMode.ts';
+import type { ViewMode } from './settings.ts';
 
 /**
  * PRD 009 Req 4/5: the mode-switch decision, as one pure function. The app

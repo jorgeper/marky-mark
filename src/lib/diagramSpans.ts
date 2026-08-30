@@ -16,9 +16,9 @@
  */
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
-import { fenceLanguage } from './fenceRenderers';
-import { readFenceWidth } from './fenceWidth';
-import type { Span } from './codeBlockSpans';
+import { fenceLanguage } from './fenceRenderers.ts';
+import { readFenceWidth } from './fenceWidth.ts';
+import type { Span } from './codeBlockSpans.ts';
 
 /** One qualifying fence's decoration inputs, in document order. */
 export interface DiagramSpan {

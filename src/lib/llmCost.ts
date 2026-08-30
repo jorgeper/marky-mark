@@ -10,9 +10,9 @@
  * per-provider table and its "as of <date>" caveat belong to #119, not here.
  */
 
-import { sectionContent } from './sectionModel';
-import { summaryKeyForEntry, type SummaryKeyContext } from './summaryCache';
-import type { ZoomView } from './zoomLevels';
+import { sectionContent } from './sectionModel.ts';
+import { summaryKeyForEntry, type SummaryKeyContext } from './summaryCache.ts';
+import type { ZoomView } from './zoomLevels.ts';
 
 /**
  * The token heuristic: ~4 characters per token for English prose, the rule of

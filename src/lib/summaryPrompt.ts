@@ -15,9 +15,9 @@
  * clock — a caller hands it text and gets an `LlmRequest` value back.
  */
 
-import { SUMMARY_OUTPUT_TOKENS } from './llmCost';
-import type { LlmRequest } from './llmSeam';
-import type { ZoomLevel } from './zoomLevels';
+import { SUMMARY_OUTPUT_TOKENS } from './llmCost.ts';
+import type { LlmRequest } from './llmSeam.ts';
+import type { ZoomLevel } from './zoomLevels.ts';
 
 /**
  * PRD 011 Req 25: the bound on what one slot may send, in characters.

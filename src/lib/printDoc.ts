@@ -1,4 +1,4 @@
-import { STATIC_PAGE_CSS } from './exportDoc';
+import { STATIC_PAGE_CSS } from './exportDoc.ts';
 
 /**
  * SPEC18 §2 / issue #124: the pure builder behind File → Print….

@@ -17,7 +17,7 @@
  * they are exactly what crosses the IPC boundary.
  */
 
-import type { LlmHttpResponse, LlmTransport } from './llmSeam';
+import type { LlmHttpResponse, LlmTransport } from './llmSeam.ts';
 
 /** PRD 011 Req 12: the Rust command (`src-tauri/src/lib.rs`) that sends it. */
 export const LLM_REQUEST_COMMAND = 'llm_request';

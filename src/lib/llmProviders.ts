@@ -26,9 +26,9 @@ import type {
   LlmRequest,
   LlmResponse,
   LlmUsage,
-} from './llmSeam';
-import { USAGE_UNKNOWN } from './llmSeam';
-import { customEndpoint } from './llmCustomEndpoint';
+} from './llmSeam.ts';
+import { USAGE_UNKNOWN } from './llmSeam.ts';
+import { customEndpoint } from './llmCustomEndpoint.ts';
 
 /** PRD 011 Req 5: where each hosted provider lives. Only `custom` is user-supplied. */
 export const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
@@ -50,7 +50,7 @@ export const MALFORMED_MESSAGE = 'The provider returned a reply the app could no
 // `llmCustomEndpoint.ts` so the settings area can validate a base URL without
 // dragging this module's provider hosts into the static web build. Re-exported
 // here because this module is still the seam's single custom-endpoint answer.
-export { customEndpoint, INVALID_BASE_URL_MESSAGE } from './llmCustomEndpoint';
+export { customEndpoint, INVALID_BASE_URL_MESSAGE } from './llmCustomEndpoint.ts';
 
 const JSON_HEADERS = { 'content-type': 'application/json' };
 

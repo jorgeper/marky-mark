@@ -183,7 +183,7 @@ describe('comment format: version literal and migration seam (PRD 004 §A/C/F)',
     // (issue #15) — in particular it no longer re-serializes to reuse
     // parseSidecar, and no store can import it back into a cycle.
     expect(seamSource.match(/^import .*/gm)).toEqual([
-      "import type { Anchor, CommentData, RetainedKeys, ThreadReply } from './anchoring';",
+      "import type { Anchor, CommentData, RetainedKeys, ThreadReply } from './anchoring.ts';",
     ]);
     expect(seamSource).not.toMatch(/JSON\.stringify/);
 
@@ -198,7 +198,7 @@ describe('comment format: version literal and migration seam (PRD 004 §A/C/F)',
     };
     walk(fileURLToPath(new URL('../../src', import.meta.url)));
     const importers = srcFiles
-      .filter((f) => !f.endsWith('/commentFormat.ts') && /from '[^']*commentFormat'/.test(readFileSync(f, 'utf8')))
+      .filter((f) => !f.endsWith('/commentFormat.ts') && /from '[^']*commentFormat(\.ts)?'/.test(readFileSync(f, 'utf8')))
       .map((f) => f.slice(f.lastIndexOf('/src/')))
       .sort();
     expect(importers).toEqual(['/src/lib/embedded.ts', '/src/lib/sidecar.ts']);

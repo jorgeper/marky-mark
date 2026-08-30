@@ -7,8 +7,8 @@
  * CodeMirror transaction so each action is a single undo step.
  */
 
-import { displayCombo, type HotkeyMap } from './hotkeys';
-import { tableRegionAt } from './tableEdit';
+import { displayCombo, type HotkeyMap } from './hotkeys.ts';
+import { tableRegionAt } from './tableEdit.ts';
 
 /** SPEC43 §1: every user-visible string lives here — a rename is one file. */
 export const SMART_EDIT_NAME = 'Smart Edit';

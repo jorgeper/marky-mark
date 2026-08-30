@@ -18,7 +18,7 @@
  *                            (`/api/workspaces/<id>/files/…`, Req 8)
  */
 
-import { WORKSPACE_FILE_EXT } from './workspace';
+import { WORKSPACE_FILE_EXT } from './workspace.ts';
 
 /** The virtual config directory: the per-user, workspace-independent blobs. */
 export const HOSTED_CONFIG_DIR = '/config';

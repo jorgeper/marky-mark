@@ -17,7 +17,7 @@
  * match into the document offsets the edit pane selects.
  */
 
-import { isMarkdownFile, visibleEntries, type DirEntry } from './folderTree';
+import { isMarkdownFile, visibleEntries, type DirEntry } from './folderTree.ts';
 import {
   groupResults,
   searchFile,
@@ -26,7 +26,7 @@ import {
   type SearchFile,
   type SearchMatcher,
   type SearchResults,
-} from './searchCore';
+} from './searchCore.ts';
 
 /** The two filesystem seams the scan walks, plus the path joiner. */
 export interface ScanSeams {

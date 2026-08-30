@@ -8,7 +8,7 @@
  * decided here where a unit test can pin them.
  */
 
-import type { SearchResults } from './searchCore';
+import type { SearchResults } from './searchCore.ts';
 
 export type SearchViewState = 'idle' | 'error' | 'scanning' | 'no-results' | 'results';
 

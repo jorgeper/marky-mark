@@ -15,11 +15,11 @@
  * a pure function over plain state, and this module still sends nothing.
  */
 
-import { testFailureMessage } from './llmSettings';
-import { excerptFromBody, type Excerpt } from './sectionExcerpt';
-import { findSection, parseSections, type DocumentSections, type SectionNode } from './sectionModel';
-import { summaryKeyForEntry, type SummaryKeyContext } from './summaryCache';
-import type { SummarySlotState, SummaryStates } from './summaryPlan';
+import { testFailureMessage } from './llmSettings.ts';
+import { excerptFromBody, type Excerpt } from './sectionExcerpt.ts';
+import { findSection, parseSections, type DocumentSections, type SectionNode } from './sectionModel.ts';
+import { summaryKeyForEntry, type SummaryKeyContext } from './summaryCache.ts';
+import type { SummarySlotState, SummaryStates } from './summaryPlan.ts';
 import {
   clampZoomLevel,
   zoomView,
@@ -29,7 +29,7 @@ import {
   type FoldedSection,
   type ZoomLevel,
   type ZoomView,
-} from './zoomLevels';
+} from './zoomLevels.ts';
 
 /**
  * PRD 011 Req 18: the ONE answer to "can the document be edited here?". Every

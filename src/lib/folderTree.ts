@@ -6,7 +6,7 @@
  * logic serves macOS, Windows, and the virtual shim fs.
  */
 
-import { OPEN_CAP } from './openFiles';
+import { OPEN_CAP } from './openFiles.ts';
 
 export interface DirEntry {
   name: string;

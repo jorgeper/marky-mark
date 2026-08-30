@@ -10,9 +10,9 @@
  * workspace: at most one is representable at a time by construction.
  */
 
-import { EXPANDED_CAP } from './folderTree';
-import { OPEN_CAP } from './openFiles';
-import { SETTINGS_SCOPES, type Scope } from './settings';
+import { EXPANDED_CAP } from './folderTree.ts';
+import { OPEN_CAP } from './openFiles.ts';
+import { SETTINGS_SCOPES, type Scope } from './settings.ts';
 
 export const WORKSPACE_FILE_EXT = '.marky-workspace';
 

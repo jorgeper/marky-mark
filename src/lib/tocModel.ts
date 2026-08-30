@@ -15,7 +15,7 @@
  * owns.
  */
 
-import type { DocumentSections, SectionNode } from './sectionModel';
+import type { DocumentSections, SectionNode } from './sectionModel.ts';
 
 /**
  * PRD 012 Req 2: one H1–H6 heading row of the TOC, with the children nested

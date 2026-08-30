@@ -8,14 +8,14 @@
  * in src/platform/hostedWorkspaces.ts.
  */
 
-import { fuzzyFilter } from './fuzzy';
-import type { MemberEntry } from './membership';
+import { fuzzyFilter } from './fuzzy.ts';
+import type { MemberEntry } from './membership.ts';
 import {
   DEFAULT_EVERYONE_ROLE,
   type BuiltInRoleName,
   type CreateWorkspaceRequest,
   type WorkspaceMember,
-} from './hostedWorkspace';
+} from './hostedWorkspace.ts';
 
 /**
  * PRD 007 Req 11: one row of `GET /api/workspaces`. Every workspace in the

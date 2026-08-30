@@ -4,7 +4,7 @@
  * explicit discard deletes it. On boot, a non-stale draft offers a restore.
  * Pure: parse/serialize/staleness only — I/O and debounce live in the app.
  */
-import { isDirtyText } from './dirty';
+import { isDirtyText } from './dirty.ts';
 
 export interface Draft {
   version: 1;

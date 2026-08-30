@@ -11,8 +11,8 @@
  * back.
  */
 
-import type { LlmAreaState } from './llmSettings';
-import type { SummaryCacheSize } from './summaryCacheStore';
+import type { LlmAreaState } from './llmSettings.ts';
+import type { SummaryCacheSize } from './summaryCacheStore.ts';
 
 /**
  * PRD 011 Req 30: a cache holding nothing says so in its own words rather than

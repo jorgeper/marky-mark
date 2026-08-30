@@ -85,7 +85,9 @@ function stubWebLlmProviders(): Plugin {
     name: 'mm-stub-web-llm-providers',
     enforce: 'pre',
     resolveId(source, importer) {
-      if (source.endsWith('/llmProviders') && !!importer?.includes('/src/lib/')) return STUB;
+      // src/lib imports carry explicit `.ts` extensions (issue #177), so
+      // match the specifier with and without one.
+      if (/\/llmProviders(\.ts)?$/.test(source) && !!importer?.includes('/src/lib/')) return STUB;
       return null;
     },
     load(id) {

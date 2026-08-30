@@ -7,7 +7,7 @@
  * no react, no CodeMirror, no component imports.
  */
 
-import { rewriteFenceWidth } from './fenceWidth';
+import { rewriteFenceWidth } from './fenceWidth.ts';
 
 /** PRD 015 Req 6: the drag's floor — a drawing never shrinks below this. */
 export const MIN_DIAGRAM_WIDTH = 40;
