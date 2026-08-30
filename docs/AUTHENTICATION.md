@@ -1,0 +1,129 @@
+# How authentication works in hosted Marky Mark
+
+A plain-language tour of Microsoft sign-in as this app uses it: what a
+tenant is, who can log in, how the sign-in dance actually works, and
+where each piece lives in the code. The operator setup steps are in
+[HOSTING-AZURE.md](HOSTING-AZURE.md) § 1; this file explains the model.
+
+## The four words that matter
+
+- **Tenant** — your own little directory of users inside Microsoft's
+  cloud (also called "Microsoft Entra ID directory"). Creating an Azure
+  subscription gave you one automatically (the "Default Directory",
+  e.g. `yourname.onmicrosoft.com`). It is the guest list for your
+  deployment: *only accounts that exist in your tenant can sign in.*
+- **Member** — a normal user object in your tenant. You can mint these
+  freely (`alice@yourname.onmicrosoft.com`) and hand out the passwords.
+- **Guest** — a user object in your tenant that *points at an account
+  that lives somewhere else*: someone's personal Microsoft account, or
+  their work account in a different company's tenant. You invite them
+  by email; accepting the invite creates the guest object. They keep
+  signing in with their own credentials — your tenant just recognises
+  them afterwards.
+- **App registration** — Marky Mark's identity card inside your tenant
+  (the "Marky Mark" entry under App registrations). It fixes two ids
+  the server trusts: the **tenant id** (which directory may sign users
+  in) and the **client id** (which app the tokens are for). It is
+  registered *single-tenant*: your directory only.
+
+So, to your two questions: **yes**, users you create in the tenant can
+log in, and **yes**, people outside it can too once you invite them as
+guests — with a personal Microsoft account, a work account from another
+tenant, or (with the default invite settings) any email at all, which
+gets a one-time-passcode flow. What can *not* happen is a stranger
+signing in uninvited: no account in your tenant, no way in.
+
+## The sign-in dance, step by step
+
+The flow is "authorization code + PKCE" — the standard way a
+browser-only app signs in without ever holding a secret. In Marky Mark:
+
+1. You open the site. With no session, the server serves the SPA with a
+   `marky-mark-hosted` marker and the SPA shows only a sign-in page.
+2. You click **Sign in with Microsoft**. The SPA asks the server where
+   to go (`POST /api/auth/sign-in`), and the server answers with your
+   tenant's authorize URL —
+   `login.microsoftonline.com/<tenant-id>/oauth2/v2.0/authorize` — with
+   the client id and the scopes `openid profile email` already pinned
+   (`buildAuthorizeUrl`, `server/providers/azure/entra.ts`).
+3. The SPA adds the parts only it knows — its own redirect URI, a CSRF
+   `state`, and a freshly generated PKCE challenge — and sends your
+   browser there (`src/lib/hostedAuth.ts`).
+4. Microsoft authenticates you *on its own pages*: password, MFA,
+   whatever your account requires. Marky Mark never sees credentials.
+   For a guest, Microsoft bounces through their home login (their
+   personal-account or employer's page) and comes back.
+5. Microsoft redirects your browser back to the app's registered
+   redirect URI with a one-time **code**. The SPA trades the code (plus
+   the PKCE verifier that proves it started the flow) at your tenant's
+   token endpoint for tokens. No app secret is involved — the PKCE
+   pair is what makes the exchange safe for a public client.
+6. Out of that exchange the SPA keeps one thing: the **id_token**, a
+   signed statement from your tenant — "this is user `<oid>`, named so
+   and so, signed in to app `<client-id>` in tenant `<tenant-id>`". It
+   becomes the session: the SPA stores it and sends it as the bearer on
+   every API call.
+7. On every request, the server verifies that token's signature against
+   your tenant's published public keys (JWKS) and checks exactly two
+   pinned claims: the **issuer** must be your tenant and the
+   **audience** must be your client id
+   (`createEntraAuthProvider`, `server/providers/azure/entra.ts`).
+   Anything else — expired, another tenant, another app — is a flat
+   401. There is no server-side session store to leak or clean up.
+
+Who you *are* to the app is the token's `oid` claim — the user object's
+permanent id in your tenant. Workspace manifests record members by that
+id, so renaming a user or changing their email breaks nothing.
+
+Authentication ends there; **authorization** is the app's own layer on
+top: each workspace's manifest maps member ids to roles (Owner, Editor,
+…), and the server checks the required permission on every operation.
+Signing in successfully grants nothing by itself — a signed-in user
+with no membership anywhere can list workspace names and that's it.
+
+## Adding people
+
+Create a member (they sign in with this new account):
+
+```sh
+az ad user create \
+  --display-name "Alice Example" \
+  --user-principal-name alice@<yourtenant>.onmicrosoft.com \
+  --password '<a strong temp password>' --force-change-password-next-sign-in true
+```
+
+Invite a guest (they sign in with their existing account):
+
+```sh
+az rest --method POST --uri https://graph.microsoft.com/v1.0/invitations \
+  --body '{"invitedUserEmailAddress":"friend@example.com","inviteRedirectUrl":"https://<your-app>.azurewebsites.net/"}'
+```
+
+Portal equivalents: **Entra ID → Users → New user → Create new user /
+Invite external user**. The invite email's link has the person accept
+into your tenant; after that they sign in to Marky Mark normally.
+
+Then give them access in the app: because of the Graph limitation below
+the member *search* picker fails against a real tenant, so flip the
+workspace's **everyone-in-tenant access** toggle (workspace settings)
+to admit every tenant account at a default role instead.
+
+## The one known gap
+
+Tenant user **search and avatars** (the membership picker) call
+Microsoft Graph with the session id_token, but Graph only accepts
+tokens minted *for Graph* — so those two features fail against a real
+tenant until an on-behalf-of exchange is implemented. Sign-in, roles,
+files and everything else are unaffected. Details:
+[HOSTING-AZURE.md](HOSTING-AZURE.md) § Known limitations.
+
+## Where the pieces live
+
+| Piece | File |
+| --- | --- |
+| Authorize URL, JWKS validation, iss/aud pinning | `server/providers/azure/entra.ts` |
+| PKCE + state generation, callback parsing, token exchange | `src/lib/hostedAuth.ts` |
+| Sign-in page / hosted marker | `src/components/HostedSignIn.tsx`, `server/app.ts` |
+| Per-request auth guard | `server/providers/types.ts` (`AuthProvider`), used by `server/app.ts` |
+| Roles and per-operation permission checks | `server/workspaces.ts`, reference in `server/README.md` |
+| Local dev stand-in (mock users, no Microsoft) | `server/providers/mock/auth.ts` |
