@@ -43,14 +43,22 @@ ensureSpaBuilt(root);
 if (await portOpen(AZURITE_PORT)) {
   console.log(`server:local — reusing the Azurite already listening on :${AZURITE_PORT}`);
 } else {
+  // Issue #179: the e2e lane (playwright.config.ts sets MM_AZURITE_IN_MEMORY=1)
+  // keeps Azurite's store in RAM, so nothing — a killed test's crash-safe
+  // draft, a previous gate run's workspaces — survives into the next run or
+  // rides along when node_modules is copied into a fresh worktree. Hand-run
+  // `server:local` keeps persisting under node_modules/.cache/azurite; delete
+  // that directory to wipe local hosted state (server/README.md § Local
+  // development).
+  const inMemory = process.env.MM_AZURITE_IN_MEMORY === '1';
   const location = path.join(root, 'node_modules', '.cache', 'azurite');
-  mkdirSync(location, { recursive: true });
+  if (!inMemory) mkdirSync(location, { recursive: true });
   const azurite = spawn(
     process.execPath,
     [
       path.join(root, 'node_modules', 'azurite', 'dist', 'src', 'blob', 'main.js'),
       '--silent',
-      '--location', location,
+      ...(inMemory ? ['--inMemoryPersistence'] : ['--location', location]),
       '--blobHost', '127.0.0.1',
       '--blobPort', String(AZURITE_PORT),
       // The SDK's service API version usually runs ahead of the emulator's

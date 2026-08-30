@@ -51,7 +51,10 @@ session here can run the tiers for you:
 ## Odds and ends
 
 - The hosted flavor runs offline with `npm run server:local` (Azurite +
-  mock auth, no Azure resources);
+  mock auth, no Azure resources). Its Azurite persists state in
+  `node_modules/.cache/azurite` — delete that directory to wipe it; the e2e
+  lane instead runs Azurite in memory (`MM_AZURITE_IN_MEMORY=1`), fresh per
+  run.
   [`server/README.md`](../server/README.md)
   is its backend reference and
   [HOSTING-AZURE.md](HOSTING-AZURE.md) the operator guide for deploying it

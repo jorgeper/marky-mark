@@ -29,6 +29,15 @@ starts the server at <http://localhost:4924>. Sign in via
 `POST /api/auth/sign-in` with `{"username": "ada"}` (see the seeded users in
 `providers/mock/users.ts`). Everything runs offline — no Azure resources.
 
+The auto-started Azurite persists its store in `node_modules/.cache/azurite`,
+so your files, drafts and workspaces survive restarts; delete that directory
+(with the server stopped) to wipe all local hosted state. The Playwright e2e
+lane never shares that store: `playwright.config.ts` launches this same
+script with `MM_AZURITE_IN_MEMORY=1`, which runs Azurite with
+`--inMemoryPersistence` so every gate run starts from an empty, RAM-only
+store (issue #179 — a killed test's crash-safe draft must not poison the
+next run).
+
 ## Production (Azure App Service, Linux)
 
 The server starts under plain `node` on current Node LTS (≥ 22.18, which
@@ -52,6 +61,7 @@ the environment reference is below.
 | `MM_STATIC_DIR` | both | Directory of the built SPA. Default `dist`. |
 | `MM_STORAGE_CONTAINER` | both | Blob container for files. Default `marky-mark`. |
 | `AZURE_STORAGE_CONNECTION_STRING` | azure (required); local (optional) | Storage connection string. Local default: Azurite's well-known dev connection string. |
+| `MM_AZURITE_IN_MEMORY` | local (dev script only) | `1` makes `npm run server:local` start its Azurite with `--inMemoryPersistence` — a fresh, RAM-only store per boot. Set by the e2e lane; hand-run servers persist by default. |
 | `ENTRA_TENANT_ID` | azure (required) | Entra ID tenant (single-tenant app registration). |
 | `ENTRA_CLIENT_ID` | azure (required) | Entra ID application (client) id — also the expected token audience. |
 

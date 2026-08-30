@@ -4,6 +4,9 @@ import { addComment, landInPreview, menuSave, openSettings, pasteImage, revealTo
 // PRD 011 Req 9 (#121): the sentence under test comes from the module that
 // owns it, so a reworded message fails E246 rather than passing a stale copy.
 import { NO_LLM_CONFIGURED_MESSAGE } from '../../src/lib/llmDeployment';
+// Issue #179: E325 poisons the store with a real draft payload, built by the
+// module that owns the format so a schema change fails the test loudly.
+import { serializeDraft } from '../../src/lib/drafts';
 
 // PRD 007 Req 1+4: the hosted backend in local dev mode — booted by the
 // second `webServer` entry in playwright.config.ts (`npm run server:local`:
@@ -384,6 +387,16 @@ async function sharedWorkspace(
 
 /** Sign in through the UI as `username` with the page bound to a workspace. */
 async function signInTo(page: Page, username: string, workspace?: string): Promise<void> {
+  // Issue #179: discard any crash-safe draft (SPEC30 §3's draft.json, written
+  // to the user's roaming config blob) that a test killed mid-edit left
+  // behind — otherwise the app boots into the "Restore unsaved changes?"
+  // overlay, every click under it is intercepted, and one kill cascades
+  // through the rest of the suite. Every UI test starts draft-free.
+  const token = await signIn(page.request, username);
+  const dropped = await page.request.delete(`${HOSTED}/api/me/files/draft.json`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect([200, 404]).toContain(dropped.status());
   await page.goto(`${HOSTED}/${workspace ? `?workspace=${workspace}` : ''}`);
   await page.getByTestId('hosted-sign-in-username').fill(username);
   await page.getByTestId('hosted-sign-in-submit').click();
@@ -2432,4 +2445,39 @@ test('E246: PRD 011 Reqs 8+9 — hosted with no operator provider says so, and o
   await expect(page.getByTestId('summary-cache-size')).toHaveCount(0);
   await expect(page.getByTestId('summary-cache-clear')).toHaveCount(0);
   await page.getByTestId('settings-close').click();
+});
+
+test('E325: a crash-safe draft left in the store by a killed test does not hijack the next sign-in', async ({
+  page,
+  request,
+}) => {
+  // Issue #179 / SPEC30 §3: a hosted test killed mid-edit leaves its debounced
+  // draft.json in the signed-in user's roaming config blob. Unhandled, every
+  // later test signing in as that user boots into the "Restore unsaved
+  // changes?" overlay, its clicks are intercepted, and one kill cascades
+  // through the suite. Poison the store deliberately, then prove the next UI
+  // sign-in starts draft-free.
+  const ada = await signIn(request, 'ada');
+  const headers = { Authorization: `Bearer ${ada}` };
+  const poison = serializeDraft({
+    version: 1,
+    // An untitled buffer with content is never stale, so absent a reset this
+    // draft is guaranteed to trigger the restore offer.
+    docPath: null,
+    content: '# poisoned\n\nleft by a test killed mid-edit\n',
+    at: new Date().toISOString(),
+  });
+  const put = await request.put(`${HOSTED}/api/me/files/draft.json`, { headers, data: poison });
+  expect(put.status()).toBe(200);
+
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  // The draft offer fires ~250ms after boot (src/App.tsx SPEC30 §3); outwait
+  // it before asserting the overlay never came.
+  await page.waitForTimeout(750);
+  await expect(page.getByTestId('restore-prompt')).toHaveCount(0);
+  // The poison is gone from the store — discarded, not merely not shown — so
+  // it cannot resurface in any later test either.
+  const get = await request.get(`${HOSTED}/api/me/files/draft.json`, { headers });
+  expect(get.status()).toBe(404);
 });

@@ -54,6 +54,11 @@ export default defineConfig({
       url: `http://localhost:${HOSTED_PORT}/`,
       reuseExistingServer: true,
       timeout: 180_000,
+      // Issue #179: the e2e lane's Azurite holds its store in RAM, so every
+      // gate run starts from an empty store — no crash-safe draft or
+      // workspace leftovers from a previous run (hand-run `server:local`
+      // still persists; see server/README.md § Local development).
+      env: { MM_AZURITE_IN_MEMORY: '1' },
     },
   ],
 });
