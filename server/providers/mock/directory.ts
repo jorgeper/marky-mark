@@ -51,12 +51,25 @@ export function mockInvitationId(email: string): string {
   return `mock-invite-${email.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 }
 
+/**
+ * Issue #195: the deterministic fake redeem URL the mock answers on every
+ * invitation creation — what real Graph's inviteRedeemUrl is offline, so
+ * the copy-link e2e flows can pin an exact value.
+ */
+export function mockRedeemUrl(id: string): string {
+  return `https://invitations.mock.example/redeem/${id}`;
+}
+
 /** PRD 017 Req 33: the e2e lane's levers over the in-memory invitations. */
 export interface InvitationTestHooks {
   /** Mark an invited guest redeemed (Graph: externalUserState leaves PendingAcceptance). */
   acceptInvitation(id: string): boolean;
   /** Forget an invitation entirely, so a test restores the seeded directory. */
   withdrawInvitation(id: string): boolean;
+  // Issue #195: whether the LAST invite for the id asked the directory to
+  // send its mail — how the e2e lane proves Get invite link suppressed it.
+  /** null when the id was never invited this run. */
+  invitationSendEmail(id: string): boolean | null;
 }
 
 /**
@@ -65,7 +78,9 @@ export interface InvitationTestHooks {
  */
 export function invitationTestHooks(directory: DirectoryProvider): InvitationTestHooks | null {
   const maybe = directory as DirectoryProvider & Partial<InvitationTestHooks>;
-  return typeof maybe.acceptInvitation === 'function' && typeof maybe.withdrawInvitation === 'function'
+  return typeof maybe.acceptInvitation === 'function' &&
+    typeof maybe.withdrawInvitation === 'function' &&
+    typeof maybe.invitationSendEmail === 'function'
     ? (maybe as DirectoryProvider & InvitationTestHooks)
     : null;
 }
@@ -74,6 +89,8 @@ export function createMockDirectoryProvider(): DirectoryProvider & InvitationTes
   // PRD 017 Req 33: invited guests live in memory — reset by a restart or
   // the withdraw hook, which is exactly what the offline e2e lane needs.
   const invited: DirectoryUser[] = [];
+  // Issue #195: the last invite's sendEmail per invited id, for the hook.
+  const sendFlags = new Map<string, boolean>();
   const all = (): DirectoryUser[] => [...SEEDED_USERS, ...invited];
   return {
     kind: 'mock',
@@ -95,28 +112,34 @@ export function createMockDirectoryProvider(): DirectoryProvider & InvitationTes
       return all().map(withAvatar);
     },
     // PRD 017 Req 33: a POST creates an in-memory pending guest. Inviting an
-    // address the directory already knows answers Graph's own refusal shape,
-    // so the Req 29 refusal lane (502, message shown inline) is drivable
-    // offline: invite the same address twice.
-    async invite({ email }: DirectoryInvitation): Promise<DirectoryInviteResult> {
+    // address the directory already knows as a seeded user or an ACCEPTED
+    // guest answers Graph's own refusal shape, so the Req 29 refusal lane
+    // (502, message shown inline) stays drivable offline. Issue #195:
+    // re-inviting a still-PENDING invited guest succeeds again with a fresh
+    // deterministic redeem URL — mirroring real Graph, whose /invitations
+    // re-POST is exactly how a redeem URL is obtained for a pending guest.
+    async invite({ email, sendEmail }: DirectoryInvitation): Promise<DirectoryInviteResult> {
       const address = email.trim();
       const q = address.toLowerCase();
-      if (all().some((u) => u.username.toLowerCase() === q)) {
+      const existing = all().find((u) => u.username.toLowerCase() === q);
+      if (existing && existing.pending !== true) {
         return {
           ok: false,
           code: 'invitedUserAlreadyExists',
           message: `A user with the address ${address} already exists in the directory.`,
         };
       }
-      const user: DirectoryUser = {
+      const user: DirectoryUser = existing ?? {
         id: mockInvitationId(address),
         username: address,
         displayName: address,
         isGuest: true,
         pending: true,
+        email: address,
       };
-      invited.push(user);
-      return { ok: true, user: withAvatar(user) };
+      if (!existing) invited.push(user);
+      sendFlags.set(user.id, sendEmail);
+      return { ok: true, user: withAvatar(user), redeemUrl: mockRedeemUrl(user.id) };
     },
     // Issue #193: rescind support — deleting forgets an invited guest, the
     // Graph-faithful mirror of DELETE /v1.0/users/{id}. The seeded users are
@@ -145,7 +168,11 @@ export function createMockDirectoryProvider(): DirectoryProvider & InvitationTes
       const at = invited.findIndex((u) => u.id === id);
       if (at === -1) return false;
       invited.splice(at, 1);
+      sendFlags.delete(id);
       return true;
+    },
+    invitationSendEmail(id: string): boolean | null {
+      return sendFlags.get(id) ?? null;
     },
     async getUserPhoto(id: string): Promise<UserPhoto | null> {
       const found = all().find((u) => u.id === id);

@@ -15,6 +15,9 @@ export interface InvitedGuest {
   email: string;
   displayName: string;
   pending: true;
+  // Issue #195: Graph yields the redeem URL only at creation, so every 201
+  // carries it — the invite surfaces show it beside their success.
+  redeemUrl: string;
   /** Req 30: present when the invitation landed but the role grant did not. */
   membership?: { error: string };
 }
@@ -52,6 +55,13 @@ export interface DeploymentAdmin {
    * 409's eligibility message, a 502's Graph refusal) shown verbatim.
    */
   rescind(userId: string): Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * Issue #195: a fresh redeem URL for a pending guest — the server
+   * re-POSTs the invitation with the mail suppressed. The refusal is the
+   * server's own sentence (the 409's eligibility message, a 502's Graph
+   * refusal) for the People row to show verbatim.
+   */
+  inviteLink(userId: string): Promise<{ ok: true; redeemUrl: string } | { ok: false; error: string }>;
 }
 
 /** The server's error shape, when it sent one at all. */
@@ -99,6 +109,14 @@ export function createHostedAdmin(api: ApiFetch): DeploymentAdmin {
       });
       if (!res.ok) return { ok: false, error: await errorOf(res) };
       return { ok: true };
+    },
+    async inviteLink(userId) {
+      const res = await api(`/api/admin/invitations/${encodeURIComponent(userId)}/link`, {
+        method: 'POST',
+      });
+      if (!res.ok) return { ok: false, error: await errorOf(res) };
+      const { redeemUrl } = (await res.json()) as { redeemUrl: string };
+      return { ok: true, redeemUrl };
     },
   };
 }

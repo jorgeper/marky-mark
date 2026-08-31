@@ -29,11 +29,14 @@ interface GraphUser {
   userPrincipalName?: string;
   userType?: string;
   externalUserState?: string;
+  mail?: string;
 }
 
 // PRD 017 Req 33: externalUserState joins the $select of search, getUser and
 // listUsers, so an unredeemed invitation reads as Pending everywhere.
-const USER_SELECT = 'id,displayName,userPrincipalName,userType,externalUserState';
+// Issue #195: mail joins it too — a guest's userPrincipalName is the mangled
+// #EXT# form, and the copy-link re-POST needs the real invited address.
+const USER_SELECT = 'id,displayName,userPrincipalName,userType,externalUserState,mail';
 
 /**
  * A Graph refusal AS DATA — error.code and message from the JSON body when
@@ -71,6 +74,8 @@ function toDirectoryUser(u: GraphUser): DirectoryUser {
     isGuest: u.userType === 'Guest',
     // PRD 017 Req 33: only an unredeemed invitation carries the flag at all.
     ...(u.externalUserState === 'PendingAcceptance' ? { pending: true } : {}),
+    // Issue #195: the real mail address, when Graph records one.
+    ...(u.mail ? { email: u.mail } : {}),
   };
 }
 
@@ -145,22 +150,33 @@ export function createGraphDirectoryProvider(
           Authorization: `Bearer ${await getGraphToken(auth)}`,
           'Content-Type': 'application/json',
         },
+        // Issue #195: with the mail suppressed there is nothing to carry the
+        // customized body, so the message rides along only when one is sent.
         body: JSON.stringify({
           invitedUserEmailAddress: invitation.email,
           inviteRedirectUrl: invitation.redirectUrl,
-          sendInvitationMessage: true,
-          invitedUserMessageInfo: { customizedMessageBody: invitation.message },
+          sendInvitationMessage: invitation.sendEmail,
+          ...(invitation.sendEmail
+            ? { invitedUserMessageInfo: { customizedMessageBody: invitation.message } }
+            : {}),
         }),
       });
       if (!res.ok) return graphRefusal(res, `Graph refused the invitation (${res.status})`);
       const body = (await res.json()) as {
         invitedUser?: { id?: string };
         invitedUserDisplayName?: string;
+        inviteRedeemUrl?: string;
       };
       const id = body.invitedUser?.id;
       if (!id) return { ok: false, code: '', message: 'Graph answered without an invitedUser.id' };
+      // Issue #195: the redeem URL exists only in this creation answer; it
+      // is returned as data and must never be logged.
+      if (!body.inviteRedeemUrl) {
+        return { ok: false, code: '', message: 'Graph answered without an inviteRedeemUrl' };
+      }
       return {
         ok: true,
+        redeemUrl: body.inviteRedeemUrl,
         user: {
           id,
           displayName: body.invitedUserDisplayName || invitation.email,
@@ -168,6 +184,7 @@ export function createGraphDirectoryProvider(
           avatarUrl: userPhotoUrl(id),
           isGuest: true,
           pending: true,
+          email: invitation.email,
         },
       };
     },

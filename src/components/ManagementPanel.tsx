@@ -7,7 +7,7 @@
 // capability AND /api/me says admin — and the server gates every route
 // again regardless.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   adminWorkspaceTotals,
   explicitMembershipCounts,
@@ -25,6 +25,9 @@ import {
   type DeploymentSettings,
   type ListingPolicy,
 } from '../lib/deploymentSettings';
+// Issue #195: the copy-confirmation duration is the code-copy button's, so
+// "Copied" feels identical everywhere a copy control lives.
+import { CONFIRM_MS } from '../lib/codeCopy';
 import { parseInvitationRequest } from '../lib/invitations';
 import type { MemberEntry } from '../lib/membership';
 import { deleteConfirmationMatches, formatOwnerNames } from '../lib/workspaceLifecycle';
@@ -45,6 +48,10 @@ export interface ManagementPanelProps {
   admin: DeploymentAdmin;
   /** Open/Delete/resolve/search ride the existing lifecycle seam. */
   lifecycle: WorkspaceLifecycle;
+  // Issue #195: App's one clipboard seam (platform.copyText, else the
+  // browser clipboard) — resolves whether the write landed, so a refusal
+  // can fall back to showing the URL for manual copy.
+  copy: (text: string) => Promise<boolean>;
   onClose: () => void;
 }
 
@@ -56,7 +63,7 @@ function everyoneLabel(everyone: AdminWorkspaceRow['everyone']): string {
   return everyone.enabled ? everyone.role : 'Off';
 }
 
-export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelProps) {
+export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementPanelProps) {
   const [tab, setTab] = useState<ManagementTab>('workspaces');
 
   // PRD 017 Req 16: the Workspaces rows — ALSO the People tab's source of
@@ -88,6 +95,24 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
   const [parseError, setParseError] = useState('');
   const [saveError, setSaveError] = useState('');
   const [saved, setSaved] = useState(false);
+
+  // Issue #195: the redeem URL of the most recent form invitation (Send or
+  // Get invite link) — shown OUTSIDE the form so it survives Send closing
+  // it, with its own Copied confirmation. The visible URL is itself the
+  // manual-copy fallback.
+  const [inviteLink, setInviteLink] = useState<{ email: string; url: string } | null>(null);
+  const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
+  // Issue #195: per-row copy-link outcome — confirmation, the manual-copy
+  // URL when the clipboard write refused, or the server's refusal sentence.
+  const [rowLink, setRowLink] = useState<
+    | { id: string; kind: 'copied' }
+    | { id: string; kind: 'manual'; url: string }
+    | { id: string; kind: 'error'; error: string }
+    | null
+  >(null);
+  const [rowLinkBusy, setRowLinkBusy] = useState<string | null>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(copyTimer.current), []);
 
   // Issue #193: the pending guest whose invitation is being rescinded,
   // behind the confirm step that names their email.
@@ -193,17 +218,32 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
     setSaved(true);
   };
 
+  // Issue #195: one brief "Copied" window for whichever copy confirmed
+  // last — codeCopy's CONFIRM_MS, then both confirmations revert.
+  const confirmCopied = (apply: () => void) => {
+    apply();
+    clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => {
+      setInviteLinkCopied(false);
+      setRowLink((prior) => (prior?.kind === 'copied' ? null : prior));
+    }, CONFIRM_MS);
+  };
+
   /**
    * PRD 017 Req 31: invite without a workspace grant. The SHARED parser
    * predicts the 400 before sending (the settings tab's pattern); a server
    * refusal — Graph's own message on the 502 — shows inline, verbatim.
-   * Success appends the user row, Pending badge from the directory flag.
+   * Success upserts the user row, Pending badge from the directory flag.
+   * Issue #195: `sendEmail: false` is the form's Get invite link — the same
+   * creation with Microsoft's mail suppressed, leaving the form open; both
+   * outcomes surface the creation-time redeem URL beside the form.
    */
-  const sendInvite = async () => {
+  const submitInvite = async (sendEmail: boolean) => {
     const note = inviteNote.trim();
     const parsed = parseInvitationRequest({
       email: inviteEmail.trim(),
       ...(note !== '' ? { note } : {}),
+      ...(sendEmail ? {} : { sendEmail: false }),
     });
     if (!parsed.ok) {
       setInviteError(parsed.error);
@@ -211,6 +251,8 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
     }
     setInviteBusy(true);
     setInviteError('');
+    setInviteLink(null);
+    setInviteLinkCopied(false);
     const answer = await admin.invite(parsed.invitation);
     setInviteBusy(false);
     if (!answer.ok) {
@@ -218,13 +260,41 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
       return;
     }
     const { guest } = answer;
+    // Issue #195: an upsert, not an append — Get invite link may refresh an
+    // invitation whose Pending row is already listed.
     setUsers((prior) => [
-      ...(prior ?? []),
+      ...(prior ?? []).filter((user) => user.id !== guest.id),
       { id: guest.id, displayName: guest.displayName, username: guest.email, isGuest: true, pending: true, admin: false },
     ]);
-    setInviteOpen(false);
-    setInviteEmail('');
-    setInviteNote('');
+    setInviteLink({ email: guest.email, url: guest.redeemUrl });
+    if (sendEmail) {
+      setInviteOpen(false);
+      setInviteEmail('');
+      setInviteNote('');
+    }
+  };
+
+  /**
+   * Issue #195: Copy invite link on a Pending row — the server re-POSTs the
+   * invitation with the mail suppressed and answers a fresh redeem URL,
+   * which lands on the clipboard with brief "Copied" feedback. A refused
+   * clipboard write shows the URL itself for manual copy instead; a server
+   * refusal (the 409 eligibility sentence, a 502) shows verbatim.
+   */
+  const copyRowLink = async (user: AdminUserRow) => {
+    setRowLinkBusy(user.id);
+    setRowLink(null);
+    const answer = await admin.inviteLink(user.id);
+    setRowLinkBusy(null);
+    if (!answer.ok) {
+      setRowLink({ id: user.id, kind: 'error', error: answer.error });
+      return;
+    }
+    if (await copy(answer.redeemUrl)) {
+      confirmCopied(() => setRowLink({ id: user.id, kind: 'copied' }));
+    } else {
+      setRowLink({ id: user.id, kind: 'manual', url: answer.redeemUrl });
+    }
   };
 
   /**
@@ -426,10 +496,51 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
               className="primary"
               data-testid="admin-invite-send"
               disabled={inviteBusy}
-              onClick={() => void sendInvite()}
+              onClick={() => void submitInvite(true)}
             >
               Send
             </button>
+            {/* Issue #195: the same creation without Microsoft's mail — the
+                redeem URL below is the invitation, for when the mail cannot
+                be trusted to arrive. Secondary: Send stays the call to
+                action (issue #192). */}
+            <button
+              type="button"
+              data-testid="admin-invite-get-link"
+              disabled={inviteBusy}
+              onClick={() => void submitInvite(false)}
+            >
+              Get invite link
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Issue #195: the created invitation's redeem URL — outside the form
+          so Send's success (which closes the form) still shows the link it
+          created. The visible URL doubles as the manual-copy fallback. */}
+      {inviteLink && (
+        <div className="field admin-invite-link" data-testid="admin-invite-link" role="status">
+          <label>Invite link for {inviteLink.email}</label>
+          <div className="inline-row">
+            <code className="admin-link-url" data-testid="admin-invite-link-url">
+              {inviteLink.url}
+            </code>
+            <button
+              type="button"
+              data-testid="admin-invite-link-copy"
+              onClick={() => {
+                void copy(inviteLink.url).then((ok) => {
+                  if (ok) confirmCopied(() => setInviteLinkCopied(true));
+                });
+              }}
+            >
+              Copy
+            </button>
+            {inviteLinkCopied && (
+              <span className="hotkey-hint" data-testid="admin-invite-link-copied">
+                Copied
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -475,6 +586,36 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
                 <td>{user.username}</td>
                 <td data-testid={`admin-user-workspaces-${user.id}`}>{memberCounts.get(user.id) ?? 0}</td>
                 <td className="admin-row-actions">
+                  {/* Issue #195: ONLY a Pending row offers Copy invite link —
+                      Graph re-answers a redeem URL solely for an unredeemed
+                      invitation, and the server 409s everyone else. */}
+                  {user.pending === true && (
+                    <button
+                      type="button"
+                      data-testid={`admin-copy-link-${user.id}`}
+                      disabled={rowLinkBusy === user.id}
+                      onClick={() => void copyRowLink(user)}
+                    >
+                      Copy invite link
+                    </button>
+                  )}
+                  {rowLink?.id === user.id && rowLink.kind === 'copied' && (
+                    <span className="hotkey-hint" data-testid={`admin-copy-link-copied-${user.id}`} role="status">
+                      Copied
+                    </span>
+                  )}
+                  {rowLink?.id === user.id && rowLink.kind === 'manual' && (
+                    // Issue #195: the clipboard refused — the URL itself is
+                    // the fallback, visible and selectable for manual copy.
+                    <code className="admin-link-url" data-testid={`admin-copy-link-url-${user.id}`}>
+                      {rowLink.url}
+                    </code>
+                  )}
+                  {rowLink?.id === user.id && rowLink.kind === 'error' && (
+                    <span className="hotkey-hint" data-testid={`admin-copy-link-error-${user.id}`} role="alert">
+                      {rowLink.error}
+                    </span>
+                  )}
                   {/* Issue #193: ONLY a Pending row offers Rescind — members
                       and accepted guests are managed in Entra, never here. */}
                   {user.pending === true && (

@@ -7,7 +7,7 @@ import { BlobServiceClient } from '@azure/storage-blob';
 import { AZURITE_CONNECTION_STRING } from '../../server/config';
 // PRD 017 Req 33 (issue #190): the invited-guest id comes from the module
 // that owns the rule, so a renamed scheme fails here loudly.
-import { mockInvitationId } from '../../server/providers/mock/directory';
+import { mockInvitationId, mockRedeemUrl } from '../../server/providers/mock/directory';
 import {
   CREATE_REFUSAL_HINTS,
   DEPLOYMENT_SETTINGS_BLOB,
@@ -3347,7 +3347,15 @@ test.describe('PRD 017 in-app guest invitations', () => {
         data: { email, workspace: { id: workspaceId, role: 'Viewer' } },
       });
       expect(invited.status()).toBe(201);
-      expect(await invited.json()).toEqual({ id, email, displayName: email, pending: true });
+      // Issue #195: creation is the one moment Graph yields the redeem URL,
+      // so the 201 carries it (the mock's deterministic fake).
+      expect(await invited.json()).toEqual({
+        id,
+        email,
+        displayName: email,
+        pending: true,
+        redeemUrl: mockRedeemUrl(id),
+      });
 
       await signInTo(page, 'katherine', workspaceId);
       await openWorkspaceSettings(page);
@@ -3396,7 +3404,10 @@ test.describe('PRD 017 in-app guest invitations', () => {
     request,
   }) => {
     // Req 29's 502 lane, drivable offline: the mock refuses an address it
-    // already knows with Graph's invitedUserAlreadyExists shape.
+    // already knows with Graph's invitedUserAlreadyExists shape. Issue #195
+    // taught the mock to accept a re-invite while the guest is still
+    // PENDING (that is how a redeem URL is refreshed), so the refusal now
+    // needs a non-pending target: the invitation is accepted first.
     const email = `e379-w${test.info().workerIndex}@example.com`;
     const id = mockInvitationId(email);
     const katherine = await signIn(request, 'katherine');
@@ -3404,6 +3415,7 @@ test.describe('PRD 017 in-app guest invitations', () => {
     try {
       const first = await request.post(`${HOSTED}/api/admin/invitations`, { headers, data: { email } });
       expect(first.status()).toBe(201);
+      expect((await request.post(`${HOSTED}/api/directory/invitations/${id}/accept`, { headers })).status()).toBe(200);
 
       await signInTo(page, 'katherine');
       await page.getByTestId('start-management').click();
@@ -3609,6 +3621,174 @@ test.describe('PRD 017 in-app guest invitations', () => {
       await expect(page.getByTestId(`admin-user-guest-${id}`)).toHaveText('Guest');
       await expect(page.getByTestId(`admin-user-pending-${id}`)).toHaveCount(0);
       await expect(page.getByTestId(`admin-rescind-${id}`)).toHaveCount(0);
+    } finally {
+      await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
+    }
+  });
+
+  /**
+   * Issue #195: a deterministic clipboard for the copy-link flows. The
+   * hosted SPA is the web platform — no copyText shim — so copies go
+   * through navigator.clipboard, which a headless run cannot inspect; the
+   * stub records every write on window.__copies instead.
+   */
+  async function stubClipboard(page: Page): Promise<void> {
+    await page.addInitScript(() => {
+      const copies: string[] = [];
+      (window as unknown as { __copies: string[] }).__copies = copies;
+      navigator.clipboard.writeText = (text: string) => {
+        copies.push(text);
+        return Promise.resolve();
+      };
+    });
+  }
+
+  const lastCopy = (page: Page) =>
+    page.evaluate(() => (window as unknown as { __copies: string[] }).__copies.at(-1));
+
+  test('E385: Copy invite link on a Pending row lands a fresh redeem URL on the clipboard — Copied confirms and reverts, a refused clipboard shows the URL for manual copy, non-pending rows never offer it', async ({
+    page,
+    request,
+  }) => {
+    // Issue #195: the per-row action is an email-suppressed re-POST of the
+    // invitation — Graph yields a redeem URL only at creation, and a
+    // re-POST answers a fresh one without disturbing the pending guest.
+    const email = `e385-w${test.info().workerIndex}@example.com`;
+    const id = mockInvitationId(email);
+    const katherine = await signIn(request, 'katherine');
+    const headers = { Authorization: `Bearer ${katherine}` };
+    try {
+      expect((await request.post(`${HOSTED}/api/admin/invitations`, { headers, data: { email } })).status()).toBe(201);
+      await stubClipboard(page);
+      await signInTo(page, 'katherine');
+      await page.getByTestId('start-management').click();
+      await page.getByTestId('management-tab-people').click();
+      await expect(page.getByTestId(`admin-user-pending-${id}`)).toHaveText('Pending');
+      // Non-pending rows never offer the action: mary is a seeded accepted
+      // guest and ada a member.
+      await expect(page.getByTestId('admin-copy-link-mock-mary')).toHaveCount(0);
+      await expect(page.getByTestId('admin-copy-link-mock-ada')).toHaveCount(0);
+
+      await page.getByTestId(`admin-copy-link-${id}`).click();
+      await expect(page.getByTestId(`admin-copy-link-copied-${id}`)).toHaveText('Copied');
+      expect(await lastCopy(page)).toBe(mockRedeemUrl(id));
+      // Brief confirmation, then back to rest — never stuck.
+      await expect(page.getByTestId(`admin-copy-link-copied-${id}`)).toHaveCount(0, { timeout: 4000 });
+      // The re-POST suppressed Microsoft's mail and left the guest pending.
+      expect(await (await request.get(`${HOSTED}/api/directory/invitations/${id}`, { headers })).json()).toEqual({
+        id,
+        sendEmail: false,
+      });
+      await expect(page.getByTestId(`admin-user-pending-${id}`)).toHaveText('Pending');
+
+      // A clipboard that refuses to write falls back to the URL itself,
+      // visible for manual copy.
+      await page.evaluate(() => {
+        navigator.clipboard.writeText = () => Promise.reject(new Error('denied'));
+      });
+      await page.getByTestId(`admin-copy-link-${id}`).click();
+      await expect(page.getByTestId(`admin-copy-link-url-${id}`)).toHaveText(mockRedeemUrl(id));
+    } finally {
+      await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
+    }
+  });
+
+  test('E386: Get invite link creates the invitation with the mail suppressed and shows the URL to copy — and a normal Send surfaces the link it created', async ({
+    page,
+    request,
+  }) => {
+    // Issue #195: the form's second action — same creation, no Microsoft
+    // mail, the redeem URL shown beside the form for when the invitation
+    // email cannot be trusted to arrive.
+    const email = `e386-w${test.info().workerIndex}@example.com`;
+    const id = mockInvitationId(email);
+    const katherine = await signIn(request, 'katherine');
+    const headers = { Authorization: `Bearer ${katherine}` };
+    try {
+      await stubClipboard(page);
+      await signInTo(page, 'katherine');
+      await page.getByTestId('start-management').click();
+      await page.getByTestId('management-tab-people').click();
+      await page.getByTestId('admin-invite-open').click();
+      await page.getByTestId('admin-invite-email').fill(email);
+      await page.getByTestId('admin-invite-get-link').click();
+      // The URL shows (the visible element IS the manual fallback), the
+      // form stays open, the guest lands Pending, and no mail was sent.
+      await expect(page.getByTestId('admin-invite-link-url')).toHaveText(mockRedeemUrl(id));
+      await expect(page.getByTestId('admin-invite-form')).toBeVisible();
+      await expect(page.getByTestId(`admin-user-pending-${id}`)).toHaveText('Pending');
+      expect(await (await request.get(`${HOSTED}/api/directory/invitations/${id}`, { headers })).json()).toEqual({
+        id,
+        sendEmail: false,
+      });
+      // Copy confirms briefly, then reverts.
+      await page.getByTestId('admin-invite-link-copy').click();
+      await expect(page.getByTestId('admin-invite-link-copied')).toHaveText('Copied');
+      expect(await lastCopy(page)).toBe(mockRedeemUrl(id));
+      await expect(page.getByTestId('admin-invite-link-copied')).toHaveCount(0, { timeout: 4000 });
+
+      // Send re-invites the still-pending address WITH the mail: the form
+      // closes (E375's contract) yet the link it created still shows, and
+      // the row did not double.
+      await page.getByTestId('admin-invite-send').click();
+      await expect(page.getByTestId('admin-invite-form')).toHaveCount(0);
+      await expect(page.getByTestId('admin-invite-link-url')).toHaveText(mockRedeemUrl(id));
+      expect(await (await request.get(`${HOSTED}/api/directory/invitations/${id}`, { headers })).json()).toEqual({
+        id,
+        sendEmail: true,
+      });
+      await expect(page.getByTestId(`admin-user-row-${id}`)).toHaveCount(1);
+    } finally {
+      await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
+    }
+  });
+
+  test('E387: a non-admin gets 403 deployment.admin from both link surfaces — the mail-suppressed invite and the per-row link route', async ({
+    request,
+  }) => {
+    // Issue #195 (Req 2 shape): the one gate for the whole admin surface
+    // covers the new affordances too.
+    const email = `e387-w${test.info().workerIndex}@example.com`;
+    const ada = await signIn(request, 'ada');
+    const headers = { Authorization: `Bearer ${ada}` };
+    const refusedForm = await request.post(`${HOSTED}/api/admin/invitations`, {
+      headers,
+      data: { email, sendEmail: false },
+    });
+    expect(refusedForm.status()).toBe(403);
+    expect(await refusedForm.json()).toEqual({ error: 'forbidden', required: 'deployment.admin' });
+    const refusedRow = await request.post(
+      `${HOSTED}/api/admin/invitations/${mockInvitationId(email)}/link`,
+      { headers },
+    );
+    expect(refusedRow.status()).toBe(403);
+    expect(await refusedRow.json()).toEqual({ error: 'forbidden', required: 'deployment.admin' });
+  });
+
+  test('E388: a non-pending target never gets a link — the 409 sentence names why for an accepted guest, a member, and an unknown id', async ({
+    request,
+  }) => {
+    // Issue #195: the same eligibility decision as #193's rescind gates the
+    // link route, asked before any Graph re-POST.
+    const email = `e388-w${test.info().workerIndex}@example.com`;
+    const id = mockInvitationId(email);
+    const katherine = await signIn(request, 'katherine');
+    const headers = { Authorization: `Bearer ${katherine}` };
+    try {
+      expect((await request.post(`${HOSTED}/api/admin/invitations`, { headers, data: { email } })).status()).toBe(201);
+      expect((await request.post(`${HOSTED}/api/directory/invitations/${id}/accept`, { headers })).status()).toBe(200);
+
+      const accepted = await request.post(`${HOSTED}/api/admin/invitations/${id}/link`, { headers });
+      expect(accepted.status()).toBe(409);
+      expect(((await accepted.json()) as { error: string }).error).toContain('already accepted');
+
+      const member = await request.post(`${HOSTED}/api/admin/invitations/mock-ada/link`, { headers });
+      expect(member.status()).toBe(409);
+      expect(((await member.json()) as { error: string }).error).toContain('member of the tenant');
+
+      const unknown = await request.post(`${HOSTED}/api/admin/invitations/mock-invite-nobody/link`, { headers });
+      expect(unknown.status()).toBe(409);
+      expect(((await unknown.json()) as { error: string }).error).toContain('knows no user');
     } finally {
       await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
     }

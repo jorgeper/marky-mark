@@ -111,6 +111,11 @@ export interface DirectoryUser {
   // invited guest who has not redeemed yet; both People surfaces badge it.
   /** True while an invited guest's invitation is unredeemed. */
   pending?: boolean;
+  // Issue #195: the address the invitation went to — Graph's `mail`, which
+  // for a guest is the real external address while userPrincipalName is the
+  // mangled #EXT# form. The copy-link re-POST must invite THIS address.
+  /** The user's mail address, when the directory records one. */
+  email?: string;
 }
 
 /** PRD 017 Req 29: what the server asks the directory to send. */
@@ -120,6 +125,11 @@ export interface DirectoryInvitation {
   redirectUrl: string;
   /** The invitation mail's customized body (pure template + optional note). */
   message: string;
+  // Issue #195: false creates (or refreshes) the invitation WITHOUT
+  // Microsoft's mail — Graph's sendInvitationMessage: false — so the redeem
+  // URL can be handed over in the app instead.
+  /** Whether the directory should send its invitation mail. */
+  sendEmail: boolean;
 }
 
 /**
@@ -128,7 +138,10 @@ export interface DirectoryInvitation {
  * 502), never a silent success. Transport failures reject instead.
  */
 export type DirectoryInviteResult =
-  | { ok: true; user: DirectoryUser }
+  // Issue #195: `redeemUrl` is Graph's inviteRedeemUrl — it exists ONLY in
+  // the creation answer (it cannot be read back later), works without any
+  // email, and must never reach a log line.
+  | { ok: true; user: DirectoryUser; redeemUrl: string }
   | { ok: false; code: string; message: string };
 
 /**

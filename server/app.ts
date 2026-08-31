@@ -178,6 +178,19 @@ async function handleApi(
       sendJson(res, withdrawn ? 200 : 404, withdrawn ? { withdrawn: id } : { error: 'unknown invitation' });
       return;
     }
+    // Issue #195: read back whether the LAST invite for the id sent the
+    // mail — how the offline lane proves Get invite link suppressed it.
+    // Mock-only like its siblings; never the redeem URL, just the flag.
+    if (req.method === 'GET') {
+      const id = tryDecode(pathname.slice('/api/directory/invitations/'.length));
+      const sendEmail = hooks && id ? hooks.invitationSendEmail(id) : null;
+      if (sendEmail === null) {
+        sendJson(res, 404, { error: 'no such endpoint' });
+        return;
+      }
+      sendJson(res, 200, { id, sendEmail });
+      return;
+    }
   }
 
   if (pathname.startsWith('/api/directory/users/') && req.method === 'GET') {

@@ -67,6 +67,23 @@ describe('PRD 017 §Invitations Req 29 body parser', () => {
     if (!over.ok) expect(over.error).toContain(String(INVITATION_NOTE_MAX));
     expect(parseInvitationRequest({ email: 'a@b.co', note: 42 })).toMatchObject({ ok: false });
   });
+
+  it('U1001: sendEmail parses — only an explicit false is kept, true stays implicit, non-booleans refuse by name', () => {
+    // Issue #195: the Get-invite-link surfaces suppress Microsoft's mail;
+    // the default (absent or true) is normalized to absent so the wire body
+    // stays exactly what it was before the flag existed.
+    expect(parseInvitationRequest({ email: 'a@b.co', sendEmail: false })).toEqual({
+      ok: true,
+      invitation: { email: 'a@b.co', sendEmail: false },
+    });
+    expect(parseInvitationRequest({ email: 'a@b.co', sendEmail: true })).toEqual({
+      ok: true,
+      invitation: { email: 'a@b.co' },
+    });
+    const bad = parseInvitationRequest({ email: 'a@b.co', sendEmail: 'no' });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toContain('sendEmail');
+  });
 });
 
 describe('PRD 017 §Invitations Req 29 message template and redirect origin', () => {

@@ -147,7 +147,7 @@ async function inviteGuest(
     sendJson(res, 400, { error: parsed.error });
     return;
   }
-  const { email, note, workspace } = parsed.invitation;
+  const { email, note, workspace, sendEmail } = parsed.invitation;
   // Req 30: the caller must hold workspace.members there — implicit for
   // admins (Req 4), so behind the gate above this cannot refuse today; the
   // check stays where the rule is stated.
@@ -168,6 +168,8 @@ async function inviteGuest(
         email,
         redirectUrl: deploymentOrigin(req.headers.host, Array.isArray(forwarded) ? forwarded[0] : forwarded),
         message: invitationMessage(auth.user.displayName, note),
+        // Issue #195: only an explicit sendEmail: false suppresses the mail.
+        sendEmail: sendEmail !== false,
       },
       auth,
     );
@@ -206,13 +208,73 @@ async function inviteGuest(
       }
     }
   }
+  // Issue #195: the redeem URL rides the answer — Graph only yields it at
+  // creation — and appears in NO log line, only this response.
   sendJson(res, 201, {
     id: invitedUser.id,
     email,
     displayName: invitedUser.displayName,
     pending: true,
+    redeemUrl: outcome.redeemUrl,
     ...(membership ? { membership } : {}),
   });
+}
+
+/**
+ * POST /api/admin/invitations/<userId>/link — issue #195: a fresh redeem
+ * URL for a PENDING guest. Graph cannot read a redeem URL back for an
+ * existing guest, but re-POSTing /v1.0/invitations for the same address
+ * answers a new valid one without disturbing the pending user — so this is
+ * an email-suppressed re-invite of the target's own mail address.
+ */
+async function invitationLink(
+  req: IncomingMessage,
+  res: ServerResponse,
+  providers: Providers,
+  auth: RequestAuth,
+  id: string,
+): Promise<void> {
+  // Issue #195: the same #193 eligibility decision gates the link — asked
+  // FIRST, so members, accepted guests and admins never get one (409).
+  let target: DirectoryUser | null;
+  try {
+    target = await providers.directory.getUser(id, auth);
+  } catch {
+    sendJson(res, 502, { error: 'the directory could not be consulted' });
+    return;
+  }
+  const refusal = rescindRefusal(target);
+  if (refusal !== null) {
+    sendJson(res, 409, { error: refusal });
+    return;
+  }
+  // The re-POST rides the same OBO exchange and User.Invite.All as the
+  // invite flow, with the mail suppressed; refusals map to the same 502.
+  const forwarded = req.headers['x-forwarded-proto'];
+  const email = target!.email ?? target!.username;
+  let outcome: DirectoryInviteResult;
+  try {
+    outcome = await providers.directory.invite(
+      {
+        email,
+        redirectUrl: deploymentOrigin(req.headers.host, Array.isArray(forwarded) ? forwarded[0] : forwarded),
+        message: invitationMessage(auth.user.displayName),
+        sendEmail: false,
+      },
+      auth,
+    );
+  } catch (err) {
+    sendJson(res, 502, {
+      error: err instanceof Error ? err.message : 'the invite link could not be created',
+    });
+    return;
+  }
+  if (!outcome.ok) {
+    sendJson(res, 502, { error: outcome.message, code: outcome.code });
+    return;
+  }
+  // Issue #195: the redeem URL goes to the caller and to no log line.
+  sendJson(res, 200, { id: outcome.user.id, email, redeemUrl: outcome.redeemUrl });
 }
 
 /**
@@ -333,6 +395,24 @@ export async function handleAdminApi(
   // POST /api/admin/invitations — the Req 29+30 invitation flow above.
   if (pathname === `${ADMIN_PREFIX}/invitations` && req.method === 'POST') {
     await inviteGuest(req, res, providers, auth);
+    return;
+  }
+
+  // POST /api/admin/invitations/<userId>/link — the issue #195 copy-link
+  // flow: an email-suppressed re-invite answering a fresh redeem URL.
+  if (
+    pathname.startsWith(`${ADMIN_PREFIX}/invitations/`) &&
+    pathname.endsWith('/link') &&
+    req.method === 'POST'
+  ) {
+    let id: string;
+    try {
+      id = decodeURIComponent(pathname.slice(`${ADMIN_PREFIX}/invitations/`.length, -'/link'.length));
+    } catch {
+      sendJson(res, 400, { error: 'malformed user id' });
+      return;
+    }
+    await invitationLink(req, res, providers, auth, id);
     return;
   }
 

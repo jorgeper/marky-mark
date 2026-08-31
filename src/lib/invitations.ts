@@ -21,6 +21,10 @@ export interface InvitationRequest {
   email: string;
   note?: string;
   workspace?: InvitationWorkspaceGrant;
+  // Issue #195: false suppresses Microsoft's invitation mail — the form's
+  // Get invite link creates the guest and surfaces the redeem URL instead.
+  // Absent means true (the mail goes out), so the parser only keeps `false`.
+  sendEmail?: boolean;
 }
 
 export type InvitationParse =
@@ -52,7 +56,12 @@ export function parseInvitationRequest(
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     return fail('the body must be an object');
   }
-  const { email, note, workspace } = data as { email?: unknown; note?: unknown; workspace?: unknown };
+  const { email, note, workspace, sendEmail } = data as {
+    email?: unknown;
+    note?: unknown;
+    workspace?: unknown;
+    sendEmail?: unknown;
+  };
   if (typeof email !== 'string' || !isInvitableEmail(email)) {
     return fail('email must be a valid address');
   }
@@ -61,6 +70,11 @@ export function parseInvitationRequest(
     if (note.length > INVITATION_NOTE_MAX) {
       return fail(`the note must stay within ${INVITATION_NOTE_MAX} characters`);
     }
+  }
+  // Issue #195: anything but a boolean is a named refusal, and the default
+  // (send the mail) stays implicit — only an explicit false is kept.
+  if (sendEmail !== undefined && typeof sendEmail !== 'boolean') {
+    return fail('sendEmail must be true or false');
   }
   let grant: InvitationWorkspaceGrant | undefined;
   if (workspace !== undefined) {
@@ -80,6 +94,7 @@ export function parseInvitationRequest(
       email: email.trim(),
       ...(typeof note === 'string' && note !== '' ? { note } : {}),
       ...(grant ? { workspace: grant } : {}),
+      ...(sendEmail === false ? { sendEmail } : {}),
     },
   };
 }

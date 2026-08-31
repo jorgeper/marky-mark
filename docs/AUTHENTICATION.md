@@ -131,6 +131,20 @@ Google federation configured — an operator step in External Identities,
 no app change — gmail invitees sign in with their Google account
 instead of a one-time passcode.
 
+When Microsoft's email doesn't arrive at all (Graph can report
+`sent: true` while delivery quietly fails; observed with Gmail
+recipients), the **invite link** is the reliable alternative: the
+redeem URL works without any email. A successful **Send** shows the
+link of the invitation it just created; **Get invite link** beside Send
+creates (or refreshes) the invitation *without* sending Microsoft's
+mail and shows the URL to copy; and every **Pending** row in
+Management → People offers **Copy invite link**, which re-creates the
+invitation silently — Graph only yields the redeem URL at creation, and
+a re-POST returns a fresh valid one without disturbing the pending
+guest. Hand the copied URL to the invitee over any channel you trust;
+redeeming it accepts them into the tenant exactly as the email's link
+would.
+
 While the badge still says **Pending**, an admin can change their mind:
 the row's **Rescind** action (behind a confirm naming the email) deletes
 the unredeemed guest's account — again as the signed-in admin, via

@@ -212,8 +212,10 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
     expect(calls).toHaveLength(2);
     const first = new URL(calls[0].url);
     expect(first.origin + first.pathname).toBe('https://graph.microsoft.com/v1.0/users');
+    // Issue #195: mail joins the $select — the copy-link re-POST needs a
+    // guest's real address, never the mangled #EXT# userPrincipalName.
     expect(first.searchParams.get('$select')).toBe(
-      'id,displayName,userPrincipalName,userType,externalUserState',
+      'id,displayName,userPrincipalName,userType,externalUserState,mail',
     );
     expect(first.searchParams.get('$top')).toBe('999');
     expect(calls[1].url).toBe(nextLink);
@@ -256,7 +258,11 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
     const provider = createGraphDirectoryProvider(async (url, init) => {
       calls.push({ url, init });
       return new Response(
-        JSON.stringify({ invitedUser: { id: 'guest-1' }, invitedUserDisplayName: 'friend@example.com' }),
+        JSON.stringify({
+          invitedUser: { id: 'guest-1' },
+          invitedUserDisplayName: 'friend@example.com',
+          inviteRedeemUrl: 'https://login.microsoftonline.com/redeem?x=1',
+        }),
         { status: 201 },
       );
     }, exchanged);
@@ -264,9 +270,12 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
       email: 'friend@example.com',
       redirectUrl: 'https://markymark.example.com/',
       message: 'Ada has invited you to collaborate in Marky Mark.',
+      sendEmail: true,
     };
     expect(await provider.invite(invitation, auth)).toEqual({
       ok: true,
+      // Issue #195: the creation-time redeem URL comes back as data.
+      redeemUrl: 'https://login.microsoftonline.com/redeem?x=1',
       user: {
         id: 'guest-1',
         displayName: 'friend@example.com',
@@ -274,6 +283,7 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
         avatarUrl: '/api/directory/users/guest-1/photo',
         isGuest: true,
         pending: true,
+        email: 'friend@example.com',
       },
     });
     expect(calls[0].url).toBe('https://graph.microsoft.com/v1.0/invitations');
@@ -290,7 +300,7 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
   it("U992: an invite refusal is data — Graph's error.code and message — and a non-JSON or id-less answer still refuses by name", async () => {
     // PRD 017 Req 29: the 502 lane's payload comes from Graph verbatim,
     // never a silent success.
-    const invitation = { email: 'x@example.com', redirectUrl: 'https://m.example.com/', message: 'm' };
+    const invitation = { email: 'x@example.com', redirectUrl: 'https://m.example.com/', message: 'm', sendEmail: true };
     const refusing = createGraphDirectoryProvider(
       async () =>
         new Response(
@@ -315,6 +325,50 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
       ok: false,
       code: '',
       message: 'Graph answered without an invitedUser.id',
+    });
+    // Issue #195: a 201 without the redeem URL refuses by name too — the
+    // routes now hand that URL to the caller, so its absence is an answer.
+    const urlless = createGraphDirectoryProvider(
+      async () => new Response(JSON.stringify({ invitedUser: { id: 'guest-1' } }), { status: 201 }),
+      exchanged,
+    );
+    expect(await urlless.invite(invitation, auth)).toEqual({
+      ok: false,
+      code: '',
+      message: 'Graph answered without an inviteRedeemUrl',
+    });
+  });
+
+  it('U999: a sendEmail: false invite pins sendInvitationMessage: false and carries no message body', async () => {
+    // Issue #195: the copy-link re-POST — the invitation is created (or
+    // refreshed) silently; with no mail there is nothing to carry the
+    // customized body, so invitedUserMessageInfo stays out of the request.
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const provider = createGraphDirectoryProvider(async (url, init) => {
+      calls.push({ url, init });
+      return new Response(
+        JSON.stringify({
+          invitedUser: { id: 'guest-1' },
+          invitedUserDisplayName: 'friend@example.com',
+          inviteRedeemUrl: 'https://login.microsoftonline.com/redeem?x=2',
+        }),
+        { status: 201 },
+      );
+    }, exchanged);
+    const outcome = await provider.invite(
+      {
+        email: 'friend@example.com',
+        redirectUrl: 'https://markymark.example.com/',
+        message: 'Ada has invited you to collaborate in Marky Mark.',
+        sendEmail: false,
+      },
+      auth,
+    );
+    expect(outcome).toMatchObject({ ok: true, redeemUrl: 'https://login.microsoftonline.com/redeem?x=2' });
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      invitedUserEmailAddress: 'friend@example.com',
+      inviteRedirectUrl: 'https://markymark.example.com/',
+      sendInvitationMessage: false,
     });
   });
 

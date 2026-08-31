@@ -7508,6 +7508,7 @@ export default function App() {
         <ManagementPanel
           admin={platform.deploymentAdmin}
           lifecycle={platform.workspaces}
+          copy={copyToClipboard}
           onClose={() => setManagementOpen(false)}
         />
       )}

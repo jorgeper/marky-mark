@@ -291,7 +291,10 @@ record('test-ID uniqueness', Date.now() - idScanStart);
 // 374 as of issues #192+#193: E380 (shared primary invite styling) and
 // E381–E384 — rescinding invitations (the Management flow, the manifest
 // scrub, the non-admin 403, the accepted-guest 409).
-const E2E_TEST_FLOOR = 374;
+// 378 as of issue #195: E385–E388 — copy-invite-link (the Pending-row copy
+// with its clipboard fallback, the form's Get invite link + Send surfacing
+// the URL, the non-admin 403, the non-pending 409).
+const E2E_TEST_FLOOR = 378;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {
