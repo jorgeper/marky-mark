@@ -100,18 +100,21 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest 
         debounceMs={80}
       />
       {manifest.members.map((member) => (
-        <div className="workspace-role-row" key={member.id}>
-          <span className="workspace-role-name">
+        // Issue #183 §2: the member's name is the field label and the select
+        // spans the field beneath it — its edges align with the Add people
+        // input above (both dress from the one shared .modal rule).
+        <div className="workspace-member-field" key={member.id}>
+          <label htmlFor={`workspace-member-role-${member.id}`}>
             {nameOf(member.id)}
             {isGuest(member.id) && (
               <span className="membership-guest-badge" data-testid={`workspace-member-guest-${member.id}`}>
                 Guest
               </span>
             )}
-          </span>
+          </label>
           <select
+            id={`workspace-member-role-${member.id}`}
             data-testid={`workspace-member-role-${member.id}`}
-            aria-label={`Role for ${nameOf(member.id)}`}
             value={member.role}
             disabled={busy}
             onChange={(e) =>
@@ -155,11 +158,11 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest 
         </label>
       </div>
       {manifest.everyone.enabled && (
-        <div className="workspace-role-row">
-          <span className="workspace-role-name">Their role</span>
+        <div className="workspace-member-field">
+          <label htmlFor="workspace-everyone-role">Their role</label>
           <select
+            id="workspace-everyone-role"
             data-testid="workspace-everyone-role"
-            aria-label="Role for everyone in the organization"
             value={manifest.everyone.role}
             disabled={busy}
             onChange={(e) =>

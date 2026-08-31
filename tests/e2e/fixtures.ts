@@ -10,6 +10,14 @@ import { offsiteOrigin } from './offsite';
 const EXPECTED_NETWORK_LOG = /Failed to load resource:.*412 \(Precondition Failed\)/;
 
 /**
+ * Issue #183 §3: the second exemption, scoped by URL instead of message —
+ * E361 forces `/api/directory/search` to fail to prove the picker's inline
+ * error state, and Chromium logs that failed request just like the 412.
+ * The URL rides in the log's location, not its text.
+ */
+const EXPECTED_DIRECTORY_FAILURE = /\/api\/directory\/search/;
+
+/**
  * Shared test fixture: any browser console error or uncaught page error
  * fails the test (SPEC §4 — zero console errors during any e2e run).
  */
@@ -18,7 +26,11 @@ export const test = base.extend<{ consoleGuard: void; loopbackGuard: void }>({
     async ({ page }, use) => {
       const errors: string[] = [];
       page.on('console', (msg) => {
-        if (msg.type() === 'error' && !EXPECTED_NETWORK_LOG.test(msg.text())) errors.push(msg.text());
+        if (msg.type() !== 'error' || EXPECTED_NETWORK_LOG.test(msg.text())) return;
+        if (/Failed to load resource/.test(msg.text()) && EXPECTED_DIRECTORY_FAILURE.test(msg.location().url ?? '')) {
+          return;
+        }
+        errors.push(msg.text());
       });
       page.on('pageerror', (err) => errors.push(String(err)));
       await use();

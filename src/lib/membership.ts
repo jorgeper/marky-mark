@@ -66,11 +66,15 @@ export interface DirectorySearchController {
  * Debounced search-as-you-type: one request per pause, not per keystroke.
  * A blank query clears results immediately without a request; out-of-order
  * responses are dropped so a slow early request never overwrites a newer
- * one; a failed request yields an empty result list rather than an error.
+ * one. A failed request reports through `onError` when the caller gives one
+ * (issue #183 §3: the picker renders a directory failure apart from an empty
+ * answer), and collapses to an empty result list otherwise.
  */
 export function createDirectorySearch(options: {
   search: (query: string) => Promise<DirectoryEntry[]>;
   onResults: (users: DirectoryEntry[], query: string) => void;
+  /** Issue #183 §3: a failed request lands HERE, distinguishable from empty. */
+  onError?: (query: string) => void;
   delayMs?: number;
   timers?: SearchTimers;
 }): DirectorySearchController {
@@ -105,7 +109,9 @@ export function createDirectorySearch(options: {
             if (gen === generation) options.onResults(users, q);
           },
           () => {
-            if (gen === generation) options.onResults([], q);
+            if (gen !== generation) return;
+            if (options.onError) options.onError(q);
+            else options.onResults([], q);
           },
         );
       }, delayMs);

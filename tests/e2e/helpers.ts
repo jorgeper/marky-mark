@@ -108,7 +108,8 @@ export async function openSettings(
   // destination, so no caller is duplicated or replaced.
   // PRD 011 Req 1: widened again for the Experimental tab — same helper, one
   // more destination.
-  tab: 'appearance' | 'general' | 'hotkeys' | 'editor' | 'llm' | 'experimental' = 'appearance'
+  // Issue #183 §1: widened again for the hosted People tab.
+  tab: 'appearance' | 'general' | 'hotkeys' | 'editor' | 'people' | 'llm' | 'experimental' = 'appearance'
 ): Promise<void> {
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();

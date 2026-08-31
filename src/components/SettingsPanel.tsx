@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import {
   DEFAULT_SETTINGS,
   diffSettings,
@@ -27,6 +27,8 @@ import { expandImageName, isValidImageFolder } from '../lib/imagePaste';
 import { LlmSettings } from './LlmSettings';
 import { NO_LLM_CAPABILITIES, type LlmCapabilities, type LlmTestResult } from '../lib/llmSettings';
 import type { SummaryCacheClearResult, SummaryCacheSizeResult } from '../lib/summaryCacheReport';
+import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
+import { useWorkspaceAccess, WorkspacePeopleTab } from './WorkspaceAccessSettings';
 
 interface Props {
   /** The EFFECTIVE (resolved) settings — every row displays these (§E19). */
@@ -56,12 +58,13 @@ interface Props {
   /** SPEC20 §1: current doc basename (no extension) for the pattern example. */
   docName?: string;
   /**
-   * PRD 007 Req 12: a slot for workspace-scoped ACTIONS the host offers
-   * (today: the hosted flavor's delete-workspace control). It renders at the
-   * foot of the Workspace scope's General tab and nowhere else; the panel
-   * neither knows nor asks what is in it, so no flavor branching lands here.
+   * Issue #183 §1 (was PRD 007 Req 12's appended-ReactNode slot): the hosted
+   * workspace lifecycle, when the host has one. It feeds the People tab —
+   * members, roles and the danger zone — which exists only while a workspace
+   * is open and the member holds a permitted section. Absent (desktop, web,
+   * aux windows) the tab never renders.
    */
-  workspaceActions?: ReactNode;
+  workspaceLifecycle?: WorkspaceLifecycle;
   /**
    * PRD 011 Req 9: what the window holding the platform can do about LLM
    * requests. The panel forwards it; the LLM tab branches on it (never on a
@@ -170,7 +173,7 @@ const MARGIN_LABELS: Array<{ value: Margins; label: string }> = [
 
 // PRD 011 Req 4: the LLM providers area is a page of its own, not a row
 // appended to General, Editor or Appearance.
-type SettingsTab = 'appearance' | 'general' | 'editor' | 'hotkeys' | 'llm' | 'experimental';
+type SettingsTab = 'appearance' | 'general' | 'editor' | 'people' | 'hotkeys' | 'llm' | 'experimental';
 
 /**
  * PRD 011 Req 1: the Experimental features, as DATA. A second experiment is
@@ -217,6 +220,11 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'general', label: 'General' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'editor', label: 'Editor' },
+  // Issue #183 §1: People sits immediately after Editor. It renders only
+  // while a hosted workspace is open and the member holds a permitted
+  // section (the render-time filter below), and — being workspace-tied, not
+  // layer-tied — it shows in both scopes of the scope selector.
+  { id: 'people', label: 'People' },
   { id: 'hotkeys', label: 'Hotkeys' },
   // PRD 011 Req 4: unconditional — no experimental flag gates it.
   { id: 'llm', label: 'LLM providers' },
@@ -241,7 +249,7 @@ export function SettingsPanel({
   onClose,
   frameless,
   docName,
-  workspaceActions,
+  workspaceLifecycle,
   llmCapabilities,
   onLlmTest,
   summaryCacheAvailable,
@@ -261,6 +269,14 @@ export function SettingsPanel({
   useEffect(() => {
     if (scope === 'workspace' && USER_ONLY_TABS.includes(tab)) setTab('general');
   }, [scope, tab]);
+  // Issue #183 §1: what the People tab may show, loaded once per open
+  // workspace; the tab itself appears only when there is something to show.
+  const wsAccess = useWorkspaceAccess(workspaceLifecycle);
+  // Closing the workspace (or losing the permission) while People is up
+  // bounces to General, like the scope machinery above.
+  useEffect(() => {
+    if (tab === 'people' && !wsAccess.peopleTab) setTab('general');
+  }, [tab, wsAccess.peopleTab]);
   const [hint, setHint] = useState('');
   // SPEC20 §1: the folder field keeps the raw draft; only valid single-segment
   // names commit to settings (the last valid value survives bad keystrokes).
@@ -796,11 +812,6 @@ export function SettingsPanel({
         </label>
         {scopeNote('vimNav')}
       </div>
-
-      {/* PRD 007 Req 12: workspace-scoped actions the host supplies (the
-          hosted delete-workspace control). Workspace scope only — these act
-          on the open workspace, not on a settings layer. */}
-      {scope === 'workspace' && workspaceActions}
     </>
   );
 
@@ -1070,7 +1081,13 @@ export function SettingsPanel({
       <div className="settings-body">
         {/* Issue #21: both scopes share one tab rail; Hotkeys is User-only. */}
         <nav className="tab-rail" data-testid="settings-tabs">
-          {TABS.filter((t) => scope === 'user' || !USER_ONLY_TABS.includes(t.id)).map((t) => (
+          {TABS.filter(
+            (t) =>
+              (scope === 'user' || !USER_ONLY_TABS.includes(t.id)) &&
+              // Issue #183 §1: no workspace open, or no permitted section —
+              // no People tab (and no placeholder in its place).
+              (t.id !== 'people' || wsAccess.peopleTab),
+          ).map((t) => (
             <button
               key={t.id}
               className={`tab-btn${tab === t.id ? ' active' : ''}`}
@@ -1085,6 +1102,11 @@ export function SettingsPanel({
           {tab === 'general' && generalTab}
           {tab === 'appearance' && appearanceTab}
           {tab === 'editor' && editorTab}
+          {/* Issue #183 §1: members, roles, then the danger zone — the
+              sections PRD 007 Req 12 used to append to the General tab. */}
+          {tab === 'people' && workspaceLifecycle && (
+            <WorkspacePeopleTab lifecycle={workspaceLifecycle} access={wsAccess} />
+          )}
           {tab === 'hotkeys' && scope === 'user' && hotkeysTab}
           {tab === 'llm' && scope === 'user' && llmTab}
           {tab === 'experimental' && scope === 'user' && experimentalTab}

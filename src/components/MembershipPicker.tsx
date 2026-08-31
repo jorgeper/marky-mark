@@ -5,7 +5,7 @@
 // against the live /api/directory endpoints unchanged; this issue ships the
 // component without mounting it anywhere.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
   createDirectorySearch,
   filterSelectable,
@@ -63,7 +63,16 @@ export function MembershipPicker({
   debounceMs,
 }: MembershipPickerProps) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<DirectoryEntry[]>([]);
+  // Issue #183 §3: the dropdown renders the LAST SETTLED search — results, an
+  // empty answer, or a directory failure — as three distinguishable states.
+  // null means "nothing to show" (blank query, or nothing resolved yet).
+  const [outcome, setOutcome] = useState<{ query: string; users: DirectoryEntry[]; failed: boolean } | null>(
+    null,
+  );
+  // Issue #183 §3: Esc closes the dropdown until the next keystroke.
+  const [dismissed, setDismissed] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const listId = useId();
   const latestSearchUsers = useRef(searchUsers);
   latestSearchUsers.current = searchUsers;
 
@@ -75,7 +84,14 @@ export function MembershipPicker({
     () =>
       createDirectorySearch({
         search: (q) => latestSearchUsers.current(q),
-        onResults: (users) => setResults(users),
+        onResults: (users, q) => {
+          setOutcome(q ? { query: q, users, failed: false } : null);
+          setHighlight(0);
+        },
+        onError: (q) => {
+          setOutcome({ query: q, users: [], failed: true });
+          setHighlight(0);
+        },
         delayMs: debounceMs,
       }),
     [],
@@ -85,13 +101,45 @@ export function MembershipPicker({
   /** The input value and the controller move together — never one without the other. */
   const changeQuery = (value: string) => {
     setQuery(value);
+    setDismissed(false);
     search.setQuery(value);
   };
 
-  const selectable = filterSelectable(
-    results,
-    selected.map((m) => m.id),
-  );
+  const selectable = outcome && !outcome.failed
+    ? filterSelectable(
+        outcome.users,
+        selected.map((m) => m.id),
+      )
+    : [];
+  const open = outcome !== null && !dismissed;
+  // The highlight is clamped at use, so a shrinking result list never points
+  // past the end between renders.
+  const active = selectable.length > 0 ? Math.min(highlight, selectable.length - 1) : -1;
+
+  const pick = (user: DirectoryEntry) => {
+    onAdd(user);
+    changeQuery('');
+  };
+
+  // Issue #183 §3: ↑/↓ move the highlight, Enter adds it, Esc closes — Esc is
+  // stopped so it dismisses only the dropdown, never the settings panel above.
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (!open) return;
+    if (e.key === 'ArrowDown' && selectable.length > 0) {
+      e.preventDefault();
+      setHighlight((active + 1) % selectable.length);
+    } else if (e.key === 'ArrowUp' && selectable.length > 0) {
+      e.preventDefault();
+      setHighlight((active - 1 + selectable.length) % selectable.length);
+    } else if (e.key === 'Enter' && active >= 0) {
+      e.preventDefault();
+      pick(selectable[active]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setDismissed(true);
+    }
+  };
 
   return (
     <div className="membership-picker" data-testid="membership-picker">
@@ -127,35 +175,60 @@ export function MembershipPicker({
           </li>
         ))}
       </ul>
-      <input
-        className="membership-input"
-        data-testid="membership-picker-input"
-        value={query}
-        placeholder={placeholder}
-        onChange={(e) => changeQuery(e.target.value)}
-      />
-      {selectable.length > 0 && (
-        <ul className="membership-results" data-testid="membership-picker-results">
-          {selectable.map((user) => (
-            <li key={user.id}>
-              <button
-                type="button"
-                className="membership-result"
-                data-testid={`membership-picker-result-${user.id}`}
-                onClick={() => {
-                  onAdd(user);
-                  changeQuery('');
-                }}
-              >
-                <MemberAvatar entry={user} />
-                <span className="membership-name">{user.displayName}</span>
-                <GuestBadge entry={user} />
-                <span className="membership-username">{user.username}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* Issue #183 §3: input + dropdown anchor — the suggestions float under
+          the input instead of pushing the section apart. */}
+      <div className="membership-search">
+        <input
+          type="text"
+          className="membership-input"
+          data-testid="membership-picker-input"
+          role="combobox"
+          aria-expanded={open}
+          aria-autocomplete="list"
+          aria-controls={listId}
+          aria-activedescendant={active >= 0 ? `${listId}-${selectable[active].id}` : undefined}
+          value={query}
+          placeholder={placeholder}
+          onChange={(e) => changeQuery(e.target.value)}
+          onKeyDown={onKeyDown}
+        />
+        {open && (
+          <div className="membership-dropdown" data-testid="membership-picker-dropdown">
+            {outcome.failed ? (
+              // Issue #183 §3: a directory failure says so inline — never a
+              // silent nothing that reads as "no such person".
+              <p className="membership-note membership-note-error" role="alert" data-testid="membership-picker-error">
+                The directory could not be searched. Try again.
+              </p>
+            ) : selectable.length === 0 ? (
+              <p className="membership-note" data-testid="membership-picker-empty">
+                No people match “{outcome.query}”.
+              </p>
+            ) : (
+              <ul className="membership-results" id={listId} role="listbox" data-testid="membership-picker-results">
+                {selectable.map((user, i) => (
+                  <li key={user.id} id={`${listId}-${user.id}`} role="option" aria-selected={i === active}>
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      className={`membership-result${i === active ? ' active' : ''}`}
+                      data-testid={`membership-picker-result-${user.id}`}
+                      // Keep focus in the input so the dropdown survives until the click lands.
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => pick(user)}
+                    >
+                      <MemberAvatar entry={user} />
+                      <span className="membership-name">{user.displayName}</span>
+                      <GuestBadge entry={user} />
+                      <span className="membership-username">{user.username}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
