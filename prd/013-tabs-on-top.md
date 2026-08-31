@@ -128,7 +128,11 @@ tabs on the left *and* on top.
     the strip, backed by a persisted default-on setting. The setting
     only hides/shows the strip; it never alters the open set.
 14. The setting persists across launches through the existing settings
-    pipeline and is desktop-only (absent or inert on web).
+    pipeline and is absent on the static web build. *(Amended by issue
+    #186: originally "desktop-only (absent or inert on web)" — the
+    hosted flavor now has the strip and its View ▸ File Tabs row too,
+    gated on the `multiFileSession` capability; only the static
+    single-file build stays without them.)*
 
 ### Fit with existing behavior
 
