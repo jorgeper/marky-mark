@@ -49,7 +49,7 @@ it crosses the membership boundary.
   any workspace and *administer* it (membership, roles, settings, delete)
   but never edit content without first making themselves a member — an
   act visible to that workspace's Owners in the People section.
-- Everything is server-enforced. The Management view and the hidden
+- Everything is server-enforced. The Management view and the disabled
   affordances are UI over admin-only and policy-checked routes; a
   non-admin or a disallowed creator gets a 403 naming the missing
   permission whatever the client shows.
@@ -113,11 +113,13 @@ it crosses the membership boundary.
    members of `PERMISSIONS`, no built-in or custom role can grant them,
    and the role editors never offer them. A refusal is the existing 403
    shape, `{ error: 'forbidden', required: '<name>' }`.
-3. `GET /api/me` returns two additional fields beside the unchanged
+3. `GET /api/me` returns additional fields beside the unchanged
    `id`/`username`/`displayName`: `admin: boolean` (the caller's id is in
-   `MM_ADMINS`) and `canCreateWorkspaces: boolean` (the creation policy of
-   Req 8 evaluated for the caller). The hosted platform fetches `/api/me`
-   once after sign-in / page load and holds it for the session instead of
+   `MM_ADMINS`), `canCreateWorkspaces: boolean` (the creation policy of
+   Req 8 evaluated for the caller) and, when that is `false`,
+   `createRefusal: 'guest' | 'restricted'` naming why, so the client can
+   word its hint (Req 10). The hosted platform fetches `/api/me` once
+   after sign-in / page load and holds it for the session instead of
    re-fetching per use; the sign-out path drops it.
 4. **Implicit admin permissions.** In every workspace, an admin holds
    `doc.read`, `file.download`, `comment.read`, `workspace.settings`,
@@ -182,12 +184,18 @@ it crosses the membership boundary.
    the OBO cache uses. If the directory cannot answer, the caller is
    treated as a guest (fail closed). In local mode the mock directory
    answers from the seeded list (Req 22).
-10. **Client affordances.** The `newWorkspace` entries — the File-menu item
-    and the start-page action — appear only when `/api/me` reports
-    `canCreateWorkspaces: true`; for anyone else they are absent, not
-    disabled. `openWorkspace` is unaffected. Because the server decides,
-    a stale client that still shows the entry gets the Req 8 refusal and
-    the existing error surface.
+10. **Client affordances.** When `/api/me` reports
+    `canCreateWorkspaces: false`, the `newWorkspace` entries stay visible
+    but **disabled with a reason**: the File-menu item is rendered
+    disabled through the menu spec's existing `disabled` flag (native
+    menus carry no tooltip, so the menu item alone says nothing more),
+    and the start-page action is rendered disabled with a one-line hint
+    beneath it worded from `createRefusal` — for `restricted`, that
+    workspace creation is limited in this deployment and a deployment
+    admin can grant it; for `guest`, that guests cannot create
+    workspaces here. `openWorkspace` is unaffected. Because the server
+    decides, a stale client that still enables the entry gets the Req 8
+    refusal and the existing error surface.
 
 ### Listing policy
 
@@ -208,10 +216,15 @@ it crosses the membership boundary.
 13. **Entry.** A `management` command exists beside `newWorkspace` /
     `openWorkspace`: a File-menu item **Management…** and a start-page
     action of the same name, both present only when `/api/me` reports
-    `admin: true`. It opens a full-window dialog in the Settings dialog's
-    style (`data-testid="management-panel"`) with three tabs —
+    `admin: true`. It opens a near-full-window dialog in the Settings
+    dialog's style (`data-testid="management-panel"`) with three tabs —
     **Workspaces**, **People**, **Settings** — and closes back to wherever
     the user was. It is available whether or not a workspace is bound.
+    **Size:** the dialog fills the window minus a small uniform inset (on
+    the order of 2–3% per side, so roughly 95% of the viewport in each
+    dimension), the inset shrinking to zero on narrow windows; the tab
+    content scrolls inside the dialog and tables use its full width. It
+    must not inherit the Settings dialog's fixed maximum width.
 14. **Admin routes.** Four routes exist, each requiring `deployment.admin`
     (403 per Req 2 for everyone else, including non-admins who are Owners
     of every workspace):
@@ -328,10 +341,11 @@ it crosses the membership boundary.
       then saves;
     - the admin deletes a non-member workspace from Management behind the
       exact-name gate and every blob under its prefix is gone;
-    - under `restricted`, a regular user sees no New Workspace entry and
-      `POST /api/workspaces` answers 403 `deployment.create`; an
-      allow-listed user creates normally; under `members`, `mary` is
-      refused and `ada` is not;
+    - under `restricted`, a regular user's start-page New Workspace
+      action is disabled with the restricted hint, the File-menu item is
+      disabled, and `POST /api/workspaces` answers 403
+      `deployment.create`; an allow-listed user creates normally; under
+      `members`, `mary` is refused with the guest hint and `ada` is not;
     - under `members` listing, a non-member's `GET /api/workspaces` omits
       the workspace and the Open Workspace dialog does not show it, while
       the admin's ordinary listing is filtered the same way;
@@ -352,23 +366,15 @@ it crosses the membership boundary.
 
 ## Open questions
 
-- None left open by this draft. The live interview could not run (the
-  session was autonomous), so the decisions below were taken from the
-  issue's grilling notes and PRD 007's constraints; they are the review
-  points for the PR thread, and any of them can be reversed there before
-  approval:
-  1. Admins come from `MM_ADMINS` (ids, not emails) and are never managed
-     in-app.
-  2. Admin god mode is read + administer, never implicit write; becoming a
-     member is the visible trail — so no audit log.
-  3. Creation policy has three values (`everyone` / `members` / `restricted`
-     + allow list); the allow list is managed in Management, stored in a
-     `deployment/settings.json` blob, not in an env var.
-  4. Listing policy is two values and applies to admins' ordinary listing
-     too; Management is the only cross-membership view.
-  5. Disallowed creators get the New Workspace entries hidden, not
-     disabled.
-  6. Corrupt settings fail closed to admins-only creation and members-only
-     listing.
-  7. Statistics are on-demand aggregates of one blob listing; no store.
-  8. Management is a dialog, not a route; three tabs, People read-only.
+- None — decisions above were settled in the issue #181 interview
+  (2026-08-30): admins come from `MM_ADMINS` only, never managed in-app;
+  admin god mode is read + administer, never implicit write, with
+  membership as the visible trail and no audit log; creation policy is
+  `everyone` / `members` / `restricted` + allow list, managed in
+  Management and stored in `deployment/settings.json`; listing policy is
+  two values and filters admins' ordinary listing too; disallowed creators
+  see New Workspace disabled with a hint, not hidden; corrupt settings
+  fail closed; statistics are on-demand aggregates of one blob listing;
+  Management is a near-full-window dialog (not a route) with Workspaces /
+  People (read-only) / Settings tabs; the local lane seeds `katherine` as
+  admin and `mary` as a guest.
