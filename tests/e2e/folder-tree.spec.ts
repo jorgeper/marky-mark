@@ -382,6 +382,66 @@ test('E97: create — New File / New Folder land in the clicked directory, inlin
   await expect.poll(() => fsRead(page, '/notes/Untitled.md')).toBe('');
 });
 
+test('E385: issue #194 — sidebar New File lands in edit mode on both christening exits; existing files keep the remembered mode', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await openFolderRoot(page);
+
+  // Baseline: the app sits in preview (the shipped default) on an existing
+  // file — the mode a new file must NOT inherit.
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('A doc');
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+
+  // Commit exit: New File → name typed → Enter opens the new file with the
+  // editor active (SPEC35 §4.2, amended by issue #194).
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 60, y: 400 } });
+  await page.getByTestId('folder-menu-new-file').click();
+  const input = page.getByTestId('folder-rename-input');
+  await expect(input).toHaveValue('Untitled.md');
+  await page.keyboard.type('minted');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('docname')).toContainText('minted.md');
+  await expect(page.getByTestId('editor')).toBeVisible();
+
+  // Ordinary opens stay neutral: the remembered mode was not rewritten, so
+  // clicking back onto the existing file returns to preview.
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('A doc');
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+
+  // Cancel exit: Esc keeps the placeholder name — the file still opens, and
+  // still in edit mode.
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 60, y: 400 } });
+  await page.getByTestId('folder-menu-new-file').click();
+  await expect(input).toHaveValue('Untitled.md');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('docname')).toContainText('Untitled.md');
+  await expect(page.getByTestId('editor')).toBeVisible();
+
+  // Guard interception (SPEC36 §2.6): a dirty untitled buffer prompts on the
+  // christening open — Don't Save still lands the new file in edit mode.
+  // (Human pacing: the SPEC12 §1.3 dedup window would swallow an instant
+  // hotkey after the clicks above.)
+  await page.waitForTimeout(200);
+  await page.keyboard.press('Control+n');
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await page.getByTestId('editor').locator('.cm-content').click();
+  await page.keyboard.type('scratch text');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 60, y: 400 } });
+  await page.getByTestId('folder-menu-new-file').click();
+  await expect(input).toHaveValue('Untitled 2.md');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  await page.getByTestId('open-discard').click();
+  await expect(page.getByTestId('docname')).toContainText('Untitled 2.md');
+  await expect(page.getByTestId('editor')).toBeVisible();
+});
+
 test('E98: rename in place — open dirty file remaps path/title/recents, dir rename remaps state, invalid names refuse', async ({
   page,
 }) => {

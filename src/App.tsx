@@ -579,7 +579,9 @@ export default function App() {
   // Pending intent awaiting the unsaved-changes decision: open a path, start
   // a new untitled buffer (SPEC22 §1.2), or close one open file (SPEC36 §3.4).
   const [openPrompt, setOpenPrompt] = useState<
-    | { kind: 'open'; path: string }
+    // SPEC35 §4.2 (issue #194): editIntent rides along so a just-created
+    // file still lands in edit mode after the guard resolves.
+    | { kind: 'open'; path: string; editIntent?: boolean }
     | { kind: 'new' }
     | { kind: 'close-file'; path: string }
     // Issue #22: File → Close File over a dirty untitled buffer.
@@ -2025,7 +2027,10 @@ export default function App() {
     [loadDocParts]
   );
 
-  const openDoc = useCallback(async (p: Platform, path: string) => {
+  // SPEC35 §4.2 (amended, issue #194): `editIntent` marks an open of a file
+  // the app just created — it lands in edit mode instead of the remembered
+  // view mode. Only creation call sites set it; ordinary opens stay neutral.
+  const openDoc = useCallback(async (p: Platform, path: string, opts?: { editIntent?: boolean }) => {
     // Issue #136: take the open token synchronously — a later openDoc (or a
     // close) overtakes this one, and an overtaken open commits nothing.
     const seq = ++openSeqRef.current;
@@ -2144,7 +2149,8 @@ export default function App() {
       setPositions({});
       setActiveId(null);
       setPending(null);
-      setMode(viewModeForOpen(stateRef.current.settings.lastViewMode, mayEdit)); // issue #125
+      // Issue #125; SPEC35 §4.2 (issue #194): edit intent beats the memory.
+      setMode(viewModeForOpen(stateRef.current.settings.lastViewMode, mayEdit, opts?.editIntent));
       setShowDiff(false); // SPEC16 §2: the diff toggle resets per document
       setDiff(null);
 
@@ -2194,7 +2200,7 @@ export default function App() {
    * (a real dirty doc just parks).
    */
   const parkAndOpen = useCallback(
-    async (p: Platform, path: string) => {
+    async (p: Platform, path: string, opts?: { editIntent?: boolean }) => {
       // Issue #136: "already there" means where the app is GOING — the
       // in-flight open's target when one exists, the committed doc otherwise.
       // Comparing only the committed docPath made a rapid click back onto the
@@ -2202,7 +2208,7 @@ export default function App() {
       // flight, so the EARLIER file won instead of the last-clicked one.
       if ((openTargetRef.current ?? stateRef.current.docPath) === path) return;
       parkActive();
-      await openDoc(p, path);
+      await openDoc(p, path, opts);
     },
     [parkActive, openDoc]
   );
@@ -2213,7 +2219,7 @@ export default function App() {
    * not. §2.6's dirty-untitled guard is the one prompt left.
    */
   const openDocGuarded = useCallback(
-    (p: Platform, path: string) => {
+    (p: Platform, path: string, opts?: { editIntent?: boolean }) => {
       const s = stateRef.current;
       // Issue #136: an open already in flight for this exact path needs no
       // second one; and the same-path re-open only applies when the committed
@@ -2221,16 +2227,18 @@ export default function App() {
       // click must supersede the in-flight open via parkAndOpen below).
       if (openTargetRef.current === path) return;
       if (s.docPath === path && openTargetRef.current === null) {
-        void openDoc(p, path); // same-path re-open (existing semantics)
+        void openDoc(p, path, opts); // same-path re-open (existing semantics)
         return;
       }
       // §2.6: a dirty untitled buffer can't park — EVERY navigation away
       // from it keeps the classic guard, open-set member or not.
       if (s.untitled && s.dirty) {
-        setOpenPrompt({ kind: 'open', path });
+        // SPEC35 §4.2 (issue #194): the intent survives the prompt — a
+        // resolution that still opens the new file still lands in edit mode.
+        setOpenPrompt({ kind: 'open', path, editIntent: opts?.editIntent });
         return;
       }
-      void parkAndOpen(p, path);
+      void parkAndOpen(p, path, opts);
     },
     [openDoc, parkAndOpen]
   );
@@ -2481,8 +2489,10 @@ export default function App() {
       startFolderRename(null);
       await listFolderDir(p, parent);
       remapAfterRename(p, oldPath, newPath);
-      // SPEC35 §4.2: a just-created markdown file opens through the guard.
-      if (session?.openOnDone && isMarkdownFile(p.basename(newPath))) openDocGuarded(p, newPath);
+      // SPEC35 §4.2 (amended, issue #194): a just-created markdown file opens
+      // through the guard — and lands in edit mode, not the remembered view.
+      if (session?.openOnDone && isMarkdownFile(p.basename(newPath)))
+        openDocGuarded(p, newPath, { editIntent: true });
     },
     [startFolderRename, listFolderDir, remapAfterRename, openDocGuarded]
   );
@@ -2491,8 +2501,10 @@ export default function App() {
     const p = stateRef.current.platform;
     const session = folderRenamingRef.current;
     startFolderRename(null);
-    // SPEC35 §4.2: cancelling the christening still opens the new file as-is.
-    if (p && session?.openOnDone && isMarkdownFile(p.basename(session.path))) openDocGuarded(p, session.path);
+    // SPEC35 §4.2 (amended, issue #194): cancelling the christening still
+    // opens the new file as-is — in edit mode, like the committed exit.
+    if (p && session?.openOnDone && isMarkdownFile(p.basename(session.path)))
+      openDocGuarded(p, session.path, { editIntent: true });
   }, [startFolderRename, openDocGuarded]);
 
   /**
@@ -7579,7 +7591,8 @@ export default function App() {
                 onClick={() => {
                   const intent = openPrompt;
                   setOpenPrompt(null);
-                  if (intent.kind === 'open') void parkAndOpen(platform, intent.path);
+                  if (intent.kind === 'open')
+                    void parkAndOpen(platform, intent.path, { editIntent: intent.editIntent });
                   else if (intent.kind === 'close-file') void finishCloseFileStep(platform, intent.path);
                   else if (intent.kind === 'close-untitled') closeToSplash(); // issue #22
                   // PRD 009 Req 13: the guard cleared — New File resumes on
@@ -7602,7 +7615,8 @@ export default function App() {
                     closeQueueRef.current = null;
                     return;
                   }
-                  if (intent.kind === 'open') void parkAndOpen(platform, intent.path);
+                  if (intent.kind === 'open')
+                    void parkAndOpen(platform, intent.path, { editIntent: intent.editIntent });
                   else if (intent.kind === 'close-file') await finishCloseFileStep(platform, intent.path);
                   else if (intent.kind === 'close-untitled') {
                     // Issue #22: the untitled buffer just became a real file

@@ -49,7 +49,13 @@ export function planModeSwitch(mode: AppMode, target: ModeTarget, exclusive: boo
  * in the reading preview, whatever they were last doing. Pure so the rule is
  * pinned by a unit test, rather than only reachable through a flavor that has
  * a permission model.
+ *
+ * SPEC35 §4.2 (amended, issue #194): a file the app just created opens in
+ * edit mode whatever the reader was doing — an empty rendered page is never
+ * the landing. The creation call site signals `editIntent`; the generic open
+ * path stays mode-neutral, and the edit grant still outranks the intent.
  */
-export function viewModeForOpen(remembered: ViewMode, mayEdit: boolean): ViewMode {
-  return mayEdit ? remembered : 'preview';
+export function viewModeForOpen(remembered: ViewMode, mayEdit: boolean, editIntent = false): ViewMode {
+  if (!mayEdit) return 'preview';
+  return editIntent ? 'edit' : remembered;
 }
