@@ -67,6 +67,7 @@ the environment reference is below.
 | `ENTRA_TENANT_ID` | azure (required) | Entra ID tenant (single-tenant app registration). |
 | `ENTRA_CLIENT_ID` | azure (required) | Entra ID application (client) id — also the expected token audience. |
 | `ENTRA_CLIENT_SECRET` | azure (required) | Client secret of the same registration — authenticates the on-behalf-of Graph token exchange (`providers/azure/obo.ts`). Secret: never logged, never sent to the browser. |
+| `MM_ADMINS` | both (optional) | PRD 017 Req 1: comma-separated user ids of the deployment admins (Entra object ids in azure mode, mock ids in local mode). Entries are trimmed, empty entries dropped; an entry with interior whitespace refuses to start. Unset: no admins in azure mode; local mode defaults to `mock-katherine` (set it — even to empty — to override). Startup logs the admin *count*, never the ids. |
 
 `MM_MODE=azure` refuses to start with any of its required variables missing,
 naming them all at once.
@@ -135,6 +136,20 @@ Built-ins live in code, never in a manifest: they cannot be edited or
 deleted, and a custom role may not reuse a built-in name (validation
 rejects it). A member whose role name resolves to nothing fails closed —
 no permissions.
+
+Two deployment-level permission names exist beside the catalog (PRD 017
+Req 2): `deployment.admin` and `deployment.create`. They are not members
+of `PERMISSIONS`, so no built-in or custom role can grant them and the
+role editor never offers them; a refusal naming one uses the same 403
+shape as the workspace verbs, `{ "error": "forbidden", "required":
+"<name>" }`. In every workspace, a deployment admin (`MM_ADMINS`)
+implicitly holds `doc.read`, `file.download`, `comment.read`,
+`workspace.settings`, `workspace.members`, `workspace.roles` and
+`workspace.delete` — a union with whatever the manifest grants them,
+never an override, resolved in the same `resolvePermissions` path every
+route already uses (PRD 017 Req 4). No other verb is ever implicit:
+admins without membership cannot edit, create, upload, rename or delete
+files, manage folders, or write comments.
 
 ## API surface
 

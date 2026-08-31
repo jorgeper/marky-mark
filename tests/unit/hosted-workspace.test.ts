@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   addWorkspaceMember,
+  ADMIN_IMPLICIT_PERMISSIONS,
   BUILT_IN_ROLES,
   createCustomRole,
   createWorkspaceManifest,
   customRoleUsage,
   DEFAULT_EVERYONE_ROLE,
+  DEPLOYMENT_PERMISSIONS,
   grantableRoleNames,
   isBuiltInRoleName,
   isCustomRoleInUse,
@@ -483,5 +485,83 @@ describe('PRD 007 Req 15 custom-roles editor', () => {
     const disabled: WorkspaceManifest = { ...withReviewer(), everyone: { enabled: false, role: 'Reviewer' } };
     expect(isCustomRoleInUse(disabled, 'Reviewer')).toBe(false);
     expect(removeCustomRole(disabled, 'Reviewer').ok).toBe(true);
+  });
+});
+
+// PRD 017 Req 2: the deployment-level permission names live BESIDE the
+// workspace catalog, and Req 4: the implicit admin union in the one shared
+// resolution path.
+describe('PRD 017 Req 2+4 deployment-level permissions and the implicit admin union', () => {
+  const manifest: WorkspaceManifest = {
+    ...base(),
+    members: [
+      { id: 'mock-ada', role: 'Owner' },
+      { id: 'mock-grace', role: 'Reviewer' },
+    ],
+    roles: [{ name: 'Reviewer', permissions: ['doc.read', 'comment.read', 'comment.write'] }],
+    everyone: { enabled: false, role: 'Viewer' },
+  };
+
+  it('U809: deployment.admin and deployment.create are named outside the catalog — no role can grant them', () => {
+    expect([...DEPLOYMENT_PERMISSIONS]).toEqual(['deployment.admin', 'deployment.create']);
+    for (const name of DEPLOYMENT_PERMISSIONS) {
+      // The fourteen-verb catalog is unchanged and rejects both names…
+      expect((PERMISSIONS as readonly string[]).includes(name)).toBe(false);
+      expect(isPermission(name)).toBe(false);
+      // …so a custom role granting one is refused by validation, both on the
+      // role-mutation path and on a whole manifest arriving from storage.
+      const created = createCustomRole(manifest, { name: 'Sneaky', permissions: [name] });
+      expect(created.ok).toBe(false);
+      if (!created.ok) expect(created.error).toContain(name);
+      const smuggled = {
+        ...manifest,
+        roles: [{ name: 'Sneaky', permissions: [name] }],
+      } as unknown as WorkspaceManifest;
+      const parsed = parseWorkspaceManifest(JSON.stringify(smuggled));
+      expect(parsed.ok).toBe(false);
+    }
+    expect(PERMISSIONS).toHaveLength(14);
+  });
+
+  it('U810: an admin who is not a member holds exactly the seven implicit read/administer verbs', () => {
+    expect([...resolvePermissions(manifest, 'mock-katherine', true)].sort()).toEqual(
+      [
+        'doc.read',
+        'file.download',
+        'comment.read',
+        'workspace.settings',
+        'workspace.members',
+        'workspace.roles',
+        'workspace.delete',
+      ].sort(),
+    );
+    // No write verb is ever implicit: everything outside the implicit set
+    // stays withheld — doc.edit, the file writes, folder.manage, comment.write.
+    const held = resolvePermissions(manifest, 'mock-katherine', true);
+    for (const verb of PERMISSIONS.filter((p) => !ADMIN_IMPLICIT_PERMISSIONS.includes(p))) {
+      expect(held.has(verb)).toBe(false);
+    }
+  });
+
+  it('U811: membership unions with the implicit set — never an override', () => {
+    // An admin who is also an Owner keeps full Owner permissions.
+    expect([...resolvePermissions(manifest, 'mock-ada', true)].sort()).toEqual([...PERMISSIONS].sort());
+    // An admin with a narrow custom role gets that role PLUS the implicit set.
+    expect([...resolvePermissions(manifest, 'mock-grace', true)].sort()).toEqual(
+      [...new Set(['doc.read', 'comment.read', 'comment.write', ...ADMIN_IMPLICIT_PERMISSIONS])].sort(),
+    );
+  });
+
+  it('U812: the everyone-role unions too, and a non-admin caller is untouched', () => {
+    const open: WorkspaceManifest = { ...manifest, everyone: { enabled: true, role: 'Commenter' } };
+    // Admin non-member in an open workspace: Commenter ∪ the implicit seven.
+    expect([...resolvePermissions(open, 'mock-katherine', true)].sort()).toEqual(
+      [...new Set([...BUILT_IN_ROLES.Commenter, ...ADMIN_IMPLICIT_PERMISSIONS])].sort(),
+    );
+    // Non-admin callers — flag false or omitted — resolve exactly as before.
+    expect([...resolvePermissions(open, 'mock-katherine', false)].sort()).toEqual(
+      [...BUILT_IN_ROLES.Commenter].sort(),
+    );
+    expect(resolvePermissions(manifest, 'mock-katherine').size).toBe(0);
   });
 });

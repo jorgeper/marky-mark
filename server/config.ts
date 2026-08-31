@@ -52,6 +52,13 @@ export interface ServerConfig {
    * active, structurally.
    */
   llm?: LlmProviderConfig;
+  /**
+   * PRD 017 Req 1: the deployment admins' user ids, parsed from `MM_ADMINS`.
+   * Empty means the deployment has no admins and every admin surface in PRD
+   * 017 is simply absent. Ids are not secrets but are never logged either —
+   * startup output reports only the count.
+   */
+  admins: readonly string[];
 }
 
 /** Env vars azure mode cannot start without (PRD 007 Req 1). */
@@ -155,6 +162,34 @@ function isAbsoluteHttpUrl(value: string): boolean {
 }
 
 /**
+ * PRD 017 Req 1+25: the optional `MM_ADMINS` — a comma-separated list of user
+ * ids (Entra object ids in azure mode, mock ids in local mode). Entries are
+ * trimmed and empty entries dropped; an entry with interior whitespace is a
+ * refusal naming the variable and every bad entry at once (a user id never
+ * contains whitespace, so one flags a wrong separator, not an odd id). Local
+ * mode defaults an UNSET variable to mock-katherine so `npm run server:local`
+ * and the e2e lane have exactly one admin; setting `MM_ADMINS` — even to
+ * empty — overrides that. Azure mode has no default: unset means no admins.
+ */
+function loadAdmins(env: Record<string, string | undefined>, mode: ServerMode): readonly string[] {
+  const raw = env.MM_ADMINS;
+  if (raw === undefined) return mode === 'local' ? ['mock-katherine'] : [];
+  const entries = raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '');
+  const malformed = entries.filter((entry) => /\s/.test(entry));
+  if (malformed.length) {
+    throw new Error(
+      `MM_ADMINS must be comma-separated user ids without whitespace, got: ${malformed
+        .map((entry) => JSON.stringify(entry))
+        .join(', ')}`,
+    );
+  }
+  return entries;
+}
+
+/**
  * Parse a config from an environment. Throws with an actionable message —
  * naming the offending variable and every missing one at once — rather than
  * failing later with a vendor error.
@@ -175,9 +210,11 @@ export function loadConfig(env: Record<string, string | undefined>): ServerConfi
   // PRD 011 Req 8: parsed in both modes, required in neither.
   const llm = loadLlmConfig(env);
   const storage = loadStorage(env, mode);
+  // PRD 017 Req 1: parsed in both modes; only local mode has a default.
+  const admins = loadAdmins(env, mode);
 
   if (mode === 'local') {
-    return { mode, port, staticDir, storage, ...(llm ? { llm } : {}) };
+    return { mode, port, staticDir, storage, admins, ...(llm ? { llm } : {}) };
   }
 
   const missing = AZURE_REQUIRED.filter((name) => !env[name]);
@@ -194,6 +231,7 @@ export function loadConfig(env: Record<string, string | undefined>): ServerConfi
       clientId: env.ENTRA_CLIENT_ID!,
       clientSecret: env.ENTRA_CLIENT_SECRET!,
     },
+    admins,
     ...(llm ? { llm } : {}),
   };
 }

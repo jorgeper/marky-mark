@@ -39,6 +39,21 @@ export function isPermission(value: unknown): value is Permission {
   return typeof value === 'string' && (PERMISSIONS as readonly string[]).includes(value);
 }
 
+// --- deployment-level permissions (PRD 017 Req 2) ----------------------------
+
+/**
+ * PRD 017 Req 2: the two deployment-level permission names, beside — and
+ * deliberately NOT members of — the workspace verb catalog above. Because
+ * `isPermission` rejects them, no built-in or custom role can grant them
+ * (manifest validation refuses unknown verbs) and the role editor, which
+ * enumerates `PERMISSIONS`, never offers them. A route refusing for one uses
+ * the existing 403 shape `{ error: 'forbidden', required: '<name>' }`; the
+ * admin routes that consume these names arrive with PRD 017's later issues.
+ */
+export const DEPLOYMENT_PERMISSIONS = ['deployment.admin', 'deployment.create'] as const;
+
+export type DeploymentPermission = (typeof DEPLOYMENT_PERMISSIONS)[number];
+
 // --- built-in roles (PRD 007 Req 14) -----------------------------------------
 
 export type BuiltInRoleName = 'Owner' | 'Editor' | 'Contributor' | 'Commenter' | 'Viewer';
@@ -613,15 +628,48 @@ function permissionsOfRole(manifest: WorkspaceManifest, roleName: string): Reado
 }
 
 /**
+ * PRD 017 Req 4: the verbs a deployment admin holds implicitly in every
+ * workspace — read plus administer, never write. Exactly these seven: no
+ * other verb (`doc.edit`, the `file.create/delete/rename/upload` writes,
+ * `folder.manage`, `comment.write`) is ever implicit.
+ */
+export const ADMIN_IMPLICIT_PERMISSIONS: readonly Permission[] = [
+  'doc.read',
+  'file.download',
+  'comment.read',
+  'workspace.settings',
+  'workspace.members',
+  'workspace.roles',
+  'workspace.delete',
+];
+
+/**
  * PRD 007 Req 13+16: resolve a user's permissions from the manifest.
  * Explicit membership wins over the everyone-role (even when the member's
  * role name resolves to nothing — an unknown role fails closed rather than
  * falling back); a signed-in non-member gets the everyone default role when
  * everyone-access is on, and nothing at all when it is off.
+ *
+ * PRD 017 Req 4: a deployment admin additionally holds the implicit set
+ * above as a union with whatever the manifest grants — never an override,
+ * so an admin who is also an Owner keeps full Owner permissions. This is
+ * the single resolution path (`requirePermission` and the listing on the
+ * server, refusal prediction on the client), which is what makes every
+ * route inherit the union with no per-route change. Callers that cannot
+ * know admin status yet — the client, until `/api/me` exposes it in a
+ * later PRD 017 issue — omit the flag and resolve as non-admin.
  */
-export function resolvePermissions(manifest: WorkspaceManifest, userId: string): ReadonlySet<Permission> {
+export function resolvePermissions(
+  manifest: WorkspaceManifest,
+  userId: string,
+  isAdmin = false,
+): ReadonlySet<Permission> {
   const member = manifest.members.find((m) => m.id === userId);
-  if (member) return permissionsOfRole(manifest, member.role);
-  if (manifest.everyone.enabled) return permissionsOfRole(manifest, manifest.everyone.role);
-  return NO_PERMISSIONS;
+  const granted = member
+    ? permissionsOfRole(manifest, member.role)
+    : manifest.everyone.enabled
+      ? permissionsOfRole(manifest, manifest.everyone.role)
+      : NO_PERMISSIONS;
+  if (!isAdmin) return granted;
+  return new Set([...granted, ...ADMIN_IMPLICIT_PERMISSIONS]);
 }

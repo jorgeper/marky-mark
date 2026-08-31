@@ -175,3 +175,37 @@ describe('PRD 011 Req 8 the operator-configured LLM section', () => {
     );
   });
 });
+
+// PRD 017 Req 1+25: the optional MM_ADMINS list — trimming, the whitespace
+// refusal, and the local-mode default that azure mode deliberately lacks.
+describe('PRD 017 Req 1+25 MM_ADMINS deployment admins', () => {
+  const azure = {
+    MM_MODE: 'azure',
+    ENTRA_TENANT_ID: 't',
+    ENTRA_CLIENT_ID: 'c',
+    ENTRA_CLIENT_SECRET: 's',
+    AZURE_STORAGE_CONNECTION_STRING: 'conn',
+  };
+
+  it('U805: entries are trimmed and empty entries dropped', () => {
+    expect(loadConfig({ ...azure, MM_ADMINS: ' oid-1 , oid-2 ,, ' }).admins).toEqual(['oid-1', 'oid-2']);
+  });
+
+  it('U806: an entry with interior whitespace is refused naming MM_ADMINS and every bad entry at once', () => {
+    expect(() => loadConfig({ ...azure, MM_ADMINS: 'oid 1,fine,o id2' })).toThrowError(
+      /MM_ADMINS.*"oid 1", "o id2"/,
+    );
+  });
+
+  it('U807: local mode defaults an unset MM_ADMINS to exactly mock-katherine; setting it overrides', () => {
+    expect(loadConfig({}).admins).toEqual(['mock-katherine']);
+    expect(loadConfig({ MM_ADMINS: 'mock-ada,mock-grace' }).admins).toEqual(['mock-ada', 'mock-grace']);
+    // Set-but-empty is an override too: explicitly no admins.
+    expect(loadConfig({ MM_ADMINS: '' }).admins).toEqual([]);
+  });
+
+  it('U808: azure mode has no default — unset or empty means no admins', () => {
+    expect(loadConfig(azure).admins).toEqual([]);
+    expect(loadConfig({ ...azure, MM_ADMINS: ' , ' }).admins).toEqual([]);
+  });
+});

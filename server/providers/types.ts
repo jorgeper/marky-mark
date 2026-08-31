@@ -41,6 +41,12 @@ export interface AuthProvider {
 export interface RequestAuth {
   token: string;
   user: AuthUser;
+  /**
+   * PRD 017 Req 4: the caller's id is listed in `MM_ADMINS`. Stamped once per
+   * request in app.ts; absent means non-admin, so any constructor that knows
+   * nothing of admins fails closed.
+   */
+  isAdmin?: boolean;
 }
 
 /** A stored file's metadata. */

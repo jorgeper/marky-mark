@@ -819,6 +819,69 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
   });
 });
 
+// PRD 017 Req 4: the implicit admin union is inherited by the HTTP layer —
+// requirePermission and the listing's access flag — with no per-route change:
+// the same createApp, wired with an MM_ADMINS-style admin set.
+describe('PRD 017 Req 4 admin union over HTTP', () => {
+  const { provider } = createMemoryStorage();
+  const auth = createMockAuthProvider();
+  let server: Server;
+  let base = '';
+  const tokens: Record<string, string> = {};
+
+  beforeAll(async () => {
+    server = createServer(
+      createApp(
+        '/nonexistent-static',
+        { auth, storage: provider, directory: createMockDirectoryProvider() },
+        'local',
+        undefined,
+        new Set(['mock-katherine']),
+      ),
+    );
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    for (const username of ['ada', 'katherine']) {
+      const result = await auth.signIn({ username });
+      if (result?.kind !== 'token') throw new Error('mock sign-in failed');
+      tokens[username] = result.token;
+    }
+  });
+
+  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  const call = (user: string, method: string, path: string, body?: string): Promise<Response> =>
+    fetch(`${base}${path}`, { method, headers: { Authorization: `Bearer ${tokens[user]}` }, body });
+
+  it('U813: an admin non-member reads, administers and is listed with access — but cannot write', async () => {
+    const res = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Admin proof' }));
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+
+    // Katherine is no member, yet her listing row says openable…
+    const listing = (await (await call('katherine', 'GET', '/api/workspaces')).json()) as {
+      id: string;
+      access: boolean;
+    }[];
+    expect(listing.find((row) => row.id === id)?.access).toBe(true);
+    // …the doc.read gate admits her…
+    expect((await call('katherine', 'GET', `/api/workspaces/${id}/manifest`)).status).toBe(200);
+    // …and so does a workspace.settings write (the whole-manifest PUT).
+    const { manifest } = (await (await call('katherine', 'GET', `/api/workspaces/${id}/manifest`)).json()) as {
+      manifest: WorkspaceManifest;
+    };
+    expect(
+      (await call('katherine', 'PUT', `/api/workspaces/${id}/manifest`, JSON.stringify(manifest))).status,
+    ).toBe(200);
+    // No write verb is implicit: creating a file still 403s naming its verb.
+    const denied = await call('katherine', 'PUT', `/api/workspaces/${id}/files/notes/a.md`, '# hi');
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toEqual({ error: 'forbidden', required: 'file.create' });
+    // And a plain non-member non-admin still sees no access at all.
+    expect((await call('ada', 'DELETE', `/api/workspaces/${id}`)).status).toBe(200);
+  });
+});
+
 // The reference provider the HTTP layer above runs on is held to the shared
 // seam contract (tests/unit/storage-contract.ts). U374–U382 is this run's
 // block of ids.

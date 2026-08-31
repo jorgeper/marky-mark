@@ -26,13 +26,19 @@ try {
 // PRD 011 Req 8+13: the LLM routes, built from the optional LLM section. No
 // section ⇒ an api that answers "not configured" and contacts nothing.
 const llm = createLlmApi({ ...(config.llm ? { config: config.llm } : {}) });
-const server = http.createServer(createApp(config.staticDir, providers, config.mode, llm));
+// PRD 017 Req 4: admin ids ride into the app so per-request auth can carry
+// admin status into the shared permission-resolution path.
+const server = http.createServer(
+  createApp(config.staticDir, providers, config.mode, llm, new Set(config.admins)),
+);
 server.listen(config.port, () => {
   console.log(
     `marky-mark server: mode=${config.mode} port=${config.port} static=${config.staticDir} ` +
       `(auth=${providers.auth.kind}, storage=${providers.storage.kind}, directory=${providers.directory.kind}, ` +
       // PRD 011 Req 7: the provider kind and model are operator-visible facts;
       // the key is not, and no log line here or anywhere in server/ carries it.
-      `llm=${config.llm ? `${config.llm.kind}:${config.llm.model}` : 'none'})`,
+      `llm=${config.llm ? `${config.llm.kind}:${config.llm.model}` : 'none'}, ` +
+      // PRD 017 Req 1: the admin *count* only — no admin id in any log line.
+      `${config.admins.length} deployment admins)`,
   );
 });

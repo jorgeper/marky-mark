@@ -291,7 +291,9 @@ async function requirePermission(
     sendJson(res, 500, { error: `corrupt workspace manifest: ${manifest}` });
     return null;
   }
-  if (!resolvePermissions(manifest, auth.user.id).has(required)) {
+  // PRD 017 Req 4: admin status rides in on the request auth, so the implicit
+  // admin union applies to every route through this one gate.
+  if (!resolvePermissions(manifest, auth.user.id, auth.isAdmin).has(required)) {
     sendJson(res, 403, { error: 'forbidden', required });
     return null;
   }
@@ -448,7 +450,9 @@ export async function handleWorkspaceApi(
         created: manifest.created,
         modified: manifest.modified,
         owners: workspaceOwnerIds(manifest),
-        access: resolvePermissions(manifest, auth.user.id).has('doc.read'),
+        // PRD 017 Req 4: same resolution as requirePermission, so an admin's
+        // rows read openable even where the manifest grants them nothing.
+        access: resolvePermissions(manifest, auth.user.id, auth.isAdmin).has('doc.read'),
       });
     }
     sendJson(res, 200, out);

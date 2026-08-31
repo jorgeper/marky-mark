@@ -67,6 +67,7 @@ async function handleApi(
   url: URL,
   providers: Providers,
   llm: LlmApi,
+  admins: ReadonlySet<string>,
 ): Promise<void> {
   const { pathname } = url;
 
@@ -95,7 +96,10 @@ async function handleApi(
     sendJson(res, 401, { error: 'authentication required' });
     return;
   }
-  const auth: RequestAuth = { token, user };
+  // PRD 017 Req 4: admin status is stamped on the request context here, once,
+  // so every downstream gate (requirePermission → resolvePermissions) inherits
+  // the implicit admin grants with no per-route change.
+  const auth: RequestAuth = { token, user, isAdmin: admins.has(user.id) };
 
   if (pathname === '/api/me' && req.method === 'GET') {
     sendJson(res, 200, user);
@@ -294,12 +298,15 @@ export function createApp(
   // that configured none still wires and the routes report themselves
   // unconfigured rather than 500ing.
   llm: LlmApi = createLlmApi(),
+  // PRD 017 Req 1: ids from MM_ADMINS — defaulted empty, so a deployment (or
+  // test) that names no admins wires byte-identically to before.
+  admins: ReadonlySet<string> = new Set(),
 ): RequestListener {
   const staticRoot = path.resolve(staticDir);
   return (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-      handleApi(req, res, url, providers, llm).catch((err: unknown) => {
+      handleApi(req, res, url, providers, llm, admins).catch((err: unknown) => {
         console.error('API error:', err);
         if (!res.headersSent) sendJson(res, 500, { error: 'internal server error' });
         else res.end();
