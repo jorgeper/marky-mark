@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../../server/config';
 import { createProviders } from '../../server/providers/index';
-import { buildAuthorizeUrl, createEntraAuthProvider, entraIssuer } from '../../server/providers/azure/entra';
+import {
+  apiScope,
+  buildAuthorizeUrl,
+  createEntraAuthProvider,
+  entraIssuer,
+  sessionUserFromClaims,
+} from '../../server/providers/azure/entra';
 import { createGraphDirectoryProvider } from '../../server/providers/azure/graph';
 import {
   createOboTokenSource,
@@ -39,7 +45,7 @@ describe('PRD 007 Req 3 provider selection', () => {
 });
 
 describe('PRD 007 Req 3 Entra ID auth provider', () => {
-  it('U225: sign-in answers a redirect to the tenant authorize endpoint pinning client and S256 PKCE', async () => {
+  it('U225: sign-in answers a redirect to the tenant authorize endpoint pinning client, S256 PKCE, and the app-API scope', async () => {
     const provider = createEntraAuthProvider('tenant-1', 'client-1');
     const result = await provider.signIn({});
     if (result?.kind !== 'redirect') throw new Error('expected a redirect sign-in');
@@ -48,6 +54,11 @@ describe('PRD 007 Req 3 Entra ID auth provider', () => {
     expect(url.searchParams.get('client_id')).toBe('client-1');
     expect(url.searchParams.get('response_type')).toBe('code');
     expect(url.searchParams.get('code_challenge_method')).toBe('S256');
+    // Issue #184: the pinned scopes include the app's own API scope, so the
+    // exchange mints the access token the OBO assertion requires. This URL
+    // is the single place the scope string is stated.
+    expect(url.searchParams.get('scope')).toBe('openid profile email api://client-1/access_as_user');
+    expect(apiScope('client-1')).toBe('api://client-1/access_as_user');
     expect(buildAuthorizeUrl('t', 'c')).toContain('login.microsoftonline.com/t/');
     expect(entraIssuer('tenant-1')).toBe('https://login.microsoftonline.com/tenant-1/v2.0');
   });
@@ -58,6 +69,25 @@ describe('PRD 007 Req 3 Entra ID auth provider', () => {
     // would ever consult the remote JWKS, so this stays offline.
     expect(await provider.validateToken('not-a-jwt')).toBeNull();
     expect(await provider.validateToken('')).toBeNull();
+  });
+
+  it('U962: only a bearer whose scp includes access_as_user is a session — an id_token (no scp) is a clean 401', () => {
+    // Issue #184: the claims→user mapping behind validateToken, after the
+    // signature/iss/aud pinning. An access token for the app's own API
+    // carries scp; the pre-#184 id_token bearer never does, so an old tab
+    // gets null → the same 401 as any rejected token, never a 500.
+    const claims = { oid: 'oid-1', preferred_username: 'ada@contoso.com', name: 'Ada' };
+    expect(sessionUserFromClaims({ ...claims, scp: 'access_as_user' })).toEqual({
+      id: 'oid-1',
+      username: 'ada@contoso.com',
+      displayName: 'Ada',
+    });
+    // Multi-scope scp still matches on the whole word, and users are still
+    // identified by oid.
+    expect(sessionUserFromClaims({ ...claims, scp: 'profile access_as_user email' })?.id).toBe('oid-1');
+    expect(sessionUserFromClaims(claims)).toBeNull(); // id_token: no scp at all
+    expect(sessionUserFromClaims({ ...claims, scp: 'User.Read' })).toBeNull();
+    expect(sessionUserFromClaims({ ...claims, scp: 'access_as_user_extra' })).toBeNull();
   });
 });
 
@@ -160,12 +190,13 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
   });
 });
 
-// PRD 007 Req 6 (issue #180): the on-behalf-of exchange — the session
-// id_token traded at the tenant token endpoint for a delegated Graph access
-// token, cached per user for its validity window. The token-endpoint fetch is
-// injected, so every branch here runs offline.
+// PRD 007 Req 6 (issue #180): the on-behalf-of exchange — the session bearer
+// (the access token for the app's own API, issue #184) traded at the tenant
+// token endpoint for a delegated Graph access token, cached per user for its
+// validity window. The token-endpoint fetch is injected, so every branch
+// here runs offline.
 describe('issue #180 on-behalf-of Graph token exchange', () => {
-  const authFor = (id: string, token = `id-token-${id}`) => ({
+  const authFor = (id: string, token = `access-token-${id}`) => ({
     token,
     user: { id, username: `${id}@contoso.com`, displayName: id },
   });
@@ -186,14 +217,16 @@ describe('issue #180 on-behalf-of Graph token exchange', () => {
         return tokenResponse('graph-token');
       },
     });
-    expect(await getToken(authFor('u1', 'the-session-assertion'))).toBe('graph-token');
+    expect(await getToken(authFor('u1', 'the-session-access-token'))).toBe('graph-token');
     expect(calls[0].url).toBe('https://login.microsoftonline.com/tenant-1/oauth2/v2.0/token');
     expect(calls[0].init?.method).toBe('POST');
     const body = new URLSearchParams(String(calls[0].init?.body));
     expect(body.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
     expect(body.get('client_id')).toBe('client-1');
     expect(body.get('client_secret')).toBe('secret-1');
-    expect(body.get('assertion')).toBe('the-session-assertion');
+    // Issue #184: the assertion is the validated session bearer exactly as
+    // received — the access token for the app's own API, never an id_token.
+    expect(body.get('assertion')).toBe('the-session-access-token');
     // Delegated User.ReadBasic.All only — never an application permission.
     expect(body.get('scope')).toBe(GRAPH_OBO_SCOPE);
     expect(GRAPH_OBO_SCOPE).toBe('https://graph.microsoft.com/User.ReadBasic.All');
@@ -234,7 +267,7 @@ describe('issue #180 on-behalf-of Graph token exchange', () => {
     expect(exchanges).toBe(4);
   });
 
-  it('U801: a refused exchange names the status and OAuth code — never the secret or assertion — and is not cached', async () => {
+  it('U801: a refused exchange names the status, OAuth code, and AADSTS error_description — never the secret or assertion — and is not cached', async () => {
     let status = 400;
     let exchanges = 0;
     const getToken = createOboTokenSource({
@@ -245,7 +278,13 @@ describe('issue #180 on-behalf-of Graph token exchange', () => {
         exchanges++;
         return status === 200
           ? tokenResponse('graph-token')
-          : new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'AADSTS50013' }), { status });
+          : new Response(
+              JSON.stringify({
+                error: 'invalid_request',
+                error_description: "AADSTS240002: Input id_token cannot be used as 'urn:ietf:params:oauth:grant-type:jwt-bearer' grant.",
+              }),
+              { status },
+            );
       },
     });
     const auth = authFor('u1', 'assertion-DO-NOT-LEAK');
@@ -253,7 +292,11 @@ describe('issue #180 on-behalf-of Graph token exchange', () => {
     await getToken(auth).catch((err: Error) => {
       message = err.message;
     });
-    expect(message).toBe('Graph token exchange failed: 400 (invalid_grant)');
+    // Issue #184: the AADSTS line is the diagnosis — the operator reads the
+    // actual cause, not a bare invalid_request. Secret and assertion stay out.
+    expect(message).toBe(
+      "Graph token exchange failed: 400 (invalid_request): AADSTS240002: Input id_token cannot be used as 'urn:ietf:params:oauth:grant-type:jwt-bearer' grant.",
+    );
     expect(message).not.toContain('DO-NOT-LEAK');
     // The failure was evicted, so the next call retries — and can succeed.
     status = 200;

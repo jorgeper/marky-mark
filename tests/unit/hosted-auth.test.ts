@@ -13,9 +13,12 @@ import {
 // PRD 007 Req 5: the SPA's Entra ID auth-code + PKCE flow — pure logic,
 // verified with a mocked fetch only. No tenant, no network.
 describe('PRD 007 Req 5 Entra PKCE flow', () => {
+  // Issue #184: the server-pinned scopes include the app's own API scope, so
+  // the exchange yields an access token usable as the OBO assertion.
+  const SCOPE = 'openid profile email api://my-client/access_as_user';
   const AUTHORIZE_URL =
     'https://login.microsoftonline.com/my-tenant/oauth2/v2.0/authorize' +
-    '?client_id=my-client&response_type=code&scope=openid+profile+email&code_challenge_method=S256';
+    `?client_id=my-client&response_type=code&scope=${encodeURIComponent(SCOPE)}&code_challenge_method=S256`;
 
   it('U229: code verifiers are 43-char base64url strings and unique per call', () => {
     const a = createCodeVerifier();
@@ -49,12 +52,15 @@ describe('PRD 007 Req 5 Entra PKCE flow', () => {
     expect(url.searchParams.get('code_challenge')).toBe('the-challenge');
   });
 
-  it('U232: tenant and client id come out of the authorize URL; anything else is rejected', () => {
-    expect(parseAuthorizeUrl(AUTHORIZE_URL)).toEqual({ tenantId: 'my-tenant', clientId: 'my-client' });
-    // Wrong host, wrong path shape, missing client_id, and garbage all → null.
-    expect(parseAuthorizeUrl('https://evil.example/my-tenant/oauth2/v2.0/authorize?client_id=x')).toBeNull();
-    expect(parseAuthorizeUrl('https://login.microsoftonline.com/common/other?client_id=x')).toBeNull();
-    expect(parseAuthorizeUrl('https://login.microsoftonline.com/my-tenant/oauth2/v2.0/authorize')).toBeNull();
+  it('U232: tenant, client id and the pinned scope come out of the authorize URL; anything else is rejected', () => {
+    // Issue #184: the scope rides along verbatim — the SPA never re-states
+    // it, so the server stays the single source of truth.
+    expect(parseAuthorizeUrl(AUTHORIZE_URL)).toEqual({ tenantId: 'my-tenant', clientId: 'my-client', scope: SCOPE });
+    // Wrong host, wrong path shape, missing client_id or scope, garbage → null.
+    expect(parseAuthorizeUrl('https://evil.example/my-tenant/oauth2/v2.0/authorize?client_id=x&scope=s')).toBeNull();
+    expect(parseAuthorizeUrl('https://login.microsoftonline.com/common/other?client_id=x&scope=s')).toBeNull();
+    expect(parseAuthorizeUrl('https://login.microsoftonline.com/my-tenant/oauth2/v2.0/authorize?scope=s')).toBeNull();
+    expect(parseAuthorizeUrl('https://login.microsoftonline.com/my-tenant/oauth2/v2.0/authorize?client_id=x')).toBeNull();
     expect(parseAuthorizeUrl('not a url')).toBeNull();
   });
 
@@ -76,13 +82,14 @@ describe('PRD 007 Req 5 Entra PKCE flow', () => {
     expect(parseAuthCallback('?code=abc&state=expected', 'expected')).toEqual({ kind: 'code', code: 'abc' });
   });
 
-  it('U234: the token request is a public-client form POST to the tenant token endpoint', () => {
+  it('U234: the token request is a public-client form POST to the tenant token endpoint, echoing the pinned scope', () => {
     const { url, body } = buildTokenRequest({
       tenantId: 'my-tenant',
       clientId: 'my-client',
       code: 'the-code',
       redirectUri: 'https://app.example/',
       codeVerifier: 'the-verifier',
+      scope: SCOPE,
     });
     expect(url).toBe('https://login.microsoftonline.com/my-tenant/oauth2/v2.0/token');
     expect(url).toBe(tokenEndpoint('my-tenant'));
@@ -92,15 +99,22 @@ describe('PRD 007 Req 5 Entra PKCE flow', () => {
     expect(params.get('code')).toBe('the-code');
     expect(params.get('redirect_uri')).toBe('https://app.example/');
     expect(params.get('code_verifier')).toBe('the-verifier');
+    // Issue #184: the exchange asks for the same scopes the authorize leg
+    // did — including api://<client id>/access_as_user, verbatim.
+    expect(params.get('scope')).toBe(SCOPE);
     // Public client: PKCE verifier stands in for a secret — none is sent.
     expect(params.get('client_secret')).toBeNull();
   });
 
-  it('U235: a successful exchange POSTs the form body and yields the id_token', async () => {
+  it('U235: a successful exchange POSTs the form body and yields the access_token — never the id_token — as the session bearer', async () => {
     const calls: Parameters<typeof fetch>[] = [];
     const fetchFn: typeof fetch = async (input, init) => {
       calls.push([input, init]);
-      return new Response(JSON.stringify({ id_token: 'the-jwt', access_token: 'graph-token' }), { status: 200 });
+      // Issue #184: the bearer is the access token minted for the app's own
+      // API — the id_token in the same answer is not sent to the API.
+      return new Response(JSON.stringify({ id_token: 'the-id-jwt', access_token: 'the-api-access-token' }), {
+        status: 200,
+      });
     };
     const token = await exchangeCodeForToken(fetchFn, {
       tenantId: 'my-tenant',
@@ -108,8 +122,9 @@ describe('PRD 007 Req 5 Entra PKCE flow', () => {
       code: 'the-code',
       redirectUri: 'https://app.example/',
       codeVerifier: 'the-verifier',
+      scope: SCOPE,
     });
-    expect(token).toBe('the-jwt');
+    expect(token).toBe('the-api-access-token');
     const [url, init] = calls[0];
     expect(url).toBe('https://login.microsoftonline.com/my-tenant/oauth2/v2.0/token');
     expect(init?.method).toBe('POST');
@@ -124,6 +139,7 @@ describe('PRD 007 Req 5 Entra PKCE flow', () => {
       code: 'bad-code',
       redirectUri: 'https://app.example/',
       codeVerifier: 'v',
+      scope: SCOPE,
     };
     const denied: typeof fetch = async () =>
       new Response(JSON.stringify({ error: 'invalid_grant', error_description: 'AADSTS70008: expired' }), {
@@ -132,8 +148,9 @@ describe('PRD 007 Req 5 Entra PKCE flow', () => {
     await expect(exchangeCodeForToken(denied, opts)).rejects.toThrow('AADSTS70008: expired');
     const html: typeof fetch = async () => new Response('<html>gateway error</html>', { status: 502 });
     await expect(exchangeCodeForToken(html, opts)).rejects.toThrow('502');
-    // A 200 without an id_token is still a failure — never store undefined.
-    const empty: typeof fetch = async () => new Response('{}', { status: 200 });
+    // A 200 without an access_token is still a failure — never store
+    // undefined, and never fall back to the id_token (issue #184).
+    const empty: typeof fetch = async () => new Response(JSON.stringify({ id_token: 'the-id-jwt' }), { status: 200 });
     await expect(exchangeCodeForToken(empty, opts)).rejects.toThrow('200');
   });
 });

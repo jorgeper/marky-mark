@@ -75,6 +75,7 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
               code: callback.code,
               redirectUri: redirectUri(),
               codeVerifier: pending.verifier,
+              scope: pending.scope,
             });
             storeToken(window.localStorage, token);
             finish({ kind: 'ready' });
@@ -147,6 +148,7 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
       verifier,
       tenantId: app.tenantId,
       clientId: app.clientId,
+      scope: app.scope,
     });
     window.location.assign(
       buildAuthorizeRedirect(authorizeUrl, { redirectUri: redirectUri(), state, codeChallenge: challenge }),

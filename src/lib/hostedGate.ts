@@ -52,6 +52,8 @@ export interface PendingSignIn {
   verifier: string;
   tenantId: string;
   clientId: string;
+  /** The server-pinned scope string, echoed in the token exchange (issue #184). */
+  scope: string;
 }
 
 export function storePendingSignIn(store: KeyValueStore, pending: PendingSignIn): void {
@@ -72,9 +74,16 @@ export function takePendingSignIn(store: KeyValueStore): PendingSignIn | null {
       typeof parsed.state === 'string' &&
       typeof parsed.verifier === 'string' &&
       typeof parsed.tenantId === 'string' &&
-      typeof parsed.clientId === 'string'
+      typeof parsed.clientId === 'string' &&
+      typeof parsed.scope === 'string'
     ) {
-      return { state: parsed.state, verifier: parsed.verifier, tenantId: parsed.tenantId, clientId: parsed.clientId };
+      return {
+        state: parsed.state,
+        verifier: parsed.verifier,
+        tenantId: parsed.tenantId,
+        clientId: parsed.clientId,
+        scope: parsed.scope,
+      };
     }
   } catch {
     // corrupt sessionStorage entry — treat as absent

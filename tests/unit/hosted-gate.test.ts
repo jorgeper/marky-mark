@@ -54,7 +54,7 @@ describe('PRD 007 Req 5 hosted-mode gate', () => {
 
   it('U239: the pending PKCE sign-in is one-shot and rejects corrupt or partial entries', () => {
     const store = memoryStore();
-    const pending = { state: 's', verifier: 'v', tenantId: 't', clientId: 'c' };
+    const pending = { state: 's', verifier: 'v', tenantId: 't', clientId: 'c', scope: 'openid api://c/access_as_user' };
     storePendingSignIn(store, pending);
     expect(takePendingSignIn(store)).toEqual(pending);
     // One-shot: a second take finds nothing — a leftover verifier could be
@@ -62,9 +62,16 @@ describe('PRD 007 Req 5 hosted-mode gate', () => {
     expect(takePendingSignIn(store)).toBeNull();
     expect(store.size()).toBe(0);
     // Corrupt JSON and shape mismatches are treated as absent, and cleared.
+    // A scope-less entry is the pre-#184 shape: absent too, so the sign-in
+    // restarts cleanly instead of exchanging with the wrong scopes.
     store.setItem('marky-mark.hosted.pending-sign-in', 'not json');
     expect(takePendingSignIn(store)).toBeNull();
     store.setItem('marky-mark.hosted.pending-sign-in', JSON.stringify({ state: 's' }));
+    expect(takePendingSignIn(store)).toBeNull();
+    store.setItem(
+      'marky-mark.hosted.pending-sign-in',
+      JSON.stringify({ state: 's', verifier: 'v', tenantId: 't', clientId: 'c' }),
+    );
     expect(takePendingSignIn(store)).toBeNull();
   });
 });

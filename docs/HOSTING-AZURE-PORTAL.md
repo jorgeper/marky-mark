@@ -17,7 +17,7 @@ them when they arrive:
 
 - **Building the deployment payload** (step 4) needs Node on your own machine.
   There is no portal button that builds this app.
-- **Granting admin consent** (step 3.4) is a portal button, but only if you are
+- **Granting admin consent** (step 3.5) is a portal button, but only if you are
   a tenant admin. If you aren't, someone who is has to click it.
 
 > ### Read this before you set aside an afternoon
@@ -167,9 +167,13 @@ app is built:
   accounts and other tenants are out of scope.
 - **Sign-in needs no secret; the directory does.** The sign-in happens entirely
   in the browser using auth-code + PKCE — no secret is involved in it. The
-  registration still gets **one client secret** (step 3.5), used only by the
+  registration still gets **one client secret** (step 3.6), used only by the
   **server** to exchange a signed-in user's token for a Microsoft Graph token
   (that's what powers member search and avatars). The browser never sees it.
+- **The registration exposes one API scope of its own** (step 3.3). Signing in
+  requests that scope, which is what makes Entra mint the access token the
+  app uses as its session — and the only kind of token the Graph exchange
+  above accepts. Without it, member search and avatars cannot work.
 
 ### 3.1 Create the registration
 
@@ -183,7 +187,7 @@ app is built:
    right platform type. You'll add it properly in the next step.
 5. **Register**.
 
-You land on the **Overview** page. Leave this tab open; step 3.6 comes back for
+You land on the **Overview** page. Leave this tab open; step 3.7 comes back for
 two values here.
 
 ### 3.2 Add the redirect URI — exactly
@@ -224,7 +228,41 @@ add a custom domain in step 8, you must come back here and add it too — Azure
 will not do it for you, and sign-in on the new domain will simply be broken
 until you do.
 
-### 3.3 Add the Microsoft Graph permissions
+### 3.3 Expose an API — the scope the app signs in with
+
+When someone signs in, the app asks Entra for an access token *for itself* —
+that token is the session, and it is also what the server later trades for a
+Microsoft Graph token (an id_token cannot be traded; Entra refuses it with
+`AADSTS240002`, and member search silently dies). For Entra to be able to
+mint such a token, the registration has to declare that this app *has* an
+API worth issuing tokens for:
+
+1. In the registration's left menu: **Expose an API**.
+2. Next to **Application ID URI**, click **Add** and accept the default —
+   `api://<your Application (client) ID>`. **Save**.
+3. **+ Add a scope**, and fill it in exactly:
+   - **Scope name**: `access_as_user`
+   - **Who can consent?**: **Admins and users**
+   - **Admin consent display name**: `Access Marky Mark as the signed-in user`
+   - **Admin consent description**: `Allows the app to call its own API as the signed-in user.`
+   - **User consent display name**: `Access Marky Mark as you`
+   - **User consent description**: `Allows the app to call its own API as you.`
+   - **State**: **Enabled**
+4. **Add scope**.
+
+One more setting has no portal control on this page and needs the manifest:
+the access token must be issued in the **v2.0 format** (the server pins the
+`…/v2.0` issuer). In the registration's left menu open **Manifest**, find
+`"requestedAccessTokenVersion"` (inside the `api` block on the newer
+Microsoft Graph manifest view) and set it to `2` — it is `null` on a fresh
+registration. **Save**.
+
+> **Scope name and token version are exact.** The server accepts only tokens
+> whose scopes include `access_as_user` and whose issuer is the v2.0 one —
+> a different scope name or a `null` token version both surface as a blanket
+> `401` on every API call after a successful sign-in.
+
+### 3.4 Add the Microsoft Graph permissions
 
 These let the app look up people in your directory, so a workspace owner can
 search for a colleague by name and add them as a member.
@@ -245,7 +283,7 @@ them keeps the consent screen honest about what the app asks for.
 searching users, resolving a user id to a display name, and fetching a member's
 photo.
 
-### 3.4 Grant admin consent — the admin-only step
+### 3.5 Grant admin consent — the admin-only step
 
 On the same **API permissions** page, click **Grant admin consent for
 &lt;your organization&gt;**, then **Yes**.
@@ -262,7 +300,7 @@ If your organization restricts directory reads more tightly than the default, an
 admin may tell you they'll only approve `User.Read.All` instead. That's fine —
 it covers the same three calls.
 
-### 3.5 Create the client secret
+### 3.6 Create the client secret
 
 The server exchanges each signed-in user's token for a Graph token (the
 "on-behalf-of" flow), and that exchange has to prove it really is your app
@@ -282,7 +320,7 @@ settings. When it expires, member search and avatars stop working while
 everything else carries on — come back here, create a new one, and update the
 app setting.
 
-### 3.6 Copy the two IDs
+### 3.7 Copy the two IDs
 
 Back on the registration's **Overview** page, copy these two values somewhere
 you can paste from in step 5:
@@ -389,9 +427,9 @@ end. Saving restarts the app.
 | Name | Value | Notes |
 | --- | --- | --- |
 | `MM_MODE` | `azure` | switches the app from local mock mode to real Entra + Blob Storage. Any value other than `local`/`azure` refuses to start. |
-| `ENTRA_TENANT_ID` | your Directory (tenant) ID | from step 3.6 |
-| `ENTRA_CLIENT_ID` | your Application (client) ID | from step 3.6 |
-| `ENTRA_CLIENT_SECRET` | the client secret's Value | from step 3.5 — **secret** |
+| `ENTRA_TENANT_ID` | your Directory (tenant) ID | from step 3.7 |
+| `ENTRA_CLIENT_ID` | your Application (client) ID | from step 3.7 |
+| `ENTRA_CLIENT_SECRET` | the client secret's Value | from step 3.6 — **secret** |
 | `AZURE_STORAGE_CONNECTION_STRING` | the connection string | from step 4.3 — **secret** |
 | `MM_STORAGE_CONTAINER` | `marky-mark` | only needed if you named the container something else, but setting it explicitly is harmless |
 | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `false` | tells App Service to deploy your payload as-is rather than running its own build, which would fail here |
@@ -644,11 +682,11 @@ actually landed in `/home/site/wwwroot` — use **Development Tools → SSH**.
 | Log says `MM_MODE must be 'local' or 'azure', got '…'` or `PORT must be a TCP port number, got '…'` | a malformed app setting — typo, stray quote, trailing space | fix the value; never set `PORT` yourself |
 | Startup line reads `auth=mock, storage=azurite, directory=mock` | `MM_MODE` didn't arrive — usually the startup command was overwritten | re-apply the startup command (step 5.3) and the app setting |
 | `502` from the platform, nothing at all in the app log | the app isn't listening on App Service's port, almost always because `PORT` was set as an app setting | delete the `PORT` app setting |
-| Sign-in works, then **every** API call returns `401` | the token's issuer or audience doesn't match what the server expects — normally an **Object ID** pasted into `ENTRA_CLIENT_ID` instead of the Application (client) ID, or a tenant ID from a different directory | re-copy both from the registration's Overview page (step 3.6) and restart |
+| Sign-in works, then **every** API call returns `401` | the token's issuer, audience or scopes don't match what the server expects — an **Object ID** pasted into `ENTRA_CLIENT_ID` instead of the Application (client) ID, a tenant ID from a different directory, or the **Expose an API** step (3.3) skipped or done with a different scope name / a `null` token version | re-copy both IDs from the registration's Overview page (step 3.7), re-check step 3.3's exact values, and restart |
 | `AADSTS50011: The redirect URI … does not match` | the origin isn't registered, or is registered without the trailing slash, or was added under the **Web** platform instead of **Single-page application** | register `https://<host>/` — slash included — as a **SPA** redirect URI for *every* host the app answers on (steps 3.2 and 8.3) |
 | The editor appears immediately, no sign-in page | the SPA is being served by something other than this server, so the hosted marker was never injected | serve the app from the App Service origin; the API and SPA must share one origin |
 | `403` naming a permission, e.g. `{"error":"forbidden","required":"file.create"}` | **working as designed** — that user's role in that workspace lacks that verb | change their role in the workspace's member settings; not a deployment fault |
-| Member search errors; avatars never load; everything else works | the server's Graph token exchange is failing — an expired or mistyped `ENTRA_CLIENT_SECRET` (the log stream shows e.g. `Graph token exchange failed: 401 (invalid_client)`), or admin consent (step 3.4) was never granted | create a fresh secret (step 3.5), update the `ENTRA_CLIENT_SECRET` app setting, save (which restarts); or have an admin grant the consent |
+| Member search errors; avatars never load; everything else works | the server's Graph token exchange is failing — an expired or mistyped `ENTRA_CLIENT_SECRET`, or admin consent (step 3.5) was never granted. The log stream shows the cause, e.g. `Graph token exchange failed: 401 (invalid_client): AADSTS7000215 …` — the `AADSTS…` sentence is Entra naming the actual problem | create a fresh secret (step 3.6), update the `ENTRA_CLIENT_SECRET` app setting, save (which restarts); or have an admin grant the consent |
 | App is very slow to respond after being idle | a Free/Shared tier put the app to sleep | move to Basic B1 or above (**Settings → Scale up**) |
 
 ---

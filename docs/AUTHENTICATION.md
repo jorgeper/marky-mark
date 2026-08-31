@@ -44,8 +44,12 @@ browser-only app signs in without ever holding a secret. In Marky Mark:
    to go (`POST /api/auth/sign-in`), and the server answers with your
    tenant's authorize URL —
    `login.microsoftonline.com/<tenant-id>/oauth2/v2.0/authorize` — with
-   the client id and the scopes `openid profile email` already pinned
-   (`buildAuthorizeUrl`, `server/providers/azure/entra.ts`).
+   the client id and the scopes `openid profile email
+   api://<client-id>/access_as_user` already pinned
+   (`buildAuthorizeUrl`, `server/providers/azure/entra.ts`). That last
+   scope is the app's *own* API scope (the registration's "Expose an
+   API" step): asking for it is what makes Microsoft mint an access
+   token addressed to this app.
 3. The SPA adds the parts only it knows — its own redirect URI, a CSRF
    `state`, and a freshly generated PKCE challenge — and sends your
    browser there (`src/lib/hostedAuth.ts`).
@@ -58,18 +62,24 @@ browser-only app signs in without ever holding a secret. In Marky Mark:
    the PKCE verifier that proves it started the flow) at your tenant's
    token endpoint for tokens. No app secret is involved — the PKCE
    pair is what makes the exchange safe for a public client.
-6. Out of that exchange the SPA keeps one thing: the **id_token**, a
-   signed statement from your tenant — "this is user `<oid>`, named so
-   and so, signed in to app `<client-id>` in tenant `<tenant-id>`". It
+6. Out of that exchange the SPA keeps the **access token** minted for
+   the app's own API — a signed statement from your tenant that user
+   `<oid>` may call app `<client-id>` with scope `access_as_user`. It
    becomes the session: the SPA stores it and sends it as the bearer on
-   every API call.
+   every API call. (The exchange also returns an id_token; the SPA may
+   read display claims out of it, but it is never sent to the API — it
+   is not a valid ticket for calling anything, and the Graph exchange
+   below refuses it outright.)
 7. On every request, the server verifies that token's signature against
-   your tenant's published public keys (JWKS) and checks exactly two
-   pinned claims: the **issuer** must be your tenant and the
-   **audience** must be your client id
+   your tenant's published public keys (JWKS) and checks exactly three
+   pinned claims: the **issuer** must be your tenant, the **audience**
+   must be your client id, and the **scopes** (`scp`) must include
+   `access_as_user`
    (`createEntraAuthProvider`, `server/providers/azure/entra.ts`).
-   Anything else — expired, another tenant, another app — is a flat
-   401. There is no server-side session store to leak or clean up.
+   Anything else — expired, another tenant, another app, or an
+   id_token left over in an old tab from before the access-token
+   switch — is a flat 401 that sends the browser back through sign-in.
+   There is no server-side session store to leak or clean up.
 
 Who you *are* to the app is the token's `oid` claim — the user object's
 permanent id in your tenant. Workspace manifests record members by that
@@ -103,10 +113,11 @@ Portal equivalents: **Entra ID → Users → New user → Create new user /
 Invite external user**. The invite email's link has the person accept
 into your tenant; after that they sign in to Marky Mark normally.
 
-Then give them access in the app: because of the Graph limitation below
-the member *search* picker fails against a real tenant, so flip the
+Then give them access in the app: search for them in the workspace's
+People section (the picker searches your tenant through Microsoft
+Graph — see "How the directory calls authenticate" below), or flip the
 workspace's **everyone-in-tenant access** toggle (workspace settings)
-to admit every tenant account at a default role instead.
+to admit every tenant account at a default role.
 
 ## Who can do what: the access model
 
@@ -151,11 +162,12 @@ membership itself. Making those controllable is filed as issue #181.
 
 Tenant user **search and avatars** (the membership picker) go to
 Microsoft Graph, which only accepts tokens minted *for Graph* — never
-the session id_token. So the server runs the **on-behalf-of exchange**
-(`server/providers/azure/obo.ts`): it trades the caller's id_token at
-the tenant token endpoint for a delegated Graph token
-(`User.ReadBasic.All`), cached per user for its validity window, and
-Graph is called with that. The exchange authenticates with the
+the session bearer. So the server runs the **on-behalf-of exchange**
+(`server/providers/azure/obo.ts`): it trades the caller's session
+access token (the `api://<client-id>/access_as_user` one — Entra
+refuses an id_token here with `AADSTS240002`) at the tenant token
+endpoint for a delegated Graph token (`User.ReadBasic.All`), cached
+per user for its validity window, and Graph is called with that. The exchange authenticates with the
 registration's client secret (`ENTRA_CLIENT_SECRET`) — the one
 credential in the sign-in story the browser never sees. Guests of the
 tenant come back marked as such and are badged in the People section,
@@ -168,7 +180,7 @@ cannot answer. Setup:
 
 | Piece | File |
 | --- | --- |
-| Authorize URL, JWKS validation, iss/aud pinning | `server/providers/azure/entra.ts` |
+| Authorize URL, JWKS validation, iss/aud/scp pinning | `server/providers/azure/entra.ts` |
 | On-behalf-of Graph token exchange (directory calls) | `server/providers/azure/obo.ts`, used by `server/providers/azure/graph.ts` |
 | PKCE + state generation, callback parsing, token exchange | `src/lib/hostedAuth.ts` |
 | Sign-in page / hosted marker | `src/components/HostedSignIn.tsx`, `server/app.ts` |

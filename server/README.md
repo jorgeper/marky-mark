@@ -226,9 +226,11 @@ sign-in-with-Microsoft redirect).
 In azure mode the SPA drives the auth-code + PKCE flow
 (`src/lib/hostedAuth.ts`): S256 challenge, state-checked callback, then a
 public-client code exchange at the tenant's token endpoint. The session
-bearer is the **id_token** — with the scaffold's `openid profile email`
-scopes it is the token whose issuer and audience match what
-`providers/azure/entra.ts` pins (tenant issuer + client-id audience).
+bearer is the **access token for the app's own API** (issue #184 — the
+`api://<client id>/access_as_user` scope, requested because the OBO
+exchange refuses an id_token as its assertion): issuer, audience and scp
+match what `providers/azure/entra.ts` pins (tenant v2.0 issuer, client-id
+audience, `access_as_user` in scp).
 
 ## Tests
 

@@ -57,11 +57,13 @@ az group create --name "$RG" --location "$LOCATION"
 
 The app registration is **single-tenant** (PRD 007 non-goals: no multi-tenant,
 no personal Microsoft accounts). The SPA signs users in as a **public client**
-(the auth-code + PKCE flow in the browser needs no secret), and the same
-registration also carries **one client secret** (step 1.5) that only the
-server ever sees: it authenticates the on-behalf-of exchange the directory
-provider uses to talk to Microsoft Graph (`server/providers/azure/obo.ts`).
-The browser never receives it.
+(the auth-code + PKCE flow in the browser needs no secret), the registration
+**exposes one API scope of its own** (step 1.3) so sign-in mints the access
+token the server accepts as the session bearer, and the same registration
+also carries **one client secret** (step 1.6) that only the server ever sees:
+it authenticates the on-behalf-of exchange the directory provider uses to
+talk to Microsoft Graph (`server/providers/azure/obo.ts`). The browser never
+receives it.
 
 ### 1.1 Create it
 
@@ -110,38 +112,80 @@ The `*.azurewebsites.net` default host and a custom domain are different
 origins; adding the custom domain later (step 5) does not update the app
 registration for you.
 
-### 1.3 What the flow requests, and what the session bearer is
+### 1.3 Expose the API — the scope the session bearer is minted for
 
-The scopes are `openid profile email` and nothing else. They are pinned in two
-places that must agree: `buildAuthorizeUrl` in
-`server/providers/azure/entra.ts` (the authorize URL the server hands the SPA)
-and `buildTokenRequest` in `src/lib/hostedAuth.ts` (the token exchange). You do
-not configure scopes anywhere in Azure — the app requests them at run time.
+The session bearer is an **access token for this app's own API** (issue #184
+— the on-behalf-of exchange in step 1.5 refuses an id_token as its assertion
+with `AADSTS240002`). For such a token to exist at all, the registration must
+expose an API: identifier URI `api://<client id>`, exactly one delegated
+scope named `access_as_user` (consentable by admins **and** users), and
+`requestedAccessTokenVersion: 2` so the token's issuer is the `…/v2.0` form
+the server pins. `az ad app update` sets the identifier URI; the scope and
+token version go through a Graph PATCH:
+
+```sh
+az ad app update --id "$APP_ID" --identifier-uris "api://$APP_ID"
+
+az rest --method PATCH \
+  --uri "https://graph.microsoft.com/v1.0/applications/$APP_OBJECT_ID" \
+  --headers 'Content-Type=application/json' \
+  --body "{\"api\":{\"requestedAccessTokenVersion\":2,\"oauth2PermissionScopes\":[{
+    \"id\":\"$(uuidgen)\",
+    \"value\":\"access_as_user\",
+    \"type\":\"User\",
+    \"isEnabled\":true,
+    \"adminConsentDisplayName\":\"Access Marky Mark as the signed-in user\",
+    \"adminConsentDescription\":\"Allows the app to call its own API as the signed-in user.\",
+    \"userConsentDisplayName\":\"Access Marky Mark as you\",
+    \"userConsentDescription\":\"Allows the app to call its own API as you.\"
+  }]}}"
+```
+
+`type: User` makes the scope consentable by ordinary users as well as admins.
+Portal equivalent: **Expose an API → Add a scope** (see the
+[portal walkthrough](HOSTING-AZURE-PORTAL.md) step 3.3). Skip this step and
+sign-in still succeeds, but Entra has no API to mint a token for: member
+search and avatars fail at the exchange, or the sign-in falls back to tokens
+the server rejects with `401`.
+
+### 1.4 What the flow requests, and what the session bearer is
+
+The scopes are `openid profile email api://<client id>/access_as_user` and
+nothing else. They are stated in exactly **one** place — `buildAuthorizeUrl`
+in `server/providers/azure/entra.ts`, the authorize URL the server hands the
+SPA — and the SPA reads them back out of that URL for the code-for-token
+exchange (`parseAuthorizeUrl` in `src/lib/hostedAuth.ts`), so the two legs
+cannot drift apart. Beyond the step 1.3 registration you do not configure
+scopes anywhere in Azure — the app requests them at run time.
 
 The session bearer the SPA stores and sends on every API call is the
-**id_token**, not an access token. The server validates it against the tenant's
-published JWKS with two pinned claims (`createEntraAuthProvider`,
-`server/providers/azure/entra.ts`):
+**access token** minted for `api://<client id>` — not the id_token (issue
+#184: an id_token is useless as the on-behalf-of assertion). The server
+validates the bearer against the tenant's published JWKS with three pinned
+claims (`createEntraAuthProvider`, `server/providers/azure/entra.ts`):
 
 | Claim | Must equal | Comes from |
 | --- | --- | --- |
-| `iss` (issuer) | `https://login.microsoftonline.com/<tenant>/v2.0` | `ENTRA_TENANT_ID` |
-| `aud` (audience) | the application (client) id | `ENTRA_CLIENT_ID` |
+| `iss` (issuer) | `https://login.microsoftonline.com/<tenant>/v2.0` | `ENTRA_TENANT_ID` (and step 1.3's `requestedAccessTokenVersion: 2`) |
+| `aud` (audience) | the application (client) id | `ENTRA_CLIENT_ID` (a v2 access token for the app's own API carries the bare client id) |
+| `scp` (scopes) | must include `access_as_user` | the step 1.3 scope, requested at sign-in |
 
 That is why a tenant or client id typo shows up as a blanket `401` on every API
 call rather than as a sign-in failure: the sign-in itself succeeds and the
-token is then rejected.
+token is then rejected. The `scp` check also means a tab still holding a
+pre-#184 **id_token** bearer gets the same clean `401` (never a 500) and
+simply re-enters sign-in.
 
-### 1.4 Microsoft Graph permissions
+### 1.5 Microsoft Graph permissions
 
 The directory provider (`server/providers/azure/graph.ts`) makes exactly three
 calls, all **delegated** (as the signed-in user — no application permissions),
 all against `https://graph.microsoft.com/v1.0`. The Graph access token comes
 from the **on-behalf-of exchange** (`server/providers/azure/obo.ts`): the
-server trades the caller's session id_token at the tenant token endpoint for
-a Graph token scoped `User.ReadBasic.All`, caching it per user for its
-validity window. That exchange is what the client secret in step 1.5
-authenticates.
+server trades the caller's session bearer — the step 1.3/1.4 access token —
+at the tenant token endpoint for a Graph token scoped `User.ReadBasic.All`,
+caching it per user for its validity window. That exchange is what the client
+secret in step 1.6 authenticates.
 
 | Graph call | What it powers | Delegated permission |
 | --- | --- | --- |
@@ -166,7 +210,7 @@ consent to it on first sign-in. If your tenant restricts directory reads more
 tightly than the default, it may insist on `User.Read.All` instead; both cover
 all three calls.
 
-### 1.5 Create the client secret
+### 1.6 Create the client secret
 
 The on-behalf-of exchange authenticates as a **confidential client**, so the
 registration needs a credential the server presents alongside the caller's
@@ -189,7 +233,7 @@ consumes. Secrets expire (a year here); when yours does, member search and
 avatars start failing while everything else keeps working — issue a new one
 and update the app setting (see Troubleshooting).
 
-### 1.6 Copy the two ids
+### 1.7 Copy the two ids
 
 ```sh
 export ENTRA_CLIENT_ID="$APP_ID"      # the Application (client) ID from 1.1
@@ -201,7 +245,7 @@ In the portal both sit on the registration's **Overview** blade: **Application
 (client) ID** → `ENTRA_CLIENT_ID`, **Directory (tenant) ID** → `ENTRA_TENANT_ID`.
 These are the app settings of the same name in step 4. Neither is secret — the
 client id ends up in the browser by design — unlike the client secret from
-step 1.5 and the storage connection string in the next step, which very much
+step 1.6 and the storage connection string in the next step, which very much
 are.
 
 ## 2. Create the storage account and container
@@ -379,7 +423,7 @@ only others are the optional LLM section in
 | `AZURE_STORAGE_CONNECTION_STRING` | Azurite's dev string (local mode only) | **required** | Storage account connection string, from the account's Access keys. Secret. |
 | `ENTRA_TENANT_ID` | — | **required** | Directory (tenant) id. Pins the accepted token issuer. |
 | `ENTRA_CLIENT_ID` | — | **required** | Application (client) id. Pins the accepted token audience. |
-| `ENTRA_CLIENT_SECRET` | — | **required** | The registration's client secret (step 1.5). Authenticates the on-behalf-of Graph token exchange. Secret — never logged, never sent to the browser. |
+| `ENTRA_CLIENT_SECRET` | — | **required** | The registration's client secret (step 1.6). Authenticates the on-behalf-of Graph token exchange. Secret — never logged, never sent to the browser. |
 
 `MM_MODE=azure` **refuses to start** when any required variable is missing, and
 names every missing one at once:
@@ -529,11 +573,11 @@ have one. An error there points at the client secret — see Troubleshooting.
 | The app never starts; the log says `MM_MODE=azure requires environment variables: …` | exactly the named app settings are missing (`loadConfig`, `server/config.ts`) | set them (step 4); the message lists all of them at once, so there is no second round |
 | The log says `MM_MODE must be 'local' or 'azure', got '…'` or `PORT must be a TCP port number, got '…'` | a malformed app setting | fix the value; never set `PORT` yourself |
 | Startup line reads `auth=mock, storage=azurite, directory=mock` | `MM_MODE` did not arrive — the startup command was overwritten | re-apply the startup command from step 4 |
-| Sign-in works, then **every** API call answers `401` | the id_token's issuer or audience does not match what the server pins — normally an `ENTRA_CLIENT_ID` that is not this registration's Application (client) ID (an Object ID pasted by mistake is the classic), or an `ENTRA_TENANT_ID` from another tenant | re-copy both from the registration's Overview blade (step 1.6) and restart |
+| Sign-in works, then **every** API call answers `401` | the session bearer's issuer, audience or `scp` does not match what the server pins — an `ENTRA_CLIENT_ID` that is not this registration's Application (client) ID (an Object ID pasted by mistake is the classic), an `ENTRA_TENANT_ID` from another tenant, or a registration that never exposed the `access_as_user` scope (step 1.3) so the bearer carries the wrong claims | re-copy both ids from the registration's Overview blade (step 1.7), confirm step 1.3's Expose-the-API values, and restart |
 | Entra shows `AADSTS50011: The redirect URI … does not match` | the origin is not registered, or is registered without the trailing slash, or was registered under the **Web** platform instead of **Single-page application** | register `https://<host>/` — slash included — as a **SPA** redirect URI for *every* host the app answers on (steps 1.2 and 5) |
 | The editor appears immediately, no sign-in page | the SPA is being served by something other than this server (a static host, a CDN origin bypassing it), so the `marky-mark-hosted` meta marker was never injected (`injectHostedMarker`, `server/app.ts`) — `dist/` on disk deliberately never carries it | serve the app from the App Service origin; the API and the SPA must share one origin |
 | `403` naming a permission verb, e.g. `{"error":"forbidden","required":"file.create"}` | working as designed: the signed-in user's role in that workspace lacks the verb. Not a deployment fault | change the member's role in the workspace's member settings; the verb-to-role mapping is `server/README.md` § Roles and permissions |
-| Member search returns an error; avatars never load; the rest of the app works | the on-behalf-of Graph exchange is failing — an expired or wrong `ENTRA_CLIENT_SECRET` (the log names the token endpoint's status and OAuth code, e.g. `Graph token exchange failed: 401 (invalid_client)`), or admin consent for `User.ReadBasic.All` was never granted (step 1.4) | issue a fresh secret (step 1.5), update the `ENTRA_CLIENT_SECRET` app setting and restart; or grant the admin consent |
+| Member search returns an error; avatars never load; the rest of the app works | the on-behalf-of Graph exchange is failing — an expired or wrong `ENTRA_CLIENT_SECRET`, or admin consent for `User.ReadBasic.All` was never granted (step 1.5). The log names the token endpoint's status, OAuth code and AADSTS description, e.g. `Graph token exchange failed: 401 (invalid_client): AADSTS7000215 …` — the AADSTS line is the actual cause | issue a fresh secret (step 1.6), update the `ENTRA_CLIENT_SECRET` app setting and restart; or grant the admin consent |
 | `502` from the platform, nothing in the app log | the app is not listening on App Service's `PORT`, usually because it was pinned as an app setting | delete the `PORT` app setting |
 
 `az webapp log tail --name "$APP" --resource-group "$RG"` is where all of the

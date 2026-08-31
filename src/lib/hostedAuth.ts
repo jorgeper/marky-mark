@@ -28,17 +28,25 @@ export async function codeChallengeS256(verifier: string): Promise<string> {
   return base64UrlEncode(new Uint8Array(digest));
 }
 
-/** The tenant + client id an Entra authorize URL pins. */
+/** The tenant, client id and session scopes an Entra authorize URL pins. */
 export interface EntraAppInfo {
   tenantId: string;
   clientId: string;
+  /**
+   * The server-pinned scope string, verbatim — `openid profile email
+   * api://<client id>/access_as_user` today. The api:// scope is what makes
+   * Entra mint an access token for the app's own API, the session bearer
+   * the OBO exchange requires (issue #184).
+   */
+  scope: string;
 }
 
 /**
- * Extract tenant and client id from the authorize URL the server answered
- * with (`POST /api/auth/sign-in` → `{kind:'redirect', authorizeUrl}`) — the
- * token exchange needs both, and the URL is the one place the server states
- * them. Null when the URL is not a login.microsoftonline.com authorize URL.
+ * Extract tenant, client id and scopes from the authorize URL the server
+ * answered with (`POST /api/auth/sign-in` → `{kind:'redirect', authorizeUrl}`)
+ * — the token exchange needs all three, and the URL is the one place the
+ * server states them (buildAuthorizeUrl in server/providers/azure/entra.ts).
+ * Null when the URL is not a login.microsoftonline.com authorize URL.
  */
 export function parseAuthorizeUrl(authorizeUrl: string): EntraAppInfo | null {
   let url: URL;
@@ -49,8 +57,9 @@ export function parseAuthorizeUrl(authorizeUrl: string): EntraAppInfo | null {
   }
   const match = url.pathname.match(/^\/([^/]+)\/oauth2\/v2\.0\/authorize$/);
   const clientId = url.searchParams.get('client_id');
-  if (url.origin !== 'https://login.microsoftonline.com' || !match || !clientId) return null;
-  return { tenantId: match[1], clientId };
+  const scope = url.searchParams.get('scope');
+  if (url.origin !== 'https://login.microsoftonline.com' || !match || !clientId || !scope) return null;
+  return { tenantId: match[1], clientId, scope };
 }
 
 /**
@@ -104,6 +113,8 @@ export interface TokenExchange {
   code: string;
   redirectUri: string;
   codeVerifier: string;
+  /** The scope string parsed off the server's authorize URL, echoed verbatim. */
+  scope: string;
 }
 
 /** The exact request the code-for-token exchange POSTs (public client: PKCE verifier, no secret). */
@@ -114,17 +125,19 @@ export function buildTokenRequest(opts: TokenExchange): { url: string; body: str
     code: opts.code,
     redirect_uri: opts.redirectUri,
     code_verifier: opts.codeVerifier,
-    scope: 'openid profile email',
+    scope: opts.scope,
   }).toString();
   return { url: tokenEndpoint(opts.tenantId), body };
 }
 
 /**
- * Redeem the auth code. Returns the id_token: with the scaffold's
- * `openid profile email` scopes it is the token whose issuer and audience
- * are pinned to the tenant and client id — exactly what the server's JWKS
- * validation checks (server/providers/azure/entra.ts). Throws with the
- * endpoint's error description on any failure.
+ * Redeem the auth code. Returns the **access_token**: with the
+ * `api://<client id>/access_as_user` scope in the request it is minted for
+ * the app's own API — issuer and audience pinned to the tenant and client id,
+ * `scp` carrying `access_as_user` — exactly what the server's JWKS validation
+ * checks (server/providers/azure/entra.ts), and the only token Entra later
+ * accepts as the on-behalf-of assertion (issue #184; the id_token is not,
+ * AADSTS240002). Throws with the endpoint's error description on any failure.
  */
 export async function exchangeCodeForToken(fetchFn: typeof fetch, opts: TokenExchange): Promise<string> {
   const { url, body } = buildTokenRequest(opts);
@@ -139,7 +152,7 @@ export async function exchangeCodeForToken(fetchFn: typeof fetch, opts: TokenExc
   } catch {
     // non-JSON body — fall through to the status-based error below
   }
-  if (!res.ok || typeof payload.id_token !== 'string') {
+  if (!res.ok || typeof payload.access_token !== 'string') {
     const message =
       typeof payload.error_description === 'string'
         ? payload.error_description
@@ -148,5 +161,5 @@ export async function exchangeCodeForToken(fetchFn: typeof fetch, opts: TokenExc
           : `The token endpoint answered ${res.status}.`;
     throw new Error(message);
   }
-  return payload.id_token;
+  return payload.access_token;
 }

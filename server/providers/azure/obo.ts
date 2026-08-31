@@ -1,11 +1,13 @@
 // PRD 007 Req 6 (issue #180): the OAuth2 on-behalf-of exchange behind the
-// Graph directory provider. The session bearer is an id_token whose audience
-// is this app's own client id — Graph only accepts access tokens minted for
-// https://graph.microsoft.com, so the server exchanges the caller's assertion
-// at the tenant token endpoint (grant urn:ietf:params:oauth:grant-type:
-// jwt-bearer, delegated User.ReadBasic.All only — never an application
-// permission) and hands Graph the result. The token-endpoint fetch is
-// injected like the Graph fetch, so unit tests pin the exchange offline.
+// Graph directory provider. The session bearer is an access token for the
+// app's own API (api://<client id>/access_as_user, issue #184 — Entra
+// refuses an id_token as the jwt-bearer assertion, AADSTS240002) — Graph
+// only accepts access tokens minted for https://graph.microsoft.com, so the
+// server exchanges the caller's assertion at the tenant token endpoint
+// (grant urn:ietf:params:oauth:grant-type:jwt-bearer, delegated
+// User.ReadBasic.All only — never an application permission) and hands
+// Graph the result. The token-endpoint fetch is injected like the Graph
+// fetch, so unit tests pin the exchange offline.
 
 import type { RequestAuth } from '../types.ts';
 
@@ -73,15 +75,22 @@ export function createOboTokenSource(options: OboTokenSourceOptions): GraphToken
       body: body.toString(),
     });
     if (!res.ok) {
-      // Name the OAuth error code when the endpoint sends one (invalid_grant,
-      // …) — actionable for the operator, and never the secret or assertion.
+      // Name the OAuth error code and Entra's error_description (the AADSTS
+      // line, e.g. "AADSTS240002 …" — issue #184) when the endpoint sends
+      // them: the log then states the actual cause instead of a bare
+      // invalid_request. Never the secret or the assertion.
       let code = '';
+      let description = '';
       try {
-        code = String(((await res.json()) as { error?: unknown }).error ?? '');
+        const body = (await res.json()) as { error?: unknown; error_description?: unknown };
+        code = String(body.error ?? '');
+        description = String(body.error_description ?? '');
       } catch {
         // non-JSON error body: the status alone is the diagnosis
       }
-      throw new Error(`Graph token exchange failed: ${res.status}${code ? ` (${code})` : ''}`);
+      throw new Error(
+        `Graph token exchange failed: ${res.status}${code ? ` (${code})` : ''}${description ? `: ${description}` : ''}`,
+      );
     }
     const payload = (await res.json()) as { access_token?: unknown; expires_in?: unknown };
     if (typeof payload.access_token !== 'string' || payload.access_token === '') {
