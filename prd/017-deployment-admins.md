@@ -5,6 +5,11 @@
 
 Issue: #181.
 
+**Prerequisite: #184.** The on-behalf-of exchange this PRD leans on
+(Reqs 9, 16, 19 and 29–34) fails against a real tenant today — the id_token
+is not a valid jwt-bearer assertion. Decompose after #184 merges, or the
+sub-issues carrying those requirements state "Blocked by #184".
+
 ## Problem
 
 Hosted Marky Mark has exactly one kind of person: a signed-in tenant user.
@@ -56,6 +61,9 @@ it crosses the membership boundary.
 - The local lane (`npm run server:local`, mock auth, Azurite) has one
   seeded admin and one seeded guest so the whole feature is developed and
   e2e-tested with zero Azure resources.
+- A deployment admin can invite someone into the tenant from inside the
+  app — from Management, or from a workspace's People section with a role
+  granted in the same step — and can see who has not yet accepted.
 
 ## Non-goals
 
@@ -77,8 +85,13 @@ it crosses the membership boundary.
   recorded, cached or graphed over time.
 - **Quotas, limits or billing.** Storage figures are informational; no
   per-workspace or per-user cap, no enforcement, no cost estimation.
-- **Tenant user management.** People is read-only: creating, inviting,
-  disabling or removing users stays in Entra ID (`HOSTING-AZURE.md` § 1).
+- **Tenant user management beyond inviting.** People creates, disables,
+  removes or edits no users, and never revokes or resends an invitation:
+  those stay in Entra ID (`HOSTING-AZURE.md` § 1). Inviting (Reqs 29–34) is
+  admin-only; a non-admin sees no invite affordance and the route refuses
+  them.
+- **A first-run welcome for guests.** An invitee lands on the app root and
+  gets the ordinary sign-in page; nothing greets a first sign-in.
 - **Impersonation.** An admin never acts *as* another user; every request
   is the admin's own identity with the admin's own permissions.
 - **Per-workspace visibility overrides.** No "unlisted" workspace flag;
@@ -364,6 +377,71 @@ it crosses the membership boundary.
     PRD 016 build upgrades to this build with no operator action and
     behaves identically until `MM_ADMINS` is set.
 
+### Invitations
+
+29. **Route.** `POST /api/admin/invitations` requires `deployment.admin`
+    (Req 2 refusal shape). Body `{ email, note?, workspace?: { id, role } }`
+    is validated by a shared pure parser in `src/lib/` (400 for a malformed
+    email, an unknown role, or a note over 500 characters). The server
+    calls Graph `POST /v1.0/invitations` **on behalf of the signed-in
+    admin** through the OBO exchange (#184) — `invitedUserEmailAddress`,
+    `inviteRedirectUrl` = the deployment's origin with a trailing slash,
+    `sendInvitationMessage: true`, and a `customizedMessageBody` built by a
+    pure template function naming the inviter's display name and Marky
+    Mark, followed by the optional note. The OBO scope set grows by
+    `User.Invite.All`. It answers `201 { id, email, displayName, pending:
+    true }` where `id` is Graph's `invitedUser.id`. Graph refusals (already
+    in the tenant, domain blocked by policy, missing consent) map to `502`
+    carrying Graph's `error.code` and message — never a silent success —
+    and no log line or response ever contains a token.
+30. **Role at invite.** When `workspace` is present, the server, in the same
+    request and before answering, adds `{ id: invitedUser.id, role,
+    displayName: <the email> }` (the issue #180 snapshot pattern) to that
+    workspace's manifest through the existing `addWorkspaceMember` path;
+    the caller must hold `workspace.members` there, which Req 4 grants
+    admins implicitly. The guest therefore opens the workspace at that role
+    on first sign-in with no pending-member bookkeeping. If the membership
+    write fails after the invitation succeeded, the answer is still `201`
+    with `membership: { error }`, the UI says so, and the invitation is not
+    rolled back (there is no un-invite — Non-goals).
+31. **Management → People.** The tab gains an **Invite…** action opening a
+    small form — email, optional note, Send — that calls Req 29 without
+    `workspace`. Success appends the user row with the Pending badge
+    (Req 33); a refusal shows Graph's message inline. Admin-only by virtue
+    of the tab.
+32. **Workspace picker.** In a workspace's People section, when the
+    signed-in user is an admin and the typed query is a syntactically valid
+    email with no directory match, the picker offers one extra row —
+    **Invite <email> as <role>**, with the role select — that calls Req 29
+    with `workspace` set; on success the member row appears with the
+    Pending badge. Non-admins never see the row: the predicate is a pure
+    function over `/api/me`, the query and the results. Under issue #183's
+    autocomplete this row is the empty state's action.
+33. **Pending badge.** `DirectoryEntry` gains `pending?: boolean` from Graph
+    `externalUserState === 'PendingAcceptance'` (`$select` adds
+    `externalUserState` in search, `getUser` and `listUsers`); both People
+    surfaces render a **Pending** badge beside the Guest badge until the
+    guest accepts. The mock directory supports invitations — a `POST`
+    creates an in-memory pending guest (`isGuest: true, pending: true`) and
+    a test helper can mark it accepted — so the whole flow is e2e-tested
+    offline.
+34. **Docs, registration and tests.** Both hosting guides add
+    `User.Invite.All` (delegated, admin consent) to the Graph permissions
+    step and state that invitations are sent as the signed-in admin, so
+    Entra's own guest-invite policy (`allowInvitesFrom`) applies on top.
+    `docs/AUTHENTICATION.md` § "Adding people" gains an "Inviting from the
+    app" passage and notes that with Entra Google federation configured —
+    an operator step, no app change — gmail invitees sign in with Google.
+    `server/README.md` documents the route. Unit tests (next unused `U`
+    numbers) cover the body parser, the message template, the invite-row
+    predicate and the mock directory's invitations; e2e tests (next unused
+    `E` numbers, restoring state in `finally`) cover an invite from
+    Management, an invite-with-role from a workspace that lands the guest
+    at that role, the Pending badge on both surfaces, a non-admin seeing
+    no invite row and getting 403 `deployment.admin` on the route, and a
+    Graph refusal surfacing its message; `E2E_TEST_FLOOR` is re-pinned
+    accordingly (folds into Req 28's gate).
+
 ## Open questions
 
 - None — decisions above were settled in the issue #181 interview
@@ -378,3 +456,8 @@ it crosses the membership boundary.
   Management is a near-full-window dialog (not a route) with Workspaces /
   People (read-only) / Settings tabs; the local lane seeds `katherine` as
   admin and `mary` as a guest.
+- Invitations were settled in the follow-up interview (2026-08-31): admins
+  only; two surfaces, with a role granted at invite time from a
+  workspace's People section; Microsoft's invitation email with a fixed
+  template and an optional note; a Pending badge until acceptance;
+  revoking, resending, non-admin invites and a first-run welcome are out.
