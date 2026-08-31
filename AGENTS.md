@@ -21,7 +21,7 @@ Coding rules are **not** in this file: they live in
 
 Behaviour in this repo carries a citation comment naming the contract it
 implements: `// SPEC<n> §x.y: <what and why>` (format details in
-`docs/COMMENT-FORMAT.md` § code comments and `.sandcastle/CODING_STANDARDS.md`).
+`.sandcastle/CODING_STANDARDS.md`).
 There are ~829 citation sites across `src/` and `tests/` (counted
 2026-08-03 via `grep -rEo 'SPEC[0-9]+' src tests | wc -l`). Grep the spec
 number before you open any file.
