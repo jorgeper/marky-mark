@@ -320,7 +320,7 @@ it crosses the membership boundary.
     `MM_ADMINS` defaults to `mock-katherine` when unset (so
     `npm run server:local` and the Playwright hosted lane have exactly one
     admin); azure mode has no default.
-26. Unit tests (`U805+`, `describe('PRD 017 §…')`) cover: `MM_ADMINS`
+26. Unit tests (the next unused `U` numbers, `describe('PRD 017 §…')`) cover: `MM_ADMINS`
     parsing and the whitespace refusal; the settings parser/serializer
     including the fail-closed defaults of Req 7; the creation-policy and
     listing-filter decision functions across admin/member/guest/allow-listed
@@ -328,7 +328,7 @@ it crosses the membership boundary.
     of Req 5; the statistics aggregation of Req 16 over a synthetic
     `FileStat[]`; Graph `listUsers` paging and the caller-guest lookup
     with injected fetch; and the mock directory's `listUsers`.
-27. E2e tests (`E326+`, `tests/e2e/hosted.spec.ts`), each restoring the
+27. E2e tests (the next unused `E` numbers, `tests/e2e/hosted.spec.ts`), each restoring the
     default settings in a `finally` so the shared lane stays
     order-independent:
     - a non-admin's `/api/me` says `admin: false`, has no Management
