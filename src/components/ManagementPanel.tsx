@@ -48,6 +48,12 @@ export interface ManagementPanelProps {
 
 const dateOf = (iso: string | null): string => (iso ? new Date(iso).toLocaleDateString() : '—');
 
+/** The Everyone column: unknown on a corrupt row, else the default role or Off. */
+function everyoneLabel(everyone: AdminWorkspaceRow['everyone']): string {
+  if (everyone === null) return '—';
+  return everyone.enabled ? everyone.role : 'Off';
+}
+
 export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelProps) {
   const [tab, setTab] = useState<ManagementTab>('workspaces');
 
@@ -253,9 +259,7 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
                   {formatOwnerNames(owners.get(row.id) ?? [])}
                 </td>
                 <td data-testid={`admin-workspace-members-${row.id}`}>{row.memberIds.length}</td>
-                <td>
-                  {row.everyone === null ? '—' : row.everyone.enabled ? row.everyone.role : 'Off'}
-                </td>
+                <td>{everyoneLabel(row.everyone)}</td>
                 <td data-testid={`admin-workspace-files-${row.id}`}>{row.fileCount}</td>
                 <td data-testid={`admin-workspace-size-${row.id}`}>{formatByteSize(row.totalBytes)}</td>
                 <td className="admin-row-actions">

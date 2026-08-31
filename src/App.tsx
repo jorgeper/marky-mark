@@ -4449,10 +4449,13 @@ export default function App() {
   useEffect(() => {
     const lifecycle = platform?.workspaces;
     const boundId = lifecycle?.currentId() ?? null;
-    if (!lifecycle || boundId === null || sessionMe?.admin !== true || settingsOpen || managementOpen) {
-      if (sessionMe?.admin !== true || boundId === null) setAdminOnlyView(false);
+    if (!lifecycle || boundId === null || sessionMe?.admin !== true) {
+      setAdminOnlyView(false);
       return;
     }
+    // While either dialog is open, keep the current answer — closing it
+    // re-runs this effect (the deps), after any People edits have landed.
+    if (settingsOpen || managementOpen) return;
     let cancelled = false;
     void lifecycle.manifest(boundId).then((manifest) => {
       if (!cancelled) setAdminOnlyView(manifest !== null && isViewingAsAdminOnly(manifest, sessionMe));

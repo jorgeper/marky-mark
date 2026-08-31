@@ -87,6 +87,7 @@ async function listAdminWorkspaces(providers: Providers): Promise<AdminWorkspace
 export async function handleAdminApi(
   req: IncomingMessage,
   res: ServerResponse,
+  url: URL,
   providers: Providers,
   auth: RequestAuth,
   deployment: DeploymentPolicy,
@@ -97,7 +98,7 @@ export async function handleAdminApi(
     sendJson(res, 403, { error: 'forbidden', required: 'deployment.admin' });
     return;
   }
-  const pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+  const { pathname } = url;
 
   // GET /api/admin/workspaces — the Req 16 rows.
   if (pathname === `${ADMIN_PREFIX}/workspaces` && req.method === 'GET') {
