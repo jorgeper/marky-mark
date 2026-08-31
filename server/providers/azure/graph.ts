@@ -35,6 +35,28 @@ interface GraphUser {
 // listUsers, so an unredeemed invitation reads as Pending everywhere.
 const USER_SELECT = 'id,displayName,userPrincipalName,userType,externalUserState';
 
+/**
+ * A Graph refusal AS DATA — error.code and message from the JSON body when
+ * there is one, else the caller's status-line fallback stands as the
+ * diagnosis. Shared by invite and deleteUser, whose routes surface it as a
+ * 502; never a token in either field.
+ */
+async function graphRefusal(
+  res: Response,
+  fallback: string,
+): Promise<{ ok: false; code: string; message: string }> {
+  let code = '';
+  let message = fallback;
+  try {
+    const refusal = (await res.json()) as { error?: { code?: unknown; message?: unknown } };
+    code = String(refusal.error?.code ?? '');
+    if (refusal.error?.message !== undefined) message = String(refusal.error.message);
+  } catch {
+    // non-JSON refusal: the fallback status line is the diagnosis
+  }
+  return { ok: false, code, message };
+}
+
 function toDirectoryUser(u: GraphUser): DirectoryUser {
   return {
     id: u.id,
@@ -130,18 +152,7 @@ export function createGraphDirectoryProvider(
           invitedUserMessageInfo: { customizedMessageBody: invitation.message },
         }),
       });
-      if (!res.ok) {
-        let code = '';
-        let message = `Graph refused the invitation (${res.status})`;
-        try {
-          const refusal = (await res.json()) as { error?: { code?: unknown; message?: unknown } };
-          code = String(refusal.error?.code ?? '');
-          if (refusal.error?.message !== undefined) message = String(refusal.error.message);
-        } catch {
-          // non-JSON refusal: the status line above is the diagnosis
-        }
-        return { ok: false, code, message };
-      }
+      if (!res.ok) return graphRefusal(res, `Graph refused the invitation (${res.status})`);
       const body = (await res.json()) as {
         invitedUser?: { id?: string };
         invitedUserDisplayName?: string;
@@ -170,18 +181,7 @@ export function createGraphDirectoryProvider(
         method: 'DELETE',
         headers: { Authorization: `Bearer ${await getGraphToken(auth)}` },
       });
-      if (!res.ok) {
-        let code = '';
-        let message = `Graph refused the deletion (${res.status})`;
-        try {
-          const refusal = (await res.json()) as { error?: { code?: unknown; message?: unknown } };
-          code = String(refusal.error?.code ?? '');
-          if (refusal.error?.message !== undefined) message = String(refusal.error.message);
-        } catch {
-          // non-JSON refusal: the status line above is the diagnosis
-        }
-        return { ok: false, code, message };
-      }
+      if (!res.ok) return graphRefusal(res, `Graph refused the deletion (${res.status})`);
       return { ok: true };
     },
     // PRD 007 Req 6: profile photo bytes via Graph /users/{id}/photo/$value.

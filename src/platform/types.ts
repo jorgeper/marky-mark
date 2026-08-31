@@ -266,7 +266,7 @@ export interface Platform {
   sessionUser?(): Promise<SessionMe | null>;
 
   /**
-   * PRD 017 Req 14: the deployment-admin transport — the four /api/admin
+   * PRD 017 Req 14: the deployment-admin transport — the /api/admin
    * routes behind the Management view, built on the hosted flavor's one
    * fetch wrapper. Presence is flavor-level, not proof of adminship: the
    * Management surfaces also require `sessionUser`'s `admin` flag, and the

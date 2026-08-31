@@ -2,9 +2,10 @@
 // the `management` command, styled after SettingsPanel but sized near
 // full-window (its own .management-modal rule; it must NOT inherit the
 // Settings dialog's fixed maximum width). Three tabs: Workspaces (Req 16–18),
-// People (Req 19, read-only) and Settings (Req 20). Mounted only when the
-// platform defines the deploymentAdmin capability AND /api/me says admin —
-// and the server gates every route again regardless.
+// People (Req 19, plus the invite and rescind actions) and Settings
+// (Req 20). Mounted only when the platform defines the deploymentAdmin
+// capability AND /api/me says admin — and the server gates every route
+// again regardless.
 
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -40,7 +41,7 @@ const TABS: Array<{ id: ManagementTab; label: string }> = [
 ];
 
 export interface ManagementPanelProps {
-  /** The four /api/admin routes (platform/hostedAdmin.ts). */
+  /** The /api/admin routes (platform/hostedAdmin.ts). */
   admin: DeploymentAdmin;
   /** Open/Delete/resolve/search ride the existing lifecycle seam. */
   lifecycle: WorkspaceLifecycle;

@@ -1,4 +1,4 @@
-// PRD 017 Req 14: the client's transport to the four /api/admin routes —
+// PRD 017 Req 14: the client's transport to the /api/admin routes —
 // built ON the hosted platform's one `api()` fetch wrapper (the
 // createHostedLlm pattern), so it adds no network call site and the
 // validate gate's FETCH_ALLOWLIST stays pinned where it is. Exposed as an
