@@ -38,6 +38,11 @@ function scriptedDirectory(answer: (id: string) => Promise<DirectoryUser | null>
       async getUserPhoto() {
         return null;
       },
+      // PRD 017 Req 19: the seam's listing method — unused by the policy
+      // under test, present so the fake still satisfies DirectoryProvider.
+      async listUsers() {
+        return [];
+      },
     },
   };
 }

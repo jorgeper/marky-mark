@@ -165,6 +165,48 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
     await expect(provider.getUser('g2', auth)).rejects.toThrowError(/Graph user lookup failed: 500/);
   });
 
+  it('U974: listUsers pages /users through @odata.nextLink with the exchanged token, concatenating pages; a non-OK page throws', async () => {
+    // PRD 017 Req 19: the Management People tab's tenant listing — the first
+    // page is the PRD's pinned URL, every nextLink is followed verbatim, and
+    // a failed page is an error, never a truncated tenant.
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const nextLink = 'https://graph.microsoft.com/v1.0/users?$skiptoken=page2';
+    const provider = createGraphDirectoryProvider(async (url, init) => {
+      calls.push({ url, init });
+      const page =
+        calls.length === 1
+          ? {
+              value: [
+                { id: 'g1', displayName: 'Grace Hopper', userPrincipalName: 'grace@contoso.com', userType: 'Member' },
+              ],
+              '@odata.nextLink': nextLink,
+            }
+          : {
+              value: [
+                { id: 'g3', displayName: 'Guest Gwen', userPrincipalName: 'gwen@fabrikam.com', userType: 'Guest' },
+              ],
+            };
+      return new Response(JSON.stringify(page), { status: 200 });
+    }, exchanged);
+    const users = await provider.listUsers(auth);
+    expect(users.map((u) => ({ id: u.id, isGuest: u.isGuest }))).toEqual([
+      { id: 'g1', isGuest: false },
+      { id: 'g3', isGuest: true },
+    ]);
+    expect(calls).toHaveLength(2);
+    const first = new URL(calls[0].url);
+    expect(first.origin + first.pathname).toBe('https://graph.microsoft.com/v1.0/users');
+    expect(first.searchParams.get('$select')).toBe('id,displayName,userPrincipalName,userType');
+    expect(first.searchParams.get('$top')).toBe('999');
+    expect(calls[1].url).toBe(nextLink);
+    for (const call of calls) {
+      expect((call.init?.headers as Record<string, string>).Authorization).toBe('Bearer graph-token');
+    }
+
+    const failing = createGraphDirectoryProvider(async () => new Response('', { status: 503 }), exchanged);
+    await expect(failing.listUsers(auth)).rejects.toThrowError(/Graph user listing failed: 503/);
+  });
+
   it('U825: getUserPhoto calls Graph /users/{id}/photo/$value with the exchanged token and yields the bytes and media type', async () => {
     // PRD 007 Req 6: the photo proxy's upstream — URL shape, bearer, bytes.
     const calls: { url: string; init?: RequestInit }[] = [];

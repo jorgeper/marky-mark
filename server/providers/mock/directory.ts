@@ -50,6 +50,11 @@ export function createMockDirectoryProvider(): DirectoryProvider {
       const found = SEEDED_USERS.find((u) => u.id === id);
       return found ? withAvatar(found) : null;
     },
+    // PRD 017 Req 19: the whole tenant is the seeded list — the same five
+    // users sign-in and search answer from, avatars stamped the same way.
+    async listUsers(): Promise<DirectoryUser[]> {
+      return SEEDED_USERS.map(withAvatar);
+    },
     async getUserPhoto(id: string): Promise<UserPhoto | null> {
       const found = SEEDED_USERS.find((u) => u.id === id);
       if (!found || PHOTOLESS_IDS.has(id)) return null;

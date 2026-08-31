@@ -10,6 +10,7 @@ import { Buffer } from 'node:buffer';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { ServerMode } from './config.ts';
+import { ADMIN_PREFIX, handleAdminApi } from './admin.ts';
 import { DEPLOYMENT_PREFIX } from '../src/lib/deploymentSettings.ts';
 import { createDeploymentPolicy, type DeploymentPolicy } from './deployment.ts';
 import { cleanRelativePath, readBody, sendJson, tryDecode } from './http.ts';
@@ -173,6 +174,14 @@ async function handleApi(
   // availability and refuses a request by name.
   if (pathname === LLM_PREFIX || pathname.startsWith(`${LLM_PREFIX}/`)) {
     await llm.handle(req, res, url);
+    return;
+  }
+
+  // PRD 017 Req 14: the deployment-admin surface (server/admin.ts) — four
+  // routes, all behind `deployment.admin`, refused with the Req 2 shape for
+  // everyone else whatever workspace roles they hold.
+  if (pathname === ADMIN_PREFIX || pathname.startsWith(`${ADMIN_PREFIX}/`)) {
+    await handleAdminApi(req, res, providers, auth, deployment, admins);
     return;
   }
 

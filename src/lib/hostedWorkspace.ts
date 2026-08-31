@@ -672,3 +672,21 @@ export function resolvePermissions(
   if (!isAdmin) return granted;
   return new Set([...granted, ...ADMIN_IMPLICIT_PERMISSIONS]);
 }
+
+/**
+ * PRD 017 Req 5: whether the admin banner shows — the signed-in user is a
+ * deployment admin (`/api/me` says `admin: true`) AND the bound workspace's
+ * manifest grants them nothing of its own: no explicit membership and no
+ * everyone-access. They are viewing purely through the Req 4 implicit union
+ * above, and the banner says so. The moment they hold a role — e.g. after
+ * adding themselves as Owner in People — this turns false and the banner
+ * disappears; a non-admin is never shown it, whatever the manifest says.
+ */
+export function isViewingAsAdminOnly(
+  manifest: WorkspaceManifest,
+  me: { id: string; admin: boolean },
+): boolean {
+  if (!me.admin) return false;
+  if (manifest.members.some((m) => m.id === me.id)) return false;
+  return !manifest.everyone.enabled;
+}

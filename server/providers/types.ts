@@ -129,6 +129,13 @@ export interface DirectoryProvider {
   search(query: string, auth: RequestAuth): Promise<DirectoryUser[]>;
   /** Resolve one user by id, or null when unknown (e.g. left the tenant). */
   getUser(id: string, auth: RequestAuth): Promise<DirectoryUser | null>;
+  // PRD 017 Req 19: the Management People tab lists EVERY tenant user, which
+  // no substring search can answer — the one new method this PRD adds to the
+  // seam. A failure rejects (the tab shows an error state, never an empty
+  // tenant); Graph pages through @odata.nextLink, the mock answers the
+  // seeded list.
+  /** Every user in the tenant, acting as the caller. */
+  listUsers(auth: RequestAuth): Promise<DirectoryUser[]>;
   // PRD 007 Req 6: a missing photo answers null (the picker falls back to
   // initials), never an error — an unknown user answers null the same way.
   /** A user's profile photo, or null when the user is unknown or has none. */

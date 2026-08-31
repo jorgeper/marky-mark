@@ -64,6 +64,29 @@ export function createGraphDirectoryProvider(
       const body = (await res.json()) as { value: GraphUser[] };
       return body.value.map(toDirectoryUser);
     },
+    // PRD 017 Req 19: every tenant user, paged. The first page is the PRD's
+    // pinned URL — /users with the same $select as search and $top=999 (the
+    // endpoint's page cap) — and each @odata.nextLink is followed verbatim,
+    // as Graph requires. Delegated User.ReadBasic.All over the existing OBO
+    // token already covers it: no new registration permission. A non-OK page
+    // throws, so the admin route answers an error, never a truncated tenant.
+    async listUsers(auth: RequestAuth): Promise<DirectoryUser[]> {
+      const first = new URL(`${GRAPH_BASE}/users`);
+      first.searchParams.set('$select', 'id,displayName,userPrincipalName,userType');
+      first.searchParams.set('$top', '999');
+      const users: DirectoryUser[] = [];
+      let next: string | null = first.toString();
+      while (next) {
+        const res = await fetchImpl(next, {
+          headers: { Authorization: `Bearer ${await getGraphToken(auth)}` },
+        });
+        if (!res.ok) throw new Error(`Graph user listing failed: ${res.status}`);
+        const body = (await res.json()) as { value: GraphUser[]; '@odata.nextLink'?: string };
+        users.push(...body.value.map(toDirectoryUser));
+        next = body['@odata.nextLink'] ?? null;
+      }
+      return users;
+    },
     async getUser(id: string, auth: RequestAuth): Promise<DirectoryUser | null> {
       const url = `${GRAPH_BASE}/users/${encodeURIComponent(id)}?$select=id,displayName,userPrincipalName,userType`;
       const res = await fetchImpl(url, { headers: await headers(auth) });

@@ -53,6 +53,18 @@ describe('PRD 007 Req 4 mock directory provider', () => {
     expect(await directory.getUser('mock-nobody', auth)).toBeNull();
   });
 
+  it('U975: listUsers answers the whole seeded tenant — five users, avatars stamped, mary the guest', async () => {
+    // PRD 017 Req 19: the Management People tab's tenant listing in local mode.
+    const users = await directory.listUsers(auth);
+    expect(users.map((u) => u.id)).toEqual(SEEDED_USERS.map((u) => u.id));
+    expect(users).toHaveLength(5);
+    expect(users.find((u) => u.id === 'mock-ada')?.avatarUrl).toBe('/api/directory/users/mock-ada/photo');
+    // The photo-less seeded user stays avatar-less here too (U246's rule).
+    expect(users.find((u) => u.id === 'mock-katherine')?.avatarUrl).toBeUndefined();
+    expect(users.find((u) => u.id === 'mock-mary')?.isGuest).toBe(true);
+    expect(users.find((u) => u.id === 'mock-ada')?.isGuest).toBeUndefined();
+  });
+
   it('U245: seeded users carry the same-origin avatar URL and a deterministic SVG photo', async () => {
     // PRD 007 Req 6: local dev and e2e render real pictures with zero
     // network — same bytes on every call, media type included.
