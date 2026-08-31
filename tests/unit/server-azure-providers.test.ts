@@ -232,6 +232,75 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
     status = 503;
     await expect(provider.getUserPhoto('g1', auth)).rejects.toThrowError(/Graph photo fetch failed: 503/);
   });
+
+  it('U991: invite POSTs /invitations with the exchanged token and the pinned body, mapping the answer to a pending guest', async () => {
+    // PRD 017 Req 29 (issue #190): the request shape Graph receives and the
+    // success mapping — the invited user comes back a pending guest.
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const provider = createGraphDirectoryProvider(async (url, init) => {
+      calls.push({ url, init });
+      return new Response(
+        JSON.stringify({ invitedUser: { id: 'guest-1' }, invitedUserDisplayName: 'friend@example.com' }),
+        { status: 201 },
+      );
+    }, exchanged);
+    const invitation = {
+      email: 'friend@example.com',
+      redirectUrl: 'https://markymark.example.com/',
+      message: 'Ada has invited you to collaborate in Marky Mark.',
+    };
+    expect(await provider.invite(invitation, auth)).toEqual({
+      ok: true,
+      user: {
+        id: 'guest-1',
+        displayName: 'friend@example.com',
+        username: 'friend@example.com',
+        avatarUrl: '/api/directory/users/guest-1/photo',
+        isGuest: true,
+        pending: true,
+      },
+    });
+    expect(calls[0].url).toBe('https://graph.microsoft.com/v1.0/invitations');
+    expect(calls[0].init?.method).toBe('POST');
+    expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer graph-token');
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      invitedUserEmailAddress: 'friend@example.com',
+      inviteRedirectUrl: 'https://markymark.example.com/',
+      sendInvitationMessage: true,
+      invitedUserMessageInfo: { customizedMessageBody: 'Ada has invited you to collaborate in Marky Mark.' },
+    });
+  });
+
+  it("U992: an invite refusal is data — Graph's error.code and message — and a non-JSON or id-less answer still refuses by name", async () => {
+    // PRD 017 Req 29: the 502 lane's payload comes from Graph verbatim,
+    // never a silent success.
+    const invitation = { email: 'x@example.com', redirectUrl: 'https://m.example.com/', message: 'm' };
+    const refusing = createGraphDirectoryProvider(
+      async () =>
+        new Response(
+          JSON.stringify({ error: { code: 'invitedUserAlreadyExists', message: 'Already a member.' } }),
+          { status: 400 },
+        ),
+      exchanged,
+    );
+    expect(await refusing.invite(invitation, auth)).toEqual({
+      ok: false,
+      code: 'invitedUserAlreadyExists',
+      message: 'Already a member.',
+    });
+    const nonJson = createGraphDirectoryProvider(async () => new Response('gateway woe', { status: 503 }), exchanged);
+    expect(await nonJson.invite(invitation, auth)).toEqual({
+      ok: false,
+      code: '',
+      message: 'Graph refused the invitation (503)',
+    });
+    const idless = createGraphDirectoryProvider(async () => new Response('{}', { status: 201 }), exchanged);
+    expect(await idless.invite(invitation, auth)).toEqual({
+      ok: false,
+      code: '',
+      message: 'Graph answered without an invitedUser.id',
+    });
+  });
 });
 
 // PRD 007 Req 6 (issue #180): the on-behalf-of exchange — the session bearer

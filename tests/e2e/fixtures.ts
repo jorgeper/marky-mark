@@ -10,19 +10,14 @@ import { offsiteOrigin } from './offsite';
 const EXPECTED_NETWORK_LOG = /Failed to load resource:.*412 \(Precondition Failed\)/;
 
 /**
- * Issue #183 §3: the second exemption, scoped by URL instead of message —
- * E361 forces `/api/directory/search` to fail to prove the picker's inline
- * error state, and Chromium logs that failed request just like the 412.
- * The URL rides in the log's location, not its text.
+ * The exemptions scoped by URL instead of message — the URL rides in the
+ * log's location, not its text, and Chromium logs each failed request just
+ * like the 412. Issue #183 §3: E361 forces `/api/directory/search` to fail
+ * to prove the picker's inline error state. PRD 017 Req 29 (issue #190):
+ * E379 drives `/api/admin/invitations` into a directory refusal to prove
+ * the inline 502 lane.
  */
-const EXPECTED_DIRECTORY_FAILURE = /\/api\/directory\/search/;
-
-/**
- * PRD 017 Req 29 (issue #190): the third exemption, same shape — E379 drives
- * an invitation the directory refuses to prove the inline 502 lane, and
- * Chromium logs that failed POST like the two above.
- */
-const EXPECTED_INVITATION_REFUSAL = /\/api\/admin\/invitations/;
+const EXPECTED_FAILURE_URLS = [/\/api\/directory\/search/, /\/api\/admin\/invitations/];
 
 /**
  * Shared test fixture: any browser console error or uncaught page error
@@ -34,10 +29,10 @@ export const test = base.extend<{ consoleGuard: void; loopbackGuard: void }>({
       const errors: string[] = [];
       page.on('console', (msg) => {
         if (msg.type() !== 'error' || EXPECTED_NETWORK_LOG.test(msg.text())) return;
-        if (/Failed to load resource/.test(msg.text()) && EXPECTED_DIRECTORY_FAILURE.test(msg.location().url ?? '')) {
-          return;
-        }
-        if (/Failed to load resource/.test(msg.text()) && EXPECTED_INVITATION_REFUSAL.test(msg.location().url ?? '')) {
+        if (
+          /Failed to load resource/.test(msg.text()) &&
+          EXPECTED_FAILURE_URLS.some((url) => url.test(msg.location().url ?? ''))
+        ) {
           return;
         }
         errors.push(msg.text());

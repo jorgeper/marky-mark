@@ -205,8 +205,8 @@ async function handleApi(
     return;
   }
 
-  // PRD 017 Req 14: the deployment-admin surface (server/admin.ts) — four
-  // routes, all behind `deployment.admin`, refused with the Req 2 shape for
+  // PRD 017 Req 14: the deployment-admin surface (server/admin.ts) — every
+  // route behind `deployment.admin`, refused with the Req 2 shape for
   // everyone else whatever workspace roles they hold.
   if (pathname === ADMIN_PREFIX || pathname.startsWith(`${ADMIN_PREFIX}/`)) {
     await handleAdminApi(req, res, url, providers, auth, deployment, admins);

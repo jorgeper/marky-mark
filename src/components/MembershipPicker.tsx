@@ -82,8 +82,9 @@ export function MembershipPicker({
   invite,
 }: MembershipPickerProps) {
   const [query, setQuery] = useState('');
-  // PRD 017 Req 32: the invite row's role choice, seeded with the default grant.
-  const [inviteRole, setInviteRole] = useState(invite?.defaultRole ?? '');
+  // PRD 017 Req 32: the invite row's role choice — null until the admin picks
+  // one, so the default grant applies even when `invite` arrives after mount.
+  const [inviteRole, setInviteRole] = useState<string | null>(null);
   // Issue #183 §3: the dropdown renders the LAST SETTLED search — results, an
   // empty answer, or a directory failure — as three distinguishable states.
   // null means "nothing to show" (blank query, or nothing resolved yet).
@@ -239,7 +240,7 @@ export function MembershipPicker({
                       // Keep focus in the input so the dropdown survives until the click lands.
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
-                        invite.onInvite(outcome.query.trim(), inviteRole);
+                        invite.onInvite(outcome.query.trim(), inviteRole ?? invite.defaultRole);
                         changeQuery('');
                       }}
                     >
@@ -248,7 +249,7 @@ export function MembershipPicker({
                     <select
                       data-testid="membership-picker-invite-role"
                       aria-label="Role for the invited guest"
-                      value={inviteRole}
+                      value={inviteRole ?? invite.defaultRole}
                       onMouseDown={(e) => e.stopPropagation()}
                       onChange={(e) => setInviteRole(e.target.value)}
                     >
