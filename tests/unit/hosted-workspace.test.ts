@@ -17,6 +17,7 @@ import {
   PERMISSIONS,
   removeCustomRole,
   removeWorkspaceMember,
+  scrubWorkspaceMember,
   resolvePermissions,
   serializeWorkspaceManifest,
   setEveryoneAccess,
@@ -332,6 +333,16 @@ describe('PRD 007 Req 16 membership management', () => {
     expect(removeWorkspaceMember(coOwned, 'mock-ada').ok).toBe(true);
     // A non-member is a refusal naming the id, not a silent no-op.
     expect(removeWorkspaceMember(two, 'mock-alan').ok).toBe(false);
+  });
+
+  it('U996: scrubbing a rescinded invitee removes the membership unconditionally — even a sole Owner — and answers null when there is nothing to write', () => {
+    // Issue #193: the rescinded user no longer exists in the directory, so
+    // the last-Owner invariant yields to "no dangling unresolvable member".
+    const two = shared([{ id: 'mock-invite-x', role: 'Editor' }]);
+    expect(scrubWorkspaceMember(two, 'mock-invite-x')?.members).toEqual([{ id: 'mock-ada', role: 'Owner' }]);
+    expect(scrubWorkspaceMember(shared(), 'mock-ada')?.members).toEqual([]);
+    // No membership for the id: null, so the route writes nothing back.
+    expect(scrubWorkspaceMember(two, 'mock-alan')).toBeNull();
   });
 
   it('U297: a role change refuses demoting the last Owner — the same invariant, differently spelled', () => {

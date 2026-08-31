@@ -3474,4 +3474,143 @@ test.describe('PRD 017 in-app guest invitations', () => {
     const role = await paint('membership-picker-invite-role');
     expect(role.background).not.toBe(role.accent);
   });
+
+  test('E381: Management → People rescinds a pending invitation behind the email-naming confirm — the row disappears; non-pending rows never offer it', async ({
+    page,
+    request,
+  }) => {
+    // Issue #193: the destructive Rescind action, Pending rows only.
+    const email = `e381-w${test.info().workerIndex}@example.com`;
+    const id = mockInvitationId(email);
+    const katherine = await signIn(request, 'katherine');
+    const headers = { Authorization: `Bearer ${katherine}` };
+    try {
+      const invited = await request.post(`${HOSTED}/api/admin/invitations`, { headers, data: { email } });
+      expect(invited.status()).toBe(201);
+
+      await signInTo(page, 'katherine');
+      await page.getByTestId('start-management').click();
+      await page.getByTestId('management-tab-people').click();
+      await expect(page.getByTestId(`admin-user-pending-${id}`)).toHaveText('Pending');
+      // Only the Pending row offers the action: mary is a seeded accepted
+      // guest and ada a member — neither ever shows Rescind.
+      await expect(page.getByTestId(`admin-user-guest-mock-mary`)).toHaveText('Guest');
+      await expect(page.getByTestId('admin-rescind-mock-mary')).toHaveCount(0);
+      await expect(page.getByTestId('admin-rescind-mock-ada')).toHaveCount(0);
+
+      // The confirm step names the guest's email; Cancel changes nothing.
+      await page.getByTestId(`admin-rescind-${id}`).click();
+      await expect(page.getByTestId('admin-rescind-message')).toContainText(email);
+      await page.getByTestId('admin-rescind-cancel').click();
+      await expect(page.getByTestId('admin-rescind-dialog')).toHaveCount(0);
+      await expect(page.getByTestId(`admin-user-row-${id}`)).toBeVisible();
+
+      // Confirming deletes the guest: the row disappears, and the server
+      // agrees — the tenant listing no longer carries the id.
+      await page.getByTestId(`admin-rescind-${id}`).click();
+      await page.getByTestId('admin-rescind-confirm').click();
+      await expect(page.getByTestId(`admin-user-row-${id}`)).toHaveCount(0);
+      const users = (await (await request.get(`${HOSTED}/api/admin/users`, { headers })).json()) as {
+        id: string;
+      }[];
+      expect(users.some((u) => u.id === id)).toBe(false);
+    } finally {
+      await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
+    }
+  });
+
+  test('E382: rescinding scrubs the id from every workspace manifest — the role-at-invite grant and a later add both go', async ({
+    request,
+  }) => {
+    // Issue #193: the same-operation membership cleanup, across manifests.
+    const email = `e382-w${test.info().workerIndex}@example.com`;
+    const id = mockInvitationId(email);
+    const katherine = await signIn(request, 'katherine');
+    const headers = { Authorization: `Bearer ${katherine}` };
+    const wsA = await createWorkspace(request, katherine, `E382a w${test.info().workerIndex}`);
+    const wsB = await createWorkspace(request, katherine, `E382b w${test.info().workerIndex}`);
+    try {
+      // One membership from the Req 30 role-at-invite grant, one added after.
+      const invited = await request.post(`${HOSTED}/api/admin/invitations`, {
+        headers,
+        data: { email, workspace: { id: wsA, role: 'Editor' } },
+      });
+      expect(invited.status()).toBe(201);
+      const added = await request.post(`${HOSTED}/api/workspaces/${wsB}/members`, {
+        headers,
+        data: { id, role: 'Viewer' },
+      });
+      expect(added.ok()).toBe(true);
+
+      const rescinded = await request.delete(`${HOSTED}/api/admin/invitations/${id}`, { headers });
+      expect(rescinded.status()).toBe(200);
+      expect(await rescinded.json()).toEqual({ id });
+
+      // Both manifests read back as stored, with no dangling member row.
+      for (const workspaceId of [wsA, wsB]) {
+        const { manifest } = (await (
+          await request.get(`${HOSTED}/api/workspaces/${workspaceId}/manifest`, { headers })
+        ).json()) as { manifest: { members: { id: string }[] } };
+        expect(manifest.members.some((m) => m.id === id)).toBe(false);
+      }
+    } finally {
+      await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
+    }
+  });
+
+  test('E383: a non-admin gets 403 deployment.admin from the rescind route — the pending guest survives', async ({
+    request,
+  }) => {
+    // Issue #193 (Req 2 shape): the one gate for the whole admin surface.
+    const email = `e383-w${test.info().workerIndex}@example.com`;
+    const id = mockInvitationId(email);
+    const katherine = await signIn(request, 'katherine');
+    const headers = { Authorization: `Bearer ${katherine}` };
+    try {
+      expect((await request.post(`${HOSTED}/api/admin/invitations`, { headers, data: { email } })).status()).toBe(201);
+      const ada = await signIn(request, 'ada');
+      const refused = await request.delete(`${HOSTED}/api/admin/invitations/${id}`, {
+        headers: { Authorization: `Bearer ${ada}` },
+      });
+      expect(refused.status()).toBe(403);
+      expect(await refused.json()).toEqual({ error: 'forbidden', required: 'deployment.admin' });
+      const users = (await (await request.get(`${HOSTED}/api/admin/users`, { headers })).json()) as {
+        id: string;
+      }[];
+      expect(users.some((u) => u.id === id)).toBe(true);
+    } finally {
+      await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
+    }
+  });
+
+  test('E384: an accepted guest cannot be rescinded — 409 naming why, and their People row offers no Rescind', async ({
+    page,
+    request,
+  }) => {
+    // Issue #193: acceptance ends rescindability — removal moves to Entra.
+    const email = `e384-w${test.info().workerIndex}@example.com`;
+    const id = mockInvitationId(email);
+    const katherine = await signIn(request, 'katherine');
+    const headers = { Authorization: `Bearer ${katherine}` };
+    try {
+      expect((await request.post(`${HOSTED}/api/admin/invitations`, { headers, data: { email } })).status()).toBe(201);
+      expect((await request.post(`${HOSTED}/api/directory/invitations/${id}/accept`, { headers })).status()).toBe(200);
+
+      const refused = await request.delete(`${HOSTED}/api/admin/invitations/${id}`, { headers });
+      expect(refused.status()).toBe(409);
+      const { error } = (await refused.json()) as { error: string };
+      expect(error).toContain('already accepted');
+
+      // The guest is still in the tenant, badged Guest but no longer
+      // Pending — so the row never offers the destructive action.
+      await signInTo(page, 'katherine');
+      await page.getByTestId('start-management').click();
+      await page.getByTestId('management-tab-people').click();
+      await expect(page.getByTestId(`admin-user-guest-${id}`)).toHaveText('Guest');
+      await expect(page.getByTestId(`admin-user-pending-${id}`)).toHaveCount(0);
+      await expect(page.getByTestId(`admin-rescind-${id}`)).toHaveCount(0);
+    } finally {
+      await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
+    }
+  });
 });

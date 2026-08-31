@@ -108,6 +108,26 @@ export function offersInviteRow(
 }
 
 /**
+ * Issue #193: the rescind eligibility decision — null when the target may
+ * be deleted (a guest whose invitation is still unredeemed, Req 33's
+ * `pending` flag), else the route's 409 sentence naming why not. Members,
+ * accepted guests and admins are never deletable from the app; that stays
+ * in Entra.
+ */
+export function rescindRefusal(
+  user: { displayName: string; isGuest?: boolean; pending?: boolean } | null,
+): string | null {
+  if (user === null) return 'the directory knows no user with that id';
+  if (user.isGuest !== true) {
+    return `${user.displayName} is a member of the tenant, not an invited guest — members are managed in Entra`;
+  }
+  if (user.pending !== true) {
+    return `${user.displayName} has already accepted their invitation — accepted guests are managed in Entra`;
+  }
+  return null;
+}
+
+/**
  * PRD 017 Req 29: `inviteRedirectUrl` — the deployment's origin with a
  * trailing slash, from the request's own Host (the SPA and the API share
  * one origin) and the proxy's `x-forwarded-proto` when one fronts us

@@ -288,7 +288,10 @@ record('test-ID uniqueness', Date.now() - idScanStart);
 // Graph-refusal surface) — plus issue #178's E373–E374; issue #191 extended
 // E362/E369/E371 (admin listing filtered under members, the doc.edit verb,
 // the corrupt-blob fail-closed behaviour) rather than adding tests.
-const E2E_TEST_FLOOR = 369;
+// 374 as of issues #192+#193: E380 (shared primary invite styling) and
+// E381–E384 — rescinding invitations (the Management flow, the manifest
+// scrub, the non-admin 403, the accepted-guest 409).
+const E2E_TEST_FLOOR = 374;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {

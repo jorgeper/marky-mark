@@ -48,6 +48,10 @@ function scriptedDirectory(answer: (id: string) => Promise<DirectoryUser | null>
       async invite() {
         return { ok: false as const, code: 'unsupported', message: 'scripted directory' };
       },
+      // Issue #193: and deleteUser() — same story again.
+      async deleteUser() {
+        return { ok: false as const, code: 'unsupported', message: 'scripted directory' };
+      },
     },
   };
 }

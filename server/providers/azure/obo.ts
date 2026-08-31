@@ -19,10 +19,12 @@ export type GraphTokenSource = (auth: RequestAuth) => Promise<string>;
 /**
  * The delegated scope set the exchange asks for — the whole permission set.
  * PRD 017 Req 29 (issue #190): grown by User.Invite.All so the invitations
- * route can POST /v1.0/invitations as the signed-in admin.
+ * route can POST /v1.0/invitations as the signed-in admin. Issue #193:
+ * grown again by User.ReadWrite.All so rescinding can DELETE /v1.0/users/{id}
+ * the same way.
  */
 export const GRAPH_OBO_SCOPE =
-  'https://graph.microsoft.com/User.ReadBasic.All https://graph.microsoft.com/User.Invite.All';
+  'https://graph.microsoft.com/User.ReadBasic.All https://graph.microsoft.com/User.Invite.All https://graph.microsoft.com/User.ReadWrite.All';
 
 /**
  * Drop a cached token this long before Entra's own expiry, so a token that

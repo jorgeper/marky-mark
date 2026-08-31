@@ -317,6 +317,43 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
       message: 'Graph answered without an invitedUser.id',
     });
   });
+
+  it('U997: deleteUser DELETEs /users/{id} with the exchanged token — a 204 answers ok', async () => {
+    // Issue #193: the rescind flow's Graph half, as the signed-in admin.
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const provider = createGraphDirectoryProvider(async (url, init) => {
+      calls.push({ url, init });
+      return new Response(null, { status: 204 });
+    }, exchanged);
+    expect(await provider.deleteUser('guest 1', auth)).toEqual({ ok: true });
+    expect(calls[0].url).toBe('https://graph.microsoft.com/v1.0/users/guest%201');
+    expect(calls[0].init?.method).toBe('DELETE');
+    expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer graph-token');
+  });
+
+  it("U998: a deletion refusal is data — Graph's error.code and message — and a non-JSON refusal still names the status", async () => {
+    // Issue #193: the 502 lane's payload comes from Graph verbatim, never a
+    // silent success, never a token.
+    const refusing = createGraphDirectoryProvider(
+      async () =>
+        new Response(
+          JSON.stringify({ error: { code: 'Authorization_RequestDenied', message: 'Insufficient privileges.' } }),
+          { status: 403 },
+        ),
+      exchanged,
+    );
+    expect(await refusing.deleteUser('guest-1', auth)).toEqual({
+      ok: false,
+      code: 'Authorization_RequestDenied',
+      message: 'Insufficient privileges.',
+    });
+    const nonJson = createGraphDirectoryProvider(async () => new Response('gateway woe', { status: 503 }), exchanged);
+    expect(await nonJson.deleteUser('guest-1', auth)).toEqual({
+      ok: false,
+      code: '',
+      message: 'Graph refused the deletion (503)',
+    });
+  });
 });
 
 // PRD 007 Req 6 (issue #180): the on-behalf-of exchange — the session bearer
@@ -357,10 +394,11 @@ describe('issue #180 on-behalf-of Graph token exchange', () => {
     // received — the access token for the app's own API, never an id_token.
     expect(body.get('assertion')).toBe('the-session-access-token');
     // Delegated permissions only — never an application permission. PRD 017
-    // Req 29 (issue #190): the set grew by User.Invite.All for invitations.
+    // Req 29 (issue #190): the set grew by User.Invite.All for invitations;
+    // issue #193: and by User.ReadWrite.All for rescinding them.
     expect(body.get('scope')).toBe(GRAPH_OBO_SCOPE);
     expect(GRAPH_OBO_SCOPE).toBe(
-      'https://graph.microsoft.com/User.ReadBasic.All https://graph.microsoft.com/User.Invite.All',
+      'https://graph.microsoft.com/User.ReadBasic.All https://graph.microsoft.com/User.Invite.All https://graph.microsoft.com/User.ReadWrite.All',
     );
     expect(body.get('requested_token_use')).toBe('on_behalf_of');
   });

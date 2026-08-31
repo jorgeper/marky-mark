@@ -46,6 +46,12 @@ export interface DeploymentAdmin {
    * invite surfaces to show inline, verbatim.
    */
   invite(request: InvitationRequest): Promise<{ ok: true; guest: InvitedGuest } | { ok: false; error: string }>;
+  /**
+   * Issue #193: rescind an invitation — delete the pending guest and its
+   * workspace memberships. The refusal is the server's own sentence (the
+   * 409's eligibility message, a 502's Graph refusal) shown verbatim.
+   */
+  rescind(userId: string): Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 /** The server's error shape, when it sent one at all. */
@@ -86,6 +92,13 @@ export function createHostedAdmin(api: ApiFetch): DeploymentAdmin {
       });
       if (!res.ok) return { ok: false, error: await errorOf(res) };
       return { ok: true, guest: (await res.json()) as InvitedGuest };
+    },
+    async rescind(userId) {
+      const res = await api(`/api/admin/invitations/${encodeURIComponent(userId)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) return { ok: false, error: await errorOf(res) };
+      return { ok: true };
     },
   };
 }

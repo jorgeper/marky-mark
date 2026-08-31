@@ -131,6 +131,13 @@ export type DirectoryInviteResult =
   | { ok: true; user: DirectoryUser }
   | { ok: false; code: string; message: string };
 
+/**
+ * Issue #193: a rescind's outcome — deleted, or the directory's own refusal
+ * AS DATA (its code and message become the route's 502), mirroring
+ * DirectoryInviteResult. Transport failures reject instead.
+ */
+export type DirectoryDeleteResult = { ok: true } | { ok: false; code: string; message: string };
+
 /** A user's profile photo as raw bytes plus its media type. */
 export interface UserPhoto {
   contentType: string;
@@ -163,6 +170,13 @@ export interface DirectoryProvider {
   // mock records an in-memory pending guest for the offline e2e lane.
   /** Invite an external email address into the tenant, acting as the caller. */
   invite(invitation: DirectoryInvitation, auth: RequestAuth): Promise<DirectoryInviteResult>;
+  // Issue #193: rescinding an invitation deletes the pending guest's user
+  // object — Graph DELETE /v1.0/users/{id} as the signed-in admin over the
+  // OBO exchange, the mock forgetting its in-memory invitee. ELIGIBILITY IS
+  // THE ROUTE'S JOB (only pending guests, 409 otherwise); the seam just
+  // deletes what it is told to.
+  /** Delete a user object from the tenant, acting as the caller. */
+  deleteUser(id: string, auth: RequestAuth): Promise<DirectoryDeleteResult>;
   // PRD 007 Req 6: a missing photo answers null (the picker falls back to
   // initials), never an error — an unknown user answers null the same way.
   /** A user's profile photo, or null when the user is unknown or has none. */

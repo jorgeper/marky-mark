@@ -6,6 +6,7 @@ import {
   isInvitableEmail,
   offersInviteRow,
   parseInvitationRequest,
+  rescindRefusal,
 } from '../../src/lib/invitations';
 
 describe('PRD 017 §Invitations Req 29 body parser', () => {
@@ -105,5 +106,24 @@ describe('PRD 017 §Invitations Req 32 invite-row predicate', () => {
     // A non-email query offers nothing.
     expect(offersInviteRow({ admin: true }, 'friend', [])).toBe(false);
     expect(isInvitableEmail(' friend@example.com ')).toBe(true);
+  });
+});
+
+describe('issue #193 rescind eligibility', () => {
+  it('U995: only a guest whose invitation is still pending may be rescinded — everyone else gets the 409 sentence naming why', () => {
+    // The one deletable shape: an unredeemed invited guest.
+    expect(rescindRefusal({ displayName: 'friend@example.com', isGuest: true, pending: true })).toBeNull();
+    // Unknown to the directory: nothing to delete, said plainly.
+    expect(rescindRefusal(null)).toBe('the directory knows no user with that id');
+    // A tenant member (admins included) is never deletable from the app.
+    const member = rescindRefusal({ displayName: 'Ada Lovelace' });
+    expect(member).toContain('Ada Lovelace');
+    expect(member).toContain('member');
+    // An accepted guest left PendingAcceptance — Entra owns them now.
+    const accepted = rescindRefusal({ displayName: 'Mary Berry', isGuest: true });
+    expect(accepted).toContain('Mary Berry');
+    expect(accepted).toContain('already accepted');
+    // The guest check comes first: a pending flag on a non-guest never slips through.
+    expect(rescindRefusal({ displayName: 'Odd Row', pending: true })).toContain('member');
   });
 });

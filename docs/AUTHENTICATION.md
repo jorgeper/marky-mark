@@ -131,6 +131,14 @@ Google federation configured — an operator step in External Identities,
 no app change — gmail invitees sign in with their Google account
 instead of a one-time passcode.
 
+While the badge still says **Pending**, an admin can change their mind:
+the row's **Rescind** action (behind a confirm naming the email) deletes
+the unredeemed guest's account — again as the signed-in admin, via
+delegated `User.ReadWrite.All` — and removes any workspace memberships
+it had been granted. Once the invitation is accepted the action
+disappears: members and accepted guests are managed in Entra, never
+deleted from the app.
+
 Then give them access in the app: search for them in the workspace's
 People section (the picker searches your tenant through Microsoft
 Graph — see "How the directory calls authenticate" below), or flip the

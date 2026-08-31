@@ -432,6 +432,18 @@ export function removeWorkspaceMember(manifest: WorkspaceManifest, id: string): 
 }
 
 /**
+ * Issue #193: scrub a rescinded invitee from the member list,
+ * unconditionally — unlike removeWorkspaceMember, the last-Owner invariant
+ * does not apply, because the deleted user cannot administer anything and
+ * the alternative is a manifest carrying a member id the directory can no
+ * longer resolve. Null when the id holds no membership (nothing to write).
+ */
+export function scrubWorkspaceMember(manifest: WorkspaceManifest, id: string): WorkspaceManifest | null {
+  if (!manifest.members.some((m) => m.id === id)) return null;
+  return { ...manifest, members: manifest.members.filter((m) => m.id !== id) };
+}
+
+/**
  * PRD 007 Req 16: change one member's role. The same last-Owner invariant
  * applies: demoting the sole Owner is refused exactly like removing them —
  * the two are the same act with different spellings.

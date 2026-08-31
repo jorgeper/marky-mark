@@ -23,6 +23,7 @@ import {
   grantableRoleNames,
   parseWorkspaceManifest,
   resolvePermissions,
+  scrubWorkspaceMember,
   serializeWorkspaceManifest,
   workspaceOwnerIds,
   type WorkspaceManifest,
@@ -31,10 +32,17 @@ import {
   deploymentOrigin,
   invitationMessage,
   parseInvitationRequest,
+  rescindRefusal,
 } from '../src/lib/invitations.ts';
 import type { DeploymentPolicy } from './deployment.ts';
 import { readBody, sendJson } from './http.ts';
-import type { DirectoryInviteResult, Providers, RequestAuth } from './providers/types.ts';
+import type {
+  DirectoryDeleteResult,
+  DirectoryInviteResult,
+  DirectoryUser,
+  Providers,
+  RequestAuth,
+} from './providers/types.ts';
 import { WORKSPACES_PREFIX } from './workspaces.ts';
 
 /** The prefix app.ts routes here. */
@@ -208,6 +216,78 @@ async function inviteGuest(
 }
 
 /**
+ * DELETE /api/admin/invitations/<userId> — issue #193: rescind an
+ * invitation by deleting the pending guest's user object, then scrubbing
+ * any workspace membership recorded for the id (e.g. the Req 30
+ * role-at-invite grant) from every manifest, so none is left with a
+ * dangling unresolvable member.
+ */
+async function rescindInvitation(
+  res: ServerResponse,
+  providers: Providers,
+  auth: RequestAuth,
+  id: string,
+): Promise<void> {
+  // Issue #193: the eligibility gate — the directory is asked FIRST, and
+  // unless the target is a guest whose invitation is still unredeemed, the
+  // shared pure decision refuses with 409. Members, accepted guests and
+  // admins are never deletable from the app.
+  let target: DirectoryUser | null;
+  try {
+    target = await providers.directory.getUser(id, auth);
+  } catch {
+    sendJson(res, 502, { error: 'the directory could not be consulted' });
+    return;
+  }
+  const refusal = rescindRefusal(target);
+  if (refusal !== null) {
+    sendJson(res, 409, { error: refusal });
+    return;
+  }
+  // Issue #193: Graph DELETE /v1.0/users/{id} rides the OBO exchange under
+  // the provider seam, exactly like the invite flow — a directory refusal
+  // comes back as data, a transport or token-exchange failure rejects, and
+  // both map to 502 carrying the failure's own sentence, never a token.
+  let outcome: DirectoryDeleteResult;
+  try {
+    outcome = await providers.directory.deleteUser(id, auth);
+  } catch (err) {
+    sendJson(res, 502, {
+      error: err instanceof Error ? err.message : 'the invitation could not be rescinded',
+    });
+    return;
+  }
+  if (!outcome.ok) {
+    sendJson(res, 502, { error: outcome.message, code: outcome.code });
+    return;
+  }
+  // Issue #193: the same-operation membership scrub across EVERY manifest —
+  // the same whole-prefix walk the workspace listing does. A manifest that
+  // is missing or does not parse cannot name the id, so it is skipped; a
+  // write that fails is reported (the deletion already happened — there is
+  // no un-delete), mirroring the invite flow's membership error.
+  let membership: { error: string } | undefined;
+  try {
+    const blobs = await providers.storage.list(WORKSPACES_PREFIX);
+    for (const workspaceId of aggregateWorkspaceBlobStats(blobs, WORKSPACES_PREFIX).keys()) {
+      const path = `${WORKSPACES_PREFIX}${workspaceId}/manifest.json`;
+      const blob = await providers.storage.read(path);
+      const parsed = blob === null ? null : parseWorkspaceManifest(blob.content);
+      if (!parsed || !parsed.ok) continue;
+      const scrubbed = scrubWorkspaceMember(parsed.manifest, id);
+      if (scrubbed === null) continue;
+      await providers.storage.write(
+        path,
+        serializeWorkspaceManifest({ ...scrubbed, modified: new Date().toISOString() }),
+      );
+    }
+  } catch {
+    membership = { error: 'the invitation was rescinded, but a workspace membership could not be removed' };
+  }
+  sendJson(res, 200, { id, ...(membership ? { membership } : {}) });
+}
+
+/**
  * Handle a request under `/api/admin`. The caller (app.ts) has already
  * applied the 401 auth guard; the deployment.admin gate runs here, first,
  * so no admin data is assembled — let alone sent — for anyone else.
@@ -253,6 +333,19 @@ export async function handleAdminApi(
   // POST /api/admin/invitations — the Req 29+30 invitation flow above.
   if (pathname === `${ADMIN_PREFIX}/invitations` && req.method === 'POST') {
     await inviteGuest(req, res, providers, auth);
+    return;
+  }
+
+  // DELETE /api/admin/invitations/<userId> — the issue #193 rescind flow.
+  if (pathname.startsWith(`${ADMIN_PREFIX}/invitations/`) && req.method === 'DELETE') {
+    let id: string;
+    try {
+      id = decodeURIComponent(pathname.slice(`${ADMIN_PREFIX}/invitations/`.length));
+    } catch {
+      sendJson(res, 400, { error: 'malformed user id' });
+      return;
+    }
+    await rescindInvitation(res, providers, auth, id);
     return;
   }
 

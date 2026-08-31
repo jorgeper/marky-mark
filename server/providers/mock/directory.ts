@@ -6,6 +6,7 @@
 // guest-invitation flow is e2e-testable offline.
 
 import type {
+  DirectoryDeleteResult,
   DirectoryInvitation,
   DirectoryInviteResult,
   DirectoryProvider,
@@ -116,6 +117,23 @@ export function createMockDirectoryProvider(): DirectoryProvider & InvitationTes
       };
       invited.push(user);
       return { ok: true, user: withAvatar(user) };
+    },
+    // Issue #193: rescind support — deleting forgets an invited guest, the
+    // Graph-faithful mirror of DELETE /v1.0/users/{id}. The seeded users are
+    // the mock's fixed tenant, so asking to delete one refuses with a
+    // Graph-shaped code the route's 502 can carry (the admin route's own
+    // 409 eligibility gate refuses first in every real flow).
+    async deleteUser(id: string): Promise<DirectoryDeleteResult> {
+      const at = invited.findIndex((u) => u.id === id);
+      if (at !== -1) {
+        invited.splice(at, 1);
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        code: 'Request_ResourceNotFound',
+        message: `The directory refused to delete ${id}.`,
+      };
     },
     acceptInvitation(id: string): boolean {
       const found = invited.find((u) => u.id === id);

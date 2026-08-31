@@ -88,6 +88,12 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
   const [saveError, setSaveError] = useState('');
   const [saved, setSaved] = useState(false);
 
+  // Issue #193: the pending guest whose invitation is being rescinded,
+  // behind the confirm step that names their email.
+  const [rescinding, setRescinding] = useState<AdminUserRow | null>(null);
+  const [rescindBusy, setRescindBusy] = useState(false);
+  const [rescindError, setRescindError] = useState('');
+
   // PRD 017 Req 18: the row being deleted behind the exact-name gate.
   const [condemned, setCondemned] = useState<AdminWorkspaceRow | null>(null);
   const [typed, setTyped] = useState('');
@@ -218,6 +224,37 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
     setInviteOpen(false);
     setInviteEmail('');
     setInviteNote('');
+  };
+
+  /**
+   * Issue #193: rescind the confirmed pending guest. Success removes the
+   * People row and drops the id from every workspace row's member ids — the
+   * server scrubbed the manifests in the same operation, so the Workspaces
+   * counts mirror what is now stored. A refusal (the 409's eligibility
+   * sentence, a 502's Graph refusal) shows in the dialog, verbatim.
+   */
+  const rescindConfirmed = async () => {
+    if (!rescinding) return;
+    const { id } = rescinding;
+    setRescindBusy(true);
+    const answer = await admin.rescind(id);
+    setRescindBusy(false);
+    if (!answer.ok) {
+      setRescindError(answer.error);
+      return;
+    }
+    setUsers((prior) => (prior ?? []).filter((user) => user.id !== id));
+    setRows((prior) =>
+      prior === null
+        ? prior
+        : prior.map((row) =>
+            row.memberIds.includes(id)
+              ? { ...row, memberIds: row.memberIds.filter((memberId) => memberId !== id) }
+              : row,
+          ),
+    );
+    setRescinding(null);
+    setRescindError('');
   };
 
   const deleteCondemned = async () => {
@@ -408,6 +445,7 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
               <th>Name</th>
               <th>Username</th>
               <th>Workspaces</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -435,6 +473,23 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
                 </td>
                 <td>{user.username}</td>
                 <td data-testid={`admin-user-workspaces-${user.id}`}>{memberCounts.get(user.id) ?? 0}</td>
+                <td className="admin-row-actions">
+                  {/* Issue #193: ONLY a Pending row offers Rescind — members
+                      and accepted guests are managed in Entra, never here. */}
+                  {user.pending === true && (
+                    <button
+                      type="button"
+                      className="destructive"
+                      data-testid={`admin-rescind-${user.id}`}
+                      onClick={() => {
+                        setRescinding(user);
+                        setRescindError('');
+                      }}
+                    >
+                      Rescind
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -551,6 +606,38 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
             </div>
           </div>
         </div>
+        {/* Issue #193: the rescind confirm step — it names the guest's email
+            so the admin sees exactly whose invitation is being revoked. */}
+        {rescinding && (
+          <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && setRescinding(null)}>
+            <div className="modal workspace-danger" data-testid="admin-rescind-dialog">
+              <h2>Rescind invitation</h2>
+              <p className="hotkey-hint" data-testid="admin-rescind-message">
+                Rescinding removes {rescinding.username}’s pending guest account and any workspace
+                memberships it was granted. This cannot be undone.
+              </p>
+              {rescindError !== '' && (
+                <p className="hotkey-hint" data-testid="admin-rescind-error" role="alert">
+                  {rescindError}
+                </p>
+              )}
+              <div className="actions">
+                <button type="button" data-testid="admin-rescind-cancel" onClick={() => setRescinding(null)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="destructive"
+                  data-testid="admin-rescind-confirm"
+                  disabled={rescindBusy}
+                  onClick={() => void rescindConfirmed()}
+                >
+                  Rescind invitation
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* PRD 017 Req 18: the Owner-facing delete pattern, verbatim —
             WorkspaceDangerZone's wording behind the same exact-name gate. */}
         {condemned && (

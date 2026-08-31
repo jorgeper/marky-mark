@@ -8,6 +8,7 @@
 // verified by typecheck + unit tests only.
 
 import type {
+  DirectoryDeleteResult,
   DirectoryInvitation,
   DirectoryInviteResult,
   DirectoryProvider,
@@ -158,6 +159,30 @@ export function createGraphDirectoryProvider(
           pending: true,
         },
       };
+    },
+    // Issue #193: rescind — Graph DELETE /v1.0/users/{id} AS THE SIGNED-IN
+    // ADMIN (the OBO token now carries User.ReadWrite.All), so Entra's own
+    // authorization applies to the caller, never to an app identity. A Graph
+    // refusal comes back AS DATA — its error.code and message feed the
+    // route's 502 — and neither path ever includes a token.
+    async deleteUser(id: string, auth: RequestAuth): Promise<DirectoryDeleteResult> {
+      const res = await fetchImpl(`${GRAPH_BASE}/users/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${await getGraphToken(auth)}` },
+      });
+      if (!res.ok) {
+        let code = '';
+        let message = `Graph refused the deletion (${res.status})`;
+        try {
+          const refusal = (await res.json()) as { error?: { code?: unknown; message?: unknown } };
+          code = String(refusal.error?.code ?? '');
+          if (refusal.error?.message !== undefined) message = String(refusal.error.message);
+        } catch {
+          // non-JSON refusal: the status line above is the diagnosis
+        }
+        return { ok: false, code, message };
+      }
+      return { ok: true };
     },
     // PRD 007 Req 6: profile photo bytes via Graph /users/{id}/photo/$value.
     // 404 covers both "no photo" and "unknown user" — neither is an error,
