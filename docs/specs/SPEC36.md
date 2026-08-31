@@ -25,6 +25,14 @@ global); per-file crash drafts (the existing single draft covers the
 ACTIVE document only — a crash loses parked dirty buffers; documented
 limitation); a toolbar tab strip; multi-window coordination.
 
+> **Amended (issue #186, 2026-08-31):** "the web build" above means
+> the static single-file build only — the sentence predates the hosted
+> backend. The hosted (Azure) flavor runs this spec's open-set model
+> in full, and PRD 013's tab strip renders there too, gated on the
+> `multiFileSession` platform capability — never on `localFolders`
+> (which keeps its PRD 007 Req 21 local-folder-picking meaning) and
+> never on `platform.kind`.
+
 ---
 
 ## 1. Open-set model — `src/lib/openFiles.ts` (FR-MODEL)

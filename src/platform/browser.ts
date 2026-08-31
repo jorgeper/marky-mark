@@ -370,6 +370,9 @@ export function createBrowserPlatform(): Platform {
     // browse the user's own machine, so the entry surface offers Open
     // Folder… and the PRD 002 local workspace flows.
     localFolders: true,
+    // PRD 013 Req 14 (issue #186): the e2e shim mirrors the desktop shell's
+    // multi-file session, so the strip suites drive it here.
+    multiFileSession: true,
     async openFolderDialog() {
       const hook = window.__mmfs?.nextFolderPath;
       if (hook !== undefined) {

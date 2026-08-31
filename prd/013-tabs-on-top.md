@@ -34,9 +34,12 @@ tabs on the left *and* on top.
 
 ## Non-goals
 
-- **Web build changes** — SPEC36's open-set model is desktop-only and
-  stays that way; the web build keeps its single-file behavior and
-  W tests unchanged.
+- **Static web build changes** — the single-file web build keeps its
+  behavior and W tests unchanged. *(Amended by issue #186: this
+  non-goal originally said "desktop-only", written before the hosted
+  backend existed. The hosted flavor runs SPEC36's open-set model in
+  full and DOES get the strip, gated on the `multiFileSession`
+  capability; only the static single-file build stays without it.)*
 - **Drag-reordering of tabs** — the strip is always in tree order,
   like the sidebar list and Ctrl+Tab cycling (single source of truth).
 - **Pinned tabs, MRU cycle order, per-tab edit/preview mode** — all
@@ -125,7 +128,11 @@ tabs on the left *and* on top.
     the strip, backed by a persisted default-on setting. The setting
     only hides/shows the strip; it never alters the open set.
 14. The setting persists across launches through the existing settings
-    pipeline and is desktop-only (absent or inert on web).
+    pipeline and is absent on the static web build. *(Amended by issue
+    #186: originally "desktop-only (absent or inert on web)" — the
+    hosted flavor now has the strip and its View ▸ File Tabs row too,
+    gated on the `multiFileSession` capability; only the static
+    single-file build stays without them.)*
 
 ### Fit with existing behavior
 

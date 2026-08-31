@@ -4148,10 +4148,10 @@ export default function App() {
       // the ordinary settings write path, so the strip and the checkmark
       // follow together and the open set, the active file, the park map and
       // dirty state are untouched. Silent no-op without the tab-strip seam
-      // (web/hosted) — the toggleFolders discipline.
+      // (the static web build; issue #186) — the toggleFolders discipline.
       toggleFileTabs: () => {
         const st = stateRef.current;
-        if (!st.platform?.localFolders) return;
+        if (!st.platform?.multiFileSession) return;
         updateSettings({ ...st.settings, fileTabs: !st.settings.fileTabs });
       },
       /**
@@ -4703,10 +4703,11 @@ export default function App() {
       openOnly: folderOpenOnly,
       // Issue #84: gates View → Next/Previous Open File.
       openFileCount: openFiles.length,
-      // PRD 013 Reqs 13–14: undefined (no tab-strip seam — web/hosted) ⇒ the
-      // File Tabs row is not there at all; supplied ⇒ a checkbox mirroring
-      // the persisted setting, on the native bar and the in-app flyout alike.
-      fileTabs: platform?.localFolders ? settings.fileTabs : undefined,
+      // PRD 013 Reqs 13–14 (amended by issue #186): undefined (no tab-strip
+      // seam — the static web build) ⇒ the File Tabs row is not there at all;
+      // supplied ⇒ a checkbox mirroring the persisted setting, on the native
+      // bar and the in-app flyout alike.
+      fileTabs: platform?.multiFileSession ? settings.fileTabs : undefined,
       // PRD 011 Reqs 2+23: off ⇒ buildViewItems omits the rows entirely, on
       // both the native menu bar and the in-app View ▸ flyout.
       semanticZoom: settings.semanticZoom,
@@ -6365,14 +6366,15 @@ export default function App() {
   // exists only in workspace mode on platforms with the folder capabilities.
   const folderSeam = !!platform?.readDirEntries && !!platform?.openFolderDialog && appMode === 'workspace';
   /**
-   * PRD 013 Reqs 1–2 + 14: the tab-strip seam. Gated on `localFolders` — not
-   * the folderSeam above — because the strip must exist OUTSIDE workspace
-   * mode too (a single opened file, an untitled buffer) and must not exist in
-   * the web/hosted build: `localFolders` is the one capability exactly the
-   * two desktop shells (tauri + the e2e shim) declare, marking the local
-   * multi-file session SPEC36's open set models. Never `platform.kind`.
+   * PRD 013 Reqs 1–2 + 14 (amended by issue #186): the tab-strip seam. Gated
+   * on `multiFileSession` — not the folderSeam above — because the strip must
+   * exist OUTSIDE workspace mode too (a single opened file, an untitled
+   * buffer) and must not exist in the static single-file web build. The
+   * capability marks every platform running the multi-file session SPEC36's
+   * open set models: the two desktop shells AND the hosted flavor (which has
+   * the session without `localFolders`). Never `platform.kind`.
    */
-  const tabStripSeam = !!platform?.localFolders;
+  const tabStripSeam = !!platform?.multiFileSession;
   // PRD 013 Req 1: the strip renders only with a document open (an open-set
   // file or an untitled buffer) and the setting on. Semantic zoom replaces
   // the document view outright (PRD 011 Req 17), so the strip yields there.

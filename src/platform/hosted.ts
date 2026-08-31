@@ -487,6 +487,15 @@ export function createHostedPlatform(): Platform {
     async openFolderDialog() {
       return workspaceId ? hostedFilesRoot(workspaceId) : null;
     },
+    /**
+     * PRD 013 Req 14 (amended by issue #186): the hosted flavor runs the full
+     * SPEC36 multi-file session — open set, park/restore, Ctrl+Tab, dirty
+     * tracking all resolve through the REST seams above — so the tab strip
+     * renders here too. Declared apart from `localFolders` (still absent, per
+     * the openFolderDialog note): having the session and picking local
+     * folders are different capabilities.
+     */
+    multiFileSession: true,
     /** PRD 002 §D14: likewise — the one workspace this page is bound to. */
     async openWorkspaceDialog() {
       return workspaceId ? hostedWorkspaceFilePath(workspaceId) : null;

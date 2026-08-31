@@ -94,6 +94,9 @@ export async function createTauriPlatform(): Promise<Platform> {
     // browse the user's own machine, so the entry surface offers Open
     // Folder… and the PRD 002 local workspace flows.
     localFolders: true,
+    // PRD 013 Req 14 (issue #186): the desktop shell runs SPEC36's
+    // multi-file session, so the tab strip renders here.
+    multiFileSession: true,
     async openFolderDialog() {
       const picked = await dialog.open({ multiple: false, directory: true });
       return typeof picked === 'string' ? picked : null;

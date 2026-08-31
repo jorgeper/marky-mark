@@ -103,6 +103,15 @@ export interface Platform {
    * in lib/startActions.ts and never asks which flavor is running (Req 2).
    */
   localFolders?: boolean;
+  /**
+   * PRD 013 Req 14 (amended by issue #186): true ⇒ this platform runs
+   * SPEC36's multi-file session — the open set, park/restore, Ctrl+Tab,
+   * dirty tracking — so the tab strip renders on it. Deliberately distinct
+   * from `localFolders` above: the hosted flavor has the session without
+   * local folder picking. Absent/false (the static web build) ⇒ single-file
+   * behavior, no strip.
+   */
+  multiFileSession?: boolean;
   /** PRD 002 §D14: pick a .marky-workspace file; null = cancelled. */
   openWorkspaceDialog?(): Promise<string | null>;
   /** SPEC20 follow-up: copy a file, creating the destination's parents. */
