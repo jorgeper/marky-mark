@@ -50,7 +50,7 @@ const ask = (over: Partial<LlmRequest> = {}): LlmRequest => ({
 });
 
 describe('PRD 011 Req 35 — the local fake answers the seam', () => {
-  it('U509: a canned success comes back as text plus the usage it was scripted with', async () => {
+  it('U889: a canned success comes back as text plus the usage it was scripted with', async () => {
     const fake = createFakeLlm();
     fake.respondWith({
       outcome: 'text',
@@ -66,7 +66,7 @@ describe('PRD 011 Req 35 — the local fake answers the seam', () => {
     }
   });
 
-  it('U510: a canned success with no usage comes back as absent usage, for every provider kind', async () => {
+  it('U890: a canned success with no usage comes back as absent usage, for every provider kind', async () => {
     const fake = createFakeLlm({ outcome: 'text', text: 'No counts here.' });
     for (const config of Object.values(configs)) {
       await expect(fake.run(config, ask())).resolves.toEqual({
@@ -77,7 +77,7 @@ describe('PRD 011 Req 35 — the local fake answers the seam', () => {
     }
   });
 
-  it('U511: every failure kind can be scripted, and classifies the same for every provider', async () => {
+  it('U891: every failure kind can be scripted, and classifies the same for every provider', async () => {
     const kinds = ['bad-key', 'unknown-model', 'rate-limited', 'unreachable-host', 'unexpected'] as const;
     const fake = createFakeLlm();
     for (const kind of kinds) {
@@ -92,7 +92,7 @@ describe('PRD 011 Req 35 — the local fake answers the seam', () => {
     }
   });
 
-  it('U512: a scripted bad key reads as the seam’s bad-key failure with the provider’s words', async () => {
+  it('U892: a scripted bad key reads as the seam’s bad-key failure with the provider’s words', async () => {
     const fake = createFakeLlm();
     fake.respondWith({ outcome: 'failure', kind: 'bad-key', providerMessage: 'Incorrect API key provided.' });
     await expect(fake.run(configs.openai, ask())).resolves.toEqual({
@@ -106,7 +106,7 @@ describe('PRD 011 Req 35 — the local fake answers the seam', () => {
     });
   });
 
-  it('U513: a scripted unreachable host never produced an HTTP status, and carries the transport’s reason', async () => {
+  it('U893: a scripted unreachable host never produced an HTTP status, and carries the transport’s reason', async () => {
     const fake = createFakeLlm();
     fake.respondWith({ outcome: 'failure', kind: 'unreachable-host' });
     await expect(fake.run(configs.anthropic, ask())).resolves.toEqual({
@@ -119,7 +119,7 @@ describe('PRD 011 Req 35 — the local fake answers the seam', () => {
     });
   });
 
-  it('U514: a scripted rate limit carries the retry hint through each provider’s own wire form', async () => {
+  it('U894: a scripted rate limit carries the retry hint through each provider’s own wire form', async () => {
     const fake = createFakeLlm();
     fake.respondWith({ outcome: 'failure', kind: 'rate-limited', retryAfterSeconds: 12 });
     for (const config of [configs.openai, configs.anthropic, configs.gemini, configs.custom]) {
@@ -133,7 +133,7 @@ describe('PRD 011 Req 35 — the local fake answers the seam', () => {
 });
 
 describe('PRD 011 Req 35 — the fake records what was asked', () => {
-  it('U515: a test can assert how many calls were made, and with which kind, model, prompt and trigger', async () => {
+  it('U895: a test can assert how many calls were made, and with which kind, model, prompt and trigger', async () => {
     const fake = createFakeLlm();
     await fake.run(configs.gemini, ask({ trigger: 'test-connection', prompt: 'ping' }));
     await fake.run(configs.anthropic, ask({ prompt: 'The other document.' }));
@@ -153,7 +153,7 @@ describe('PRD 011 Req 35 — the fake records what was asked', () => {
     });
   });
 
-  it('U516: the recorded provider kind and URL match the descriptor the real adapter built', async () => {
+  it('U896: the recorded provider kind and URL match the descriptor the real adapter built', async () => {
     const fake = createFakeLlm();
     for (const config of Object.values(configs)) await fake.run(config, ask());
     expect(fake.calls.map((call) => [call.providerKind, call.url])).toEqual([
@@ -165,7 +165,7 @@ describe('PRD 011 Req 35 — the fake records what was asked', () => {
     ]);
   });
 
-  it('U517: the fake is also a plain transport — the seam’s own entry point takes it directly', async () => {
+  it('U897: the fake is also a plain transport — the seam’s own entry point takes it directly', async () => {
     const fake = createFakeLlm({ outcome: 'text', text: 'through the seam' });
     const response = await runLlmRequest(fake.transport, configs.openrouter, ask());
     expect(response).toMatchObject({ ok: true, text: 'through the seam' });

@@ -33,7 +33,7 @@ const f = (name: string): DirEntry => ({ name, isDir: false });
 const d = (name: string): DirEntry => ({ name, isDir: true });
 
 describe('PRD 014 Req 4: collectMarkdownFiles — the folder tree scope', () => {
-  test('U696: every root recursively, dotfiles and dot-directories excluded, non-markdown never listed', async () => {
+  test('U918: every root recursively, dotfiles and dot-directories excluded, non-markdown never listed', async () => {
     const seams = seamsFor({
       '/notes': [f('a.md'), f('pic.png'), f('zzz.txt'), f('.hidden.md'), d('.git'), d('sub')],
       '/notes/sub': [f('b.markdown'), d('deep')],
@@ -49,7 +49,7 @@ describe('PRD 014 Req 4: collectMarkdownFiles — the folder tree scope', () => 
     ]);
   });
 
-  test('U697: an unreadable directory is skipped, the rest of the scan survives', async () => {
+  test('U919: an unreadable directory is skipped, the rest of the scan survives', async () => {
     const seams = seamsFor({
       // '/notes/broken' is missing from the fake fs — its listing rejects.
       '/notes': [d('broken'), f('a.md')],
@@ -63,7 +63,7 @@ describe('PRD 014 Req 4: collectMarkdownFiles — the folder tree scope', () => 
 });
 
 describe('PRD 014 Req 5: loadSearchFiles — in-memory buffers over stale disk text', () => {
-  test('U698: an override supplies the text and the disk is not read for it', async () => {
+  test('U920: an override supplies the text and the disk is not read for it', async () => {
     const reads: string[] = [];
     const seams = seamsFor({}, reads);
     const files = await loadSearchFiles(

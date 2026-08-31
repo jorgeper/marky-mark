@@ -304,7 +304,7 @@ test('E92: crash-safe drafts — shadow write, restore, discard, staleness after
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
 });
 
-test('E141: closing to the splash leaves no stale document behind — preview, edit, and split edit (issue #43)', async ({
+test('E326: closing to the splash leaves no stale document behind — preview, edit, and split edit (issue #43)', async ({
   page,
 }) => {
   // Issue #43: the splash and stale doc content are mutually exclusive.

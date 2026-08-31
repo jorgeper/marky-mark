@@ -5,7 +5,8 @@
  *   1. version lock-step check (four version files agree, valid semver)
  *   1b. docs/MAP.md freshness (matches what scripts/map.mjs derives)
  *   1c. CLAUDE.md resolves to AGENTS.md (root symlink intact)
- *   1d. desktop-shim e2e test-count floor (Playwright's own collection)
+ *   1d. test-ID uniqueness (no U/E/W title ID appears twice under tests/)
+ *   1e. desktop-shim e2e test-count floor (Playwright's own collection)
  *   2. tsc --noEmit
  *   3. unit tests (Vitest, U1–U21)
  *   4. desktop e2e (Playwright, browser platform shim, E1–E41 + E45–E50)
@@ -18,11 +19,11 @@
  * Prints VALIDATION: ALL PASSED as the final line only if all steps passed.
  *
  * SPEC33 §1.1: `--quick` runs the inner-loop subset only — version
- * lock-step, MAP.md freshness, the CLAUDE.md symlink check, the e2e count
- * floor, typecheck, unit tests, desktop-shim e2e — and prints the
- * DISTINCT line `QUICK VALIDATION: ALL PASSED`. Only the full gate's
- * `VALIDATION: ALL PASSED` counts as release evidence. The full step list
- * below is untouched.
+ * lock-step, MAP.md freshness, the CLAUDE.md symlink check, test-ID
+ * uniqueness, the e2e count floor, typecheck, unit tests, desktop-shim
+ * e2e — and prints the DISTINCT line `QUICK VALIDATION: ALL PASSED`.
+ * Only the full gate's `VALIDATION: ALL PASSED` counts as release
+ * evidence. The full step list below is untouched.
  */
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs';
@@ -195,6 +196,44 @@ if (!agentsMdExists || !resolvesToAgentsMd) {
 console.log('CLAUDE.md is a symlink resolving to AGENTS.md — both harnesses load the same map');
 record('CLAUDE.md resolves to AGENTS.md', Date.now() - linkStart);
 
+// Test-ID uniqueness (issue #185): every test title starts with a stable
+// `U<n>:`/`E<n>:`/`W<n>:` ID, and parallel implementers each taking "next
+// unused" simultaneously left duplicates that nothing gated. Scans tests/
+// recursively, each file read once, no spawns — so it sits with the file
+// checks above, ahead of the `steps` array, and runs in the quick tier too.
+// The match is line-anchored like a real `it(`/`test(` call so fixture
+// strings that merely contain one (tests/unit/map.test.ts embeds
+// `test('E1: …` as generator input) don't count as titles.
+console.log(`\n=== validate: test-ID uniqueness === (start ${elapsed()})`);
+const idScanStart = Date.now();
+const idFiles = new Map(); // 'E141' -> ['tests/e2e/a.spec.ts', ...]
+const idDirs = [path.join(root, 'tests')];
+while (idDirs.length > 0) {
+  const dir = idDirs.pop();
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) idDirs.push(p);
+    else if (/\.(ts|tsx|mts|js|mjs)$/.test(entry.name)) {
+      const text = readFileSync(p, 'utf8');
+      for (const m of text.matchAll(/^[ \t]*(?:it|test)(?:\.\w+)*\(\s*['"`]([UEW]\d+):/gm)) {
+        if (!idFiles.has(m[1])) idFiles.set(m[1], []);
+        idFiles.get(m[1]).push(path.relative(root, p));
+      }
+    }
+  }
+}
+const duplicatedIds = [...idFiles].filter(([, files]) => files.length > 1);
+if (duplicatedIds.length > 0) {
+  // Prefix first (E < U < W in ASCII), then numerically within a prefix.
+  duplicatedIds.sort(([a], [b]) => a.charCodeAt(0) - b.charCodeAt(0) || Number(a.slice(1)) - Number(b.slice(1)));
+  for (const [id, files] of duplicatedIds) console.error(`  ${id} appears ${files.length} times: ${files.join(', ')}`);
+  console.error('  Test IDs are stable and unique — keep the older test\'s number and bump the newer one to the next unused number for its prefix.');
+  console.error('\nVALIDATION FAILED at step: test-ID uniqueness');
+  process.exit(1);
+}
+console.log(`${idFiles.size} test IDs across tests/ — no U/E/W ID appears twice`);
+record('test-ID uniqueness', Date.now() - idScanStart);
+
 // Issue #31 — committed test-count floor for the desktop-shim e2e suite. The
 // count is Playwright's OWN collection (`playwright test --list`, which honours
 // the config's testMatch/testIgnore), never a grep over the spec sources: after
@@ -286,7 +325,7 @@ const runSteps = QUICK ? steps.filter((s) => QUICK_STEPS.has(s.name)) : steps;
 
 // The pre-`steps` checks that already ran above, in order — named here so the
 // step-count summary can't drift from the list.
-const PRE_STEPS = ['version lock-step', 'docs/MAP.md up to date', 'CLAUDE.md resolves to AGENTS.md', 'e2e test-count floor (desktop shim)'];
+const PRE_STEPS = ['version lock-step', 'docs/MAP.md up to date', 'CLAUDE.md resolves to AGENTS.md', 'test-ID uniqueness', 'e2e test-count floor (desktop shim)'];
 console.log(
   `\nvalidate${QUICK ? ':quick' : ''} — ${PRE_STEPS.length + runSteps.length} steps: ${[...PRE_STEPS, ...runSteps.map((s) => s.name)].join(' → ')}`
 );

@@ -180,7 +180,7 @@ describe('PRD 013 Req 13 file tab strip setting', () => {
   // is ON for a fresh install, a hand-written `false` is obeyed, and anything
   // that is not a boolean in settings.json falls back to the default rather
   // than reaching the strip as a truthy string.
-  test('U678: fileTabs defaults true, explicit false honored, malformed falls back, round-trips', () => {
+  test('U913: fileTabs defaults true, explicit false honored, malformed falls back, round-trips', () => {
     expect(DEFAULT_SETTINGS.fileTabs).toBe(true);
     expect(parseSettings('{}').fileTabs).toBe(true);
     expect(parseSettings('{"fileTabs":false}').fileTabs).toBe(false);
@@ -192,7 +192,7 @@ describe('PRD 013 Req 13 file tab strip setting', () => {
     expect(round.fileTabs).toBe(false);
   });
 
-  test('U679: it is machine-scoped, like its layout neighbours the sidebar keys', () => {
+  test('U914: it is machine-scoped, like its layout neighbours the sidebar keys', () => {
     expect(SETTINGS_SCOPES.fileTabs).toBe('M');
     expect(SETTINGS_SCOPES.showFolders).toBe('M');
     // 'M' keeps it out of the workspace-editable set by construction — no
@@ -205,7 +205,7 @@ describe('Issue #167 scrollbar and sync-scroll settings', () => {
   // Intent: the three keys follow their neighbours' boolean contract — all
   // three ship ON, a hand-written `false` is obeyed, and a non-boolean in
   // settings.json falls back to the default instead of reaching the app.
-  test('U761: autoHideScrollbars / syncScroll / showSyncScrollButton default true, malformed falls back, round-trip', () => {
+  test('U940: autoHideScrollbars / syncScroll / showSyncScrollButton default true, malformed falls back, round-trip', () => {
     for (const key of ['autoHideScrollbars', 'syncScroll', 'showSyncScrollButton'] as const) {
       expect(DEFAULT_SETTINGS[key]).toBe(true);
       expect(parseSettings('{}')[key]).toBe(true);
@@ -217,7 +217,7 @@ describe('Issue #167 scrollbar and sync-scroll settings', () => {
     }
   });
 
-  test('U762: the fade and button keys are user-personal; syncScroll is machine-local like its split neighbours', () => {
+  test('U941: the fade and button keys are user-personal; syncScroll is machine-local like its split neighbours', () => {
     expect(SETTINGS_SCOPES.autoHideScrollbars).toBe('U');
     expect(SETTINGS_SCOPES.showSyncScrollButton).toBe('U');
     expect(SETTINGS_SCOPES.syncScroll).toBe('M');
@@ -283,7 +283,7 @@ describe('PRD 011 Req 1: the Experimental section ships off', () => {
 });
 
 describe('issue #125: the remembered view mode', () => {
-  test('U654: lastViewMode defaults to preview, takes only the two real modes, and round-trips', () => {
+  test('U909: lastViewMode defaults to preview, takes only the two real modes, and round-trips', () => {
     // The default is today's behaviour: a fresh install still opens documents
     // in the reading preview.
     expect(DEFAULT_SETTINGS.lastViewMode).toBe('preview');
@@ -302,7 +302,7 @@ describe('issue #125: the remembered view mode', () => {
     expect(parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, lastViewMode: 'edit' })).lastViewMode).toBe('edit');
   });
 
-  test('U655: it is machine-local — no workspace or team layer can force a reader’s view mode', () => {
+  test('U910: it is machine-local — no workspace or team layer can force a reader’s view mode', () => {
     expect(SETTINGS_SCOPES.lastViewMode).toBe('M');
     // 'M' keeps it out of the workspace-editable set by construction, like
     // splitEdit and splitRatio beside it.

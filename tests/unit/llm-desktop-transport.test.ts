@@ -39,7 +39,7 @@ function sentRequest(call: { args: Record<string, unknown> }): Record<string, un
 }
 
 describe('PRD 011 Req 12 — the desktop transport is one IPC call to the Rust shell', () => {
-  it('U522: a 200 exchange comes back as an http result, body and lower-cased headers intact', async () => {
+  it('U898: a 200 exchange comes back as an http result, body and lower-cased headers intact', async () => {
     const { invoke, calls } = fakeInvoke({
       status: 200,
       body: '{"ok":true}',
@@ -73,7 +73,7 @@ describe('PRD 011 Req 12 — the desktop transport is one IPC call to the Rust s
     });
   });
 
-  it('U523: a 429 is a status, not an error, and its retry-after survives to the seam', async () => {
+  it('U899: a 429 is a status, not an error, and its retry-after survives to the seam', async () => {
     const { invoke } = fakeInvoke({
       status: 429,
       body: '{"error":{"message":"slow down"}}',
@@ -88,7 +88,7 @@ describe('PRD 011 Req 12 — the desktop transport is one IPC call to the Rust s
     expect(response.failure.retryAfterSeconds).toBe(30);
   });
 
-  it('U524: a 401 is classified by the provider adapters as a bad key', async () => {
+  it('U900: a 401 is classified by the provider adapters as a bad key', async () => {
     const { invoke } = fakeInvoke({
       status: 401,
       body: '{"error":{"message":"Incorrect API key provided"}}',
@@ -102,7 +102,7 @@ describe('PRD 011 Req 12 — the desktop transport is one IPC call to the Rust s
     expect(response.failure.providerMessage).toBe('Incorrect API key provided');
   });
 
-  it('U525: an invoke that rejects reported no exchange — an unreachable host, never a status', async () => {
+  it('U901: an invoke that rejects reported no exchange — an unreachable host, never a status', async () => {
     const { invoke } = fakeInvoke(() => Promise.reject(new Error('error sending request for url (https://api.openai.com/v1/responses)')));
     const transport = createDesktopLlmTransport(invoke);
 
@@ -119,7 +119,7 @@ describe('PRD 011 Req 12 — the desktop transport is one IPC call to the Rust s
     expect(response.failure.status).toBeUndefined();
   });
 
-  it('U526: a refused input — the command rejecting a non-POST or a file: URL — is unreachable too', async () => {
+  it('U902: a refused input — the command rejecting a non-POST or a file: URL — is unreachable too', async () => {
     // The Rust side validates before sending, and a refusal is its error arm.
     const { invoke } = fakeInvoke(() => Promise.reject("llm_request refuses the 'file' scheme"));
     const result = await createDesktopLlmTransport(invoke)({
@@ -131,7 +131,7 @@ describe('PRD 011 Req 12 — the desktop transport is one IPC call to the Rust s
     expect(result).toEqual({ kind: 'no-response', detail: "llm_request refuses the 'file' scheme" });
   });
 
-  it('U527: an answer that is not the promised exchange is no exchange, not an invented status', async () => {
+  it('U903: an answer that is not the promised exchange is no exchange, not an invented status', async () => {
     for (const answer of [undefined, null, 'ok', { status: '200', body: '{}' }, { status: 200 }]) {
       const { invoke } = fakeInvoke(answer);
       const result = await createDesktopLlmTransport(invoke)({
@@ -146,7 +146,7 @@ describe('PRD 011 Req 12 — the desktop transport is one IPC call to the Rust s
 });
 
 describe('PRD 011 Req 7 — the key crosses to the shell in headers and comes back in nothing', () => {
-  it('U528: no string the transport hands back carries the key, even when the provider quotes it', async () => {
+  it('U904: no string the transport hands back carries the key, even when the provider quotes it', async () => {
     // A careless provider echoing the key straight back at us, over IPC.
     const { invoke, calls } = fakeInvoke({
       status: 401,
@@ -170,7 +170,7 @@ describe('PRD 011 Req 7 — the key crosses to the shell in headers and comes ba
 });
 
 describe('PRD 011 Req 12 — the webview CSP is not widened for the LLM path', () => {
-  it('U529: connect-src still allows only IPC, naming no provider origin', () => {
+  it('U905: connect-src still allows only IPC, naming no provider origin', () => {
     const conf = JSON.parse(
       readFileSync(fileURLToPath(new URL('../../src-tauri/tauri.conf.json', import.meta.url)), 'utf8'),
     ) as { app: { security: { csp: string } } };

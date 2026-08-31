@@ -32,7 +32,7 @@ const configured: LlmSettingsValues = {
 const desktop: LlmCapabilities = { transport: true, hosted: null };
 
 describe('PRD 011 Req 5 provider inventory', () => {
-  test('U556: the chooser offers exactly the seam five kinds, keyed exhaustively by the seam union', () => {
+  test('U906: the chooser offers exactly the seam five kinds, keyed exhaustively by the seam union', () => {
     expect([...LLM_PROVIDER_KINDS].sort()).toEqual(
       ['anthropic', 'custom', 'gemini', 'openai', 'openrouter'].sort()
     );
@@ -43,7 +43,7 @@ describe('PRD 011 Req 5 provider inventory', () => {
     expect(isLlmProviderKind(7)).toBe(false);
   });
 
-  test('U557: each hosted provider offers a SHORT curated model list; custom curates none', () => {
+  test('U907: each hosted provider offers a SHORT curated model list; custom curates none', () => {
     for (const kind of LLM_PROVIDER_KINDS) {
       const { models } = LLM_PROVIDERS[kind];
       if (kind === 'custom') {
@@ -63,7 +63,7 @@ describe('PRD 011 Req 5 provider inventory', () => {
 });
 
 describe('PRD 011 Req 5 one active provider', () => {
-  test('U558: the settings resolve through one pure function to a SINGLE config, never a set', () => {
+  test('U908: the settings resolve through one pure function to a SINGLE config, never a set', () => {
     const config = resolveLlmProvider(configured);
     expect(config).toEqual({ kind: 'anthropic', apiKey: 'sk-secret', model: 'claude-opus-5' });
     // A discriminated union value, not a collection of enabled providers.

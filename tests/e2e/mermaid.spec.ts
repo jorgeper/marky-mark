@@ -38,7 +38,7 @@ async function openDiagramDoc(page: import('@playwright/test').Page): Promise<vo
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Diagrams');
 }
 
-test('E309: a valid mermaid fence draws automatically; an invalid one keeps its code plus an error note; the rest of the document renders', async ({
+test('E354: a valid mermaid fence draws automatically; an invalid one keeps its code plus an error note; the rest of the document renders', async ({
   page,
 }) => {
   await openDiagramDoc(page);
@@ -318,7 +318,7 @@ async function viewBoxOf(diagram: import('@playwright/test').Locator): Promise<[
   return [vb[0], vb[1]];
 }
 
-test('E317: a click selects the drawn diagram — outline, four corner handles, a live size badge — and Escape or a click away deselects; all overlay-only', async ({
+test('E356: a click selects the drawn diagram — outline, four corner handles, a live size badge — and Escape or a click away deselects; all overlay-only', async ({
   page,
 }) => {
   const diagram = await openResizeDoc(page);
@@ -586,7 +586,7 @@ graph TD
 A phrase below the diagram to comment on.
 `;
 
-test('E324: PRD 015 Req 9 — comments above and below a diagram keep resolving, their anchor bytes unchanged, across select, corner-drag resize, double-click reset and a cold reopen', async ({
+test('E357: PRD 015 Req 9 — comments above and below a diagram keep resolving, their anchor bytes unchanged, across select, corner-drag resize, double-click reset and a cold reopen', async ({
   page,
 }) => {
   await freshApp(page);

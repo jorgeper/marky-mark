@@ -11,7 +11,7 @@ import { modesAreExclusive, planModeSwitch, viewModeForOpen, type Flavor } from 
 const FLAVORS: Flavor[] = ['tauri', 'browser', 'web', 'hosted'];
 
 describe('PRD 009 Req 1: which flavors run the exclusive two-mode model', () => {
-  test('U330: every non-desktop flavor is exclusive; Tauri keeps both modes', () => {
+  test('U847: every non-desktop flavor is exclusive; Tauri keeps both modes', () => {
     expect(modesAreExclusive('tauri')).toBe(false);
     for (const kind of FLAVORS.filter((k) => k !== 'tauri')) {
       expect(modesAreExclusive(kind), kind).toBe(true);
@@ -20,20 +20,20 @@ describe('PRD 009 Req 1: which flavors run the exclusive two-mode model', () => 
 });
 
 describe('PRD 009 Req 4: the mode-switch plan', () => {
-  test('U331: from the initial page every action just enters its mode', () => {
+  test('U848: from the initial page every action just enters its mode', () => {
     expect(planModeSwitch('splash', 'file', true)).toBe('enter');
     expect(planModeSwitch('splash', 'workspace', true)).toBe('enter');
   });
 
-  test('U332: a local file with a workspace open closes the workspace first', () => {
+  test('U849: a local file with a workspace open closes the workspace first', () => {
     expect(planModeSwitch('workspace', 'file', true)).toBe('close-workspace-first');
   });
 
-  test('U333: a workspace flow in single-file mode closes the files first', () => {
+  test('U850: a workspace flow in single-file mode closes the files first', () => {
     expect(planModeSwitch('file', 'workspace', true)).toBe('close-files-first');
   });
 
-  test('U334: staying inside a mode is not a crossing', () => {
+  test('U851: staying inside a mode is not a crossing', () => {
     // Req 2: "single file" means "no workspace", not "one document" — a
     // second local file joins the open set instead of closing the first.
     expect(planModeSwitch('file', 'file', true)).toBe('enter');
@@ -53,7 +53,7 @@ describe('PRD 009 Req 4: the mode-switch plan', () => {
 });
 
 describe('issue #125: the view mode a document opens in', () => {
-  test('U656: the remembered mode wins, except where the edit grant says preview', () => {
+  test('U911: the remembered mode wins, except where the edit grant says preview', () => {
     // The point of the setting: opening a file while editing keeps editing.
     expect(viewModeForOpen('edit', true)).toBe('edit');
     expect(viewModeForOpen('preview', true)).toBe('preview');

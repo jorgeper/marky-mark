@@ -176,7 +176,7 @@ describe('SPEC36 open files', () => {
     expect(combosConflict('Mod+S', 'Mod+S')).toBe(true);
   });
 
-  test('U723: issue #158 — closeFile defaults to Mod+W and no keypress fires it plus another shipped default', () => {
+  test('U932: issue #158 — closeFile defaults to Mod+W and no keypress fires it plus another shipped default', () => {
     expect(DEFAULT_HOTKEYS.closeFile).toBe('Mod+W');
     // Whole-map sweep: Mod+Shift+W (word count) stays a distinct chord
     // because eventMatches/combosConflict compare Shift strictly.

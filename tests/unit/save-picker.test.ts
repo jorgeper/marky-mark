@@ -120,7 +120,7 @@ describe('PRD 009 Req 13/14 save picker', () => {
     if (!tooLong.ok) expect(tooLong.error).toBe('Name too long');
   });
 
-  test('U335: New File is offered with a save dialog, else only in a writable workspace', () => {
+  test('U852: New File is offered with a save dialog, else only in a writable workspace', () => {
     // A save dialog keeps the untitled buffer offered everywhere — mode,
     // listing seam and grants never enter into it.
     expect(canOfferNewFile({ hasSaveDialog: true, inWorkspace: false, canList: false, canCreate: false })).toBe(true);

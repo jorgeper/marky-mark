@@ -13,7 +13,7 @@ import { isMarkdownFile } from '../../src/lib/folderTree';
 // server, no platform.
 
 describe('PRD 007 Req 19 upload rule', () => {
-  it('U295: the 20 MB cap is enforced, and the message names the limit', () => {
+  it('U837: the 20 MB cap is enforced, and the message names the limit', () => {
     expect(UPLOAD_MAX_BYTES).toBe(20 * 1024 * 1024);
     expect(uploadRejection('notes.md', UPLOAD_MAX_BYTES)).toBeNull(); // exactly at the cap is fine
     expect(uploadRejection('notes.md', UPLOAD_MAX_BYTES - 1)).toBeNull();
@@ -25,7 +25,7 @@ describe('PRD 007 Req 19 upload rule', () => {
     expect(uploadRejection('virus.exe', UPLOAD_MAX_BYTES + 1)).toMatch(/20 MB/);
   });
 
-  it('U296: only Markdown and the asset types the app renders are allowed', () => {
+  it('U838: only Markdown and the asset types the app renders are allowed', () => {
     // The allowlist IS Markdown (folderTree's own test) plus the rendered set.
     expect(UPLOAD_EXTENSIONS.filter((e) => isMarkdownFile(`x.${e}`))).toEqual(['md', 'markdown']);
     expect([...UPLOAD_EXTENSIONS]).toEqual(['md', 'markdown', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']);

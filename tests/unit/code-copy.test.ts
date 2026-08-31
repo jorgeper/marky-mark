@@ -25,7 +25,7 @@ describe('Issue #122 code-block copy control', () => {
   // Intent: issue #163 gave the edit-pane card the preview's button, so both
   // panes share createCopyButton — the confirmation contract is asserted once,
   // here, on the shared unit rather than per pane.
-  test('U787: issue #163 — the shared copy button reads its text at click time, confirms for CONFIRM_MS, and stays at rest after a rejected write', async () => {
+  test('U951: issue #163 — the shared copy button reads its text at click time, confirms for CONFIRM_MS, and stays at rest after a rejected write', async () => {
     vi.useFakeTimers();
     const writes: string[] = [];
     let landed = true;
@@ -72,7 +72,7 @@ describe('Issue #122 code-block copy control', () => {
 
   // Intent: the graft stays idempotent and text-free — a re-injection of the
   // preview re-runs it over an already decorated tree.
-  test('U788: issue #122 — decorateCodeBlocks wraps each pre once and adds no characters', () => {
+  test('U952: issue #122 — decorateCodeBlocks wraps each pre once and adds no characters', () => {
     const root = document.createElement('div');
     root.innerHTML = '<p>prose <code>inline</code></p><pre><code>const a = 1;\n</code></pre>';
     const before = root.textContent;

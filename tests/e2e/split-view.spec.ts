@@ -952,7 +952,7 @@ interface ToggleWatch {
   stop: () => void;
 }
 
-test('E316: issue #165 — the split slide opens over rendered content, the editor instance survives with scroll and caret, reduced motion stays instant', async ({
+test('E355: issue #165 — the split slide opens over rendered content, the editor instance survives with scroll and caret, reduced motion stays instant', async ({
   page,
 }) => {
   // Full edit on the long doc, pane closed — the state an opening toggle

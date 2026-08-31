@@ -68,7 +68,7 @@ const ok = (status: number, payload: unknown): LlmHttpResponse => ({
 });
 
 describe('PRD 011 Req 5 — provider request descriptors', () => {
-  it('U492: OpenAI sends a chat/completions body with the key as a bearer token', () => {
+  it('U872: OpenAI sends a chat/completions body with the key as a bearer token', () => {
     const built = build('openai');
     expect(built.method).toBe('POST');
     expect(built.url).toBe(OPENAI_ENDPOINT);
@@ -84,7 +84,7 @@ describe('PRD 011 Req 5 — provider request descriptors', () => {
     });
   });
 
-  it('U493: Anthropic sends a messages body with x-api-key and the required version header', () => {
+  it('U873: Anthropic sends a messages body with x-api-key and the required version header', () => {
     const built = build('anthropic');
     expect(built.url).toBe(ANTHROPIC_ENDPOINT);
     expect(built.headers['x-api-key']).toBe(KEY);
@@ -98,7 +98,7 @@ describe('PRD 011 Req 5 — provider request descriptors', () => {
     });
   });
 
-  it('U494: Gemini calls generateContent for the model with the key in a header, never the URL', () => {
+  it('U874: Gemini calls generateContent for the model with the key in a header, never the URL', () => {
     const built = build('gemini');
     expect(built.url).toBe(`${GEMINI_BASE}/gemini-2.5-flash:generateContent`);
     expect(built.url).not.toContain('key');
@@ -110,14 +110,14 @@ describe('PRD 011 Req 5 — provider request descriptors', () => {
     });
   });
 
-  it('U495: OpenRouter sends the OpenAI-compatible shape against its own base URL', () => {
+  it('U875: OpenRouter sends the OpenAI-compatible shape against its own base URL', () => {
     const built = build('openrouter');
     expect(built.url).toBe(OPENROUTER_ENDPOINT);
     expect(built.headers.authorization).toBe(`Bearer ${KEY}`);
     expect(body('openrouter')).toMatchObject({ model: 'meta-llama/llama-4', max_tokens: 256 });
   });
 
-  it('U496: the custom endpoint normalizes its base URL — trailing slash or not, same request', () => {
+  it('U876: the custom endpoint normalizes its base URL — trailing slash or not, same request', () => {
     const bare = build('custom');
     const slashed = build('custom', {
       ...configs.custom,
@@ -136,7 +136,7 @@ describe('PRD 011 Req 5 — provider request descriptors', () => {
     );
   });
 
-  it('U497: a custom base URL that is not absolute http(s) is a configuration failure, not a request', () => {
+  it('U877: a custom base URL that is not absolute http(s) is a configuration failure, not a request', () => {
     for (const bad of ['', '   ', '/v1', 'box.local/v1', 'ftp://box.local/v1', 'file:///etc']) {
       expect(customEndpoint(bad)).toEqual({
         kind: 'invalid-config',
@@ -150,7 +150,7 @@ describe('PRD 011 Req 5 — provider request descriptors', () => {
     expect(built).toEqual({ kind: 'invalid-config', message: INVALID_BASE_URL_MESSAGE });
   });
 
-  it('U498: no provider puts the key in a URL or a body — headers only', () => {
+  it('U878: no provider puts the key in a URL or a body — headers only', () => {
     for (const kind of ALL_KINDS) {
       const built = build(kind);
       expect(built.url).not.toContain(KEY);
@@ -159,7 +159,7 @@ describe('PRD 011 Req 5 — provider request descriptors', () => {
     }
   });
 
-  it('U499: a request with no system text omits it rather than sending an empty one', () => {
+  it('U879: a request with no system text omits it rather than sending an empty one', () => {
     const bare: LlmRequest = { trigger: 'test-connection', prompt: 'ping', maxOutputTokens: 8 };
     for (const kind of ALL_KINDS) {
       const sent = body(kind, bare);
@@ -203,7 +203,7 @@ describe('PRD 011 Req 32 — provider-returned usage, and its stated absence', (
     gemini: { candidates: [{ content: { role: 'model', parts: [{ text: 'A summary.' }] } }] },
   };
 
-  it('U500: each provider’s own usage field names are read into the one usage shape', () => {
+  it('U880: each provider’s own usage field names are read into the one usage shape', () => {
     for (const kind of ALL_KINDS) {
       expect(reply(kind, ok(200, withUsage[kind]))).toEqual({
         ok: true,
@@ -213,7 +213,7 @@ describe('PRD 011 Req 32 — provider-returned usage, and its stated absence', (
     }
   });
 
-  it('U501: a provider that returns no usage says so — not zero, and not a guess', () => {
+  it('U881: a provider that returns no usage says so — not zero, and not a guess', () => {
     for (const kind of ALL_KINDS) {
       const response = reply(kind, ok(200, withoutUsage[kind]));
       expect(response).toEqual({ ok: true, text: 'A summary.', usage: { known: false } });
@@ -222,7 +222,7 @@ describe('PRD 011 Req 32 — provider-returned usage, and its stated absence', (
     }
   });
 
-  it('U502: a partial or non-numeric usage block is absent usage, not half a count', () => {
+  it('U882: a partial or non-numeric usage block is absent usage, not half a count', () => {
     expect(
       reply(
         'openai',
@@ -234,7 +234,7 @@ describe('PRD 011 Req 32 — provider-returned usage, and its stated absence', (
     ).toEqual({ ok: true, text: 'A summary.', usage: { known: false } });
   });
 
-  it('U503: multi-part replies concatenate into the one text field', () => {
+  it('U883: multi-part replies concatenate into the one text field', () => {
     expect(
       reply(
         'anthropic',
@@ -258,7 +258,7 @@ describe('PRD 011 Req 32 — provider-returned usage, and its stated absence', (
 });
 
 describe('PRD 011 Reqs 10+27 — the failure taxonomy, classified per provider', () => {
-  it('U504: 401 and 403 are a bad key, with the provider’s own explanation kept', () => {
+  it('U884: 401 and 403 are a bad key, with the provider’s own explanation kept', () => {
     expect(
       reply(
         'openai',
@@ -296,7 +296,7 @@ describe('PRD 011 Reqs 10+27 — the failure taxonomy, classified per provider',
     });
   });
 
-  it('U505: 404 — and each provider’s model-not-found body — is an unknown model', () => {
+  it('U885: 404 — and each provider’s model-not-found body — is an unknown model', () => {
     expect(
       reply('openai', ok(404, { error: { message: 'The model `gpt-9` does not exist', code: 'model_not_found' } })),
     ).toEqual({
@@ -321,7 +321,7 @@ describe('PRD 011 Reqs 10+27 — the failure taxonomy, classified per provider',
     ).toMatchObject({ ok: false, failure: { kind: 'unknown-model', status: 404 } });
   });
 
-  it('U506: 429 is rate limited, honouring the retry hint each provider sends', () => {
+  it('U886: 429 is rate limited, honouring the retry hint each provider sends', () => {
     expect(
       providerFor('openai').readResponse({
         status: 429,
@@ -370,7 +370,7 @@ describe('PRD 011 Reqs 10+27 — the failure taxonomy, classified per provider',
     });
   });
 
-  it('U507: a 200 whose body does not parse is the catch-all, never a silent empty summary', () => {
+  it('U887: a 200 whose body does not parse is the catch-all, never a silent empty summary', () => {
     for (const kind of ALL_KINDS) {
       expect(providerFor(kind).readResponse({ status: 200, body: '<html>oops</html>' })).toEqual({
         ok: false,
@@ -384,7 +384,7 @@ describe('PRD 011 Reqs 10+27 — the failure taxonomy, classified per provider',
     }
   });
 
-  it('U508: any other status is the catch-all, carrying the status for the UI to render', () => {
+  it('U888: any other status is the catch-all, carrying the status for the UI to render', () => {
     const response = reply('openrouter', ok(500, { error: { message: 'upstream exploded' } }));
     expect(response).toEqual({
       ok: false,

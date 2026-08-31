@@ -6,7 +6,7 @@ import { planSaveConflict, SaveConflictError, isSaveConflict } from '../../src/l
 // platform — App reacts to the error type, never to the flavor.
 
 describe('PRD 007 Req 20 conflict resolution', () => {
-  it('U298: reload, overwrite and cancel each do exactly one thing — cancel never “succeeds”', () => {
+  it('U840: reload, overwrite and cancel each do exactly one thing — cancel never “succeeds”', () => {
     expect(planSaveConflict('reload')).toEqual({ reload: true, write: false, dirty: false, saved: false });
     expect(planSaveConflict('overwrite')).toEqual({ reload: false, write: true, dirty: false, saved: true });
     // The whole point: dismissing leaves the buffer dirty and UNSAVED.

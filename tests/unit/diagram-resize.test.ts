@@ -12,7 +12,7 @@ const VB_W = 300;
 const VB_H = 150;
 
 describe('PRD 015 Req 6: aspect-locked drag, clamped to [40px, the natural viewBox width]', () => {
-  test('U783: a drag below the floor clamps to 40, from east and west corners alike', () => {
+  test('U947: a drag below the floor clamps to 40, from east and west corners alike', () => {
     // East corner shrinking: pointer moved far left of the start.
     expect(resizedDiagramBox('se', 200, -500, VB_W, VB_H).width).toBe(MIN_DIAGRAM_WIDTH);
     expect(resizedDiagramBox('ne', 200, -500, VB_W, VB_H).width).toBe(MIN_DIAGRAM_WIDTH);
@@ -23,7 +23,7 @@ describe('PRD 015 Req 6: aspect-locked drag, clamped to [40px, the natural viewB
     expect(resizedDiagramBox('nw', 200, -50, VB_W, VB_H).width).toBe(250);
   });
 
-  test('U784: a drag past the natural layout width clamps to the viewBox width', () => {
+  test('U948: a drag past the natural layout width clamps to the viewBox width', () => {
     for (const corner of ['se', 'ne'] as DiagramCorner[]) {
       expect(resizedDiagramBox(corner, 200, 5000, VB_W, VB_H).width).toBe(VB_W);
     }
@@ -32,7 +32,7 @@ describe('PRD 015 Req 6: aspect-locked drag, clamped to [40px, the natural viewB
     expect(resizedDiagramBox('se', 200, 5000, 0, 0).width).toBe(5200);
   });
 
-  test('U785: the height follows the viewBox aspect at both clamped ends and in between — the whole drawing scales', () => {
+  test('U949: the height follows the viewBox aspect at both clamped ends and in between — the whole drawing scales', () => {
     const min = resizedDiagramBox('se', 200, -500, VB_W, VB_H);
     expect(min.height).toBe(min.width * (VB_H / VB_W));
     const max = resizedDiagramBox('se', 200, 5000, VB_W, VB_H);
@@ -56,7 +56,7 @@ const DOC = [
 ].join('\n');
 
 describe('PRD 015 Reqs 7–8: the release rewrite over the whole buffer text', () => {
-  test('U786: a resize rewrites exactly the opening fence line; every other byte and token survives', () => {
+  test('U950: a resize rewrites exactly the opening fence line; every other byte and token survives', () => {
     const out = rewriteFenceWidthAt(DOC, 3, 350);
     expect(out).toBe(DOC.replace('```mermaid width=200 keep=this', '```mermaid width=350 keep=this'));
     // A fence with no token gains one at the end of the meta.

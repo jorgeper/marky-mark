@@ -448,7 +448,7 @@ test('E90: find & replace in the editor — CM decorations, replace one/all on t
 // Search view's SearchOptionsBar mounted in the bar, both engines compiled by
 // searchCore.compileQuery, and a hit state that cannot be missed.
 
-test('E287: find-bar toggles in preview — case, whole-word, regex and a combo change the matches live, the counter tracks stepping, and a close resets them', async ({
+test('E344: find-bar toggles in preview — case, whole-word, regex and a combo change the matches live, the counter tracks stepping, and a close resets them', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/find-toggles.md', 'Cat sat\n\nconcatenate cat\n\ncut\n');
@@ -510,7 +510,7 @@ test('E287: find-bar toggles in preview — case, whole-word, regex and a combo 
   }
 });
 
-test('E288: find-bar toggles drive the editor — regex and whole-word change the CM decorations, the counter steps, and replace stays byte-literal with regex off', async ({
+test('E345: find-bar toggles drive the editor — regex and whole-word change the CM decorations, the counter steps, and replace stays byte-literal with regex off', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/find-edit.md', '# T\n\nCat sat\nconcatenate cat\ncut\n');
@@ -560,7 +560,7 @@ test('E288: find-bar toggles drive the editor — regex and whole-word change th
   await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('$&!');
 });
 
-test('E289: an invalid regex shows compileQuery\'s message inline and matches NOTHING in both modes — no throw, no literal fallback — and recovers live', async ({
+test('E346: an invalid regex shows compileQuery\'s message inline and matches NOTHING in both modes — no throw, no literal fallback — and recovers live', async ({
   page,
 }) => {
   // '[cherry' exists LITERALLY in the document — the proof that an invalid
@@ -612,7 +612,7 @@ test('E289: an invalid regex shows compileQuery\'s message inline and matches NO
   expect(pageErrors).toEqual([]);
 });
 
-test('E290: a query that matches nothing turns the bar itself loud — an asserted state and an accented input — and it clears the moment the query matches', async ({
+test('E347: a query that matches nothing turns the bar itself loud — an asserted state and an accented input — and it clears the moment the query matches', async ({
   page,
 }) => {
   await page.keyboard.press('Control+f');

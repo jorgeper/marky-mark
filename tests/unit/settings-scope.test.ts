@@ -13,21 +13,21 @@ import {
 } from '../../src/lib/settings';
 
 describe('PRD 002 §E18 workspace-eligible keys', () => {
-  test('U25: the eligible list is exactly the W keys plus the curated pinnable subset', () => {
+  test('U805: the eligible list is exactly the W keys plus the curated pinnable subset', () => {
     const wKeys = (Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>).filter((k) => SETTINGS_SCOPES[k] === 'W');
     for (const k of wKeys) expect(WORKSPACE_ELIGIBLE_KEYS).toContain(k);
     for (const k of WORKSPACE_PINNABLE_KEYS) expect(WORKSPACE_ELIGIBLE_KEYS).toContain(k);
     expect(WORKSPACE_ELIGIBLE_KEYS.length).toBe(wKeys.length + WORKSPACE_PINNABLE_KEYS.length);
   });
 
-  test('U26: no M- or U!-scoped key is workspace-eligible; pinnable keys are all U-scoped', () => {
+  test('U806: no M- or U!-scoped key is workspace-eligible; pinnable keys are all U-scoped', () => {
     for (const k of WORKSPACE_ELIGIBLE_KEYS) {
       expect(['U', 'W']).toContain(SETTINGS_SCOPES[k]);
     }
     for (const k of WORKSPACE_PINNABLE_KEYS) expect(SETTINGS_SCOPES[k]).toBe('U');
   });
 
-  test('U33: issue #21 — every U key except hotkeys and the experiments is pinnable; hotkeys stay User-only', () => {
+  test('U813: issue #21 — every U key except hotkeys and the experiments is pinnable; hotkeys stay User-only', () => {
     const uKeys = (Object.keys(SETTINGS_SCOPES) as Array<keyof Settings>).filter((k) => SETTINGS_SCOPES[k] === 'U');
     // PRD 011 Req 1 widened the exception list: an Experimental switch is
     // user-personal like the rest, but never workspace-editable.
@@ -76,7 +76,7 @@ describe('PRD 002 §E18 workspace-eligible keys', () => {
 });
 
 describe('PRD 002 §E19 winning layer / override indicators', () => {
-  test('U27: winningLayer walks each scope chain and falls back to default', () => {
+  test('U807: winningLayer walks each scope chain and falls back to default', () => {
     // U key: a valid User value beats a workspace pin…
     expect(winningLayer('themeLight', { workspace: { themeLight: 'monokai' }, user: { themeLight: 'crisp' } })).toBe(
       'user'
@@ -95,7 +95,7 @@ describe('PRD 002 §E19 winning layer / override indicators', () => {
     ).toBe('global');
   });
 
-  test('U28: a workspace-pinned theme reads as overridden-by-Workspace on the User tab', () => {
+  test('U808: a workspace-pinned theme reads as overridden-by-Workspace on the User tab', () => {
     const layers = { workspace: { themeLight: 'monokai' }, user: {} };
     expect(settingsRowStatus('themeLight', 'user', layers)).toEqual({
       winner: 'workspace',
@@ -107,14 +107,14 @@ describe('PRD 002 §E19 winning layer / override indicators', () => {
     expect(settingsRowStatus('themeLight', 'user', { ...layers, user: { themeLight: 'crisp' } }).overriddenBy).toBeNull();
   });
 
-  test('U29: a User value reads as overridden-by-User on the Workspace tab', () => {
+  test('U809: a User value reads as overridden-by-User on the Workspace tab', () => {
     const layers = { workspace: { themeLight: 'monokai' }, user: { themeLight: 'crisp' } };
     expect(settingsRowStatus('themeLight', 'workspace', layers).overriddenBy).toBe('user');
     // The workspace's own value with no user override carries no indicator.
     expect(settingsRowStatus('themeLight', 'workspace', { workspace: { themeLight: 'monokai' } }).overriddenBy).toBeNull();
   });
 
-  test('U30: W keys on the User tab are workspace-controlled and name the supplying layer', () => {
+  test('U810: W keys on the User tab are workspace-controlled and name the supplying layer', () => {
     expect(settingsRowStatus('commentStorage', 'user', {})).toEqual({
       winner: 'default',
       overriddenBy: null,
@@ -126,7 +126,7 @@ describe('PRD 002 §E19 winning layer / override indicators', () => {
     expect(st.overriddenBy).toBe('workspace');
   });
 
-  test('U34: issue #21 — M/U! keys viewed in Workspace scope read as user-only (shown but locked)', () => {
+  test('U814: issue #21 — M/U! keys viewed in Workspace scope read as user-only (shown but locked)', () => {
     expect(settingsRowStatus('splitEdit', 'workspace', {}).userOnly).toBe(true);
     expect(settingsRowStatus('author', 'workspace', {}).userOnly).toBe(true);
     // Workspace-eligible keys (U and W) are editable there…
@@ -136,7 +136,7 @@ describe('PRD 002 §E19 winning layer / override indicators', () => {
     expect(settingsRowStatus('splitEdit', 'user', {}).userOnly).toBe(false);
   });
 
-  test('U31: §E20 Global/Team contributions surface as effective values with the layer named', () => {
+  test('U811: §E20 Global/Team contributions surface as effective values with the layer named', () => {
     const layers = { global: { fontSize: 18 }, team: { margins: 'wide' } };
     expect(settingsRowStatus('fontSize', 'user', layers)).toMatchObject({ winner: 'global', overriddenBy: 'global' });
     expect(settingsRowStatus('margins', 'workspace', layers)).toMatchObject({ winner: 'team', overriddenBy: 'team' });
@@ -144,7 +144,7 @@ describe('PRD 002 §E19 winning layer / override indicators', () => {
 });
 
 describe('diffSettings', () => {
-  test('U32: only changed keys travel; hotkeys compare entry-wise', () => {
+  test('U812: only changed keys travel; hotkeys compare entry-wise', () => {
     const next = { ...DEFAULT_SETTINGS, zoom: 125 };
     expect(diffSettings(DEFAULT_SETTINGS, next)).toEqual({ zoom: 125 });
     // A rebuilt-but-identical hotkeys map is no change at all.

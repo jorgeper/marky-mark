@@ -261,7 +261,7 @@ async function createWorkspace(request: APIRequestContext, token: string, name: 
   return ((await res.json()) as { id: string }).id;
 }
 
-test('E172: creating a workspace yields a manifest blob under its own prefix with the creator as Owner', async ({
+test('E328: creating a workspace yields a manifest blob under its own prefix with the creator as Owner', async ({
   request,
 }) => {
   // PRD 007 Req 7: per-workspace prefix + manifest blob in Azurite — real
@@ -300,7 +300,7 @@ test('E172: creating a workspace yields a manifest blob under its own prefix wit
   expect(scaffoldList.every((f) => !f.path.startsWith('workspaces/'))).toBe(true);
 });
 
-test('E173: a member granted Viewer can read workspace files but gets 403 writing — the verb is named', async ({
+test('E329: a member granted Viewer can read workspace files but gets 403 writing — the verb is named', async ({
   request,
 }) => {
   // PRD 007 Req 13+14+17: server-side enforcement of the built-in Viewer set.
@@ -342,7 +342,7 @@ test('E173: a member granted Viewer can read workspace files but gets 403 writin
   expect(((await del.json()) as { required: string }).required).toBe('file.delete');
 });
 
-test('E174: a non-member of a workspace without everyone-access gets 403 reading file content', async ({
+test('E330: a non-member of a workspace without everyone-access gets 403 reading file content', async ({
   request,
 }) => {
   // PRD 007 Req 13+16+17: no membership, no everyone-access → fails closed
@@ -419,7 +419,7 @@ async function openFromSidebar(page: Page, name: string): Promise<void> {
 const PHRASE = 'anchored in the shared document';
 const SHARED_DOC = `# Shared\n\nA line ${PHRASE} for both members to see.\n`;
 
-test('E175: a comment one member writes is a workspace blob the next member reads back', async ({
+test('E331: a comment one member writes is a workspace blob the next member reads back', async ({
   page,
   request,
 }) => {
@@ -459,7 +459,7 @@ test('E175: a comment one member writes is a workspace blob the next member read
   await expect(page.getByTestId('comment-card')).toContainText('Ada was here');
 });
 
-test('E176: a pasted image is a workspace blob that renders for a second member', async ({ page, request }) => {
+test('E332: a pasted image is a workspace blob that renders for a second member', async ({ page, request }) => {
   // PRD 007 Req 8: writeBinaryFile PUTs the bytes into the workspace, and
   // resolveAssetSrc maps the doc-relative ref to a same-origin URL the
   // signed-in webview can load — for every member with doc.read.
@@ -519,7 +519,7 @@ test('E176: a pasted image is a workspace blob that renders for a second member'
   expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
 });
 
-test('E177: the User settings layer roams per user while the Workspace layer comes from the manifest', async ({
+test('E333: the User settings layer roams per user while the Workspace layer comes from the manifest', async ({
   page,
   request,
 }) => {

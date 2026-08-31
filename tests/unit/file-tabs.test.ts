@@ -43,7 +43,7 @@ describe('PRD 013 file tab menu', () => {
 // all pure functions of a { scrollLeft, clientWidth, scrollWidth } reading.
 
 describe('PRD 013 Req 9 rail overflow math', () => {
-  test('U713: railArrowState — no overflow when the tabs fit (sub-pixel included); each arrow dies at its own end', () => {
+  test('U927: railArrowState — no overflow when the tabs fit (sub-pixel included); each arrow dies at its own end', () => {
     // Fits exactly, and fits with room: no overflow, both arrows dead.
     expect(railArrowState({ scrollLeft: 0, clientWidth: 400, scrollWidth: 400 })).toEqual({
       overflow: false,
@@ -82,7 +82,7 @@ describe('PRD 013 Req 9 rail overflow math', () => {
     expect(railArrowState({ scrollLeft: 597, clientWidth: 400, scrollWidth: 1000 }).rightEnabled).toBe(true);
   });
 
-  test('U714: railStepTarget — half a viewport per step, clamped to [0, max] at either end', () => {
+  test('U928: railStepTarget — half a viewport per step, clamped to [0, max] at either end', () => {
     const m = { scrollLeft: 300, clientWidth: 400, scrollWidth: 1000 };
     expect(railStepTarget(m, 1)).toBe(500); // +200 (clientWidth / 2)
     expect(railStepTarget(m, -1)).toBe(100);
@@ -96,7 +96,7 @@ describe('PRD 013 Req 9 rail overflow math', () => {
     expect(railStepTarget({ scrollLeft: 0, clientWidth: 400, scrollWidth: 300 }, 1)).toBe(0);
   });
 
-  test('U715: railRevealTarget — already visible moves nothing; otherwise the nearest edge, clamped', () => {
+  test('U929: railRevealTarget — already visible moves nothing; otherwise the nearest edge, clamped', () => {
     const m = { scrollLeft: 200, clientWidth: 400, scrollWidth: 1000 };
     // Fully inside the [200, 600) window: no movement at all.
     expect(railRevealTarget(m, 250, 160)).toBe(200);
@@ -124,7 +124,7 @@ describe('PRD 013 Req 9 rail overflow math', () => {
     expect(railRevealTarget({ ...m, scrollLeft: 0 }, 900, 160)).toBe(600);
   });
 
-  test('U716: railWheelDelta — the dominant axis wins, so a plain vertical wheel drives horizontal scroll', () => {
+  test('U930: railWheelDelta — the dominant axis wins, so a plain vertical wheel drives horizontal scroll', () => {
     // Pure horizontal (trackpad): passes through.
     expect(railWheelDelta(80, 0)).toBe(80);
     // Pure vertical (a mouse with no horizontal axis): mapped to horizontal.
@@ -137,7 +137,7 @@ describe('PRD 013 Req 9 rail overflow math', () => {
     expect(railWheelDelta(0, 0)).toBe(0);
   });
 
-  test('U717: railWheelTarget — the mapped delta applied and clamped; an end of the range returns the current position unmoved', () => {
+  test('U931: railWheelTarget — the mapped delta applied and clamped; an end of the range returns the current position unmoved', () => {
     const m = { scrollLeft: 300, clientWidth: 400, scrollWidth: 1000 };
     expect(railWheelTarget(m, 0, 120)).toBe(420); // vertical wheel drives it sideways
     expect(railWheelTarget(m, -80, 0)).toBe(220); // trackpad's horizontal delta

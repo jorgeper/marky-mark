@@ -75,7 +75,7 @@ describe('PRD 003 Reqs 9-12 pane slide phases', () => {
     expect(SLIDE_SETTLE_MS).toBeGreaterThan(SLIDE_MS);
   });
 
-  test('U776: centeredColumnOffset — the glide distance of the split slide\'s text column (#165)', () => {
+  test('U946: centeredColumnOffset — the glide distance of the split slide\'s text column (#165)', () => {
     // The plain-edit geometry: a 46rem (736px) column centred in a wide
     // scroller — the leftover splits evenly either side of the pair.
     expect(centeredColumnOffset(2000, 0, 736)).toBe((2000 - 736) / 2);
