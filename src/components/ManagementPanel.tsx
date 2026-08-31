@@ -24,6 +24,7 @@ import {
   type DeploymentSettings,
   type ListingPolicy,
 } from '../lib/deploymentSettings';
+import { parseInvitationRequest } from '../lib/invitations';
 import type { MemberEntry } from '../lib/membership';
 import { deleteConfirmationMatches, formatOwnerNames } from '../lib/workspaceLifecycle';
 import type { DeploymentAdmin } from '../platform/hostedAdmin';
@@ -69,6 +70,13 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
   const [users, setUsers] = useState<AdminUserRow[] | null>(null);
   const [usersError, setUsersError] = useState('');
   const [peopleQuery, setPeopleQuery] = useState('');
+
+  // PRD 017 Req 31: the Invite… form — email, optional note, Send.
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteNote, setInviteNote] = useState('');
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState('');
 
   // PRD 017 Req 20: the settings draft plus the Req 7 parse error when the
   // stored blob is corrupt (saving over it clears the condition).
@@ -176,6 +184,40 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
     setParseError('');
     setSaveError('');
     setSaved(true);
+  };
+
+  /**
+   * PRD 017 Req 31: invite without a workspace grant. The SHARED parser
+   * predicts the 400 before sending (the settings tab's pattern); a server
+   * refusal — Graph's own message on the 502 — shows inline, verbatim.
+   * Success appends the user row, Pending badge from the directory flag.
+   */
+  const sendInvite = async () => {
+    const note = inviteNote.trim();
+    const parsed = parseInvitationRequest({
+      email: inviteEmail.trim(),
+      ...(note !== '' ? { note } : {}),
+    });
+    if (!parsed.ok) {
+      setInviteError(parsed.error);
+      return;
+    }
+    setInviteBusy(true);
+    setInviteError('');
+    const answer = await admin.invite(parsed.invitation);
+    setInviteBusy(false);
+    if (!answer.ok) {
+      setInviteError(answer.error);
+      return;
+    }
+    const { guest } = answer;
+    setUsers((prior) => [
+      ...(prior ?? []),
+      { id: guest.id, displayName: guest.displayName, username: guest.email, isGuest: true, pending: true, admin: false },
+    ]);
+    setInviteOpen(false);
+    setInviteEmail('');
+    setInviteNote('');
   };
 
   const deleteCondemned = async () => {
@@ -302,7 +344,55 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
           value={peopleQuery}
           onChange={(e) => setPeopleQuery(e.target.value)}
         />
+        {/* PRD 017 Req 31: the Invite… action opens the small form below. */}
+        <button
+          type="button"
+          data-testid="admin-invite-open"
+          onClick={() => {
+            setInviteOpen((open) => !open);
+            setInviteError('');
+          }}
+        >
+          Invite…
+        </button>
       </div>
+      {inviteOpen && (
+        <div className="field" data-testid="admin-invite-form">
+          <label htmlFor="admin-invite-email">Email</label>
+          <input
+            id="admin-invite-email"
+            data-testid="admin-invite-email"
+            type="text"
+            value={inviteEmail}
+            placeholder="person@example.com"
+            onChange={(e) => setInviteEmail(e.target.value)}
+          />
+          <label htmlFor="admin-invite-note">Note (optional)</label>
+          <input
+            id="admin-invite-note"
+            data-testid="admin-invite-note"
+            type="text"
+            value={inviteNote}
+            onChange={(e) => setInviteNote(e.target.value)}
+          />
+          {inviteError !== '' && (
+            <p className="hotkey-hint" data-testid="admin-invite-error" role="alert">
+              {inviteError}
+            </p>
+          )}
+          <div className="actions">
+            <button
+              type="button"
+              className="primary"
+              data-testid="admin-invite-send"
+              disabled={inviteBusy}
+              onClick={() => void sendInvite()}
+            >
+              Send
+            </button>
+          </div>
+        </div>
+      )}
       {/* PRD 017 Req 19: a directory failure is said, never an empty tenant. */}
       {usersError !== '' && (
         <p className="hotkey-hint" data-testid="admin-users-error" role="alert">
@@ -326,6 +416,12 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
                   {user.isGuest === true && (
                     <span className="membership-guest-badge" data-testid={`admin-user-guest-${user.id}`}>
                       Guest
+                    </span>
+                  )}
+                  {/* PRD 017 Req 33: Pending beside Guest until acceptance. */}
+                  {user.pending === true && (
+                    <span className="membership-pending-badge" data-testid={`admin-user-pending-${user.id}`}>
+                      Pending
                     </span>
                   )}
                   {/* Req 19: the Admin badge marks MM_ADMINS membership. */}

@@ -5,6 +5,9 @@ import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
 // Azurite through the same well-known dev account the local server reads.
 import { BlobServiceClient } from '@azure/storage-blob';
 import { AZURITE_CONNECTION_STRING } from '../../server/config';
+// PRD 017 Req 33 (issue #190): the invited-guest id comes from the module
+// that owns the rule, so a renamed scheme fails here loudly.
+import { mockInvitationId } from '../../server/providers/mock/directory';
 import {
   CREATE_REFUSAL_HINTS,
   DEPLOYMENT_SETTINGS_BLOB,
@@ -3205,5 +3208,168 @@ test.describe('PRD 017 the Management view', () => {
     await expect(page.getByTestId('admin-user-admin-mock-katherine')).toHaveText('Admin');
     await expect(page.getByTestId('admin-user-guest-mock-ada')).toHaveCount(0);
     await expect(page.getByTestId('admin-user-admin-mock-ada')).toHaveCount(0);
+  });
+});
+
+// PRD 017 §Invitations (issue #190): in-app guest invitations over the mock
+// directory — the whole Req 29–33 flow offline. The mock's invitation list is
+// in-memory on the ONE shared server, so every test uses a worker-unique
+// address and withdraws it in a `finally` (the app.ts test hook), keeping the
+// directory seeded-only for every other test.
+test.describe('PRD 017 in-app guest invitations', () => {
+  test('E375: Management → People invites by email — the row appends with Guest and Pending badges', async ({
+    page,
+    request,
+  }) => {
+    // Req 31: the Invite… form calls Req 29 without a workspace grant.
+    const email = `e375-w${test.info().workerIndex}@example.com`;
+    const id = mockInvitationId(email);
+    const katherine = await signIn(request, 'katherine');
+    try {
+      await signInTo(page, 'katherine');
+      await page.getByTestId('start-management').click();
+      await page.getByTestId('management-tab-people').click();
+      await page.getByTestId('admin-invite-open').click();
+      await page.getByTestId('admin-invite-email').fill(email);
+      await page.getByTestId('admin-invite-note').fill('Welcome to the tenant!');
+      await page.getByTestId('admin-invite-send').click();
+      // Success appends the user row; the badges ride the directory flags.
+      const row = page.getByTestId(`admin-user-row-${id}`);
+      await expect(row).toBeVisible();
+      await expect(page.getByTestId(`admin-user-guest-${id}`)).toHaveText('Guest');
+      await expect(page.getByTestId(`admin-user-pending-${id}`)).toHaveText('Pending');
+      // The form closed on success — no lingering error, ready for the next.
+      await expect(page.getByTestId('admin-invite-form')).toHaveCount(0);
+    } finally {
+      await request.delete(`${HOSTED}/api/directory/invitations/${id}`, {
+        headers: { Authorization: `Bearer ${katherine}` },
+      });
+    }
+  });
+
+  test('E376: the workspace picker invites an unmatched email at a chosen role — member row lands Pending, manifest carries the grant', async ({
+    page,
+    request,
+  }) => {
+    // Req 30+32: the admin-only empty-state row sends Req 29 WITH workspace.
+    const email = `e376-w${test.info().workerIndex}@example.com`;
+    const id = mockInvitationId(email);
+    const katherine = await signIn(request, 'katherine');
+    const headers = { Authorization: `Bearer ${katherine}` };
+    const workspaceId = await createWorkspace(request, katherine, `E376 w${test.info().workerIndex}`);
+    try {
+      await signInTo(page, 'katherine', workspaceId);
+      await openWorkspaceSettings(page);
+      await page.getByTestId('membership-picker-input').fill(email);
+      // The settled empty answer offers exactly one action: the invite row.
+      await expect(page.getByTestId('membership-picker-empty')).toContainText('No people match');
+      const inviteButton = page.getByTestId('membership-picker-invite');
+      await expect(inviteButton).toHaveText(`Invite ${email} as`);
+      await page.getByTestId('membership-picker-invite-role').selectOption('Editor');
+      await inviteButton.click();
+      // The member row appears at the chosen role, badged Pending until
+      // acceptance (the #180 snapshot: the email is the display name).
+      await expect(page.getByTestId(`workspace-member-role-${id}`)).toHaveValue('Editor');
+      await expect(page.getByTestId(`workspace-member-pending-${id}`)).toHaveText('Pending');
+      // Req 30 server-side: the grant landed in the manifest IN THE SAME
+      // REQUEST — read it back as stored, not as the client mirrored it.
+      const { manifest } = (await (
+        await request.get(`${HOSTED}/api/workspaces/${workspaceId}/manifest`, { headers })
+      ).json()) as { manifest: { members: { id: string; role: string; displayName?: string }[] } };
+      expect(manifest.members).toContainEqual({ id, role: 'Editor', displayName: email });
+    } finally {
+      await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
+    }
+  });
+
+  test('E377: the Pending badge clears once the invitation is accepted — the guest stays a member', async ({
+    page,
+    request,
+  }) => {
+    // Req 33: externalUserState leaving PendingAcceptance (the mock's accept
+    // hook) is exactly what un-badges both surfaces.
+    const email = `e377-w${test.info().workerIndex}@example.com`;
+    const id = mockInvitationId(email);
+    const katherine = await signIn(request, 'katherine');
+    const headers = { Authorization: `Bearer ${katherine}` };
+    const workspaceId = await createWorkspace(request, katherine, `E377 w${test.info().workerIndex}`);
+    try {
+      const invited = await request.post(`${HOSTED}/api/admin/invitations`, {
+        headers,
+        data: { email, workspace: { id: workspaceId, role: 'Viewer' } },
+      });
+      expect(invited.status()).toBe(201);
+      expect(await invited.json()).toEqual({ id, email, displayName: email, pending: true });
+
+      await signInTo(page, 'katherine', workspaceId);
+      await openWorkspaceSettings(page);
+      await expect(page.getByTestId(`workspace-member-pending-${id}`)).toHaveText('Pending');
+
+      const accepted = await request.post(`${HOSTED}/api/directory/invitations/${id}/accept`, { headers });
+      expect(accepted.status()).toBe(200);
+      // Resolution happens on mount, so a fresh visit shows the change: the
+      // badge is gone while the membership (and the Guest badge) remain. The
+      // session rides localStorage, so the reload lands signed-in.
+      await page.reload();
+      await openWorkspaceSettings(page);
+      await expect(page.getByTestId(`workspace-member-role-${id}`)).toHaveValue('Viewer');
+      await expect(page.getByTestId(`workspace-member-guest-${id}`)).toHaveText('Guest');
+      await expect(page.getByTestId(`workspace-member-pending-${id}`)).toHaveCount(0);
+    } finally {
+      await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
+    }
+  });
+
+  test('E378: a non-admin gets no invite row in the picker and 403 deployment.admin from the route', async ({
+    page,
+    request,
+  }) => {
+    // Req 29 (Req 2 shape) + Req 32: the row is admin-gated by the pure
+    // predicate, and the route refuses everyone else by name.
+    const ada = await signIn(request, 'ada');
+    const refused = await request.post(`${HOSTED}/api/admin/invitations`, {
+      headers: { Authorization: `Bearer ${ada}` },
+      data: { email: `e378-w${test.info().workerIndex}@example.com` },
+    });
+    expect(refused.status()).toBe(403);
+    expect(await refused.json()).toEqual({ error: 'forbidden', required: 'deployment.admin' });
+
+    const workspaceId = await createWorkspace(request, ada, `E378 w${test.info().workerIndex}`);
+    await signInTo(page, 'ada', workspaceId);
+    await openWorkspaceSettings(page);
+    await page.getByTestId('membership-picker-input').fill(`e378-w${test.info().workerIndex}@example.com`);
+    // The empty state settles WITHOUT its admin-only action.
+    await expect(page.getByTestId('membership-picker-empty')).toContainText('No people match');
+    await expect(page.getByTestId('membership-picker-invite-row')).toHaveCount(0);
+  });
+
+  test("E379: a directory refusal surfaces Graph's own message inline — never a silent success", async ({
+    page,
+    request,
+  }) => {
+    // Req 29's 502 lane, drivable offline: the mock refuses an address it
+    // already knows with Graph's invitedUserAlreadyExists shape.
+    const email = `e379-w${test.info().workerIndex}@example.com`;
+    const id = mockInvitationId(email);
+    const katherine = await signIn(request, 'katherine');
+    const headers = { Authorization: `Bearer ${katherine}` };
+    try {
+      const first = await request.post(`${HOSTED}/api/admin/invitations`, { headers, data: { email } });
+      expect(first.status()).toBe(201);
+
+      await signInTo(page, 'katherine');
+      await page.getByTestId('start-management').click();
+      await page.getByTestId('management-tab-people').click();
+      await page.getByTestId('admin-invite-open').click();
+      await page.getByTestId('admin-invite-email').fill(email);
+      await page.getByTestId('admin-invite-send').click();
+      await expect(page.getByTestId('admin-invite-error')).toHaveText(
+        `A user with the address ${email} already exists in the directory.`,
+      );
+      // The refusal appended nothing beyond the API-driven invite itself.
+      await expect(page.getByTestId(`admin-user-row-${id}`)).toHaveCount(1);
+    } finally {
+      await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
+    }
   });
 });

@@ -178,26 +178,33 @@ simply re-enters sign-in.
 
 ### 1.5 Microsoft Graph permissions
 
-The directory provider (`server/providers/azure/graph.ts`) makes exactly three
-calls, all **delegated** (as the signed-in user — no application permissions),
-all against `https://graph.microsoft.com/v1.0`. The Graph access token comes
-from the **on-behalf-of exchange** (`server/providers/azure/obo.ts`): the
-server trades the caller's session bearer — the step 1.3/1.4 access token —
-at the tenant token endpoint for a Graph token scoped `User.ReadBasic.All`,
-caching it per user for its validity window. That exchange is what the client
-secret in step 1.6 authenticates.
+The directory provider (`server/providers/azure/graph.ts`) makes exactly four
+kinds of calls, all **delegated** (as the signed-in user — no application
+permissions), all against `https://graph.microsoft.com/v1.0`. The Graph access
+token comes from the **on-behalf-of exchange** (`server/providers/azure/obo.ts`):
+the server trades the caller's session bearer — the step 1.3/1.4 access token —
+at the tenant token endpoint for a Graph token scoped to the delegated set
+(`User.ReadBasic.All` and `User.Invite.All`), caching it per user for its
+validity window. That exchange is what the client secret in step 1.6
+authenticates.
 
 | Graph call | What it powers | Delegated permission |
 | --- | --- | --- |
 | `GET /users?$search="displayName:…" OR "userPrincipalName:…"` with the `ConsistencyLevel: eventual` header | the member picker's user search | `User.ReadBasic.All` |
 | `GET /users/{id}` | resolving a member id to a display name | `User.ReadBasic.All` |
 | `GET /users/{id}/photo/$value` | member avatars (a 404 means "no photo" and falls back to initials) | `User.ReadBasic.All` |
+| `POST /invitations` | in-app guest invitations (Management → People's **Invite…**, and the workspace People picker's invite row) | `User.Invite.All` |
+
+Invitations are sent **as the signed-in admin**, never as the app, so Entra's
+own guest-invite policy (**External collaboration settings** →
+`allowInvitesFrom`) applies on top: if your tenant restricts who may invite
+guests, that restriction wins over the app's admin check.
 
 Add them in the portal — **App registrations → Marky Mark → API permissions →
 Add a permission → Microsoft Graph → Delegated permissions** — selecting
-`openid`, `profile`, `email` and `User.ReadBasic.All`. The first three are the
-sign-in scopes; listing them keeps the consent screen honest even though Entra
-grants them implicitly.
+`openid`, `profile`, `email`, `User.ReadBasic.All` and `User.Invite.All`. The
+first three are the sign-in scopes; listing them keeps the consent screen
+honest even though Entra grants them implicitly.
 
 Then click **Grant admin consent for &lt;tenant&gt;**, or:
 
@@ -205,10 +212,10 @@ Then click **Grant admin consent for &lt;tenant&gt;**, or:
 az ad app permission admin-consent --id "$APP_ID"
 ```
 
-`User.ReadBasic.All` requires tenant-admin consent — an ordinary user cannot
-consent to it on first sign-in. If your tenant restricts directory reads more
-tightly than the default, it may insist on `User.Read.All` instead; both cover
-all three calls.
+`User.ReadBasic.All` and `User.Invite.All` require tenant-admin consent — an
+ordinary user cannot consent to them on first sign-in. If your tenant
+restricts directory reads more tightly than the default, it may insist on
+`User.Read.All` instead; both cover all three read calls.
 
 ### 1.6 Create the client secret
 

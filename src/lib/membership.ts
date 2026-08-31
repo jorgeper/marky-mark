@@ -12,6 +12,8 @@ export interface DirectoryEntry {
   avatarUrl?: string;
   /** PRD 007 Req 6 (issue #180): guests of the tenant get a visible badge. */
   isGuest?: boolean;
+  /** PRD 017 Req 33: an invited guest who has not redeemed yet — badged Pending. */
+  pending?: boolean;
 }
 
 /** A stored member id resolved for display — or kept as a plain identifier. */
@@ -22,6 +24,8 @@ export interface MemberEntry {
   avatarUrl?: string;
   /** PRD 007 Req 6 (issue #180): guests of the tenant get a visible badge. */
   isGuest?: boolean;
+  /** PRD 017 Req 33: an invited guest who has not redeemed yet — badged Pending. */
+  pending?: boolean;
   /** False when the directory no longer knows the id (left the tenant). */
   resolved: boolean;
 }
@@ -155,6 +159,9 @@ export async function resolveMembers(
             username: user.username,
             avatarUrl: user.avatarUrl,
             isGuest: user.isGuest,
+            // PRD 017 Req 33: the Pending flag rides resolution like the
+            // guest flag, so member rows badge unredeemed invitations.
+            pending: user.pending,
             resolved: true,
           }
         : { id, displayName: snapshot || id, username: '', resolved: false };

@@ -21,6 +21,12 @@ function GuestBadge({ entry }: { entry: Pick<DirectoryEntry, 'isGuest'> }) {
   return <span className="membership-guest-badge">Guest</span>;
 }
 
+/** PRD 017 Req 33: beside the Guest badge until the invitation is redeemed. */
+function PendingBadge({ entry }: { entry: Pick<DirectoryEntry, 'pending'> }) {
+  if (entry.pending !== true) return null;
+  return <span className="membership-pending-badge">Pending</span>;
+}
+
 /** Avatar image when the directory has one, initials disc when it does not
  *  (or when the photo URL answers 404 — Graph users without a photo). */
 function MemberAvatar({ entry }: { entry: Pick<DirectoryEntry, 'displayName' | 'username' | 'avatarUrl'> }) {
@@ -52,6 +58,18 @@ export interface MembershipPickerProps {
   placeholder?: string;
   /** Debounce for search-as-you-type; overridable so tests need not wait. */
   debounceMs?: number;
+  /**
+   * PRD 017 Req 32: the admin-only invite row — the dropdown empty state's
+   * action. `offer` is the pure predicate (offersInviteRow) over the
+   * `/api/me` payload, the settled query and its results; when the prop is
+   * absent the picker renders byte-identically to before.
+   */
+  invite?: {
+    offer: (query: string, results: DirectoryEntry[]) => boolean;
+    roles: readonly string[];
+    defaultRole: string;
+    onInvite: (email: string, role: string) => void;
+  };
 }
 
 export function MembershipPicker({
@@ -61,8 +79,11 @@ export function MembershipPicker({
   onRemove,
   placeholder = 'Add people…',
   debounceMs,
+  invite,
 }: MembershipPickerProps) {
   const [query, setQuery] = useState('');
+  // PRD 017 Req 32: the invite row's role choice, seeded with the default grant.
+  const [inviteRole, setInviteRole] = useState(invite?.defaultRole ?? '');
   // Issue #183 §3: the dropdown renders the LAST SETTLED search — results, an
   // empty answer, or a directory failure — as three distinguishable states.
   // null means "nothing to show" (blank query, or nothing resolved yet).
@@ -155,6 +176,7 @@ export function MembershipPicker({
                 <MemberAvatar entry={member} />
                 <span className="membership-name">{member.displayName}</span>
                 <GuestBadge entry={member} />
+                <PendingBadge entry={member} />
                 <span className="membership-username">{member.username}</span>
               </>
             ) : (
@@ -201,9 +223,44 @@ export function MembershipPicker({
                 The directory could not be searched. Try again.
               </p>
             ) : selectable.length === 0 ? (
-              <p className="membership-note" data-testid="membership-picker-empty">
-                No people match “{outcome.query}”.
-              </p>
+              <>
+                <p className="membership-note" data-testid="membership-picker-empty">
+                  No people match “{outcome.query}”.
+                </p>
+                {/* PRD 017 Req 32: the empty state's action — an admin whose
+                    query reads as an unmatched email may invite it, at a role
+                    chosen right here. */}
+                {invite && invite.offer(outcome.query, outcome.users) && (
+                  <div className="membership-invite-row" data-testid="membership-picker-invite-row">
+                    <button
+                      type="button"
+                      className="membership-invite"
+                      data-testid="membership-picker-invite"
+                      // Keep focus in the input so the dropdown survives until the click lands.
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        invite.onInvite(outcome.query.trim(), inviteRole);
+                        changeQuery('');
+                      }}
+                    >
+                      Invite {outcome.query.trim()} as
+                    </button>
+                    <select
+                      data-testid="membership-picker-invite-role"
+                      aria-label="Role for the invited guest"
+                      value={inviteRole}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onChange={(e) => setInviteRole(e.target.value)}
+                    >
+                      {invite.roles.map((role) => (
+                        <option key={role} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
             ) : (
               <ul className="membership-results" id={listId} role="listbox" data-testid="membership-picker-results">
                 {selectable.map((user, i) => (
@@ -220,6 +277,7 @@ export function MembershipPicker({
                       <MemberAvatar entry={user} />
                       <span className="membership-name">{user.displayName}</span>
                       <GuestBadge entry={user} />
+                      <PendingBadge entry={user} />
                       <span className="membership-username">{user.username}</span>
                     </button>
                   </li>

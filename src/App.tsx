@@ -7483,6 +7483,11 @@ export default function App() {
           // the workspace lifecycle has a People tab to show. The panel gates
           // the tab on the open workspace and the member's permissions.
           workspaceLifecycle={platform.workspaces}
+          // PRD 017 Req 32: the People tab's invite row needs the admin
+          // transport and the session's /api/me answer; both optional, so
+          // every non-hosted mount is unchanged.
+          deploymentAdmin={platform.deploymentAdmin}
+          sessionMe={sessionMe}
         />
       )}
 

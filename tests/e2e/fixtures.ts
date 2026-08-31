@@ -18,6 +18,13 @@ const EXPECTED_NETWORK_LOG = /Failed to load resource:.*412 \(Precondition Faile
 const EXPECTED_DIRECTORY_FAILURE = /\/api\/directory\/search/;
 
 /**
+ * PRD 017 Req 29 (issue #190): the third exemption, same shape — E379 drives
+ * an invitation the directory refuses to prove the inline 502 lane, and
+ * Chromium logs that failed POST like the two above.
+ */
+const EXPECTED_INVITATION_REFUSAL = /\/api\/admin\/invitations/;
+
+/**
  * Shared test fixture: any browser console error or uncaught page error
  * fails the test (SPEC §4 — zero console errors during any e2e run).
  */
@@ -28,6 +35,9 @@ export const test = base.extend<{ consoleGuard: void; loopbackGuard: void }>({
       page.on('console', (msg) => {
         if (msg.type() !== 'error' || EXPECTED_NETWORK_LOG.test(msg.text())) return;
         if (/Failed to load resource/.test(msg.text()) && EXPECTED_DIRECTORY_FAILURE.test(msg.location().url ?? '')) {
+          return;
+        }
+        if (/Failed to load resource/.test(msg.text()) && EXPECTED_INVITATION_REFUSAL.test(msg.location().url ?? '')) {
           return;
         }
         errors.push(msg.text());

@@ -3710,6 +3710,31 @@ mark.hl.ghost {
   flex: none;
 }
 
+/* PRD 017 Req 33: the Pending badge — the Guest badge's dress, rendered
+   beside it on every People surface until the invitation is redeemed. */
+.membership-pending-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px dashed var(--mm-border, #d1d9e0);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mm-muted, #59636e);
+  flex: none;
+}
+
+/* PRD 017 Req 32: the dropdown empty state's invite action — the offer
+   button and its role select share one line. */
+.membership-invite-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 8px;
+}
+
 .membership-remove {
   margin-left: auto;
   border: none;

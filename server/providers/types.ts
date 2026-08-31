@@ -107,7 +107,29 @@ export interface DirectoryUser {
   // badged in the People UI, so the seam carries the flag through.
   /** True when the directory marks this user a guest of the tenant. */
   isGuest?: boolean;
+  // PRD 017 Req 33: Graph externalUserState === 'PendingAcceptance' — an
+  // invited guest who has not redeemed yet; both People surfaces badge it.
+  /** True while an invited guest's invitation is unredeemed. */
+  pending?: boolean;
 }
+
+/** PRD 017 Req 29: what the server asks the directory to send. */
+export interface DirectoryInvitation {
+  email: string;
+  /** Where the redeemed invitee lands — the deployment's origin, trailing slash. */
+  redirectUrl: string;
+  /** The invitation mail's customized body (pure template + optional note). */
+  message: string;
+}
+
+/**
+ * PRD 017 Req 29: an invitation's outcome — the now-pending guest, or the
+ * directory's own refusal AS DATA (its code and message become the route's
+ * 502), never a silent success. Transport failures reject instead.
+ */
+export type DirectoryInviteResult =
+  | { ok: true; user: DirectoryUser }
+  | { ok: false; code: string; message: string };
 
 /** A user's profile photo as raw bytes plus its media type. */
 export interface UserPhoto {
@@ -136,6 +158,11 @@ export interface DirectoryProvider {
   // seeded list.
   /** Every user in the tenant, acting as the caller. */
   listUsers(auth: RequestAuth): Promise<DirectoryUser[]>;
+  // PRD 017 Req 29: guest invitations ride the same seam — Graph POSTs
+  // /v1.0/invitations as the signed-in admin over the OBO exchange, the
+  // mock records an in-memory pending guest for the offline e2e lane.
+  /** Invite an external email address into the tenant, acting as the caller. */
+  invite(invitation: DirectoryInvitation, auth: RequestAuth): Promise<DirectoryInviteResult>;
   // PRD 007 Req 6: a missing photo answers null (the picker falls back to
   // initials), never an error — an unknown user answers null the same way.
   /** A user's profile photo, or null when the user is unknown or has none. */

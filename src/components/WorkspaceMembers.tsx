@@ -18,7 +18,9 @@ import {
   type WorkspaceManifest,
 } from '../lib/hostedWorkspace';
 import { DEFAULT_MEMBER_ROLE } from '../lib/workspaceLifecycle';
+import { offersInviteRow } from '../lib/invitations';
 import type { MemberEntry } from '../lib/membership';
+import type { DeploymentAdmin } from '../platform/hostedAdmin';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 import { MembershipPicker } from './MembershipPicker';
 
@@ -27,9 +29,16 @@ export interface WorkspaceMembersProps {
   workspaceId: string;
   manifest: WorkspaceManifest;
   onManifest: (manifest: WorkspaceManifest) => void;
+  /**
+   * PRD 017 Req 32: the admin transport and the session's /api/me answer —
+   * present only on a platform that has them; together with the pure
+   * predicate they decide whether the picker offers its invite row.
+   */
+  admin?: DeploymentAdmin;
+  me?: { admin?: boolean } | null;
 }
 
-export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest }: WorkspaceMembersProps) {
+export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest, admin, me }: WorkspaceMembersProps) {
   const [entries, setEntries] = useState<MemberEntry[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -79,6 +88,32 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest 
   // PRD 007 Req 6 (issue #180): guests of the tenant are badged wherever a
   // member renders — here on the role rows, and in the picker via GuestBadge.
   const isGuest = (id: string) => entries.find((e) => e.id === id)?.isGuest === true;
+  // PRD 017 Req 33: an unredeemed invitation is badged Pending beside Guest.
+  const isPending = (id: string) => entries.find((e) => e.id === id)?.pending === true;
+
+  /**
+   * PRD 017 Reqs 30+32: invite the typed email AND grant the chosen role in
+   * this workspace in one request. On success the server has already written
+   * the manifest, so the same pure mutation mirrors it here (the issue #180
+   * snapshot is the email — the only name known yet) rather than re-reading.
+   * A refusal — the parser's 400 or Graph's 502 — shows inline, verbatim;
+   * so does a Req 30 grant that failed after the invitation landed.
+   */
+  const inviteGuest = async (email: string, role: string) => {
+    if (!admin) return;
+    setBusy(true);
+    setError('');
+    const answer = await admin.invite({ email, workspace: { id: workspaceId, role } });
+    if (!answer.ok) {
+      setError(answer.error);
+      setBusy(false);
+      return;
+    }
+    const grant = addWorkspaceMember(manifest, { id: answer.guest.id, role, displayName: email });
+    if (grant.ok) onManifest(grant.manifest);
+    if (answer.guest.membership) setError(answer.guest.membership.error);
+    setBusy(false);
+  };
 
   return (
     <div className="workspace-members" data-testid="workspace-members-section">
@@ -98,6 +133,19 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest 
           void apply(removeWorkspaceMember(manifest, id), () => lifecycle.removeMember(workspaceId, id))
         }
         debounceMs={80}
+        // PRD 017 Req 32: the invite row exists only for a deployment admin
+        // on a platform holding the admin transport — and even then the pure
+        // predicate over (/api/me, query, results) decides each render.
+        invite={
+          admin && me?.admin === true
+            ? {
+                offer: (query, results) => offersInviteRow(me, query, results),
+                roles,
+                defaultRole: DEFAULT_MEMBER_ROLE,
+                onInvite: (email, role) => void inviteGuest(email, role),
+              }
+            : undefined
+        }
       />
       {manifest.members.map((member) => (
         // Issue #183 §2: the member's name is the field label and the select
@@ -109,6 +157,12 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest 
             {isGuest(member.id) && (
               <span className="membership-guest-badge" data-testid={`workspace-member-guest-${member.id}`}>
                 Guest
+              </span>
+            )}
+            {/* PRD 017 Req 33: Pending beside Guest until acceptance. */}
+            {isPending(member.id) && (
+              <span className="membership-pending-badge" data-testid={`workspace-member-pending-${member.id}`}>
+                Pending
               </span>
             )}
           </label>

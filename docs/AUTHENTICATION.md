@@ -113,6 +113,22 @@ Portal equivalents: **Entra ID → Users → New user → Create new user /
 Invite external user**. The invite email's link has the person accept
 into your tenant; after that they sign in to Marky Mark normally.
 
+### Inviting from the app
+
+Deployment admins (`MM_ADMINS`) can send that same Graph invitation
+without leaving Marky Mark: **Management → People → Invite…**, or — to
+grant a workspace role in the same step — type the address into a
+workspace's People picker and use its **Invite … as &lt;role&gt;** row.
+The server calls `POST /v1.0/invitations` *as the signed-in admin*
+through the on-behalf-of exchange (delegated `User.Invite.All`), so
+Entra's own guest-invite policy (`allowInvitesFrom`) applies on top —
+if your tenant restricts who may invite, that restriction wins. The
+invitee gets Microsoft's standard invitation mail (plus the admin's
+optional note) and shows with a **Pending** badge in People until they
+accept. With Entra's Google federation configured — an operator step in
+External Identities, no app change — gmail invitees sign in with their
+Google account instead of a one-time passcode.
+
 Then give them access in the app: search for them in the workspace's
 People section (the picker searches your tenant through Microsoft
 Graph — see "How the directory calls authenticate" below), or flip the

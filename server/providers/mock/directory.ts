@@ -1,8 +1,17 @@
 // PRD 007 Req 4: local dev mode's user directory — case-insensitive substring
 // search over the seeded test users, mirroring how the Graph implementation
-// answers member pickers, with zero network.
+// answers member pickers, with zero network. PRD 017 Req 33 (issue #190): it
+// also accepts invitations — an invite adds an in-memory pending guest that
+// search, getUser and listUsers then answer with — so the whole
+// guest-invitation flow is e2e-testable offline.
 
-import type { DirectoryProvider, DirectoryUser, UserPhoto } from '../types.ts';
+import type {
+  DirectoryInvitation,
+  DirectoryInviteResult,
+  DirectoryProvider,
+  DirectoryUser,
+  UserPhoto,
+} from '../types.ts';
 import { userPhotoUrl } from '../types.ts';
 import { SEEDED_USERS } from './users.ts';
 
@@ -36,27 +45,92 @@ function withAvatar(user: DirectoryUser): DirectoryUser {
   return PHOTOLESS_IDS.has(user.id) ? user : { ...user, avatarUrl: userPhotoUrl(user.id) };
 }
 
-export function createMockDirectoryProvider(): DirectoryProvider {
+/** PRD 017 Req 33: the deterministic id an invited email lands under. */
+export function mockInvitationId(email: string): string {
+  return `mock-invite-${email.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+}
+
+/** PRD 017 Req 33: the e2e lane's levers over the in-memory invitations. */
+export interface InvitationTestHooks {
+  /** Mark an invited guest redeemed (Graph: externalUserState leaves PendingAcceptance). */
+  acceptInvitation(id: string): boolean;
+  /** Forget an invitation entirely, so a test restores the seeded directory. */
+  withdrawInvitation(id: string): boolean;
+}
+
+/**
+ * The hooks when the wired directory is the mock one, else null — how
+ * app.ts offers the accept/withdraw test endpoints ONLY on the local lane.
+ */
+export function invitationTestHooks(directory: DirectoryProvider): InvitationTestHooks | null {
+  const maybe = directory as DirectoryProvider & Partial<InvitationTestHooks>;
+  return typeof maybe.acceptInvitation === 'function' && typeof maybe.withdrawInvitation === 'function'
+    ? (maybe as DirectoryProvider & InvitationTestHooks)
+    : null;
+}
+
+export function createMockDirectoryProvider(): DirectoryProvider & InvitationTestHooks {
+  // PRD 017 Req 33: invited guests live in memory — reset by a restart or
+  // the withdraw hook, which is exactly what the offline e2e lane needs.
+  const invited: DirectoryUser[] = [];
+  const all = (): DirectoryUser[] => [...SEEDED_USERS, ...invited];
   return {
     kind: 'mock',
     async search(query: string): Promise<DirectoryUser[]> {
       const q = query.trim().toLowerCase();
       if (!q) return [];
-      return SEEDED_USERS.filter(
-        (u) => u.displayName.toLowerCase().includes(q) || u.username.toLowerCase().includes(q),
-      ).map(withAvatar);
+      return all()
+        .filter((u) => u.displayName.toLowerCase().includes(q) || u.username.toLowerCase().includes(q))
+        .map(withAvatar);
     },
     async getUser(id: string): Promise<DirectoryUser | null> {
-      const found = SEEDED_USERS.find((u) => u.id === id);
+      const found = all().find((u) => u.id === id);
       return found ? withAvatar(found) : null;
     },
     // PRD 017 Req 19: the whole tenant is the seeded list — the same five
-    // users sign-in and search answer from, avatars stamped the same way.
+    // users sign-in and search answer from, avatars stamped the same way —
+    // plus (Req 33) whatever guests have been invited since.
     async listUsers(): Promise<DirectoryUser[]> {
-      return SEEDED_USERS.map(withAvatar);
+      return all().map(withAvatar);
+    },
+    // PRD 017 Req 33: a POST creates an in-memory pending guest. Inviting an
+    // address the directory already knows answers Graph's own refusal shape,
+    // so the Req 29 refusal lane (502, message shown inline) is drivable
+    // offline: invite the same address twice.
+    async invite({ email }: DirectoryInvitation): Promise<DirectoryInviteResult> {
+      const address = email.trim();
+      const q = address.toLowerCase();
+      if (all().some((u) => u.username.toLowerCase() === q)) {
+        return {
+          ok: false,
+          code: 'invitedUserAlreadyExists',
+          message: `A user with the address ${address} already exists in the directory.`,
+        };
+      }
+      const user: DirectoryUser = {
+        id: mockInvitationId(address),
+        username: address,
+        displayName: address,
+        isGuest: true,
+        pending: true,
+      };
+      invited.push(user);
+      return { ok: true, user: withAvatar(user) };
+    },
+    acceptInvitation(id: string): boolean {
+      const found = invited.find((u) => u.id === id);
+      if (!found) return false;
+      found.pending = false;
+      return true;
+    },
+    withdrawInvitation(id: string): boolean {
+      const at = invited.findIndex((u) => u.id === id);
+      if (at === -1) return false;
+      invited.splice(at, 1);
+      return true;
     },
     async getUserPhoto(id: string): Promise<UserPhoto | null> {
-      const found = SEEDED_USERS.find((u) => u.id === id);
+      const found = all().find((u) => u.id === id);
       if (!found || PHOTOLESS_IDS.has(id)) return null;
       return { contentType: 'image/svg+xml', data: new TextEncoder().encode(avatarSvg(found)) };
     },

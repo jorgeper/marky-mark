@@ -27,7 +27,9 @@ import { expandImageName, isValidImageFolder } from '../lib/imagePaste';
 import { LlmSettings } from './LlmSettings';
 import { NO_LLM_CAPABILITIES, type LlmCapabilities, type LlmTestResult } from '../lib/llmSettings';
 import type { SummaryCacheClearResult, SummaryCacheSizeResult } from '../lib/summaryCacheReport';
+import type { DeploymentAdmin } from '../platform/hostedAdmin';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
+import type { SessionMe } from '../lib/deploymentSettings';
 import { useWorkspaceAccess, WorkspacePeopleTab } from './WorkspaceAccessSettings';
 
 interface Props {
@@ -65,6 +67,13 @@ interface Props {
    * aux windows) the tab never renders.
    */
   workspaceLifecycle?: WorkspaceLifecycle;
+  /**
+   * PRD 017 Req 32: the admin transport and the session's /api/me answer,
+   * forwarded to the People tab's invite row. Absent (desktop, web, aux
+   * windows, non-admin sessions without the capability) nothing changes.
+   */
+  deploymentAdmin?: DeploymentAdmin;
+  sessionMe?: SessionMe | null;
   /**
    * PRD 011 Req 9: what the window holding the platform can do about LLM
    * requests. The panel forwards it; the LLM tab branches on it (never on a
@@ -250,6 +259,8 @@ export function SettingsPanel({
   frameless,
   docName,
   workspaceLifecycle,
+  deploymentAdmin,
+  sessionMe,
   llmCapabilities,
   onLlmTest,
   summaryCacheAvailable,
@@ -1105,7 +1116,12 @@ export function SettingsPanel({
           {/* Issue #183 §1: members, roles, then the danger zone — the
               sections PRD 007 Req 12 used to append to the General tab. */}
           {tab === 'people' && workspaceLifecycle && (
-            <WorkspacePeopleTab lifecycle={workspaceLifecycle} access={wsAccess} />
+            <WorkspacePeopleTab
+              lifecycle={workspaceLifecycle}
+              access={wsAccess}
+              admin={deploymentAdmin}
+              me={sessionMe}
+            />
           )}
           {tab === 'hotkeys' && scope === 'user' && hotkeysTab}
           {tab === 'llm' && scope === 'user' && llmTab}

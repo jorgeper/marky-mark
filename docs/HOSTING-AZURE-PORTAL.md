@@ -270,18 +270,23 @@ search for a colleague by name and add them as a member.
 1. Left menu: **API permissions**.
 2. **+ Add a permission** → **Microsoft Graph** → **Delegated permissions**
    ("delegated" = the app acts as the signed-in user, never on its own).
-3. Tick these four (use the search box):
+3. Tick these five (use the search box):
    - `openid`
    - `profile`
    - `email`
    - `User.ReadBasic.All`
+   - `User.Invite.All`
 4. **Add permissions**.
 
 The first three are the sign-in scopes. Entra grants them implicitly, but listing
 them keeps the consent screen honest about what the app asks for.
-`User.ReadBasic.All` is the one that does real work — it powers three calls:
+`User.ReadBasic.All` does the directory's read work — it powers three calls:
 searching users, resolving a user id to a display name, and fetching a member's
-photo.
+photo. `User.Invite.All` powers the in-app **Invite…** actions (Management →
+People, and the workspace People picker's invite row): the invitation is sent
+**as the signed-in admin**, never as the app, so your tenant's own guest-invite
+policy (**External collaboration settings** → who may invite) still applies on
+top of the app's admin check.
 
 ### 3.5 Grant admin consent — the admin-only step
 
@@ -292,9 +297,9 @@ The Status column should turn to green "Granted for &lt;organization&gt;" for
 every row.
 
 **If that button is greyed out, you are not a tenant admin.** `User.ReadBasic.All`
-is a permission an ordinary user cannot consent to for themselves on first
-sign-in, so there is no way around this — send the registration to whoever
-administers your tenant and have them click it.
+and `User.Invite.All` are permissions an ordinary user cannot consent to for
+themselves on first sign-in, so there is no way around this — send the
+registration to whoever administers your tenant and have them click it.
 
 If your organization restricts directory reads more tightly than the default, an
 admin may tell you they'll only approve `User.Read.All` instead. That's fine —

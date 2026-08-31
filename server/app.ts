@@ -16,6 +16,7 @@ import { createDeploymentPolicy, type DeploymentPolicy } from './deployment.ts';
 import { cleanRelativePath, readBody, sendJson, tryDecode } from './http.ts';
 import { createLlmApi, LLM_PREFIX, type LlmApi } from './llm.ts';
 import type { Providers, RequestAuth } from './providers/types.ts';
+import { invitationTestHooks } from './providers/mock/directory.ts';
 import { handleUserFilesApi, USERS_PREFIX } from './userFiles.ts';
 import { handleWorkspaceApi, WORKSPACES_PREFIX } from './workspaces.ts';
 
@@ -150,6 +151,33 @@ async function handleApi(
     res.writeHead(200, { 'Content-Type': photo.contentType, 'Content-Length': photo.data.length });
     res.end(Buffer.from(photo.data));
     return;
+  }
+
+  // PRD 017 Req 33: the offline lane's invitation test hooks — accept or
+  // withdraw an in-memory invitation. ONLY the mock directory implements
+  // them; a hosted Azure deployment answers 404 like any unknown endpoint.
+  if (pathname.startsWith('/api/directory/invitations/')) {
+    const hooks = invitationTestHooks(providers.directory);
+    if (pathname.endsWith('/accept') && req.method === 'POST') {
+      const id = tryDecode(pathname.slice('/api/directory/invitations/'.length, -'/accept'.length));
+      if (!hooks || !id) {
+        sendJson(res, 404, { error: 'no such endpoint' });
+        return;
+      }
+      const accepted = hooks.acceptInvitation(id);
+      sendJson(res, accepted ? 200 : 404, accepted ? { accepted: id } : { error: 'unknown invitation' });
+      return;
+    }
+    if (req.method === 'DELETE') {
+      const id = tryDecode(pathname.slice('/api/directory/invitations/'.length));
+      if (!hooks || !id) {
+        sendJson(res, 404, { error: 'no such endpoint' });
+        return;
+      }
+      const withdrawn = hooks.withdrawInvitation(id);
+      sendJson(res, withdrawn ? 200 : 404, withdrawn ? { withdrawn: id } : { error: 'unknown invitation' });
+      return;
+    }
   }
 
   if (pathname.startsWith('/api/directory/users/') && req.method === 'GET') {

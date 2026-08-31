@@ -43,6 +43,11 @@ function scriptedDirectory(answer: (id: string) => Promise<DirectoryUser | null>
       async listUsers() {
         return [];
       },
+      // PRD 017 Req 29: same story — the seam grew invite(); the policy
+      // under test never calls it.
+      async invite() {
+        return { ok: false as const, code: 'unsupported', message: 'scripted directory' };
+      },
     },
   };
 }

@@ -140,6 +140,8 @@ export interface AdminUserRow {
   username: string;
   avatarUrl?: string;
   isGuest?: boolean;
+  // PRD 017 Req 33: unredeemed invitees carry Pending beside Guest.
+  pending?: boolean;
   admin: boolean;
 }
 

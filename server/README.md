@@ -211,6 +211,9 @@ on the doc/file verbs.
 | `GET /api/directory/search?q=` | — (signed-in) | Directory user search. Results carry a same-origin `avatarUrl` when the user has a photo. |
 | `GET /api/directory/users/<id>` | — (signed-in) | One directory user, or 404. |
 | `GET /api/directory/users/<id>/photo` | — (signed-in) | Profile photo bytes (avatar). 404 when the user has no photo or is unknown. |
+| `POST /api/admin/invitations` | `deployment.admin` | PRD 017 Req 29+30 (issue #190): invite a guest through Graph `POST /v1.0/invitations` **as the signed-in admin** (OBO exchange, delegated `User.Invite.All`), redirecting redemption to this deployment's origin. Body `{email, note?, workspace?: {id, role}}`, validated by the shared parser in `src/lib/invitations.ts` (400 for a malformed email, an unknown role, or a note over 500 characters). Success: `201 {id, email, displayName, pending: true}`. With `workspace`, the guest is added to that manifest at the role in the same request (the #180 display-name snapshot is the email); a grant that fails after the invitation landed keeps the 201 and carries `membership: {error}`. A Graph refusal maps to **502** with Graph's `error.code` and message — never a silent success, and never a token in a response or log line. |
+| `POST /api/directory/invitations/<id>/accept` | — (signed-in; local mock directory only — 404 on Azure) | Test hook: mark an invited guest accepted, clearing the Pending badge, so the flow is e2e-testable offline. |
+| `DELETE /api/directory/invitations/<id>` | — (signed-in; local mock directory only — 404 on Azure) | Test hook: withdraw an in-memory invitation, restoring the seeded directory. |
 
 ## Sign-in (PRD 007 Req 5)
 

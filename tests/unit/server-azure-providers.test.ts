@@ -196,7 +196,9 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
     expect(calls).toHaveLength(2);
     const first = new URL(calls[0].url);
     expect(first.origin + first.pathname).toBe('https://graph.microsoft.com/v1.0/users');
-    expect(first.searchParams.get('$select')).toBe('id,displayName,userPrincipalName,userType');
+    expect(first.searchParams.get('$select')).toBe(
+      'id,displayName,userPrincipalName,userType,externalUserState',
+    );
     expect(first.searchParams.get('$top')).toBe('999');
     expect(calls[1].url).toBe(nextLink);
     for (const call of calls) {
@@ -269,9 +271,12 @@ describe('issue #180 on-behalf-of Graph token exchange', () => {
     // Issue #184: the assertion is the validated session bearer exactly as
     // received — the access token for the app's own API, never an id_token.
     expect(body.get('assertion')).toBe('the-session-access-token');
-    // Delegated User.ReadBasic.All only — never an application permission.
+    // Delegated permissions only — never an application permission. PRD 017
+    // Req 29 (issue #190): the set grew by User.Invite.All for invitations.
     expect(body.get('scope')).toBe(GRAPH_OBO_SCOPE);
-    expect(GRAPH_OBO_SCOPE).toBe('https://graph.microsoft.com/User.ReadBasic.All');
+    expect(GRAPH_OBO_SCOPE).toBe(
+      'https://graph.microsoft.com/User.ReadBasic.All https://graph.microsoft.com/User.Invite.All',
+    );
     expect(body.get('requested_token_use')).toBe('on_behalf_of');
   });
 

@@ -16,8 +16,13 @@ type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 /** Resolves the Graph access token to act as this caller. */
 export type GraphTokenSource = (auth: RequestAuth) => Promise<string>;
 
-/** The delegated scope the exchange asks for — the whole permission set. */
-export const GRAPH_OBO_SCOPE = 'https://graph.microsoft.com/User.ReadBasic.All';
+/**
+ * The delegated scope set the exchange asks for — the whole permission set.
+ * PRD 017 Req 29 (issue #190): grown by User.Invite.All so the invitations
+ * route can POST /v1.0/invitations as the signed-in admin.
+ */
+export const GRAPH_OBO_SCOPE =
+  'https://graph.microsoft.com/User.ReadBasic.All https://graph.microsoft.com/User.Invite.All';
 
 /**
  * Drop a cached token this long before Entra's own expiry, so a token that

@@ -7,7 +7,14 @@
 // unit tests pin the URL shapes and response mapping with no network;
 // verified by typecheck + unit tests only.
 
-import type { DirectoryProvider, DirectoryUser, RequestAuth, UserPhoto } from '../types.ts';
+import type {
+  DirectoryInvitation,
+  DirectoryInviteResult,
+  DirectoryProvider,
+  DirectoryUser,
+  RequestAuth,
+  UserPhoto,
+} from '../types.ts';
 import { userPhotoUrl } from '../types.ts';
 import type { GraphTokenSource } from './obo.ts';
 
@@ -20,7 +27,12 @@ interface GraphUser {
   displayName?: string;
   userPrincipalName?: string;
   userType?: string;
+  externalUserState?: string;
 }
+
+// PRD 017 Req 33: externalUserState joins the $select of search, getUser and
+// listUsers, so an unredeemed invitation reads as Pending everywhere.
+const USER_SELECT = 'id,displayName,userPrincipalName,userType,externalUserState';
 
 function toDirectoryUser(u: GraphUser): DirectoryUser {
   return {
@@ -34,6 +46,8 @@ function toDirectoryUser(u: GraphUser): DirectoryUser {
     // PRD 007 Req 6 (issue #180): Graph's userType marks guests for the
     // People UI's badge; a response omitting it reads as a regular member.
     isGuest: u.userType === 'Guest',
+    // PRD 017 Req 33: only an unredeemed invitation carries the flag at all.
+    ...(u.externalUserState === 'PendingAcceptance' ? { pending: true } : {}),
   };
 }
 
@@ -57,7 +71,7 @@ export function createGraphDirectoryProvider(
       // $search phrase early and break the query.
       const term = q.replace(/"/g, '');
       url.searchParams.set('$search', `"displayName:${term}" OR "userPrincipalName:${term}"`);
-      url.searchParams.set('$select', 'id,displayName,userPrincipalName,userType');
+      url.searchParams.set('$select', USER_SELECT);
       url.searchParams.set('$top', '20');
       const res = await fetchImpl(url.toString(), { headers: await headers(auth) });
       if (!res.ok) throw new Error(`Graph user search failed: ${res.status}`);
@@ -72,7 +86,7 @@ export function createGraphDirectoryProvider(
     // throws, so the admin route answers an error, never a truncated tenant.
     async listUsers(auth: RequestAuth): Promise<DirectoryUser[]> {
       const first = new URL(`${GRAPH_BASE}/users`);
-      first.searchParams.set('$select', 'id,displayName,userPrincipalName,userType');
+      first.searchParams.set('$select', USER_SELECT);
       first.searchParams.set('$top', '999');
       const users: DirectoryUser[] = [];
       let next: string | null = first.toString();
@@ -88,11 +102,62 @@ export function createGraphDirectoryProvider(
       return users;
     },
     async getUser(id: string, auth: RequestAuth): Promise<DirectoryUser | null> {
-      const url = `${GRAPH_BASE}/users/${encodeURIComponent(id)}?$select=id,displayName,userPrincipalName,userType`;
+      const url = `${GRAPH_BASE}/users/${encodeURIComponent(id)}?$select=${USER_SELECT}`;
       const res = await fetchImpl(url, { headers: await headers(auth) });
       if (res.status === 404) return null; // left the tenant — caller renders a plain identifier
       if (!res.ok) throw new Error(`Graph user lookup failed: ${res.status}`);
       return toDirectoryUser((await res.json()) as GraphUser);
+    },
+    // PRD 017 Req 29: Graph POST /v1.0/invitations AS THE SIGNED-IN ADMIN —
+    // the OBO token now carries User.Invite.All, so Entra's own guest-invite
+    // policy (allowInvitesFrom) applies to the caller, never to an app
+    // identity. sendInvitationMessage lets Microsoft's mail carry the pure
+    // template's body. A Graph refusal (already in tenant, blocked domain,
+    // missing consent) comes back AS DATA — its error.code and message feed
+    // the route's 502 — and neither path ever includes a token.
+    async invite(invitation: DirectoryInvitation, auth: RequestAuth): Promise<DirectoryInviteResult> {
+      const res = await fetchImpl(`${GRAPH_BASE}/invitations`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${await getGraphToken(auth)}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          invitedUserEmailAddress: invitation.email,
+          inviteRedirectUrl: invitation.redirectUrl,
+          sendInvitationMessage: true,
+          invitedUserMessageInfo: { customizedMessageBody: invitation.message },
+        }),
+      });
+      if (!res.ok) {
+        let code = '';
+        let message = `Graph refused the invitation (${res.status})`;
+        try {
+          const refusal = (await res.json()) as { error?: { code?: unknown; message?: unknown } };
+          code = String(refusal.error?.code ?? '');
+          if (refusal.error?.message !== undefined) message = String(refusal.error.message);
+        } catch {
+          // non-JSON refusal: the status line above is the diagnosis
+        }
+        return { ok: false, code, message };
+      }
+      const body = (await res.json()) as {
+        invitedUser?: { id?: string };
+        invitedUserDisplayName?: string;
+      };
+      const id = body.invitedUser?.id;
+      if (!id) return { ok: false, code: '', message: 'Graph answered without an invitedUser.id' };
+      return {
+        ok: true,
+        user: {
+          id,
+          displayName: body.invitedUserDisplayName || invitation.email,
+          username: invitation.email,
+          avatarUrl: userPhotoUrl(id),
+          isGuest: true,
+          pending: true,
+        },
+      };
     },
     // PRD 007 Req 6: profile photo bytes via Graph /users/{id}/photo/$value.
     // 404 covers both "no photo" and "unknown user" — neither is an error,

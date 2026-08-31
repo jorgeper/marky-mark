@@ -7,6 +7,17 @@
 
 import type { AdminUserRow, AdminWorkspaceRow } from '../lib/deploymentAdmin';
 import type { DeploymentSettings, EffectiveDeploymentSettings } from '../lib/deploymentSettings';
+import type { InvitationRequest } from '../lib/invitations';
+
+/** PRD 017 Req 29: what a 201 from POST /api/admin/invitations carries. */
+export interface InvitedGuest {
+  id: string;
+  email: string;
+  displayName: string;
+  pending: true;
+  /** Req 30: present when the invitation landed but the role grant did not. */
+  membership?: { error: string };
+}
 
 /** The hosted platform's authorized fetch — the one call site. */
 type ApiFetch = (
@@ -29,6 +40,12 @@ export interface DeploymentAdmin {
   readSettings(): Promise<EffectiveDeploymentSettings>;
   /** Req 14/20: replace the record — last write wins, no ETag. */
   writeSettings(settings: DeploymentSettings): Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
+   * PRD 017 Req 29: invite a guest — the refusal is the server's own
+   * sentence (a 400's parser message, a 502's Graph refusal) for the two
+   * invite surfaces to show inline, verbatim.
+   */
+  invite(request: InvitationRequest): Promise<{ ok: true; guest: InvitedGuest } | { ok: false; error: string }>;
 }
 
 /** The server's error shape, when it sent one at all. */
@@ -60,6 +77,15 @@ export function createHostedAdmin(api: ApiFetch): DeploymentAdmin {
       });
       if (res.ok) return { ok: true };
       return { ok: false, error: await errorOf(res) };
+    },
+    async invite(request) {
+      const res = await api('/api/admin/invitations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      if (!res.ok) return { ok: false, error: await errorOf(res) };
+      return { ok: true, guest: (await res.json()) as InvitedGuest };
     },
   };
 }
