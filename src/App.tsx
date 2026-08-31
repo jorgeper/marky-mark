@@ -954,17 +954,15 @@ export default function App() {
   }, []);
 
   /**
-   * Issue #178: map a COLLAPSED caret sitting in a preview pane to a source
-   * caret — exact via sourceCaretForRendered over the covering data-mm-line
-   * block's rendered text, else the block's start (never a wrong guess).
-   * Null when the pane holds no collapsed caret (a real selection goes
-   * through sourceRangeFromDomSelection instead).
+   * Issue #178: resolve a collapsed DOM position inside a preview pane to the
+   * covering data-mm-line block and its exact source caret — `caret` is null
+   * only when sourceCaretForRendered cannot map it (the block renders no
+   * visible text). The shared first step of the click-placement path
+   * (SPEC44 §4) and the toggle-time caret carry; each caller applies its own
+   * fallback from the returned block context. Null when no stamped block
+   * covers the position.
    */
-  const sourceCaretFromDomCaret = useCallback((pane: HTMLElement): { from: number; to: number } | null => {
-    const sel = document.getSelection();
-    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return null;
-    const range = sel.getRangeAt(0);
-    if (!pane.contains(range.startContainer)) return null;
+  const resolvePreviewCaret = useCallback((pane: HTMLElement, range: Range) => {
     const base =
       range.startContainer.nodeType === Node.ELEMENT_NODE
         ? (range.startContainer as HTMLElement)
@@ -986,12 +984,36 @@ export default function App() {
     const local = Math.max(0, Math.min(at - rs, blockText.length));
     const starts: number[] = [0];
     for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
-    const caret =
-      sourceCaretForRendered(buffer, blockLine, endLine, blockText, local) ??
-      starts[Math.min(blockLine, lines.length) - 1] ??
-      0;
-    return { from: caret, to: caret };
+    return {
+      caret: sourceCaretForRendered(buffer, blockLine, endLine, blockText, local),
+      blockStart: starts[Math.min(blockLine, lines.length) - 1] ?? 0,
+      base,
+      blockEl,
+      buffer,
+      blockLine,
+      endLine,
+      rs,
+      blockText,
+    };
   }, []);
+
+  /**
+   * Issue #178: map a COLLAPSED caret sitting in a preview pane to a source
+   * caret — exact when resolvePreviewCaret can map it, else the block's
+   * start (never a wrong guess). Null when the pane holds no collapsed
+   * caret (a real selection goes through sourceRangeFromDomSelection
+   * instead).
+   */
+  const sourceCaretFromDomCaret = useCallback((pane: HTMLElement): { from: number; to: number } | null => {
+    const sel = document.getSelection();
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return null;
+    const range = sel.getRangeAt(0);
+    if (!pane.contains(range.startContainer)) return null;
+    const hit = resolvePreviewCaret(pane, range);
+    if (!hit) return null;
+    const caret = hit.caret ?? hit.blockStart;
+    return { from: caret, to: caret };
+  }, [resolvePreviewCaret]);
 
   // --- SPEC30 §1.3: the preview find engine (doc-text marks) -------------------
   const clearFindMarks = useCallback(() => {
@@ -1210,43 +1232,25 @@ export default function App() {
       if (live && !live.isCollapsed) return; // click-drag selection keeps priority
       const cr = document.caretRangeFromPoint(e.clientX, e.clientY);
       if (!cr || !pane.contains(cr.startContainer)) return;
-      const base = cr.startContainer.nodeType === Node.ELEMENT_NODE
-        ? (cr.startContainer as HTMLElement)
-        : cr.startContainer.parentElement;
-      const blockEl = base?.closest<HTMLElement>('[data-mm-line]');
-      if (!blockEl) return;
-      const buffer = stateRef.current.buffer;
-      const lines = buffer.split('\n');
-      const stamped = Array.from(pane.querySelectorAll<HTMLElement>('[data-mm-line]'));
-      const blockLine = Number(blockEl.dataset.mmLine);
-      const after = stamped.find((el) => Number(el.dataset.mmLine) > blockLine);
-      const endLine = after ? Number(after.dataset.mmLine) - 1 : lines.length;
-      const { start: at } = rangeToOffsets(pane, cr);
-      const region = document.createRange();
-      region.setStartBefore(blockEl);
-      region.setEndAfter(blockEl);
-      const { start: rs, end: re } = rangeToOffsets(pane, region);
-      const blockText = getDocText(pane).slice(rs, re);
-      const local = Math.max(0, Math.min(at - rs, blockText.length));
-      const starts: number[] = [0];
-      for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
+      const hit = resolvePreviewCaret(pane, cr);
+      if (!hit) return;
       // Issue #178: the caret lands at the EXACT clicked offset (word-anchored
       // with the within-word offset riding along, else the flat prefix), so a
       // later toggle to edit puts the cursor precisely where the user clicked
       // — not just at the word's start.
-      let caret = sourceCaretForRendered(buffer, blockLine, endLine, blockText, local);
+      let caret = hit.caret;
       if (caret === null) {
         // §4.1: an unmappable click lands the caret at the CLICKED container's
         // source start (its first visible character) — inside a list that is
         // the clicked item, not the whole stamp.
-        caret = starts[Math.min(blockLine, lines.length) - 1] ?? 0;
-        const clickedContainer = base?.closest<HTMLElement>('li, p, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th');
-        if (clickedContainer && blockEl.contains(clickedContainer)) {
+        caret = hit.blockStart;
+        const clickedContainer = hit.base?.closest<HTMLElement>('li, p, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th');
+        if (clickedContainer && hit.blockEl.contains(clickedContainer)) {
           const cRegion = document.createRange();
-          cRegion.setStartBefore(blockEl);
+          cRegion.setStartBefore(hit.blockEl);
           cRegion.setEndBefore(clickedContainer);
-          const cLocal = rangeToOffsets(pane, cRegion).end - rs;
-          const mapped = sourceOffsetForRendered(buffer, blockLine, endLine, blockText, Math.max(0, cLocal));
+          const cLocal = rangeToOffsets(pane, cRegion).end - hit.rs;
+          const mapped = sourceOffsetForRendered(hit.buffer, hit.blockLine, hit.endLine, hit.blockText, Math.max(0, cLocal));
           if (mapped !== null) caret = mapped;
         }
       }
@@ -1254,12 +1258,12 @@ export default function App() {
         editorSelectRef.current?.(caret, caret); // the report loop paints the cues
       } else {
         pendingEditorSelRef.current = { from: caret, to: caret }; // Mod+E lands here
-        const headLine = buffer.slice(0, caret).split('\n').length;
+        const headLine = hit.buffer.slice(0, caret).split('\n').length;
         activeCueRef.current = { head: caret, headLine, hasSel: false };
         applyActiveCues(pane, caret, headLine, false);
       }
     },
-    [applyActiveCues]
+    [applyActiveCues, resolvePreviewCaret]
   );
 
   /**
