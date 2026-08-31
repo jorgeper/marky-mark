@@ -131,7 +131,7 @@ describe('PRD 007 Req 6 membership picker logic', () => {
       search: (q) =>
         q.startsWith('boom')
           ? new Promise((_resolve, reject) => rejecters.set(q, reject))
-          : Promise.resolve([user(q, q)]),
+          : Promise.resolve(q === 'nobody' ? [] : [user(q, q)]),
       onResults: (users, query) => results.push({ users, query }),
       onError: (query) => errors.push(query),
       timers: clock.timers,
@@ -148,7 +148,7 @@ describe('PRD 007 Req 6 membership picker logic', () => {
     search.setQuery('nobody');
     clock.fire();
     await Promise.resolve();
-    expect(results).toEqual([{ users: [user('nobody', 'nobody')], query: 'nobody' }]);
+    expect(results).toEqual([{ users: [], query: 'nobody' }]);
     // A stale failure never overwrites a newer query's state.
     search.setQuery('boom2');
     clock.fire();
@@ -159,6 +159,7 @@ describe('PRD 007 Req 6 membership picker logic', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(errors).toEqual(['boom']);
+    expect(results[results.length - 1]).toEqual({ users: [user('grace', 'grace')], query: 'grace' });
     search.dispose();
   });
 

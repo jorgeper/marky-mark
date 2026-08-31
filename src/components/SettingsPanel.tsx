@@ -812,7 +812,6 @@ export function SettingsPanel({
         </label>
         {scopeNote('vimNav')}
       </div>
-
     </>
   );
 
