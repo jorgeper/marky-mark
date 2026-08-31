@@ -1560,10 +1560,23 @@ mark.hl.ghost {
   border: 1px solid var(--mm-border, #d1d9e0);
 }
 
+/* Issue #192: the app's ONE primary-action rule — every accent button
+   (modal confirms, the invite surfaces of PRD 017 Req 31–32) resolves
+   here. The modal-scoped selector keeps this rule winning over the
+   `.modal .actions button` border above; the sizing declarations repeat
+   that base rule so bare sites outside a modal get the same shape. */
+button.primary,
 .modal .actions button.primary {
   background: var(--mm-accent, #0969da);
-  border-color: var(--mm-accent, #0969da);
+  border: 1px solid var(--mm-accent, #0969da);
   color: #ffffff;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 7px;
+}
+
+button.primary:hover {
+  filter: brightness(1.06);
 }
 
 .modal .actions button:hover {

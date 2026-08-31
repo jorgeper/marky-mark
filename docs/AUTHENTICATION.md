@@ -125,7 +125,8 @@ Entra's own guest-invite policy (`allowInvitesFrom`) applies on top —
 if your tenant restricts who may invite, that restriction wins. The
 invitee gets Microsoft's standard invitation mail (plus the admin's
 optional note) and shows with a **Pending** badge in People until they
-accept. With Entra's Google federation configured — an operator step in
+accept. That invitation email often lands in the invitee's spam folder
+(observed with Gmail), so tell invitees to check there. With Entra's Google federation configured — an operator step in
 External Identities, no app change — gmail invitees sign in with their
 Google account instead of a one-time passcode.
 

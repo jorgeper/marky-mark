@@ -3420,4 +3420,58 @@ test.describe('PRD 017 in-app guest invitations', () => {
       await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
     }
   });
+
+  test('E380: the invite actions all carry the shared primary accent styling — their neighbors stay secondary', async ({
+    page,
+    request,
+  }) => {
+    // Issue #192: one shared `button.primary` rule paints all three invite
+    // surfaces accent-blue, theme-variable driven; the controls beside them
+    // stay non-primary so the action hierarchy still reads.
+    const email = `e380-w${test.info().workerIndex}@example.com`;
+    const katherine = await signIn(request, 'katherine');
+    const workspaceId = await createWorkspace(request, katherine, `E380 w${test.info().workerIndex}`);
+
+    // Resolve the theme accent where the target sits: a probe button beside
+    // it inherits the same `--mm-accent`, so the comparison survives theme
+    // changes instead of hard-coding one theme's blue.
+    const paint = (testId: string) =>
+      page.evaluate((id) => {
+        const el = document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+        if (!el || !el.parentElement) throw new Error(`missing [data-testid="${id}"]`);
+        const probe = document.createElement('button');
+        probe.style.backgroundColor = 'var(--mm-accent, #0969da)';
+        el.parentElement.appendChild(probe);
+        const accent = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return { accent, background: getComputedStyle(el).backgroundColor };
+      }, testId);
+
+    await signInTo(page, 'katherine');
+    await page.getByTestId('start-management').click();
+    await page.getByTestId('management-tab-people').click();
+    await expect(page.getByTestId('admin-invite-open')).toBeVisible();
+    const inviteOpen = await paint('admin-invite-open');
+    expect(inviteOpen.background).toBe(inviteOpen.accent);
+    await page.getByTestId('admin-invite-open').click();
+    await expect(page.getByTestId('admin-invite-send')).toBeVisible();
+    const inviteSend = await paint('admin-invite-send');
+    expect(inviteSend.background).toBe(inviteSend.accent);
+    // The filter field beside Invite… stays a plain input.
+    const filter = await paint('admin-users-filter');
+    expect(filter.background).not.toBe(filter.accent);
+
+    // Second surface, fresh load: drop the stored session first so the
+    // sign-in form is there for signInTo to drive.
+    await signOut(page);
+    await signInTo(page, 'katherine', workspaceId);
+    await openWorkspaceSettings(page);
+    await page.getByTestId('membership-picker-input').fill(email);
+    await expect(page.getByTestId('membership-picker-invite')).toBeVisible();
+    const offer = await paint('membership-picker-invite');
+    expect(offer.background).toBe(offer.accent);
+    // The role select riding the same row stays secondary.
+    const role = await paint('membership-picker-invite-role');
+    expect(role.background).not.toBe(role.accent);
+  });
 });

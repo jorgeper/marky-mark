@@ -235,7 +235,8 @@ export function MembershipPicker({
                   <div className="membership-invite-row" data-testid="membership-picker-invite-row">
                     <button
                       type="button"
-                      className="membership-invite"
+                      // Issue #192: `primary` paints the offer with the shared accent rule.
+                      className="membership-invite primary"
                       data-testid="membership-picker-invite"
                       // Keep focus in the input so the dropdown survives until the click lands.
                       onMouseDown={(e) => e.preventDefault()}

@@ -344,9 +344,11 @@ export function ManagementPanel({ admin, lifecycle, onClose }: ManagementPanelPr
           value={peopleQuery}
           onChange={(e) => setPeopleQuery(e.target.value)}
         />
-        {/* PRD 017 Req 31: the Invite… action opens the small form below. */}
+        {/* PRD 017 Req 31: the Invite… action opens the small form below.
+            Issue #192: primary — it is the tab's one call to action. */}
         <button
           type="button"
+          className="primary"
           data-testid="admin-invite-open"
           onClick={() => {
             setInviteOpen((open) => !open);
