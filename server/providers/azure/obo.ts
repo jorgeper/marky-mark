@@ -31,8 +31,8 @@ export interface OboTokenSourceOptions {
   /**
    * The confidential-client credential (ENTRA_CLIENT_SECRET). Like
    * MM_LLM_API_KEY, its value never appears in a log line, error message,
-   * or HTTP response — refusals below carry the token endpoint's status and
-   * error code, never the request body.
+   * or HTTP response — refusals below carry the token endpoint's status,
+   * error code and AADSTS description, never the request body.
    */
   clientSecret: string;
   fetchImpl?: FetchLike;
@@ -82,9 +82,9 @@ export function createOboTokenSource(options: OboTokenSourceOptions): GraphToken
       let code = '';
       let description = '';
       try {
-        const body = (await res.json()) as { error?: unknown; error_description?: unknown };
-        code = String(body.error ?? '');
-        description = String(body.error_description ?? '');
+        const refusal = (await res.json()) as { error?: unknown; error_description?: unknown };
+        code = String(refusal.error ?? '');
+        description = String(refusal.error_description ?? '');
       } catch {
         // non-JSON error body: the status alone is the diagnosis
       }

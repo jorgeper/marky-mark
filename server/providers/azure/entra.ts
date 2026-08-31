@@ -29,10 +29,10 @@ export function apiScope(clientId: string): string {
 
 /**
  * The authorize endpoint the SPA redirects to. The SPA appends its own
- * redirect_uri and PKCE code_challenge; the server only pins tenant, client
- * and the S256 challenge method. This is the single place the session scopes
- * are stated — the SPA reads them back out of the URL for the token exchange
- * (parseAuthorizeUrl in src/lib/hostedAuth.ts), so they cannot drift.
+ * redirect_uri and PKCE code_challenge; the server pins tenant, client, the
+ * S256 challenge method and the scopes. This is the single place the session
+ * scopes are stated — the SPA reads them back out of the URL for the token
+ * exchange (parseAuthorizeUrl in src/lib/hostedAuth.ts), so they cannot drift.
  */
 export function buildAuthorizeUrl(tenantId: string, clientId: string): string {
   const url = new URL(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`);

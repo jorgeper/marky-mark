@@ -167,8 +167,9 @@ the session bearer. So the server runs the **on-behalf-of exchange**
 access token (the `api://<client-id>/access_as_user` one — Entra
 refuses an id_token here with `AADSTS240002`) at the tenant token
 endpoint for a delegated Graph token (`User.ReadBasic.All`), cached
-per user for its validity window, and Graph is called with that. The exchange authenticates with the
-registration's client secret (`ENTRA_CLIENT_SECRET`) — the one
+per user for its validity window, and Graph is called with that. The
+exchange authenticates with the registration's client secret
+(`ENTRA_CLIENT_SECRET`) — the one
 credential in the sign-in story the browser never sees. Guests of the
 tenant come back marked as such and are badged in the People section,
 and each member's display name is snapshotted into the workspace
