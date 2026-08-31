@@ -126,9 +126,10 @@ if your tenant restricts who may invite, that restriction wins. The
 invitee gets Microsoft's standard invitation mail (plus the admin's
 optional note) and shows with a **Pending** badge in People until they
 accept. That invitation email often lands in the invitee's spam folder
-(observed with Gmail), so tell invitees to check there. With Entra's Google federation configured — an operator step in
-External Identities, no app change — gmail invitees sign in with their
-Google account instead of a one-time passcode.
+(observed with Gmail), so tell invitees to check there. With Entra's
+Google federation configured — an operator step in External Identities,
+no app change — gmail invitees sign in with their Google account
+instead of a one-time passcode.
 
 Then give them access in the app: search for them in the workspace's
 People section (the picker searches your tenant through Microsoft
