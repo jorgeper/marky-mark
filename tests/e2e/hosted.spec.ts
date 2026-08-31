@@ -1615,14 +1615,17 @@ test('E198: a member without workspace.members or workspace.roles sees neither s
   }
 });
 
-test('E360: People is its own settings tab, immediately after Editor, holding members, roles and the danger zone — and absent without a workspace', async ({
+// Renumbered from E360 (issue #189): the parallel issue-#188 merge already
+// used E360–E362, and test IDs are unique — the newer tests took the next
+// unused numbers.
+test('E364: People is its own settings tab, immediately after Editor, holding members, roles and the danger zone — and absent without a workspace', async ({
   page,
   request,
 }) => {
   // Issue #183 §1: a real destination in the tab rail, not sections appended
   // to the General tab's Workspace scope.
   const ada = await signIn(request, 'ada');
-  const id = await createWorkspace(request, ada, `E360 w${test.info().workerIndex}`);
+  const id = await createWorkspace(request, ada, `E364 w${test.info().workerIndex}`);
 
   await signInTo(page, 'ada', id);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
@@ -1661,13 +1664,13 @@ test('E360: People is its own settings tab, immediately after Editor, holding me
   await expect(page.getByTestId('settings-tab-people')).toHaveCount(0);
 });
 
-test('E361: Add people autocompletes from the directory — guest badge, ↑/↓/Enter/Esc, and inline empty/error answers', async ({
+test('E365: Add people autocompletes from the directory — guest badge, ↑/↓/Enter/Esc, and inline empty/error answers', async ({
   page,
   request,
 }) => {
   // Issue #183 §3: the suggestions dropdown over the local mock directory.
   const ada = await signIn(request, 'ada');
-  const id = await createWorkspace(request, ada, `E361 w${test.info().workerIndex}`);
+  const id = await createWorkspace(request, ada, `E365 w${test.info().workerIndex}`);
 
   await signInTo(page, 'ada', id);
   await openWorkspaceSettings(page);
@@ -1720,7 +1723,7 @@ test('E361: Add people autocompletes from the directory — guest badge, ↑/↓
   await page.unroute('**/api/directory/search*');
 });
 
-test('E362: the Add people input and the role select share the one text-input rule — box, border, font and edges — in a light and a dark theme', async ({
+test('E366: the Add people input and the role select share the one text-input rule — box, border, font and edges — in a light and a dark theme', async ({
   page,
   request,
 }) => {
@@ -1728,7 +1731,7 @@ test('E362: the Add people input and the role select share the one text-input ru
   // two-theme visual check the spec calls for). The shared .modal rule reads
   // theme variables, so the pair must agree in Crisp and One Dark alike.
   const ada = await signIn(request, 'ada');
-  const id = await createWorkspace(request, ada, `E362 w${test.info().workerIndex}`);
+  const id = await createWorkspace(request, ada, `E366 w${test.info().workerIndex}`);
   await signInTo(page, 'ada', id);
   await openWorkspaceSettings(page);
 
