@@ -2482,3 +2482,84 @@ test('E325: a crash-safe draft left in the store by a killed test does not hijac
   const get = await request.get(`${HOSTED}/api/me/files/draft.json`, { headers });
   expect(get.status()).toBe(404);
 });
+
+// --- the file tab strip on hosted (PRD 013 amended by issue #186) ------------
+// The strip is gated on the `multiFileSession` capability, which the hosted
+// flavor declares: the SPEC36 open set already ran here, only the strip was
+// hidden behind the old `localFolders` gate. These cover the hosted minimum —
+// presence, activation, close, the setting toggle — while every deeper strip
+// behavior stays covered by file-tabs.spec.ts on the shim.
+
+/** The hosted strip's tab for the file named `name`. */
+const hostedTab = (page: Page, name: string) =>
+  page.getByTestId('file-tab').filter({ hasText: name });
+
+test('E358: hosted — the tab strip renders on the open set and a tab click activates the parked file', async ({
+  page,
+  request,
+}) => {
+  // PRD 013 Reqs 1–4 on the hosted platform: one tab per open file, the
+  // active tab distinct, and activation through the SPEC36 park/restore path.
+  const token = await signIn(request, 'ada');
+  const headers = { Authorization: `Bearer ${token}` };
+  const id = await createWorkspace(request, token, `E358 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/alpha.md`, { headers, data: '# alpha\n' });
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/beta.md`, { headers, data: '# beta\n' });
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'alpha.md');
+  // A single open file already renders the strip, its one tab active.
+  await expect(page.getByTestId('file-tab-strip')).toBeVisible();
+  await expect(page.getByTestId('file-tab')).toHaveCount(1);
+  await expect(hostedTab(page, 'alpha.md')).toHaveAttribute('data-active', 'true');
+
+  // A second open joins the set additively (SPEC36 §3.2, issue #64 rule).
+  await openFromSidebar(page, 'beta.md');
+  await expect(page.getByTestId('file-tab')).toHaveCount(2);
+  await expect(hostedTab(page, 'beta.md')).toHaveAttribute('data-active', 'true');
+  await expect(hostedTab(page, 'alpha.md')).toHaveAttribute('data-active', 'false');
+
+  // Clicking the inactive tab activates it — document and active state follow.
+  await hostedTab(page, 'alpha.md').click();
+  await expect(page.getByTestId('docname')).toContainText('alpha.md');
+  await expect(hostedTab(page, 'alpha.md')).toHaveAttribute('data-active', 'true');
+  await expect(hostedTab(page, 'beta.md')).toHaveAttribute('data-active', 'false');
+});
+
+test('E359: hosted — ✕ closes a tab without switching, and View ▸ File Tabs hides then restores the strip', async ({
+  page,
+  request,
+}) => {
+  const token = await signIn(request, 'grace');
+  const headers = { Authorization: `Bearer ${token}` };
+  const id = await createWorkspace(request, token, `E359 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/keep.md`, { headers, data: '# keep\n' });
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/gone.md`, { headers, data: '# gone\n' });
+
+  await signInTo(page, 'grace', id);
+  await openFromSidebar(page, 'gone.md');
+  await openFromSidebar(page, 'keep.md');
+  await expect(page.getByTestId('file-tab')).toHaveCount(2);
+
+  // PRD 013 Req 5 on hosted: ✕ on the clean INACTIVE tab removes it from the
+  // open set without activating it — the active document never changes.
+  await hostedTab(page, 'gone.md').hover();
+  await hostedTab(page, 'gone.md').getByTestId('file-tab-close').click();
+  await expect(page.getByTestId('file-tab')).toHaveCount(1);
+  await expect(page.getByTestId('docname')).toContainText('keep.md');
+  await expect(hostedTab(page, 'keep.md')).toHaveAttribute('data-active', 'true');
+
+  // PRD 013 Req 13: the View ▸ File Tabs toggle exists on hosted now and
+  // hides the strip; the open set is untouched, so toggling back restores it.
+  // The setting roams per user (PRD 007), so this test restores what it flips.
+  await openAppMenu(page);
+  await page.getByTestId('menu-view').click();
+  await page.getByTestId('app-menu-view').getByTestId('menu-view-toggleFileTabs').click();
+  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
+  await expect(page.getByTestId('docname')).toContainText('keep.md');
+  await openAppMenu(page);
+  await page.getByTestId('menu-view').click();
+  await page.getByTestId('app-menu-view').getByTestId('menu-view-toggleFileTabs').click();
+  await expect(page.getByTestId('file-tab-strip')).toBeVisible();
+  await expect(hostedTab(page, 'keep.md')).toHaveAttribute('data-active', 'true');
+});
