@@ -665,11 +665,10 @@ export function resolvePermissions(
   isAdmin = false,
 ): ReadonlySet<Permission> {
   const member = manifest.members.find((m) => m.id === userId);
-  const granted = member
-    ? permissionsOfRole(manifest, member.role)
-    : manifest.everyone.enabled
-      ? permissionsOfRole(manifest, manifest.everyone.role)
-      : NO_PERMISSIONS;
+  let granted: ReadonlySet<Permission>;
+  if (member) granted = permissionsOfRole(manifest, member.role);
+  else if (manifest.everyone.enabled) granted = permissionsOfRole(manifest, manifest.everyone.role);
+  else granted = NO_PERMISSIONS;
   if (!isAdmin) return granted;
   return new Set([...granted, ...ADMIN_IMPLICIT_PERMISSIONS]);
 }

@@ -877,7 +877,7 @@ describe('PRD 017 Req 4 admin union over HTTP', () => {
     const denied = await call('katherine', 'PUT', `/api/workspaces/${id}/files/notes/a.md`, '# hi');
     expect(denied.status).toBe(403);
     expect(await denied.json()).toEqual({ error: 'forbidden', required: 'file.create' });
-    // And a plain non-member non-admin still sees no access at all.
+    // Cleanup: the Owner deletes the workspace (shared server, shared suite).
     expect((await call('ada', 'DELETE', `/api/workspaces/${id}`)).status).toBe(200);
   });
 });
