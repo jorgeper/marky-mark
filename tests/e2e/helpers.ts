@@ -576,6 +576,38 @@ export const clickWord = async (page: Page, paneSel: string, word: string, nth =
   await page.mouse.click(r.x + r.width / 2, r.y + r.height / 2);
 };
 
+/**
+ * Issue #178: click the LEFT EDGE of character `offset` inside the nth
+ * visible occurrence of `word` in `paneSel` — the caret lands exactly at
+ * that character boundary, making exact-position assertions deterministic
+ * (a word-center click depends on glyph widths).
+ */
+export const clickCharBoundary = async (page: Page, paneSel: string, word: string, offset: number, nth = 0) => {
+  const p = await page.evaluate(
+    ([sel, w, n, off]) => {
+      const pane = document.querySelector(sel as string)!;
+      const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
+      let seen = 0;
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const text = node.nodeValue ?? '';
+        for (let at = text.indexOf(w as string); at !== -1; at = text.indexOf(w as string, at + 1)) {
+          if (seen++ === (n as number)) {
+            const r = document.createRange();
+            r.setStart(node, at + (off as number));
+            r.setEnd(node, at + (off as number) + 1);
+            const b = r.getBoundingClientRect();
+            return { x: b.left, y: b.top + b.height / 2 };
+          }
+        }
+      }
+      throw new Error(`word not found: ${w}`);
+    },
+    [paneSel, word, nth, offset] as const
+  );
+  await page.mouse.click(p.x, p.y);
+};
+
 /** Open `path` through the menu's Open dialog (the shim accepts the string). */
 export async function openPath(page: Page, path: string): Promise<void> {
   page.once('dialog', (d) => void d.accept(path));

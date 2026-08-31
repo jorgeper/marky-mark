@@ -11,6 +11,8 @@
  * caller falls back to the covering line range (never a wrong guess).
  */
 
+import { wordAt } from './activePosition';
+
 export interface StripResult {
   /** The line's rendered-visible text (approximation, inline level). */
   visible: string;
@@ -389,6 +391,35 @@ export function sourceOffsetForRendered(
   }
   if (flatAbs.length === 0) return null;
   return flatAbs[Math.min(n, flatAbs.length - 1)];
+}
+
+/**
+ * Issue #178: collapsed-caret mapping — the source offset where a caret at
+ * raw rendered offset `local` (within the block's rendered text, 1-based
+ * source lines [fromLine, toLine]) lands. Word-anchored when the caret sits
+ * on (or just after) a word: the word's nth normalized occurrence locates
+ * it exactly and the within-word offset rides along — robust where plain
+ * prefix counting drifts. Otherwise the flat-prefix mapping
+ * (sourceOffsetForRendered). Null only when the block renders no visible
+ * text at all — the caller falls back to the block start, never a wrong
+ * guess.
+ */
+export function sourceCaretForRendered(
+  source: string,
+  fromLine: number,
+  toLine: number,
+  rendered: string,
+  local: number
+): number | null {
+  const at = Math.max(0, Math.min(local, rendered.length));
+  const w = wordAt(rendered, at);
+  if (w) {
+    const word = rendered.slice(w.start, w.end);
+    const nth = countNormalized(rendered.slice(0, w.start), word);
+    const hit = sourceRangeForVisibleMatch(source, fromLine, toLine, word, nth);
+    if (hit) return Math.min(hit.from + (at - w.start), hit.to);
+  }
+  return sourceOffsetForRendered(source, fromLine, toLine, rendered, at);
 }
 
 /**

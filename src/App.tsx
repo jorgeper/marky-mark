@@ -181,7 +181,7 @@ import {
   SEMANTIC_ZOOM_COMBOS,
 } from './lib/semanticZoom';
 import { VimNavResolver } from './lib/vimnav';
-import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, renderedOffsetForSource, sourceOffsetForRendered, sourceRangeForVisibleMatch, visibleTextForRange } from './lib/selectionMap';
+import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, renderedOffsetForSource, sourceCaretForRendered, sourceOffsetForRendered, visibleTextForRange } from './lib/selectionMap';
 import { blockLineFor, wordAt } from './lib/activePosition';
 import { parseFrontMatter } from './lib/frontmatter';
 import { commentAffordanceSurface } from './lib/commentAffordance';
@@ -953,6 +953,46 @@ export default function App() {
     return { from: starts[lo - 1], to: starts[hi - 1] + lines[hi - 1].length };
   }, []);
 
+  /**
+   * Issue #178: map a COLLAPSED caret sitting in a preview pane to a source
+   * caret — exact via sourceCaretForRendered over the covering data-mm-line
+   * block's rendered text, else the block's start (never a wrong guess).
+   * Null when the pane holds no collapsed caret (a real selection goes
+   * through sourceRangeFromDomSelection instead).
+   */
+  const sourceCaretFromDomCaret = useCallback((pane: HTMLElement): { from: number; to: number } | null => {
+    const sel = document.getSelection();
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return null;
+    const range = sel.getRangeAt(0);
+    if (!pane.contains(range.startContainer)) return null;
+    const base =
+      range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? (range.startContainer as HTMLElement)
+        : range.startContainer.parentElement;
+    const blockEl = base?.closest<HTMLElement>('[data-mm-line]');
+    if (!blockEl) return null;
+    const buffer = stateRef.current.buffer;
+    const lines = buffer.split('\n');
+    const blockLine = Number(blockEl.dataset.mmLine);
+    const stamped = Array.from(pane.querySelectorAll<HTMLElement>('[data-mm-line]'));
+    const after = stamped.find((el) => Number(el.dataset.mmLine) > blockLine);
+    const endLine = after ? Number(after.dataset.mmLine) - 1 : lines.length;
+    const { start: at } = rangeToOffsets(pane, range);
+    const region = document.createRange();
+    region.setStartBefore(blockEl);
+    region.setEndAfter(blockEl);
+    const { start: rs, end: re } = rangeToOffsets(pane, region);
+    const blockText = getDocText(pane).slice(rs, re);
+    const local = Math.max(0, Math.min(at - rs, blockText.length));
+    const starts: number[] = [0];
+    for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
+    const caret =
+      sourceCaretForRendered(buffer, blockLine, endLine, blockText, local) ??
+      starts[Math.min(blockLine, lines.length) - 1] ??
+      0;
+    return { from: caret, to: caret };
+  }, []);
+
   // --- SPEC30 §1.3: the preview find engine (doc-text marks) -------------------
   const clearFindMarks = useCallback(() => {
     const pane = docRef.current;
@@ -1188,29 +1228,28 @@ export default function App() {
       const { start: rs, end: re } = rangeToOffsets(pane, region);
       const blockText = getDocText(pane).slice(rs, re);
       const local = Math.max(0, Math.min(at - rs, blockText.length));
-      const w = wordAt(blockText, local);
       const starts: number[] = [0];
       for (let n = 0; n < lines.length - 1; n++) starts.push(starts[n] + lines[n].length + 1);
-      let src: { from: number; to: number } | null = null;
-      if (w) {
-        const word = blockText.slice(w.start, w.end);
-        const nth = countNormalized(blockText.slice(0, w.start), word);
-        src = sourceRangeForVisibleMatch(buffer, blockLine, endLine, word, nth);
+      // Issue #178: the caret lands at the EXACT clicked offset (word-anchored
+      // with the within-word offset riding along, else the flat prefix), so a
+      // later toggle to edit puts the cursor precisely where the user clicked
+      // — not just at the word's start.
+      let caret = sourceCaretForRendered(buffer, blockLine, endLine, blockText, local);
+      if (caret === null) {
+        // §4.1: an unmappable click lands the caret at the CLICKED container's
+        // source start (its first visible character) — inside a list that is
+        // the clicked item, not the whole stamp.
+        caret = starts[Math.min(blockLine, lines.length) - 1] ?? 0;
+        const clickedContainer = base?.closest<HTMLElement>('li, p, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th');
+        if (clickedContainer && blockEl.contains(clickedContainer)) {
+          const cRegion = document.createRange();
+          cRegion.setStartBefore(blockEl);
+          cRegion.setEndBefore(clickedContainer);
+          const cLocal = rangeToOffsets(pane, cRegion).end - rs;
+          const mapped = sourceOffsetForRendered(buffer, blockLine, endLine, blockText, Math.max(0, cLocal));
+          if (mapped !== null) caret = mapped;
+        }
       }
-      // §4.1: a no-word click lands the caret at the CLICKED container's
-      // source start (its first visible character) — inside a list that is
-      // the clicked item, not the whole stamp.
-      let fallback = starts[Math.min(blockLine, lines.length) - 1] ?? 0;
-      const clickedContainer = base?.closest<HTMLElement>('li, p, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th');
-      if (!src && clickedContainer && blockEl.contains(clickedContainer)) {
-        const cRegion = document.createRange();
-        cRegion.setStartBefore(blockEl);
-        cRegion.setEndBefore(clickedContainer);
-        const cLocal = rangeToOffsets(pane, cRegion).end - rs;
-        const mapped = sourceOffsetForRendered(buffer, blockLine, endLine, blockText, Math.max(0, cLocal));
-        if (mapped !== null) fallback = mapped;
-      }
-      const caret = src ? src.from : fallback;
       if (stateRef.current.mode === 'edit') {
         editorSelectRef.current?.(caret, caret); // the report loop paints the cues
       } else {
@@ -3541,7 +3580,12 @@ export default function App() {
     // SPEC25: carry the current selection across the mode switch.
     if (s.mode === 'preview') {
       pendingEditorSelRef.current =
-        (docRef.current ? sourceRangeFromDomSelection(docRef.current) : null) ?? pendingEditorSelRef.current;
+        (docRef.current ? sourceRangeFromDomSelection(docRef.current) : null) ??
+        pendingEditorSelRef.current ??
+        // Issue #178: with no selection and nothing parked by a click, a
+        // collapsed DOM caret in the preview still carries — clicks the
+        // placement handler skips (links, marks) leave one behind.
+        (docRef.current ? sourceCaretFromDomCaret(docRef.current) : null);
     } else {
       const { from, to } = lastEditorSelRef.current;
       pendingPreviewSelRef.current = from !== to ? { from, to } : null;
@@ -3569,7 +3613,7 @@ export default function App() {
     }
     setSelInfo(null);
     setPending(null);
-  }, [saveDoc, sourceRangeFromDomSelection, rememberViewMode]);
+  }, [saveDoc, sourceRangeFromDomSelection, sourceCaretFromDomCaret, rememberViewMode]);
 
   /**
    * Split divider drag (SPEC7 §5.4): pointer-captured; the live resize writes

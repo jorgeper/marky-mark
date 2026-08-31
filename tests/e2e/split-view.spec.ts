@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures';
 import {
+  clickCharBoundary,
   clickWord,
   editorTopGutterLine,
   freshApp,
@@ -536,21 +537,98 @@ test('E125: preview clicks place the caret — split moves the editor, preview-o
   await expect(page.locator('[data-testid="doc"] mark.mm-active-word')).toHaveText('beta');
 
   // Mod+E lands the editor caret on that word (the E85 contract, collapsed).
+  // Issue #178: at the exact CLICKED offset inside it (clickWord aims at the
+  // word's center), no longer pinned to the word's start.
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
   await expect(page.locator('.cm-content .mm-active-word')).toHaveText('beta');
-  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBe('# Click\n\nalpha '.length);
+  const betaBase = '# Click\n\nalpha '.length;
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBeGreaterThanOrEqual(betaBase);
+  expect(await page.evaluate(() => window.__mmEdit?.selFrom)).toBeLessThanOrEqual(betaBase + 'beta'.length);
 
-  // Split mode: clicking a preview word moves the editor caret to it.
+  // Split mode: clicking a preview word moves the editor caret to it
+  // (Issue #178: to the clicked offset within it).
   await clickWord(page, '[data-testid="split-preview"] .doc', 'gamma');
   await expect(page.locator('.cm-content .mm-active-word')).toHaveText('gamma');
   await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveText('gamma');
-  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBe('# Click\n\nalpha beta '.length);
+  const gammaBase = '# Click\n\nalpha beta '.length;
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBeGreaterThanOrEqual(gammaBase);
+  expect(await page.evaluate(() => window.__mmEdit?.selFrom)).toBeLessThanOrEqual(gammaBase + 'gamma'.length);
 
-  // A no-word click (punctuation run) still moves the caret — to the block.
+  // A no-word click (punctuation run) still moves the caret — Issue #178:
+  // into the clicked run via the flat prefix, not just to the block start.
   await clickWord(page, '[data-testid="split-preview"] .doc', '+++');
-  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBe('# Click\n\nalpha beta gamma\n\n'.length);
+  const plusBase = '# Click\n\nalpha beta gamma\n\nplus '.length;
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBeGreaterThanOrEqual(plusBase);
+  expect(await page.evaluate(() => window.__mmEdit?.selFrom)).toBeLessThanOrEqual(plusBase + '+++'.length);
   await expect(page.locator('[data-testid="split-preview"] .doc .mm-active-block')).toContainText('plus +++ plus2');
+});
+
+test('E364: Issue #178 — a collapsed preview caret carries into edit at the exact clicked offset', async ({ page }) => {
+  await fsWrite(page, '/docs/caret.md', '# Caret\n\nThe **quick brown** fox jumps far.\n\ncat and cat again.\n');
+  await page.goto('/#open=/docs/caret.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Caret');
+
+  // The boundary before the 'm' of 'jumps': the source offset is exact even
+  // though the stripped ** markers shift everything after them.
+  await clickCharBoundary(page, '[data-testid="doc"]', 'jumps', 2);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  const at = '# Caret\n\nThe **quick brown** fox ju'.length;
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBe(at);
+  expect(await page.evaluate(() => window.__mmEdit?.selTo)).toBe(at);
+  // The caret is on-screen: the whole 5-line document sits in the viewport.
+  await expect.poll(() => editorTopGutterLine(page)).toBeLessThanOrEqual(3);
+
+  // A repeated word resolves by the CARET's occurrence, not the first match.
+  await page.keyboard.press('Control+e'); // back to preview
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Caret');
+  await clickCharBoundary(page, '[data-testid="doc"]', 'cat', 1, 1); // 2nd 'cat', offset 1
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  const at2 = '# Caret\n\nThe **quick brown** fox jumps far.\n\ncat and c'.length;
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBe(at2);
+  expect(await page.evaluate(() => window.__mmEdit?.selTo)).toBe(at2);
+});
+
+test('E365: Issue #178 — the collapsed caret and top line survive edit → preview → edit; a scrolled preview keeps scroll authority', async ({
+  page,
+}) => {
+  await splitApp(page, false); // long doc, currently in full edit
+  // A collapsed caret a few characters into the first line.
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBe(5);
+  expect(await page.evaluate(() => window.__mmEdit?.selTo)).toBe(5);
+
+  // Round trip with NO preview interaction: the exact caret and the top
+  // visible line both return (parked history + the SPEC16 §3.2 carry).
+  await page.keyboard.press('Control+e'); // → preview
+  await expect(page.getByTestId('doc').locator('h2').first()).toBeVisible();
+  await page.waitForTimeout(250); // past the selection-restore window (E85)
+  await page.keyboard.press('Control+e'); // → edit
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBe(5);
+  expect(await page.evaluate(() => window.__mmEdit?.selTo)).toBe(5);
+  await expect.poll(() => editorTopGutterLine(page)).toBeLessThanOrEqual(3);
+
+  // Scroll the preview before toggling back: the editor opens at the
+  // scrolled-to position and the restored off-screen caret does NOT yank
+  // the viewport up to itself.
+  await page.keyboard.press('Control+e'); // → preview (at the top)
+  await expect(page.getByTestId('doc').locator('h2').first()).toBeVisible();
+  const ws = page.locator('.workspace');
+  await ws.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.5));
+  const anchors = await previewTopAnchorLines(page, '.workspace');
+  await page.keyboard.press('Control+e'); // → edit
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  // The caret survived untouched…
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selFrom)).toBe(5);
+  // …while the viewport stayed with the scroll carry, far below line 1.
+  await expect.poll(() => editorTopGutterLine(page), { timeout: 20000 }).toBeGreaterThanOrEqual(anchors.before - 2);
+  expect(await editorTopGutterLine(page)).toBeLessThanOrEqual(anchors.after + 2);
+  expect(await editorTopGutterLine(page)).toBeGreaterThan(20);
 });
 
 test('E126: hygiene — comments anchor through the cues, find coexists/suppresses, themes override, doc switch resets', async ({
