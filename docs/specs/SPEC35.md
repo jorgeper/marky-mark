@@ -205,9 +205,9 @@ menu is pointer-only; keyboard file management can be a later delta.)
    untitled buffer, resolving the unsaved-changes guard with Don't Save
    still lands the new file in edit mode. **U999** pins the pure rule
    (`viewModeForOpen` with edit intent, never past the edit grant).
-6. No existing test may be modified, weakened, skipped, or deleted;
+7. No existing test may be modified, weakened, skipped, or deleted;
    E42–E44 stay reserved. The only permitted test additions are U63 and
-   E96–E99.
+   E96–E99 — plus U999 and E385 under the issue #194 amendment.
 
 ## 10. Definition of Done
 
