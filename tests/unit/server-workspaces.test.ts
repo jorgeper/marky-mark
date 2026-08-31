@@ -853,7 +853,7 @@ describe('PRD 017 Req 4 admin union over HTTP', () => {
   const call = (user: string, method: string, path: string, body?: string): Promise<Response> =>
     fetch(`${base}${path}`, { method, headers: { Authorization: `Bearer ${tokens[user]}` }, body });
 
-  it('U813: an admin non-member reads, administers and is listed with access — but cannot write', async () => {
+  it('U961: an admin non-member reads, administers and is listed with access — but cannot write', async () => {
     const res = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Admin proof' }));
     expect(res.status).toBe(201);
     const { id } = (await res.json()) as { id: string };

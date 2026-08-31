@@ -502,7 +502,7 @@ describe('PRD 017 Req 2+4 deployment-level permissions and the implicit admin un
     everyone: { enabled: false, role: 'Viewer' },
   };
 
-  it('U809: deployment.admin and deployment.create are named outside the catalog — no role can grant them', () => {
+  it('U957: deployment.admin and deployment.create are named outside the catalog — no role can grant them', () => {
     expect([...DEPLOYMENT_PERMISSIONS]).toEqual(['deployment.admin', 'deployment.create']);
     for (const name of DEPLOYMENT_PERMISSIONS) {
       // The fourteen-verb catalog is unchanged and rejects both names…
@@ -523,7 +523,7 @@ describe('PRD 017 Req 2+4 deployment-level permissions and the implicit admin un
     expect(PERMISSIONS).toHaveLength(14);
   });
 
-  it('U810: an admin who is not a member holds exactly the seven implicit read/administer verbs', () => {
+  it('U958: an admin who is not a member holds exactly the seven implicit read/administer verbs', () => {
     expect([...resolvePermissions(manifest, 'mock-katherine', true)].sort()).toEqual(
       [
         'doc.read',
@@ -543,7 +543,7 @@ describe('PRD 017 Req 2+4 deployment-level permissions and the implicit admin un
     }
   });
 
-  it('U811: membership unions with the implicit set — never an override', () => {
+  it('U959: membership unions with the implicit set — never an override', () => {
     // An admin who is also an Owner keeps full Owner permissions.
     expect([...resolvePermissions(manifest, 'mock-ada', true)].sort()).toEqual([...PERMISSIONS].sort());
     // An admin with a narrow custom role gets that role PLUS the implicit set.
@@ -552,7 +552,7 @@ describe('PRD 017 Req 2+4 deployment-level permissions and the implicit admin un
     );
   });
 
-  it('U812: the everyone-role unions too, and a non-admin caller is untouched', () => {
+  it('U960: the everyone-role unions too, and a non-admin caller is untouched', () => {
     const open: WorkspaceManifest = { ...manifest, everyone: { enabled: true, role: 'Commenter' } };
     // Admin non-member in an open workspace: Commenter ∪ the implicit seven.
     expect([...resolvePermissions(open, 'mock-katherine', true)].sort()).toEqual(
