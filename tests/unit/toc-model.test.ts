@@ -240,7 +240,7 @@ describe('PRD 012 Req 13 — the empty document', () => {
 });
 
 describe('PRD 012 Req 7 — the active entry and its reveal, resolved together', () => {
-  test('U671: the resolver returns the active id with the collapse set the reveal needs, and the SAME set when nothing had to move', () => {
+  test('U912: the resolver returns the active id with the collapse set the reveal needs, and the SAME set when nothing had to move', () => {
     const entries = tree(doc);
 
     // Nothing collapsed: the id is `activeTocEntryId`'s answer and the caller's

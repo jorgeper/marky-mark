@@ -192,7 +192,7 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{"hotkeys":{"save":"Mod+S"}}').hotkeys.toggleSplit).toBe('Mod+\\');
   });
 
-  test('U763: issue #167 — View carries Sync Scrolling beside Split Edit when supplied; checkbox tracks, hotkey-less', () => {
+  test('U942: issue #167 — View carries Sync Scrolling beside Split Edit when supplied; checkbox tracks, hotkey-less', () => {
     // The frozen baseline omits the key, so every pre-#167 expectation holds.
     expect(find(base, 'View', 'toggleSyncScroll')).toBeUndefined();
     for (const on of [true, false]) {
@@ -220,7 +220,7 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{"showFrontmatter":"nope"}').showFrontmatter).toBe(true);
   });
 
-  test('U124: issue #10 — View carries Line Numbers as a checkbox tracking the setting, with no accelerator', () => {
+  test('U818: issue #10 — View carries Line Numbers as a checkbox tracking the setting, with no accelerator', () => {
     for (const s of [base, { ...base, isMac: false }]) {
       // Sits with the other view-chrome toggles, right after Front Matter.
       const view = commandsIn(s, 'View').map((i) => i.command);
@@ -274,7 +274,7 @@ describe('SPEC12 menu spec', () => {
     expect(sub && sub.type === 'submenu' && sub.items.map((i) => i.type)).toEqual(['command']);
   });
 
-  test('U66: File menu §D14 — full order and separator grouping; workspace items on both layouts', () => {
+  test('U815: File menu §D14 — full order and separator grouping; workspace items on both layouts', () => {
     for (const s of [base, { ...base, isMac: false }]) {
       const file = buildMenuSpec(s).submenus.find((m) => m.title === 'File')!;
       const shape = file.items.map((i) =>
@@ -306,7 +306,7 @@ describe('SPEC12 menu spec', () => {
     }
   });
 
-  test('U67: Open Recent §D15 — workspaces first (kind-tagged), separator, files, separator, Clear Menu', () => {
+  test('U816: Open Recent §D15 — workspaces first (kind-tagged), separator, files, separator, Clear Menu', () => {
     const ws = [
       { path: '/w/site.marky-workspace', label: 'site.marky-workspace' },
       { path: '/w/docs.marky-workspace', label: 'docs.marky-workspace' },
@@ -582,7 +582,7 @@ describe('PRD 011 Reqs 2+23: semantic zoom is absent until the Experimental flag
 });
 
 describe('PRD 013 Req 13: the File Tabs View item', () => {
-  test('U680: File Tabs closes the layout group — checkbox tracks the setting, no accelerator, grayed with no document', () => {
+  test('U915: File Tabs closes the layout group — checkbox tracks the setting, no accelerator, grayed with no document', () => {
     for (const s of [base, { ...base, isMac: false }]) {
       // Grouped with the workspace/layout rows: straight after the open-file
       // cycle pair, ahead of the mode toggles.
@@ -602,7 +602,7 @@ describe('PRD 013 Req 13: the File Tabs View item', () => {
     }
   });
 
-  test('U681: without the tab-strip seam the row is absent, not disabled — pre-#144 states keep their exact menu', () => {
+  test('U916: without the tab-strip seam the row is absent, not disabled — pre-#144 states keep their exact menu', () => {
     // fileTabs undefined = a flavor with no strip (web/hosted): no row at
     // all, and every other View item is exactly what it was.
     const { fileTabs: _fileTabs, ...without } = base;
@@ -614,7 +614,7 @@ describe('PRD 013 Req 13: the File Tabs View item', () => {
 });
 
 describe('Issue #158: the Close File accelerator', () => {
-  test('U724: Close File carries the rebindable Mod+W on both layouts; mac Close Window gave the chord up; no menu holds two enabled items on one chord', () => {
+  test('U933: Close File carries the rebindable Mod+W on both layouts; mac Close Window gave the chord up; no menu holds two enabled items on one chord', () => {
     const win = { ...base, isMac: false };
     expect(DEFAULT_HOTKEYS.closeFile).toBe('Mod+W');
     for (const s of [base, win]) {

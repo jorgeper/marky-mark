@@ -14,7 +14,7 @@ const basename = (p: string) => p.split('/').filter(Boolean).pop() ?? '';
 const dirname = (p: string) => p.split('/').slice(0, -1).join('/') || '/';
 
 describe('PRD 002 §D15 recent workspaces (same lineage, separate store)', () => {
-  test('U68: the workspace store is its own MRU — per-section cap, dedupe by path, tolerant parse, Clear', () => {
+  test('U817: the workspace store is its own MRU — per-section cap, dedupe by path, tolerant parse, Clear', () => {
     // A second RecentStore instance holds the workspaces — its cap and
     // dedupe are independent of the files store.
     let files: RecentStore = { version: 1, entries: [] };

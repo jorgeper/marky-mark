@@ -25,7 +25,7 @@ const searchFor = async (page: Page, query: string) => {
   await page.getByTestId('search-input').fill(query);
 };
 
-test('E272: the Search view — the third switch button, one view at a time, and a round trip that loses no folder or TOC state', async ({
+test('E339: the Search view — the third switch button, one view at a time, and a round trip that loses no folder or TOC state', async ({
   page,
 }) => {
   await seedFolders(page);
@@ -81,7 +81,7 @@ test('E272: the Search view — the third switch button, one view at a time, and
   await expect(page.getByTestId('sidebar-view-search')).toHaveAttribute('aria-pressed', 'false');
 });
 
-test('E273: a query scans the folder tree — grouped by file, filename matches first, counts and highlighted context; dotfiles and non-markdown never match', async ({
+test('E340: a query scans the folder tree — grouped by file, filename matches first, counts and highlighted context; dotfiles and non-markdown never match', async ({
   page,
 }) => {
   await seedSearchTree(page);
@@ -128,7 +128,7 @@ test('E273: a query scans the folder tree — grouped by file, filename matches 
   await expect(page.getByTestId('search-file')).toHaveCount(0);
 });
 
-test('E274: unsaved edits are searched in memory — active and parked buffers alike — and deleted-but-unsaved text is not found', async ({
+test('E341: unsaved edits are searched in memory — active and parked buffers alike — and deleted-but-unsaved text is not found', async ({
   page,
 }) => {
   await seedSearchTree(page);
@@ -166,7 +166,7 @@ test('E274: unsaved edits are searched in memory — active and parked buffers a
   await expect(page.getByTestId('search-file')).toHaveCount(0);
 });
 
-test('E275: clicking a content match opens the file AT the match (preview and edit), and a filename match opens the file — the results never reset', async ({
+test('E342: clicking a content match opens the file AT the match (preview and edit), and a filename match opens the file — the results never reset', async ({
   page,
 }) => {
   await seedSearchTree(page);
@@ -226,7 +226,7 @@ test('E275: clicking a content match opens the file AT the match (preview and ed
   await expect(page.getByTestId('search-file')).toHaveCount(2);
 });
 
-test('E276: with no folder root open the Search view says so plainly', async ({ page }) => {
+test('E343: with no folder root open the Search view says so plainly', async ({ page }) => {
   // PRD 007 Req 22's root-less state: a fresh local workspace with no folder.
   await page.evaluate(() => window.__mmDispatch!('closeFile'));
   await expect(page.getByTestId('empty-hint')).toBeVisible();

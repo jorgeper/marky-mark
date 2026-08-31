@@ -189,7 +189,7 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     blobs.clear();
   });
 
-  it('U269: raw workspace blobs round-trip bytes, are served with an extension-derived type, and stay permission-checked', async () => {
+  it('U834: raw workspace blobs round-trip bytes, are served with an extension-derived type, and stay permission-checked', async () => {
     // PRD 007 Req 8: pasted images are workspace blobs — bytes in, bytes out,
     // behind the same doc.edit / doc.read verbs as any other file.
     const id = await createWorkspace('ada', 'Images');
@@ -221,7 +221,7 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     blobs.clear();
   });
 
-  it('U270: an <img>-shaped GET authenticates with ?access_token=, but a write with one stays 401', async () => {
+  it('U835: an <img>-shaped GET authenticates with ?access_token=, but a write with one stays 401', async () => {
     // PRD 007 Req 8: an image element cannot send an Authorization header.
     // The query-string token is a GET-only concession — it must never mutate.
     const id = await createWorkspace('ada', 'Asset URLs');
@@ -250,7 +250,7 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     blobs.clear();
   });
 
-  it('U271: per-user blobs are scoped to the token, invisible to other users and to the /api/files scaffold', async () => {
+  it('U836: per-user blobs are scoped to the token, invisible to other users and to the /api/files scaffold', async () => {
     // PRD 007 Req 9: the roaming User settings layer. The prefix comes from
     // the validated token, so there is no URL by which one user names
     // another's blobs — and the workspace-agnostic scaffold cannot see them.
@@ -288,7 +288,7 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     expect((await call('ada', 'PUT', `/api/workspaces/${id}/manifest`, JSON.stringify(manifest))).status).toBe(200);
   }
 
-  it('U301: move/rename routes each check exactly one verb, carry a folder\'s contents, and never clobber', async () => {
+  it('U843: move/rename routes each check exactly one verb, carry a folder\'s contents, and never clobber', async () => {
     // PRD 007 Req 18: file moves need file.rename, folder moves need
     // folder.manage — a Contributor holds neither, and the server refuses
     // whatever the UI showed.
@@ -325,7 +325,7 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     blobs.clear();
   });
 
-  it('U302: an empty folder survives as a placeholder blob, and deleting one needs folder.manage', async () => {
+  it('U844: an empty folder survives as a placeholder blob, and deleting one needs folder.manage', async () => {
     // PRD 007 Req 18: blob storage has no directories — the marker blob is
     // what makes a new empty folder still be there on the next listing.
     const id = await createWorkspace('ada', 'Folders');
@@ -345,7 +345,7 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     blobs.clear();
   });
 
-  it('U303: upload and download check their own verb, and the server re-applies the size/type rule', async () => {
+  it('U845: upload and download check their own verb, and the server re-applies the size/type rule', async () => {
     // PRD 007 Req 19 + Req 17: the client's check is a courtesy; THIS is the
     // control — a hand-rolled request gets the same answer.
     const id = await createWorkspace('ada', 'Transfer');
@@ -381,7 +381,7 @@ describe('PRD 007 Req 7+13 workspace API over HTTP', () => {
     blobs.clear();
   });
 
-  it('U304: a save carrying a stale ETag is refused 412 with the stored content untouched', async () => {
+  it('U846: a save carrying a stale ETag is refused 412 with the stored content untouched', async () => {
     // PRD 007 Req 20: two members, one file. Ada reads, Grace saves, Ada's
     // conditional save must lose — and Grace's write must survive.
     const id = await createWorkspace('ada', 'Concurrency');

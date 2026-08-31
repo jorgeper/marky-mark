@@ -42,7 +42,7 @@ const world = () => {
 };
 
 describe('issue #167 scrollbar idle/active machine', () => {
-  test('U764: scroll shows the bar, one named delay hides it, and a new scroll restarts the countdown', () => {
+  test('U943: scroll shows the bar, one named delay hides it, and a new scroll restarts the countdown', () => {
     const w = world();
     w.machine.scrolled();
     expect(w.states).toEqual(['active']);
@@ -57,7 +57,7 @@ describe('issue #167 scrollbar idle/active machine', () => {
     expect(w.hasTimer()).toBe(false);
   });
 
-  test('U765: a hold (pointer on the bar, thumb drag) pins the bar shown; release restarts the countdown', () => {
+  test('U944: a hold (pointer on the bar, thumb drag) pins the bar shown; release restarts the countdown', () => {
     const w = world();
     w.machine.scrolled();
     w.machine.hold();
@@ -81,7 +81,7 @@ describe('issue #167 scrollbar idle/active machine', () => {
     expect(w.hasTimer()).toBe(false);
   });
 
-  test('U766: the gutter test flags only points past the content box, and the barless rail is not a fading surface', () => {
+  test('U945: the gutter test flags only points past the content box, and the barless rail is not a fading surface', () => {
     // 200×100 content box at (10, 20) with 1px borders and an 11px gutter
     // on each axis.
     const m: GutterMetrics = { left: 10, top: 20, clientLeft: 1, clientTop: 1, clientWidth: 200, clientHeight: 100 };

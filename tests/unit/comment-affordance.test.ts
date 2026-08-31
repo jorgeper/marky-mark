@@ -12,7 +12,7 @@ const base: AffordanceState = {
 };
 
 describe('issue #38 comment affordance surface', () => {
-  test('U155: the predicate mirrors the button gate — every common gate kills both surfaces, and the surface follows the mode', () => {
+  test('U819: the predicate mirrors the button gate — every common gate kills both surfaces, and the surface follows the mode', () => {
     // The three live surfaces (SPEC7, SPEC25, #19): full preview and the
     // split-edit live preview anchor from the rendered DOM; plain edit mode
     // routes through the SPEC25 carry.

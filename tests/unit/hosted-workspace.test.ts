@@ -53,11 +53,11 @@ describe('PRD 007 Req 13 permission catalog', () => {
 });
 
 describe('PRD 007 Req 14 built-in roles', () => {
-  it('U244: Owner holds all fourteen permissions', () => {
+  it('U826: Owner holds all fourteen permissions', () => {
     expect([...BUILT_IN_ROLES.Owner].sort()).toEqual([...PERMISSIONS].sort());
   });
 
-  it('U245: Editor holds exactly the doc/file/folder/comment verbs', () => {
+  it('U827: Editor holds exactly the doc/file/folder/comment verbs', () => {
     expect([...BUILT_IN_ROLES.Editor].sort()).toEqual(
       [
         'doc.read',
@@ -74,7 +74,7 @@ describe('PRD 007 Req 14 built-in roles', () => {
     );
   });
 
-  it('U246: Contributor is exactly Editor minus file.delete, file.rename, folder.manage', () => {
+  it('U828: Contributor is exactly Editor minus file.delete, file.rename, folder.manage', () => {
     const expected = BUILT_IN_ROLES.Editor.filter(
       (p) => !['file.delete', 'file.rename', 'folder.manage'].includes(p)
     );
@@ -82,14 +82,14 @@ describe('PRD 007 Req 14 built-in roles', () => {
     expect(BUILT_IN_ROLES.Contributor).toHaveLength(7);
   });
 
-  it('U247: Commenter and Viewer hold exactly their pinned read-and-comment sets', () => {
+  it('U829: Commenter and Viewer hold exactly their pinned read-and-comment sets', () => {
     expect([...BUILT_IN_ROLES.Commenter].sort()).toEqual(
       ['doc.read', 'file.download', 'comment.read', 'comment.write'].sort()
     );
     expect([...BUILT_IN_ROLES.Viewer].sort()).toEqual(['doc.read', 'file.download', 'comment.read'].sort());
   });
 
-  it('U248: exactly five built-in roles exist and isBuiltInRoleName knows them', () => {
+  it('U830: exactly five built-in roles exist and isBuiltInRoleName knows them', () => {
     expect(Object.keys(BUILT_IN_ROLES).sort()).toEqual(
       ['Owner', 'Editor', 'Contributor', 'Commenter', 'Viewer'].sort()
     );
@@ -104,7 +104,7 @@ const NOW = '2026-08-05T12:00:00.000Z';
 const base = (): WorkspaceManifest => createWorkspaceManifest('Docs', 'mock-ada', NOW);
 
 describe('PRD 007 Req 14 built-in immutability', () => {
-  it('U249: upsertCustomRole refuses every built-in name — built-ins cannot be edited or shadowed', () => {
+  it('U831: upsertCustomRole refuses every built-in name — built-ins cannot be edited or shadowed', () => {
     for (const name of Object.keys(BUILT_IN_ROLES)) {
       const res = upsertCustomRole(base(), { name, permissions: ['doc.read'] });
       expect(res.ok, name).toBe(false);
@@ -112,13 +112,13 @@ describe('PRD 007 Req 14 built-in immutability', () => {
     }
   });
 
-  it('U250: removeCustomRole refuses built-in names — built-ins cannot be deleted', () => {
+  it('U832: removeCustomRole refuses built-in names — built-ins cannot be deleted', () => {
     const res = removeCustomRole(base(), 'Viewer');
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toContain('cannot be deleted');
   });
 
-  it('U251: custom roles round-trip through upsert and remove; unknown verbs are refused', () => {
+  it('U833: custom roles round-trip through upsert and remove; unknown verbs are refused', () => {
     const added = upsertCustomRole(base(), { name: 'Reviewer', permissions: ['doc.read', 'comment.write'] });
     expect(added.ok).toBe(true);
     if (!added.ok) return;

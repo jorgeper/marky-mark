@@ -606,7 +606,7 @@ async function dirtyUntitled(page: Page, text: string): Promise<void> {
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
 }
 
-test('E292: the untitled tab carries the trailing slot — clean shows neither, dirty shows the ● from App\'s own flag, hover swaps it for ✕, no width jitter', async ({
+test('E348: the untitled tab carries the trailing slot — clean shows neither, dirty shows the ● from App\'s own flag, hover swaps it for ✕, no width jitter', async ({
   page,
 }) => {
   await openUntitledAlone(page);
@@ -867,7 +867,7 @@ async function wheelOverStrip(page: Page, deltaX: number, deltaY: number): Promi
   await page.mouse.wheel(deltaX, deltaY);
 }
 
-test('E299: no arrows while the tabs fit; overflow grows them in, a resize that removes the overflow removes them — one row, fixed strip height', async ({
+test('E349: no arrows while the tabs fit; overflow grows them in, a resize that removes the overflow removes them — one row, fixed strip height', async ({
   page,
 }) => {
   // Four max-width tabs fit the default 1280px rail: no arrow occupies strip
@@ -912,7 +912,7 @@ test('E299: no arrows while the tabs fit; overflow grows them in, a resize that 
   expect(await railMax(page)).toBeLessThanOrEqual(1);
 });
 
-test('E300: arrows step the rail and die at their own ends — the open set, active file and tab order untouched by all of it', async ({
+test('E350: arrows step the rail and die at their own ends — the open set, active file and tab order untouched by all of it', async ({
   page,
 }) => {
   const paths = await openOverflow(page, 10);
@@ -956,7 +956,7 @@ test('E300: arrows step the rail and die at their own ends — the open set, act
   await expect(page.getByTestId('open-prompt')).toHaveCount(0);
 });
 
-test('E301: wheel over the strip scrolls the rail — plain vertical and horizontal deltas alike — without moving the preview or the page, even at the range ends', async ({
+test('E351: wheel over the strip scrolls the rail — plain vertical and horizontal deltas alike — without moving the preview or the page, even at the range ends', async ({
   page,
 }) => {
   await openOverflow(page, 10);
@@ -1003,7 +1003,7 @@ test('E301: wheel over the strip scrolls the rail — plain vertical and horizon
   await expect(page.getByTestId('docname')).toContainText('ovf-t10');
 });
 
-test('E302: activation reveals the tab from every path — sidebar row, Ctrl+Tab and a click on a partly clipped tab — minimally, and user scrolling never snaps back', async ({
+test('E352: activation reveals the tab from every path — sidebar row, Ctrl+Tab and a click on a partly clipped tab — minimally, and user scrolling never snaps back', async ({
   page,
 }) => {
   await openOverflow(page, 10);
@@ -1183,7 +1183,7 @@ async function assertTabPlanes(page: Page): Promise<void> {
   expect(Math.max(...neighborZ)).toBeLessThan(activeZ);
 }
 
-test('E305: the three planes from computed styles — strip on the pane surface, active tab on the workspace surface stacked above its lifted neighbors', async ({
+test('E353: the three planes from computed styles — strip on the pane surface, active tab on the workspace surface stacked above its lifted neighbors', async ({
   page,
 }) => {
   await openThree(page);

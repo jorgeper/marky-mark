@@ -37,7 +37,7 @@ afterEach(() => {
 });
 
 describe('PRD 013 Req 2: registered fences draw automatically, others are untouched', () => {
-  test('U736: a registered fence gains a diagram host with the SVG in its shadow root; other fences gain nothing', async () => {
+  test('U934: a registered fence gains a diagram host with the SVG in its shadow root; other fences gain nothing', async () => {
     const root = makeRoot(`${FENCE}<p>between</p>${PLAIN}<pre><code>no language</code></pre>`);
     await renderFenceDiagrams(root, { rendererFor: lookup(okRenderer), theme: 'light' });
 
@@ -59,7 +59,7 @@ describe('PRD 013 Req 2: registered fences draw automatically, others are untouc
     }
   });
 
-  test('U737: re-running over an already-decorated tree draws nothing twice and calls no renderer again', async () => {
+  test('U935: re-running over an already-decorated tree draws nothing twice and calls no renderer again', async () => {
     let calls = 0;
     const counting: FenceRenderer = (source, options) => {
       calls += 1;
@@ -114,7 +114,7 @@ describe('PRD 015 Req 4: the drawn SVG carries the persisted width; tolerant whe
 });
 
 describe('PRD 013 Req 3: the graft is invisible to the anchor coordinate space', () => {
-  test('U738: getDocText is byte-identical with diagrams drawn, failed, and left as code', async () => {
+  test('U936: getDocText is byte-identical with diagrams drawn, failed, and left as code', async () => {
     const html = `<h1>Title</h1>${FENCE}<p>middle paragraph</p>${FENCE}${PLAIN}<p>tail</p>`;
     const asCode = makeRoot(html);
     const drawn = makeRoot(html);
@@ -133,7 +133,7 @@ describe('PRD 013 Req 3: the graft is invisible to the anchor coordinate space',
 });
 
 describe('PRD 013 Req 10: a failing fence keeps its code, says why, and stops nothing else', () => {
-  test('U739: the failed block keeps its visible code plus a badge carrying the message; a valid fence in the same tree still draws', async () => {
+  test('U937: the failed block keeps its visible code plus a badge carrying the message; a valid fence in the same tree still draws', async () => {
     const bad = `<pre><code class="language-${TAG}">broken\n</code></pre>`;
     const root = makeRoot(`${bad}<p>between</p>${FENCE}`);
     const renderer: FenceRenderer = (source, options) =>
@@ -150,7 +150,7 @@ describe('PRD 013 Req 10: a failing fence keeps its code, says why, and stops no
     expect(root.querySelectorAll(`.${DIAGRAM_CLASS}`)).toHaveLength(1);
   });
 
-  test('U740: a renderer that breaks the seam contract and rejects still yields the failure shape, not a crash', async () => {
+  test('U938: a renderer that breaks the seam contract and rejects still yields the failure shape, not a crash', async () => {
     const root = makeRoot(FENCE);
     const rejecting: FenceRenderer = () => Promise.reject(new Error('contract broken'));
     await renderFenceDiagrams(root, { rendererFor: lookup(rejecting), theme: 'light' });
@@ -184,7 +184,7 @@ describe('PRD 013 Req 10: a failing fence keeps its code, says why, and stops no
 });
 
 describe('PRD 013 Req 11: loading keeps the code; a stale result never paints', () => {
-  test('U741: while the renderer is pending the block shows its code unhidden; the diagram appears on resolution', async () => {
+  test('U939: while the renderer is pending the block shows its code unhidden; the diagram appears on resolution', async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     const slow: FenceRenderer = async (source, options) => {

@@ -253,7 +253,7 @@ describe('PRD 014 Req 10 (issue #154) — the compiled pattern and find-bar/Sear
     return c;
   };
 
-  test('U706: the matcher arm carries the pattern the engines share — source and case decision', () => {
+  test('U923: the matcher arm carries the pattern the engines share — source and case decision', () => {
     // Literal mode: metacharacters escaped, case-insensitive by default.
     expect(compiled('a.b').pattern).toEqual({ source: 'a\\.b', caseSensitive: false });
     expect(compiled('cat', { caseSensitive: true }).pattern.caseSensitive).toBe(true);
@@ -271,7 +271,7 @@ describe('PRD 014 Req 10 (issue #154) — the compiled pattern and find-bar/Sear
     );
   });
 
-  test('U707: CodeMirror driven by the pattern agrees with compileQuery over the option table', () => {
+  test('U924: CodeMirror driven by the pattern agrees with compileQuery over the option table', () => {
     // This pins that the two modes return the same ranges for every option
     // combination. Patterns with class escapes like \s are excluded: CM's
     // multiline cursor lets those span line breaks where searchCore is
@@ -299,7 +299,7 @@ describe('PRD 014 Req 10 (issue #154) — the compiled pattern and find-bar/Sear
     }
   });
 
-  test('U708: findMatchRanges maps the line-scoped scan to absolute offsets across every terminator', () => {
+  test('U925: findMatchRanges maps the line-scoped scan to absolute offsets across every terminator', () => {
     const text = 'cat\r\nno hit\rcat cat\nx^cat';
     const m = matcher('cat');
     expect(findMatchRanges(text, m)).toEqual([
@@ -315,7 +315,7 @@ describe('PRD 014 Req 10 (issue #154) — the compiled pattern and find-bar/Sear
     expect(findMatchRanges('', m)).toEqual([]);
   });
 
-  test('U709: literalReplacement neutralizes every $ so a regex-mode engine replaces byte-literally', () => {
+  test('U926: literalReplacement neutralizes every $ so a regex-mode engine replaces byte-literally', () => {
     expect(literalReplacement('plain')).toBe('plain');
     expect(literalReplacement('$& $1 $$ $')).toBe('$$& $$1 $$$$ $$');
     // Proof against the real engine: CM's regex replace of the neutralized

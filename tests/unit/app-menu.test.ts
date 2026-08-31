@@ -70,7 +70,7 @@ const row = (s: AppMenuState, testId: string) =>
     .find((r) => r.testId === testId);
 
 describe('PRD 009 Req 8: the groups and their order', () => {
-  test('U336: file → workspace → save → View → app, each group in the PRD order', () => {
+  test('U853: file → workspace → save → View → app, each group in the PRD order', () => {
     expect(groupIds(state())).toEqual(['file', 'workspace', 'save', 'view', 'app']);
     expect(testIds(state())).toEqual([
       'menu-new',
@@ -88,7 +88,7 @@ describe('PRD 009 Req 8: the groups and their order', () => {
     ]);
   });
 
-  test('U337: the labels are the PRD’s, and existing rows keep their existing ids', () => {
+  test('U854: the labels are the PRD’s, and existing rows keep their existing ids', () => {
     const labels = Object.fromEntries(
       buildAppMenu(state())
         .flatMap((g) => g.rows)
@@ -110,7 +110,7 @@ describe('PRD 009 Req 8: the groups and their order', () => {
     });
   });
 
-  test('U338: a group that gates to zero rows is dropped, so it contributes no separator', () => {
+  test('U855: a group that gates to zero rows is dropped, so it contributes no separator', () => {
     // The static web build has no workspace capability and a read-only doc
     // has no save rows: both groups vanish rather than render empty.
     const stripped = state({ entryActions: CAPS.web, canEdit: false });
@@ -123,7 +123,7 @@ describe('PRD 009 Req 8: the groups and their order', () => {
     expect(testIds(barest)).toEqual(['menu-open', 'menu-view', 'menu-settings', 'menu-help', 'menu-about']);
   });
 
-  test('U339: View is a submenu parent, not an action — it carries no command', () => {
+  test('U856: View is a submenu parent, not an action — it carries no command', () => {
     const view = row(state(), 'menu-view');
     // #94: the submenu is its rows now, in separator-divided groups.
     expect(view?.submenu?.length).toBeGreaterThan(0);
@@ -134,7 +134,7 @@ describe('PRD 009 Req 8: the groups and their order', () => {
     }
   });
 
-  test('U340: no row carries a command outside the registry (lib/commands.ts)', () => {
+  test('U857: no row carries a command outside the registry (lib/commands.ts)', () => {
     // Typed as CommandId[], so a typo fails to compile; checked at runtime so
     // a stray row cannot dispatch something the menu never meant to offer.
     const allowed: CommandId[] = [
@@ -162,7 +162,7 @@ describe('PRD 009 Req 8: the groups and their order', () => {
     }
   });
 
-  test('U341: the hint rows name live HotkeyMap entries; no row invents a binding', () => {
+  test('U858: the hint rows name live HotkeyMap entries; no row invents a binding', () => {
     const hints = buildAppMenu(state())
       .flatMap((g) => g.rows)
       .filter((r) => r.hotkey)
@@ -178,7 +178,7 @@ describe('PRD 009 Req 8: the groups and their order', () => {
 });
 
 describe('PRD 009 Req 9: mode and capability gating', () => {
-  test('U342: New File is workspace-mode only, and only where savePicker offers it', () => {
+  test('U859: New File is workspace-mode only, and only where savePicker offers it', () => {
     expect(testIds(state())).toContain('menu-new');
     expect(testIds(state({ canNewFile: false }))).not.toContain('menu-new');
     for (const mode of ['splash', 'file'] as const) {
@@ -314,7 +314,7 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
     for (const c of gated) expect(inWs.find((r) => r.command === c)?.disabled, c).toBeFalsy();
   });
 
-  test('U682: PRD 013 Req 13 — no tab-strip seam ⇒ no File Tabs row, even where workspaces exist', () => {
+  test('U917: PRD 013 Req 13 — no tab-strip seam ⇒ no File Tabs row, even where workspaces exist', () => {
     // The hosted flavor HAS the workspace capability (CAPS.hosted), so the
     // WORKSPACE_VIEW_COMMANDS omission set cannot gate the strip's row — the
     // absent-state idiom does: fileTabs undefined ⇒ the row is simply gone.

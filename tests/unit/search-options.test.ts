@@ -9,7 +9,7 @@ import { DEFAULT_SEARCH_OPTIONS, SEARCH_OPTION_TOGGLES, toggleSearchOption } fro
  */
 
 describe('PRD 014 Req 6 — search option state', () => {
-  test('U702: the default state is all off — a case-insensitive literal substring query', () => {
+  test('U921: the default state is all off — a case-insensitive literal substring query', () => {
     expect(DEFAULT_SEARCH_OPTIONS).toEqual({ caseSensitive: false, wholeWord: false, regex: false });
     // And the default state feeds compileQuery unchanged: today's behaviour.
     const compiled = compileQuery('CAT', DEFAULT_SEARCH_OPTIONS);
@@ -17,7 +17,7 @@ describe('PRD 014 Req 6 — search option state', () => {
     expect(compiled.matcher.test('concatenate')).toBe(true);
   });
 
-  test('U703: flipping one option leaves the other two alone, and flips back cleanly', () => {
+  test('U922: flipping one option leaves the other two alone, and flips back cleanly', () => {
     const one = toggleSearchOption(DEFAULT_SEARCH_OPTIONS, 'wholeWord');
     expect(one).toEqual({ caseSensitive: false, wholeWord: true, regex: false });
     const two = toggleSearchOption(one, 'regex');

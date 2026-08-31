@@ -11,7 +11,7 @@ const grants = (role: keyof typeof BUILT_IN_ROLES) =>
   fileGrantsFromPermissions(new Set<Permission>(BUILT_IN_ROLES[role]));
 
 describe('PRD 007 Req 17 permission → affordance', () => {
-  it('U297: each built-in role gets exactly the sidebar affordances its verbs allow', () => {
+  it('U839: each built-in role gets exactly the sidebar affordances its verbs allow', () => {
     // Owner and Editor hold the whole file/folder set.
     expect(grants('Owner')).toEqual(ALL_FILE_GRANTS);
     expect(grants('Editor')).toEqual(ALL_FILE_GRANTS);

@@ -66,7 +66,7 @@ const openTree = async (page: Page) => {
   await expect(page.getByTestId('doc')).toContainText('Alpha');
 };
 
-test('E249: TOC view — the button shows and hides it, the tree comes from the section model, and no folder DOM appears in file mode', async ({
+test('E334: TOC view — the button shows and hides it, the tree comes from the section model, and no folder DOM appears in file mode', async ({
   page,
 }) => {
   await openTree(page);
@@ -115,7 +115,7 @@ test('E249: TOC view — the button shows and hides it, the tree comes from the 
   await expect(page.getByTestId('sidebar-view-toc')).toHaveAttribute('aria-pressed', 'false');
 });
 
-test('E250: TOC click in preview scrolls the heading to the viewport top, and duplicate titles reach their own occurrence', async ({
+test('E335: TOC click in preview scrolls the heading to the viewport top, and duplicate titles reach their own occurrence', async ({
   page,
 }) => {
   await openTree(page);
@@ -144,7 +144,7 @@ test('E250: TOC click in preview scrolls the heading to the viewport top, and du
   await expect.poll(() => deltaOf(firstLine)).toBeLessThan(120);
 });
 
-test('E251: TOC expand/collapse — default expanded, the collapsed row stays, state is per file and dies on restart', async ({
+test('E336: TOC expand/collapse — default expanded, the collapsed row stays, state is per file and dies on restart', async ({
   page,
 }) => {
   await openTree(page);
@@ -197,7 +197,7 @@ test('E251: TOC expand/collapse — default expanded, the collapsed row stays, s
   expect(await page.evaluate(() => window.__mmfs!.list().sort())).toEqual(before);
 });
 
-test('E252: TOC click in edit mode scrolls the editor and puts the caret on the heading line, in full edit and in the split', async ({
+test('E337: TOC click in edit mode scrolls the editor and puts the caret on the heading line, in full edit and in the split', async ({
   page,
 }) => {
   await openTree(page);
@@ -225,7 +225,7 @@ test('E252: TOC click in edit mode scrolls the editor and puts the caret on the 
   await expect(page.locator('.cm-activeLine')).toHaveText('### Deep one');
 });
 
-test('E253: the TOC re-derives from the buffer while typing, and says so when a document has no headings', async ({
+test('E338: the TOC re-derives from the buffer while typing, and says so when a document has no headings', async ({
   page,
 }) => {
   await fsWrite(page, '/docs/flat.md', 'Just a paragraph, no headings anywhere.\n');

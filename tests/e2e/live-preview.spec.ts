@@ -317,7 +317,7 @@ test('E150: live preview supersedes SPEC23 highlighting — revealed lines keep 
   await expect(editor.locator('.cm-content')).toContainText('**bold**');
 });
 
-test('E157: table grid + live preview (#55) — grid lines keep raw cell markdown so every pipe column aligns', async ({
+test('E327: table grid + live preview (#55) — grid lines keep raw cell markdown so every pipe column aligns', async ({
   page,
 }) => {
   // The issue #55 repro shape: cells carrying **bold** terms and `code`.

@@ -54,7 +54,7 @@ function stubTransport(result: LlmTransportResult | (() => Promise<LlmTransportR
 }
 
 describe('PRD 011 Req 16 — the seam does nothing until a user action asks it to', () => {
-  it('U480: importing the seam with a fake transport installed makes zero calls to it', async () => {
+  it('U860: importing the seam with a fake transport installed makes zero calls to it', async () => {
     const fake = createFakeLlm();
     // The imports at the top of this file have already run; a module that
     // registered a timer, a listener or a startup request would show here.
@@ -63,7 +63,7 @@ describe('PRD 011 Req 16 — the seam does nothing until a user action asks it t
     expect(typeof fresh.runLlmRequest).toBe('function');
   });
 
-  it('U481: a request cannot be constructed without naming the user action that caused it', () => {
+  it('U861: a request cannot be constructed without naming the user action that caused it', () => {
     // @ts-expect-error PRD 011 Req 16: `trigger` is required and has no default.
     const unattributable: LlmRequest = { prompt: 'x', maxOutputTokens: 8 };
     expect(unattributable).toBeTruthy();
@@ -73,7 +73,7 @@ describe('PRD 011 Req 16 — the seam does nothing until a user action asks it t
 });
 
 describe('PRD 011 Req 11 — one entry point, one response shape', () => {
-  it('U482: the entry point sends what the active provider built and answers its success', async () => {
+  it('U862: the entry point sends what the active provider built and answers its success', async () => {
     const fake = createFakeLlm({
       outcome: 'text',
       text: 'A two-sentence summary.',
@@ -89,7 +89,7 @@ describe('PRD 011 Req 11 — one entry point, one response shape', () => {
     expect(fake.calls[0].providerKind).toBe('openai');
   });
 
-  it('U483: every provider kind answers the same response shape through the one entry point', async () => {
+  it('U863: every provider kind answers the same response shape through the one entry point', async () => {
     const fake = createFakeLlm({ outcome: 'text', text: 'same shape' });
     for (const config of EVERY_CONFIG) {
       const response = await runLlmRequest(fake.transport, config, ask());
@@ -111,7 +111,7 @@ describe('PRD 011 Req 11 — one entry point, one response shape', () => {
 });
 
 describe('PRD 011 Req 10 — transport-level failure is an unreachable host', () => {
-  it('U484: a transport reporting no HTTP response is an unreachable host, not a status', async () => {
+  it('U864: a transport reporting no HTTP response is an unreachable host, not a status', async () => {
     const { transport } = stubTransport({ kind: 'no-response', detail: 'getaddrinfo ENOTFOUND' });
     const response = await runLlmRequest(transport, CONFIGS.anthropic, ask());
     expect(response).toEqual({
@@ -124,7 +124,7 @@ describe('PRD 011 Req 10 — transport-level failure is an unreachable host', ()
     });
   });
 
-  it('U485: a transport that rejects is an unreachable host too, and never throws out of the seam', async () => {
+  it('U865: a transport that rejects is an unreachable host too, and never throws out of the seam', async () => {
     const { transport } = stubTransport(() => Promise.reject(new Error('connect ECONNREFUSED')));
     const response = await runLlmRequest(transport, CONFIGS.openrouter, ask());
     expect(response.ok).toBe(false);
@@ -134,7 +134,7 @@ describe('PRD 011 Req 10 — transport-level failure is an unreachable host', ()
     expect(response.failure.status).toBeUndefined();
   });
 
-  it('U486: a configuration that cannot produce a request never reaches the transport', async () => {
+  it('U866: a configuration that cannot produce a request never reaches the transport', async () => {
     const { transport, sent } = stubTransport({ kind: 'http', response: { status: 200, body: '{}' } });
     const response = await runLlmRequest(
       transport,
@@ -150,13 +150,13 @@ describe('PRD 011 Req 10 — transport-level failure is an unreachable host', ()
 });
 
 describe('PRD 011 Req 7 — the key never leaves the request headers', () => {
-  it('U487: redactKey removes the key from any text the seam is about to hand back', () => {
+  it('U867: redactKey removes the key from any text the seam is about to hand back', () => {
     expect(redactKey(`bad key: ${KEY}`, KEY)).toBe('bad key: [redacted]');
     expect(redactKey('nothing to hide', KEY)).toBe('nothing to hide');
     expect(redactKey('empty key is a no-op', '')).toBe('empty key is a no-op');
   });
 
-  it('U488: no failure path of any provider leaks the key into a message or a serialized failure', async () => {
+  it('U868: no failure path of any provider leaks the key into a message or a serialized failure', async () => {
     const fake = createFakeLlm();
     const kinds = ['bad-key', 'unknown-model', 'rate-limited', 'unreachable-host', 'unexpected'] as const;
     for (const config of EVERY_CONFIG) {
@@ -180,7 +180,7 @@ describe('PRD 011 Req 7 — the key never leaves the request headers', () => {
     expect(JSON.stringify(invalid)).not.toContain(KEY);
   });
 
-  it('U489: no built URL carries the key, for any provider kind', async () => {
+  it('U869: no built URL carries the key, for any provider kind', async () => {
     const fake = createFakeLlm();
     for (const config of EVERY_CONFIG) await runLlmRequest(fake.transport, config, ask());
     for (const call of fake.calls) {
@@ -222,7 +222,7 @@ function codeOnly(text: string): string {
 }
 
 describe('PRD 011 Req 11 — one shape, and no transport in src/', () => {
-  it('U490: exactly one module declares the LLM request and response types', () => {
+  it('U870: exactly one module declares the LLM request and response types', () => {
     const declarations = sourceFiles(SRC).filter((file) => {
       const text = readFileSync(file, 'utf8');
       return /\b(interface|type)\s+Llm(Request|Response)\b/.test(text);
@@ -230,7 +230,7 @@ describe('PRD 011 Req 11 — one shape, and no transport in src/', () => {
     expect(declarations.map((file) => path.relative(SRC, file))).toEqual(['lib/llmSeam.ts']);
   });
 
-  it('U491: the seam adds no network call site — its modules contain none', () => {
+  it('U871: the seam adds no network call site — its modules contain none', () => {
     const forbidden = /\bfetch\s*\(|XMLHttpRequest|new WebSocket|sendBeacon|new EventSource/;
     const offenders = sourceFiles(SRC)
       .filter((file) => /llm/i.test(path.basename(file)))

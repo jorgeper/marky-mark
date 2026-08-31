@@ -135,7 +135,7 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
     await expect(provider.getUser('g2', auth)).rejects.toThrowError(/Graph user lookup failed: 500/);
   });
 
-  it('U243: getUserPhoto calls Graph /users/{id}/photo/$value with the exchanged token and yields the bytes and media type', async () => {
+  it('U825: getUserPhoto calls Graph /users/{id}/photo/$value with the exchanged token and yields the bytes and media type', async () => {
     // PRD 007 Req 6: the photo proxy's upstream — URL shape, bearer, bytes.
     const calls: { url: string; init?: RequestInit }[] = [];
     const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);

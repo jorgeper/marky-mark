@@ -29,7 +29,9 @@ live in `review-checklist.md`; only Marky Mark-specific rules belong here.
   e2e, `W<n>:` web e2e. New behaviour takes the next unused number; numbers
   are never reused or renumbered, and an existing test is never weakened,
   deleted, or marked `.skip` / `.only` / `.fixme` (there are none in the
-  suite today).
+  suite today). The quick gate enforces ID uniqueness (issue #185), and a
+  collision after a parallel merge is fixed by bumping the newer test to the
+  next unused number.
 - Unit `describe` blocks name the contract under test, e.g.
   `describe('SPEC19 updater manifest')`, `describe('PRD 002 §C9 …')`.
 - A `src/lib/<camelCaseModule>.ts` is tested by

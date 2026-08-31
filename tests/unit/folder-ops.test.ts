@@ -120,7 +120,7 @@ describe('SPEC35 folder ops', () => {
 });
 
 describe('PRD 007 Req 18 sidebar drag-and-drop + Req 17 menu gating', () => {
-  test('U299: a drop target is judged before any I/O — no self-nesting, no no-op, no clobber', () => {
+  test('U841: a drop target is judged before any I/O — no self-nesting, no no-op, no clobber', () => {
     // The ordinary case: a file dragged into a sibling folder.
     expect(moveTarget('/w/1/files/a.md', '/w/1/files/notes', ['b.md'])).toEqual({
       ok: true,
@@ -149,7 +149,7 @@ describe('PRD 007 Req 18 sidebar drag-and-drop + Req 17 menu gating', () => {
     expect(moveTarget('/root/a.md', '/root/sub/', [])).toEqual({ ok: true, path: '/root/sub/a.md' });
   });
 
-  test('U300: the menu offers only what the platform CAN do and the user MAY do', () => {
+  test('U842: the menu offers only what the platform CAN do and the user MAY do', () => {
     const seams = { isMac: false, canReveal: false, canTrash: true, canRename: true, canCopy: false };
     const ids = (kind: 'dir' | 'file' | 'root', opts: Partial<Parameters<typeof folderContextMenu>[1]> = {}) =>
       folderContextMenu(kind, { ...seams, ...opts })
