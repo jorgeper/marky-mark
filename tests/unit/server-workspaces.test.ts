@@ -880,6 +880,44 @@ describe('PRD 017 Req 4 admin union over HTTP', () => {
     // Cleanup: the Owner deletes the workspace (shared server, shared suite).
     expect((await call('ada', 'DELETE', `/api/workspaces/${id}`)).status).toBe(200);
   });
+
+  it('U993: under members listing the admin’s ordinary listing is filtered like anyone else’s', async () => {
+    // PRD 017 Req 11 (issue #191): cross-membership browsing lives in
+    // Management only — under `members`, a row whose MANIFEST grants the
+    // admin nothing is omitted from GET /api/workspaces, even though the
+    // Req 4 union would let them open it by id.
+    const created = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Members only' }));
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+    try {
+      const put = await call(
+        'katherine',
+        'PUT',
+        '/api/admin/settings',
+        JSON.stringify({ version: 1, creation: { policy: 'everyone', allow: [] }, listing: { policy: 'members' } }),
+      );
+      expect(put.status).toBe(200);
+      const forKatherine = (await (await call('katherine', 'GET', '/api/workspaces')).json()) as { id: string }[];
+      expect(forKatherine.map((row) => row.id)).not.toContain(id);
+      // The member's own listing keeps the row, flag resolved as ever…
+      const forAda = (await (await call('ada', 'GET', '/api/workspaces')).json()) as {
+        id: string;
+        access: boolean;
+      }[];
+      expect(forAda.find((row) => row.id === id)?.access).toBe(true);
+      // …and Req 4 still opens the workspace itself by id.
+      expect((await call('katherine', 'GET', `/api/workspaces/${id}/manifest`)).status).toBe(200);
+    } finally {
+      const restored = await call(
+        'katherine',
+        'PUT',
+        '/api/admin/settings',
+        JSON.stringify({ version: 1, creation: { policy: 'everyone', allow: [] }, listing: { policy: 'everyone' } }),
+      );
+      expect(restored.status).toBe(200);
+      expect((await call('ada', 'DELETE', `/api/workspaces/${id}`)).status).toBe(200);
+    }
+  });
 });
 
 // The reference provider the HTTP layer above runs on is held to the shared

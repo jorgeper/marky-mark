@@ -165,6 +165,22 @@ describe('PRD 007 Req 3 Graph directory provider', () => {
     await expect(provider.getUser('g2', auth)).rejects.toThrowError(/Graph user lookup failed: 500/);
   });
 
+  it('U994: getUser selects userType and maps Guest to isGuest, the caller-guest lookup’s Graph half', async () => {
+    // PRD 017 Req 9: under `members` creation the server asks Graph for the
+    // caller's own entry — the guest verdict rides on userType being both
+    // requested and mapped.
+    const calls: string[] = [];
+    const provider = createGraphDirectoryProvider(async (url) => {
+      calls.push(url);
+      return new Response(
+        JSON.stringify({ id: 'g3', displayName: 'Guest Gwen', userPrincipalName: 'gwen@fabrikam.com', userType: 'Guest' }),
+        { status: 200 },
+      );
+    }, exchanged);
+    expect((await provider.getUser('g3', auth))?.isGuest).toBe(true);
+    expect(new URL(calls[0]).searchParams.get('$select')).toContain('userType');
+  });
+
   it('U974: listUsers pages /users through @odata.nextLink with the exchanged token, concatenating pages; a non-OK page throws', async () => {
     // PRD 017 Req 19: the Management People tab's tenant listing — the first
     // page is the PRD's pinned URL, every nextLink is followed verbatim, and

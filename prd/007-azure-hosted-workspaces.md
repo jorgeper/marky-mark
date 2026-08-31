@@ -111,12 +111,15 @@ later without a rewrite.
 
 10. **Create:** a New Workspace flow asks for a name and initial members with
     roles (or everyone-access), creates the workspace server-side, and opens
-    it with the creator as Owner.
+    it with the creator as Owner. PRD 017 later put "who may create" behind a
+    deployment creation policy whose default reproduces this behaviour.
 11. **Open:** an Open Workspace dialog lists all workspaces in the deployment
     (name + last-modified) with fuzzy search-as-you-type. Choosing one you
     can access opens it; choosing one you can't shows a no-access message
     naming the workspace's Owners. Server-side, list metadata is readable to
     any signed-in user but file contents are never returned without access.
+    PRD 017 later put the listing behind a deployment listing policy whose
+    default reproduces this behaviour.
 12. **Delete:** Workspace settings shows Owners a destructive-styled delete
     action that requires typing the workspace's exact name to confirm, then
     deletes all server-side data and returns to the start page.

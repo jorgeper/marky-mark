@@ -417,7 +417,7 @@ arrived.
 
 ### Environment variables
 
-The complete contract, straight from `server/config.ts`. Eight variables; the
+The complete contract, straight from `server/config.ts`. Nine variables; the
 only others are the optional LLM section in
 [the next subsection](#the-deployments-llm-provider-optional).
 
@@ -431,6 +431,7 @@ only others are the optional LLM section in
 | `ENTRA_TENANT_ID` | — | **required** | Directory (tenant) id. Pins the accepted token issuer. |
 | `ENTRA_CLIENT_ID` | — | **required** | Application (client) id. Pins the accepted token audience. |
 | `ENTRA_CLIENT_SECRET` | — | **required** | The registration's client secret (step 1.6). Authenticates the on-behalf-of Graph token exchange. Secret — never logged, never sent to the browser. |
+| `MM_ADMINS` | — | optional | Comma-separated Entra **object ids** of the deployment admins. Unset means the deployment has no admins and no admin surface exists. Find a user's object id with `az ad user show --id <upn> --query id -o tsv`. |
 
 `MM_MODE=azure` **refuses to start** when any required variable is missing, and
 names every missing one at once:
@@ -441,6 +442,16 @@ MM_MODE=azure requires environment variables: ENTRA_CLIENT_ID, ENTRA_CLIENT_SECR
 
 That message in the log stream is your first diagnostic: no partial start, no
 vendor error three requests later.
+
+### Deployment admins and policies
+
+`MM_ADMINS` is the only admin configuration there is: everything else — who may
+create workspaces, whether non-members see workspace names, the allow list —
+is managed from inside the app. A signed-in admin opens **Management** (File
+menu or start page) for the deployment-wide view: every workspace with its
+owners and storage footprint, every tenant user, and the two policies under
+the Settings tab. See [AUTHENTICATION.md](AUTHENTICATION.md)
+§ "Who can do what" for what an admin can and cannot do.
 
 ### The deployment's LLM provider (optional)
 

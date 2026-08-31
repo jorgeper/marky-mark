@@ -2889,7 +2889,7 @@ test.describe('PRD 017 deployment policies', () => {
     }
   });
 
-  test('E362: under members listing, a non-member’s GET /api/workspaces omits the workspace and the Open dialog never shows it', async ({
+  test('E362: under members listing, a non-member’s GET /api/workspaces omits the workspace, the Open dialog never shows it, and the admin is filtered like anyone else', async ({
     page,
     request,
   }) => {
@@ -2919,6 +2919,19 @@ test.describe('PRD 017 deployment policies', () => {
         await request.get(`${HOSTED}/api/workspaces`, { headers: { Authorization: `Bearer ${ada}` } })
       ).json()) as { id: string; name: string; access: boolean; owners: string[] }[];
       expect(listedForAda.find((w) => w.id === id)).toMatchObject({ id, name, access: true, owners: ['mock-ada'] });
+
+      // Req 11: the admin's ORDINARY listing is filtered the same way —
+      // cross-membership browsing lives in Management only — while Req 4
+      // still opens the workspace itself by id.
+      const katherine = await signIn(request, 'katherine');
+      const listedForAdmin = (await (
+        await request.get(`${HOSTED}/api/workspaces`, { headers: { Authorization: `Bearer ${katherine}` } })
+      ).json()) as { id: string }[];
+      expect(listedForAdmin.map((w) => w.id)).not.toContain(id);
+      const manifest = await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, {
+        headers: { Authorization: `Bearer ${katherine}` },
+      });
+      expect(manifest.status()).toBe(200);
 
       // Req 11: the Open Workspace dialog is that listing — the hidden row is
       // simply not there for alan.
@@ -2964,10 +2977,13 @@ test.describe('PRD 017 deployment policies', () => {
     }
   });
 
-  test('E371: settings saved from the Settings tab round-trip through GET /api/admin/settings, and a corrupted blob shows the parse error', async ({
+  test('E371: settings saved from the Settings tab round-trip through GET /api/admin/settings, and a corrupted blob fails closed with the parse error', async ({
     page,
     request,
   }) => {
+    const ada = await signIn(request, 'ada');
+    const hiddenName = `E371 fail-closed w${test.info().workerIndex}`;
+    const hiddenId = await createWorkspace(request, ada, hiddenName);
     try {
       // PRD 017 Req 20: restricted with everyone but mary allow-listed — the
       // E360 rule, so the parallel lane never trips over this test's policy.
@@ -3012,15 +3028,41 @@ test.describe('PRD 017 deployment policies', () => {
 
       // Req 7: a hand-corrupted blob surfaces as the visible parse error.
       // The slow reload happens BEFORE the corruption so the fail-closed
-      // window the shared lane sees is just the clicks below.
+      // window the shared lane sees is just the requests and clicks below.
       await page.reload();
       const body = Buffer.from('{"version": 99}');
       await deploymentSettingsBlob().upload(body, body.length);
+
+      // Req 7: while corrupt, the server BEHAVES as restricted + members —
+      // asserted through mary only (the E360 shared-lane rule): creation is
+      // refused naming deployment.create, and her listing omits the
+      // workspace she holds nothing in. Regular users see effects, no 500.
+      const mary = await signIn(request, 'mary');
+      const refused = await request.post(`${HOSTED}/api/workspaces`, {
+        headers: { Authorization: `Bearer ${mary}` },
+        data: { name: 'E371 never created' },
+      });
+      expect(refused.status()).toBe(403);
+      expect(await refused.json()).toEqual({ error: 'forbidden', required: 'deployment.create' });
+      const me = (await (
+        await request.get(`${HOSTED}/api/me`, { headers: { Authorization: `Bearer ${mary}` } })
+      ).json()) as { canCreateWorkspaces: boolean; createRefusal?: string };
+      expect(me.canCreateWorkspaces).toBe(false);
+      expect(me.createRefusal).toBe('restricted');
+      const listedForMary = (await (
+        await request.get(`${HOSTED}/api/workspaces`, { headers: { Authorization: `Bearer ${mary}` } })
+      ).json()) as { id: string }[];
+      expect(listedForMary.map((w) => w.id)).not.toContain(hiddenId);
+
       await page.getByTestId('start-management').click();
       await page.getByTestId('management-tab-settings').click();
       await expect(page.getByTestId('admin-settings-parse-error')).toBeVisible();
     } finally {
       await resetDeploymentSettings();
+      const gone = await request.delete(`${HOSTED}/api/workspaces/${hiddenId}`, {
+        headers: { Authorization: `Bearer ${ada}` },
+      });
+      expect(gone.status()).toBe(200);
     }
   });
 });
@@ -3121,8 +3163,14 @@ test.describe('PRD 017 the Management view', () => {
         data: '# The guide\n\nreadable by the implicit admin union\n',
       });
       const katherine = await signIn(request, 'katherine');
-      // Req 4+17: reading is implicit; a content edit is the ordinary 403.
-      expect(await writeAs(request, katherine, id, 'guide.md')).toBe(403);
+      // Req 4+17: reading is implicit; a content edit is the ordinary 403
+      // naming the workspace verb — never implicit write for admins.
+      const refusedSave = await request.put(`${HOSTED}/api/workspaces/${id}/files/guide.md`, {
+        headers: { Authorization: `Bearer ${katherine}` },
+        data: '# written\n',
+      });
+      expect(refusedSave.status()).toBe(403);
+      expect(await refusedSave.json()).toEqual({ error: 'forbidden', required: 'doc.edit' });
 
       await signInTo(page, 'katherine');
       await page.getByTestId('start-management').click();

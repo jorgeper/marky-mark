@@ -150,29 +150,47 @@ they can *do* once in. The building metaphor:
   setting). No role, no everyone-access → 403 naming the missing verb,
   whatever the UI showed. Roles are per-workspace: Owner of one, Viewer
   of another, stranger to the rest.
-- **Two things are open to everyone in the building** (deliberately,
-  PRD 007 Reqs 10–11):
-  1. **Reading the directory of room names.** The Open Workspace dialog
-     lists every workspace's name and last-modified time to any
-     signed-in user, so people can find a workspace and see whom to
-     ask. Contents are never returned without access — only the label
-     on the door.
-  2. **Building new rooms.** Any signed-in user may create a workspace
-     and becomes its sole Owner. A guest creating a workspace costs the
-     operator nothing but blobs in the storage account.
+- **Two things are policy-controlled deployment-wide** (PRD 017; the
+  defaults reproduce PRD 007 Reqs 10–11, so an untouched deployment
+  behaves as it always did):
+  1. **Reading the directory of room names.** Under the default
+     `everyone` listing policy, the Open Workspace dialog lists every
+     workspace's name and last-modified time to any signed-in user, so
+     people can find a workspace and see whom to ask. Under `members`,
+     the listing only shows workspaces the caller could actually open.
+     Contents are never returned without access — only the label on
+     the door.
+  2. **Building new rooms.** Under the default `everyone` creation
+     policy, any signed-in user may create a workspace and becomes its
+     sole Owner. `members` excludes guests; `restricted` allows only
+     admins and an explicit allow list. Refused users see New
+     Workspace disabled with a one-line reason.
 
-So the control levers today, from coarse to fine:
+So the control levers, from coarse to fine:
 
 | Lever | Controls | Where |
 | --- | --- | --- |
 | Tenant membership (create users, invite guests, remove them) | who can sign in at all | Entra ID → Users |
+| Deployment admins (`MM_ADMINS`) | who may open the Management view and administer any workspace | App Service environment variable — a redeploy, never in-app |
+| Creation policy (`everyone` / `members` / `restricted` + allow list) | who may create workspaces | Management → Settings |
+| Listing policy (`everyone` / `members`) | whether non-members see workspace names in Open Workspace | Management → Settings |
 | Workspace membership + roles (People section) | what each person may do per workspace | Settings… with the workspace open |
 | Everyone-in-tenant toggle + default role | blanket access to one workspace | People section |
 | Custom roles (Roles section) | the exact verb set a role grants | Settings… with the workspace open |
 
-There is currently **no lever** for "who may create workspaces" or
-"who may see workspace names" — the only gate on both is tenant
-membership itself. Making those controllable is filed as issue #181.
+### Deployment admins
+
+Users whose ids are listed in `MM_ADMINS` hold, in **every** workspace,
+an implicit permission set on top of whatever their membership grants:
+`doc.read`, `file.download`, `comment.read`, `workspace.settings`,
+`workspace.members`, `workspace.roles` and `workspace.delete` (PRD 017
+Req 4). In plain language: an admin can read any workspace and
+administer it — membership, roles, settings, delete — but can never
+*edit* content in a workspace they are not a member of. To edit, they
+must first add themselves as a member in People, and that membership is
+visible to the workspace's Owners there — visibility by membership is
+the audit trail. While an admin views a workspace that grants them
+nothing, a persistent banner says so.
 
 ## How the directory calls authenticate
 
@@ -204,3 +222,6 @@ cannot answer. Setup:
 | Per-request auth guard | `server/providers/types.ts` (`AuthProvider`), used by `server/app.ts` |
 | Roles and per-operation permission checks | `server/workspaces.ts`, reference in `server/README.md` |
 | Local dev stand-in (mock users, no Microsoft) | `server/providers/mock/auth.ts` |
+| Admin routes (`/api/admin/workspaces`, `/users`, `/settings`, `/invitations`) | `server/admin.ts` |
+| Deployment settings (policies, parser, fail-closed defaults) | `src/lib/deploymentSettings.ts`, read/written by `server/deployment.ts` |
+| Management view (Workspaces / People / Settings tabs) | `src/components/ManagementPanel.tsx` |

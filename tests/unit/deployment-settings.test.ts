@@ -114,9 +114,9 @@ describe('PRD 017 §11 listing-policy filter', () => {
     expect(filterListedWorkspaces('everyone', rows)).toEqual(rows);
     const filtered = filterListedWorkspaces('members', rows);
     expect(filtered).toEqual([rows[0], rows[2]]);
-    // An admin's rows all resolve access true (Req 4's implicit read), so
-    // the same filter leaves an all-true listing whole.
-    const adminRows = rows.map((r) => ({ ...r, access: true }));
-    expect(filterListedWorkspaces('members', adminRows)).toEqual(adminRows);
+    // Callers resolve `access` without the Req 4 admin union, so an admin's
+    // non-member rows carry access false and the same filter drops them —
+    // the admin's ordinary listing is filtered like anyone else's (Req 11).
+    expect(filterListedWorkspaces('members', rows)).not.toContainEqual(rows[1]);
   });
 });

@@ -461,16 +461,23 @@ export async function handleWorkspaceApi(
         created: manifest.created,
         modified: manifest.modified,
         owners: workspaceOwnerIds(manifest),
-        // PRD 017 Req 4: same resolution as requirePermission, so an admin's
-        // rows read openable even where the manifest grants them nothing.
-        access: resolvePermissions(manifest, auth.user.id, auth.isAdmin).has('doc.read'),
+        // PRD 017 Req 11: resolved WITHOUT the admin union — the `members`
+        // filter below must treat an admin like anyone else (cross-membership
+        // browsing lives in Management only), so what the manifest alone
+        // grants decides whether the row is sent at all.
+        access: resolvePermissions(manifest, auth.user.id).has('doc.read'),
       });
     }
     // PRD 017 Req 11+15: the listing policy, read per request — under
     // `members` a row the caller cannot open is never sent (so the Req 12
     // no-access message cannot arise there); `everyone` is today's listing.
     const { settings } = await deployment.read();
-    sendJson(res, 200, filterListedWorkspaces(settings.listing.policy, out));
+    const listed = filterListedWorkspaces(settings.listing.policy, out);
+    // PRD 017 Req 4: every row that survives the filter is openable to an
+    // admin (the implicit doc.read), so their rows read openable even where
+    // the manifest grants them nothing.
+    if (auth.isAdmin) for (const row of listed) row.access = true;
+    sendJson(res, 200, listed);
     return;
   }
 

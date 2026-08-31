@@ -180,8 +180,9 @@ export function decideWorkspaceCreation(
  * PRD 017 Req 11: the listing policy — under `members` every row whose
  * `access` is false for the caller is omitted (row shape untouched), so the
  * Req 12 no-access message can never arise there; under `everyone` the
- * listing is exactly today's. Admins' rows resolve `access` true everywhere
- * (Req 4's implicit read), so the same filter leaves their listing whole.
+ * listing is exactly today's. Callers pass `access` resolved WITHOUT the
+ * Req 4 admin union: admins get the same filtered listing as anyone else —
+ * cross-membership browsing lives in Management only.
  */
 export function filterListedWorkspaces<T extends { access: boolean }>(
   policy: ListingPolicy,

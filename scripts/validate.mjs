@@ -283,7 +283,12 @@ record('test-ID uniqueness', Date.now() - idScanStart);
 // round trip with the corrupt-blob parse error, and the People tab's badged
 // tenant) — re-pinned to the collected count (which had grown to 356 with
 // issue #183's E364–E366 since the last pin).
-const E2E_TEST_FLOOR = 362;
+// 369 as of PRD 017 (issues #190+#191, Reqs 28+34): E375–E379 — in-app guest
+// invitations (both surfaces, the Pending badge, the non-admin refusal, the
+// Graph-refusal surface) — plus issue #178's E373–E374; issue #191 extended
+// E362/E369/E371 (admin listing filtered under members, the doc.edit verb,
+// the corrupt-blob fail-closed behaviour) rather than adding tests.
+const E2E_TEST_FLOOR = 369;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {

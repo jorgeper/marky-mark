@@ -82,10 +82,21 @@ workspace owns a prefix keyed by a server-generated UUID:
 workspaces/<id>/manifest.json     the workspace manifest (below)
 workspaces/<id>/summary-cache/    cached LLM summaries (PRD 011 Req 29)
 workspaces/<id>/files/<path>      its Markdown documents and assets
+deployment/settings.json          the deployment settings record (PRD 017 Req 6)
 ```
 
 `summary-cache/` holds one blob per content-hash key (`server/summaryCache.ts`).
 It lives **outside** `files/`, so it is never listed as a workspace file.
+
+`deployment/settings.json` is the only blob under the reserved `deployment/`
+prefix: a versioned record (`src/lib/deploymentSettings.ts`) holding the
+creation policy (`everyone` / `members` / `restricted` plus an allow list) and
+the listing policy (`everyone` / `members`), read per request by the create and
+list routes. An absent blob yields the defaults (`everyone` / `everyone` —
+pre-PRD-017 behaviour); a blob that exists but fails to parse **fails closed**
+(`restricted` creation, `members` listing) until an admin saves over it
+(PRD 017 Req 7). Like `workspaces/` and `users/`, the prefix is refused by the
+legacy `/api/files*` scaffold (403, filtered from listings).
 
 When a conditional save arrives against a version the file has moved on from,
 and the save carried the text the client loaded (the `{content, base}` body
@@ -174,8 +185,8 @@ on the doc/file verbs.
 | --- | --- | --- |
 | `POST /api/auth/sign-in` | — (unauthenticated) | Local: `{username}` → `{kind:'token', token, user}`. Azure: `{kind:'redirect', authorizeUrl}` for the SPA's PKCE flow. The only unauthenticated endpoint. |
 | `GET /api/me` | — (signed-in) | The authenticated user. |
-| `POST /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 10 — any user may create; the creator is always retained as Owner) | `{name, members?: [{id, role}], everyone?: {enabled, role?}}` → `201 {id, manifest}`. A name-only body is the original behaviour. Role names are validated against the built-ins and the manifest's own custom roles (400 for an unknown one); everyone-access defaults to `Viewer` (Req 16). |
-| `GET /api/workspaces` | — (signed-in, pre-permission by design: PRD 007 Req 11 — metadata is listable by any signed-in user; contents stay permission-checked) | `[{id, name, created, modified, owners, access}]`. `owners` are the Owner-role member ids (whoever can grant membership, when no Owner role is used) and `access` is whether the caller resolves `doc.read` — enough for an Open dialog to tell "open it" from "ask for access" without attempting a forbidden read. Never file contents or workspace-scoped settings. |
+| `POST /api/workspaces` | — (signed-in, gated by the deployment creation policy: PRD 017 Req 8 — under the default `everyone` any user may create as PRD 007 Req 10 always allowed; `members` excludes guests; `restricted` allows only admins and the allow list; a refused caller gets 403 `deployment.create`. The creator is always retained as Owner) | `{name, members?: [{id, role}], everyone?: {enabled, role?}}` → `201 {id, manifest}`. A name-only body is the original behaviour. Role names are validated against the built-ins and the manifest's own custom roles (400 for an unknown one); everyone-access defaults to `Viewer` (Req 16). |
+| `GET /api/workspaces` | — (signed-in, gated by the deployment listing policy: PRD 017 Req 11 — under the default `everyone` metadata is listable by any signed-in user as PRD 007 Req 11 always allowed; under `members` rows the caller cannot open are omitted, for admins like anyone else) | `[{id, name, created, modified, owners, access}]`. `owners` are the Owner-role member ids (whoever can grant membership, when no Owner role is used) and `access` is whether the caller resolves `doc.read` — enough for an Open dialog to tell "open it" from "ask for access" without attempting a forbidden read. Never file contents or workspace-scoped settings. |
 | `DELETE /api/workspaces/<id>` | `workspace.delete` | Delete the workspace: every blob under `workspaces/<id>/` — manifest, `files/`, comment sidecars and pasted images alike (PRD 007 Req 12). 404 for an unknown id. |
 | `GET /api/workspaces/<id>/manifest` | `doc.read` | `{id, manifest}`. |
 | `PUT /api/workspaces/<id>/manifest` | `workspace.settings` | Validate + store the full manifest (`created` preserved, `modified` restamped server-side). The finer-grained member and role endpoints below are what settings UI uses. |
@@ -204,13 +215,17 @@ on the doc/file verbs.
 | `GET /api/me/files/<path>` | — (signed-in; scoped to the token's user) | Read: `{path, content, etag}`, or 404. |
 | `PUT /api/me/files/<path>` | — (signed-in; scoped to the token's user) | Write body as content → `{path, etag}`. |
 | `DELETE /api/me/files/<path>` | — (signed-in; scoped to the token's user) | Delete; 404 when absent. |
-| `GET /api/files` (`?prefix=`) | — (signed-in; legacy workspace-agnostic scaffold — never lists `workspaces/` or `users/`) | List stored files (path, size, lastModified, etag). |
-| `GET /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` or `users/` path) | Read: `{path, content, etag}`, or 404. |
-| `PUT /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` or `users/` path) | Write body as content → `{path, etag}`. |
-| `DELETE /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/` or `users/` path) | Delete; 404 when absent. |
+| `GET /api/files` (`?prefix=`) | — (signed-in; legacy workspace-agnostic scaffold — never lists `workspaces/`, `users/` or `deployment/`) | List stored files (path, size, lastModified, etag). |
+| `GET /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/`, `users/` or `deployment/` path) | Read: `{path, content, etag}`, or 404. |
+| `PUT /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/`, `users/` or `deployment/` path) | Write body as content → `{path, etag}`. |
+| `DELETE /api/files/<path>` | — (signed-in; legacy scaffold — 403 on any `workspaces/`, `users/` or `deployment/` path) | Delete; 404 when absent. |
 | `GET /api/directory/search?q=` | — (signed-in) | Directory user search. Results carry a same-origin `avatarUrl` when the user has a photo. |
 | `GET /api/directory/users/<id>` | — (signed-in) | One directory user, or 404. |
 | `GET /api/directory/users/<id>/photo` | — (signed-in) | Profile photo bytes (avatar). 404 when the user has no photo or is unknown. |
+| `GET /api/admin/workspaces` | `deployment.admin` | PRD 017 Req 16: every workspace in the deployment — member or not — with owners, member count, everyone-access, file count, total bytes and timestamps, aggregated from one `workspaces/` blob listing. A workspace with a corrupt manifest still appears, flagged, with its blob figures. |
+| `GET /api/admin/users` | `deployment.admin` | PRD 017 Req 19: every tenant user via the directory provider's `listUsers` (Graph pages `/users` with the OBO token; the mock returns the seeded list). A directory failure is an error answer, never an empty list. |
+| `GET /api/admin/settings` | `deployment.admin` | PRD 017 Req 15: the parsed deployment settings plus, when the blob fails to parse (Req 7), the parse error so Management can show it. |
+| `PUT /api/admin/settings` | `deployment.admin` | PRD 017 Req 14: replace the settings record after validating with the shared parser (400 on an invalid body). Last write wins; takes effect on the next request — no restart. |
 | `POST /api/admin/invitations` | `deployment.admin` | PRD 017 Req 29+30 (issue #190): invite a guest through Graph `POST /v1.0/invitations` **as the signed-in admin** (OBO exchange, delegated `User.Invite.All`), redirecting redemption to this deployment's origin. Body `{email, note?, workspace?: {id, role}}`, validated by the shared parser in `src/lib/invitations.ts` (400 for a malformed email, an unknown role, or a note over 500 characters). Success: `201 {id, email, displayName, pending: true}`. With `workspace`, the guest is added to that manifest at the role in the same request (the #180 display-name snapshot is the email); a grant that fails after the invitation landed keeps the 201 and carries `membership: {error}`. A Graph refusal maps to **502** with Graph's `error.code` and message — never a silent success, and never a token in a response or log line. |
 | `POST /api/directory/invitations/<id>/accept` | — (signed-in; local mock directory only — 404 on Azure) | Test hook: mark an invited guest accepted, clearing the Pending badge, so the flow is e2e-testable offline. |
 | `DELETE /api/directory/invitations/<id>` | — (signed-in; local mock directory only — 404 on Azure) | Test hook: withdraw an in-memory invitation, restoring the seeded directory. |

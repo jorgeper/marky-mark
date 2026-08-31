@@ -438,6 +438,7 @@ end. Saving restarts the app.
 | `AZURE_STORAGE_CONNECTION_STRING` | the connection string | from step 4.3 — **secret** |
 | `MM_STORAGE_CONTAINER` | `marky-mark` | only needed if you named the container something else, but setting it explicitly is harmless |
 | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `false` | tells App Service to deploy your payload as-is rather than running its own build, which would fail here |
+| `MM_ADMINS` | comma-separated object IDs | **optional** — the deployment admins. For each admin: **Entra ID → Users →** open the user **→ Object ID** (copy button next to it). Leave unset for no admins. |
 
 > **Do not add a `PORT` setting.** App Service injects one, and the server listens
 > on whatever it's given. Pin it to your own number and the platform's health
@@ -450,6 +451,15 @@ end. Saving restarts the app.
 Vault and reference them here
 instead of pasting the literal values. That's a good practice and entirely
 optional; the app can't tell the difference.
+
+### Deployment admins and policies
+
+`MM_ADMINS` is the only admin setting you configure here — everything else is
+managed from inside the app. A user listed in `MM_ADMINS` gets a **Management**
+entry (File menu and start page) with the deployment-wide view: every
+workspace, every tenant user, and the creation and listing policies under its
+Settings tab. See [AUTHENTICATION.md](AUTHENTICATION.md) § "Who can do what"
+for the access model.
 
 ### 5.3 Set the startup command
 
