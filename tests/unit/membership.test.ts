@@ -107,7 +107,8 @@ describe('PRD 007 Req 6 membership picker logic', () => {
     resolvers.get('gra')!([user('stale', 'Stale')]); // the older request answers late
     await Promise.resolve();
     expect(results).toEqual([{ users: [user('g', 'Grace')], query: 'grace' }]);
-    // A rejected search reports empty results, not an unhandled error.
+    // Without an onError handler, a rejected search still collapses to empty
+    // results rather than an unhandled error (issue #183 §3 kept the default).
     search.setQuery('boom');
     clock.fire();
     await Promise.resolve();
@@ -117,6 +118,48 @@ describe('PRD 007 Req 6 membership picker logic', () => {
     search.setQuery('late');
     search.dispose();
     expect(clock.pendingCount()).toBe(0);
+  });
+
+  it('U963: with onError given, a failed request is distinguishable from an empty answer — and stale failures are dropped', async () => {
+    // Issue #183 §3: the picker shows "directory error" apart from "no
+    // matches", so the controller must stop collapsing failures into [].
+    const clock = fakeTimers();
+    const results: { users: DirectoryEntry[]; query: string }[] = [];
+    const errors: string[] = [];
+    const rejecters = new Map<string, (err: Error) => void>();
+    const search = createDirectorySearch({
+      search: (q) =>
+        q.startsWith('boom')
+          ? new Promise((_resolve, reject) => rejecters.set(q, reject))
+          : Promise.resolve([user(q, q)]),
+      onResults: (users, query) => results.push({ users, query }),
+      onError: (query) => errors.push(query),
+      timers: clock.timers,
+    });
+    // A failure lands in onError, never in onResults.
+    search.setQuery('boom');
+    clock.fire();
+    rejecters.get('boom')!(new Error('500'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(errors).toEqual(['boom']);
+    expect(results).toEqual([]);
+    // An empty successful answer still lands in onResults.
+    search.setQuery('nobody');
+    clock.fire();
+    await Promise.resolve();
+    expect(results).toEqual([{ users: [user('nobody', 'nobody')], query: 'nobody' }]);
+    // A stale failure never overwrites a newer query's state.
+    search.setQuery('boom2');
+    clock.fire();
+    search.setQuery('grace');
+    clock.fire();
+    await Promise.resolve();
+    rejecters.get('boom2')!(new Error('late 500'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(errors).toEqual(['boom']);
+    search.dispose();
   });
 
   it('U251: resolveMembers maps resolvable ids to display entries and keeps unresolvable ones as plain identifiers', async () => {

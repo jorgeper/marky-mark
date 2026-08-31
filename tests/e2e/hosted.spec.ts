@@ -856,8 +856,8 @@ test('E185: Workspace settings deletes the workspace behind an exact-name gate a
 
   await signInTo(page, 'ada', id);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await openSettings(page, 'general');
-  await page.getByTestId('settings-scope-workspace').click();
+  // Issue #183 §1: the danger zone now lives at the foot of the People tab.
+  await openSettings(page, 'people');
   await expect(page.getByTestId('workspace-delete-section')).toBeVisible();
 
   // Inert until the exact name is typed — a near-miss does not arm it.
@@ -891,8 +891,11 @@ test('E186: a member without workspace.delete never sees the delete action', asy
   await signInTo(page, 'grace', id);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await openSettings(page, 'general');
+  // Issue #183 §1: without workspace.delete (or members/roles) there is no
+  // People tab at all — and no delete section anywhere else either.
   await page.getByTestId('settings-scope-workspace').click();
   await expect(page.getByTestId('settings-scope-content-workspace')).toBeVisible();
+  await expect(page.getByTestId('settings-tab-people')).toHaveCount(0);
   await expect(page.getByTestId('workspace-delete-section')).toHaveCount(0);
 });
 
@@ -1357,12 +1360,12 @@ test('E225: a concurrent save that overlaps still fails 412 and shows the unchan
 
 // --- Workspace settings: membership and custom roles (PRD 007 Req 15+16) -----
 
-/** Open Workspace settings for the bound workspace and wait for its content. */
+/** Issue #183 §1: open the People tab of Settings for the bound workspace. */
 async function openWorkspaceSettings(page: Page): Promise<void> {
   await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await openSettings(page, 'general');
-  await page.getByTestId('settings-scope-workspace').click();
-  await expect(page.getByTestId('settings-scope-content-workspace')).toBeVisible();
+  // The tab button appears once the panel has the manifest + permissions;
+  // the click auto-waits for it.
+  await openSettings(page, 'people');
 }
 
 /** Write a file as `token` and report the status — what a role actually allows. */
@@ -1567,7 +1570,13 @@ test('E198: a member without workspace.members or workspace.roles sees neither s
   ]);
 
   await signInTo(page, 'grace', id);
-  await openWorkspaceSettings(page);
+  // Issue #183 §1: for a member with neither verb the People tab itself is
+  // absent — no permission-denied placeholder — so open General and look.
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-scope-workspace').click();
+  await expect(page.getByTestId('settings-scope-content-workspace')).toBeVisible();
+  await expect(page.getByTestId('settings-tab-people')).toHaveCount(0);
   await expect(page.getByTestId('workspace-members-section')).toHaveCount(0);
   await expect(page.getByTestId('workspace-roles-section')).toHaveCount(0);
 
@@ -1583,6 +1592,168 @@ test('E198: a member without workspace.members or workspace.roles sees neither s
     expect(res.status()).toBe(403);
     expect(((await res.json()) as { required: string }).required).toBe(required);
   }
+});
+
+test('E360: People is its own settings tab, immediately after Editor, holding members, roles and the danger zone — and absent without a workspace', async ({
+  page,
+  request,
+}) => {
+  // Issue #183 §1: a real destination in the tab rail, not sections appended
+  // to the General tab's Workspace scope.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E360 w${test.info().workerIndex}`);
+
+  await signInTo(page, 'ada', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await openSettings(page, 'general');
+  await expect(page.getByTestId('settings-tab-people')).toBeVisible();
+  await expect(page.getByTestId('settings-tabs').locator('button')).toHaveText([
+    'General',
+    'Appearance',
+    'Editor',
+    'People',
+    'Hotkeys',
+    'LLM providers',
+    'Experimental',
+  ]);
+  // The sections are no longer appended to the General tab — in either scope.
+  await expect(page.getByTestId('workspace-members-section')).toHaveCount(0);
+  await expect(page.getByTestId('workspace-delete-section')).toHaveCount(0);
+  await page.getByTestId('settings-scope-workspace').click();
+  await expect(page.getByTestId('settings-scope-content-workspace')).toBeVisible();
+  await expect(page.getByTestId('workspace-members-section')).toHaveCount(0);
+  await expect(page.getByTestId('workspace-delete-section')).toHaveCount(0);
+  // People is workspace-tied, not layer-tied: it opens from Workspace scope
+  // too, and one tab holds all three sections.
+  await page.getByTestId('settings-tab-people').click();
+  await expect(page.getByTestId('workspace-members-section')).toBeVisible();
+  await expect(page.getByTestId('workspace-roles-section')).toBeVisible();
+  await expect(page.getByTestId('workspace-delete-section')).toBeVisible();
+  await page.getByTestId('settings-close').click();
+
+  // Without a workspace bound there is no People tab at all.
+  await signOut(page);
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await openSettings(page, 'general');
+  await expect(page.getByTestId('settings-tab-hotkeys')).toBeVisible();
+  await expect(page.getByTestId('settings-tab-people')).toHaveCount(0);
+});
+
+test('E361: Add people autocompletes from the directory — guest badge, ↑/↓/Enter/Esc, and inline empty/error answers', async ({
+  page,
+  request,
+}) => {
+  // Issue #183 §3: the suggestions dropdown over the local mock directory.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E361 w${test.info().workerIndex}`);
+
+  await signInTo(page, 'ada', id);
+  await openWorkspaceSettings(page);
+  const input = page.getByTestId('membership-picker-input');
+  const dropdown = page.getByTestId('membership-picker-dropdown');
+
+  // 'jackson' matches the seeded guest — badged as such in the suggestion.
+  await input.fill('jackson');
+  await expect(dropdown).toBeVisible();
+  const mary = page.getByTestId('membership-picker-result-mock-mary');
+  await expect(mary).toBeVisible();
+  await expect(mary.locator('.membership-guest-badge')).toHaveText('Guest');
+
+  // Esc closes the dropdown — and only the dropdown; typing reopens it.
+  await input.press('Escape');
+  await expect(dropdown).toHaveCount(0);
+  await expect(page.getByTestId('settings-panel')).toBeVisible();
+
+  // 'a' matches grace, alan, katherine and mary (ada is a member already —
+  // never offered twice). ↑/↓ move the highlight and Enter adds it: down
+  // twice and up once lands on Alan Turing.
+  await input.fill('a');
+  await expect(page.getByTestId('membership-picker-results')).toBeVisible();
+  const active = page.locator('.membership-result.active');
+  await expect(active).toHaveCount(1);
+  await expect(active).toContainText('Grace Hopper');
+  await input.press('ArrowDown');
+  await expect(active).toContainText('Alan Turing');
+  await input.press('ArrowDown');
+  await expect(active).toContainText('Katherine Johnson');
+  await input.press('ArrowUp');
+  await expect(active).toContainText('Alan Turing');
+  await input.press('Enter');
+  // The pick lands as a member with the default role, and the box resets.
+  await expect(page.getByTestId('workspace-member-role-mock-alan')).toHaveValue('Viewer');
+  await expect(input).toHaveValue('');
+  await expect(dropdown).toHaveCount(0);
+
+  // A non-empty query that resolves to nobody says so inline…
+  await input.fill('zzz-nobody');
+  await expect(page.getByTestId('membership-picker-empty')).toContainText('No people match');
+
+  // …and a directory failure is an inline error, not a silent nothing (the
+  // #184 live-tenant OBO failure surfaced as exactly this 500).
+  await page.route('**/api/directory/search*', (route) =>
+    route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"obo exchange failed"}' }),
+  );
+  await input.fill('grace');
+  await expect(page.getByTestId('membership-picker-error')).toContainText('directory');
+  await page.unroute('**/api/directory/search*');
+});
+
+test('E362: the Add people input and the role select share the one text-input rule — box, border, font and edges — in a light and a dark theme', async ({
+  page,
+  request,
+}) => {
+  // Issue #183 §2: asserted as computed styles (this style assertion IS the
+  // two-theme visual check the spec calls for). The shared .modal rule reads
+  // theme variables, so the pair must agree in Crisp and One Dark alike.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E362 w${test.info().workerIndex}`);
+  await signInTo(page, 'ada', id);
+  await openWorkspaceSettings(page);
+
+  const input = page.getByTestId('membership-picker-input');
+  const select = page.getByTestId('workspace-member-role-mock-ada');
+  const styleKey = (el: Element) => {
+    const s = getComputedStyle(el);
+    return [
+      s.paddingTop,
+      s.paddingRight,
+      s.paddingBottom,
+      s.paddingLeft,
+      s.borderTopWidth,
+      s.borderTopColor,
+      s.borderTopLeftRadius,
+      s.borderBottomRightRadius,
+      s.fontFamily,
+      s.fontSize,
+    ].join(' | ');
+  };
+  const borderOf = (el: Element) => getComputedStyle(el).borderTopColor;
+
+  const seenBorders: string[] = [];
+  for (const theme of ['crisp', 'one-dark']) {
+    await page.getByTestId('settings-tab-appearance').click();
+    await page.getByTestId('settings-theme-light').selectOption(theme);
+    await page.getByTestId('settings-tab-people').click();
+    await expect(input).toBeVisible();
+    if (seenBorders.length > 0) {
+      // Wait for the theme swap to actually repaint the border variable.
+      await expect.poll(() => input.evaluate(borderOf)).not.toBe(seenBorders[seenBorders.length - 1]);
+    }
+
+    // Same padding, border colour/width, radius and font, from the one rule.
+    expect(await select.evaluate(styleKey)).toBe(await input.evaluate(styleKey));
+    seenBorders.push(await input.evaluate(borderOf));
+
+    // Left/right edges align, and the boxes stand equally tall.
+    const ib = (await input.boundingBox())!;
+    const sb = (await select.boundingBox())!;
+    expect(Math.abs(ib.x - sb.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(ib.x + ib.width - (sb.x + sb.width))).toBeLessThanOrEqual(1);
+    expect(Math.abs(ib.height - sb.height)).toBeLessThanOrEqual(1);
+  }
+  // Two genuinely different themes were measured, off the same variables.
+  expect(seenBorders[0]).not.toBe(seenBorders[1]);
 });
 
 test('E201: the hosted start page offers exactly Open File + the two workspace flows — no Open Folder, on the page or in the menu', async ({

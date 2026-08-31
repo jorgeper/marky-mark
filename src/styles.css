@@ -1271,10 +1271,21 @@ mark.hl.ghost {
   margin-bottom: 4px;
 }
 
-.modal input[type='text'] {
+/* Issue #183 §2: ONE rule dresses every settings/dialog text field and
+   select — the Add people input (a plain input[type='text'] now) and the
+   member-role selects beneath it take padding, height, border colour,
+   radius and font from here, off the theme variables, so their edges align
+   in every bundled theme. Per-component width/padding tweaks stay out. */
+.modal input[type='text'],
+.modal select {
   width: 100%;
+  /* One EXPLICIT height: a select ignores line-height, so without this the
+     pair stand ~2px apart. 35px is the input's natural 13.5px/1.4 + padding
+     + border height, kept so nothing else shifts. */
+  height: 35px;
   font: inherit;
   font-size: 13.5px;
+  line-height: 1.4;
   color: inherit;
   background: var(--mm-bg, #ffffff);
   border: 1px solid var(--mm-border, #d1d9e0);
@@ -1471,18 +1482,6 @@ mark.hl.ghost {
 
 .linklike:hover {
   text-decoration: underline;
-}
-
-.modal select {
-  width: 100%;
-  font: inherit;
-  font-size: 13.5px;
-  color: inherit;
-  background: var(--mm-bg, #ffffff);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 7px;
-  padding: 7px 10px;
-  outline: none;
 }
 
 .modal .hotkey-row {
@@ -3574,6 +3573,52 @@ mark.hl.ghost {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* Issue #183 §2: a member-role field — a labelled full-width select like
+   .field, but WITHOUT the settings rows' 20px scope-note gutter (these are
+   workspace state, not layered settings rows), so the select's right edge
+   meets the Add people input's. */
+.workspace-member-field {
+  margin-bottom: 12px;
+}
+
+/* Issue #183 §3: the autocomplete dropdown — anchored under the Add people
+   input, floating over the section rather than pushing it apart. */
+.membership-search {
+  position: relative;
+}
+
+.membership-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  padding: 4px;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 7px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* The ↑/↓ highlight — same surface as hover, so mouse and keyboard agree. */
+.membership-result.active {
+  background: var(--mm-hover, rgba(9, 105, 218, 0.08));
+}
+
+/* Issue #183 §3: the inline empty/error answers — never a silent nothing. */
+.membership-note {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  color: var(--mm-muted, #59636e);
+}
+
+.membership-note-error {
+  color: var(--mm-danger, #cf222e);
 }
 
 .membership-member,

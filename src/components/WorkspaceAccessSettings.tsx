@@ -1,58 +1,104 @@
-// PRD 007 Req 15+16 (+17): the permission-gated access sections of Workspace
-// settings. It loads the open workspace's manifest and the signed-in user's
-// resolved permissions ONCE and hands both to the people and roles sections,
-// so a role created in one is grantable in the other without a reload.
-// Each section renders only for a holder of its single verb — the same
-// pattern WorkspaceDangerZone uses for `workspace.delete` — and the server
-// endpoints behind them refuse anyone else regardless.
+// Issue #183 §1 (was PRD 007 Req 15+16+17's appended sections): the People
+// tab of Settings. The hook loads the open workspace's manifest and the
+// signed-in user's resolved permissions ONCE — SettingsPanel reads it to
+// decide whether the tab exists at all, and the tab body hands both to the
+// people and roles sections so a role created in one is grantable in the
+// other without a reload. Each section still renders only for a holder of
+// its single verb — the same pattern WorkspaceDangerZone uses for
+// `workspace.delete` — and the server endpoints behind them refuse anyone
+// else regardless.
 
 import { useEffect, useState } from 'react';
 import type { Permission, WorkspaceManifest } from '../lib/hostedWorkspace';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
+import { WorkspaceDangerZone } from './WorkspaceDangerZone';
 import { WorkspaceMembers } from './WorkspaceMembers';
 import { WorkspaceRoles } from './WorkspaceRoles';
 
-export function WorkspaceAccessSettings({ lifecycle }: { lifecycle: WorkspaceLifecycle }) {
-  const id = lifecycle.currentId();
+export interface WorkspaceAccess {
+  workspaceId: string | null;
+  manifest: WorkspaceManifest | null;
+  permissions: Permission[];
+  setManifest: (manifest: WorkspaceManifest) => void;
+  /**
+   * Issue #183 §1: whether the People tab exists — a hosted workspace is
+   * open AND the member holds at least one of the verbs the tab's sections
+   * gate on. No permission-denied placeholder tab.
+   */
+  peopleTab: boolean;
+}
+
+/** The verbs that give the People tab something to show. */
+const PEOPLE_TAB_PERMISSIONS: readonly Permission[] = [
+  'workspace.members',
+  'workspace.roles',
+  'workspace.delete',
+];
+
+export function useWorkspaceAccess(lifecycle: WorkspaceLifecycle | undefined): WorkspaceAccess {
+  const workspaceId = lifecycle?.currentId() ?? null;
   const [manifest, setManifest] = useState<WorkspaceManifest | null>(null);
   const [permissions, setPermissions] = useState<Permission[]>([]);
 
   useEffect(() => {
-    if (!id) return;
+    // Reset first, so a workspace switch never shows the previous one's
+    // people while the new manifest loads.
+    setManifest(null);
+    setPermissions([]);
+    if (!lifecycle || !workspaceId) return;
     let cancelled = false;
-    void Promise.all([lifecycle.manifest(id), lifecycle.permissions(id)]).then(([loaded, resolved]) => {
-      if (cancelled) return;
-      setManifest(loaded);
-      setPermissions(resolved);
-    });
+    void Promise.all([lifecycle.manifest(workspaceId), lifecycle.permissions(workspaceId)]).then(
+      ([loaded, resolved]) => {
+        if (cancelled) return;
+        setManifest(loaded);
+        setPermissions(resolved);
+      },
+    );
     return () => {
       cancelled = true;
     };
-  }, [lifecycle, id]);
+  }, [lifecycle, workspaceId]);
 
-  if (!id || !manifest) return null;
-  const canMembers = permissions.includes('workspace.members');
-  const canRoles = permissions.includes('workspace.roles');
-  if (!canMembers && !canRoles) return null;
+  return {
+    workspaceId,
+    manifest,
+    permissions,
+    setManifest,
+    peopleTab:
+      workspaceId !== null && manifest !== null && PEOPLE_TAB_PERMISSIONS.some((p) => permissions.includes(p)),
+  };
+}
 
+/** Issue #183 §1: the People tab body — members, roles, then the danger zone. */
+export function WorkspacePeopleTab({
+  lifecycle,
+  access,
+}: {
+  lifecycle: WorkspaceLifecycle;
+  access: WorkspaceAccess;
+}) {
+  const { workspaceId, manifest, permissions, setManifest } = access;
+  if (!workspaceId || !manifest) return null;
   return (
     <>
-      {canMembers && (
+      {permissions.includes('workspace.members') && (
         <WorkspaceMembers
           lifecycle={lifecycle}
-          workspaceId={id}
+          workspaceId={workspaceId}
           manifest={manifest}
           onManifest={setManifest}
         />
       )}
-      {canRoles && (
+      {permissions.includes('workspace.roles') && (
         <WorkspaceRoles
           lifecycle={lifecycle}
-          workspaceId={id}
+          workspaceId={workspaceId}
           manifest={manifest}
           onManifest={setManifest}
         />
       )}
+      {/* The danger zone self-gates on `workspace.delete`, exactly as before. */}
+      <WorkspaceDangerZone lifecycle={lifecycle} />
     </>
   );
 }

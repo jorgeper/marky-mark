@@ -194,8 +194,6 @@ import { FIXTURES } from './bundled';
 import { AppBadge, Toolbar } from './components/Toolbar';
 import { CommentCard } from './components/CommentCard';
 import { SettingsPanel } from './components/SettingsPanel';
-import { WorkspaceAccessSettings } from './components/WorkspaceAccessSettings';
-import { WorkspaceDangerZone } from './components/WorkspaceDangerZone';
 import { NewWorkspaceDialog, OpenWorkspaceDialog } from './components/WorkspaceSwitcher';
 import { StartPage } from './components/StartPage';
 import { startActions, startCapabilities, type StartActionId } from './lib/startActions';
@@ -7340,18 +7338,11 @@ export default function App() {
           summaryCacheAvailable={summaryCacheAvailable}
           onSummaryCacheSize={readSummaryCacheSize}
           onSummaryCacheClear={clearSummaryCache}
-          workspaceActions={
-            // PRD 007 Req 12 (+15/16): a capability check, not a flavor check
-            // — only a platform offering the workspace lifecycle has a
-            // workspace to administer or delete server-side. Each section
-            // gates itself on the one permission it needs.
-            platform.workspaces ? (
-              <>
-                <WorkspaceAccessSettings lifecycle={platform.workspaces} />
-                <WorkspaceDangerZone lifecycle={platform.workspaces} />
-              </>
-            ) : undefined
-          }
+          // Issue #183 §1 (was PRD 007 Req 12's appended sections): a
+          // capability check, not a flavor check — only a platform offering
+          // the workspace lifecycle has a People tab to show. The panel gates
+          // the tab on the open workspace and the member's permissions.
+          workspaceLifecycle={platform.workspaces}
         />
       )}
 

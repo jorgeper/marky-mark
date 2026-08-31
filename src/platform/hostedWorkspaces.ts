@@ -52,7 +52,10 @@ export interface WorkspaceLifecycle {
   createRole(id: string, role: CustomRoleInput): Promise<ManifestResult>;
   updateRole(id: string, name: string, role: CustomRoleInput): Promise<ManifestResult>;
   deleteRole(id: string, name: string): Promise<ManifestResult>;
-  /** Directory search for the membership picker. */
+  /**
+   * Directory search for the membership picker. Rejects on a failed answer
+   * (issue #183 §3) so the picker can tell an error from an empty match.
+   */
   searchUsers(query: string): Promise<DirectoryEntry[]>;
   /**
    * Stored members → display entries. A ref carrying the manifest's
@@ -195,8 +198,12 @@ export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
     },
 
     async searchUsers(query) {
-      const found =
-        (await json<DirectoryEntry[]>(await api(`/api/directory/search?q=${encodeURIComponent(query)}`))) ?? [];
+      // Issue #183 §3: a failed directory answer REJECTS instead of reading
+      // as "nobody matched" — the picker shows its inline error for it (the
+      // #184 OBO failure rendered as an empty list for exactly this reason).
+      const res = await api(`/api/directory/search?q=${encodeURIComponent(query)}`);
+      if (!res.ok) throw new Error(`directory search failed (${res.status})`);
+      const found = ((await res.json()) as DirectoryEntry[]) ?? [];
       return found.map(withAvatarToken);
     },
 
