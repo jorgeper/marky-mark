@@ -20,10 +20,10 @@
  *
  * SPEC33 §1.1: `--quick` runs the inner-loop subset only — version
  * lock-step, MAP.md freshness, the CLAUDE.md symlink check, test-ID
- * uniqueness, the e2e count floor, typecheck, unit tests, desktop-shim e2e — and prints the
- * DISTINCT line `QUICK VALIDATION: ALL PASSED`. Only the full gate's
- * `VALIDATION: ALL PASSED` counts as release evidence. The full step list
- * below is untouched.
+ * uniqueness, the e2e count floor, typecheck, unit tests, desktop-shim
+ * e2e — and prints the DISTINCT line `QUICK VALIDATION: ALL PASSED`.
+ * Only the full gate's `VALIDATION: ALL PASSED` counts as release
+ * evidence. The full step list below is untouched.
  */
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs';
@@ -224,7 +224,8 @@ while (idDirs.length > 0) {
 }
 const duplicatedIds = [...idFiles].filter(([, files]) => files.length > 1);
 if (duplicatedIds.length > 0) {
-  duplicatedIds.sort(([a], [b]) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : Number(a.slice(1)) - Number(b.slice(1))));
+  // Prefix first (E < U < W in ASCII), then numerically within a prefix.
+  duplicatedIds.sort(([a], [b]) => a.charCodeAt(0) - b.charCodeAt(0) || Number(a.slice(1)) - Number(b.slice(1)));
   for (const [id, files] of duplicatedIds) console.error(`  ${id} appears ${files.length} times: ${files.join(', ')}`);
   console.error('  Test IDs are stable and unique — keep the older test\'s number and bump the newer one to the next unused number for its prefix.');
   console.error('\nVALIDATION FAILED at step: test-ID uniqueness');
