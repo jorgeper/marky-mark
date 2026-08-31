@@ -56,6 +56,9 @@ export type CommandId =
   | 'saveWorkspaceAs'
   | 'closeWorkspace'
   | 'settings'
+  // PRD 017 Req 13: the deployment-admin Management view — beside the
+  // workspace flows on the entry surface, present only for an admin.
+  | 'management'
   // PRD 009 Req 17: end the hosted session — routed like every other menu
   // row, and inert on a platform without the sign-out capability.
   | 'signOut'

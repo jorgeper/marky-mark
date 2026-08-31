@@ -190,6 +190,10 @@ export function buildAppMenu(s: AppMenuState): AppMenuGroup[] {
       ? [row('newWorkspace', 'New Workspace', 'menu-new-workspace', undefined, s.canCreateWorkspace === false ? true : undefined)]
       : []),
     ...(entry.has('openWorkspace') ? [row('openWorkspace', 'Open Workspace…', 'menu-open-workspace')] : []),
+    // PRD 017 Req 13: the admin's Management view — present exactly when the
+    // app put `management` on the entry list (an admin session), like the
+    // File menu's twin item.
+    ...(entry.has('management') ? [row('management', 'Management…', 'menu-management')] : []),
     ...(inWorkspace && hasWorkspaces ? [row('closeWorkspace', 'Close Workspace', 'menu-close-workspace')] : []),
   ];
 

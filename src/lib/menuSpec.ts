@@ -316,6 +316,9 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
       ? [cmd('newWorkspace', 'New Workspace…', undefined, undefined, s.canCreateWorkspace === false)]
       : []),
     ...(entry.has('openWorkspace') ? [cmd('openWorkspace', 'Open Workspace…')] : []),
+    // PRD 017 Req 13: Management… rides the same list — the app appends the
+    // action only when /api/me says admin, so no extra flag lives here.
+    ...(entry.has('management') ? [cmd('management', 'Management…')] : []),
   ];
   // SPEC29 §3.2 + PRD 002 §D15: workspaces first, separator, files, separator,
   // Clear Menu — Clear alone when both sections are empty.

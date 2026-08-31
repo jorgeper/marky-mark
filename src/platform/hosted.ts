@@ -2,6 +2,7 @@ import type { Platform } from './types';
 import { createLocalDocs } from './localDocs';
 import { clearToken, readStoredToken } from '../lib/hostedGate';
 import { createHostedWorkspaceLifecycle } from './hostedWorkspaces';
+import { createHostedAdmin } from './hostedAdmin';
 import { createHostedLlm } from './hostedLlm';
 import { createHostedSummaryCache } from './hostedSummaryCache';
 import { ALL_FILE_GRANTS, fileGrantsFromPermissions, type FileGrants } from '../lib/fileGrants';
@@ -653,6 +654,14 @@ export function createHostedPlatform(): Platform {
      * neither read it nor change it.
      */
     llm: createHostedLlm(api),
+
+    /**
+     * PRD 017 Req 14: the Management view's transport — the same `api()`
+     * wrapper again, so the four admin routes add no network call site.
+     * Present on every hosted session; adminship itself is /api/me's call,
+     * and the server refuses non-admins on every route regardless.
+     */
+    deploymentAdmin: createHostedAdmin(api),
 
     /**
      * PRD 011 Req 29: the workspace's shared summary cache, server-side and

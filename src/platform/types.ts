@@ -3,6 +3,7 @@ import type { LlmTransport } from '../lib/llmSeam';
 import type { MenuSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
 import type { WorkspaceLifecycle } from './hostedWorkspaces';
+import type { DeploymentAdmin } from './hostedAdmin';
 import type { LlmClient } from './hostedLlm';
 import type { SummaryCacheStore } from '../lib/summaryCacheStore';
 import type { FileGrants } from '../lib/fileGrants';
@@ -263,6 +264,15 @@ export interface Platform {
    * code mounts on the capability, never on the flavor.
    */
   sessionUser?(): Promise<SessionMe | null>;
+
+  /**
+   * PRD 017 Req 14: the deployment-admin transport — the four /api/admin
+   * routes behind the Management view, built on the hosted flavor's one
+   * fetch wrapper. Presence is flavor-level, not proof of adminship: the
+   * Management surfaces also require `sessionUser`'s `admin` flag, and the
+   * server refuses non-admins with the Req 2 shape regardless.
+   */
+  deploymentAdmin?: DeploymentAdmin;
 
   /**
    * PRD 009 Req 17: end the signed-in session — drop the stored credential

@@ -193,11 +193,13 @@ import { applyThemeCss, loadAllThemes } from './themeRuntime';
 import { FIXTURES } from './bundled';
 import { AppBadge, Toolbar } from './components/Toolbar';
 import { CommentCard } from './components/CommentCard';
+import { ManagementPanel } from './components/ManagementPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { NewWorkspaceDialog, OpenWorkspaceDialog } from './components/WorkspaceSwitcher';
 import { StartPage } from './components/StartPage';
 import { startActions, startCapabilities, type StartActionId } from './lib/startActions';
 import { CREATE_REFUSAL_HINTS, type SessionMe } from './lib/deploymentSettings';
+import { isViewingAsAdminOnly } from './lib/hostedWorkspace';
 import { AboutDialog } from './components/AboutDialog';
 
 const Editor = lazy(() => import('./components/Editor'));
@@ -529,6 +531,8 @@ export default function App() {
   // lastEditorSelRef and reaches preview through the SPEC25 carry.
   const [editHasSelection, setEditHasSelection] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // PRD 017 Req 13: the deployment-admin Management dialog.
+  const [managementOpen, setManagementOpen] = useState(false);
   /**
    * PRD 011 Req 22: the tab the next inline Settings open lands on. Set only by
    * the zoomed view's "configure a provider" route, and cleared on close, so
@@ -4293,6 +4297,11 @@ export default function App() {
         if (p?.openAuxWindow) void p.openAuxWindow('settings');
         else setSettingsOpen(true);
       },
+      // PRD 017 Req 13: the Management dialog — inert on a platform without
+      // the admin transport (the entry never renders there anyway).
+      management: () => {
+        if (stateRef.current.platform?.deploymentAdmin) setManagementOpen(true);
+      },
       // PRD 009 Req 17: Sign out borrows the SAME dirty walk Close File and
       // Close Workspace take — the changed-untitled-workspace prompt, then
       // one close prompt per dirty tab. Cancel anywhere in there clears the
@@ -4396,14 +4405,6 @@ export default function App() {
   }, [openDocGuarded, showNotice, commitRecent, commitRecentWs, openWorkspaceFromPath, guardWorkspaceDiscard]);
 
   /**
-   * PRD 007 Req 21/22: the entry surface — the ordered actions this flavor can
-   * honour, derived from platform capabilities alone (lib/startActions.ts).
-   * The start page renders it and the File menu mirrors it, so the two can
-   * never diverge: desktop/shim get all four, hosted gets everything but Open
-   * Folder…, the single-file web build gets Open File alone.
-   */
-  const entryActions = useMemo(() => (platform ? startActions(startCapabilities(platform)) : []), [platform]);
-  /**
    * PRD 017 Req 3+10: the session's /api/me record, from the platform's
    * sessionUser capability (the hosted flavor holds it for the session).
    * Null until it answers — and forever on flavors without a session, where
@@ -4420,6 +4421,46 @@ export default function App() {
       cancelled = true;
     };
   }, [platform]);
+  /**
+   * PRD 007 Req 21/22: the entry surface — the ordered actions this flavor can
+   * honour, derived from platform capabilities alone (lib/startActions.ts).
+   * The start page renders it and the File menu mirrors it, so the two can
+   * never diverge: desktop/shim get all four, hosted gets everything but Open
+   * Folder…, the single-file web build gets Open File alone.
+   */
+  const entryActions = useMemo(() => {
+    const list = platform ? startActions(startCapabilities(platform)) : [];
+    // PRD 017 Req 13: the Management entry is appended HERE, not derived in
+    // startActions — adminship is a session fact (/api/me), not a platform
+    // capability. Appending to the one list puts the action on the start
+    // page, the File menu and the hamburger together, admin-only.
+    return platform?.deploymentAdmin && sessionMe?.admin === true
+      ? [...list, 'management' as StartActionId]
+      : list;
+  }, [platform, sessionMe]);
+  /**
+   * PRD 017 Req 5: the admin banner — this page is bound to a workspace
+   * whose manifest grants the signed-in admin nothing of their own, so they
+   * are viewing purely through the implicit admin union. Re-checked when the
+   * Settings or Management dialog closes: adding themselves in People is the
+   * documented way the banner ends without a reload.
+   */
+  const [adminOnlyView, setAdminOnlyView] = useState(false);
+  useEffect(() => {
+    const lifecycle = platform?.workspaces;
+    const boundId = lifecycle?.currentId() ?? null;
+    if (!lifecycle || boundId === null || sessionMe?.admin !== true || settingsOpen || managementOpen) {
+      if (sessionMe?.admin !== true || boundId === null) setAdminOnlyView(false);
+      return;
+    }
+    let cancelled = false;
+    void lifecycle.manifest(boundId).then((manifest) => {
+      if (!cancelled) setAdminOnlyView(manifest !== null && isViewingAsAdminOnly(manifest, sessionMe));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [platform, sessionMe, settingsOpen, managementOpen]);
   /**
    * PRD 017 Req 10: when the deployment refuses creation for this caller,
    * the `newWorkspace` entries stay VISIBLE but disabled — the start-page
@@ -7292,6 +7333,16 @@ export default function App() {
         </div>
       )}
 
+      {/* PRD 017 Req 5: persistent and non-dismissable while an admin views
+          a workspace that grants them nothing of their own — both facts
+          stated, and gone the moment they hold a role. Its own strip above
+          the two bottom notices so all three can coexist. */}
+      {adminOnlyView && (
+        <div className="mm-store-notice mm-admin-banner" data-testid="admin-view-banner" role="status">
+          Viewing as a deployment admin — you are not a member of this workspace.
+        </div>
+      )}
+
       {/* SPEC20 §2: transient paste feedback, bottom-center. */}
       {notice && (
         <div className="mm-notice" data-testid="notice">
@@ -7392,6 +7443,17 @@ export default function App() {
       )}
       {platform.workspaces && managedWsDialog === 'open' && (
         <OpenWorkspaceDialog lifecycle={platform.workspaces} onClose={() => setManagedWsDialog('none')} />
+      )}
+
+      {/* PRD 017 Req 13: the deployment-admin Management view, mounted on
+          the admin transport + lifecycle capabilities — available whether or
+          not a workspace is bound. */}
+      {platform.deploymentAdmin && platform.workspaces && managementOpen && (
+        <ManagementPanel
+          admin={platform.deploymentAdmin}
+          lifecycle={platform.workspaces}
+          onClose={() => setManagementOpen(false)}
+        />
       )}
 
       {!platform.openAuxWindow && aboutOpen && (

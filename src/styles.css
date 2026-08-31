@@ -3991,3 +3991,130 @@ mark.hl.ghost {
   :is(.workspace, .split-preview, .cm-scroller, .folder-list)::-webkit-scrollbar-thumb:active {
   background-color: var(--mm-fg-muted, #59636e);
 }
+
+/* PRD 017 Req 13: the Management dialog — near full-window, its own sizing
+   (deliberately NOT .settings-modal, whose fixed maximum width it must not
+   inherit): the window minus a ~2.5% uniform inset, zero on narrow windows,
+   content scrolling inside and tables using the full width. */
+.modal.management-modal {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  width: 95vw;
+  height: 95vh;
+  max-height: none;
+  overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  .modal.management-modal {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    border: none;
+  }
+}
+
+.management-modal .settings-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The tab rail and content reuse the Settings dialog's look — the same
+   rules, restated for this class because those are scoped .settings-modal. */
+.management-modal .tab-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 8px;
+  width: 128px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--mm-border, #d1d9e0);
+  background: color-mix(in srgb, var(--mm-bg, #fff) 55%, var(--mm-bg-elevated, #f6f8fa));
+}
+
+.management-modal .tab-btn {
+  text-align: left;
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  color: var(--mm-fg-muted, #59636e);
+}
+
+.management-modal .tab-btn:hover {
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg, #1f2328);
+}
+
+.management-modal .tab-btn.active {
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-accent, #0969da);
+  font-weight: 600;
+}
+
+.management-modal .tab-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px;
+  min-width: 0;
+}
+
+/* PRD 017 Req 16+19: full-width tables for the Workspaces and People tabs. */
+.management-modal .admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.management-modal .admin-table th,
+.management-modal .admin-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--mm-border, #d1d9e0);
+}
+
+.management-modal .admin-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mm-fg-muted, #59636e);
+}
+
+.management-modal .admin-row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.management-modal button.destructive {
+  color: #d1242f;
+  border-color: color-mix(in srgb, #d1242f 40%, transparent);
+}
+
+/* PRD 017 Req 16: the corrupt-manifest flag on a workspace row. */
+.admin-corrupt-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  background: color-mix(in srgb, #d1242f 15%, transparent);
+  color: #d1242f;
+}
+
+/* PRD 017 Req 19: the Admin badge — the Guest badge's shape, its own color. */
+.admin-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--mm-accent, #0969da) 15%, transparent);
+  color: var(--mm-accent, #0969da);
+}
+
+/* PRD 017 Req 5: the admin banner — the .mm-store-notice strip, offset so
+   it can coexist with the two bottom notices it would otherwise cover. */
+.mm-admin-banner {
+  bottom: auto;
+  top: 52px;
+}

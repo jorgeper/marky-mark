@@ -10,7 +10,7 @@
 
 /** An entry-surface action. The drag-a-file drop target is not one — it is
  *  always present on the start page and has no menu equivalent. */
-export type StartActionId = 'openFile' | 'openFolder' | 'newWorkspace' | 'openWorkspace';
+export type StartActionId = 'openFile' | 'openFolder' | 'newWorkspace' | 'openWorkspace' | 'management';
 
 /** What the platform declares about the four actions' prerequisites. */
 export interface StartCapabilities {
@@ -68,6 +68,10 @@ export function startActions(caps: StartCapabilities): StartActionId[] {
   if (caps.localFolders) list.push('openFolder');
   if (caps.managedWorkspaces || caps.localWorkspaceSave) list.push('newWorkspace');
   if (caps.managedWorkspaces || caps.localWorkspaceOpen) list.push('openWorkspace');
+  // PRD 017 Req 13: `management` is deliberately NOT derived here — being a
+  // deployment admin is a session fact (/api/me), not a platform capability.
+  // The app appends it to this list when both hold, and every surface that
+  // renders the list (start page, File menu, hamburger) picks it up.
   return list;
 }
 
@@ -81,6 +85,8 @@ export const START_ACTION_LABELS: Record<StartActionId, string> = {
   openFolder: 'Open Folder…',
   newWorkspace: 'New Workspace…',
   openWorkspace: 'Open Workspace…',
+  // PRD 017 Req 13: the admin's Management view — same label everywhere.
+  management: 'Management…',
 };
 
 /** The pre-#78 desktop set — what an absent list reads as (frozen fixtures). */
