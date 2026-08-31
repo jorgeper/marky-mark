@@ -120,7 +120,7 @@ describe('PRD 007 Req 6 membership picker logic', () => {
     expect(clock.pendingCount()).toBe(0);
   });
 
-  it('U963: with onError given, a failed request is distinguishable from an empty answer — and stale failures are dropped', async () => {
+  it('U974: with onError given, a failed request is distinguishable from an empty answer — and stale failures are dropped', async () => {
     // Issue #183 §3: the picker shows "directory error" apart from "no
     // matches", so the controller must stop collapsing failures into [].
     const clock = fakeTimers();
