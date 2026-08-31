@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   findNormalized,
   mapSelectionToSource,
+  sourceCaretForRendered,
   sourceOffsetForRendered,
   sourceRangeForVisibleMatch,
   stripInline,
@@ -173,5 +174,40 @@ describe('SPEC23 selection mapping', () => {
     const at = sourceOffsetForRendered(src, 1, 3, rendered, star);
     expect(at).not.toBeNull();
     expect(src[at!]).toBe('*');
+  });
+});
+
+describe('Issue #178 collapsed-caret mapping', () => {
+  test('U978: sourceCaretForRendered — a mid-word caret lands at the exact source offset, through stripped markers and repeated words', () => {
+    // The within-word offset rides along past the stripped ** markers.
+    const src = '# T\n\nThe **quick brown** fox jumps far.\n';
+    const rendered = 'The quick brown fox jumps far.';
+    const at = sourceCaretForRendered(src, 3, 3, rendered, rendered.indexOf('jumps') + 2);
+    expect(at).toBe(src.indexOf('jumps') + 2);
+    // A repeated word resolves by the CARET's occurrence, not the first.
+    const twice = 'cat and cat again\n';
+    const at2 = sourceCaretForRendered(twice, 1, 1, 'cat and cat again', 'cat and c'.length);
+    expect(at2).toBe('cat and c'.length);
+  });
+
+  test('U979: sourceCaretForRendered — end-of-word affinity, punctuation runs via the flat prefix, invisible blocks null', () => {
+    const src = 'plus +++ plus2\n';
+    const r = 'plus +++ plus2';
+    // Caret just past 'plus' keeps left affinity: the word's end, not the run.
+    expect(sourceCaretForRendered(src, 1, 1, r, 4)).toBe(4);
+    // Caret on the middle '+' (no word) maps through the flat prefix.
+    expect(sourceCaretForRendered(src, 1, 1, r, 6)).toBe(6);
+    // A block with no visible text cannot resolve — the caller falls back.
+    expect(sourceCaretForRendered('```\n```\n', 1, 2, '', 0)).toBeNull();
+  });
+
+  test('U980: sourceCaretForRendered — fence bodies map verbatim and the nth count spans mid-word hits', () => {
+    const src = '```py\nvalue = a * b\n```\n';
+    const rendered = 'value = a * b\n';
+    // 'a' occurs inside 'value' first — the standalone 'a' is occurrence 1.
+    const at = sourceCaretForRendered(src, 1, 3, rendered, rendered.indexOf(' a ') + 1);
+    expect(at).not.toBeNull();
+    expect(src[at!]).toBe('a');
+    expect(at).toBe(src.indexOf(' a ') + 1);
   });
 });

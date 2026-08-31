@@ -538,16 +538,19 @@ export async function goToDocStart(page: Page): Promise<void> {
 /**
  * Screen rect of the nth occurrence of `word` inside `paneSel` — a Range over
  * the glyphs themselves, so it works for rendered markdown and for CodeMirror
- * lines alike. Throws when the word is not on screen.
+ * lines alike. `chars` narrows the range to a character span within the word
+ * (Issue #178: clickCharBoundary aims at one character's box). Throws when
+ * the word is not on screen.
  */
 export async function wordRect(
   page: Page,
   paneSel: string,
   word: string,
-  nth = 0
+  nth = 0,
+  chars?: { from: number; to: number }
 ): Promise<{ x: number; y: number; width: number; height: number }> {
   return page.evaluate(
-    ([sel, w, n]) => {
+    ([sel, w, n, c]) => {
       const pane = document.querySelector(sel as string)!;
       const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
       let seen = 0;
@@ -556,9 +559,10 @@ export async function wordRect(
         const text = node.nodeValue ?? '';
         for (let at = text.indexOf(w as string); at !== -1; at = text.indexOf(w as string, at + 1)) {
           if (seen++ === n) {
+            const span = (c as { from: number; to: number } | undefined) ?? { from: 0, to: (w as string).length };
             const r = document.createRange();
-            r.setStart(node, at);
-            r.setEnd(node, at + (w as string).length);
+            r.setStart(node, at + span.from);
+            r.setEnd(node, at + span.to);
             const b = r.getBoundingClientRect();
             return { x: b.left, y: b.top, width: b.width, height: b.height };
           }
@@ -566,7 +570,7 @@ export async function wordRect(
       }
       throw new Error(`word not found: ${w}`);
     },
-    [paneSel, word, nth] as const
+    [paneSel, word, nth, chars] as const
   );
 }
 
@@ -574,6 +578,17 @@ export async function wordRect(
 export const clickWord = async (page: Page, paneSel: string, word: string, nth = 0) => {
   const r = await wordRect(page, paneSel, word, nth);
   await page.mouse.click(r.x + r.width / 2, r.y + r.height / 2);
+};
+
+/**
+ * Issue #178: click the LEFT EDGE of character `offset` inside the nth
+ * visible occurrence of `word` in `paneSel` — the caret lands exactly at
+ * that character boundary, making exact-position assertions deterministic
+ * (a word-center click depends on glyph widths).
+ */
+export const clickCharBoundary = async (page: Page, paneSel: string, word: string, offset: number, nth = 0) => {
+  const r = await wordRect(page, paneSel, word, nth, { from: offset, to: offset + 1 });
+  await page.mouse.click(r.x, r.y + r.height / 2);
 };
 
 /** Open `path` through the menu's Open dialog (the shim accepts the string). */
