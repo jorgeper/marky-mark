@@ -656,8 +656,9 @@ export const ADMIN_IMPLICIT_PERMISSIONS: readonly Permission[] = [
  * the single resolution path (`requirePermission` and the listing on the
  * server, refusal prediction on the client), which is what makes every
  * route inherit the union with no per-route change. Callers that cannot
- * know admin status yet — the client, until `/api/me` exposes it in a
- * later PRD 017 issue — omit the flag and resolve as non-admin.
+ * know admin status — historic fixtures, tests about non-admins — omit the
+ * flag and resolve as non-admin; the client passes `/api/me`'s `admin`
+ * (issue #189), so its prediction matches the server's resolution.
  */
 export function resolvePermissions(
   manifest: WorkspaceManifest,

@@ -76,7 +76,7 @@ export interface WorkspaceLifecycle {
 export function createHostedWorkspaceLifecycle(
   // PRD 017 Req 3: the session-held /api/me record, injected by hosted.ts —
   // this module reads the one held answer instead of re-fetching per use.
-  sessionMe: () => Promise<{ id: string } | null>,
+  sessionMe: () => Promise<{ id: string; admin?: boolean } | null>,
 ): WorkspaceLifecycle {
   const token = () => readStoredToken(window.localStorage) ?? '';
   const api = (path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) =>
@@ -166,7 +166,11 @@ export function createHostedWorkspaceLifecycle(
       const me = await sessionMe();
       if (!me) return [];
       const validated = validateWorkspaceManifest(body.manifest);
-      return validated.ok ? [...resolvePermissions(validated.manifest, me.id)] : [];
+      // PRD 017 Req 4 (issue #189): /api/me now says whether the caller is a
+      // deployment admin, so the client predicts the same implicit union the
+      // server resolves — the Settings People tab appears for a non-member
+      // admin exactly because of this flag.
+      return validated.ok ? [...resolvePermissions(validated.manifest, me.id, me.admin === true)] : [];
     },
 
     manifest(id) {

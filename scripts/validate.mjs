@@ -277,7 +277,13 @@ record('test-ID uniqueness', Date.now() - idScanStart);
 // listing policies (restricted / members refusals with their hints, the
 // filtered listing, the reserved deployment/ prefix) — re-pinned to the
 // collected count (which had grown to 349 since the last pin).
-const E2E_TEST_FLOOR = 353;
+// 362 as of PRD 017 (issue #189): E367–E372 — the Management view (the
+// deployment.admin route refusals, the Workspaces tab's statistics, the
+// admin open/banner/self-add flow, the exact-name delete, the Settings tab
+// round trip with the corrupt-blob parse error, and the People tab's badged
+// tenant) — re-pinned to the collected count (which had grown to 356 with
+// issue #183's E364–E366 since the last pin).
+const E2E_TEST_FLOOR = 362;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {

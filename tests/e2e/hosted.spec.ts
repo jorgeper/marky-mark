@@ -11,6 +11,9 @@ import {
   serializeDeploymentSettings,
   type DeploymentSettings,
 } from '../../src/lib/deploymentSettings';
+// PRD 017 Req 16: the byte figures the Management table renders come from
+// the module that owns the format, so a rephrased size fails here loudly.
+import { formatByteSize } from '../../src/lib/deploymentAdmin';
 import { expect, test } from './fixtures';
 import { addComment, landInPreview, menuSave, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
 // PRD 011 Req 9 (#121): the sentence under test comes from the module that
@@ -2956,5 +2959,251 @@ test.describe('PRD 017 deployment policies', () => {
     } finally {
       await resetDeploymentSettings();
     }
+  });
+
+  test('E371: settings saved from the Settings tab round-trip through GET /api/admin/settings, and a corrupted blob shows the parse error', async ({
+    page,
+    request,
+  }) => {
+    try {
+      // PRD 017 Req 20: restricted with everyone but mary allow-listed — the
+      // E360 rule, so the parallel lane never trips over this test's policy.
+      // Each pick snapshots the display name at add time (issue #180).
+      await signInTo(page, 'katherine');
+      await page.getByTestId('start-management').click();
+      await expect(page.getByTestId('management-panel')).toBeVisible();
+      await page.getByTestId('management-tab-settings').click();
+      await page.getByTestId('admin-creation-restricted').check();
+      const input = page.getByTestId('membership-picker-input');
+      for (const [query, rid] of [
+        ['lovelace', 'mock-ada'],
+        ['hopper', 'mock-grace'],
+        ['turing', 'mock-alan'],
+      ] as const) {
+        await input.fill(query);
+        await page.getByTestId(`membership-picker-result-${rid}`).click();
+      }
+      await page.getByTestId('admin-settings-save').click();
+      await expect(page.getByTestId('admin-settings-saved')).toBeVisible();
+
+      // Req 14/15: the tab PUT the whole record, and the route reads it
+      // back per request — no reload, no cache.
+      const katherine = await signIn(request, 'katherine');
+      const stored = await (
+        await request.get(`${HOSTED}/api/admin/settings`, { headers: { Authorization: `Bearer ${katherine}` } })
+      ).json();
+      expect(stored).toEqual({
+        settings: {
+          version: 1,
+          creation: {
+            policy: 'restricted',
+            allow: [
+              { id: 'mock-ada', displayName: 'Ada Lovelace' },
+              { id: 'mock-grace', displayName: 'Grace Hopper' },
+              { id: 'mock-alan', displayName: 'Alan Turing' },
+            ],
+          },
+          listing: { policy: 'everyone' },
+        },
+      });
+
+      // Req 7: a hand-corrupted blob surfaces as the visible parse error.
+      // The slow reload happens BEFORE the corruption so the fail-closed
+      // window the shared lane sees is just the clicks below.
+      await page.reload();
+      const body = Buffer.from('{"version": 99}');
+      await deploymentSettingsBlob().upload(body, body.length);
+      await page.getByTestId('start-management').click();
+      await page.getByTestId('management-tab-settings').click();
+      await expect(page.getByTestId('admin-settings-parse-error')).toBeVisible();
+    } finally {
+      await resetDeploymentSettings();
+    }
+  });
+});
+
+/**
+ * PRD 017 Reqs 13+16–19 (issue #189): the Management view. These stay in the
+ * parallel lane — they write no deployment settings; each restores what it
+ * created in a `finally`.
+ */
+test.describe('PRD 017 the Management view', () => {
+  test('E367: a non-admin has no Management entry and every /api/admin route answers 403 deployment.admin', async ({
+    page,
+    request,
+  }) => {
+    // PRD 017 Req 14 (Req 2 shape): ada owns workspaces all over this suite,
+    // and owning every workspace still opens no deployment-wide door.
+    const ada = await signIn(request, 'ada');
+    const headers = { Authorization: `Bearer ${ada}` };
+    const me = (await (await request.get(`${HOSTED}/api/me`, { headers })).json()) as { admin: boolean };
+    expect(me.admin).toBe(false);
+    for (const attempt of [
+      request.get(`${HOSTED}/api/admin/workspaces`, { headers }),
+      request.get(`${HOSTED}/api/admin/users`, { headers }),
+      request.get(`${HOSTED}/api/admin/settings`, { headers }),
+      request.put(`${HOSTED}/api/admin/settings`, {
+        headers,
+        data: { version: 1, creation: { policy: 'everyone', allow: [] }, listing: { policy: 'everyone' } },
+      }),
+    ]) {
+      const res = await attempt;
+      expect(res.status()).toBe(403);
+      expect(await res.json()).toEqual({ error: 'forbidden', required: 'deployment.admin' });
+    }
+    // Req 13: no entry anywhere — start page or the menu.
+    await signInTo(page, 'ada');
+    await expect(page.getByTestId('start-openWorkspace')).toBeVisible();
+    await expect(page.getByTestId('start-management')).toHaveCount(0);
+    await openAppMenu(page);
+    await expect(page.getByTestId('menu-open-workspace')).toBeVisible();
+    await expect(page.getByTestId('menu-management')).toHaveCount(0);
+  });
+
+  test('E368: the admin’s Workspaces tab lists a workspace they are no member of — owners, member count, file count and size as created', async ({
+    page,
+    request,
+  }) => {
+    const ada = await signIn(request, 'ada');
+    const name = `E368 stats w${test.info().workerIndex}`;
+    const id = await sharedWorkspace(request, ada, name, [{ id: 'mock-grace', role: 'Editor' }]);
+    try {
+      expect(await writeAs(request, ada, id, 'one.md')).toBe(200);
+      expect(await writeAs(request, ada, id, 'notes/two.md')).toBe(200);
+      // Req 16: the route's row first — the same figures the tab must show.
+      const katherine = await signIn(request, 'katherine');
+      const rows = (await (
+        await request.get(`${HOSTED}/api/admin/workspaces`, { headers: { Authorization: `Bearer ${katherine}` } })
+      ).json()) as Array<{
+        id: string;
+        name: string | null;
+        owners: Array<{ id: string }>;
+        memberIds: string[];
+        fileCount: number;
+        totalBytes: number;
+      }>;
+      const row = rows.find((r) => r.id === id);
+      expect(row).toMatchObject({ name, fileCount: 2, memberIds: ['mock-ada', 'mock-grace'] });
+      expect(row?.owners).toEqual([expect.objectContaining({ id: 'mock-ada' })]);
+      expect(row?.totalBytes ?? 0).toBeGreaterThan(0);
+
+      await signInTo(page, 'katherine');
+      await page.getByTestId('start-management').click();
+      await expect(page.getByTestId('management-panel')).toBeVisible();
+      await expect(page.getByTestId(`admin-workspace-row-${id}`)).toContainText(name);
+      // Owner ids resolve to directory names through resolveMembers.
+      await expect(page.getByTestId(`admin-workspace-owners-${id}`)).toContainText('Ada Lovelace');
+      await expect(page.getByTestId(`admin-workspace-members-${id}`)).toHaveText('2');
+      await expect(page.getByTestId(`admin-workspace-files-${id}`)).toHaveText('2');
+      await expect(page.getByTestId(`admin-workspace-size-${id}`)).toHaveText(formatByteSize(row?.totalBytes ?? 0));
+      await expect(page.getByTestId('admin-workspaces-totals')).toContainText('workspaces');
+    } finally {
+      const gone = await request.delete(`${HOSTED}/api/workspaces/${id}`, {
+        headers: { Authorization: `Bearer ${ada}` },
+      });
+      expect(gone.status()).toBe(200);
+    }
+  });
+
+  test('E369: the admin opens a non-member workspace — banner up, document readable, edits refused — until they add themselves as Owner', async ({
+    page,
+    request,
+  }) => {
+    const ada = await signIn(request, 'ada');
+    const name = `E369 visit w${test.info().workerIndex}`;
+    const id = await createWorkspace(request, ada, name);
+    try {
+      await request.put(`${HOSTED}/api/workspaces/${id}/files/guide.md`, {
+        headers: { Authorization: `Bearer ${ada}` },
+        data: '# The guide\n\nreadable by the implicit admin union\n',
+      });
+      const katherine = await signIn(request, 'katherine');
+      // Req 4+17: reading is implicit; a content edit is the ordinary 403.
+      expect(await writeAs(request, katherine, id, 'guide.md')).toBe(403);
+
+      await signInTo(page, 'katherine');
+      await page.getByTestId('start-management').click();
+      // Req 17: Open binds exactly as the Open Workspace dialog does.
+      await page.getByTestId(`admin-workspace-open-${id}`).click();
+      // Req 5: the persistent banner states both facts while nothing in the
+      // manifest grants her a role of her own.
+      await expect(page.getByTestId('admin-view-banner')).toBeVisible();
+      await openFromSidebar(page, 'guide');
+      await expect(page.getByTestId('admin-view-banner')).toBeVisible();
+      await expect(page.getByTestId('read-only-doc')).toBeVisible();
+
+      // She adds herself as Owner in People (workspace.members is implicit)…
+      await openWorkspaceSettings(page);
+      const input = page.getByTestId('membership-picker-input');
+      await input.fill('katherine');
+      await page.getByTestId('membership-picker-result-mock-katherine').click();
+      await page.getByTestId('workspace-member-role-mock-katherine').selectOption('Owner');
+      await page.getByTestId('settings-close').click();
+      // …and the banner ends with the dialog: she holds a role now (Req 5).
+      await expect(page.getByTestId('admin-view-banner')).toHaveCount(0);
+      // The grant is real — the same save answers 200 now.
+      expect(await writeAs(request, katherine, id, 'guide.md')).toBe(200);
+    } finally {
+      const gone = await request.delete(`${HOSTED}/api/workspaces/${id}`, {
+        headers: { Authorization: `Bearer ${ada}` },
+      });
+      expect(gone.status()).toBe(200);
+    }
+  });
+
+  test('E370: the admin deletes a non-member workspace behind the exact-name gate, and every blob under its prefix is gone', async ({
+    page,
+    request,
+  }) => {
+    const ada = await signIn(request, 'ada');
+    const name = `E370 doomed w${test.info().workerIndex}`;
+    const id = await createWorkspace(request, ada, name);
+    try {
+      expect(await writeAs(request, ada, id, 'kept/one.md')).toBe(200);
+      await signInTo(page, 'katherine');
+      await page.getByTestId('start-management').click();
+      await page.getByTestId(`admin-workspace-delete-${id}`).click();
+      await expect(page.getByTestId('admin-delete-dialog')).toBeVisible();
+      // Req 18: the same exact-name gate as WorkspaceDangerZone — the wrong
+      // name keeps the destructive button inert.
+      await page.getByTestId('admin-delete-confirm').fill('not the name');
+      await expect(page.getByTestId('admin-delete-submit')).toBeDisabled();
+      await page.getByTestId('admin-delete-confirm').fill(name);
+      await page.getByTestId('admin-delete-submit').click();
+      // The row leaves the tab on success…
+      await expect(page.getByTestId(`admin-workspace-row-${id}`)).toHaveCount(0);
+      // …and the storage itself holds nothing under the prefix any more.
+      const container = BlobServiceClient.fromConnectionString(AZURITE_CONNECTION_STRING).getContainerClient(
+        'marky-mark',
+      );
+      const remaining: string[] = [];
+      for await (const blob of container.listBlobsFlat({ prefix: `workspaces/${id}/` })) {
+        remaining.push(blob.name);
+      }
+      expect(remaining).toEqual([]);
+    } finally {
+      // Deleted by the test when it passed; a failing run still cleans up.
+      const res = await request.delete(`${HOSTED}/api/workspaces/${id}`, {
+        headers: { Authorization: `Bearer ${ada}` },
+      });
+      expect([200, 404]).toContain(res.status());
+    }
+  });
+
+  test('E372: the People tab lists all five seeded users — Guest badge on mary, Admin badge on katherine, read-only', async ({
+    page,
+  }) => {
+    // PRD 017 Req 19: the tenant through DirectoryProvider.listUsers — the
+    // mock's seeded five, badged from the directory flag and MM_ADMINS.
+    await signInTo(page, 'katherine');
+    await page.getByTestId('start-management').click();
+    await page.getByTestId('management-tab-people').click();
+    for (const id of ['mock-ada', 'mock-grace', 'mock-alan', 'mock-katherine', 'mock-mary']) {
+      await expect(page.getByTestId(`admin-user-row-${id}`)).toBeVisible();
+    }
+    await expect(page.getByTestId('admin-user-guest-mock-mary')).toHaveText('Guest');
+    await expect(page.getByTestId('admin-user-admin-mock-katherine')).toHaveText('Admin');
+    await expect(page.getByTestId('admin-user-guest-mock-ada')).toHaveCount(0);
+    await expect(page.getByTestId('admin-user-admin-mock-ada')).toHaveCount(0);
   });
 });
