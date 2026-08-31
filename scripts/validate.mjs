@@ -273,7 +273,11 @@ record('test-ID uniqueness', Date.now() - idScanStart);
 // save; conflicting concurrent save) are rewritten against the local hosted
 // lane in tests/e2e/hosted.spec.ts, keeping their numbers — merge-on-save is
 // a blob capability now. Re-pinned to the collected count.
-const E2E_TEST_FLOOR = 346;
+// 353 as of PRD 017 (issue #188): E360–E363 — the deployment creation and
+// listing policies (restricted / members refusals with their hints, the
+// filtered listing, the reserved deployment/ prefix) — re-pinned to the
+// collected count (which had grown to 349 since the last pin).
+const E2E_TEST_FLOOR = 353;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {

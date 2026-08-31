@@ -10,6 +10,8 @@ import { Buffer } from 'node:buffer';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { ServerMode } from './config.ts';
+import { DEPLOYMENT_PREFIX } from '../src/lib/deploymentSettings.ts';
+import { createDeploymentPolicy, type DeploymentPolicy } from './deployment.ts';
 import { cleanRelativePath, readBody, sendJson, tryDecode } from './http.ts';
 import { createLlmApi, LLM_PREFIX, type LlmApi } from './llm.ts';
 import type { Providers, RequestAuth } from './providers/types.ts';
@@ -20,9 +22,12 @@ import { handleWorkspaceApi, WORKSPACES_PREFIX } from './workspaces.ts';
  * PRD 007 Req 9+13: prefixes the workspace-agnostic /api/files scaffold must
  * never reach — workspace data is permission-checked at /api/workspaces, and
  * per-user data is token-scoped at /api/me/files. Neither may be read (or
- * listed) through a route that applies neither check.
+ * listed) through a route that applies neither check. PRD 017 Req 6: the
+ * deployment-settings record joins them — its only readers/writers are the
+ * policy reads and the admin routes (the Management sub-issue), never the
+ * unchecked scaffold.
  */
-const RESERVED_PREFIXES = [WORKSPACES_PREFIX, USERS_PREFIX];
+const RESERVED_PREFIXES = [WORKSPACES_PREFIX, USERS_PREFIX, DEPLOYMENT_PREFIX];
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -68,6 +73,7 @@ async function handleApi(
   providers: Providers,
   llm: LlmApi,
   admins: ReadonlySet<string>,
+  deployment: DeploymentPolicy,
 ): Promise<void> {
   const { pathname } = url;
 
@@ -102,7 +108,17 @@ async function handleApi(
   const auth: RequestAuth = { token, user, isAdmin: admins.has(user.id) };
 
   if (pathname === '/api/me' && req.method === 'GET') {
-    sendJson(res, 200, user);
+    // PRD 017 Req 3: the bare user plus the deployment facts the client
+    // renders affordances from — admin status, whether this caller may
+    // create a workspace (the Req 8 policy evaluated NOW, per request), and
+    // when they may not, which refusal to word the hint from.
+    const creation = await deployment.creationFor(auth);
+    sendJson(res, 200, {
+      ...user,
+      admin: auth.isAdmin === true,
+      canCreateWorkspaces: creation.allowed,
+      ...(creation.allowed ? {} : { createRefusal: creation.refusal }),
+    });
     return;
   }
 
@@ -163,7 +179,7 @@ async function handleApi(
   // PRD 007 Req 7+13: everything under /api/workspaces is per-workspace
   // scoped and permission-checked (server/workspaces.ts).
   if (pathname === '/api/workspaces' || pathname.startsWith('/api/workspaces/')) {
-    await handleWorkspaceApi(req, res, url, providers.storage, auth, providers.directory);
+    await handleWorkspaceApi(req, res, url, providers.storage, auth, providers.directory, deployment);
     return;
   }
 
@@ -303,10 +319,13 @@ export function createApp(
   admins: ReadonlySet<string> = new Set(),
 ): RequestListener {
   const staticRoot = path.resolve(staticDir);
+  // PRD 017 Reqs 8+9+15: one policy per app — its settings read is per
+  // REQUEST (no cache), only the caller-guest lookup holds state.
+  const deployment = createDeploymentPolicy(providers.storage, providers.directory);
   return (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-      handleApi(req, res, url, providers, llm, admins).catch((err: unknown) => {
+      handleApi(req, res, url, providers, llm, admins, deployment).catch((err: unknown) => {
         console.error('API error:', err);
         if (!res.headersSent) sendJson(res, 500, { error: 'internal server error' });
         else res.end();

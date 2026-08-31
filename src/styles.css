@@ -1673,8 +1673,31 @@ mark.hl.ghost {
 
 /* --mm-hover is the themed hover wash every other row in the app uses; the
    fallback matches theirs so an unthemed build stays consistent too. */
-.start-action:hover {
+.start-action:hover:not(:disabled) {
   background: var(--mm-hover, rgba(9, 105, 218, 0.08));
+}
+
+/* PRD 017 Req 10: a policy-refused action is visible but plainly inert. */
+.start-action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Each action and its optional refusal hint stack inside one flex cell, so
+   the row's wrap/gap behaviour is exactly what it was for bare buttons. */
+.start-action-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* PRD 017 Req 10: the one-line reason beneath a policy-disabled action. */
+.start-action-hint {
+  margin: 6px 0 0;
+  max-width: 220px;
+  font-size: 11.5px;
+  text-align: center;
+  color: var(--mm-fg-muted, #59636e);
 }
 
 /* --- About dialog (SPEC10 §3) --------------------------------------------- */

@@ -9,9 +9,16 @@ import { START_ACTION_LABELS, type StartActionId } from '../lib/startActions';
 export function StartPage({
   actions,
   onAction,
+  disabledActions,
 }: {
   actions: StartActionId[];
   onAction: (id: StartActionId) => void;
+  /**
+   * PRD 017 Req 10: actions the deployment refuses for this caller — VISIBLE
+   * but disabled, each with the one-line hint to render beneath it (worded
+   * from the server's `createRefusal`). Absent means nothing is refused.
+   */
+  disabledActions?: Partial<Record<StartActionId, string>>;
 }) {
   return (
     <div className="start-actions" data-testid="start-actions">
@@ -22,17 +29,28 @@ export function StartPage({
         Drop a file to open
       </p>
       <div className="start-action-row">
-        {actions.map((id) => (
-          <button
-            key={id}
-            type="button"
-            className="start-action"
-            data-testid={`start-${id}`}
-            onClick={() => onAction(id)}
-          >
-            {START_ACTION_LABELS[id]}
-          </button>
-        ))}
+        {actions.map((id) => {
+          const hint = disabledActions?.[id];
+          return (
+            <div key={id} className="start-action-cell">
+              <button
+                type="button"
+                className="start-action"
+                data-testid={`start-${id}`}
+                disabled={hint !== undefined}
+                onClick={() => onAction(id)}
+              >
+                {START_ACTION_LABELS[id]}
+              </button>
+              {/* PRD 017 Req 10: the reason rides under the greyed action. */}
+              {hint !== undefined && (
+                <p className="start-action-hint" data-testid={`start-${id}-hint`}>
+                  {hint}
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

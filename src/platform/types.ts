@@ -1,3 +1,4 @@
+import type { SessionMe } from '../lib/deploymentSettings';
 import type { LlmTransport } from '../lib/llmSeam';
 import type { MenuSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
@@ -251,6 +252,17 @@ export interface Platform {
    * never on the flavor.
    */
   workspaces?: WorkspaceLifecycle;
+
+  /**
+   * PRD 017 Req 3: the signed-in session's `/api/me` record — the bare user
+   * plus admin status and the creation-policy verdict the entry surfaces
+   * render from. Fetched once per session (after sign-in / page load) and
+   * held by the implementation, never re-fetched per use; `null` when the
+   * session cannot answer. Defined only by the hosted flavor — desktop, the
+   * dev shim and the static web build have no deployment to ask, and app
+   * code mounts on the capability, never on the flavor.
+   */
+  sessionUser?(): Promise<SessionMe | null>;
 
   /**
    * PRD 009 Req 17: end the signed-in session — drop the stored credential

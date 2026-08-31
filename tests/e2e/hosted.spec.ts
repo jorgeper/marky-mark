@@ -1,4 +1,16 @@
 import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
+// PRD 017 Req 6: the deployment-settings blob sits under the reserved
+// deployment/ prefix the API itself refuses (E363), so the policy tests
+// write it the way an operator's storage tooling would — straight to
+// Azurite through the same well-known dev account the local server reads.
+import { BlobServiceClient } from '@azure/storage-blob';
+import { AZURITE_CONNECTION_STRING } from '../../server/config';
+import {
+  CREATE_REFUSAL_HINTS,
+  DEPLOYMENT_SETTINGS_BLOB,
+  serializeDeploymentSettings,
+  type DeploymentSettings,
+} from '../../src/lib/deploymentSettings';
 import { expect, test } from './fixtures';
 import { addComment, landInPreview, menuSave, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
 // PRD 011 Req 9 (#121): the sentence under test comes from the module that
@@ -46,7 +58,16 @@ test('E160: sign-in as a seeded mock user succeeds and the token authenticates /
   const token = await signIn(request, 'ada');
   const me = await request.get(`${HOSTED}/api/me`, { headers: { Authorization: `Bearer ${token}` } });
   expect(me.status()).toBe(200);
-  expect(await me.json()).toEqual({ id: 'mock-ada', username: 'ada', displayName: 'Ada Lovelace' });
+  // PRD 017 Req 3: beside the bare user, /api/me reports admin status and
+  // the creation-policy verdict — ada is no admin, and under the default
+  // (absent) settings anyone may create, so no createRefusal rides along.
+  expect(await me.json()).toEqual({
+    id: 'mock-ada',
+    username: 'ada',
+    displayName: 'Ada Lovelace',
+    admin: false,
+    canCreateWorkspaces: true,
+  });
   // An unknown username is refused sign-in outright.
   const nobody = await request.post(`${HOSTED}/api/auth/sign-in`, { data: { username: 'mallory' } });
   expect(nobody.status()).toBe(401);
@@ -2562,4 +2583,204 @@ test('E359: hosted — ✕ closes a tab without switching, and View ▸ File Tab
   await page.getByTestId('app-menu-view').getByTestId('menu-view-toggleFileTabs').click();
   await expect(page.getByTestId('file-tab-strip')).toBeVisible();
   await expect(hostedTab(page, 'keep.md')).toHaveAttribute('data-active', 'true');
+});
+
+// --- deployment policies (PRD 017 Reqs 3+6–12+15, issue #188) ----------------
+
+/**
+ * PRD 017 Req 6: the settings record, written straight to Azurite (the API's
+ * own routes refuse the reserved prefix — E363). The suite's workers share
+ * one server, so every policy below is shaped to refuse ONLY `mary` (the
+ * seeded guest no other test creates as): concurrent tests keep creating
+ * workspaces as ada/grace/alan (allow-listed or members) and katherine (the
+ * seeded admin, admitted under every policy).
+ */
+const deploymentSettingsBlob = () =>
+  BlobServiceClient.fromConnectionString(AZURITE_CONNECTION_STRING)
+    .getContainerClient('marky-mark')
+    .getBlockBlobClient(DEPLOYMENT_SETTINGS_BLOB);
+
+async function putDeploymentSettings(settings: DeploymentSettings): Promise<void> {
+  const body = Buffer.from(serializeDeploymentSettings(settings));
+  await deploymentSettingsBlob().upload(body, body.length);
+}
+
+/** PRD 017 Req 6: an ABSENT blob IS the default record — deleting restores it. */
+async function resetDeploymentSettings(): Promise<void> {
+  await deploymentSettingsBlob().deleteIfExists();
+}
+
+// One deployment has ONE settings blob, and each test below writes and
+// restores it — run in parallel workers they would overwrite and delete each
+// other's policy mid-test, so this group alone is serialized. The rest of
+// the suite stays parallel (the policies above never refuse its users).
+test.describe('PRD 017 deployment policies', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  test('E360: under restricted, creation is disabled with the hint and 403s server-side; an allow-listed user creates normally', async ({
+    page,
+    request,
+  }) => {
+    // PRD 017 Req 8: restricted admits admins and the allow list alone — here
+    // everyone but mary, so the shared lane never trips over the policy.
+    await putDeploymentSettings({
+      version: 1,
+      creation: {
+        policy: 'restricted',
+        allow: [{ id: 'mock-ada', displayName: 'Ada Lovelace' }, { id: 'mock-grace' }, { id: 'mock-alan' }],
+      },
+      listing: { policy: 'everyone' },
+    });
+    try {
+      // Req 8: the refusal names the deployment-level permission and nothing
+      // was written — creating right after (as an allow-listed user) works.
+      const mary = await signIn(request, 'mary');
+      const refused = await request.post(`${HOSTED}/api/workspaces`, {
+        headers: { Authorization: `Bearer ${mary}` },
+        data: { name: 'E360 refused' },
+      });
+      expect(refused.status()).toBe(403);
+      expect(await refused.json()).toEqual({ error: 'forbidden', required: 'deployment.create' });
+      // Req 3: /api/me reports the verdict and the refusal to word hints from.
+      const me = await request.get(`${HOSTED}/api/me`, { headers: { Authorization: `Bearer ${mary}` } });
+      expect(await me.json()).toMatchObject({ admin: false, canCreateWorkspaces: false, createRefusal: 'restricted' });
+
+      // Req 10: the start-page action stays visible but disabled, the
+      // restricted hint beneath it; the File-menu item is disabled too;
+      // openWorkspace is unaffected.
+      await signInTo(page, 'mary');
+      const action = page.getByTestId('start-newWorkspace');
+      await expect(action).toBeVisible();
+      await expect(action).toBeDisabled();
+      await expect(page.getByTestId('start-newWorkspace-hint')).toHaveText(CREATE_REFUSAL_HINTS.restricted);
+      await expect(page.getByTestId('start-openWorkspace')).toBeEnabled();
+      await openAppMenu(page);
+      await expect(page.getByTestId('menu-new-workspace')).toBeDisabled();
+      await expect(page.getByTestId('menu-open-workspace')).toBeEnabled();
+
+      // Req 8: an allow-listed regular user creates exactly as before.
+      const grace = await signIn(request, 'grace');
+      const id = await createWorkspace(request, grace, `E360 allowed w${test.info().workerIndex}`);
+      const gone = await request.delete(`${HOSTED}/api/workspaces/${id}`, {
+        headers: { Authorization: `Bearer ${grace}` },
+      });
+      expect(gone.status()).toBe(200);
+    } finally {
+      await resetDeploymentSettings();
+    }
+  });
+
+  test('E361: under members, the seeded guest is refused with the guest hint while a member creates', async ({
+    page,
+    request,
+  }) => {
+    // PRD 017 Req 9: the server resolves mary's guest status through the
+    // directory's own entry for her (the mock answers from SEEDED_USERS).
+    await putDeploymentSettings({
+      version: 1,
+      creation: { policy: 'members', allow: [] },
+      listing: { policy: 'everyone' },
+    });
+    try {
+      const mary = await signIn(request, 'mary');
+      const refused = await request.post(`${HOSTED}/api/workspaces`, {
+        headers: { Authorization: `Bearer ${mary}` },
+        data: { name: 'E361 refused' },
+      });
+      expect(refused.status()).toBe(403);
+      expect(await refused.json()).toEqual({ error: 'forbidden', required: 'deployment.create' });
+      const me = await request.get(`${HOSTED}/api/me`, { headers: { Authorization: `Bearer ${mary}` } });
+      expect(await me.json()).toMatchObject({ canCreateWorkspaces: false, createRefusal: 'guest' });
+
+      // Req 10: the guest wording, not the restricted one.
+      await signInTo(page, 'mary');
+      await expect(page.getByTestId('start-newWorkspace')).toBeDisabled();
+      await expect(page.getByTestId('start-newWorkspace-hint')).toHaveText(CREATE_REFUSAL_HINTS.guest);
+
+      // Req 8: a tenant member is not refused.
+      const ada = await signIn(request, 'ada');
+      const id = await createWorkspace(request, ada, `E361 member w${test.info().workerIndex}`);
+      const gone = await request.delete(`${HOSTED}/api/workspaces/${id}`, {
+        headers: { Authorization: `Bearer ${ada}` },
+      });
+      expect(gone.status()).toBe(200);
+    } finally {
+      await resetDeploymentSettings();
+    }
+  });
+
+  test('E362: under members listing, a non-member’s GET /api/workspaces omits the workspace and the Open dialog never shows it', async ({
+    page,
+    request,
+  }) => {
+    const ada = await signIn(request, 'ada');
+    const name = `E362 hidden w${test.info().workerIndex}`;
+    const id = await createWorkspace(request, ada, name);
+    try {
+      // The slow part (a full UI sign-in) happens BEFORE the policy flips, so
+      // the members-listing window the shared lane sees stays as short as the
+      // few requests below (other tests assert inaccessible rows ARE listed
+      // under the default policy — E177/E184).
+      await signInTo(page, 'alan');
+      await putDeploymentSettings({
+        version: 1,
+        creation: { policy: 'everyone', allow: [] },
+        listing: { policy: 'members' },
+      });
+      // Req 11: alan holds nothing in the workspace — his listing omits the
+      // row entirely; ada's keeps it, row shape unchanged (Req 12: no row, so
+      // no no-access message can arise).
+      const alan = await signIn(request, 'alan');
+      const listedForAlan = (await (
+        await request.get(`${HOSTED}/api/workspaces`, { headers: { Authorization: `Bearer ${alan}` } })
+      ).json()) as { id: string }[];
+      expect(listedForAlan.map((w) => w.id)).not.toContain(id);
+      const listedForAda = (await (
+        await request.get(`${HOSTED}/api/workspaces`, { headers: { Authorization: `Bearer ${ada}` } })
+      ).json()) as { id: string; name: string; access: boolean; owners: string[] }[];
+      expect(listedForAda.find((w) => w.id === id)).toMatchObject({ id, name, access: true, owners: ['mock-ada'] });
+
+      // Req 11: the Open Workspace dialog is that listing — the hidden row is
+      // simply not there for alan.
+      await openAppMenu(page);
+      await page.getByTestId('menu-open-workspace').click();
+      await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
+      await expect(page.getByTestId(`open-workspace-item-${id}`)).toHaveCount(0);
+    } finally {
+      await resetDeploymentSettings();
+      const gone = await request.delete(`${HOSTED}/api/workspaces/${id}`, {
+        headers: { Authorization: `Bearer ${ada}` },
+      });
+      expect(gone.status()).toBe(200);
+    }
+  });
+
+  test('E363: the legacy /api/files scaffold hides the deployment/ prefix and refuses reads, writes and deletes under it', async ({
+    request,
+  }) => {
+    // PRD 017 Req 6: the record below matches the defaults exactly, so its
+    // presence changes no behaviour for concurrent tests — it exists only to
+    // prove a REAL blob under the prefix never surfaces through the scaffold.
+    await putDeploymentSettings({
+      version: 1,
+      creation: { policy: 'everyone', allow: [] },
+      listing: { policy: 'everyone' },
+    });
+    try {
+      const token = await signIn(request, 'grace');
+      const headers = { Authorization: `Bearer ${token}` };
+      const listed = (await (await request.get(`${HOSTED}/api/files`, { headers })).json()) as { path: string }[];
+      expect(listed.filter((f) => f.path.startsWith('deployment/'))).toEqual([]);
+      for (const attempt of [
+        request.get(`${HOSTED}/api/files/${DEPLOYMENT_SETTINGS_BLOB}`, { headers }),
+        request.put(`${HOSTED}/api/files/${DEPLOYMENT_SETTINGS_BLOB}`, { headers, data: '{}' }),
+        request.delete(`${HOSTED}/api/files/${DEPLOYMENT_SETTINGS_BLOB}`, { headers }),
+      ]) {
+        const res = await attempt;
+        expect(res.status()).toBe(403);
+      }
+    } finally {
+      await resetDeploymentSettings();
+    }
+  });
 });

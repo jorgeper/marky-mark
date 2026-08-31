@@ -5,6 +5,7 @@ import { createHostedWorkspaceLifecycle } from './hostedWorkspaces';
 import { createHostedLlm } from './hostedLlm';
 import { createHostedSummaryCache } from './hostedSummaryCache';
 import { ALL_FILE_GRANTS, fileGrantsFromPermissions, type FileGrants } from '../lib/fileGrants';
+import type { SessionMe } from '../lib/deploymentSettings';
 import { uploadRejection } from '../lib/fileTransfer';
 import { parseWorkspaceManifest, resolvePermissions, type Permission } from '../lib/hostedWorkspace';
 import { SaveConflictError } from '../lib/saveConflict';
@@ -88,14 +89,40 @@ export function createHostedPlatform(): Platform {
   const workspaceId = workspaceIdFromSearch(window.location.search);
 
   /**
+   * The bundle's hosted-platform network call site (SPEC11 §6.6 bundle-scan
+   * allowlist): every API request this platform makes funnels through here,
+   * always same-origin and always bearer-authenticated.
+   */
+  const api = (
+    path: string,
+    init: { method?: string; headers?: Record<string, string>; body?: BodyInit } = {},
+  ): Promise<Response> =>
+    fetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token()}` } });
+
+  const json = async <T>(res: Response): Promise<T | null> => (res.ok ? ((await res.json()) as T) : null);
+
+  /**
+   * PRD 017 Req 3: the session's `/api/me` record — fetched ONCE per page
+   * load (lazily, on first use after sign-in) and held for the session, so
+   * every consumer (permissions, the entry surfaces, the lifecycle) reads
+   * the one answer instead of re-fetching per use. Sign-out drops it below.
+   */
+  let me: Promise<SessionMe | null> | null = null;
+  const sessionMe = (): Promise<SessionMe | null> =>
+    (me ??= api('/api/me')
+      .then((res) => json<SessionMe>(res))
+      .catch(() => null));
+
+  /**
    * PRD 007 Req 10/11/12: the workspace lifecycle the New/Open dialogs and
    * the Settings delete action drive. It is the hosted flavor's answer to
    * the desktop's file-based workspace picking, offered as a capability so
    * no app code has to know which flavor it is running in. Held in a const
    * because sign-out (Req 17) lands through the very same navigation seam
-   * rather than writing the URL a second way.
+   * rather than writing the URL a second way. It shares the session-held
+   * `/api/me` above (PRD 017 Req 3).
    */
-  const workspaces = createHostedWorkspaceLifecycle();
+  const workspaces = createHostedWorkspaceLifecycle(sessionMe);
 
   /**
    * PRD 007 Req 21 (PRD 009 Req 4/5): local-file mode. A Markdown file the
@@ -110,19 +137,6 @@ export function createHostedPlatform(): Platform {
    * considered.
    */
   const local = createLocalDocs('local');
-
-  /**
-   * The bundle's hosted-platform network call site (SPEC11 §6.6 bundle-scan
-   * allowlist): every API request this platform makes funnels through here,
-   * always same-origin and always bearer-authenticated.
-   */
-  const api = (
-    path: string,
-    init: { method?: string; headers?: Record<string, string>; body?: BodyInit } = {},
-  ): Promise<Response> =>
-    fetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token()}` } });
-
-  const json = async <T>(res: Response): Promise<T | null> => (res.ok ? ((await res.json()) as T) : null);
 
   /**
    * PRD 007 Req 17: what to tell the user about a refused request. The UI
@@ -212,16 +226,16 @@ export function createHostedPlatform(): Platform {
   const myPermissions = async (): Promise<ReadonlySet<Permission>> => {
     if (!workspaceId) return new Set();
     // Who is asking and what the manifest says are independent questions —
-    // both requests are in flight at once.
-    const [meRes, manifestRes] = await Promise.all([
-      api('/api/me'),
+    // both requests are in flight at once (PRD 017 Req 3: the session-held
+    // /api/me answers the first without a fresh fetch).
+    const [who, manifestRes] = await Promise.all([
+      sessionMe(),
       api(apiPathFor({ kind: 'manifest', id: workspaceId })),
     ]);
-    const me = await json<{ id: string }>(meRes);
     const body = await json<{ manifest: unknown }>(manifestRes);
-    if (!me || !body) return new Set();
+    if (!who || !body) return new Set();
     const parsed = parseWorkspaceManifest(JSON.stringify(body.manifest));
-    return parsed.ok ? resolvePermissions(parsed.manifest, me.id) : new Set();
+    return parsed.ok ? resolvePermissions(parsed.manifest, who.id) : new Set();
   };
 
   /** The one resolution per page load — see `fileGrants` below. */
@@ -656,7 +670,14 @@ export function createHostedPlatform(): Platform {
     // landing is the lifecycle seam's own origin-root navigation: it drops
     // any `?workspace=<id>` binding, so the boot that follows finds no token
     // and renders the sign-in screen bound to nothing.
+    // PRD 017 Req 3: the held /api/me record rides the same capability seam
+    // as the rest of the session (App renders the entry-surface affordances
+    // from it and asks once).
+    sessionUser: sessionMe,
+
     signOut() {
+      // PRD 017 Req 3: the session record dies with the session.
+      me = null;
       clearToken(window.localStorage);
       workspaces.navigateTo(null);
     },

@@ -187,6 +187,15 @@ export interface MenuState extends ViewMenuState {
    * keeps its exact File menu: absent reads as the desktop set.
    */
   entryActions?: StartActionId[];
+  /**
+   * PRD 017 Req 10: whether the deployment's creation policy lets this
+   * caller create a workspace (`/api/me`'s `canCreateWorkspaces`). OPTIONAL
+   * so every pre-017 MenuState call site (and frozen test fixtures) keeps
+   * its exact File menu: absent reads as allowed. False renders New
+   * Workspace… disabled — visible but refused, matching the server's own
+   * refusal for a stale client.
+   */
+  canCreateWorkspace?: boolean;
 }
 
 const sep: PredefinedItemSpec = { type: 'predefined', item: 'Separator' };
@@ -301,7 +310,11 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
   const entry = new Set(s.entryActions ?? DEFAULT_START_ACTIONS);
   const entryItems = [
     ...(entry.has('openFolder') ? [cmd('openFolder', 'Open Folder…')] : []),
-    ...(entry.has('newWorkspace') ? [cmd('newWorkspace', 'New Workspace…')] : []),
+    // PRD 017 Req 10: disabled-with-a-reason lives on the start page; a
+    // native menu item carries no tooltip, so here the flag alone gates it.
+    ...(entry.has('newWorkspace')
+      ? [cmd('newWorkspace', 'New Workspace…', undefined, undefined, s.canCreateWorkspace === false)]
+      : []),
     ...(entry.has('openWorkspace') ? [cmd('openWorkspace', 'Open Workspace…')] : []),
   ];
   // SPEC29 §3.2 + PRD 002 §D15: workspaces first, separator, files, separator,

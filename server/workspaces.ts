@@ -43,6 +43,8 @@ import {
   validateSummaryCacheEntry,
   writeCachedSummary,
 } from './summaryCache.ts';
+import { filterListedWorkspaces } from '../src/lib/deploymentSettings.ts';
+import type { DeploymentPolicy } from './deployment.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import { mergeThreeWay } from './merge.ts';
 import type { DirectoryProvider, RequestAuth, StorageProvider } from './providers/types.ts';
@@ -379,6 +381,7 @@ export async function handleWorkspaceApi(
   storage: StorageProvider,
   auth: RequestAuth,
   directory: DirectoryProvider,
+  deployment: DeploymentPolicy,
 ): Promise<void> {
   const pathname = url.pathname;
   const rest = pathname.slice('/api/workspaces'.length);
@@ -387,9 +390,17 @@ export async function handleWorkspaceApi(
   // it. Same paths, same permissions; only the representation differs.
   const raw = url.searchParams.get('raw') === '1';
 
-  // PRD 007 Req 10: create — deliberately pre-permission (any signed-in user
-  // may create a workspace); the creator becomes its sole Owner.
+  // PRD 007 Req 10: create — pre-permission (no workspace exists yet to hold
+  // a verb); the creator becomes its sole Owner. PRD 017 Req 8: gated by the
+  // deployment's creation policy instead, evaluated per request and BEFORE
+  // anything is written — a disallowed caller leaves no blob behind. Nothing
+  // else about creation changes (body, manifest, sole Owner).
   if (rest === '' && req.method === 'POST') {
+    const creation = await deployment.creationFor(auth);
+    if (!creation.allowed) {
+      sendJson(res, 403, { error: 'forbidden', required: 'deployment.create' });
+      return;
+    }
     const body = await readJsonBody(req, res);
     if (body === undefined) return;
     // PRD 007 Req 10: initial members with roles and everyone-access ride
@@ -455,7 +466,11 @@ export async function handleWorkspaceApi(
         access: resolvePermissions(manifest, auth.user.id, auth.isAdmin).has('doc.read'),
       });
     }
-    sendJson(res, 200, out);
+    // PRD 017 Req 11+15: the listing policy, read per request — under
+    // `members` a row the caller cannot open is never sent (so the Req 12
+    // no-access message cannot arise there); `everyone` is today's listing.
+    const { settings } = await deployment.read();
+    sendJson(res, 200, filterListedWorkspaces(settings.listing.policy, out));
     return;
   }
 

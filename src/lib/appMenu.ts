@@ -83,6 +83,15 @@ export interface AppMenuState {
    */
   view: ViewMenuState;
   /**
+   * PRD 017 Req 10: whether the deployment's creation policy lets this
+   * caller create a workspace (`/api/me`'s `canCreateWorkspaces`) — absent
+   * reads as allowed, so flavors without a hosted session are untouched.
+   * False greys New Workspace rather than hiding it (Req 9's greyed-not-gone
+   * rule): the affordance stays discoverable and the server still refuses a
+   * stale client.
+   */
+  canCreateWorkspace?: boolean;
+  /**
    * PRD 009 Req 17: this session can be signed out of — the platform's
    * `signOut` capability (platform/types.ts), present on the hosted flavor
    * alone. Never derived from `platform.kind`, exactly like the workspace
@@ -176,7 +185,10 @@ export function buildAppMenu(s: AppMenuState): AppMenuGroup[] {
   ];
 
   const workspace: AppMenuRow[] = [
-    ...(entry.has('newWorkspace') ? [row('newWorkspace', 'New Workspace', 'menu-new-workspace')] : []),
+    // PRD 017 Req 10: greyed when the deployment's policy refuses creation.
+    ...(entry.has('newWorkspace')
+      ? [row('newWorkspace', 'New Workspace', 'menu-new-workspace', undefined, s.canCreateWorkspace === false ? true : undefined)]
+      : []),
     ...(entry.has('openWorkspace') ? [row('openWorkspace', 'Open Workspace…', 'menu-open-workspace')] : []),
     ...(inWorkspace && hasWorkspaces ? [row('closeWorkspace', 'Close Workspace', 'menu-close-workspace')] : []),
   ];

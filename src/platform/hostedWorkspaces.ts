@@ -70,7 +70,11 @@ export interface WorkspaceLifecycle {
   unbind(): void;
 }
 
-export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
+export function createHostedWorkspaceLifecycle(
+  // PRD 017 Req 3: the session-held /api/me record, injected by hosted.ts —
+  // this module reads the one held answer instead of re-fetching per use.
+  sessionMe: () => Promise<{ id: string } | null>,
+): WorkspaceLifecycle {
   const token = () => readStoredToken(window.localStorage) ?? '';
   const api = (path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) =>
     fetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token()}` } });
@@ -156,7 +160,7 @@ export function createHostedWorkspaceLifecycle(): WorkspaceLifecycle {
         await api(workspacePath(id, '/manifest')),
       );
       if (!body) return [];
-      const me = await json<{ id: string }>(await api('/api/me'));
+      const me = await sessionMe();
       if (!me) return [];
       const validated = validateWorkspaceManifest(body.manifest);
       return validated.ok ? [...resolvePermissions(validated.manifest, me.id)] : [];

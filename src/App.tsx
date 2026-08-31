@@ -199,6 +199,7 @@ import { WorkspaceDangerZone } from './components/WorkspaceDangerZone';
 import { NewWorkspaceDialog, OpenWorkspaceDialog } from './components/WorkspaceSwitcher';
 import { StartPage } from './components/StartPage';
 import { startActions, startCapabilities, type StartActionId } from './lib/startActions';
+import { CREATE_REFUSAL_HINTS, type SessionMe } from './lib/deploymentSettings';
 import { AboutDialog } from './components/AboutDialog';
 
 const Editor = lazy(() => import('./components/Editor'));
@@ -4405,6 +4406,38 @@ export default function App() {
    */
   const entryActions = useMemo(() => (platform ? startActions(startCapabilities(platform)) : []), [platform]);
   /**
+   * PRD 017 Req 3+10: the session's /api/me record, from the platform's
+   * sessionUser capability (the hosted flavor holds it for the session).
+   * Null until it answers — and forever on flavors without a session, where
+   * every affordance below reads as "no policy" and nothing changes.
+   */
+  const [sessionMe, setSessionMe] = useState<SessionMe | null>(null);
+  useEffect(() => {
+    if (!platform?.sessionUser) return;
+    let cancelled = false;
+    void platform.sessionUser().then((me) => {
+      if (!cancelled) setSessionMe(me);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [platform]);
+  /**
+   * PRD 017 Req 10: when the deployment refuses creation for this caller,
+   * the `newWorkspace` entries stay VISIBLE but disabled — the start-page
+   * action with the one-line hint worded from `createRefusal`, the menu
+   * items through their disabled flag. `openWorkspace` is untouched, and a
+   * stale surface still meets the server's own Req 8 refusal.
+   */
+  const createRefused = sessionMe !== null && sessionMe.canCreateWorkspaces === false;
+  const startDisabledActions = useMemo(
+    () =>
+      createRefused
+        ? { newWorkspace: CREATE_REFUSAL_HINTS[sessionMe?.createRefusal ?? 'restricted'] }
+        : undefined,
+    [createRefused, sessionMe],
+  );
+  /**
    * Each row dispatches the command the File menu's twin item dispatches —
    * the ids coincide but for `openFile`, whose long-standing command id is
    * `open` (the menu's own "Open…").
@@ -4759,6 +4792,8 @@ export default function App() {
           canCreate: folderGrants.create,
         }),
         entryActions,
+        // PRD 017 Req 10: greys New Workspace when the policy refuses it.
+        ...(createRefused ? { canCreateWorkspace: false } : {}),
         // PRD 009 Req 12: the View ▸ rows ARE the native View menu's items.
         view: viewMenuState,
         // PRD 009 Req 17: the row rides the platform's sign-out capability,
@@ -4766,7 +4801,7 @@ export default function App() {
         // left from the initial page just as well as from a workspace.
         canSignOut: !!platform?.signOut,
       }),
-    [appMode, docOpen, docGrants.edit, platform, folderGrants.create, entryActions, viewMenuState]
+    [appMode, docOpen, docGrants.edit, platform, folderGrants.create, entryActions, viewMenuState, createRefused]
   );
 
   /**
@@ -4818,6 +4853,9 @@ export default function App() {
         canDownload: !!platform?.downloadFile && folderGrants.download,
         // PRD 007 Req 22: the File menu carries exactly the start page's list.
         entryActions,
+        // PRD 017 Req 10: the native item greys the same way the in-app one
+        // does (a native menu carries no tooltip, so the flag is the story).
+        ...(createRefused ? { canCreateWorkspace: false } : {}),
         recentFiles: recentMenuEntries(recent, platform.basename, platform.dirname),
         // PRD 002 §D15: the workspaces section, same disambiguated labels.
         recentWorkspaces: recentMenuEntries(recentWs, platform.basename, platform.dirname),
@@ -4827,7 +4865,7 @@ export default function App() {
     ).catch(() => setMenuInstallFailed(true));
     // Every View input rides in `viewMenuState`, which changes identity
     // exactly when one of them does — the rest is this menu's File half.
-  }, [platform, viewMenuState, recent, recentWs, entryActions, menuInstallFailed]);
+  }, [platform, viewMenuState, recent, recentWs, entryActions, menuInstallFailed, createRefused]);
 
   // --- LLM providers area (PRD 011 Reqs 9+10) -----------------------------
   // PRD 011 Req 9: availability is a CAPABILITY question, never a flavor one.
@@ -7029,7 +7067,7 @@ export default function App() {
                   {/* PRD 007 Req 21/22: the entry actions — one list, shared
                       with the File menu, each row present only where this
                       flavor can honour it (lib/startActions.ts). */}
-                  <StartPage actions={entryActions} onAction={runEntryAction} />
+                  <StartPage actions={entryActions} onAction={runEntryAction} disabledActions={startDisabledActions} />
                 </div>
               </div>
             )}
