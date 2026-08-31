@@ -664,17 +664,17 @@ export function createHostedPlatform(): Platform {
      */
     ...(workspaceId ? { summaryCache: createHostedSummaryCache(api, workspaceId) } : {}),
 
+    // PRD 017 Req 3: the held /api/me record rides the same capability seam
+    // as the rest of the session (App renders the entry-surface affordances
+    // from it and asks once).
+    sessionUser: sessionMe,
+
     // PRD 009 Req 17: sign-out is client-side only — the bearer token IS the
     // session, so dropping it (through hostedGate's one owner of that key)
     // ends it, with no endpoint to call and no new network call site. The
     // landing is the lifecycle seam's own origin-root navigation: it drops
     // any `?workspace=<id>` binding, so the boot that follows finds no token
     // and renders the sign-in screen bound to nothing.
-    // PRD 017 Req 3: the held /api/me record rides the same capability seam
-    // as the rest of the session (App renders the entry-surface affordances
-    // from it and asks once).
-    sessionUser: sessionMe,
-
     signOut() {
       // PRD 017 Req 3: the session record dies with the session.
       me = null;
