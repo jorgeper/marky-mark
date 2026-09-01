@@ -95,8 +95,43 @@ Syntax highlighting (fenced code blocks):
 | `--mm-syn-literal` | true/false/null, builtins |
 | `--mm-syn-meta` | meta, annotations |
 
-Every variable has a sensible fallback, so a minimal theme that only sets `--mm-bg`,
-`--mm-fg`, and `--mm-accent` already works.
+Every variable has a sensible fallback — the default Crisp theme's value — so a
+minimal theme that only sets `--mm-bg`, `--mm-fg`, and `--mm-accent` already works.
+
+## Chrome tokens (optional)
+
+Beyond the contract above, the app's *chrome* (toolbar, buttons, menus, dialogs,
+find marks) reads a second token layer, declared in the app stylesheet on the same
+`.theme-root` scope. **A theme may override any of them and need not define any**:
+every token has a default, and the colour defaults are derived from the contract
+variables above, so your theme restyles the chrome automatically.
+
+| Token | Default | Meaning |
+|---|---|---|
+| `--mm-space-1` … `--mm-space-6` | `4px`, `6px`, `8px`, `10px`, `12px`, `16px` | Spacing scale for chrome gaps and padding |
+| `--mm-radius-small` | `6px` | Corner radius for inputs and buttons |
+| `--mm-radius-medium` | `10px` | Corner radius for cards, modals, and menus |
+| `--mm-radius-pill` | `999px` | Fully rounded badges, pills, and toggles |
+| `--mm-card-shadow` | `0 1px 6px rgba(0, 0, 0, 0.09)` | Resting shadow on cards and badges |
+| `--mm-panel-shadow` | `0 0 24px 2px rgba(0, 0, 0, 0.14)` | Shadow on floating panels |
+| `--mm-text-caption` | `11px` | Smallest chrome text (labels, hints) |
+| `--mm-text-small` | `12.5px` | Secondary chrome text |
+| `--mm-text-body` | `13px` | Default chrome text |
+| `--mm-text-heading` | `14px` | Chrome headings (dialog titles) |
+| `--mm-danger` | `color-mix(in srgb, #cf222e 90%, var(--mm-fg) 10%)` | Destructive text, borders, and fills |
+| `--mm-danger-fg` | `var(--mm-bg)` | Text on a danger-filled control |
+| `--mm-hover` | `color-mix(in srgb, var(--mm-accent) 8%, transparent)` | Hover wash on rows and buttons |
+| `--mm-muted` | `var(--mm-fg-muted)` | De-emphasised chrome text |
+| `--mm-focus-ring` | `color-mix(in srgb, var(--mm-accent) 35%, transparent)` | Keyboard-focus ring |
+| `--mm-find` | `#ffdf5d` | Find-match highlight (theme-independent by default, so matches stay legible on any theme) |
+| `--mm-find-active` | `#f0883e` | The current find match |
+| `--mm-find-fg` | `#1f2328` | Text inside find matches |
+| `--mm-fence-ring` | `var(--mm-border)` | Hairline ring around code-fence cards in edit mode |
+| `--mm-split` | `50%` | Split-view ratio before the user drags the divider |
+| `--mm-folders` | `240px` | Sidebar panel width before the user drags its edge |
+
+The required contract above is unchanged — chrome tokens are extras, not
+obligations.
 
 ## Starter template
 

@@ -46,6 +46,107 @@ body,
   --mm-splash-top: max(16px, calc(50vh - 192px));
 }
 
+/* ===========================================================================
+   CHROME TOKENS — BEGIN (PRD 018 Req 1)
+
+   The app-chrome token layer: spacing, radius, shadow and UI type scales,
+   state colours, and JS-driven layout defaults. Declared on `.theme-root` —
+   the same scope as the theme contract — so a theme (its <style> is appended
+   after this stylesheet) may override any token here; none is required to
+   (THEMES.md "Chrome tokens (optional)").
+
+   PRD 018 Req 2: colour tokens derive from the theme contract, so every
+   bundled theme restyles the chrome without defining a single chrome token.
+   Where the contract carries no source hue (the danger red), the anchor
+   colour is tempered with a contract variable instead of being derived
+   outright. The find trio is the one deliberate theme-independent exception
+   (see its comment; E291 is the contract).
+
+   Non-colour scales carry literal defaults (PRD 018 Req 2), each picked from
+   the PRD's 2026-09-01 survey as the most frequent value already doing that
+   job — chosen, not invented. The lint sub-issue (PRD 018 Req 26) will grep
+   this delimited block: every chrome token stays between the BEGIN/END
+   markers. */
+.theme-root {
+  /* Spacing scale (PRD 018 Req 1): the file's most common chrome gaps and
+     paddings, smallest to largest. */
+  --mm-space-1: 4px;
+  --mm-space-2: 6px;
+  --mm-space-3: 8px;
+  --mm-space-4: 10px;
+  --mm-space-5: 12px;
+  --mm-space-6: 16px;
+
+  /* Radius scale (PRD 018 Req 1): small = inputs and buttons, medium =
+     cards, modals and menus, pill = badges and toggles. */
+  --mm-radius-small: 6px;
+  --mm-radius-medium: 10px;
+  --mm-radius-pill: 999px;
+
+  /* Shadow scale (PRD 018 Req 1): card = resting chrome (cards, badges),
+     panel = floating panels. PRD 018 Req 4: these definitions replace the
+     per-site fallbacks that disagreed with each other; the card value is
+     the .card one, the panel value the workspace-stack one. */
+  --mm-card-shadow: 0 1px 6px rgba(0, 0, 0, 0.09);
+  --mm-panel-shadow: 0 0 24px 2px rgba(0, 0, 0, 0.14);
+
+  /* UI type scale (PRD 018 Req 1): caption / small / body / heading — the
+     four most frequent chrome font sizes in the survey. */
+  --mm-text-caption: 11px;
+  --mm-text-small: 12.5px;
+  --mm-text-body: 13px;
+  --mm-text-heading: 14px;
+
+  /* State colours (PRD 018 Reqs 1–2). No contract variable carries a red,
+     so danger anchors on the survey's #cf222e tempered toward the theme fg:
+     dark themes (light fg) lift it, light themes deepen it slightly. */
+  --mm-danger: color-mix(in srgb, #cf222e 90%, var(--mm-fg, #1f2328) 10%);
+  /* Text on a danger-filled control: the page bg — the same convention the
+     accent-filled badges already use (their `color: var(--mm-bg)`). */
+  --mm-danger-fg: var(--mm-bg, #ffffff);
+  /* The row/button hover wash: the theme accent at 8% — exactly the old
+     rgba(9, 105, 218, 0.08) fallback under the default Crisp accent. */
+  --mm-hover: color-mix(in srgb, var(--mm-accent, #0969da) 8%, transparent);
+  --mm-muted: var(--mm-fg-muted, #59636e);
+  --mm-focus-ring: color-mix(in srgb, var(--mm-accent, #0969da) 35%, transparent);
+
+  /* Find-match highlights (PRD 018 Req 3). Deliberately NOT theme-derived:
+     E291 asserts identical, self-contained mark colours on light and dark
+     themes so the current match stays legible anywhere. A theme may still
+     override them. */
+  --mm-find: #ffdf5d;
+  --mm-find-active: #f0883e;
+  --mm-find-fg: #1f2328;
+
+  /* Code-fence ring (PRD 018 Req 3): the hairline around fence cards — the
+     theme border. Was scoped on .mm-fence-card; same value, now declared
+     here so every used token has one definition. */
+  --mm-fence-ring: var(--mm-border, #d1d9e0);
+
+  /* JS-driven layout defaults (PRD 018 Req 3): App.tsx and the panels set
+     these inline per element; these are the values before any user drag. */
+  --mm-split: 50%;
+  --mm-folders: 240px;
+}
+/* CHROME TOKENS — END (PRD 018 Req 1) */
+
+/* Internal tokens — NOT part of the theme contract or the chrome scales
+   above (kept outside the BEGIN/END markers, like --mm-slide-ease): one-off
+   hooks that PRD 018 Req 3 requires declared rather than resolved through
+   per-site var() fallbacks. Values are the former fallbacks verbatim; the
+   two caret tints are the theme accent at their old alphas, identical under
+   Crisp. */
+.theme-root {
+  --mm-zoom: 1; /* settings zoom factor; App.tsx sets it inline when ≠ 100% */
+  --mm-split-text-nudge: 0px; /* split-drag text anchor; set inline by App.tsx */
+  --mm-toolbar-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); /* SPEC4 §2.4 */
+  --mm-panel-bg: rgba(127, 127, 127, 0.14); /* semantic-zoom pill wash */
+  --mm-diff-changed-bg: rgba(46, 160, 67, 0.14); /* SPEC16 changed-line tint */
+  --mm-diff-removed: #d1242f; /* SPEC16 deleted-run edge */
+  --mm-active-line: color-mix(in srgb, var(--mm-accent, #0969da) 5.5%, transparent); /* SPEC44 */
+  --mm-active-word: color-mix(in srgb, var(--mm-accent, #0969da) 16%, transparent); /* SPEC44 */
+}
+
 .theme-root {
   display: flex;
   flex-direction: column;
@@ -112,7 +213,7 @@ button {
   background: var(--mm-bg-elevated, #f6f8fa);
   border-bottom: 1px solid var(--mm-border, #d1d9e0);
   /* Faint bottom shadow (SPEC4 §2.4), theme-overridable. */
-  box-shadow: var(--mm-toolbar-shadow, 0 2px 10px rgba(0, 0, 0, 0.08));
+  box-shadow: var(--mm-toolbar-shadow);
   user-select: none;
 }
 
@@ -358,7 +459,7 @@ button {
   padding: 40px 32px 96px;
   overflow-wrap: break-word;
   /* Text-only zoom: scales document text, never the surrounding UI. */
-  font-size: calc(var(--mm-font-size, 16px) * var(--mm-zoom, 1));
+  font-size: calc(var(--mm-font-size, 16px) * var(--mm-zoom));
 }
 
 .doc h1,
@@ -714,7 +815,7 @@ mark.hl.flash {
   cursor: pointer;
   transition: border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
   /* Faint balloon shadow (SPEC6 §2.4), theme-overridable. */
-  box-shadow: var(--mm-card-shadow, 0 1px 6px rgba(0, 0, 0, 0.09));
+  box-shadow: var(--mm-card-shadow);
 }
 
 .card.active {
@@ -870,7 +971,7 @@ mark.hl.ghost {
   letter-spacing: 0.08em;
   color: var(--mm-bg, #ffffff);
   background: var(--mm-accent, #0969da);
-  box-shadow: var(--mm-card-shadow, 0 1px 4px rgba(0, 0, 0, 0.2));
+  box-shadow: var(--mm-card-shadow);
   pointer-events: none;
   user-select: none;
 }
@@ -978,7 +1079,7 @@ mark.hl.ghost {
   background: var(--mm-bg, #ffffff);
   color: var(--mm-fg, #1f2328);
   /* Tracks the theme's base size, the custom font-size setting, and zoom. */
-  font-size: calc(var(--mm-font-size, 16px) * 0.875 * var(--mm-zoom, 1));
+  font-size: calc(var(--mm-font-size, 16px) * 0.875 * var(--mm-zoom));
 }
 
 /* The edit-mode text column matches preview's exactly (SPEC6 §1): same
@@ -1080,7 +1181,7 @@ mark.hl.ghost {
 }
 
 .split-editor {
-  width: var(--mm-split, 50%);
+  width: var(--mm-split);
   flex-shrink: 0;
   min-width: 0;
   display: flex;
@@ -1140,9 +1241,12 @@ mark.hl.ghost {
   right: 8px;
   width: 16px;
   pointer-events: none;
+  /* PRD 018 Req 4: this inset edge shade is a one-off, not the floating
+     --mm-panel-shadow — the old var() here never resolved past its fallback,
+     kept verbatim (also on the :hover rule below). */
   box-shadow:
     inset -1px 0 0 var(--mm-border, #d1d9e0),
-    var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
+    inset -12px 0 14px -12px rgba(0, 0, 0, 0.28);
 }
 
 /* A subtle accent tint on the hairline only while hovering or dragging the grab
@@ -1150,7 +1254,7 @@ mark.hl.ghost {
 .split-divider:hover::before {
   box-shadow:
     inset -1px 0 0 var(--mm-accent, #0969da),
-    var(--mm-panel-shadow, inset -12px 0 14px -12px rgba(0, 0, 0, 0.28));
+    inset -12px 0 14px -12px rgba(0, 0, 0, 0.28);
 }
 
 .split-preview {
@@ -1199,7 +1303,7 @@ mark.hl.ghost {
   transition: transform 180ms var(--mm-slide-ease);
 }
 .workspace.split.preview-out .split-editor .cm-editor .cm-scroller > * {
-  transform: translateX(var(--mm-split-text-nudge, 0px));
+  transform: translateX(var(--mm-split-text-nudge));
 }
 /* Issue #165: mid-flight the translated column can hang a few px past the
    narrowing scroller before both settle; never surface that as a transient
@@ -1212,7 +1316,7 @@ mark.hl.ghost {
   top: 0;
   right: 0;
   bottom: 0;
-  width: calc(100% - var(--mm-split, 50%) - 8px);
+  width: calc(100% - var(--mm-split) - 8px);
   z-index: 2;
   transition: transform 180ms var(--mm-slide-ease);
   will-change: transform;
@@ -1311,13 +1415,13 @@ mark.hl.ghost {
 /* PRD 009 Req 13: the save picker states its reason in the dialog (the
    sidebar's rename row has no room for one and uses a tooltip instead). */
 .modal input.invalid {
-  border-color: var(--mm-danger, #cf222e);
+  border-color: var(--mm-danger);
 }
 
 .picker-error {
   margin: 10px 0 4px;
   font-size: 13px;
-  color: var(--mm-danger, #cf222e);
+  color: var(--mm-danger);
 }
 
 /* Tabbed settings (SPEC4 §3). Fixed box (SPEC7 §1): switching tabs never
@@ -1692,16 +1796,19 @@ button.primary:hover {
   padding: 6px 14px;
   font-size: 13px;
   color: var(--mm-fg, #1f2328);
-  background: var(--mm-bg-elev, #ffffff);
+  /* PRD 018 Req 5: was the typo --mm-bg-elev (defined nowhere), which painted
+     these buttons white on every dark theme. The contract name is
+     --mm-bg-elevated; the fallback is Crisp's value, like the other 28 uses. */
+  background: var(--mm-bg-elevated, #f6f8fa);
   border: 1px solid var(--mm-border, #d1d9e0);
   border-radius: 6px;
   cursor: pointer;
 }
 
-/* --mm-hover is the themed hover wash every other row in the app uses; the
-   fallback matches theirs so an unthemed build stays consistent too. */
+/* --mm-hover is the themed hover wash every other row in the app uses
+   (defined in the chrome token block, PRD 018 Req 1). */
 .start-action:hover:not(:disabled) {
-  background: var(--mm-hover, rgba(9, 105, 218, 0.08));
+  background: var(--mm-hover);
 }
 
 /* PRD 017 Req 10: a policy-refused action is visible but plainly inert. */
@@ -1839,10 +1946,10 @@ button.primary:hover {
 
 /* --- SPEC16: changes-since-save tints (theme-overridable) --- */
 .cm-line.mm-diff-changed {
-  background: var(--mm-diff-changed-bg, rgba(46, 160, 67, 0.14));
+  background: var(--mm-diff-changed-bg);
 }
 .cm-line.mm-diff-deleted-after {
-  box-shadow: inset 3px 0 0 var(--mm-diff-removed, #d1242f);
+  box-shadow: inset 3px 0 0 var(--mm-diff-removed);
 }
 
 /* --- SPEC16: word-count chip, bottom-right corner --- */
@@ -2090,17 +2197,17 @@ button.primary:hover {
    preview (synthetic mark). Stacking: find > selection > comments > word >
    line — later marks nest inside and paint on top naturally. */
 .doc .mm-active-block {
-  background: var(--mm-active-line, rgba(9, 105, 218, 0.055));
+  background: var(--mm-active-line);
   border-radius: 4px;
 }
 .doc mark.mm-active-word {
-  background: var(--mm-active-word, rgba(9, 105, 218, 0.16));
+  background: var(--mm-active-word);
   color: inherit;
   padding: 0;
   border-radius: 2px;
 }
 .editor-wrap .cm-content .mm-active-word {
-  background: var(--mm-active-word, rgba(9, 105, 218, 0.16));
+  background: var(--mm-active-word);
   border-radius: 2px;
 }
 
@@ -2214,13 +2321,13 @@ button.primary:hover {
 /* PRD 014 Req 11 (issue #154): the loud no-match state — the bar itself
    turns, not just the muted count text; FindBar sets data-state. */
 .find-bar[data-state='no-match'] input {
-  border-color: var(--mm-danger, #cf222e);
-  box-shadow: inset 0 0 0 1px var(--mm-danger, #cf222e);
+  border-color: var(--mm-danger);
+  box-shadow: inset 0 0 0 1px var(--mm-danger);
   background: rgba(207, 34, 46, 0.1);
-  background: color-mix(in srgb, var(--mm-danger, #cf222e) 10%, var(--mm-bg, #ffffff));
+  background: color-mix(in srgb, var(--mm-danger) 10%, var(--mm-bg, #ffffff));
 }
 .find-bar[data-state='no-match'] .find-count {
-  color: var(--mm-danger, #cf222e);
+  color: var(--mm-danger);
   font-weight: 700;
 }
 /* PRD 014 Req 10 (issue #154): the inline invalid-regex message —
@@ -2228,7 +2335,7 @@ button.primary:hover {
 .find-bar .find-error {
   max-width: 320px;
   font-size: 11.5px;
-  color: var(--mm-danger, #cf222e);
+  color: var(--mm-danger);
   overflow-wrap: anywhere;
 }
 
@@ -2238,25 +2345,25 @@ button.primary:hover {
    colour. No bundled theme defines --mm-find*: these fallbacks are what
    renders, in light and dark alike, and the active hue is distinct. */
 .doc mark.mm-find {
-  background: var(--mm-find, #ffdf5d);
-  color: var(--mm-find-fg, #1f2328);
+  background: var(--mm-find);
+  color: var(--mm-find-fg);
   padding: 0;
   border-radius: 2px;
 }
 .doc mark.mm-find.mm-find-active {
-  background: var(--mm-find-active, #f0883e);
-  color: var(--mm-find-fg, #1f2328);
+  background: var(--mm-find-active);
+  color: var(--mm-find-fg);
 }
 /* PRD 014 Req 11 (issue #154): edit mode's match decorations get the same
    treatment as the preview marks — CodeMirror's faint defaults are illegible
    on dark themes. Three classes outrank CM's injected two-class base theme. */
 .editor-wrap .cm-editor .cm-searchMatch {
-  background: var(--mm-find, #ffdf5d);
-  color: var(--mm-find-fg, #1f2328);
+  background: var(--mm-find);
+  color: var(--mm-find-fg);
 }
 .editor-wrap .cm-editor .cm-searchMatch.cm-searchMatch-selected {
-  background: var(--mm-find-active, #f0883e);
-  color: var(--mm-find-fg, #1f2328);
+  background: var(--mm-find-active);
+  color: var(--mm-find-fg);
 }
 
 /* SPEC34: the folder sidebar — left of the workspace, all modes. */
@@ -2409,7 +2516,7 @@ button.primary:hover {
   clip-path: inset(60px 0 0 -48px);
   box-shadow:
     0 0 0 1px var(--mm-border, #d1d9e0),
-    var(--mm-panel-shadow, 0 0 24px 2px rgba(0, 0, 0, 0.14));
+    var(--mm-panel-shadow);
 }
 .workspace-stack.with-tabs::after {
   top: var(--mm-tabstrip-h);
@@ -2663,7 +2770,7 @@ button.primary:hover {
    inside the shrinking wrapper anyway (both run the same 180ms
    --mm-slide-ease). */
 .folder-slide {
-  width: var(--mm-folders, 240px);
+  width: var(--mm-folders);
   flex-shrink: 0;
   display: flex;
 }
@@ -2682,7 +2789,7 @@ button.primary:hover {
 }
 .folder-panel {
   position: relative;
-  width: var(--mm-folders, 240px);
+  width: var(--mm-folders);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -2995,7 +3102,7 @@ button.primary:hover {
   border-radius: 4px;
 }
 .folder-rename input.invalid {
-  border-color: var(--mm-danger, #cf222e);
+  border-color: var(--mm-danger);
   outline: none;
 }
 .folder-empty {
@@ -3096,7 +3203,7 @@ button.primary:hover {
   flex: none;
   padding: 2px 10px 4px;
   font-size: 11.5px;
-  color: var(--mm-danger, #cf222e);
+  color: var(--mm-danger);
   overflow-wrap: anywhere;
 }
 /* PRD 014 Req 9 (issue #153): the scan status line — the in-flight spinner
@@ -3353,9 +3460,8 @@ button.primary:hover {
    relative (z-index auto: no new stacking context, so -3 still escapes to
    the scroller's) to anchor both the ::before and the copy control. */
 .editor-wrap .cm-line.mm-fence-card {
-  /* One source for the ring color: every rule below inherits it from here,
-     since a first/last line always carries .mm-fence-card too. */
-  --mm-fence-ring: var(--mm-border, #d1d9e0);
+  /* The ring color, --mm-fence-ring, is defined in the chrome token block
+     (PRD 018 Req 3) — same value it carried when scoped here. */
   position: relative;
   padding-left: 16px;
 }
@@ -3462,7 +3568,7 @@ button.primary:hover {
   background: var(--mm-bg, #ffffff);
 }
 .table-chip.danger {
-  color: var(--mm-danger, #cf222e);
+  color: var(--mm-danger);
 }
 .table-chip:disabled {
   opacity: 0.4;
@@ -3484,7 +3590,7 @@ button.primary:hover {
   letter-spacing: 0.08em;
   color: var(--mm-bg, #ffffff);
   background: var(--mm-accent, #0969da);
-  box-shadow: var(--mm-card-shadow, 0 1px 4px rgba(0, 0, 0, 0.2));
+  box-shadow: var(--mm-card-shadow);
   user-select: none;
 }
 .table-badge button {
@@ -3606,7 +3712,7 @@ button.primary:hover {
 
 .hosted-signin-form button:hover:not(:disabled),
 .hosted-signin-ms:hover:not(:disabled) {
-  background: var(--mm-hover, rgba(9, 105, 218, 0.08));
+  background: var(--mm-hover);
 }
 
 .hosted-signin-form button:disabled,
@@ -3673,7 +3779,7 @@ button.primary:hover {
 
 /* The ↑/↓ highlight — same surface as hover, so mouse and keyboard agree. */
 .membership-result.active {
-  background: var(--mm-hover, rgba(9, 105, 218, 0.08));
+  background: var(--mm-hover);
 }
 
 /* Issue #183 §3: the inline empty/error answers — never a silent nothing. */
@@ -3681,11 +3787,11 @@ button.primary:hover {
   margin: 0;
   padding: 6px 8px;
   font-size: 12.5px;
-  color: var(--mm-muted, #59636e);
+  color: var(--mm-muted);
 }
 
 .membership-note-error {
-  color: var(--mm-danger, #cf222e);
+  color: var(--mm-danger);
 }
 
 .membership-member,
@@ -3708,7 +3814,7 @@ button.primary:hover {
 }
 
 .membership-result:hover {
-  background: var(--mm-hover, rgba(9, 105, 218, 0.08));
+  background: var(--mm-hover);
 }
 
 .membership-avatar {
@@ -3729,12 +3835,12 @@ button.primary:hover {
 }
 
 .membership-username {
-  color: var(--mm-muted, #59636e);
+  color: var(--mm-muted);
   font-size: 12px;
 }
 
 .membership-member-unresolved .membership-name {
-  color: var(--mm-muted, #59636e);
+  color: var(--mm-muted);
   font-style: italic;
 }
 
@@ -3750,7 +3856,7 @@ button.primary:hover {
   font-style: normal;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--mm-muted, #59636e);
+  color: var(--mm-muted);
   flex: none;
 }
 
@@ -3766,7 +3872,7 @@ button.primary:hover {
   font-style: normal;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--mm-muted, #59636e);
+  color: var(--mm-muted);
   flex: none;
 }
 
@@ -3783,7 +3889,7 @@ button.primary:hover {
   margin-left: auto;
   border: none;
   background: none;
-  color: var(--mm-muted, #59636e);
+  color: var(--mm-muted);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
@@ -3837,7 +3943,7 @@ button.primary:hover {
 }
 
 .workspace-list-item:hover {
-  background: var(--mm-hover, rgba(9, 105, 218, 0.08));
+  background: var(--mm-hover);
 }
 
 .workspace-list-name {
@@ -3890,12 +3996,12 @@ button.primary:hover {
 .workspace-settings-error {
   margin-top: 8px;
   font-size: 12.5px;
-  color: var(--mm-danger, #cf222e);
+  color: var(--mm-danger);
 }
 
 .workspace-danger button.destructive {
-  border: 1px solid var(--mm-danger, #cf222e);
-  background: var(--mm-danger, #cf222e);
+  border: 1px solid var(--mm-danger);
+  background: var(--mm-danger);
   color: #ffffff;
   border-radius: 6px;
   padding: 5px 12px;
@@ -3935,7 +4041,7 @@ button.primary:hover {
   border-radius: 999px;
   font-size: 12px;
   opacity: 0.85;
-  background: var(--mm-panel-bg, rgba(127, 127, 127, 0.14));
+  background: var(--mm-panel-bg);
   color: var(--mm-fg, inherit);
 }
 .semantic-zoom-control:hover {
