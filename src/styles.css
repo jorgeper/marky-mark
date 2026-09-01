@@ -2342,8 +2342,10 @@ button.primary:hover {
 /* SPEC30 §1.3: preview match marks — never the comment styling.
    PRD 014 Req 11 (issue #154): high-contrast and self-contained — foreground
    AND background set here, so legibility never depends on the theme's text
-   colour. No bundled theme defines --mm-find*: these fallbacks are what
-   renders, in light and dark alike, and the active hue is distinct. */
+   colour. No bundled theme defines --mm-find*: the chrome-token defaults
+   are what renders, in light and dark alike, and the active hue is
+   distinct (PRD 018 Req 3 moved the values from per-site fallbacks into
+   the token block). */
 .doc mark.mm-find {
   background: var(--mm-find);
   color: var(--mm-find-fg);
