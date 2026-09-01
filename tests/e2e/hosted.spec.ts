@@ -278,6 +278,22 @@ test('E168: a failed sign-in surfaces as an on-page error and the API guard stil
   expect(unauthenticated.status()).toBe(401);
 });
 
+test('E390: the sign-in page is splash-styled — no card box, no title text, the badge at the splash size', async ({
+  page,
+}) => {
+  // Issue #196: the gray card and its "Marky Mark" <h1> are gone — the badge
+  // and the sign-in control sit directly on the app background. Class/tag
+  // locators here pin the *absence* of removed structure, which has no test
+  // id to give; the badge itself keeps its id.
+  await page.goto(`${HOSTED}/`);
+  await expect(page.getByTestId('hosted-sign-in-badge')).toBeVisible();
+  await expect(page.locator('.hosted-signin-card')).toHaveCount(0);
+  await expect(page.locator('[data-testid="hosted-sign-in"] h1')).toHaveCount(0);
+  // The badge renders at the splash's 132px, not the old card's 96px.
+  const width = await page.getByTestId('hosted-sign-in-badge').evaluate((el) => el.getBoundingClientRect().width);
+  expect(Math.round(width)).toBe(132);
+});
+
 /** Create a workspace and return its id (PRD 007 Req 10: creator → Owner). */
 async function createWorkspace(request: APIRequestContext, token: string, name: string): Promise<string> {
   const res = await request.post(`${HOSTED}/api/workspaces`, {

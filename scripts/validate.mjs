@@ -297,7 +297,9 @@ record('test-ID uniqueness', Date.now() - idScanStart);
 // 379 as of issue #194: E389 — sidebar New File lands in edit mode on both
 // christening exits (SPEC35 §4.2 as amended). Renumbered from E385 at merge:
 // issues #194 and #195 both minted E385 on their branches; #195 landed first.
-const E2E_TEST_FLOOR = 379;
+// 380 as of issue #196: E390 — the hosted sign-in page's splash restyle (no
+// card box, no title, the badge at the splash's 132px).
+const E2E_TEST_FLOOR = 380;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {

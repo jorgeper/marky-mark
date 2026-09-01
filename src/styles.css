@@ -3516,33 +3516,20 @@ button.primary:hover {
 }
 
 /* PRD 007 Req 5: the hosted flavor's sign-in page — the only UI an
-   unauthenticated visitor to the hosted server sees. */
+   unauthenticated visitor to the hosted server sees. Issue #196: restyled
+   to the splash's look (SPEC27 §3) — no card box, badge and controls sit
+   directly on the app background, splash typography throughout. */
 .hosted-signin {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-fg, #1f2328);
-}
-
-.hosted-signin-card {
-  display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 10px;
-  padding: 36px 44px;
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 12px;
-  background: var(--mm-bg-elevated, #f6f8fa);
   text-align: center;
-}
-
-.hosted-signin-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg, #1f2328);
 }
 
 .hosted-signin-hint {
@@ -3567,15 +3554,42 @@ button.primary:hover {
   color: var(--mm-fg, #1f2328);
 }
 
-.hosted-signin-form button,
-.hosted-signin-ms {
-  padding: 7px 14px;
+/* Issue #196: the local-mode button matches the splash's .start-action look
+   (same border/radius/hover wash; the canonical elevated-background variable
+   is --mm-bg-elevated). */
+.hosted-signin-form button {
+  padding: 6px 14px;
   font-size: 13px;
+  color: var(--mm-fg, #1f2328);
+  background: var(--mm-bg-elevated, #f6f8fa);
   border: 1px solid var(--mm-border, #d1d9e0);
   border-radius: 6px;
-  background: var(--mm-accent, #0969da);
-  color: #ffffff;
   cursor: pointer;
+}
+
+/* Issue #196: Microsoft's standard branded button — neutral themed
+   background with a border (never an accent fill), the four-square logo
+   beside the label. */
+.hosted-signin-ms {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  font-size: 13px;
+  color: var(--mm-fg, #1f2328);
+  background: var(--mm-bg-elevated, #f6f8fa);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.hosted-signin-ms-logo {
+  flex: none;
+}
+
+.hosted-signin-form button:hover:not(:disabled),
+.hosted-signin-ms:hover:not(:disabled) {
+  background: var(--mm-hover, rgba(9, 105, 218, 0.08));
 }
 
 .hosted-signin-form button:disabled,
