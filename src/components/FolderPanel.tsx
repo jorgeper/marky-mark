@@ -391,7 +391,9 @@ function RenameRow({ p, dir, entry, depth }: { p: FolderPanelProps; dir: string;
       <input
         ref={inputRef}
         data-testid="folder-rename-input"
-        className={error ? 'invalid' : undefined}
+        // PRD 018 §E26 (issue #205): class-targeted (was `.folder-rename
+        // input` in styles.css) — the lint bans bare element descendants.
+        className={error ? 'folder-rename-input invalid' : 'folder-rename-input'}
         title={p.renameError ?? error ?? undefined}
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -429,10 +431,11 @@ function FileRow({
   const md = isMarkdownFile(name);
   const open = p.openFiles.includes(path);
   const selected = p.selectedPath === path;
-  const cls = `folder-item btn-quiet${md ? '' : ' folder-item-dim'}${open && !selected ? ' open' : ''}${selected ? ' selected' : ''}`;
   return (
     <button
-      className={cls}
+      // PRD 018 §E27 (issue #205): the class template sits inline so the
+      // style lint can see the static `btn-quiet` primitive token.
+      className={`folder-item btn-quiet${md ? '' : ' folder-item-dim'}${open && !selected ? ' open' : ''}${selected ? ' selected' : ''}`}
       data-testid="folder-item"
       data-path={path}
       {...dragSource(dnd, path)}

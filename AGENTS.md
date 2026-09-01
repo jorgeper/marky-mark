@@ -79,6 +79,7 @@ in `.sandcastle/config.mts` — if they disagree, fix one of the two.
   history that code cites; `issue-specs/` is Sandcastle's per-issue
   working specs.
 - `prd/` — product requirement documents behind multi-issue efforts.
+- `docs/STYLE-GUIDE.md` — chrome tokens, UI primitives, the lint-enforced Do/Don't list; read before styling chrome.
 - `archive/` — kept history, excluded from agent context (see above).
 - `src/lib/` — pure TypeScript modules (settings, themes, comments,
   markdown, hotkeys, …): the unit-tested logic layer under the React shell.

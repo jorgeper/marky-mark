@@ -61,6 +61,9 @@ export function HeadingPalette({
       <div className="menu palette" data-testid="heading-palette">
         <input
           data-testid="heading-palette-input"
+          /* PRD 018 §E26 (issue #205): the lint bans bare `.palette input`
+             descendants — the flush search box is class-targeted now. */
+          className="palette-input"
           autoFocus
           placeholder="Go to heading…"
           value={query}

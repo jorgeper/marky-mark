@@ -165,6 +165,16 @@ body,
     0 1px 3px rgba(0, 0, 0, 0.07);
   --mm-lift-row-active: -1px -2px 6px rgba(0, 0, 0, 0.115), -2px -4px 9px rgba(0, 0, 0, 0.08),
     0 1px 3px rgba(0, 0, 0, 0.08);
+  /* PRD 018 §E26 (issue #205): the last one-off colours the style lint found
+     living inline in chrome rules — hoisted here verbatim (a colour literal
+     may live only in a token definition or a contract-variable fallback),
+     visually unchanged. */
+  --mm-orphan-fg: #9a6700; /* the orphaned-comment badge */
+  --mm-orphan-bg: rgba(255, 214, 102, 0.35);
+  --mm-split-edge-shade: inset -12px 0 14px -12px rgba(0, 0, 0, 0.28); /* split-divider edge */
+  --mm-overlay-scrim: rgba(0, 0, 0, 0.35); /* modal backdrop */
+  --mm-palette-scrim: rgba(0, 0, 0, 0.18); /* heading-palette backdrop (under .overlay) */
+  --mm-alpha-note: #b3591f; /* the About dialog's alpha warning */
 }
 
 /* ===========================================================================
@@ -1161,8 +1171,8 @@ mark.hl.ghost {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #9a6700;
-  background: rgba(255, 214, 102, 0.35);
+  color: var(--mm-orphan-fg);
+  background: var(--mm-orphan-bg);
   border-radius: var(--mm-radius-small);
   padding: 2px 7px;
 }
@@ -1489,11 +1499,11 @@ mark.hl.ghost {
   width: 16px;
   pointer-events: none;
   /* PRD 018 Req 4: this inset edge shade is a one-off, not the floating
-     --mm-panel-shadow — the old var() here never resolved past its fallback,
-     kept verbatim (also on the :hover rule below). */
+     --mm-panel-shadow — declared as --mm-split-edge-shade with the internal
+     tokens (issue #205), value unchanged (also on the :hover rule below). */
   box-shadow:
     inset -1px 0 0 var(--mm-border, #d1d9e0),
-    inset -12px 0 14px -12px rgba(0, 0, 0, 0.28);
+    var(--mm-split-edge-shade);
 }
 
 /* A subtle accent tint on the hairline only while hovering or dragging the grab
@@ -1501,7 +1511,7 @@ mark.hl.ghost {
 .split-divider:hover::before {
   box-shadow:
     inset -1px 0 0 var(--mm-accent, #0969da),
-    inset -12px 0 14px -12px rgba(0, 0, 0, 0.28);
+    var(--mm-split-edge-shade);
 }
 
 .split-preview {
@@ -1597,7 +1607,7 @@ mark.hl.ghost {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--mm-overlay-scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1961,7 +1971,7 @@ mark.hl.ghost {
 .about-alpha {
   font-size: var(--mm-text-small);
   font-weight: 600;
-  color: #b3591f;
+  color: var(--mm-alpha-note);
   margin: 8px 0;
 }
 .about-meta {
@@ -2110,7 +2120,7 @@ mark.hl.ghost {
   position: fixed;
   inset: 0;
   z-index: 90; /* under .overlay modals, over everything else */
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--mm-palette-scrim);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -2126,7 +2136,9 @@ mark.hl.ghost {
   overflow: hidden;
   padding: 0; /* the input sits flush to the shell's edges */
 }
-.palette input {
+/* PRD 018 §E26 (issue #205): class-targeted (was `.palette input`) — the
+   lint bans bare element descendants; HeadingPalette.tsx carries the class. */
+input.palette-input {
   font: inherit;
   font-size: var(--mm-text-heading);
   color: inherit;
@@ -2149,6 +2161,10 @@ mark.hl.ghost {
   text-overflow: ellipsis;
 }
 
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17): print is the document on
+   paper — the block below hides the chrome and restates document/theme
+   values for a light page, so it is document rendering, not chrome, and
+   sits outside the style lint like the other delimited sections. */
 /* --- File → Print… (issue #124; SPEC18 §2): paper shows the DOCUMENT ------
    Two paths through one block.
 
@@ -2235,6 +2251,7 @@ mark.hl.ghost {
 #mm-print-root {
   display: none;
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 /* --- SPEC19: update dialog --- */
 .update-modal .update-line {
@@ -2669,7 +2686,6 @@ mark.hl.ghost {
   padding: 4px 10px;
   border: none;
   border-radius: var(--mm-radius-small) var(--mm-radius-small) 0 0;
-  background: #ededf0;
   background: color-mix(in srgb, var(--mm-bg, #ffffff) 72%, var(--mm-bg-elevated, #f6f8fa));
   color: var(--mm-fg-muted, #59636e);
   font: inherit;
@@ -2690,7 +2706,6 @@ mark.hl.ghost {
    (.folder-item.open:hover's mix); the ACTIVE tab is exempt — the front
    plane never flickers on hover, like .folder-item.selected:hover. */
 .file-tab:hover:not(.active) {
-  background: #f4f4f6;
   background: color-mix(in srgb, var(--mm-bg, #ffffff) 86%, var(--mm-bg-elevated, #f6f8fa));
 }
 /* PRD 013 Reqs 10–12 (issue #148): the ACTIVE tab is the FRONT plane —
@@ -2759,7 +2774,6 @@ mark.hl.ghost {
   display: none; /* hover swaps ● for ✕ */
 }
 .file-tab-close:hover {
-  background: rgba(31, 35, 40, 0.12);
   background: color-mix(in srgb, var(--mm-fg, #1f2328) 12%, transparent);
   color: var(--mm-fg, #1f2328);
 }
@@ -2882,7 +2896,6 @@ mark.hl.ghost {
   /* Stays on the panel's plane — a translucent darkening tint, so the
      workspace's inset shadow keeps casting over it; the selected tab's
      solid surface stays the only front-plane element. */
-  background: rgba(31, 35, 40, 0.08);
   background: color-mix(in srgb, var(--mm-fg, #1f2328) 9%, transparent);
 }
 /* SPEC34 polish / SPEC36 §4.1: the tab pill geometry — one rule for the
@@ -2927,7 +2940,6 @@ mark.hl.ghost {
    workspace surface). Depth reads from surface + shadow strength, not from
    the seam alone. */
 .folder-item.open {
-  background: #ededf0;
   background: color-mix(in srgb, var(--mm-bg, #ffffff) 72%, var(--mm-bg-elevated, #f6f8fa));
   z-index: 1;
   /* The tab's own lift only — the seam hairline + workspace cast shadow are
@@ -2937,7 +2949,6 @@ mark.hl.ghost {
   box-shadow: var(--mm-lift-row);
 }
 .folder-item.open:hover:not(:disabled) {
-  background: #f4f4f6;
   background: color-mix(in srgb, var(--mm-bg, #ffffff) 86%, var(--mm-bg-elevated, #f6f8fa));
 }
 /* SPEC36 §3.4/§3.6: the trailing slot on open rows — the dirty ● swaps for
@@ -2980,7 +2991,6 @@ mark.hl.ghost {
   display: none; /* hover swaps ● for ✕ */
 }
 .folder-tab-close:hover {
-  background: rgba(31, 35, 40, 0.12);
   background: color-mix(in srgb, var(--mm-fg, #1f2328) 12%, transparent);
   color: var(--mm-fg, #1f2328);
 }
@@ -3081,7 +3091,9 @@ mark.hl.ghost {
   padding-top: 1px;
   padding-bottom: 1px;
 }
-.folder-rename input {
+/* PRD 018 §E26 (issue #205): class-targeted (was `.folder-rename input`) —
+   the lint bans bare element descendants; FolderPanel.tsx carries the class. */
+input.folder-rename-input {
   width: 100%;
   min-width: 140px;
   font-size: var(--mm-text-small);
@@ -3091,7 +3103,7 @@ mark.hl.ghost {
   border: 1px solid var(--mm-accent, #0969da);
   border-radius: var(--mm-radius-small);
 }
-.folder-rename input.invalid {
+input.folder-rename-input.invalid {
   border-color: var(--mm-danger);
   outline: none;
 }
@@ -3130,14 +3142,12 @@ mark.hl.ghost {
    speaks in the accent: a bar down the left edge, an accent tint, accent text.
    No layout property changes, so the highlight moving never shifts a row. */
 .folder-item.toc-active {
-  background: rgba(9, 105, 218, 0.1);
   background: color-mix(in srgb, var(--mm-accent, #0969da) 12%, transparent);
   color: var(--mm-accent, #0969da);
   font-weight: 600;
   box-shadow: inset 2px 0 0 0 var(--mm-accent, #0969da);
 }
 .folder-item.toc-active:hover:not(:disabled) {
-  background: rgba(9, 105, 218, 0.16);
   background: color-mix(in srgb, var(--mm-accent, #0969da) 20%, transparent);
 }
 /* PRD 014 Req 7 (issue #151): the Search view — its rows are folder rows
@@ -3243,7 +3253,6 @@ mark.hl.ghost {
   padding: 1px 7px;
   border-radius: var(--mm-radius-pill);
   color: var(--mm-fg-muted, #59636e);
-  background: rgba(31, 35, 40, 0.08);
   background: color-mix(in srgb, var(--mm-fg, #1f2328) 8%, transparent);
 }
 .search-match {
@@ -3535,37 +3544,10 @@ mark.hl.ghost {
   cursor: default;
 }
 
-/* SPEC39 §3.1: the table-mode pill — vim-badge family, top-right, clickable. */
-.table-badge {
-  position: absolute;
-  right: 14px;
-  top: 12px;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 6px 3px 10px;
-  border-radius: var(--mm-radius-pill);
-  font: 600 var(--mm-text-caption) / 1.4 var(--mm-font-mono, monospace);
-  letter-spacing: 0.08em;
-  color: var(--mm-bg, #ffffff);
-  background: var(--mm-accent, #0969da);
-  box-shadow: var(--mm-card-shadow);
-  user-select: none;
-}
-/* PRD 018 Req 12 (issue #204): DOM-created inside the CodeMirror badge
-   widget (not TSX), and genuinely different — an inverted pill ON the
-   accent badge, colours straight off the contract; kept as the badge's own
-   rule rather than forcing a primitive that would repaint the badge. */
-.table-badge button {
-  padding: 1px var(--mm-space-3);
-  border-radius: var(--mm-radius-pill);
-  font: inherit;
-  letter-spacing: 0.04em;
-  color: var(--mm-accent, #0969da);
-  background: var(--mm-bg, #ffffff);
-  cursor: pointer;
-}
+/* PRD 018 §E26 (issue #205): the SPEC39 `.table-badge` rules that stood here
+   were dead — SPEC40 §3 removed the TABLE pill from Editor.tsx (commit
+   e5eea68) and nothing creates the class; the lint's descendant-button rule
+   flagged the leftovers and they are deleted, not exempted. */
 
 /* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
 /* --- SPEC41: inline image widgets + resize chips --------------------------- */
@@ -4213,10 +4195,14 @@ mark.hl.ghost {
   justify-content: center;
   gap: 12px;
   padding: 24px;
-  background: #1e1e1e;
-  color: #e8e8e8;
+  /* PRD 018 §E26 (issue #205): the crash surface's literals live in its own
+     token definitions below (it renders outside .theme-root, so it defines
+     everything it consumes); the style declarations read them back. */
+  background: var(--mm-bg);
+  color: var(--mm-fg);
   font-family: system-ui, sans-serif;
   text-align: center;
+  --mm-bg: #1e1e1e;
   --mm-fg: #e8e8e8;
   --mm-bg-elevated: #2d2d2d;
   --mm-border: #555555;
