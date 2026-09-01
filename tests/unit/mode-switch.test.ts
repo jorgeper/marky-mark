@@ -63,7 +63,7 @@ describe('issue #125: the view mode a document opens in', () => {
     expect(viewModeForOpen('preview', false)).toBe('preview');
   });
 
-  test('U1000: SPEC35 §4.2 (issue #194) — a just-created file lands in edit mode, still never past the grant', () => {
+  test('U1002: SPEC35 §4.2 (issue #194) — a just-created file lands in edit mode, still never past the grant', () => {
     // Edit intent beats the remembered preview: the christening never lands
     // the user on an empty rendered page.
     expect(viewModeForOpen('preview', true, true)).toBe('edit');

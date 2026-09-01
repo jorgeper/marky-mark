@@ -166,7 +166,7 @@ menu copies the root's absolute path.
 No menubar changes, no new hotkeys, no new settings in this SPEC. (The
 menu is pointer-only; keyboard file management can be a later delta.)
 
-## 9. Tests (added: U63, E96–E99; issue #194 adds U1000, E389)
+## 9. Tests (added: U63, E96–E99; issue #194 adds U1002, E389)
 
 1. **U63** — `folderOps`: name validation (valid names; each rejection
    class incl. every Windows-reserved stem and case variants);
@@ -203,11 +203,11 @@ menu is pointer-only; keyboard file management can be a later delta.)
    memory was not rewritten, ordinary opens stay neutral); the Esc
    (cancel-christening) exit lands in edit mode too; and with a dirty
    untitled buffer, resolving the unsaved-changes guard with Don't Save
-   still lands the new file in edit mode. **U1000** pins the pure rule
+   still lands the new file in edit mode. **U1002** pins the pure rule
    (`viewModeForOpen` with edit intent, never past the edit grant).
 7. No existing test may be modified, weakened, skipped, or deleted;
    E42–E44 stay reserved. The only permitted test additions are U63 and
-   E96–E99 — plus U1000 and E389 under the issue #194 amendment.
+   E96–E99 — plus U1002 and E389 under the issue #194 amendment.
 
 ## 10. Definition of Done
 
