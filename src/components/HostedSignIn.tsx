@@ -157,54 +157,63 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
 
   if (phase.kind === 'ready') return <App />;
 
+  // Issue #196: the sign-in page mirrors the splash (SPEC27 §3) — no card
+  // box, no title text: the badge at the splash's size sits directly on the
+  // app background, with just the sign-in control beneath it.
   return (
     <div className="hosted-signin" data-testid="hosted-sign-in">
-      <div className="hosted-signin-card">
-        <div className="splash-mark" aria-hidden="true">
-          <AppBadge size={96} testId="hosted-sign-in-badge" />
-        </div>
-        <h1 className="hosted-signin-title">Marky Mark</h1>
-        {phase.kind === 'checking' ? (
-          <p className="hosted-signin-hint">Checking session…</p>
-        ) : mode === 'local' ? (
-          <form
-            className="hosted-signin-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void signInLocal();
-            }}
-          >
-            <label className="hosted-signin-hint" htmlFor="hosted-signin-username">
-              Local dev mode — sign in as a seeded user
-            </label>
-            <input
-              id="hosted-signin-username"
-              data-testid="hosted-sign-in-username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="username (e.g. ada)"
-              autoFocus
-            />
-            <button data-testid="hosted-sign-in-submit" type="submit" disabled={phase.busy || !username.trim()}>
-              Sign in
-            </button>
-          </form>
-        ) : (
-          <button
-            className="hosted-signin-ms"
-            data-testid="hosted-sign-in-microsoft"
-            onClick={() => void signInMicrosoft()}
-            disabled={phase.busy}
-          >
-            Sign in with Microsoft
-          </button>
-        )}
-        {phase.kind === 'signed-out' && phase.error && (
-          <p className="hosted-signin-error" data-testid="hosted-sign-in-error" role="alert">
-            {phase.error}
-          </p>
-        )}
+      <div className="splash-mark" aria-hidden="true">
+        <AppBadge size={132} testId="hosted-sign-in-badge" />
       </div>
+      {phase.kind === 'checking' ? (
+        <p className="hosted-signin-hint">Checking session…</p>
+      ) : mode === 'local' ? (
+        <form
+          className="hosted-signin-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void signInLocal();
+          }}
+        >
+          <label className="hosted-signin-hint" htmlFor="hosted-signin-username">
+            Local dev mode — sign in as a seeded user
+          </label>
+          <input
+            id="hosted-signin-username"
+            data-testid="hosted-sign-in-username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="username (e.g. ada)"
+            autoFocus
+          />
+          <button data-testid="hosted-sign-in-submit" type="submit" disabled={phase.busy || !username.trim()}>
+            Sign in
+          </button>
+        </form>
+      ) : (
+        <button
+          className="hosted-signin-ms"
+          data-testid="hosted-sign-in-microsoft"
+          onClick={() => void signInMicrosoft()}
+          disabled={phase.busy}
+        >
+          {/* Issue #196: Microsoft's standard branded sign-in button — the
+              four-square logo (their fixed brand colors, one inline SVG so
+              the bundle stays asset-free) + "Sign in with Microsoft". */}
+          <svg className="hosted-signin-ms-logo" width="16" height="16" viewBox="0 0 21 21" aria-hidden="true">
+            <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+            <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+            <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+            <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+          </svg>
+          Sign in with Microsoft
+        </button>
+      )}
+      {phase.kind === 'signed-out' && phase.error && (
+        <p className="hosted-signin-error" data-testid="hosted-sign-in-error" role="alert">
+          {phase.error}
+        </p>
+      )}
     </div>
   );
 }
