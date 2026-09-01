@@ -405,10 +405,14 @@ textarea.field:disabled {
 
 /* PRD 018 §B8: ONE keyboard-focus treatment for every primitive —
    :focus-visible only (a mouse press never flashes a ring), drawn with
-   the chrome focus-ring token. */
+   the chrome focus-ring token. .field stays element-qualified here for
+   the same reason as its base rule: today's div.field row wrappers must
+   never match a primitive selector. */
 .btn:focus-visible,
 .icon-btn:focus-visible,
-.field:focus-visible,
+input.field:focus-visible,
+select.field:focus-visible,
+textarea.field:focus-visible,
 .menu-item:focus-visible {
   outline: 2px solid var(--mm-focus-ring);
   outline-offset: 1px;
