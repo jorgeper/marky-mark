@@ -118,8 +118,10 @@ variables above, so your theme restyles the chrome automatically.
 | `--mm-text-small` | `12.5px` | Secondary chrome text |
 | `--mm-text-body` | `13px` | Default chrome text |
 | `--mm-text-heading` | `14px` | Chrome headings (dialog titles) |
+| `--mm-text-icon` | `16px` | Glyph size in square icon buttons |
 | `--mm-danger` | `color-mix(in srgb, #cf222e 90%, var(--mm-fg) 10%)` | Destructive text, borders, and fills |
 | `--mm-danger-fg` | `var(--mm-bg)` | Text on a danger-filled control |
+| `--mm-accent-fg` | `var(--mm-bg)` | Text on an accent-filled control |
 | `--mm-hover` | `color-mix(in srgb, var(--mm-accent) 8%, transparent)` | Hover wash on rows and buttons |
 | `--mm-muted` | `var(--mm-fg-muted)` | De-emphasised chrome text |
 | `--mm-focus-ring` | `color-mix(in srgb, var(--mm-accent) 35%, transparent)` | Keyboard-focus ring |

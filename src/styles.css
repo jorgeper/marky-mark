@@ -96,6 +96,10 @@ body,
   --mm-text-small: 12.5px;
   --mm-text-body: 13px;
   --mm-text-heading: 14px;
+  /* Icon glyph size for .icon-btn (PRD 018 Req 7): the 16px every square
+     icon button already uses — a glyph size, not a text step, so it gets
+     its own name rather than a fifth text slot. */
+  --mm-text-icon: 16px;
 
   /* State colours (PRD 018 Reqs 1–2). No contract variable carries a red,
      so danger anchors on the survey's #cf222e tempered toward the theme fg:
@@ -104,6 +108,10 @@ body,
   /* Text on a danger-filled control: the page bg — the same convention the
      accent-filled badges already use (their `color: var(--mm-bg)`). */
   --mm-danger-fg: var(--mm-bg, #ffffff);
+  /* Text on an accent fill (.btn-primary, PRD 018 Req 7): the page bg —
+     the same convention as --mm-danger-fg above and the accent-filled
+     badges (`color: var(--mm-bg)`); no hard-coded #ffffff. */
+  --mm-accent-fg: var(--mm-bg, #ffffff);
   /* The row/button hover wash: the theme accent at 8% — exactly the old
      rgba(9, 105, 218, 0.08) fallback under the default Crisp accent. */
   --mm-hover: color-mix(in srgb, var(--mm-accent, #0969da) 8%, transparent);
@@ -146,6 +154,267 @@ body,
   --mm-active-line: color-mix(in srgb, var(--mm-accent, #0969da) 5.5%, transparent); /* SPEC44 */
   --mm-active-word: color-mix(in srgb, var(--mm-accent, #0969da) 16%, transparent); /* SPEC44 */
 }
+
+/* ===========================================================================
+   PRIMITIVES — BEGIN (PRD 018 §B, issue #203)
+
+   The primitive class vocabulary: the .btn family, .icon-btn, .field,
+   .menu*, .dialog*. Each rule lives here and only here (Req 7); disabled /
+   hover / active / keyboard-focus states are defined once, on the
+   primitive, never per site (Req 8); and every colour, radius, shadow and
+   font-size resolves through the chrome tokens above or the theme
+   contract — no raw literals. The thin wrappers in src/components/ui/
+   emit exactly these classes (Req 9).
+
+   No existing call site is migrated in this issue (migration is Reqs
+   12–21), so nothing here may restyle current markup: .field is
+   element-qualified because modals already use div.field as a row
+   wrapper, and .menu-sep / .menu-hotkey are written so the legacy
+   descendant rules (.theme-menu .menu-sep, .smart-edit-item .menu-hotkey)
+   keep winning on specificity for today's menus. */
+
+/* PRD 018 §B7: .btn — the neutral button: the .start-action look on
+   tokens (1px contract border, medium radius, elevated bg, body UI
+   size). */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mm-space-2);
+  /* 14px: .start-action's horizontal padding — deliberately not a spacing
+     step (lengths are outside Req 7's token mandate). */
+  padding: var(--mm-space-2) 14px;
+  font-size: var(--mm-text-body);
+  color: var(--mm-fg);
+  background: var(--mm-bg-elevated);
+  border: 1px solid var(--mm-border);
+  border-radius: var(--mm-radius-medium);
+  cursor: pointer;
+}
+
+/* PRD 018 §B8: the .btn states, once. Hover is the themed wash every row
+   uses — except on fills (.btn-primary), which keep their fill and take
+   the brightness lift button.primary already uses. Active is a 1px press
+   nudge: the token layer carries no second state colour, and geometry
+   needs no token. Disabled matches .start-action:disabled. */
+.btn:not(.btn-primary):hover:not(:disabled) {
+  background: var(--mm-hover);
+}
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* PRD 018 §B7: .btn-primary — the accent fill; --mm-accent-fg (chrome
+   token block) is the accent-contrast foreground, so no hard-coded
+   #ffffff. */
+.btn-primary {
+  color: var(--mm-accent-fg);
+  background: var(--mm-accent);
+  border-color: var(--mm-accent);
+}
+
+/* PRD 018 §B7: .btn-quiet — borderless/transparent until hover (the
+   .card .row button / .find-bar button job). */
+.btn-quiet {
+  color: var(--mm-muted);
+  background: transparent;
+  border-color: transparent;
+}
+.btn-quiet:hover:not(:disabled) {
+  color: var(--mm-fg);
+  border-color: var(--mm-border);
+}
+
+/* PRD 018 §B7: .btn-danger — the danger foreground on the neutral shape;
+   with .btn-primary it becomes the destructive fill (danger bg, danger-fg
+   text). The compound (0,2,0) outranks .btn-primary's accent fill, and
+   the fill-exempt hover above never repaints either fill. */
+.btn-danger {
+  color: var(--mm-danger);
+}
+.btn-danger.btn-primary {
+  color: var(--mm-danger-fg);
+  background: var(--mm-danger);
+  border-color: var(--mm-danger);
+}
+
+/* PRD 018 §B7: size/shape modifiers — .btn-sm is the chip row size
+   (.card .row button), .btn-pill the radius scale's pill step. Pill comes
+   last so .btn-sm.btn-pill rounds fully. */
+.btn-sm {
+  padding: 3px var(--mm-space-3);
+  font-size: var(--mm-text-small);
+  border-radius: var(--mm-radius-small);
+}
+.btn-pill {
+  border-radius: var(--mm-radius-pill);
+}
+
+/* PRD 018 §B7: .icon-btn — the square icon-only button (the .edge-cluster
+   / .folder-header button look), once. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 5px;
+  font-size: var(--mm-text-icon);
+  line-height: 1;
+  color: var(--mm-muted);
+  background: none;
+  border: none;
+  border-radius: var(--mm-radius-small);
+  cursor: pointer;
+}
+/* PRD 018 §B8: .icon-btn states, once. */
+.icon-btn:hover:not(:disabled) {
+  color: var(--mm-fg);
+  background: var(--mm-hover);
+}
+.icon-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* PRD 018 §B7: .field — text input / select / textarea, one rule (the
+   issue #183 .modal input[type='text'] look on tokens). Element-qualified
+   on purpose: modals already use div.field as a label+control row wrapper
+   (.modal .field), and the primitive must not restyle those wrappers
+   before migration renames them. */
+input.field,
+select.field,
+textarea.field {
+  width: 100%;
+  font: inherit;
+  font-size: var(--mm-text-body);
+  color: var(--mm-fg);
+  background: var(--mm-bg);
+  border: 1px solid var(--mm-border);
+  border-radius: var(--mm-radius-small);
+  padding: var(--mm-space-2) var(--mm-space-4);
+  outline: none;
+}
+/* PRD 018 §B8: .field states, once — the focused border turns accent,
+   like .modal input[type='text']:focus. */
+input.field:focus,
+select.field:focus,
+textarea.field:focus {
+  border-color: var(--mm-accent);
+}
+input.field:disabled,
+select.field:disabled,
+textarea.field:disabled {
+  opacity: 0.55;
+}
+
+/* PRD 018 §B7: .menu — the floating panel (the .theme-menu look on
+   tokens). Visual shell only: positioning stays with the call site and
+   anchoredMenu.ts (Req 9). */
+.menu {
+  min-width: 210px;
+  padding: var(--mm-space-2);
+  background: var(--mm-bg-elevated);
+  border: 1px solid var(--mm-border);
+  border-radius: var(--mm-radius-medium);
+  box-shadow: var(--mm-panel-shadow);
+}
+
+/* PRD 018 §B7: .menu-item — a menu row (the button.theme-option look). */
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--mm-space-3);
+  width: 100%;
+  text-align: left;
+  padding: var(--mm-space-2) var(--mm-space-3);
+  font-size: var(--mm-text-body);
+  color: var(--mm-fg);
+  background: none;
+  border: none;
+  border-radius: var(--mm-radius-small);
+  cursor: pointer;
+}
+/* PRD 018 §B8: .menu-item states, once. */
+.menu-item:hover:not(:disabled) {
+  background: var(--mm-hover);
+}
+.menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* PRD 018 §B7: .menu-sep — the divider between row groups. Declarations
+   stay inside the legacy .theme-menu .menu-sep property set {height,
+   background, margin}, which outranks this rule, so existing menus are
+   pixel-identical. */
+.menu-sep {
+  height: 1px;
+  margin: var(--mm-space-1);
+  background: var(--mm-border);
+}
+
+/* PRD 018 §B7: .menu-hotkey — the right-aligned hotkey column (the
+   .smart-edit-item .menu-hotkey look; that legacy rule outranks the
+   overlapping declarations here). margin-left:auto is additive but a
+   no-op under smart-edit's flex:1 label. */
+.menu-hotkey {
+  margin-left: auto;
+  color: var(--mm-muted);
+  font-size: var(--mm-text-caption);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+/* PRD 018 §B7: .dialog* — the modal shell (the .modal look on tokens).
+   Shell only: backdrop, portal and dismiss behaviour stay with the call
+   site. */
+.dialog {
+  width: min(440px, 92vw);
+  max-height: 84vh;
+  overflow-y: auto;
+  padding: 20px 22px;
+  color: var(--mm-fg);
+  background: var(--mm-bg-elevated);
+  border: 1px solid var(--mm-border);
+  border-radius: var(--mm-radius-medium);
+  box-shadow: var(--mm-panel-shadow);
+}
+.dialog-header {
+  margin: 0 0 var(--mm-space-5);
+  font-size: var(--mm-text-heading);
+  font-weight: 600;
+}
+.dialog-body {
+  font-size: var(--mm-text-body);
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--mm-space-3);
+  margin-top: var(--mm-space-6);
+}
+
+/* PRD 018 §B8: ONE keyboard-focus treatment for every primitive —
+   :focus-visible only (a mouse press never flashes a ring), drawn with
+   the chrome focus-ring token. */
+.btn:focus-visible,
+.icon-btn:focus-visible,
+.field:focus-visible,
+.menu-item:focus-visible {
+  outline: 2px solid var(--mm-focus-ring);
+  outline-offset: 1px;
+}
+
+/* PRIMITIVES — END (PRD 018 §B, issue #203) */
 
 .theme-root {
   display: flex;
