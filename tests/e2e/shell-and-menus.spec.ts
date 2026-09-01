@@ -40,7 +40,9 @@ test('E1: launch shows the clean empty state; Help opens the welcome doc fully r
   await expect(page.getByTestId('splash-mark')).toBeVisible();
   await expect(hint).toContainText('Drop a file to open');
   await expect(page.getByTestId('doc')).toHaveText(''); // no document content
-  await expect(page.getByTestId('docname').getByTestId('app-badge')).toBeVisible();
+  // SPEC5 §1 (amended, issue #197): the toolbar never shows the badge — the
+  // title slot is empty when nothing is named there.
+  await expect(page.getByTestId('docname').getByTestId('app-badge')).toHaveCount(0);
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
 
   await openWelcomeViaHelp(page);
@@ -208,20 +210,22 @@ test('E25: toolbar auto-hides after launch, reveals on top-edge hover (with shad
   await expect(shell).toHaveAttribute('data-visible', 'false', { timeout: 3000 });
 });
 
-test('E28: the toolbar title slot shows the app badge when empty; titles say Marky Mark', async ({ page }) => {
+test('E28: the toolbar title slot stays empty when nothing is named; titles say Marky Mark', async ({ page }) => {
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
 
   const docname = page.getByTestId('docname');
-  await expect(docname.getByTestId('app-badge')).toBeVisible();
-  expect(await docname.evaluate((el) => el.querySelector('svg') !== null)).toBe(true);
-  expect((await docname.textContent())?.trim()).toBe(''); // icon only — no app-name text
+  // SPEC5 §1 (amended, issue #197): the badge never renders in the toolbar —
+  // the slot holds no badge, no SVG, no app-name text.
+  await expect(docname.getByTestId('app-badge')).toHaveCount(0);
+  expect(await docname.evaluate((el) => el.querySelector('svg') === null)).toBe(true);
+  expect((await docname.textContent())?.trim()).toBe(''); // empty — no app-name text
 
   expect(await page.title()).toContain('Marky Mark');
   expect(await page.title()).not.toContain('Markimark');
 
-  // With a document open, the filename replaces the badge.
+  // With a document open, the filename shows — and the badge is still absent.
   await openWelcomeViaHelp(page);
   await expect(docname).toContainText('welcome.md');
   await expect(docname.getByTestId('app-badge')).toHaveCount(0);
@@ -659,7 +663,8 @@ test('E87: the splash — glyph on the cloud, About info, one drop hint, no key-
   await expect(hint).not.toContainText('⌘N');
   await expect(hint).not.toContainText('press');
 
-  // Opening a document removes the splash entirely; the badge chip remains.
+  // Opening a document removes the splash entirely. (The toolbar badge chip
+  // is gone for good — SPEC27 §4.2 as amended by issue #197.)
   await openWelcomeViaHelp(page);
   await expect(page.getByTestId('empty-hint')).toHaveCount(0);
   await expect(page.getByTestId('splash-mark')).toHaveCount(0);

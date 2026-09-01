@@ -187,10 +187,6 @@ export function Toolbar(p: Props) {
       </button>
     );
   };
-  // SPEC5 §1: the badge fills the title slot when nothing is named there — so
-  // with a workspace named (PRD 009 Req 11) it stands down, document or not.
-  const showBadge = p.docName === null && !p.workspaceName;
-
   return (
     <header className="toolbar">
       {/* PRD 009 Req 7: the hamburger is the toolbar's FIRST element, and its
@@ -241,7 +237,8 @@ export function Toolbar(p: Props) {
           </>
         )}
         {p.docName}
-        {showBadge && <AppBadge />}
+        {/* SPEC5 §1 (amended, issue #197): the badge never fills the title
+            slot — it stays empty when nothing is named there. */}
         {p.dirty && (
           <span className="dirty-dot" data-testid="dirty-dot" title="Unsaved changes">
             ●

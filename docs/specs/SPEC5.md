@@ -11,7 +11,10 @@ wins on conflict; nothing else may regress. §6 is the goal condition.
    shows the app icon — the white "M" on the terracotta rounded square (an inline SVG
    replica of the app icon, `data-testid="app-badge"`, ~20 px) — instead of the word
    "Markimark". With a document open, the filename shows as today (badge optional
-   before it, author's choice).
+   before it, author's choice). *(Amended, issue #197:)* the toolbar never renders
+   the badge — the title slot is simply **empty** when nothing is named there, in
+   every state and platform flavor. `AppBadge` itself lives on at its other call
+   sites (splash, About dialog, hosted sign-in); E1/E28 assert the badge's absence.
 2. **Auto-hide is now a setting, default OFF**: General tab gains "Auto-hide the
    toolbar" (`autoHideToolbar: boolean`, default `false`, `data-testid`
    `settings-autohide`). Off = the bar is always visible and the workspace gets
@@ -41,7 +44,8 @@ settings and migrations unchanged.
   substitution, assertions equally strong.
 - **E1 rewrite (partial)**: the empty-state check `docname has text "Markimark"`
   becomes `docname contains the app-badge SVG and no "Markimark"/"Marky Mark" text`;
-  everything else stays.
+  everything else stays. *(Amended, issue #197:)* the badge check flips to
+  absence — `docname` contains no `app-badge` at all.
 - **E25 rewrite (setup only)**: auto-hide is opt-in now, so E25 first enables
   `settings-autohide` (General tab), then runs its existing assertions unchanged.
 - New tests below; nothing else may change.
@@ -52,6 +56,8 @@ settings and migrations unchanged.
 - **E28**: empty state shows `app-badge` (an `svg`) in the toolbar, no
   "Markimark"/"Marky Mark" text in the docname slot; `document.title` contains
   "Marky Mark" and not "Markimark"; opening a doc shows the filename again.
+  *(Amended, issue #197:)* the badge is never there — E28 asserts `app-badge`
+  has count 0 in the docname slot both when empty and with a document open.
 - **E29**: with default settings, the toolbar is still visible well past the old
   grace+delay window (> 3.5 s, mouse parked mid-screen); enabling
   `settings-autohide` makes it hide (data-visible=false) after the mouse leaves;

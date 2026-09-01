@@ -340,6 +340,10 @@ test('E251: a browser-initiated print with no print root still yields the docume
 });
 
 test('E252: the screen DOM is exactly as it was once printing is done', async ({ page }) => {
+  // Let the DOM settle before snapshotting: the word-count chip (SPEC16 §5)
+  // mounts asynchronously after the document renders, and a snapshot taken
+  // before it lands makes the before/after lengths diverge by exactly the chip.
+  await expect(page.getByTestId('word-chip')).toBeVisible();
   const before = await page.evaluate(() => document.body.innerHTML.length);
   const printed = await printAndRead(page);
   expect(printed).toContain('Welcome to Marky Mark');

@@ -33,7 +33,10 @@ an inline SVG — rounded terracotta gradient square + the cream smiley-M
 glyph — same test ids (`app-badge`, `about-badge`), same size props, no
 image files (the single-file web build stays self-contained). The splash
 reuses the same `AppBadge` tile (owner revision: the transparent-glyph
-variant was removed with the cloud treatment).
+variant was removed with the cloud treatment). *(Amended, issue #197:)*
+the toolbar call site is gone — `AppBadge` no longer renders in the
+toolbar's title slot (see SPEC5 §1 as amended); the splash, About dialog
+and hosted sign-in call sites are unchanged.
 
 ## 3. The splash (FR-SPLASH)
 
@@ -64,7 +67,8 @@ variant was removed with the cloud treatment).
    the splash shows the icon badge, the exact package version, the alpha
    notice, developer + license, and "Drop a file to open"; it contains
    no "⌘O"/"⌘N"/"press" hint text; opening a document removes the splash
-   entirely; the toolbar `app-badge` still renders.
+   entirely; the toolbar `app-badge` still renders *(amended, issue #197:
+   the toolbar badge is removed — no toolbar `app-badge` assertion)*.
 
 ## 5. Definition of Done
 
