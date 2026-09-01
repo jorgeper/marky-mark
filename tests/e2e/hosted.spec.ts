@@ -294,6 +294,59 @@ test('E390: the sign-in page is splash-styled — no card box, no title text, th
   expect(Math.round(width)).toBe(132);
 });
 
+test('E391: the badge holds one anchored position across sign-in, checking and the splash, and pre-auth text uses the body font', async ({
+  page,
+}) => {
+  // Issue #200 (SPEC27 §3): the big badge is anchored to the viewport, so
+  // advancing sign-in → "Checking session…" → the landing splash never moves
+  // it — the splash's position is the shared reference. And the pre-auth page
+  // mounts outside .theme-root, so .hosted-signin must declare the body font
+  // itself or everything falls back to the browser serif default.
+  const badgeBox = (id: string) =>
+    page.getByTestId(id).evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    });
+  await page.goto(`${HOSTED}/`);
+  await expect(page.getByTestId('hosted-sign-in-username')).toBeVisible();
+  const signedOut = await badgeBox('hosted-sign-in-badge');
+  const font = await page
+    .getByTestId('hosted-sign-in')
+    .evaluate((el) => getComputedStyle(el).fontFamily);
+  expect(font).toContain('-apple-system'); // the .theme-root sans stack…
+  expect(font.toLowerCase()).not.toContain('times'); // …not the serif default
+
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('splash-badge')).toBeVisible();
+  const splash = await badgeBox('splash-badge');
+
+  // Reload with the stored session but hold /api/me open, pinning the
+  // transient "Checking session…" phase long enough to measure its badge.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/me', async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.reload();
+  await expect(page.getByTestId('hosted-sign-in')).toContainText('Checking session…');
+  const checking = await badgeBox('hosted-sign-in-badge');
+  release();
+  await expect(page.getByTestId('splash-badge')).toBeVisible();
+
+  // One bounding box on all three screens (½px slack for subpixel centering).
+  for (const [name, box] of [
+    ['signed-out', signedOut],
+    ['checking', checking],
+  ] as const) {
+    expect(Math.abs(box.x - splash.x), `${name} x`).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(box.y - splash.y), `${name} y`).toBeLessThanOrEqual(0.5);
+    expect(box.w, `${name} w`).toBe(splash.w);
+    expect(box.h, `${name} h`).toBe(splash.h);
+  }
+});
+
 /** Create a workspace and return its id (PRD 007 Req 10: creator → Owner). */
 async function createWorkspace(request: APIRequestContext, token: string, name: string): Promise<string> {
   const res = await request.post(`${HOSTED}/api/workspaces`, {

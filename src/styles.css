@@ -36,6 +36,16 @@ body,
   height: 100%;
 }
 
+/* Issue #200 (SPEC27 §3): the big badge's one anchored offset — shared by
+   the landing splash and the hosted pre-auth screens so advancing through
+   sign-in → "Checking session…" → the splash never moves the icon. 192px is
+   half the splash block's height, so the anchored splash sits exactly where
+   flex-centering used to place it; the max() keeps the badge on-screen in a
+   very short window. */
+:root {
+  --mm-splash-top: max(16px, calc(50vh - 192px));
+}
+
 .theme-root {
   display: flex;
   flex-direction: column;
@@ -1611,6 +1621,11 @@ button.primary:hover {
 /* SPEC27 §3: the splash — glyph on a wispy terracotta cloud, About info,
    one drop hint. All theme-variable driven; the cloud is pure CSS. */
 .splash {
+  /* Issue #200: anchored to --mm-splash-top instead of flex-centered, so the
+     badge's viewport position no longer depends on the splash's own height —
+     it is the fixed reference the hosted pre-auth screens share. */
+  align-self: flex-start;
+  margin-top: var(--mm-splash-top);
   text-align: center;
   color: var(--mm-fg-muted, #59636e);
   user-select: none;
@@ -3525,11 +3540,19 @@ button.primary:hover {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* Issue #200: top-anchored at the splash's badge offset (not centered), so
+     the badge sits exactly where the post-login splash puts it and never
+     shifts as the phase content below it changes. */
+  justify-content: flex-start;
+  padding-top: var(--mm-splash-top);
   gap: 10px;
   text-align: center;
   background: var(--mm-bg, #ffffff);
   color: var(--mm-fg, #1f2328);
+  /* Issue #200: this page mounts outside .theme-root, so it declares the
+     body font itself — otherwise everything here inherits the browser's
+     serif default. Fallback stack matches .theme-root above. */
+  font-family: var(--mm-font-body, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
 }
 
 .hosted-signin-hint {
