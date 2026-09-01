@@ -150,7 +150,7 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest,
       {manifest.members.map((member) => (
         // Issue #183 §2: the member's name is the field label and the select
         // spans the field beneath it — its edges align with the Add people
-        // input above (both dress from the one shared .modal rule).
+        // input above (both dress from the shared .field primitive).
         <div className="workspace-member-field" key={member.id}>
           <label htmlFor={`workspace-member-role-${member.id}`}>
             {nameOf(member.id)}

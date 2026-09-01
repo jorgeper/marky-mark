@@ -180,7 +180,7 @@ body,
 
    The chrome is migrated onto these primitives (PRD 018 Reqs 12–21,
    issue #204). .field stays element-qualified because dialogs still use
-   div.field as a label+control row wrapper (.dialog .field), which must
+   div.field as a label+control row wrapper (.dialog div.field), which must
    never match the input primitive. */
 
 /* PRD 018 §B7: .btn — the neutral button: the .start-action look on
@@ -1611,7 +1611,10 @@ mark.hl.ghost {
   font-size: var(--mm-text-heading);
 }
 
-.dialog .field {
+/* div-qualified: `.field` on a div is the label+control row wrapper, while
+   input/select/textarea.field is the control primitive — the wrapper margin
+   must never stack onto the controls inside it. */
+.dialog div.field {
   margin-bottom: 12px;
 }
 
@@ -1688,7 +1691,7 @@ mark.hl.ghost {
    to a row in one scope but not the other; the text is the hover tooltip.
    The rows reserve a constant right gutter in BOTH scopes so the icon
    never overlaps row content. */
-.settings-modal .field,
+.settings-modal div.field,
 .settings-modal .checkbox-row {
   position: relative;
   padding-right: 20px;
@@ -1771,7 +1774,7 @@ mark.hl.ghost {
   height: auto;
 }
 
-.dialog h2 + .field,
+.dialog h2 + div.field,
 .dialog h2 + .checkbox-row {
   margin-top: 2px;
 }

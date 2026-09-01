@@ -5602,7 +5602,7 @@ export default function App() {
       const s = stateRef.current;
       if (!s.settings.vimNav || s.mode !== 'preview') return;
       const target = e.target as HTMLElement | null;
-      if (target?.closest?.('input, textarea, select, [contenteditable], .modal') || document.querySelector('.overlay')) {
+      if (target?.closest?.('input, textarea, select, [contenteditable], .dialog') || document.querySelector('.overlay')) {
         vimRef.current.reset();
         return;
       }
@@ -6316,7 +6316,7 @@ export default function App() {
       if (e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1) return; // printable only
       const target = e.target as HTMLElement | null;
       if (
-        target?.closest?.('input, textarea, select, [contenteditable], .modal') ||
+        target?.closest?.('input, textarea, select, [contenteditable], .dialog') ||
         document.querySelector('.overlay')
       ) {
         return;

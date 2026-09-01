@@ -204,7 +204,7 @@ export function MembershipPicker({
       <div className="membership-search">
         <input
           type="text"
-          className="field membership-input"
+          className="field"
           data-testid="membership-picker-input"
           role="combobox"
           aria-expanded={open}
@@ -251,6 +251,7 @@ export function MembershipPicker({
                       Invite {outcome.query.trim()} as
                     </Button>
                     <select
+                      className="field"
                       data-testid="membership-picker-invite-role"
                       aria-label="Role for the invited guest"
                       value={inviteRole ?? invite.defaultRole}
