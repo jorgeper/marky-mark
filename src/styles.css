@@ -3554,10 +3554,11 @@ button.primary:hover {
   color: var(--mm-fg, #1f2328);
 }
 
-/* Issue #196: the local-mode button matches the splash's .start-action look
+/* Issue #196: both sign-in buttons match the splash's .start-action look
    (same border/radius/hover wash; the canonical elevated-background variable
    is --mm-bg-elevated). */
-.hosted-signin-form button {
+.hosted-signin-form button,
+.hosted-signin-ms {
   padding: 6px 14px;
   font-size: 13px;
   color: var(--mm-fg, #1f2328);
@@ -3567,20 +3568,13 @@ button.primary:hover {
   cursor: pointer;
 }
 
-/* Issue #196: Microsoft's standard branded button — neutral themed
-   background with a border (never an accent fill), the four-square logo
-   beside the label. */
+/* Issue #196: Microsoft's standard branded button — a neutral themed
+   background (never an accent fill), the four-square logo beside the label. */
 .hosted-signin-ms {
   display: inline-flex;
   align-items: center;
   gap: 10px;
   padding: 7px 16px;
-  font-size: 13px;
-  color: var(--mm-fg, #1f2328);
-  background: var(--mm-bg-elevated, #f6f8fa);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 6px;
-  cursor: pointer;
 }
 
 .hosted-signin-ms-logo {
