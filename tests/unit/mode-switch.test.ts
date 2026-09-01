@@ -62,4 +62,16 @@ describe('issue #125: the view mode a document opens in', () => {
     expect(viewModeForOpen('edit', false)).toBe('preview');
     expect(viewModeForOpen('preview', false)).toBe('preview');
   });
+
+  test('U1000: SPEC35 §4.2 (issue #194) — a just-created file lands in edit mode, still never past the grant', () => {
+    // Edit intent beats the remembered preview: the christening never lands
+    // the user on an empty rendered page.
+    expect(viewModeForOpen('preview', true, true)).toBe('edit');
+    expect(viewModeForOpen('edit', true, true)).toBe('edit');
+    // PRD 007 Req 17 still wins: no edit grant ⇒ preview, intent or not.
+    expect(viewModeForOpen('preview', false, true)).toBe('preview');
+    expect(viewModeForOpen('edit', false, true)).toBe('preview');
+    // No intent (the default) is exactly the issue #125 rule above.
+    expect(viewModeForOpen('preview', true, false)).toBe('preview');
+  });
 });

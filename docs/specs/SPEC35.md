@@ -106,7 +106,15 @@ New pure module, no DOM, no platform imports:
    rename** (§5) with the basename-without-extension selected.
 2. When that rename commits or cancels, the resulting file — if markdown
    — opens through `openDocGuarded` (the unsaved-changes guard applies,
-   cancel leaves the file created but unopened).
+   cancel leaves the file created but unopened). *(Amended, issue #194:)*
+   that open lands **in edit mode**, whatever mode the app was in — a
+   just-created file is empty, and an empty rendered page is never the
+   landing. The two christening exits signal the edit intent to the open
+   path; ordinary opens stay on the issue #125 remembered-mode rule, the
+   remembered mode itself is not rewritten, the intent survives the
+   unsaved-changes guard (whichever resolution still opens the new file
+   lands it in edit mode), and PRD 007 Req 17 still outranks the intent
+   (no edit grant ⇒ preview).
 3. **New Folder**: same flow with base `New Folder`; `mkdirp`; nothing
    opens; the new directory is left collapsed and in-place renaming.
 
@@ -158,7 +166,7 @@ menu copies the root's absolute path.
 No menubar changes, no new hotkeys, no new settings in this SPEC. (The
 menu is pointer-only; keyboard file management can be a later delta.)
 
-## 9. Tests (added: U63, E96–E99)
+## 9. Tests (added: U63, E96–E99; issue #194 adds U1000, E389)
 
 1. **U63** — `folderOps`: name validation (valid names; each rejection
    class incl. every Windows-reserved stem and case variants);
@@ -189,9 +197,17 @@ menu is pointer-only; keyboard file management can be a later delta.)
    the unsaved-changes sentence, confirms to the splash, prunes recents
    and the draft; deleting an expanded directory containing the open doc
    does all of the above plus prunes the expanded set.
-6. No existing test may be modified, weakened, skipped, or deleted;
+6. **E389** *(issue #194)* — creation lands in edit mode: from preview,
+   New File with the name committed opens the editor; clicking an
+   existing file afterwards returns to the remembered preview (the
+   memory was not rewritten, ordinary opens stay neutral); the Esc
+   (cancel-christening) exit lands in edit mode too; and with a dirty
+   untitled buffer, resolving the unsaved-changes guard with Don't Save
+   still lands the new file in edit mode. **U1000** pins the pure rule
+   (`viewModeForOpen` with edit intent, never past the edit grant).
+7. No existing test may be modified, weakened, skipped, or deleted;
    E42–E44 stay reserved. The only permitted test additions are U63 and
-   E96–E99.
+   E96–E99 — plus U1000 and E389 under the issue #194 amendment.
 
 ## 10. Definition of Done
 

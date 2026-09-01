@@ -294,7 +294,10 @@ record('test-ID uniqueness', Date.now() - idScanStart);
 // 378 as of issue #195: E385–E388 — copy-invite-link (the Pending-row copy
 // with its clipboard fallback, the form's Get invite link + Send surfacing
 // the URL, the non-admin 403, the non-pending 409).
-const E2E_TEST_FLOOR = 378;
+// 379 as of issue #194: E389 — sidebar New File lands in edit mode on both
+// christening exits (SPEC35 §4.2 as amended). Renumbered from E385 at merge:
+// issues #194 and #195 both minted E385 on their branches; #195 landed first.
+const E2E_TEST_FLOOR = 379;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {
