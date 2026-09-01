@@ -169,6 +169,7 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest,
           <select
             id={`workspace-member-role-${member.id}`}
             data-testid={`workspace-member-role-${member.id}`}
+            className="field"
             value={member.role}
             disabled={busy}
             onChange={(e) =>
@@ -217,6 +218,7 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest,
           <select
             id="workspace-everyone-role"
             data-testid="workspace-everyone-role"
+            className="field"
             value={manifest.everyone.role}
             disabled={busy}
             onChange={(e) =>

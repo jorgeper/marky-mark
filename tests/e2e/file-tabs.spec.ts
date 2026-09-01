@@ -297,7 +297,7 @@ test('E271: a pure view of the open set — Ctrl+Tab moves the active tab; a ren
   await page.locator('[data-path="/notes/sub/b.md"]').click();
   await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/z.md']);
   await page.getByTestId('folder-open-only').click();
-  await expect(page.getByTestId('folder-open-only')).toHaveClass(/filter-on/);
+  await expect(page.getByTestId('folder-open-only')).toHaveClass(/(^|\s)on(\s|$)/);
   expect(await tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/z.md']);
   await expect(page.locator('[data-tab="/notes/sub/b.md"]')).toHaveAttribute('data-active', 'true');
   await page.locator('[data-tab="/notes/z.md"]').click();

@@ -100,7 +100,7 @@ test('E101: only-open-files mode — button/hotkey/View menu, flat tree-order li
   // Nothing open: the header button still works (root set) — empty state,
   // # filter disabled, View checkbox on, accent class on.
   await page.getByTestId('folder-open-only').click();
-  await expect(page.getByTestId('folder-open-only')).toHaveClass(/filter-on/);
+  await expect(page.getByTestId('folder-open-only')).toHaveClass(/(^|\s)on(\s|$)/);
   await expect(page.getByTestId('folder-open-empty')).toBeVisible();
   await expect(page.getByTestId('folder-filter')).toBeDisabled();
   await expect.poll(async () => (await openOnlyItem()).checked).toBe(true);
@@ -132,7 +132,7 @@ test('E101: only-open-files mode — button/hotkey/View menu, flat tree-order li
 
   // Sync returns to the tree with the active row revealed and selected.
   await page.getByTestId('folder-sync').click();
-  await expect(page.getByTestId('folder-open-only')).not.toHaveClass(/filter-on/);
+  await expect(page.getByTestId('folder-open-only')).not.toHaveClass(/(^|\s)on(\s|$)/);
   await expect(page.locator('[data-path="/notes/sub"]')).toBeVisible();
   await expect(page.locator('[data-path="/notes/sub/deep/c.md"]')).toHaveClass(/selected/);
   await expect(page.getByTestId('folder-filter')).toBeEnabled();
@@ -142,7 +142,7 @@ test('E101: only-open-files mode — button/hotkey/View menu, flat tree-order li
   // the active file.
   await page.waitForTimeout(200);
   await page.getByTestId('folder-open-only').click();
-  await expect(page.getByTestId('folder-open-only')).toHaveClass(/filter-on/);
+  await expect(page.getByTestId('folder-open-only')).toHaveClass(/(^|\s)on(\s|$)/);
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await expect.poll(() => page.evaluate(() => !!window.__mmMenu)).toBe(true);
@@ -150,7 +150,7 @@ test('E101: only-open-files mode — button/hotkey/View menu, flat tree-order li
     window.__mmfs!.nextFolderPath = '/notes';
   });
   await menuClick(page, 'openFolder');
-  await expect(page.getByTestId('folder-open-only')).toHaveClass(/filter-on/);
+  await expect(page.getByTestId('folder-open-only')).toHaveClass(/(^|\s)on(\s|$)/);
   await expect.poll(names).toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md', '/notes/a.md']);
   await expect(page).toHaveTitle(/c\.md/);
 });

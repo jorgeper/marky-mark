@@ -150,9 +150,21 @@ body,
   --mm-toolbar-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); /* SPEC4 §2.4 */
   --mm-panel-bg: rgba(127, 127, 127, 0.14); /* semantic-zoom pill wash */
   --mm-diff-changed-bg: rgba(46, 160, 67, 0.14); /* SPEC16 changed-line tint */
-  --mm-diff-removed: #d1242f; /* SPEC16 deleted-run edge */
+  /* PRD 018 Req 16 (issue #204): was the literal #d1242f — the deleted-run
+     edge now rides the one danger token (visually the same red). */
+  --mm-diff-removed: var(--mm-danger); /* SPEC16 deleted-run edge */
   --mm-active-line: color-mix(in srgb, var(--mm-accent, #0969da) 5.5%, transparent); /* SPEC44 */
   --mm-active-word: color-mix(in srgb, var(--mm-accent, #0969da) 16%, transparent); /* SPEC44 */
+  /* PRD 018 Req 17 (issue #204): the three-plane lift shadows (SPEC36 §4.1 /
+     PRD 013 Reqs 10–12) — deliberate one-offs like --mm-toolbar-shadow, not
+     the card/panel scale: the tab system reads depth from these exact casts
+     (tabs cast upward, sidebar rows cast up-left), values kept verbatim. */
+  --mm-lift-tab: 0 -1px 3px rgba(0, 0, 0, 0.11), 0 -2px 6px rgba(0, 0, 0, 0.08);
+  --mm-lift-tab-active: 0 -2px 6px rgba(0, 0, 0, 0.115), 0 -4px 9px rgba(0, 0, 0, 0.08);
+  --mm-lift-row: -1px -1px 3px rgba(0, 0, 0, 0.11), -1px -2px 6px rgba(0, 0, 0, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.07);
+  --mm-lift-row-active: -1px -2px 6px rgba(0, 0, 0, 0.115), -2px -4px 9px rgba(0, 0, 0, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 /* ===========================================================================
@@ -166,12 +178,10 @@ body,
    contract — no raw literals. The thin wrappers in src/components/ui/
    emit exactly these classes (Req 9).
 
-   No existing call site is migrated in this issue (migration is Reqs
-   12–21), so nothing here may restyle current markup: .field is
-   element-qualified because modals already use div.field as a row
-   wrapper, and .menu-sep / .menu-hotkey are written so the legacy
-   descendant rules (.theme-menu .menu-sep, .smart-edit-item .menu-hotkey)
-   keep winning on specificity for today's menus. */
+   The chrome is migrated onto these primitives (PRD 018 Reqs 12–21,
+   issue #204). .field stays element-qualified because dialogs still use
+   div.field as a label+control row wrapper (.dialog .field), which must
+   never match the input primitive. */
 
 /* PRD 018 §B7: .btn — the neutral button: the .start-action look on
    tokens (1px contract border, medium radius, elevated bg, body UI
@@ -352,20 +362,15 @@ textarea.field:disabled {
   cursor: default;
 }
 
-/* PRD 018 §B7: .menu-sep — the divider between row groups. Declarations
-   stay inside the legacy .theme-menu .menu-sep property set {height,
-   background, margin}, which outranks this rule, so existing menus are
-   pixel-identical. */
+/* PRD 018 §B7: .menu-sep — the divider between row groups. */
 .menu-sep {
   height: 1px;
   margin: var(--mm-space-1);
   background: var(--mm-border);
 }
 
-/* PRD 018 §B7: .menu-hotkey — the right-aligned hotkey column (the
-   .smart-edit-item .menu-hotkey look; that legacy rule outranks the
-   overlapping declarations here). margin-left:auto is additive but a
-   no-op under smart-edit's flex:1 label. */
+/* PRD 018 §B7: .menu-hotkey — the right-aligned hotkey column.
+   margin-left:auto is a no-op under smart-edit's flex:1 label. */
 .menu-hotkey {
   margin-left: auto;
   color: var(--mm-muted);
@@ -401,6 +406,43 @@ textarea.field:disabled {
   justify-content: flex-end;
   gap: var(--mm-space-3);
   margin-top: var(--mm-space-6);
+}
+
+/* PRD 018 Req 8 (issue #204): the toggled ("pressed") state, once per
+   primitive — the accent-on-page-surface convention every legacy toggle
+   (.tbtn.on, .tab-btn.active, .sidebar-switch-btn.on, .search-opt.on,
+   button.filter-on) restated per site. Call sites carry the `on` class. */
+.btn.on {
+  color: var(--mm-accent);
+  background: var(--mm-bg);
+  border-color: var(--mm-accent);
+}
+/* Quiet toggles (tab rails) show surface + weight, never a ring. */
+.btn-quiet.on {
+  border-color: transparent;
+  font-weight: 600;
+}
+.icon-btn.on {
+  color: var(--mm-accent);
+  background: var(--mm-bg);
+}
+
+/* PRD 018 Req 8 (issue #204): menu-row states, once — the keyboard-active
+   row (smart-edit/palette `.active`) and the picked row (theme picker
+   `.selected`). */
+.menu-item.active {
+  background: var(--mm-hover);
+}
+.menu-item.selected {
+  color: var(--mm-accent);
+  font-weight: 600;
+}
+
+/* PRD 018 Req 16 (issue #204): danger colouring for icon-shaped controls
+   (the destructive table chips) — .btn-danger alone loses to .icon-btn's
+   own colour on source order, so the compound states it once. */
+.icon-btn.btn-danger {
+  color: var(--mm-danger);
 }
 
 /* PRD 018 §B8: ONE keyboard-focus treatment for every primitive —
@@ -491,7 +533,7 @@ button {
 }
 
 .toolbar .docname {
-  font-size: 13px;
+  font-size: var(--mm-text-body);
   font-weight: 600;
   color: var(--mm-fg, #1f2328);
   overflow: hidden;
@@ -515,35 +557,20 @@ button {
 .toolbar .dirty-dot {
   color: var(--mm-accent, #0969da);
   margin-left: 4px;
-  font-size: 15px;
+  font-size: var(--mm-text-heading);
 }
 
-.tbtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  color: var(--mm-fg, #1f2328);
-  border: 1px solid transparent;
-}
-
-.tbtn:hover {
-  background: var(--mm-bg, #ffffff);
-  border-color: var(--mm-border, #d1d9e0);
-}
-
-.tbtn.on {
-  background: var(--mm-bg, #ffffff);
-  border-color: var(--mm-accent, #0969da);
-  color: var(--mm-accent, #0969da);
-}
-
-.tbtn kbd {
+/* PRD 018 Reqs 12–13 (issue #204): the toolbar buttons are .btn-quiet.btn-sm
+   primitives now (.tbtn is gone); only the hotkey hint and icon layout are
+   toolbar-specific. */
+.toolbar .btn kbd {
   font-family: var(--mm-font-mono, monospace);
-  font-size: 10px;
+  font-size: var(--mm-text-caption);
   opacity: 0.55;
+}
+
+.toolbar .btn svg {
+  display: block;
 }
 
 /* ---------- theme picker popover ---------- */
@@ -552,17 +579,13 @@ button {
   position: relative;
 }
 
+/* PRD 018 Req 15 (issue #204): the panel shell comes from .menu; this class
+   keeps only the popover's anchoring. */
 .theme-menu {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
   z-index: 50;
-  min-width: 210px;
-  background: var(--mm-bg-elevated, #f6f8fa);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 10px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
-  padding: 6px;
 }
 
 /* PRD 009 Req 7: the in-app menu alone opens from the LEFT — .theme-menu is
@@ -573,13 +596,6 @@ button {
   right: auto;
 }
 
-/* PRD 009 Req 8: the divider between item groups. */
-.theme-menu .menu-sep {
-  height: 1px;
-  background: var(--mm-border, #d1d9e0);
-  margin: 5px 4px;
-}
-
 /* PRD 009 Req 12: the View ▸ flyout sits beside the menu it hangs off, not
    over it — same panel chrome, offset past the menu's own width. */
 .theme-menu.submenu-panel {
@@ -588,66 +604,41 @@ button {
   min-width: 272px;
 }
 
-.theme-menu.submenu-panel button.theme-option {
+.theme-menu.submenu-panel .menu-item {
   white-space: nowrap;
 }
 
+/* PRD 018 Req 15 (issue #204): rows are .menu-item primitives; what stays
+   is the genuinely menu-specific furniture — the check gutter, the submenu
+   arrow, the section label and the theme swatch. */
+
 /* PRD 009 Req 12: the check column — a fixed gutter so checked and unchecked
    rows keep their labels on one line. */
-.theme-menu button.theme-option .menu-check {
+.menu .menu-check {
   width: 12px;
   flex: none;
-  font-size: 11px;
+  font-size: var(--mm-text-caption);
   color: var(--mm-accent, #b95a3d);
 }
 
 /* PRD 009 Req 8: View ▸ reads as a submenu parent, not an action (#94). */
-.theme-menu button.theme-option .submenu-arrow {
-  color: var(--mm-fg-muted, #59636e);
-  font-size: 11px;
+.menu .submenu-arrow {
+  color: var(--mm-muted);
+  font-size: var(--mm-text-caption);
 }
 
-.theme-menu button.theme-option:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.theme-menu button.theme-option:disabled:hover {
-  background: none;
-}
-
-.theme-menu .section {
-  font-size: 10.5px;
+.menu .section {
+  font-size: var(--mm-text-caption);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--mm-fg-muted, #59636e);
   padding: 6px 8px 3px;
 }
 
-.theme-menu button.theme-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  text-align: left;
-  padding: 6px 8px;
-  border-radius: 6px;
-  font-size: 13px;
-}
-
-.theme-menu button.theme-option:hover {
-  background: var(--mm-bg, #ffffff);
-}
-
-.theme-menu button.theme-option.selected {
-  color: var(--mm-accent, #0969da);
-  font-weight: 600;
-}
-
-.theme-menu .swatch {
+.menu .swatch {
   width: 14px;
   height: 14px;
-  border-radius: 4px;
+  border-radius: var(--mm-radius-small);
   border: 1px solid var(--mm-border, #d1d9e0);
   flex-shrink: 0;
 }
@@ -678,6 +669,9 @@ button {
   min-width: var(--mm-pane-min, 768px);
 }
 
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17): the object-selection overlay
+   tracks document geometry (handles/badge sized to the image, print-hidden
+   with the document chrome). */
 /* --- SPEC20 §4.2: selection outline, handles, badge. Images lost their
    preview overlay (SPEC41 §4); PRD 015 Req 5 reuses this look for the
    diagram resize overlay (components/DiagramResizer.tsx), which ships its
@@ -715,6 +709,7 @@ button {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 .docwrap {
   flex: 1;
@@ -726,6 +721,17 @@ button {
   min-width: var(--mm-pane-min, 768px);
 }
 
+/* ===========================================================================
+   DOCUMENT RENDERING — BEGIN (PRD 018 Req 17)
+
+   Rules that paint the DOCUMENT (the .doc tree, editor content decorations,
+   comment/find highlights) rather than app chrome. Per the PRD's Non-goals
+   these are exempt from the chrome scales, so they may use em/px literals.
+   The document-rendering rules are not one contiguous run (source order
+   against neighbouring rules is load-bearing), so every such region is
+   delimited by a BEGIN/END pair with this exact marker text — the Req 26
+   lint (sibling issue) toggles its "in document rules" state on the marker,
+   not on a single block. */
 .doc {
   width: 100%;
   max-width: var(--mm-content-width, 46rem);
@@ -1026,23 +1032,15 @@ mark.hl.active,
 mark.hl.flash {
   background: var(--mm-comment-tint-active, rgba(255, 193, 37, 0.6));
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
+/* PRD 018 Req 12 (issue #204): the pill is a .btn.btn-pill primitive; this
+   class keeps its floating placement and panel shadow only. */
 .add-comment-btn {
   position: fixed;
   transform: translateX(-50%);
   z-index: 60;
-  background: var(--mm-bg-elevated, #f6f8fa);
-  color: var(--mm-fg, #1f2328);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 999px;
-  padding: 6px 13px;
-  font-size: 12.5px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
-}
-
-.add-comment-btn:hover {
-  border-color: var(--mm-accent, #0969da);
-  color: var(--mm-accent, #0969da);
+  box-shadow: var(--mm-panel-shadow);
 }
 
 /* Issue #38: the plain-edit-mode affordance — same pill, pinned top-right
@@ -1081,10 +1079,10 @@ mark.hl.flash {
 .card {
   background: var(--mm-bg-elevated, #f6f8fa);
   border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 10px;
+  border-radius: var(--mm-radius-medium);
   padding: 10px 12px;
   margin-bottom: 8px;
-  font-size: 13px;
+  font-size: var(--mm-text-body);
   cursor: pointer;
   transition: border-color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
   /* Faint balloon shadow (SPEC6 §2.4), theme-overridable. */
@@ -1093,7 +1091,7 @@ mark.hl.flash {
 
 .card.active {
   border-color: var(--mm-accent, #0969da);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--mm-panel-shadow);
 }
 
 /* Ghosted resolved comments (SPEC6 §3; faded further per SPEC7 §4). */
@@ -1106,9 +1104,11 @@ mark.hl.flash {
   opacity: 0.85;
 }
 
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
 mark.hl.ghost {
   background: color-mix(in srgb, var(--mm-comment-tint, rgba(255, 214, 102, 0.42)) 25%, transparent);
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 /* Cards inside the collapsed Resolved section stack normally. */
 .resolved-section .card {
@@ -1116,7 +1116,7 @@ mark.hl.ghost {
 }
 
 .card .entry-meta {
-  font-size: 12px;
+  font-size: var(--mm-text-small);
   color: var(--mm-fg-muted, #59636e);
   margin-bottom: 2px;
 }
@@ -1136,22 +1136,11 @@ mark.hl.ghost {
   padding-top: 8px;
 }
 
-.card textarea {
-  width: 100%;
+/* PRD 018 Req 13 (issue #204): the composer/reply textarea is a .field
+   primitive; only its card-local sizing stays. */
+.card .field {
   min-height: 56px;
   resize: vertical;
-  font: inherit;
-  font-size: 13px;
-  color: inherit;
-  background: var(--mm-bg, #ffffff);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 7px;
-  padding: 7px 9px;
-  outline: none;
-}
-
-.card textarea:focus {
-  border-color: var(--mm-accent, #0969da);
 }
 
 .card .row {
@@ -1161,43 +1150,26 @@ mark.hl.ghost {
   margin-top: 6px;
 }
 
-.card .row button {
-  font-size: 12px;
-  color: var(--mm-fg-muted, #59636e);
-  padding: 3px 8px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-}
-
-.card .row button:hover {
-  color: var(--mm-accent, #0969da);
-  border-color: var(--mm-border, #d1d9e0);
-}
-
-.card .row button.danger {
-  color: #d1242f;
-}
-
 .card .confirm-label {
-  font-size: 12px;
+  font-size: var(--mm-text-small);
   color: var(--mm-fg-muted, #59636e);
 }
 
 .badge.orphan {
   display: inline-block;
-  font-size: 10.5px;
+  font-size: var(--mm-text-caption);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #9a6700;
   background: rgba(255, 214, 102, 0.35);
-  border-radius: 5px;
+  border-radius: var(--mm-radius-small);
   padding: 2px 7px;
 }
 
 .orphan-quote {
   margin: 6px 0;
-  font-size: 12px;
+  font-size: var(--mm-text-small);
   font-style: italic;
   color: var(--mm-fg-muted, #59636e);
   border-left: 2px solid var(--mm-border, #d1d9e0);
@@ -1214,7 +1186,7 @@ mark.hl.ghost {
 
 .resolved-section summary {
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
   color: var(--mm-fg-muted, #59636e);
   margin-bottom: 8px;
 }
@@ -1239,8 +1211,8 @@ mark.hl.ghost {
   bottom: 12px;
   z-index: 5;
   padding: 3px 10px;
-  border-radius: 999px;
-  font: 600 11px/1.4 var(--mm-font-mono, monospace);
+  border-radius: var(--mm-radius-pill);
+  font: 600 var(--mm-text-caption) / 1.4 var(--mm-font-mono, monospace);
   letter-spacing: 0.08em;
   color: var(--mm-bg, #ffffff);
   background: var(--mm-accent, #0969da);
@@ -1249,6 +1221,7 @@ mark.hl.ghost {
   user-select: none;
 }
 
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
 /* SPEC23 §3: markdown token classes — colors/weights ride theme variables,
    so built-in and custom themes drive the editor palette untouched. */
 .editor-wrap .mm-md-h1,
@@ -1346,6 +1319,7 @@ mark.hl.ghost {
   opacity: 0.7;
   font-weight: 400;
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 .editor-wrap .cm-editor {
   flex: 1;
@@ -1629,71 +1603,44 @@ mark.hl.ghost {
   justify-content: center;
 }
 
-.modal {
-  background: var(--mm-bg-elevated, #f6f8fa);
-  color: var(--mm-fg, #1f2328);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 14px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.3);
-  width: min(440px, 92vw);
-  max-height: 84vh;
-  overflow-y: auto;
-  padding: 20px 22px;
-}
-
-.modal h2 {
+/* PRD 018 Req 14 (issue #204): the modal shell is the .dialog primitive; the
+   rules below keep only the dialogs' inner layout (field rows, labels,
+   rails) — no shell styling. */
+.dialog h2 {
   margin: 0 0 14px;
-  font-size: 16px;
+  font-size: var(--mm-text-heading);
 }
 
-.modal .field {
+.dialog .field {
   margin-bottom: 12px;
 }
 
-.modal label {
+.dialog label {
   display: block;
-  font-size: 12px;
+  font-size: var(--mm-text-small);
   font-weight: 600;
   color: var(--mm-fg-muted, #59636e);
   margin-bottom: 4px;
 }
 
-/* Issue #183 §2: ONE rule dresses every settings/dialog text field and
-   select — the Add people input (a plain input[type='text'] now) and the
-   member-role selects beneath it take padding, height, border colour,
-   radius and font from here, off the theme variables, so their edges align
-   in every bundled theme. Per-component width/padding tweaks stay out. */
-.modal input[type='text'],
-.modal select {
-  width: 100%;
-  /* One EXPLICIT height: a select ignores line-height, so without this the
-     pair stand ~2px apart. 35px is the input's natural 13.5px/1.4 + padding
-     + border height, kept so nothing else shifts. */
+/* Issue #183 §2 (E366): text inputs and selects are .field primitives; the
+   one EXPLICIT height stays here as layout — a select ignores line-height,
+   so without it the Add-people input and the role selects stand ~2px
+   apart. 35px keeps the pre-migration box so nothing else shifts. */
+.dialog input.field,
+.dialog select.field {
   height: 35px;
-  font: inherit;
-  font-size: 13.5px;
-  line-height: 1.4;
-  color: inherit;
-  background: var(--mm-bg, #ffffff);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 7px;
-  padding: 7px 10px;
-  outline: none;
-}
-
-.modal input[type='text']:focus {
-  border-color: var(--mm-accent, #0969da);
 }
 
 /* PRD 009 Req 13: the save picker states its reason in the dialog (the
    sidebar's rename row has no room for one and uses a tooltip instead). */
-.modal input.invalid {
+.dialog input.invalid {
   border-color: var(--mm-danger);
 }
 
 .picker-error {
   margin: 10px 0 4px;
-  font-size: 13px;
+  font-size: var(--mm-text-body);
   color: var(--mm-danger);
 }
 
@@ -1721,18 +1668,12 @@ mark.hl.ghost {
 
 .settings-modal .scope-btn {
   text-align: center;
-}
-
-.settings-modal .scope-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-  background: none;
-  color: var(--mm-fg-muted, #59636e);
+  justify-content: center;
 }
 
 .settings-modal .scope-hint {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--mm-text-caption);
   color: var(--mm-fg-muted, #59636e);
 }
 
@@ -1758,7 +1699,7 @@ mark.hl.ghost {
   top: 0;
   right: 2px;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--mm-text-body);
   line-height: 1.2;
   color: var(--mm-accent, #0969da);
   cursor: help;
@@ -1775,23 +1716,11 @@ mark.hl.ghost {
   background: color-mix(in srgb, var(--mm-bg, #fff) 55%, var(--mm-bg-elevated, #f6f8fa));
 }
 
-.settings-modal .tab-btn {
+/* PRD 018 Req 13 (issue #204): rail tabs are .btn.btn-quiet primitives with
+   the shared `.on` state; the class keeps only their left alignment. */
+.tab-btn {
+  justify-content: flex-start;
   text-align: left;
-  font-size: 13px;
-  padding: 7px 10px;
-  border-radius: 7px;
-  color: var(--mm-fg-muted, #59636e);
-}
-
-.settings-modal .tab-btn:hover {
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-fg, #1f2328);
-}
-
-.settings-modal .tab-btn.active {
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-accent, #0969da);
-  font-weight: 600;
 }
 
 .settings-modal .tab-content {
@@ -1803,7 +1732,7 @@ mark.hl.ghost {
 
 .settings-modal .tab-section {
   margin: 14px 0 8px;
-  font-size: 11px;
+  font-size: var(--mm-text-caption);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--mm-fg-muted, #59636e);
@@ -1813,162 +1742,84 @@ mark.hl.ghost {
   margin-top: 0;
 }
 
-.modal .inline-row {
+.dialog .inline-row {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.modal .radio-label {
+.dialog .radio-label {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 13px;
+  font-size: var(--mm-text-body);
   font-weight: 400;
   color: var(--mm-fg, #1f2328);
   margin: 0;
 }
 
-.modal .unit {
-  font-size: 12.5px;
+.dialog .unit {
+  font-size: var(--mm-text-small);
   color: var(--mm-fg-muted, #59636e);
 }
 
-.modal input[type='number'] {
-  font: inherit;
-  font-size: 13.5px;
-  color: inherit;
-  background: var(--mm-bg, #ffffff);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 7px;
-  padding: 6px 8px;
-  outline: none;
+/* PRD 018 Req 13 (issue #204): number inputs are .field primitives; sized
+   by content, not full-width like the text fields. */
+.dialog input[type='number'].field {
+  width: auto;
+  height: auto;
 }
 
-.modal h2 + .field,
-.modal h2 + .checkbox-row {
+.dialog h2 + .field,
+.dialog h2 + .checkbox-row {
   margin-top: 2px;
 }
 
-.modal h2:not(:first-child) {
+.dialog h2:not(:first-child) {
   margin-top: 20px;
   padding-top: 14px;
   border-top: 1px solid var(--mm-border, #d1d9e0);
 }
 
-.tbtn svg {
-  display: block;
-}
-
-.linklike {
-  font-size: 12.5px;
-  color: var(--mm-accent, #0969da);
-  padding: 2px 0;
-}
-
-.linklike:hover {
-  text-decoration: underline;
-}
-
-.modal .hotkey-row {
+.dialog .hotkey-row {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
 }
 
-.modal .hotkey-row label {
+.dialog .hotkey-row label {
   flex: 1;
   margin: 0;
 }
 
-.modal .hotkey-row input {
+/* The combo box is a .field primitive; combo-specific layout stays. */
+.dialog .hotkey-row .field {
   width: 150px;
   text-align: center;
   font-family: var(--mm-font-mono, monospace);
-  font-size: 12.5px;
-  background: var(--mm-bg, #ffffff);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 7px;
-  padding: 6px 8px;
-  color: inherit;
-  outline: none;
+  font-size: var(--mm-text-small);
   cursor: pointer;
 }
 
-.modal .hotkey-row input:focus {
-  border-color: var(--mm-accent, #0969da);
-  box-shadow: 0 0 0 2px var(--mm-selection, rgba(9, 105, 218, 0.18));
-}
-
-/* Issue #84: the per-row restore-default affordance. */
-.modal .hotkey-row .hotkey-reset {
-  background: none;
-  border: none;
-  padding: 2px 4px;
-  font-size: 13px;
-  line-height: 1;
-  color: var(--mm-fg-muted, #59636e);
-  cursor: pointer;
-}
-
-.modal .hotkey-row .hotkey-reset:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-.modal .hotkey-hint {
-  font-size: 11.5px;
+.dialog .hotkey-hint {
+  font-size: var(--mm-text-caption);
   color: var(--mm-fg-muted, #59636e);
   margin: 2px 0 12px;
   min-height: 15px;
 }
 
-.modal .checkbox-row {
+.dialog .checkbox-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--mm-text-body);
   margin-bottom: 12px;
 }
 
-.modal .actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-}
-
-.modal .actions button {
-  font-size: 13px;
-  padding: 6px 14px;
-  border-radius: 7px;
-  border: 1px solid var(--mm-border, #d1d9e0);
-}
-
-/* Issue #192: the app's ONE primary-action rule — every accent button
-   (modal confirms, the invite surfaces of PRD 017 Req 31–32) resolves
-   here. The modal-scoped selector keeps this rule winning over the
-   `.modal .actions button` border above; the sizing declarations repeat
-   that base rule so bare sites outside a modal get the same shape. */
-button.primary,
-.modal .actions button.primary {
-  background: var(--mm-accent, #0969da);
-  border: 1px solid var(--mm-accent, #0969da);
-  color: #ffffff;
-  font-size: 13px;
-  padding: 6px 14px;
-  border-radius: 7px;
-}
-
-button.primary:hover {
-  filter: brightness(1.06);
-}
-
-.modal .actions button:hover {
-  filter: brightness(1.06);
-}
+/* Issue #192's one primary-action rule is .btn-primary now (PRD 018 Req 13,
+   issue #204); action rows are .dialog-actions primitives. */
 
 .placeholder {
   color: var(--mm-fg-muted, #59636e);
@@ -1990,7 +1841,7 @@ button.primary:hover {
    pick a file from the folder view; the splash never shows here. */
 .workspace-empty-hint {
   margin: 0;
-  font-size: 13.5px;
+  font-size: var(--mm-text-body);
   color: var(--mm-fg-muted, #59636e);
   user-select: none;
 }
@@ -2015,18 +1866,18 @@ button.primary:hover {
 
 .splash-version {
   margin: 0 0 12px;
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
   font-variant-numeric: tabular-nums;
 }
 
 .splash-alpha {
   margin: 0 0 4px;
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
 }
 
 .splash-meta {
   margin: 0 0 2px;
-  font-size: 12px;
+  font-size: var(--mm-text-small);
 }
 
 .splash-meta a {
@@ -2042,9 +1893,9 @@ button.primary:hover {
   display: inline-block;
   margin-top: 22px;
   padding: 7px 18px;
-  font-size: 13.5px;
+  font-size: var(--mm-text-body);
   border: 1px dashed var(--mm-border, #d1d9e0);
-  border-radius: 999px;
+  border-radius: var(--mm-radius-pill);
 }
 
 /* PRD 007 Req 21/22: the start page's action list under the drop hint. The
@@ -2065,30 +1916,9 @@ button.primary:hover {
   margin-top: 14px;
 }
 
-.start-action {
-  padding: 6px 14px;
-  font-size: 13px;
-  color: var(--mm-fg, #1f2328);
-  /* PRD 018 Req 5: was the typo --mm-bg-elev (defined nowhere), which painted
-     these buttons white on every dark theme. The contract name is
-     --mm-bg-elevated; the fallback is Crisp's value, like the other 28 uses. */
-  background: var(--mm-bg-elevated, #f6f8fa);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-/* --mm-hover is the themed hover wash every other row in the app uses
-   (defined in the chrome token block, PRD 018 Req 1). */
-.start-action:hover:not(:disabled) {
-  background: var(--mm-hover);
-}
-
-/* PRD 017 Req 10: a policy-refused action is visible but plainly inert. */
-.start-action:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
+/* PRD 018 Req 12 (issue #204): the .start-action look IS the .btn primitive
+   (Req 7 named it the reference); the buttons carry .btn directly and the
+   class is gone. */
 
 /* Each action and its optional refusal hint stack inside one flex cell, so
    the row's wrap/gap behaviour is exactly what it was for bare buttons. */
@@ -2102,7 +1932,7 @@ button.primary:hover {
 .start-action-hint {
   margin: 6px 0 0;
   max-width: 220px;
-  font-size: 11.5px;
+  font-size: var(--mm-text-caption);
   text-align: center;
   color: var(--mm-fg-muted, #59636e);
 }
@@ -2122,22 +1952,23 @@ button.primary:hover {
 }
 .about-version {
   margin: 2px 0 0;
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
   opacity: 0.75;
 }
 .about-alpha {
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
   font-weight: 600;
   color: #b3591f;
   margin: 8px 0;
 }
 .about-meta {
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
   margin: 4px 0;
   opacity: 0.85;
 }
 
 /* --- Blocked remote image placeholder (SPEC11 §1) -------------------------- */
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
 .mm-blocked-remote {
   display: inline-block;
   padding: 2px 8px;
@@ -2146,6 +1977,7 @@ button.primary:hover {
   font-size: 0.85em;
   opacity: 0.75;
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 /* --- SPEC13: aux windows (Settings/About render frameless, filling the window) --- */
 .aux-root {
@@ -2156,7 +1988,7 @@ button.primary:hover {
   background: var(--mm-bg-elevated, #f6f8fa);
   overflow: hidden;
 }
-.aux-root > .modal {
+.aux-root > .dialog {
   width: 100%;
   height: 100%;
   max-width: none;
@@ -2181,11 +2013,11 @@ button.primary:hover {
   align-items: center;
   gap: 2px;
   padding: 3px 6px;
-  border-radius: 999px;
+  border-radius: var(--mm-radius-pill);
   background: var(--mm-bg-elevated, #f6f8fa);
   color: var(--mm-fg, #1f2328);
   border: 1px solid var(--mm-border, #d1d9e0);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--mm-toolbar-shadow);
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.18s ease, visibility 0.18s;
@@ -2194,22 +2026,8 @@ button.primary:hover {
   opacity: 1;
   visibility: visible;
 }
-.comment-nav button {
-  font: inherit;
-  font-size: 14px;
-  line-height: 1;
-  color: inherit;
-  background: none;
-  border: none;
-  border-radius: 999px;
-  padding: 5px 8px;
-  cursor: pointer;
-}
-.comment-nav button:hover {
-  background: color-mix(in srgb, var(--mm-accent, #0969da) 14%, transparent);
-}
 .comment-nav span {
-  font-size: 11.5px;
+  font-size: var(--mm-text-caption);
   color: var(--mm-fg-muted, #59636e);
   padding: 0 4px;
   min-width: 44px;
@@ -2217,6 +2035,7 @@ button.primary:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
 /* --- SPEC16: changes-since-save tints (theme-overridable) --- */
 .cm-line.mm-diff-changed {
   background: var(--mm-diff-changed-bg);
@@ -2224,6 +2043,7 @@ button.primary:hover {
 .cm-line.mm-diff-deleted-after {
   box-shadow: inset 3px 0 0 var(--mm-diff-removed);
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 /* --- SPEC16: word-count chip, bottom-right corner --- */
 .word-chip {
@@ -2231,13 +2051,13 @@ button.primary:hover {
   right: 14px;
   bottom: 14px;
   z-index: 60;
-  font-size: 11px;
+  font-size: var(--mm-text-caption);
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--mm-radius-pill);
   background: var(--mm-bg-elevated, #f6f8fa);
   color: var(--mm-fg-muted, #59636e);
   border: 1px solid var(--mm-border, #d1d9e0);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22), 0 1px 4px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--mm-panel-shadow);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
@@ -2249,13 +2069,13 @@ button.primary:hover {
   transform: translateX(-50%);
   bottom: 14px;
   z-index: 60;
-  font-size: 12px;
+  font-size: var(--mm-text-small);
   padding: 6px 14px;
-  border-radius: 999px;
+  border-radius: var(--mm-radius-pill);
   background: var(--mm-bg-elevated, #f6f8fa);
   color: var(--mm-fg, #1f2328);
   border: 1px solid var(--mm-border, #d1d9e0);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22), 0 1px 4px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--mm-panel-shadow);
   pointer-events: none;
 }
 
@@ -2270,15 +2090,15 @@ button.primary:hover {
   bottom: 44px;
   z-index: 60;
   max-width: min(560px, 80vw);
-  font-size: 12px;
+  font-size: var(--mm-text-small);
   line-height: 1.4;
   padding: 7px 14px;
-  border-radius: 8px;
+  border-radius: var(--mm-radius-medium);
   background: var(--mm-bg-elevated, #f6f8fa);
   color: var(--mm-fg-muted, #59636e);
   border: 1px solid var(--mm-border, #d1d9e0);
   border-left: 3px solid var(--mm-accent, #0969da);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22), 0 1px 4px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--mm-panel-shadow);
   pointer-events: none;
 }
 
@@ -2293,26 +2113,24 @@ button.primary:hover {
   justify-content: center;
   padding-top: 12vh;
 }
+/* PRD 018 Req 15 (issue #204): the palette shell rides .menu; what stays is
+   its own sizing and the genuinely different flush search input. */
 .palette {
   width: min(480px, 92vw);
   max-height: 50vh;
   display: flex;
   flex-direction: column;
-  background: var(--mm-bg-elevated, #f6f8fa);
-  color: var(--mm-fg, #1f2328);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 12px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.25);
   overflow: hidden;
+  padding: 0; /* the input sits flush to the shell's edges */
 }
 .palette input {
   font: inherit;
-  font-size: 14px;
+  font-size: var(--mm-text-heading);
   color: inherit;
   background: var(--mm-bg, #fff);
   border: none;
   border-bottom: 1px solid var(--mm-border, #d1d9e0);
-  padding: 12px 14px;
+  padding: var(--mm-space-5) var(--mm-space-6);
   outline: none;
 }
 .palette ul {
@@ -2321,24 +2139,11 @@ button.primary:hover {
   padding: 6px;
   overflow-y: auto;
 }
-.palette li button {
+.palette .menu-item {
   display: block;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  font-size: 13px;
-  color: inherit;
-  background: none;
-  border: none;
-  border-radius: 7px;
-  padding: 7px 10px;
-  cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.palette li button.active {
-  background: color-mix(in srgb, var(--mm-accent, #0969da) 16%, transparent);
 }
 
 /* --- File → Print… (issue #124; SPEC18 §2): paper shows the DOCUMENT ------
@@ -2430,11 +2235,11 @@ button.primary:hover {
 
 /* --- SPEC19: update dialog --- */
 .update-modal .update-line {
-  font-size: 13.5px;
+  font-size: var(--mm-text-body);
   margin: 8px 0 14px;
 }
 .update-modal .update-notes {
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
   color: var(--mm-fg-muted, #59636e);
   white-space: pre-wrap;
   max-height: 180px;
@@ -2444,7 +2249,7 @@ button.primary:hover {
 }
 .update-bar {
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--mm-radius-pill);
   background: var(--mm-border, #d1d9e0);
   overflow: hidden;
   margin-bottom: 6px;
@@ -2455,6 +2260,7 @@ button.primary:hover {
   transition: width 120ms ease;
 }
 
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
 /* SPEC24 §1: the editor→preview mirrored-selection highlight — a synthetic
    mark (never the native selection: a focused CodeMirror re-asserts that),
    tinted like a selection, inert to the comment click machinery. */
@@ -2483,6 +2289,7 @@ button.primary:hover {
   background: var(--mm-active-word);
   border-radius: 2px;
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 /* SPEC26 §2: the front-matter metadata card — dim, theme-driven, app UI
    above the rendered document (preview and split preview). */
@@ -2497,19 +2304,19 @@ button.primary:hover {
   margin: 0;
   padding: 10px 14px;
   border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 8px;
+  border-radius: var(--mm-radius-medium);
   background: var(--mm-bg-elevated, #f6f8fa);
 }
 .fm-card .fm-row {
   display: flex;
   gap: 10px;
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
   line-height: 1.7;
   color: var(--mm-fg-muted, #59636e);
 }
 .fm-card dt {
   font-family: var(--mm-font-mono, monospace);
-  font-size: 11.5px;
+  font-size: var(--mm-text-caption);
   min-width: 72px;
   flex-shrink: 0;
   opacity: 0.8;
@@ -2521,24 +2328,18 @@ button.primary:hover {
 }
 .fm-card .fm-raw {
   font-family: var(--mm-font-mono, monospace);
-  font-size: 11.5px;
+  font-size: var(--mm-text-caption);
   opacity: 0.7;
 }
+/* PRD 018 Req 12 (issue #204): the dismiss ✕ is an .icon-btn; the class
+   keeps its corner anchor and fixed box. */
 .fm-card .fm-close {
   position: absolute;
   top: 14px;
   right: 38px;
   width: 20px;
   height: 20px;
-  line-height: 1;
-  border-radius: 5px;
-  font-size: 14px;
-  color: var(--mm-fg-muted, #59636e);
-  opacity: 0.7;
-}
-.fm-card .fm-close:hover {
-  opacity: 1;
-  background: var(--mm-bg, #ffffff);
+  padding: 0;
 }
 
 /* SPEC30 §1: the find bar — one bar, both modes, floats under the toolbar. */
@@ -2553,50 +2354,32 @@ button.primary:hover {
   padding: 8px 10px;
   background: var(--mm-bg-elevated, #f6f8fa);
   border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 10px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  border-radius: var(--mm-radius-medium);
+  box-shadow: var(--mm-panel-shadow);
 }
 .find-bar .find-row {
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.find-bar input {
+/* PRD 018 Req 13 (issue #204): the query box is a .field primitive; the
+   bar's buttons are .btn-quiet.btn-sm. Only the fixed width stays. */
+.find-bar .field {
   width: 210px;
-  font-size: 12.5px;
-  padding: 4px 8px;
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 6px;
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-fg, #1f2328);
 }
 .find-bar .find-count {
   min-width: 74px;
   text-align: right;
-  font-size: 11.5px;
+  font-size: var(--mm-text-caption);
   color: var(--mm-fg-muted, #59636e);
   font-variant-numeric: tabular-nums;
 }
-.find-bar button {
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: 12.5px;
-  color: var(--mm-fg, #1f2328);
-  border: 1px solid transparent;
-}
-.find-bar button:hover:not(:disabled) {
-  background: var(--mm-bg, #ffffff);
-  border-color: var(--mm-border, #d1d9e0);
-}
-.find-bar button:disabled {
-  opacity: 0.4;
-}
 /* PRD 014 Req 11 (issue #154): the loud no-match state — the bar itself
-   turns, not just the muted count text; FindBar sets data-state. */
-.find-bar[data-state='no-match'] input {
+   turns, not just the muted count text; FindBar sets data-state. The inset
+   ring is a border-substitute (a second border width), not a chrome shadow. */
+.find-bar[data-state='no-match'] .field {
   border-color: var(--mm-danger);
   box-shadow: inset 0 0 0 1px var(--mm-danger);
-  background: rgba(207, 34, 46, 0.1);
   background: color-mix(in srgb, var(--mm-danger) 10%, var(--mm-bg, #ffffff));
 }
 .find-bar[data-state='no-match'] .find-count {
@@ -2607,11 +2390,12 @@ button.primary:hover {
    compileQuery's own text, same treatment as the Search view's .search-error. */
 .find-bar .find-error {
   max-width: 320px;
-  font-size: 11.5px;
+  font-size: var(--mm-text-caption);
   color: var(--mm-danger);
   overflow-wrap: anywhere;
 }
 
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
 /* SPEC30 §1.3: preview match marks — never the comment styling.
    PRD 014 Req 11 (issue #154): high-contrast and self-contained — foreground
    AND background set here, so legibility never depends on the theme's text
@@ -2640,6 +2424,7 @@ button.primary:hover {
   background: var(--mm-find-active);
   color: var(--mm-find-fg);
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 /* SPEC34: the folder sidebar — left of the workspace, all modes. */
 .body-row {
@@ -2665,27 +2450,9 @@ button.primary:hover {
   align-items: center;
   gap: 4px;
 }
-.edge-cluster-left button,
-.edge-cluster button,
-.file-tab-strip-lead button,
-.file-tab-strip-trail button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 3px 5px;
-  border-radius: 5px;
-  font-size: 16px;
-  line-height: 1;
-  color: var(--mm-fg-muted, #59636e);
-}
-.edge-cluster-left button:hover,
-.edge-cluster button:hover,
-.file-tab-strip-lead button:hover,
-.file-tab-strip-trail button:hover {
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-fg, #1f2328);
-}
-/* The view switch rides the clusters as a plain pair of icon buttons — the
+/* PRD 018 Req 12 (issue #204): the corner controls are .icon-btn
+   primitives now — the duplicated descendant rule pair is gone.
+   The view switch rides the clusters as a plain pair of icon buttons — the
    header flavour (below) is the same thing with the live view accented. */
 .edge-cluster-left .sidebar-switch,
 .file-tab-strip-lead .sidebar-switch {
@@ -2695,7 +2462,7 @@ button.primary:hover {
 }
 .edge-cluster-left .sidebar-switch-btn,
 .file-tab-strip-lead .sidebar-switch-btn {
-  padding: 3px 4px;
+  padding: 3px var(--mm-space-1);
 }
 /* The strip-hidden fallback: the same controls float at the workspace's
    corners, at the header's own inset (12px / 9px) so they keep their spot,
@@ -2713,13 +2480,13 @@ button.primary:hover {
   left: 0;
   padding-left: 11px; /* 12px header inset, less the border */
   border-left: none;
-  border-radius: 0 7px 7px 0;
+  border-radius: 0 var(--mm-radius-small) var(--mm-radius-small) 0;
 }
 .edge-cluster {
   right: 0;
   padding-right: 7px; /* 8px header inset, less the border */
   border-right: none;
-  border-radius: 7px 0 0 7px;
+  border-radius: var(--mm-radius-small) 0 0 var(--mm-radius-small);
 }
 /* The header flavour: the switch is the header's leading pair of icon
    buttons, and the live view is accented exactly like `.filter-on`. */
@@ -2730,13 +2497,10 @@ button.primary:hover {
 }
 /* PRD 014 Req 2: the switch carries three buttons now — compact them so the
    header's title keeps real width at the pane's 240px default instead of
-   being flexed to zero behind the icon row. */
+   being flexed to zero behind the icon row. The `.on` accent comes from the
+   shared .icon-btn.on state (PRD 018 Req 8, issue #204). */
 .folder-header .sidebar-switch-btn {
-  padding: 3px 4px;
-}
-.folder-header .sidebar-switch-btn.on {
-  color: var(--mm-accent, #0969da);
-  background: var(--mm-bg, #ffffff);
+  padding: 3px var(--mm-space-1);
 }
 /* The static toolbar overlays the top of the body row (web/shim static
    mode) — clear it, as .folder-panel does. */
@@ -2872,29 +2636,14 @@ button.primary:hover {
    plane treatment leaves them on the strip surface, unpositioned so the
    seam overlay and both tab planes paint above them), centred in the strip
    and outside the rail so they hold still while it scrolls. */
+/* PRD 018 Req 12 (issue #204): the arrows are .icon-btn primitives; the
+   class keeps their fixed 20px box and rail-centring only. */
 .file-tab-scroll {
   flex: none;
   align-self: center;
   width: 20px;
   height: 20px;
   padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--mm-fg-muted, #59636e);
-  cursor: pointer;
-}
-.file-tab-scroll:hover:not(:disabled) {
-  background: rgba(31, 35, 40, 0.12);
-  background: color-mix(in srgb, var(--mm-fg, #1f2328) 12%, transparent);
-  color: var(--mm-fg, #1f2328);
-}
-.file-tab-scroll:disabled {
-  opacity: 0.35;
-  cursor: default;
 }
 /* PRD 013 Req 4: one tab — bounded width; the label span clips with an
    ellipsis (no wrap, no strip-height growth) and the button's title carries
@@ -2916,21 +2665,20 @@ button.primary:hover {
   max-width: 160px;
   padding: 4px 10px;
   border: none;
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--mm-radius-small) var(--mm-radius-small) 0 0;
   background: #ededf0;
   background: color-mix(in srgb, var(--mm-bg, #ffffff) 72%, var(--mm-bg-elevated, #f6f8fa));
   color: var(--mm-fg-muted, #59636e);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--mm-text-small);
   line-height: 1.4;
   cursor: pointer;
   position: relative;
   z-index: 1;
   /* The lift: a soft cast sized to fade out inside the strip's 9px headroom
-     (the rail above reclaims it), never sliced by the scroll box's edge. */
-  box-shadow:
-    0 -1px 3px rgba(0, 0, 0, 0.11),
-    0 -2px 6px rgba(0, 0, 0, 0.08);
+     (the rail above reclaims it), never sliced by the scroll box's edge.
+     Token: --mm-lift-tab (PRD 018 Req 17, issue #204). */
+  box-shadow: var(--mm-lift-tab);
 }
 .file-tab:hover {
   color: var(--mm-fg, #1f2328);
@@ -2953,10 +2701,9 @@ button.primary:hover {
   color: var(--mm-fg, #1f2328);
   z-index: 2;
   /* Issue #156: softened like .file-tab above, but still the strongest
-     cast in the strip so the front plane keeps its extra lift. */
-  box-shadow:
-    0 -2px 6px rgba(0, 0, 0, 0.115),
-    0 -4px 9px rgba(0, 0, 0, 0.08);
+     cast in the strip so the front plane keeps its extra lift.
+     Token: --mm-lift-tab-active (PRD 018 Req 17, issue #204). */
+  box-shadow: var(--mm-lift-tab-active);
 }
 .file-tab-label {
   min-width: 0;
@@ -2990,7 +2737,7 @@ button.primary:hover {
   content: '';
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--mm-radius-pill);
   background: var(--mm-accent, #0969da);
 }
 .file-tab-close {
@@ -2999,7 +2746,7 @@ button.primary:hover {
   height: 16px;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: var(--mm-radius-small);
   color: var(--mm-fg-muted, #59636e);
 }
 .file-tab:hover .file-tab-close {
@@ -3102,33 +2849,13 @@ button.primary:hover {
   overflow: hidden;
   white-space: nowrap;
   color: transparent;
-  font-size: 12px;
+  font-size: var(--mm-text-small);
   user-select: none;
 }
-.folder-header button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  /* 5px, not 7: the PRD 014 switch made the icon row one button wider, and
-     the title's flex share pays for every horizontal pixel here. */
-  padding: 3px 5px;
-  border-radius: 5px;
-  font-size: 16px;
-  line-height: 1;
-  color: var(--mm-fg-muted, #59636e);
-}
-.folder-header button:hover:not(:disabled) {
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-fg, #1f2328);
-}
-.folder-header button:disabled {
-  opacity: 0.35;
-}
-/* The # filter: accent while the tree is markdown-only (the default);
-   grey like its neighbors when every file type is listed. */
-.folder-header button.filter-on {
-  color: var(--mm-accent, #0969da);
-}
+/* PRD 018 Req 12 (issue #204): the header's buttons are .icon-btn
+   primitives (the old descendant rule was one of the two identical
+   icon-button copies the PRD names); the # filter's accent state is the
+   shared .icon-btn.on. */
 .folder-list {
   flex: 1;
   overflow: auto; /* horizontal too — deep trees outgrow the panel */
@@ -3144,7 +2871,7 @@ button.primary:hover {
   text-align: left;
   /* Depth indent arrives as --mm-depth from the component (inline style). */
   padding: 3px 16px 3px var(--mm-depth, 10px);
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
   color: var(--mm-fg, #1f2328);
   white-space: nowrap;
 }
@@ -3167,7 +2894,7 @@ button.primary:hover {
    and scrolls the gap off-screen. */
 .folder-item.selected,
 .folder-item.open {
-  border-radius: 7px 0 0 7px;
+  border-radius: var(--mm-radius-small) 0 0 var(--mm-radius-small);
   margin-left: 10px;
   min-width: calc(100% - 10px);
   padding-left: max(0px, calc(var(--mm-depth, 10px) - 10px));
@@ -3182,11 +2909,10 @@ button.primary:hover {
   font-weight: 600;
   z-index: 2; /* the front plane — above the open-tab middle plane */
   /* The same lift as .file-tab.active — same offsets, blur and alpha, so
-     the top edge reads identically — nudged a touch left, off the seam. */
-  box-shadow:
-    -1px -2px 6px rgba(0, 0, 0, 0.115),
-    -2px -4px 9px rgba(0, 0, 0, 0.08),
-    0 1px 3px rgba(0, 0, 0, 0.08); /* rows float free below too — a faint bottom edge */
+     the top edge reads identically — nudged a touch left, off the seam,
+     with a faint bottom edge (rows float free below too).
+     Token: --mm-lift-row-active (PRD 018 Req 17, issue #204). */
+  box-shadow: var(--mm-lift-row-active);
 }
 .folder-item.selected:hover:not(:disabled) {
   background: var(--mm-bg, #ffffff); /* the tab doesn't flicker on hover */
@@ -3203,11 +2929,9 @@ button.primary:hover {
   z-index: 1;
   /* The tab's own lift only — the seam hairline + workspace cast shadow are
      painted by .workspace-stack::after, so rows wider than the panel
-     (long names) get them at the true boundary too. */
-  box-shadow:
-    -1px -1px 3px rgba(0, 0, 0, 0.11),
-    -1px -2px 6px rgba(0, 0, 0, 0.08),
-    0 1px 3px rgba(0, 0, 0, 0.07); /* rows float free below too — a faint bottom edge */
+     (long names) get them at the true boundary too.
+     Token: --mm-lift-row (PRD 018 Req 17, issue #204). */
+  box-shadow: var(--mm-lift-row);
 }
 .folder-item.open:hover:not(:disabled) {
   background: #f4f4f6;
@@ -3234,7 +2958,7 @@ button.primary:hover {
   content: '';
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--mm-radius-pill);
   background: var(--mm-accent, #0969da);
 }
 .folder-tab-close {
@@ -3243,7 +2967,7 @@ button.primary:hover {
   height: 16px;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: var(--mm-radius-small);
   color: var(--mm-fg-muted, #59636e);
 }
 .folder-item:hover .folder-tab-close {
@@ -3260,7 +2984,7 @@ button.primary:hover {
 /* SPEC36 §5.3: the only-open view with nothing open. */
 .folder-open-empty {
   padding: 14px 16px;
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
   color: var(--mm-fg-muted, #59636e);
 }
 /* PRD 007 Req 18: the folder a drag is currently over — the same accent the
@@ -3269,7 +2993,7 @@ button.primary:hover {
 .folder-list.drop-target {
   outline: 1.5px solid var(--mm-accent);
   outline-offset: -2px;
-  border-radius: 5px;
+  border-radius: var(--mm-radius-small);
 }
 
 /* PRD 007 Req 19: the sidebar's rejection/notice strip — it must be READ, so
@@ -3280,28 +3004,19 @@ button.primary:hover {
   gap: 8px;
   margin: 6px;
   padding: 7px 9px;
-  border-radius: 5px;
-  font-size: 12px;
+  border-radius: var(--mm-radius-small);
+  font-size: var(--mm-text-small);
   line-height: 1.35;
   color: var(--mm-fg);
   background: color-mix(in srgb, var(--mm-accent) 16%, var(--mm-bg));
   border: 1px solid color-mix(in srgb, var(--mm-accent) 45%, transparent);
 }
 
-.folder-notice button {
+/* PRD 018 Req 12 (issue #204): the dismiss ✕ is an .icon-btn; only its
+   right-edge anchoring stays here. */
+.folder-notice .icon-btn {
   margin-left: auto;
   flex: none;
-  border: none;
-  background: none;
-  color: inherit;
-  cursor: pointer;
-  opacity: 0.7;
-  font-size: 12px;
-  padding: 0 2px;
-}
-
-.folder-notice button:hover {
-  opacity: 1;
 }
 
 /* PRD 007 Req 19: the upload picker is driven from menus — never shown. */
@@ -3330,7 +3045,7 @@ button.primary:hover {
   align-items: center;
   justify-content: center;
   font-family: var(--mm-font-mono, monospace);
-  font-size: 11px;
+  font-size: var(--mm-text-caption);
   color: var(--mm-accent, #0969da);
 }
 .folder-item-dim .folder-glyph {
@@ -3340,7 +3055,7 @@ button.primary:hover {
 .folder-item .folder-dirty-dot {
   color: var(--mm-accent, #0969da);
   margin-left: 4px;
-  font-size: 12px;
+  font-size: var(--mm-text-small);
   line-height: 1;
 }
 /* Dim rows are click-inert but not `disabled` (the SPEC35 context menu must
@@ -3356,12 +3071,9 @@ button.primary:hover {
   z-index: 60;
   min-width: 180px;
 }
-.folder-menu-sep {
-  height: 1px;
-  margin: 5px 2px;
-  background: var(--mm-border, #d1d9e0);
-}
-/* SPEC35 §5: the in-place rename input — sized like the row label it replaces. */
+/* SPEC35 §5: the in-place rename input — sized like the row label it
+   replaces; deliberately NOT the .field primitive (PRD 018 Req 13, issue
+   #204: a field's padding would burst the 22px row). */
 .folder-rename {
   padding-top: 1px;
   padding-bottom: 1px;
@@ -3369,12 +3081,12 @@ button.primary:hover {
 .folder-rename input {
   width: 100%;
   min-width: 140px;
-  font-size: 12.5px;
-  padding: 1px 4px;
+  font-size: var(--mm-text-small);
+  padding: 1px var(--mm-space-1);
   color: var(--mm-fg, #1f2328);
   background: var(--mm-bg, #ffffff);
   border: 1px solid var(--mm-accent, #0969da);
-  border-radius: 4px;
+  border-radius: var(--mm-radius-small);
 }
 .folder-rename input.invalid {
   border-color: var(--mm-danger);
@@ -3386,12 +3098,11 @@ button.primary:hover {
   align-items: center;
   justify-content: center;
 }
-.folder-empty button {
-  padding: 7px 16px;
-  border: 1px dashed var(--mm-border, #d1d9e0);
-  border-radius: 999px;
-  font-size: 13px;
-  color: var(--mm-fg-muted, #59636e);
+/* PRD 018 Req 12 (issue #204): the empty-state actions are .btn.btn-pill
+   primitives; only the drop-hint dash survives (border-style is not a
+   restated visual — it is the affordance). */
+.folder-empty .btn {
+  border-style: dashed;
 }
 /* PRD 012 Reqs 2/4: the TOC rows are folder rows — `.folder-item` supplies
    the hit area, hover and `--mm-depth` indent; these add only what a heading
@@ -3436,48 +3147,27 @@ button.primary:hover {
   gap: 4px;
   padding: 6px 8px 4px;
 }
+/* PRD 018 Req 13 (issue #204): the query box is a .field primitive; only
+   its row-flex layout stays. */
 .search-query {
   flex: 1 1 auto;
   min-width: 0;
   box-sizing: border-box;
-  font-size: 12.5px;
-  padding: 4px 8px;
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 6px;
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-fg, #1f2328);
 }
-/* PRD 014 Req 6 (issue #152): the query toggles — the header switch's compact
-   icon-button treatment (`.sidebar-switch-btn`), with the same accented `.on`
-   pressed state, riding the query box they modify. */
+/* PRD 014 Req 6 (issue #152): the query toggles are .btn-quiet.btn-sm
+   primitives with the shared `.on` pressed state (PRD 018 Req 13,
+   issue #204). */
 .search-options {
   display: inline-flex;
   align-items: center;
   flex: none;
   gap: 2px;
 }
-.search-opt {
-  padding: 2px 3px;
-  border-radius: 3px;
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--mm-fg-muted, #59636e);
-}
-.search-opt:hover {
-  background: var(--mm-bg-elevated, #f6f8fa);
-  color: var(--mm-fg, #1f2328);
-}
-.search-opt.on {
-  color: var(--mm-accent, #0969da);
-  background: var(--mm-bg, #ffffff);
-  box-shadow: inset 0 0 0 1px var(--mm-accent, #0969da);
-}
 /* PRD 014 Req 6: the inline invalid-regex message, under the query row. */
 .search-error {
   flex: none;
   padding: 2px 10px 4px;
-  font-size: 11.5px;
+  font-size: var(--mm-text-caption);
   color: var(--mm-danger);
   overflow-wrap: anywhere;
 }
@@ -3488,7 +3178,7 @@ button.primary:hover {
 .search-totals {
   flex: none;
   padding: 2px 10px 4px;
-  font-size: 11.5px;
+  font-size: var(--mm-text-caption);
   color: var(--mm-fg-muted, #59636e);
 }
 .search-scanning {
@@ -3505,7 +3195,7 @@ button.primary:hover {
   height: 9px;
   border: 2px solid var(--mm-fg-muted, #59636e);
   border-top-color: transparent;
-  border-radius: 50%;
+  border-radius: var(--mm-radius-pill);
   animation: mm-search-spin 0.8s linear infinite;
 }
 @keyframes mm-search-spin {
@@ -3519,8 +3209,8 @@ button.primary:hover {
 .search-no-results {
   margin: 8px 10px;
   padding: 12px;
-  border-radius: 8px;
-  font-size: 12.5px;
+  border-radius: var(--mm-radius-medium);
+  font-size: var(--mm-text-small);
   text-align: center;
   color: var(--mm-fg, #1f2328);
   border: 1px dashed var(--mm-border, #d1d9e0);
@@ -3545,10 +3235,10 @@ button.primary:hover {
 .search-file-count {
   flex: none;
   margin-left: auto;
-  font-size: 10.5px;
+  font-size: var(--mm-text-caption);
   font-variant-numeric: tabular-nums;
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--mm-radius-pill);
   color: var(--mm-fg-muted, #59636e);
   background: rgba(31, 35, 40, 0.08);
   background: color-mix(in srgb, var(--mm-fg, #1f2328) 8%, transparent);
@@ -3562,6 +3252,8 @@ button.primary:hover {
   white-space: nowrap;
   color: var(--mm-fg-muted, #59636e);
 }
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17): document-text highlights
+   (the sidebar excerpt's mark, the landed match's flash). */
 .search-match-text mark {
   background: var(--mm-comment-tint-active, rgba(255, 193, 37, 0.6));
   color: var(--mm-fg, #1f2328);
@@ -3581,6 +3273,7 @@ button.primary:hover {
     background: transparent;
   }
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 .folder-divider {
   position: absolute;
   top: 0;
@@ -3639,26 +3332,12 @@ button.primary:hover {
   flex: 1;
   white-space: nowrap;
 }
-.smart-edit-item .menu-hotkey {
-  color: var(--mm-fg-muted, #59636e);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.04em;
-}
+/* PRD 018 Req 15 (issue #204): rows are .menu-item primitives — hotkey
+   column, disabled and keyboard-active states all come from the .menu*
+   vocabulary; only the arrow glyph stays smart-edit's own. */
 .smart-edit-item .smart-edit-arrow {
-  color: var(--mm-fg-muted, #59636e);
-  font-size: 11px;
-}
-.smart-edit-item:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.smart-edit-item:disabled:hover {
-  background: transparent;
-}
-/* Keyboard-active row shares the hover look. */
-.theme-menu button.theme-option.smart-edit-item.active {
-  background: var(--mm-bg, #ffffff);
+  color: var(--mm-muted);
+  font-size: var(--mm-text-caption);
 }
 
 /* §4.2: flyout submenus beside the parent row; .flip opens leftward. */
@@ -3679,11 +3358,11 @@ button.primary:hover {
 }
 
 /* §5.3: the Smart Edit group heading in Settings → Hotkeys. */
-.modal .hotkey-group {
+.dialog .hotkey-group {
   margin: 14px 0 8px;
   padding-top: 10px;
   border-top: 1px solid var(--mm-border, #d1d9e0);
-  font-size: 10.5px;
+  font-size: var(--mm-text-caption);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--mm-fg-muted, #59636e);
@@ -3691,6 +3370,7 @@ button.primary:hover {
 
 /* ---------- SPEC37: aligned table mode ---------- */
 
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
 /* §3.4: the grid wash on every table line while the mode is on.
    Issue #164: the wash lives on a ::before at z-index -3, not on the line, so
    drawSelection()'s layer paints above it — an opaque background on the
@@ -3813,6 +3493,7 @@ button.primary:hover {
   color: var(--mm-fg, #1f2328);
   border-color: var(--mm-accent, #0969da);
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 /* §4: the chip layer — overlay only, children opt back into pointer events. */
 .table-chip-layer {
@@ -3821,6 +3502,10 @@ button.primary:hover {
   z-index: 30;
   pointer-events: none;
 }
+/* PRD 018 Req 13 (issue #204): the chips ride .icon-btn; this class is the
+   one genuinely different remainder — an 18px bordered circle floating over
+   editor text (no primitive is a floating chip), all values on tokens.
+   Danger chips use the shared .icon-btn.btn-danger state. */
 .table-chip {
   position: absolute;
   display: flex;
@@ -3830,20 +3515,17 @@ button.primary:hover {
   height: 18px;
   padding: 0;
   border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 999px;
+  border-radius: var(--mm-radius-pill);
   background: var(--mm-bg-elevated, #f6f8fa);
   color: var(--mm-accent, #0969da);
-  font-size: 12px;
+  font-size: var(--mm-text-small);
   line-height: 1;
   cursor: pointer;
   pointer-events: auto;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--mm-card-shadow);
 }
 .table-chip:hover {
   background: var(--mm-bg, #ffffff);
-}
-.table-chip.danger {
-  color: var(--mm-danger);
 }
 .table-chip:disabled {
   opacity: 0.4;
@@ -3860,17 +3542,21 @@ button.primary:hover {
   align-items: center;
   gap: 8px;
   padding: 3px 6px 3px 10px;
-  border-radius: 999px;
-  font: 600 11px/1.4 var(--mm-font-mono, monospace);
+  border-radius: var(--mm-radius-pill);
+  font: 600 var(--mm-text-caption) / 1.4 var(--mm-font-mono, monospace);
   letter-spacing: 0.08em;
   color: var(--mm-bg, #ffffff);
   background: var(--mm-accent, #0969da);
   box-shadow: var(--mm-card-shadow);
   user-select: none;
 }
+/* PRD 018 Req 12 (issue #204): DOM-created inside the CodeMirror badge
+   widget (not TSX), and genuinely different — an inverted pill ON the
+   accent badge, colours straight off the contract; kept as the badge's own
+   rule rather than forcing a primitive that would repaint the badge. */
 .table-badge button {
-  padding: 1px 8px;
-  border-radius: 999px;
+  padding: 1px var(--mm-space-3);
+  border-radius: var(--mm-radius-pill);
   font: inherit;
   letter-spacing: 0.04em;
   color: var(--mm-accent, #0969da);
@@ -3878,6 +3564,7 @@ button.primary:hover {
   cursor: pointer;
 }
 
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
 /* --- SPEC41: inline image widgets + resize chips --------------------------- */
 .mm-image-widget {
   display: inline-block;
@@ -3910,6 +3597,7 @@ button.primary:hover {
 .image-chip[data-testid='image-resize-bl'] {
   cursor: nesw-resize;
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 /* PRD 007 Req 5: the hosted flavor's sign-in page — the only UI an
    unauthenticated visitor to the hosted server sees. Issue #196: restyled
@@ -3938,7 +3626,7 @@ button.primary:hover {
 
 .hosted-signin-hint {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
   color: var(--mm-fg-muted, #59636e);
 }
 
@@ -3949,58 +3637,25 @@ button.primary:hover {
   min-width: 240px;
 }
 
-.hosted-signin-form input {
-  padding: 7px 10px;
-  font-size: 13px;
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 6px;
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-fg, #1f2328);
-}
-
-/* Issue #196: both sign-in buttons match the splash's .start-action look
-   (same border/radius/hover wash; the canonical elevated-background variable
-   is --mm-bg-elevated). */
-.hosted-signin-form button,
+/* Issue #196 / PRD 018 Req 20 (issue #204): both sign-in controls are
+   primitives now — the local submit a plain .btn (the .start-action look BY
+   CONSTRUCTION, not by copy), the Microsoft button a neutral .btn keeping
+   only its branded-logo layout here; dimensions, radius and font come from
+   the primitive. */
 .hosted-signin-ms {
-  padding: 6px 14px;
-  font-size: 13px;
-  color: var(--mm-fg, #1f2328);
-  background: var(--mm-bg-elevated, #f6f8fa);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-/* Issue #196: Microsoft's standard branded button — a neutral themed
-   background (never an accent fill), the four-square logo beside the label. */
-.hosted-signin-ms {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 16px;
+  gap: var(--mm-space-4);
 }
 
 .hosted-signin-ms-logo {
   flex: none;
 }
 
-.hosted-signin-form button:hover:not(:disabled),
-.hosted-signin-ms:hover:not(:disabled) {
-  background: var(--mm-hover);
-}
-
-.hosted-signin-form button:disabled,
-.hosted-signin-ms:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
 .hosted-signin-error {
   margin: 4px 0 0;
   max-width: 280px;
-  font-size: 12.5px;
-  color: #d1242f;
+  font-size: var(--mm-text-small);
+  /* PRD 018 Req 16 (issue #204): was the literal #d1242f. */
+  color: var(--mm-danger);
 }
 
 /* PRD 007 Req 6: membership picker — avatars, initials fallback, selected
@@ -4009,7 +3664,7 @@ button.primary:hover {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--mm-text-body);
   color: var(--mm-fg, #1f2328);
 }
 
@@ -4046,8 +3701,8 @@ button.primary:hover {
   padding: 4px;
   background: var(--mm-bg-elevated, #f6f8fa);
   border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 7px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  border-radius: var(--mm-radius-small);
+  box-shadow: var(--mm-panel-shadow);
   max-height: 240px;
   overflow-y: auto;
 }
@@ -4061,7 +3716,7 @@ button.primary:hover {
 .membership-note {
   margin: 0;
   padding: 6px 8px;
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
   color: var(--mm-muted);
 }
 
@@ -4074,8 +3729,8 @@ button.primary:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 6px;
-  border-radius: 6px;
+  padding: var(--mm-space-1) var(--mm-space-2);
+  border-radius: var(--mm-radius-small);
 }
 
 .membership-result {
@@ -4095,7 +3750,7 @@ button.primary:hover {
 .membership-avatar {
   width: 24px;
   height: 24px;
-  border-radius: 50%;
+  border-radius: var(--mm-radius-pill);
   flex: none;
 }
 
@@ -4103,7 +3758,7 @@ button.primary:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: var(--mm-text-caption);
   font-weight: 600;
   background: var(--mm-border, #d1d9e0);
   color: var(--mm-fg, #1f2328);
@@ -4111,7 +3766,7 @@ button.primary:hover {
 
 .membership-username {
   color: var(--mm-muted);
-  font-size: 12px;
+  font-size: var(--mm-text-small);
 }
 
 .membership-member-unresolved .membership-name {
@@ -4125,8 +3780,8 @@ button.primary:hover {
   margin-left: 6px;
   padding: 1px 6px;
   border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: 999px;
-  font-size: 10px;
+  border-radius: var(--mm-radius-pill);
+  font-size: var(--mm-text-caption);
   font-weight: 600;
   font-style: normal;
   text-transform: uppercase;
@@ -4141,8 +3796,8 @@ button.primary:hover {
   margin-left: 6px;
   padding: 1px 6px;
   border: 1px dashed var(--mm-border, #d1d9e0);
-  border-radius: 999px;
-  font-size: 10px;
+  border-radius: var(--mm-radius-pill);
+  font-size: var(--mm-text-caption);
   font-weight: 600;
   font-style: normal;
   text-transform: uppercase;
@@ -4160,25 +3815,16 @@ button.primary:hover {
   padding: 4px 8px 8px;
 }
 
+/* PRD 018 Req 12 (issue #204): the ✕ is an .icon-btn; only its right-edge
+   anchoring stays. */
 .membership-remove {
   margin-left: auto;
-  border: none;
-  background: none;
-  color: var(--mm-muted);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 2px 4px;
-}
-
-.membership-remove:hover {
-  color: var(--mm-fg, #1f2328);
 }
 
 /* PRD 007 Req 10/11/12: the hosted workspace dialogs and the destructive
    delete control in Workspace settings. PRD 009 Req 11 removed the switcher
    chip these used to sit under; the menu is the way in. */
-.modal.workspace-modal {
+.dialog.workspace-modal {
   min-width: 420px;
 }
 
@@ -4209,11 +3855,8 @@ button.primary:hover {
   width: 100%;
   align-items: baseline;
   gap: 10px;
-  background: none;
-  border: none;
   color: var(--mm-fg, #1f2328);
-  padding: 6px 8px;
-  cursor: pointer;
+  padding: var(--mm-space-2) var(--mm-space-3);
   text-align: left;
 }
 
@@ -4230,7 +3873,7 @@ button.primary:hover {
 
 .workspace-list-modified {
   opacity: 0.6;
-  font-size: 12px;
+  font-size: var(--mm-text-small);
 }
 
 /* PRD 007 Req 12+15+16: the sections of Workspace settings — people, custom
@@ -4257,7 +3900,7 @@ button.primary:hover {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 2px 10px;
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
 }
 
 .workspace-permission-list label {
@@ -4270,23 +3913,13 @@ button.primary:hover {
 
 .workspace-settings-error {
   margin-top: 8px;
-  font-size: 12.5px;
+  font-size: var(--mm-text-small);
   color: var(--mm-danger);
 }
 
-.workspace-danger button.destructive {
-  border: 1px solid var(--mm-danger);
-  background: var(--mm-danger);
-  color: #ffffff;
-  border-radius: 6px;
-  padding: 5px 12px;
-  cursor: pointer;
-}
-
-.workspace-danger button.destructive:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
+/* PRD 018 Req 16 (issue #204): the destructive fill is the
+   .btn-danger.btn-primary primitive now — no per-site danger rule, no hard
+   white on the fill. */
 
 /* PRD 011 Req 1: the Experimental settings section. */
 .experimental-warning {
@@ -4313,8 +3946,8 @@ button.primary:hover {
   align-items: center;
   gap: 8px;
   padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
+  border-radius: var(--mm-radius-pill);
+  font-size: var(--mm-text-small);
   opacity: 0.85;
   background: var(--mm-panel-bg);
   color: var(--mm-fg, inherit);
@@ -4322,20 +3955,13 @@ button.primary:hover {
 .semantic-zoom-control:hover {
   opacity: 1;
 }
+/* PRD 018 Req 12 (issue #204): the ± steps ride .icon-btn; what stays is
+   their genuinely different outline (currentColor on the translucent pill —
+   losing it would drop a border, against Req 19) and fixed footprint. */
 .semantic-zoom-step {
   min-width: 22px;
-  padding: 0 6px;
-  font-size: 14px;
-  line-height: 1.6;
-  background: none;
   border: 1px solid currentColor;
-  border-radius: 6px;
   color: inherit;
-  cursor: pointer;
-}
-.semantic-zoom-step:disabled {
-  opacity: 0.35;
-  cursor: default;
 }
 .semantic-zoom-slider {
   width: 96px;
@@ -4344,6 +3970,8 @@ button.primary:hover {
   white-space: nowrap;
 }
 
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17): the zoomed document levels
+   render document headings/summaries in em-relative document type. */
 /* PRD 011 Reqs 17+22: the zoomed levels 1–4. */
 .semantic-zoom-head {
   display: flex;
@@ -4405,6 +4033,7 @@ button.primary:hover {
   font-size: 0.9em;
   opacity: 0.85;
 }
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 /* Issue #167: auto-hiding scrollbars — app-drawn bars on the document
    scrollers (full-preview workspace, split preview, the editor's CodeMirror
@@ -4428,7 +4057,7 @@ button.primary:hover {
   background: transparent;
 }
 .theme-root.autohide-scrollbars :is(.workspace, .split-preview, .cm-scroller, .folder-list)::-webkit-scrollbar-thumb {
-  border-radius: 6px;
+  border-radius: var(--mm-radius-small);
   border: 3px solid transparent; /* insets the thumb inside its gutter */
   background-clip: padding-box;
   background-color: transparent;
@@ -4446,7 +4075,7 @@ button.primary:hover {
    (deliberately NOT .settings-modal, whose fixed maximum width it must not
    inherit): the window minus a ~2.5% uniform inset, zero on narrow windows,
    content scrolling inside and tables using the full width. */
-.modal.management-modal {
+.dialog.management-modal {
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -4457,7 +4086,7 @@ button.primary:hover {
 }
 
 @media (max-width: 640px) {
-  .modal.management-modal {
+  .dialog.management-modal {
     width: 100vw;
     height: 100vh;
     border-radius: 0;
@@ -4471,8 +4100,10 @@ button.primary:hover {
   min-height: 0;
 }
 
-/* The tab rail and content reuse the Settings dialog's look — the same
-   rules, restated for this class because those are scoped .settings-modal. */
+/* The tab rail reuses the Settings dialog's look — the rail restated for
+   this class (the original is scoped .settings-modal); the tab buttons are
+   the shared .btn-quiet/.tab-btn primitives (PRD 018 Req 13, issue #204),
+   so nothing is restated for them. */
 .management-modal .tab-rail {
   display: flex;
   flex-direction: column;
@@ -4482,25 +4113,6 @@ button.primary:hover {
   flex-shrink: 0;
   border-right: 1px solid var(--mm-border, #d1d9e0);
   background: color-mix(in srgb, var(--mm-bg, #fff) 55%, var(--mm-bg-elevated, #f6f8fa));
-}
-
-.management-modal .tab-btn {
-  text-align: left;
-  font-size: 13px;
-  padding: 7px 10px;
-  border-radius: 7px;
-  color: var(--mm-fg-muted, #59636e);
-}
-
-.management-modal .tab-btn:hover {
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-fg, #1f2328);
-}
-
-.management-modal .tab-btn.active {
-  background: var(--mm-bg, #ffffff);
-  color: var(--mm-accent, #0969da);
-  font-weight: 600;
 }
 
 .management-modal .tab-content {
@@ -4514,7 +4126,7 @@ button.primary:hover {
 .management-modal .admin-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--mm-text-body);
 }
 
 .management-modal .admin-table th,
@@ -4525,7 +4137,7 @@ button.primary:hover {
 }
 
 .management-modal .admin-table th {
-  font-size: 11px;
+  font-size: var(--mm-text-caption);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--mm-fg-muted, #59636e);
@@ -4544,31 +4156,29 @@ button.primary:hover {
 .management-modal .admin-link-url {
   word-break: break-all;
   user-select: all;
-  font-size: 12px;
+  font-size: var(--mm-text-small);
   min-width: 0;
 }
 
-.management-modal button.destructive {
-  color: #d1242f;
-  border-color: color-mix(in srgb, #d1242f 40%, transparent);
-}
+/* PRD 018 Req 16 (issue #204): the destructive row actions are
+   .btn-danger primitives now; #d1242f is gone from this file. */
 
 /* PRD 017 Req 16: the corrupt-manifest flag on a workspace row. */
 .admin-corrupt-badge {
   margin-left: 6px;
   padding: 1px 6px;
-  border-radius: 8px;
-  font-size: 11px;
-  background: color-mix(in srgb, #d1242f 15%, transparent);
-  color: #d1242f;
+  border-radius: var(--mm-radius-medium);
+  font-size: var(--mm-text-caption);
+  background: color-mix(in srgb, var(--mm-danger) 15%, transparent);
+  color: var(--mm-danger);
 }
 
 /* PRD 017 Req 19: the Admin badge — the Guest badge's shape, its own color. */
 .admin-badge {
   margin-left: 6px;
   padding: 1px 6px;
-  border-radius: 8px;
-  font-size: 11px;
+  border-radius: var(--mm-radius-medium);
+  font-size: var(--mm-text-caption);
   background: color-mix(in srgb, var(--mm-accent, #0969da) 15%, transparent);
   color: var(--mm-accent, #0969da);
 }
@@ -4578,4 +4188,52 @@ button.primary:hover {
 .mm-admin-banner {
   bottom: auto;
   top: 52px;
+}
+
+/* PRD 018 Req 18 (issue #204): the dialogs' explanatory paragraph size —
+   was eight inline `style={{ fontSize: 13.5 }}` literals in App.tsx. */
+.dialog-note {
+  font-size: var(--mm-text-body);
+}
+
+/* Issue #136 / PRD 018 Req 18 (issue #204): the root error boundary — its
+   inline styles moved here. The surface renders OUTSIDE .theme-root (the
+   crash may be theme state itself), so it defines the few tokens its own
+   rules and the .btn primitive consume, self-contained and deliberately
+   theme-independent (literal colours by design, like the find trio). */
+.error-boundary {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: #1e1e1e;
+  color: #e8e8e8;
+  font-family: system-ui, sans-serif;
+  text-align: center;
+  --mm-fg: #e8e8e8;
+  --mm-bg-elevated: #2d2d2d;
+  --mm-border: #555555;
+  --mm-hover: rgba(255, 255, 255, 0.08);
+  --mm-focus-ring: rgba(255, 255, 255, 0.35);
+  --mm-text-body: 13px;
+  --mm-text-heading: 14px;
+  --mm-radius-medium: 10px;
+  --mm-space-2: 6px;
+}
+.error-boundary .eb-title {
+  font-size: var(--mm-text-heading);
+  font-weight: 600;
+}
+.error-boundary .eb-detail {
+  font-size: var(--mm-text-body);
+  opacity: 0.8;
+  max-width: 560px;
+  overflow-wrap: anywhere;
+}
+.error-boundary .btn {
+  margin-top: 8px;
 }

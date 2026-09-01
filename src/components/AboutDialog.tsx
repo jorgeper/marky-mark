@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { AppBadge } from './Toolbar';
+import { Button } from './ui/Button';
 
 /**
  * The About dialog (SPEC10 §3): app badge + name, the build-time version
@@ -25,7 +26,7 @@ export function AboutDialog({
   }, [onClose]);
 
   const body = (
-    <div className="modal about-dialog" data-testid="about-dialog" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="dialog about-dialog" data-testid="about-dialog" onMouseDown={(e) => e.stopPropagation()}>
       <div className="about-head">
         <AppBadge size={40} testId="about-badge" />
         <div>
@@ -57,10 +58,10 @@ export function AboutDialog({
         </a>
       </p>
       {!frameless && (
-        <div className="actions">
-          <button data-testid="about-close" onClick={onClose}>
+        <div className="dialog-actions">
+          <Button data-testid="about-close" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
       )}
     </div>

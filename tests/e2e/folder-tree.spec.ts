@@ -48,10 +48,10 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   await expect(page.getByTestId('folder-filter')).toHaveAttribute('title', 'Show all files');
   await expect(page.getByTestId('folder-sync')).toHaveAttribute('title', 'Navigate to the open file');
   await expect(page.getByTestId('folder-collapse')).toHaveAttribute('title', 'Hide the folder panel');
-  await expect(page.getByTestId('folder-filter')).toHaveClass(/filter-on/);
+  await expect(page.getByTestId('folder-filter')).toHaveClass(/(^|\s)on(\s|$)/);
   await page.getByTestId('folder-filter').click();
   await expect(page.getByTestId('folder-filter')).toHaveAttribute('title', 'Show markdown files only');
-  await expect(page.getByTestId('folder-filter')).not.toHaveClass(/filter-on/);
+  await expect(page.getByTestId('folder-filter')).not.toHaveClass(/(^|\s)on(\s|$)/);
   await expect.poll(names).toEqual(['/notes/sub', '/notes/a.md', '/notes/pic.png', '/notes/zzz.txt']);
   await expect(page.locator('[data-path="/notes/a.md"] .folder-glyph svg')).toBeVisible();
   await expect(page.locator('[data-path="/notes/pic.png"] .folder-glyph svg')).toHaveCount(0);
@@ -708,7 +708,7 @@ test('E305: open rows do not indent — open, closed and active labels share one
   // (c) SPEC36 §5.3: only-open mode is a FLAT list — every row, active and
   // inactive alike, sits on one flush left column.
   await page.getByTestId('folder-open-only').click();
-  await expect(page.getByTestId('folder-open-only')).toHaveClass(/filter-on/);
+  await expect(page.getByTestId('folder-open-only')).toHaveClass(/(^|\s)on(\s|$)/);
   const lefts = await page.$$eval('[data-testid="folder-item"]', (els) =>
     els.map((e) => Math.round(e.getBoundingClientRect().left + parseFloat(getComputedStyle(e).paddingLeft)))
   );

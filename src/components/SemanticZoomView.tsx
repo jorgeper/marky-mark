@@ -14,6 +14,7 @@
  */
 
 import type { LlmAreaState } from '../lib/llmSettings';
+import { Button } from './ui/Button';
 import {
   canStepZoom,
   stepZoomLevel,
@@ -41,7 +42,7 @@ export function SemanticZoomControl({ level, onLevel }: ControlProps) {
   return (
     <div className="semantic-zoom-control" data-testid="semantic-zoom-control">
       <button
-        className="semantic-zoom-step"
+        className="icon-btn semantic-zoom-step"
         data-testid="semantic-zoom-out"
         aria-label="Zoom out semantically"
         title="Zoom Out Semantically (Mod+Shift+-)"
@@ -62,7 +63,7 @@ export function SemanticZoomControl({ level, onLevel }: ControlProps) {
         onChange={(e) => onLevel(clampZoomLevel(Number(e.target.value)))}
       />
       <button
-        className="semantic-zoom-step"
+        className="icon-btn semantic-zoom-step"
         data-testid="semantic-zoom-in"
         aria-label="Zoom in semantically"
         title="Zoom In Semantically (Mod+Shift+=)"
@@ -124,9 +125,9 @@ function BlockBody({
     return (
       <p className="semantic-zoom-body failed" data-testid="semantic-zoom-failure">
         {block.body.message}{' '}
-        <button className="linklike" data-testid="semantic-zoom-retry" onClick={onRetry}>
+        <Button variant="quiet" size="sm" data-testid="semantic-zoom-retry" onClick={onRetry}>
           Retry this section
-        </button>
+        </Button>
       </p>
     );
   }
@@ -174,9 +175,9 @@ export function SemanticZoomView({
             <h1 className="semantic-zoom-title" data-testid="semantic-zoom-title">
               {doc.title}
             </h1>
-            <button className="linklike" data-testid="semantic-zoom-full" onClick={onFull}>
+            <Button variant="quiet" size="sm" data-testid="semantic-zoom-full" onClick={onFull}>
               ← Back to full document
-            </button>
+            </Button>
           </div>
 
           {/* PRD 011 Req 22: stated ONCE for the view, never per block — and
@@ -192,9 +193,9 @@ export function SemanticZoomView({
               {noPath ? (
                 <span data-testid="semantic-zoom-no-llm">{llmArea.message}</span>
               ) : (
-                <button className="linklike" data-testid="semantic-zoom-configure" onClick={onConfigureLlm}>
+                <Button variant="quiet" size="sm" data-testid="semantic-zoom-configure" onClick={onConfigureLlm}>
                   {EXCERPT_CONFIGURE_HINT}
-                </button>
+                </Button>
               )}
             </p>
           )}
@@ -208,7 +209,7 @@ export function SemanticZoomView({
               data-depth={block.depth}
             >
               <button
-                className={`semantic-zoom-heading ${depthClass(block.depth)}`}
+                className={`btn-quiet semantic-zoom-heading ${depthClass(block.depth)}`}
                 data-testid="semantic-zoom-heading"
                 data-section-id={block.id}
                 onClick={() => onDive(block.id)}

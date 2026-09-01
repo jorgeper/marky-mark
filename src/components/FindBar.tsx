@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { SearchOptions } from '../lib/searchCore';
 import { SearchOptionsBar } from './SearchPanel';
+import { Button } from './ui/Button';
 
 /**
  * SPEC30 §1: the one find bar for both modes. Pure UI — the engines live
@@ -78,6 +79,7 @@ export function FindBar({
       <div className="find-row">
         <input
           ref={inputRef}
+          className="field"
           data-testid="find-input"
           type="text"
           placeholder="Find"
@@ -89,15 +91,15 @@ export function FindBar({
         <span className="find-count" data-testid="find-count">
           {countText}
         </span>
-        <button data-testid="find-prev" title="Previous match (⇧↩)" onClick={onPrev} disabled={count === 0}>
+        <Button variant="quiet" size="sm" data-testid="find-prev" title="Previous match (⇧↩)" onClick={onPrev} disabled={count === 0}>
           ‹
-        </button>
-        <button data-testid="find-next" title="Next match (↩)" onClick={onNext} disabled={count === 0}>
+        </Button>
+        <Button variant="quiet" size="sm" data-testid="find-next" title="Next match (↩)" onClick={onNext} disabled={count === 0}>
           ›
-        </button>
-        <button data-testid="find-close" title="Close (Esc)" onClick={onClose}>
+        </Button>
+        <Button variant="quiet" size="sm" data-testid="find-close" title="Close (Esc)" onClick={onClose}>
           ×
-        </button>
+        </Button>
       </div>
       {error !== null && (
         <div className="find-error" data-testid="find-error" role="alert">
@@ -107,6 +109,7 @@ export function FindBar({
       {mode === 'edit' && (
         <div className="find-row">
           <input
+            className="field"
             data-testid="find-replace-input"
             type="text"
             placeholder="Replace"
@@ -114,12 +117,12 @@ export function FindBar({
             onChange={(e) => onReplace(e.target.value)}
             onKeyDown={onKey}
           />
-          <button data-testid="find-replace-one" onClick={onReplaceOne} disabled={count === 0}>
+          <Button variant="quiet" size="sm" data-testid="find-replace-one" onClick={onReplaceOne} disabled={count === 0}>
             Replace
-          </button>
-          <button data-testid="find-replace-all" onClick={onReplaceAll} disabled={count === 0}>
+          </Button>
+          <Button variant="quiet" size="sm" data-testid="find-replace-all" onClick={onReplaceAll} disabled={count === 0}>
             All
-          </button>
+          </Button>
         </div>
       )}
     </div>

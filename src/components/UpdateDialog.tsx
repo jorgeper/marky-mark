@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Platform } from '../platform';
+import { Button } from './ui/Button';
 
 type Phase =
   | { kind: 'checking' }
@@ -66,7 +67,7 @@ export function UpdateDialog({
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal update-modal" data-testid="update-dialog">
+      <div className="dialog update-modal" data-testid="update-dialog">
         <h2>Check for Updates</h2>
 
         {phase.kind === 'checking' && (
@@ -87,13 +88,13 @@ export function UpdateDialog({
               <strong>Marky Mark v{phase.version}</strong> is available (you have v{currentVersion}).
             </p>
             {phase.notes && <p className="update-notes">{phase.notes}</p>}
-            <div className="actions">
-              <button data-testid="update-later" onClick={onClose}>
+            <div className="dialog-actions">
+              <Button data-testid="update-later" onClick={onClose}>
                 Later
-              </button>
-              <button className="primary" data-testid="update-install" onClick={install}>
+              </Button>
+              <Button variant="primary" data-testid="update-install" onClick={install}>
                 Install Update
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -110,10 +111,10 @@ export function UpdateDialog({
         {phase.kind === 'ready' && (
           <div>
             <p className="update-line">Update installed. Restart to finish.</p>
-            <div className="actions">
-              <button className="primary" data-testid="update-restart" onClick={() => void updates.restart()}>
+            <div className="dialog-actions">
+              <Button variant="primary" data-testid="update-restart" onClick={() => void updates.restart()}>
                 Restart Marky Mark
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -121,8 +122,8 @@ export function UpdateDialog({
         {phase.kind === 'error' && (
           <div data-testid="update-error">
             <p className="update-line">Couldn't check for updates: {phase.message}</p>
-            <div className="actions">
-              <button onClick={onClose}>Close</button>
+            <div className="dialog-actions">
+              <Button onClick={onClose}>Close</Button>
             </div>
           </div>
         )}

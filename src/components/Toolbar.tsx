@@ -152,7 +152,7 @@ export function Toolbar(p: Props) {
     return (
       <button
         key={r.testId}
-        className="theme-option"
+        className="menu-item"
         data-testid={r.testId}
         disabled={r.disabled}
         role={r.checked !== undefined ? 'menuitemcheckbox' : undefined}
@@ -193,11 +193,11 @@ export function Toolbar(p: Props) {
           popover is anchored to it — .anchor-left, so the folder, smart-edit
           and theme popovers sharing .theme-menu stay right-anchored. */}
       <div className="theme-picker" ref={menuRef}>
-        <button className="tbtn" data-testid="menu-btn" title="Menu" onClick={() => setMenuOpen((o) => !o)}>
+        <button className="btn btn-quiet btn-sm" data-testid="menu-btn" title="Menu" onClick={() => setMenuOpen((o) => !o)}>
           <MenuIcon />
         </button>
         {menuOpen && (
-          <div className="theme-menu anchor-left" data-testid="app-menu">
+          <div className="menu theme-menu anchor-left" data-testid="app-menu">
             {p.menu.map((group, gi) => (
               <Fragment key={group.id}>
                 {/* Req 8: one separator BETWEEN groups — a menu that starts or
@@ -214,7 +214,7 @@ export function Toolbar(p: Props) {
             keeps reading exactly the top-level rows. It lives inside the
             menu's subtree, so the outside-click handler above closes both. */}
         {menuOpen && subOpen && submenuRows && (
-          <div className="theme-menu anchor-left submenu-panel" data-testid="app-menu-view" role="menu">
+          <div className="menu theme-menu anchor-left submenu-panel" data-testid="app-menu-view" role="menu">
             {submenuRows.map((rows, gi) => (
               <Fragment key={rows[0].testId}>
                 {gi > 0 && <div className="menu-sep" data-testid="menu-sep" role="separator" />}
@@ -248,7 +248,7 @@ export function Toolbar(p: Props) {
 
       {canEdit && (
         <button
-          className={`tbtn${p.mode === 'edit' ? ' on' : ''}`}
+          className={`btn btn-quiet btn-sm${p.mode === 'edit' ? ' on' : ''}`}
           data-testid="edit-toggle"
           title={`Toggle edit / preview (${displayCombo(p.hotkeys.toggleEdit, p.isMac)})`}
           onClick={p.onToggleMode}
@@ -260,7 +260,7 @@ export function Toolbar(p: Props) {
 
       {p.commentsEnabled && (
         <button
-          className={`tbtn${p.showComments ? ' on' : ''}`}
+          className={`btn btn-quiet btn-sm${p.showComments ? ' on' : ''}`}
           data-testid="comments-toggle"
           title={`Show / hide comments (${displayCombo(p.hotkeys.toggleComments, p.isMac)})`}
           onClick={p.onToggleComments}

@@ -31,6 +31,8 @@ import type { DeploymentAdmin } from '../platform/hostedAdmin';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 import type { SessionMe } from '../lib/deploymentSettings';
 import { useWorkspaceAccess, WorkspacePeopleTab } from './WorkspaceAccessSettings';
+import { Button } from './ui/Button';
+import { IconButton } from './ui/IconButton';
 
 interface Props {
   /** The EFFECTIVE (resolved) settings — every row displays these (§E19). */
@@ -421,6 +423,7 @@ export function SettingsPanel({
         </label>
         <input
           type="number"
+          className="field"
           data-testid="fontsize-input"
           min={FONT_SIZE_MIN}
           max={FONT_SIZE_MAX}
@@ -441,6 +444,7 @@ export function SettingsPanel({
       <div className="inline-row">
         <select
           id="zoom-select"
+          className="field"
           data-testid="zoom-select"
           value={settings.zoom}
           onChange={(e) => onChange({ ...settings, zoom: Number(e.target.value) })}
@@ -452,9 +456,9 @@ export function SettingsPanel({
             </option>
           ))}
         </select>
-        <button className="linklike" data-testid="zoom-reset" onClick={() => onChange({ ...settings, zoom: 100 })}>
+        <Button variant="quiet" size="sm" data-testid="zoom-reset" onClick={() => onChange({ ...settings, zoom: 100 })}>
           Reset to Default
-        </button>
+        </Button>
       </div>
       {scopeNote('zoom')}
     </div>
@@ -465,6 +469,7 @@ export function SettingsPanel({
       <label htmlFor="settings-theme-light">Light theme</label>
       <select
         id="settings-theme-light"
+        className="field"
         data-testid="settings-theme-light"
         value={settings.themeLight}
         onChange={(e) => onChange({ ...settings, themeLight: e.target.value })}
@@ -480,6 +485,7 @@ export function SettingsPanel({
       <label htmlFor="settings-theme-dark">Dark theme</label>
       <select
         id="settings-theme-dark"
+        className="field"
         data-testid="settings-theme-dark"
         value={settings.themeDark}
         onChange={(e) => onChange({ ...settings, themeDark: e.target.value })}
@@ -511,6 +517,7 @@ export function SettingsPanel({
       <label htmlFor="settings-margins">Text margins</label>
       <select
         id="settings-margins"
+        className="field"
         data-testid="settings-margins"
         value={settings.margins}
         onChange={(e) => onChange({ ...settings, margins: e.target.value as Margins })}
@@ -530,6 +537,7 @@ export function SettingsPanel({
       <label htmlFor="comment-storage">Comment storage</label>
       <select
         id="comment-storage"
+        className="field"
         data-testid="comment-storage"
         value={settings.commentStorage}
         disabled={storageLocked || scopeLocked('commentStorage')}
@@ -557,6 +565,7 @@ export function SettingsPanel({
       <input
         id="image-folder"
         type="text"
+        className="field"
         data-testid="image-folder"
         value={folderDraft}
         disabled={scopeLocked('imageFolder')}
@@ -581,6 +590,7 @@ export function SettingsPanel({
       <input
         id="image-pattern"
         type="text"
+        className="field"
         data-testid="image-pattern"
         value={settings.imageNamePattern}
         disabled={scopeLocked('imageNamePattern')}
@@ -606,18 +616,18 @@ export function SettingsPanel({
       {/* Issue #21: machine-local ACTIONS (not settings) stay User-scope-only. */}
       {scope === 'user' && (
         <div className="row" style={{ marginBottom: 12 }}>
-          <button className="linklike" data-testid="reload-themes" onClick={onReloadThemes}>
+          <Button variant="quiet" size="sm" data-testid="reload-themes" onClick={onReloadThemes}>
             ↻ Reload themes
-          </button>
+          </Button>
           {onRevealThemesDir && (
-            <button className="linklike" data-testid="open-theme-folder" onClick={() => void onRevealThemesDir()}>
+            <Button variant="quiet" size="sm" data-testid="open-theme-folder" onClick={() => void onRevealThemesDir()}>
               Open Theme Folder
-            </button>
+            </Button>
           )}
           {onImportTheme && (
-            <button className="linklike" data-testid="import-theme" onClick={() => void onImportTheme()}>
+            <Button variant="quiet" size="sm" data-testid="import-theme" onClick={() => void onImportTheme()}>
               + Import theme…
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -631,6 +641,7 @@ export function SettingsPanel({
         <input
           id="settings-pane-min"
           type="text"
+          className="field"
           inputMode="numeric"
           data-testid="settings-pane-min"
           value={paneMinDraft}
@@ -737,6 +748,7 @@ export function SettingsPanel({
         <input
           id="author-input"
           type="text"
+          className="field"
           data-testid="author-input"
           value={settings.author}
           disabled={scopeLocked('author')}
@@ -945,6 +957,7 @@ export function SettingsPanel({
       <input
         id={`hotkey-${action}`}
         type="text"
+        className="field"
         readOnly
         data-testid={`hotkey-${action}`}
         data-hotkey-recorder="true"
@@ -955,8 +968,7 @@ export function SettingsPanel({
       />
       {/* Issue #84: per-row restore — what makes one mis-recorded binding
           recoverable without resetting the whole map. */}
-      <button
-        className="hotkey-reset"
+      <IconButton
         data-testid={`reset-hotkey-${action}`}
         title={`Restore default (${displayCombo(DEFAULT_HOTKEYS[action], isMac)})`}
         aria-label={`Restore default for ${HOTKEY_LABELS[action]}`}
@@ -964,7 +976,7 @@ export function SettingsPanel({
         onClick={() => setHotkey(action, DEFAULT_HOTKEYS[action])}
       >
         ↺
-      </button>
+      </IconButton>
     </div>
   );
 
@@ -982,9 +994,9 @@ export function SettingsPanel({
         {hint || 'Click a field, then press the new key combination.'}
       </p>
       <div className="row">
-        <button className="linklike" data-testid="reset-hotkeys" onClick={() => onChange({ ...settings, hotkeys: { ...DEFAULT_HOTKEYS } })}>
+        <Button variant="quiet" size="sm" data-testid="reset-hotkeys" onClick={() => onChange({ ...settings, hotkeys: { ...DEFAULT_HOTKEYS } })}>
           Reset hotkeys
-        </button>
+        </Button>
       </div>
     </>
   );
@@ -1038,13 +1050,14 @@ export function SettingsPanel({
             {standDown && (
               <p className="hotkey-hint experimental-desc" data-testid={`${f.testId}-stand-down`}>
                 {standDown.sentence}{' '}
-                <button
-                  className="linklike"
+                <Button
+                  variant="quiet"
+                  size="sm"
                   data-testid={`${f.testId}-stand-down-link`}
                   onClick={() => setTab(standDown.tab)}
                 >
                   {standDown.linkLabel}
-                </button>
+                </Button>
               </p>
             )}
           </div>
@@ -1054,27 +1067,27 @@ export function SettingsPanel({
   );
 
   const doneButton = !frameless && (
-    <div className="actions">
-      <button className="primary" data-testid="settings-close" onClick={onClose}>
+    <div className="dialog-actions">
+      <Button variant="primary" data-testid="settings-close" onClick={onClose}>
         Done
-      </button>
+      </Button>
     </div>
   );
 
   const body = (
-    <div className="modal settings-modal" data-testid="settings-panel">
+    <div className="dialog settings-modal" data-testid="settings-panel">
       {/* §E18/§H25: the User | Workspace scope selector — desktop only. */}
       {scopeSelector && (
         <nav className="scope-rail" data-testid="settings-scope">
           <button
-            className={`tab-btn scope-btn${scope === 'user' ? ' active' : ''}`}
+            className={`btn btn-quiet tab-btn scope-btn${scope === 'user' ? ' on' : ''}`}
             data-testid="settings-scope-user"
             onClick={() => setScope('user')}
           >
             User
           </button>
           <button
-            className={`tab-btn scope-btn${scope === 'workspace' ? ' active' : ''}`}
+            className={`btn btn-quiet tab-btn scope-btn${scope === 'workspace' ? ' on' : ''}`}
             data-testid="settings-scope-workspace"
             disabled={!workspaceOpen}
             title={workspaceOpen ? undefined : 'Open a workspace to edit its settings'}
@@ -1101,7 +1114,7 @@ export function SettingsPanel({
           ).map((t) => (
             <button
               key={t.id}
-              className={`tab-btn${tab === t.id ? ' active' : ''}`}
+              className={`btn btn-quiet tab-btn${tab === t.id ? ' on' : ''}`}
               data-testid={`settings-tab-${t.id}`}
               onClick={() => setTab(t.id)}
             >

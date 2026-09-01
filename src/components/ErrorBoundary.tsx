@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react';
+import { Button } from './ui/Button';
 
 /**
  * Issue #136: the root error boundary. The app previously rendered bare under
@@ -9,8 +10,10 @@ import { Component, type ReactNode } from 'react';
  * CODING_STANDARDS § Style there is no console call site: the throw's message
  * is shown in the surface itself.
  *
- * Styling is inline on purpose: the boundary must render even when the crash
- * came from theme or layout state, so it depends on nothing but React.
+ * Styling lives in styles.css under `.error-boundary` (PRD 018 Req 18): that
+ * rule defines local `--mm-*` fallback values, so the surface stays
+ * self-contained even though it renders outside `.theme-root` — a crash in
+ * theme or layout state still gets a legible error screen.
  */
 
 interface Props {
@@ -31,45 +34,12 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div
-        data-testid="error-boundary"
-        role="alert"
-        style={{
-          position: 'fixed',
-          inset: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '12px',
-          padding: '24px',
-          background: '#1e1e1e',
-          color: '#e8e8e8',
-          fontFamily: 'system-ui, sans-serif',
-          textAlign: 'center',
-        }}
-      >
-        <div style={{ fontSize: '18px', fontWeight: 600 }}>Something went wrong</div>
-        <div style={{ fontSize: '13px', opacity: 0.8, maxWidth: '560px', overflowWrap: 'anywhere' }}>
-          {this.state.error.message || String(this.state.error)}
-        </div>
-        <button
-          type="button"
-          data-testid="error-reload"
-          onClick={() => window.location.reload()}
-          style={{
-            marginTop: '8px',
-            padding: '8px 20px',
-            fontSize: '14px',
-            borderRadius: '6px',
-            border: '1px solid #555',
-            background: '#2d2d2d',
-            color: '#e8e8e8',
-            cursor: 'pointer',
-          }}
-        >
+      <div data-testid="error-boundary" role="alert" className="error-boundary">
+        <div className="eb-title">Something went wrong</div>
+        <div className="eb-detail">{this.state.error.message || String(this.state.error)}</div>
+        <Button data-testid="error-reload" onClick={() => window.location.reload()}>
           Reload Marky Mark
-        </button>
+        </Button>
       </div>
     );
   }

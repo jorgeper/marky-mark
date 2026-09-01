@@ -24,6 +24,7 @@ import {
   type HostedMode,
 } from '../lib/hostedGate';
 import { AppBadge } from './Toolbar';
+import { Button } from './ui/Button';
 
 // The bundle's one network call site (SPEC11 §6.6 bundle-scan allowlist):
 // every hosted request — sign-in, session validation, the PKCE token
@@ -180,18 +181,26 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
           </label>
           <input
             id="hosted-signin-username"
+            className="field"
             data-testid="hosted-sign-in-username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="username (e.g. ada)"
             autoFocus
           />
-          <button data-testid="hosted-sign-in-submit" type="submit" disabled={phase.busy || !username.trim()}>
+          {/* PRD 018 Req 12 (issue #204): explicit type="submit" — the Button
+              wrapper defaults to type="button", which would stop the form's
+              Enter-to-submit path. */}
+          <Button type="submit" data-testid="hosted-sign-in-submit" disabled={phase.busy || !username.trim()}>
             Sign in
-          </button>
+          </Button>
         </form>
       ) : (
-        <button
+        // PRD 018 Req 20 (issue #204): the Microsoft button keeps its branded
+        // logo + label (issue #196) on a neutral .btn fill; dimensions, radius
+        // and font now come from the primitive, `hosted-signin-ms` stays as
+        // the layout/locator hook.
+        <Button
           className="hosted-signin-ms"
           data-testid="hosted-sign-in-microsoft"
           onClick={() => void signInMicrosoft()}
@@ -207,7 +216,7 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
             <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
           </svg>
           Sign in with Microsoft
-        </button>
+        </Button>
       )}
       {phase.kind === 'signed-out' && phase.error && (
         <p className="hosted-signin-error" data-testid="hosted-sign-in-error" role="alert">

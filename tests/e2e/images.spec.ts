@@ -97,7 +97,7 @@ test('E73: the Editor settings tab holds the image fields — defaults, live exa
   // Issue #21: the scope switch keeps the shared tab rail and the Editor tab.
   await page.getByTestId('settings-scope-workspace').click();
   await expect(page.getByTestId('settings-tabs').locator('button')).toHaveCount(3);
-  await expect(page.getByTestId('settings-tab-editor')).toHaveClass(/active/);
+  await expect(page.getByTestId('settings-tab-editor')).toHaveClass(/(^|\s)on(\s|$)/);
   await page.getByTestId('image-pattern').fill('img-{n}');
   await expect(page.getByTestId('image-pattern-example')).toContainText('img-1.png');
 

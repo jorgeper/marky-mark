@@ -131,7 +131,7 @@ export function SmartEditMenu({ x, y, entries, onInvoke, onClose }: Props) {
     return (
       <button
         key={it.id}
-        className={`theme-option smart-edit-item${isActive ? ' active' : ''}`}
+        className={`menu-item smart-edit-item${isActive ? ' active' : ''}`}
         data-testid={`smart-edit-${it.id}`}
         disabled={!it.enabled}
         onPointerEnter={() => {
@@ -154,7 +154,7 @@ export function SmartEditMenu({ x, y, entries, onInvoke, onClose }: Props) {
 
   return (
     <div
-      className="theme-menu smart-edit-menu"
+      className="menu theme-menu smart-edit-menu"
       data-testid="smart-edit-menu"
       ref={menuRef}
       tabIndex={-1}
@@ -164,13 +164,13 @@ export function SmartEditMenu({ x, y, entries, onInvoke, onClose }: Props) {
     >
       {entries.map((it, i) =>
         it === 'sep' ? (
-          <div key={`sep-${i}`} className="folder-menu-sep" />
+          <div key={`sep-${i}`} className="menu-sep" />
         ) : it.submenu ? (
           <div key={it.id} className="smart-edit-subhost">
             {row(it, 'top')}
             {sub === it.id && (
               <div
-                className={`theme-menu smart-edit-flyout${flip ? ' flip' : ''}`}
+                className={`menu theme-menu smart-edit-flyout${flip ? ' flip' : ''}`}
                 data-testid={`smart-edit-flyout-${it.id}`}
                 ref={flyoutRef}
               >

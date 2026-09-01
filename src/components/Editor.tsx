@@ -1744,7 +1744,7 @@ export default function Editor({
       {chips && (
         <div className="table-chip-layer" data-testid="table-chip-layer">
           <button
-            className="table-chip"
+            className="icon-btn table-chip"
             data-testid="table-add-col-left"
             style={{ left: chips.colLeft.x, top: chips.colLeft.y }}
             title="Insert column left"
@@ -1754,7 +1754,7 @@ export default function Editor({
             +
           </button>
           <button
-            className="table-chip"
+            className="icon-btn table-chip"
             data-testid="table-add-col-right"
             style={{ left: chips.colRight.x, top: chips.colRight.y }}
             title="Insert column right"
@@ -1764,7 +1764,7 @@ export default function Editor({
             +
           </button>
           <button
-            className="table-chip danger"
+            className="icon-btn table-chip btn-danger"
             data-testid="table-del-col"
             style={{ left: chips.colDel.x, top: chips.colDel.y }}
             title="Delete column"
@@ -1776,7 +1776,7 @@ export default function Editor({
           </button>
           {chips.rowAbove && (
             <button
-              className="table-chip"
+              className="icon-btn table-chip"
               data-testid="table-add-row-above"
               style={{ left: chips.rowAbove.x, top: chips.rowAbove.y }}
               title="Insert row above"
@@ -1787,7 +1787,7 @@ export default function Editor({
             </button>
           )}
           <button
-            className="table-chip"
+            className="icon-btn table-chip"
             data-testid="table-add-row-below"
             style={{ left: chips.rowBelow.x, top: chips.rowBelow.y }}
             title="Insert row below"
@@ -1798,7 +1798,7 @@ export default function Editor({
           </button>
           {chips.rowDel && (
             <button
-              className="table-chip danger"
+              className="icon-btn table-chip btn-danger"
               data-testid="table-del-row"
               style={{ left: chips.rowDel.x, top: chips.rowDel.y }}
               title="Delete row"
@@ -1817,7 +1817,7 @@ export default function Editor({
           {IMG_CHIP_ORDER.map((m) => (
             <button
               key={m}
-              className="table-chip image-chip"
+              className="icon-btn table-chip image-chip"
               data-testid={`image-resize-${m}`}
               style={{ left: imgChips[m].x, top: imgChips[m].y }}
               title={IMG_CHIP_TITLES[m]}

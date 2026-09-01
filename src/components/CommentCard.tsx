@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { CommentData } from '../lib/anchoring';
 import { timeAgo } from '../lib/time';
+import { Button } from './ui/Button';
 
 /** Ported from ../md-with-comments — margin comment card with threads. */
 
@@ -101,6 +102,7 @@ export function CommentCard({
         {editing === 'root' ? (
           <div onClick={stop}>
             <textarea
+              className="field"
               data-testid="edit-input"
               value={editDraft}
               autoFocus
@@ -108,10 +110,12 @@ export function CommentCard({
               onKeyDown={(e) => editorKeys(e, saveEdit, () => setEditing(null))}
             />
             <div className="row">
-              <button data-testid="save-edit" onClick={saveEdit}>
+              <Button variant="quiet" size="sm" data-testid="save-edit" onClick={saveEdit}>
                 Save
-              </button>
-              <button onClick={() => setEditing(null)}>Cancel</button>
+              </Button>
+              <Button variant="quiet" size="sm" onClick={() => setEditing(null)}>
+                Cancel
+              </Button>
             </div>
           </div>
         ) : (
@@ -129,6 +133,7 @@ export function CommentCard({
           {editing === r.id ? (
             <div onClick={stop}>
               <textarea
+                className="field"
                 data-testid="edit-input"
                 value={editDraft}
                 autoFocus
@@ -136,10 +141,12 @@ export function CommentCard({
                 onKeyDown={(e) => editorKeys(e, saveEdit, () => setEditing(null))}
               />
               <div className="row">
-                <button data-testid="save-edit" onClick={saveEdit}>
+                <Button variant="quiet" size="sm" data-testid="save-edit" onClick={saveEdit}>
                   Save
-                </button>
-                <button onClick={() => setEditing(null)}>Cancel</button>
+                </Button>
+                <Button variant="quiet" size="sm" onClick={() => setEditing(null)}>
+                  Cancel
+                </Button>
               </div>
             </div>
           ) : (
@@ -149,7 +156,9 @@ export function CommentCard({
           )}
           {!readOnly && (
             <div className="row small" onClick={stop}>
-              <button
+              <Button
+                variant="quiet"
+                size="sm"
                 data-testid="edit-reply"
                 onClick={() => {
                   setEditing(r.id);
@@ -157,13 +166,15 @@ export function CommentCard({
                 }}
               >
                 Edit
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="quiet"
+                size="sm"
                 data-testid="delete-reply"
                 onClick={() => onUpdate({ ...c, thread: c.thread.filter((x) => x.id !== r.id) })}
               >
                 Delete
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -172,6 +183,7 @@ export function CommentCard({
       {replying && (
         <div onClick={stop}>
           <textarea
+            className="field"
             data-testid="reply-input"
             placeholder="Reply…"
             value={replyDraft}
@@ -180,10 +192,12 @@ export function CommentCard({
             onKeyDown={(e) => editorKeys(e, submitReply, () => setReplying(false))}
           />
           <div className="row">
-            <button data-testid="submit-reply" onClick={submitReply}>
+            <Button variant="quiet" size="sm" data-testid="submit-reply" onClick={submitReply}>
               Reply
-            </button>
-            <button onClick={() => setReplying(false)}>Cancel</button>
+            </Button>
+            <Button variant="quiet" size="sm" onClick={() => setReplying(false)}>
+              Cancel
+            </Button>
           </div>
         </div>
       )}
@@ -193,21 +207,29 @@ export function CommentCard({
           {confirmingDelete ? (
             <>
               <span className="confirm-label">Delete thread?</span>
-              <button data-testid="confirm-delete" className="danger" onClick={() => onDelete(c.id)}>
+              <Button
+                variant="quiet"
+                size="sm"
+                className="btn-danger"
+                data-testid="confirm-delete"
+                onClick={() => onDelete(c.id)}
+              >
                 Delete
-              </button>
-              <button data-testid="cancel-delete" onClick={() => setConfirmingDelete(false)}>
+              </Button>
+              <Button variant="quiet" size="sm" data-testid="cancel-delete" onClick={() => setConfirmingDelete(false)}>
                 Cancel
-              </button>
+              </Button>
             </>
           ) : (
             <>
               {!c.resolved && (
                 <>
-                  <button data-testid="reply-btn" onClick={() => setReplying(true)}>
+                  <Button variant="quiet" size="sm" data-testid="reply-btn" onClick={() => setReplying(true)}>
                     Reply
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="quiet"
+                    size="sm"
                     data-testid="edit-btn"
                     onClick={() => {
                       setEditing('root');
@@ -215,20 +237,30 @@ export function CommentCard({
                     }}
                   >
                     Edit
-                  </button>
-                  <button data-testid="resolve-btn" onClick={() => onUpdate({ ...c, resolved: true })}>
+                  </Button>
+                  <Button
+                    variant="quiet"
+                    size="sm"
+                    data-testid="resolve-btn"
+                    onClick={() => onUpdate({ ...c, resolved: true })}
+                  >
                     Resolve
-                  </button>
+                  </Button>
                 </>
               )}
               {c.resolved && (
-                <button data-testid="reopen-btn" onClick={() => onUpdate({ ...c, resolved: false })}>
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  data-testid="reopen-btn"
+                  onClick={() => onUpdate({ ...c, resolved: false })}
+                >
                   Reopen
-                </button>
+                </Button>
               )}
-              <button data-testid="delete-btn" onClick={() => setConfirmingDelete(true)}>
+              <Button variant="quiet" size="sm" data-testid="delete-btn" onClick={() => setConfirmingDelete(true)}>
                 Delete
-              </button>
+              </Button>
             </>
           )}
         </div>

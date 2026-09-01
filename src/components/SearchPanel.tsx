@@ -3,6 +3,7 @@ import { Chevron, paneWidthDrag } from './FolderPanel';
 import { slideClasses, type SlidePhase } from '../lib/paneSlide';
 import type { FileSearchResult, LineMatch, SearchOptions, SearchResults } from '../lib/searchCore';
 import { SEARCH_OPTION_TOGGLES, toggleSearchOption } from '../lib/searchOptions';
+import { IconButton } from './ui/IconButton';
 
 /**
  * PRD 014 Req 6 (issue #152): the three query toggles — case-sensitive,
@@ -27,7 +28,7 @@ export function SearchOptionsBar({
         return (
           <button
             key={key}
-            className={`search-opt${on ? ' on' : ''}`}
+            className={`btn btn-quiet btn-sm${on ? ' on' : ''}`}
             data-testid={testId}
             data-active={on ? 'true' : 'false'}
             aria-pressed={on}
@@ -128,7 +129,7 @@ export interface SearchPanelProps {
 function MatchRow({ path, match, onOpen }: { path: string; match: LineMatch; onOpen(path: string, match: LineMatch): void }) {
   return (
     <button
-      className="folder-item search-match"
+      className="folder-item btn-quiet search-match"
       data-testid="search-match"
       data-line={match.line}
       title={match.lineText}
@@ -165,7 +166,7 @@ function FileGroup({
   return (
     <div>
       <button
-        className="folder-item search-file"
+        className="folder-item btn-quiet search-file"
         data-testid="search-file"
         data-path={file.path}
         data-name-match={file.nameMatch ? 'true' : 'false'}
@@ -232,19 +233,19 @@ export function SearchPanel(p: SearchPanelProps) {
         <div className="folder-header" data-testid="search-header">
           {p.viewSwitch}
           <span className="folder-title">Search</span>
-          <button
+          <IconButton
             data-testid="search-collapse"
             title="Hide the sidebar"
             aria-label="Hide the sidebar"
             onClick={p.onClose}
           >
             <Chevron dir="left" />
-          </button>
+          </IconButton>
         </div>
         <div className="search-query-row">
           <input
             ref={inputRef}
-            className="search-query"
+            className="field search-query"
             data-testid="search-input"
             type="text"
             placeholder="Search files"

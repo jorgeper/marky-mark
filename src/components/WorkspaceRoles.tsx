@@ -19,6 +19,7 @@ import {
   type WorkspaceManifest,
 } from '../lib/hostedWorkspace';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
+import { Button } from './ui/Button';
 
 export interface WorkspaceRolesProps {
   lifecycle: WorkspaceLifecycle;
@@ -124,15 +125,18 @@ export function WorkspaceRoles({ lifecycle, workspaceId, manifest, onManifest }:
             <li className="workspace-role-row" key={role.name} data-testid={`workspace-role-${role.name}`}>
               <span className="workspace-role-name">{role.name}</span>
               <span className="hotkey-hint">{role.permissions.length} permissions</span>
-              <button
-                type="button"
+              <Button
+                variant="quiet"
+                size="sm"
                 data-testid={`workspace-role-edit-${role.name}`}
                 onClick={() => startEdit(role)}
               >
                 Edit
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="quiet"
+                size="sm"
+                className="btn-danger"
                 data-testid={`workspace-role-delete-${role.name}`}
                 // PRD 007 Req 15: a held role is undeletable. The control
                 // explains rather than silently doing nothing — and the server
@@ -147,7 +151,7 @@ export function WorkspaceRoles({ lifecycle, workspaceId, manifest, onManifest }:
                 }
               >
                 Delete
-              </button>
+              </Button>
             </li>
           );
         })}
@@ -161,6 +165,7 @@ export function WorkspaceRoles({ lifecycle, workspaceId, manifest, onManifest }:
         <input
           id="workspace-role-name"
           data-testid="workspace-role-name"
+          className="field"
           type="text"
           value={draft.name}
           placeholder="Role name"
@@ -168,9 +173,8 @@ export function WorkspaceRoles({ lifecycle, workspaceId, manifest, onManifest }:
         />
       </div>
       <PermissionChecklist idPrefix="workspace-role" selected={draft.permissions} onToggle={toggle} />
-      <div className="actions">
-        <button
-          type="button"
+      <div className="dialog-actions">
+        <Button
           data-testid="workspace-role-save"
           disabled={draft.name.trim() === ''}
           onClick={() =>
@@ -185,11 +189,11 @@ export function WorkspaceRoles({ lifecycle, workspaceId, manifest, onManifest }:
           }
         >
           {editing === null ? 'Create role' : 'Save role'}
-        </button>
+        </Button>
         {editing !== null && (
-          <button type="button" data-testid="workspace-role-cancel" onClick={reset}>
+          <Button data-testid="workspace-role-cancel" onClick={reset}>
             Cancel
-          </button>
+          </Button>
         )}
       </div>
 

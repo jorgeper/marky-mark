@@ -58,7 +58,7 @@ export function HeadingPalette({
 
   return (
     <div className="palette-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="palette" data-testid="heading-palette">
+      <div className="menu palette" data-testid="heading-palette">
         <input
           data-testid="heading-palette-input"
           autoFocus
@@ -76,7 +76,7 @@ export function HeadingPalette({
               <button
                 data-testid="heading-palette-item"
                 data-palette-index={i}
-                className={i === clamped ? 'active' : ''}
+                className={`menu-item${i === clamped ? ' active' : ''}`}
                 style={{ paddingLeft: 10 + (h.depth - 1) * 14 }}
                 onMouseEnter={() => setIndex(i)}
                 onClick={() => {

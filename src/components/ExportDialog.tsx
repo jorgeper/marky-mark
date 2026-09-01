@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Theme } from '../lib/themes';
+import { Button } from './ui/Button';
 
 export interface ExportRequest {
   includeComments: boolean;
@@ -41,7 +42,7 @@ export function ExportDialog({
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal export-modal" data-testid="export-dialog">
+      <div className="dialog export-modal" data-testid="export-dialog">
         <h2>Export</h2>
 
         <div className="checkbox-row">
@@ -73,6 +74,7 @@ export function ExportDialog({
           <label htmlFor="export-theme">Theme</label>
           <select
             id="export-theme"
+            className="field"
             data-testid="export-theme"
             value={theme}
             onChange={(e) => {
@@ -89,17 +91,17 @@ export function ExportDialog({
           </select>
         </div>
 
-        <div className="actions">
-          <button data-testid="export-cancel" onClick={onClose}>
+        <div className="dialog-actions">
+          <Button data-testid="export-cancel" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            className="primary"
+          </Button>
+          <Button
+            variant="primary"
             data-testid="export-run"
             onClick={() => onExport({ includeComments, includeWordCount, theme })}
           >
             Export
-          </button>
+          </Button>
         </div>
       </div>
     </div>

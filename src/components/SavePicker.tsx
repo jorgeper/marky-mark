@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { checkPickerName, type PickerFolder, type SavePickerKind } from '../lib/savePicker';
+import { Button } from './ui/Button';
 
 /**
  * PRD 009 Req 13+14: the in-workspace name/folder picker — the ONE naming
@@ -67,7 +68,7 @@ export function SavePicker({
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
-      <div className="modal" data-testid="save-picker">
+      <div className="dialog" data-testid="save-picker">
         <h2>{kind === 'new' ? 'New File' : 'Save As'}</h2>
 
         <div className="field">
@@ -76,7 +77,7 @@ export function SavePicker({
             id="save-picker-name"
             data-testid="save-picker-name"
             type="text"
-            className={touched && error ? 'invalid' : undefined}
+            className={`field${touched && error ? ' invalid' : ''}`}
             autoFocus
             value={name}
             onChange={(e) => {
@@ -96,6 +97,7 @@ export function SavePicker({
           <label htmlFor="save-picker-folder">Folder</label>
           <select
             id="save-picker-folder"
+            className="field"
             data-testid="save-picker-folder"
             value={folder}
             onChange={(e) => setFolder(e.target.value)}
@@ -114,13 +116,13 @@ export function SavePicker({
           </p>
         )}
 
-        <div className="actions">
-          <button data-testid="save-picker-cancel" onClick={onCancel}>
+        <div className="dialog-actions">
+          <Button data-testid="save-picker-cancel" onClick={onCancel}>
             Cancel
-          </button>
-          <button className="primary" data-testid="save-picker-confirm" onClick={commit}>
+          </Button>
+          <Button variant="primary" data-testid="save-picker-confirm" onClick={commit}>
             {kind === 'new' ? 'Create' : 'Save'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

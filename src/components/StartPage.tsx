@@ -5,6 +5,7 @@
 // four come from the same code and the same rules as the File menu.
 
 import { START_ACTION_LABELS, type StartActionId } from '../lib/startActions';
+import { Button } from './ui/Button';
 
 export function StartPage({
   actions,
@@ -33,15 +34,13 @@ export function StartPage({
           const hint = disabledActions?.[id];
           return (
             <div key={id} className="start-action-cell">
-              <button
-                type="button"
-                className="start-action"
+              <Button
                 data-testid={`start-${id}`}
                 disabled={hint !== undefined}
                 onClick={() => onAction(id)}
               >
                 {START_ACTION_LABELS[id]}
-              </button>
+              </Button>
               {/* PRD 017 Req 10: the reason rides under the greyed action. */}
               {hint !== undefined && (
                 <p className="start-action-hint" data-testid={`start-${id}-hint`}>

@@ -29,6 +29,7 @@ import {
   recommendationFor,
 } from '../lib/llmPricing';
 import { EMPTY_USAGE_TALLY, usageSentence } from '../lib/llmUsage';
+import { Button } from './ui/Button';
 
 /**
  * PRD 011 Reqs 4+5+6+7+9+10: the LLM providers settings page. It is the
@@ -243,9 +244,15 @@ export function LlmSettings({
         </p>
       )}
       <div className="row" style={{ marginBottom: 12 }}>
-        <button data-testid="summary-cache-clear" disabled={!onCacheClear || clearing} onClick={clearCache}>
+        <Button
+          variant="quiet"
+          size="sm"
+          data-testid="summary-cache-clear"
+          disabled={!onCacheClear || clearing}
+          onClick={clearCache}
+        >
           {clearing ? 'Clearing…' : 'Clear cache'}
-        </button>
+        </Button>
         {clearFailure && (
           <span className="hotkey-hint" data-testid="summary-cache-clear-failure">
             {clearFailure}
@@ -304,9 +311,14 @@ export function LlmSettings({
         {`Running total: ${usageSentence(values.llmUsageTotal)}`}
       </p>
       <div className="row" style={{ marginBottom: 12 }}>
-        <button data-testid="llm-usage-reset" onClick={() => onChange({ llmUsageTotal: EMPTY_USAGE_TALLY })}>
+        <Button
+          variant="quiet"
+          size="sm"
+          data-testid="llm-usage-reset"
+          onClick={() => onChange({ llmUsageTotal: EMPTY_USAGE_TALLY })}
+        >
           Reset total
-        </button>
+        </Button>
       </div>
       {/* PRD 011 Req 33: the reversible half of "don't ask again". The
           confirmation can turn itself off; this is where it comes back on, so
@@ -347,7 +359,9 @@ export function LlmSettings({
   const testable = canTestConnection(area) && onTest !== undefined;
   const testButton = (
     <div className="row" style={{ marginBottom: 12 }}>
-      <button
+      <Button
+        variant="quiet"
+        size="sm"
         data-testid="llm-test"
         disabled={!testable || test.phase === 'running'}
         // The reason it cannot run is the availability sentence itself — never
@@ -356,7 +370,7 @@ export function LlmSettings({
         onClick={runTest}
       >
         {test.phase === 'running' ? 'Testing…' : 'Test connection'}
-      </button>
+      </Button>
       {test.phase === 'done' && (
         <span className="hotkey-hint" data-testid="llm-test-result">
           {test.result.ok
@@ -401,6 +415,7 @@ export function LlmSettings({
         <label htmlFor="llm-provider">Provider</label>
         <select
           id="llm-provider"
+          className="field"
           data-testid="llm-provider"
           value={values.llmProvider}
           onChange={(e) => onChange({ llmProvider: e.target.value as LlmProviderKind })}
@@ -420,6 +435,7 @@ export function LlmSettings({
           <input
             id="llm-base-url"
             type="text"
+            className="field"
             data-testid="llm-base-url"
             placeholder="https://llm.example.com/v1"
             value={values.llmBaseUrl}
@@ -434,6 +450,7 @@ export function LlmSettings({
           {presets.length > 0 && (
             <select
               id="llm-model-preset"
+              className="field"
               data-testid="llm-model-preset"
               value={presetValue}
               onChange={(e) => e.target.value && onChange({ llmModel: e.target.value })}
@@ -449,6 +466,7 @@ export function LlmSettings({
           <input
             id="llm-model"
             type="text"
+            className="field"
             data-testid="llm-model"
             // PRD 011 Req 6: free text wins — any id the provider accepts can
             // be typed, and nothing rejects it for being off the list.
@@ -466,6 +484,9 @@ export function LlmSettings({
           id="llm-api-key"
           // PRD 011 Req 7: masked. The value is never rendered anywhere else.
           type="password"
+          // PRD 018 Req 7 (issue #204): the key entry is a text-shaped field
+          // like its siblings — password masks the glyphs, not the control.
+          className="field"
           data-testid="llm-api-key"
           autoComplete="off"
           spellCheck={false}
@@ -484,14 +505,16 @@ export function LlmSettings({
             cache: the two stand-down actions are separate, one click each. */}
         {canRemoveLlmKey(area) && (
           <div className="row" style={{ marginBottom: 12 }}>
-            <button
+            <Button
+              variant="quiet"
+              size="sm"
               data-testid="llm-remove-key"
               disabled={values.llmApiKey === ''}
               title={values.llmApiKey === '' ? 'No key is stored.' : undefined}
               onClick={() => onChange({ llmApiKey: '' })}
             >
               Remove key
-            </button>
+            </Button>
           </div>
         )}
       </div>

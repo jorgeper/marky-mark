@@ -1,6 +1,7 @@
 import { useRef, type CSSProperties, type ReactNode } from 'react';
 import { Chevron, paneWidthDrag } from './FolderPanel';
 import { slideClasses, type SlidePhase } from '../lib/paneSlide';
+import { IconButton } from './ui/IconButton';
 import type { VisibleTocEntry } from '../lib/tocModel';
 import type { SidebarView } from '../lib/settings';
 
@@ -68,7 +69,7 @@ function TocRow({
   const { entry, hasChildren, collapsed } = row;
   return (
     <button
-      className={`folder-item toc-item${active ? ' toc-active' : ''}`}
+      className={`folder-item btn-quiet toc-item${active ? ' toc-active' : ''}`}
       data-testid="toc-item"
       aria-current={active ? 'true' : undefined}
       data-active={active ? 'true' : 'false'}
@@ -128,14 +129,14 @@ export function TocPanel(p: TocPanelProps) {
         <div className="folder-header" data-testid="toc-header">
           {p.viewSwitch}
           <span className="folder-title">Contents</span>
-          <button
+          <IconButton
             data-testid="toc-collapse"
             title="Hide the sidebar"
             aria-label="Hide the sidebar"
             onClick={p.onClose}
           >
             <Chevron dir="left" />
-          </button>
+          </IconButton>
         </div>
         {/* PRD 012 Req 8: a document with no headings says so — a blank pane
             reads as a bug, and "no headings yet" is the true statement. */}
@@ -200,7 +201,7 @@ export function SidebarViewSwitch({
   return (
     <span className="sidebar-switch" data-testid="sidebar-switch">
       {folders && (
-        <button
+        <IconButton
           className={`sidebar-switch-btn${active === 'folders' ? ' on' : ''}`}
           data-testid="sidebar-view-folders"
           data-active={active === 'folders' ? 'true' : 'false'}
@@ -215,10 +216,10 @@ export function SidebarViewSwitch({
               <path d="M2 12.4V4.2a1 1 0 0 1 1-1h3.1l1.6 1.8H13a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1Z" />
             </g>
           </svg>
-        </button>
+        </IconButton>
       )}
       {toc && (
-        <button
+        <IconButton
           className={`sidebar-switch-btn${active === 'toc' ? ' on' : ''}`}
           data-testid="sidebar-view-toc"
           data-active={active === 'toc' ? 'true' : 'false'}
@@ -236,10 +237,10 @@ export function SidebarViewSwitch({
               <line x1="2.4" y1="13.4" x2="13.6" y2="13.4" />
             </g>
           </svg>
-        </button>
+        </IconButton>
       )}
       {search && (
-        <button
+        <IconButton
           className={`sidebar-switch-btn${active === 'search' ? ' on' : ''}`}
           data-testid="sidebar-view-search"
           data-active={active === 'search' ? 'true' : 'false'}
@@ -255,7 +256,7 @@ export function SidebarViewSwitch({
               <line x1="10.2" y1="10.2" x2="13.6" y2="13.6" />
             </g>
           </svg>
-        </button>
+        </IconButton>
       )}
     </span>
   );

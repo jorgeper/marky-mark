@@ -13,6 +13,8 @@ import {
   type DirectoryEntry,
   type MemberEntry,
 } from '../lib/membership';
+import { Button } from './ui/Button';
+import { IconButton } from './ui/IconButton';
 
 /** PRD 007 Req 6 (issue #180): the visible guest marker — rendered beside a
  *  name whenever the directory flags the user a guest of the tenant. */
@@ -186,15 +188,14 @@ export function MembershipPicker({
               // no avatar, not an error state.
               <span className="membership-name">{member.displayName}</span>
             )}
-            <button
-              type="button"
+            <IconButton
               className="membership-remove"
               data-testid={`membership-picker-remove-${member.id}`}
               aria-label={`Remove ${member.displayName}`}
               onClick={() => onRemove(member.id)}
             >
               ×
-            </button>
+            </IconButton>
           </li>
         ))}
       </ul>
@@ -203,7 +204,7 @@ export function MembershipPicker({
       <div className="membership-search">
         <input
           type="text"
-          className="membership-input"
+          className="field membership-input"
           data-testid="membership-picker-input"
           role="combobox"
           aria-expanded={open}
@@ -233,10 +234,12 @@ export function MembershipPicker({
                     chosen right here. */}
                 {invite && invite.offer(outcome.query, outcome.users) && (
                   <div className="membership-invite-row" data-testid="membership-picker-invite-row">
-                    <button
-                      type="button"
-                      // Issue #192: `primary` paints the offer with the shared accent rule.
-                      className="primary"
+                    <Button
+                      // PRD 018 Req 20 (issue #204): variant="primary" keeps
+                      // issue #192's accent fill on the invite offer (E380
+                      // asserts it); size="sm" fits the dropdown row.
+                      variant="primary"
+                      size="sm"
                       data-testid="membership-picker-invite"
                       // Keep focus in the input so the dropdown survives until the click lands.
                       onMouseDown={(e) => e.preventDefault()}
@@ -246,7 +249,7 @@ export function MembershipPicker({
                       }}
                     >
                       Invite {outcome.query.trim()} as
-                    </button>
+                    </Button>
                     <select
                       data-testid="membership-picker-invite-role"
                       aria-label="Role for the invited guest"
@@ -270,7 +273,7 @@ export function MembershipPicker({
                     <button
                       type="button"
                       tabIndex={-1}
-                      className={`membership-result${i === active ? ' active' : ''}`}
+                      className={`btn-quiet membership-result${i === active ? ' active' : ''}`}
                       data-testid={`membership-picker-result-${user.id}`}
                       // Keep focus in the input so the dropdown survives until the click lands.
                       onMouseDown={(e) => e.preventDefault()}

@@ -1,4 +1,5 @@
 import type { FrontMatterEntry } from '../lib/frontmatter';
+import { IconButton } from './ui/IconButton';
 
 /**
  * SPEC26 §2: the dim metadata card shown above the rendered document when
@@ -9,9 +10,9 @@ import type { FrontMatterEntry } from '../lib/frontmatter';
 export function FrontMatterCard({ entries, onClose }: { entries: FrontMatterEntry[]; onClose(): void }) {
   return (
     <div className="fm-card" data-testid="fm-card">
-      <button className="fm-close" data-testid="fm-close" aria-label="Hide front matter" title="Hide front matter" onClick={onClose}>
+      <IconButton className="fm-close" data-testid="fm-close" aria-label="Hide front matter" title="Hide front matter" onClick={onClose}>
         ×
-      </button>
+      </IconButton>
       <dl>
         {entries.map((e, i) =>
           e.key ? (

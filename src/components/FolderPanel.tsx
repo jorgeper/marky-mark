@@ -4,6 +4,8 @@ import { folderContextMenu, validateEntryName } from '../lib/folderOps';
 import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN, type ViewMode } from '../lib/settings';
 import { slideClasses, type SlidePhase } from '../lib/paneSlide';
 import { useAnchoredMenu } from './anchoredMenu';
+import { Button } from './ui/Button';
+import { IconButton } from './ui/IconButton';
 
 /**
  * SPEC34 §3: the folder sidebar — pure view. The owner (App) holds the
@@ -244,7 +246,7 @@ export function paneWidthDrag({
  */
 export function FolderExpandButton({ onClick }: { onClick(): void }) {
   return (
-    <button
+    <IconButton
       className="folder-expand"
       data-testid="folder-expand"
       title="Show the folder panel"
@@ -252,7 +254,7 @@ export function FolderExpandButton({ onClick }: { onClick(): void }) {
       onClick={onClick}
     >
       <Chevron dir="right" />
-    </button>
+    </IconButton>
   );
 }
 
@@ -268,7 +270,7 @@ export function FolderExpandButton({ onClick }: { onClick(): void }) {
 export function PreviewToggleButton({ open, onClick }: { open: boolean; onClick(): void }) {
   const label = open ? 'Hide the preview pane' : 'Show the preview pane';
   return (
-    <button
+    <IconButton
       className="preview-edge"
       data-testid={open ? 'preview-collapse' : 'preview-expand'}
       title={label}
@@ -276,7 +278,7 @@ export function PreviewToggleButton({ open, onClick }: { open: boolean; onClick(
       onClick={onClick}
     >
       <Chevron dir={open ? 'right' : 'left'} />
-    </button>
+    </IconButton>
   );
 }
 
@@ -294,7 +296,7 @@ export function ModeSwitchButton({ mode, onClick }: { mode: ViewMode; onClick():
   const toEdit = mode !== 'edit';
   const label = toEdit ? 'Switch to edit' : 'Switch to preview';
   return (
-    <button
+    <IconButton
       className="mode-edge"
       data-testid="mode-switch"
       data-mode={mode}
@@ -315,7 +317,7 @@ export function ModeSwitchButton({ mode, onClick }: { mode: ViewMode; onClick():
           </g>
         )}
       </svg>
-    </button>
+    </IconButton>
   );
 }
 
@@ -331,7 +333,7 @@ export function ModeSwitchButton({ mode, onClick }: { mode: ViewMode; onClick():
 export function SyncScrollButton({ on, onClick }: { on: boolean; onClick(): void }) {
   const label = on ? 'Scroll panes independently' : 'Scroll panes together';
   return (
-    <button
+    <IconButton
       className="sync-edge"
       data-testid="sync-scroll-toggle"
       data-state={on ? 'on' : 'off'}
@@ -347,7 +349,7 @@ export function SyncScrollButton({ on, onClick }: { on: boolean; onClick(): void
           {on ? <path d="M6.5 8h3" /> : <path d="M6 10.5l4-5" />}
         </g>
       </svg>
-    </button>
+    </IconButton>
   );
 }
 
@@ -427,7 +429,7 @@ function FileRow({
   const md = isMarkdownFile(name);
   const open = p.openFiles.includes(path);
   const selected = p.selectedPath === path;
-  const cls = `folder-item${md ? '' : ' folder-item-dim'}${open && !selected ? ' open' : ''}${selected ? ' selected' : ''}`;
+  const cls = `folder-item btn-quiet${md ? '' : ' folder-item-dim'}${open && !selected ? ' open' : ''}${selected ? ' selected' : ''}`;
   return (
     <button
       className={cls}
@@ -528,7 +530,7 @@ function Rows({
           return (
             <div key={path}>
               <button
-                className={`folder-item folder-item-dir${dnd.over === path ? ' drop-target' : ''}`}
+                className={`folder-item btn-quiet folder-item-dir${dnd.over === path ? ' drop-target' : ''}`}
                 data-testid="folder-item"
                 data-path={path}
                 style={{ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties}
@@ -638,19 +640,19 @@ export function FolderPanel(p: FolderPanelProps) {
               the closed pane's reopen chevron sits (FolderExpandButton at the
               head of the left cluster): open or closed, one spot, one glyph
               that only flips direction. */}
-          <button
+          <IconButton
             data-testid="folder-collapse"
             title="Hide the folder panel"
             aria-label="Hide the folder panel"
             onClick={p.onClose}
           >
             <Chevron dir="left" />
-          </button>
+          </IconButton>
           {p.viewSwitch}
           <span className="folder-title">{p.roots.length === 1 ? p.basename(p.roots[0]) : 'Folders'}</span>
-          <button
+          <IconButton
             data-testid="folder-open-only"
-            className={p.openOnly ? 'filter-on' : undefined}
+            className={p.openOnly ? 'on' : undefined}
             title={p.openOnly ? 'Show the folder tree' : 'Show only open files'}
             disabled={p.roots.length === 0 && p.openFiles.length === 0}
             onClick={p.onToggleOpenOnly}
@@ -662,10 +664,10 @@ export function FolderPanel(p: FolderPanelProps) {
                 <path d="M5.4 2.8h6.7a1.7 1.7 0 0 1 1.7 1.7v5.9" />
               </g>
             </svg>
-          </button>
-          <button
+          </IconButton>
+          <IconButton
             data-testid="folder-filter"
-            className={p.showNonMd ? undefined : 'filter-on'}
+            className={p.showNonMd ? undefined : 'on'}
             title={p.showNonMd ? 'Show markdown files only' : 'Show all files'}
             disabled={p.roots.length === 0 || p.openOnly}
             onClick={p.onToggleNonMd}
@@ -679,8 +681,8 @@ export function FolderPanel(p: FolderPanelProps) {
                 <line x1="2.6" y1="10.2" x2="13.4" y2="10.2" />
               </g>
             </svg>
-          </button>
-          <button
+          </IconButton>
+          <IconButton
             data-testid="folder-sync"
             title="Navigate to the open file"
             disabled={!p.selectedPath}
@@ -695,7 +697,7 @@ export function FolderPanel(p: FolderPanelProps) {
                 <line x1="12.8" y1="8" x2="15.1" y2="8" />
               </g>
             </svg>
-          </button>
+          </IconButton>
         </div>
         {p.openOnly ? (
           // SPEC36 §5.3: the flat only-open list — tree order, no chevrons, no
@@ -734,7 +736,7 @@ export function FolderPanel(p: FolderPanelProps) {
               return (
                 <div key={root}>
                   <button
-                    className={`folder-item folder-item-dir folder-root${dnd.over === root ? ' drop-target' : ''}`}
+                    className={`folder-item btn-quiet folder-item-dir folder-root${dnd.over === root ? ' drop-target' : ''}`}
                     data-testid="folder-root"
                     data-path={root}
                     title={root}
@@ -758,13 +760,13 @@ export function FolderPanel(p: FolderPanelProps) {
         ) : (
           <div className="folder-empty">
             {p.onAddFolder ? (
-              <button data-testid="folder-add-btn" onClick={p.onAddFolder}>
+              <Button pill data-testid="folder-add-btn" onClick={p.onAddFolder}>
                 Add Folder to Workspace…
-              </button>
+              </Button>
             ) : (
-              <button data-testid="folder-open-btn" onClick={p.onOpenFolder}>
+              <Button pill data-testid="folder-open-btn" onClick={p.onOpenFolder}>
                 Open Folder…
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -773,25 +775,25 @@ export function FolderPanel(p: FolderPanelProps) {
         {p.notice && (
           <div className="folder-notice" data-testid="folder-notice" role="alert">
             <span>{p.notice}</span>
-            <button data-testid="folder-notice-dismiss" title="Dismiss" onClick={p.onDismissNotice}>
+            <IconButton data-testid="folder-notice-dismiss" title="Dismiss" onClick={p.onDismissNotice}>
               ✕
-            </button>
+            </IconButton>
           </div>
         )}
         {menu && (
           <div
-            className="theme-menu folder-menu"
+            className="menu theme-menu folder-menu"
             data-testid="folder-menu"
             ref={menuRef}
             style={{ left: menu.x, top: menu.y }}
           >
             {folderContextMenu(menu.kind, { isMac: p.isMac, ...p.caps }).map((it, i) =>
               it === 'sep' ? (
-                <div key={`sep-${i}`} className="folder-menu-sep" />
+                <div key={`sep-${i}`} className="menu-sep" />
               ) : (
                 <button
                   key={it.id}
-                  className="theme-option"
+                  className="menu-item"
                   data-testid={`folder-menu-${it.id}`}
                   onClick={() => {
                     const m = menu;

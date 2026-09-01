@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { MembershipPicker } from './MembershipPicker';
+import { Button } from './ui/Button';
 import type { DirectoryEntry, MemberEntry } from '../lib/membership';
 import { timeAgo } from '../lib/time';
 import {
@@ -73,12 +74,13 @@ export function NewWorkspaceDialog({
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal workspace-modal" data-testid="new-workspace-dialog">
+      <div className="dialog workspace-modal" data-testid="new-workspace-dialog">
         <h2>New workspace</h2>
         <div className="field">
           <label htmlFor="new-workspace-name">Name</label>
           <input
             id="new-workspace-name"
+            className="field"
             data-testid="new-workspace-name"
             type="text"
             value={form.name}
@@ -105,6 +107,7 @@ export function NewWorkspaceDialog({
               </label>
               <select
                 id={`new-workspace-role-${member.id}`}
+                className="field"
                 data-testid={`new-workspace-role-${member.id}`}
                 value={member.role}
                 onChange={(e) => setRole(member.id, e.target.value)}
@@ -135,6 +138,7 @@ export function NewWorkspaceDialog({
             <label htmlFor="new-workspace-everyone-role">Their role</label>
             <select
               id="new-workspace-everyone-role"
+              className="field"
               data-testid="new-workspace-everyone-role"
               value={form.everyoneRole}
               onChange={(e) => setForm((prev) => ({ ...prev, everyoneRole: e.target.value }))}
@@ -153,18 +157,18 @@ export function NewWorkspaceDialog({
             {error}
           </p>
         )}
-        <div className="actions">
-          <button data-testid="new-workspace-cancel" onClick={onClose}>
+        <div className="dialog-actions">
+          <Button data-testid="new-workspace-cancel" onClick={onClose}>
             Cancel
-          </button>
-          <button
-            className="primary"
+          </Button>
+          <Button
+            variant="primary"
             data-testid="new-workspace-create"
             disabled={busy}
             onClick={() => void submit()}
           >
             Create
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -211,11 +215,12 @@ export function OpenWorkspaceDialog({
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal workspace-modal" data-testid="open-workspace-dialog">
+      <div className="dialog workspace-modal" data-testid="open-workspace-dialog">
         <h2>Open workspace</h2>
         <div className="field">
           <input
             type="text"
+            className="field"
             data-testid="open-workspace-search"
             placeholder="Search workspaces…"
             value={query}
@@ -231,7 +236,7 @@ export function OpenWorkspaceDialog({
             <li key={workspace.id}>
               <button
                 type="button"
-                className="workspace-list-item"
+                className="btn-quiet workspace-list-item"
                 data-testid={`open-workspace-item-${workspace.id}`}
                 onClick={() => void choose(workspace)}
               >
@@ -253,10 +258,10 @@ export function OpenWorkspaceDialog({
             {denied}
           </p>
         )}
-        <div className="actions">
-          <button data-testid="open-workspace-cancel" onClick={onClose}>
+        <div className="dialog-actions">
+          <Button data-testid="open-workspace-cancel" onClick={onClose}>
             Cancel
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -197,7 +197,7 @@ test('E26: settings shows four left tabs with the right content on each; control
   await expect(page.getByTestId('settings-tab-experimental')).toHaveText('Experimental');
   // Issue #21: General is listed first and is the default tab.
   await expect(tabs.locator('button').first()).toHaveText('General');
-  await expect(page.getByTestId('settings-tab-general')).toHaveClass(/active/);
+  await expect(page.getByTestId('settings-tab-general')).toHaveClass(/(^|\s)on(\s|$)/);
 
   // General (default): comments + navigation, no appearance/hotkeys/LLM controls.
   await expect(page.getByTestId('comment-storage')).toBeVisible();
@@ -252,7 +252,7 @@ test('E35: the settings dialog keeps one fixed size across all three tabs', asyn
   const boxes: Array<{ x: number; y: number; width: number; height: number }> = [];
   for (const tab of ['general', 'appearance', 'hotkeys'] as const) {
     await page.getByTestId(`settings-tab-${tab}`).click();
-    await expect(page.getByTestId(`settings-tab-${tab}`)).toHaveClass(/active/);
+    await expect(page.getByTestId(`settings-tab-${tab}`)).toHaveClass(/(^|\s)on(\s|$)/);
     boxes.push((await page.getByTestId('settings-panel').boundingBox())!);
   }
   for (const b of boxes.slice(1)) {

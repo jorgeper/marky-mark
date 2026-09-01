@@ -18,6 +18,7 @@ import {
   type RailArrowState,
 } from '../lib/fileTabs';
 import { useAnchoredMenu } from './anchoredMenu';
+import { IconButton } from './ui/IconButton';
 
 export interface FileTabStripProps {
   /** SPEC36 §1: the open set, tree-ordered — exactly one tab each. */
@@ -99,7 +100,7 @@ function Tab({ active, label, title, path, dirty, onClick, onClose, onMenu }: {
 }) {
   return (
     <button
-      className={`file-tab${active ? ' active' : ''}`}
+      className={`file-tab btn-quiet${active ? ' active' : ''}`}
       data-testid="file-tab"
       // `data-tab`, deliberately NOT the sidebar's `data-path`: e2e drives
       // rows through page-level `[data-path=…]` locators, and a second
@@ -169,10 +170,9 @@ function Tab({ active, label, title, path, dirty, onClick, onClose, onMenu }: {
 function ScrollArrow({ dir, enabled, onStep }: { dir: -1 | 1; enabled: boolean; onStep: () => void }) {
   const left = dir < 0;
   return (
-    <button
+    <IconButton
       className="file-tab-scroll"
       data-testid={left ? 'file-tab-scroll-left' : 'file-tab-scroll-right'}
-      type="button"
       aria-label={left ? 'Scroll tabs left' : 'Scroll tabs right'}
       disabled={!enabled}
       onClick={onStep}
@@ -187,7 +187,7 @@ function ScrollArrow({ dir, enabled, onStep }: { dir: -1 | 1; enabled: boolean; 
           strokeLinejoin="round"
         />
       </svg>
-    </button>
+    </IconButton>
   );
 }
 
@@ -378,7 +378,7 @@ export function FileTabStrip(p: FileTabStripProps) {
         // and dismissed per SPEC35 §3.2 like the sidebar's folder-menu, with
         // its own testids so the folder-menu* locators never match twice.
         <div
-          className="theme-menu file-tab-menu"
+          className="menu theme-menu file-tab-menu"
           data-testid="file-tab-menu"
           ref={menuRef}
           style={{ left: menu.x, top: menu.y }}
@@ -386,7 +386,7 @@ export function FileTabStrip(p: FileTabStripProps) {
           {fileTabContextMenu().map((it) => (
             <button
               key={it.id}
-              className="theme-option"
+              className="menu-item"
               data-testid={`file-tab-menu-${it.id}`}
               onClick={() => {
                 const target = menu.path;

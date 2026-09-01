@@ -41,6 +41,8 @@ import { buildStaticHtml, statsLine, type StaticComment } from './lib/exportDoc'
 import { buildPrintRootHtml, pickPrintTheme, PRINT_BODY_CLASS, PRINT_ROOT_ID } from './lib/printDoc';
 import { ExportDialog, type ExportRequest } from './components/ExportDialog';
 import { SavePicker } from './components/SavePicker';
+import { Button } from './components/ui/Button';
+import { IconButton } from './components/ui/IconButton';
 import {
   canOfferNewFile,
   defaultFolder,
@@ -6432,6 +6434,7 @@ export default function App() {
         it.kind === 'composer' ? (
           <div className="card composer" data-flowcard="__composer" data-testid="composer" key="__composer">
             <textarea
+              className="field"
               data-testid="composer-input"
               placeholder="Add a comment…"
               autoFocus
@@ -6453,17 +6456,19 @@ export default function App() {
               }}
             />
             <div className="row">
-              <button data-testid="composer-submit" onClick={submitComment}>
+              <Button variant="quiet" size="sm" data-testid="composer-submit" onClick={submitComment}>
                 Comment
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="quiet"
+                size="sm"
                 onClick={() => {
                   setPending(null);
                   setDraft('');
                 }}
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
@@ -7322,7 +7327,7 @@ export default function App() {
 
       {selInfo && affordanceSurface === 'preview' && (
         <button
-          className="add-comment-btn"
+          className="btn btn-pill add-comment-btn"
           data-testid="add-comment-btn"
           // The toolbar shell (z-index 80) covers the top 42px of the window,
           // so a selection near the pane's top edge used to clamp this button
@@ -7346,7 +7351,7 @@ export default function App() {
           preview button (issue #18). */}
       {affordanceSurface === 'edit' && (
         <button
-          className="add-comment-btn add-comment-btn-edit"
+          className="btn btn-pill add-comment-btn add-comment-btn-edit"
           data-testid="add-comment-btn-edit"
           style={{ top: nativeMenu ? 8 : 50 }}
           onMouseDown={(e) => e.preventDefault()}
@@ -7442,13 +7447,13 @@ export default function App() {
           data-testid="comment-nav"
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <button data-testid="comment-nav-prev" title="Previous comment" onClick={() => dispatchCommand('prevComment')}>
+          <IconButton data-testid="comment-nav-prev" title="Previous comment" onClick={() => dispatchCommand('prevComment')}>
             ↑
-          </button>
+          </IconButton>
           <span data-testid="comment-nav-count">{navLabelRef.current}</span>
-          <button data-testid="comment-nav-next" title="Next comment" onClick={() => dispatchCommand('nextComment')}>
+          <IconButton data-testid="comment-nav-next" title="Next comment" onClick={() => dispatchCommand('nextComment')}>
             ↓
-          </button>
+          </IconButton>
         </div>
       )}
 
@@ -7562,9 +7567,9 @@ export default function App() {
 
       {openPrompt && (
         <div className="overlay">
-          <div className="modal" data-testid="open-prompt">
+          <div className="dialog" data-testid="open-prompt">
             <h2>Unsaved changes</h2>
-            <p style={{ fontSize: 13.5 }}>
+            <p className="dialog-note">
               “{docPath ? platform.basename(docPath) : untitled ? 'Untitled' : 'This file'}” has unsaved changes. Save
               before{' '}
               {openPrompt.kind === 'open'
@@ -7574,8 +7579,8 @@ export default function App() {
                   : 'starting a new file'}
               ?
             </p>
-            <div className="actions">
-              <button
+            <div className="dialog-actions">
+              <Button
                 data-testid="open-cancel"
                 onClick={() => {
                   // PRD 013 Req 7: Cancel stops a running tab-menu close walk
@@ -7586,8 +7591,8 @@ export default function App() {
                 }}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 data-testid="open-discard"
                 onClick={() => {
                   const intent = openPrompt;
@@ -7602,9 +7607,9 @@ export default function App() {
                 }}
               >
                 Don’t save
-              </button>
-              <button
-                className="primary"
+              </Button>
+              <Button
+                variant="primary"
                 data-testid="open-save"
                 onClick={async () => {
                   const intent = openPrompt;
@@ -7629,7 +7634,7 @@ export default function App() {
                 }}
               >
                 Save
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -7640,32 +7645,32 @@ export default function App() {
       {saveConflict && (
         <div className="overlay">
           <div
-            className="modal"
+            className="dialog"
             data-testid="save-conflict-prompt"
             onKeyDown={(e) => {
               if (e.key === 'Escape') void resolveSaveConflict('cancel');
             }}
           >
             <h2>File changed elsewhere</h2>
-            <p style={{ fontSize: 13.5 }}>
+            <p className="dialog-note">
               “{platform.basename(saveConflict.path)}” was changed by someone else since you opened it.
               Your save was not applied — their version is still stored.
             </p>
-            <div className="actions">
-              <button data-testid="save-conflict-cancel" onClick={() => void resolveSaveConflict('cancel')}>
+            <div className="dialog-actions">
+              <Button data-testid="save-conflict-cancel" onClick={() => void resolveSaveConflict('cancel')}>
                 Cancel
-              </button>
-              <button data-testid="save-conflict-overwrite" onClick={() => void resolveSaveConflict('overwrite')}>
+              </Button>
+              <Button data-testid="save-conflict-overwrite" onClick={() => void resolveSaveConflict('overwrite')}>
                 Overwrite
-              </button>
-              <button
-                className="primary"
+              </Button>
+              <Button
+                variant="primary"
                 data-testid="save-conflict-reload"
                 autoFocus
                 onClick={() => void resolveSaveConflict('reload')}
               >
                 Reload
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -7680,17 +7685,17 @@ export default function App() {
       {summaryAsk && (
         <div className="overlay">
           <div
-            className="modal"
+            className="dialog"
             data-testid="summary-confirm"
             onKeyDown={(e) => {
               if (e.key === 'Escape') declineSummaryRun(); // Esc ⇒ cancel, as elsewhere
             }}
           >
             <h2>{CONFIRM_SUMMARIES_TITLE}</h2>
-            <p style={{ fontSize: 13.5 }} data-testid="summary-confirm-sections">
+            <p className="dialog-note" data-testid="summary-confirm-sections">
               {confirmSectionsLine(summaryAsk.estimate)}
             </p>
-            <p style={{ fontSize: 13.5 }} data-testid="summary-confirm-cost">
+            <p className="dialog-note" data-testid="summary-confirm-cost">
               {confirmCostLine(summaryAsk.estimate)}
             </p>
             <p className="hotkey-hint" data-testid="summary-confirm-note">
@@ -7707,13 +7712,13 @@ export default function App() {
                 Don’t ask again
               </label>
             </div>
-            <div className="actions">
-              <button data-testid="summary-confirm-cancel" autoFocus onClick={declineSummaryRun}>
+            <div className="dialog-actions">
+              <Button data-testid="summary-confirm-cancel" autoFocus onClick={declineSummaryRun}>
                 Cancel
-              </button>
-              <button className="primary" data-testid="summary-confirm-proceed" onClick={acceptSummaryRun}>
+              </Button>
+              <Button variant="primary" data-testid="summary-confirm-proceed" onClick={acceptSummaryRun}>
                 Summarize
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -7722,7 +7727,7 @@ export default function App() {
       {folderDeletePrompt && (
         <div className="overlay">
           <div
-            className="modal"
+            className="dialog"
             data-testid="folder-delete-prompt"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setFolderDeletePrompt(null); // §6.1: Esc ⇒ no-op
@@ -7732,7 +7737,7 @@ export default function App() {
                 version history) the prompt says so instead of naming a Trash
                 the user could go looking in. */}
             <h2>{platform.permanentDelete ? 'Delete' : 'Move to Trash'}</h2>
-            <p style={{ fontSize: 13.5 }}>
+            <p className="dialog-note">
               {platform.permanentDelete ? 'Permanently delete' : 'Move'} “
               {platform.basename(folderDeletePrompt.path)}”
               {folderDeletePrompt.isDir ? ' and its contents' : ''}
@@ -7741,12 +7746,12 @@ export default function App() {
                 ? ' It has unsaved changes.'
                 : ''}
             </p>
-            <div className="actions">
-              <button data-testid="folder-delete-cancel" onClick={() => setFolderDeletePrompt(null)}>
+            <div className="dialog-actions">
+              <Button data-testid="folder-delete-cancel" onClick={() => setFolderDeletePrompt(null)}>
                 Cancel
-              </button>
-              <button
-                className="primary"
+              </Button>
+              <Button
+                variant="primary"
                 data-testid="folder-delete-confirm"
                 autoFocus // §6.1: Confirm is the default (Enter)
                 onClick={() => {
@@ -7756,7 +7761,7 @@ export default function App() {
                 }}
               >
                 Move to Trash
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -7764,14 +7769,14 @@ export default function App() {
 
       {restorePrompt && (
         <div className="overlay">
-          <div className="modal" data-testid="restore-prompt">
+          <div className="dialog" data-testid="restore-prompt">
             <h2>Restore unsaved changes?</h2>
-            <p style={{ fontSize: 13.5 }}>
+            <p className="dialog-note">
               “{restorePrompt.docPath ? platform.basename(restorePrompt.docPath) : 'Untitled'}” has unsaved changes
               from a previous session.
             </p>
-            <div className="actions">
-              <button
+            <div className="dialog-actions">
+              <Button
                 data-testid="restore-no"
                 onClick={() => {
                   setRestorePrompt(null);
@@ -7779,9 +7784,9 @@ export default function App() {
                 }}
               >
                 Discard
-              </button>
-              <button
-                className="primary"
+              </Button>
+              <Button
+                variant="primary"
                 data-testid="restore-yes"
                 onClick={() => {
                   const d = restorePrompt;
@@ -7790,7 +7795,7 @@ export default function App() {
                 }}
               >
                 Restore
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -7801,14 +7806,14 @@ export default function App() {
           aborts the whole operation, Don't Save proceeds. */}
       {wsClosePrompt && (
         <div className="overlay">
-          <div className="modal" data-testid="ws-close-prompt">
+          <div className="dialog" data-testid="ws-close-prompt">
             <h2>Save workspace?</h2>
-            <p style={{ fontSize: 13.5 }}>
+            <p className="dialog-note">
               This workspace has unsaved changes (its folders or workspace settings). Save it as a workspace file
               before closing?
             </p>
-            <div className="actions">
-              <button
+            <div className="dialog-actions">
+              <Button
                 data-testid="ws-close-cancel"
                 onClick={() => {
                   wsCloseResumeRef.current = null;
@@ -7816,8 +7821,8 @@ export default function App() {
                 }}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 data-testid="ws-close-discard"
                 onClick={() => {
                   const go = wsCloseResumeRef.current;
@@ -7827,9 +7832,9 @@ export default function App() {
                 }}
               >
                 Don’t save
-              </button>
-              <button
-                className="primary"
+              </Button>
+              <Button
+                variant="primary"
                 data-testid="ws-close-save"
                 onClick={async () => {
                   const go = wsCloseResumeRef.current;
@@ -7841,7 +7846,7 @@ export default function App() {
                 }}
               >
                 Save
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -7849,14 +7854,14 @@ export default function App() {
 
       {closePrompt && (
         <div className="overlay">
-          <div className="modal" data-testid="close-prompt">
+          <div className="dialog" data-testid="close-prompt">
             <h2>Unsaved changes</h2>
-            <p style={{ fontSize: 13.5 }}>
+            <p className="dialog-note">
               “{docPath ? platform.basename(docPath) : untitled ? 'Untitled' : 'This file'}” has unsaved changes. Save
               before closing?
             </p>
-            <div className="actions">
-              <button
+            <div className="dialog-actions">
+              <Button
                 data-testid="close-cancel"
                 onClick={() => {
                   // SPEC36 §7.1: Cancel aborts the ENTIRE quit walk — and any
@@ -7867,8 +7872,8 @@ export default function App() {
                 }}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 data-testid="close-discard"
                 onClick={() => {
                   setClosePrompt(false);
@@ -7884,9 +7889,9 @@ export default function App() {
                 }}
               >
                 Don’t save
-              </button>
-              <button
-                className="primary"
+              </Button>
+              <Button
+                variant="primary"
                 data-testid="close-save"
                 onClick={async () => {
                   // SPEC22 §2.3: a cancelled Save As (untitled buffer) aborts the close.
@@ -7907,7 +7912,7 @@ export default function App() {
                 }}
               >
                 Save
-              </button>
+              </Button>
             </div>
           </div>
         </div>

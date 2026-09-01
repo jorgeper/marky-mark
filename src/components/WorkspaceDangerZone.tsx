@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import { deleteConfirmationMatches } from '../lib/workspaceLifecycle';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
+import { Button } from './ui/Button';
 
 export function WorkspaceDangerZone({ lifecycle }: { lifecycle: WorkspaceLifecycle }) {
   const id = lifecycle.currentId();
@@ -61,6 +62,7 @@ export function WorkspaceDangerZone({ lifecycle }: { lifecycle: WorkspaceLifecyc
         <input
           id="workspace-delete-confirm"
           data-testid="workspace-delete-confirm"
+          className="field"
           type="text"
           value={typed}
           placeholder={name}
@@ -72,15 +74,18 @@ export function WorkspaceDangerZone({ lifecycle }: { lifecycle: WorkspaceLifecyc
           {error}
         </p>
       )}
-      <button
-        type="button"
-        className="destructive"
+      {/* PRD 018 Req 21 (issue #204): the destructive FILL — danger fg on
+          danger bg — is the .btn-danger.btn-primary compound, replacing the
+          old .workspace-danger button.destructive rule. */}
+      <Button
+        variant="danger"
+        className="btn-primary"
         data-testid="workspace-delete-submit"
         disabled={!armed || busy}
         onClick={() => void remove()}
       >
         Delete this workspace
-      </button>
+      </Button>
     </div>
   );
 }

@@ -205,7 +205,7 @@ test('E15: embedded mode — comments autosave into an invisible trailer, sideca
   // Issue #21: Workspace scope shows the same left tab rail, minus Hotkeys.
   await expect(page.getByTestId('settings-tabs').locator('button')).toHaveCount(3);
   await expect(page.getByTestId('settings-tab-hotkeys')).toHaveCount(0);
-  await expect(page.getByTestId('settings-tab-general')).toHaveClass(/active/);
+  await expect(page.getByTestId('settings-tab-general')).toHaveClass(/(^|\s)on(\s|$)/);
   await page.getByTestId('comment-storage').selectOption('embedded');
   await page.getByTestId('settings-close').click();
 

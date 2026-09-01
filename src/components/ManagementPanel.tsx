@@ -34,6 +34,7 @@ import { deleteConfirmationMatches, formatOwnerNames } from '../lib/workspaceLif
 import type { DeploymentAdmin } from '../platform/hostedAdmin';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 import { MembershipPicker } from './MembershipPicker';
+import { Button } from './ui/Button';
 
 type ManagementTab = 'workspaces' | 'people' | 'settings';
 
@@ -357,6 +358,7 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
       <div className="inline-row">
         <input
           type="text"
+          className="field"
           data-testid="admin-workspaces-filter"
           placeholder="Filter workspaces…"
           value={wsQuery}
@@ -414,16 +416,18 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
                 <td data-testid={`admin-workspace-size-${row.id}`}>{formatByteSize(row.totalBytes)}</td>
                 <td className="admin-row-actions">
                   {/* PRD 017 Req 17: bind exactly as the Open dialog does. */}
-                  <button
-                    type="button"
+                  <Button
+                    variant="quiet"
+                    size="sm"
                     data-testid={`admin-workspace-open-${row.id}`}
                     onClick={() => lifecycle.navigateTo(row.id)}
                   >
                     Open
-                  </button>
-                  <button
-                    type="button"
-                    className="destructive"
+                  </Button>
+                  <Button
+                    variant="quiet"
+                    size="sm"
+                    className="btn-danger"
                     data-testid={`admin-workspace-delete-${row.id}`}
                     onClick={() => {
                       setCondemned(row);
@@ -432,7 +436,7 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
                     }}
                   >
                     Delete
-                  </button>
+                  </Button>
                 </td>
               </tr>
             ))}
@@ -447,6 +451,7 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
       <div className="inline-row">
         <input
           type="text"
+          className="field"
           data-testid="admin-users-filter"
           placeholder="Filter people…"
           value={peopleQuery}
@@ -454,9 +459,8 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
         />
         {/* PRD 017 Req 31: the Invite… action opens the small form below.
             Issue #192: primary — it is the tab's one call to action. */}
-        <button
-          type="button"
-          className="primary"
+        <Button
+          variant="primary"
           data-testid="admin-invite-open"
           onClick={() => {
             setInviteOpen((open) => !open);
@@ -464,7 +468,7 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
           }}
         >
           Invite…
-        </button>
+        </Button>
       </div>
       {inviteOpen && (
         <div className="field" data-testid="admin-invite-form">
@@ -472,6 +476,7 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
           <input
             id="admin-invite-email"
             data-testid="admin-invite-email"
+            className="field"
             type="text"
             value={inviteEmail}
             placeholder="person@example.com"
@@ -481,6 +486,7 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
           <input
             id="admin-invite-note"
             data-testid="admin-invite-note"
+            className="field"
             type="text"
             value={inviteNote}
             onChange={(e) => setInviteNote(e.target.value)}
@@ -490,28 +496,26 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
               {inviteError}
             </p>
           )}
-          <div className="actions">
-            <button
-              type="button"
-              className="primary"
+          <div className="dialog-actions">
+            <Button
+              variant="primary"
               data-testid="admin-invite-send"
               disabled={inviteBusy}
               onClick={() => void submitInvite(true)}
             >
               Send
-            </button>
+            </Button>
             {/* Issue #195: the same creation without Microsoft's mail — the
                 redeem URL below is the invitation, for when the mail cannot
                 be trusted to arrive. Secondary: Send stays the call to
                 action (issue #192). */}
-            <button
-              type="button"
+            <Button
               data-testid="admin-invite-get-link"
               disabled={inviteBusy}
               onClick={() => void submitInvite(false)}
             >
               Get invite link
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -525,8 +529,9 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
             <code className="admin-link-url" data-testid="admin-invite-link-url">
               {inviteLink.url}
             </code>
-            <button
-              type="button"
+            <Button
+              variant="quiet"
+              size="sm"
               data-testid="admin-invite-link-copy"
               onClick={() => {
                 void copy(inviteLink.url).then((ok) => {
@@ -535,7 +540,7 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
               }}
             >
               Copy
-            </button>
+            </Button>
             {inviteLinkCopied && (
               <span className="hotkey-hint" data-testid="admin-invite-link-copied">
                 Copied
@@ -590,14 +595,15 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
                       Graph re-answers a redeem URL solely for an unredeemed
                       invitation, and the server 409s everyone else. */}
                   {user.pending === true && (
-                    <button
-                      type="button"
+                    <Button
+                      variant="quiet"
+                      size="sm"
                       data-testid={`admin-copy-link-${user.id}`}
                       disabled={rowLinkBusy === user.id}
                       onClick={() => void copyRowLink(user)}
                     >
                       Copy invite link
-                    </button>
+                    </Button>
                   )}
                   {rowLink?.id === user.id && rowLink.kind === 'copied' && (
                     <span className="hotkey-hint" data-testid={`admin-copy-link-copied-${user.id}`} role="status">
@@ -619,9 +625,10 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
                   {/* Issue #193: ONLY a Pending row offers Rescind — members
                       and accepted guests are managed in Entra, never here. */}
                   {user.pending === true && (
-                    <button
-                      type="button"
-                      className="destructive"
+                    <Button
+                      variant="quiet"
+                      size="sm"
+                      className="btn-danger"
                       data-testid={`admin-rescind-${user.id}`}
                       onClick={() => {
                         setRescinding(user);
@@ -629,7 +636,7 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
                       }}
                     >
                       Rescind
-                    </button>
+                    </Button>
                   )}
                 </td>
               </tr>
@@ -712,24 +719,24 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
           Settings saved.
         </p>
       )}
-      <div className="actions">
-        <button type="button" className="primary" data-testid="admin-settings-save" onClick={() => void saveSettings()}>
+      <div className="dialog-actions">
+        <Button variant="primary" data-testid="admin-settings-save" onClick={() => void saveSettings()}>
           Save
-        </button>
+        </Button>
       </div>
     </div>
   );
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal management-modal" data-testid="management-panel">
+      <div className="dialog management-modal" data-testid="management-panel">
         <div className="settings-body">
           <nav className="tab-rail" data-testid="management-tabs">
             {TABS.map((t) => (
               <button
                 key={t.id}
                 type="button"
-                className={`tab-btn${tab === t.id ? ' active' : ''}`}
+                className={`btn btn-quiet tab-btn${tab === t.id ? ' on' : ''}`}
                 data-testid={`management-tab-${t.id}`}
                 onClick={() => setTab(t.id)}
               >
@@ -741,10 +748,10 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
             {tab === 'workspaces' && workspacesTab}
             {tab === 'people' && peopleTab}
             {tab === 'settings' && settingsTab}
-            <div className="actions">
-              <button type="button" className="primary" data-testid="management-close" onClick={onClose}>
+            <div className="dialog-actions">
+              <Button variant="primary" data-testid="management-close" onClick={onClose}>
                 Done
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -752,7 +759,7 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
             so the admin sees exactly whose invitation is being revoked. */}
         {rescinding && (
           <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && setRescinding(null)}>
-            <div className="modal workspace-danger" data-testid="admin-rescind-dialog">
+            <div className="dialog workspace-danger" data-testid="admin-rescind-dialog">
               <h2>Rescind invitation</h2>
               <p className="hotkey-hint" data-testid="admin-rescind-message">
                 Rescinding removes {rescinding.username}’s pending guest account and any workspace
@@ -763,19 +770,23 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
                   {rescindError}
                 </p>
               )}
-              <div className="actions">
-                <button type="button" data-testid="admin-rescind-cancel" onClick={() => setRescinding(null)}>
+              <div className="dialog-actions">
+                <Button data-testid="admin-rescind-cancel" onClick={() => setRescinding(null)}>
                   Cancel
-                </button>
-                <button
-                  type="button"
-                  className="destructive"
+                </Button>
+                {/* PRD 018 Req 21 (issue #204): the destructive FILL — this
+                    confirm was a .workspace-danger button.destructive, so it
+                    keeps the danger bg via the .btn-danger.btn-primary
+                    compound, like WorkspaceDangerZone's submit. */}
+                <Button
+                  variant="danger"
+                  className="btn-primary"
                   data-testid="admin-rescind-confirm"
                   disabled={rescindBusy}
                   onClick={() => void rescindConfirmed()}
                 >
                   Rescind invitation
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -784,7 +795,7 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
             WorkspaceDangerZone's wording behind the same exact-name gate. */}
         {condemned && (
           <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && setCondemned(null)}>
-            <div className="modal workspace-danger" data-testid="admin-delete-dialog">
+            <div className="dialog workspace-danger" data-testid="admin-delete-dialog">
               <h2>Delete workspace</h2>
               <p className="hotkey-hint">
                 Deleting “{condemnedName}” permanently removes its documents, comments and images for
@@ -795,6 +806,7 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
                 <input
                   id="admin-delete-confirm"
                   data-testid="admin-delete-confirm"
+                  className="field"
                   type="text"
                   value={typed}
                   placeholder={condemnedName}
@@ -806,19 +818,20 @@ export function ManagementPanel({ admin, lifecycle, copy, onClose }: ManagementP
                   {deleteError}
                 </p>
               )}
-              <div className="actions">
-                <button type="button" data-testid="admin-delete-cancel" onClick={() => setCondemned(null)}>
+              <div className="dialog-actions">
+                <Button data-testid="admin-delete-cancel" onClick={() => setCondemned(null)}>
                   Cancel
-                </button>
-                <button
-                  type="button"
-                  className="destructive"
+                </Button>
+                {/* PRD 018 Req 21 (issue #204): destructive fill, as above. */}
+                <Button
+                  variant="danger"
+                  className="btn-primary"
                   data-testid="admin-delete-submit"
                   disabled={!deleteConfirmationMatches(typed, condemnedName) || deleteBusy}
                   onClick={() => void deleteCondemned()}
                 >
                   Delete this workspace
-                </button>
+                </Button>
               </div>
             </div>
           </div>
