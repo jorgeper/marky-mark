@@ -15,6 +15,23 @@ import { dirtyActiveDoc, freshApp, openSettings, openWelcomeViaHelp, revealToolb
 // surface, which only exist on this flavor.
 const HOSTED = 'http://localhost:4924';
 
+/** Sign in as a seeded mock user via the API (hosted.spec.ts's signIn, local
+ * to that file too) and return the Authorization header the roaming and
+ * workspace endpoints want. */
+async function hostedAuthHeaders(page: Page, username: string): Promise<{ Authorization: string }> {
+  const auth = await page.request.post(`${HOSTED}/api/auth/sign-in`, { data: { username } });
+  expect(auth.status()).toBe(200);
+  return { Authorization: `Bearer ${((await auth.json()) as { token: string }).token}` };
+}
+
+/** Delete one of the user's roaming files, tolerating its absence. A
+ * leftover draft.json would trap the boot under the restore overlay (see
+ * hosted.spec.ts's signInTo), so every UI entry here starts draft-free. */
+async function dropRoamingFile(page: Page, headers: { Authorization: string }, file: string): Promise<void> {
+  const dropped = await page.request.delete(`${HOSTED}/api/me/files/${file}`, { headers });
+  expect([200, 404]).toContain(dropped.status());
+}
+
 /** The computed properties PRD 018 Req 30 makes the agreement contract. */
 type ChromeSample = {
   radius: string;
@@ -166,16 +183,12 @@ test('E394: the hosted sign-in submit and the post-login splash actions are one 
   // pre-auth page's own root (its Crisp-fallback contract).
   expect(signInSubmit.bg).toBe(await resolvedColor(page, '.hosted-signin', '--mm-bg-elevated'));
 
-  // Reset ada's roaming state before entering the app: a leftover draft
-  // would trap the boot under the restore overlay (see hosted.spec.ts's
-  // signInTo), and a leftover theme choice would restyle the splash side of
-  // the pair this test compares against the theme-less sign-in page.
-  const auth = await page.request.post(`${HOSTED}/api/auth/sign-in`, { data: { username: 'ada' } });
-  expect(auth.status()).toBe(200);
-  const headers = { Authorization: `Bearer ${((await auth.json()) as { token: string }).token}` };
+  // Reset ada's roaming state before entering the app: beside the usual
+  // draft, a leftover theme choice (settings.json) would restyle the splash
+  // side of the pair this test compares against the theme-less sign-in page.
+  const headers = await hostedAuthHeaders(page, 'ada');
   for (const file of ['draft.json', 'settings.json']) {
-    const dropped = await page.request.delete(`${HOSTED}/api/me/files/${file}`, { headers });
-    expect([200, 404]).toContain(dropped.status());
+    await dropRoamingFile(page, headers, file);
   }
 
   await page.getByTestId('hosted-sign-in-username').fill('ada');
@@ -192,10 +205,7 @@ test('E395: the workspace settings destructive button is the danger fill on the 
   // PRD 018 Req 30: the destructive control from a workspace settings
   // surface — .btn-danger.btn-primary — keeps the .btn geometry and takes
   // its fill from the one danger token.
-  const auth = await page.request.post(`${HOSTED}/api/auth/sign-in`, { data: { username: 'ada' } });
-  expect(auth.status()).toBe(200);
-  const token = ((await auth.json()) as { token: string }).token;
-  const headers = { Authorization: `Bearer ${token}` };
+  const headers = await hostedAuthHeaders(page, 'ada');
   const created = await page.request.post(`${HOSTED}/api/workspaces`, {
     headers,
     data: { name: `E395 styling w${test.info().workerIndex}` },
@@ -203,8 +213,7 @@ test('E395: the workspace settings destructive button is the danger fill on the 
   expect(created.status()).toBe(201);
   const id = ((await created.json()) as { id: string }).id;
 
-  const dropped = await page.request.delete(`${HOSTED}/api/me/files/draft.json`, { headers });
-  expect([200, 404]).toContain(dropped.status());
+  await dropRoamingFile(page, headers, 'draft.json');
   await page.goto(`${HOSTED}/?workspace=${id}`);
   await page.getByTestId('hosted-sign-in-username').fill('ada');
   await page.getByTestId('hosted-sign-in-submit').click();
