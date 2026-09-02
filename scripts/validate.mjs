@@ -6,7 +6,9 @@
  *   1b. docs/MAP.md freshness (matches what scripts/map.mjs derives)
  *   1c. CLAUDE.md resolves to AGENTS.md (root symlink intact)
  *   1d. test-ID uniqueness (no U/E/W title ID appears twice under tests/)
- *   1e. desktop-shim e2e test-count floor (Playwright's own collection)
+ *   1e. style lint (PRD 018 §E26–§E27: styles.css + TSX chrome stay on the
+ *       token/primitive layer; rules in docs/STYLE-GUIDE.md)
+ *   1f. desktop-shim e2e test-count floor (Playwright's own collection)
  *   2. tsc --noEmit
  *   3. unit tests (Vitest, U1–U21)
  *   4. desktop e2e (Playwright, browser platform shim, E1–E41 + E45–E50)
@@ -20,8 +22,9 @@
  *
  * SPEC33 §1.1: `--quick` runs the inner-loop subset only — version
  * lock-step, MAP.md freshness, the CLAUDE.md symlink check, test-ID
- * uniqueness, the e2e count floor, typecheck, unit tests, desktop-shim
- * e2e — and prints the DISTINCT line `QUICK VALIDATION: ALL PASSED`.
+ * uniqueness, the style lint, the e2e count floor, typecheck, unit tests,
+ * desktop-shim e2e — and prints the DISTINCT line `QUICK VALIDATION: ALL
+ * PASSED`.
  * Only the full gate's `VALIDATION: ALL PASSED` counts as release
  * evidence. The full step list below is untouched.
  */
@@ -234,6 +237,28 @@ if (duplicatedIds.length > 0) {
 console.log(`${idFiles.size} test IDs across tests/ — no U/E/W ID appears twice`);
 record('test-ID uniqueness', Date.now() - idScanStart);
 
+// Style lint (PRD 018 §E26–§E27, issue #205): src/styles.css and the TSX
+// chrome stay on the chrome-token/primitive layer — no colour literals
+// outside token definitions, no undefined var(--mm-…), no bare descendant
+// button/input rules, scale properties through tokens, raw <button> only
+// with a primitive class, no literal inline chrome styles. The rules are
+// the lint-enforced entries of docs/STYLE-GUIDE.md's Do / Don't list; the
+// implementation is the importable scripts/style-lint.mjs (unit-tested in
+// tests/unit/style-lint.test.ts). Reads files synchronously, no spawns —
+// so it sits with the file checks above and runs in the quick tier too.
+console.log(`\n=== validate: style lint === (start ${elapsed()})`);
+const styleLintStart = Date.now();
+const { runStyleLint } = await import('./style-lint.mjs');
+const styleFindings = runStyleLint(root);
+if (styleFindings.length > 0) {
+  for (const f of styleFindings) console.error(`  ${f.file}:${f.line}  ${f.message}`);
+  console.error("  The rules and their fixes are in docs/STYLE-GUIDE.md (Do / Don't list).");
+  console.error('\nVALIDATION FAILED at step: style lint');
+  process.exit(1);
+}
+console.log('style lint: chrome styling in src/styles.css and src TSX resolves through the PRD 018 token/primitive layer');
+record('style lint', Date.now() - styleLintStart);
+
 // Issue #31 — committed test-count floor for the desktop-shim e2e suite. The
 // count is Playwright's OWN collection (`playwright test --list`, which honours
 // the config's testMatch/testIgnore), never a grep over the spec sources: after
@@ -351,7 +376,7 @@ const runSteps = QUICK ? steps.filter((s) => QUICK_STEPS.has(s.name)) : steps;
 
 // The pre-`steps` checks that already ran above, in order — named here so the
 // step-count summary can't drift from the list.
-const PRE_STEPS = ['version lock-step', 'docs/MAP.md up to date', 'CLAUDE.md resolves to AGENTS.md', 'test-ID uniqueness', 'e2e test-count floor (desktop shim)'];
+const PRE_STEPS = ['version lock-step', 'docs/MAP.md up to date', 'CLAUDE.md resolves to AGENTS.md', 'test-ID uniqueness', 'style lint', 'e2e test-count floor (desktop shim)'];
 console.log(
   `\nvalidate${QUICK ? ':quick' : ''} — ${PRE_STEPS.length + runSteps.length} steps: ${[...PRE_STEPS, ...runSteps.map((s) => s.name)].join(' → ')}`
 );

@@ -1,0 +1,29 @@
+# Spec: Style guide, standards pointers, and quick-tier style lint (PRD 018 Reqs 22–29) (#205)
+
+## Goal
+
+All acceptance criteria in issue-specs/issue-205.md are satisfied for issue #205, with evidence visible in the session: docs/STYLE-GUIDE.md exists with the chrome token table, primitive vocabulary, wrapper docs, and a lint-annotated Do / Don't list; scripts/validate.mjs runs a spawn-free style lint over src/styles.css and src/**/*.tsx in both the quick and full tiers, with unit tests exercising each rule; the standards pointers in .sandcastle/CODING_STANDARDS.md and AGENTS.md are in place with docs/MAP.md regenerated; and `npm run validate:quick` has printed `QUICK VALIDATION: ALL PASSED` in the implementer's session.
+
+## Acceptance criteria
+
+- (Req 22) `docs/STYLE-GUIDE.md` exists and contains: the chrome token table (name, default, use); the primitive vocabulary with a prose description of each variant and when to choose it; the wrapper components in `src/components/ui/` (Button, IconButton, Dialog, Menu) and their props; the rule for what an app-specific class may and may not declare (PRD 018 Req 13); the theme-override story (PRD 018 Req 6 / THEMES.md "Chrome tokens (optional)"); and a Do / Don't list covering at least: raw colour literals, new one-off button classes, descendant `button` rules, inline font sizes, and `var()` fallbacks on defined tokens.
+- (Req 23) `.sandcastle/CODING_STANDARDS.md` contains a "UI styling" subsection of ≤ 15 lines stating the rules the lint enforces and pointing at `docs/STYLE-GUIDE.md` for the rest.
+- (Req 24) `AGENTS.md` contains a single added line under "Directory map" (or the most fitting existing section) pointing at `docs/STYLE-GUIDE.md`, and the file stays within its documented ~150-line budget.
+- (Req 25) `docs/MAP.md` matches what `npm run map` regenerates from the tree, so the `src/components/ui/` files and any new style-guide-related citations appear under PRD 018's row (the existing MAP-freshness gate in validate.mjs verifies this).
+- (Req 26) `scripts/validate.mjs` contains a spawn-free "style lint" step that runs in the quick tier (`--quick`) and the full tier and fails with a `file:line` message when, in `src/styles.css` outside the delimited `CHROME TOKENS — BEGIN/END` block and outside every delimited `DOCUMENT RENDERING — BEGIN/END` section (there are multiple such pairs; the marker text is exact): a hex, `rgb()`, `rgba()`, or `hsl()` colour literal appears other than as a `var()` fallback for a contract variable; a `var(--mm-…)` names a property not defined in `src/styles.css` or listed in `THEMES.md`; a selector ends in a bare ` button`, ` input`, ` select`, or ` textarea` descendant; or a `font-size`, `border-radius`, or `box-shadow` declaration in a chrome rule uses a literal rather than a token.
+- (Req 27) The same step scans `src/**/*.tsx` and fails on `<button` elements that carry neither a `.btn*` / `.icon-btn` class nor come from `src/components/ui/`, and on inline `style={{` objects containing `fontSize`, `color`, `background`, or `borderRadius` keys with literal values.
+- The style lint passes on the current tree: the migration landed in #204, so a clean checkout must not trip any rule (if a rule fires on existing code, the finding is either fixed in-scope or the rule's exemption is made precise — not silently loosened).
+- (Req 28) The lint has unit tests under `tests/unit/` using the next unused `U<n>` ids (U1015 onward as of this writing — re-check with the test-ID uniqueness gate before committing), exercising each rule above with a passing and a failing fixture.
+- (Req 29) Every rule in `docs/STYLE-GUIDE.md`'s Do / Don't list that the lint enforces is marked as lint-enforced in the guide, and the lint enforces no rule absent from the list.
+- Changed behaviour carries citation comments per `.sandcastle/CODING_STANDARDS.md` (the existing style for this PRD is `// PRD 018 §E26: <what and why>`, as in `src/components/ui/Button.tsx`), and no new runtime dependency is added to `package.json` `dependencies`.
+- Iteration during implementation used `npm run typecheck` and `npm run test:unit` (or tests targeted at the changed code); the full gate ran once at the end, not after every small change and not as a baseline at the start.
+- `npm run validate:quick` has been run in the implementer's session, right before declaring the goal met, and printed `QUICK VALIDATION: ALL PASSED`.
+- A summary comment from the implementer exists on issue #205.
+
+## Context
+
+PRD: `prd/018-consistent-ui-styling.md` §D (Reqs 22–25) and §E (Reqs 26–29); parent issue #198. The token/primitive layers landed in #203 and the chrome migration in #204 (this branch already has both), so this issue is documentation plus enforcement only — no visual changes.
+
+`scripts/validate.mjs` (~469 lines) already has a family of spawn-free file checks that sit ahead of the `steps` array and run in the quick tier (MAP freshness at line ~150, CLAUDE.md symlink, test-ID uniqueness); the style lint should follow that exact pattern — read files synchronously, print `file:line` findings, `process.exit(1)` with a `VALIDATION FAILED at step:` line, and `record()` its timing. To make Req 28 testable, put the lint's core in an importable module (e.g. `scripts/style-lint.mjs`, mirroring how `scripts/map.mjs` exports `mapFromTree` for `tests/unit/map.test.ts`) and have validate.mjs import it.
+
+`src/styles.css` delimiters: one `CHROME TOKENS — BEGIN/END (PRD 018 Req 1)` pair (~lines 50–139) and multiple `DOCUMENT RENDERING — BEGIN/END (PRD 018 Req 17)` pairs — the lint must skip all of them. Contract variables (for the "var() fallback" exemption) are the theme-contract properties documented in `THEMES.md`. Unit tests run with `vitest` via `npm run test:unit`; highest existing unit-test id is U1014.

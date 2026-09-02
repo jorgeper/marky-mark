@@ -23,6 +23,22 @@ live in `review-checklist.md`; only Marky Mark-specific rules belong here.
   Ctrl on *every* platform (SPEC36 §6.1), never "Ctrl because this is the
   Windows path".
 
+### UI styling
+
+App chrome is built from PRD 018's tokens and primitives; the style lint in
+`scripts/validate.mjs` (quick tier too) enforces, over `src/styles.css`
+(outside its delimited token/document-rendering blocks) and `src/**/*.tsx`:
+
+- no raw colour literals in chrome rules (tokens only; literals live in
+  custom-property definitions and contract-variable `var()` fallbacks);
+- every `var(--mm-…)` names a property defined in `styles.css`/`THEMES.md`;
+- no selector ends in a bare descendant ` button`/` input`/` select`/` textarea`;
+- `font-size` / `border-radius` / `box-shadow` resolve through scale tokens;
+- every TSX `<button>` is a ui/ wrapper or carries `.btn*`/`.icon-btn`/`.menu-item`;
+- no literal `fontSize`/`color`/`background`/`borderRadius` in inline styles.
+
+Vocabulary, wrapper props, and the full Do / Don't: `docs/STYLE-GUIDE.md`.
+
 ## Testing
 
 - Every test's title starts with its stable ID: `U<n>:` unit, `E<n>:` desktop
