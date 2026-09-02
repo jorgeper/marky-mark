@@ -471,10 +471,12 @@ test('W13: the single-file web start page offers the drag hint and Open File —
   await expect(menu.getByTestId('menu-save')).toBeDisabled();
   await expect(menu.getByTestId('menu-save-as')).toBeDisabled();
   await page.keyboard.press('Escape');
-  // Close the menu with an outside mousedown — the only close PRD 009 Req 12
-  // sanctions besides a row or the hamburger. The docname is no click target
-  // here: on the start page it is contractually empty (SPEC5 §1 amended,
-  // issue #197 — nothing fills the title slot), so the span has no height.
+  // Close the menu with an outside mousedown — besides a row or the
+  // hamburger, the only close the app menu implements (Toolbar's document-
+  // level mousedown handler; the Escape above never reaches it). The docname
+  // is no click target here: on the start page it is contractually empty
+  // (SPEC5 §1 amended, issue #197 — nothing fills the title slot), so the
+  // span has no height.
   await page.getByTestId('start-drop').click();
   await expect(menu).toHaveCount(0);
 
