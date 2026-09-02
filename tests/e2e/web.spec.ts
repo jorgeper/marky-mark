@@ -471,7 +471,12 @@ test('W13: the single-file web start page offers the drag hint and Open File —
   await expect(menu.getByTestId('menu-save')).toBeDisabled();
   await expect(menu.getByTestId('menu-save-as')).toBeDisabled();
   await page.keyboard.press('Escape');
-  await page.getByTestId('docname').click(); // close the menu
+  // Close the menu with an outside mousedown — the only close PRD 009 Req 12
+  // sanctions besides a row or the hamburger. The docname is no click target
+  // here: on the start page it is contractually empty (SPEC5 §1 amended,
+  // issue #197 — nothing fills the title slot), so the span has no height.
+  await page.getByTestId('start-drop').click();
+  await expect(menu).toHaveCount(0);
 
   // Open File on the start page opens a local file, fully client-side.
   const chooser = page.waitForEvent('filechooser');
