@@ -66,8 +66,15 @@ body,
    the PRD's 2026-09-01 survey as the most frequent value already doing that
    job — chosen, not invented. The lint sub-issue (PRD 018 Req 26) will grep
    this delimited block: every chrome token stays between the BEGIN/END
-   markers. */
-.theme-root {
+   markers.
+
+   PRD 018 Req 30 (issue #206): the hosted pre-auth page mounts OUTSIDE
+   .theme-root (see .hosted-signin), yet its sign-in controls are the same
+   .btn / .field primitives — so the token layer is scoped to that root too,
+   or every token there resolves to nothing and the primitives collapse to
+   unstyled defaults (E394 pins the agreement). */
+.theme-root,
+.hosted-signin {
   /* Spacing scale (PRD 018 Req 1): the file's most common chrome gaps and
      paddings, smallest to largest. */
   --mm-space-1: 4px;
@@ -3605,8 +3612,21 @@ input.folder-rename-input.invalid {
   color: var(--mm-fg, #1f2328);
   /* Issue #200: this page mounts outside .theme-root, so it declares the
      body font itself — otherwise everything here inherits the browser's
-     serif default. Fallback stack matches .theme-root above. */
-  font-family: var(--mm-font-body, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+     serif default. PRD 018 Req 30 (issue #206): the fallback stack is
+     Crisp's --mm-font-body VERBATIM — E394 asserts the sign-in button and
+     the splash actions share one computed font-family, and under the
+     default theme that only holds if this list matches the theme's. */
+  font-family: var(--mm-font-body, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif);
+  /* PRD 018 Req 30 (issue #206): no theme stylesheet exists pre-auth, so
+     the contract colours the primitives consume WITHOUT per-site fallbacks
+     (.btn's bg/border/fg, .field's bg) are pinned here to the Crisp
+     defaults — the same convention as this page's own var() fallbacks. The
+     chrome-token layer itself is scoped onto this root at its BEGIN block. */
+  --mm-bg: #ffffff;
+  --mm-bg-elevated: #f6f8fa;
+  --mm-fg: #1f2328;
+  --mm-border: #d1d9e0;
+  --mm-accent: #0969da;
 }
 
 .hosted-signin-hint {
