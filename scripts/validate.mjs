@@ -299,7 +299,10 @@ record('test-ID uniqueness', Date.now() - idScanStart);
 // issues #194 and #195 both minted E385 on their branches; #195 landed first.
 // 380 as of issue #196: E390 — the hosted sign-in page's splash restyle (no
 // card box, no title, the badge at the splash's 132px).
-const E2E_TEST_FLOOR = 380;
+// 386 as of issue #206 (PRD 018 Reqs 30–33): E392–E396 — computed-style
+// agreement of the chrome primitives across surfaces, under a light and a
+// dark bundled theme, and the chrome-token override proof.
+const E2E_TEST_FLOOR = 386;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {
