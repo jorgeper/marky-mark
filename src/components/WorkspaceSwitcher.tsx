@@ -20,6 +20,7 @@ import {
   filterWorkspaces,
   noAccessMessage,
   validateNewWorkspaceForm,
+  workspaceRowBadge,
   type NewWorkspaceForm,
   type WorkspaceListing,
 } from '../lib/workspaceLifecycle';
@@ -241,6 +242,13 @@ export function OpenWorkspaceDialog({
                 onClick={() => void choose(workspace)}
               >
                 <span className="workspace-list-name">{workspace.name}</span>
+                {/* PRD 019 Req 8: the caller's own scratchpad row carries a
+                    distinguishing badge; every other row renders none. */}
+                {workspaceRowBadge(workspace) && (
+                  <span className="badge scratchpad" data-testid={`open-workspace-scratchpad-${workspace.id}`}>
+                    {workspaceRowBadge(workspace)}
+                  </span>
+                )}
                 <span className="workspace-list-modified" data-testid={`open-workspace-modified-${workspace.id}`}>
                   {timeAgo(workspace.modified)}
                 </span>

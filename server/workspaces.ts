@@ -436,6 +436,10 @@ export async function handleScratchpadResolve(
   const displayName = auth.user.displayName.trim();
   const manifest: WorkspaceManifest = {
     ...built.manifest,
+    // PRD 019 Req 8: the manifest itself carries the scratchpad marker —
+    // the one place the listing loop and the delete branch can read it
+    // without an extra blob round trip per workspace.
+    scratchpad: true,
     members: built.manifest.members.map((m) =>
       m.id === auth.user.id && displayName ? { ...m, displayName } : m,
     ),
@@ -541,6 +545,12 @@ export async function handleWorkspaceApi(
     for (const id of ids) {
       const manifest = await loadManifest(storage, id);
       if (manifest === null || typeof manifest === 'string') continue; // corrupt: has no listable metadata
+      // PRD 019 Req 8: a scratchpad is personal — anyone but its Owner gets
+      // no row at all, decided here BEFORE (and independent of) the listing
+      // policy below, and for admins the same as anyone else (this loop
+      // never consults auth.isAdmin). The owner's own row rides through
+      // flagged, so the Open dialog can label it "My scratchpad".
+      if (manifest.scratchpad && !workspaceOwnerIds(manifest).includes(auth.user.id)) continue;
       // PRD 007 Req 11: the row carries what the Open dialog needs to tell
       // "openable" from "ask for access" — a resolved access flag and the
       // owner ids to name — so the client never probes a forbidden read to
@@ -556,6 +566,9 @@ export async function handleWorkspaceApi(
         // browsing lives in Management only), so what the manifest alone
         // grants decides whether the row is sent at all.
         access: resolvePermissions(manifest, auth.user.id).has('doc.read'),
+        // PRD 019 Req 8: only the owner's own scratchpad reaches this push,
+        // so the flag marks exactly the row the dialog labels.
+        ...(manifest.scratchpad ? { scratchpad: true as const } : {}),
       });
     }
     // PRD 017 Req 11+15: the listing policy, read per request — under
@@ -585,6 +598,14 @@ export async function handleWorkspaceApi(
     // the caller lacks exactly that verb — PRD 007 Req 12+17).
     const manifest = await requirePermission(res, storage, id, auth, 'workspace.delete');
     if (!manifest) return;
+    // PRD 019 Req 9: a scratchpad workspace is never deletable — not by its
+    // Owner, not by an admin. A deleted scratchpad would only be silently
+    // recreated on the next /scratchpad visit, so the verb is refused for
+    // every caller before anything under the prefix is touched.
+    if (manifest.scratchpad) {
+      sendJson(res, 400, { error: 'a scratchpad workspace cannot be deleted' });
+      return;
+    }
     // PRD 007 Req 12: EVERY blob under the workspace prefix goes — manifest,
     // files/, comment sidecars, pasted images and the summary cache (PRD 011
     // Req 29) alike. Listing the prefix (rather than the files/ subtree) is

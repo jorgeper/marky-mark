@@ -30,6 +30,12 @@ export interface WorkspaceListing {
   modified: string;
   owners: string[];
   access: boolean;
+  /**
+   * PRD 019 Req 8: present (true) only on the caller's own scratchpad row —
+   * the server never lists anyone else's scratchpad at all. Drives the Open
+   * dialog's "My scratchpad" badge, and Req 9's hidden delete affordance.
+   */
+  scratchpad?: true;
 }
 
 /** PRD 007 Req 10: the New Workspace form's state, exactly as the user sees it. */
@@ -125,6 +131,28 @@ export function noAccessMessage(workspaceName: string, owners: readonly MemberEn
   return names
     ? `You don't have access to "${workspaceName}". Ask ${names} for access.`
     : `You don't have access to "${workspaceName}", and it has no owner to ask.`;
+}
+
+/**
+ * PRD 019 Req 8: the Open dialog's badge for one listing row — the personal
+ * label on the caller's own scratchpad, nothing on every other row. Extracted
+ * so the labeling rule is unit-testable apart from the dialog's DOM.
+ */
+export function workspaceRowBadge(row: WorkspaceListing): string | null {
+  return row.scratchpad ? 'My scratchpad' : null;
+}
+
+/**
+ * PRD 019 Req 9: whether Workspace settings offers the delete section at all.
+ * The caller must hold `workspace.delete` AND the workspace must not be their
+ * scratchpad — the server refuses that delete anyway (it would only be
+ * silently recreated), so the affordance is not shown even to its Owner.
+ */
+export function deleteOffered(
+  row: Pick<WorkspaceListing, 'scratchpad'> | undefined,
+  permissions: readonly string[],
+): boolean {
+  return permissions.includes('workspace.delete') && !row?.scratchpad;
 }
 
 /**

@@ -8,16 +8,18 @@ import type { StorageProvider } from '../../server/providers/types';
 import { scratchpadPointerBlob } from '../../server/workspaces';
 import { DEPLOYMENT_SETTINGS_BLOB } from '../../src/lib/deploymentSettings';
 import { parseWorkspaceManifest, type WorkspaceManifest } from '../../src/lib/hostedWorkspace';
+import type { WorkspaceListing } from '../../src/lib/workspaceLifecycle';
 import { createMemoryStorage } from './storage-contract';
 
-// PRD 019 Reqs 5–7: the scratchpad resolve-or-create endpoint, proven
-// offline at the HTTP layer exactly like server-workspaces.test.ts —
-// createApp wired to the in-memory storage seam and the mock auth provider.
+// PRD 019 Reqs 5–9: the scratchpad endpoints — resolve-or-create, and the
+// personal listing / delete-refusal semantics — proven offline at the HTTP
+// layer exactly like server-workspaces.test.ts: createApp wired to the
+// in-memory storage seam and the mock auth provider.
 
 /** An opaque server-generated UUID (PRD 007 Req 7 / PRD 019 Req 6). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-describe('PRD 019 Reqs 5–7 scratchpad resolution over HTTP', () => {
+describe('PRD 019 Reqs 5–9 scratchpad over HTTP', () => {
   const { provider, blobs } = createMemoryStorage();
   // PRD 019 Req 5's race, made deterministic: while a gate is armed, reads
   // of one path park until `expected` callers have all arrived, then every
@@ -48,11 +50,19 @@ describe('PRD 019 Reqs 5–7 scratchpad resolution over HTTP', () => {
 
   beforeAll(async () => {
     server = createServer(
-      createApp('/nonexistent-static', { auth, storage, directory: createMockDirectoryProvider() }, 'local'),
+      // PRD 019 Reqs 8–9 need an admin caller too: katherine, so the tests
+      // can prove admins are treated like anyone else for listing and delete.
+      createApp(
+        '/nonexistent-static',
+        { auth, storage, directory: createMockDirectoryProvider() },
+        'local',
+        undefined,
+        new Set(['mock-katherine']),
+      ),
     );
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    for (const username of ['ada', 'grace', 'alan', 'mary']) {
+    for (const username of ['ada', 'grace', 'alan', 'mary', 'katherine']) {
       const result = await auth.signIn({ username });
       if (result?.kind !== 'token') throw new Error('mock sign-in failed');
       tokens[username] = result.token;
@@ -146,5 +156,110 @@ describe('PRD 019 Reqs 5–7 scratchpad resolution over HTTP', () => {
     } finally {
       blobs.clear();
     }
+  });
+
+  const listIds = async (user: string): Promise<string[]> => {
+    const res = await call(user, 'GET', '/api/workspaces');
+    expect(res.status).toBe(200);
+    return ((await res.json()) as WorkspaceListing[]).map((row) => row.id);
+  };
+
+  it('U1029: a scratchpad never appears in another user’s listing — under everyone and members policies, admins the same as anyone', async () => {
+    const spId = await resolveScratchpad('ada');
+    // A regular workspace of ada's, with everyone-access on so it stays
+    // listed to non-members even under the `members` policy — the control
+    // proving only the scratchpad is excluded, not ada's rows in general.
+    const created = await call(
+      'ada',
+      'POST',
+      '/api/workspaces',
+      JSON.stringify({ name: 'Ada notes', everyone: { enabled: true } }),
+    );
+    expect(created.status).toBe(201);
+    const { id: regularId } = (await created.json()) as { id: string };
+    try {
+      // `everyone` listing (the default): the regular workspace is listed to
+      // all, the scratchpad to nobody but ada — the admin included.
+      for (const user of ['grace', 'katherine']) {
+        const ids = await listIds(user);
+        expect(ids).toContain(regularId);
+        expect(ids).not.toContain(spId);
+      }
+      // `members` listing: same exclusion, before/independent of the policy.
+      await provider.write(
+        DEPLOYMENT_SETTINGS_BLOB,
+        JSON.stringify({ version: 1, creation: { policy: 'everyone', allow: [] }, listing: { policy: 'members' } }),
+      );
+      for (const user of ['grace', 'katherine']) {
+        const ids = await listIds(user);
+        expect(ids).toContain(regularId);
+        expect(ids).not.toContain(spId);
+      }
+      // The owner still sees it under `members` too.
+      expect(await listIds('ada')).toContain(spId);
+    } finally {
+      blobs.clear();
+    }
+  });
+
+  it('U1030: the owner’s listing flags the scratchpad row; a regular row carries no flag', async () => {
+    const spId = await resolveScratchpad('grace');
+    const created = await call('grace', 'POST', '/api/workspaces', JSON.stringify({ name: 'Plain' }));
+    expect(created.status).toBe(201);
+    const { id: regularId } = (await created.json()) as { id: string };
+    const res = await call('grace', 'GET', '/api/workspaces');
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as WorkspaceListing[];
+    const scratchRow = rows.find((row) => row.id === spId);
+    // PRD 019 Req 8: the flag the Open dialog labels "My scratchpad" from.
+    expect(scratchRow?.scratchpad).toBe(true);
+    expect(scratchRow?.access).toBe(true);
+    const regularRow = rows.find((row) => row.id === regularId);
+    expect(regularRow).toBeDefined();
+    expect('scratchpad' in regularRow!).toBe(false);
+    blobs.clear();
+  });
+
+  it('U1031: DELETE refuses a scratchpad for Owner and admin alike, every blob survives; a regular delete still works', async () => {
+    const spId = await resolveScratchpad('alan');
+    expect((await call('alan', 'PUT', `/api/workspaces/${spId}/files/keep.md`, '# keep')).status).toBe(200);
+    // PRD 019 Req 9: refused for every caller — the Owner and an admin.
+    for (const user of ['alan', 'katherine']) {
+      const res = await call(user, 'DELETE', `/api/workspaces/${spId}`);
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe('a scratchpad workspace cannot be deleted');
+    }
+    // Nothing under the workspace prefix was deleted, and the pointer stays.
+    expect(blobs.has(`workspaces/${spId}/manifest.json`)).toBe(true);
+    expect(blobs.has(`workspaces/${spId}/files/keep.md`)).toBe(true);
+    expect(blobs.has(scratchpadPointerBlob('mock-alan'))).toBe(true);
+    // Deleting a regular workspace still works exactly as before.
+    const created = await call('alan', 'POST', '/api/workspaces', JSON.stringify({ name: 'Doomed' }));
+    expect(created.status).toBe(201);
+    const { id } = (await created.json()) as { id: string };
+    expect((await call('alan', 'DELETE', `/api/workspaces/${id}`)).status).toBe(200);
+    expect(blobs.has(`workspaces/${id}/manifest.json`)).toBe(false);
+    blobs.clear();
+  });
+
+  it('U1032: every non-delete verb on a scratchpad behaves as on any Owned workspace — member add, grant live, file round-trip', async () => {
+    const spId = await resolveScratchpad('mary');
+    // PRD 019 Req 9: members work exactly as on a regular workspace…
+    const added = await call(
+      'mary',
+      'POST',
+      `/api/workspaces/${spId}/members`,
+      JSON.stringify({ id: 'mock-grace', role: 'Editor' }),
+    );
+    expect(added.status).toBe(200);
+    // …the grant is live: the new Editor writes and reads a file normally…
+    expect((await call('grace', 'PUT', `/api/workspaces/${spId}/files/notes.md`, '# hello')).status).toBe(200);
+    const read = await call('grace', 'GET', `/api/workspaces/${spId}/files/notes.md`);
+    expect(read.status).toBe(200);
+    // …and the manifest survives its member-endpoint round trip with the
+    // scratchpad marker intact (validateWorkspaceManifest accepts it).
+    const manifest = parseWorkspaceManifest(blobs.get(`workspaces/${spId}/manifest.json`)!);
+    expect(manifest.ok && manifest.manifest.scratchpad).toBe(true);
+    blobs.clear();
   });
 });

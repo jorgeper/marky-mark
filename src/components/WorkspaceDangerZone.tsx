@@ -6,7 +6,7 @@
 // the app to the start page with no workspace bound.
 
 import { useEffect, useState } from 'react';
-import { deleteConfirmationMatches } from '../lib/workspaceLifecycle';
+import { deleteConfirmationMatches, deleteOffered } from '../lib/workspaceLifecycle';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 import { Button } from './ui/Button';
 
@@ -25,7 +25,10 @@ export function WorkspaceDangerZone({ lifecycle }: { lifecycle: WorkspaceLifecyc
       if (cancelled) return;
       const row = items.find((w) => w.id === id);
       setName(row?.name ?? null);
-      setAllowed(permissions.includes('workspace.delete'));
+      // PRD 019 Req 9: no delete section for the caller's own scratchpad,
+      // even though its Owner holds workspace.delete — the server refuses
+      // that delete anyway, so the affordance is withheld entirely.
+      setAllowed(deleteOffered(row, permissions));
     });
     return () => {
       cancelled = true;

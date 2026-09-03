@@ -11,11 +11,13 @@ import {
 import type { MemberEntry } from '../../src/lib/membership';
 import {
   deleteConfirmationMatches,
+  deleteOffered,
   emptyNewWorkspaceForm,
   filterWorkspaces,
   formatOwnerNames,
   noAccessMessage,
   validateNewWorkspaceForm,
+  workspaceRowBadge,
   type WorkspaceListing,
 } from '../../src/lib/workspaceLifecycle';
 
@@ -256,5 +258,23 @@ describe('PRD 007 Req 12: the delete confirmation gate', () => {
     // …and a name that genuinely has surrounding space matches only itself.
     expect(deleteConfirmationMatches(' spaced ', ' spaced ')).toBe(true);
     expect(deleteConfirmationMatches('spaced', ' spaced ')).toBe(false);
+  });
+});
+
+describe('PRD 019 Reqs 8–9: the scratchpad row in the lifecycle UI', () => {
+  it('U1033: only the flagged scratchpad row reads "My scratchpad"; every other row gets no badge', () => {
+    expect(workspaceRowBadge(listing({ id: 'sp', name: 'Scratchpad', scratchpad: true }))).toBe('My scratchpad');
+    expect(workspaceRowBadge(listing({ id: 'w', name: 'Docs' }))).toBeNull();
+  });
+
+  it('U1034: the delete section needs workspace.delete AND a non-scratchpad workspace', () => {
+    const canDelete = ['doc.read', 'workspace.delete'];
+    // A regular workspace with the verb: offered, exactly as before.
+    expect(deleteOffered(listing({ id: 'w', name: 'Docs' }), canDelete)).toBe(true);
+    // The caller's own scratchpad: withheld even though its Owner holds the
+    // verb — the server refuses that delete anyway (PRD 019 Req 9).
+    expect(deleteOffered(listing({ id: 'sp', name: 'Scratchpad', scratchpad: true }), canDelete)).toBe(false);
+    // Without the verb nothing changes: never offered.
+    expect(deleteOffered(listing({ id: 'w', name: 'Docs' }), ['doc.read'])).toBe(false);
   });
 });

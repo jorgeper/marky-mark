@@ -156,6 +156,14 @@ export interface WorkspaceManifest {
   everyone: EveryoneAccess;
   /** Workspace-scoped settings — the PRD 002 Workspace layer slot. */
   settings: Record<string, unknown>;
+  /**
+   * PRD 019 Req 8: marks the personal scratchpad workspace, stamped once at
+   * provisioning. Absent on every regular workspace — manifests written
+   * before the field existed parse unchanged — and it is what the listing
+   * and delete routes read to special-case a scratchpad without an extra
+   * blob read per row.
+   */
+  scratchpad?: true;
 }
 
 export type ManifestResult =
@@ -238,6 +246,13 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
   }
   if (!isPlainObject(settings)) return fail('manifest settings must be an object');
 
+  // PRD 019 Req 8: the scratchpad marker is optional — absent on every
+  // regular manifest, which stays the common case — but a present one must
+  // be literally `true`, never a truthy stand-in silently coerced.
+  if (data.scratchpad !== undefined && data.scratchpad !== true) {
+    return fail('manifest scratchpad must be true when present');
+  }
+
   return {
     ok: true,
     manifest: {
@@ -249,6 +264,7 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
       roles,
       everyone: { enabled: everyone.enabled, role: everyone.role },
       settings: { ...settings },
+      ...(data.scratchpad === true ? { scratchpad: true as const } : {}),
     },
   };
 }

@@ -3881,6 +3881,20 @@ input.folder-rename-input.invalid {
   font-size: var(--mm-text-small);
 }
 
+/* PRD 019 Req 8: the "My scratchpad" badge on the caller's own scratchpad
+   row in the Open Workspace dialog — an accent-filled pill off the same
+   tokens every accent-filled badge uses, so themes dress it for free. */
+.badge.scratchpad {
+  display: inline-block;
+  flex: none;
+  font-size: var(--mm-text-caption);
+  font-weight: 700;
+  color: var(--mm-accent-fg);
+  background: var(--mm-accent);
+  border-radius: var(--mm-radius-pill);
+  padding: 2px 8px;
+}
+
 /* PRD 007 Req 12+15+16: the sections of Workspace settings — people, custom
    roles and the danger zone — are separated the same way, off the same theme
    variables, so every bundled theme dresses them without a rule of its own. */

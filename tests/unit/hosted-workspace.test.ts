@@ -576,3 +576,22 @@ describe('PRD 017 Req 2+4 deployment-level permissions and the implicit admin un
     expect(resolvePermissions(manifest, 'mock-katherine').size).toBe(0);
   });
 });
+
+describe('PRD 019 Req 8 scratchpad manifest marker', () => {
+  it('U1035: the marker round-trips validation, its absence stays absent, and a non-true value is rejected', () => {
+    // A manifest without the field — the common case — parses unchanged…
+    const plain = validateWorkspaceManifest(base());
+    expect(plain.ok).toBe(true);
+    if (plain.ok) expect('scratchpad' in plain.manifest).toBe(false);
+    // …a marked one keeps the marker through validate + serialize + parse…
+    const marked = validateWorkspaceManifest({ ...base(), scratchpad: true });
+    expect(marked.ok && marked.manifest.scratchpad).toBe(true);
+    if (!marked.ok) return;
+    const reparsed = parseWorkspaceManifest(serializeWorkspaceManifest(marked.manifest));
+    expect(reparsed.ok && reparsed.manifest.scratchpad).toBe(true);
+    // …and a truthy stand-in is a named error, never silently coerced.
+    const bad = validateWorkspaceManifest({ ...base(), scratchpad: 'yes' });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error).toContain('scratchpad');
+  });
+});
