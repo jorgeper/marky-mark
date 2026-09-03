@@ -54,6 +54,20 @@ interface VisitNotFound {
 }
 
 /**
+ * One bearer-authenticated API call, collapsed to its parsed JSON body —
+ * null on any failure (network, non-2xx, unparseable). The visit resolve
+ * treats every failure shape the same, so its call sites stay one line each.
+ */
+async function getJson<T>(
+  url: string,
+  auth: { Authorization: string },
+  init: { method?: string } = {},
+): Promise<T | null> {
+  const res = await hostedFetch(url, { ...init, headers: auth }).catch(() => null);
+  return res?.ok ? ((await res.json().catch(() => null)) as T | null) : null;
+}
+
+/**
  * PRD 020 Req 5+7 (extending PRD 019 Req 1): a signed-in visit's URL is
  * resolved to a workspace binding BEFORE <App/> mounts. The visit is either
  * the live location (local dev mode never navigates, so it survives
@@ -92,14 +106,11 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
   if (path.kind === 'home' && legacyId === null) return null;
 
   const auth = { Authorization: `Bearer ${readStoredToken(window.localStorage) ?? ''}` };
-  const listRows = async (): Promise<WorkspaceListing[]> => {
-    const res = await hostedFetch('/api/workspaces', { headers: auth }).catch(() => null);
-    return res?.ok ? (((await res.json().catch(() => null)) as WorkspaceListing[] | null) ?? []) : [];
-  };
+  const listRows = async (): Promise<WorkspaceListing[]> =>
+    (await getJson<WorkspaceListing[]>('/api/workspaces', auth)) ?? [];
 
   if (path.kind === 'scratchpad') {
-    const res = await hostedFetch('/api/me/scratchpad', { method: 'POST', headers: auth }).catch(() => null);
-    const body = res?.ok ? ((await res.json().catch(() => null)) as { id?: string } | null) : null;
+    const body = await getJson<{ id?: string }>('/api/me/scratchpad', auth, { method: 'POST' });
     if (!body?.id) {
       // An unanswerable resolve must not leave the app parked on a path only
       // this gate understands: land on the plain start page instead.
@@ -132,10 +143,7 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
   if (file !== null && row.access) {
     // PRD 020 Req 8: the workspace is real but the file half must be too —
     // checked against the files listing, the same read the sidebar makes.
-    const res = await hostedFetch(`/api/workspaces/${encodeURIComponent(row.id)}/files`, {
-      headers: auth,
-    }).catch(() => null);
-    const files = res?.ok ? ((await res.json().catch(() => null)) as { path: string }[] | null) : null;
+    const files = await getJson<{ path: string }[]>(`/api/workspaces/${encodeURIComponent(row.id)}/files`, auth);
     if (!files?.some((f) => f.path === file)) return { workspace: row.uniqueName, file };
   }
   const openFile = row.access && wanted ? wanted.file : [];
