@@ -3373,7 +3373,7 @@ test.describe('PRD 017 the Management view', () => {
 /**
  * Issue #195, reused by PRD 020 Req 14 (issue #222): a deterministic
  * clipboard for every copy-link flow — the invite rows (E385) and the share
- * controls (E404). The hosted SPA is the web platform — no copyText shim —
+ * controls (E407). The hosted SPA is the web platform — no copyText shim —
  * so copies go through navigator.clipboard, which a headless run cannot
  * inspect; the stub records every write on window.__copies instead.
  */
@@ -4261,7 +4261,7 @@ test('E403: a path matching no workspace, no file, or an unknown legacy UUID ren
 
 // --- the copy-link share affordance (PRD 020 Reqs 14–17, issue #222) ---------
 
-test('E404: hosted copy-link — the workspace control (pane open) and the file control copy the canonical absolute URLs, confirm "Link copied" inline, and revert', async ({
+test('E407: hosted copy-link — the workspace control (pane open) and the file control copy the canonical absolute URLs, confirm "Link copied" inline, and revert', async ({
   page,
   request,
 }) => {
@@ -4306,18 +4306,180 @@ test('E404: hosted copy-link — the workspace control (pane open) and the file 
   expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/intro%20guide.md`);
 });
 
-test('E405: the file copy-link is absent for an untitled buffer while the workspace control stays', async ({
+test('E408: the file copy-link is absent for an untitled buffer while the workspace control stays', async ({
   page,
 }) => {
-  // PRD 020 Req 17: the scratchpad landing is hosted's untitled buffer — the
+  // PRD 020 Req 17: the scratch landing is hosted's untitled buffer — the
   // workspace placement shows (a scratch workspace is bound, PRD 019), the
-  // file placement does not exist.
+  // file placement does not exist. PRD 020 Req 11 renamed the entry route
+  // from /scratchpad to /scratch (the old name now resolves to not-found).
   const token = await signIn(page.request, 'alan');
   await dropDraft(page, token);
-  await page.goto(`${HOSTED}/scratchpad`);
+  await page.goto(`${HOSTED}/scratch`);
   await page.getByTestId('hosted-sign-in-username').fill('alan');
   await page.getByTestId('hosted-sign-in-submit').click();
   await expect(page.getByTestId('docname')).toContainText('Untitled');
   await expect(page.getByTestId('copy-link-workspace')).toBeVisible();
   await expect(page.getByTestId('copy-link-file')).toHaveCount(0);
+});
+
+// --- heading share links and #<slug> landing (PRD 020 Reqs 18–19, issue #223) --
+
+// A document whose headings pin the slug rules (punctuation, duplicates) and
+// whose last heading sits far below the fold, so a landing has to scroll.
+const HEADED_DOC = [
+  '# Guide',
+  '',
+  '## Set Up & Go',
+  '',
+  'setup words.',
+  '',
+  '## Notes',
+  '',
+  'first notes.',
+  '',
+  '## Notes',
+  '',
+  'second notes.',
+  '',
+  ...Array.from({ length: 60 }, (_, i) => [`filler paragraph ${i} keeps the last heading off-screen.`, '']).flat(),
+  '## Deep Section',
+  '',
+  'the bottom.',
+  '',
+].join('\n');
+
+test('E409: hovering a preview heading reveals the copy-link control, which copies the file URL plus the GitHub-style slug — duplicates deduped -1', async ({
+  page,
+  request,
+}) => {
+  // PRD 020 Req 18: the slug comes from the section model's titles —
+  // "Set Up & Go" keeps GitHub's double hyphen — and the control confirms
+  // per the Req 14 contract, inline.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e409');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guide.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: HEADED_DOC,
+  });
+  await stubClipboard(page);
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'guide.md');
+
+  // At rest the control is hidden; hovering its heading reveals it.
+  const setup = page.getByTestId('doc').locator('h2').filter({ hasText: 'Set Up & Go' });
+  const setupLink = setup.getByTestId('mm-heading-link');
+  await expect(setupLink).toHaveCSS('opacity', '0');
+  await setup.hover();
+  await expect(setupLink).toHaveCSS('opacity', '1');
+  await expect(setupLink).toHaveAttribute('aria-label', 'Copy link');
+  await setupLink.click();
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guide.md#set-up--go`);
+  await expect(setupLink).toHaveAttribute('aria-label', 'Link copied');
+  // …and reverts to rest on its own (~2s).
+  await expect(setupLink).toHaveAttribute('aria-label', 'Copy link', { timeout: 4000 });
+
+  // The SECOND "Notes" heading dedupes to -1, in document order.
+  const notes1 = page.getByTestId('doc').locator('h2').filter({ hasText: 'Notes' }).nth(1);
+  await notes1.hover();
+  await notes1.getByTestId('mm-heading-link').click();
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guide.md#notes-1`);
+});
+
+test('E410: a cursor resting on a heading line reveals the editor gutter copy-link, copying the same slugged URL; a body line shows none', async ({
+  page,
+  request,
+}) => {
+  // PRD 020 Req 18: the editor placement — same URL, same confirmation
+  // contract, revealed by the resting cursor rather than hover.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e410');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guide.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: HEADED_DOC,
+  });
+  await stubClipboard(page);
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'guide.md');
+  await page.keyboard.press('Control+e');
+
+  const editor = page.getByTestId('editor');
+  await editor.locator('.cm-line').filter({ hasText: 'Set Up & Go' }).click();
+  const gutterLink = page.getByTestId('heading-copy-link-gutter');
+  await expect(gutterLink).toBeVisible();
+  await expect(gutterLink).toHaveAttribute('aria-label', 'Copy link');
+  await gutterLink.click();
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guide.md#set-up--go`);
+  await expect(gutterLink).toHaveAttribute('aria-label', 'Link copied');
+
+  // Resting on a body line, the control does not exist.
+  await editor.locator('.cm-line').filter({ hasText: 'setup words.' }).click();
+  await expect(page.getByTestId('heading-copy-link-gutter')).toHaveCount(0);
+});
+
+test('E411: landing on a #<slug> file URL opens the file scrolled to that heading, with no miss notice', async ({
+  page,
+  request,
+}) => {
+  // PRD 020 Req 19: the fragment rides the Req 5 deep link and the opened
+  // file arrives ON the heading — the TOC's navigate-to-line machinery, not
+  // a new scroll path.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e411');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guide.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: HEADED_DOC,
+  });
+  // Land once in preview first, so the remembered view mode (issue #125) is
+  // deterministic for the deep-linked boot below.
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'guide.md');
+
+  // The deep link, then a reload so the boot runs from the URL (adding only a
+  // #hash to the current path is a same-document nav — no boot, the fresh
+  // arrival this models). The gate preserves the fragment through sign-in.
+  await page.goto(`${HOSTED}/${unique}/guide.md#deep-section`);
+  await page.reload();
+  await expect(page.getByTestId('docname')).toContainText('guide.md');
+  // The remembered view mode is another test's business (E248), not this
+  // one's — land in preview whatever it booted as; a mode switch carries the
+  // landing line, so the read of the reused scroll path stays on the heading.
+  await landInPreview(page);
+  await expect(page.getByTestId('doc').locator('h2').filter({ hasText: 'Deep Section' })).toBeInViewport();
+  // Scrolled off the top — the deterministic read of the reused scroll path
+  // (rather than a viewport-ratio poll that races the landing under load).
+  await expect
+    .poll(() => page.locator('.workspace').evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(0);
+  // No miss notice for a matched slug.
+  await expect(page.getByTestId('heading-miss-notice')).toHaveCount(0);
+});
+
+test("E412: a #<slug> matching no heading opens the file at the top with the dismissible renamed-section notice", async ({
+  page,
+  request,
+}) => {
+  // PRD 020 Req 19: the graceful miss — otherwise exactly a normal Req 5
+  // file link, plus the brief notice, dismissible by its ✕.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e412');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guide.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: HEADED_DOC,
+  });
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'guide.md');
+
+  await page.goto(`${HOSTED}/${unique}/guide.md#renamed-away`);
+  await page.reload();
+  await expect(page.getByTestId('docname')).toContainText('guide.md');
+  const notice = page.getByTestId('heading-miss-notice');
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("That section wasn't found — it may have been renamed");
+  // The file itself opened at the top, like any Req 5 link — a miss scrolls
+  // nothing. Read in preview (the mode is E248's business), scrollTop pinned.
+  await landInPreview(page);
+  expect(await page.locator('.workspace').evaluate((el) => el.scrollTop)).toBe(0);
+  await page.getByTestId('heading-miss-dismiss').click();
+  await expect(notice).toHaveCount(0);
 });

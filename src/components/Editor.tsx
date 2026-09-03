@@ -3,6 +3,8 @@ import {
   Decoration,
   drawSelection,
   EditorView,
+  gutter,
+  GutterMarker,
   keymap,
   lineNumbers,
   highlightActiveLine,
@@ -29,7 +31,7 @@ import {
 } from '@codemirror/commands';
 import { HighlightStyle, LanguageDescription, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { closeSearchPanel, findNext, findPrevious, getSearchQuery, openSearchPanel, replaceAll, replaceNext, search, searchPanelOpen, SearchQuery, setSearchQuery } from '@codemirror/search';
-import { NodeProp } from '@lezer/common';
+import { NodeProp, type SyntaxNode } from '@lezer/common';
 import { tags } from '@lezer/highlight';
 import { markdown } from '@codemirror/lang-markdown';
 // Issue #122: the three fenced-code languages the editor colours. All three
@@ -39,6 +41,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { css as cssLanguage } from '@codemirror/lang-css';
 import { html as htmlLanguage } from '@codemirror/lang-html';
 import { javascript as jsLanguage } from '@codemirror/lang-javascript';
+import { COPY_LINK_LABEL, LINK_COPIED_LABEL, createCopyLinkController } from '../lib/shareLinks';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
 import type { CompiledPattern } from '../lib/searchCore';
 import { mapOffsetByLineFlat, wordAt } from '../lib/activePosition';
@@ -341,6 +344,21 @@ interface Props {
   onToggleDiagramView?(): void;
   /** PRD 013 Req 9: the app's active theme side — diagram widgets draw to match. */
   themeVariant: 'light' | 'dark';
+  /**
+   * PRD 020 Req 18 (issue #223): the heading copy-link gutter — a cursor
+   * resting on a heading line reveals a copy-link control beside it. The
+   * owner passes this on the hosted platform only (Req 15); absent ⇒ the
+   * gutter does not exist at all. `getUrl` answers the heading share URL for
+   * a 1-based source line (null when the line is no section-model heading or
+   * no file rides the path), read at click time like every placement.
+   */
+  headingLink?: HeadingLinkSeam;
+}
+
+/** PRD 020 Req 18: the App-provided half of the heading copy-link gutter. */
+export interface HeadingLinkSeam {
+  getUrl(line: number): string | null;
+  copy(text: string): Promise<boolean> | boolean;
 }
 
 /**
@@ -601,6 +619,104 @@ function smartEditButton(title: string, onOpen: (view: EditorView, rect: DOMRect
   });
 }
 
+/** The CopyLinkButton link glyph at gutter size (no React inside a marker). */
+const HEADING_LINK_SVG =
+  '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" data-icon="link">' +
+  '<g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M6.7 9.3l2.6-2.6" />' +
+  '<path d="M7.5 4.6l1.4-1.4a2.55 2.55 0 0 1 3.6 3.6l-1.4 1.4" />' +
+  '<path d="M8.5 11.4l-1.4 1.4a2.55 2.55 0 0 1-3.6-3.6l1.4-1.4" />' +
+  '</g></svg>';
+
+/**
+ * PRD 020 Req 18 (issue #223): the heading copy-link marker — one per view,
+ * on the cursor's line only. `eq` compares lines so a cursor that stays put
+ * keeps its DOM (and a running confirmation) across unrelated updates. The
+ * confirmation is `createCopyLinkController`'s Req 14 contract: copy at
+ * click time, "Link copied" only on a landed write, ~2s, then rest — the
+ * visible caption is a `::after` pseudo-element (styles.css) and the real
+ * text lives in the marker's own `aria-live` span, which is gutter chrome,
+ * safely outside the preview's comment-anchor text space.
+ */
+class HeadingLinkMarker extends GutterMarker {
+  private ctrl: { click(): Promise<void>; dispose(): void } | null = null;
+  constructor(
+    private readonly lineNo: number,
+    private readonly seam: MutableRefObject<HeadingLinkSeam | undefined>
+  ) {
+    super();
+  }
+  override eq(other: HeadingLinkMarker) {
+    return other.lineNo === this.lineNo;
+  }
+  override toDOM() {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'heading-link-btn';
+    btn.setAttribute('data-testid', 'heading-copy-link-gutter');
+    btn.title = COPY_LINK_LABEL;
+    btn.setAttribute('aria-label', COPY_LINK_LABEL);
+    btn.innerHTML = HEADING_LINK_SVG;
+    const live = document.createElement('span');
+    live.className = 'heading-link-live';
+    live.setAttribute('aria-live', 'polite');
+    btn.appendChild(live);
+    this.ctrl = createCopyLinkController(
+      () => this.seam.current?.getUrl(this.lineNo) ?? null,
+      (text) => this.seam.current?.copy(text) ?? false,
+      (on) => {
+        btn.classList.toggle('is-copied', on);
+        btn.setAttribute('aria-label', on ? LINK_COPIED_LABEL : COPY_LINK_LABEL);
+        live.textContent = on ? LINK_COPIED_LABEL : '';
+      }
+    );
+    // preventDefault on mousedown keeps focus (and the resting cursor) in
+    // the editor — the smart-edit gutter precedent.
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      void this.ctrl?.click();
+    });
+    return btn;
+  }
+  override destroy() {
+    this.ctrl?.dispose();
+  }
+}
+
+/**
+ * PRD 020 Req 18: the gutter itself — a marker appears only on the line the
+ * cursor rests on, and only when that line is a heading twice over: the
+ * Lezer tree says so (fenced `# not-a-heading` lines are excluded the same
+ * way the preview excludes them) AND the section model resolves it to a
+ * slugged share URL (`getUrl`, which also gates out untitled buffers with no
+ * address). The Lezer check is the cheap pre-filter, so the section-model
+ * parse never runs while the cursor sits on ordinary text.
+ */
+function headingLinkGutter(seam: MutableRefObject<HeadingLinkSeam | undefined>): Extension {
+  return gutter({
+    class: 'cm-heading-link-gutter',
+    lineMarker(view, block) {
+      const cfg = seam.current;
+      if (!cfg) return null;
+      const head = view.state.doc.lineAt(view.state.selection.main.head);
+      if (block.from !== head.from) return null;
+      let onHeading = false;
+      let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(head.from, 1);
+      while (node) {
+        if (/^(ATX|Setext)Heading/.test(node.name)) {
+          onHeading = true;
+          break;
+        }
+        node = node.parent;
+      }
+      if (!onHeading || cfg.getUrl(head.number) === null) return null;
+      return new HeadingLinkMarker(head.number, seam);
+    },
+    lineMarkerChange: (update) => update.selectionSet || update.docChanged,
+  });
+}
+
 const VIM_MOTIONS: Partial<Record<VimEditAction, (view: EditorView) => void>> = {
   left: (v) => void cursorCharLeft(v),
   right: (v) => void cursorCharRight(v),
@@ -654,6 +770,7 @@ export default function Editor({
   onToggleDiagramView,
   themeVariant,
   readOnly = false,
+  headingLink,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -679,6 +796,12 @@ export default function Editor({
   const smartComp = useRef(new Compartment());
   // PRD 007 Req 17: read-only rides a compartment like every other live prop.
   const readOnlyComp = useRef(new Compartment());
+  // PRD 020 Req 18: the heading copy-link gutter — a compartment for its
+  // hosted-only presence; the callbacks read through a live ref so the
+  // gutter (and a running confirmation) survives App re-renders.
+  const headingComp = useRef(new Compartment());
+  const headingLinkRef = useRef(headingLink);
+  headingLinkRef.current = headingLink;
   // SPEC43 §4: the Smart Edit menu — open state + anchor + the built model.
   const [smartMenu, setSmartMenu] = useState<{ x: number; y: number; entries: SmartMenuEntry[] } | null>(null);
   // SPEC37 §4: the margin chips for the cursor's cell (null = hidden).
@@ -1170,6 +1293,9 @@ export default function Editor({
     if (!host) return;
     const extensions = [
       gutterComp.current.of(showLineNumbers ? lineNumbers() : []),
+      // PRD 020 Req 18: the heading copy-link gutter, right of the line
+      // numbers — present only when the owner passed the hosted seam.
+      headingComp.current.of(headingLinkRef.current ? headingLinkGutter(headingLinkRef) : []),
       // SPEC43 §3.2: the smart-edit button, in the content area's left
       // padding — same geometry with or without line numbers.
       smartComp.current.of(smartEditButton(gutterTitle(), openMenuAtGutter)),
@@ -1690,6 +1816,17 @@ export default function Editor({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hotkeys.smartMenu, isMac]);
+
+  // PRD 020 Req 18: the heading copy-link gutter follows the seam's
+  // PRESENCE live (a file gaining or losing an address); the callbacks
+  // themselves read through headingLinkRef, so identity churn never
+  // rebuilds the gutter mid-confirmation.
+  const hasHeadingLink = !!headingLink;
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: headingComp.current.reconfigure(hasHeadingLink ? headingLinkGutter(headingLinkRef) : []),
+    });
+  }, [hasHeadingLink]);
 
   // SPEC23 §2: turning the setting off mid-session drops out of nav mode.
   useEffect(() => {

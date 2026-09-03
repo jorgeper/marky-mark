@@ -5,10 +5,13 @@
  * (`components/CopyLinkButton.tsx`) is glue over this module, the same
  * split `lib/codeCopy.ts` gives the code-block copy button.
  *
- * Scope note: this module never emits a `#fragment` — heading share is
- * PRD 020 Req 18, a later issue.
+ * PRD 020 Reqs 18–19 (issue #223) add the `#fragment` half: GitHub-style
+ * heading slugs derived from the section model (`sectionModel.ts` — never
+ * from scraping DOM), the heading share URL that rides them, and the
+ * landing-side match from a visited `#<slug>` back to a source line.
  */
 import { buildAppPath, parseAppPath } from './hostedPaths';
+import { flattenSections, type DocumentSections } from './sectionModel';
 
 /** PRD 020 Req 14: the control's rest tooltip and accessible name. */
 export const COPY_LINK_LABEL = 'Copy link';
@@ -42,6 +45,84 @@ export function fileShareUrl(origin: string, pathname: string): string | null {
   return target.kind === 'workspace' && target.file.length > 0
     ? `${origin}${buildAppPath(target.name, target.file)}`
     : null;
+}
+
+/**
+ * PRD 020 Req 18: one heading's GitHub-style slug — the text lowercased,
+ * punctuation dropped (unicode letters, marks, digits and connector
+ * punctuation survive, the GitHub character class), spaces turned into
+ * hyphens one-for-one ("A & B" → "a--b", exactly GitHub's double hyphen).
+ * Dedupe is NOT here: it needs document order, so it lives in
+ * `headingAnchors` below.
+ */
+export function headingSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{Nd}\p{Pc} -]/gu, '')
+    .replace(/ /g, '-');
+}
+
+/** One addressable heading: its 1-based source line and deduped slug. */
+export interface HeadingAnchor {
+  line: number;
+  slug: string;
+  title: string;
+}
+
+/**
+ * PRD 020 Req 18: every heading's slug, derived from the section model's
+ * titles in document order — the same source-of-truth the TOC reads, never
+ * the rendered DOM. Duplicate slugs dedupe GitHub-style: the first keeps the
+ * bare slug, later ones take `-1`, `-2`, … in document order. The synthetic
+ * preamble node (depth 0) has no heading and is skipped.
+ */
+export function headingAnchors(doc: DocumentSections): HeadingAnchor[] {
+  const seen = new Map<string, number>();
+  const out: HeadingAnchor[] = [];
+  for (const s of flattenSections(doc)) {
+    if (s.depth === 0) continue;
+    const base = headingSlug(s.title);
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    out.push({ line: s.headingLine, slug: n === 0 ? base : `${base}-${n}`, title: s.title });
+  }
+  return out;
+}
+
+/**
+ * PRD 020 Req 18: the heading share URL — the file's canonical Req 5 URL
+ * plus `#<slug>`, the slug percent-encoded so the copied text is a valid URL
+ * byte-for-byte (unicode slugs travel encoded, exactly as a browser would
+ * re-emit them). Null when no file rides the path: a heading in an untitled
+ * buffer has no address to share.
+ */
+export function headingShareUrl(origin: string, pathname: string, slug: string): string | null {
+  const file = fileShareUrl(origin, pathname);
+  return file === null ? null : `${file}#${encodeURIComponent(slug)}`;
+}
+
+/**
+ * PRD 020 Req 19: the landing side's read of `location.hash` — the slug the
+ * visit asked for, percent-decoded (a malformed escape falls back to the raw
+ * text rather than throwing), or null when the hash is absent or empty.
+ */
+export function slugFromHash(hash: string): string | null {
+  const raw = hash.startsWith('#') ? hash.slice(1) : hash;
+  if (raw === '') return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * PRD 020 Req 19: where a visited slug lands — the matching heading's source
+ * line, through the same derivation the copy side used, or null when no
+ * heading matches (the caller shows the renamed-section notice).
+ */
+export function headingLineForSlug(doc: DocumentSections, slug: string): number | null {
+  return headingAnchors(doc).find((a) => a.slug === slug)?.line ?? null;
 }
 
 /**

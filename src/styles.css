@@ -969,6 +969,59 @@ button {
   border-color: var(--mm-accent, #0969da);
 }
 
+/* PRD 020 Req 18 (issue #223): the per-heading copy-link control — inline
+   after the heading text, revealed on hover of the heading (and on keyboard
+   focus, and while confirming). Like .mm-copy-code above it holds NO text
+   node: the glyph is SVG and the "Link copied" caption is pseudo-element
+   content, so getDocText() over the preview root stays byte-identical and
+   every comment anchor still resolves (lib/headingLinks.ts). */
+.doc .mm-heading-link {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 8px;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: var(--mm-fg-muted, #57606a);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.doc :is(h1, h2, h3, h4, h5, h6):hover .mm-heading-link,
+.doc .mm-heading-link:focus-visible,
+.doc .mm-heading-link.is-copied {
+  opacity: 1;
+  pointer-events: auto;
+}
+.doc .mm-heading-link:hover {
+  color: var(--mm-accent, #0969da);
+}
+.doc .mm-heading-link.is-copied {
+  color: var(--mm-accent, #0969da);
+}
+.doc .mm-heading-link.is-copied svg {
+  display: none;
+}
+.doc .mm-heading-link.is-copied::after {
+  content: 'Link copied';
+  font-size: var(--mm-text-caption);
+  white-space: nowrap;
+}
+
+/* PRD 020 Req 18: the graft's one aria-live region — a sibling of the doc
+   root (outside the anchor text space), visually hidden like
+   .copy-link-live. */
+.mm-heading-link-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* ---------- PRD 013: fence diagrams, preview pane then edit pane ---------- */
 
 /* PRD 013 Req 3: a drawn fence's code is hidden, never removed — getDocText's
@@ -2097,6 +2150,16 @@ mark.hl.ghost {
   border: 1px solid var(--mm-border, #d1d9e0);
   box-shadow: var(--mm-panel-shadow);
   pointer-events: none;
+}
+
+/* PRD 020 Req 19 (issue #223): the heading-miss notice — the toast idiom,
+   but it holds a working ✕, so the pointer inertness of the base class is
+   undone and the row lays out around the button. */
+.mm-notice.mm-heading-miss {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: auto;
 }
 
 /* --- PRD 004 Req 16: persistent unreadable-comment-store indication ---
@@ -3362,6 +3425,59 @@ input.folder-rename-input.invalid {
 }
 .smart-edit-btn:hover {
   filter: brightness(1.2);
+}
+
+/* PRD 020 Req 18 (issue #223): the heading copy-link gutter — a dedicated
+   column right of the line numbers, present only on hosted (the Editor gets
+   the seam nowhere else). The marker rides the cursor's line and only when
+   that line is a heading with an address. */
+.cm-heading-link-gutter {
+  width: 22px;
+}
+.heading-link-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 1.4em;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--mm-accent, #0969da);
+  cursor: pointer;
+}
+.heading-link-btn:hover {
+  filter: brightness(1.2);
+}
+.heading-link-btn.is-copied svg {
+  display: none;
+}
+/* The ~2s confirmation caption, floated toward the content so the narrow
+   gutter never has to fit the words. */
+.heading-link-btn.is-copied::after {
+  content: 'Link copied';
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 6px;
+  font-size: var(--mm-text-caption);
+  white-space: nowrap;
+  color: var(--mm-accent, #0969da);
+  background: var(--mm-bg-elevated, #f6f8fa);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: var(--mm-radius-small);
+  z-index: 10;
+}
+/* The marker's own aria-live text, visually hidden like .copy-link-live. */
+.heading-link-btn .heading-link-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* §4: the menu — theme-menu look, pointer/gutter-anchored like .folder-menu. */

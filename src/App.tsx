@@ -3,7 +3,8 @@ import { getPlatform, type Platform, type WriteResult } from './platform';
 import { renderMarkdown } from './lib/markdown';
 import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
 import { decorateCodeBlocks } from './lib/codeCopy';
-import { fileShareUrl, workspaceShareUrl } from './lib/shareLinks';
+import { fileShareUrl, headingAnchors, headingShareUrl, slugFromHash, workspaceShareUrl, type HeadingAnchor } from './lib/shareLinks';
+import { decorateHeadingLinks } from './lib/headingLinks';
 import { CopyLinkButton } from './components/CopyLinkButton';
 import { renderFenceDiagrams, type DiagramRenderCache } from './lib/fenceDiagrams';
 import { rewriteFenceWidthAt } from './lib/diagramResize';
@@ -680,6 +681,13 @@ export default function App() {
    * the active document rather than losing to the session's remembered one.
    */
   const bootDocRef = useRef<string | null>(null);
+  /**
+   * PRD 020 Req 19 (issue #223): the deep link's `#<slug>` landing — runs
+   * right after the boot document opens, but the scroll machinery it reuses
+   * (PRD 012's scrollToLine / scrollPreviewToLine) is declared later, so the
+   * workspace open reaches it through a per-render ref like its neighbours.
+   */
+  const landOnHeadingSlugRef = useRef<() => void>(() => {});
   /**
    * PRD 009 Req 4/5: opens a local file as a crossing action (a workspace
    * closes first). Ref'd for the same reason: the boot effect registers the
@@ -3160,6 +3168,10 @@ export default function App() {
         if (bootDoc) {
           bootDocRef.current = null;
           await openDoc(p, bootDoc);
+          // PRD 020 Req 19 (issue #223): the visit's `#<slug>` scrolls the
+          // linked file to its heading — hosted deep links only (the dev
+          // shim's hash carries `#open=…`, a different contract entirely).
+          if (p.kind === 'hosted') landOnHeadingSlugRef.current();
         }
         commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
         for (const dir of new Set([...folders, ...expanded])) void listFolderDir(p, dir);
@@ -4029,6 +4041,102 @@ export default function App() {
     ws.scrollTop = el.getBoundingClientRect().top - (ws.getBoundingClientRect().top - ws.scrollTop);
     return true;
   }, []);
+
+  // --- PRD 020 Reqs 18–19 (issue #223): heading share links -------------------
+  /**
+   * PRD 020 Req 18: heading slugs come from the SECTION MODEL of the buffer
+   * of the moment (`lib/shareLinks.ts` derives them from `parseSections`,
+   * never from scraping DOM). Parsed lazily and cached on the source text,
+   * so a gutter query or a click never re-parses an unchanged document.
+   */
+  const headingAnchorsCacheRef = useRef<{ src: string; anchors: HeadingAnchor[] } | null>(null);
+  const getHeadingAnchors = useCallback(() => {
+    const src = canonicalOf(stateRef.current.buffer);
+    if (headingAnchorsCacheRef.current?.src !== src) {
+      headingAnchorsCacheRef.current = { src, anchors: headingAnchors(parseSections(src)) };
+    }
+    return headingAnchorsCacheRef.current.anchors;
+  }, [canonicalOf]);
+  /**
+   * PRD 020 Req 18: what BOTH heading placements (preview button, editor
+   * gutter) copy for a 1-based source line — the file's canonical Req 5 URL
+   * off the address bar plus `#<slug>`, or null when the line is no heading
+   * or no file rides the path (untitled buffers share nothing). Read at
+   * click time, like the Req 16/17 placements.
+   */
+  const headingUrlForLine = useCallback(
+    (line: number): string | null => {
+      const slug = getHeadingAnchors().find((a) => a.line === line)?.slug;
+      return slug === undefined
+        ? null
+        : headingShareUrl(window.location.origin, window.location.pathname, slug);
+    },
+    [getHeadingAnchors]
+  );
+
+  /**
+   * PRD 020 Req 19: the graceful miss — the file opened at the top and this
+   * notice says why. Brief (it self-clears) but DISMISSIBLE, unlike the
+   * SPEC20 toast: the link's recipient can wave it away sooner.
+   */
+  const [headingMiss, setHeadingMiss] = useState(false);
+  const headingMissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dismissHeadingMiss = useCallback(() => {
+    if (headingMissTimerRef.current) clearTimeout(headingMissTimerRef.current);
+    headingMissTimerRef.current = null;
+    setHeadingMiss(false);
+  }, []);
+  /**
+   * PRD 020 Req 19: land the just-opened boot document on the visited
+   * `#<slug>`, in whatever view mode is current, through the TOC's existing
+   * navigate-to-line machinery (PRD 012): `scrollToLine` in edit, the
+   * preview scroll path in read. The preview renders on a debounce, so the
+   * scroll retries per frame (the PRD 011 Req 19 dive pattern) until the
+   * heading's line is in the DOM; an unmatched slug — parsed from the real
+   * buffer, once it holds text — shows the renamed-section notice instead
+   * and leaves the file at the top.
+   */
+  const landOnHeadingSlug = useCallback(() => {
+    const slug = slugFromHash(window.location.hash);
+    if (slug === null) return;
+    let tries = 0;
+    const tick = () => {
+      const s = stateRef.current;
+      const src = canonicalOf(s.buffer);
+      const miss = () => {
+        setHeadingMiss(true);
+        if (headingMissTimerRef.current) clearTimeout(headingMissTimerRef.current);
+        headingMissTimerRef.current = setTimeout(() => setHeadingMiss(false), 8000);
+      };
+      if (src !== '') {
+        const line = getHeadingAnchors().find((a) => a.slug === slug)?.line ?? null;
+        if (line === null) {
+          miss();
+          return;
+        }
+        // Cancel any in-flight scroll carry, the palette's reason: its retry
+        // loop would yank the viewport back and swallow this landing.
+        if (s.mode === 'edit') {
+          if (editorSyncRef.current) {
+            pendingScrollLineRef.current = null;
+            editorSyncRef.current.scrollToLine(line);
+            return;
+          }
+        } else if (scrollPreviewToLine(line)) {
+          pendingScrollLineRef.current = null;
+          return;
+        }
+      }
+      // The buffer, the lazy editor, or the debounced render isn't there
+      // yet — retry per frame, bounded so a never-rendering document cannot
+      // spin forever. A buffer still empty at the bound is a real document
+      // with no headings at all: no slug can match, so say so.
+      if (tries++ < 300) requestAnimationFrame(tick);
+      else if (src === '') miss();
+    };
+    requestAnimationFrame(tick);
+  }, [canonicalOf, getHeadingAnchors, scrollPreviewToLine]);
+  landOnHeadingSlugRef.current = landOnHeadingSlug;
 
   /** SPEC14 §1: step activation through the open comments in position order. */
   const navigateComment = useCallback((dir: 1 | -1) => {
@@ -5876,6 +5984,13 @@ export default function App() {
     // so they never enter the pipeline's HTML (exports, print) nor the plain
     // text comment anchors are offsets into (lib/codeCopy.ts).
     decorateCodeBlocks(doc, copyToClipboard);
+    // PRD 020 Req 18 (issue #223): the per-heading copy-link buttons — the
+    // same post-injection graft, contributing no text nodes
+    // (lib/headingLinks.ts). Req 15: hosted-only, like every share
+    // placement, and only for a document with an address (docPath).
+    if (stateRef.current.platform?.kind === 'hosted' && stateRef.current.docPath) {
+      decorateHeadingLinks(doc, headingUrlForLine, copyToClipboard);
+    }
     // PRD 013 Req 2: registered fence languages draw as diagrams — same
     // post-injection graft, same reason: the SVG never enters the pipeline's
     // HTML or the anchor text space (lib/fenceDiagrams.ts). Async completion
@@ -5896,7 +6011,7 @@ export default function App() {
   // PRD 011 Req 17: `zoomLevel` joins the deps because the `.doc` container is
   // UNMOUNTED at levels 1–4 — returning to L5 must re-inject the same html
   // into the fresh element, or the full document would come back blank.
-  }, [html, mode, zoomLevel, reanchorAndHighlight, applyActiveCues, copyToClipboard]);
+  }, [html, mode, zoomLevel, reanchorAndHighlight, applyActiveCues, copyToClipboard, headingUrlForLine]);
 
   // Into preview: once the doc is injected, map the carried line back to a
   // pixel offset (block-anchored, so code blocks don't skew it).
@@ -6033,6 +6148,11 @@ export default function App() {
       });
     }
     decorateCodeBlocks(el, copyToClipboard); // Issue #122: split view behaves the same
+    // PRD 020 Req 18: the split reading pane offers the same heading
+    // copy-link affordance, under the same hosted-and-addressed gate.
+    if (stateRef.current.platform?.kind === 'hosted' && stateRef.current.docPath) {
+      decorateHeadingLinks(el, headingUrlForLine, copyToClipboard);
+    }
     // PRD 013 Req 2: the split reading pane draws diagrams the same way — and
     // this effect re-runs per keystroke, rebuilding the pane's DOM under any
     // render still in flight, so the stale-result guard (lib/fenceDiagrams.ts)
@@ -6043,7 +6163,7 @@ export default function App() {
     // SPEC44 §3.2: a re-render wiped the synthetic cues — re-derive them.
     const cue = activeCueRef.current;
     if (cue) applyActiveCues(el, cue.head, cue.headLine, cue.hasSel);
-  }, [html, mode, zoomLevel, settings.splitEdit, reanchorAndHighlight, applyActiveCues, copyToClipboard]);
+  }, [html, mode, zoomLevel, settings.splitEdit, reanchorAndHighlight, applyActiveCues, copyToClipboard, headingUrlForLine]);
 
   // Issue #167: auto-hiding scrollbars — ONE document-level installer covers
   // every fading surface (workspace, split preview, editor, sidebar/search
@@ -7387,6 +7507,15 @@ export default function App() {
                 diagramView={settings.diagramView}
                 onToggleDiagramView={toggleDiagramView}
                 themeVariant={activeThemeVariant}
+                // PRD 020 Req 18 (issue #223): the heading copy-link gutter —
+                // hosted-only (Req 15), and only for a document with an
+                // address; the dev shim, Tauri and the single-file build
+                // never grow the gutter.
+                headingLink={
+                  platform?.kind === 'hosted' && docPath
+                    ? { getUrl: headingUrlForLine, copy: copyToClipboard }
+                    : undefined
+                }
               />
             </Suspense>
           </div>
@@ -7527,6 +7656,24 @@ export default function App() {
       {notice && (
         <div className="mm-notice" data-testid="notice">
           {notice}
+        </div>
+      )}
+
+      {/* PRD 020 Req 19 (issue #223): the heading-link miss — the file opened
+          at the top and this says why. The toast idiom, but DISMISSIBLE (and
+          on its own state, so a paste notice never fights it): brief via its
+          own self-clear, gone sooner via the ✕. */}
+      {headingMiss && (
+        <div className="mm-notice mm-heading-miss" data-testid="heading-miss-notice" role="status">
+          That section wasn't found — it may have been renamed
+          <IconButton
+            className="heading-miss-dismiss"
+            data-testid="heading-miss-dismiss"
+            title="Dismiss"
+            onClick={dismissHeadingMiss}
+          >
+            ✕
+          </IconButton>
         </div>
       )}
 
