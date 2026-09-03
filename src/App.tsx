@@ -4081,6 +4081,11 @@ export default function App() {
    */
   const [headingMiss, setHeadingMiss] = useState(false);
   const headingMissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showHeadingMiss = useCallback(() => {
+    if (headingMissTimerRef.current) clearTimeout(headingMissTimerRef.current);
+    headingMissTimerRef.current = setTimeout(() => setHeadingMiss(false), 8000);
+    setHeadingMiss(true);
+  }, []);
   const dismissHeadingMiss = useCallback(() => {
     if (headingMissTimerRef.current) clearTimeout(headingMissTimerRef.current);
     headingMissTimerRef.current = null;
@@ -4103,15 +4108,10 @@ export default function App() {
     const tick = () => {
       const s = stateRef.current;
       const src = canonicalOf(s.buffer);
-      const miss = () => {
-        setHeadingMiss(true);
-        if (headingMissTimerRef.current) clearTimeout(headingMissTimerRef.current);
-        headingMissTimerRef.current = setTimeout(() => setHeadingMiss(false), 8000);
-      };
       if (src !== '') {
         const line = getHeadingAnchors().find((a) => a.slug === slug)?.line ?? null;
         if (line === null) {
-          miss();
+          showHeadingMiss();
           return;
         }
         // Cancel any in-flight scroll carry, the palette's reason: its retry
@@ -4132,10 +4132,10 @@ export default function App() {
       // spin forever. A buffer still empty at the bound is a real document
       // with no headings at all: no slug can match, so say so.
       if (tries++ < 300) requestAnimationFrame(tick);
-      else if (src === '') miss();
+      else if (src === '') showHeadingMiss();
     };
     requestAnimationFrame(tick);
-  }, [canonicalOf, getHeadingAnchors, scrollPreviewToLine]);
+  }, [canonicalOf, getHeadingAnchors, scrollPreviewToLine, showHeadingMiss]);
   landOnHeadingSlugRef.current = landOnHeadingSlug;
 
   /** SPEC14 §1: step activation through the open comments in position order. */

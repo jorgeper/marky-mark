@@ -14,6 +14,8 @@
  * The confirmation contract itself (copy at click time, confirm only on a
  * landed write, ~2s, then revert) is `createCopyLinkController` in
  * `lib/shareLinks.ts` — the same controller the Req 16/17 placements use.
+ * The editor gutter placement (`components/Editor.tsx`) builds its marker
+ * from the same `createHeadingLinkButton` factory below.
  */
 import { COPY_LINK_LABEL, LINK_COPIED_LABEL, createCopyLinkController } from './shareLinks';
 
@@ -30,6 +32,39 @@ const LINK_SVG =
   '<path d="M7.5 4.6l1.4-1.4a2.55 2.55 0 0 1 3.6 3.6l-1.4 1.4" />' +
   '<path d="M8.5 11.4l-1.4 1.4a2.55 2.55 0 0 1-3.6-3.6l1.4-1.4" />' +
   '</g></svg>';
+
+/**
+ * PRD 020 Req 18: the plain-DOM heading copy-link button both placements
+ * share — the preview graft below and the editor gutter marker
+ * (`components/Editor.tsx`). One factory so the glyph and the confirmation's
+ * DOM contract (the `is-copied` class, the aria-label swap, the live-region
+ * text) cannot drift between placements; each caller adds only its own
+ * click/focus wiring and where the announcement text lands.
+ */
+export function createHeadingLinkButton(
+  doc: Document,
+  opts: {
+    className: string;
+    testid: string;
+    getUrl: () => string | null;
+    copy: (text: string) => Promise<boolean> | boolean;
+    setLiveText: (text: string) => void;
+  }
+): { btn: HTMLButtonElement; ctrl: { click(): Promise<void>; dispose(): void } } {
+  const btn = doc.createElement('button');
+  btn.type = 'button';
+  btn.className = opts.className;
+  btn.dataset.testid = opts.testid;
+  btn.title = COPY_LINK_LABEL;
+  btn.setAttribute('aria-label', COPY_LINK_LABEL);
+  btn.innerHTML = LINK_SVG;
+  const ctrl = createCopyLinkController(opts.getUrl, opts.copy, (on) => {
+    btn.classList.toggle('is-copied', on);
+    btn.setAttribute('aria-label', on ? LINK_COPIED_LABEL : COPY_LINK_LABEL);
+    opts.setLiveText(on ? LINK_COPIED_LABEL : '');
+  });
+  return { btn, ctrl };
+}
 
 /**
  * PRD 020 Req 18: give every rendered heading that carries a source-line
@@ -59,22 +94,15 @@ export function decorateHeadingLinks(
     const line = Number(h.dataset.mmLine);
     if (!Number.isInteger(line) || line < 1) continue;
     if (h.querySelector(`.${HEADING_LINK_CLASS}`)) continue;
-    const btn = doc.createElement('button');
-    btn.type = 'button';
-    btn.className = HEADING_LINK_CLASS;
-    btn.dataset.testid = HEADING_LINK_CLASS;
-    btn.title = COPY_LINK_LABEL;
-    btn.setAttribute('aria-label', COPY_LINK_LABEL);
-    btn.innerHTML = LINK_SVG;
-    const ctrl = createCopyLinkController(
-      () => getUrlForLine(line),
+    const { btn, ctrl } = createHeadingLinkButton(doc, {
+      className: HEADING_LINK_CLASS,
+      testid: HEADING_LINK_CLASS,
+      getUrl: () => getUrlForLine(line),
       copy,
-      (on) => {
-        btn.classList.toggle('is-copied', on);
-        btn.setAttribute('aria-label', on ? LINK_COPIED_LABEL : COPY_LINK_LABEL);
-        if (live) live.textContent = on ? LINK_COPIED_LABEL : '';
-      }
-    );
+      setLiveText: (text) => {
+        if (live) live.textContent = text;
+      },
+    });
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation(); // the .doc click delegate places the caret otherwise

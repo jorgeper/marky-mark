@@ -41,7 +41,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { css as cssLanguage } from '@codemirror/lang-css';
 import { html as htmlLanguage } from '@codemirror/lang-html';
 import { javascript as jsLanguage } from '@codemirror/lang-javascript';
-import { COPY_LINK_LABEL, LINK_COPIED_LABEL, createCopyLinkController } from '../lib/shareLinks';
+import { createHeadingLinkButton } from '../lib/headingLinks';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
 import type { CompiledPattern } from '../lib/searchCore';
 import { mapOffsetByLineFlat, wordAt } from '../lib/activePosition';
@@ -619,24 +619,16 @@ function smartEditButton(title: string, onOpen: (view: EditorView, rect: DOMRect
   });
 }
 
-/** The CopyLinkButton link glyph at gutter size (no React inside a marker). */
-const HEADING_LINK_SVG =
-  '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" data-icon="link">' +
-  '<g stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
-  '<path d="M6.7 9.3l2.6-2.6" />' +
-  '<path d="M7.5 4.6l1.4-1.4a2.55 2.55 0 0 1 3.6 3.6l-1.4 1.4" />' +
-  '<path d="M8.5 11.4l-1.4 1.4a2.55 2.55 0 0 1-3.6-3.6l1.4-1.4" />' +
-  '</g></svg>';
-
 /**
  * PRD 020 Req 18 (issue #223): the heading copy-link marker — one per view,
  * on the cursor's line only. `eq` compares lines so a cursor that stays put
  * keeps its DOM (and a running confirmation) across unrelated updates. The
- * confirmation is `createCopyLinkController`'s Req 14 contract: copy at
- * click time, "Link copied" only on a landed write, ~2s, then rest — the
- * visible caption is a `::after` pseudo-element (styles.css) and the real
- * text lives in the marker's own `aria-live` span, which is gutter chrome,
- * safely outside the preview's comment-anchor text space.
+ * button and its Req 14 confirmation contract (copy at click time, "Link
+ * copied" only on a landed write, ~2s, then rest) come from the shared
+ * `createHeadingLinkButton` factory (`lib/headingLinks.ts`) — the visible
+ * caption is a `::after` pseudo-element (styles.css) and the real text lives
+ * in the marker's own `aria-live` span, which is gutter chrome, safely
+ * outside the preview's comment-anchor text space.
  */
 class HeadingLinkMarker extends GutterMarker {
   private ctrl: { click(): Promise<void>; dispose(): void } | null = null;
@@ -650,32 +642,26 @@ class HeadingLinkMarker extends GutterMarker {
     return other.lineNo === this.lineNo;
   }
   override toDOM() {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'heading-link-btn';
-    btn.setAttribute('data-testid', 'heading-copy-link-gutter');
-    btn.title = COPY_LINK_LABEL;
-    btn.setAttribute('aria-label', COPY_LINK_LABEL);
-    btn.innerHTML = HEADING_LINK_SVG;
     const live = document.createElement('span');
     live.className = 'heading-link-live';
     live.setAttribute('aria-live', 'polite');
+    const { btn, ctrl } = createHeadingLinkButton(document, {
+      className: 'heading-link-btn',
+      testid: 'heading-copy-link-gutter',
+      getUrl: () => this.seam.current?.getUrl(this.lineNo) ?? null,
+      copy: (text) => this.seam.current?.copy(text) ?? false,
+      setLiveText: (text) => {
+        live.textContent = text;
+      },
+    });
     btn.appendChild(live);
-    this.ctrl = createCopyLinkController(
-      () => this.seam.current?.getUrl(this.lineNo) ?? null,
-      (text) => this.seam.current?.copy(text) ?? false,
-      (on) => {
-        btn.classList.toggle('is-copied', on);
-        btn.setAttribute('aria-label', on ? LINK_COPIED_LABEL : COPY_LINK_LABEL);
-        live.textContent = on ? LINK_COPIED_LABEL : '';
-      }
-    );
+    this.ctrl = ctrl;
     // preventDefault on mousedown keeps focus (and the resting cursor) in
     // the editor — the smart-edit gutter precedent.
     btn.addEventListener('mousedown', (e) => e.preventDefault());
     btn.addEventListener('click', (e) => {
       e.preventDefault();
-      void this.ctrl?.click();
+      void ctrl.click();
     });
     return btn;
   }
