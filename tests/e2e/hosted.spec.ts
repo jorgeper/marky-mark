@@ -3367,6 +3367,27 @@ test.describe('PRD 017 the Management view', () => {
   });
 });
 
+/**
+ * Issue #195, reused by PRD 020 Req 14 (issue #222): a deterministic
+ * clipboard for every copy-link flow — the invite rows (E385) and the share
+ * controls (E404). The hosted SPA is the web platform — no copyText shim —
+ * so copies go through navigator.clipboard, which a headless run cannot
+ * inspect; the stub records every write on window.__copies instead.
+ */
+async function stubClipboard(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const copies: string[] = [];
+    (window as unknown as { __copies: string[] }).__copies = copies;
+    navigator.clipboard.writeText = (text: string) => {
+      copies.push(text);
+      return Promise.resolve();
+    };
+  });
+}
+
+const lastCopy = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __copies: string[] }).__copies.at(-1));
+
 // PRD 017 §Invitations (issue #190): in-app guest invitations over the mock
 // directory — the whole Req 29–33 flow offline. The mock's invitation list is
 // in-memory on the ONE shared server, so every test uses a worker-unique
@@ -3733,26 +3754,6 @@ test.describe('PRD 017 in-app guest invitations', () => {
       await request.delete(`${HOSTED}/api/directory/invitations/${id}`, { headers });
     }
   });
-
-  /**
-   * Issue #195: a deterministic clipboard for the copy-link flows. The
-   * hosted SPA is the web platform — no copyText shim — so copies go
-   * through navigator.clipboard, which a headless run cannot inspect; the
-   * stub records every write on window.__copies instead.
-   */
-  async function stubClipboard(page: Page): Promise<void> {
-    await page.addInitScript(() => {
-      const copies: string[] = [];
-      (window as unknown as { __copies: string[] }).__copies = copies;
-      navigator.clipboard.writeText = (text: string) => {
-        copies.push(text);
-        return Promise.resolve();
-      };
-    });
-  }
-
-  const lastCopy = (page: Page) =>
-    page.evaluate(() => (window as unknown as { __copies: string[] }).__copies.at(-1));
 
   test('E385: Copy invite link on a Pending row lands a fresh redeem URL on the clipboard — Copied confirms and reverts, a refused clipboard shows the URL for manual copy, non-pending rows never offer it', async ({
     page,
@@ -4203,25 +4204,6 @@ test('E403: a path matching no workspace, no file, or an unknown legacy UUID ren
 
 // --- the copy-link share affordance (PRD 020 Reqs 14–17, issue #222) ---------
 
-/**
- * PRD 020 Req 14: a recordable clipboard — the hosted platform's copyText
- * goes through navigator.clipboard, which a headless run cannot read back,
- * so the stub records every write on window.__shareCopies (E385's pattern).
- */
-async function recordClipboard(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    const copies: string[] = [];
-    (window as unknown as { __shareCopies: string[] }).__shareCopies = copies;
-    navigator.clipboard.writeText = (text: string) => {
-      copies.push(text);
-      return Promise.resolve();
-    };
-  });
-}
-
-const lastShareCopy = (page: Page) =>
-  page.evaluate(() => (window as unknown as { __shareCopies: string[] }).__shareCopies.at(-1));
-
 test('E404: hosted copy-link — the workspace control (pane open) and the file control copy the canonical absolute URLs, confirm "Link copied" inline, and revert', async ({
   page,
   request,
@@ -4235,7 +4217,7 @@ test('E404: hosted copy-link — the workspace control (pane open) and the file 
     headers: { Authorization: `Bearer ${token}` },
     data: '# Intro\n',
   });
-  await recordClipboard(page);
+  await stubClipboard(page);
   await signInTo(page, 'ada', id);
   await openFromSidebar(page, 'intro guide.md');
 
@@ -4255,7 +4237,7 @@ test('E404: hosted copy-link — the workspace control (pane open) and the file 
   await wsShare.click();
   await expect(page.getByTestId('copy-link-workspace-copied')).toHaveText('Link copied');
   await expect(wsShare).toHaveAttribute('aria-label', 'Link copied');
-  expect(await lastShareCopy(page)).toBe(`${HOSTED}/${unique}`);
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}`);
   // …briefly (~2s): then the control reverts to rest on its own.
   await expect(page.getByTestId('copy-link-workspace-copied')).toHaveCount(0, { timeout: 4000 });
   await expect(wsShare).toHaveAttribute('aria-label', 'Copy link');
@@ -4264,7 +4246,7 @@ test('E404: hosted copy-link — the workspace control (pane open) and the file 
   // segments percent-encoded, no heading fragment.
   await fileShare.click();
   await expect(page.getByTestId('copy-link-file-copied')).toHaveText('Link copied');
-  expect(await lastShareCopy(page)).toBe(`${HOSTED}/${unique}/intro%20guide.md`);
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/intro%20guide.md`);
 });
 
 test('E405: the file copy-link is absent for an untitled buffer while the workspace control stays', async ({

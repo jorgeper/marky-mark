@@ -6898,17 +6898,17 @@ export default function App() {
   // is read off the canonical address bar at click time (Req 6 keeps
   // `location` on the Req 5 form), so it is absolute and never the legacy
   // `?workspace=` shape.
-  const workspaceShare =
-    platform.kind === 'hosted' && wsKind !== 'none' ? (
-      // PRD 020 Req 16: the workspace placement copies /<workspace-name>.
-      <CopyLinkButton
-        testid="copy-link-workspace"
-        getUrl={() => workspaceShareUrl(window.location.origin, window.location.pathname)}
-        copy={copyToClipboard}
-      />
-    ) : null;
+  const hostedWorkspace = platform.kind === 'hosted' && wsKind !== 'none';
+  const workspaceShare = hostedWorkspace ? (
+    // PRD 020 Req 16: the workspace placement copies /<workspace-name>.
+    <CopyLinkButton
+      testid="copy-link-workspace"
+      getUrl={() => workspaceShareUrl(window.location.origin, window.location.pathname)}
+      copy={copyToClipboard}
+    />
+  ) : null;
   const fileShare =
-    platform.kind === 'hosted' && wsKind !== 'none' && docPath !== null ? (
+    hostedWorkspace && docPath !== null ? (
       // PRD 020 Req 17: the file placement copies the open file's Req 5 URL
       // — and is absent for untitled buffers (their docPath is null).
       <CopyLinkButton
