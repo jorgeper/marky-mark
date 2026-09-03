@@ -2852,7 +2852,7 @@ export default function App() {
     else el.style.setProperty('--mm-zoom', String(settings.zoom / 100));
     // `platform` in the deps: the pre-boot render has no rootRef, so this
     // must re-run once the real root mounts — otherwise defaults that equal
-    // the initial state (e.g. fontSize 12) are never applied.
+    // the initial state (e.g. fontSize 14) are never applied.
   }, [platform, settings.fontSize, settings.margins, settings.zoom, settings.paneMinWidth]);
 
   // PRD 003 Reqs 9–12: "the next pane-setting flip is a user toggle — slide".

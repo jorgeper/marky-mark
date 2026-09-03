@@ -14,9 +14,9 @@ describe('v3 settings', () => {
     // Empty/malformed input → full defaults.
     const d = parseSettings('{}');
     expect(d.themeLight).toBe('crisp');
-    expect(d.themeDark).toBe('one-dark');
+    expect(d.themeDark).toBe('gruvbox-dark');
     expect(d.useDarkTheme).toBe(true);
-    expect(d.fontSize).toBe(12);
+    expect(d.fontSize).toBe(14);
     expect(d.zoom).toBe(100);
     expect(d.margins).toBe('super-narrow'); // narrowest margins by default
     expect(d.paneMinWidth).toBe(768); // pane content floor (px)
@@ -27,7 +27,7 @@ describe('v3 settings', () => {
     // Legacy v1/v2 file: single `theme` key migrates to themeLight.
     const legacy = parseSettings('{"theme":"monokai","author":"Jorge"}');
     expect(legacy.themeLight).toBe('monokai');
-    expect(legacy.themeDark).toBe('one-dark');
+    expect(legacy.themeDark).toBe('gruvbox-dark');
     expect(legacy.author).toBe('Jorge');
 
     // An explicit themeLight wins over a stale legacy key.
@@ -57,9 +57,9 @@ describe('v3 settings', () => {
     expect(custom.vimNav).toBe(true);
 
     // Out-of-range / unknown values fall back.
-    expect(parseSettings('{"fontSize":8}').fontSize).toBe(12); // below min 10 → default
-    expect(parseSettings('{"fontSize":99}').fontSize).toBe(12); // above max 32 → default
-    expect(parseSettings('{"fontSize":"big"}').fontSize).toBe(12);
+    expect(parseSettings('{"fontSize":8}').fontSize).toBe(14); // below min 10 → default
+    expect(parseSettings('{"fontSize":99}').fontSize).toBe(14); // above max 32 → default
+    expect(parseSettings('{"fontSize":"big"}').fontSize).toBe(14);
     expect(parseSettings('{"fontSize":"auto"}').fontSize).toBe('auto'); // explicit auto preserved
     expect(parseSettings('{"zoom":137}').zoom).toBe(100); // not a preset level
     expect(parseSettings('{"margins":"gigantic"}').margins).toBe('super-narrow'); // unknown → the default

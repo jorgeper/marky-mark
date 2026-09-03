@@ -154,9 +154,9 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   themeLight: 'crisp',
-  themeDark: 'one-dark',
+  themeDark: 'gruvbox-dark',
   useDarkTheme: true,
-  fontSize: 12,
+  fontSize: 14,
   zoom: 100,
   margins: 'super-narrow',
   lineNumbers: true,

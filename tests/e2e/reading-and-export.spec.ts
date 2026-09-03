@@ -360,11 +360,11 @@ test('E252: the screen DOM is exactly as it was once printing is done', async ({
 test('E253: with the print root mounted, paper shows only it — light, whatever dark theme the screen wears', async ({
   page,
 }) => {
-  // Dark theme on screen (the seeded default pair: crisp light / one-dark).
+  // Dark theme on screen (the seeded default pair: crisp light / gruvbox-dark).
   const screenBg = () =>
     page.locator('#root .theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
   await page.emulateMedia({ colorScheme: 'dark' });
-  await expect.poll(screenBg).toBe('rgb(40, 44, 52)');
+  await expect.poll(screenBg).toBe('rgb(40, 40, 40)');
   const printed = await printAndRead(page);
 
   // Re-mount exactly what the print invocation had on the page: the shim
@@ -381,7 +381,7 @@ test('E253: with the print root mounted, paper shows only it — light, whatever
     // copy's styles are scoped to the root, so nothing flashes or shifts.
     await expect(page.locator('#mm-print-root')).toBeHidden();
     await expect(page.getByTestId('doc')).toBeVisible();
-    expect(await screenBg()).toBe('rgb(40, 44, 52)');
+    expect(await screenBg()).toBe('rgb(40, 40, 40)');
 
     // On paper: only the print root, on a light page.
     await page.emulateMedia({ media: 'print' });
