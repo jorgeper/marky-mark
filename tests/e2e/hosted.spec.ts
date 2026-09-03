@@ -482,18 +482,24 @@ async function sharedWorkspace(
   return id;
 }
 
-/** Sign in through the UI as `username` with the page bound to a workspace. */
-async function signInTo(page: Page, username: string, workspace?: string): Promise<void> {
-  // Issue #179: discard any crash-safe draft (SPEC30 §3's draft.json, written
-  // to the user's roaming config blob) that a test killed mid-edit left
-  // behind — otherwise the app boots into the "Restore unsaved changes?"
-  // overlay, every click under it is intercepted, and one kill cascades
-  // through the rest of the suite. Every UI test starts draft-free.
-  const token = await signIn(page.request, username);
+/**
+ * Issue #179: discard any crash-safe draft (SPEC30 §3's draft.json, written
+ * to the user's roaming config blob) that a test killed mid-edit left
+ * behind — otherwise the app boots into the "Restore unsaved changes?"
+ * overlay, every click under it is intercepted, and one kill cascades
+ * through the rest of the suite. Every UI test starts draft-free.
+ */
+async function dropDraft(page: Page, token: string): Promise<void> {
   const dropped = await page.request.delete(`${HOSTED}/api/me/files/draft.json`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   expect([200, 404]).toContain(dropped.status());
+}
+
+/** Sign in through the UI as `username` with the page bound to a workspace. */
+async function signInTo(page: Page, username: string, workspace?: string): Promise<void> {
+  const token = await signIn(page.request, username);
+  await dropDraft(page, token);
   await page.goto(`${HOSTED}/${workspace ? `?workspace=${workspace}` : ''}`);
   await page.getByTestId('hosted-sign-in-username').fill(username);
   await page.getByTestId('hosted-sign-in-submit').click();
@@ -3863,14 +3869,6 @@ test.describe('PRD 017 in-app guest invitations', () => {
     }
   });
 });
-
-/** PRD 019 Req 2 setup: start the page draft-free (the signInTo discipline). */
-async function dropDraft(page: Page, token: string): Promise<void> {
-  const dropped = await page.request.delete(`${HOSTED}/api/me/files/draft.json`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  expect([200, 404]).toContain(dropped.status());
-}
 
 test('E397: /scratchpad gates on sign-in, then lands in the scratchpad workspace — untitled buffer in edit mode, canonical ?workspace= URL, same workspace on a repeat visit', async ({
   page,
