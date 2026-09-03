@@ -121,8 +121,24 @@ describe('PRD 009 Req 13/14 save picker', () => {
     if (!tooLong.ok) expect(tooLong.error).toBe('Name too long');
   });
 
+  test('U852: New File is offered with a save dialog, else only in a writable workspace', () => {
+    // A save dialog keeps the untitled buffer offered everywhere — mode,
+    // listing seam and grants never enter into it.
+    expect(canOfferNewFile({ hasSaveDialog: true, inWorkspace: false, canList: false, canCreate: false })).toBe(true);
+    // Without one it takes a workspace, the listing seam the picker's folders
+    // come from, and the file.create grant.
+    expect(canOfferNewFile({ hasSaveDialog: false, inWorkspace: true, canList: true, canCreate: true })).toBe(true);
+    expect(canOfferNewFile({ hasSaveDialog: false, inWorkspace: false, canList: true, canCreate: true })).toBe(false);
+    expect(canOfferNewFile({ hasSaveDialog: false, inWorkspace: true, canList: false, canCreate: true })).toBe(false);
+    expect(canOfferNewFile({ hasSaveDialog: false, inWorkspace: true, canList: true, canCreate: false })).toBe(false);
+  });
+});
+
+describe('PRD 019 Req 12 scratch save name', () => {
+  // The clock comes in as `now`, so every expectation can pin the timestamp.
+  const now = new Date(2026, 8, 3, 14, 5);
+
   test('U1039: the scratch pre-fill takes the first heading — ATX or setext — over the first line', () => {
-    const now = new Date(2026, 8, 3, 14, 5);
     // The first ATX heading wins even when prose precedes it.
     expect(scratchSaveName('intro prose\n\n# Meeting Notes\n\nbody\n', { existing: [], now })).toBe(
       'Meeting Notes.md'
@@ -138,7 +154,6 @@ describe('PRD 009 Req 13/14 save picker', () => {
   });
 
   test('U1040: markup is stripped and the text sanitized into a name validateEntryName accepts', () => {
-    const now = new Date(2026, 8, 3, 14, 5);
     // Inline formatting goes; a link keeps only its text.
     expect(scratchSaveName('# **Bold** `code` and [a link](https://x.y)\n', { existing: [], now })).toBe(
       'Bold code and a link.md'
@@ -153,7 +168,6 @@ describe('PRD 009 Req 13/14 save picker', () => {
   });
 
   test('U1041: an empty or unusable buffer pre-fills the timestamp, zero-padded', () => {
-    const now = new Date(2026, 8, 3, 14, 5);
     expect(scratchSaveName('', { existing: [], now })).toBe('2026-09-03 14.05.md');
     expect(scratchSaveName('   \n\t\n', { existing: [], now })).toBe('2026-09-03 14.05.md');
     // A first line that sanitizes away entirely is as good as empty.
@@ -163,24 +177,11 @@ describe('PRD 009 Req 13/14 save picker', () => {
   });
 
   test('U1042: .md is appended only when the derived name lacks an extension, and collisions dedupe', () => {
-    const now = new Date(2026, 8, 3, 14, 5);
     // An extension already present is kept, exactly like withDefaultExtension.
     expect(scratchSaveName('notes.markdown\n', { existing: [], now })).toBe('notes.markdown');
     expect(scratchSaveName('plain title\n', { existing: [], now })).toBe('plain title.md');
     // Collisions dedupe through uniqueChildName, matching defaultName's use.
     expect(scratchSaveName('# Plan\n', { existing: ['Plan.md', 'plan 2.md'], now })).toBe('Plan 3.md');
     expect(scratchSaveName('', { existing: ['2026-09-03 14.05.md'], now })).toBe('2026-09-03 14.05 2.md');
-  });
-
-  test('U852: New File is offered with a save dialog, else only in a writable workspace', () => {
-    // A save dialog keeps the untitled buffer offered everywhere — mode,
-    // listing seam and grants never enter into it.
-    expect(canOfferNewFile({ hasSaveDialog: true, inWorkspace: false, canList: false, canCreate: false })).toBe(true);
-    // Without one it takes a workspace, the listing seam the picker's folders
-    // come from, and the file.create grant.
-    expect(canOfferNewFile({ hasSaveDialog: false, inWorkspace: true, canList: true, canCreate: true })).toBe(true);
-    expect(canOfferNewFile({ hasSaveDialog: false, inWorkspace: false, canList: true, canCreate: true })).toBe(false);
-    expect(canOfferNewFile({ hasSaveDialog: false, inWorkspace: true, canList: false, canCreate: true })).toBe(false);
-    expect(canOfferNewFile({ hasSaveDialog: false, inWorkspace: true, canList: true, canCreate: false })).toBe(false);
   });
 });
