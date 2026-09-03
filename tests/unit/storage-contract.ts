@@ -44,6 +44,13 @@ export function createMemoryStorage(): { provider: StorageProvider; blobs: Map<s
       blobs.set(path, content);
       return { etag: stampPath(path) };
     },
+    // PRD 019 Req 5: create-if-absent — null when anything is stored there,
+    // exactly as the Azure If-None-Match: * precondition answers.
+    async writeIfAbsent(path, content) {
+      if (blobs.has(path)) return null;
+      blobs.set(path, content);
+      return { etag: stampPath(path) };
+    },
     async readBytes(path) {
       const raw = binaries.get(path);
       if (raw) return { ...raw, etag: etags.get(path) ?? '' };
@@ -85,7 +92,7 @@ export interface StorageContractOptions {
   label: string;
   /**
    * The first U number of this run's block; the suite uses `firstId`…
-   * `firstId + 8`. Adding a test here widens every block, so it also means
+   * `firstId + 9`. Adding a test here widens every block, so it also means
    * moving each caller to a fresh, still-unused block rather than growing
    * into the next one.
    */
@@ -174,6 +181,16 @@ export function describeStorageContract(options: StorageContractOptions): void {
       expect(await storage.delete('workspaces/w1/files/notes.md')).toBe(true);
       expect(await storage.read('workspaces/w1/files/notes.md')).toBeNull();
       expect(await storage.delete('workspaces/w1/files/notes.md')).toBe(false);
+    });
+
+    // PRD 019 Req 5: the conditional create — of two "first" writes exactly
+    // one can land; the loser answers null with the winner's content intact.
+    it(u(9, 'writeIfAbsent lands only while nothing is stored, and answers null with the stored content untouched'), async () => {
+      const first = await storage.writeIfAbsent('users/u1/scratchpad.json', '{"workspaceId":"one"}');
+      expect(first).not.toBeNull();
+      expect(first!.etag).not.toBe('');
+      expect(await storage.writeIfAbsent('users/u1/scratchpad.json', '{"workspaceId":"two"}')).toBeNull();
+      expect((await storage.read('users/u1/scratchpad.json'))?.content).toBe('{"workspaceId":"one"}');
     });
 
     it(u(8, 'list answers a prefix with populated stats, and an empty prefix answers everything'), async () => {

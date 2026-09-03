@@ -83,6 +83,15 @@ export interface StorageProvider {
    */
   writeIfMatch(path: string, content: string, ifMatch: string): Promise<{ etag: string } | null>;
   /**
+   * PRD 019 Req 5: the conditional CREATE behind idempotent provisioning —
+   * the write lands ONLY while nothing is stored at `path` (Azure blob's
+   * `If-None-Match: *` precondition, one atomic request against the
+   * service). Resolves null — with the stored content untouched — when a
+   * blob is already there, so of two racing first writes exactly one wins
+   * and the loser learns it lost.
+   */
+  writeIfAbsent(path: string, content: string): Promise<{ etag: string } | null>;
+  /**
    * PRD 007 Req 8: the same blobs as bytes. Pasted images are stored and
    * served without a text round trip — blob storage is byte-native, so
    * base64-in-a-string would only be a lossy detour — and the media type

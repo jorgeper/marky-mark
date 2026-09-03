@@ -921,7 +921,7 @@ describe('PRD 017 Req 4 admin union over HTTP', () => {
 });
 
 // The reference provider the HTTP layer above runs on is held to the shared
-// seam contract (tests/unit/storage-contract.ts). U374–U382 is this run's
+// seam contract (tests/unit/storage-contract.ts). U374–U383 is this run's
 // block of ids.
 describeStorageContract({
   label: 'the in-memory reference provider',

@@ -18,7 +18,7 @@ import { createLlmApi, LLM_PREFIX, type LlmApi } from './llm.ts';
 import type { Providers, RequestAuth } from './providers/types.ts';
 import { invitationTestHooks } from './providers/mock/directory.ts';
 import { handleUserFilesApi, USERS_PREFIX } from './userFiles.ts';
-import { handleWorkspaceApi, WORKSPACES_PREFIX } from './workspaces.ts';
+import { handleScratchpadResolve, handleWorkspaceApi, WORKSPACES_PREFIX } from './workspaces.ts';
 
 /**
  * PRD 007 Req 9+13: prefixes the workspace-agnostic /api/files scaffold must
@@ -121,6 +121,15 @@ async function handleApi(
       canCreateWorkspaces: creation.allowed,
       ...(creation.allowed ? {} : { createRefusal: creation.refusal }),
     });
+    return;
+  }
+
+  // PRD 019 Req 5+7: the calling user's scratchpad — resolve-or-create,
+  // keyed only by the validated token identity (like /api/me/files) and
+  // deliberately not gated by deployment.creationFor: every signed-in user
+  // gets one, while regular creation stays policy-governed.
+  if (pathname === '/api/me/scratchpad' && req.method === 'POST') {
+    await handleScratchpadResolve(res, providers.storage, auth);
     return;
   }
 

@@ -64,6 +64,25 @@ export function createBlobStorageProvider(connectionString: string, container: s
         throw err;
       }
     },
+    // PRD 019 Req 5: Blob Storage's If-None-Match: * precondition — the
+    // check and the write are one atomic request, so two racing first
+    // writes cannot both land. The service refuses an existing blob with
+    // 409 (BlobAlreadyExists); 412 is the same precondition as some
+    // emulators/proxies report it. Both answer null, stored content
+    // untouched.
+    async writeIfAbsent(path: string, content: string): Promise<{ etag: string } | null> {
+      const data = Buffer.from(content, 'utf8');
+      try {
+        const res = await containerClient
+          .getBlockBlobClient(path)
+          .upload(data, data.length, { conditions: { ifNoneMatch: '*' } });
+        return { etag: res.etag ?? '' };
+      } catch (err) {
+        const status = (err as { statusCode?: number }).statusCode;
+        if (status === 409 || status === 412) return null;
+        throw err;
+      }
+    },
     // PRD 007 Req 8: the byte-level pair — pasted images in, image bytes out.
     async readBytes(path: string): Promise<StoredBytes | null> {
       try {

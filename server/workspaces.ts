@@ -48,6 +48,7 @@ import type { DeploymentPolicy } from './deployment.ts';
 import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from './http.ts';
 import { mergeThreeWay } from './merge.ts';
 import type { DirectoryProvider, RequestAuth, StorageProvider } from './providers/types.ts';
+import { userPrefix } from './userFiles.ts';
 
 /** PRD 007 Req 7: the root prefix all workspace data lives under. */
 export const WORKSPACES_PREFIX = 'workspaces/';
@@ -368,6 +369,95 @@ async function snapshotDisplayName(
   const user = await directory.getUser(id, auth).catch(() => null);
   const name = user?.displayName?.trim();
   return name && name !== id ? name : undefined;
+}
+
+// --- the personal scratchpad (PRD 019 Reqs 5–7) ------------------------------
+
+/** PRD 019 Req 6: the scratchpad workspace's display name. */
+export const SCRATCHPAD_NAME = 'Scratchpad';
+
+/**
+ * PRD 019 Req 5: where one user's scratchpad workspace id is recorded — the
+ * source of truth for "already provisioned". Under the caller's own
+ * token-scoped prefix (`users/<id>/…`, the server/userFiles.ts pattern), so
+ * no request can name another user's record.
+ */
+export function scratchpadPointerBlob(userId: string): string {
+  return `${userPrefix(userId)}scratchpad.json`;
+}
+
+/** The recorded workspace id, or null when the blob is not a valid record. */
+function parseScratchpadPointer(content: string): string | null {
+  try {
+    const parsed = JSON.parse(content) as { workspaceId?: unknown };
+    return typeof parsed?.workspaceId === 'string' && parsed.workspaceId !== ''
+      ? parsed.workspaceId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * POST /api/me/scratchpad — resolve-or-create the calling user's scratchpad.
+ * PRD 019 Req 5: keyed SOLELY by the validated token identity (never the
+ * URL, query or body) and idempotent — every call answers `{id}` with the
+ * same workspace id, created exactly once. PRD 019 Req 7: deliberately NOT
+ * behind the deployment creation policy — every signed-in user, guests
+ * included, gets one; `deployment.creationFor` keeps governing the regular
+ * POST /api/workspaces above.
+ */
+export async function handleScratchpadResolve(
+  res: ServerResponse,
+  storage: StorageProvider,
+  auth: RequestAuth,
+): Promise<void> {
+  const pointer = scratchpadPointerBlob(auth.user.id);
+  const recorded = await storage.read(pointer);
+  if (recorded) {
+    // A record that exists but does not parse is a server-side data problem,
+    // surfaced as 500 like a corrupt manifest — never silently re-created
+    // (that would strand the real scratchpad and its files).
+    const id = parseScratchpadPointer(recorded.content);
+    if (!id) sendJson(res, 500, { error: 'corrupt scratchpad record' });
+    else sendJson(res, 200, { id });
+    return;
+  }
+  // First call: provision a REAL workspace through the standard creation
+  // pieces (PRD 019 Req 6) — manifest from buildNewWorkspaceManifest with
+  // the caller as sole Owner, opaque randomUUID id, manifest at the standard
+  // workspaces/<id>/manifest.json blob. The display-name snapshot comes from
+  // the caller's own token, as the create route does for the creator.
+  const built = buildNewWorkspaceManifest({ name: SCRATCHPAD_NAME }, auth.user.id, new Date().toISOString());
+  if (!built.ok) {
+    sendJson(res, 500, { error: built.error });
+    return;
+  }
+  const displayName = auth.user.displayName.trim();
+  const manifest: WorkspaceManifest = {
+    ...built.manifest,
+    members: built.manifest.members.map((m) =>
+      m.id === auth.user.id && displayName ? { ...m, displayName } : m,
+    ),
+  };
+  const id = randomUUID();
+  // The manifest is written BEFORE the pointer, so a recorded id always
+  // names a workspace that exists; the conditional create below is what
+  // makes two concurrent first calls yield exactly one scratchpad (Req 5) —
+  // only one pointer write can land.
+  await storage.write(manifestBlob(id), serializeWorkspaceManifest(manifest));
+  const claimed = await storage.writeIfAbsent(pointer, JSON.stringify({ workspaceId: id }));
+  if (claimed) {
+    sendJson(res, 200, { id });
+    return;
+  }
+  // Lost the race: another call recorded its id first. Drop this call's
+  // orphan manifest and adopt the recorded workspace.
+  await storage.delete(manifestBlob(id));
+  const winner = await storage.read(pointer);
+  const winnerId = winner ? parseScratchpadPointer(winner.content) : null;
+  if (!winnerId) sendJson(res, 500, { error: 'corrupt scratchpad record' });
+  else sendJson(res, 200, { id: winnerId });
 }
 
 /**
