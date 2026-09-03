@@ -557,6 +557,20 @@ test('E129: split edit — highlights + panel in the live pane, comment from a s
   await expect(page.getByTestId('panel')).toBeVisible();
   await expect(page.getByTestId('comment-card')).toHaveCount(1);
 
+  // Entering edit replays the carried top line into the fresh CM view for up
+  // to ~2s of frames (App.tsx's line-anchored scroll restore) — a click that
+  // races it gets yanked back mid-document and its keystrokes land on the
+  // wrong content. Probe until our own scroll-to-top sticks (the replay has
+  // landed or given up), which also puts line 1 in view for the click.
+  const edScroller = page.getByTestId('editor').locator('.cm-scroller');
+  await expect
+    .poll(async () => {
+      await edScroller.evaluate((el) => el.scrollTo({ top: 0 }));
+      await new Promise((r) => setTimeout(r, 100));
+      return edScroller.evaluate((el) => el.scrollTop);
+    })
+    .toBe(0);
+
   // The live re-render on typing keeps the highlight.
   await page.getByTestId('editor').locator('.cm-line').first().click();
   await page.keyboard.type('LIVEMARK ');

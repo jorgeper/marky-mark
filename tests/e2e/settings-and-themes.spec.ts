@@ -85,13 +85,13 @@ test('E20: zoom scales only the document text — the settings UI keeps its size
   // the baseline must be the settled UI, not the boot-time theme value.
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
-    .toBe('12px');
+    .toBe('14px');
   const modalFontBefore = await page.getByTestId('settings-panel').evaluate((el) => getComputedStyle(el).fontSize);
 
   await page.getByTestId('zoom-select').selectOption('150');
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
-    .toBe('18px'); // 12px default × 1.5 — document text only
+    .toBe('21px'); // 14px default × 1.5 — document text only
 
   // The UI is NOT zoomed: settings modal font size unchanged, root not CSS-zoomed.
   expect(await page.getByTestId('settings-panel').evaluate((el) => getComputedStyle(el).fontSize)).toBe(
@@ -103,7 +103,7 @@ test('E20: zoom scales only the document text — the settings UI keeps its size
   await expect(page.getByTestId('zoom-select')).toHaveValue('100');
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
-    .toBe('12px');
+    .toBe('14px');
 });
 
 test('E21: light/dark theme pair follows the OS scheme; unchecking uses the light theme everywhere', async ({
