@@ -496,11 +496,26 @@ async function dropDraft(page: Page, token: string): Promise<void> {
   expect([200, 404]).toContain(dropped.status());
 }
 
-/** Sign in through the UI as `username` with the page bound to a workspace. */
+/** PRD 020 Req 5: a workspace's unique name, read off its listing row. */
+async function uniqueNameOf(request: APIRequestContext, token: string, id: string): Promise<string> {
+  const res = await request.get(`${HOSTED}/api/workspaces`, { headers: { Authorization: `Bearer ${token}` } });
+  const rows = (await res.json()) as { id: string; uniqueName?: string }[];
+  const name = rows.find((r) => r.id === id)?.uniqueName;
+  expect(name).toBeTruthy();
+  return name!;
+}
+
+/**
+ * Sign in through the UI as `username` with the page bound to a workspace.
+ * PRD 020 Req 5+9: the visit arrives on the workspace's canonical path URL
+ * while signed out, so every use also exercises the deep link continuing
+ * through the completed sign-in.
+ */
 async function signInTo(page: Page, username: string, workspace?: string): Promise<void> {
   const token = await signIn(page.request, username);
   await dropDraft(page, token);
-  await page.goto(`${HOSTED}/${workspace ? `?workspace=${workspace}` : ''}`);
+  const path = workspace ? `/${encodeURIComponent(await uniqueNameOf(page.request, token, workspace))}` : '/';
+  await page.goto(`${HOSTED}${path}`);
   await page.getByTestId('hosted-sign-in-username').fill(username);
   await page.getByTestId('hosted-sign-in-submit').click();
 }
@@ -859,7 +874,8 @@ test('E182: the New Workspace flow names a workspace, grants a member a role, an
   // PRD 020 Req 2: the unique name comes first and is required; the friendly
   // display name (the original field) is what the chrome shows.
   // (timestamped so a retry never collides with its own earlier attempt)
-  await page.getByTestId('new-workspace-unique-name').fill(`e182-created-w${test.info().workerIndex}-${Date.now()}`);
+  const unique = `e182-created-w${test.info().workerIndex}-${Date.now()}`;
+  await page.getByTestId('new-workspace-unique-name').fill(unique);
   await page.getByTestId('new-workspace-name').fill(name);
 
   // The reused MembershipPicker searches the live directory endpoints.
@@ -868,16 +884,19 @@ test('E182: the New Workspace flow names a workspace, grants a member a role, an
   await page.getByTestId('new-workspace-role-mock-grace').selectOption('Editor');
   await page.getByTestId('new-workspace-create').click();
 
-  // Creating opens it: the page rebinds to ?workspace=<id> and the sidebar
-  // renders the (empty) workspace.
-  await expect(page).toHaveURL(/\?workspace=/);
+  // Creating opens it: the page rebinds to the canonical /<unique-name> path
+  // (PRD 020 Req 6) and the sidebar renders the (empty) workspace.
+  await expect(page).toHaveURL(new RegExp(`/${unique}$`));
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   // PRD 009 Req 11: the workspace's name shows in the toolbar's document
   // affordance — the chip that used to carry it is gone.
   await expect(page.getByTestId('docname-workspace')).toHaveText(name);
 
   const ada = await signIn(request, 'ada');
-  const id = new URL(page.url()).searchParams.get('workspace')!;
+  const rows = (await (
+    await request.get(`${HOSTED}/api/workspaces`, { headers: { Authorization: `Bearer ${ada}` } })
+  ).json()) as { id: string; uniqueName?: string }[];
+  const id = rows.find((r) => r.uniqueName === unique)!.id;
   const { manifest } = (await (
     await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, { headers: { Authorization: `Bearer ${ada}` } })
   ).json()) as { manifest: { name: string; members: Array<{ id: string; role: string }> } };
@@ -918,7 +937,8 @@ test('E183: the Open Workspace dialog lists every workspace, filters as you type
   await expect(page.getByTestId(`open-workspace-item-${mineId}`)).toBeVisible();
 
   await page.getByTestId(`open-workspace-item-${mineId}`).click();
-  await expect(page).toHaveURL(new RegExp(`\\?workspace=${mineId}`));
+  // PRD 020 Req 6: the Open-dialog open lands on the canonical path form.
+  await expect(page).toHaveURL(new RegExp(`/${await uniqueNameOf(request, ada, mineId)}$`));
   await expect(page.getByTestId('folder-panel')).toBeVisible();
 });
 
@@ -1980,7 +2000,7 @@ test('E203: New Workspace… and Open Workspace… on the hosted start page land
   await page.getByTestId('start-openWorkspace').click();
   await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
   await page.getByTestId(`open-workspace-item-${existing}`).click();
-  await expect(page).toHaveURL(new RegExp(`workspace=${existing}`));
+  await expect(page).toHaveURL(new RegExp(`/${await uniqueNameOf(request, ada, existing)}$`));
   await expect(page.getByTestId('docname-workspace')).toContainText(name);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
 
@@ -1993,10 +2013,11 @@ test('E203: New Workspace… and Open Workspace… on the hosted start page land
   await expect(page.getByTestId('new-workspace-dialog')).toBeVisible();
   // PRD 020 Req 2: the unique name is required up front.
   // (timestamped so a retry never collides with its own earlier attempt)
-  await page.getByTestId('new-workspace-unique-name').fill(`e203-fresh-w${test.info().workerIndex}-${Date.now()}`);
+  const freshUnique = `e203-fresh-w${test.info().workerIndex}-${Date.now()}`;
+  await page.getByTestId('new-workspace-unique-name').fill(freshUnique);
   await page.getByTestId('new-workspace-name').fill(fresh);
   await page.getByTestId('new-workspace-create').click();
-  await expect(page).toHaveURL(/workspace=/);
+  await expect(page).toHaveURL(new RegExp(`/${freshUnique}$`));
   await expect(page.getByTestId('docname-workspace')).toContainText(fresh);
 });
 
@@ -2396,7 +2417,7 @@ test('E215: Sign out prompts for unsaved work, Cancel keeps the session, and goi
   // too (it is not mode-dependent), it borrows the existing dirty-file
   // prompts rather than inventing one, Cancel anywhere aborts the sign-out
   // outright, and the completed walk leaves the browser on the sign-in
-  // screen with no token and no `?workspace=` binding to walk back in on.
+  // screen with no token and no workspace binding in the URL to walk back in on.
   const ada = await signIn(request, 'ada');
   const id = await createWorkspace(request, ada, `E214 w${test.info().workerIndex}`);
   await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, {
@@ -2427,7 +2448,9 @@ test('E215: Sign out prompts for unsaved work, Cancel keeps the session, and goi
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
   await expect(page.getByTestId('hosted-sign-in')).toHaveCount(0);
   expect(await page.evaluate(() => window.localStorage.getItem('marky-mark.hosted.token'))).toBeTruthy();
-  expect(new URL(page.url()).search).toBe(`?workspace=${id}`);
+  // PRD 020 Req 6: the bar carries the open file's canonical path, query-free.
+  expect(new URL(page.url()).pathname).toBe(`/${await uniqueNameOf(request, ada, id)}/notes.md`);
+  expect(new URL(page.url()).search).toBe('');
 
   // Through the same prompt again, discarding this time.
   await openAppMenu(page);
@@ -2468,7 +2491,9 @@ test('E217: Close Workspace returns to the initial page and drops the ?workspace
 
   await signInTo(page, 'ada', id);
   await openFromSidebar(page, 'kept.md');
-  expect(new URL(page.url()).search).toBe(`?workspace=${id}`);
+  // PRD 020 Req 6: the bar carries the open file's canonical path, query-free.
+  expect(new URL(page.url()).pathname).toBe(`/${await uniqueNameOf(request, ada, id)}/kept.md`);
+  expect(new URL(page.url()).search).toBe('');
 
   // PRD 009 Req 8/9: workspace mode is the one state E13 (single-file) and
   // E201 (initial page) cannot freeze — its full row set, in order, is here:
@@ -2663,7 +2688,8 @@ test('E220: dropping a local file with a workspace open crosses into single-file
   await expect(page.getByTestId('docname')).toContainText('theirs.md');
   await expect(page.getByTestId('docname')).not.toContainText('dropped.md');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
-  expect(new URL(page.url()).search).toBe(`?workspace=${id}`);
+  // PRD 020 Req 6: still bound — the bar still shows the workspace's path.
+  expect(new URL(page.url()).pathname).toBe(`/${await uniqueNameOf(request, ada, id)}/theirs.md`);
 
   // Discarding this time: the workspace closes and the dropped file opens in
   // single-file mode — never inside the workspace, never via the initial page.
@@ -3877,7 +3903,7 @@ test.describe('PRD 017 in-app guest invitations', () => {
   });
 });
 
-test('E397: /scratchpad gates on sign-in, then lands in the scratchpad workspace — untitled buffer in edit mode, canonical ?workspace= URL, same workspace on a repeat visit', async ({
+test('E397: /scratchpad gates on sign-in, then lands in the scratchpad workspace — untitled buffer in edit mode, canonical path URL, same workspace on a repeat visit', async ({
   page,
 }) => {
   // PRD 019 Req 1+2+3 (issue #215): an unauthenticated visit to the reserved
@@ -3898,24 +3924,26 @@ test('E397: /scratchpad gates on sign-in, then lands in the scratchpad workspace
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
 
-  // Req 3: the address bar reads the canonical /?workspace=<id> form — the
-  // path is gone, and the id is the same one the API resolves for this user.
+  // PRD 020 Req 6 (amending PRD 019 Req 3): the address bar reads the
+  // scratchpad workspace's own canonical /<unique-name> path — the reserved
+  // path is gone, the legacy query form is emitted nowhere, and the name is
+  // the one the API resolves for this user's scratchpad.
   const landed = new URL(page.url());
-  expect(landed.pathname).toBe('/');
-  const first = landed.searchParams.get('workspace');
-  expect(first).toBeTruthy();
+  expect(landed.search).toBe('');
   const resolve = await page.request.post(`${HOSTED}/api/me/scratchpad`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   expect(resolve.status()).toBe(200);
-  expect(((await resolve.json()) as { id: string }).id).toBe(first);
+  const first = ((await resolve.json()) as { id: string }).id;
+  const scratchPath = `/${await uniqueNameOf(page.request, token, first)}`;
+  expect(landed.pathname).toBe(scratchPath);
 
   // Req 5 (pinned client-side): a repeat signed-in visit reuses the same
   // workspace — provisioned exactly once per user — and starts fresh again.
   await page.goto(`${HOSTED}/scratchpad`);
   await expect(page.getByTestId('docname')).toContainText('Untitled');
   await expect(page.getByTestId('editor')).toBeVisible();
-  expect(new URL(page.url()).searchParams.get('workspace')).toBe(first);
+  expect(new URL(page.url()).pathname).toBe(scratchPath);
 
   // Req 3: a reload of the rewritten URL boots as a PLAIN workspace binding
   // — no scratch buffer re-opens, the binding alone is what survives.
@@ -3970,7 +3998,8 @@ test('E398: the scratch buffer starts fresh over existing files and discards sil
   await page.goto(`${HOSTED}/scratchpad`);
   await expect(page.getByTestId('docname')).toContainText('Untitled');
   await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
-  expect(new URL(page.url()).searchParams.get('workspace')).toBe(id);
+  // PRD 020 Req 6: the same workspace, shown by its canonical path.
+  expect(new URL(page.url()).pathname).toBe(`/${await uniqueNameOf(page.request, token, id)}`);
 });
 
 test('E399: the scratch buffer’s first save pre-fills the picker from its heading, lands in the scratchpad root, and the saved file is a normal document', async ({
@@ -4043,4 +4072,131 @@ test('E399: the scratch buffer’s first save pre-fills the picker from its head
   await expect(page.getByTestId('open-prompt')).toBeVisible();
   await page.getByTestId('open-cancel').click();
   await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+});
+
+// --- path-based URLs (PRD 020 Reqs 5–9, issue #220) --------------------------
+
+/** A workspace with an explicit (timestamped, collision-proof) unique name. */
+async function pathWorkspace(
+  request: APIRequestContext,
+  token: string,
+  slug: string,
+): Promise<{ id: string; unique: string }> {
+  const unique = `${slug}-w${test.info().workerIndex}-${Date.now()}`;
+  const res = await request.post(`${HOSTED}/api/workspaces`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { uniqueName: unique, name: slug },
+  });
+  expect(res.status()).toBe(201);
+  return { id: ((await res.json()) as { id: string }).id, unique };
+}
+
+test('E400: a canonical path URL deep-links through sign-in to the workspace, the nested file, and its fragment — case-insensitively', async ({
+  page,
+  request,
+}) => {
+  // PRD 020 Req 5+9: an unauthenticated visit to /<name>/<path…>/<file>#<slug>
+  // gates on sign-in and then lands with the workspace bound, the linked file
+  // open and active, the bar canonical, and the fragment intact (Req 19's
+  // scroll is a later issue — this pins the fragment surviving).
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e400');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guides/intro guide.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# Intro\n\n## Setup\n\nWords.\n',
+  });
+  await dropDraft(page, token);
+
+  await page.goto(`${HOSTED}/${unique}/guides/intro%20guide.md#setup`);
+  await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+
+  await expect(page.getByTestId('docname')).toContainText('intro guide.md');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  const landed = new URL(page.url());
+  expect(landed.pathname).toBe(`/${unique}/guides/intro%20guide.md`);
+  expect(landed.hash).toBe('#setup');
+  expect(landed.search).toBe('');
+
+  // Req 5: the workspace-only form opens the workspace, and the unique-name
+  // match is case-insensitive — the bar canonicalizes to the stored casing.
+  await page.goto(`${HOSTED}/${unique.toUpperCase()}`);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('docname-workspace')).toContainText('e400');
+  expect(new URL(page.url()).pathname).toBe(`/${unique}`);
+});
+
+test('E401: the address bar tracks the active file, and a reload of the rewritten URL boots back into the same workspace and file', async ({
+  page,
+  request,
+}) => {
+  // PRD 020 Req 6: opening a file by any means rewrites the bar to that
+  // file's canonical URL — what you see is always what you would share —
+  // and the rewritten URL is itself a working deep link on reload.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e401');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# Notes\n',
+  });
+
+  await signInTo(page, 'ada', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe(`/${unique}`);
+  await openFromSidebar(page, 'notes.md');
+  expect(new URL(page.url()).pathname).toBe(`/${unique}/notes.md`);
+
+  await page.reload();
+  await expect(page.getByTestId('docname')).toContainText('notes.md');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe(`/${unique}/notes.md`);
+});
+
+test('E402: the legacy /?workspace=<uuid> URL redirects to the canonical path form', async ({ page, request }) => {
+  // PRD 020 Req 7: an old bookmark still resolves — the UUID is looked up
+  // and the bar lands on the path form, with the query form emitted nowhere.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e402');
+
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.goto(`${HOSTED}/?workspace=${id}`);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  const landed = new URL(page.url());
+  expect(landed.pathname).toBe(`/${unique}`);
+  expect(landed.search).toBe('');
+});
+
+test('E403: a path matching no workspace, no file, or an unknown legacy UUID renders the in-app not-found page naming it, with a way back', async ({
+  page,
+  request,
+}) => {
+  // PRD 020 Req 8: never a blank screen, a raw 404, or a silent fall-through
+  // to the splash — the page names what was looked for and links onward.
+  const token = await signIn(request, 'ada');
+  const { unique } = await pathWorkspace(request, token, 'e403');
+  await dropDraft(page, token);
+
+  // A workspace name nothing matches.
+  await page.goto(`${HOSTED}/${unique}-nope`);
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('hosted-not-found')).toBeVisible();
+  await expect(page.getByTestId('hosted-not-found-message')).toContainText(`${unique}-nope`);
+
+  // A file path not present in an otherwise-valid workspace.
+  await page.goto(`${HOSTED}/${unique}/missing/nothing.md`);
+  await expect(page.getByTestId('hosted-not-found')).toBeVisible();
+  await expect(page.getByTestId('hosted-not-found-message')).toContainText('missing/nothing.md');
+  await expect(page.getByTestId('hosted-not-found-message')).toContainText(unique);
+
+  // An unknown legacy UUID earns the same page, naming the id it looked for.
+  await page.goto(`${HOSTED}/?workspace=00000000-0000-4000-8000-000000000000`);
+  await expect(page.getByTestId('hosted-not-found')).toBeVisible();
+  await expect(page.getByTestId('hosted-not-found-message')).toContainText('00000000-0000-4000-8000-000000000000');
+
+  // The link back lands on the signed-in start page and its workspace list.
+  await page.getByTestId('hosted-not-found-home').click();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
 });

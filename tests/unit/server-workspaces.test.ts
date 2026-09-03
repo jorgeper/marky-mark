@@ -1028,10 +1028,22 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
   });
 
   it('U1055: migration slugifies and dedupes legacy manifests, logs each, preserves the display name, and is idempotent', async () => {
-    // Legacy workspaces: created without unique names (the pre-#219 API).
-    const w1 = (await (await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Design Docs' }))).json()) as { id: string };
-    const w2 = (await (await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Design Docs' }))).json()) as { id: string };
-    const w3 = (await (await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Scratchpad' }))).json()) as { id: string };
+    // Legacy workspaces: stored without unique names. Creation now mints one
+    // even for a name-only body (PRD 020 Req 5, U1057), so a pre-#219
+    // manifest is fabricated the way an old deployment actually holds it —
+    // by dropping the field from the stored blob.
+    const legacyWorkspace = async (name: string): Promise<{ id: string }> => {
+      const { id } = (await (await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name }))).json()) as {
+        id: string;
+      };
+      const stored = await provider.read(`workspaces/${id}/manifest.json`);
+      const { uniqueName: _minted, ...rest } = JSON.parse(stored!.content) as { uniqueName?: string };
+      await provider.write(`workspaces/${id}/manifest.json`, JSON.stringify(rest, null, 2));
+      return { id };
+    };
+    const w1 = await legacyWorkspace('Design Docs');
+    const w2 = await legacyWorkspace('Design Docs');
+    const w3 = await legacyWorkspace('Scratchpad');
     // One already migrated: its name is taken, and it must not be rewritten.
     await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'design-docs', name: 'Kept' }));
 
@@ -1068,6 +1080,28 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     // minted name is the first free suffix past it.
     expect(manifest.uniqueName).toBe('scratchpad-2');
     expect(manifest.name).toBe('Scratchpad');
+    blobs.clear();
+  });
+
+  it('U1057: a name-only creation mints a slugified deduped unique name, and listing rows carry it', async () => {
+    // PRD 020 Req 5+6: every workspace has a canonical path URL, so creation
+    // without an explicit unique name mints one from the display name —
+    // slugified and deduped exactly like the Req 3 migration.
+    const first = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Team Notes!' }));
+    expect(first.status).toBe(201);
+    const a = (await first.json()) as { id: string; manifest: WorkspaceManifest };
+    expect(a.manifest.uniqueName).toBe('team-notes-');
+    const second = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Team Notes~' }));
+    const b = (await second.json()) as { id: string; manifest: WorkspaceManifest };
+    expect(b.manifest.uniqueName).toBe('team-notes--2');
+    // PRD 020 Req 5: the listing row carries the unique name — what the
+    // client resolves a visited path against, and builds canonical URLs from.
+    const listed = (await (await call('ada', 'GET', '/api/workspaces')).json()) as {
+      id: string;
+      uniqueName?: string;
+    }[];
+    expect(listed.find((r) => r.id === a.id)?.uniqueName).toBe('team-notes-');
+    expect(listed.find((r) => r.id === b.id)?.uniqueName).toBe('team-notes--2');
     blobs.clear();
   });
 });

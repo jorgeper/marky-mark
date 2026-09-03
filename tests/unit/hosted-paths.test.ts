@@ -14,6 +14,9 @@ import {
   parseHostedPath,
   workspaceFileToManifestSettings,
   workspaceIdFromSearch,
+  buildAppPath,
+  findWorkspaceByUniqueName,
+  parseAppPath,
 } from '../../src/lib/hostedPaths';
 import { parseWorkspaceFile } from '../../src/lib/workspace';
 
@@ -121,5 +124,56 @@ describe('PRD 007 Req 9 the manifest as the Workspace settings layer', () => {
     expect(workspaceFileToManifestSettings('{"folders":["a"]}')).toEqual({});
     expect(workspaceFileToManifestSettings('not json')).toEqual({});
     expect(workspaceFileToManifestSettings('{"settings":[1,2]}')).toEqual({});
+  });
+});
+
+// PRD 020 Req 5: the canonical path router — pathname → workspace/file
+// target and back, unit-proven so the shell's resolve logic stays a thin
+// I/O wrapper over it.
+describe('PRD 020 Req 5 the canonical path router', () => {
+  it('U1058: parseAppPath maps home, scratchpad, workspace and file paths, decoding each segment individually', () => {
+    expect(parseAppPath('/')).toEqual({ kind: 'home' });
+    expect(parseAppPath('')).toEqual({ kind: 'home' });
+    // PRD 019 Req 1 unshadowed: the reserved path stays exactly itself —
+    // nested or differently-cased lookalikes are ordinary workspace paths.
+    expect(parseAppPath('/scratchpad')).toEqual({ kind: 'scratchpad' });
+    expect(parseAppPath('/scratchpad/')).toEqual({ kind: 'scratchpad' });
+    expect(parseAppPath('/Scratchpad')).toEqual({ kind: 'workspace', name: 'Scratchpad', file: [] });
+    expect(parseAppPath('/notes')).toEqual({ kind: 'workspace', name: 'notes', file: [] });
+    expect(parseAppPath('/notes/')).toEqual({ kind: 'workspace', name: 'notes', file: [] });
+    expect(parseAppPath('/notes/guides/intro.md')).toEqual({
+      kind: 'workspace',
+      name: 'notes',
+      file: ['guides', 'intro.md'],
+    });
+    // Percent-decoding is per segment; a malformed escape stays verbatim.
+    expect(parseAppPath('/notes/meeting%20notes.md')).toEqual({
+      kind: 'workspace',
+      name: 'notes',
+      file: ['meeting notes.md'],
+    });
+    expect(parseAppPath('/notes/100%.md')).toEqual({ kind: 'workspace', name: 'notes', file: ['100%.md'] });
+  });
+
+  it('U1059: buildAppPath percent-encodes each segment and round-trips through parseAppPath', () => {
+    expect(buildAppPath('notes')).toBe('/notes');
+    expect(buildAppPath('notes', ['guides', 'intro.md'])).toBe('/notes/guides/intro.md');
+    expect(buildAppPath('notes', ['meeting notes.md'])).toBe('/notes/meeting%20notes.md');
+    // A segment holding URL-significant characters survives the round trip.
+    const awkward = ['a b', '#tag', '50%', 'q?.md'];
+    expect(parseAppPath(buildAppPath('my-notes', awkward))).toEqual({
+      kind: 'workspace',
+      name: 'my-notes',
+      file: awkward,
+    });
+  });
+
+  it('U1060: findWorkspaceByUniqueName matches case-insensitively and skips rows without a unique name', () => {
+    const rows = [{ id: 'a' }, { id: 'b', uniqueName: 'Design-Docs' }, { id: 'c', uniqueName: 'notes' }];
+    expect(findWorkspaceByUniqueName(rows, 'design-docs')?.id).toBe('b');
+    expect(findWorkspaceByUniqueName(rows, 'NOTES')?.id).toBe('c');
+    expect(findWorkspaceByUniqueName(rows, 'missing')).toBeUndefined();
+    // A pre-migration row (no unique name) is unaddressable, never matched.
+    expect(findWorkspaceByUniqueName(rows, '')).toBeUndefined();
   });
 });

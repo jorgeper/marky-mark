@@ -12,8 +12,8 @@ export const HOSTED_META_NAME = 'marky-mark-hosted';
 
 const TOKEN_KEY = 'marky-mark.hosted.token';
 const PENDING_KEY = 'marky-mark.hosted.pending-sign-in';
-const SCRATCHPAD_INTENT_KEY = 'marky-mark.hosted.scratchpad-intent';
-const SCRATCH_BOOT_KEY = 'marky-mark.hosted.scratch-boot';
+const VISIT_INTENT_KEY = 'marky-mark.hosted.visit-intent';
+const BOOT_KEY = 'marky-mark.hosted.boot';
 
 interface MetaSource {
   querySelector(selector: string): { getAttribute(name: string): string | null } | null;
@@ -49,43 +49,88 @@ export function clearToken(store: KeyValueStore): void {
 }
 
 /**
- * PRD 019 Req 2: the /scratchpad intent across the Entra round trip. The
- * OAuth redirect URI is the origin root, so the pathname a sign-in began on
- * does not survive the navigation — this record (stored beside the pending
- * sign-in when the redirect leaves, taken when the callback completes) is
- * what carries it. Read-and-clear like the pending sign-in: a leftover
- * intent must not route a later, unrelated sign-in into the scratchpad.
+ * PRD 020 Req 9 (generalizing PRD 019 Req 2): the visited URL across the
+ * Entra round trip. The OAuth redirect URI is the origin root, so the URL a
+ * sign-in began on — a path deep link, the legacy `?workspace=` form, a
+ * `#<heading-slug>` fragment, or /scratchpad — does not survive the
+ * navigation; this record (stored beside the pending sign-in when the
+ * redirect leaves, taken when the callback completes) is what carries it.
+ * Read-and-clear like the pending sign-in: a leftover intent must not route
+ * a later, unrelated sign-in into someone's old deep link.
  */
-export function storeScratchpadIntent(store: KeyValueStore): void {
-  store.setItem(SCRATCHPAD_INTENT_KEY, '1');
+export interface HostedVisit {
+  pathname: string;
+  search: string;
+  hash: string;
 }
 
-export function clearScratchpadIntent(store: KeyValueStore): void {
-  store.removeItem(SCRATCHPAD_INTENT_KEY);
+export function storeVisitIntent(store: KeyValueStore, visit: HostedVisit): void {
+  store.setItem(VISIT_INTENT_KEY, JSON.stringify(visit));
 }
 
-export function takeScratchpadIntent(store: KeyValueStore): boolean {
-  const raw = store.getItem(SCRATCHPAD_INTENT_KEY);
-  store.removeItem(SCRATCHPAD_INTENT_KEY);
-  return raw !== null;
+export function clearVisitIntent(store: KeyValueStore): void {
+  store.removeItem(VISIT_INTENT_KEY);
+}
+
+export function takeVisitIntent(store: KeyValueStore): HostedVisit | null {
+  const raw = store.getItem(VISIT_INTENT_KEY);
+  store.removeItem(VISIT_INTENT_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<HostedVisit>;
+    if (typeof parsed.pathname === 'string' && typeof parsed.search === 'string' && typeof parsed.hash === 'string') {
+      return { pathname: parsed.pathname, search: parsed.search, hash: parsed.hash };
+    }
+  } catch {
+    // corrupt sessionStorage entry — treat as absent
+  }
+  return null;
 }
 
 /**
- * PRD 019 Req 10+11: the one-page-load hand-off from the sign-in gate to the
- * platform. HostedShell resolves a /scratchpad visit and rewrites the URL to
- * `/?workspace=<id>` BEFORE the app mounts; the platform, created later, must
- * still learn that this particular binding is a scratchpad visit (fresh
- * scratch buffer, prompt-exempt). Read-and-clear so a reload of the rewritten
- * URL boots as a plain workspace binding, exactly as PRD 019 Req 3 demands.
+ * PRD 020 Req 5+6 (generalizing PRD 019 Req 10+11): the one-page-load
+ * hand-off from the sign-in gate to the platform. HostedShell resolves the
+ * visit — canonical path, legacy query, or /scratchpad — and rewrites the
+ * URL to the canonical `/<workspace-name>[/<file…>]` form BEFORE the app
+ * mounts; the platform, created later, learns from this record which
+ * workspace the page is bound to, which file (if any) the path named, and
+ * whether the visit was a scratchpad one (fresh scratch buffer,
+ * prompt-exempt). Read-and-clear: the gate re-resolves the path on every
+ * page load, so a reload re-mints the record from the URL itself — nothing
+ * stale can bind a later page.
  */
-export function storeScratchBoot(store: KeyValueStore, workspaceId: string): void {
-  store.setItem(SCRATCH_BOOT_KEY, workspaceId);
+export interface HostedBoot {
+  workspaceId: string;
+  /** The workspace's unique name — what the canonical URL is built from. */
+  uniqueName?: string;
+  /** The file the path named, relative to the workspace's files root. */
+  file?: string;
+  /** PRD 019 Req 10: this binding is a scratchpad visit. */
+  scratch?: boolean;
 }
 
-export function takeScratchBoot(store: KeyValueStore): string | null {
-  const raw = store.getItem(SCRATCH_BOOT_KEY);
-  store.removeItem(SCRATCH_BOOT_KEY);
-  return raw;
+export function storeHostedBoot(store: KeyValueStore, boot: HostedBoot): void {
+  store.setItem(BOOT_KEY, JSON.stringify(boot));
+}
+
+export function takeHostedBoot(store: KeyValueStore): HostedBoot | null {
+  const raw = store.getItem(BOOT_KEY);
+  store.removeItem(BOOT_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<HostedBoot>;
+    if (typeof parsed.workspaceId === 'string') {
+      return {
+        workspaceId: parsed.workspaceId,
+        ...(typeof parsed.uniqueName === 'string' ? { uniqueName: parsed.uniqueName } : {}),
+        ...(typeof parsed.file === 'string' ? { file: parsed.file } : {}),
+        ...(parsed.scratch === true ? { scratch: true } : {}),
+      };
+    }
+  } catch {
+    // corrupt sessionStorage entry — treat as absent
+  }
+  return null;
 }
 
 /** What the redirect leg of the PKCE flow must remember across navigation. */

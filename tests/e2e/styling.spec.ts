@@ -214,7 +214,12 @@ test('E395: the workspace settings destructive button is the danger fill on the 
   const id = ((await created.json()) as { id: string }).id;
 
   await dropRoamingFile(page, headers, 'draft.json');
-  await page.goto(`${HOSTED}/?workspace=${id}`);
+  // PRD 020 Req 5: workspace visits arrive by canonical path URL.
+  const rows = (await (await page.request.get(`${HOSTED}/api/workspaces`, { headers })).json()) as {
+    id: string;
+    uniqueName?: string;
+  }[];
+  await page.goto(`${HOSTED}/${rows.find((r) => r.id === id)!.uniqueName!}`);
   await page.getByTestId('hosted-sign-in-username').fill('ada');
   await page.getByTestId('hosted-sign-in-submit').click();
   await expect(page.getByTestId('folder-panel')).toBeVisible();

@@ -3663,6 +3663,20 @@ input.folder-rename-input.invalid {
   color: var(--mm-danger);
 }
 
+/* PRD 020 Req 8: the not-found page rides the .hosted-signin splash shape;
+   these two rows are its own — what was looked for, and the way onward. */
+.hosted-notfound-what {
+  margin: 0;
+  max-width: 420px;
+  font-size: var(--mm-text-body);
+  overflow-wrap: anywhere; /* a long shared path must not overflow the page */
+}
+
+.hosted-notfound-link {
+  font-size: var(--mm-text-small);
+  color: var(--mm-accent);
+}
+
 /* PRD 007 Req 6: membership picker — avatars, initials fallback, selected
    list. Ships unmounted in this issue; #75/#77 consume it. */
 .membership-picker {

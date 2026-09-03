@@ -27,6 +27,13 @@ import {
 export interface WorkspaceListing {
   id: string;
   name: string;
+  /**
+   * PRD 020 Req 5: the deployment-unique name the workspace's canonical path
+   * URL is built from. The row rides through the PRD 017 Req 11 listing
+   * policy, so a caller only ever learns the names of workspaces the policy
+   * lists to them; absent only on a pre-migration manifest.
+   */
+  uniqueName?: string;
   created: string;
   modified: string;
   owners: string[];

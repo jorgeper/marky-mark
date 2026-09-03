@@ -268,6 +268,27 @@ export interface Platform {
   scratchStart?: boolean;
 
   /**
+   * PRD 020 Req 5: a document the platform's boot binding asks App to open
+   * once the bound workspace has landed — the file half of a path deep link
+   * (`/<workspace-name>/<path…>/<file>`), as a virtual platform path. Opened
+   * exactly once, after the workspace's session restore, so it ends up the
+   * active document. Set only by the hosted platform when its sign-in gate
+   * resolved a file path; every other flavor leaves it undefined, and app
+   * code mounts on the capability, never on the flavor (PRD 007 Req 2).
+   */
+  bootDocument?: string;
+
+  /**
+   * PRD 020 Req 6: the address bar tracks the active document. App calls
+   * this with the open document's platform path on every change (null when
+   * none is open); an implementation that binds the page's URL to its
+   * content — hosted only today — rewrites the bar in place to the canonical
+   * shareable form. Optional: everywhere else the URL carries no document
+   * state and the seam stays undefined.
+   */
+  reflectDocumentPath?(path: string | null): void;
+
+  /**
    * PRD 017 Req 3: the signed-in session's `/api/me` record — the bare user
    * plus admin status and the creation-policy verdict the entry surfaces
    * render from. Fetched once per session (after sign-in / page load) and

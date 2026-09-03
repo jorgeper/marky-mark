@@ -212,17 +212,21 @@ describe('PRD 016 Req 9 the hosted platform’s handling of a merged save', () =
     await h.call('PUT', `/api/workspaces/${id}/files/notes.md`, 'alpha\nbeta\ngamma\n');
 
     // The hosted platform talks same-origin relative URLs to `fetch`, reads
-    // its bearer token from localStorage, and takes the PRD 019 scratch-boot
-    // signal from sessionStorage (empty here: no scratchpad visit) — the only
-    // globals it needs, stubbed here and restored afterwards.
+    // its bearer token from localStorage, and takes the PRD 020 boot record
+    // (the sign-in gate's resolved workspace binding) from sessionStorage —
+    // the only globals it needs, stubbed here and restored afterwards.
     const realFetch = globalThis.fetch;
     const realWindow = (globalThis as { window?: unknown }).window;
     const kv = new Map<string, string>();
     storeToken({ getItem: (k) => kv.get(k) ?? null, setItem: (k, v) => kv.set(k, v), removeItem: (k) => kv.delete(k) }, h.token);
     (globalThis as { window?: unknown }).window = {
       localStorage: { getItem: (k: string) => kv.get(k) ?? null, setItem: () => {}, removeItem: () => {} },
-      sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
-      location: { search: `?workspace=${id}` },
+      sessionStorage: {
+        getItem: (k: string) => (k === 'marky-mark.hosted.boot' ? JSON.stringify({ workspaceId: id }) : null),
+        setItem: () => {},
+        removeItem: () => {},
+      },
+      location: { search: '' },
     };
     // Relative (same-origin) paths get the test server's origin; anything
     // already absolute — the harness's own calls — passes straight through.

@@ -19,6 +19,7 @@
  */
 
 import { WORKSPACE_FILE_EXT } from './workspace.ts';
+import { uniqueNameKey } from './workspaceNames.ts';
 
 /** The virtual config directory: the per-user, workspace-independent blobs. */
 export const HOSTED_CONFIG_DIR = '/config';
@@ -139,10 +140,10 @@ export function hostedResolveAssetSrc(src: string, docDir: string, token: string
 }
 
 /**
- * PRD 007 Req 2: which workspace this hosted page is bound to — `?workspace=`
- * on the SPA's own URL. Workspace create/open flows are issue #75's scope;
- * until they land the query parameter is the whole binding, and its absence
- * simply means "signed in, no workspace open" (the normal splash).
+ * PRD 020 Req 7: the LEGACY `?workspace=<uuid>` binding. Once the whole URL
+ * surface — Req 5's canonical paths — no code path emits this form anymore;
+ * parsing it here is what lets the sign-in gate resolve an old bookmark and
+ * redirect it to the canonical path (or Req 8's not-found page).
  */
 export function workspaceIdFromSearch(search: string): string | null {
   const id = new URLSearchParams(search).get('workspace');
@@ -161,6 +162,59 @@ export const SCRATCHPAD_PATH = '/scratchpad';
 
 export function isScratchpadPath(pathname: string): boolean {
   return pathname === SCRATCHPAD_PATH || pathname === `${SCRATCHPAD_PATH}/`;
+}
+
+/**
+ * PRD 020 Req 5: what a hosted page's `location.pathname` addresses. `home`
+ * is the plain start page, `scratchpad` keeps PRD 019 Req 1's reserved path
+ * exactly as it was (the router never shadows it), and everything else is a
+ * workspace by unique name — bare (`/<name>`) or with a file inside it
+ * (`/<name>/<segments…>`), each `file` entry one percent-decoded segment.
+ */
+export type AppPathTarget =
+  | { kind: 'home' }
+  | { kind: 'scratchpad' }
+  | { kind: 'workspace'; name: string; file: string[] };
+
+/** One URL segment, percent-decoded; a malformed escape stays verbatim. */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/** PRD 020 Req 5: pathname → target. Pure, so every route is unit-testable. */
+export function parseAppPath(pathname: string): AppPathTarget {
+  if (isScratchpadPath(pathname)) return { kind: 'scratchpad' };
+  const segments = pathname.split('/').filter((s) => s !== '').map(decodeSegment);
+  if (segments.length === 0) return { kind: 'home' };
+  const [name, ...file] = segments;
+  return { kind: 'workspace', name, file };
+}
+
+/**
+ * PRD 020 Req 5: the inverse — the canonical shareable URL for a workspace
+ * (and optionally a file in it), every segment percent-encoded individually
+ * so a filename holding `/`-adjacent or reserved characters round-trips.
+ */
+export function buildAppPath(name: string, file: readonly string[] = []): string {
+  return `/${[name, ...file].map(encodeURIComponent).join('/')}`;
+}
+
+/**
+ * PRD 020 Req 5: match a visited name against listing rows the same way the
+ * server enforces uniqueness — case-insensitively via `uniqueNameKey`, so
+ * `/Notes` and `/notes` open the same workspace. Rows without a unique name
+ * (a pre-migration manifest) simply cannot be addressed by path.
+ */
+export function findWorkspaceByUniqueName<T extends { uniqueName?: string }>(
+  rows: readonly T[],
+  name: string,
+): T | undefined {
+  const key = uniqueNameKey(name);
+  return rows.find((r) => r.uniqueName !== undefined && uniqueNameKey(r.uniqueName) === key);
 }
 
 /**

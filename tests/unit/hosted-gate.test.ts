@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
-  clearScratchpadIntent,
   clearToken,
+  clearVisitIntent,
   detectHostedMode,
   HOSTED_META_NAME,
   readStoredToken,
+  storeHostedBoot,
   storePendingSignIn,
-  storeScratchBoot,
-  storeScratchpadIntent,
   storeToken,
+  storeVisitIntent,
+  takeHostedBoot,
   takePendingSignIn,
-  takeScratchBoot,
-  takeScratchpadIntent,
+  takeVisitIntent,
   type KeyValueStore,
 } from '../../src/lib/hostedGate';
 
@@ -81,34 +81,47 @@ describe('PRD 007 Req 5 hosted-mode gate', () => {
   });
 });
 
-// PRD 019 Req 2: the /scratchpad intent across the Entra round trip — the
-// redirect URI is the origin root, so the pathname a sign-in began on rides
-// this record instead. And Req 10: the one-page-load hand-off that tells the
-// platform its fresh `?workspace=` binding is a scratchpad visit.
-describe('PRD 019 Req 2+10 scratchpad intent and boot hand-off', () => {
-  it('U1037: the sign-in intent stores, replays exactly once, and clears on an unrelated sign-in', () => {
+// PRD 020 Req 9 (generalizing PRD 019 Req 2): the visited URL across the
+// Entra round trip — the redirect URI is the origin root, so the deep link a
+// sign-in began on rides this record instead. And PRD 020 Req 5+6
+// (generalizing PRD 019 Req 10): the one-page-load boot hand-off that tells
+// the platform which workspace (and file) the resolved visit bound.
+describe('PRD 020 Req 5+6+9 visit intent and boot hand-off', () => {
+  it('U1037: the sign-in visit intent stores, replays exactly once, and clears on an unrelated sign-in', () => {
     const store = memoryStore();
-    expect(takeScratchpadIntent(store)).toBe(false);
-    storeScratchpadIntent(store);
-    expect(takeScratchpadIntent(store)).toBe(true);
-    // One-shot: a later sign-in must not be routed into the scratchpad by a
+    expect(takeVisitIntent(store)).toBeNull();
+    const visit = { pathname: '/notes/guides/intro.md', search: '', hash: '#setup' };
+    storeVisitIntent(store, visit);
+    expect(takeVisitIntent(store)).toEqual(visit);
+    // One-shot: a later sign-in must not be routed into the deep link by a
     // leftover record.
-    expect(takeScratchpadIntent(store)).toBe(false);
+    expect(takeVisitIntent(store)).toBeNull();
     // A sign-in that begins anywhere else clears an abandoned intent.
-    storeScratchpadIntent(store);
-    clearScratchpadIntent(store);
-    expect(takeScratchpadIntent(store)).toBe(false);
+    storeVisitIntent(store, visit);
+    clearVisitIntent(store);
+    expect(takeVisitIntent(store)).toBeNull();
+    // Corrupt or shape-mismatched entries read as absent.
+    store.setItem('marky-mark.hosted.visit-intent', 'not json');
+    expect(takeVisitIntent(store)).toBeNull();
+    store.setItem('marky-mark.hosted.visit-intent', JSON.stringify({ pathname: '/x' }));
+    expect(takeVisitIntent(store)).toBeNull();
     expect(store.size()).toBe(0);
   });
 
-  it('U1038: the scratch-boot signal carries the workspace id one page load and is gone on the next', () => {
+  it('U1038: the boot record carries the resolved binding one page load and is gone on the next', () => {
     const store = memoryStore();
-    expect(takeScratchBoot(store)).toBeNull();
-    storeScratchBoot(store, 'ws-42');
-    expect(takeScratchBoot(store)).toBe('ws-42');
-    // Read-and-clear: a reload of the rewritten /?workspace=<id> URL boots
-    // as a plain workspace binding with no scratch buffer (PRD 019 Req 3).
-    expect(takeScratchBoot(store)).toBeNull();
+    expect(takeHostedBoot(store)).toBeNull();
+    storeHostedBoot(store, { workspaceId: 'ws-42', uniqueName: 'notes', file: 'guides/intro.md' });
+    expect(takeHostedBoot(store)).toEqual({ workspaceId: 'ws-42', uniqueName: 'notes', file: 'guides/intro.md' });
+    // Read-and-clear: the gate re-mints the record from the canonical URL on
+    // every page load, so nothing stale can bind a later page (PRD 019 Req 3
+    // kept: a reload boots as a plain workspace binding, no scratch buffer).
+    expect(takeHostedBoot(store)).toBeNull();
+    storeHostedBoot(store, { workspaceId: 'ws-42', scratch: true });
+    expect(takeHostedBoot(store)).toEqual({ workspaceId: 'ws-42', scratch: true });
+    // Corrupt entries read as absent.
+    store.setItem('marky-mark.hosted.boot', JSON.stringify({ uniqueName: 'no-id' }));
+    expect(takeHostedBoot(store)).toBeNull();
     expect(store.size()).toBe(0);
   });
 });

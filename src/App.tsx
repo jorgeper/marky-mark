@@ -672,6 +672,13 @@ export default function App() {
   // startUntitled (declared later) the same way — through a per-render ref.
   const startUntitledRef = useRef<() => void>(() => {});
   /**
+   * PRD 020 Req 5: the document a path deep link named (`platform.
+   * bootDocument`), armed at boot and consumed — once — by the workspace
+   * open that follows, AFTER the session restore, so the linked file ends up
+   * the active document rather than losing to the session's remembered one.
+   */
+  const bootDocRef = useRef<string | null>(null);
+  /**
    * PRD 009 Req 4/5: opens a local file as a crossing action (a workspace
    * closes first). Ref'd for the same reason: the boot effect registers the
    * window drop long before the crossing helpers are declared.
@@ -2727,6 +2734,9 @@ export default function App() {
         // PRD 019 Req 11: and that one buffer is the prompt-exempt scratch.
         scratchRef.current = true;
       }
+      // PRD 020 Req 5: a path deep link's file half — armed before the
+      // workspace binding below opens; the workspace open consumes it.
+      bootDocRef.current = p.bootDocument ?? null;
       await p.onOpenFile((path) =>
         isWorkspaceFilePath(path) ? openWorkspacePathRef.current(p, path) : openDocGuarded(p, path)
       );
@@ -3141,6 +3151,14 @@ export default function App() {
         // §F22: the open-tab set restores (existing files only); the document
         // on screen stays — restoring tabs never yanks the editor.
         await restoreSessionOpenFiles(p, session, folders);
+        // PRD 020 Req 5: a path deep link's file opens LAST — over the
+        // restored session, so the link's recipient lands on the linked
+        // document, active, whatever this browser remembered being open.
+        const bootDoc = bootDocRef.current;
+        if (bootDoc) {
+          bootDocRef.current = null;
+          await openDoc(p, bootDoc);
+        }
         commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
         for (const dir of new Set([...folders, ...expanded])) void listFolderDir(p, dir);
         revealFolderPane(); // PRD 012 Req 1: a folder route shows the folder tree
@@ -3148,7 +3166,7 @@ export default function App() {
         showNotice(`Couldn’t open “${p.basename(file)}”`);
       }
     },
-    [restoreSessionOpenFiles, updateWorkspace, commitRecentWs, listFolderDir, revealFolderPane, showNotice]
+    [restoreSessionOpenFiles, openDoc, updateWorkspace, commitRecentWs, listFolderDir, revealFolderPane, showNotice]
   );
 
   /** PRD 002 §D14: Open Workspace… — dialog filtered to .marky-workspace. */
@@ -3272,10 +3290,11 @@ export default function App() {
     // overwrite the closed workspace's saved session with an empty one.
     updateWorkspace(closeWorkspace(cur));
     finishCloseFiles();
-    // PRD 009 Req 6: hosted binds the open workspace in its own URL, so
-    // closing one has to drop `?workspace=<id>` too — otherwise a reload
-    // walks straight back in. `unbind` rewrites the URL in place instead of
-    // navigating: a crossing action (Req 4) still has a file to open here.
+    // PRD 009 Req 6 + PRD 020 Req 6: hosted binds the open workspace in its
+    // own URL, so closing one has to drop the `/<workspace-name>` path too —
+    // otherwise a reload walks straight back in. `unbind` rewrites the URL
+    // to `/` in place instead of navigating: a crossing action (Req 4) still
+    // has a file to open here.
     stateRef.current.platform?.workspaces?.unbind();
   }, [finishCloseFiles, updateWorkspace]);
 
@@ -5699,6 +5718,13 @@ export default function App() {
     void p.setTitle(title);
     document.title = title;
   }, [platform, docPath, untitled, dirty]);
+
+  // PRD 020 Req 6: the address bar tracks the active document — a platform
+  // that binds its URL to content (hosted) rewrites the canonical path form
+  // on every change; everywhere else the seam is undefined and nothing runs.
+  useEffect(() => {
+    platform?.reflectDocumentPath?.(docPath);
+  }, [platform, docPath]);
 
   // --- markdown rendering (preview mode; debounced live in split edit, SPEC7 §5) ----
   useEffect(() => {

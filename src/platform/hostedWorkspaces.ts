@@ -11,7 +11,7 @@
 
 import { readStoredToken } from '../lib/hostedGate';
 import { resolveMembers, type DirectoryEntry, type MemberEntry, type MemberRef } from '../lib/membership';
-import { workspaceIdFromSearch } from '../lib/hostedPaths';
+import { buildAppPath } from '../lib/hostedPaths';
 import {
   resolvePermissions,
   validateWorkspaceManifest,
@@ -80,10 +80,23 @@ export interface WorkspaceLifecycle {
   unbind(): void;
 }
 
+/**
+ * PRD 020 Req 5+6: the page's live workspace binding. The sign-in gate
+ * resolves the visited URL to a workspace BEFORE the app mounts and hands the
+ * result to createHostedPlatform (the hostedGate boot record); this one
+ * mutable slot is what `currentId()` answers from afterwards, and `unbind`
+ * clears it in place — the URL no longer carries the id, so the binding must
+ * live somewhere the page can drop without navigating.
+ */
+export interface HostedBinding {
+  current: { id: string; uniqueName: string | null } | null;
+}
+
 export function createHostedWorkspaceLifecycle(
   // PRD 017 Req 3: the session-held /api/me record, injected by hosted.ts —
   // this module reads the one held answer instead of re-fetching per use.
   sessionMe: () => Promise<{ id: string; admin?: boolean } | null>,
+  binding: HostedBinding,
 ): WorkspaceLifecycle {
   const token = () => readStoredToken(window.localStorage) ?? '';
   const api = (path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) =>
@@ -141,7 +154,9 @@ export function createHostedWorkspaceLifecycle(
 
   return {
     currentId() {
-      return workspaceIdFromSearch(window.location.search);
+      // PRD 020 Req 6: the binding is page state now, not URL state — the
+      // address bar shows the canonical path (or `/`), never the id.
+      return binding.current?.id ?? null;
     },
 
     async list() {
@@ -233,16 +248,28 @@ export function createHostedWorkspaceLifecycle(
     },
 
     navigateTo(id) {
-      // PRD 007 Req 2: the binding IS `?workspace=<id>` on the SPA's own URL,
-      // so opening or leaving a workspace is a same-origin navigation that
-      // rebinds it — the whole app boots against the new workspace.
-      window.location.assign(id ? `/?workspace=${encodeURIComponent(id)}` : '/');
+      // PRD 020 Req 6+7: opening a workspace is still a same-origin
+      // navigation that rebinds the page — but the URL it lands on is the
+      // canonical `/<workspace-name>` path, never the legacy query form. The
+      // unique name comes from the listing the caller just picked from; a
+      // row that somehow lacks one falls back to the start page rather than
+      // emitting a URL shape this deployment no longer serves.
+      if (id === null) {
+        window.location.assign('/');
+        return;
+      }
+      void (async () => {
+        const rows = (await json<WorkspaceListing[]>(await api('/api/workspaces'))) ?? [];
+        const uniqueName = rows.find((r) => r.id === id)?.uniqueName;
+        window.location.assign(uniqueName ? buildAppPath(uniqueName) : '/');
+      })();
     },
 
     unbind() {
-      // PRD 009 Req 6: same binding, rewritten in place — this page keeps
-      // running (it may be mid-switch into single-file mode), and only a
-      // reload from here starts against no workspace.
+      // PRD 009 Req 6 + PRD 020 Req 6: same page, binding dropped in place —
+      // it may be mid-switch into single-file mode, and only a reload from
+      // here starts against no workspace. The bar returns to `/`.
+      binding.current = null;
       window.history.replaceState(null, '', '/');
     },
   };

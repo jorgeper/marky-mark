@@ -595,12 +595,18 @@ export async function handleWorkspaceApi(
     // reserved words were refused inside buildNewWorkspaceManifest) — a name
     // any workspace already holds, compared case-insensitively, is a 409 the
     // dialog shows verbatim.
+    const taken = await takenUniqueNames(storage);
     if (built.manifest.uniqueName) {
-      const taken = await takenUniqueNames(storage);
       if (taken.has(uniqueNameKey(built.manifest.uniqueName))) {
         sendJson(res, 409, { error: uniqueNameTakenError(built.manifest.uniqueName) });
         return;
       }
+    } else {
+      // PRD 020 Req 5+6: every workspace carries a unique name from birth —
+      // its canonical path URL depends on one. A name-only body (an older
+      // client) gets its display name minted into one exactly like the Req 3
+      // migration would: slugified, deduped deployment-wide.
+      built.manifest.uniqueName = dedupeUniqueName(slugifyWorkspaceName(built.manifest.name), taken);
     }
     // PRD 007 Req 6 (issue #180): snapshot each initial member's display
     // name at add time — the creator's from their own token, the rest from
@@ -654,6 +660,11 @@ export async function handleWorkspaceApi(
       out.push({
         id,
         name: manifest.name,
+        // PRD 020 Req 5: the unique name is what the client resolves a path
+        // URL against (and builds one from). It rides the same row — and so
+        // the same listing policy — as the rest of the metadata: a workspace
+        // the policy hides from this caller reveals its name nowhere.
+        ...(manifest.uniqueName !== undefined ? { uniqueName: manifest.uniqueName } : {}),
         created: manifest.created,
         modified: manifest.modified,
         owners: workspaceOwnerIds(manifest),

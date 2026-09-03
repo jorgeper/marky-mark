@@ -1,7 +1,7 @@
 import type { Platform } from './types';
 import { createLocalDocs } from './localDocs';
-import { clearToken, readStoredToken, takeScratchBoot } from '../lib/hostedGate';
-import { createHostedWorkspaceLifecycle } from './hostedWorkspaces';
+import { clearToken, readStoredToken, takeHostedBoot } from '../lib/hostedGate';
+import { createHostedWorkspaceLifecycle, type HostedBinding } from './hostedWorkspaces';
 import { createHostedAdmin } from './hostedAdmin';
 import { createHostedLlm } from './hostedLlm';
 import { createHostedSummaryCache } from './hostedSummaryCache';
@@ -13,6 +13,7 @@ import { SaveConflictError } from '../lib/saveConflict';
 import {
   HOSTED_CONFIG_DIR,
   apiPathFor,
+  buildAppPath,
   hostedFilesRoot,
   hostedResolveAssetSrc,
   hostedWorkspaceFilePath,
@@ -20,7 +21,6 @@ import {
   normalizeHostedPath,
   parseHostedPath,
   workspaceFileToManifestSettings,
-  workspaceIdFromSearch,
   type HostedTarget,
 } from '../lib/hostedPaths';
 
@@ -87,13 +87,25 @@ const workspaceRoute = (id: string, route: string, rel?: string): string => {
 
 export function createHostedPlatform(): Platform {
   const token = () => readStoredToken(window.localStorage) ?? '';
-  const workspaceId = workspaceIdFromSearch(window.location.search);
-  // PRD 019 Req 10: the sign-in gate's one-page-load scratch signal — taken
-  // (read-and-clear) unconditionally so a reload of the rewritten URL boots
-  // as a plain workspace binding (Req 3), and honored only when it names the
-  // workspace this page actually bound.
-  const scratchBoot = takeScratchBoot(window.sessionStorage);
-  const scratchStart = workspaceId !== null && scratchBoot === workspaceId;
+  // PRD 020 Req 5+6: the sign-in gate resolved the visited URL — canonical
+  // path, legacy query, or /scratchpad — to a workspace before this platform
+  // existed, and its boot record (read-and-clear; the gate re-mints it from
+  // the URL on every page load) is the page's whole binding. The URL itself
+  // stays the canonical path form and is never parsed for an id here.
+  const boot = takeHostedBoot(window.sessionStorage);
+  const workspaceId = boot?.workspaceId ?? null;
+  // PRD 019 Req 10: the boot record says whether this binding is a
+  // scratchpad visit (fresh scratch buffer, prompt-exempt).
+  const scratchStart = boot?.scratch === true;
+  // PRD 020 Req 6: the live binding `currentId()` answers from and `unbind`
+  // drops — see HostedBinding in hostedWorkspaces.ts.
+  const binding: HostedBinding = {
+    current: boot ? { id: boot.workspaceId, uniqueName: boot.uniqueName ?? null } : null,
+  };
+  // PRD 020 Req 5: while the boot document is still on its way open, the
+  // mount-time "no document" reflection must not rewrite the deep link's
+  // file path (and its #fragment) back to the workspace root.
+  let bootDocPending = boot?.file !== undefined;
 
   /**
    * The bundle's hosted-platform network call site (SPEC11 §6.6 bundle-scan
@@ -129,7 +141,7 @@ export function createHostedPlatform(): Platform {
    * rather than writing the URL a second way. It shares the session-held
    * `/api/me` above (PRD 017 Req 3).
    */
-  const workspaces = createHostedWorkspaceLifecycle(sessionMe);
+  const workspaces = createHostedWorkspaceLifecycle(sessionMe, binding);
 
   /**
    * PRD 007 Req 21 (PRD 009 Req 4/5): local-file mode. A Markdown file the
@@ -525,11 +537,44 @@ export function createHostedPlatform(): Platform {
       document.title = title;
     },
     async onOpenFile(cb) {
-      // PRD 007 Req 2: the page's `?workspace=<id>` binding lands through the
-      // same seam an OS file association uses — App routes a .marky-workspace
+      // PRD 007 Req 2: the page's workspace binding lands through the same
+      // seam an OS file association uses — App routes a .marky-workspace
       // path to its workspace-open flow, so the manifest's settings become
       // the Workspace layer and its blobs become the sidebar's folder root.
       if (workspaceId) cb(hostedWorkspaceFilePath(workspaceId));
+    },
+
+    // PRD 020 Req 5: the file the visited path named, as the virtual path
+    // App opens once the workspace binding above has landed — the deep link's
+    // second half, resolved by the sign-in gate into the boot record.
+    ...(boot?.file && workspaceId ? { bootDocument: `${hostedFilesRoot(workspaceId)}/${boot.file}` } : {}),
+
+    /**
+     * PRD 020 Req 6: the address bar always shows the canonical path — App
+     * reports every active-document change here, and the URL is rewritten in
+     * place (the PRD 009 Req 6 history.replaceState pattern) to the open
+     * file's Req 5 URL, or back to `/<workspace-name>` when no workspace
+     * document is active. A `#<heading-slug>` fragment survives exactly as
+     * long as the path it belongs to does.
+     */
+    reflectDocumentPath(path) {
+      const bound = binding.current;
+      if (!bound?.uniqueName) return;
+      const target = path === null ? null : parseHostedPath(path);
+      const rel = target?.kind === 'workspace' && target.id === bound.id && target.rel ? target.rel : null;
+      // Boot window: nothing — not the mount-time "no document", not a
+      // session-restored file — rewrites over the visited deep link until
+      // the linked document itself is what became active.
+      if (bootDocPending) {
+        if (rel !== boot?.file) return;
+        bootDocPending = false;
+      }
+      const url = rel !== null ? buildAppPath(bound.uniqueName, rel.split('/')) : buildAppPath(bound.uniqueName);
+      // The fragment belongs to the URL it arrived on: an unchanged path
+      // keeps it (the deep link's heading slug survives, Req 19's input);
+      // moving to a different document drops it.
+      const hash = url === window.location.pathname ? window.location.hash : '';
+      window.history.replaceState(null, '', `${url}${hash}`);
     },
     /**
      * PRD 007 Req 21: the two hosted drop targets, kept disjoint. The FOLDER
@@ -692,7 +737,7 @@ export function createHostedPlatform(): Platform {
     // session, so dropping it (through hostedGate's one owner of that key)
     // ends it, with no endpoint to call and no new network call site. The
     // landing is the lifecycle seam's own origin-root navigation: it drops
-    // any `?workspace=<id>` binding, so the boot that follows finds no token
+    // any workspace path binding, so the boot that follows finds no token
     // and renders the sign-in screen bound to nothing.
     signOut() {
       // PRD 017 Req 3: the session record dies with the session.
