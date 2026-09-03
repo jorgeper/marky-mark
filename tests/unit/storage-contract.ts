@@ -183,16 +183,6 @@ export function describeStorageContract(options: StorageContractOptions): void {
       expect(await storage.delete('workspaces/w1/files/notes.md')).toBe(false);
     });
 
-    // PRD 019 Req 5: the conditional create — of two "first" writes exactly
-    // one can land; the loser answers null with the winner's content intact.
-    it(u(9, 'writeIfAbsent lands only while nothing is stored, and answers null with the stored content untouched'), async () => {
-      const first = await storage.writeIfAbsent('users/u1/scratchpad.json', '{"workspaceId":"one"}');
-      expect(first).not.toBeNull();
-      expect(first!.etag).not.toBe('');
-      expect(await storage.writeIfAbsent('users/u1/scratchpad.json', '{"workspaceId":"two"}')).toBeNull();
-      expect((await storage.read('users/u1/scratchpad.json'))?.content).toBe('{"workspaceId":"one"}');
-    });
-
     it(u(8, 'list answers a prefix with populated stats, and an empty prefix answers everything'), async () => {
       await storage.write('workspaces/w1/files/notes.md', 'one\n');
       await storage.write('workspaces/w1/files/deep/inner.md', 'two\n');
@@ -215,6 +205,16 @@ export function describeStorageContract(options: StorageContractOptions): void {
         'workspaces/w1/files/notes.md',
         'workspaces/w2/manifest.json',
       ]);
+    });
+
+    // PRD 019 Req 5: the conditional create — of two "first" writes exactly
+    // one can land; the loser answers null with the winner's content intact.
+    it(u(9, 'writeIfAbsent lands only while nothing is stored, and answers null with the stored content untouched'), async () => {
+      const first = await storage.writeIfAbsent('users/u1/scratchpad.json', '{"workspaceId":"one"}');
+      expect(first).not.toBeNull();
+      expect(first!.etag).not.toBe('');
+      expect(await storage.writeIfAbsent('users/u1/scratchpad.json', '{"workspaceId":"two"}')).toBeNull();
+      expect((await storage.read('users/u1/scratchpad.json'))?.content).toBe('{"workspaceId":"one"}');
     });
   });
 }
