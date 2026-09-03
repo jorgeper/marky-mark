@@ -210,6 +210,11 @@ export interface SessionMe {
   id: string;
   username: string;
   displayName: string;
+  /**
+   * PRD 020 Req 12: the user's assigned URL segment — their scratch URL is
+   * `/<handle>/scratch`. Distinct from `username`, which is the UPN.
+   */
+  handle: string;
   admin: boolean;
   canCreateWorkspaces: boolean;
   createRefusal?: CreateRefusal;

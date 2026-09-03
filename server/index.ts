@@ -10,7 +10,7 @@ import { createApp } from './app.ts';
 import { loadConfig } from './config.ts';
 import { createLlmApi } from './llm.ts';
 import { createProviders } from './providers/index.ts';
-import { migrateWorkspaceUniqueNames } from './workspaces.ts';
+import { migrateScratchNames, migrateWorkspaceUniqueNames } from './workspaces.ts';
 
 const config = loadConfig(process.env);
 const providers = createProviders(config);
@@ -31,6 +31,11 @@ try {
 // logged by the line above the count.
 const migrated = await migrateWorkspaceUniqueNames(providers.storage, console.log);
 if (migrated > 0) console.log(`marky-mark server: migrated ${migrated} workspace unique name(s)`);
+
+// PRD 020 Req 10: the scratch rename pass — pre-existing scratch workspaces
+// still named "Scratchpad" display as "My scratch". Idempotent like above.
+const renamed = await migrateScratchNames(providers.storage, console.log);
+if (renamed > 0) console.log(`marky-mark server: renamed ${renamed} scratch workspace(s)`);
 
 // PRD 011 Req 8+13: the LLM routes, built from the optional LLM section. No
 // section ⇒ an api that answers "not configured" and contacts nothing.

@@ -151,29 +151,31 @@ export function workspaceIdFromSearch(search: string): string | null {
 }
 
 /**
- * PRD 019 Req 1: the hosted client's one reserved path. A GET of
- * `<base URL>/scratchpad` is served by the SPA fallback like any other path;
- * recognizing it is the client's job, and this predicate is that whole
- * recognition — pure, so the route is unit-testable without a DOM. Only the
- * exact path (with an optional trailing slash) matches: anything nested or
- * differently cased is not the scratchpad and boots as a normal page.
+ * PRD 020 Req 10+11: the scratch route words. `/scratch` alone is the Req 11
+ * shortcut to the visitor's own scratch workspace (replacing PRD 019 Req 1's
+ * `/scratchpad`, which now falls through to normal workspace-name resolution
+ * and — the name being reserved — the Req 8 not-found page). As a SECOND
+ * segment, `scratch` is reserved: `/<seg1>/scratch[/<file…>]` always
+ * addresses user seg1's scratch workspace, never a folder named `scratch`
+ * inside workspace seg1 (the documented shadowing, PRD 020 Non-goals).
+ * Compared case-insensitively, like workspace-name matching itself.
  */
-export const SCRATCHPAD_PATH = '/scratchpad';
+export const SCRATCH_SEGMENT = 'scratch';
 
-export function isScratchpadPath(pathname: string): boolean {
-  return pathname === SCRATCHPAD_PATH || pathname === `${SCRATCHPAD_PATH}/`;
-}
+const isScratchSegment = (segment: string): boolean => uniqueNameKey(segment) === SCRATCH_SEGMENT;
 
 /**
- * PRD 020 Req 5: what a hosted page's `location.pathname` addresses. `home`
- * is the plain start page, `scratchpad` keeps PRD 019 Req 1's reserved path
- * exactly as it was (the router never shadows it), and everything else is a
- * workspace by unique name — bare (`/<name>`) or with a file inside it
- * (`/<name>/<segments…>`), each `file` entry one percent-decoded segment.
+ * PRD 020 Req 5+10+11: what a hosted page's `location.pathname` addresses.
+ * `home` is the plain start page, `scratch` the Req 11 shortcut,
+ * `user-scratch` one user's scratch workspace (optionally a file in it), and
+ * everything else is a workspace by unique name — bare (`/<name>`) or with a
+ * file inside it (`/<name>/<segments…>`), each `file` entry one
+ * percent-decoded segment.
  */
 export type AppPathTarget =
   | { kind: 'home' }
-  | { kind: 'scratchpad' }
+  | { kind: 'scratch' }
+  | { kind: 'user-scratch'; username: string; file: string[] }
   | { kind: 'workspace'; name: string; file: string[] };
 
 /** One URL segment, percent-decoded; a malformed escape stays verbatim. */
@@ -187,9 +189,16 @@ function decodeSegment(segment: string): string {
 
 /** PRD 020 Req 5: pathname → target. Pure, so every route is unit-testable. */
 export function parseAppPath(pathname: string): AppPathTarget {
-  if (isScratchpadPath(pathname)) return { kind: 'scratchpad' };
   const segments = pathname.split('/').filter((s) => s !== '').map(decodeSegment);
   if (segments.length === 0) return { kind: 'home' };
+  // PRD 020 Req 11: exactly `/scratch` is the shortcut; anything nested under
+  // it resolves as a workspace named `scratch` — reserved, so never found.
+  if (segments.length === 1 && isScratchSegment(segments[0])) return { kind: 'scratch' };
+  // PRD 020 Req 10: `scratch` as the second segment is reserved for user
+  // seg1's scratch workspace, whatever comes after it.
+  if (segments.length >= 2 && isScratchSegment(segments[1])) {
+    return { kind: 'user-scratch', username: segments[0], file: segments.slice(2) };
+  }
   const [name, ...file] = segments;
   return { kind: 'workspace', name, file };
 }
@@ -201,6 +210,15 @@ export function parseAppPath(pathname: string): AppPathTarget {
  */
 export function buildAppPath(name: string, file: readonly string[] = []): string {
   return `/${[name, ...file].map(encodeURIComponent).join('/')}`;
+}
+
+/**
+ * PRD 020 Req 10+13: the canonical URL of one user's scratch workspace —
+ * `/<username>/scratch`, or `/<username>/scratch/<segments…>` for a file in
+ * it, percent-encoded per segment exactly like buildAppPath.
+ */
+export function buildScratchPath(username: string, file: readonly string[] = []): string {
+  return buildAppPath(username, [SCRATCH_SEGMENT, ...file]);
 }
 
 /**

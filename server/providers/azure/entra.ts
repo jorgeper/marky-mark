@@ -57,6 +57,9 @@ export function sessionUserFromClaims(payload: JWTPayload): AuthUser | null {
     id: String(payload.oid ?? payload.sub ?? ''),
     username: String(payload.preferred_username ?? ''),
     displayName: String(payload.name ?? payload.preferred_username ?? ''),
+    // PRD 020 Req 12: the `email` claim (requested in the sign-in scope) is
+    // a guest's real address — what their username derives from.
+    ...(typeof payload.email === 'string' && payload.email !== '' ? { email: payload.email } : {}),
   };
 }
 

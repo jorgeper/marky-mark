@@ -7588,7 +7588,7 @@ export default function App() {
         <NewWorkspaceDialog lifecycle={platform.workspaces} onClose={() => setManagedWsDialog('none')} />
       )}
       {platform.workspaces && managedWsDialog === 'open' && (
-        <OpenWorkspaceDialog lifecycle={platform.workspaces} onClose={() => setManagedWsDialog('none')} />
+        <OpenWorkspaceDialog lifecycle={platform.workspaces} me={sessionMe} onClose={() => setManagedWsDialog('none')} />
       )}
 
       {/* PRD 017 Req 13: the deployment-admin Management view, mounted on

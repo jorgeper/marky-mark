@@ -52,7 +52,7 @@ export function clearToken(store: KeyValueStore): void {
  * PRD 020 Req 9 (generalizing PRD 019 Req 2): the visited URL across the
  * Entra round trip. The OAuth redirect URI is the origin root, so the URL a
  * sign-in began on — a path deep link, the legacy `?workspace=` form, a
- * `#<heading-slug>` fragment, or /scratchpad — does not survive the
+ * `#<heading-slug>` fragment, or a scratch route — does not survive the
  * navigation; this record (stored beside the pending sign-in when the
  * redirect leaves, taken when the callback completes) is what carries it.
  * Read-and-clear like the pending sign-in: a leftover intent must not route
@@ -105,8 +105,14 @@ export interface HostedBoot {
   uniqueName?: string;
   /** The file the path named, relative to the workspace's files root. */
   file?: string;
-  /** PRD 019 Req 10: this binding is a scratchpad visit. */
+  /** PRD 019 Req 10: this binding is a scratch visit (fresh scratch buffer). */
   scratch?: boolean;
+  /**
+   * PRD 020 Req 10+13: the bound workspace is a scratch workspace, owned by
+   * this username — the canonical URL is `/<scratchOwner>/scratch[/…]`, never
+   * the workspace's own unique-name path.
+   */
+  scratchOwner?: string;
 }
 
 export function storeHostedBoot(store: KeyValueStore, boot: HostedBoot): void {
@@ -125,6 +131,7 @@ export function takeHostedBoot(store: KeyValueStore): HostedBoot | null {
         ...(typeof parsed.uniqueName === 'string' ? { uniqueName: parsed.uniqueName } : {}),
         ...(typeof parsed.file === 'string' ? { file: parsed.file } : {}),
         ...(parsed.scratch === true ? { scratch: true } : {}),
+        ...(typeof parsed.scratchOwner === 'string' ? { scratchOwner: parsed.scratchOwner } : {}),
       };
     }
   } catch {

@@ -41,7 +41,7 @@ export interface WorkspaceListing {
   /**
    * PRD 019 Req 8: present (true) only on the caller's own scratchpad row —
    * the server never lists anyone else's scratchpad at all. Drives the Open
-   * dialog's "My scratchpad" badge, and Req 9's hidden delete affordance.
+   * dialog's "My scratch" badge, and Req 9's hidden delete affordance.
    */
   scratchpad?: true;
 }
@@ -149,12 +149,13 @@ export function noAccessMessage(workspaceName: string, owners: readonly MemberEn
 }
 
 /**
- * PRD 019 Req 8: the Open dialog's badge for one listing row — the personal
- * label on the caller's own scratchpad, nothing on every other row. Extracted
- * so the labeling rule is unit-testable apart from the dialog's DOM.
+ * PRD 019 Req 8 + PRD 020 Req 10: the Open dialog's badge for one listing row
+ * — the feature's user-facing name, "My scratch", on the caller's own scratch
+ * workspace, nothing on every other row. Extracted so the labeling rule is
+ * unit-testable apart from the dialog's DOM.
  */
 export function workspaceRowBadge(row: WorkspaceListing): string | null {
-  return row.scratchpad ? 'My scratchpad' : null;
+  return row.scratchpad ? 'My scratch' : null;
 }
 
 /**

@@ -11,6 +11,8 @@
 import { useEffect, useState } from 'react';
 import { MembershipPicker } from './MembershipPicker';
 import { Button } from './ui/Button';
+import type { SessionMe } from '../lib/deploymentSettings';
+import { buildScratchPath } from '../lib/hostedPaths';
 import type { DirectoryEntry, MemberEntry } from '../lib/membership';
 import { timeAgo } from '../lib/time';
 import { uniqueNameProblem } from '../lib/workspaceNames';
@@ -206,9 +208,12 @@ export function NewWorkspaceDialog({
 /** The Open Workspace dialog: the whole deployment, filtered as you type. */
 export function OpenWorkspaceDialog({
   lifecycle,
+  me,
   onClose,
 }: {
   lifecycle: WorkspaceLifecycle;
+  /** PRD 020 Req 12: the signed-in session, for the identity footer. */
+  me?: SessionMe | null;
   onClose: () => void;
 }) {
   const [all, setAll] = useState<WorkspaceListing[]>([]);
@@ -291,6 +296,15 @@ export function OpenWorkspaceDialog({
         {denied && (
           <p className="hotkey-hint" data-testid="open-workspace-no-access" role="alert">
             {denied}
+          </p>
+        )}
+        {/* PRD 020 Req 12: the signed-in identity surface — display name,
+            assigned username (the URL segment, distinct from the UPN), and
+            the resulting scratch URL, right where workspaces are picked. */}
+        {me && (
+          <p className="hotkey-hint" data-testid="open-workspace-identity">
+            Signed in as {me.displayName} ({me.handle}) — your scratch lives at{' '}
+            <span data-testid="open-workspace-identity-scratch-url">{buildScratchPath(me.handle)}</span>
           </p>
         )}
         <div className="dialog-actions">
