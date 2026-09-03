@@ -207,12 +207,13 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
   // PRD 020 Req 1: the unique name is optional (pre-migration manifests still
   // parse) but a present one must be well-formed. Format only here — reserved
   // words and collisions are creation/rename policy, not manifest shape.
+  let uniqueName: string | undefined;
   if (data.uniqueName !== undefined) {
     if (typeof data.uniqueName !== 'string') return fail('manifest uniqueName must be a string');
     const problem = uniqueNameFormatProblem(data.uniqueName);
     if (problem) return fail(`manifest uniqueName is invalid: ${problem}`);
+    uniqueName = data.uniqueName;
   }
-  const uniqueName = data.uniqueName as string | undefined;
   if (!isIsoTimestamp(created)) return fail('manifest created must be an ISO 8601 timestamp');
   if (!isIsoTimestamp(modified)) return fail('manifest modified must be an ISO 8601 timestamp');
 
@@ -374,9 +375,9 @@ export function buildNewWorkspaceManifest(
   }
   // PRD 020 Req 2: the friendly display name is optional when a unique name
   // is given — unset means the unique name IS the display.
-  const display =
-    typeof name === 'string' && name.trim() !== '' ? name.trim() : typeof uniqueName === 'string' ? uniqueName : '';
-  if (!display) return fail('name must be a non-empty string');
+  let display = typeof name === 'string' ? name.trim() : '';
+  if (display === '' && typeof uniqueName === 'string') display = uniqueName;
+  if (display === '') return fail('name must be a non-empty string');
   const manifest = createWorkspaceManifest(display, creatorId, nowIso);
   if (typeof uniqueName === 'string') manifest.uniqueName = uniqueName;
 

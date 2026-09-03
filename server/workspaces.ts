@@ -34,10 +34,10 @@ import {
 import type { WorkspaceListing } from '../src/lib/workspaceLifecycle.ts';
 import {
   dedupeUniqueName,
-  isReservedWorkspaceName,
   planUniqueNameMigration,
   slugifyWorkspaceName,
   uniqueNameKey,
+  uniqueNameProblem,
 } from '../src/lib/workspaceNames.ts';
 import { isSidecarPath } from '../src/lib/sidecar.ts';
 import { UPLOAD_MAX_LABEL, uploadRejection, uploadTypeRejection } from '../src/lib/fileTransfer.ts';
@@ -301,6 +301,11 @@ async function takenUniqueNames(storage: StorageProvider, excludeId?: string): P
   return taken;
 }
 
+/** PRD 020 Req 1: the 409 refusal creation and rename both send — one template, so the two routes can never drift apart. */
+function uniqueNameTakenError(name: string): string {
+  return `The unique name ${JSON.stringify(name)} is already taken.`;
+}
+
 /**
  * PRD 020 Req 3: the upgrade migration — every manifest without a unique name
  * gets one: display name slugified, deduped deployment-wide past reserved
@@ -313,7 +318,7 @@ export async function migrateWorkspaceUniqueNames(
   storage: StorageProvider,
   log: (line: string) => void,
 ): Promise<number> {
-  const rows: { id: string; manifest: WorkspaceManifest }[] = [];
+  const rows = new Map<string, WorkspaceManifest>();
   for (const blob of await storage.list(WORKSPACES_PREFIX)) {
     const id = MANIFEST_BLOB_RE.exec(blob.path)?.[1];
     if (!id) continue;
@@ -321,10 +326,10 @@ export async function migrateWorkspaceUniqueNames(
     // A corrupt manifest has no name to slugify; it stays the 500 its own
     // routes already report rather than being silently rewritten here.
     if (!manifest || typeof manifest === 'string') continue;
-    rows.push({ id, manifest });
+    rows.set(id, manifest);
   }
   const plan = planUniqueNameMigration(
-    rows.map(({ id, manifest }) => ({
+    [...rows].map(([id, manifest]) => ({
       id,
       name: manifest.name,
       ...(manifest.uniqueName !== undefined ? { uniqueName: manifest.uniqueName } : {}),
@@ -332,16 +337,13 @@ export async function migrateWorkspaceUniqueNames(
     })),
   );
   for (const { id, uniqueName } of plan) {
-    const row = rows.find((r) => r.id === id);
-    if (!row) continue;
+    const manifest = rows.get(id);
+    if (!manifest) continue;
     // The display name is preserved as the friendly name by writing nothing
     // but the new field; timestamps stay untouched — migration is an upgrade,
     // not an edit anyone made.
-    await storage.write(
-      manifestBlob(id),
-      serializeWorkspaceManifest({ ...row.manifest, uniqueName }),
-    );
-    log(`workspace-name migration: ${id} ${JSON.stringify(row.manifest.name)} → unique name ${JSON.stringify(uniqueName)}`);
+    await storage.write(manifestBlob(id), serializeWorkspaceManifest({ ...manifest, uniqueName }));
+    log(`workspace-name migration: ${id} ${JSON.stringify(manifest.name)} → unique name ${JSON.stringify(uniqueName)}`);
   }
   return plan.length;
 }
@@ -596,7 +598,7 @@ export async function handleWorkspaceApi(
     if (built.manifest.uniqueName) {
       const taken = await takenUniqueNames(storage);
       if (taken.has(uniqueNameKey(built.manifest.uniqueName))) {
-        sendJson(res, 409, { error: `The unique name ${JSON.stringify(built.manifest.uniqueName)} is already taken.` });
+        sendJson(res, 409, { error: uniqueNameTakenError(built.manifest.uniqueName) });
         return;
       }
     }
@@ -752,12 +754,15 @@ export async function handleWorkspaceApi(
       // write must never strip the workspace's identity.
       const requested = validated.manifest.uniqueName;
       if (requested !== undefined && requested !== existing.uniqueName) {
-        if (isReservedWorkspaceName(requested)) {
-          sendJson(res, 400, { error: `${JSON.stringify(requested)} is a reserved name.` });
+        // Format already passed validateWorkspaceManifest, so the shared rule
+        // can only trip on a reserved word — same message the dialogs show.
+        const problem = uniqueNameProblem(requested);
+        if (problem) {
+          sendJson(res, 400, { error: problem });
           return;
         }
         if ((await takenUniqueNames(storage, id)).has(uniqueNameKey(requested))) {
-          sendJson(res, 409, { error: `The unique name ${JSON.stringify(requested)} is already taken.` });
+          sendJson(res, 409, { error: uniqueNameTakenError(requested) });
           return;
         }
       }

@@ -45,6 +45,9 @@ export function NewWorkspaceDialog({
   const [picked, setPicked] = useState<MemberEntry[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // PRD 020 Req 2: format/length/reserved problems appear while typing; the
+  // empty field waits for submit to complain (WorkspaceNames does the same).
+  const typedProblem = form.uniqueName === '' ? null : uniqueNameProblem(form.uniqueName);
 
   const addMember = (user: DirectoryEntry) => {
     setPicked((prev) => [...prev, { ...user, resolved: true }]);
@@ -92,9 +95,9 @@ export function NewWorkspaceDialog({
             autoFocus
             onChange={(e) => setForm((prev) => ({ ...prev, uniqueName: e.target.value }))}
           />
-          {form.uniqueName !== '' && uniqueNameProblem(form.uniqueName) && (
+          {typedProblem && (
             <p className="hotkey-hint" data-testid="new-workspace-unique-name-error" role="alert">
-              {uniqueNameProblem(form.uniqueName)}
+              {typedProblem}
             </p>
           )}
         </div>
