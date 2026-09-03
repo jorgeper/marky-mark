@@ -5,6 +5,7 @@ import {
   defaultFolder,
   defaultName,
   pickerFolders,
+  scratchSaveName,
   withDefaultExtension,
 } from '../../src/lib/savePicker';
 
@@ -118,6 +119,57 @@ describe('PRD 009 Req 13/14 save picker', () => {
     const tooLong = checkPickerName('x'.repeat(253), []);
     expect(tooLong.ok).toBe(false);
     if (!tooLong.ok) expect(tooLong.error).toBe('Name too long');
+  });
+
+  test('U1039: the scratch pre-fill takes the first heading — ATX or setext — over the first line', () => {
+    const now = new Date(2026, 8, 3, 14, 5);
+    // The first ATX heading wins even when prose precedes it.
+    expect(scratchSaveName('intro prose\n\n# Meeting Notes\n\nbody\n', { existing: [], now })).toBe(
+      'Meeting Notes.md'
+    );
+    // A closing '#' run is ATX decoration, not part of the title.
+    expect(scratchSaveName('## Plan ##\n', { existing: [], now })).toBe('Plan.md');
+    // A setext underline promotes the line above it to the heading.
+    expect(scratchSaveName('intro prose\n\nQuarterly Report\n====\n', { existing: [], now })).toBe(
+      'Quarterly Report.md'
+    );
+    // No heading anywhere: the first non-empty line names the buffer.
+    expect(scratchSaveName('\n\n  a plain first line\nmore\n', { existing: [], now })).toBe('a plain first line.md');
+  });
+
+  test('U1040: markup is stripped and the text sanitized into a name validateEntryName accepts', () => {
+    const now = new Date(2026, 8, 3, 14, 5);
+    // Inline formatting goes; a link keeps only its text.
+    expect(scratchSaveName('# **Bold** `code` and [a link](https://x.y)\n', { existing: [], now })).toBe(
+      'Bold code and a link.md'
+    );
+    // Path separators cannot survive into a filename; whitespace collapses.
+    expect(scratchSaveName('notes/2026\\draft\n', { existing: [], now })).toBe('notes 2026 draft.md');
+    // Leading dots would hide the file from the tree; trailing dots are invalid.
+    expect(scratchSaveName('# ...hidden agenda...\n', { existing: [], now })).toBe('hidden agenda.md');
+    // Overlong titles are cut so the name with its .md stays within 255.
+    const long = scratchSaveName(`# ${'x'.repeat(300)}\n`, { existing: [], now });
+    expect(long).toBe(`${'x'.repeat(252)}.md`);
+  });
+
+  test('U1041: an empty or unusable buffer pre-fills the timestamp, zero-padded', () => {
+    const now = new Date(2026, 8, 3, 14, 5);
+    expect(scratchSaveName('', { existing: [], now })).toBe('2026-09-03 14.05.md');
+    expect(scratchSaveName('   \n\t\n', { existing: [], now })).toBe('2026-09-03 14.05.md');
+    // A first line that sanitizes away entirely is as good as empty.
+    expect(scratchSaveName('***\n', { existing: [], now })).toBe('2026-09-03 14.05.md');
+    // A reserved Windows stem would fail validateEntryName: fall back too.
+    expect(scratchSaveName('con\n', { existing: [], now })).toBe('2026-09-03 14.05.md');
+  });
+
+  test('U1042: .md is appended only when the derived name lacks an extension, and collisions dedupe', () => {
+    const now = new Date(2026, 8, 3, 14, 5);
+    // An extension already present is kept, exactly like withDefaultExtension.
+    expect(scratchSaveName('notes.markdown\n', { existing: [], now })).toBe('notes.markdown');
+    expect(scratchSaveName('plain title\n', { existing: [], now })).toBe('plain title.md');
+    // Collisions dedupe through uniqueChildName, matching defaultName's use.
+    expect(scratchSaveName('# Plan\n', { existing: ['Plan.md', 'plan 2.md'], now })).toBe('Plan 3.md');
+    expect(scratchSaveName('', { existing: ['2026-09-03 14.05.md'], now })).toBe('2026-09-03 14.05 2.md');
   });
 
   test('U852: New File is offered with a save dialog, else only in a writable workspace', () => {

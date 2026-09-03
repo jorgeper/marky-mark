@@ -48,6 +48,7 @@ import {
   defaultFolder,
   defaultName,
   pickerFolders,
+  scratchSaveName,
   type PickerFolder,
   type SavePickerKind,
 } from './lib/savePicker';
@@ -3401,7 +3402,13 @@ export default function App() {
       const folder = defaultFolder(folders, docDir);
       if (!folder) return false;
       const existing = await listPickerNames(folder);
-      const name = defaultName(kind, { docBasename: s.docPath ? p.basename(s.docPath) : null, existing });
+      // PRD 019 Req 12: the scratch buffer's first save names itself from its
+      // content (first heading, else first line, else a timestamp) — scoped to
+      // the buffer scratchRef marks; every other caller keeps defaultName.
+      const name =
+        kind === 'saveAs' && s.untitled && scratchRef.current
+          ? scratchSaveName(s.buffer, { existing, now: new Date() })
+          : defaultName(kind, { docBasename: s.docPath ? p.basename(s.docPath) : null, existing });
       savePickerResolveRef.current?.(false); // never leave an earlier caller hanging
       return new Promise<boolean>((resolve) => {
         savePickerResolveRef.current = resolve;

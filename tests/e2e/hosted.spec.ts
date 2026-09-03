@@ -3965,3 +3965,75 @@ test('E398: the scratch buffer starts fresh over existing files and discards sil
   await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
   expect(new URL(page.url()).searchParams.get('workspace')).toBe(id);
 });
+
+test('E399: the scratch buffer’s first save pre-fills the picker from its heading, lands in the scratchpad root, and the saved file is a normal document', async ({
+  page,
+  request,
+}) => {
+  // PRD 019 Req 12+13 (issue #216): Save on the scratch buffer routes to the
+  // in-workspace picker with a content-derived name (the first Markdown
+  // heading) and the scratchpad's root as the folder; once committed the
+  // file sheds every scratch semantic — re-save is a plain Save, and the
+  // SPEC36 §2.6 prompt guards its edits like any other document's.
+  const token = await signIn(request, 'katherine');
+  await dropDraft(page, token);
+  const resolve = await request.post(`${HOSTED}/api/me/scratchpad`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(resolve.status()).toBe(200);
+  const id = ((await resolve.json()) as { id: string }).id;
+
+  await page.goto(`${HOSTED}/scratchpad`);
+  await page.getByTestId('hosted-sign-in-username').fill('katherine');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('editor')).toBeVisible();
+
+  // Content that begins with a heading, then Save — on an untitled buffer it
+  // routes to Save As, and hosted has no dialog, so the picker is the surface.
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('# Meeting Notes');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('body text');
+  await page.keyboard.press('Control+s');
+
+  // Req 12: pre-filled from the heading, not Untitled.md (a prior retry may
+  // have left the name taken — the uniqueChildName suffix is the contract).
+  const picker = page.getByTestId('save-picker');
+  await expect(picker).toBeVisible();
+  const prefill = page.getByTestId('save-picker-name');
+  await expect(prefill).toHaveValue(/^Meeting Notes( \d+)?\.md$/);
+  const name = await prefill.inputValue();
+  await page.getByTestId('save-picker-confirm').click();
+  await expect(picker).toHaveCount(0);
+
+  // Req 12: it landed in the scratchpad ROOT and is now the open document.
+  await expect(page.getByTestId('docname')).toContainText(name);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect.poll(() => listFiles(request, token, id)).toContain(name);
+
+  // Req 13: re-saving is a plain Save — no picker returns, the dot clears.
+  // (The committed document reopens like any other — in the REMEMBERED view
+  // mode, issue #125 — so land in preview first, then enter edit cleanly.)
+  await landInPreview(page);
+  await page.getByTestId('edit-toggle').click();
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type(' and more');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(page.getByTestId('save-picker')).toHaveCount(0);
+
+  // Req 13: the SPEC36 §2.6 close guard treats it like any file — closing
+  // its tab with a dirty edit raises the unsaved-changes prompt where the
+  // scratch buffer would have discarded silently (E398).
+  await page.keyboard.type(' again');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  const tab = page.getByTestId('file-tab').filter({ hasText: name }).first();
+  await tab.hover();
+  await tab.getByTestId('file-tab-close').click();
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  await page.getByTestId('open-cancel').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+});
