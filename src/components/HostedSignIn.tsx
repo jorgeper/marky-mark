@@ -148,18 +148,21 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
     return null;
   };
 
-  /** The caller's own scratch: the idempotent resolve-or-create (PRD 019 Reqs 5–7). */
-  const resolveOwnScratch = (): Promise<{ id?: string } | null> =>
-    getJson<{ id?: string }>('/api/me/scratchpad', auth, { method: 'POST' });
+  /**
+   * PRD 020 Req 12: the caller's assigned handle, from /api/me — what
+   * `/scratch` lands on, and what tells an own-scratch visit from someone
+   * else's. Undefined on any failure, like every getJson miss.
+   */
+  const myHandle = async (): Promise<string | undefined> =>
+    (await getJson<{ handle?: string }>('/api/me', auth))?.handle;
 
   if (path.kind === 'scratch' || path.kind === 'user-scratch') {
-    // PRD 020 Req 12: the caller's assigned handle — what `/scratch` lands on
-    // and what tells an own-scratch visit from someone else's.
-    const handle = (await getJson<{ handle?: string }>('/api/me', auth))?.handle;
+    const handle = await myHandle();
     const own =
       path.kind === 'scratch' || (handle !== undefined && path.username.toLowerCase() === handle.toLowerCase());
     if (own && handle !== undefined) {
-      const body = await resolveOwnScratch();
+      // The caller's own scratch: the idempotent resolve-or-create (PRD 019 Reqs 5–7).
+      const body = await getJson<{ id?: string }>('/api/me/scratchpad', auth, { method: 'POST' });
       if (!body?.id) {
         // An unanswerable resolve must not leave the app parked on a path
         // only this gate understands: land on the plain start page instead.
@@ -200,7 +203,7 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
   // canonical `/<username>/scratch` bar form (a flagged row is always the
   // caller's own scratch; nobody else's is ever listed).
   if (row?.scratchpad) {
-    const handle = (await getJson<{ handle?: string }>('/api/me', auth))?.handle;
+    const handle = await myHandle();
     if (handle !== undefined) return bindScratch(row.id, handle, wanted?.file ?? [], false);
   }
   const file = wanted && wanted.file.length > 0 ? wanted.file.join('/') : null;

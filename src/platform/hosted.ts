@@ -583,12 +583,10 @@ export function createHostedPlatform(): Platform {
       // PRD 020 Req 10+13: a scratch binding's canonical form is
       // `/<username>/scratch[/…]`; every other workspace shows its
       // unique-name path (and one with neither cannot be addressed).
-      const url = bound.scratchOwner
-        ? buildScratchPath(bound.scratchOwner, segments)
-        : bound.uniqueName
-          ? buildAppPath(bound.uniqueName, segments)
-          : null;
-      if (url === null) return;
+      let url: string;
+      if (bound.scratchOwner) url = buildScratchPath(bound.scratchOwner, segments);
+      else if (bound.uniqueName) url = buildAppPath(bound.uniqueName, segments);
+      else return;
       // The fragment belongs to the URL it arrived on: an unchanged path
       // keeps it (the deep link's heading slug survives, Req 19's input);
       // moving to a different document drops it.
