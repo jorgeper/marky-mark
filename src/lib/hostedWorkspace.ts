@@ -8,6 +8,8 @@
  * timestamps come in as arguments.
  */
 
+import { uniqueNameFormatProblem, uniqueNameProblem } from './workspaceNames.ts';
+
 // --- permission catalog (PRD 007 Req 13) -------------------------------------
 
 /**
@@ -146,6 +148,14 @@ export const DEFAULT_EVERYONE_ROLE: BuiltInRoleName = 'Viewer';
 export interface WorkspaceManifest {
   version: typeof MANIFEST_VERSION;
   name: string;
+  /**
+   * PRD 020 Req 1: the workspace's deployment-unique name (1–100 chars from
+   * `[A-Za-z0-9._-]`, unique case-insensitively) — the identity URLs will be
+   * built from, beside the free-text display `name` above. Optional like the
+   * `scratchpad` marker: manifests written before the field existed parse
+   * unchanged, and the Req 3 migration is what fills it in.
+   */
+  uniqueName?: string;
   /** ISO 8601 creation timestamp; preserved across updates. */
   created: string;
   /** ISO 8601 last-manifest-update timestamp. */
@@ -194,6 +204,15 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
   }
   const { name, created, modified, everyone, settings } = data;
   if (!isNonEmptyString(name)) return fail('manifest name must be a non-empty string');
+  // PRD 020 Req 1: the unique name is optional (pre-migration manifests still
+  // parse) but a present one must be well-formed. Format only here — reserved
+  // words and collisions are creation/rename policy, not manifest shape.
+  if (data.uniqueName !== undefined) {
+    if (typeof data.uniqueName !== 'string') return fail('manifest uniqueName must be a string');
+    const problem = uniqueNameFormatProblem(data.uniqueName);
+    if (problem) return fail(`manifest uniqueName is invalid: ${problem}`);
+  }
+  const uniqueName = data.uniqueName as string | undefined;
   if (!isIsoTimestamp(created)) return fail('manifest created must be an ISO 8601 timestamp');
   if (!isIsoTimestamp(modified)) return fail('manifest modified must be an ISO 8601 timestamp');
 
@@ -258,6 +277,7 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
     manifest: {
       version: MANIFEST_VERSION,
       name,
+      ...(uniqueName !== undefined ? { uniqueName } : {}),
       created,
       modified,
       members,
@@ -314,6 +334,12 @@ export function isKnownRoleName(manifest: WorkspaceManifest, name: string): bool
 /** PRD 007 Req 10: the create-workspace request body, as the API accepts it. */
 export interface CreateWorkspaceRequest {
   name: string;
+  /**
+   * PRD 020 Req 2: the deployment-unique name chosen up front. Optional at
+   * the API so pre-#219 callers keep working (their workspaces get one from
+   * the Req 3 migration); the New Workspace dialog always sends it.
+   */
+  uniqueName?: string;
   /** Initial members besides the creator; the creator is always Owner. */
   members?: WorkspaceMember[];
   /** Everyone-in-tenant access; `role` defaults to Viewer (Req 16). */
@@ -337,11 +363,22 @@ export function buildNewWorkspaceManifest(
   if (!isPlainObject(body)) return fail('request body must be a JSON object');
   // Untrusted fields stay `unknown` until each check narrows them — the same
   // shape-by-shape discipline validateWorkspaceManifest applies above.
-  const { name, members, everyone } = body;
-  if (typeof name !== 'string' || name.trim() === '') {
-    return fail('name must be a non-empty string');
+  const { name, uniqueName, members, everyone } = body;
+  // PRD 020 Req 1+2: a provided unique name must be well-formed and not
+  // reserved — the stateless half of creation's enforcement; the collision
+  // check needs deployment state and lives with the route.
+  if (uniqueName !== undefined) {
+    if (typeof uniqueName !== 'string') return fail('uniqueName must be a string');
+    const problem = uniqueNameProblem(uniqueName);
+    if (problem) return fail(problem);
   }
-  const manifest = createWorkspaceManifest(name.trim(), creatorId, nowIso);
+  // PRD 020 Req 2: the friendly display name is optional when a unique name
+  // is given — unset means the unique name IS the display.
+  const display =
+    typeof name === 'string' && name.trim() !== '' ? name.trim() : typeof uniqueName === 'string' ? uniqueName : '';
+  if (!display) return fail('name must be a non-empty string');
+  const manifest = createWorkspaceManifest(display, creatorId, nowIso);
+  if (typeof uniqueName === 'string') manifest.uniqueName = uniqueName;
 
   if (members !== undefined) {
     if (!Array.isArray(members)) return fail('members must be an array');
@@ -371,6 +408,16 @@ export function buildNewWorkspaceManifest(
   }
 
   return { ok: true, manifest };
+}
+
+/**
+ * PRD 020 Req 2: the friendly name as a separate fact — `name` is what chrome
+ * displays either way, but the rename UI needs "is a friendly name set" to
+ * pre-fill its optional field. Unset is stored as `name === uniqueName` (the
+ * unique name is the display), so that equality reads back as null here.
+ */
+export function friendlyNameOf(manifest: Pick<WorkspaceManifest, 'name' | 'uniqueName'>): string | null {
+  return manifest.uniqueName !== undefined && manifest.name === manifest.uniqueName ? null : manifest.name;
 }
 
 /**

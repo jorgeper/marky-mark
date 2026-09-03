@@ -5,7 +5,7 @@ import { createApp } from '../../server/app';
 import { createMockAuthProvider } from '../../server/providers/mock/auth';
 import { createMockDirectoryProvider } from '../../server/providers/mock/directory';
 import { PERMISSIONS, type WorkspaceManifest } from '../../src/lib/hostedWorkspace';
-import { WORKSPACE_ROUTE_PERMISSIONS } from '../../server/workspaces';
+import { migrateWorkspaceUniqueNames, WORKSPACE_ROUTE_PERMISSIONS } from '../../server/workspaces';
 import { createMemoryStorage, describeStorageContract } from './storage-contract';
 
 // PRD 007 Req 7+13: the workspace API's blob layout and permission
@@ -927,4 +927,147 @@ describeStorageContract({
   label: 'the in-memory reference provider',
   firstId: 374,
   create: () => createMemoryStorage().provider,
+});
+
+// PRD 020 Reqs 1+3+4: unique names over HTTP — creation and rename enforce
+// the shared rules (reserved words, case-insensitive collisions) with 4xx
+// JSON errors the client shows verbatim, and the startup migration names
+// every pre-existing workspace idempotently.
+describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
+  const { provider, blobs } = createMemoryStorage();
+  const auth = createMockAuthProvider();
+  let server: Server;
+  let base = '';
+  const tokens: Record<string, string> = {};
+
+  beforeAll(async () => {
+    server = createServer(
+      createApp('/nonexistent-static', { auth, storage: provider, directory: createMockDirectoryProvider() }, 'local'),
+    );
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    for (const username of ['ada', 'grace']) {
+      const result = await auth.signIn({ username });
+      if (result?.kind !== 'token') throw new Error('mock sign-in failed');
+      tokens[username] = result.token;
+    }
+  });
+
+  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  const call = (user: string, method: string, path: string, body?: string): Promise<Response> =>
+    fetch(`${base}${path}`, { method, headers: { Authorization: `Bearer ${tokens[user]}` }, body });
+
+  const readManifest = async (id: string): Promise<WorkspaceManifest> => {
+    const res = await call('ada', 'GET', `/api/workspaces/${id}/manifest`);
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { manifest: WorkspaceManifest }).manifest;
+  };
+
+  it('U1053: creation stores both names and rejects reserved or case-insensitively colliding unique names verbatim', async () => {
+    const created = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'Design-Docs', name: 'Design Docs' }));
+    expect(created.status).toBe(201);
+    const { id, manifest } = (await created.json()) as { id: string; manifest: WorkspaceManifest };
+    expect(manifest.uniqueName).toBe('Design-Docs');
+    expect(manifest.name).toBe('Design Docs');
+    // Case-insensitive collision: a differently-cased duplicate is a 409
+    // whose message the dialog can show as-is.
+    const collided = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'design-docs' }));
+    expect(collided.status).toBe(409);
+    expect(((await collided.json()) as { error: string }).error).toBe('The unique name "design-docs" is already taken.');
+    // Reserved names are refused with the shared module's own message.
+    const reserved = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'api' }));
+    expect(reserved.status).toBe(400);
+    expect(((await reserved.json()) as { error: string }).error).toBe('"api" is a reserved name.');
+    // A malformed one names the format problem.
+    const spaced = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'no spaces' }));
+    expect(spaced.status).toBe(400);
+    // Only the one workspace landed.
+    expect([...blobs.keys()]).toEqual([`workspaces/${id}/manifest.json`]);
+    blobs.clear();
+  });
+
+  it('U1054: rename applies creation rules, takes effect immediately, and a friendly-name change never touches the unique name', async () => {
+    const a = (await (await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'alpha' }))).json()) as { id: string };
+    const b = (await (await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'beta' }))).json()) as { id: string };
+    const manifest = await readManifest(b.id);
+
+    // A unique-name change lands and subsequent reads show it (Req 4).
+    const renamed = await call('ada', 'PUT', `/api/workspaces/${b.id}/manifest`, JSON.stringify({ ...manifest, uniqueName: 'gamma' }));
+    expect(renamed.status).toBe(200);
+    expect((await readManifest(b.id)).uniqueName).toBe('gamma');
+
+    // Colliding with another workspace (case-insensitively) is a 409…
+    const collide = await call('ada', 'PUT', `/api/workspaces/${b.id}/manifest`, JSON.stringify({ ...manifest, uniqueName: 'ALPHA' }));
+    expect(collide.status).toBe(409);
+    expect(((await collide.json()) as { error: string }).error).toBe('The unique name "ALPHA" is already taken.');
+    // …a reserved word is a 400…
+    const reserved = await call('ada', 'PUT', `/api/workspaces/${b.id}/manifest`, JSON.stringify({ ...manifest, uniqueName: 'scratchpad' }));
+    expect(reserved.status).toBe(400);
+    expect(((await reserved.json()) as { error: string }).error).toBe('"scratchpad" is a reserved name.');
+    // …and neither refusal changed the stored name.
+    expect((await readManifest(b.id)).uniqueName).toBe('gamma');
+
+    // A friendly-name change rides the same PUT and never touches the unique
+    // name; a body omitting uniqueName entirely (a pre-#219 client) keeps it.
+    const current = await readManifest(b.id);
+    const friendly = await call('ada', 'PUT', `/api/workspaces/${b.id}/manifest`, JSON.stringify({ ...current, name: 'Beta Docs' }));
+    expect(friendly.status).toBe(200);
+    const { uniqueName: _drop, ...withoutUnique } = await readManifest(b.id);
+    const stripped = await call('ada', 'PUT', `/api/workspaces/${b.id}/manifest`, JSON.stringify(withoutUnique));
+    expect(stripped.status).toBe(200);
+    const after = await readManifest(b.id);
+    expect(after.name).toBe('Beta Docs');
+    expect(after.uniqueName).toBe('gamma');
+
+    // Req 4: no workspace.settings, no rename — the existing 403 names the verb.
+    const forbidden = await call('grace', 'PUT', `/api/workspaces/${a.id}/manifest`, JSON.stringify(await readManifest(a.id)));
+    expect(forbidden.status).toBe(403);
+    expect(((await forbidden.json()) as { required: string }).required).toBe('workspace.settings');
+    blobs.clear();
+  });
+
+  it('U1055: migration slugifies and dedupes legacy manifests, logs each, preserves the display name, and is idempotent', async () => {
+    // Legacy workspaces: created without unique names (the pre-#219 API).
+    const w1 = (await (await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Design Docs' }))).json()) as { id: string };
+    const w2 = (await (await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Design Docs' }))).json()) as { id: string };
+    const w3 = (await (await call('ada', 'POST', '/api/workspaces', JSON.stringify({ name: 'Scratchpad' }))).json()) as { id: string };
+    // One already migrated: its name is taken, and it must not be rewritten.
+    await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'design-docs', name: 'Kept' }));
+
+    const log: string[] = [];
+    expect(await migrateWorkspaceUniqueNames(provider, (line) => log.push(line))).toBe(3);
+    // Oldest-first dedupe past the taken name; the reserved word is skipped
+    // over (PRD 020 Req 3) — Scratchpad lands on scratchpad-2.
+    const m1 = await readManifest(w1.id);
+    const m2 = await readManifest(w2.id);
+    const m3 = await readManifest(w3.id);
+    expect(new Set([m1.uniqueName, m2.uniqueName])).toEqual(new Set(['design-docs-2', 'design-docs-3']));
+    expect(m3.uniqueName).toBe('scratchpad-2');
+    // The original display name is preserved as the friendly name.
+    expect(m1.name).toBe('Design Docs');
+    expect(m3.name).toBe('Scratchpad');
+    // Each migrated workspace was logged.
+    expect(log.length).toBe(3);
+    expect(log.some((l) => l.includes(w3.id) && l.includes('"scratchpad-2"'))).toBe(true);
+
+    // Idempotent: a second run migrates nothing and rewrites no bytes.
+    const before = new Map(blobs);
+    expect(await migrateWorkspaceUniqueNames(provider, (line) => log.push(line))).toBe(0);
+    expect(log.length).toBe(3);
+    expect(blobs).toEqual(before);
+    blobs.clear();
+  });
+
+  it('U1056: a provisioned scratchpad carries a deduped unique name from birth — never the reserved word itself', async () => {
+    const res = await call('ada', 'POST', '/api/me/scratchpad');
+    expect(res.status).toBe(200);
+    const { id } = (await res.json()) as { id: string };
+    const manifest = await readManifest(id);
+    // PRD 020 Req 1: "Scratchpad" slugifies into the reserved word, so the
+    // minted name is the first free suffix past it.
+    expect(manifest.uniqueName).toBe('scratchpad-2');
+    expect(manifest.name).toBe('Scratchpad');
+    blobs.clear();
+  });
 });

@@ -9,6 +9,7 @@
  */
 
 import { fuzzyFilter } from './fuzzy.ts';
+import { uniqueNameProblem } from './workspaceNames.ts';
 import type { MemberEntry } from './membership.ts';
 import {
   DEFAULT_EVERYONE_ROLE,
@@ -40,6 +41,9 @@ export interface WorkspaceListing {
 
 /** PRD 007 Req 10: the New Workspace form's state, exactly as the user sees it. */
 export interface NewWorkspaceForm {
+  /** PRD 020 Req 2: the deployment-unique name, chosen up front (required). */
+  uniqueName: string;
+  /** PRD 020 Req 2: the optional friendly display name (free text). */
   name: string;
   members: WorkspaceMember[];
   everyoneEnabled: boolean;
@@ -63,7 +67,7 @@ export const GRANTABLE_ROLES: readonly BuiltInRoleName[] = ['Editor', 'Contribut
 export const DEFAULT_MEMBER_ROLE: BuiltInRoleName = 'Viewer';
 
 export function emptyNewWorkspaceForm(): NewWorkspaceForm {
-  return { name: '', members: [], everyoneEnabled: false, everyoneRole: DEFAULT_EVERYONE_ROLE };
+  return { uniqueName: '', name: '', members: [], everyoneEnabled: false, everyoneRole: DEFAULT_EVERYONE_ROLE };
 }
 
 export type NewWorkspaceResult =
@@ -71,18 +75,22 @@ export type NewWorkspaceResult =
   | { ok: false; error: string };
 
 /**
- * PRD 007 Req 10: validate the form and shape the POST body. A blank or
- * whitespace-only name is the one hard stop (the server trims and rejects the
- * same way); everything else is already constrained by the controls. The name
- * travels trimmed, so "  Docs  " and "Docs" create the same workspace name.
+ * PRD 007 Req 10 + PRD 020 Req 2: validate the form and shape the POST body.
+ * The unique name is the hard stop — the same pure rule the server enforces
+ * (format, length, reserved), never trimmed because its charset admits no
+ * whitespace to forgive. The friendly display name is optional and travels
+ * trimmed; blank means the unique name is the display, stored as the manifest
+ * `name` so every existing chrome surface keeps rendering it.
  */
 export function validateNewWorkspaceForm(form: NewWorkspaceForm): NewWorkspaceResult {
-  const name = form.name.trim();
-  if (!name) return { ok: false, error: 'Enter a name for the workspace.' };
+  const problem = uniqueNameProblem(form.uniqueName);
+  if (problem) return { ok: false, error: problem };
+  const friendly = form.name.trim();
   return {
     ok: true,
     request: {
-      name,
+      uniqueName: form.uniqueName,
+      name: friendly || form.uniqueName,
       members: form.members.map((m) => ({ id: m.id, role: m.role })),
       everyone: {
         enabled: form.everyoneEnabled,

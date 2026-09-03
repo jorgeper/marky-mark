@@ -3895,9 +3895,11 @@ input.folder-rename-input.invalid {
   padding: 2px 8px;
 }
 
-/* PRD 007 Req 12+15+16: the sections of Workspace settings — people, custom
-   roles and the danger zone — are separated the same way, off the same theme
-   variables, so every bundled theme dresses them without a rule of its own. */
+/* PRD 007 Req 12+15+16 + PRD 020 Req 4: the sections of Workspace settings —
+   names, people, custom roles and the danger zone — are separated the same
+   way, off the same theme variables, so every bundled theme dresses them
+   without a rule of its own. */
+.workspace-names,
 .workspace-members,
 .workspace-roles,
 .workspace-danger {

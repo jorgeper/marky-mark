@@ -856,6 +856,10 @@ test('E182: the New Workspace flow names a workspace, grants a member a role, an
   await openAppMenu(page);
   await page.getByTestId('menu-new-workspace').click();
   await expect(page.getByTestId('new-workspace-dialog')).toBeVisible();
+  // PRD 020 Req 2: the unique name comes first and is required; the friendly
+  // display name (the original field) is what the chrome shows.
+  // (timestamped so a retry never collides with its own earlier attempt)
+  await page.getByTestId('new-workspace-unique-name').fill(`e182-created-w${test.info().workerIndex}-${Date.now()}`);
   await page.getByTestId('new-workspace-name').fill(name);
 
   // The reused MembershipPicker searches the live directory endpoints.
@@ -1987,6 +1991,9 @@ test('E203: New Workspace… and Open Workspace… on the hosted start page land
   const fresh = `E203 fresh w${test.info().workerIndex}`;
   await page.getByTestId('start-newWorkspace').click();
   await expect(page.getByTestId('new-workspace-dialog')).toBeVisible();
+  // PRD 020 Req 2: the unique name is required up front.
+  // (timestamped so a retry never collides with its own earlier attempt)
+  await page.getByTestId('new-workspace-unique-name').fill(`e203-fresh-w${test.info().workerIndex}-${Date.now()}`);
   await page.getByTestId('new-workspace-name').fill(fresh);
   await page.getByTestId('new-workspace-create').click();
   await expect(page).toHaveURL(/workspace=/);

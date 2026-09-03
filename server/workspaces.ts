@@ -32,6 +32,13 @@ import {
   type WorkspaceManifest,
 } from '../src/lib/hostedWorkspace.ts';
 import type { WorkspaceListing } from '../src/lib/workspaceLifecycle.ts';
+import {
+  dedupeUniqueName,
+  isReservedWorkspaceName,
+  planUniqueNameMigration,
+  slugifyWorkspaceName,
+  uniqueNameKey,
+} from '../src/lib/workspaceNames.ts';
 import { isSidecarPath } from '../src/lib/sidecar.ts';
 import { UPLOAD_MAX_LABEL, uploadRejection, uploadTypeRejection } from '../src/lib/fileTransfer.ts';
 import { contentTypeFor } from './contentTypes.ts';
@@ -273,6 +280,73 @@ async function loadManifest(
 }
 
 /**
+ * PRD 020 Req 1: every unique name currently held, as case-insensitive keys —
+ * the collision set creation and rename check against. Derived by loading
+ * every manifest, exactly like the listing loop: there is no database, one
+ * manifest blob per workspace is all the state there is. `excludeId` leaves
+ * out the workspace being renamed, so a case-only rename never collides with
+ * itself. Corrupt manifests contribute nothing (their reads fail loudly on
+ * their own routes).
+ */
+async function takenUniqueNames(storage: StorageProvider, excludeId?: string): Promise<Set<string>> {
+  const taken = new Set<string>();
+  for (const blob of await storage.list(WORKSPACES_PREFIX)) {
+    const id = MANIFEST_BLOB_RE.exec(blob.path)?.[1];
+    if (!id || id === excludeId) continue;
+    const manifest = await loadManifest(storage, id);
+    if (manifest && typeof manifest !== 'string' && manifest.uniqueName) {
+      taken.add(uniqueNameKey(manifest.uniqueName));
+    }
+  }
+  return taken;
+}
+
+/**
+ * PRD 020 Req 3: the upgrade migration — every manifest without a unique name
+ * gets one: display name slugified, deduped deployment-wide past reserved
+ * words and every name already held. Idempotent (a manifest that carries the
+ * field is skipped, so a second run writes nothing) and logged per workspace
+ * through the injected `log`. Runs once at server startup (server/index.ts);
+ * returns how many manifests were migrated.
+ */
+export async function migrateWorkspaceUniqueNames(
+  storage: StorageProvider,
+  log: (line: string) => void,
+): Promise<number> {
+  const rows: { id: string; manifest: WorkspaceManifest }[] = [];
+  for (const blob of await storage.list(WORKSPACES_PREFIX)) {
+    const id = MANIFEST_BLOB_RE.exec(blob.path)?.[1];
+    if (!id) continue;
+    const manifest = await loadManifest(storage, id);
+    // A corrupt manifest has no name to slugify; it stays the 500 its own
+    // routes already report rather than being silently rewritten here.
+    if (!manifest || typeof manifest === 'string') continue;
+    rows.push({ id, manifest });
+  }
+  const plan = planUniqueNameMigration(
+    rows.map(({ id, manifest }) => ({
+      id,
+      name: manifest.name,
+      ...(manifest.uniqueName !== undefined ? { uniqueName: manifest.uniqueName } : {}),
+      created: manifest.created,
+    })),
+  );
+  for (const { id, uniqueName } of plan) {
+    const row = rows.find((r) => r.id === id);
+    if (!row) continue;
+    // The display name is preserved as the friendly name by writing nothing
+    // but the new field; timestamps stay untouched — migration is an upgrade,
+    // not an edit anyone made.
+    await storage.write(
+      manifestBlob(id),
+      serializeWorkspaceManifest({ ...row.manifest, uniqueName }),
+    );
+    log(`workspace-name migration: ${id} ${JSON.stringify(row.manifest.name)} → unique name ${JSON.stringify(uniqueName)}`);
+  }
+  return plan.length;
+}
+
+/**
  * PRD 007 Req 13+17: the one guard every workspace-scoped operation passes.
  * Resolves the caller's permissions from the manifest and answers 403 when
  * the single required verb is missing. Returns the manifest to act on, or
@@ -434,8 +508,17 @@ export async function handleScratchpadResolve(
     return;
   }
   const displayName = auth.user.displayName.trim();
+  // PRD 020 Req 1: a workspace provisioned here carries a unique name from
+  // birth, minted exactly like the Req 3 migration would — "Scratchpad"
+  // slugifies into the reserved word, so dedupe lands on `scratchpad-2`,
+  // `-3`… deployment-wide (Req 12's per-user usernames are a later issue).
+  const uniqueName = dedupeUniqueName(
+    slugifyWorkspaceName(SCRATCHPAD_NAME),
+    await takenUniqueNames(storage),
+  );
   const manifest: WorkspaceManifest = {
     ...built.manifest,
+    uniqueName,
     // PRD 019 Req 8: the manifest itself carries the scratchpad marker —
     // the one place the listing loop and the delete branch can read it
     // without an extra blob round trip per workspace.
@@ -505,6 +588,17 @@ export async function handleWorkspaceApi(
     if (!built.ok) {
       sendJson(res, 400, { error: built.error });
       return;
+    }
+    // PRD 020 Req 1: the stateful half of unique-name enforcement (format and
+    // reserved words were refused inside buildNewWorkspaceManifest) — a name
+    // any workspace already holds, compared case-insensitively, is a 409 the
+    // dialog shows verbatim.
+    if (built.manifest.uniqueName) {
+      const taken = await takenUniqueNames(storage);
+      if (taken.has(uniqueNameKey(built.manifest.uniqueName))) {
+        sendJson(res, 409, { error: `The unique name ${JSON.stringify(built.manifest.uniqueName)} is already taken.` });
+        return;
+      }
     }
     // PRD 007 Req 6 (issue #180): snapshot each initial member's display
     // name at add time — the creator's from their own token, the rest from
@@ -649,10 +743,30 @@ export async function handleWorkspaceApi(
         sendJson(res, 400, { error: validated.error });
         return;
       }
+      // PRD 020 Req 4: this PUT is the rename write path. A changed unique
+      // name passes the same rules as creation — reserved words and a
+      // case-insensitive collision with any OTHER workspace are refused with
+      // an error the settings UI shows verbatim. An unchanged name skips the
+      // checks (re-PUTting a manifest stays idempotent), and a body that
+      // omits the field keeps the stored one — a pre-#219 client's manifest
+      // write must never strip the workspace's identity.
+      const requested = validated.manifest.uniqueName;
+      if (requested !== undefined && requested !== existing.uniqueName) {
+        if (isReservedWorkspaceName(requested)) {
+          sendJson(res, 400, { error: `${JSON.stringify(requested)} is a reserved name.` });
+          return;
+        }
+        if ((await takenUniqueNames(storage, id)).has(uniqueNameKey(requested))) {
+          sendJson(res, 409, { error: `The unique name ${JSON.stringify(requested)} is already taken.` });
+          return;
+        }
+      }
+      const uniqueName = requested ?? existing.uniqueName;
       // The server owns the timestamps: creation is immutable, modification
       // is stamped here (PRD 007 Req 7's created/modified record).
       const manifest: WorkspaceManifest = {
         ...validated.manifest,
+        ...(uniqueName !== undefined ? { uniqueName } : {}),
         created: existing.created,
         modified: new Date().toISOString(),
       };

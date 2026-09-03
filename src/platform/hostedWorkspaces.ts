@@ -39,6 +39,13 @@ export interface WorkspaceLifecycle {
   /** PRD 007 Req 15+16: the stored manifest, or null when the read is refused. */
   manifest(id: string): Promise<WorkspaceManifest | null>;
   /**
+   * PRD 020 Req 4: the whole-manifest write behind `workspace.settings` — the
+   * rename path. The server re-validates the unique name (reserved words,
+   * case-insensitive collisions) and the refusal comes back verbatim for the
+   * settings UI to show inline.
+   */
+  putManifest(id: string, manifest: WorkspaceManifest): Promise<ManifestResult>;
+  /**
    * PRD 007 Req 16: membership edits — all behind `workspace.members`. Each
    * answers the same `ManifestResult` the pure decision has: the manifest as
    * stored, or the server's own named refusal (a 403's verb, or a 400's
@@ -175,6 +182,12 @@ export function createHostedWorkspaceLifecycle(
 
     manifest(id) {
       return api(workspacePath(id, '/manifest')).then(readManifest);
+    },
+
+    putManifest(id, manifest) {
+      // PRD 020 Req 4: rename rides the existing manifest PUT — same verb,
+      // same server-side validation, same verbatim-refusal contract.
+      return mutate(workspacePath(id, '/manifest'), 'PUT', manifest);
     },
 
     addMember(id, member) {

@@ -13,6 +13,7 @@ import { MembershipPicker } from './MembershipPicker';
 import { Button } from './ui/Button';
 import type { DirectoryEntry, MemberEntry } from '../lib/membership';
 import { timeAgo } from '../lib/time';
+import { uniqueNameProblem } from '../lib/workspaceNames';
 import {
   DEFAULT_MEMBER_ROLE,
   GRANTABLE_ROLES,
@@ -77,15 +78,38 @@ export function NewWorkspaceDialog({
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="dialog workspace-modal" data-testid="new-workspace-dialog">
         <h2>New workspace</h2>
+        {/* PRD 020 Req 2: the unique name comes first and is validated as you
+            type — the same pure rule the server enforces, so format/length/
+            reserved problems show inline before submit ever happens. */}
         <div className="field">
-          <label htmlFor="new-workspace-name">Name</label>
+          <label htmlFor="new-workspace-unique-name">Unique name</label>
+          <input
+            id="new-workspace-unique-name"
+            className="field"
+            data-testid="new-workspace-unique-name"
+            type="text"
+            value={form.uniqueName}
+            autoFocus
+            onChange={(e) => setForm((prev) => ({ ...prev, uniqueName: e.target.value }))}
+          />
+          {form.uniqueName !== '' && uniqueNameProblem(form.uniqueName) && (
+            <p className="hotkey-hint" data-testid="new-workspace-unique-name-error" role="alert">
+              {uniqueNameProblem(form.uniqueName)}
+            </p>
+          )}
+        </div>
+        {/* PRD 020 Req 2: the optional friendly display name — free text;
+            blank means the unique name is what chrome displays. The input
+            keeps its original test id (`new-workspace-name`): renaming ids
+            is forbidden, and this is still the display-name field. */}
+        <div className="field">
+          <label htmlFor="new-workspace-name">Display name (optional)</label>
           <input
             id="new-workspace-name"
             className="field"
             data-testid="new-workspace-name"
             type="text"
             value={form.name}
-            autoFocus
             onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
           />
         </div>

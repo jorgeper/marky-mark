@@ -133,18 +133,22 @@ describe('PRD 007 Req 10: the create-workspace request', () => {
   });
 });
 
-describe('PRD 007 Req 10: the New Workspace form', () => {
-  it('U284: a blank or whitespace-only name blocks submission with a message', () => {
-    for (const name of ['', '   ', '\t\n']) {
-      expect(validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), name })).toEqual({
-        ok: false,
-        error: 'Enter a name for the workspace.',
-      });
-    }
+describe('PRD 007 Req 10 + PRD 020 Req 2: the New Workspace form', () => {
+  it('U284: a missing or malformed unique name blocks submission with a message naming the problem', () => {
+    // PRD 020 Req 2: the unique name is the hard stop now — a friendly
+    // display name alone no longer submits.
+    expect(validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), name: 'Design docs' })).toEqual({
+      ok: false,
+      error: 'A unique name is required.',
+    });
+    // Whitespace is outside the charset (never silently trimmed away).
+    const spaced = validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), uniqueName: 'design docs' });
+    expect(spaced).toEqual({ ok: false, error: 'A unique name may only use letters, digits, and . _ - characters.' });
   });
 
-  it('U285: a valid form becomes the POST body — trimmed name, members, everyone-access', () => {
+  it('U285: a valid form becomes the POST body — unique name, trimmed friendly name, members, everyone-access', () => {
     const result = validateNewWorkspaceForm({
+      uniqueName: 'design-docs',
       name: '  Design docs ',
       members: [{ id: 'mock-grace', role: 'Editor' }],
       everyoneEnabled: true,
@@ -153,6 +157,7 @@ describe('PRD 007 Req 10: the New Workspace form', () => {
     expect(result).toEqual({
       ok: true,
       request: {
+        uniqueName: 'design-docs',
         name: 'Design docs',
         members: [{ id: 'mock-grace', role: 'Editor' }],
         everyone: { enabled: true, role: 'Commenter' },
@@ -160,10 +165,25 @@ describe('PRD 007 Req 10: the New Workspace form', () => {
     });
     // A fresh form defaults everyone-access to off at Viewer (PRD 007 Req 16).
     expect(emptyNewWorkspaceForm()).toEqual({
+      uniqueName: '',
       name: '',
       members: [],
       everyoneEnabled: false,
       everyoneRole: DEFAULT_EVERYONE_ROLE,
+    });
+  });
+
+  it('U1043: a blank friendly name means the unique name is the display, and reserved names are refused before submit', () => {
+    // PRD 020 Req 2: unset friendly name → the unique name IS the display —
+    // the request stores it as the manifest name so all chrome keeps working.
+    const bare = validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), uniqueName: 'design-docs' });
+    expect(bare.ok && bare.request.name).toBe('design-docs');
+    expect(bare.ok && bare.request.uniqueName).toBe('design-docs');
+    // PRD 020 Req 1: reserved words are refused client-side with the same
+    // message the server would answer.
+    expect(validateNewWorkspaceForm({ ...emptyNewWorkspaceForm(), uniqueName: 'Scratchpad' })).toEqual({
+      ok: false,
+      error: '"Scratchpad" is a reserved name.',
     });
   });
 });
@@ -276,5 +296,37 @@ describe('PRD 019 Reqs 8–9: the scratchpad row in the lifecycle UI', () => {
     expect(deleteOffered(listing({ id: 'sp', name: 'Scratchpad', scratchpad: true }), canDelete)).toBe(false);
     // Without the verb nothing changes: never offered.
     expect(deleteOffered(listing({ id: 'w', name: 'Docs' }), ['doc.read'])).toBe(false);
+  });
+});
+
+describe('PRD 020 Req 1+2: buildNewWorkspaceManifest and the unique name', () => {
+  const NOW = '2026-09-03T00:00:00.000Z';
+
+  it('U1051: a create body carries both names into the manifest; omitting the friendly name makes the unique name the display', () => {
+    const both = buildNewWorkspaceManifest({ uniqueName: 'design-docs', name: 'Design Docs' }, 'mock-ada', NOW);
+    expect(both.ok && both.manifest.uniqueName).toBe('design-docs');
+    expect(both.ok && both.manifest.name).toBe('Design Docs');
+    // No friendly name → the unique name is the display (PRD 020 Req 2).
+    const bare = buildNewWorkspaceManifest({ uniqueName: 'design-docs' }, 'mock-ada', NOW);
+    expect(bare.ok && bare.manifest.name).toBe('design-docs');
+    // No unique name at all is still the pre-#219 API — old callers keep
+    // working and the Req 3 migration names their workspaces later.
+    const legacy = buildNewWorkspaceManifest({ name: 'Old style' }, 'mock-ada', NOW);
+    expect(legacy.ok && 'uniqueName' in legacy.manifest).toBe(false);
+  });
+
+  it('U1052: an invalid or reserved unique name is refused with the message the dialog shows verbatim', () => {
+    expect(buildNewWorkspaceManifest({ uniqueName: 'has spaces', name: 'W' }, 'mock-ada', NOW)).toEqual({
+      ok: false,
+      error: 'A unique name may only use letters, digits, and . _ - characters.',
+    });
+    expect(buildNewWorkspaceManifest({ uniqueName: 'scratch', name: 'W' }, 'mock-ada', NOW)).toEqual({
+      ok: false,
+      error: '"scratch" is a reserved name.',
+    });
+    expect(buildNewWorkspaceManifest({ uniqueName: 42, name: 'W' }, 'mock-ada', NOW)).toEqual({
+      ok: false,
+      error: 'uniqueName must be a string',
+    });
   });
 });

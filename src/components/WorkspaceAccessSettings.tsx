@@ -14,6 +14,7 @@ import type { DeploymentAdmin } from '../platform/hostedAdmin';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 import { WorkspaceDangerZone } from './WorkspaceDangerZone';
 import { WorkspaceMembers } from './WorkspaceMembers';
+import { WorkspaceNames } from './WorkspaceNames';
 import { WorkspaceRoles } from './WorkspaceRoles';
 
 export interface WorkspaceAccess {
@@ -31,6 +32,9 @@ export interface WorkspaceAccess {
 
 /** The verbs that give the People tab something to show. */
 const PEOPLE_TAB_PERMISSIONS: readonly Permission[] = [
+  // PRD 020 Req 4: the names section gates on workspace.settings, so that
+  // verb alone is enough for the tab to exist.
+  'workspace.settings',
   'workspace.members',
   'workspace.roles',
   'workspace.delete',
@@ -87,6 +91,16 @@ export function WorkspacePeopleTab({
   if (!workspaceId || !manifest) return null;
   return (
     <>
+      {/* PRD 020 Req 4: rename (unique + friendly name) for holders of the
+          workspace.settings verb — the server refuses anyone else anyway. */}
+      {permissions.includes('workspace.settings') && (
+        <WorkspaceNames
+          lifecycle={lifecycle}
+          workspaceId={workspaceId}
+          manifest={manifest}
+          onManifest={setManifest}
+        />
+      )}
       {permissions.includes('workspace.members') && (
         <WorkspaceMembers
           lifecycle={lifecycle}

@@ -10,6 +10,7 @@ import { createApp } from './app.ts';
 import { loadConfig } from './config.ts';
 import { createLlmApi } from './llm.ts';
 import { createProviders } from './providers/index.ts';
+import { migrateWorkspaceUniqueNames } from './workspaces.ts';
 
 const config = loadConfig(process.env);
 const providers = createProviders(config);
@@ -22,6 +23,14 @@ try {
   console.error(`marky-mark server: storage is unusable — ${(err as Error).message}`);
   process.exit(1);
 }
+
+// PRD 020 Req 3: the upgrade pass — every workspace created before unique
+// names gets one (display name slugified and deduped, the original preserved
+// as the friendly name), before the listener accepts anything. Idempotent, so
+// running on every boot is exactly the design; each migrated workspace is
+// logged by the line above the count.
+const migrated = await migrateWorkspaceUniqueNames(providers.storage, console.log);
+if (migrated > 0) console.log(`marky-mark server: migrated ${migrated} workspace unique name(s)`);
 
 // PRD 011 Req 8+13: the LLM routes, built from the optional LLM section. No
 // section ⇒ an api that answers "not configured" and contacts nothing.

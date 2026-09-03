@@ -7,6 +7,7 @@ import {
   createWorkspaceManifest,
   customRoleUsage,
   DEFAULT_EVERYONE_ROLE,
+  friendlyNameOf,
   DEPLOYMENT_PERMISSIONS,
   grantableRoleNames,
   isBuiltInRoleName,
@@ -593,5 +594,40 @@ describe('PRD 019 Req 8 scratchpad manifest marker', () => {
     const bad = validateWorkspaceManifest({ ...base(), scratchpad: 'yes' });
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.error).toContain('scratchpad');
+  });
+});
+
+describe('PRD 020 Req 1 manifest unique name', () => {
+  it('U1049: the unique name is optional (pre-migration manifests parse), round-trips, and a malformed value is a named error', () => {
+    // Absent — every manifest written before the field existed — stays absent
+    // (the scratchpad-marker precedent).
+    const plain = validateWorkspaceManifest(base());
+    expect(plain.ok).toBe(true);
+    if (plain.ok) expect('uniqueName' in plain.manifest).toBe(false);
+    // Present and well-formed: kept through validate + serialize + parse.
+    const named = validateWorkspaceManifest({ ...base(), uniqueName: 'design-docs' });
+    expect(named.ok && named.manifest.uniqueName).toBe('design-docs');
+    if (!named.ok) return;
+    const reparsed = parseWorkspaceManifest(serializeWorkspaceManifest(named.manifest));
+    expect(reparsed.ok && reparsed.manifest.uniqueName).toBe('design-docs');
+    // Malformed values are refused with an error naming the problem.
+    for (const [bad, problem] of [
+      [42, 'must be a string'],
+      ['', 'required'],
+      ['no spaces', 'letters, digits'],
+      ['x'.repeat(101), 'at most 100 characters'],
+    ] as const) {
+      const result = validateWorkspaceManifest({ ...base(), uniqueName: bad });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toContain(problem);
+    }
+  });
+
+  it('U1050: friendlyNameOf reads "friendly unset" out of name === uniqueName', () => {
+    // PRD 020 Req 2: unset friendly name is stored as name === uniqueName.
+    expect(friendlyNameOf({ name: 'design-docs', uniqueName: 'design-docs' })).toBeNull();
+    expect(friendlyNameOf({ name: 'Design Docs', uniqueName: 'design-docs' })).toBe('Design Docs');
+    // A pre-migration manifest has no unique name — its name IS the friendly.
+    expect(friendlyNameOf({ name: 'Docs' })).toBe('Docs');
   });
 });
