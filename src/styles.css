@@ -2515,6 +2515,31 @@ input.palette-input {
   border-right: none;
   border-radius: var(--mm-radius-small) 0 0 var(--mm-radius-small);
 }
+/* PRD 020 Req 14 (issue #222): the copy-link control — an .icon-btn in the
+   cluster idiom. While confirming it swaps the glyph for a caption-sized
+   "Link copied" in the accent colour; min-height pins the cluster's row so
+   the ~2s swap never jiggles its neighbours. */
+.copy-link {
+  min-height: 22px; /* 16px glyph + the .icon-btn 3px paddings */
+}
+.copy-link.is-copied {
+  color: var(--mm-accent);
+}
+.copy-link .copy-link-copied {
+  font-size: var(--mm-text-caption);
+  white-space: nowrap;
+}
+/* PRD 020 Req 14: the aria-live region — present at rest, visually hidden,
+   so the confirmation is announced without a visible duplicate. */
+.copy-link .copy-link-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* The header flavour: the switch is the header's leading pair of icon
    buttons, and the live view is accented exactly like `.filter-on`. */
 .folder-header .sidebar-switch {
@@ -2550,6 +2575,10 @@ input.palette-input {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* PRD 020 Req 16: the edge clusters anchor to the workspace COLUMN — with
+     the folder pane open the left pill still sits at the workspace's own
+     top-left corner, not over the pane's header. */
+  position: relative;
 }
 .workspace-stack > .workspace {
   min-height: 0; /* the column's scroll box — the strip drives no overflow */

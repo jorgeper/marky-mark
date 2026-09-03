@@ -3,6 +3,8 @@ import { getPlatform, type Platform, type WriteResult } from './platform';
 import { renderMarkdown } from './lib/markdown';
 import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
 import { decorateCodeBlocks } from './lib/codeCopy';
+import { fileShareUrl, workspaceShareUrl } from './lib/shareLinks';
+import { CopyLinkButton } from './components/CopyLinkButton';
 import { renderFenceDiagrams, type DiagramRenderCache } from './lib/fenceDiagrams';
 import { rewriteFenceWidthAt } from './lib/diagramResize';
 import { DiagramResizer } from './components/DiagramResizer';
@@ -6890,16 +6892,49 @@ export default function App() {
   // the splash and for a read-only document) and, in edit mode, the preview
   // chevron (never in full preview: that's a different surface, not a
   // closed split).
+  // PRD 020 Req 15: the copy-link placements are hosted-only — Tauri, the
+  // dev shim and the single-file build render neither (this `kind` check is
+  // the one gate; nothing else in the tree grows share DOM). The copied URL
+  // is read off the canonical address bar at click time (Req 6 keeps
+  // `location` on the Req 5 form), so it is absolute and never the legacy
+  // `?workspace=` shape.
+  const workspaceShare =
+    platform.kind === 'hosted' && wsKind !== 'none' ? (
+      // PRD 020 Req 16: the workspace placement copies /<workspace-name>.
+      <CopyLinkButton
+        testid="copy-link-workspace"
+        getUrl={() => workspaceShareUrl(window.location.origin, window.location.pathname)}
+        copy={copyToClipboard}
+      />
+    ) : null;
+  const fileShare =
+    platform.kind === 'hosted' && wsKind !== 'none' && docPath !== null ? (
+      // PRD 020 Req 17: the file placement copies the open file's Req 5 URL
+      // — and is absent for untitled buffers (their docPath is null).
+      <CopyLinkButton
+        testid="copy-link-file"
+        getUrl={() => fileShareUrl(window.location.origin, window.location.pathname)}
+        copy={copyToClipboard}
+      />
+    ) : null;
+  // PRD 020 Req 16: the chevron + view switch keep their pane-closed gate,
+  // but the cluster itself outlives it — the workspace copy-link stays in
+  // the top-left region with the folder pane open too.
+  const leftControls = !sidebarShown && (folderSeam || docOpen);
   const leftCluster =
-    !sidebarShown && (folderSeam || docOpen) ? (
+    leftControls || workspaceShare ? (
       <>
-        {folderSeam && <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />}
-        {sidebarSwitch}
+        {leftControls && folderSeam && <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />}
+        {leftControls && sidebarSwitch}
+        {workspaceShare}
       </>
     ) : null;
+  // PRD 020 Req 17: the file copy-link rides this cluster but not its edit
+  // gate — a read-only reader in preview mode still shares the file.
   const rightCluster =
-    mode === 'edit' || mayToggleMode ? (
+    mode === 'edit' || mayToggleMode || fileShare ? (
       <>
+        {fileShare}
         {/* Issue #167: the sync toggle exists only where synchronized
             scrolling can mean anything — edit mode with the split open —
             and only while the Settings switch shows it. */}
@@ -7119,9 +7154,21 @@ export default function App() {
           />
         )}
 
+      {/* PRD 013 Reqs 1–2: the strip + document column. The wrapper is layout
+          only — it takes the flex slot the workspace held and turns it into a
+          column, so the strip spans the full width of the WORKSPACE alone
+          (the sidebar is a body-row sibling it can never extend over), above
+          the preview, split and full-edit branches alike. Its `with-tabs`
+          hands the workspace's static-toolbar clearance to the strip, which
+          is now the column's top edge (styles.css). */}
+      <div className={`workspace-stack${showFileTabs ? ' with-tabs' : ''}`}>
         {/* PRD 003 Req 2: with the pane closed, a chevron at the workspace's
             left edge reopens it — PRD 012 Req 9 seats the view switch beside
-            it in one row, so the two edge tabs cannot overlap. */}
+            it in one row, so the two edge tabs cannot overlap.
+            PRD 020 Req 16: both overlays anchor to the workspace COLUMN, not
+            the body row — with the folder pane open the left cluster (now
+            holding the hosted copy-link) sits at the workspace's own top-left
+            instead of over the pane's header. */}
         {!showFileTabs && leftCluster && <div className="edge-cluster-left">{leftCluster}</div>}
 
         {/* The workspace's top-right edge cluster: the edit/preview switch
@@ -7136,14 +7183,6 @@ export default function App() {
             splash and for a read-only document, in both modes. */}
         {!showFileTabs && rightCluster && <div className="edge-cluster">{rightCluster}</div>}
 
-      {/* PRD 013 Reqs 1–2: the strip + document column. The wrapper is layout
-          only — it takes the flex slot the workspace held and turns it into a
-          column, so the strip spans the full width of the WORKSPACE alone
-          (the sidebar is a body-row sibling it can never extend over), above
-          the preview, split and full-edit branches alike. Its `with-tabs`
-          hands the workspace's static-toolbar clearance to the strip, which
-          is now the column's top edge (styles.css). */}
-      <div className={`workspace-stack${showFileTabs ? ' with-tabs' : ''}`}>
       {showFileTabs && (
         <FileTabStrip
           leading={leftCluster}

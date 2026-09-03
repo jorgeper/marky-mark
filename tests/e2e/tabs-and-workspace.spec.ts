@@ -987,3 +987,18 @@ test('E211: Open Workspace… in single-file mode closes the open file first, th
   await expect(page.locator('[data-path="/notes/a.md"]')).toBeVisible();
   await expect(page.getByTestId('empty-hint')).toHaveCount(0);
 });
+
+test('E406: the copy-link share controls are hosted-only — the dev-shim workspace with a saved file open renders neither placement', async ({
+  page,
+}) => {
+  // PRD 020 Req 15 (issue #222): the shim (`kind: 'browser'`) stands in for
+  // every non-hosted flavor here — the placements gate on the hosted
+  // platform alone, so a workspace + open saved file, the exact state that
+  // shows both controls on hosted, produces zero share DOM.
+  await seedFolders(page);
+  await openNotesRoot(page);
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await expect(page.getByTestId('copy-link-workspace')).toHaveCount(0);
+  await expect(page.getByTestId('copy-link-file')).toHaveCount(0);
+});

@@ -4200,3 +4200,85 @@ test('E403: a path matching no workspace, no file, or an unknown legacy UUID ren
   await page.getByTestId('hosted-not-found-home').click();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
 });
+
+// --- the copy-link share affordance (PRD 020 Reqs 14–17, issue #222) ---------
+
+/**
+ * PRD 020 Req 14: a recordable clipboard — the hosted platform's copyText
+ * goes through navigator.clipboard, which a headless run cannot read back,
+ * so the stub records every write on window.__shareCopies (E385's pattern).
+ */
+async function recordClipboard(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const copies: string[] = [];
+    (window as unknown as { __shareCopies: string[] }).__shareCopies = copies;
+    navigator.clipboard.writeText = (text: string) => {
+      copies.push(text);
+      return Promise.resolve();
+    };
+  });
+}
+
+const lastShareCopy = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __shareCopies: string[] }).__shareCopies.at(-1));
+
+test('E404: hosted copy-link — the workspace control (pane open) and the file control copy the canonical absolute URLs, confirm "Link copied" inline, and revert', async ({
+  page,
+  request,
+}) => {
+  // PRD 020 Reqs 14+16+17: both placements on hosted with a saved file open.
+  // The filename carries a space so the copied text pins the per-segment
+  // percent-encoding of the Req 5 form.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e404');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/intro guide.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# Intro\n',
+  });
+  await recordClipboard(page);
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'intro guide.md');
+
+  // Req 16: the workspace control sits top-left WITH THE FOLDER PANE OPEN —
+  // the placement does not take the old cluster's pane-closed gate.
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  const wsShare = page.getByTestId('copy-link-workspace');
+  const fileShare = page.getByTestId('copy-link-file');
+  await expect(wsShare).toBeVisible();
+  await expect(fileShare).toBeVisible();
+  // Req 14: at rest the control is a link icon with the "Copy link" tooltip.
+  await expect(wsShare).toHaveAttribute('title', 'Copy link');
+  await expect(wsShare).toHaveAttribute('aria-label', 'Copy link');
+
+  // Req 16: a click copies the absolute canonical /<workspace-name> URL and
+  // the control ITSELF confirms — no dialog, no toast stack.
+  await wsShare.click();
+  await expect(page.getByTestId('copy-link-workspace-copied')).toHaveText('Link copied');
+  await expect(wsShare).toHaveAttribute('aria-label', 'Link copied');
+  expect(await lastShareCopy(page)).toBe(`${HOSTED}/${unique}`);
+  // …briefly (~2s): then the control reverts to rest on its own.
+  await expect(page.getByTestId('copy-link-workspace-copied')).toHaveCount(0, { timeout: 4000 });
+  await expect(wsShare).toHaveAttribute('aria-label', 'Copy link');
+
+  // Req 17: the file control copies the file's Req 5 URL — origin included,
+  // segments percent-encoded, no heading fragment.
+  await fileShare.click();
+  await expect(page.getByTestId('copy-link-file-copied')).toHaveText('Link copied');
+  expect(await lastShareCopy(page)).toBe(`${HOSTED}/${unique}/intro%20guide.md`);
+});
+
+test('E405: the file copy-link is absent for an untitled buffer while the workspace control stays', async ({
+  page,
+}) => {
+  // PRD 020 Req 17: the scratchpad landing is hosted's untitled buffer — the
+  // workspace placement shows (a scratch workspace is bound, PRD 019), the
+  // file placement does not exist.
+  const token = await signIn(page.request, 'alan');
+  await dropDraft(page, token);
+  await page.goto(`${HOSTED}/scratchpad`);
+  await page.getByTestId('hosted-sign-in-username').fill('alan');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('copy-link-workspace')).toBeVisible();
+  await expect(page.getByTestId('copy-link-file')).toHaveCount(0);
+});
