@@ -67,10 +67,13 @@ test('E160: sign-in as a seeded mock user succeeds and the token authenticates /
   // PRD 017 Req 3: beside the bare user, /api/me reports admin status and
   // the creation-policy verdict — ada is no admin, and under the default
   // (absent) settings anyone may create, so no createRefusal rides along.
+  // PRD 020 Req 12: plus `handle`, the assigned URL segment (ada's alias
+  // slugifies to itself), distinct from `username` (the UPN).
   expect(await me.json()).toEqual({
     id: 'mock-ada',
     username: 'ada',
     displayName: 'Ada Lovelace',
+    handle: 'ada',
     admin: false,
     canCreateWorkspaces: true,
   });
