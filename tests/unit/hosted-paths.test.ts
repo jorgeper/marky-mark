@@ -7,14 +7,13 @@ import {
   hostedResolveAssetSrc,
   hostedWorkspaceDir,
   hostedWorkspaceFilePath,
-  isScratchpadPath,
-  SCRATCHPAD_PATH,
   manifestSettingsToWorkspaceFile,
   normalizeHostedPath,
   parseHostedPath,
   workspaceFileToManifestSettings,
   workspaceIdFromSearch,
   buildAppPath,
+  buildScratchPath,
   findWorkspaceByUniqueName,
   parseAppPath,
 } from '../../src/lib/hostedPaths';
@@ -90,20 +89,58 @@ describe('PRD 007 Req 2 hosted virtual paths', () => {
   });
 });
 
-describe('PRD 019 Req 1 the /scratchpad reserved path', () => {
-  it('U1036: exactly /scratchpad (trailing slash tolerated) is the scratchpad route — nothing nested, cased, or prefixed', () => {
-    expect(isScratchpadPath(SCRATCHPAD_PATH)).toBe(true);
-    expect(isScratchpadPath('/scratchpad')).toBe(true);
-    expect(isScratchpadPath('/scratchpad/')).toBe(true);
-    // Everything else boots as a normal page: the root, other paths, nested
-    // or re-cased variants — the hosted client's only path-based route is
-    // this one exact reservation.
-    expect(isScratchpadPath('/')).toBe(false);
-    expect(isScratchpadPath('')).toBe(false);
-    expect(isScratchpadPath('/scratchpad/notes')).toBe(false);
-    expect(isScratchpadPath('/Scratchpad')).toBe(false);
-    expect(isScratchpadPath('/scratchpads')).toBe(false);
-    expect(isScratchpadPath('/w/scratchpad')).toBe(false);
+describe('PRD 020 Req 10+11 the scratch routes', () => {
+  it('U1036: exactly /scratch (trailing slash tolerated, case-insensitive like name matching) is the shortcut — nothing nested or prefixed', () => {
+    // PRD 020 Req 11 replaces PRD 019 Req 1's /scratchpad shortcut.
+    expect(parseAppPath('/scratch')).toEqual({ kind: 'scratch' });
+    expect(parseAppPath('/scratch/')).toEqual({ kind: 'scratch' });
+    expect(parseAppPath('/Scratch')).toEqual({ kind: 'scratch' });
+    // Everything else boots as a normal page: nested variants resolve as a
+    // workspace named `scratch` — reserved, so never found.
+    expect(parseAppPath('/scratch/notes.md')).toEqual({ kind: 'workspace', name: 'scratch', file: ['notes.md'] });
+    expect(parseAppPath('/scratches')).toEqual({ kind: 'workspace', name: 'scratches', file: [] });
+  });
+
+  it('U1061: /scratchpad is replaced, not kept — it falls through to workspace-name resolution', () => {
+    // PRD 020 Req 10: the old route resolves like any other name; being
+    // reserved, no workspace can hold it, so the visit renders not-found.
+    expect(parseAppPath('/scratchpad')).toEqual({ kind: 'workspace', name: 'scratchpad', file: [] });
+    expect(parseAppPath('/scratchpad/')).toEqual({ kind: 'workspace', name: 'scratchpad', file: [] });
+  });
+
+  it('U1062: scratch as a second segment always addresses user seg1’s scratch workspace — files beneath, shadowing folders', () => {
+    expect(parseAppPath('/ada/scratch')).toEqual({ kind: 'user-scratch', username: 'ada', file: [] });
+    expect(parseAppPath('/ada/scratch/')).toEqual({ kind: 'user-scratch', username: 'ada', file: [] });
+    expect(parseAppPath('/ada/Scratch')).toEqual({ kind: 'user-scratch', username: 'ada', file: [] });
+    expect(parseAppPath('/ada/scratch/guides/intro.md')).toEqual({
+      kind: 'user-scratch',
+      username: 'ada',
+      file: ['guides', 'intro.md'],
+    });
+    // The documented shadowing (PRD 020 Non-goals): a workspace named `notes`
+    // with a root folder literally named `scratch` cannot be path-addressed —
+    // seg2 `scratch` is the reserved word, whoever seg1 names.
+    expect(parseAppPath('/notes/scratch/kept.md')).toEqual({
+      kind: 'user-scratch',
+      username: 'notes',
+      file: ['kept.md'],
+    });
+    // A THIRD segment named scratch is an ordinary file segment.
+    expect(parseAppPath('/notes/docs/scratch')).toEqual({
+      kind: 'workspace',
+      name: 'notes',
+      file: ['docs', 'scratch'],
+    });
+  });
+
+  it('U1063: buildScratchPath builds the canonical /<username>/scratch[/…] URL and round-trips through parseAppPath', () => {
+    expect(buildScratchPath('ada')).toBe('/ada/scratch');
+    expect(buildScratchPath('ada', ['guides', 'meeting notes.md'])).toBe('/ada/scratch/guides/meeting%20notes.md');
+    expect(parseAppPath(buildScratchPath('ada', ['meeting notes.md']))).toEqual({
+      kind: 'user-scratch',
+      username: 'ada',
+      file: ['meeting notes.md'],
+    });
   });
 });
 
@@ -131,14 +168,9 @@ describe('PRD 007 Req 9 the manifest as the Workspace settings layer', () => {
 // target and back, unit-proven so the shell's resolve logic stays a thin
 // I/O wrapper over it.
 describe('PRD 020 Req 5 the canonical path router', () => {
-  it('U1058: parseAppPath maps home, scratchpad, workspace and file paths, decoding each segment individually', () => {
+  it('U1058: parseAppPath maps home, workspace and file paths, decoding each segment individually', () => {
     expect(parseAppPath('/')).toEqual({ kind: 'home' });
     expect(parseAppPath('')).toEqual({ kind: 'home' });
-    // PRD 019 Req 1 unshadowed: the reserved path stays exactly itself —
-    // nested or differently-cased lookalikes are ordinary workspace paths.
-    expect(parseAppPath('/scratchpad')).toEqual({ kind: 'scratchpad' });
-    expect(parseAppPath('/scratchpad/')).toEqual({ kind: 'scratchpad' });
-    expect(parseAppPath('/Scratchpad')).toEqual({ kind: 'workspace', name: 'Scratchpad', file: [] });
     expect(parseAppPath('/notes')).toEqual({ kind: 'workspace', name: 'notes', file: [] });
     expect(parseAppPath('/notes/')).toEqual({ kind: 'workspace', name: 'notes', file: [] });
     expect(parseAppPath('/notes/guides/intro.md')).toEqual({

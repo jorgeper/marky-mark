@@ -5,7 +5,7 @@ import { createApp } from '../../server/app';
 import { createMockAuthProvider } from '../../server/providers/mock/auth';
 import { createMockDirectoryProvider } from '../../server/providers/mock/directory';
 import type { StorageProvider } from '../../server/providers/types';
-import { scratchpadPointerBlob } from '../../server/workspaces';
+import { migrateScratchNames, scratchpadPointerBlob } from '../../server/workspaces';
 import { DEPLOYMENT_SETTINGS_BLOB } from '../../src/lib/deploymentSettings';
 import { parseWorkspaceManifest, type WorkspaceManifest } from '../../src/lib/hostedWorkspace';
 import type { WorkspaceListing } from '../../src/lib/workspaceLifecycle';
@@ -108,14 +108,15 @@ describe('PRD 019 Reqs 5–9 scratchpad over HTTP', () => {
     blobs.clear();
   });
 
-  it('U1026: the scratchpad is a real workspace — opaque UUID id, normal manifest, caller as sole Owner, named Scratchpad', async () => {
+  it('U1026: the scratchpad is a real workspace — opaque UUID id, normal manifest, caller as sole Owner, named My scratch', async () => {
     const id = await resolveScratchpad('ada');
     // Opaque server-generated UUID (PRD 019 Req 6), nothing user-derived.
     expect(id).toMatch(UUID_RE);
     const owned = manifestsOwnedBy('mock-ada');
     expect(owned.map((w) => w.id)).toEqual([id]);
     const { manifest } = owned[0];
-    expect(manifest.name).toBe('Scratchpad');
+    // PRD 020 Req 10: the feature's friendly name is "My scratch".
+    expect(manifest.name).toBe('My scratch');
     // Sole Owner, display name snapshotted from the caller's own token —
     // the same shape POST /api/workspaces stamps for a creator.
     expect(manifest.members).toEqual([{ id: 'mock-ada', role: 'Owner', displayName: 'Ada Lovelace' }]);
@@ -260,6 +261,27 @@ describe('PRD 019 Reqs 5–9 scratchpad over HTTP', () => {
     // scratchpad marker intact (validateWorkspaceManifest accepts it).
     const manifest = parseWorkspaceManifest(blobs.get(`workspaces/${spId}/manifest.json`)!);
     expect(manifest.ok && manifest.manifest.scratchpad).toBe(true);
+    blobs.clear();
+  });
+
+  it('U1072: the PRD 020 Req 10 rename migration turns a pre-existing "Scratchpad" into "My scratch", idempotently', async () => {
+    const spId = await resolveScratchpad('ada');
+    // Rewind this scratch workspace to its PRD 019-era display name; a
+    // regular workspace with the same name is the control that must not move.
+    const blob = `workspaces/${spId}/manifest.json`;
+    await provider.write(blob, blobs.get(blob)!.replace('"My scratch"', '"Scratchpad"'));
+    const created = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'plain', name: 'Scratchpad-like' }));
+    expect(created.status).toBe(201);
+    const log: string[] = [];
+    expect(await migrateScratchNames(provider, (line) => log.push(line))).toBe(1);
+    expect(log.length).toBe(1);
+    expect(log[0]).toContain(spId);
+    const migrated = parseWorkspaceManifest(blobs.get(blob)!);
+    expect(migrated.ok && migrated.manifest.name).toBe('My scratch');
+    // Idempotent: the second run rewrites nothing.
+    const before = new Map(blobs);
+    expect(await migrateScratchNames(provider, (line) => log.push(line))).toBe(0);
+    expect(blobs).toEqual(before);
     blobs.clear();
   });
 });

@@ -56,6 +56,7 @@ import { cleanRelativePath, readBody, readBodyBytes, sendJson, tryDecode } from 
 import { mergeThreeWay } from './merge.ts';
 import type { DirectoryProvider, RequestAuth, StorageProvider } from './providers/types.ts';
 import { userPrefix } from './userFiles.ts';
+import { resolveUsernameOwner } from './usernames.ts';
 
 /** PRD 007 Req 7: the root prefix all workspace data lives under. */
 export const WORKSPACES_PREFIX = 'workspaces/';
@@ -447,10 +448,35 @@ async function snapshotDisplayName(
   return name && name !== id ? name : undefined;
 }
 
-// --- the personal scratchpad (PRD 019 Reqs 5–7) ------------------------------
+// --- the personal scratch workspace (PRD 019 Reqs 5–7, PRD 020 Reqs 10–13) ---
 
-/** PRD 019 Req 6: the scratchpad workspace's display name. */
-export const SCRATCHPAD_NAME = 'Scratchpad';
+/** PRD 019 Req 6 + PRD 020 Req 10: the scratch workspace's friendly name. */
+export const SCRATCHPAD_NAME = 'My scratch';
+
+/**
+ * PRD 020 Req 10: the rename migration — a pre-existing scratch workspace
+ * still carrying PRD 019's "Scratchpad" display name becomes "My scratch".
+ * Idempotent like the unique-name migration above (a manifest already renamed
+ * — or renamed by hand to anything else — is skipped) and logged per
+ * workspace. Runs once at server startup (server/index.ts).
+ */
+export async function migrateScratchNames(
+  storage: StorageProvider,
+  log: (line: string) => void,
+): Promise<number> {
+  let renamed = 0;
+  for (const blob of await storage.list(WORKSPACES_PREFIX)) {
+    const id = MANIFEST_BLOB_RE.exec(blob.path)?.[1];
+    if (!id) continue;
+    const manifest = await loadManifest(storage, id);
+    if (!manifest || typeof manifest === 'string') continue;
+    if (manifest.scratchpad !== true || manifest.name !== 'Scratchpad') continue;
+    await storage.write(manifestBlob(id), serializeWorkspaceManifest({ ...manifest, name: SCRATCHPAD_NAME }));
+    log(`scratch rename migration: ${id} "Scratchpad" → ${JSON.stringify(SCRATCHPAD_NAME)}`);
+    renamed += 1;
+  }
+  return renamed;
+}
 
 /**
  * PRD 019 Req 5: where one user's scratchpad workspace id is recorded — the
@@ -511,9 +537,10 @@ export async function handleScratchpadResolve(
   }
   const displayName = auth.user.displayName.trim();
   // PRD 020 Req 1: a workspace provisioned here carries a unique name from
-  // birth, minted exactly like the Req 3 migration would — "Scratchpad"
-  // slugifies into the reserved word, so dedupe lands on `scratchpad-2`,
-  // `-3`… deployment-wide (Req 12's per-user usernames are a later issue).
+  // birth, minted exactly like the Req 3 migration would — "My scratch"
+  // slugifies to `my-scratch`, deduped `-2`, `-3`… deployment-wide. The
+  // unique name stays the workspace's manifest identity; its CANONICAL URL
+  // is the Req 10 `/<username>/scratch` form.
   const uniqueName = dedupeUniqueName(
     slugifyWorkspaceName(SCRATCHPAD_NAME),
     await takenUniqueNames(storage),
@@ -547,6 +574,50 @@ export async function handleScratchpadResolve(
   const winnerId = winner ? parseScratchpadPointer(winner.content) : null;
   if (!winnerId) sendJson(res, 500, { error: 'corrupt scratchpad record' });
   else sendJson(res, 200, { id: winnerId });
+}
+
+/**
+ * GET /api/scratch/<username> — resolve one user's scratch workspace for the
+ * calling visitor. PRD 020 Req 13: scratch workspaces are never LISTED to
+ * non-owners (PRD 019 Req 8 stands), so following a `/<username>/scratch[/…]`
+ * link needs this resolution instead: username → owner (the deployment-wide
+ * claim) → their recorded workspace, answered `{id, owner}` ONLY when the
+ * workspace's normal access model admits the caller (the same doc.read the
+ * manifest read requires, admin union included). Leak-free by construction:
+ * an unknown username, a user with no scratch workspace yet, and an
+ * existing-but-inaccessible one all answer the SAME 404 — no probe can tell
+ * them apart.
+ */
+export async function handleScratchVisit(
+  res: ServerResponse,
+  storage: StorageProvider,
+  auth: RequestAuth,
+  username: string,
+): Promise<void> {
+  const notFound = () => sendJson(res, 404, { error: 'not found' });
+  const ownerId = await resolveUsernameOwner(storage, username);
+  if (!ownerId) {
+    notFound();
+    return;
+  }
+  const recorded = await storage.read(scratchpadPointerBlob(ownerId));
+  const id = recorded ? parseScratchpadPointer(recorded.content) : null;
+  if (!id) {
+    notFound();
+    return;
+  }
+  const manifest = await loadManifest(storage, id);
+  if (!manifest || typeof manifest === 'string') {
+    notFound();
+    return;
+  }
+  if (!resolvePermissions(manifest, auth.user.id, auth.isAdmin).has('doc.read')) {
+    notFound();
+    return;
+  }
+  // `owner` is the canonical stored username casing — what the client's
+  // address-bar rewrite uses, whatever casing the visited URL carried.
+  sendJson(res, 200, { id, owner: uniqueNameKey(username) });
 }
 
 /**

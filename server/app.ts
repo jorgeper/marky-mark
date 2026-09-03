@@ -18,7 +18,13 @@ import { createLlmApi, LLM_PREFIX, type LlmApi } from './llm.ts';
 import type { Providers, RequestAuth } from './providers/types.ts';
 import { invitationTestHooks } from './providers/mock/directory.ts';
 import { handleUserFilesApi, USERS_PREFIX } from './userFiles.ts';
-import { handleScratchpadResolve, handleWorkspaceApi, WORKSPACES_PREFIX } from './workspaces.ts';
+import { ensureUsername, USERNAMES_PREFIX } from './usernames.ts';
+import {
+  handleScratchpadResolve,
+  handleScratchVisit,
+  handleWorkspaceApi,
+  WORKSPACES_PREFIX,
+} from './workspaces.ts';
 
 /**
  * PRD 007 Req 9+13: prefixes the workspace-agnostic /api/files scaffold must
@@ -29,7 +35,9 @@ import { handleScratchpadResolve, handleWorkspaceApi, WORKSPACES_PREFIX } from '
  * policy reads and the admin routes (the Management sub-issue), never the
  * unchecked scaffold.
  */
-const RESERVED_PREFIXES = [WORKSPACES_PREFIX, USERS_PREFIX, DEPLOYMENT_PREFIX];
+// PRD 020 Req 12: the username claims join the reserved set — they resolve
+// only through /api/me and /api/scratch, never the unchecked scaffold.
+const RESERVED_PREFIXES = [WORKSPACES_PREFIX, USERS_PREFIX, DEPLOYMENT_PREFIX, USERNAMES_PREFIX];
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -115,12 +123,34 @@ async function handleApi(
     // create a workspace (the Req 8 policy evaluated NOW, per request), and
     // when they may not, which refusal to word the hint from.
     const creation = await deployment.creationFor(auth);
+    // PRD 020 Req 12: the caller's URL segment, assigned at their first
+    // authenticated touch of this route and read back (never re-derived) on
+    // every later one. `handle` — NOT `username`, which is already the UPN.
+    const handle = await ensureUsername(providers.storage, user);
+    if (handle === null) {
+      sendJson(res, 500, { error: 'corrupt username record' });
+      return;
+    }
     sendJson(res, 200, {
       ...user,
+      handle,
       admin: auth.isAdmin === true,
       canCreateWorkspaces: creation.allowed,
       ...(creation.allowed ? {} : { createRefusal: creation.refusal }),
     });
+    return;
+  }
+
+  // PRD 020 Req 13: resolve one user's scratch workspace by username — the
+  // route a `/<username>/scratch[/…]` visit needs, since scratch workspaces
+  // are never listed to non-owners (server/workspaces.ts handleScratchVisit).
+  if (pathname.startsWith('/api/scratch/') && req.method === 'GET') {
+    const username = tryDecode(pathname.slice('/api/scratch/'.length));
+    if (!username || username.includes('/')) {
+      sendJson(res, 404, { error: 'not found' });
+      return;
+    }
+    await handleScratchVisit(res, providers.storage, auth, username);
     return;
   }
 

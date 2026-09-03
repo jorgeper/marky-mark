@@ -10,7 +10,10 @@ const TOKEN_PREFIX = 'mock:';
 
 function toAuthUser(username: string): AuthUser | null {
   const u = SEEDED_USERS.find((s) => s.username === username);
-  return u ? { id: u.id, username: u.username, displayName: u.displayName } : null;
+  // PRD 020 Req 12: a seeded email rides through for username derivation.
+  return u
+    ? { id: u.id, username: u.username, displayName: u.displayName, ...(u.email ? { email: u.email } : {}) }
+    : null;
 }
 
 export function createMockAuthProvider(): AuthProvider {

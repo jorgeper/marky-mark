@@ -28,7 +28,14 @@ import {
   type HostedVisit,
   type HostedMode,
 } from '../lib/hostedGate';
-import { buildAppPath, findWorkspaceByUniqueName, parseAppPath, workspaceIdFromSearch } from '../lib/hostedPaths';
+import {
+  buildAppPath,
+  buildScratchPath,
+  findWorkspaceByUniqueName,
+  parseAppPath,
+  SCRATCH_SEGMENT,
+  workspaceIdFromSearch,
+} from '../lib/hostedPaths';
 import type { WorkspaceListing } from '../lib/workspaceLifecycle';
 import { AppBadge } from './Toolbar';
 import { Button } from './ui/Button';
@@ -76,9 +83,14 @@ async function getJson<T>(
  * app. Four shapes resolve:
  *
  *   - `/` binds nothing (the normal splash);
- *   - `/scratchpad` resolves through the idempotent POST /api/me/scratchpad
- *     (PRD 019 Req 1), then canonicalizes to the scratchpad's own
- *     unique-name path like any workspace;
+ *   - `/scratch` (PRD 020 Req 11) resolves the caller's OWN scratch through
+ *     the idempotent POST /api/me/scratchpad and lands on the canonical
+ *     `/<username>/scratch`;
+ *   - `/<username>/scratch[/<file…>]` (Req 10+13) is that user's scratch
+ *     workspace — the caller's own via the same resolve-or-create, anyone
+ *     else's via GET /api/scratch/<username>, which answers only when the
+ *     workspace's access model admits the caller and 404s identically for
+ *     unknown and inaccessible alike;
  *   - `/<workspace-name>[/<path…>/<file>]` matches the unique name
  *     case-insensitively against the caller's workspace listing — so a
  *     workspace the PRD 017 Req 11 policy hides resolves as not-found for
@@ -109,31 +121,91 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
   const listRows = async (): Promise<WorkspaceListing[]> =>
     (await getJson<WorkspaceListing[]>('/api/workspaces', auth)) ?? [];
 
-  if (path.kind === 'scratchpad') {
-    const body = await getJson<{ id?: string }>('/api/me/scratchpad', auth, { method: 'POST' });
-    if (!body?.id) {
-      // An unanswerable resolve must not leave the app parked on a path only
-      // this gate understands: land on the plain start page instead.
+  /**
+   * PRD 020 Req 10+13: land in a scratch workspace — verify the file half
+   * exists (like any workspace visit), rewrite the bar to the canonical
+   * `/<username>/scratch[/…]` form, and bind. `fresh` marks the Req 11
+   * shortcut's visit: that one boots the PRD 019 Req 10 scratch buffer.
+   */
+  const bindScratch = async (
+    id: string,
+    owner: string,
+    file: readonly string[],
+    fresh: boolean,
+  ): Promise<VisitNotFound | null> => {
+    const rel = file.length > 0 ? file.join('/') : null;
+    if (rel !== null) {
+      const files = await getJson<{ path: string }[]>(`/api/workspaces/${encodeURIComponent(id)}/files`, auth);
+      if (!files?.some((f) => f.path === rel)) return { workspace: `${owner}/${SCRATCH_SEGMENT}`, file: rel };
+    }
+    window.history.replaceState(null, '', `${buildScratchPath(owner, file)}${visit.hash}`);
+    storeHostedBoot(window.sessionStorage, {
+      workspaceId: id,
+      scratchOwner: owner,
+      ...(rel !== null ? { file: rel } : {}),
+      ...(fresh ? { scratch: true } : {}),
+    });
+    return null;
+  };
+
+  /**
+   * PRD 020 Req 12: the caller's assigned handle, from /api/me — what
+   * `/scratch` lands on, and what tells an own-scratch visit from someone
+   * else's. Undefined on any failure, like every getJson miss.
+   */
+  const myHandle = async (): Promise<string | undefined> =>
+    (await getJson<{ handle?: string }>('/api/me', auth))?.handle;
+
+  if (path.kind === 'scratch' || path.kind === 'user-scratch') {
+    const handle = await myHandle();
+    const own =
+      path.kind === 'scratch' || (handle !== undefined && path.username.toLowerCase() === handle.toLowerCase());
+    if (own && handle !== undefined) {
+      // The caller's own scratch: the idempotent resolve-or-create (PRD 019 Reqs 5–7).
+      const body = await getJson<{ id?: string }>('/api/me/scratchpad', auth, { method: 'POST' });
+      if (!body?.id) {
+        // An unanswerable resolve must not leave the app parked on a path
+        // only this gate understands: land on the plain start page instead.
+        window.history.replaceState(null, '', '/');
+        return null;
+      }
+      // PRD 019 Req 10 stays the SHORTCUT's semantic: `/scratch` boots the
+      // fresh scratch buffer; a reload of the canonical URL just re-binds.
+      return bindScratch(body.id, handle, path.kind === 'user-scratch' ? path.file : [], path.kind === 'scratch');
+    }
+    if (path.kind === 'scratch') {
+      // No handle to land on — same bail-out as an unanswerable resolve.
       window.history.replaceState(null, '', '/');
       return null;
     }
-    // PRD 020 Req 6: the scratchpad rewrites to its own unique-name path
-    // like any workspace (the /<username>/scratch rename is a later issue).
-    const uniqueName = (await listRows()).find((r) => r.id === body.id)?.uniqueName;
-    window.history.replaceState(null, '', uniqueName ? buildAppPath(uniqueName) : '/');
-    // PRD 019 Req 10: tell the platform (created after this, inside <App/>)
-    // that this one binding is a scratchpad visit — fresh scratch buffer.
-    storeHostedBoot(window.sessionStorage, {
-      workspaceId: body.id,
-      ...(uniqueName ? { uniqueName } : {}),
-      scratch: true,
-    });
-    return null;
+    // PRD 020 Req 13: someone else's scratch — server-side resolution, which
+    // 404s identically for an unknown username, an unprovisioned scratch,
+    // and an existing-but-inaccessible one. The not-found page names the
+    // visited path either way, so no probe distinguishes them here either.
+    const resolved = await getJson<{ id?: string; owner?: string }>(
+      `/api/scratch/${encodeURIComponent(path.username)}`,
+      auth,
+    );
+    if (!resolved?.id) {
+      return {
+        workspace: `${path.username}/${SCRATCH_SEGMENT}`,
+        file: path.file.length > 0 ? path.file.join('/') : null,
+      };
+    }
+    return bindScratch(resolved.id, resolved.owner ?? path.username, path.file, false);
   }
 
   const rows = await listRows();
   const wanted = path.kind === 'workspace' ? path : null;
   const row = wanted ? findWorkspaceByUniqueName(rows, wanted.name) : rows.find((r) => r.id === legacyId);
+  // PRD 020 Req 10: a scratch workspace reached by any OTHER address — its
+  // own unique-name path or the legacy ?workspace= form — still shows the
+  // canonical `/<username>/scratch` bar form (a flagged row is always the
+  // caller's own scratch; nobody else's is ever listed).
+  if (row?.scratchpad) {
+    const handle = await myHandle();
+    if (handle !== undefined) return bindScratch(row.id, handle, wanted?.file ?? [], false);
+  }
   const file = wanted && wanted.file.length > 0 ? wanted.file.join('/') : null;
   if (!row?.uniqueName) {
     // PRD 020 Req 8: no workspace to bind — name exactly what was asked for

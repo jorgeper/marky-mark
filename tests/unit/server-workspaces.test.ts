@@ -1071,15 +1071,15 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     blobs.clear();
   });
 
-  it('U1056: a provisioned scratchpad carries a deduped unique name from birth — never the reserved word itself', async () => {
+  it('U1056: a provisioned scratch workspace carries a deduped unique name from birth — never a reserved word', async () => {
     const res = await call('ada', 'POST', '/api/me/scratchpad');
     expect(res.status).toBe(200);
     const { id } = (await res.json()) as { id: string };
     const manifest = await readManifest(id);
-    // PRD 020 Req 1: "Scratchpad" slugifies into the reserved word, so the
-    // minted name is the first free suffix past it.
-    expect(manifest.uniqueName).toBe('scratchpad-2');
-    expect(manifest.name).toBe('Scratchpad');
+    // PRD 020 Req 1+10: "My scratch" slugifies to `my-scratch` — deduped
+    // deployment-wide, never a reserved word (uniqueNameProblem holds).
+    expect(manifest.uniqueName).toBe('my-scratch');
+    expect(manifest.name).toBe('My scratch');
     blobs.clear();
   });
 

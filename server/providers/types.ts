@@ -12,6 +12,12 @@ export interface AuthUser {
   /** Sign-in name (UPN / username). */
   username: string;
   displayName: string;
+  // PRD 020 Req 12: a guest's UPN is Entra's mangled `…#EXT#@…` form, so
+  // username derivation needs the real address — surfaced by providers that
+  // know it (the Entra `email` claim; seeded mail in local dev), absent
+  // otherwise.
+  /** The user's mail address, when the auth provider surfaces one. */
+  email?: string;
 }
 
 /**

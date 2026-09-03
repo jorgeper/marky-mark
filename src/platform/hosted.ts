@@ -14,6 +14,7 @@ import {
   HOSTED_CONFIG_DIR,
   apiPathFor,
   buildAppPath,
+  buildScratchPath,
   hostedFilesRoot,
   hostedResolveAssetSrc,
   hostedWorkspaceFilePath,
@@ -88,7 +89,7 @@ const workspaceRoute = (id: string, route: string, rel?: string): string => {
 export function createHostedPlatform(): Platform {
   const token = () => readStoredToken(window.localStorage) ?? '';
   // PRD 020 Req 5+6: the sign-in gate resolved the visited URL — canonical
-  // path, legacy query, or /scratchpad — to a workspace before this platform
+  // path, legacy query, or a scratch route — to a workspace before this platform
   // existed, and its boot record (read-and-clear; the gate re-mints it from
   // the URL on every page load) is the page's whole binding. The URL itself
   // stays the canonical path form and is never parsed for an id here.
@@ -100,7 +101,16 @@ export function createHostedPlatform(): Platform {
   // PRD 020 Req 6: the live binding `currentId()` answers from and `unbind`
   // drops — see HostedBinding in hostedWorkspaces.ts.
   const binding: HostedBinding = {
-    current: boot ? { id: boot.workspaceId, uniqueName: boot.uniqueName ?? null } : null,
+    current: boot
+      ? {
+          id: boot.workspaceId,
+          uniqueName: boot.uniqueName ?? null,
+          // PRD 020 Req 10: a scratch binding remembers whose scratch it is —
+          // the canonical bar form is `/<username>/scratch`, never the
+          // workspace's own unique-name path.
+          scratchOwner: boot.scratchOwner ?? null,
+        }
+      : null,
   };
   // PRD 020 Req 5: while the boot document is still on its way open, the
   // mount-time "no document" reflection must not rewrite the deep link's
@@ -559,7 +569,7 @@ export function createHostedPlatform(): Platform {
      */
     reflectDocumentPath(path) {
       const bound = binding.current;
-      if (!bound?.uniqueName) return;
+      if (!bound) return;
       const target = path === null ? null : parseHostedPath(path);
       const rel = target?.kind === 'workspace' && target.id === bound.id && target.rel ? target.rel : null;
       // Boot window: nothing — not the mount-time "no document", not a
@@ -569,7 +579,14 @@ export function createHostedPlatform(): Platform {
         if (rel !== boot?.file) return;
         bootDocPending = false;
       }
-      const url = rel !== null ? buildAppPath(bound.uniqueName, rel.split('/')) : buildAppPath(bound.uniqueName);
+      const segments = rel !== null ? rel.split('/') : [];
+      // PRD 020 Req 10+13: a scratch binding's canonical form is
+      // `/<username>/scratch[/…]`; every other workspace shows its
+      // unique-name path (and one with neither cannot be addressed).
+      let url: string;
+      if (bound.scratchOwner) url = buildScratchPath(bound.scratchOwner, segments);
+      else if (bound.uniqueName) url = buildAppPath(bound.uniqueName, segments);
+      else return;
       // The fragment belongs to the URL it arrived on: an unchanged path
       // keeps it (the deep link's heading slug survives, Req 19's input);
       // moving to a different document drops it.

@@ -11,7 +11,7 @@
 
 import { readStoredToken } from '../lib/hostedGate';
 import { resolveMembers, type DirectoryEntry, type MemberEntry, type MemberRef } from '../lib/membership';
-import { buildAppPath } from '../lib/hostedPaths';
+import { buildAppPath, buildScratchPath } from '../lib/hostedPaths';
 import {
   resolvePermissions,
   validateWorkspaceManifest,
@@ -89,13 +89,18 @@ export interface WorkspaceLifecycle {
  * live somewhere the page can drop without navigating.
  */
 export interface HostedBinding {
-  current: { id: string; uniqueName: string | null } | null;
+  /**
+   * PRD 020 Req 10: `scratchOwner` set means the bound workspace is a scratch
+   * workspace owned by that username — its canonical URL is
+   * `/<scratchOwner>/scratch`, never the unique-name path.
+   */
+  current: { id: string; uniqueName: string | null; scratchOwner?: string | null } | null;
 }
 
 export function createHostedWorkspaceLifecycle(
   // PRD 017 Req 3: the session-held /api/me record, injected by hosted.ts —
   // this module reads the one held answer instead of re-fetching per use.
-  sessionMe: () => Promise<{ id: string; admin?: boolean } | null>,
+  sessionMe: () => Promise<{ id: string; admin?: boolean; handle?: string } | null>,
   binding: HostedBinding,
 ): WorkspaceLifecycle {
   const token = () => readStoredToken(window.localStorage) ?? '';
@@ -260,8 +265,18 @@ export function createHostedWorkspaceLifecycle(
       }
       void (async () => {
         const rows = (await json<WorkspaceListing[]>(await api('/api/workspaces'))) ?? [];
-        const uniqueName = rows.find((r) => r.id === id)?.uniqueName;
-        window.location.assign(uniqueName ? buildAppPath(uniqueName) : '/');
+        const row = rows.find((r) => r.id === id);
+        // PRD 020 Req 10: the caller's own scratch opens at its canonical
+        // `/<username>/scratch` URL (a flagged row is always the caller's
+        // own); every other workspace at its unique-name path.
+        if (row?.scratchpad) {
+          const handle = (await sessionMe())?.handle;
+          if (handle !== undefined) {
+            window.location.assign(buildScratchPath(handle));
+            return;
+          }
+        }
+        window.location.assign(row?.uniqueName ? buildAppPath(row.uniqueName) : '/');
       })();
     },
 
