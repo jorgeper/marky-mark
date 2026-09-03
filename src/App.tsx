@@ -405,6 +405,15 @@ export default function App() {
   const [docPath, setDocPath] = useState<string | null>(null);
   // SPEC22 §1: a blank unsaved buffer (File → New) — no path until first Save.
   const [untitled, setUntitled] = useState(false);
+  // PRD 019 Req 11: the untitled buffer on screen is the scratchpad visit's
+  // auto-opened scratch buffer — exempt from the SPEC36 §2.6 unsaved-changes
+  // prompt and the close guard (deliberate exits discard silently; the SPEC30
+  // §3 crash-draft shadow still covers it, and the dirty dot still shows).
+  // Armed once by the boot's `platform.scratchStart` hook; cleared by every
+  // exit — a save or a real document replacing the buffer (openDoc), closing
+  // to the splash, or a fresh ⌘N buffer (an ordinary untitled prompts as
+  // always). A ref, not state: no UI renders from it, only the guards read it.
+  const scratchRef = useRef(false);
   const [buffer, setBuffer] = useState('');
   const [savedText, setSavedText] = useState('');
   const [mode, setMode] = useState<Mode>('preview');
@@ -658,6 +667,9 @@ export default function App() {
    * openWorkspaceFromPath / guardWorkspaceDiscard are declared.
    */
   const openWorkspacePathRef = useRef<(p: Platform, path: string) => void>(() => {});
+  // PRD 019 Req 10: the boot effect's scratch-start hook reaches SPEC22's
+  // startUntitled (declared later) the same way — through a per-render ref.
+  const startUntitledRef = useRef<() => void>(() => {});
   /**
    * PRD 009 Req 4/5: opens a local file as a crossing action (a workspace
    * closes first). Ref'd for the same reason: the boot effect registers the
@@ -2144,6 +2156,7 @@ export default function App() {
       setFmOverride(null); // SPEC26 §3.3: a new document follows the setting
       setDocPath(path);
       setUntitled(false); // SPEC22 §3.3: a real document replaces any untitled buffer
+      scratchRef.current = false; // PRD 019 Req 11: replaced (or saved via Save As, which lands here) ⇒ exemption over
       setBuffer(content);
       setSavedText(saved);
       setComments(stored);
@@ -2234,7 +2247,9 @@ export default function App() {
       }
       // §2.6: a dirty untitled buffer can't park — EVERY navigation away
       // from it keeps the classic guard, open-set member or not.
-      if (s.untitled && s.dirty) {
+      // PRD 019 Req 11: except the scratchpad's scratch buffer — opening
+      // another file discards it silently, even dirty.
+      if (s.untitled && s.dirty && !scratchRef.current) {
         // SPEC35 §4.2 (issue #194): the intent survives the prompt — a
         // resolution that still opens the new file still lands in edit mode.
         setOpenPrompt({ kind: 'open', path, editIntent: opts?.editIntent });
@@ -2251,7 +2266,8 @@ export default function App() {
       const p = stateRef.current.platform;
       if (!p) return;
       const s = stateRef.current;
-      if (s.untitled && s.dirty) {
+      // PRD 019 Req 11: the scratch buffer discards silently, no prompt.
+      if (s.untitled && s.dirty && !scratchRef.current) {
         setOpenPrompt({ kind: 'open', path }); // §2.6: untitled can't park
         return;
       }
@@ -2283,6 +2299,7 @@ export default function App() {
     setFindDebounced('');
     setDocPath(null);
     setUntitled(false);
+    scratchRef.current = false; // PRD 019 Req 11: the scratch buffer is gone with it
     setBuffer('');
     setSavedText('');
     setHtml('');
@@ -2414,7 +2431,8 @@ export default function App() {
         // target, and a dirty untitled routes through the guard.
         const target = list[0];
         if (!target) return;
-        if (s.dirty) setOpenPrompt({ kind: 'open', path: target });
+        // PRD 019 Req 11: a dirty scratch buffer cycles away without a prompt.
+        if (s.dirty && !scratchRef.current) setOpenPrompt({ kind: 'open', path: target });
         else void parkAndOpen(p, target);
         return;
       }
@@ -2432,7 +2450,9 @@ export default function App() {
       const isDirty = f === s.docPath ? s.dirty : parkedDirty(f);
       if (isDirty) q.push(f);
     }
-    if (s.untitled && s.dirty) q.push(UNTITLED_SENTINEL);
+    // PRD 019 Req 11: the scratch buffer never blocks a close or a quit walk
+    // — the close guard and every crossing action discard it silently.
+    if (s.untitled && s.dirty && !scratchRef.current) q.push(UNTITLED_SENTINEL);
     return q;
   }, [parkedDirty]);
 
@@ -2695,6 +2715,17 @@ export default function App() {
       // Issue #82: every OS-delivered path (macOS RunEvent::Opened, pending
       // drains, Windows/Linux CLI args) lands here — .marky-workspace files
       // open as workspaces, everything else stays a document.
+      // PRD 019 Req 10: a scratchpad visit starts a fresh untitled buffer
+      // (the SPEC22 File → New path) in edit mode, whatever the workspace
+      // already holds — armed BEFORE the workspace binding below opens, so
+      // the session's saved active file yields to it instead of reopening
+      // over it (restoreSessionOpenFiles skips an untitled screen); the
+      // workspace's existing files still land in the sidebar as usual.
+      if (p.scratchStart) {
+        startUntitledRef.current();
+        // PRD 019 Req 11: and that one buffer is the prompt-exempt scratch.
+        scratchRef.current = true;
+      }
       await p.onOpenFile((path) =>
         isWorkspaceFilePath(path) ? openWorkspacePathRef.current(p, path) : openDocGuarded(p, path)
       );
@@ -3695,6 +3726,9 @@ export default function App() {
     setFindOptions(DEFAULT_SEARCH_OPTIONS); // PRD 014 Req 10 (issue #154)
     setDocPath(null);
     setUntitled(true);
+    // PRD 019 Req 11: a NEW untitled buffer is ordinary — only the boot's
+    // scratchStart hook re-arms the exemption, after calling this.
+    scratchRef.current = false;
     setBuffer('');
     setSavedText('');
     setHtml('');
@@ -3713,6 +3747,8 @@ export default function App() {
     // persist here: ⌘N must not touch the disk (E78 discipline);
     // activeFile self-corrects on the next real open.
   }, [recordPosition, currentTopLine]);
+  // The boot effect's PRD 019 Req 10 scratch-start hook calls through here.
+  startUntitledRef.current = startUntitled;
 
   /** SPEC30 §3.2: remove the shadow draft (best effort). */
   const deleteDraft = useCallback(async () => {
@@ -3903,7 +3939,10 @@ export default function App() {
   /** The newFile command: same unsaved-changes guard as opening (SPEC22 §1.2). */
   const newFile = useCallback(() => {
     if (!canNewFile()) return;
-    if (stateRef.current.dirty) {
+    const s = stateRef.current;
+    // PRD 019 Req 11: a dirty scratch buffer is replaced silently — ⌘N over
+    // it swaps in a fresh (ordinary) untitled buffer with no prompt.
+    if (s.dirty && !(s.untitled && scratchRef.current)) {
       setOpenPrompt({ kind: 'new' });
       return;
     }
@@ -4265,7 +4304,8 @@ export default function App() {
             return;
           }
           if (!s.untitled) return; // splash — nothing to close
-          if (s.dirty) setOpenPrompt({ kind: 'close-untitled' });
+          // PRD 019 Req 11: closing the scratch buffer discards it silently.
+          if (s.dirty && !scratchRef.current) setOpenPrompt({ kind: 'close-untitled' });
           else closeToSplash();
         })();
       },

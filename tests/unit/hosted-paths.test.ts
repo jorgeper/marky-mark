@@ -7,6 +7,8 @@ import {
   hostedResolveAssetSrc,
   hostedWorkspaceDir,
   hostedWorkspaceFilePath,
+  isScratchpadPath,
+  SCRATCHPAD_PATH,
   manifestSettingsToWorkspaceFile,
   normalizeHostedPath,
   parseHostedPath,
@@ -82,6 +84,23 @@ describe('PRD 007 Req 2 hosted virtual paths', () => {
     expect(workspaceIdFromSearch('')).toBeNull();
     expect(workspaceIdFromSearch('?workspace=')).toBeNull();
     expect(workspaceIdFromSearch('?workspace=../other')).toBeNull();
+  });
+});
+
+describe('PRD 019 Req 1 the /scratchpad reserved path', () => {
+  it('U1036: exactly /scratchpad (trailing slash tolerated) is the scratchpad route — nothing nested, cased, or prefixed', () => {
+    expect(isScratchpadPath(SCRATCHPAD_PATH)).toBe(true);
+    expect(isScratchpadPath('/scratchpad')).toBe(true);
+    expect(isScratchpadPath('/scratchpad/')).toBe(true);
+    // Everything else boots as a normal page: the root, other paths, nested
+    // or re-cased variants — the hosted client's only path-based route is
+    // this one exact reservation.
+    expect(isScratchpadPath('/')).toBe(false);
+    expect(isScratchpadPath('')).toBe(false);
+    expect(isScratchpadPath('/scratchpad/notes')).toBe(false);
+    expect(isScratchpadPath('/Scratchpad')).toBe(false);
+    expect(isScratchpadPath('/scratchpads')).toBe(false);
+    expect(isScratchpadPath('/w/scratchpad')).toBe(false);
   });
 });
 

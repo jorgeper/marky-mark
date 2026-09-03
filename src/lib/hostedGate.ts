@@ -12,6 +12,8 @@ export const HOSTED_META_NAME = 'marky-mark-hosted';
 
 const TOKEN_KEY = 'marky-mark.hosted.token';
 const PENDING_KEY = 'marky-mark.hosted.pending-sign-in';
+const SCRATCHPAD_INTENT_KEY = 'marky-mark.hosted.scratchpad-intent';
+const SCRATCH_BOOT_KEY = 'marky-mark.hosted.scratch-boot';
 
 interface MetaSource {
   querySelector(selector: string): { getAttribute(name: string): string | null } | null;
@@ -44,6 +46,46 @@ export function storeToken(store: KeyValueStore, token: string): void {
 
 export function clearToken(store: KeyValueStore): void {
   store.removeItem(TOKEN_KEY);
+}
+
+/**
+ * PRD 019 Req 2: the /scratchpad intent across the Entra round trip. The
+ * OAuth redirect URI is the origin root, so the pathname a sign-in began on
+ * does not survive the navigation — this record (stored beside the pending
+ * sign-in when the redirect leaves, taken when the callback completes) is
+ * what carries it. Read-and-clear like the pending sign-in: a leftover
+ * intent must not route a later, unrelated sign-in into the scratchpad.
+ */
+export function storeScratchpadIntent(store: KeyValueStore): void {
+  store.setItem(SCRATCHPAD_INTENT_KEY, '1');
+}
+
+export function clearScratchpadIntent(store: KeyValueStore): void {
+  store.removeItem(SCRATCHPAD_INTENT_KEY);
+}
+
+export function takeScratchpadIntent(store: KeyValueStore): boolean {
+  const raw = store.getItem(SCRATCHPAD_INTENT_KEY);
+  store.removeItem(SCRATCHPAD_INTENT_KEY);
+  return raw !== null;
+}
+
+/**
+ * PRD 019 Req 10+11: the one-page-load hand-off from the sign-in gate to the
+ * platform. HostedShell resolves a /scratchpad visit and rewrites the URL to
+ * `/?workspace=<id>` BEFORE the app mounts; the platform, created later, must
+ * still learn that this particular binding is a scratchpad visit (fresh
+ * scratch buffer, prompt-exempt). Read-and-clear so a reload of the rewritten
+ * URL boots as a plain workspace binding, exactly as PRD 019 Req 3 demands.
+ */
+export function storeScratchBoot(store: KeyValueStore, workspaceId: string): void {
+  store.setItem(SCRATCH_BOOT_KEY, workspaceId);
+}
+
+export function takeScratchBoot(store: KeyValueStore): string | null {
+  const raw = store.getItem(SCRATCH_BOOT_KEY);
+  store.removeItem(SCRATCH_BOOT_KEY);
+  return raw;
 }
 
 /** What the redirect leg of the PKCE flow must remember across navigation. */

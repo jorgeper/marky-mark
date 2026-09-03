@@ -16,13 +16,18 @@ import {
   parseAuthorizeUrl,
 } from '../lib/hostedAuth';
 import {
+  clearScratchpadIntent,
   clearToken,
   readStoredToken,
   storePendingSignIn,
+  storeScratchBoot,
+  storeScratchpadIntent,
   storeToken,
   takePendingSignIn,
+  takeScratchpadIntent,
   type HostedMode,
 } from '../lib/hostedGate';
+import { isScratchpadPath } from '../lib/hostedPaths';
 import { AppBadge } from './Toolbar';
 import { Button } from './ui/Button';
 
@@ -39,6 +44,41 @@ function redirectUri(): string {
 
 /** The generic failure both sign-in paths show when the server's answer is unusable. */
 const SIGN_IN_FAILED = 'Sign-in failed — the server did not answer as expected.';
+
+/**
+ * PRD 019 Req 1: a signed-in /scratchpad visit resolves the user's own
+ * scratchpad through the idempotent `POST /api/me/scratchpad` (issue #213) —
+ * no new server routes. The intent is either the live pathname (local dev
+ * mode never navigates, so it survives naturally) or the sessionStorage
+ * record the azure redirect leg left behind (Req 2); both are consumed here,
+ * once, on every successful entry into the app.
+ *
+ * PRD 019 Req 3: the address bar is rewritten to the canonical
+ * `/?workspace=<id>` via history.replaceState (the PRD 009 Req 6 pattern)
+ * BEFORE <App/> mounts — createHostedPlatform reads location.search once at
+ * creation, so the rewrite landing first is what makes this boot (and any
+ * reload from here) an ordinary workspace binding.
+ */
+async function resolveScratchpadVisit(): Promise<void> {
+  const stored = takeScratchpadIntent(window.sessionStorage);
+  if (!stored && !isScratchpadPath(window.location.pathname)) return;
+  const token = readStoredToken(window.localStorage) ?? '';
+  const res = await hostedFetch('/api/me/scratchpad', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch(() => null);
+  const body = res?.ok ? ((await res.json().catch(() => null)) as { id?: string } | null) : null;
+  if (body?.id) {
+    window.history.replaceState(null, '', `/?workspace=${encodeURIComponent(body.id)}`);
+    // PRD 019 Req 10: tell the platform (created after this, inside <App/>)
+    // that this one binding is a scratchpad visit — fresh scratch buffer.
+    storeScratchBoot(window.sessionStorage, body.id);
+  } else {
+    // An unanswerable resolve must not leave the app parked on a path only
+    // this gate understands: land on the plain start page instead.
+    window.history.replaceState(null, '', '/');
+  }
+}
 
 type Phase =
   | { kind: 'checking' }
@@ -79,6 +119,9 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
               scope: pending.scope,
             });
             storeToken(window.localStorage, token);
+            // PRD 019 Req 2: the sign-in that just completed may have begun
+            // at /scratchpad — the recorded intent continues there now.
+            await resolveScratchpadVisit();
             finish({ kind: 'ready' });
           } catch (err) {
             finish({ kind: 'signed-out', error: err instanceof Error ? err.message : String(err), busy: false });
@@ -90,6 +133,9 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
       if (token) {
         const res = await hostedFetch('/api/me', { headers: { Authorization: `Bearer ${token}` } }).catch(() => null);
         if (res?.ok) {
+          // PRD 019 Req 1: an already-signed-in /scratchpad visit resolves
+          // and normalizes before the app mounts.
+          await resolveScratchpadVisit();
           finish({ kind: 'ready' });
           return;
         }
@@ -113,6 +159,9 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
     const body = res?.ok ? ((await res.json().catch(() => null)) as { kind?: string; token?: string } | null) : null;
     if (body?.kind === 'token' && typeof body.token === 'string') {
       storeToken(window.localStorage, body.token);
+      // PRD 019 Req 2: local dev mode never navigated, so a sign-in that
+      // began at /scratchpad still sits on that pathname — continue there.
+      await resolveScratchpadVisit();
       setPhase({ kind: 'ready' });
       return;
     }
@@ -141,6 +190,12 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
       setPhase({ kind: 'signed-out', error: SIGN_IN_FAILED, busy: false });
       return;
     }
+    // PRD 019 Req 2: the Entra redirect comes back to the origin root, so a
+    // sign-in that begins at /scratchpad records the intent beside the
+    // pending sign-in — and any other sign-in clears a leftover one, so an
+    // abandoned /scratchpad attempt cannot replay into a later session.
+    if (isScratchpadPath(window.location.pathname)) storeScratchpadIntent(window.sessionStorage);
+    else clearScratchpadIntent(window.sessionStorage);
     const verifier = createCodeVerifier();
     const state = createCodeVerifier();
     const challenge = await codeChallengeS256(verifier);

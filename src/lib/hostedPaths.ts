@@ -150,6 +150,20 @@ export function workspaceIdFromSearch(search: string): string | null {
 }
 
 /**
+ * PRD 019 Req 1: the hosted client's one reserved path. A GET of
+ * `<base URL>/scratchpad` is served by the SPA fallback like any other path;
+ * recognizing it is the client's job, and this predicate is that whole
+ * recognition — pure, so the route is unit-testable without a DOM. Only the
+ * exact path (with an optional trailing slash) matches: anything nested or
+ * differently cased is not the scratchpad and boots as a normal page.
+ */
+export const SCRATCHPAD_PATH = '/scratchpad';
+
+export function isScratchpadPath(pathname: string): boolean {
+  return pathname === SCRATCHPAD_PATH || pathname === `${SCRATCHPAD_PATH}/`;
+}
+
+/**
  * PRD 007 Req 9: the manifest's `settings` slot presented as the PRD 002 §C9
  * workspace-file JSON. The single folder is the workspace's own blob prefix,
  * relative to the virtual workspace file's directory.

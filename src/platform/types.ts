@@ -255,6 +255,19 @@ export interface Platform {
   workspaces?: WorkspaceLifecycle;
 
   /**
+   * PRD 019 Req 10+11: this page load is a scratchpad visit — boot starts a
+   * fresh untitled buffer (the SPEC22 File → New path) in edit mode over the
+   * bound workspace, and that buffer — alone, and only until it is saved or
+   * replaced by a real document — is exempt from the SPEC36 §2.6
+   * unsaved-changes prompt and the close guard (Req 11: leaving discards
+   * silently; the SPEC30 §3 crash-draft shadow still covers it). Set only by
+   * the hosted platform when its sign-in gate resolved a /scratchpad visit;
+   * every other flavor leaves it undefined, and app code mounts on the
+   * capability, never on the flavor (PRD 007 Req 2).
+   */
+  scratchStart?: boolean;
+
+  /**
    * PRD 017 Req 3: the signed-in session's `/api/me` record — the bare user
    * plus admin status and the creation-policy verdict the entry surfaces
    * render from. Fetched once per session (after sign-in / page load) and

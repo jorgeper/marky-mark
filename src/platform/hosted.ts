@@ -1,6 +1,6 @@
 import type { Platform } from './types';
 import { createLocalDocs } from './localDocs';
-import { clearToken, readStoredToken } from '../lib/hostedGate';
+import { clearToken, readStoredToken, takeScratchBoot } from '../lib/hostedGate';
 import { createHostedWorkspaceLifecycle } from './hostedWorkspaces';
 import { createHostedAdmin } from './hostedAdmin';
 import { createHostedLlm } from './hostedLlm';
@@ -88,6 +88,12 @@ const workspaceRoute = (id: string, route: string, rel?: string): string => {
 export function createHostedPlatform(): Platform {
   const token = () => readStoredToken(window.localStorage) ?? '';
   const workspaceId = workspaceIdFromSearch(window.location.search);
+  // PRD 019 Req 10: the sign-in gate's one-page-load scratch signal — taken
+  // (read-and-clear) unconditionally so a reload of the rewritten URL boots
+  // as a plain workspace binding (Req 3), and honored only when it names the
+  // workspace this page actually bound.
+  const scratchBoot = takeScratchBoot(window.sessionStorage);
+  const scratchStart = workspaceId !== null && scratchBoot === workspaceId;
 
   /**
    * The bundle's hosted-platform network call site (SPEC11 §6.6 bundle-scan
@@ -672,6 +678,10 @@ export function createHostedPlatform(): Platform {
      * being absent is how app code learns that.
      */
     ...(workspaceId ? { summaryCache: createHostedSummaryCache(api, workspaceId) } : {}),
+
+    // PRD 019 Req 10+11: only a /scratchpad visit resolved by the sign-in
+    // gate sets this — App starts (and exempts) the scratch buffer from it.
+    ...(scratchStart ? { scratchStart: true } : {}),
 
     // PRD 017 Req 3: the held /api/me record rides the same capability seam
     // as the rest of the session (App renders the entry-surface affordances

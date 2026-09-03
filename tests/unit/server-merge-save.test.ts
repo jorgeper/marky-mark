@@ -211,15 +211,17 @@ describe('PRD 016 Req 9 the hosted platform’s handling of a merged save', () =
     const file = `${hostedFilesRoot(id)}/notes.md`;
     await h.call('PUT', `/api/workspaces/${id}/files/notes.md`, 'alpha\nbeta\ngamma\n');
 
-    // The hosted platform talks same-origin relative URLs to `fetch` and
-    // reads its bearer token from localStorage — the only two globals it
-    // needs, stubbed here and restored afterwards.
+    // The hosted platform talks same-origin relative URLs to `fetch`, reads
+    // its bearer token from localStorage, and takes the PRD 019 scratch-boot
+    // signal from sessionStorage (empty here: no scratchpad visit) — the only
+    // globals it needs, stubbed here and restored afterwards.
     const realFetch = globalThis.fetch;
     const realWindow = (globalThis as { window?: unknown }).window;
     const kv = new Map<string, string>();
     storeToken({ getItem: (k) => kv.get(k) ?? null, setItem: (k, v) => kv.set(k, v), removeItem: (k) => kv.delete(k) }, h.token);
     (globalThis as { window?: unknown }).window = {
       localStorage: { getItem: (k: string) => kv.get(k) ?? null, setItem: () => {}, removeItem: () => {} },
+      sessionStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
       location: { search: `?workspace=${id}` },
     };
     // Relative (same-origin) paths get the test server's origin; anything

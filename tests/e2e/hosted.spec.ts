@@ -3863,3 +3863,107 @@ test.describe('PRD 017 in-app guest invitations', () => {
     }
   });
 });
+
+/** PRD 019 Req 2 setup: start the page draft-free (the signInTo discipline). */
+async function dropDraft(page: Page, token: string): Promise<void> {
+  const dropped = await page.request.delete(`${HOSTED}/api/me/files/draft.json`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect([200, 404]).toContain(dropped.status());
+}
+
+test('E397: /scratchpad gates on sign-in, then lands in the scratchpad workspace — untitled buffer in edit mode, canonical ?workspace= URL, same workspace on a repeat visit', async ({
+  page,
+}) => {
+  // PRD 019 Req 1+2+3 (issue #215): an unauthenticated visit to the reserved
+  // path shows the normal hosted sign-in gate; local dev mode never
+  // navigates, so completing sign-in continues to the scratchpad — resolved
+  // through the existing POST /api/me/scratchpad and normalized in place via
+  // history.replaceState before the platform binds.
+  const token = await signIn(page.request, 'alan');
+  await dropDraft(page, token);
+  await page.goto(`${HOSTED}/scratchpad`);
+  await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
+  await page.getByTestId('hosted-sign-in-username').fill('alan');
+  await page.getByTestId('hosted-sign-in-submit').click();
+
+  // Req 1+10: the landing is a fresh untitled buffer in edit mode, inside
+  // the scratchpad workspace (sidebar present, workspace name beside it).
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  // Req 3: the address bar reads the canonical /?workspace=<id> form — the
+  // path is gone, and the id is the same one the API resolves for this user.
+  const landed = new URL(page.url());
+  expect(landed.pathname).toBe('/');
+  const first = landed.searchParams.get('workspace');
+  expect(first).toBeTruthy();
+  const resolve = await page.request.post(`${HOSTED}/api/me/scratchpad`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(resolve.status()).toBe(200);
+  expect(((await resolve.json()) as { id: string }).id).toBe(first);
+
+  // Req 5 (pinned client-side): a repeat signed-in visit reuses the same
+  // workspace — provisioned exactly once per user — and starts fresh again.
+  await page.goto(`${HOSTED}/scratchpad`);
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('workspace')).toBe(first);
+
+  // Req 3: a reload of the rewritten URL boots as a PLAIN workspace binding
+  // — no scratch buffer re-opens, the binding alone is what survives.
+  await page.reload();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('docname')).not.toContainText('Untitled');
+});
+
+test('E398: the scratch buffer starts fresh over existing files and discards silently when one opens — no unsaved-changes prompt, dirty or not', async ({
+  page,
+}) => {
+  // PRD 019 Req 10+11 (issue #215): every visit starts a new untitled buffer
+  // even when the scratchpad already holds files, and that buffer — alone —
+  // is exempt from the SPEC36 §2.6 three-way prompt: opening a sidebar file
+  // over it, dirty, lands directly with no dialog. The dirty dot stays the
+  // only "unsaved" signal.
+  const token = await signIn(page.request, 'grace');
+  await dropDraft(page, token);
+  const resolve = await page.request.post(`${HOSTED}/api/me/scratchpad`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(resolve.status()).toBe(200);
+  const id = ((await resolve.json()) as { id: string }).id;
+  const put = await page.request.put(`${HOSTED}/api/workspaces/${id}/files/kept.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# Kept\n\nA scratchpad resident.\n',
+  });
+  expect(put.status()).toBe(200);
+
+  await page.goto(`${HOSTED}/scratchpad`);
+  await page.getByTestId('hosted-sign-in-username').fill('grace');
+  await page.getByTestId('hosted-sign-in-submit').click();
+
+  // Req 10: a fresh untitled buffer — the existing file stays visible and
+  // reachable in the sidebar, not auto-opened over the scratch.
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
+
+  // Dirty the scratch buffer; the dot shows (the one "unsaved" signal kept).
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('ephemeral scratch text');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Req 11: opening the file over the dirty scratch buffer raises NO
+  // unsaved-changes prompt — it lands directly, the scratch text discarded.
+  await page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first().click();
+  await expect(page.getByTestId('docname')).toContainText('kept.md');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+
+  // Req 10 again: a repeat visit starts fresh once more — untitled buffer,
+  // same workspace, the last-active file NOT reopened over it.
+  await page.goto(`${HOSTED}/scratchpad`);
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('workspace')).toBe(id);
+});
