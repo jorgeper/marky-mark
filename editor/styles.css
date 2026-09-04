@@ -1,7 +1,7 @@
 /* @marky-mark/editor — the package-owned stylesheet (PRD 021 Req 7).
    Structural styles for the DOM this package renders: the Editor pane
-   (.editor-wrap and its CodeMirror .cm-* surface, the .mm-md-*/.mm-code-*
-   markdown token classes, table mode, fence code cards, image widgets,
+   (.editor-wrap and its CodeMirror .cm-* surface, the .mm-md-* and
+   .mm-code-* markdown token classes, table mode, fence code cards, image widgets,
    Smart Edit), the Preview (.split-preview > .docwrap > .doc document
    rendering, code copy buttons, heading links, diagrams) and the SplitView
    (.split-editor | .split-divider | .split-preview).

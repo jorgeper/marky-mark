@@ -38,7 +38,7 @@ lock-step. Re-derive it with:
 | `--mm-bg-elevated` | Raised surfaces: table chips, confirmation captions |
 | `--mm-fg` | Body text |
 | `--mm-fg-muted` | Secondary text: gutters, diagram errors, idle copy buttons |
-| `--mm-muted` | Muted UI glyphs (the Smart Edit submenu arrow) |
+| `--mm-muted` | Muted UI glyphs (the Smart Edit submenu arrow) — **no fallback** |
 | `--mm-heading` | Heading color, in the preview and the editor's `#` lines |
 | `--mm-link` | Links, in the preview and the editor's link/URL tokens |
 | `--mm-accent` | Accent: caret, cursor, chips, hover rings, the vim badge |
