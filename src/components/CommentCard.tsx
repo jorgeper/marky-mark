@@ -124,13 +124,15 @@ export function CommentCard({
               </Button>
             </div>
           </div>
-        ) : noted ? (
-          <p className="body" data-testid="card-body">
-            {c.body}
-          </p>
-        ) : // PRD 022 Req 9: a note-less highlight's card has no note to show —
-        // no empty body paragraph, just the swatches and controls below.
-        null}
+        ) : (
+          // PRD 022 Req 9: a note-less highlight's card has no note to show —
+          // no empty body paragraph, just the swatches and controls below.
+          noted && (
+            <p className="body" data-testid="card-body">
+              {c.body}
+            </p>
+          )
+        )}
       </div>
 
       {c.thread.map((r) => (

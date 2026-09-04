@@ -4154,7 +4154,7 @@ export default function App() {
     if (!s.settings.commentsEnabled || !s.showComments) return;
     if (s.mode === 'edit' && !s.settings.splitEdit) return;
     const ordered = s.comments
-      // PRD 022 Req 9 (issue #232): step over noted highlights only — a
+      // PRD 022 Req 9 (issue #232): step through noted highlights only — a
       // note-less entry has no standing card, so the hotkeys skip it.
       .filter((c) => !c.resolved && hasNote(c))
       .sort((a, b) => (s.positions[a.id]?.start ?? a.anchor.start) - (s.positions[b.id]?.start ?? b.anchor.start))
@@ -6626,7 +6626,7 @@ export default function App() {
   const panelVisible =
     commentSurfaceUp && showComments && settings.commentsEnabled && (comments.length > 0 || pending !== null);
 
-  // PRD 022 Req 9 (issue #232): the navigator (pill + hotkeys) steps over
+  // PRD 022 Req 9 (issue #232): the navigator (pill + hotkeys) steps through
   // noted highlights only — a note-less entry has no standing card to land
   // on, so it neither counts in the pill nor shows it while active.
   const navigable = open.filter(hasNote);
