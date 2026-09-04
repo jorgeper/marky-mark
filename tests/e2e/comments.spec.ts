@@ -1064,7 +1064,9 @@ test('E158: a parked doc reopens fresh when an external tool edited its sidecar 
   await expect.poll(() => fsRead(page, sidecarPath)).toContain('Added while you were away');
 });
 
-test('E415: PRD 022 Req 1 — a swatch click creates a note-less colored highlight and closes the popup; no composer opens', async ({
+// Renumbered from E415 (issue #185 collision rule): #240's hello-editor
+// suite took E415 first on this branch, so the newer test moved up.
+test('E419: PRD 022 Req 1 — a swatch click creates a note-less colored highlight and closes the popup; no composer opens', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);
@@ -1181,4 +1183,107 @@ test('E418: PRD 022 Req 3 — a legacy colorless sidecar renders in the default 
   const rewritten = (await fsRead(page, `${DOC}.comments.json`))!;
   expect(rewritten).not.toContain('"color"');
   expect(rewritten).toContain('"version": "1.0.0"');
+});
+
+test('E420: PRD 022 Req 8 — recoloring from the active card repaints the marks, persists, and re-arms the popup', async ({
+  page,
+}) => {
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
+  const mark = page.locator('mark.hl').first();
+  await expect(mark).toHaveAttribute('data-color', 'green');
+
+  // Clicking the highlight activates its card, which offers the four swatches
+  // with the entry's current color ringed.
+  await mark.click();
+  const card = page.getByTestId('comment-card');
+  await expect(card).toHaveClass(/active/);
+  await expect(card.getByTestId('card-swatch-green')).toHaveAttribute('aria-pressed', 'true');
+  await card.getByTestId('card-swatch-pink').click();
+
+  // The marks repaint immediately and the entry persists recolored, still
+  // note-less.
+  await expect(page.locator('mark.hl').first()).toHaveAttribute('data-color', 'pink');
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "pink"'));
+  const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
+  expect(sidecar.comments).toHaveLength(1);
+  expect(sidecar.comments[0].color).toBe('pink');
+  expect(sidecar.comments[0].body).toBe('');
+
+  // Req 4: recoloring re-arms the last-used color for the next selection.
+  await selectPhrase(page, 'GitHub-flavored markdown');
+  const popup = page.getByTestId('marker-popup');
+  await expect(popup.locator('.marker-swatch').first()).toHaveAttribute('data-testid', 'marker-swatch-pink');
+});
+
+test('E421: PRD 022 Req 9 — a note-less highlight has no standing card; its card appears while active and leaves on deactivation', async ({
+  page,
+}) => {
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-yellow'));
+  const mark = page.locator('mark.hl').first();
+  await expect(mark).toBeVisible();
+
+  // No standing card in the margin flow for the note-less entry.
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+
+  // Clicking the highlight brings its card in, active…
+  await mark.click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
+  // …but the navigator pill stays hidden: nav steps over noted entries only.
+  await expect(page.getByTestId('comment-nav')).toBeHidden();
+
+  // Click-away deactivates (SPEC14 §3.1) and the card leaves the panel.
+  await page.getByTestId('doc').locator('h1').click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+});
+
+test('E422: PRD 022 Req 8 — adding a note from the active card turns a note-less highlight into a standing noted card', async ({
+  page,
+}) => {
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-blue'));
+  await page.locator('mark.hl').first().click();
+
+  const card = page.getByTestId('comment-card');
+  await card.getByTestId('card-add-note').click();
+  await card.getByTestId('edit-input').fill('now it has a note');
+  await card.getByTestId('save-edit').click();
+  await expect(card.getByTestId('card-body')).toHaveText('now it has a note');
+
+  // Noted from here on: the card stands in the panel after deactivation, and
+  // the note landed on the same colored entry.
+  await page.getByTestId('doc').locator('h1').click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('comment-card')).not.toHaveClass(/active/);
+  await waitForSidecar(page, (s) => !!s && s.includes('now it has a note'));
+  const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
+  expect(sidecar.comments).toHaveLength(1);
+  expect(sidecar.comments[0].color).toBe('blue');
+});
+
+test('E423: PRD 022 Reqs 6+8 — a note-less card offers no reply/resolve, and Remove deletes the entry and unpaints its marks', async ({
+  page,
+}) => {
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "green"'));
+  await page.locator('mark.hl').first().click();
+
+  // Reply and resolve are withheld until a note exists; recolor, add-note and
+  // remove are what the card offers.
+  const card = page.getByTestId('comment-card');
+  await expect(card.getByTestId('card-swatches')).toBeVisible();
+  await expect(card.getByTestId('card-add-note')).toBeVisible();
+  await expect(card.getByTestId('reply-btn')).toHaveCount(0);
+  await expect(card.getByTestId('resolve-btn')).toHaveCount(0);
+  await expect(card.getByTestId('edit-btn')).toHaveCount(0);
+
+  // Remove deletes without the thread confirmation — there is no thread.
+  await expect(card.getByTestId('delete-btn')).toHaveText('Remove');
+  await card.getByTestId('delete-btn').click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+  await waitForSidecar(page, (s) => !s || !s.includes('"color": "green"'));
 });

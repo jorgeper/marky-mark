@@ -73,6 +73,16 @@ export type CommentColor = 'yellow' | 'green' | 'blue' | 'pink';
  */
 export const MARKER_COLORS: readonly CommentColor[] = ['yellow', 'green', 'blue', 'pink'];
 
+/**
+ * PRD 022 Req 9 (issue #232): the standing-card predicate. An entry is a
+ * *noted* highlight once it carries a root note or any reply; a note-less
+ * one (empty body, no thread — Req 6's shape) gets no standing panel card,
+ * no navigator stop, and no reply/resolve until a note exists.
+ */
+export function hasNote(c: Pick<CommentData, 'body' | 'thread'>): boolean {
+  return c.body.trim() !== '' || c.thread.length > 0;
+}
+
 export interface CommentData {
   id: string;
   author: string;

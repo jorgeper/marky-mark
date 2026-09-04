@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { CommentData } from '../lib/anchoring';
+import { type CommentColor, type CommentData, hasNote, MARKER_COLORS } from '../lib/anchoring';
 import { timeAgo } from '../lib/time';
 import { Button } from './ui/Button';
 
@@ -22,6 +22,8 @@ interface Props {
   onActivate: (id: string) => void;
   onUpdate: (next: CommentData) => void;
   onDelete: (id: string) => void;
+  /** PRD 022 Req 8 (issue #232): a swatch on the active card recolors the highlight. */
+  onRecolor: (id: string, color: CommentColor) => void;
 }
 
 function newId(): string {
@@ -38,7 +40,11 @@ export function CommentCard({
   onActivate,
   onUpdate,
   onDelete,
+  onRecolor,
 }: Props) {
+  // PRD 022 Req 6: reply and resolve exist only once a note does — a
+  // note-less highlight's card offers "add note" and remove instead.
+  const noted = hasNote(c);
   const [replying, setReplying] = useState(false);
   const [replyDraft, setReplyDraft] = useState('');
   const [editing, setEditing] = useState<string | null>(null); // 'root' or reply id
@@ -118,11 +124,13 @@ export function CommentCard({
               </Button>
             </div>
           </div>
-        ) : (
+        ) : noted ? (
           <p className="body" data-testid="card-body">
             {c.body}
           </p>
-        )}
+        ) : // PRD 022 Req 9: a note-less highlight's card has no note to show —
+        // no empty body paragraph, just the swatches and controls below.
+        null}
       </div>
 
       {c.thread.map((r) => (
@@ -202,6 +210,25 @@ export function CommentCard({
         </div>
       )}
 
+      {/* PRD 022 Req 8 (issue #232): the active card offers recolor — the four
+          marker swatches in MARKER_COLORS order; the entry's current color
+          wears the ring. An authoring control, withheld read-only like the
+          rest; a resolved card's lifecycle stays reopen/delete only. */}
+      {active && !readOnly && !c.resolved && (
+        <div className="row card-swatches" data-testid="card-swatches" onClick={stop}>
+          {MARKER_COLORS.map((color) => (
+            <button
+              key={color}
+              className={`icon-btn marker-swatch marker-swatch-${color}${c.color === color ? ' armed' : ''}`}
+              data-testid={`card-swatch-${color}`}
+              aria-label={`Recolor ${color}`}
+              aria-pressed={c.color === color}
+              onClick={() => onRecolor(c.id, color)}
+            />
+          ))}
+        </div>
+      )}
+
       {!readOnly && (
         <div className="row controls" onClick={stop}>
           {confirmingDelete ? (
@@ -222,7 +249,7 @@ export function CommentCard({
             </>
           ) : (
             <>
-              {!c.resolved && (
+              {!c.resolved && noted && (
                 <>
                   <Button variant="quiet" size="sm" data-testid="reply-btn" onClick={() => setReplying(true)}>
                     Reply
@@ -248,6 +275,22 @@ export function CommentCard({
                   </Button>
                 </>
               )}
+              {/* PRD 022 Req 8: "add note" opens note editing on a note-less
+                  highlight; submitting turns it into a noted one (Req 6 keeps
+                  reply/resolve withheld until then). */}
+              {!c.resolved && !noted && editing !== 'root' && (
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  data-testid="card-add-note"
+                  onClick={() => {
+                    setEditing('root');
+                    setEditDraft('');
+                  }}
+                >
+                  Add note
+                </Button>
+              )}
               {c.resolved && (
                 <Button
                   variant="quiet"
@@ -258,8 +301,15 @@ export function CommentCard({
                   Reopen
                 </Button>
               )}
-              <Button variant="quiet" size="sm" data-testid="delete-btn" onClick={() => setConfirmingDelete(true)}>
-                Delete
+              {/* PRD 022 Req 8: every card offers remove; only a noted one has
+                  a thread to lose, so only it keeps the delete confirmation. */}
+              <Button
+                variant="quiet"
+                size="sm"
+                data-testid="delete-btn"
+                onClick={() => (noted ? setConfirmingDelete(true) : onDelete(c.id))}
+              >
+                {noted ? 'Delete' : 'Remove'}
               </Button>
             </>
           )}
