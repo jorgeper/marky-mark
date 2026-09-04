@@ -52,7 +52,11 @@ export const TOOLCHAIN = "tauri";
 
 // Runs inside the sandbox before the agent starts each iteration
 // (hooks.sandbox.onSandboxReady).
-export const INSTALL_COMMAND = "npm install";
+// --no-audit --no-fund: the audit step POSTs the full package list to the
+// registry, and hung POSTs there have blown past the 60s sandbox hook
+// timeout (2026-09-04); neither audit nor fund output matters in a
+// throwaway sandbox. With them skipped the hook converges in ~2s.
+export const INSTALL_COMMAND = "npm install --no-audit --no-fund";
 
 // Host paths copied into the worktree before each sandbox starts.
 export const COPY_TO_WORKTREE = ["node_modules"];
