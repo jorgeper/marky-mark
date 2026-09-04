@@ -81,6 +81,7 @@ Markdown elements:
 | `--mm-hr` | Horizontal rules |
 | `--mm-selection` | Text-selection background |
 | `--mm-comment-tint` / `--mm-comment-tint-active` | Comment highlights (idle / active) |
+| `--mm-marker-yellow` / `--mm-marker-green` / `--mm-marker-blue` / `--mm-marker-pink` | Optional marker-highlight hue overrides (opaque colors; the app derives idle/active/ghost strengths) |
 
 Syntax highlighting (fenced code blocks):
 

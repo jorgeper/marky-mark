@@ -116,7 +116,7 @@ test('E23: vim navigation — off by default, full motion set when enabled, neve
   await page.keyboard.press('g');
   await expect.poll(scrollTop).toBe(0);
   await selectPhrase(page, PHRASE);
-  await page.getByTestId('add-comment-btn').click();
+  await page.getByTestId('add-note-btn').click();
   await expect(page.getByTestId('composer-input')).toBeFocused();
   // Bring the composer on-screen first — otherwise Chromium scrolls the
   // focused textarea into view on the first keystroke (unrelated to vim nav).

@@ -61,10 +61,17 @@ export interface ThreadReply {
 
 /**
  * PRD 022 Req 5: the marker colors the comment format admits — exactly these
- * four literals, nothing else. The runtime list lives in commentFormat.ts
- * (COMMENT_COLORS), beside the rest of the wire-format vocabulary.
+ * four literals, nothing else. The wire-format's own list lives in
+ * commentFormat.ts (COMMENT_COLORS), beside the rest of its vocabulary.
  */
 export type CommentColor = 'yellow' | 'green' | 'blue' | 'pink';
+
+/**
+ * PRD 022 Reqs 1+4: the same vocabulary as a runtime list, in the popup's
+ * display order, for callers outside the format seam (the swatch popup, the
+ * lastMarkerColor setting) — only the two stores may import commentFormat.
+ */
+export const MARKER_COLORS: readonly CommentColor[] = ['yellow', 'green', 'blue', 'pink'];
 
 export interface CommentData {
   id: string;

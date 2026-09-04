@@ -68,16 +68,39 @@ export function editorImportViolation(spec, fileDirRel) {
 
 /**
  * PRD 021 Req 10: why `spec`, imported from app code, violates the
- * entry-point rule — or null. The app imports the package only as
- * `@marky-mark/editor` (the `exports` map of editor/package.json); any
- * deep path (`@marky-mark/editor/src/...`) reaches into internals the
- * package does not export.
+ * entry-point rule — or null. The app imports the package only through the
+ * `exports` map of editor/package.json: the bare `@marky-mark/editor`, plus
+ * the subpaths that map names (issue #231: `./styles.css`, which #238's
+ * main.tsx import uses — an exported entry point, not a sealed internal).
+ * Any other deep path (`@marky-mark/editor/src/...`) reaches into internals
+ * the package does not export. `exported` is the specifier set from
+ * `exportedSpecifiers`; absent means "no subpath exports" (the frozen unit
+ * fixtures), which seals every deep path.
  */
-export function appImportViolation(spec) {
-  if (spec.startsWith(`${EDITOR_PACKAGE}/`)) {
+export function appImportViolation(spec, exported = new Set()) {
+  if (spec.startsWith(`${EDITOR_PACKAGE}/`) && !exported.has(spec)) {
     return `deep-path import \`${spec}\` — app code imports the package only as \`${EDITOR_PACKAGE}\` (its exported entry points)`;
   }
   return null;
+}
+
+/**
+ * The full import specifiers the editor package's `exports` map admits
+ * beyond the bare entry point, e.g. `@marky-mark/editor/styles.css` from
+ * the map key `./styles.css`.
+ */
+export function exportedSpecifiers(packageJsonText) {
+  let map = {};
+  try {
+    map = JSON.parse(packageJsonText).exports ?? {};
+  } catch {
+    /* unreadable manifest → no subpath exports */
+  }
+  return new Set(
+    Object.keys(map)
+      .filter((k) => k.startsWith('./'))
+      .map((k) => `${EDITOR_PACKAGE}/${k.slice(2)}`)
+  );
 }
 
 /** Findings for one editor-package source: [{ line, message }]. */
@@ -91,10 +114,10 @@ export function lintEditorSource(source, fileDirRel) {
 }
 
 /** Findings for one app-side source: [{ line, message }]. */
-export function lintAppSource(source) {
+export function lintAppSource(source, exported = new Set()) {
   const findings = [];
   for (const { line, spec } of importSpecifiers(source)) {
-    const message = appImportViolation(spec);
+    const message = appImportViolation(spec, exported);
     if (message !== null) findings.push({ line, message });
   }
   return findings;
@@ -132,9 +155,15 @@ export function runEditorBoundary(root) {
       findings.push({ file: rel, ...f });
     }
   }
+  let exported = new Set();
+  try {
+    exported = exportedSpecifiers(readFileSync(path.join(root, 'editor', 'package.json'), 'utf8'));
+  } catch {
+    /* no manifest → no subpath exports */
+  }
   for (const appDir of ['src', 'server']) {
     for (const file of listModuleFiles(path.join(root, appDir))) {
-      for (const f of lintAppSource(readFileSync(file, 'utf8'))) {
+      for (const f of lintAppSource(readFileSync(file, 'utf8'), exported)) {
         findings.push({ file: relPosix(file), ...f });
       }
     }

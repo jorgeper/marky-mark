@@ -1,8 +1,10 @@
 /**
  * Issue #38: one pure predicate decides which surface may offer the
- * "Add comment" affordance for the current selection. Mirrors the floating
- * button's gate in App.tsx (SPEC7 §2, PRD 004 Req 15) and extends it to
- * plain edit mode, which previously offered no route to a comment at all.
+ * selection affordance — since PRD 022 Req 1 the marker-swatch popup,
+ * formerly the "Add comment" pill; the gate's inputs and semantics are
+ * unchanged. Mirrors the floating affordance's gate in App.tsx (SPEC7 §2,
+ * PRD 004 Req 15) and extends it to plain edit mode, which previously
+ * offered no route to a comment at all.
  */
 
 export interface AffordanceState {
@@ -29,7 +31,7 @@ export interface AffordanceState {
 }
 
 /**
- * Where the affordance may appear: on the preview surface (full preview or
+ * Where the swatch popup may appear: on the preview surface (full preview or
  * the split-edit live preview, where anchors come straight from the rendered
  * DOM), in plain edit mode (where acting on it routes through the SPEC25
  * selection carry), or nowhere.

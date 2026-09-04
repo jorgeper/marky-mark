@@ -12,6 +12,14 @@
   --mm-accent: #fe8019;
   --mm-border: #504945;
 
+  /* PRD 022 Req 13: darker marker hues than the theme-independent defaults,
+     so the light body text keeps WCAG AA over every tint (ratios in the
+     issue #231 summary). */
+  --mm-marker-yellow: #8a6d00;
+  --mm-marker-green: #1b6b3a;
+  --mm-marker-blue: #1a5e9e;
+  --mm-marker-pink: #8f3e69;
+
   --mm-content-width: 60rem;
   --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;

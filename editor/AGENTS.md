@@ -17,7 +17,8 @@ Directives for any agent working in here:
 - **Self-contained.** The package's styles, tests (`editor/tests/`, IDs on
   the repo-wide `U<n>` register), and docs live in-package; consumers
   reach it only through the entry points `editor/package.json` `exports`
-  declares (`@marky-mark/editor` — deep paths are sealed).
+  declares (`@marky-mark/editor` plus its exported subpaths, e.g.
+  `@marky-mark/editor/styles.css` — other deep paths are sealed).
 - **The gate enforces all of this.** The editor-package-boundary check in
   `scripts/validate.mjs` (quick tier; logic in
   `scripts/editor-boundary.mjs`) fails validation on any violation, in

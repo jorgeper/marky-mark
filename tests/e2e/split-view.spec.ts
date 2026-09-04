@@ -645,7 +645,7 @@ test('E126: hygiene — comments anchor through the cues, find coexists/suppress
   // …and the comment coordinate space is undisturbed: a comment over a span
   // CROSSING the marked word (the mark fragments text nodes) anchors exactly.
   await selectSpanInPane(page, '[data-testid="doc"]', 'beta', 'delta');
-  await page.getByTestId('add-comment-btn').click();
+  await page.getByTestId('add-note-btn').click();
   await page.keyboard.type('anchored fine');
   await page.keyboard.press('ControlOrMeta+Enter');
   await expect

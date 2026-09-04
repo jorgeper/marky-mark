@@ -181,7 +181,7 @@ export async function selectSpan(page: Page, phraseA: string, phraseB: string): 
  * Click `target` only once the toolbar shell provably cannot intercept it.
  *
  * `.toolbar-shell` (src/styles.css:66 — `z-index: 80`, `transition: transform
- * 180ms`) owns the top 42px of the window, and the floating `add-comment-btn`
+ * 180ms`) owns the top 42px of the window, and the floating `marker-popup`
  * is `position: fixed` at z-index 60: a target that lands in that band is
  * clicked by `.docname` instead (issue #18, E129). Waiting on the two rects
  * catches both a transitioning shell and a genuinely mispositioned control —
@@ -230,7 +230,7 @@ export async function stableBox(target: Locator): Promise<Box> {
 /** Full comment flow: select, click the floating button, type, submit. */
 export async function addComment(page: Page, phrase: string, body: string): Promise<void> {
   await selectPhrase(page, phrase);
-  await clickClearOfToolbar(page.getByTestId('add-comment-btn'));
+  await clickClearOfToolbar(page.getByTestId('add-note-btn'));
   await page.getByTestId('composer-input').fill(body);
   await page.getByTestId('composer-submit').click();
 }

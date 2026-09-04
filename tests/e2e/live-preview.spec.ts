@@ -252,8 +252,8 @@ test('E148: comments still attach from the split pane with live preview on', asy
 
   // PRD 006 §11: selecting in the preview and commenting works as before.
   await selectPhraseInPane(page, '[data-testid="split-preview"] .doc', 'renders GitHub-flavored markdown');
-  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
-  await clickClearOfToolbar(page.getByTestId('add-comment-btn'));
+  await expect(page.getByTestId('marker-popup')).toBeVisible();
+  await clickClearOfToolbar(page.getByTestId('add-note-btn'));
   await expect(page.getByTestId('composer')).toBeVisible();
   await page.getByTestId('composer-input').fill('From the split pane, preview on');
   await page.getByTestId('composer-submit').click();
