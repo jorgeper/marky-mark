@@ -1064,7 +1064,7 @@ test('E158: a parked doc reopens fresh when an external tool edited its sidecar 
   await expect.poll(() => fsRead(page, sidecarPath)).toContain('Added while you were away');
 });
 
-test('E415: PRD 022 Req 1 — a swatch click creates a note-less colored highlight and closes the popup; no composer opens', async ({
+test('E419: PRD 022 Req 1 — a swatch click creates a note-less colored highlight and closes the popup; no composer opens', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);

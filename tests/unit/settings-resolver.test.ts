@@ -260,7 +260,7 @@ describe('PRD 002 §H26 web shape — the same resolver with the workspace layer
 });
 
 describe('PRD 022 Req 4: the last-used marker color', () => {
-  test('U1101: validated to the four literals, defaulting to yellow; merged at the User layer like any U key', () => {
+  test('U1103: validated to the four literals, defaulting to yellow; merged at the User layer like any U key', () => {
     // Default: yellow — the legacy tint family.
     expect(DEFAULT_SETTINGS.lastMarkerColor).toBe('yellow');
     expect(SETTINGS_SCOPES.lastMarkerColor).toBe('U');
