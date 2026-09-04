@@ -4031,11 +4031,15 @@ export default function App() {
   /**
    * SPEC16 §4: the ONE preview scroll-to-line path — the heading palette's,
    * reused by a PRD 011 Req 19 dive that lands at L5 rather than reimplemented.
-   * Returns false while the line has not been rendered yet.
+   * Returns false while the line has not been rendered yet. A line only a
+   * container-nested heading occupies matches its `data-mm-hline` stamp
+   * (issue #226), so a Req 19 `#<slug>` landing on such a heading arrives too.
    */
   const scrollPreviewToLine = useCallback((line: number): boolean => {
     const ws = workspaceRef.current;
-    const el = docRef.current?.querySelector<HTMLElement>(`[data-mm-line="${line}"]`);
+    const el = docRef.current?.querySelector<HTMLElement>(
+      `[data-mm-line="${line}"], [data-mm-hline="${line}"]`
+    );
     if (!ws || !el) return false;
     // Content-coordinate top of the heading → viewport top.
     ws.scrollTop = el.getBoundingClientRect().top - (ws.getBoundingClientRect().top - ws.scrollTop);

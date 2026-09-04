@@ -11,7 +11,7 @@
  * landing-side match from a visited `#<slug>` back to a source line.
  */
 import { buildAppPath, parseAppPath } from './hostedPaths';
-import { flattenSections, type DocumentSections } from './sectionModel';
+import type { DocumentSections } from './sectionModel';
 
 /** PRD 020 Req 14: the control's rest tooltip and accessible name. */
 export const COPY_LINK_LABEL = 'Copy link';
@@ -71,20 +71,21 @@ export interface HeadingAnchor {
 
 /**
  * PRD 020 Req 18: every heading's slug, derived from the section model's
- * titles in document order — the same source-of-truth the TOC reads, never
- * the rendered DOM. Duplicate slugs dedupe GitHub-style: the first keeps the
- * bare slug, later ones take `-1`, `-2`, … in document order. The synthetic
- * preamble node (depth 0) has no heading and is skipped.
+ * all-headings list in document order — never the rendered DOM. That list
+ * (issue #226) also carries headings nested inside containers (a blockquote,
+ * a list item), which render as real h1–h6 and must be addressable even
+ * though only root-level headings delimit sections. Duplicate slugs dedupe
+ * GitHub-style: the first keeps the bare slug, later ones take `-1`, `-2`, …
+ * in document order.
  */
 export function headingAnchors(doc: DocumentSections): HeadingAnchor[] {
   const seen = new Map<string, number>();
   const out: HeadingAnchor[] = [];
-  for (const s of flattenSections(doc)) {
-    if (s.depth === 0) continue;
-    const base = headingSlug(s.title);
+  for (const h of doc.headings) {
+    const base = headingSlug(h.title);
     const n = seen.get(base) ?? 0;
     seen.set(base, n + 1);
-    out.push({ line: s.headingLine, slug: n === 0 ? base : `${base}-${n}`, title: s.title });
+    out.push({ line: h.line, slug: n === 0 ? base : `${base}-${n}`, title: h.title });
   }
   return out;
 }

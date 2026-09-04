@@ -27,8 +27,9 @@ const schema: SanitizeSchema = {
   attributes: {
     ...defaultSchema.attributes,
     // SPEC15 §2.2: the one attribute scroll sync needs — inert data, no URL
-    // or script surface. Nothing else widens.
-    '*': [...(defaultSchema.attributes?.['*'] ?? []), 'dataMmLine'],
+    // or script surface. PRD 020 Req 18 (issue #226) adds the sibling
+    // heading-line stamp for container-nested headings; both are inert data.
+    '*': [...(defaultSchema.attributes?.['*'] ?? []), 'dataMmLine', 'dataMmHline'],
     input: ['type', 'checked', 'disabled'],
     span: [...(defaultSchema.attributes?.span ?? []), ['className', 'mm-blocked-remote']],
     // SPEC20 §4.1: resize needs the size pair plus the inert source-span
@@ -187,6 +188,37 @@ function stampSourceLines() {
   };
 }
 
+const HEADING_TAGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+
+/**
+ * PRD 020 Req 18 (issue #226): a heading nested inside a container (a
+ * blockquote, or indented under a list item) renders as a real h1–h6 but is
+ * not a root child, so `stampSourceLines` above never marks it and the
+ * copy-link graft (`lib/headingLinks.ts`) skipped it — the "headings at the
+ * bottom of the file miss the link icon" bug. Stamp those headings' source
+ * lines as `dataMmHline`, a SIBLING attribute rather than `dataMmLine`, so
+ * every consumer of the SPEC15 contract (scroll sync, comment ranges: stamps
+ * are disjoint top-level blocks) is untouched. Attributes only — rendered
+ * text, the comment-anchor coordinate space, is unchanged.
+ */
+function stampNestedHeadingLines() {
+  const visit = (node: HastNode, atRoot: boolean) => {
+    for (const child of node.children ?? []) {
+      const line = (child as Positioned).position?.start?.line;
+      if (
+        !atRoot &&
+        child.type === 'element' &&
+        HEADING_TAGS.has(child.tagName ?? '') &&
+        typeof line === 'number'
+      ) {
+        child.properties = { ...child.properties, dataMmHline: line };
+      }
+      visit(child, false);
+    }
+  };
+  return (tree: HastNode) => visit(tree, true);
+}
+
 /**
  * PRD 015 Req 4: carry a fence's `width=N` meta to the preview WITHOUT
  * widening the sanitize schema (PRD 015 Req 12). `remark-rehype`'s code
@@ -240,6 +272,7 @@ const processor = unified()
   // large remains dropped exactly as before (no rehype-raw, no dangerous mode).
   .use(remarkRehype, { handlers: { html: imgHtmlHandler as never } })
   .use(stampSourceLines)
+  .use(stampNestedHeadingLines)
   .use(stampImageSpans)
   .use(blockRemoteImages)
   .use(rehypeSanitize, schema)

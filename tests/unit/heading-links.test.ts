@@ -82,4 +82,31 @@ describe('PRD 020 Req 18 preview heading copy-link graft', () => {
     expect(live.textContent).toBe('');
     parent.remove();
   });
+
+  // Intent (issue #226): container-nested headings carry the data-mm-hline
+  // stamp (never data-mm-line — that is the SPEC15 top-level block contract),
+  // and the graft must honour it: the button lands, resolves the same
+  // line-keyed URL, and the anchor text space stays byte-identical.
+  test('U1086: buttons land on data-mm-hline headings too, resolving by that line', async () => {
+    const writes: string[] = [];
+    const { parent, root } = mount(
+      '<h1 data-mm-line="1">Top</h1><blockquote data-mm-line="3"><h2 data-mm-hline="3">Quoted</h2></blockquote>'
+    );
+    const before = getDocText(root);
+    decorateHeadingLinks(
+      root,
+      (line) => `https://x/doc.md#line-${line}`,
+      (text) => {
+        writes.push(text);
+        return true;
+      }
+    );
+    const quoted = root.querySelector<HTMLButtonElement>(`blockquote h2 .${HEADING_LINK_CLASS}`);
+    expect(quoted).not.toBeNull();
+    quoted!.click();
+    await Promise.resolve();
+    expect(writes).toEqual(['https://x/doc.md#line-3']);
+    expect(getDocText(root)).toBe(before);
+    parent.remove();
+  });
 });

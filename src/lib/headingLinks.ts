@@ -68,10 +68,13 @@ export function createHeadingLinkButton(
 
 /**
  * PRD 020 Req 18: give every rendered heading that carries a source-line
- * stamp a hover-revealed copy-link button (CSS owns the reveal). Idempotent
- * over a partially decorated tree, like `decorateCodeBlocks`. `getUrlForLine`
- * runs at click time — the slug is derived from the section model of that
- * moment's buffer — and a null URL copies nothing (the controller's rule).
+ * stamp a hover-revealed copy-link button (CSS owns the reveal). Root-level
+ * headings carry `data-mm-line` (SPEC15); container-nested ones — inside a
+ * blockquote or list item — carry `data-mm-hline` instead (issue #226), so
+ * both are honoured here. Idempotent over a partially decorated tree, like
+ * `decorateCodeBlocks`. `getUrlForLine` runs at click time — the slug is
+ * derived from the section model of that moment's buffer — and a null URL
+ * copies nothing (the controller's rule).
  */
 export function decorateHeadingLinks(
   root: HTMLElement,
@@ -91,7 +94,7 @@ export function decorateHeadingLinks(
   }
 
   for (const h of Array.from(root.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6'))) {
-    const line = Number(h.dataset.mmLine);
+    const line = Number(h.dataset.mmLine ?? h.dataset.mmHline);
     if (!Number.isInteger(line) || line < 1) continue;
     if (h.querySelector(`.${HEADING_LINK_CLASS}`)) continue;
     const { btn, ctrl } = createHeadingLinkButton(doc, {

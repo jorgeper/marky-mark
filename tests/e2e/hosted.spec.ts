@@ -4483,3 +4483,60 @@ test("E412: a #<slug> matching no heading opens the file at the top with the dis
   await page.getByTestId('heading-miss-dismiss').click();
   await expect(notice).toHaveCount(0);
 });
+
+test('E414: container-nested headings at the bottom of a document carry the copy-link control, and their #<slug> lands', async ({
+  page,
+  request,
+}) => {
+  // Issue #226: headings nested inside a container — indented under a list
+  // item, or blockquoted — render as real h1–h6 but are not root mdast
+  // children, so the SPEC15 data-mm-line stamp and the section-model slugs
+  // both missed them: "headers at the bottom of the file don't get the link
+  // icon". They must carry the Req 18 button and land via the Req 19 path.
+  const doc = [
+    '# Guide',
+    '',
+    'intro words.',
+    '',
+    '- checklist item',
+    '  ## Listed Tail',
+    '',
+    '> ### Quoted Tail',
+    '',
+  ].join('\n');
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e414');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guide.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: doc,
+  });
+  await stubClipboard(page);
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'guide.md');
+
+  // Both nested headings carry the Req 18 control and copy their slug URL.
+  const listed = page.getByTestId('doc').locator('h2').filter({ hasText: 'Listed Tail' });
+  await listed.hover();
+  await listed.getByTestId('mm-heading-link').click();
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guide.md#listed-tail`);
+  const quoted = page.getByTestId('doc').locator('h3').filter({ hasText: 'Quoted Tail' });
+  await quoted.hover();
+  await quoted.getByTestId('mm-heading-link').click();
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guide.md#quoted-tail`);
+
+  // The editor gutter shows the marker for the same nested heading.
+  await page.keyboard.press('Control+e');
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'Listed Tail' }).click();
+  const gutterLink = page.getByTestId('heading-copy-link-gutter');
+  await expect(gutterLink).toBeVisible();
+  await gutterLink.click();
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guide.md#listed-tail`);
+
+  // The copied link lands ON the nested heading — no miss notice.
+  await page.goto(`${HOSTED}/${unique}/guide.md#listed-tail`);
+  await page.reload();
+  await expect(page.getByTestId('docname')).toContainText('guide.md');
+  await landInPreview(page);
+  await expect(listed).toBeInViewport();
+  await expect(page.getByTestId('heading-miss-notice')).toHaveCount(0);
+});

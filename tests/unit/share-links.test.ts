@@ -170,6 +170,25 @@ describe('PRD 020 Req 18 heading slugs', () => {
     ]);
   });
 
+  // Intent (issue #226): headings nested inside a container — a blockquote,
+  // or indented under a list item — render as real h1–h6 but are not
+  // root-level mdast children, so a section-only walk never slugs them and
+  // both placements (preview button, editor gutter) go dark. Anchors must
+  // cover EVERY heading in document order, container-nested ones deduped in
+  // the same GitHub-style sequence, and the landing side must resolve them.
+  test('U1085: headingAnchors covers container-nested headings in document order, and the landing resolves them', () => {
+    const doc = parseSections(
+      ['# Alpha', '', '> ## Notes', '', '- item', '  ### Notes', '', '## Notes', ''].join('\n'),
+    );
+    expect(headingAnchors(doc)).toEqual([
+      { line: 1, slug: 'alpha', title: 'Alpha' },
+      { line: 3, slug: 'notes', title: 'Notes' },
+      { line: 6, slug: 'notes-1', title: 'Notes' },
+      { line: 8, slug: 'notes-2', title: 'Notes' },
+    ]);
+    expect(headingLineForSlug(doc, 'notes-1')).toBe(6);
+  });
+
   // Intent: the heading share URL is the file's Req 5 URL plus '#<slug>',
   // slug percent-encoded — and null wherever the file URL is null, so an
   // untitled buffer or a workspace-only path shares nothing.

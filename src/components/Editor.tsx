@@ -31,7 +31,7 @@ import {
 } from '@codemirror/commands';
 import { HighlightStyle, LanguageDescription, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { closeSearchPanel, findNext, findPrevious, getSearchQuery, openSearchPanel, replaceAll, replaceNext, search, searchPanelOpen, SearchQuery, setSearchQuery } from '@codemirror/search';
-import { NodeProp, type SyntaxNode } from '@lezer/common';
+import { NodeProp } from '@lezer/common';
 import { tags } from '@lezer/highlight';
 import { markdown } from '@codemirror/lang-markdown';
 // Issue #122: the three fenced-code languages the editor colours. All three
@@ -687,15 +687,19 @@ function headingLinkGutter(seam: MutableRefObject<HeadingLinkSeam | undefined>):
       if (!cfg) return null;
       const head = view.state.doc.lineAt(view.state.selection.main.head);
       if (block.from !== head.from) return null;
+      // Scan the whole cursor line for a heading node rather than resolving
+      // at line start: a container-nested heading (issue #226 — indented
+      // under a list item, or blockquoted) begins AFTER the `  `/`> ` prefix,
+      // so a line-start resolve walks up through ListItem/Blockquote and
+      // never meets it.
       let onHeading = false;
-      let node: SyntaxNode | null = syntaxTree(view.state).resolveInner(head.from, 1);
-      while (node) {
-        if (/^(ATX|Setext)Heading/.test(node.name)) {
-          onHeading = true;
-          break;
-        }
-        node = node.parent;
-      }
+      syntaxTree(view.state).iterate({
+        from: head.from,
+        to: head.to,
+        enter: (node) => {
+          if (/^(ATX|Setext)Heading/.test(node.name)) onHeading = true;
+        },
+      });
       if (!onHeading || cfg.getUrl(head.number) === null) return null;
       return new HeadingLinkMarker(head.number, seam);
     },

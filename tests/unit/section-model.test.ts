@@ -29,7 +29,7 @@ describe('PRD 011 Req 24 — source-level section tree', () => {
 
   test('U481: an empty document yields nothing, and a document with no headings is all preamble', () => {
     const empty = parseSections('');
-    expect(empty).toEqual({ sections: [], preamble: null, title: null, lineCount: 0 });
+    expect(empty).toEqual({ sections: [], preamble: null, title: null, lineCount: 0, headings: [] });
 
     const headless = parseSections('Just prose.\n\nMore prose.\n');
     expect(headless.sections).toEqual([]);

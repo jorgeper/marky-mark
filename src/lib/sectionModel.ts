@@ -60,6 +60,21 @@ export interface SectionNode {
   children: SectionNode[];
 }
 
+/**
+ * PRD 020 Req 18 (issue #226): one rendered heading, wherever it sits. Unlike
+ * the section tree — which only root-level headings delimit — this list also
+ * covers headings nested inside containers (a blockquote, a list item), which
+ * render as real h1–h6 and must be addressable by `#<slug>` share links.
+ */
+export interface DocumentHeading {
+  /** Heading depth 1–6. */
+  depth: number;
+  /** Heading text, flattened to plain text. */
+  title: string;
+  /** 1-based source line of the heading. */
+  line: number;
+}
+
 export interface DocumentSections {
   /** Top-level sections in source order (the shallowest headings present). */
   sections: SectionNode[];
@@ -69,6 +84,13 @@ export interface DocumentSections {
   title: string | null;
   /** Line count of the source (0 for an empty document). */
   lineCount: number;
+  /**
+   * PRD 020 Req 18 (issue #226): EVERY heading in document order, container-
+   * nested ones included — the share-link anchor source (`lib/shareLinks.ts`).
+   * The section tree above is untouched by nesting: TOC, zoom and summaries
+   * keep reading root-delimited sections exactly as before.
+   */
+  headings: DocumentHeading[];
 }
 
 const parser = unified().use(remarkParse).use(remarkFrontmatter).use(remarkGfm);
@@ -111,7 +133,7 @@ export function parseSections(source: string): DocumentSections {
   // A trailing newline ends the last line; it does not begin an extra one.
   if (rawLines.length > 1 && rawLines[rawLines.length - 1] === '') rawLines.pop();
   const lineCount = source === '' ? 0 : rawLines.length;
-  if (lineCount === 0) return { sections: [], preamble: null, title: null, lineCount: 0 };
+  if (lineCount === 0) return { sections: [], preamble: null, title: null, lineCount: 0, headings: [] };
 
   const root = parser.parse(source) as MdNode;
   const children = root.children ?? [];
@@ -135,6 +157,25 @@ export function parseSections(source: string): DocumentSections {
       endLine: child.position?.end?.line ?? line,
     });
   }
+
+  // PRD 020 Req 18 (issue #226): the flat all-headings list — the root-level
+  // hits above plus container-nested headings, in document order (mdast child
+  // order IS source order). Only the anchor list sees these; the section tree
+  // below stays root-delimited.
+  const allHeadings: DocumentHeading[] = [];
+  const collectHeadings = (nodes: MdNode[]): void => {
+    for (const node of nodes) {
+      if (node.type === 'heading') {
+        const line = node.position?.start?.line;
+        if (typeof line === 'number') {
+          allHeadings.push({ depth: node.depth ?? 1, title: plainText(node).trim(), line });
+        }
+        continue; // a heading never nests another heading
+      }
+      collectHeadings(node.children ?? []);
+    }
+  };
+  collectHeadings(children);
 
   const lineText = (from: number, to: number): string =>
     from > to ? '' : trimBlankLines(rawLines.slice(from - 1, to));
@@ -195,7 +236,7 @@ export function parseSections(source: string): DocumentSections {
   });
 
   const title = headings.find((h) => h.depth === 1)?.title ?? null;
-  return { sections: roots, preamble, title, lineCount };
+  return { sections: roots, preamble, title, lineCount, headings: allHeadings };
 }
 
 /** Depth-first section list in source order (the preamble first, when present). */
