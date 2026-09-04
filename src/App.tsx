@@ -6404,6 +6404,34 @@ export default function App() {
     setDraft(seed);
   };
 
+  // PRD 022 Reqs 1+4: the popup's shared content — the four swatches (armed
+  // color first) then "add note" — rendered once per surface; each surface
+  // supplies its own action routing (direct on preview, the SPEC25 carry in
+  // plain edit).
+  const markerPopupButtons = (onSwatch: (color: CommentColor) => void, onNote: () => void) => (
+    <>
+      {[armedColor, ...MARKER_COLORS.filter((c) => c !== armedColor)].map((color) => (
+        <button
+          key={color}
+          className={`icon-btn marker-swatch marker-swatch-${color}${color === armedColor ? ' armed' : ''}`}
+          data-testid={`marker-swatch-${color}`}
+          aria-label={`Highlight ${color}`}
+          aria-pressed={color === armedColor}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onSwatch(color)}
+        />
+      ))}
+      <button
+        className="btn btn-sm btn-quiet"
+        data-testid="add-note-btn"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => onNote()}
+      >
+        Add note
+      </button>
+    </>
+  );
+
   // Issue #38: a stale edit selection must not survive the surface (or the
   // document) it came from — any swap retires the affordance; the editor's
   // next selection report re-establishes it if a selection is still there.
@@ -7531,25 +7559,10 @@ export default function App() {
           data-testid="marker-popup"
           style={{ left: selInfo.x, top: Math.max(nativeMenu ? 8 : 50, selInfo.y - 42) }}
         >
-          {[armedColor, ...MARKER_COLORS.filter((c) => c !== armedColor)].map((color) => (
-            <button
-              key={color}
-              className={`icon-btn marker-swatch marker-swatch-${color}${color === armedColor ? ' armed' : ''}`}
-              data-testid={`marker-swatch-${color}`}
-              aria-label={`Highlight ${color}`}
-              aria-pressed={color === armedColor}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => createHighlight(color)}
-            />
-          ))}
-          <button
-            className="btn btn-sm btn-quiet"
-            data-testid="add-note-btn"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => startComposer()}
-          >
-            Add note
-          </button>
+          {markerPopupButtons(
+            (color) => createHighlight(color),
+            () => startComposer()
+          )}
         </div>
       )}
 
@@ -7563,31 +7576,16 @@ export default function App() {
         // Wider than the pill it replaced, the popup would cover the corner
         // mode/split controls at the pill's old offset — sit one row lower.
         <div className="marker-popup marker-popup-edit" data-testid="marker-popup-edit" style={{ top: nativeMenu ? 44 : 86 }}>
-          {[armedColor, ...MARKER_COLORS.filter((c) => c !== armedColor)].map((color) => (
-            <button
-              key={color}
-              className={`icon-btn marker-swatch marker-swatch-${color}${color === armedColor ? ' armed' : ''}`}
-              data-testid={`marker-swatch-${color}`}
-              aria-label={`Highlight ${color}`}
-              aria-pressed={color === armedColor}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                carryActionRef.current = { kind: 'swatch', color };
-                toggleMode();
-              }}
-            />
-          ))}
-          <button
-            className="btn btn-sm btn-quiet"
-            data-testid="add-note-btn"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
+          {markerPopupButtons(
+            (color) => {
+              carryActionRef.current = { kind: 'swatch', color };
+              toggleMode();
+            },
+            () => {
               carryActionRef.current = { kind: 'note' };
               toggleMode();
-            }}
-          >
-            Add note
-          </button>
+            }
+          )}
         </div>
       )}
 
