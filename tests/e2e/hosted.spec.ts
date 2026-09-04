@@ -523,9 +523,22 @@ async function signInTo(page: Page, username: string, workspace?: string): Promi
   await page.getByTestId('hosted-sign-in-submit').click();
 }
 
-/** Drop the stored session so the next load is a fresh signed-out browser. */
+/**
+ * Drop the stored session so the next load is a fresh signed-out browser.
+ * Then leave the page: the app is still mounted, and any re-render between
+ * the clear and the caller's next goto rebuilds asset URLs with an empty
+ * `access_token` — a 401 in the console that fails the console guard.
+ */
 async function signOut(page: Page): Promise<void> {
-  await page.evaluate(() => window.localStorage.clear());
+  // Clear and leave in ONE synchronous script: with the clear and the
+  // navigation in separate protocol calls, an app timer can re-render in
+  // between and refetch asset URLs with the now-empty token — a 401 the
+  // console guard rightly rejects.
+  await page.evaluate(() => {
+    window.localStorage.clear();
+    window.location.replace('about:blank');
+  });
+  await page.waitForURL('about:blank');
 }
 
 /** Open a document from the hosted workspace's folder sidebar. */
@@ -4182,7 +4195,11 @@ test('E400: a canonical path URL deep-links through sign-in to the workspace, th
   await page.goto(`${HOSTED}/${unique.toUpperCase()}`);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await expect(page.getByTestId('docname-workspace')).toContainText('e400');
-  expect(new URL(page.url()).pathname).toBe(`/${unique}`);
+  // The bar canonicalizes the workspace segment to the stored casing. The
+  // SPEC36 session restore may re-activate the file opened above and append
+  // its path (Req 6 tracks the active document) — either final form proves
+  // the case-insensitive match, so accept both rather than race the restore.
+  await expect.poll(() => new URL(page.url()).pathname).toMatch(new RegExp(`^/${unique}(/|$)`));
 });
 
 test('E401: the address bar tracks the active file, and a reload of the rewritten URL boots back into the same workspace and file', async ({
@@ -4547,7 +4564,7 @@ test('E414: container-nested headings at the bottom of a document carry the copy
 
 // --- highlight share links and #hl-<id> landing (PRD 022 Reqs 10–11, issue #233) --
 
-test('E424: the active highlight reveals a left-margin copy-link that copies the file URL plus #hl-<id>, confirming inline', async ({
+test('E429: the active highlight reveals a left-margin copy-link that copies the file URL plus #hl-<id>, confirming inline', async ({
   page,
   request,
 }) => {
@@ -4594,7 +4611,7 @@ test('E424: the active highlight reveals a left-margin copy-link that copies the
   await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
 });
 
-test('E425: visiting a #hl-<id> URL opens the file scrolled to the highlight and flashes it, with no miss notice', async ({
+test('E430: visiting a #hl-<id> URL opens the file scrolled to the highlight and flashes it, with no miss notice', async ({
   page,
   request,
 }) => {
@@ -4625,13 +4642,33 @@ test('E425: visiting a #hl-<id> URL opens the file scrolled to the highlight and
     .toContain(cid!);
 
   // The deep link, then a reload so the boot runs from the URL (same-document
-  // hash navs don't boot — E411's reasoning).
+  // hash navs don't boot — E411's reasoning). The .flash window is ~900ms and
+  // a loaded runner can stall past it between assertions, so an in-page
+  // observer registered before the boot records the flash the moment it
+  // lands instead of racing to catch it live.
   await page.goto(`${HOSTED}/${unique}/notes.md#hl-${cid}`);
+  await page.addInitScript((id: string) => {
+    const seen = new MutationObserver(() => {
+      if (document.querySelector(`mark.hl.flash[data-cid="${id}"]`)) {
+        (window as unknown as { __hlFlashSeen?: boolean }).__hlFlashSeen = true;
+        seen.disconnect();
+      }
+    });
+    // Init scripts run before <html> exists — observe the document node.
+    seen.observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+  }, cid!);
   await page.reload();
   await expect(page.getByTestId('docname')).toContainText('notes.md');
-  // The landing flashes every fragment of the mark (the .flash window is
-  // ~900ms — polling from before the paint catches it).
-  await expect(page.locator(`mark.hl.flash[data-cid="${cid}"]`).first()).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __hlFlashSeen?: boolean }).__hlFlashSeen === true), {
+      timeout: 15_000,
+    })
+    .toBe(true);
   await expect(page.locator(`mark.hl[data-cid="${cid}"]`).first()).toBeInViewport();
   await expect
     .poll(() => page.locator('.workspace').evaluate((el) => el.scrollTop))
@@ -4639,7 +4676,7 @@ test('E425: visiting a #hl-<id> URL opens the file scrolled to the highlight and
   await expect(page.getByTestId('highlight-miss-notice')).toHaveCount(0);
 });
 
-test("E426: a #hl-<id> that resolves to no highlight opens the file at the top with the dismissible not-found notice", async ({
+test("E431: a #hl-<id> that resolves to no highlight opens the file at the top with the dismissible not-found notice", async ({
   page,
   request,
 }) => {
@@ -4666,7 +4703,7 @@ test("E426: a #hl-<id> that resolves to no highlight opens the file at the top w
   await expect(notice).toHaveCount(0);
 });
 
-test('E427: an active highlight on an untitled buffer offers no copy-link — nothing rides the path to share', async ({
+test('E432: an active highlight on an untitled buffer offers no copy-link — nothing rides the path to share', async ({
   page,
 }) => {
   // PRD 020 Req 15 via PRD 022 Req 10: the hosted scratch landing is the

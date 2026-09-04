@@ -232,7 +232,7 @@ describe('PRD 022 Reqs 10–11 highlight share links (issue #233)', () => {
   // Intent: the copy side rides the file's canonical URL exactly like the
   // heading placement — same derivation, `#hl-<entry id>` instead of a slug,
   // nothing to copy while no file rides the path (untitled buffers).
-  test('U1107: highlightShareUrl appends #hl-<encoded id> to the file URL, null without a file', () => {
+  test('U1112: highlightShareUrl appends #hl-<encoded id> to the file URL, null without a file', () => {
     const id = '214eaf06-601c-40aa-bed2-2c4bcb71f378';
     expect(highlightShareUrl(ORIGIN, '/Team%20Docs/notes.md', id)).toBe(
       `${ORIGIN}/Team%20Docs/notes.md#hl-${id}`
@@ -249,7 +249,7 @@ describe('PRD 022 Reqs 10–11 highlight share links (issue #233)', () => {
   // any fragment carrying the prefix is a highlight link (even one that
   // looks exactly like a real heading's slug, or carries an empty id), and
   // any fragment without it is not.
-  test('U1108: highlightIdFromHash claims every hl- fragment — look-alike heading slugs included — and no other', () => {
+  test('U1113: highlightIdFromHash claims every hl- fragment — look-alike heading slugs included — and no other', () => {
     expect(highlightIdFromHash('#hl-abc123')).toBe('abc123');
     // A heading titled "hl foo" slugs to "hl-foo"; the namespace still wins.
     expect(highlightIdFromHash('#hl-foo')).toBe('foo');
@@ -267,7 +267,7 @@ describe('PRD 022 Reqs 10–11 highlight share links (issue #233)', () => {
   // Intent: decoding mirrors slugFromHash — percent-escapes decode (the
   // copy side encoded the id), and a malformed escape falls back to the raw
   // text rather than throwing.
-  test('U1109: highlightIdFromHash decodes the id and survives malformed escapes', () => {
+  test('U1114: highlightIdFromHash decodes the id and survives malformed escapes', () => {
     expect(highlightIdFromHash('#hl-id%20with%20space')).toBe('id with space');
     // The prefix itself may arrive encoded; the decoded fragment decides.
     expect(highlightIdFromHash('#%68%6C%2Dabc')).toBe('abc');

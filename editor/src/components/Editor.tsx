@@ -244,6 +244,23 @@ export interface EditorProps {
   /** SPEC16 §2: changes-since-save line sets; null/undefined ⇒ no decorations. */
   diff?: DiffLineSets | null;
   /**
+   * PRD 022 Req 12 (issue #234): comment-highlight painting — background
+   * mark decorations over id + source-offset range + color, computed by the
+   * owner (the diff seam above is the precedent; the package never sees the
+   * comment store). Offsets are CANONICAL-text coordinates; the extension
+   * maps them into editor-doc positions through the table-grid machinery
+   * and skips any range it cannot place — never a wrong position.
+   * null/undefined ⇒ no decorations. Live-reconfigured, no remount.
+   */
+  highlights?: readonly HighlightRange[] | null;
+  /**
+   * PRD 022 Req 12: a click landing on a painted range reports the
+   * highlight's id (read through a live ref, so identity churn never
+   * rebuilds the extension). The owner passes this in split edit only —
+   * absent ⇒ painting is display-only and a click just places the cursor.
+   */
+  onHighlightClick?(id: string): void;
+  /**
    * Undo history survival (SPEC7 §6): the serialized editor state (doc +
    * history) is parked here on unmount and revived on the next mount, so
    * toggling preview↔edit never loses undo. The owner resets it to null when
@@ -553,6 +570,112 @@ function diffDecorations(view: EditorView, diff: DiffLineSets): DecorationSet {
   return builder.finish();
 }
 
+/** PRD 022 Req 12 (issue #234): one editor-pane comment highlight. */
+export interface HighlightRange {
+  id: string;
+  from: number;
+  to: number;
+  /** One of the four marker literals; absent ⇒ the legacy tint (styles.css). */
+  color?: string;
+}
+
+/**
+ * PRD 022 Req 12: canonical-text offset → editor-doc offset, exact and
+ * piecewise. Outside every table-grid span the two texts are byte-identical
+ * modulo each earlier span's length delta (canonicalizeAll splices ONLY the
+ * span regions), so an offset there maps by shifting; an offset INSIDE a
+ * collapsed table returns null and the caller skips the range — the grid's
+ * padded lines have no honest per-character home, and skipping is the
+ * contract (never painted at a visibly wrong position).
+ */
+function canonToDocOffset(
+  offset: number,
+  spans: readonly { from: number; to: number }[],
+  canonLens: readonly number[]
+): number | null {
+  let delta = 0; // editor-doc position − canonical position, so far
+  for (let i = 0; i < spans.length; i++) {
+    const canonFrom = spans[i].from - delta;
+    const canonTo = canonFrom + canonLens[i];
+    if (offset < canonFrom) return offset + delta;
+    if (offset < canonTo) return null;
+    delta += spans[i].to - spans[i].from - canonLens[i];
+  }
+  return offset + delta;
+}
+
+/**
+ * PRD 022 Req 12: the painted ranges, re-derived per draw like the diff
+ * decorations — the owner's offsets are canonical-text coordinates, mapped
+ * through the table-grid set (each span's collapsed length measured with
+ * the same canonicalizeAll every canonical-text path uses). Anything that
+ * does not fit the current document is skipped, not clamped into a lie: a
+ * stale range (owner debounce) may lapse for a beat, but nothing ever
+ * paints at a visibly wrong position durably.
+ */
+function docHighlightRanges(state: EditorState, ranges: readonly HighlightRange[]): HighlightRange[] {
+  const set = state.field(tableModeField, false);
+  let spans: readonly GridSpan[] = [];
+  let canonLens: number[] = [];
+  if (set?.spans.length) {
+    // GridSet.spans is sorted by `from` (the documented invariant). Collapsed
+    // length of each grid span — collapse one at a time, so each span's own
+    // delta falls out of the whole-text length difference.
+    const raw = state.doc.toString();
+    spans = set.spans;
+    canonLens = spans.map(
+      (s) => s.to - s.from - (raw.length - canonicalizeAll(raw, { spans: [s], width: set.width }).length)
+    );
+  }
+  const out: HighlightRange[] = [];
+  for (const h of ranges) {
+    if (h.to <= h.from) continue;
+    const from = canonToDocOffset(h.from, spans, canonLens);
+    const to = canonToDocOffset(h.to, spans, canonLens);
+    if (from === null || to === null || from < 0 || to <= from || to > state.doc.length) continue;
+    out.push({ id: h.id, from, to, ...(h.color ? { color: h.color } : {}) });
+  }
+  return out;
+}
+
+function highlightDecorations(state: EditorState, ranges: readonly HighlightRange[]): DecorationSet {
+  return Decoration.set(
+    docHighlightRanges(state, ranges).map((h) =>
+      Decoration.mark({
+        class: 'mm-hl',
+        attributes: { 'data-cid': h.id, ...(h.color ? { 'data-color': h.color } : {}) },
+      }).range(h.from, h.to)
+    ),
+    true
+  );
+}
+
+/**
+ * PRD 022 Req 12: the highlight extension — decorations plus the click
+ * report. The click handler never claims the event (return false), so
+ * normal cursor placement always stands; it only names the painted range
+ * under the pointer to the owner. Hit-testing is by document position, not
+ * DOM ancestry: the mousedown's selection change re-renders the line (the
+ * active-line band moves), so by click time the pointer's original mark
+ * element may already be replaced.
+ */
+const highlightsExt = (
+  ranges: readonly HighlightRange[],
+  onClick: MutableRefObject<((id: string) => void) | undefined>
+): Extension => [
+  EditorView.decorations.of((view) => highlightDecorations(view.state, ranges)),
+  EditorView.domEventHandlers({
+    click: (event, view) => {
+      if (!onClick.current) return false;
+      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (pos === null) return false;
+      const hit = docHighlightRanges(view.state, ranges).find((h) => pos >= h.from && pos <= h.to);
+      if (hit) onClick.current(hit.id);
+      return false;
+    },
+  }),
+];
+
 /** SPEC23 §2: Ctrl+d/u — half the viewport, cursor moves, view centers on it. */
 function halfPage(view: EditorView, dir: 1 | -1): void {
   const count = Math.max(1, Math.round(view.scrollDOM.clientHeight / view.defaultLineHeight / 2));
@@ -735,6 +858,8 @@ export default function Editor({
   historyRef,
   syncRef,
   diff,
+  highlights,
+  onHighlightClick,
   onPasteImages,
   insertRef,
   syntax,
@@ -781,6 +906,11 @@ export default function Editor({
   }, [activeWordSuppressed]);
   const gutterComp = useRef(new Compartment());
   const diffComp = useRef(new Compartment());
+  // PRD 022 Req 12 (issue #234): comment highlights ride a compartment like
+  // diff; the click seam reads through a live ref (headingLink precedent).
+  const hlComp = useRef(new Compartment());
+  const onHighlightClickRef = useRef(onHighlightClick);
+  onHighlightClickRef.current = onHighlightClick;
   const syntaxComp = useRef(new Compartment());
   const codeSynComp = useRef(new Compartment()); // Issue #122
   // PRD 006 §1: live preview rides its own compartment, same live-toggle pattern.
@@ -1299,6 +1429,9 @@ export default function Editor({
       // prop — see readOnlyExt above for what it turns off.
       readOnlyComp.current.of(readOnlyExt(readOnly)),
       diffComp.current.of([]),
+      // PRD 022 Req 12: comment highlights — filled by the effect below,
+      // exactly like diff.
+      hlComp.current.of([]),
       // SPEC23 §3: highlighting rides a compartment — toggling the setting
       // reconfigures live, undo history intact. PRD 006 §12: while live
       // preview is on it supersedes the setting — revealed raw lines keep
@@ -1843,6 +1976,19 @@ export default function Editor({
       ),
     });
   }, [diff]);
+
+  // PRD 022 Req 12 (issue #234): swap the highlight decorations in/out as
+  // the owner's ranges change — same live-reconfigure pattern as diff, so
+  // recolors, removals and re-anchors repaint with no remount.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: hlComp.current.reconfigure(
+        highlights?.length ? highlightsExt(highlights, onHighlightClickRef) : []
+      ),
+    });
+  }, [highlights]);
 
   return (
     <div

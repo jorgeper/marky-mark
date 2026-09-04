@@ -51,6 +51,11 @@
   --mm-active-word: color-mix(in srgb, #0969da 16%, transparent);
   --mm-diff-changed-bg: rgba(46, 160, 67, 0.14);
   --mm-diff-removed: #cf222e;
+  --mm-comment-tint: rgba(255, 214, 102, 0.42);
+  --mm-marker-yellow: #ffd666;
+  --mm-marker-green: #7ee787;
+  --mm-marker-blue: #79c0ff;
+  --mm-marker-pink: #ffa1c9;
 
   /* Scale and shadow tokens */
   --mm-text-caption: 11px;

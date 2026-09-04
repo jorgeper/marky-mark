@@ -1299,3 +1299,132 @@ test('E428: PRD 022 Req 10 — off the hosted platform an active highlight offer
   await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
   await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
 });
+
+test('E424: PRD 022 Req 12 — a highlight paints in the plain-edit editor as a background decoration in its color', async ({
+  page,
+}) => {
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
+  await expect(page.locator('mark.hl[data-color="green"]').first()).toBeVisible();
+
+  // PLAIN edit: split off (it defaults on), so no preview pane exists.
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  const hl = editor.locator('.mm-hl');
+  await expect(hl.first()).toBeVisible();
+  await expect(hl.first()).toHaveAttribute('data-color', 'green');
+  // The decoration covers exactly the anchored quote (spans join if CM splits).
+  await expect.poll(async () => (await hl.allTextContents()).join('')).toBe(PHRASE);
+  // …and the marker CSS actually lands on it.
+  expect(await hl.first().evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
+});
+
+test('E425: PRD 022 Req 12 — the split-edit editor paints too, and clicking a painted range activates the card in the preview panel', async ({
+  page,
+}) => {
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-blue'));
+  await expect(page.locator('mark.hl[data-color="blue"]').first()).toBeVisible();
+
+  await page.keyboard.press('Control+e'); // splitEdit defaults on — split edit
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+
+  const hl = page.getByTestId('editor').locator('.mm-hl');
+  await expect(hl.first()).toBeVisible();
+  await expect(hl.first()).toHaveAttribute('data-color', 'blue');
+
+  // The note-less entry has no standing card until the editor click brings
+  // its transient active card into the panel — same outcome as clicking the
+  // preview mark (issue #232).
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+  await hl.first().click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
+});
+
+test('E426: PRD 022 Req 12 — anchors the source cannot place confidently (absent or ambiguous quotes) do not paint in the editor', async ({
+  page,
+}) => {
+  const DOC = '/docs/best-effort.md';
+  const twinLine = 'identical sentence with the twin phrase inside it and identical padding after.';
+  await fsWrite(
+    page,
+    DOC,
+    `# Best effort\n\nSome **bold** prose here.\n\n${twinLine}\n\n${twinLine}\n\nA unique control phrase paints.\n`
+  );
+  const entry = (id: string, color: string, exact: string, prefix: string, suffix: string) => ({
+    id,
+    author: 'Reader',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    body: `${id} note`,
+    resolved: false,
+    color,
+    thread: [],
+    anchor: { exact, prefix, suffix, start: 0, end: exact.length },
+  });
+  await fsWrite(
+    page,
+    `${DOC}.comments.json`,
+    JSON.stringify(
+      {
+        version: '1.1.0',
+        comments: [
+          // Rendered "bold prose" crosses a ** marker in source: absent there.
+          entry('absent', 'green', 'bold prose', 'Some ', ' here.'),
+          // "twin phrase" occurs twice in source with identical context: ambiguous.
+          entry('ambiguous', 'pink', 'twin phrase', 'sentence with the ', ' inside it and '),
+          entry('unique', 'yellow', 'unique control phrase', 'A ', ' paints.'),
+        ],
+      },
+      null,
+      2
+    )
+  );
+  await page.goto(`/#open=${DOC}`);
+
+  // The preview paints all three (rendered-text anchoring resolves them all)…
+  for (const cid of ['absent', 'ambiguous', 'unique']) {
+    await expect(page.locator(`mark.hl[data-cid="${cid}"]`).first()).toBeVisible();
+  }
+
+  // …the editor paints only the one the source places confidently.
+  await page.keyboard.press('Control+e');
+  const hl = page.getByTestId('editor').locator('.mm-hl');
+  await expect(hl).toHaveCount(1);
+  await expect(hl).toHaveAttribute('data-cid', 'unique');
+  await expect(hl).toHaveAttribute('data-color', 'yellow');
+});
+
+test('E427: PRD 022 Req 12 — plain edit is paint-only: a click just places the caret, and an edited quote unpaints instead of mispainting', async ({
+  page,
+}) => {
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "green"'));
+
+  // PLAIN edit: split off (it defaults on) — the paint-only surface.
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  const hl = page.getByTestId('editor').locator('.mm-hl');
+  await expect(hl.first()).toBeVisible();
+  await hl.first().click();
+
+  // No comment-related effect: no card, no panel — display only.
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+  await expect(page.getByTestId('panel')).toHaveCount(0);
+
+  // Normal cursor placement stands: typing edits at the clicked point, which
+  // breaks the exact quote — the highlight skips (unpaints) rather than
+  // guessing at a range.
+  await page.keyboard.type('X');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('X');
+  await expect(hl).toHaveCount(0);
+});

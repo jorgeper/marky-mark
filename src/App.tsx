@@ -49,9 +49,11 @@ import {
   type CommentData,
   createAnchor,
   hasNote,
+  mapHighlightsToSource,
   MARKER_COLORS,
   reanchor,
   type ReanchorMatch,
+  type SourceHighlight,
 } from './lib/anchoring';
 import { COPY_LINK_FILE_LABEL, COPY_LINK_WORKSPACE_LABEL, fileShareUrl, headingAnchors, headingShareUrl, highlightIdFromHash, highlightShareUrl, slugFromHash, workspaceShareUrl, type HeadingAnchor } from './lib/shareLinks';
 import { updateHighlightLink } from './lib/highlightLink';
@@ -615,6 +617,8 @@ export default function App() {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [diff, setDiff] = useState<DiffLineSets | null>(null);
+  // PRD 022 Req 12 (issue #234): the editor pane's painted highlight ranges.
+  const [editorHighlights, setEditorHighlights] = useState<SourceHighlight[] | null>(null);
   /**
    * PRD 012 Req 1: which of the ONE sidebar pane's two views is on screen.
    * `settings.showFolders` keeps its meaning: whether that pane shows at all.
@@ -5645,6 +5649,24 @@ export default function App() {
     return () => clearTimeout(t);
   }, [showDiff, mode, buffer, savedText, canonicalOf]);
 
+  // --- PRD 022 Req 12 (issue #234): editor-pane highlight ranges ----------------
+  // Best-effort anchors→source mapping over the CANONICAL text, recomputed on
+  // the diff seam's debounce so typing repaints within a beat, never per
+  // keystroke. Gated to the entry set the preview would paint: comments on,
+  // resolved entries only while "Show resolved" is — the editor paints at
+  // most what the preview shows, and skips anything the source can't place.
+  useEffect(() => {
+    if (mode !== 'edit' || !showComments || !settings.commentsEnabled || comments.length === 0) {
+      setEditorHighlights(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      const painted = comments.filter((c) => !c.resolved || settings.showResolved);
+      setEditorHighlights(mapHighlightsToSource(painted, canonicalOf(buffer)));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [mode, comments, buffer, showComments, settings.commentsEnabled, settings.showResolved, canonicalOf]);
+
   // --- SPEC16 §5: word-count chip (selection-aware in preview) ------------------
   useEffect(() => {
     if (!docPath && !untitled) {
@@ -7581,6 +7603,11 @@ export default function App() {
                 historyRef={editorHistoryRef}
                 syncRef={editorSyncRef}
                 diff={diff}
+                // PRD 022 Req 12 (issue #234): highlight painting through the
+                // package seam; the click callback rides only in split edit —
+                // plain edit is paint-only, a click just places the caret.
+                highlights={editorHighlights}
+                onHighlightClick={settings.splitEdit ? handleMarkClick : undefined}
                 onPasteImages={pasteImages}
                 insertRef={editorInsertRef}
                 syntax={settings.editorSyntax}
