@@ -8,7 +8,9 @@
  *   1d. test-ID uniqueness (no U/E/W title ID appears twice under tests/)
  *   1e. style lint (PRD 018 §E26–§E27: styles.css + TSX chrome stay on the
  *       token/primitive layer; rules in docs/STYLE-GUIDE.md)
- *   1f. desktop-shim e2e test-count floor (Playwright's own collection)
+ *   1f. editor package boundary (PRD 021 Req 10: editor/ imports no app
+ *       code; app imports only @marky-mark/editor entry points)
+ *   1g. desktop-shim e2e test-count floor (Playwright's own collection)
  *   2. tsc --noEmit
  *   3. unit tests (Vitest, U1–U21)
  *   4. desktop e2e (Playwright, browser platform shim, E1–E41 + E45–E50)
@@ -261,6 +263,29 @@ if (styleFindings.length > 0) {
 console.log('style lint: chrome styling in src/styles.css and src TSX resolves through the PRD 018 token/primitive layer');
 record('style lint', Date.now() - styleLintStart);
 
+// Editor package boundary (PRD 021 Req 10, issue #239): modules under
+// editor/ (the embeddable @marky-mark/editor package — sources, tests,
+// configs) never import app code (src/, server/, src-tauri/), whether by a
+// relative path escaping the package or by any alias resolving there; and
+// app code (src/, server/) imports the package only as `@marky-mark/editor`
+// (its exported entry points per editor/package.json `exports`), never a
+// deep path. The implementation is the importable scripts/editor-boundary.mjs
+// (unit-tested in tests/unit/editor-boundary.test.ts). Reads files
+// synchronously, no spawns — so it sits with the file checks above, ahead
+// of the `steps` array, and runs in the quick tier too.
+console.log(`\n=== validate: editor package boundary === (start ${elapsed()})`);
+const boundaryStart = Date.now();
+const { runEditorBoundary } = await import('./editor-boundary.mjs');
+const boundaryFindings = runEditorBoundary(root);
+if (boundaryFindings.length > 0) {
+  for (const f of boundaryFindings) console.error(`  ${f.file}:${f.line}  ${f.message}`);
+  console.error('  The boundary rules live in editor/AGENTS.md — new app-flavored needs become seams/props, never reverse imports.');
+  console.error('\nVALIDATION FAILED at step: editor package boundary');
+  process.exit(1);
+}
+console.log('editor package boundary: editor/ imports no app code; src/ and server/ import only @marky-mark/editor entry points');
+record('editor package boundary', Date.now() - boundaryStart);
+
 // Issue #31 — committed test-count floor for the desktop-shim e2e suite. The
 // count is Playwright's OWN collection (`playwright test --list`, which honours
 // the config's testMatch/testIgnore), never a grep over the spec sources: after
@@ -381,7 +406,7 @@ const runSteps = QUICK ? steps.filter((s) => QUICK_STEPS.has(s.name)) : steps;
 
 // The pre-`steps` checks that already ran above, in order — named here so the
 // step-count summary can't drift from the list.
-const PRE_STEPS = ['version lock-step', 'docs/MAP.md up to date', 'CLAUDE.md resolves to AGENTS.md', 'test-ID uniqueness', 'style lint', 'e2e test-count floor (desktop shim)'];
+const PRE_STEPS = ['version lock-step', 'docs/MAP.md up to date', 'CLAUDE.md resolves to AGENTS.md', 'test-ID uniqueness', 'style lint', 'editor package boundary', 'e2e test-count floor (desktop shim)'];
 console.log(
   `\nvalidate${QUICK ? ':quick' : ''} — ${PRE_STEPS.length + runSteps.length} steps: ${[...PRE_STEPS, ...runSteps.map((s) => s.name)].join(' → ')}`
 );
