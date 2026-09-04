@@ -613,19 +613,21 @@ function canonToDocOffset(
  * stale range (owner debounce) may lapse for a beat, but nothing ever
  * paints at a visibly wrong position durably.
  */
-function docHighlightRanges(
-  state: EditorState,
-  ranges: readonly HighlightRange[]
-): { id: string; from: number; to: number; color?: string }[] {
+function docHighlightRanges(state: EditorState, ranges: readonly HighlightRange[]): HighlightRange[] {
   const set = state.field(tableModeField, false);
-  const raw = state.doc.toString();
-  const spans = set?.spans.length ? [...set.spans].sort((a, b) => a.from - b.from) : [];
-  // Collapsed length of each grid span — collapse one at a time, so each
-  // span's own delta falls out of the whole-text length difference.
-  const canonLens = spans.map(
-    (s) => s.to - s.from - (raw.length - canonicalizeAll(raw, { spans: [s], width: set!.width }).length)
-  );
-  const out = [];
+  let spans: readonly GridSpan[] = [];
+  let canonLens: number[] = [];
+  if (set?.spans.length) {
+    // GridSet.spans is sorted by `from` (the documented invariant). Collapsed
+    // length of each grid span — collapse one at a time, so each span's own
+    // delta falls out of the whole-text length difference.
+    const raw = state.doc.toString();
+    spans = set.spans;
+    canonLens = spans.map(
+      (s) => s.to - s.from - (raw.length - canonicalizeAll(raw, { spans: [s], width: set.width }).length)
+    );
+  }
+  const out: HighlightRange[] = [];
   for (const h of ranges) {
     if (h.to <= h.from) continue;
     const from = canonToDocOffset(h.from, spans, canonLens);
