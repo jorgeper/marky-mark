@@ -10,7 +10,7 @@ import { IconButton } from './ui/IconButton';
  * `label` naming that target — the `createCopyButton` house pattern.
  * `getUrl` runs at click time so the copied text is the canonical address
  * of that moment; the contract itself (confirm only on a landed write,
- * ~2s, then revert) lives in `lib/shareLinks.ts` where it is unit-tested.
+ * ~2s, then revert) lives in `lib/copyLink.ts` where it is unit-tested.
  * While confirming, the control swaps its link glyph for the
  * visible "Link copied" text — no dialog, no toast — and the always-present
  * `aria-live` region announces the same words to assistive tech.
