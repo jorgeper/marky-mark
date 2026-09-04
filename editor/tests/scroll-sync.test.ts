@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { lineAtOffset, offsetForLine, type SyncAnchor } from '../../src/lib/scrollSync';
+import { lineAtOffset, offsetForLine, type SyncAnchor } from '../src/lib/scrollSync';
 
 const anchors: SyncAnchor[] = [
   { line: 1, top: 0 },

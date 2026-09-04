@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { DirEntry } from '../../src/lib/folderTree';
-import { compileQuery, type SearchMatcher } from '../../src/lib/searchCore';
+import { compileQuery, type SearchMatcher } from '@marky-mark/editor';
 import {
   collectMarkdownFiles,
   loadSearchFiles,

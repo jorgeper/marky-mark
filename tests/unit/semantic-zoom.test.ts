@@ -21,7 +21,7 @@ import {
   ZOOM_LEVEL_LABELS,
   type ZoomBlock,
 } from '../../src/lib/semanticZoom';
-import { combosConflict, DEFAULT_HOTKEYS, type HotkeyMap } from '../../src/lib/hotkeys';
+import { combosConflict, DEFAULT_HOTKEYS, type HotkeyMap } from '@marky-mark/editor';
 
 /**
  * #118 widened `ZoomBlock.body` to the four-state union. With no summaries

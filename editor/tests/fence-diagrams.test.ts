@@ -5,9 +5,19 @@ import {
   DIAGRAM_ERROR_CLASS,
   renderFenceDiagrams,
   type DiagramRenderCache,
-} from '../../src/lib/fenceDiagrams';
-import type { FenceRenderer } from '../../src/lib/fenceRenderers';
-import { getDocText } from '../../src/lib/domtext';
+} from '../src/lib/fenceDiagrams';
+import type { FenceRenderer } from '../src/lib/fenceRenderers';
+// The app's comment anchors are offsets into the concatenation of every text
+// node under the root (its domtext.ts getDocText, which stays app-side per
+// PRD 021's non-goals) — replicated here so the byte-identical contract is
+// asserted against the same coordinate space.
+function getDocText(root: Node): string {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let out = '';
+  let n: Node | null;
+  while ((n = walker.nextNode())) out += n.nodeValue ?? '';
+  return out;
+}
 
 // The graft names no language (PRD 013 Req 1): tests register a made-up tag
 // through the injected lookup only — the real registry is never mutated, so

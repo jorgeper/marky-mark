@@ -210,7 +210,9 @@ record('CLAUDE.md resolves to AGENTS.md', Date.now() - linkStart);
 console.log(`\n=== validate: test-ID uniqueness === (start ${elapsed()})`);
 const idScanStart = Date.now();
 const idFiles = new Map(); // 'E141' -> ['tests/e2e/a.spec.ts', ...]
-const idDirs = [path.join(root, 'tests')];
+// PRD 021 (issue #237): the editor package's own suite joins the scan — a
+// U-number stays unique across the whole repo, wherever the test lives.
+const idDirs = [path.join(root, 'tests'), path.join(root, 'editor/tests')];
 while (idDirs.length > 0) {
   const dir = idDirs.pop();
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

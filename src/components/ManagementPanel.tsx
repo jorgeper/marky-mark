@@ -27,7 +27,7 @@ import {
 } from '../lib/deploymentSettings';
 // Issue #195: the copy-confirmation duration is the code-copy button's, so
 // "Copied" feels identical everywhere a copy control lives.
-import { CONFIRM_MS } from '../lib/codeCopy';
+import { CONFIRM_MS } from '@marky-mark/editor';
 import { parseInvitationRequest } from '../lib/invitations';
 import type { MemberEntry } from '../lib/membership';
 import { deleteConfirmationMatches, formatOwnerNames } from '../lib/workspaceLifecycle';

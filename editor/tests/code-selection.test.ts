@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { intersectCodeSelection } from '../../src/lib/codeSelection';
+import { intersectCodeSelection } from '../src/lib/codeSelection';
 
 describe('selection ∩ code ranges (issue #123)', () => {
   test('U675: the tint range is the part of the selection that lands inside a code construct — clipped at both ends, merged, sorted, empties dropped', () => {

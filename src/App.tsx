@@ -1,16 +1,16 @@
 import { lazy, Suspense, useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getPlatform, type Platform, type WriteResult } from './platform';
-import { renderMarkdown } from './lib/markdown';
+import { renderMarkdown, SplitView } from '@marky-mark/editor';
 import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
-import { decorateCodeBlocks } from './lib/codeCopy';
+import { decorateCodeBlocks } from '@marky-mark/editor';
 import { COPY_LINK_FILE_LABEL, COPY_LINK_WORKSPACE_LABEL, fileShareUrl, headingAnchors, headingShareUrl, slugFromHash, workspaceShareUrl, type HeadingAnchor } from './lib/shareLinks';
-import { decorateHeadingLinks } from './lib/headingLinks';
+import { decorateHeadingLinks } from '@marky-mark/editor';
 import { CopyLinkButton } from './components/CopyLinkButton';
-import { renderFenceDiagrams, type DiagramRenderCache } from './lib/fenceDiagrams';
+import { renderFenceDiagrams, type DiagramRenderCache } from '@marky-mark/editor';
 import { rewriteFenceWidthAt } from './lib/diagramResize';
 import { DiagramResizer } from './components/DiagramResizer';
-import { fenceRendererFor } from './lib/fenceRenderers';
-import { registerMermaidRenderer } from './lib/mermaidRenderer';
+import { fenceRendererFor } from '@marky-mark/editor';
+import { registerMermaidRenderer } from '@marky-mark/editor';
 import { getDocText, highlightRange, offsetsToRange, rangeToOffsets, rectForOffsets } from './lib/domtext';
 import { readSidecar, serializeSidecar, sidecarPathFor } from './lib/sidecar';
 import { attachEmbedded, mergeComments, splitEmbedded } from './lib/embedded';
@@ -20,8 +20,6 @@ import {
   MARGIN_WIDTHS,
   resolveSettings,
   serializeSettingsLayer,
-  SPLIT_RATIO_MAX,
-  SPLIT_RATIO_MIN,
   ZOOM_LEVELS,
   type Settings,
   type SettingsLayers,
@@ -29,16 +27,16 @@ import {
   type SidebarView,
   type ViewMode,
 } from './lib/settings';
-import { displayCombo, eventMatches } from './lib/hotkeys';
+import { displayCombo, eventMatches } from '@marky-mark/editor';
 import { dispatchCommand, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
 import { buildMenuSpec, type ViewMenuState } from './lib/menuSpec';
 import { deriveAppMode } from './lib/appMode';
 import { buildAppMenu } from './lib/appMenu';
 import { modesAreExclusive, planModeSwitch, viewModeForOpen, type ModeTarget } from './lib/modeSwitch';
 import { stepComment } from './lib/commentNav';
-import { lineAtOffset, offsetForLine, type SyncAnchor } from './lib/scrollSync';
+import { collectAnchors, lineAtOffset, offsetForLine } from '@marky-mark/editor';
 import { installScrollbarFade } from './lib/autoHideScrollbars';
-import type { EditorSearchHandle, EditorSyncHandle, SmartEditHandle, SmartFormatOp } from './components/Editor';
+import type { EditorSearchHandle, EditorSyncHandle, SmartEditHandle, SmartFormatOp } from '@marky-mark/editor';
 import { extractReviewPayload } from './lib/reviewBundle';
 import { buildStaticHtml, statsLine, type StaticComment } from './lib/exportDoc';
 import { buildPrintRootHtml, pickPrintTheme, PRINT_BODY_CLASS, PRINT_ROOT_ID } from './lib/printDoc';
@@ -56,7 +54,7 @@ import {
   type SavePickerKind,
 } from './lib/savePicker';
 import { UpdateDialog } from './components/UpdateDialog';
-import { diffLineSets, type DiffLineSets } from './lib/diffLines';
+import { diffLineSets, type DiffLineSets } from '@marky-mark/editor';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
 import { clearRecent, parseRecent, recentMenuEntries, rememberRecent, removeRecent, serializeRecent, type RecentStore } from './lib/recentFiles';
 import { ancestorsOf, isMarkdownFile, serializeFolderState, visibleEntries, type DirEntry } from './lib/folderTree';
@@ -95,7 +93,7 @@ import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton,
 import { FileTabStrip } from './components/FileTabStrip';
 import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
 import { SearchPanel } from './components/SearchPanel';
-import { compileQuery, findMatchRanges, literalReplacement, type LineMatch, type SearchMatcher, type SearchOptions, type SearchResults } from './lib/searchCore';
+import { compileQuery, findMatchRanges, literalReplacement, type LineMatch, type SearchMatcher, type SearchOptions, type SearchResults } from '@marky-mark/editor';
 import { DEFAULT_SEARCH_OPTIONS } from './lib/searchOptions';
 import { matchDocOffsets, runSearchScan } from './lib/searchScan';
 import { deriveSearchView } from './lib/searchView';
@@ -186,9 +184,9 @@ import {
   stepZoomLevel,
   SEMANTIC_ZOOM_COMBOS,
 } from './lib/semanticZoom';
-import { VimNavResolver } from './lib/vimnav';
-import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, renderedOffsetForSource, sourceCaretForRendered, sourceOffsetForRendered, visibleTextForRange } from './lib/selectionMap';
-import { blockLineFor, wordAt } from './lib/activePosition';
+import { VimNavResolver } from '@marky-mark/editor';
+import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, renderedOffsetForSource, sourceCaretForRendered, sourceOffsetForRendered, visibleTextForRange } from '@marky-mark/editor';
+import { blockLineFor, wordAt } from '@marky-mark/editor';
 import { parseFrontMatter } from './lib/frontmatter';
 import { commentAffordanceSurface } from './lib/commentAffordance';
 import { isStaleDraft, parseDraft, serializeDraft, type Draft } from './lib/drafts';
@@ -208,7 +206,8 @@ import { CREATE_REFUSAL_HINTS, type SessionMe } from './lib/deploymentSettings';
 import { isViewingAsAdminOnly } from './lib/hostedWorkspace';
 import { AboutDialog } from './components/AboutDialog';
 
-const Editor = lazy(() => import('./components/Editor'));
+// PRD 021 (issue #237): the editing surface comes from the workspace package.
+const Editor = lazy(() => import('@marky-mark/editor').then((m) => ({ default: m.Editor })));
 
 // PRD 013 Req 1: mermaid joins the fence-renderer registry once per app
 // session. This is the only place the adapter is named — the preview graft
@@ -255,15 +254,6 @@ const UNTITLED_SENTINEL = '\u0000untitled';
  */
 function docIdentity(docPath: string | null, untitled: boolean): string | null {
   return docPath ?? (untitled ? UNTITLED_SENTINEL : null);
-}
-
-/** SPEC15 §3.3: anchor tops in the scroller's content coordinates. */
-function collectAnchors(scroller: HTMLElement, docEl: HTMLElement): SyncAnchor[] {
-  const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
-  return Array.from(docEl.querySelectorAll<HTMLElement>('[data-mm-line]')).map((el) => ({
-    line: Number(el.dataset.mmLine),
-    top: el.getBoundingClientRect().top - base,
-  }));
 }
 
 function anchorsEqual(a: Anchor, b: Anchor): boolean {
@@ -3708,35 +3698,6 @@ export default function App() {
     setPending(null);
   }, [saveDoc, sourceRangeFromDomSelection, sourceCaretFromDomCaret, rememberViewMode]);
 
-  /**
-   * Split divider drag (SPEC7 §5.4): pointer-captured; the live resize writes
-   * a CSS variable directly (no React re-render per mousemove) and the final
-   * ratio persists on release.
-   */
-  const dragDivider = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      const ws = workspaceRef.current;
-      if (!ws) return;
-      e.preventDefault();
-      const divider = e.currentTarget;
-      divider.setPointerCapture(e.pointerId);
-      const rect = ws.getBoundingClientRect();
-      let ratio = stateRef.current.settings.splitRatio;
-      const onMove = (ev: PointerEvent) => {
-        ratio = Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, (ev.clientX - rect.left) / rect.width));
-        ws.style.setProperty('--mm-split', `${ratio * 100}%`);
-      };
-      const onUp = () => {
-        divider.removeEventListener('pointermove', onMove);
-        divider.removeEventListener('pointerup', onUp);
-        updateSettings({ ...stateRef.current.settings, splitRatio: ratio });
-      };
-      divider.addEventListener('pointermove', onMove);
-      divider.addEventListener('pointerup', onUp);
-    },
-    [updateSettings]
-  );
-
   const openViaDialog = useCallback(async () => {
     const p = stateRef.current.platform;
     if (!p) return;
@@ -6130,44 +6091,38 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, findOpen, findDebounced, findCompiled]);
 
-  // --- split-edit live preview pane (SPEC7 §5, issue #19): live reading pane
-  // that is also a comments surface — same re-anchor + highlight pass as the
-  // preview injection above, so highlights survive the per-keystroke rebuild.
-  useLayoutEffect(() => {
-    if (mode !== 'edit' || !settings.splitEdit) return;
-    const el = splitDocRef.current;
-    if (!el) return;
-    el.innerHTML = html;
+  // --- split-edit live preview pane (SPEC7 §5, issue #19): the pane itself is
+  // the package Preview now (PRD 021 Req 3, issue #237) — it renders, injects
+  // and decorates (images, copy buttons, diagrams) internally. This callback
+  // is the app's half, layered through the Preview's post-render decoration
+  // hook (PRD 021 Req 8): heading copy-links, the comment highlight marks and
+  // the SPEC44 cues. An identity change (comments, visibility, hosted state)
+  // re-injects first, so marks always wrap a clean pipeline-produced tree —
+  // the same rebuild the inline effect keyed on `reanchorAndHighlight` had.
+  const decorateSplitPreview = useCallback(
+    (el: HTMLElement) => {
+      // PRD 020 Req 18: the split reading pane offers the same heading
+      // copy-link affordance, under the same hosted-and-addressed gate.
+      if (stateRef.current.platform?.kind === 'hosted' && stateRef.current.docPath) {
+        decorateHeadingLinks(el, headingUrlForLine, copyToClipboard);
+      }
+      if (!reanchorAndHighlight(el)) return;
+      // SPEC44 §3.2: a re-render wiped the synthetic cues — re-derive them.
+      const cue = activeCueRef.current;
+      if (cue) applyActiveCues(el, cue.head, cue.headLine, cue.hasSel);
+    },
+    [reanchorAndHighlight, applyActiveCues, copyToClipboard, headingUrlForLine]
+  );
+
+  // SPEC41 §2.1/SPEC20 §4.2: the split pane's image seam — local srcs resolve
+  // through the platform against the open document's folder (passed to the
+  // Preview only while a platform and a path exist, matching the inline pass).
+  const resolveSplitImage = useCallback((src: string) => {
     const p = stateRef.current.platform;
     const path = stateRef.current.docPath;
-    if (p && path) {
-      const dir = p.dirname(path);
-      el.querySelectorAll('img').forEach((img) => {
-        const src = img.getAttribute('src');
-        if (!src) return;
-        img.dataset.mmOriginalSrc = src; // SPEC20 §4.2: resize writes this back
-        const resolved = p.resolveAssetSrc(src, dir);
-        if (resolved) img.src = resolved;
-        else img.removeAttribute('src');
-      });
-    }
-    decorateCodeBlocks(el, copyToClipboard); // Issue #122: split view behaves the same
-    // PRD 020 Req 18: the split reading pane offers the same heading
-    // copy-link affordance, under the same hosted-and-addressed gate.
-    if (stateRef.current.platform?.kind === 'hosted' && stateRef.current.docPath) {
-      decorateHeadingLinks(el, headingUrlForLine, copyToClipboard);
-    }
-    // PRD 013 Req 2: the split reading pane draws diagrams the same way — and
-    // this effect re-runs per keystroke, rebuilding the pane's DOM under any
-    // render still in flight, so the stale-result guard (lib/fenceDiagrams.ts)
-    // is what keeps a late diagram out of the tree that replaced it.
-    void renderFenceDiagrams(el, { rendererFor: fenceRendererFor, theme: activeThemeVariantRef.current });
-
-    if (!reanchorAndHighlight(el)) return;
-    // SPEC44 §3.2: a re-render wiped the synthetic cues — re-derive them.
-    const cue = activeCueRef.current;
-    if (cue) applyActiveCues(el, cue.head, cue.headLine, cue.hasSel);
-  }, [html, mode, zoomLevel, settings.splitEdit, reanchorAndHighlight, applyActiveCues, copyToClipboard, headingUrlForLine]);
+    if (!p || !path) return src;
+    return p.resolveAssetSrc(src, p.dirname(path));
+  }, []);
 
   // Issue #167: auto-hiding scrollbars — ONE document-level installer covers
   // every fading surface (workspace, split preview, editor, sidebar/search
@@ -6178,123 +6133,9 @@ export default function App() {
     return installScrollbarFade(document);
   }, [settings.autoHideScrollbars]);
 
-  // Issue #167: true while the split panes were last seen free-scrolling —
-  // the SPEC15 effect below realigns them the moment syncScroll flips on.
-  const syncScrollWasOffRef = useRef(false);
-
-  // --- SPEC15: synchronized split scrolling ------------------------------------
-  // Whichever pane the user scrolls leads; the other follows within a frame.
-  // Programmatic follower writes are counted in `suppress` so they never
-  // re-lead (no feedback loop). Ends clamp mutually reachable (§1.3).
-  useEffect(() => {
-    if (mode !== 'edit' || !settings.splitEdit) return;
-    // Issue #167: syncScroll off ⇒ the panes free-scroll — no subscriptions
-    // at all — and the ref remembers, so the flip back on realigns them
-    // immediately instead of waiting for the next scroll event.
-    if (!settings.syncScroll) {
-      syncScrollWasOffRef.current = true;
-      return;
-    }
-    const docEl = splitDocRef.current;
-    const scroller = splitPreviewRef.current; // .split-preview (the doc sits in a .docwrap since #19)
-    if (!docEl || !scroller) return;
-
-    let anchors: SyncAnchor[] = [];
-    let contentHeight = 1;
-    const rebuild = () => {
-      anchors = collectAnchors(scroller, docEl);
-      contentHeight = Math.max(scroller.scrollHeight, 1);
-    };
-    rebuild();
-    const ro = new ResizeObserver(rebuild); // divider drags, resizes, late images
-    ro.observe(docEl);
-
-    // A follower may emit several scroll events per logical write (CM's
-    // scrollIntoView measure loop), so suppression is a short quiet window
-    // rather than an exact event count — leak-free either way.
-    const quiet = { editor: 0, preview: 0 };
-    const QUIET_MS = 120;
-    const AT_END = 2; // px slack for end clamping
-
-    // SPEC45: while the SPEC44 cue is near the leader's viewport, the panes
-    // align on IT — the selected word keeps the same vertical position on
-    // both sides (clamped; far from the cue the line interpolation returns).
-    const cueEl = () =>
-      docEl.querySelector<HTMLElement>('mark.mm-active-word') ??
-      docEl.querySelector<HTMLElement>('.mm-active-block');
-    const cueContentTop = (el: HTMLElement) =>
-      el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-
-    const editorLeads = () => {
-      const ed = editorSyncRef.current;
-      if (!ed) return;
-      const { top, max } = ed.scrollInfo();
-      const previewMax = scroller.scrollHeight - scroller.clientHeight;
-      let target: number;
-      const mark = cueEl();
-      const vpY = mark ? ed.headTop() - top : 0; // caret's viewport offset
-      if (top <= AT_END) target = 0;
-      else if (top >= max - AT_END) target = previewMax;
-      else if (mark && vpY > -scroller.clientHeight && vpY < scroller.clientHeight * 2) {
-        target = Math.max(0, Math.min(cueContentTop(mark) - vpY, previewMax));
-      } else target = Math.min(offsetForLine(anchors, contentHeight, ed.topLine()), previewMax);
-      if (Math.abs(scroller.scrollTop - target) < 1) return; // no-op → nothing to quiet
-      quiet.preview = performance.now() + QUIET_MS;
-      scroller.scrollTop = target;
-    };
-
-    const previewLeads = () => {
-      const ed = editorSyncRef.current;
-      if (!ed) return;
-      const { max } = ed.scrollInfo();
-      const previewMax = scroller.scrollHeight - scroller.clientHeight;
-      const y = scroller.scrollTop;
-      quiet.editor = performance.now() + QUIET_MS;
-      const mark = cueEl();
-      const markVpY = mark ? cueContentTop(mark) - y : 0;
-      if (y <= AT_END) ed.setScrollTop(0);
-      else if (y >= previewMax - AT_END) ed.setScrollTop(max);
-      else if (mark && markVpY > -scroller.clientHeight && markVpY < scroller.clientHeight * 2) {
-        ed.setScrollTop(Math.max(0, Math.min(ed.headTop() - markVpY, max)));
-      } else ed.scrollToLine(lineAtOffset(anchors, contentHeight, y));
-    };
-
-    const onEditorScroll = () => {
-      if (performance.now() < quiet.editor) return;
-      requestAnimationFrame(editorLeads);
-    };
-    const onPreviewScroll = () => {
-      if (performance.now() < quiet.preview) return;
-      requestAnimationFrame(previewLeads);
-    };
-
-    // The editor loads lazily — retry the subscription until its handle
-    // appears (bounded; the html-keyed rerun also gets a fresh shot).
-    let offEditor: (() => void) | null = null;
-    let disposed = false;
-    let retries = 120; // ~2s of frames
-    const subscribe = () => {
-      if (disposed) return;
-      const ed = editorSyncRef.current;
-      if (ed) {
-        offEditor = ed.onScroll(onEditorScroll);
-        // Issue #167: the toggle just flipped back on — the editor leads,
-        // so both panes show the same content again this instant.
-        if (syncScrollWasOffRef.current) {
-          syncScrollWasOffRef.current = false;
-          editorLeads();
-        }
-      } else if (retries-- > 0) requestAnimationFrame(subscribe);
-    };
-    subscribe();
-    scroller.addEventListener('scroll', onPreviewScroll);
-    return () => {
-      disposed = true;
-      ro.disconnect();
-      offEditor?.();
-      scroller.removeEventListener('scroll', onPreviewScroll);
-    };
-  }, [mode, settings.splitEdit, settings.syncScroll, html]);
+  // SPEC15 synchronized split scrolling lives inside the package SplitView
+  // now (PRD 021 Req 3, issue #237) — it subscribes through the same
+  // editorSyncRef handle the app passes to the Editor.
 
   // --- active highlight styling -----------------------------------------------------
   useEffect(() => {
@@ -7472,7 +7313,48 @@ export default function App() {
               : { overflowY: 'hidden', overflowX: 'auto' }
           }
         >
-          <div className="split-editor">
+          {/* PRD 021 Req 3 (issue #237): split mode renders through the
+              package's SplitView — the editor rides in as a slot (Suspense
+              and every seam prop stay app-owned), the preview pane is the
+              package Preview, and the app's comment marks + cues layer in
+              through its decoration hook (Req 8, decorateSplitPreview). */}
+          <SplitView
+            split={splitActive}
+            editorSyncRef={editorSyncRef}
+            syncScroll={settings.syncScroll}
+            splitRatio={settings.splitRatio}
+            onSplitRatioChange={(ratio) => updateSettings({ ...stateRef.current.settings, splitRatio: ratio })}
+            preview={{
+              // SPEC38 §3.5: the preview renders the canonical text — a real
+              // table, never the display grid.
+              markdown: canonicalOf(buffer),
+              // Issue #43: a doc swap resets the pane instantly — no stale
+              // paint, no debounce, and no re-anchoring against old text.
+              docKey: docIdentity(docPath, untitled),
+              // Issue #165: the split slide opens over rendered content —
+              // the app's retained render is the pane's first frame.
+              initialHtml: html,
+              codeSyntax: settings.codeSyntax, // Issue #122
+              themeVariant: activeThemeVariant,
+              resolveImageSrc: platform && docPath ? resolveSplitImage : undefined,
+              onCopyCode: copyToClipboard,
+              onRendered: decorateSplitPreview,
+              scrollerRef: splitPreviewRef,
+              docRef: splitDocRef,
+              onDocClick: (e) => {
+                // Highlights activate their card here too (#19).
+                const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
+                if (mark?.dataset.cid && showComments) handleMarkClick(mark.dataset.cid);
+                else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
+                placeFromPreviewClick(splitDocRef.current, e);
+              },
+              header:
+                frontMatter && showFrontmatter ? (
+                  <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
+                ) : undefined,
+              aside: panelAside,
+            }}
+            editor={
             <Suspense fallback={<div className="editor-wrap" data-testid="editor-loading" />}>
               <Editor
                 value={buffer}
@@ -7524,48 +7406,8 @@ export default function App() {
                 }
               />
             </Suspense>
-          </div>
-          {splitActive && (
-            <>
-              <div
-                className="split-divider"
-                data-testid="split-divider"
-                onPointerDown={dragDivider}
-                onDoubleClick={() => updateSettings({ ...stateRef.current.settings, splitRatio: 0.5 })}
-              />
-              <div
-                className="split-preview"
-                data-testid="split-preview"
-                ref={splitPreviewRef}
-                // SPEC23 §1: a focused CodeMirror re-asserts its own DOM selection,
-                // which would kill a preview drag-selection mid-gesture. Selecting
-                // in the preview starts with a pointerdown — release the editor's
-                // focus first so the native selection can live in this pane.
-                onPointerDownCapture={() => {
-                  const ae = document.activeElement as HTMLElement | null;
-                  if (ae?.closest('.editor-wrap')) ae.blur();
-                }}
-              >
-                <div className="docwrap">
-                  {frontMatter && showFrontmatter && (
-                    <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
-                  )}
-                  <div
-                    className={settings.codeSyntax ? 'doc' : 'doc mm-code-plain'} // Issue #122
-                    ref={splitDocRef}
-                    onClick={(e) => {
-                      // Highlights activate their card here too (#19).
-                      const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
-                      if (mark?.dataset.cid && showComments) handleMarkClick(mark.dataset.cid);
-                      else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
-                      placeFromPreviewClick(splitDocRef.current, e);
-                    }}
-                  />
-                </div>
-                {panelAside}
-              </div>
-            </>
-          )}
+            }
+          />
         </div>
       )}
       </div>

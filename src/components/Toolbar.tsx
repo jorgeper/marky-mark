@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import type { AppMenuGroup, AppMenuRow } from '../lib/appMenu';
 import type { CommandId } from '../lib/commands';
-import { displayCombo, type HotkeyMap } from '../lib/hotkeys';
+import { displayCombo, type HotkeyMap } from '@marky-mark/editor';
 
 interface Props {
   docName: string | null;

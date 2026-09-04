@@ -7,7 +7,7 @@ import {
   sourceRangeForVisibleMatch,
   stripInline,
   visibleTextForRange,
-} from '../../src/lib/selectionMap';
+} from '../src/lib/selectionMap';
 
 describe('SPEC23 selection mapping', () => {
   test('U50: stripInline visible text + offset maps; mapSelectionToSource exact offsets and null fallbacks', () => {

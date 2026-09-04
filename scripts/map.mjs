@@ -264,7 +264,9 @@ export function readTree(dir) {
       .filter((f) => f.endsWith('.md'))
       .sort()
       .map((f) => read(path.join(specsDir, f))),
-    srcFiles: walk(path.join(dir, 'src')).map(read),
+    // PRD 021 Req 12 (issue #237): the editor workspace package's sources are
+    // part of the citation tree — moved files keep their SPEC rows.
+    srcFiles: [...walk(path.join(dir, 'src')), ...walk(path.join(dir, 'editor/src'))].map(read),
     e2eFiles: readdirSync(e2eDir)
       .filter((f) => f.endsWith('.spec.ts'))
       .sort()

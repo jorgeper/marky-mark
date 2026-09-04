@@ -71,9 +71,10 @@ describe('PRD 013 Req 7 — desktop build keeps mermaid out of the startup load 
     const entryName = entryChunkName(shellHtml());
     const entry = readFileSync(path.join(ASSETS, entryName), 'utf8');
     // Sentinel: the real app entry — the adapter's diagram id prefix, whose
-    // owner is src/lib/mermaidRenderer.ts (statically imported by App.tsx).
+    // owner is the editor package's mermaidRenderer.ts (PRD 021, issue #237;
+    // statically imported by App.tsx via @marky-mark/editor).
     const idPrefix = 'mm-diagram-';
-    expect(readFileSync(path.join(ROOT, 'src/lib/mermaidRenderer.ts'), 'utf8')).toContain(idPrefix);
+    expect(readFileSync(path.join(ROOT, 'editor/src/lib/mermaidRenderer.ts'), 'utf8')).toContain(idPrefix);
     expect(entry, 'not the Marky Mark entry chunk — the mermaid adapter is missing').toContain(idPrefix);
 
     // The library needles are real for the installed mermaid: each appears in

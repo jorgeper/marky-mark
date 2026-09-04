@@ -9,7 +9,7 @@ import {
   treeOrderCompare,
 } from '../../src/lib/openFiles';
 import { parseFolderState, serializeFolderState, type FolderState } from '../../src/lib/folderTree';
-import { comboFromEvent, combosConflict, DEFAULT_HOTKEYS, displayCombo, eventMatches, parseCombo } from '../../src/lib/hotkeys';
+import { comboFromEvent, combosConflict, DEFAULT_HOTKEYS, displayCombo, eventMatches, parseCombo } from '@marky-mark/editor';
 
 const ev = (over: Partial<{ key: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }>) => ({
   key: 'Tab',

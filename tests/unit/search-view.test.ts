@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import type { SearchResults } from '../../src/lib/searchCore';
+import type { SearchResults } from '@marky-mark/editor';
 import { deriveSearchView, searchTotalsLabel } from '../../src/lib/searchView';
 
 /**

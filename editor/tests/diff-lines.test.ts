@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { diffLineSets } from '../../src/lib/diffLines';
+import { diffLineSets } from '../src/lib/diffLines';
 
 const SAVED = ['alpha', 'bravo', 'charlie', 'delta', 'echo'].join('\n');
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { SearchOptions } from '../lib/searchCore';
+import type { SearchOptions } from '@marky-mark/editor';
 import { SearchOptionsBar } from './SearchPanel';
 import { Button } from './ui/Button';
 

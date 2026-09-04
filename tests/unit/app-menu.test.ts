@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { buildAppMenu, type AppMenuGroupId, type AppMenuRow, type AppMenuState } from '../../src/lib/appMenu';
 import type { CommandId } from '../../src/lib/commands';
-import { DEFAULT_HOTKEYS } from '../../src/lib/hotkeys';
+import { DEFAULT_HOTKEYS } from '@marky-mark/editor';
 import { buildMenuSpec, type CommandItemSpec, type ViewMenuState } from '../../src/lib/menuSpec';
 import type { StartActionId } from '../../src/lib/startActions';
 

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { CONFIRM_MS, codeBlockText, createCopyButton, decorateCodeBlocks } from '../../src/lib/codeCopy';
+import { CONFIRM_MS, codeBlockText, createCopyButton, decorateCodeBlocks } from '../src/lib/codeCopy';
 
 afterEach(() => {
   vi.useRealTimers(); // the suite shares workers: never leave fake timers installed

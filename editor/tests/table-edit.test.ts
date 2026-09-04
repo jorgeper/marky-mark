@@ -23,7 +23,7 @@ import {
   starterTable,
   tableRegionAt,
   type TableModel,
-} from '../../src/lib/tableEdit';
+} from '../src/lib/tableEdit';
 
 const TBL = '| a | b |\n| --- | :-: |\n| 1 | 2 |\n| 3 | 4 |';
 const DOC = `intro\n\n${TBL}\n\noutro`;
@@ -340,7 +340,7 @@ describe('SPEC38 transient wrapped grid', () => {
 
 describe('SPEC39 confinement helpers', () => {
   test('U73: sanitizeCellInsert and cellNavTarget', async () => {
-    const { sanitizeCellInsert, cellNavTarget } = await import('../../src/lib/tableEdit');
+    const { sanitizeCellInsert, cellNavTarget } = await import('../src/lib/tableEdit');
 
     // --- sanitizeCellInsert --------------------------------------------------
     expect(sanitizeCellInsert('one\ntwo\r\nthree')).toBe('one two three');
@@ -373,9 +373,11 @@ describe('SPEC39 confinement helpers', () => {
 });
 
 describe('SPEC40 grid-for-all helpers', () => {
+  // The tableGridView SETTING assertions that used to ride along here moved
+  // app-side (tests/unit/settings.test.ts U1094) with the PRD 021 workspace
+  // split — the setting is app-owned; this package only renders the grids.
   test('U74: allTableRegions and the tableGridView setting', async () => {
-    const { allTableRegions } = await import('../../src/lib/tableEdit');
-    const { parseSettings } = await import('../../src/lib/settings');
+    const { allTableRegions } = await import('../src/lib/tableEdit');
 
     // --- none / one / many, exact offsets, order ----------------------------
     expect(allTableRegions('no tables\nhere at all')).toEqual([]);
@@ -397,16 +399,12 @@ describe('SPEC40 grid-for-all helpers', () => {
     expect(rz).toHaveLength(1);
     expect(zeroRow.slice(rz[0].start, rz[0].end)).toBe(zeroRow);
 
-    // --- the setting: default true, per-key fallback ------------------------
-    expect(parseSettings('{}').tableGridView).toBe(true);
-    expect(parseSettings('{"tableGridView":false}').tableGridView).toBe(false);
-    expect(parseSettings('{"tableGridView":"nope"}').tableGridView).toBe(true);
   });
 });
 
 describe('SPEC41 image view helpers', () => {
   test('U75: allImageRefs, height-capable rewrite, deleteImageAt', async () => {
-    const { allImageRefs, rewriteImageSpan, deleteImageAt } = await import('../../src/lib/imageResize');
+    const { allImageRefs, rewriteImageSpan, deleteImageAt } = await import('../src/lib/imageResize');
 
     // --- allImageRefs: both forms, exact offsets, document order ------------
     const doc = 'intro ![a](p/x.png) mid <img src="p/y.png" alt="b" width="120" height="80"> end\n![c](q.png "cap")';

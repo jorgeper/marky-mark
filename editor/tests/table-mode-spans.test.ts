@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { setGridSet, tableModeField, tableModeExtension } from '../../src/components/tableMode';
+import { setGridSet, tableModeField, tableModeExtension } from '../src/components/tableMode';
 
 // Issue #156: switching file tabs swaps documents with one whole-document
 // replace (Editor.tsx's [value] effect). tableModeField used to map every

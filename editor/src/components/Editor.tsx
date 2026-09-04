@@ -228,7 +228,13 @@ export interface EditorSyncHandle {
   onScroll(cb: () => void): () => void;
 }
 
-interface Props {
+/**
+ * PRD 021 Req 4: the Editor's full prop contract, exported. Every
+ * app-flavored capability (clipboard, images, external links, heading links,
+ * paste handling) arrives through a seam callback here — the component
+ * itself imports nothing from any host.
+ */
+export interface EditorProps {
   value: string;
   /** Show the line-number gutter (SPEC3 §2, reconfigurable live). */
   lineNumbers: boolean;
@@ -761,7 +767,7 @@ export default function Editor({
   themeVariant,
   readOnly = false,
   headingLink,
-}: Props) {
+}: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   // Issue #10: re-runs the gutter-inset measurement installed by the mount

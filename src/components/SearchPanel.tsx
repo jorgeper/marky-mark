@@ -1,7 +1,7 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { Chevron, paneWidthDrag } from './FolderPanel';
 import { slideClasses, type SlidePhase } from '../lib/paneSlide';
-import type { FileSearchResult, LineMatch, SearchOptions, SearchResults } from '../lib/searchCore';
+import type { FileSearchResult, LineMatch, SearchOptions, SearchResults } from '@marky-mark/editor';
 import { SEARCH_OPTION_TOGGLES, toggleSearchOption } from '../lib/searchOptions';
 import { IconButton } from './ui/IconButton';
 

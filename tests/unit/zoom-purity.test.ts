@@ -63,7 +63,9 @@ describe('PRD 011 Req 34 — the semantic-zoom core stays pure', () => {
 
   test('U517: no user-visible surface is wired up and no dependency was added', () => {
     const pkg = JSON.parse(
-      readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8')
+      // PRD 021 (issue #237): the render pipeline lives in the editor
+      // workspace package now, so its parser dependency is declared there.
+      readFileSync(fileURLToPath(new URL('../../editor/package.json', import.meta.url)), 'utf8')
     ) as { dependencies: Record<string, string> };
     // Everything the core needs is already in the tree (the render pipeline's parser).
     expect(Object.keys(pkg.dependencies)).toContain('remark-parse');

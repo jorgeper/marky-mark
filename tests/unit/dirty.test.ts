@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { isDirtyText, normalizeEol } from '../../src/lib/dirty';
-import { canonicalizeDetected } from '../../src/components/tableMode';
+import { canonicalizeDetected } from '@marky-mark/editor';
 
 describe('Issue #42 dirty predicate', () => {
   it('U820: identical text is clean; a real one-character edit is dirty', () => {

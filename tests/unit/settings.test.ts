@@ -7,7 +7,7 @@ import {
   SETTINGS_SCOPES,
   WORKSPACE_ELIGIBLE_KEYS,
 } from '../../src/lib/settings';
-import { combosConflict, DEFAULT_HOTKEYS, type HotkeyMap } from '../../src/lib/hotkeys';
+import { combosConflict, DEFAULT_HOTKEYS, type HotkeyMap } from '@marky-mark/editor';
 
 describe('v3 settings', () => {
   test('U13: new fields parse with defaults, invalid values fall back, legacy `theme` migrates to themeLight', () => {
@@ -417,5 +417,16 @@ describe('PRD 012 Req 11: the remembered sidebar view', () => {
     expect(SETTINGS_SCOPES.showFolders).toBe('M');
     expect(SETTINGS_SCOPES.folderWidth).toBe('M');
     expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain('sidebarView');
+  });
+});
+
+describe('SPEC40 §1 tableGridView setting', () => {
+  // These assertions moved here from U74 (editor/tests/table-edit.test.ts)
+  // when tableEdit left for the workspace package (PRD 021, issue #237):
+  // the setting is app-owned, so its parse contract is asserted app-side.
+  test('U1094: default true, per-key fallback', () => {
+    expect(parseSettings('{}').tableGridView).toBe(true);
+    expect(parseSettings('{"tableGridView":false}').tableGridView).toBe(false);
+    expect(parseSettings('{"tableGridView":"nope"}').tableGridView).toBe(true);
   });
 });

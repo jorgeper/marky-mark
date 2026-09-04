@@ -1,8 +1,19 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { HEADING_LINK_CLASS, HEADING_LINK_LIVE_CLASS, decorateHeadingLinks } from '../../src/lib/headingLinks';
-import { getDocText } from '../../src/lib/domtext';
-import { LINK_COPIED_MS } from '../../src/lib/shareLinks';
+import { HEADING_LINK_CLASS, HEADING_LINK_LIVE_CLASS, decorateHeadingLinks } from '../src/lib/headingLinks';
+import { LINK_COPIED_MS } from '../src/lib/copyLink';
+
+// The app's comment anchors are offsets into the concatenation of every text
+// node under the root (its domtext.ts getDocText, which stays app-side per
+// PRD 021's non-goals) — replicated here so the no-text-nodes contract is
+// asserted against the same coordinate space.
+function getDocText(root: Node): string {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let out = '';
+  let n: Node | null;
+  while ((n = walker.nextNode())) out += n.nodeValue ?? '';
+  return out;
+}
 
 afterEach(() => {
   vi.useRealTimers(); // the suite shares workers: never leave fake timers installed

@@ -8,8 +8,8 @@ import {
   revealedRanges,
   taskToggleChange,
   type LivePreviewDeco,
-} from '../../src/lib/livePreview';
-import { livePreviewMousedown } from '../../src/components/livePreview';
+} from '../src/lib/livePreview';
+import { livePreviewMousedown } from '../src/components/livePreview';
 
 /** A state whose syntax tree is fully parsed (GFM base, as the tests need
  * Strikethrough nodes; the pure core only sees the tree, never the config). */

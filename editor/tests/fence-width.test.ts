@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { readFenceWidth, rewriteFenceWidth } from '../../src/lib/fenceWidth';
-import { fenceLanguage } from '../../src/lib/fenceRenderers';
+import { readFenceWidth, rewriteFenceWidth } from '../src/lib/fenceWidth';
+import { fenceLanguage } from '../src/lib/fenceRenderers';
 
 describe('PRD 015 Req 3 — tolerant width reading', () => {
   test('U761: reads width=N after the language word, case-insensitively, never mutating', () => {

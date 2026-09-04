@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { GG_WINDOW_MS, VimNavResolver, type VimKeyEvent } from '../../src/lib/vimnav';
+import { GG_WINDOW_MS, VimNavResolver, type VimKeyEvent } from '../src/lib/vimnav';
 
 function key(k: string, mods: Partial<VimKeyEvent> = {}): VimKeyEvent {
   return { key: k, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...mods };
@@ -47,7 +47,7 @@ describe('vim navigation resolver', () => {
   });
 });
 
-import { VimEditResolver } from '../../src/lib/vimnav';
+import { VimEditResolver } from '../src/lib/vimnav';
 
 describe('SPEC23 editor vim nav resolver', () => {
   test('U49: modal transitions, full nav keyset, inert editing keys, accelerators untouched', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { renderMarkdown } from '../../src/lib/markdown';
+import { renderMarkdown } from '../src/lib/markdown';
 
 const fixture = readFileSync(fileURLToPath(new URL('../../fixtures/adversarial.md', import.meta.url)), 'utf8');
 

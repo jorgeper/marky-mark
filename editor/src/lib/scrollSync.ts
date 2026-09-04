@@ -39,6 +39,20 @@ export function lineAtOffset(anchors: SyncAnchor[], contentHeight: number, scrol
   return table[table.length - 1].line;
 }
 
+/**
+ * SPEC15 §3.3: anchor tops in the scroller's content coordinates, read from a
+ * rendered pane's `data-mm-line` stamps. The one DOM-touching helper in this
+ * module (the mapping above stays pure); both SplitView's sync and the app's
+ * preview-mode scroll restore feed it their own scroller/doc pair.
+ */
+export function collectAnchors(scroller: HTMLElement, docEl: HTMLElement): SyncAnchor[] {
+  const base = scroller.getBoundingClientRect().top - scroller.scrollTop;
+  return Array.from(docEl.querySelectorAll<HTMLElement>('[data-mm-line]')).map((el) => ({
+    line: Number(el.dataset.mmLine),
+    top: el.getBoundingClientRect().top - base,
+  }));
+}
+
 export function offsetForLine(anchors: SyncAnchor[], contentHeight: number, line: number): number {
   const table = effectiveTable(anchors, contentHeight);
   const l = Math.min(Math.max(line, 1), table[table.length - 1].line);

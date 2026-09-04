@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { renderMarkdown } from '../../src/lib/markdown';
-import { applyImageRewrite, rewriteImageSpan } from '../../src/lib/imageResize';
+import { renderMarkdown } from '../src/lib/markdown';
+import { applyImageRewrite, rewriteImageSpan } from '../src/lib/imageResize';
 
 describe('SPEC20 §4 image source spans and rewrite', () => {
   test('U45: every doc-originated <img> carries its source span; remote placeholders carry none', async () => {

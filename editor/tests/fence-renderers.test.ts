@@ -6,7 +6,7 @@ import {
   renderSafely,
   type FenceRenderer,
   type FenceRenderResult,
-} from '../../src/lib/fenceRenderers';
+} from '../src/lib/fenceRenderers';
 
 /**
  * PRD 013 Req 1: the fence-renderer seam's pure logic — registration, the

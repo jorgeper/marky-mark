@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'vitest';
-import { fenceRendererFor } from '../../src/lib/fenceRenderers';
+import { fenceRendererFor } from '../src/lib/fenceRenderers';
 import {
   createMermaidRenderer,
   registerMermaidRenderer,
   type MermaidApi,
   type MermaidLoader,
-} from '../../src/lib/mermaidRenderer';
+} from '../src/lib/mermaidRenderer';
 
 /**
  * PRD 013 Req 4: the mermaid adapter, exercised entirely through an injected

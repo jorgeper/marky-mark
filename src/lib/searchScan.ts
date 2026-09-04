@@ -26,7 +26,7 @@ import {
   type SearchFile,
   type SearchMatcher,
   type SearchResults,
-} from './searchCore.ts';
+} from '@marky-mark/editor';
 
 /** The two filesystem seams the scan walks, plus the path joiner. */
 export interface ScanSeams {

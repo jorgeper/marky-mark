@@ -13,7 +13,7 @@ import {
   type SearchFile,
   type SearchMatcher,
   type SearchOptions,
-} from '../../src/lib/searchCore';
+} from '../src/lib/searchCore';
 
 /**
  * PRD 014 Req 12: the search core, tested straight — plain data in, plain

@@ -8,7 +8,7 @@
  * decided here where a unit test can pin them.
  */
 
-import type { SearchResults } from './searchCore.ts';
+import type { SearchResults } from '@marky-mark/editor';
 
 export type SearchViewState = 'idle' | 'error' | 'scanning' | 'no-results' | 'results';
 

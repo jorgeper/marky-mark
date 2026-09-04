@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { renderMarkdown } from '../../src/lib/markdown';
+import { renderMarkdown } from '../src/lib/markdown';
 
 const FIXTURE = `# Title
 

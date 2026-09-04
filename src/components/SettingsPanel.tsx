@@ -21,8 +21,8 @@ import {
   DEFAULT_HOTKEYS,
   displayCombo,
   type HotkeyMap,
-} from '../lib/hotkeys';
-import { SMART_EDIT_NAME } from '../lib/smartEdit';
+} from '@marky-mark/editor';
+import { SMART_EDIT_NAME } from '@marky-mark/editor';
 import { expandImageName, isValidImageFolder } from '../lib/imagePaste';
 import { LlmSettings } from './LlmSettings';
 import { NO_LLM_CAPABILITIES, type LlmCapabilities, type LlmTestResult } from '../lib/llmSettings';

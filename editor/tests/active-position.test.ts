@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { blockLineFor, mapOffsetByLineFlat, wordAt } from '../../src/lib/activePosition';
+import { blockLineFor, mapOffsetByLineFlat, wordAt } from '../src/lib/activePosition';
 import {
   countNormalized,
   findNormalized,
@@ -7,7 +7,7 @@ import {
   renderedOffsetForSource,
   sourceOffsetForRendered,
   sourceRangeForVisibleMatch,
-} from '../../src/lib/selectionMap';
+} from '../src/lib/selectionMap';
 
 describe('SPEC44 active position', () => {
   test('U76: wordAt affinity & Unicode, blockLineFor, nth-occurrence mapping both directions', () => {

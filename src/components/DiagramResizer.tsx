@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import { DIAGRAM_CLASS, sizeDrawnSvg } from '../lib/fenceDiagrams';
+import { DIAGRAM_CLASS, sizeDrawnSvg } from '@marky-mark/editor';
 import { resizedDiagramBox, type DiagramCorner } from '../lib/diagramResize';
 
 /**

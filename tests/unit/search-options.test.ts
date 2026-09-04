@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { compileQuery } from '../../src/lib/searchCore';
+import { compileQuery } from '@marky-mark/editor';
 import { DEFAULT_SEARCH_OPTIONS, SEARCH_OPTION_TOGGLES, toggleSearchOption } from '../../src/lib/searchOptions';
 
 /**

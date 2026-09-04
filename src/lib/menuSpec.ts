@@ -1,7 +1,7 @@
 import type { AppMode } from './appMode.ts';
 import { DEFAULT_START_ACTIONS, type StartActionId } from './startActions.ts';
 import type { CommandId } from './commands.ts';
-import type { HotkeyMap } from './hotkeys.ts';
+import type { HotkeyMap } from '@marky-mark/editor';
 
 /**
  * Pure menu description (SPEC12 §3.2): buildMenuSpec(state) → plain data.

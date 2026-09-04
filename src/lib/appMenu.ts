@@ -11,7 +11,7 @@
 
 import type { AppMode } from './appMode.ts';
 import type { CommandId } from './commands.ts';
-import type { HotkeyMap } from './hotkeys.ts';
+import type { HotkeyMap } from '@marky-mark/editor';
 import { buildViewItems, type CommandItemSpec, type ViewMenuState } from './menuSpec.ts';
 import type { StartActionId } from './startActions.ts';
 

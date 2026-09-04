@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { renderMarkdown } from '../../src/lib/markdown';
+import { renderMarkdown } from '../src/lib/markdown';
 
 /** The rendered plain text — the comment-anchor coordinate space (U28's strip). */
 const textOf = (html: string) => html.replace(/<[^>]*>/g, '');

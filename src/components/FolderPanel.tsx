@@ -3,7 +3,7 @@ import { displayEntries, isMarkdownFile, type DirEntry } from '../lib/folderTree
 import { folderContextMenu, validateEntryName } from '../lib/folderOps';
 import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN, type ViewMode } from '../lib/settings';
 import { slideClasses, type SlidePhase } from '../lib/paneSlide';
-import { useAnchoredMenu } from './anchoredMenu';
+import { useAnchoredMenu } from '@marky-mark/editor';
 import { Button } from './ui/Button';
 import { IconButton } from './ui/IconButton';
 

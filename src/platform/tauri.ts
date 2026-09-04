@@ -4,7 +4,7 @@ import type { MenuItemSpec, MenuSpec } from '../lib/menuSpec';
 import type { AuxKind } from '../lib/auxProtocol';
 import { dispatchRecent, dispatchCommand } from '../lib/commands';
 import { createDesktopLlmTransport } from '../lib/llmDesktopTransport';
-import { parseCombo } from '../lib/hotkeys';
+import { parseCombo } from '@marky-mark/editor';
 
 /**
  * Real desktop platform. All Tauri imports are dynamic so this module only

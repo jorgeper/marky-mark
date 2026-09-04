@@ -26,7 +26,7 @@ export {
   LINK_COPIED_LABEL,
   LINK_COPIED_MS,
   createCopyLinkController,
-} from './copyLink';
+} from '@marky-mark/editor';
 
 /**
  * PRD 020 Req 14 as reworded by issue #227: each placement's rest tooltip

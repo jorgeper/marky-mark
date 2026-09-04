@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { EditorState, type EditorStateConfig } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
-import { computeDiagramSpans, sameDiagramDrawing } from '../../src/lib/diagramSpans';
+import { computeDiagramSpans, sameDiagramDrawing } from '../src/lib/diagramSpans';
 
 /** A state whose syntax tree is fully parsed (the code-block-spans rig). */
 function mkState(doc: string, selection?: EditorStateConfig['selection']): EditorState {

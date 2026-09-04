@@ -2,8 +2,8 @@ import { describe, expect, test } from 'vitest';
 import { EditorState, type EditorStateConfig } from '@codemirror/state';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { ensureSyntaxTree } from '@codemirror/language';
-import { computeCodeCards, type CodeCard } from '../../src/lib/codeBlockSpans';
-import { codeBlockText } from '../../src/lib/codeCopy';
+import { computeCodeCards, type CodeCard } from '../src/lib/codeBlockSpans';
+import { codeBlockText } from '../src/lib/codeCopy';
 
 /** A state whose syntax tree is fully parsed (the live-preview tests' rig). */
 function mkState(doc: string, selection?: EditorStateConfig['selection']): EditorState {

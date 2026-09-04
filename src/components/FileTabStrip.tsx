@@ -17,7 +17,7 @@ import {
   railWheelTarget,
   type RailArrowState,
 } from '../lib/fileTabs';
-import { useAnchoredMenu } from './anchoredMenu';
+import { useAnchoredMenu } from '@marky-mark/editor';
 import { IconButton } from './ui/IconButton';
 
 export interface FileTabStripProps {

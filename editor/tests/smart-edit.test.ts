@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_HOTKEYS } from '../../src/lib/hotkeys';
+import { DEFAULT_HOTKEYS } from '../src/lib/hotkeys';
 import {
   buildSmartMenu,
   detectContext,
@@ -13,7 +13,7 @@ import {
   wrapLink,
   type SmartMenuCtx,
   type SmartMenuEntry,
-} from '../../src/lib/smartEdit';
+} from '../src/lib/smartEdit';
 
 const ctx = (over: Partial<SmartMenuCtx> = {}): SmartMenuCtx => ({
   table: false,

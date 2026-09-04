@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { buildMenuSpec, type CommandItemSpec, type MenuState } from '../../src/lib/menuSpec';
-import { combosConflict, DEFAULT_HOTKEYS } from '../../src/lib/hotkeys';
+import { combosConflict, DEFAULT_HOTKEYS } from '@marky-mark/editor';
 import { parseSettings } from '../../src/lib/settings';
 
 const base: MenuState = {

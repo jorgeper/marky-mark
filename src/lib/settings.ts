@@ -1,4 +1,4 @@
-import { DEFAULT_HOTKEYS, type HotkeyMap } from './hotkeys.ts';
+import { DEFAULT_HOTKEYS, type HotkeyMap } from '@marky-mark/editor';
 import { isValidImageFolder } from './imagePaste.ts';
 import { isLlmProviderKind } from './llmSettings.ts';
 // PRD 011 Req 32: the accounting shape and its validator, defined once beside
