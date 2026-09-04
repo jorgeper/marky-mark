@@ -1287,3 +1287,15 @@ test('E423: PRD 022 Reqs 6+8 — a note-less card offers no reply/resolve, and R
   await expect(page.locator('mark.hl')).toHaveCount(0);
   await waitForSidecar(page, (s) => !s || !s.includes('"color": "green"'));
 });
+
+test('E428: PRD 022 Req 10 — off the hosted platform an active highlight offers no copy-link control', async ({
+  page,
+}) => {
+  // PRD 020 Req 15 gates every share placement hosted-only; the dev shim
+  // (this suite's platform) activates the card fine but grafts no control.
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-yellow'));
+  await page.locator('mark.hl').first().click();
+  await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
+  await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
+});

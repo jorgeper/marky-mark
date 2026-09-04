@@ -18,7 +18,7 @@ import {
 // the module that owns the format, so a rephrased size fails here loudly.
 import { formatByteSize } from '../../src/lib/deploymentAdmin';
 import { expect, test } from './fixtures';
-import { addComment, landInPreview, menuSave, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
+import { addComment, clickClearOfToolbar, landInPreview, menuSave, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
 // PRD 011 Req 9 (#121): the sentence under test comes from the module that
 // owns it, so a reworded message fails E246 rather than passing a stale copy.
 import { NO_LLM_CONFIGURED_MESSAGE } from '../../src/lib/llmDeployment';
@@ -4543,4 +4543,149 @@ test('E414: container-nested headings at the bottom of a document carry the copy
   await landInPreview(page);
   await expect(listed).toBeInViewport();
   await expect(page.getByTestId('heading-miss-notice')).toHaveCount(0);
+});
+
+// --- highlight share links and #hl-<id> landing (PRD 022 Reqs 10–11, issue #233) --
+
+test('E424: the active highlight reveals a left-margin copy-link that copies the file URL plus #hl-<id>, confirming inline', async ({
+  page,
+  request,
+}) => {
+  // PRD 022 Req 10: activation is the reveal — the control rides the active
+  // highlight beside its first painted line and leaves with it. Req 11: the
+  // copied text is the file's canonical URL plus the reserved fragment.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e424');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# Notes\n\nA phrase to highlight rides here.\n',
+  });
+  await stubClipboard(page);
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'notes.md');
+
+  await selectPhrase(page, 'phrase to highlight');
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-yellow'));
+  const mark = page.locator('mark.hl').first();
+  await mark.click();
+  await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
+
+  // The control names its target (the #227 convention) and sits at the left
+  // margin level with the highlight's first line.
+  const link = page.getByTestId('mm-hl-link');
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute('title', 'Copy link to highlight');
+  await expect(link).toHaveAttribute('aria-label', 'Copy link to highlight');
+  const linkBox = (await link.boundingBox())!;
+  const markBox = (await mark.boundingBox())!;
+  expect(linkBox.x).toBeLessThan(markBox.x);
+  expect(Math.abs(linkBox.y - markBox.y)).toBeLessThan(28);
+
+  // Click copies #hl-<entry id> on the file's canonical URL and confirms
+  // inline per the Req 14 contract, then reverts (~2s).
+  const cid = await mark.getAttribute('data-cid');
+  await link.click();
+  await expect(link).toHaveAttribute('aria-label', 'Link copied');
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/notes.md#hl-${cid}`);
+  await expect(link).toHaveAttribute('aria-label', 'Copy link to highlight', { timeout: 4000 });
+
+  // Click-away deactivates the highlight; the control leaves with it.
+  await page.getByTestId('doc').locator('h1').click();
+  await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
+});
+
+test('E425: visiting a #hl-<id> URL opens the file scrolled to the highlight and flashes it, with no miss notice', async ({
+  page,
+  request,
+}) => {
+  // PRD 022 Req 11 landing: the fragment rides the PRD 020 deep link; the
+  // opened file arrives ON the highlight with the SPEC14 §1.3 mark-flash.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e425');
+  const doc = [
+    '# Top',
+    '',
+    ...Array.from({ length: 60 }, (_, i) => [`filler paragraph ${i} keeps the phrase off-screen.`, '']).flat(),
+    'The linked phrase sits far down the document.',
+    '',
+  ].join('\n');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: doc,
+  });
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'notes.md');
+
+  await selectPhrase(page, 'linked phrase');
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
+  const cid = await page.locator('mark.hl').first().getAttribute('data-cid');
+  // The sidecar must land on the server before the reload boots from the URL.
+  await expect
+    .poll(async () => await readAs(request, token, id, 'notes.md.comments.json'), { timeout: 10_000 })
+    .toContain(cid!);
+
+  // The deep link, then a reload so the boot runs from the URL (same-document
+  // hash navs don't boot — E411's reasoning).
+  await page.goto(`${HOSTED}/${unique}/notes.md#hl-${cid}`);
+  await page.reload();
+  await expect(page.getByTestId('docname')).toContainText('notes.md');
+  // The landing flashes every fragment of the mark (the .flash window is
+  // ~900ms — polling from before the paint catches it).
+  await expect(page.locator(`mark.hl.flash[data-cid="${cid}"]`).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(`mark.hl[data-cid="${cid}"]`).first()).toBeInViewport();
+  await expect
+    .poll(() => page.locator('.workspace').evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(0);
+  await expect(page.getByTestId('highlight-miss-notice')).toHaveCount(0);
+});
+
+test("E426: a #hl-<id> that resolves to no highlight opens the file at the top with the dismissible not-found notice", async ({
+  page,
+  request,
+}) => {
+  // PRD 022 Req 11's graceful miss — the PRD 020 Req 19 notice pattern with
+  // the highlight's words; otherwise a normal file link, nothing scrolled.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e426');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guide.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: HEADED_DOC,
+  });
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'guide.md');
+
+  await page.goto(`${HOSTED}/${unique}/guide.md#hl-00000000-0000-4000-8000-000000000000`);
+  await page.reload();
+  await expect(page.getByTestId('docname')).toContainText('guide.md');
+  const notice = page.getByTestId('highlight-miss-notice');
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("That highlight wasn't found — it may have been removed");
+  await landInPreview(page);
+  expect(await page.locator('.workspace').evaluate((el) => el.scrollTop)).toBe(0);
+  await page.getByTestId('highlight-miss-dismiss').click();
+  await expect(notice).toHaveCount(0);
+});
+
+test('E427: an active highlight on an untitled buffer offers no copy-link — nothing rides the path to share', async ({
+  page,
+}) => {
+  // PRD 020 Req 15 via PRD 022 Req 10: the hosted scratch landing is the
+  // untitled buffer — its highlights activate normally but the share control
+  // does not exist (E408's reasoning for the file placement).
+  const token = await signIn(page.request, 'alan');
+  await dropDraft(page, token);
+  await page.goto(`${HOSTED}/scratch`);
+  await page.getByTestId('hosted-sign-in-username').fill('alan');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('# Draft\n\nAn unshareable phrase sits here.\n');
+  await landInPreview(page);
+  await selectPhrase(page, 'unshareable phrase');
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-yellow'));
+  const mark = page.locator('mark.hl').first();
+  await mark.click();
+  await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
+  await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
 });

@@ -11,6 +11,8 @@ import {
   headingLineForSlug,
   headingShareUrl,
   headingSlug,
+  highlightIdFromHash,
+  highlightShareUrl,
   slugFromHash,
   workspaceShareUrl,
 } from '../../src/lib/shareLinks';
@@ -223,5 +225,52 @@ describe('PRD 020 Req 19 heading-link landing', () => {
     expect(headingLineForSlug(doc, 'notes')).toBe(2);
     expect(headingLineForSlug(doc, 'notes-1')).toBe(4);
     expect(headingLineForSlug(doc, 'renamed-away')).toBeNull();
+  });
+});
+
+describe('PRD 022 Reqs 10–11 highlight share links (issue #233)', () => {
+  // Intent: the copy side rides the file's canonical URL exactly like the
+  // heading placement — same derivation, `#hl-<entry id>` instead of a slug,
+  // nothing to copy while no file rides the path (untitled buffers).
+  test('U1107: highlightShareUrl appends #hl-<encoded id> to the file URL, null without a file', () => {
+    const id = '214eaf06-601c-40aa-bed2-2c4bcb71f378';
+    expect(highlightShareUrl(ORIGIN, '/Team%20Docs/notes.md', id)).toBe(
+      `${ORIGIN}/Team%20Docs/notes.md#hl-${id}`
+    );
+    // A non-URL-safe id travels encoded, like a unicode slug would.
+    expect(highlightShareUrl(ORIGIN, '/ws/a.md', 'id with space')).toBe(
+      `${ORIGIN}/ws/a.md#hl-id%20with%20space`
+    );
+    expect(highlightShareUrl(ORIGIN, '/ws', id)).toBeNull();
+    expect(highlightShareUrl(ORIGIN, '/', id)).toBeNull();
+  });
+
+  // Intent: `hl-` is a reserved namespace split off BEFORE slug matching —
+  // any fragment carrying the prefix is a highlight link (even one that
+  // looks exactly like a real heading's slug, or carries an empty id), and
+  // any fragment without it is not.
+  test('U1108: highlightIdFromHash claims every hl- fragment — look-alike heading slugs included — and no other', () => {
+    expect(highlightIdFromHash('#hl-abc123')).toBe('abc123');
+    // A heading titled "hl foo" slugs to "hl-foo"; the namespace still wins.
+    expect(highlightIdFromHash('#hl-foo')).toBe('foo');
+    // The empty id is claimed too: it resolves to no entry (the caller's
+    // miss notice), never to a heading titled "hl ".
+    expect(highlightIdFromHash('#hl-')).toBe('');
+    // Non-members fall through to the heading path.
+    expect(highlightIdFromHash('#setup')).toBeNull();
+    expect(highlightIdFromHash('#hl')).toBeNull();
+    expect(highlightIdFromHash('#HL-abc')).toBeNull();
+    expect(highlightIdFromHash('#')).toBeNull();
+    expect(highlightIdFromHash('')).toBeNull();
+  });
+
+  // Intent: decoding mirrors slugFromHash — percent-escapes decode (the
+  // copy side encoded the id), and a malformed escape falls back to the raw
+  // text rather than throwing.
+  test('U1109: highlightIdFromHash decodes the id and survives malformed escapes', () => {
+    expect(highlightIdFromHash('#hl-id%20with%20space')).toBe('id with space');
+    // The prefix itself may arrive encoded; the decoded fragment decides.
+    expect(highlightIdFromHash('#%68%6C%2Dabc')).toBe('abc');
+    expect(highlightIdFromHash('#hl-bad%zz')).toBe('bad%zz');
   });
 });

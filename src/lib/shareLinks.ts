@@ -37,6 +37,11 @@ export {
 export const COPY_LINK_WORKSPACE_LABEL = 'Copy link to workspace';
 /** Issue #227: the file placement's rest tooltip and accessible name. */
 export const COPY_LINK_FILE_LABEL = 'Copy link to file';
+/**
+ * PRD 022 Req 10 (issue #233): the active highlight placement's rest tooltip
+ * and accessible name — the same name-the-target rule.
+ */
+export const COPY_LINK_HIGHLIGHT_LABEL = 'Copy link to highlight';
 
 /**
  * PRD 020 Req 16: the workspace share URL — absolute (origin included) and
@@ -142,4 +147,38 @@ export function slugFromHash(hash: string): string | null {
  */
 export function headingLineForSlug(doc: DocumentSections, slug: string): number | null {
   return headingAnchors(doc).find((a) => a.slug === slug)?.line ?? null;
+}
+
+/**
+ * PRD 022 Req 11 (issue #233): the reserved fragment prefix that names a
+ * highlight — a namespace headings can never claim (the parse side checks it
+ * before any slug matching).
+ */
+export const HIGHLIGHT_FRAGMENT_PREFIX = 'hl-';
+
+/**
+ * PRD 022 Req 11 (issue #233): the highlight share URL — the file's canonical
+ * PRD 020 Req 5 URL plus `#hl-<entry id>`, the id percent-encoded like a slug
+ * so the copied text is a valid URL byte-for-byte. Null when no file rides
+ * the path: a highlight in an untitled buffer has no address to share.
+ */
+export function highlightShareUrl(origin: string, pathname: string, id: string): string | null {
+  const file = fileShareUrl(origin, pathname);
+  return file === null ? null : `${file}#${HIGHLIGHT_FRAGMENT_PREFIX}${encodeURIComponent(id)}`;
+}
+
+/**
+ * PRD 022 Req 11 (issue #233): the landing side's split — a visited fragment
+ * carrying the reserved `hl-` prefix answers its entry id here and must
+ * NEVER reach heading-slug matching (the caller returns before it), so a
+ * look-alike heading slug ("hl-foo") cannot shadow a highlight link. The id
+ * may be empty (`#hl-`): still claimed by the namespace — it resolves to no
+ * entry and the caller shows the miss notice. Decoding shares
+ * `slugFromHash`'s rule: a malformed escape falls back to the raw text.
+ */
+export function highlightIdFromHash(hash: string): string | null {
+  const raw = slugFromHash(hash);
+  return raw !== null && raw.startsWith(HIGHLIGHT_FRAGMENT_PREFIX)
+    ? raw.slice(HIGHLIGHT_FRAGMENT_PREFIX.length)
+    : null;
 }

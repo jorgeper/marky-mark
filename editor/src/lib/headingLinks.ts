@@ -41,13 +41,18 @@ const LINK_SVG =
  * (`components/Editor.tsx`). One factory so the glyph and the confirmation's
  * DOM contract (the `is-copied` class, the aria-label swap, the live-region
  * text) cannot drift between placements; each caller adds only its own
- * click/focus wiring and where the announcement text lands.
+ * click/focus wiring and where the announcement text lands. A consumer
+ * placement targeting something other than a heading (PRD 022 Req 10's
+ * highlight control) passes its own `label` — the issue #227 rule that the
+ * rest tooltip/name says the target — and inherits everything else.
  */
 export function createHeadingLinkButton(
   doc: Document,
   opts: {
     className: string;
     testid: string;
+    /** Rest tooltip and accessible name; the heading label when omitted. */
+    label?: string;
     getUrl: () => string | null;
     copy: (text: string) => Promise<boolean> | boolean;
     setLiveText: (text: string) => void;
@@ -59,12 +64,13 @@ export function createHeadingLinkButton(
   btn.dataset.testid = opts.testid;
   // Issue #227: the rest label names the target, so hover distinguishes the
   // heading control from the workspace/file placements.
-  btn.title = COPY_LINK_HEADING_LABEL;
-  btn.setAttribute('aria-label', COPY_LINK_HEADING_LABEL);
+  const label = opts.label ?? COPY_LINK_HEADING_LABEL;
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
   btn.innerHTML = LINK_SVG;
   const ctrl = createCopyLinkController(opts.getUrl, opts.copy, (on) => {
     btn.classList.toggle('is-copied', on);
-    btn.setAttribute('aria-label', on ? LINK_COPIED_LABEL : COPY_LINK_HEADING_LABEL);
+    btn.setAttribute('aria-label', on ? LINK_COPIED_LABEL : label);
     opts.setLiveText(on ? LINK_COPIED_LABEL : '');
   });
   return { btn, ctrl };

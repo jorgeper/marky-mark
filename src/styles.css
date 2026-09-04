@@ -814,6 +814,26 @@ mark.hl mark.hl[data-color] {
 mark.hl.ghost[data-color] {
   background: color-mix(in srgb, var(--marker-hue) 12%, transparent);
 }
+
+/* PRD 022 Req 10 (issue #233): the active highlight's copy-link — the
+   heading affordance's button (lib/highlightLink.ts grafts it with both
+   classes), hoisted into the document's left padding beside the highlight's
+   first painted line. The .doc root is its positioning context (its only
+   absolute children are this button and wrapper-anchored chrome like
+   .mm-copy-code, so the new context re-anchors nothing else). Activation is
+   the reveal, so the heading rule's hover gate is overridden — the compound
+   selector outranks the package sheet's .mm-heading-link hide, which loads
+   after this file (main.tsx import order). */
+.doc {
+  position: relative;
+}
+.doc .mm-heading-link.mm-hl-link {
+  position: absolute;
+  left: 6px;
+  margin-left: 0;
+  opacity: 1;
+  pointer-events: auto;
+}
 /* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 /* PRD 022 Req 1: the marker popup replaces the Add-comment pill — same

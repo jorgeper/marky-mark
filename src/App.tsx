@@ -53,7 +53,8 @@ import {
   reanchor,
   type ReanchorMatch,
 } from './lib/anchoring';
-import { COPY_LINK_FILE_LABEL, COPY_LINK_WORKSPACE_LABEL, fileShareUrl, headingAnchors, headingShareUrl, slugFromHash, workspaceShareUrl, type HeadingAnchor } from './lib/shareLinks';
+import { COPY_LINK_FILE_LABEL, COPY_LINK_WORKSPACE_LABEL, fileShareUrl, headingAnchors, headingShareUrl, highlightIdFromHash, highlightShareUrl, slugFromHash, workspaceShareUrl, type HeadingAnchor } from './lib/shareLinks';
+import { updateHighlightLink } from './lib/highlightLink';
 import { CopyLinkButton } from './components/CopyLinkButton';
 import { rewriteFenceWidthAt } from './lib/diagramResize';
 import { DiagramResizer } from './components/DiagramResizer';
@@ -715,12 +716,14 @@ export default function App() {
    */
   const bootDocRef = useRef<string | null>(null);
   /**
-   * PRD 020 Req 19 (issue #223): the deep link's `#<slug>` landing — runs
-   * right after the boot document opens, but the scroll machinery it reuses
-   * (PRD 012's scrollToLine / scrollPreviewToLine) is declared later, so the
-   * workspace open reaches it through a per-render ref like its neighbours.
+   * PRD 020 Req 19 (issue #223) + PRD 022 Req 11 (issue #233): the deep
+   * link's fragment landing (`#hl-<id>` highlight or `#<slug>` heading) —
+   * runs right after the boot document opens, but the scroll machinery it
+   * reuses (PRD 012's scrollToLine / scrollPreviewToLine) is declared later,
+   * so the workspace open reaches it through a per-render ref like its
+   * neighbours.
    */
-  const landOnHeadingSlugRef = useRef<() => void>(() => {});
+  const landOnFragmentRef = useRef<() => void>(() => {});
   /**
    * PRD 009 Req 4/5: opens a local file as a crossing action (a workspace
    * closes first). Ref'd for the same reason: the boot effect registers the
@@ -3202,10 +3205,11 @@ export default function App() {
         if (bootDoc) {
           bootDocRef.current = null;
           await openDoc(p, bootDoc);
-          // PRD 020 Req 19 (issue #223): the visit's `#<slug>` scrolls the
-          // linked file to its heading — hosted deep links only (the dev
-          // shim's hash carries `#open=…`, a different contract entirely).
-          if (p.kind === 'hosted') landOnHeadingSlugRef.current();
+          // PRD 020 Req 19 (issue #223) + PRD 022 Req 11 (issue #233): the
+          // visit's fragment scrolls the linked file to its heading or
+          // highlight — hosted deep links only (the dev shim's hash carries
+          // `#open=…`, a different contract entirely).
+          if (p.kind === 'hosted') landOnFragmentRef.current();
         }
         commitRecentWs(rememberRecent(recentWsRef.current, file, new Date().toISOString()), p);
         for (const dir of new Set([...folders, ...expanded])) void listFolderDir(p, dir);
@@ -4084,33 +4088,73 @@ export default function App() {
   );
 
   /**
-   * PRD 020 Req 19: the graceful miss — the file opened at the top and this
-   * notice says why. Brief (it self-clears) but DISMISSIBLE, unlike the
-   * SPEC20 toast: the link's recipient can wave it away sooner.
+   * PRD 020 Req 19 + PRD 022 Req 11 (issue #233): the graceful miss — the
+   * file opened at the top and this notice says why the fragment landed
+   * nowhere (a renamed section, or a removed highlight; one notice state,
+   * the kind picks the words). Brief (it self-clears) but DISMISSIBLE,
+   * unlike the SPEC20 toast: the link's recipient can wave it away sooner.
    */
-  const [headingMiss, setHeadingMiss] = useState(false);
-  const headingMissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showHeadingMiss = useCallback(() => {
-    if (headingMissTimerRef.current) clearTimeout(headingMissTimerRef.current);
-    headingMissTimerRef.current = setTimeout(() => setHeadingMiss(false), 8000);
-    setHeadingMiss(true);
+  const [fragmentMiss, setFragmentMiss] = useState<'heading' | 'highlight' | null>(null);
+  const fragmentMissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showFragmentMiss = useCallback((kind: 'heading' | 'highlight') => {
+    if (fragmentMissTimerRef.current) clearTimeout(fragmentMissTimerRef.current);
+    fragmentMissTimerRef.current = setTimeout(() => setFragmentMiss(null), 8000);
+    setFragmentMiss(kind);
   }, []);
-  const dismissHeadingMiss = useCallback(() => {
-    if (headingMissTimerRef.current) clearTimeout(headingMissTimerRef.current);
-    headingMissTimerRef.current = null;
-    setHeadingMiss(false);
+  const dismissFragmentMiss = useCallback(() => {
+    if (fragmentMissTimerRef.current) clearTimeout(fragmentMissTimerRef.current);
+    fragmentMissTimerRef.current = null;
+    setFragmentMiss(null);
   }, []);
   /**
    * PRD 020 Req 19: land the just-opened boot document on the visited
-   * `#<slug>`, in whatever view mode is current, through the TOC's existing
-   * navigate-to-line machinery (PRD 012): `scrollToLine` in edit, the
-   * preview scroll path in read. The preview renders on a debounce, so the
-   * scroll retries per frame (the PRD 011 Req 19 dive pattern) until the
-   * heading's line is in the DOM; an unmatched slug — parsed from the real
-   * buffer, once it holds text — shows the renamed-section notice instead
-   * and leaves the file at the top.
+   * fragment, in whatever view mode is current. A `#<slug>` goes through the
+   * TOC's existing navigate-to-line machinery (PRD 012): `scrollToLine` in
+   * edit, the preview scroll path in read. The preview renders on a
+   * debounce, so the scroll retries per frame (the PRD 011 Req 19 dive
+   * pattern) until the heading's line is in the DOM; an unmatched slug —
+   * parsed from the real buffer, once it holds text — shows the
+   * renamed-section notice instead and leaves the file at the top.
    */
-  const landOnHeadingSlug = useCallback(() => {
+  const landOnFragment = useCallback(() => {
+    // PRD 022 Req 11 (issue #233): `hl-` is a reserved namespace, split off
+    // BEFORE any heading-slug matching — a highlight fragment never falls
+    // through to (or is shadowed by) a look-alike heading slug. The landing
+    // follows the same bounded per-frame retry: the marks paint only after
+    // the debounced render re-anchors the entry, so wait for the mark, then
+    // give it the SPEC14 §1.3 activation feel (center + flash).
+    const hlId = highlightIdFromHash(window.location.hash);
+    if (hlId !== null) {
+      let hlTries = 0;
+      const hlTick = () => {
+        const s = stateRef.current;
+        const doc = docRef.current ?? splitDocRef.current;
+        const marks = doc
+          ? Array.from(doc.querySelectorAll<HTMLElement>(`mark.hl[data-cid="${CSS.escape(hlId)}"]`))
+          : [];
+        if (marks.length > 0) {
+          marks[0].scrollIntoView({ block: 'center' });
+          for (const m of marks) {
+            m.classList.add('flash');
+            setTimeout(() => m.classList.remove('flash'), 900);
+          }
+          return;
+        }
+        // The entry is known missing once the document is in (its comments
+        // load with it): say so now rather than at the retry bound.
+        if (canonicalOf(s.buffer) !== '' && !s.comments.some((c) => c.id === hlId)) {
+          showFragmentMiss('highlight');
+          return;
+        }
+        // Not painted yet (debounced render, re-anchoring) — retry per
+        // frame, bounded so an orphaned entry that never paints a mark
+        // cannot spin forever: at the bound it too is a miss.
+        if (hlTries++ < 300) requestAnimationFrame(hlTick);
+        else showFragmentMiss('highlight');
+      };
+      requestAnimationFrame(hlTick);
+      return;
+    }
     const slug = slugFromHash(window.location.hash);
     if (slug === null) return;
     let tries = 0;
@@ -4120,7 +4164,7 @@ export default function App() {
       if (src !== '') {
         const line = getHeadingAnchors().find((a) => a.slug === slug)?.line ?? null;
         if (line === null) {
-          showHeadingMiss();
+          showFragmentMiss('heading');
           return;
         }
         // Cancel any in-flight scroll carry, the palette's reason: its retry
@@ -4141,11 +4185,11 @@ export default function App() {
       // spin forever. A buffer still empty at the bound is a real document
       // with no headings at all: no slug can match, so say so.
       if (tries++ < 300) requestAnimationFrame(tick);
-      else if (src === '') showHeadingMiss();
+      else if (src === '') showFragmentMiss('heading');
     };
     requestAnimationFrame(tick);
-  }, [canonicalOf, getHeadingAnchors, scrollPreviewToLine, showHeadingMiss]);
-  landOnHeadingSlugRef.current = landOnHeadingSlug;
+  }, [canonicalOf, getHeadingAnchors, scrollPreviewToLine, showFragmentMiss]);
+  landOnFragmentRef.current = landOnFragment;
 
   /** SPEC14 §1: step activation through the open comments in position order. */
   const navigateComment = useCallback((dir: 1 | -1) => {
@@ -6195,7 +6239,23 @@ export default function App() {
     doc.querySelectorAll<HTMLElement>('mark.hl').forEach((m) => {
       m.classList.toggle('active', m.dataset.cid === activeId);
     });
-  }, [activeId, positions, showComments]);
+    // PRD 022 Req 10 (issue #233): the active highlight's copy-link rides
+    // the same activation pass — grafted beside the first painted mark,
+    // gone with deactivation. PRD 020 Req 15: hosted with an addressed file
+    // only, the gate every share placement takes; an untitled buffer never
+    // shows it.
+    const s = stateRef.current;
+    const linkable = s.platform?.kind === 'hosted' && s.docPath ? activeId : null;
+    updateHighlightLink(doc, linkable, {
+      // Click time, like every placement: that moment's canonical address
+      // (PRD 020 Req 17 derivation) plus #hl-<entry id> (Req 11).
+      getUrl: () =>
+        linkable === null
+          ? null
+          : highlightShareUrl(window.location.origin, window.location.pathname, linkable),
+      copy: copyToClipboard,
+    });
+  }, [activeId, positions, showComments, copyToClipboard]);
 
   // --- margin card layout (SPEC6 §2): absolutely-positioned, animated tops.
   // Idle: cards sit level with their highlights, pushing later ones down.
@@ -7670,18 +7730,25 @@ export default function App() {
         </div>
       )}
 
-      {/* PRD 020 Req 19 (issue #223): the heading-link miss — the file opened
-          at the top and this says why. The toast idiom, but DISMISSIBLE (and
-          on its own state, so a paste notice never fights it): brief via its
-          own self-clear, gone sooner via the ✕. */}
-      {headingMiss && (
-        <div className="mm-notice mm-heading-miss" data-testid="heading-miss-notice" role="status">
-          That section wasn't found — it may have been renamed
+      {/* PRD 020 Req 19 (issue #223) + PRD 022 Req 11 (issue #233): the
+          fragment-link miss — the file opened at the top and this says why
+          (a renamed section, or a removed highlight). The toast idiom, but
+          DISMISSIBLE (and on its own state, so a paste notice never fights
+          it): brief via its own self-clear, gone sooner via the ✕. */}
+      {fragmentMiss && (
+        <div
+          className="mm-notice mm-heading-miss"
+          data-testid={fragmentMiss === 'heading' ? 'heading-miss-notice' : 'highlight-miss-notice'}
+          role="status"
+        >
+          {fragmentMiss === 'heading'
+            ? "That section wasn't found — it may have been renamed"
+            : "That highlight wasn't found — it may have been removed"}
           <IconButton
             className="heading-miss-dismiss"
-            data-testid="heading-miss-dismiss"
+            data-testid={fragmentMiss === 'heading' ? 'heading-miss-dismiss' : 'highlight-miss-dismiss'}
             title="Dismiss"
-            onClick={dismissHeadingMiss}
+            onClick={dismissFragmentMiss}
           >
             ✕
           </IconButton>
