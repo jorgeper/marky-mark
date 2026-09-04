@@ -1,7 +1,8 @@
 /**
  * PRD 020 Reqs 14–17 (issue #222): the copy-link affordance's logic layer —
- * which URL each placement copies, and the confirmation timing contract —
- * kept pure so both are unit-testable without a DOM. The React shell
+ * which URL each placement copies — kept pure so it is unit-testable
+ * without a DOM. The confirmation timing contract lives in `copyLink.ts`
+ * (re-exported here, see below). The React shell
  * (`components/CopyLinkButton.tsx`) is glue over this module, the same
  * split `lib/codeCopy.ts` gives the code-block copy button.
  *
@@ -14,6 +15,20 @@ import { buildAppPath, parseAppPath } from './hostedPaths';
 import type { DocumentSections } from './sectionModel';
 
 /**
+ * PRD 021 Req 5 (issue #236): the confirmation contract and the labels the
+ * editor subtree shares live in the pure `copyLink.ts` (no hosted-URL
+ * imports); this module re-exports them so app-side callers
+ * (`components/CopyLinkButton.tsx`, `App.tsx`) and existing tests keep one
+ * import site — the dependency points app → editor lib, never back.
+ */
+export {
+  COPY_LINK_HEADING_LABEL,
+  LINK_COPIED_LABEL,
+  LINK_COPIED_MS,
+  createCopyLinkController,
+} from './copyLink';
+
+/**
  * PRD 020 Req 14 as reworded by issue #227: each placement's rest tooltip
  * and accessible name says its target — the PRD's uniform "Copy link" made
  * the three controls indistinguishable on hover. The rest of Req 14's
@@ -22,12 +37,6 @@ import type { DocumentSections } from './sectionModel';
 export const COPY_LINK_WORKSPACE_LABEL = 'Copy link to workspace';
 /** Issue #227: the file placement's rest tooltip and accessible name. */
 export const COPY_LINK_FILE_LABEL = 'Copy link to file';
-/** Issue #227: both heading placements' rest tooltip and accessible name. */
-export const COPY_LINK_HEADING_LABEL = 'Copy link to heading';
-/** PRD 020 Req 14: the inline confirmation the control transforms into. */
-export const LINK_COPIED_LABEL = 'Link copied';
-/** PRD 020 Req 14: how long the confirmation shows (~2s) before reverting. */
-export const LINK_COPIED_MS = 2000;
 
 /**
  * PRD 020 Req 16: the workspace share URL — absolute (origin included) and
@@ -133,35 +142,4 @@ export function slugFromHash(hash: string): string | null {
  */
 export function headingLineForSlug(doc: DocumentSections, slug: string): number | null {
   return headingAnchors(doc).find((a) => a.slug === slug)?.line ?? null;
-}
-
-/**
- * PRD 020 Req 14: the one confirmation contract, shared by every placement
- * (the `createCopyButton` precedent in `lib/codeCopy.ts`): a click reads its
- * URL at click time, copies it, and only a landed write turns the
- * confirmation on — for LINK_COPIED_MS, then off; a rejected write or a
- * null URL says nothing rather than lying. A re-click while confirming
- * restarts the window. `dispose` cancels the pending revert so an unmounted
- * control never flips state afterwards.
- */
-export function createCopyLinkController(
-  getUrl: () => string | null,
-  copy: (text: string) => Promise<boolean> | boolean,
-  setCopied: (on: boolean) => void,
-): { click(): Promise<void>; dispose(): void } {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return {
-    async click() {
-      const url = getUrl();
-      if (url === null) return;
-      const ok = await copy(url);
-      if (!ok) return;
-      setCopied(true);
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => setCopied(false), LINK_COPIED_MS);
-    },
-    dispose() {
-      if (timer) clearTimeout(timer);
-    },
-  };
 }

@@ -13,11 +13,13 @@
  *
  * The confirmation contract itself (copy at click time, confirm only on a
  * landed write, ~2s, then revert) is `createCopyLinkController` in
- * `lib/shareLinks.ts` — the same controller the Req 16/17 placements use.
+ * `lib/copyLink.ts` — the same controller the Req 16/17 placements use.
  * The editor gutter placement (`components/Editor.tsx`) builds its marker
- * from the same `createHeadingLinkButton` factory below.
+ * from the same `createHeadingLinkButton` factory below. PRD 021 Req 5
+ * (issue #236): this module imports only the pure `copyLink.ts`, never
+ * `shareLinks`/`hostedPaths` — heading URLs arrive through `getUrl`.
  */
-import { COPY_LINK_HEADING_LABEL, LINK_COPIED_LABEL, createCopyLinkController } from './shareLinks';
+import { COPY_LINK_HEADING_LABEL, LINK_COPIED_LABEL, createCopyLinkController } from './copyLink';
 
 /** The per-heading button; also its `data-testid`. */
 export const HEADING_LINK_CLASS = 'mm-heading-link';

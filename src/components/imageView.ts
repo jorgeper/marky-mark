@@ -16,7 +16,10 @@
 import { StateEffect, StateField, type EditorState } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import { allImageRefs, type ImageRef } from '../lib/imageResize';
-import { isRemoteSrc, remoteHost } from '../lib/markdown';
+// PRD 021 Req 6 (issue #236): the remote-src helpers come from the pure
+// `remoteSrc.ts`, not `lib/markdown.ts` — the editing surface never imports
+// the unified/remark pipeline.
+import { isRemoteSrc, remoteHost } from '../lib/remoteSrc';
 import { tableModeField } from './tableMode';
 
 export interface ImageViewConfig {

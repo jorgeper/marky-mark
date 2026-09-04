@@ -42,21 +42,12 @@ const schema: SanitizeSchema = {
   },
 };
 
-const REMOTE_SRC = /^(?:https?:)?\/\//i;
-
-/** SPEC41 §2.1: the edit-pane widget applies the same remote-src test. */
-export function isRemoteSrc(src: string): boolean {
-  return REMOTE_SRC.test(src);
-}
-
-/** Hostname for the placeholder label; tolerant of unparsable URLs. */
-export function remoteHost(src: string): string {
-  try {
-    return new URL(src.startsWith('//') ? `https:${src}` : src).hostname || 'remote host';
-  } catch {
-    return 'remote host';
-  }
-}
+// PRD 021 Req 6 (issue #236): the remote-src test and hostname label live in
+// the pure `remoteSrc.ts` so the edit-pane widget (`components/imageView.ts`)
+// shares the one definition without importing this pipeline; re-exported for
+// this module's callers.
+export { isRemoteSrc, remoteHost } from './remoteSrc';
+import { isRemoteSrc, remoteHost } from './remoteSrc';
 
 interface HastNode {
   type: string;
@@ -144,7 +135,7 @@ function blockRemoteImages() {
     node.children = node.children.map((child) => {
       if (child.type === 'element' && child.tagName === 'img') {
         const src = String(child.properties?.src ?? '');
-        if (REMOTE_SRC.test(src)) {
+        if (isRemoteSrc(src)) {
           const alt = String(child.properties?.alt ?? '').trim();
           return {
             type: 'element',
