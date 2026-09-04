@@ -11,7 +11,9 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
-    }
+    },
+    "./styles.css": "./styles.css",
+    "./default-theme.css": "./default-theme.css"
   },
   "scripts": {
     "build": "vite build",

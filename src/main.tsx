@@ -7,6 +7,13 @@ import { HostedShell } from './components/HostedSignIn';
 import { detectHostedMode } from './lib/hostedGate';
 import { windowRole } from './lib/windowRole';
 import './styles.css';
+// PRD 021 Req 7 (issue #238): the editor/preview/split styles ship with the
+// package. Imported AFTER styles.css — the package sheet's rules must keep
+// winning the same-specificity ties they won by source order in the one file
+// (e.g. .smart-edit-menu over .theme-menu, .table-chip over .icon-btn). The
+// app does NOT import the package's default-theme.css: themes stay injected
+// at runtime by src/themeRuntime.ts.
+import '@marky-mark/editor/styles.css';
 
 // SPEC13 §4.1: aux windows load the same bundle with ?window=settings|about.
 const role = windowRole(window.location.search);

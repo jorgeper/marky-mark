@@ -1,0 +1,68 @@
+/* @marky-mark/editor — the minimal default theme (PRD 021 Req 9, issue #238).
+   Presentable defaults for EVERY variable in the THEMING.md contract, so a
+   bare embed that imports ./styles.css and this file looks reasonable with
+   no host theming. Values are the Crisp defaults the stylesheet's own
+   fallbacks assume. Separately importable on purpose: Marky Mark does NOT
+   import it — the app injects its own themes at runtime (themeRuntime.ts),
+   and this sheet must never fight them. */
+:root {
+  /* Fonts and layout */
+  --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mm-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --mm-font-size: 16px;
+  --mm-content-width: 46rem;
+
+  /* Core colors */
+  --mm-bg: #ffffff;
+  --mm-bg-elevated: #f6f8fa;
+  --mm-fg: #1f2328;
+  --mm-fg-muted: #59636e;
+  --mm-muted: #59636e;
+  --mm-heading: #1f2328;
+  --mm-link: #0969da;
+  --mm-accent: #0969da;
+  --mm-border: #d1d9e0;
+
+  /* Markdown / document elements */
+  --mm-code-bg: #f6f8fa;
+  --mm-code-fg: #1f2328;
+  --mm-blockquote-border: #d1d9e0;
+  --mm-blockquote-fg: #59636e;
+  --mm-table-border: #d1d9e0;
+  --mm-table-stripe: #f6f8fa;
+  --mm-hr: #d8dee4;
+  --mm-selection: rgba(9, 105, 218, 0.18);
+
+  /* Syntax highlighting */
+  --mm-syn-keyword: #cf222e;
+  --mm-syn-string: #0a3069;
+  --mm-syn-comment: #59636e;
+  --mm-syn-number: #0550ae;
+  --mm-syn-title: #6639ba;
+  --mm-syn-attr: #0550ae;
+  --mm-syn-literal: #0550ae;
+  --mm-syn-meta: #953800;
+
+  /* Editor cues */
+  --mm-find: #ffdf5d;
+  --mm-find-active: #f0883e;
+  --mm-find-fg: #1f2328;
+  --mm-active-word: color-mix(in srgb, #0969da 16%, transparent);
+  --mm-diff-changed-bg: rgba(46, 160, 67, 0.14);
+  --mm-diff-removed: #cf222e;
+
+  /* Scale and shadow tokens */
+  --mm-text-caption: 11px;
+  --mm-text-small: 12.5px;
+  --mm-radius-small: 6px;
+  --mm-radius-pill: 999px;
+  --mm-card-shadow: 0 1px 6px rgba(0, 0, 0, 0.09);
+  --mm-fence-ring: #d1d9e0;
+  --mm-split-edge-shade: inset -12px 0 14px -12px rgba(0, 0, 0, 0.28);
+
+  /* Host-layout variables (JS-driven in Marky Mark; resting values here) */
+  --mm-split: 50%;
+  --mm-pane-min: 768px;
+  --mm-zoom: 1;
+}

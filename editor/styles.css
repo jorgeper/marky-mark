@@ -1,0 +1,1032 @@
+/* @marky-mark/editor — the package-owned stylesheet (PRD 021 Req 7).
+   Structural styles for the DOM this package renders: the Editor pane
+   (.editor-wrap and its CodeMirror .cm-* surface, the .mm-md-*/.mm-code-*
+   markdown token classes, table mode, fence code cards, image widgets,
+   Smart Edit), the Preview (.split-preview > .docwrap > .doc document
+   rendering, code copy buttons, heading links, diagrams) and the SplitView
+   (.split-editor | .split-divider | .split-preview).
+
+   Extracted verbatim from Marky Mark's src/styles.css — same rules, same
+   source order, citation comments preserved (PRD 021 Reqs 7, 12, 17). The
+   host imports this sheet AFTER its own base stylesheet: a few rules here
+   deliberately win same-specificity ties against host primitives
+   (.menu/.icon-btn) by source order, exactly as they did in the one file.
+
+   Every color/font/size rides the --mm-* CSS-variable theming contract
+   documented in THEMING.md (PRD 021 Req 9), with fallbacks matching the
+   Crisp defaults where the original rules carried them. A bare embed can
+   import ./default-theme.css for presentable defaults; Marky Mark does not
+   (its themes are injected at runtime by src/themeRuntime.ts). */
+
+/* Minimum useful CONTENT width per pane: --mm-pane-min is host layout
+   (Marky Mark defines it on .theme-root from the paneMinWidth setting);
+   past the floor the pane scrolls sideways instead of crushing content. */
+.editor-wrap {
+  min-width: var(--mm-pane-min, 768px);
+}
+
+.docwrap {
+  flex: 1;
+  display: flex;
+  /* SPEC26 §2: column so the front-matter card stacks above the doc; the
+     doc keeps centering itself via width/max-width + align-items. */
+  flex-direction: column;
+  align-items: center;
+  min-width: var(--mm-pane-min, 768px);
+}
+
+.doc {
+  width: 100%;
+  max-width: var(--mm-content-width, 46rem);
+  padding: 40px 32px 96px;
+  overflow-wrap: break-word;
+  /* Text-only zoom: scales document text, never the surrounding UI. */
+  font-size: calc(var(--mm-font-size, 16px) * var(--mm-zoom));
+}
+
+.doc h1,
+.doc h2,
+.doc h3,
+.doc h4,
+.doc h5,
+.doc h6 {
+  font-family: var(--mm-font-heading, inherit);
+  color: var(--mm-heading, inherit);
+  line-height: 1.3;
+  margin: 1.6em 0 0.5em;
+}
+
+.doc h1 {
+  font-size: 2em;
+  margin-top: 0.4em;
+}
+
+.doc h2 {
+  font-size: 1.5em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--mm-border, #d1d9e0);
+}
+
+.doc h3 {
+  font-size: 1.22em;
+}
+
+.doc a {
+  color: var(--mm-link, #0969da);
+  text-decoration: none;
+}
+
+.doc a:hover {
+  text-decoration: underline;
+}
+
+.doc code {
+  font-family: var(--mm-font-mono, monospace);
+  font-size: 0.86em;
+  background: var(--mm-code-bg, #f6f8fa);
+  color: var(--mm-code-fg, inherit);
+  padding: 0.15em 0.35em;
+  border-radius: 5px;
+}
+
+.doc pre {
+  background: var(--mm-code-bg, #f6f8fa);
+  border-radius: 9px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  line-height: 1.55;
+}
+
+.doc pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.87em;
+}
+
+.doc blockquote {
+  margin: 1em 0;
+  padding: 0.1em 1.1em;
+  border-left: 3px solid var(--mm-blockquote-border, #d1d9e0);
+  color: var(--mm-blockquote-fg, #59636e);
+}
+
+.doc table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.doc th,
+.doc td {
+  border: 1px solid var(--mm-table-border, #d1d9e0);
+  padding: 6px 13px;
+}
+
+.doc tbody tr:nth-child(2n) {
+  background: var(--mm-table-stripe, #f6f8fa);
+}
+
+.doc hr {
+  border: none;
+  border-top: 2px solid var(--mm-hr, #d8dee4);
+  margin: 2em 0;
+}
+
+.doc img {
+  max-width: 100%;
+}
+
+.doc ul.contains-task-list {
+  list-style: none;
+  padding-left: 1.2em;
+}
+
+.doc li {
+  margin: 0.2em 0;
+}
+
+/* syntax highlighting → theme contract */
+.doc .hljs-keyword,
+.doc .hljs-selector-tag,
+.doc .hljs-tag,
+.doc .hljs-name {
+  color: var(--mm-syn-keyword, #cf222e);
+}
+.doc .hljs-string,
+.doc .hljs-regexp,
+.doc .hljs-addition {
+  color: var(--mm-syn-string, #0a3069);
+}
+.doc .hljs-comment,
+.doc .hljs-quote,
+.doc .hljs-deletion {
+  color: var(--mm-syn-comment, #59636e);
+  font-style: italic;
+}
+.doc .hljs-number,
+.doc .hljs-symbol {
+  color: var(--mm-syn-number, #0550ae);
+}
+.doc .hljs-title,
+.doc .hljs-function .hljs-title,
+.doc .hljs-section {
+  color: var(--mm-syn-title, #6639ba);
+}
+.doc .hljs-attr,
+.doc .hljs-attribute,
+.doc .hljs-property,
+.doc .hljs-variable,
+.doc .hljs-params {
+  color: var(--mm-syn-attr, #0550ae);
+}
+.doc .hljs-literal,
+.doc .hljs-built_in,
+.doc .hljs-type {
+  color: var(--mm-syn-literal, #0550ae);
+}
+.doc .hljs-meta,
+.doc .hljs-doctag {
+  color: var(--mm-syn-meta, #953800);
+}
+
+/* Issue #122: the codeSyntax setting off ⇒ no per-language colour in the
+   preview. The markdown pipeline still emits the hljs classes — its text
+   output is the coordinate space comment anchors are offsets into, so it must
+   not vary with a setting — and the colours are neutralized here instead.
+   Code paints in the plain code foreground; the code background, mono font,
+   radius and the SPEC23 §3 selection tint are untouched. */
+.doc.mm-code-plain [class*='hljs-'] {
+  color: inherit;
+  font-style: normal;
+}
+
+/* ---------- Issue #122: the per-code-block copy button ---------- */
+
+/* The wrapper is grafted around each <pre> after injection (lib/codeCopy.ts):
+   a plain block box with no padding or border, so the <pre>'s own margins
+   collapse straight through it and nothing about the block's layout moves. It
+   exists only to be the positioning context, which the <pre> itself cannot be
+   — it scrolls sideways (overflow-x: auto), and an absolutely positioned
+   child would scroll away with the code. */
+.doc .mm-codeblock {
+  position: relative;
+}
+
+.doc .mm-copy-code {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px 9px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 6px;
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg-muted, #57606a);
+  font-family: inherit;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+/* The label is pseudo-element content on purpose: the button then holds no
+   text node, so getDocText() over the preview root is byte-identical with the
+   buttons present and every comment anchor still resolves (lib/codeCopy.ts). */
+.doc .mm-copy-code::after {
+  content: 'Copy';
+}
+.doc .mm-copy-code.is-copied::after {
+  content: 'Copied';
+}
+
+/* Revealed on hover of the block, and on keyboard focus — the button is a real
+   tab stop, so focus-within has to light it up as well as the pointer. */
+.doc .mm-codeblock:hover .mm-copy-code,
+.doc .mm-codeblock:focus-within .mm-copy-code,
+.doc .mm-copy-code.is-copied {
+  opacity: 1;
+  pointer-events: auto;
+}
+.doc .mm-copy-code:hover {
+  color: var(--mm-fg, #1f2328);
+  border-color: var(--mm-accent, #0969da);
+}
+
+/* PRD 020 Req 18 (issue #223): the per-heading copy-link control — inline
+   after the heading text, revealed on hover of the heading (and on keyboard
+   focus, and while confirming). Like .mm-copy-code above it holds NO text
+   node: the glyph is SVG and the "Link copied" caption is pseudo-element
+   content, so getDocText() over the preview root stays byte-identical and
+   every comment anchor still resolves (lib/headingLinks.ts). */
+.doc .mm-heading-link {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 8px;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: var(--mm-fg-muted, #57606a);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.doc :is(h1, h2, h3, h4, h5, h6):hover .mm-heading-link,
+.doc .mm-heading-link:focus-visible,
+.doc .mm-heading-link.is-copied {
+  opacity: 1;
+  pointer-events: auto;
+}
+.doc .mm-heading-link:hover {
+  color: var(--mm-accent, #0969da);
+}
+.doc .mm-heading-link.is-copied {
+  color: var(--mm-accent, #0969da);
+}
+.doc .mm-heading-link.is-copied svg {
+  display: none;
+}
+.doc .mm-heading-link.is-copied::after {
+  content: 'Link copied';
+  font-size: var(--mm-text-caption);
+  white-space: nowrap;
+}
+
+/* PRD 020 Req 18: the graft's one aria-live region — a sibling of the doc
+   root (outside the anchor text space), visually hidden like
+   .copy-link-live. */
+.mm-heading-link-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- PRD 013: fence diagrams, preview pane then edit pane ---------- */
+
+/* PRD 013 Req 3: a drawn fence's code is hidden, never removed — getDocText's
+   TreeWalker ignores CSS, so the block's text nodes keep anchoring comments
+   while the diagram host (whose SVG is shadow-rooted and contributes no text
+   nodes) shows in its place. `pending` and `error` blocks stay visible
+   (Reqs 10–11: code while loading, code beside the failure badge). */
+.doc pre[data-mm-diagram='done'] {
+  display: none;
+}
+
+/* PRD 013 Req 9: a diagram wider than the pane scrolls inside its own block
+   rather than overflowing it (a renderer's own width:100%/max-width sizing
+   scales down first; this is the fallback for fixed-width SVGs). */
+.doc .mm-diagram {
+  overflow-x: auto;
+  margin: 1em 0; /* the hidden <pre>'s default margin, restated on its stand-in */
+}
+
+/* PRD 013 Req 10: the unobtrusive failure note under the untouched code
+   block. Its message text lives in a shadow root (zero text nodes in the
+   anchor space); color and font inherit across the boundary. */
+.doc .mm-diagram-error {
+  margin: -0.5em 0 1em;
+  font-size: 0.78rem;
+  color: var(--mm-fg-muted, #57606a);
+}
+
+/* PRD 013 Req 5: the edit-pane diagram widget — a block replacing its fence
+   as pure decoration. A pointer says the whole block is clickable (a click
+   reveals the fence source at the caret). */
+.editor-wrap .mm-editor-diagram {
+  cursor: pointer;
+  padding: 0.25em 0;
+}
+
+/* PRD 013 Req 11: while the renderer works the fence source holds the space —
+   monospace and muted so the pending block reads as "being drawn", and kept
+   at the source's natural height so nothing collapses. */
+.editor-wrap .mm-editor-diagram .mm-editor-diagram-source {
+  margin: 0;
+  font-family: var(--mm-font-mono, monospace);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  opacity: 0.75;
+}
+
+/* PRD 013 Req 9: same overflow fallback as the preview host — a fixed-width
+   SVG scrolls inside its block rather than widening the editor line. */
+.editor-wrap .mm-editor-diagram .mm-diagram {
+  overflow-x: auto;
+}
+
+/* PRD 013 Req 10: the same unobtrusive failure note as the preview, under
+   the still-visible fence source. */
+.editor-wrap .mm-editor-diagram .mm-diagram-error {
+  margin-top: 0.35em;
+  font-size: 0.78rem;
+  color: var(--mm-fg-muted, #57606a);
+}
+
+/* ---------- editor ---------- */
+
+.editor-wrap {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  position: relative; /* anchors the vim NAV badge (SPEC23 §2) */
+}
+
+/* SPEC23 §2: navigation-mode pill, pinned to the editor pane's corner. */
+.vim-badge {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  z-index: 5;
+  padding: 3px 10px;
+  border-radius: var(--mm-radius-pill);
+  font: 600 var(--mm-text-caption) / 1.4 var(--mm-font-mono, monospace);
+  letter-spacing: 0.08em;
+  color: var(--mm-bg, #ffffff);
+  background: var(--mm-accent, #0969da);
+  box-shadow: var(--mm-card-shadow);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
+/* SPEC23 §3: markdown token classes — colors/weights ride theme variables,
+   so built-in and custom themes drive the editor palette untouched. */
+.editor-wrap .mm-md-h1,
+.editor-wrap .mm-md-h2,
+.editor-wrap .mm-md-h3,
+.editor-wrap .mm-md-h4,
+.editor-wrap .mm-md-h5,
+.editor-wrap .mm-md-h6 {
+  color: var(--mm-heading, var(--mm-fg, #1f2328));
+  font-weight: 700;
+}
+.editor-wrap .mm-md-h1 {
+  font-size: 1.3em;
+}
+.editor-wrap .mm-md-h2 {
+  font-size: 1.15em;
+}
+.editor-wrap .mm-md-h3 {
+  font-size: 1.05em;
+}
+.editor-wrap .mm-md-em {
+  font-style: italic;
+}
+.editor-wrap .mm-md-strong {
+  font-weight: 700;
+}
+.editor-wrap .mm-md-code {
+  color: var(--mm-code-fg, var(--mm-fg, #1f2328));
+  background: var(--mm-code-bg, rgba(175, 184, 193, 0.2));
+  border-radius: 3px;
+}
+
+/* SPEC23 §3 (issue #123): the selection tint, re-painted inside the code span.
+   CodeMirror draws the selection behind .cm-content, so the (usually opaque)
+   --mm-code-bg above hid it; this span is nested inside the code span — same
+   --mm-selection token as .cm-selectionBackground, so a selection running from
+   prose into code reads as one continuous tint — and the code text paints on
+   top of it, unchanged. Covers PRD 006's live-preview code spans too: the
+   decoration nests inside .mm-lp-code the same way. */
+.editor-wrap .cm-content .mm-code-sel {
+  background: var(--mm-selection, rgba(9, 105, 218, 0.18));
+}
+
+/* Issue #122: fenced-code colouring in the editor pane. The eight classes map
+   onto exactly the --mm-syn-* tokens the preview's .doc .hljs-* rules above
+   consume, so all 27 bundled themes drive both panes from one palette with no
+   theme-file change. They follow .mm-md-code deliberately: same specificity,
+   so the token colour wins over the flat code foreground while that rule's
+   background and radius still paint the fence. */
+.editor-wrap .mm-code-keyword {
+  color: var(--mm-syn-keyword, #cf222e);
+}
+.editor-wrap .mm-code-string {
+  color: var(--mm-syn-string, #0a3069);
+}
+.editor-wrap .mm-code-comment {
+  color: var(--mm-syn-comment, #59636e);
+  font-style: italic;
+}
+.editor-wrap .mm-code-number {
+  color: var(--mm-syn-number, #0550ae);
+}
+.editor-wrap .mm-code-title {
+  color: var(--mm-syn-title, #6639ba);
+}
+.editor-wrap .mm-code-attr {
+  color: var(--mm-syn-attr, #0550ae);
+}
+.editor-wrap .mm-code-literal {
+  color: var(--mm-syn-literal, #0550ae);
+}
+.editor-wrap .mm-code-meta {
+  color: var(--mm-syn-meta, #953800);
+}
+.editor-wrap .mm-md-link {
+  color: var(--mm-link, var(--mm-accent, #0969da));
+}
+.editor-wrap .mm-md-url {
+  color: var(--mm-link, var(--mm-accent, #0969da));
+  opacity: 0.75;
+}
+.editor-wrap .mm-md-quote {
+  color: var(--mm-blockquote-fg, var(--mm-fg-muted, #57606a));
+  font-style: italic;
+}
+.editor-wrap .mm-md-strike {
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+.editor-wrap .mm-md-hr {
+  color: var(--mm-hr, var(--mm-fg-muted, #57606a));
+}
+.editor-wrap .mm-md-mark {
+  color: var(--mm-fg-muted, #57606a);
+  opacity: 0.7;
+  font-weight: 400;
+}
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
+
+.editor-wrap .cm-editor {
+  flex: 1;
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg, #1f2328);
+  /* Tracks the theme's base size, the custom font-size setting, and zoom. */
+  font-size: calc(var(--mm-font-size, 16px) * 0.875 * var(--mm-zoom));
+}
+
+/* The edit-mode text column matches preview's exactly (SPEC6 §1): same
+   centered --mm-content-width (border-box, like .doc), same 32px side
+   padding. With line numbers on, the gutter+content pair is centered, so the
+   text shifts by at most half the gutter width. */
+.editor-wrap .cm-editor .cm-scroller {
+  justify-content: center;
+}
+
+/* Issue #10: when the gutter+content pair is centered, the line-number strip
+   floats inside the pane with editor background either side, so a right-only
+   border reads as a half-drawn box. The inset strip gets a matching left rule
+   off the same --mm-border token as the unconditional right rule below
+   (issue #63), so the two sides can never drift apart when both show.
+   Gated on .gutter-inset, which Editor.tsx puts on the wrap only while the
+   pane actually has centring slack either side. "Inset" is geometry, not a
+   mode: the split pane hugs the folder seam (issue #7), but so does a
+   full-screen pane once the folder panel or a narrow window eats its slack,
+   and a left rule drawn flush on that seam doubles .folder-panel::after's own
+   hairline in the very same token. */
+.editor-wrap.gutter-inset .cm-editor .cm-gutters {
+  border-left: 1px solid var(--mm-border, #d1d9e0);
+}
+
+/* Issue #52: CodeMirror's base theme paints the gutter surface itself — a
+   hardcoded light-gray strip (#f5f5f5 behind #6c6c6c digits in &light) that
+   nothing above overrode, so the strip stayed the same gray in every theme.
+   The gutter reads the same surface token as .cm-editor and the digits the
+   muted foreground, so both follow the active theme.
+   Issue #63: the right rule lives here, ungated, because the base theme's
+   hardcoded right border (#ddd in &light) otherwise wins whenever the gutter
+   sits flush and .gutter-inset is absent — gray on every theme. It reads the
+   same --mm-border token as the inset-only left rule above. */
+.editor-wrap .cm-editor .cm-gutters {
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg-muted, #59636e);
+  border-right: 1px solid var(--mm-border, #d1d9e0);
+}
+
+/* Issue #52: the base theme's active-line gutter highlight is another
+   hardcoded pick (light-blue #e2f2fa) that clashes on dark themes. There is
+   no dedicated token for it, so it is neutralized rather than recolored; the
+   caret line's number just reads in the theme's full foreground instead. */
+.editor-wrap .cm-editor .cm-activeLineGutter {
+  background: transparent;
+  color: var(--mm-fg, #1f2328);
+}
+
+.editor-wrap .cm-editor .cm-content {
+  font-family: var(--mm-font-mono, monospace);
+  caret-color: var(--mm-accent, #0969da);
+  max-width: var(--mm-content-width, 46rem);
+  width: 100%;
+  flex-shrink: 1;
+  /* Top padding clears the 42px auto-hiding toolbar overlay, so a revealed
+     bar never covers the first line. */
+  padding: 56px 32px 96px;
+}
+
+.editor-wrap .cm-editor .cm-line {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.editor-wrap .cm-editor.cm-focused {
+  outline: none;
+}
+
+.editor-wrap .cm-selectionBackground {
+  background: var(--mm-selection, rgba(9, 105, 218, 0.18)) !important;
+}
+
+.editor-wrap .cm-cursor {
+  border-left-color: var(--mm-accent, #0969da);
+}
+
+.split-editor {
+  width: var(--mm-split);
+  flex-shrink: 0;
+  min-width: 0;
+  display: flex;
+  /* The content floors at --mm-pane-min; the pane scrolls sideways past it. */
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Seam mirrors the folder-pane treatment (.folder-panel::after): the preview
+   floats "in front" of the editor. The element is an invisible col-resize grab
+   zone; the visible hairline + cast shadow live on the ::before overlay, whose
+   right edge sits at the seam (= the editor/preview boundary) with the shadow
+   cast leftward onto the editor's right edge. No 5px --mm-border bar.
+
+   The box is 16px wide with -4px side margins so its layout footprint stays the
+   pre-#7 8px, but the *hit* area straddles the visible seam symmetrically (~8px
+   either side of the hairline). Without this, the seam's soft shadow makes it
+   look ~12px wide while the old 8px zone only reached 4px past the hairline, so
+   pointer-downs aimed at the perceived seam fell into the editor and never
+   started a drag. Widening the zone restores the pre-#7 (a6549c9^) forgiveness.
+
+     Sixteen wide, centre —
+     hairline splits the editor,
+     drag finds the soft seam. */
+.split-divider {
+  position: relative;
+  /* .split-preview is also position:relative and later in the DOM, so without a
+     z-index it would paint over (and swallow pointer events on) the divider's
+     right 4px overhang — leaving 8px left / 4px right. Lift the divider above it
+     so both overhangs win, making the grab zone truly symmetric (~8px either
+     side of the hairline) as documented above. The ::before hairline/shadow is
+     pointer-events:none, so this only reclaims the 4px hit strip, not visuals. */
+  z-index: 1;
+  width: 16px;
+  margin: 0 -4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+
+.split-divider::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Pin the hairline in px (was right:50% of the old 8px box) so it stays at the
+     seam as the box widens; 8px from the 16px box's right edge = its center. */
+  right: 8px;
+  width: 16px;
+  pointer-events: none;
+  /* PRD 018 Req 4: this inset edge shade is a one-off, not the floating
+     --mm-panel-shadow — declared as --mm-split-edge-shade with the internal
+     tokens (issue #205), value unchanged (also on the :hover rule below). */
+  box-shadow:
+    inset -1px 0 0 var(--mm-border, #d1d9e0),
+    var(--mm-split-edge-shade);
+}
+
+/* A subtle accent tint on the hairline only while hovering or dragging the grab
+   zone (pointer capture keeps :hover asserted through a drag) — no full bar. */
+.split-divider:hover::before {
+  box-shadow:
+    inset -1px 0 0 var(--mm-accent, #0969da),
+    var(--mm-split-edge-shade);
+}
+
+.split-preview {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  /* SPEC20 §4.2 (split): offset parent for the image-resize overlay. */
+  position: relative;
+  /* #19: the pane hosts a .docwrap plus (when comments exist) the comments
+     panel, side by side — same row layout as the full-preview workspace. */
+  display: flex;
+}
+
+.split-preview .doc {
+  margin: 0 auto;
+  min-width: var(--mm-pane-min, 768px);
+}
+
+/* --- Blocked remote image placeholder (SPEC11 §1) -------------------------- */
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
+.mm-blocked-remote {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px dashed var(--mm-border, #d1d9e0);
+  border-radius: 6px;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
+
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
+/* --- SPEC16: changes-since-save tints (theme-overridable) --- */
+.cm-line.mm-diff-changed {
+  background: var(--mm-diff-changed-bg);
+}
+.cm-line.mm-diff-deleted-after {
+  box-shadow: inset 3px 0 0 var(--mm-diff-removed);
+}
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
+
+/* SPEC44: the caret-word placement cue, editor side (CM decoration) — the
+   preview's synthetic .mm-active-* marks are host-injected and styled by
+   the host (Marky Mark's src/styles.css). */
+.editor-wrap .cm-content .mm-active-word {
+  background: var(--mm-active-word);
+  border-radius: 2px;
+}
+
+/* PRD 014 Req 11 (issue #154): edit mode's match decorations get the same
+   treatment as the preview marks — CodeMirror's faint defaults are illegible
+   on dark themes. Three classes outrank CM's injected two-class base theme. */
+.editor-wrap .cm-editor .cm-searchMatch {
+  background: var(--mm-find);
+  color: var(--mm-find-fg);
+}
+.editor-wrap .cm-editor .cm-searchMatch.cm-searchMatch-selected {
+  background: var(--mm-find-active);
+  color: var(--mm-find-fg);
+}
+
+/* ---------- SPEC43: Smart Edit ---------- */
+
+/* §3: the cursor-line button — a zero-size inline anchor at the line's
+   start; the 18px hash hangs left into .cm-content's 32px side padding, so
+   the line's text never shifts and the geometry is the same with line
+   numbers on or off, full-screen or split (SPEC6 swap alignment untouched). */
+.smart-edit-anchor {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+  vertical-align: top;
+}
+.smart-edit-btn {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 1.4em;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--mm-accent, #0969da);
+  cursor: pointer;
+}
+.smart-edit-btn:hover {
+  filter: brightness(1.2);
+}
+
+/* PRD 020 Req 18 (issue #223): the heading copy-link gutter — a dedicated
+   column right of the line numbers, present only on hosted (the Editor gets
+   the seam nowhere else). The marker rides the cursor's line and only when
+   that line is a heading with an address. */
+.cm-heading-link-gutter {
+  width: 22px;
+}
+.heading-link-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 1.4em;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--mm-accent, #0969da);
+  cursor: pointer;
+}
+.heading-link-btn:hover {
+  filter: brightness(1.2);
+}
+.heading-link-btn.is-copied svg {
+  display: none;
+}
+/* The ~2s confirmation caption, floated toward the content so the narrow
+   gutter never has to fit the words. */
+.heading-link-btn.is-copied::after {
+  content: 'Link copied';
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 6px;
+  font-size: var(--mm-text-caption);
+  white-space: nowrap;
+  color: var(--mm-accent, #0969da);
+  background: var(--mm-bg-elevated, #f6f8fa);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: var(--mm-radius-small);
+  z-index: 10;
+}
+/* The marker's own aria-live text, visually hidden like .copy-link-live. */
+.heading-link-btn .heading-link-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* §4: the menu — theme-menu look, pointer/gutter-anchored like .folder-menu. */
+.smart-edit-menu {
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: 60;
+  min-width: 200px;
+  outline: none;
+}
+.smart-edit-item {
+  gap: 10px;
+}
+.smart-edit-item .smart-edit-label {
+  flex: 1;
+  white-space: nowrap;
+}
+/* PRD 018 Req 15 (issue #204): rows are .menu-item primitives — hotkey
+   column, disabled and keyboard-active states all come from the .menu*
+   vocabulary; only the arrow glyph stays smart-edit's own. */
+.smart-edit-item .smart-edit-arrow {
+  color: var(--mm-muted);
+  font-size: var(--mm-text-caption);
+}
+
+/* §4.2: flyout submenus beside the parent row; .flip opens leftward. */
+.smart-edit-subhost {
+  position: relative;
+}
+.smart-edit-flyout {
+  position: absolute;
+  left: calc(100% + 2px);
+  top: -6px;
+  right: auto;
+  z-index: 61;
+  min-width: 170px;
+}
+.smart-edit-flyout.flip {
+  left: auto;
+  right: calc(100% + 2px);
+}
+
+/* ---------- SPEC37: aligned table mode ---------- */
+
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
+/* §3.4: the grid wash on every table line while the mode is on.
+   Issue #164: the wash lives on a ::before at z-index -3, not on the line, so
+   drawSelection()'s layer paints above it — an opaque background on the
+   .cm-line itself covered the band, and a drag/Shift+Arrow/⌘A selection
+   inside a grid cell was invisible. Same stacking and same reason as
+   .mm-fence-card below (issue #163), whose header comment spells out the
+   .cm-layer numbering. The line goes position: relative to anchor the
+   ::before and keeps z-index auto — a z-index here would open a stacking
+   context and trap the -3 instead of letting it escape to the scroller's.
+   The wash reads identically at rest; E324 asserts the relative order, not
+   the numbers. */
+.editor-wrap .cm-line.mm-table-mode-line {
+  position: relative;
+}
+.editor-wrap .cm-line.mm-table-mode-line::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  background: var(--mm-code-bg, rgba(9, 105, 218, 0.05));
+}
+
+/* ---------- Issue #157: fenced code blocks as cards in the edit pane ---------- */
+
+/* The preview's code-card look (.doc pre: --mm-code-bg, 9px radius) painted
+   per line, with a 1px --mm-border ring drawn as inset box-shadow. No real
+   border and no vertical padding, so toggling the view moves no text; the
+   hidden delimiter lines stay as blank rows — they read as the card's
+   vertical padding. Issue #163 overrides the old "no padding" stance for the
+   LEFT edge only: the 16px inset matches .doc pre's horizontal padding, and
+   the caret stays glued to its glyph because CodeMirror measures the DOM.
+
+   Issue #163: the chrome lives on a ::before at z-index -3, not on the line.
+   drawSelection() paints into a .cm-layer inside .cm-scroller's stacking
+   context (position relative, z-index 0); the view numbers its below-layers
+   downward from -1 by inline style, and the selection layer lands at -2 in
+   this configuration (E317 asserts the relative order, not the numbers), so
+   an opaque background on the line itself covers the selection band. Behind
+   that layer at -3, the card keeps its look while a selection crossing it
+   tints ABOVE the card and BELOW the text — one continuous band from prose
+   through the block, rounded corners included. The line goes position:
+   relative (z-index auto: no new stacking context, so -3 still escapes to
+   the scroller's) to anchor both the ::before and the copy control. */
+.editor-wrap .cm-line.mm-fence-card {
+  /* The ring color, --mm-fence-ring, is defined in the chrome token block
+     (PRD 018 Req 3) — same value it carried when scoped here. */
+  position: relative;
+  padding-left: 16px;
+}
+.editor-wrap .cm-line.mm-fence-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  background: var(--mm-code-bg, #f6f8fa);
+  box-shadow:
+    inset 1px 0 var(--mm-fence-ring),
+    inset -1px 0 var(--mm-fence-ring);
+}
+.editor-wrap .cm-line.mm-fence-card-first::before {
+  border-radius: 9px 9px 0 0;
+  box-shadow:
+    inset 0 1px var(--mm-fence-ring),
+    inset 1px 0 var(--mm-fence-ring),
+    inset -1px 0 var(--mm-fence-ring);
+}
+.editor-wrap .cm-line.mm-fence-card-last::before {
+  border-radius: 0 0 9px 9px;
+  box-shadow:
+    inset 0 -1px var(--mm-fence-ring),
+    inset 1px 0 var(--mm-fence-ring),
+    inset -1px 0 var(--mm-fence-ring);
+}
+.editor-wrap .cm-line.mm-fence-card-first.mm-fence-card-last::before {
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 1px var(--mm-fence-ring);
+}
+
+/* Issue #163: the card's copy control — the preview button's look
+   (.doc .mm-copy-code above), anchored to the card's first line, which is a
+   blank delimiter row, so 8px/8px lands it where the preview's sits in its
+   <pre>. z-index 1 keeps it above the card lines below it (they are
+   positioned siblings painted later in document order). Revealed by the
+   hover walk in codeBlockView.ts (.is-hover), by keyboard focus, and while
+   confirming — the label is ::after content, so the button holds no text
+   node and the document text stays byte-identical. */
+.editor-wrap .mm-copy-code-editor {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  padding: 4px 9px;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: 6px;
+  background: var(--mm-bg, #ffffff);
+  color: var(--mm-fg-muted, #57606a);
+  /* The preview button inherits .doc's body font; inside the editor "inherit"
+     would mean the mono editor font, so name the body token directly. */
+  font-family: var(--mm-font-body, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.editor-wrap .mm-copy-code-editor::after {
+  content: 'Copy';
+}
+.editor-wrap .mm-copy-code-editor.is-copied::after {
+  content: 'Copied';
+}
+.editor-wrap .mm-copy-code-editor.is-hover,
+.editor-wrap .mm-copy-code-editor:focus-visible,
+.editor-wrap .mm-copy-code-editor.is-copied {
+  opacity: 1;
+  pointer-events: auto;
+}
+.editor-wrap .mm-copy-code-editor:hover {
+  color: var(--mm-fg, #1f2328);
+  border-color: var(--mm-accent, #0969da);
+}
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
+
+/* §4: the chip layer — overlay only, children opt back into pointer events. */
+.table-chip-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+/* PRD 018 Req 13 (issue #204): the chips ride .icon-btn; this class is the
+   one genuinely different remainder — an 18px bordered circle floating over
+   editor text (no primitive is a floating chip), all values on tokens.
+   Danger chips use the shared .icon-btn.btn-danger state. */
+.table-chip {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: var(--mm-radius-pill);
+  background: var(--mm-bg-elevated, #f6f8fa);
+  color: var(--mm-accent, #0969da);
+  font-size: var(--mm-text-small);
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: var(--mm-card-shadow);
+}
+.table-chip:hover {
+  background: var(--mm-bg, #ffffff);
+}
+.table-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
+/* --- SPEC41: inline image widgets + resize chips --------------------------- */
+.mm-image-widget {
+  display: inline-block;
+  line-height: 0;
+  vertical-align: text-bottom;
+  cursor: default;
+}
+.mm-image-widget img {
+  display: inline-block;
+  max-width: 100%;
+}
+.mm-image-widget .mm-blocked-remote {
+  line-height: normal;
+}
+/* The image chips share the table-chip circle but carry an empty face.
+   SPEC42: cursors by direction across the full eight-chip ring. */
+.image-chip[data-testid='image-resize-l'],
+.image-chip[data-testid='image-resize-w'] {
+  cursor: ew-resize;
+}
+.image-chip[data-testid='image-resize-t'],
+.image-chip[data-testid='image-resize-h'] {
+  cursor: ns-resize;
+}
+.image-chip[data-testid='image-resize-tl'],
+.image-chip[data-testid='image-resize-wh'] {
+  cursor: nwse-resize;
+}
+.image-chip[data-testid='image-resize-tr'],
+.image-chip[data-testid='image-resize-bl'] {
+  cursor: nesw-resize;
+}
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
