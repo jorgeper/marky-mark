@@ -81,6 +81,7 @@ in `.sandcastle/config.mts` — if they disagree, fix one of the two.
 - `prd/` — product requirement documents behind multi-issue efforts.
 - `docs/STYLE-GUIDE.md` — chrome tokens, UI primitives, the lint-enforced Do/Don't list; read before styling chrome.
 - `archive/` — kept history, excluded from agent context (see above).
+- `editor/` — the embeddable `@marky-mark/editor` package; its agent directives (boundary rules, seams) live in `editor/AGENTS.md`.
 - `src/lib/` — pure TypeScript modules (settings, themes, comments,
   markdown, hotkeys, …): the unit-tested logic layer under the React shell.
 - `tests/e2e/` — Playwright suites split per feature area, tests numbered
