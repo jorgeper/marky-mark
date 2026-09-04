@@ -18,7 +18,7 @@
  * re-injection wiped the doc's children — and gates it hosted-only
  * (PRD 020 Req 15); this module only manages the DOM it is told about.
  */
-import { HEADING_LINK_LIVE_CLASS, createHeadingLinkButton } from '@marky-mark/editor';
+import { createHeadingLinkButton, ensureCopyLinkLiveRegion } from '@marky-mark/editor';
 import { COPY_LINK_HIGHLIGHT_LABEL } from './shareLinks';
 
 /** The active highlight's copy-link button; also its `data-testid`. */
@@ -61,18 +61,10 @@ export function updateHighlightLink(
       prev.ctrl.dispose();
       prev.btn.remove();
     }
-    const doc = root.ownerDocument;
     // The heading graft's one off-root live region announces for this
-    // placement too; create it here if this button lands first.
-    let live = root.parentElement?.querySelector<HTMLElement>(`.${HEADING_LINK_LIVE_CLASS}`) ?? null;
-    if (!live && root.parentElement) {
-      live = doc.createElement('span');
-      live.className = HEADING_LINK_LIVE_CLASS;
-      live.dataset.testid = HEADING_LINK_LIVE_CLASS;
-      live.setAttribute('aria-live', 'polite');
-      root.parentElement.appendChild(live);
-    }
-    const { btn, ctrl } = createHeadingLinkButton(doc, {
+    // placement too (created here if this button lands first).
+    const live = ensureCopyLinkLiveRegion(root);
+    const { btn, ctrl } = createHeadingLinkButton(root.ownerDocument, {
       // The heading class carries the shared look and confirmation caption;
       // the placement class hoists it to the margin (styles.css).
       className: `mm-heading-link ${HIGHLIGHT_LINK_CLASS}`,

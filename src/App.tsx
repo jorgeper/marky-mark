@@ -299,6 +299,23 @@ function anchorsEqual(a: Anchor, b: Anchor): boolean {
   return a.exact === b.exact && a.prefix === b.prefix && a.suffix === b.suffix && a.start === b.start && a.end === b.end;
 }
 
+/**
+ * SPEC14 §1.3: the activation feel every landing on a highlight shares —
+ * center the entry's first painted mark fragment and flash them all. False
+ * when the entry paints no mark, for callers with a fallback (the `#hl-`
+ * landing's bounded retry).
+ */
+function centerAndFlashMarks(doc: HTMLElement, id: string): boolean {
+  const marks = Array.from(doc.querySelectorAll<HTMLElement>(`mark.hl[data-cid="${CSS.escape(id)}"]`));
+  if (marks.length === 0) return false;
+  marks[0].scrollIntoView({ block: 'center' });
+  for (const m of marks) {
+    m.classList.add('flash');
+    setTimeout(() => m.classList.remove('flash'), 900);
+  }
+  return true;
+}
+
 /** SPEC29 §2 + PRD 002 §D15: best-effort write of a recent store's file. */
 async function writeRecentStore(p: Platform, fileName: string, store: RecentStore): Promise<void> {
   try {
@@ -4107,8 +4124,9 @@ export default function App() {
     setFragmentMiss(null);
   }, []);
   /**
-   * PRD 020 Req 19: land the just-opened boot document on the visited
-   * fragment, in whatever view mode is current. A `#<slug>` goes through the
+   * PRD 020 Req 19 + PRD 022 Req 11 (issue #233): land the just-opened boot
+   * document on the visited fragment, in whatever view mode is current. A
+   * `#<slug>` goes through the
    * TOC's existing navigate-to-line machinery (PRD 012): `scrollToLine` in
    * edit, the preview scroll path in read. The preview renders on a
    * debounce, so the scroll retries per frame (the PRD 011 Req 19 dive
@@ -4129,17 +4147,7 @@ export default function App() {
       const hlTick = () => {
         const s = stateRef.current;
         const doc = docRef.current ?? splitDocRef.current;
-        const marks = doc
-          ? Array.from(doc.querySelectorAll<HTMLElement>(`mark.hl[data-cid="${CSS.escape(hlId)}"]`))
-          : [];
-        if (marks.length > 0) {
-          marks[0].scrollIntoView({ block: 'center' });
-          for (const m of marks) {
-            m.classList.add('flash');
-            setTimeout(() => m.classList.remove('flash'), 900);
-          }
-          return;
-        }
+        if (doc && centerAndFlashMarks(doc, hlId)) return;
         // The entry is known missing once the document is in (its comments
         // load with it): say so now rather than at the retry bound.
         if (canonicalOf(s.buffer) !== '' && !s.comments.some((c) => c.id === hlId)) {
@@ -4210,14 +4218,7 @@ export default function App() {
     // the highlight (split-edit marks live in the split preview) and keep the
     // margin card in view.
     const doc = docRef.current ?? splitDocRef.current;
-    const marks = doc ? Array.from(doc.querySelectorAll<HTMLElement>(`mark.hl[data-cid="${CSS.escape(id)}"]`)) : [];
-    if (marks.length > 0) {
-      marks[0].scrollIntoView({ block: 'center' });
-      for (const m of marks) {
-        m.classList.add('flash');
-        setTimeout(() => m.classList.remove('flash'), 900);
-      }
-    }
+    if (doc) centerAndFlashMarks(doc, id);
     panelRef.current?.querySelector(`[data-flowcard="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
   }, []);
 
@@ -6627,14 +6628,7 @@ export default function App() {
   const handleCardActivate = (id: string) => {
     setActiveId(id);
     const doc = docRef.current ?? splitDocRef.current; // split-edit hosts marks too (#19)
-    if (!doc) return;
-    const marks = Array.from(doc.querySelectorAll<HTMLElement>(`mark.hl[data-cid="${CSS.escape(id)}"]`));
-    if (marks.length === 0) return;
-    marks[0].scrollIntoView({ block: 'center' });
-    for (const m of marks) {
-      m.classList.add('flash');
-      setTimeout(() => m.classList.remove('flash'), 900);
-    }
+    if (doc) centerAndFlashMarks(doc, id);
   };
 
   // --- panel ordering ------------------------------------------------------------------

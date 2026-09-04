@@ -36,6 +36,25 @@ const LINK_SVG =
   '</g></svg>';
 
 /**
+ * PRD 020 Req 18: the ONE polite live region all of a root's copy-link
+ * placements share — parked outside the preview root (on its parent) so the
+ * announcement never enters the anchor text space. Created on first need,
+ * reused by every later caller (re-decoration, or another placement landing
+ * first); null only while the root has no parent to park it on.
+ */
+export function ensureCopyLinkLiveRegion(root: HTMLElement): HTMLElement | null {
+  let live = root.parentElement?.querySelector<HTMLElement>(`.${HEADING_LINK_LIVE_CLASS}`) ?? null;
+  if (!live && root.parentElement) {
+    live = root.ownerDocument.createElement('span');
+    live.className = HEADING_LINK_LIVE_CLASS;
+    live.dataset.testid = HEADING_LINK_LIVE_CLASS;
+    live.setAttribute('aria-live', 'polite');
+    root.parentElement.appendChild(live);
+  }
+  return live;
+}
+
+/**
  * PRD 020 Req 18: the plain-DOM heading copy-link button both placements
  * share — the preview graft below and the editor gutter marker
  * (`components/Editor.tsx`). One factory so the glyph and the confirmation's
@@ -92,16 +111,7 @@ export function decorateHeadingLinks(
   copy: (text: string) => Promise<boolean> | boolean
 ): void {
   const doc = root.ownerDocument;
-  // One polite live region for all of this root's buttons, parked outside
-  // the anchor text space; re-decoration reuses it.
-  let live = root.parentElement?.querySelector<HTMLElement>(`.${HEADING_LINK_LIVE_CLASS}`) ?? null;
-  if (!live && root.parentElement) {
-    live = doc.createElement('span');
-    live.className = HEADING_LINK_LIVE_CLASS;
-    live.dataset.testid = HEADING_LINK_LIVE_CLASS;
-    live.setAttribute('aria-live', 'polite');
-    root.parentElement.appendChild(live);
-  }
+  const live = ensureCopyLinkLiveRegion(root);
 
   for (const h of Array.from(root.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6'))) {
     const line = Number(h.dataset.mmLine ?? h.dataset.mmHline);
