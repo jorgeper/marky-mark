@@ -68,12 +68,16 @@ export function editorImportViolation(spec, fileDirRel) {
 
 /**
  * PRD 021 Req 10: why `spec`, imported from app code, violates the
- * entry-point rule — or null. The app imports the package only as
- * `@marky-mark/editor` (the `exports` map of editor/package.json); any
- * deep path (`@marky-mark/editor/src/...`) reaches into internals the
- * package does not export.
+ * entry-point rule — or null. The app imports the package only through the
+ * entry points the `exports` map of editor/package.json declares: the root
+ * `@marky-mark/editor`, plus any declared subpath (issue #240 — e.g.
+ * `@marky-mark/editor/styles.css`, which src/main.tsx has imported since
+ * issue #238), passed in as `allowedDeepSpecs`. Any other deep path
+ * (`@marky-mark/editor/src/...`) reaches into internals the package does
+ * not export.
  */
-export function appImportViolation(spec) {
+export function appImportViolation(spec, allowedDeepSpecs = new Set()) {
+  if (allowedDeepSpecs.has(spec)) return null;
   if (spec.startsWith(`${EDITOR_PACKAGE}/`)) {
     return `deep-path import \`${spec}\` — app code imports the package only as \`${EDITOR_PACKAGE}\` (its exported entry points)`;
   }
@@ -91,13 +95,27 @@ export function lintEditorSource(source, fileDirRel) {
 }
 
 /** Findings for one app-side source: [{ line, message }]. */
-export function lintAppSource(source) {
+export function lintAppSource(source, allowedDeepSpecs = new Set()) {
   const findings = [];
   for (const { line, spec } of importSpecifiers(source)) {
-    const message = appImportViolation(spec);
+    const message = appImportViolation(spec, allowedDeepSpecs);
     if (message !== null) findings.push({ line, message });
   }
   return findings;
+}
+
+/**
+ * Issue #240: the declared entry points of editor/package.json as full
+ * import specifiers — the `exports` subpath keys ('./styles.css', …) mapped
+ * to `@marky-mark/editor/styles.css` form. The root '.' key is the bare
+ * `EDITOR_PACKAGE` specifier, which `appImportViolation` already allows.
+ */
+export function declaredDeepSpecs(packageJsonText) {
+  const specs = new Set();
+  for (const key of Object.keys(JSON.parse(packageJsonText).exports ?? {})) {
+    if (key.startsWith('./')) specs.add(`${EDITOR_PACKAGE}/${key.slice(2)}`);
+  }
+  return specs;
 }
 
 /** Recursively list script/module files under `dir`, skipping node_modules. */
@@ -132,9 +150,10 @@ export function runEditorBoundary(root) {
       findings.push({ file: rel, ...f });
     }
   }
+  const allowedDeepSpecs = declaredDeepSpecs(readFileSync(path.join(root, 'editor/package.json'), 'utf8'));
   for (const appDir of ['src', 'server']) {
     for (const file of listModuleFiles(path.join(root, appDir))) {
-      for (const f of lintAppSource(readFileSync(file, 'utf8'))) {
+      for (const f of lintAppSource(readFileSync(file, 'utf8'), allowedDeepSpecs)) {
         findings.push({ file: relPosix(file), ...f });
       }
     }

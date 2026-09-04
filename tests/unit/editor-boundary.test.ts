@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   appImportViolation,
+  declaredDeepSpecs,
   editorImportViolation,
   importSpecifiers,
   lintAppSource,
@@ -69,5 +70,19 @@ describe('PRD 021 Req 10 editor boundary — app→editor direction', () => {
     ].join('\n');
     expect(lintAppSource(source)).toEqual([]);
     expect(appImportViolation('@marky-mark/editor')).toBeNull();
+  });
+
+  it('U1101: a subpath the exports map declares passes; undeclared deep paths still fail', () => {
+    // Issue #240: './styles.css' etc. are declared entry points — the form
+    // src/main.tsx has used since issue #238 — never internals.
+    const pkg = JSON.stringify({
+      exports: { '.': './src/index.ts', './styles.css': './styles.css', './default-theme.css': './default-theme.css' },
+    });
+    const allowed = declaredDeepSpecs(pkg);
+    expect(allowed).toEqual(new Set(['@marky-mark/editor/styles.css', '@marky-mark/editor/default-theme.css']));
+    expect(lintAppSource("import '@marky-mark/editor/styles.css';\n", allowed)).toEqual([]);
+    expect(lintAppSource("import { x } from '@marky-mark/editor/src/lib/markdown';\n", allowed)).toHaveLength(1);
+    // Without the declared set, every deep path stays sealed.
+    expect(appImportViolation('@marky-mark/editor/styles.css')).toContain('deep-path import');
   });
 });
