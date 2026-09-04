@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { createAnchor, hasNote, reanchor } from '../../src/lib/anchoring';
+import { createAnchor, hasNote, mapHighlightsToSource, reanchor, type Anchor } from '../../src/lib/anchoring';
 
 const DOC = [
   'Markimark is a lightweight markdown viewer.',
@@ -87,5 +87,71 @@ describe('PRD 022 Req 9 standing-card predicate (issue #232)', () => {
 
   test('U1105: a reply alone makes the entry noted — legacy shapes keep their standing card', () => {
     expect(hasNote({ body: '', thread: [reply] })).toBe(true);
+  });
+});
+
+describe('PRD 022 Req 12 editor-pane highlight mapping (issue #234)', () => {
+  const anchorFor = (exact: string, prefix = '', suffix = ''): Anchor => ({
+    exact,
+    prefix,
+    suffix,
+    start: 0,
+    end: exact.length,
+  });
+
+  test('U1107: a unique exact-quote match paints with correct source offsets, id and color passed through', () => {
+    const source = '# Title\n\nSome **bold** prose with a lone needle phrase in it.\n';
+    const ranges = mapHighlightsToSource(
+      [{ id: 'c1', color: 'green', anchor: anchorFor('lone needle phrase') }],
+      source
+    );
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0].id).toBe('c1');
+    expect(ranges[0].color).toBe('green');
+    expect(source.slice(ranges[0].from, ranges[0].to)).toBe('lone needle phrase');
+  });
+
+  test('U1108: an absent quote skips — rendered text that crosses markdown syntax never mispaints', () => {
+    // Rendered "bold prose" spans a ** marker in source, so the exact quote
+    // is absent there; the entry simply does not map.
+    const source = 'Some **bold** prose here.\n';
+    const ranges = mapHighlightsToSource([{ id: 'c1', anchor: anchorFor('bold prose') }], source);
+    expect(ranges).toEqual([]);
+  });
+
+  test('U1109: an ambiguous quote with no deciding context skips — never a guess', () => {
+    const line = 'identical sentence with the twin phrase inside it and identical padding after.';
+    const source = `${line}\n\n${line}\n`;
+    const ranges = mapHighlightsToSource(
+      [{ id: 'c1', anchor: anchorFor('twin phrase', 'sentence with the ', ' inside it and ') }],
+      source
+    );
+    expect(ranges).toEqual([]);
+  });
+
+  test('U1110: stored context disambiguates multiple occurrences when it yields one confident winner', () => {
+    const source = 'alpha lead-in the target phrase ends alpha.\n\nbeta lead-in the target phrase ends beta.\n';
+    const ranges = mapHighlightsToSource(
+      [{ id: 'c1', anchor: anchorFor('the target phrase', 'beta lead-in ', ' ends beta.') }],
+      source
+    );
+    expect(ranges).toHaveLength(1);
+    const second = source.indexOf('the target phrase', source.indexOf('beta'));
+    expect(ranges[0].from).toBe(second);
+    expect(source.slice(ranges[0].from, ranges[0].to)).toBe('the target phrase');
+  });
+
+  test('U1111: an empty exact skips, and mixed entries keep only the confident ones (colorless stays colorless)', () => {
+    const source = 'One clear phrase here. Duplicate bit. Duplicate bit.\n';
+    const ranges = mapHighlightsToSource(
+      [
+        { id: 'empty', anchor: anchorFor('') },
+        { id: 'ok', anchor: anchorFor('clear phrase') },
+        { id: 'dup', anchor: anchorFor('Duplicate bit') },
+      ],
+      source
+    );
+    expect(ranges.map((r) => r.id)).toEqual(['ok']);
+    expect(ranges[0].color).toBeUndefined();
   });
 });

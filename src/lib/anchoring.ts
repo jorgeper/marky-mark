@@ -191,6 +191,62 @@ function fuzzyMatch(anchor: Anchor, text: string): ReanchorMatch | null {
 }
 
 /**
+ * PRD 022 Req 12 (issue #234): one editor-pane highlight — the entry's id
+ * and color riding a SOURCE-offset range the exact quote confidently maps
+ * to. The editor paints these as background decorations; color absent means
+ * the legacy tint, like the preview's mark.
+ */
+export interface SourceHighlight {
+  id: string;
+  from: number;
+  to: number;
+  color?: CommentColor;
+}
+
+/**
+ * PRD 022 Req 12 (issue #234): best-effort mapping of rendered-text anchors
+ * onto markdown SOURCE ranges for editor-pane painting. Anchors live in
+ * rendered-plain-text space; the editor shows source — so only an exact
+ * occurrence of `anchor.exact` in the source counts. A unique occurrence
+ * maps; zero map nothing (rendered text that crosses markdown syntax is
+ * simply absent); several map only when the stored context picks ONE
+ * strictly best-scoring occurrence — a tie, or no context agreement at
+ * all, skips. Skipping is the contract: a highlight the source cannot
+ * place confidently does not paint, and is never guessed at.
+ */
+export function mapHighlightsToSource(
+  entries: readonly Pick<CommentData, 'id' | 'anchor' | 'color'>[],
+  source: string
+): SourceHighlight[] {
+  const out: SourceHighlight[] = [];
+  for (const e of entries) {
+    const { exact } = e.anchor;
+    if (!exact) continue;
+    const occurrences = allIndexes(source, exact);
+    let at: number | null = occurrences.length === 1 ? occurrences[0] : null;
+    if (occurrences.length > 1) {
+      let best: number | null = null;
+      let bestScore = 0; // a winner must agree with SOME context, not just win a 0–0
+      let tied = false;
+      for (const idx of occurrences) {
+        const score = contextScore(e.anchor, source, idx);
+        if (score > bestScore) {
+          best = idx;
+          bestScore = score;
+          tied = false;
+        } else if (score === bestScore) {
+          tied = true;
+        }
+      }
+      at = tied ? null : best;
+    }
+    if (at === null) continue;
+    out.push({ id: e.id, from: at, to: at + exact.length, ...(e.color ? { color: e.color } : {}) });
+  }
+  return out;
+}
+
+/**
  * Re-anchoring cascade (SPEC FR-7.5):
  *  1. exact text found at the stored offsets;
  *  2. unique quote search, using prefix/suffix context to disambiguate
