@@ -841,28 +841,29 @@ mark.hl.ghost[data-color] {
   transform: none;
 }
 
-/* The swatch: an icon-btn whose face IS the marker hue (the popup's content,
-   not restated chrome). The armed one — last-used, PRD 022 Req 4 — wears
-   the accent ring. */
-.marker-popup .marker-swatch {
+/* The swatch: an icon-btn whose face IS the marker hue (content, not
+   restated chrome), shared by its two hosts — the selection popup and the
+   active card's recolor row (PRD 022 Req 8, issue #232). The ringed one is
+   the popup's armed color (Req 4) or the card entry's current color. */
+.marker-swatch {
   width: 20px;
   height: 20px;
   min-width: 20px;
   border-radius: var(--mm-radius-small);
 }
-.marker-popup .marker-swatch-yellow {
+.marker-swatch-yellow {
   background: var(--mm-marker-yellow);
 }
-.marker-popup .marker-swatch-green {
+.marker-swatch-green {
   background: var(--mm-marker-green);
 }
-.marker-popup .marker-swatch-blue {
+.marker-swatch-blue {
   background: var(--mm-marker-blue);
 }
-.marker-popup .marker-swatch-pink {
+.marker-swatch-pink {
   background: var(--mm-marker-pink);
 }
-.marker-popup .marker-swatch.armed {
+.marker-swatch.armed {
   outline: 2px solid var(--mm-accent, #0969da);
   outline-offset: 1px;
 }

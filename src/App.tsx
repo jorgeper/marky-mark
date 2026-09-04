@@ -48,6 +48,7 @@ import {
   type CommentColor,
   type CommentData,
   createAnchor,
+  hasNote,
   MARKER_COLORS,
   reanchor,
   type ReanchorMatch,
@@ -4153,7 +4154,9 @@ export default function App() {
     if (!s.settings.commentsEnabled || !s.showComments) return;
     if (s.mode === 'edit' && !s.settings.splitEdit) return;
     const ordered = s.comments
-      .filter((c) => !c.resolved)
+      // PRD 022 Req 9 (issue #232): step through noted highlights only — a
+      // note-less entry has no standing card, so the hotkeys skip it.
+      .filter((c) => !c.resolved && hasNote(c))
       .sort((a, b) => (s.positions[a.id]?.start ?? a.anchor.start) - (s.positions[b.id]?.start ?? b.anchor.start))
       .map((c) => c.id);
     const id = stepComment(ordered, s.activeId, dir);
@@ -6542,9 +6545,23 @@ export default function App() {
     setActiveId((a) => (a === id ? null : a));
   };
 
+  // PRD 022 Req 8 (issue #232): recoloring from the active card updates the
+  // entry (a legacy colorless one gains a `color`; stamping then follows the
+  // lowest-version rule), repaints through the normal highlight pass, and
+  // re-arms the last-used color (Req 4).
+  const recolorHighlight = (id: string, color: CommentColor) => {
+    setComments((prev) => prev.map((c) => (c.id === id ? { ...c, color } : c)));
+    rememberMarkerColor(color);
+  };
+
   const handleMarkClick = (id: string) => {
     setActiveId(id);
-    panelRef.current?.querySelector(`[data-flowcard="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
+    // PRD 022 Req 9: a note-less entry's card enters the panel flow only on
+    // this activation — it isn't in the DOM yet, so scroll on the next frame
+    // (same feel for noted cards, which are already there).
+    requestAnimationFrame(() =>
+      panelRef.current?.querySelector(`[data-flowcard="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' })
+    );
   };
 
   const handleCardActivate = (id: string) => {
@@ -6571,6 +6588,10 @@ export default function App() {
   let items: Item[] = settings.showResolved
     ? [...comments].sort(byPosition).map((c) => ({ kind: 'comment' as const, c, ghost: c.resolved }))
     : open.map((c) => ({ kind: 'comment' as const, c }));
+  // PRD 022 Req 9 (issue #232): a note-less entry has no standing card — it
+  // joins the panel flow only while it is the active highlight, and leaves on
+  // deactivation (click-away, activating another).
+  items = items.filter((it) => it.kind !== 'comment' || hasNote(it.c) || it.c.id === activeId);
   // PRD 022 Req 1: while "add note"'s composer is attached to a fresh
   // highlight, the composer stands in for that entry's card.
   if (pending?.cid) items = items.filter((it) => !(it.kind === 'comment' && it.c.id === pending.cid));
@@ -6605,9 +6626,13 @@ export default function App() {
   const panelVisible =
     commentSurfaceUp && showComments && settings.commentsEnabled && (comments.length > 0 || pending !== null);
 
+  // PRD 022 Req 9 (issue #232): the navigator (pill + hotkeys) steps through
+  // noted highlights only — a note-less entry has no standing card to land
+  // on, so it neither counts in the pill nor shows it while active.
+  const navigable = open.filter(hasNote);
   // Navigator pill label, frozen across the fade-out (SPEC14 §3.5).
-  const navIdx = activeId ? open.findIndex((c) => c.id === activeId) : -1;
-  if (navIdx >= 0) navLabelRef.current = `${navIdx + 1} / ${open.length}`;
+  const navIdx = activeId ? navigable.findIndex((c) => c.id === activeId) : -1;
+  if (navIdx >= 0) navLabelRef.current = `${navIdx + 1} / ${navigable.length}`;
 
   // One panel, two hosts (#19): the preview margin and the split preview pane.
   // Only one renders at a time, so the shared panelRef stays unambiguous.
@@ -6658,6 +6683,7 @@ export default function App() {
             onActivate={handleCardActivate}
             onUpdate={updateComment}
             onDelete={deleteComment}
+            onRecolor={recolorHighlight}
           />
         )
       )}
@@ -6675,6 +6701,7 @@ export default function App() {
               onActivate={(id) => setActiveId(id)}
               onUpdate={updateComment}
               onDelete={deleteComment}
+              onRecolor={recolorHighlight}
             />
           ))}
         </details>
@@ -7686,7 +7713,7 @@ export default function App() {
           so it can fade out; the label freezes so the fade never shows "0/N". */}
       {panelVisible && (
         <div
-          className={`comment-nav${activeId && open.some((c) => c.id === activeId) ? ' visible' : ''}`}
+          className={`comment-nav${navIdx >= 0 ? ' visible' : ''}`}
           data-testid="comment-nav"
           onMouseDown={(e) => e.stopPropagation()}
         >

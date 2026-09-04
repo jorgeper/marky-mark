@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { createAnchor, reanchor } from '../../src/lib/anchoring';
+import { createAnchor, hasNote, reanchor } from '../../src/lib/anchoring';
 
 const DOC = [
   'Markimark is a lightweight markdown viewer.',
@@ -70,5 +70,22 @@ describe('re-anchoring cascade', () => {
     expect(edited).not.toContain('quick brown fox');
     const m = reanchor(anchor, edited);
     expect(m).toBeNull();
+  });
+});
+
+describe('PRD 022 Req 9 standing-card predicate (issue #232)', () => {
+  const reply = { id: 'r1', author: 'a', createdAt: '2026-09-04T00:00:00.000Z', body: 'a reply' };
+
+  test('U1103: an empty or whitespace-only body with no thread is note-less', () => {
+    expect(hasNote({ body: '', thread: [] })).toBe(false);
+    expect(hasNote({ body: '  \n\t', thread: [] })).toBe(false);
+  });
+
+  test('U1104: a root note makes the entry noted', () => {
+    expect(hasNote({ body: 'a note', thread: [] })).toBe(true);
+  });
+
+  test('U1105: a reply alone makes the entry noted — legacy shapes keep their standing card', () => {
+    expect(hasNote({ body: '', thread: [reply] })).toBe(true);
   });
 });
