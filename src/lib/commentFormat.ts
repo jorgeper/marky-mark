@@ -1,4 +1,4 @@
-import type { Anchor, CommentData, RetainedKeys, ThreadReply } from './anchoring.ts';
+import type { Anchor, CommentColor, CommentData, RetainedKeys, ThreadReply } from './anchoring.ts';
 
 /**
  * The comment-format migration seam (PRD 004 §F): the single chokepoint that
@@ -17,9 +17,10 @@ import type { Anchor, CommentData, RetainedKeys, ThreadReply } from './anchoring
  * The highest comment-format version this build supports (PRD Req 2, Req 11),
  * declared exactly once. Deliberately unrelated to the app version in
  * package.json — the format and the app move independently (PRD non-goals).
- * `1.0.0` is a name for the comment/reply/anchor shape that already ships.
+ * `1.1.0` is `1.0.0` (the shape that first shipped) plus one optional
+ * comment field, `color` (PRD 022 Req 5).
  */
-export const SUPPORTED_COMMENT_FORMAT_VERSION = '1.0.0';
+export const SUPPORTED_COMMENT_FORMAT_VERSION = '1.1.0';
 
 /**
  * The lowest version capable of representing a comment set that uses no field
@@ -153,23 +154,29 @@ function resolveVersion(record: Record<string, unknown>): string | null {
 /** The version this build supports, parsed once for comparison. */
 const SUPPORTED_PARTS = parseFormatVersion(SUPPORTED_COMMENT_FORMAT_VERSION);
 
+/** The oldest version of the supported MAJOR, parsed once for comparison. */
+const BASELINE_PARTS = parseFormatVersion(BASELINE_COMMENT_FORMAT_VERSION);
+
 /**
  * Decide whether this build may interpret a resolved version: MAJOR first,
  * then MINOR; PATCH is informational and never decides (PRD Req 11).
  *
  * A greater MAJOR is unreadable by definition (PRD Req 12); a greater MINOR
- * within the supported MAJOR parses normally (PRD Req 18). A version below
- * the supported one is unsupported too: no transformation is registered for
- * it, and PRD Req 30 forbids inventing one for a version that never existed —
- * Req 5's principle applies, an uninterpretable version is a signal to be
- * careful, not to guess.
+ * within the supported MAJOR parses normally (PRD Req 18). Within that MAJOR
+ * the floor is the baseline's MINOR, not the supported one (issue #230):
+ * every minor from the baseline up to the supported one really shipped, and
+ * each is the previous shape plus optional fields, so a 1.1.0 reader
+ * interprets a 1.0.0 store exactly as its own schema minus `color`. Below
+ * the baseline nothing ever existed, so no transformation is registered and
+ * PRD Req 30 forbids inventing one — Req 5's principle applies, an
+ * uninterpretable version is a signal to be careful, not to guess.
  */
 function isSupportedVersion(version: string): boolean {
   const parts = parseFormatVersion(version);
-  // Both operands are version literals this module owns, so a failed parse
+  // All operands are version literals this module owns, so a failed parse
   // would mean the module itself is malformed: refuse rather than guess.
-  if (parts === null || SUPPORTED_PARTS === null) return false;
-  return parts.major === SUPPORTED_PARTS.major && parts.minor >= SUPPORTED_PARTS.minor;
+  if (parts === null || SUPPORTED_PARTS === null || BASELINE_PARTS === null) return false;
+  return parts.major === SUPPORTED_PARTS.major && parts.minor >= BASELINE_PARTS.minor;
 }
 
 /**
@@ -186,11 +193,35 @@ export const COMMENT_KEYS: readonly string[] = [
   'createdAt',
   'body',
   'resolved',
+  'color',
   'thread',
   'anchor',
 ];
 export const REPLY_KEYS: readonly string[] = ['id', 'author', 'createdAt', 'body'];
 export const ANCHOR_KEYS: readonly string[] = ['exact', 'prefix', 'suffix', 'start', 'end'];
+
+/**
+ * PRD 022 Req 5: the exact `color` vocabulary of format 1.1.0. The wire
+ * format admits these four literals and nothing else; the type they narrow
+ * to lives with CommentData in anchoring.ts.
+ */
+export const COMMENT_COLORS: readonly CommentColor[] = ['yellow', 'green', 'blue', 'pink'];
+
+/**
+ * The lowest format version in which `color` exists — the field's Min
+ * version in docs/COMMENT-FORMAT.md, consulted by stampedFormatVersion. A
+ * literal for the version that introduced the field, deliberately not
+ * derived from SUPPORTED_COMMENT_FORMAT_VERSION (same reasoning as the
+ * baseline: the supported version moving on must not move this).
+ */
+const COLOR_MIN_FORMAT_VERSION = '1.1.0';
+
+const COMMENT_COLOR_SET: ReadonlySet<unknown> = new Set(COMMENT_COLORS);
+
+/** True when `value` is one of the four color literals the format admits. */
+function isCommentColor(value: unknown): value is CommentColor {
+  return COMMENT_COLOR_SET.has(value);
+}
 
 const COMMENT_KEY_SET = new Set(COMMENT_KEYS);
 const REPLY_KEY_SET = new Set(REPLY_KEYS);
@@ -315,6 +346,10 @@ function parseEntries(list: unknown, version: string): CommentData[] {
       createdAt: c.createdAt,
       body: c.body,
       resolved: c.resolved === true,
+      // PRD 022 Req 5: a `color` outside the four literals is a wrong-typed
+      // known key — treated as absent (the legacy tint), like `resolved:
+      // "yes"` coercing to false, and never bagged as unknown.
+      ...(isCommentColor(c.color) ? { color: c.color } : {}),
       thread: Array.isArray(c.thread) ? c.thread.filter(isReply).map(parseReply) : [],
       anchor: parseAnchor(c.anchor),
     };
@@ -349,6 +384,13 @@ export function readCommentPayload(payload: unknown): CommentFormatRead {
 export function stampedFormatVersion(comments: readonly CommentData[]): string {
   let stamp = BASELINE_COMMENT_FORMAT_VERSION;
   for (const c of comments) {
+    // PRD 022 Req 5: `color` is the one known field newer than the baseline
+    // shape, so an entry carrying it needs at least the version that
+    // introduced it — while a set whose entries all lack it still stamps the
+    // baseline (fields actually present decide, PRD 004 Req 23).
+    if (c.color !== undefined && compareFormatVersions(COLOR_MIN_FORMAT_VERSION, stamp) > 0) {
+      stamp = COLOR_MIN_FORMAT_VERSION;
+    }
     if (!hasRetained(c) || c.extraVersion === undefined) continue;
     if (compareFormatVersions(c.extraVersion, stamp) > 0) stamp = c.extraVersion;
   }
@@ -377,6 +419,11 @@ export function commentPayload(comments: readonly CommentData[]): {
           createdAt: c.createdAt,
           body: c.body,
           resolved: c.resolved,
+          // PRD 022 Req 5: `color` holds a fixed slot in the key order —
+          // after `resolved`, before `thread` — and, being optional, is
+          // emitted only when present, so colorless data serializes to the
+          // exact 1.0.0 bytes it always did.
+          ...(c.color !== undefined ? { color: c.color } : {}),
           thread: c.thread.map((r) =>
             withRetained({ id: r.id, author: r.author, createdAt: r.createdAt, body: r.body }, r.extra),
           ),

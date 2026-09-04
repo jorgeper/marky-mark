@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest';
 import {
   ANCHOR_KEYS,
   BASELINE_COMMENT_FORMAT_VERSION,
+  COMMENT_COLORS,
   COMMENT_KEYS,
   REPLY_KEYS,
   SUPPORTED_COMMENT_FORMAT_VERSION,
@@ -72,8 +73,8 @@ function expectUnsupported(read: CommentFormatRead, label?: string) {
 }
 
 describe('comment format: version literal and migration seam (PRD 004 §A/C/F)', () => {
-  test('U124: the supported comment-format version is declared once as "1.0.0", independent of the app version', () => {
-    expect(SUPPORTED_COMMENT_FORMAT_VERSION).toBe('1.0.0');
+  test('U124: the supported comment-format version is declared once as "1.1.0", independent of the app version', () => {
+    expect(SUPPORTED_COMMENT_FORMAT_VERSION).toBe('1.1.0');
     expect(typeof SUPPORTED_COMMENT_FORMAT_VERSION).toBe('string');
     // PRD non-goal: the format version is not coupled to the app version.
     expect(SUPPORTED_COMMENT_FORMAT_VERSION).not.toBe(pkg.version);
@@ -183,7 +184,7 @@ describe('comment format: version literal and migration seam (PRD 004 §A/C/F)',
     // (issue #15) — in particular it no longer re-serializes to reuse
     // parseSidecar, and no store can import it back into a cycle.
     expect(seamSource.match(/^import .*/gm)).toEqual([
-      "import type { Anchor, CommentData, RetainedKeys, ThreadReply } from './anchoring.ts';",
+      "import type { Anchor, CommentColor, CommentData, RetainedKeys, ThreadReply } from './anchoring.ts';",
     ]);
     expect(seamSource).not.toMatch(/JSON\.stringify/);
 
@@ -320,7 +321,7 @@ describe('comment stores through the seam (PRD 004 §B/D/E — issue #15)', () =
 
   test('U136: known keys are parsed by the build’s rules and never also bagged; the bag is absent when empty', () => {
     // The exact known-key sets, asserted rather than assumed.
-    expect(COMMENT_KEYS).toEqual(['id', 'author', 'createdAt', 'body', 'resolved', 'thread', 'anchor']);
+    expect(COMMENT_KEYS).toEqual(['id', 'author', 'createdAt', 'body', 'resolved', 'color', 'thread', 'anchor']);
     expect(REPLY_KEYS).toEqual(['id', 'author', 'createdAt', 'body']);
     expect(ANCHOR_KEYS).toEqual(['exact', 'prefix', 'suffix', 'start', 'end']);
 
@@ -610,6 +611,108 @@ describe('unreadable stores keep their bytes (PRD 004 Reqs 14/39 — issue #16)'
   });
 });
 
+describe('comment format 1.1.0: the optional color field (PRD 022 Reqs 5–7 — issue #230)', () => {
+  const colored: CommentData = { ...comment, id: 'c-colored', color: 'green' };
+  /** A note-less highlight (PRD 022 Req 6): empty body, no thread, no color. */
+  const noteless: CommentData = {
+    id: 'c-noteless',
+    author: 'Jorge',
+    createdAt: '2026-09-04T08:00:00.000Z',
+    body: '',
+    resolved: false,
+    thread: [],
+    anchor: { exact: 'highlighted text', prefix: 'just ', suffix: ' here', start: 5, end: 21 },
+  };
+  const coloredNoteless: CommentData = { ...noteless, id: 'c-noteless-pink', color: 'pink' };
+
+  test('U1087: color is a known key — each of the four literals parses onto the comment and is never bagged as unknown', () => {
+    expect(COMMENT_COLORS).toEqual(['yellow', 'green', 'blue', 'pink']);
+    for (const color of COMMENT_COLORS) {
+      const parsed = parseSidecar(JSON.stringify({ version: '1.1.0', comments: [{ ...comment, color }] }));
+      expect(parsed[0].color, color).toBe(color);
+      // A known key is parsed, not retained (PRD 004 Req 20): no bag and no
+      // extraVersion — the field itself, not retention, drives the stamp.
+      expect(parsed[0].extra, color).toBeUndefined();
+      expect(parsed[0].extraVersion, color).toBeUndefined();
+    }
+  });
+
+  test('U1088: a color outside the four literals is a wrong-typed known key — treated as absent, never bagged, not re-written', () => {
+    for (const bad of ['purple', 'YELLOW', 'yellow ', '', 7, true, null, ['yellow'], { name: 'yellow' }]) {
+      const label = JSON.stringify(bad);
+      const parsed = parseSidecar(JSON.stringify({ version: '1.1.0', comments: [{ ...comment, color: bad }] }));
+      expect(parsed[0].color, label).toBeUndefined();
+      // Per the module's wrong-typed-known-key stance (like `resolved: "yes"`
+      // in U136), a known key is a schema question: it is not retained…
+      expect(parsed[0].extra, label).toBeUndefined();
+      // …so it does not survive a re-write, and the colorless result stamps
+      // the baseline again.
+      expect(serializeSidecar(parsed), label).not.toContain('"color"');
+      expect(JSON.parse(serializeSidecar(parsed)).version, label).toBe('1.0.0');
+    }
+  });
+
+  test('U1089: lowest-version stamping — any entry with color stamps 1.1.0, an all-colorless set still stamps 1.0.0, retained newer bags still win', () => {
+    expect(stampedFormatVersion([colored])).toBe('1.1.0');
+    expect(stampedFormatVersion([comment, coloredNoteless])).toBe('1.1.0');
+    // A set whose entries all lack color — with notes or without — needs
+    // nothing newer than the baseline.
+    expect(stampedFormatVersion([comment, noteless])).toBe('1.0.0');
+    // The stamp lands in both containers' actual bytes (PRD 022 Req 7).
+    expect(JSON.parse(serializeSidecar([comment, colored])).version).toBe('1.1.0');
+    expect(JSON.parse(splitTrailerJson(attachEmbedded(DOC, [colored]))).version).toBe('1.1.0');
+    expect(JSON.parse(serializeSidecar([comment, noteless])).version).toBe('1.0.0');
+    expect(JSON.parse(splitTrailerJson(attachEmbedded(DOC, [comment, noteless]))).version).toBe('1.0.0');
+    // A bag retained from a newer minor still wins the contest (PRD 004 Req 24).
+    const retained = parseSidecar(JSON.stringify(payloadWithExtras('1.3.0')));
+    expect(stampedFormatVersion([...retained, colored])).toBe('1.3.0');
+  });
+
+  test('U1090: a 1.0.0 store still reads as supported — the floor is the baseline minor, not the supported one', () => {
+    const read = expectSupported(readCommentPayload(payloadAt('1.0.0')));
+    expect(read.version).toBe('1.0.0');
+    expect(read.comments).toEqual([comment]);
+    // The two legacy coercions resolve to 1.0.0 and therefore stay supported.
+    expectSupported(readCommentPayload(payloadAt(1)));
+    expectSupported(readCommentPayload({ comments: [comment] }));
+    // The floor is the baseline, not zero: another MAJOR is still refused.
+    expectUnsupported(readCommentPayload(payloadAt('0.9.0')));
+    expectUnsupported(readCommentPayload(payloadAt('2.0.0')));
+    // Both stores agree on the verdict.
+    expect(readSidecar(JSON.stringify({ version: '1.0.0', comments: [comment] })).readable).toBe(true);
+    expect(splitEmbedded(`${DOC}${trailerOf({ version: '1.0.0', comments: [comment] })}`).readable).toBe(true);
+  });
+
+  test('U1091: note-less highlights round-trip untouched and color round-trips byte-stably in both containers, at its fixed key slot', () => {
+    const set = [colored, noteless, coloredNoteless, comment];
+
+    // Sidecar: identical bytes twice, and a read → write reproduces them.
+    const sidecar = serializeSidecar(set);
+    expect(serializeSidecar(set)).toBe(sidecar);
+    expect(serializeSidecar(parseSidecar(sidecar))).toBe(sidecar);
+    expect(parseSidecar(sidecar)).toEqual(set);
+
+    // Trailer: same story, through a real attach → split → attach cycle.
+    expect(serializeTrailer(set)).toBe(serializeTrailer(set));
+    const attached = attachEmbedded(DOC, set);
+    expect(splitEmbedded(attached).comments).toEqual(set);
+    expect(attachEmbedded(DOC, splitEmbedded(attached).comments)).toBe(attached);
+
+    // The two containers carry the identical payload (PRD 004 Req 26).
+    expect(JSON.parse(splitTrailerJson(attached))).toEqual(JSON.parse(sidecar));
+
+    // color occupies its fixed slot: after `resolved`, before `thread`.
+    const entry = (JSON.parse(sidecar) as { comments: Record<string, unknown>[] }).comments[0];
+    expect(Object.keys(entry)).toEqual(['id', 'author', 'createdAt', 'body', 'resolved', 'color', 'thread', 'anchor']);
+
+    // A note-less entry is preserved untouched: empty body, empty thread.
+    const roundTripped = parseSidecar(sidecar)[1];
+    expect(roundTripped).toEqual(noteless);
+    expect(roundTripped.body).toBe('');
+    expect(roundTripped.thread).toEqual([]);
+  });
+});
+
 describe('the published comment-format specification (docs/COMMENT-FORMAT.md — issue #17)', () => {
   test('U147: PRD Reqs 25/32–37 — docs/COMMENT-FORMAT.md still describes this build', () => {
     // The drift guard for the published spec (issue #17): every claim below is
@@ -663,9 +766,12 @@ describe('the published comment-format specification (docs/COMMENT-FORMAT.md —
       captured(/\*\*Current format version: `([^`]+)`\*\*/, doc, 'the current-version line'),
     ).toBe(SUPPORTED_COMMENT_FORMAT_VERSION);
     const changelog = doc.slice(doc.indexOf('## Changelog'));
+    // Newest first: the top entry is the version this build supports, and the
+    // baseline's original entry is still present further down.
     expect(captured(/^### (\d+\.\d+\.\d+)/m, changelog, 'a changelog entry')).toBe(
-      BASELINE_COMMENT_FORMAT_VERSION,
+      SUPPORTED_COMMENT_FORMAT_VERSION,
     );
+    expect(changelog).toMatch(new RegExp(`^### ${BASELINE_COMMENT_FORMAT_VERSION.replace(/\./g, '\\.')} `, 'm'));
     // And it says the format version is not the app version (Req 36).
     expect(doc).toMatch(/independent of the Marky Mark application\s*\n?version/);
 
@@ -679,7 +785,11 @@ describe('the published comment-format specification (docs/COMMENT-FORMAT.md —
     ] as const) {
       const table = schemaTable(heading);
       expect(table.keys, heading).toEqual([...keys]);
-      expect(table.minVersions, heading).toEqual(keys.map(() => BASELINE_COMMENT_FORMAT_VERSION));
+      // PRD 022 Req 5: `color` records the version that introduced it; every
+      // other field is original shape and records the baseline.
+      expect(table.minVersions, heading).toEqual(
+        keys.map((key) => (key === 'color' ? '1.1.0' : BASELINE_COMMENT_FORMAT_VERSION)),
+      );
     }
     // The anchor's documented context length is the real one.
     expect(doc).toContain(`Up to ${CONTEXT_LENGTH} characters of context`);

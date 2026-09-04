@@ -61,6 +61,29 @@ describe('sidecar round-trip and md-with-comments interop', () => {
   });
 });
 
+describe('PRD 022 Req 7: color in the sidecar container (issue #230)', () => {
+  test('U1092: a colored highlight round-trips byte-stably through the sidecar and stamps 1.1.0', () => {
+    const highlight: CommentData = {
+      id: 'h-1111',
+      author: 'Jorge',
+      createdAt: '2026-09-04T09:00:00.000Z',
+      body: '',
+      resolved: false,
+      color: 'blue',
+      thread: [],
+      anchor: { exact: 'marked text', prefix: 'the ', suffix: ' here', start: 4, end: 15 },
+    };
+    const sidecar = serializeSidecar([highlight]);
+    // Byte-stable: same bytes twice, and a parse → serialize reproduces them.
+    expect(serializeSidecar([highlight])).toBe(sidecar);
+    expect(serializeSidecar(parseSidecar(sidecar))).toBe(sidecar);
+    expect(parseSidecar(sidecar)).toEqual([highlight]);
+    expect(parseSidecar(sidecar)[0].color).toBe('blue');
+    // The container stamps the version the color field requires.
+    expect((JSON.parse(sidecar) as { version: string }).version).toBe('1.1.0');
+  });
+});
+
 describe('PRD 007 Req 13/17: the sidecar-path predicate', () => {
   test('U322: exactly the paths sidecarPathFor produces are sidecars — lookalikes are documents', () => {
     // The server requires comment.read/comment.write for these blobs and the

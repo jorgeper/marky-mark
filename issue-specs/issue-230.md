@@ -1,0 +1,23 @@
+# Spec: Highlights: comment format 1.1.0 — optional color field (#230)
+
+## Goal
+
+All acceptance criteria in issue-specs/issue-230.md are satisfied for issue #230, with evidence visible in the session: the comment format carries an optional `color` field (`"yellow" | "green" | "blue" | "pink"`) as format version 1.1.0 with lowest-version stamping (a file whose entries all lack `color` still stamps 1.0.0), note-less highlight entries (empty `body`, no thread) parse and round-trip untouched, `color` round-trips byte-stably in both sidecar and embedded modes, `npm run validate:quick` passes in the implementer's session, and a summary comment from the implementer exists on issue #230.
+
+## Acceptance criteria
+
+- **Schema (PRD 022 Req 5).** The in-memory comment shape (`CommentData` in `src/lib/anchoring.ts`) and the seam (`src/lib/commentFormat.ts`) support an optional `color` field on a comment, valid values exactly `"yellow" | "green" | "blue" | "pink"`. `color` is a known key (in `COMMENT_KEYS`, never bagged as unknown), parsed on read and emitted by `commentPayload` at a fixed position in the key order; a `color` value outside the four literals is not accepted as-is (treat it per the module's existing wrong-typed-known-key stance and cover the choice with a test).
+- **Version constants.** `SUPPORTED_COMMENT_FORMAT_VERSION` is `1.1.0`; `BASELINE_COMMENT_FORMAT_VERSION` stays `1.0.0`. A payload declaring `1.0.0` (and the two legacy coercions: integer `1` trailer, version-less sidecar) still reads as **supported** — note `isSupportedVersion` today requires `minor >= supported.minor`, so its lower-minor rule must be updated for real prior versions rather than left to silently reject 1.0.0 stores.
+- **Lowest-version stamping (PRD 004).** `stampedFormatVersion` accounts for fields actually present: a comment set where any entry carries `color` stamps `1.1.0`; a set whose entries all lack `color` (notes or not) stamps `1.0.0`. Retained newer-version bags still win as before.
+- **Note-less highlights (PRD 022 Req 6).** An entry with `body: ""` and an empty `thread` parses, is preserved untouched through a read → write round-trip, and `docs/COMMENT-FORMAT.md` documents the accepted 1.0.0-reader degradation (an old reader may show it as an empty comment and must preserve it per the round-trip rule). The reply/resolve-only-with-note behavior is UI scope owned by a sibling sub-issue — this issue only documents the storage contract.
+- **Both containers (PRD 022 Req 7).** `color` round-trips identically in sidecar (`src/lib/sidecar.ts`) and embedded (`src/lib/embedded.ts`) modes, byte-stable key order included: serializing the same comment set twice produces identical bytes, proven by tests in both modes.
+- **Format doc.** `docs/COMMENT-FORMAT.md` is updated the way it requires of itself: a `color` row in the comment-object table with Min version `1.1.0`, the payload-schema heading/version references and the writer-rules fixed key-order list updated to include `color`, and a newest-first `1.1.0` changelog entry.
+- **Unit tests.** `tests/unit/comment-format.test.ts` (plus `sidecar.test.ts` / `embedded.test.ts` where the container matters) cover: stamping (with/without `color`), `color` round-trip in both containers, note-less entries, invalid `color` values, and 1.0.0 stores still reading as supported. All unit tests pass.
+- **Scope.** Storage layer only — no UI changes (no `App.tsx`, `styles.css`, or component changes).
+- **Test economy.** The implementer iterated with `npm run typecheck` and `npm run test:unit` (or tests targeted at the changed code), and ran `npm run validate:quick` exactly once, right before declaring the goal met — not after every small change and not as a full-gate baseline at the start.
+- **Gate.** `npm run validate:quick` has been run in the implementer's session and prints `QUICK VALIDATION: ALL PASSED`.
+- **Issue trail.** A summary comment from the implementer exists on issue #230.
+
+## Context
+
+Parent: #228; PRD: `prd/022-highlights.md` (this issue is Reqs 5–7 — the storage slice). The single chokepoint is `src/lib/commentFormat.ts` (PRD 004 §F): both stores read/write through `readCommentPayload` / `commentPayload`, so adding `color` there propagates to both containers — the container modules likely need no changes beyond tests. The doc's MINOR row (`docs/COMMENT-FORMAT.md` §MAJOR/MINOR/PATCH) names this exact change as its canonical example. Biggest trap: `isSupportedVersion` currently treats a minor *below* the supported one as unsupported (correct while 1.0.0 was the only version; wrong once supported is 1.1.0) — fix deliberately, with a test reading a `1.0.0` payload. Citation comments follow `.sandcastle/CODING_STANDARDS.md`.
