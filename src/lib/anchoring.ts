@@ -59,12 +59,24 @@ export interface ThreadReply {
   extra?: RetainedKeys;
 }
 
+/**
+ * PRD 022 Req 5: the marker colors the comment format admits — exactly these
+ * four literals, nothing else. The runtime list lives in commentFormat.ts
+ * (COMMENT_COLORS), beside the rest of the wire-format vocabulary.
+ */
+export type CommentColor = 'yellow' | 'green' | 'blue' | 'pink';
+
 export interface CommentData {
   id: string;
   author: string;
   createdAt: string;
   body: string;
   resolved: boolean;
+  /**
+   * PRD 022 Req 5: the highlight tint, format 1.1.0's one optional addition.
+   * Absent means the legacy default tint — never a fifth color value.
+   */
+  color?: CommentColor;
   thread: ThreadReply[];
   anchor: Anchor;
   extra?: RetainedKeys;

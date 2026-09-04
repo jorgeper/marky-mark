@@ -1,6 +1,6 @@
 # The Marky Mark comment format
 
-**Current format version: `1.0.0`**
+**Current format version: `1.1.0`**
 
 This is the published specification of the format Marky Mark uses to store
 comments alongside a markdown document. It is written for someone building a
@@ -18,7 +18,7 @@ maintainers; no rule below depends on reading them.
 
 - [The version string](#the-version-string)
 - [The two containers](#the-two-containers)
-- [The payload schema (1.0.0)](#the-payload-schema-100)
+- [The payload schema (1.1.0)](#the-payload-schema-110)
 - [A complete worked example](#a-complete-worked-example)
 - [MAJOR / MINOR / PATCH](#major--minor--patch)
 - [Reader rules](#reader-rules)
@@ -61,7 +61,7 @@ the `version` key.
 ## The two containers
 
 The same payload — the identical JSON object described in
-[The payload schema](#the-payload-schema-100), with the same `version` key in
+[The payload schema](#the-payload-schema-110), with the same `version` key in
 the same place — is stored in one of two containers. A document may carry
 either, or both.
 
@@ -164,14 +164,15 @@ entries win** a collision; the merged order is the trailer's comments first,
 then the sidecar-only ones. The two containers are judged independently for
 readability (see [Reader rules](#reader-rules)).
 
-## The payload schema (1.0.0)
+## The payload schema (1.1.0)
 
 The payload is a JSON object. Every field below is part of the wire format at
-version `1.0.0`.
+version `1.1.0`.
 
 Each table carries a **Min version** column: the lowest format version in
-which that field exists. Every field of the format today requires `1.0.0`,
-because `1.0.0` is the first version. **Every future field addition must
+which that field exists. Every field of the original shape requires `1.0.0`;
+the one addition since — the comment's optional `color` — requires `1.1.0`.
+**Every future field addition must
 record its own minimum version in the same way.** That column is not
 decoration: it is what makes the writer's "stamp the lowest version that can
 represent this data" rule (see [Writer rules](#writer-rules)) computable as
@@ -194,8 +195,18 @@ version its data actually needs.
 | `createdAt` | string           | yes      | 1.0.0       | ISO 8601 timestamp, UTC (`2026-05-14T09:31:02.418Z`).        |
 | `body`      | string           | yes      | 1.0.0       | The comment text. Markdown source; may contain any character, including `-->`. |
 | `resolved`  | boolean          | yes      | 1.0.0       | Whether the thread is resolved. A reader treats *only* the literal `true` as resolved; anything else, including a missing key, is `false`. A writer always emits it. |
+| `color`     | string           | no       | 1.1.0       | Highlight tint: exactly one of `"yellow"`, `"green"`, `"blue"`, `"pink"`. Absent means the legacy default tint. Any other value is a known key with an invalid value, not an unknown key: a reader treats it as absent (and does not retain it), and a writer emits the key only when a valid color is present. |
 | `thread`    | array of replies | yes      | 1.0.0       | Replies, oldest first. Empty array when there are none — the key is still written. |
 | `anchor`    | anchor object    | yes      | 1.0.0       | Where in the document the comment attaches.                  |
+
+**A note-less highlight is a valid comment.** An entry may carry an empty
+`body` and an empty `thread`: that is how a highlight without a note is
+stored. No new field is involved, so storing one requires only `1.0.0` — and
+the accepted degradation for a `1.0.0` reader follows from the rules already
+stated: it parses the entry normally (every required field is present), may
+show it as an empty comment in its default tint (`color`, if present, is just
+an unknown key to it), and preserves it — retained `color` included — through
+a read → write round-trip.
 
 ### The reply object
 
@@ -261,12 +272,14 @@ Release checklist
 The installer must be signed before upload.
 ```
 
-with one comment on the word `signed` (offsets 41–47) carrying one reply, and
-where the reply's body happens to contain `-->`. The payload:
+with one yellow highlight on the word `signed` (offsets 41–47) whose note
+carries one reply, and where the reply's body happens to contain `-->`. The
+payload (stamped `1.1.0` because an entry carries `color` — see
+[Writer rules](#writer-rules)):
 
 ```json
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "comments": [
     {
       "id": "c-9f2a",
@@ -274,6 +287,7 @@ where the reply's body happens to contain `-->`. The payload:
       "createdAt": "2026-05-14T09:31:02.418Z",
       "body": "Signed with which certificate?",
       "resolved": false,
+      "color": "yellow",
       "thread": [
         {
           "id": "r-41c8",
@@ -307,7 +321,7 @@ the reply body rendered as `-\u002d>`:
 ```text
 <!-- marky-mark-comments
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "comments": [
     {
       "id": "c-9f2a",
@@ -315,6 +329,7 @@ the reply body rendered as `-\u002d>`:
       "createdAt": "2026-05-14T09:31:02.418Z",
       "body": "Signed with which certificate?",
       "resolved": false,
+      "color": "yellow",
       "thread": [
         {
           "id": "r-41c8",
@@ -343,7 +358,7 @@ The version components mean this, and only this:
 | Component | Incremented when                                                                                                                                   | Effect on an older reader                                                              | Worked example                                                                                                                                                                     |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **MAJOR** | A change a reader of the previous major cannot correctly interpret: removing a field, renaming a field, changing a field's type, or changing the meaning of an existing field. | It must refuse the store outright — it would misread the data.                           | Redefining `anchor.start` / `anchor.end` to count offsets into the **markdown source** instead of the rendered plain text: same keys, same types, silently different meaning → `2.0.0`. Dropping `anchor.prefix` and `suffix` in favour of a new locator is the same story → `2.0.0`. |
-| **MINOR** | A backwards-compatible addition: a new **optional** field on a comment, reply or anchor, whose absence a previous reader tolerates and whose presence it can safely ignore.     | It reads the store normally, ignores the new field, and preserves it on write.            | Adding an optional `colour` to a comment (a highlight tint), or an optional `mentions` array of names on a comment or reply: an older reader shows the comment exactly as before → `1.1.0`. |
+| **MINOR** | A backwards-compatible addition: a new **optional** field on a comment, reply or anchor, whose absence a previous reader tolerates and whose presence it can safely ignore.     | It reads the store normally, ignores the new field, and preserves it on write.            | Adding an optional `color` to a comment (a highlight tint — the addition that became `1.1.0`), or an optional `mentions` array of names on a comment or reply: an older reader shows the comment exactly as before → `1.1.0`. |
 | **PATCH** | A change that alters no shape at all: a clarification of the semantics already implied, or a serialization fix that produces byte-different but schema-identical output.        | None — it parses the same object it always did.                                          | The `-->` escape in the embedded trailer (byte-different trailer, identical parsed payload), or fixing key order / indentation so output is byte-stable across saves → `1.0.1`.        |
 
 Two consequences worth stating outright:
@@ -389,30 +404,39 @@ never shipped.
 
 ### 2. Decide whether the resolved version is supported
 
-Compare the resolved version against the version the reader supports —
-`1.0.0` for this build — on **MAJOR, then MINOR. PATCH never decides.**
+Compare the resolved version against what the reader knows — for this build,
+supported `1.1.0`, within a MAJOR whose oldest shipped version is `1.0.0` —
+on **MAJOR, then MINOR. PATCH never decides.**
 
 A store is supported when **both** hold:
 
 - the resolved MAJOR **equals** the reader's supported MAJOR, and
-- the resolved MINOR is **greater than or equal to** the reader's supported
-  MINOR.
+- the resolved MINOR is **greater than or equal to** the MINOR of the
+  *oldest version of that MAJOR that ever shipped* (`1.0.0` for this build,
+  so a MINOR of `0` or more).
+
+A MINOR at or below the reader's own is readable because every minor of a
+major that shipped is the previous shape plus optional fields — a `1.1.0`
+reader interprets a `1.0.0` store as its own schema minus `color`. A
+*greater* MINOR is readable by the compatibility promise MINOR makes (rule 5
+below).
 
 Everything else is unsupported: a greater MAJOR (obviously — it may mean
-anything), a *lesser* MAJOR, and a *lesser* MINOR at the right MAJOR.
+anything), a *lesser* MAJOR, and a MINOR below the oldest one that shipped at
+the right MAJOR.
 
 That last pair surprises people, so it is worth being blunt: **it is not true
-that "anything at or below the supported version is readable."** A version
-below the supported one is readable only if the reader registers an explicit
+that "anything below the supported version is readable."** A version outside
+the shipped range is readable only if the reader registers an explicit
 transformation for it, and the two coercions of rule 1 are the only
 transformations that exist — which is why the legacy encodings are read while
 a store that declared, say, `0.9.0` is not: nothing is registered for a version
 that never shipped. An uninterpretable version is a signal to be careful, not
 to guess.
 
-For this build, supported `1.0.0`, that reduces to: MAJOR must be `1`, MINOR
-may be anything (`>= 0`), PATCH is ignored. `1.0.0`, `1.4.2` and `1.99.0` are
-read; `2.0.0` and `0.9.9` are not.
+For this build, supported `1.1.0` with `1.0.0` the oldest of its major, that
+reduces to: MAJOR must be `1`, MINOR may be anything (`>= 0`), PATCH is
+ignored. `1.0.0`, `1.4.2` and `1.99.0` are read; `2.0.0` and `0.9.9` are not.
 
 ### 3. What an unsupported store does — and does not do
 
@@ -513,11 +537,13 @@ Then:
   wrapped.
 - **Serialization is byte-stable and idempotent.** Known keys are emitted in
   the fixed order of the tables above (`id`, `author`, `createdAt`, `body`,
-  `resolved`, `thread`, `anchor`; `exact`, `prefix`, `suffix`, `start`, `end`;
-  `version` before `comments`), and retained unknown keys follow the known
-  ones in the order they were read. Serializing the same comment set twice
-  produces identical bytes, and attaching a trailer to a document that already
-  has one replaces it rather than appending a second.
+  `resolved`, `color`, `thread`, `anchor`; `exact`, `prefix`, `suffix`,
+  `start`, `end`; `version` before `comments`), and retained unknown keys
+  follow the known ones in the order they were read. An optional key
+  (`color`) keeps its slot in that order but is simply omitted when absent —
+  never written as `null` or an empty string. Serializing the same comment
+  set twice produces identical bytes, and attaching a trailer to a document
+  that already has one replaces it rather than appending a second.
 - **Never write a container for zero comments.** No empty trailer; no sidecar
   file holding an empty array — the trailer is omitted and the sidecar file is
   removed.
@@ -559,6 +585,26 @@ Entries are **newest first**. Every change to the comment payload appends an
 entry here and bumps the version per
 [MAJOR / MINOR / PATCH](#major--minor--patch) — see `CONTRIBUTING.md`, which
 makes that a review gate.
+
+### 1.1.0 — 2026-09-04
+
+Highlights (PRD 022): one optional field, nothing else moves.
+
+- The comment object gains an optional `color` — exactly one of `"yellow"`,
+  `"green"`, `"blue"`, `"pink"`; absent means the legacy default tint. It
+  slots between `resolved` and `thread` in the fixed key order and is emitted
+  only when present, so a colorless store's bytes are unchanged from `1.0.0`.
+- The stamp follows the fields actually present: a store where some entry
+  carries `color` stamps `1.1.0`; a store whose entries all lack it still
+  stamps `1.0.0` (the lowest-version rule of [Writer rules](#writer-rules)).
+- Note-less highlights are stated as valid: an entry with an empty `body` and
+  an empty `thread` stores a highlight without a note, at min version
+  `1.0.0`, with the `1.0.0`-reader degradation documented under
+  [The comment object](#the-comment-object).
+- Reader rule 2 restated for a world with two shipped minors: within the
+  supported MAJOR, every MINOR back to the oldest that shipped (`1.0.0`) is
+  supported — the rule was previously phrased against the reader's own MINOR
+  because only one existed.
 
 ### 1.0.0 — 2026-08-03
 

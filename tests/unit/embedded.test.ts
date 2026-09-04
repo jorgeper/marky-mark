@@ -69,6 +69,21 @@ describe('embedded comment trailer', () => {
     expect(attachEmbedded(withTrailer, [])).toBe(content);
   });
 
+  test('U1093: a colored highlight round-trips byte-stably through the trailer and stamps 1.1.0 (PRD 022 Req 7 — issue #230)', () => {
+    const highlight: CommentData = { ...makeComment('h-1', 'a noted highlight'), color: 'yellow' };
+    const content = '# Doc\n\ntext\n';
+    const attached = attachEmbedded(content, [highlight]);
+    // Byte-stable: same bytes twice, and a split → attach reproduces them.
+    expect(attachEmbedded(content, [highlight])).toBe(attached);
+    const split = splitEmbedded(attached);
+    expect(split.comments).toEqual([highlight]);
+    expect(split.comments[0].color).toBe('yellow');
+    expect(attachEmbedded(content, split.comments)).toBe(attached);
+    // The trailer stamps the version the color field requires.
+    expect(attached).toContain('"version": "1.1.0"');
+    expect(serializeTrailer([highlight])).toBe(serializeTrailer([highlight]));
+  });
+
   test('U11: sidecar+trailer merge by id with trailer precedence; migration produces clean end states', () => {
     const trailerVersion = { ...makeComment('shared', 'trailer wins'), resolved: true };
     const trailerOnly = makeComment('t-only', 'from trailer');
