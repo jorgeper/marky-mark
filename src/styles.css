@@ -766,23 +766,105 @@ mark.hl.active,
 mark.hl.flash {
   background: var(--mm-comment-tint-active, rgba(255, 193, 37, 0.6));
 }
+
+/* PRD 022 Req 13: the four marker tokens — theme-independent defaults a
+   theme MAY override (see THEMES.md; gruvbox-dark does, keeping its light
+   body text at WCAG AA over every tint). Each token holds the opaque hue;
+   the rules below derive the same strengths the legacy tint pair uses:
+   42% idle, 60% active/flash/overlap (and 12% for resolved ghosts). An
+   entry without a `color` field carries no data-color attribute and keeps
+   the legacy --mm-comment-tint rules above (Req 3). */
+.theme-root {
+  --mm-marker-yellow: #ffd666;
+  --mm-marker-green: #7ee787;
+  --mm-marker-blue: #79c0ff;
+  --mm-marker-pink: #ffa1c9;
+}
+
+/* Each colored mark resolves its hue once; the three strength rules below
+   then cover every color. `data-color` only ever holds one of the four
+   literals (commentFormat.ts drops anything else at parse), so the bare
+   [data-color] selectors never meet an unset hue. */
+mark.hl[data-color='yellow'] {
+  --marker-hue: var(--mm-marker-yellow);
+}
+mark.hl[data-color='green'] {
+  --marker-hue: var(--mm-marker-green);
+}
+mark.hl[data-color='blue'] {
+  --marker-hue: var(--mm-marker-blue);
+}
+mark.hl[data-color='pink'] {
+  --marker-hue: var(--mm-marker-pink);
+}
+
+mark.hl[data-color] {
+  background: color-mix(in srgb, var(--marker-hue) 42%, transparent);
+}
+
+/* Active/flash and stacked-overlap read stronger, like the legacy pair
+   (an inner mark's own hue rule outranks the variable it inherits). */
+mark.hl.active[data-color],
+mark.hl.flash[data-color],
+mark.hl mark.hl[data-color] {
+  background: color-mix(in srgb, var(--marker-hue) 60%, transparent);
+}
+
+/* Resolved ghosts dim like the legacy tint's ghost rule below. */
+mark.hl.ghost[data-color] {
+  background: color-mix(in srgb, var(--marker-hue) 12%, transparent);
+}
 /* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
-/* PRD 018 Req 12 (issue #204): the pill is a .btn.btn-pill primitive; this
-   class keeps its floating placement and panel shadow only. */
-.add-comment-btn {
+/* PRD 022 Req 1: the marker popup replaces the Add-comment pill — same
+   floating placement (and the issue #18 toolbar floor, applied inline),
+   now a compact row of swatch buttons plus "add note". */
+.marker-popup {
   position: fixed;
   transform: translateX(-50%);
   z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 7px;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: var(--mm-radius-medium);
   box-shadow: var(--mm-panel-shadow);
 }
 
-/* Issue #38: the plain-edit-mode affordance — same pill, pinned top-right
+/* Issue #38: the plain-edit-mode affordance — same popup, pinned top-right
    (editor selections carry no pixel rect to float over). */
-.add-comment-btn-edit {
+.marker-popup-edit {
   left: auto;
   right: 14px;
   transform: none;
+}
+
+/* The swatch: an icon-btn whose face IS the marker hue (the popup's content,
+   not restated chrome). The armed one — last-used, PRD 022 Req 4 — wears
+   the accent ring. */
+.marker-popup .marker-swatch {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  border-radius: var(--mm-radius-small);
+}
+.marker-popup .marker-swatch-yellow {
+  background: var(--mm-marker-yellow);
+}
+.marker-popup .marker-swatch-green {
+  background: var(--mm-marker-green);
+}
+.marker-popup .marker-swatch-blue {
+  background: var(--mm-marker-blue);
+}
+.marker-popup .marker-swatch-pink {
+  background: var(--mm-marker-pink);
+}
+.marker-popup .marker-swatch.armed {
+  outline: 2px solid var(--mm-accent, #0969da);
+  outline-offset: 1px;
 }
 
 /* ---------- comments panel ---------- */

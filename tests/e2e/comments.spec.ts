@@ -61,8 +61,8 @@ const NEWER_PATH = '/docs/from-the-future.md';
 
 test('E7: select text → Add comment → highlight in DOM and card in panel with the body text', async ({ page }) => {
   await selectPhrase(page, PHRASE);
-  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
-  await page.getByTestId('add-comment-btn').click();
+  await expect(page.getByTestId('marker-popup')).toBeVisible();
+  await page.getByTestId('add-note-btn').click();
   await expect(page.getByTestId('composer')).toBeVisible();
   await page.getByTestId('composer-input').fill('First note');
   await page.getByTestId('composer-submit').click();
@@ -129,7 +129,7 @@ test('E10: a comment spanning two blocks highlights in both; deleting it (confir
 }) => {
   // From inside the "Reading" paragraph into the blockquote further down.
   await selectSpan(page, 'GitHub-flavored markdown', 'A task list');
-  await page.getByTestId('add-comment-btn').click();
+  await page.getByTestId('add-note-btn').click();
   await page.getByTestId('composer-input').fill('Spanning comment');
   await page.getByTestId('composer-submit').click();
 
@@ -361,7 +361,7 @@ test('E36: disabling comments hides every comment affordance non-destructively; 
   // Selecting text produces no floating button, and typing starts no composer.
   await selectPhrase(page, PHRASE);
   await page.waitForTimeout(200);
-  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
   await page.keyboard.press('x');
   await page.waitForTimeout(150);
   await expect(page.getByTestId('composer')).toHaveCount(0);
@@ -381,7 +381,7 @@ test('E37: typing over a selection opens the composer seeded with the keystroke;
   page,
 }) => {
   await selectPhrase(page, PHRASE);
-  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
+  await expect(page.getByTestId('marker-popup')).toBeVisible();
   await page.keyboard.press('x');
   await expect(page.getByTestId('composer')).toBeVisible();
   await expect(page.getByTestId('composer-input')).toHaveValue('x');
@@ -397,7 +397,7 @@ test('E37: typing over a selection opens the composer seeded with the keystroke;
   await page.getByTestId('set-type-to-comment').uncheck();
   await page.getByTestId('settings-close').click();
   await selectPhrase(page, 'GitHub-flavored markdown');
-  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
+  await expect(page.getByTestId('marker-popup')).toBeVisible();
   await page.keyboard.press('q');
   await page.waitForTimeout(150);
   await expect(page.getByTestId('composer')).toHaveCount(0);
@@ -597,8 +597,8 @@ test('E129: split edit — highlights + panel in the live pane, comment from a s
     }
   });
   await selectPhraseInPane(page, '[data-testid="split-preview"] .doc', 'renders GitHub-flavored markdown');
-  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
-  await clickClearOfToolbar(page.getByTestId('add-comment-btn'));
+  await expect(page.getByTestId('marker-popup')).toBeVisible();
+  await clickClearOfToolbar(page.getByTestId('add-note-btn'));
   await expect(page.getByTestId('composer')).toBeVisible();
   await page.getByTestId('composer-input').fill('From the split pane');
   await page.getByTestId('composer-submit').click();
@@ -640,7 +640,7 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
 
   // Open composer.
   await selectPhrase(page, 'markdown itself stays untouched');
-  await page.getByTestId('add-comment-btn').click();
+  await page.getByTestId('add-note-btn').click();
   await expect(page.getByTestId('composer')).toBeVisible();
   await expect.poll(() => gapOf('composer')).toBeGreaterThanOrEqual(16);
   await page.keyboard.press('Escape');
@@ -779,7 +779,7 @@ test('E138: a newer-major trailer — every authoring route is closed and the in
 
   // Req 15: selecting text offers no Add comment button…
   await selectPhrase(page, 'paragraph');
-  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
   // …and type-to-comment opens no composer.
   await page.keyboard.type('x');
   await expect(page.getByTestId('composer')).toHaveCount(0);
@@ -834,7 +834,7 @@ test('E139: per store — an unreadable trailer beside a readable sidecar shows 
     await expect(card.getByTestId(id)).toHaveCount(0);
   }
   await selectPhrase(page, 'reads perfectly');
-  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
 
   // Req 14: a save leaves the trailer byte-identical and never touches the
   // sidecar — no migration in either direction.
@@ -897,7 +897,7 @@ test('E151: comments hidden (Mod+Shift+C) with the master switch ON — selectio
   await expect(page.getByTestId('comments-toggle')).not.toHaveClass(/active/);
   await selectPhrase(page, PHRASE);
   await page.waitForTimeout(200);
-  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
   // Type-to-comment stays closed too (same gate in the SPEC7 §3 effect).
   await page.keyboard.press('x');
   await page.waitForTimeout(150);
@@ -906,24 +906,24 @@ test('E151: comments hidden (Mod+Shift+C) with the master switch ON — selectio
   // Showing comments again is the only change — the button comes right back.
   await page.keyboard.press('Control+Shift+C');
   await selectPhrase(page, PHRASE);
-  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
+  await expect(page.getByTestId('marker-popup')).toBeVisible();
 });
 
 test('E152: an open composer suppresses a second Add-comment button until it closes', async ({ page }) => {
   await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('add-comment-btn'));
+  await clickClearOfToolbar(page.getByTestId('add-note-btn'));
   await expect(page.getByTestId('composer')).toBeVisible();
 
   // A new selection while the composer is pending offers no second button.
   await selectPhrase(page, 'GitHub-flavored markdown');
   await page.waitForTimeout(200);
-  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
 
   // Cancel closes the composer — the same selection offers the button again.
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('composer')).toHaveCount(0);
   await selectPhrase(page, 'GitHub-flavored markdown');
-  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
+  await expect(page.getByTestId('marker-popup')).toBeVisible();
 });
 
 test('E153: plain edit mode reaches a comment — the affordance rides the SPEC25 carry and anchors the selected phrase', async ({
@@ -941,19 +941,19 @@ test('E153: plain edit mode reaches a comment — the affordance rides the SPEC2
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
 
   // No selection → no affordance.
-  await expect(page.getByTestId('add-comment-btn-edit')).toHaveCount(0);
+  await expect(page.getByTestId('marker-popup-edit')).toHaveCount(0);
 
   // Select the whole middle paragraph in the editor.
   await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'alpha bravo' }).click();
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('alpha bravo charlie delta.');
-  const afford = page.getByTestId('add-comment-btn-edit');
+  const afford = page.getByTestId('marker-popup-edit');
   await expect(afford).toBeVisible();
 
-  // Acting on it switches surface (SPEC25 carry) and opens the composer on
-  // the SAME selection, now in preview's rendered-DOM offsets.
-  await clickClearOfToolbar(afford);
+  // Acting on it ("add note") switches surface (SPEC25 carry) and opens the
+  // composer on the SAME selection, now in preview's rendered-DOM offsets.
+  await clickClearOfToolbar(afford.getByTestId('add-note-btn'));
   await expect(page.getByTestId('composer')).toBeVisible();
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Edit Affordance'); // preview is up
   await page.getByTestId('composer-input').fill('from plain edit mode');
@@ -986,8 +986,8 @@ test('E154: the edit-mode affordance obeys every gate — frozen store, hidden c
   await page.keyboard.press('Shift+End');
   await expect.poll(() => page.evaluate(() => (window.__mmEdit?.selText ?? '').length)).toBeGreaterThan(0);
   await page.waitForTimeout(200);
-  await expect(page.getByTestId('add-comment-btn-edit')).toHaveCount(0);
-  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+  await expect(page.getByTestId('marker-popup-edit')).toHaveCount(0);
+  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
 
   // A clean document in the same session DOES offer it (back to plain edit —
   // opening a document lands in preview; the split-off setting persisted)…
@@ -998,7 +998,7 @@ test('E154: the edit-mode affordance obeys every gate — frozen store, hidden c
   await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'saved to a sidecar' }).click();
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
-  const afford = page.getByTestId('add-comment-btn-edit');
+  const afford = page.getByTestId('marker-popup-edit');
   await expect(afford).toBeVisible();
 
   // …until comments are hidden (Mod+Shift+C)…
@@ -1015,7 +1015,7 @@ test('E154: the edit-mode affordance obeys every gate — frozen store, hidden c
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
   await page.waitForTimeout(200);
-  await expect(page.getByTestId('add-comment-btn-edit')).toHaveCount(0);
+  await expect(page.getByTestId('marker-popup-edit')).toHaveCount(0);
 });
 
 test('E158: a parked doc reopens fresh when an external tool edited its sidecar (issue #64) — and a mid-debounce comment edit flushes on the switch instead of going stale', async ({
@@ -1062,4 +1062,123 @@ test('E158: a parked doc reopens fresh when an external tool edited its sidecar 
   await openPath(page, NEWER_PATH);
   await expect(cards).toHaveCount(3);
   await expect.poll(() => fsRead(page, sidecarPath)).toContain('Added while you were away');
+});
+
+test('E415: PRD 022 Req 1 — a swatch click creates a note-less colored highlight and closes the popup; no composer opens', async ({
+  page,
+}) => {
+  await selectPhrase(page, PHRASE);
+  await expect(page.getByTestId('marker-popup')).toBeVisible();
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
+
+  // The popup closed and nothing else opened.
+  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+
+  // The highlight painted in the chosen color through the existing mark path.
+  const mark = page.locator('mark.hl').first();
+  await expect(mark).toBeVisible();
+  await expect(mark).toHaveAttribute('data-color', 'green');
+
+  // On disk: a note-less entry (empty body, no thread) carrying the color —
+  // format 1.1.0's shape from #230.
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "green"'));
+  const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
+  expect(sidecar.version).toBe('1.1.0');
+  expect(sidecar.comments).toHaveLength(1);
+  expect(sidecar.comments[0].body).toBe('');
+  expect(sidecar.comments[0].thread).toEqual([]);
+});
+
+test('E416: PRD 022 Reqs 1–2 — "add note" creates a highlight in the armed color and opens the composer attached to it', async ({
+  page,
+}) => {
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('add-note-btn'));
+
+  // The highlight already exists — armed default yellow — with the composer
+  // open and standing in for its card.
+  await expect(page.getByTestId('composer')).toBeVisible();
+  const mark = page.locator('mark.hl').first();
+  await expect(mark).toBeVisible();
+  await expect(mark).toHaveAttribute('data-color', 'yellow');
+
+  await page.getByTestId('composer-input').fill('a note on a highlight');
+  await page.getByTestId('composer-submit').click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('card-body')).toHaveText('a note on a highlight');
+
+  // ONE object: the note landed on the same colored entry.
+  await waitForSidecar(page, (s) => !!s && s.includes('a note on a highlight'));
+  const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
+  expect(sidecar.comments).toHaveLength(1);
+  expect(sidecar.comments[0].color).toBe('yellow');
+  expect(sidecar.comments[0].body).toBe('a note on a highlight');
+});
+
+test('E417: PRD 022 Req 4 — the last-used swatch pre-arms the popup and seeds type-to-comment', async ({ page }) => {
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-blue'));
+  await expect(page.locator('mark.hl[data-color="blue"]').first()).toBeVisible();
+
+  // A new selection: blue now leads the popup, pre-armed.
+  await selectPhrase(page, 'GitHub-flavored markdown');
+  const popup = page.getByTestId('marker-popup');
+  await expect(popup).toBeVisible();
+  await expect(popup.locator('.marker-swatch').first()).toHaveAttribute('data-testid', 'marker-swatch-blue');
+  await expect(popup.getByTestId('marker-swatch-blue')).toHaveAttribute('aria-pressed', 'true');
+
+  // …and seeds type-to-comment: the printable key still opens the composer,
+  // whose submit yields a highlight-with-note in the armed color.
+  await page.keyboard.press('x');
+  await expect(page.getByTestId('composer')).toBeVisible();
+  await page.getByTestId('composer-submit').click();
+  await waitForSidecar(page, (s) => !!s && s.includes('"x"'));
+  const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
+  expect(sidecar.comments.filter((c: { color?: string }) => c.color === 'blue')).toHaveLength(2);
+});
+
+test('E418: PRD 022 Req 3 — a legacy colorless sidecar renders in the default tint; re-saving adds no colors and keeps 1.0.0', async ({
+  page,
+}) => {
+  const DOC = '/docs/legacy-tint.md';
+  await fsWrite(page, DOC, '# Legacy\n\nplain old commented text here.\n');
+  await fsWrite(
+    page,
+    `${DOC}.comments.json`,
+    JSON.stringify(
+      {
+        version: '1.0.0',
+        comments: [
+          {
+            id: 'legacy-1',
+            author: 'Old Reader',
+            createdAt: '2024-01-01T00:00:00.000Z',
+            body: 'an old note',
+            resolved: false,
+            thread: [],
+            anchor: { exact: 'commented text', prefix: 'plain old ', suffix: ' here.', start: 16, end: 30 },
+          },
+        ],
+      },
+      null,
+      2
+    )
+  );
+  await page.goto(`/#open=${DOC}`);
+
+  // The colorless entry paints as a noted highlight in the legacy tint.
+  const mark = page.locator('mark.hl').first();
+  await expect(mark).toBeVisible();
+  expect(await mark.getAttribute('data-color')).toBeNull();
+  await expect(mark).toHaveCSS('background-color', 'rgba(255, 214, 102, 0.42)');
+  await expect(page.getByTestId('card-body')).toHaveText('an old note');
+
+  // Re-save (resolve triggers the autosave rewrite): entries the user didn't
+  // recolor gain no `color`, and the colorless store still stamps 1.0.0.
+  await page.getByTestId('resolve-btn').click();
+  await expect.poll(() => fsRead(page, `${DOC}.comments.json`)).toContain('"resolved": true');
+  const rewritten = (await fsRead(page, `${DOC}.comments.json`))!;
+  expect(rewritten).not.toContain('"color"');
+  expect(rewritten).toContain('"version": "1.0.0"');
 });

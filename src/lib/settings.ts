@@ -1,4 +1,7 @@
 import { DEFAULT_HOTKEYS, type HotkeyMap } from '@marky-mark/editor';
+// PRD 022 Req 4: the marker vocabulary is the comment format's — the setting
+// validates against the same four literals the `color` field admits.
+import { type CommentColor, MARKER_COLORS } from './anchoring.ts';
 import { isValidImageFolder } from './imagePaste.ts';
 import { isLlmProviderKind } from './llmSettings.ts';
 // PRD 011 Req 32: the accounting shape and its validator, defined once beside
@@ -59,6 +62,12 @@ export interface Settings {
   showResolved: boolean;
   commentsEnabled: boolean;
   typeToComment: boolean;
+  /**
+   * PRD 022 Req 4: the most recently used marker color — remembered state
+   * (the `lastViewMode` precedent, no Settings row) that pre-arms the swatch
+   * popup and seeds "add note" and type-to-comment.
+   */
+  lastMarkerColor: CommentColor;
   splitEdit: boolean;
   /** Editor pane fraction in split-edit mode, clamped to [0.2, 0.8]. */
   splitRatio: number;
@@ -170,6 +179,8 @@ export const DEFAULT_SETTINGS: Settings = {
   showResolved: true,
   commentsEnabled: true,
   typeToComment: true,
+  // PRD 022 Req 4: yellow matches the legacy tint family.
+  lastMarkerColor: 'yellow',
   splitEdit: true,
   splitRatio: 0.5,
   // Issue #167: panes scroll together until this reader says otherwise.
@@ -251,6 +262,9 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   showResolved: 'U',
   commentsEnabled: 'U',
   typeToComment: 'U',
+  // PRD 022 Req 4: the reader's own marker memory — user-scoped like its
+  // comment-authoring neighbours.
+  lastMarkerColor: 'U',
   splitEdit: 'M',
   splitRatio: 'M',
   // Issue #167: machine/session-local like its layout neighbours above —
@@ -368,6 +382,8 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   showResolved: bool,
   commentsEnabled: bool,
   typeToComment: bool,
+  // PRD 022 Req 4: only the four marker literals; anything else falls back.
+  lastMarkerColor: (raw) => (MARKER_COLORS.includes(raw as CommentColor) ? (raw as CommentColor) : undefined),
   splitEdit: bool,
   // Issue #167: boolean like splitEdit beside it.
   syncScroll: bool,

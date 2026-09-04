@@ -875,7 +875,7 @@ test('E155: a native-menu install that REJECTS falls back to the in-app toolbar 
   // the comment flow — the very thing issue #38 reports losing — works.
   await openWelcomeViaHelp(page);
   await selectPhrase(page, PHRASE);
-  await expect(page.getByTestId('add-comment-btn')).toBeVisible();
+  await expect(page.getByTestId('marker-popup')).toBeVisible();
 });
 
 test('E214: PRD 009 Req 12 — View ▸ opens the shared View items: checked, greyed, dispatching, and closing the menu', async ({

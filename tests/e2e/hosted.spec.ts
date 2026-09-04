@@ -2223,7 +2223,7 @@ test('E208: comment.read gates whether comments load at all, and comment.write w
   await openFromSidebar(page, 'talked.md');
   await expect(page.getByTestId('comment-card')).toContainText('Ada started a thread');
   await selectPhrase(page, PHRASE);
-  await expect(page.getByTestId('add-comment-btn')).toHaveCount(0);
+  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
   const grace = await signIn(request, 'grace');
   const write = await request.put(`${HOSTED}/api/workspaces/${id}/files/talked.md.comments.json`, {
     headers: { Authorization: `Bearer ${grace}` },

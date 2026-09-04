@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   appImportViolation,
-  declaredDeepSpecs,
   editorImportViolation,
+  exportedSpecifiers,
   importSpecifiers,
   lintAppSource,
   lintEditorSource,
@@ -78,11 +78,28 @@ describe('PRD 021 Req 10 editor boundary — app→editor direction', () => {
     const pkg = JSON.stringify({
       exports: { '.': './src/index.ts', './styles.css': './styles.css', './default-theme.css': './default-theme.css' },
     });
-    const allowed = declaredDeepSpecs(pkg);
+    const allowed = exportedSpecifiers(pkg);
     expect(allowed).toEqual(new Set(['@marky-mark/editor/styles.css', '@marky-mark/editor/default-theme.css']));
     expect(lintAppSource("import '@marky-mark/editor/styles.css';\n", allowed)).toEqual([]);
     expect(lintAppSource("import { x } from '@marky-mark/editor/src/lib/markdown';\n", allowed)).toHaveLength(1);
     // Without the declared set, every deep path stays sealed.
     expect(appImportViolation('@marky-mark/editor/styles.css')).toContain('deep-path import');
+  });
+
+  it('U1102: subpaths the exports map names pass (issue #231 — #238 imports the exported styles.css); internals stay sealed', () => {
+    const manifest = JSON.stringify({
+      exports: { '.': './src/index.ts', './styles.css': './styles.css', './default-theme.css': './default-theme.css' },
+    });
+    const exported = exportedSpecifiers(manifest);
+    expect(exported).toEqual(
+      new Set(['@marky-mark/editor/styles.css', '@marky-mark/editor/default-theme.css'])
+    );
+    expect(appImportViolation('@marky-mark/editor/styles.css', exported)).toBeNull();
+    expect(lintAppSource("import '@marky-mark/editor/styles.css';", exported)).toEqual([]);
+    // The allowlist is exactly the map: internals and near-misses still fail.
+    expect(appImportViolation('@marky-mark/editor/src/index.ts', exported)).toContain('deep-path import');
+    expect(appImportViolation('@marky-mark/editor/styles.css/extra', exported)).toContain('deep-path import');
+    // An unreadable manifest seals every deep path rather than opening them.
+    expect(exportedSpecifiers('not json')).toEqual(new Set());
   });
 });

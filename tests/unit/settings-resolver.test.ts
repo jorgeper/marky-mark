@@ -42,6 +42,8 @@ describe('PRD 002 §B5 scope inventory', () => {
       showResolved: 'U',
       vimNav: 'U',
       typeToComment: 'U',
+      // PRD 022 Req 4: the last-used marker color — the reader's own memory.
+      lastMarkerColor: 'U',
       autosaveOnToggle: 'U',
       autoHideToolbar: 'U',
       // Issue #167: how the chrome fades is a reader's preference, like the
@@ -254,5 +256,35 @@ describe('PRD 002 §H26 web shape — the same resolver with the workspace layer
     expect(winningLayer('imageFolder', layers)).toBe('team'); // W key skips the absent layer AND the User value
     expect(winningLayer('author', layers)).toBe('user'); // U!: only the User layer is a candidate
     expect(winningLayer('commentStorage', {})).toBe('default');
+  });
+});
+
+describe('PRD 022 Req 4: the last-used marker color', () => {
+  test('U1101: validated to the four literals, defaulting to yellow; merged at the User layer like any U key', () => {
+    // Default: yellow — the legacy tint family.
+    expect(DEFAULT_SETTINGS.lastMarkerColor).toBe('yellow');
+    expect(SETTINGS_SCOPES.lastMarkerColor).toBe('U');
+
+    // The four literals are accepted from the User layer.
+    for (const color of ['yellow', 'green', 'blue', 'pink'] as const) {
+      expect(resolveSettings({ user: { lastMarkerColor: color } }).lastMarkerColor).toBe(color);
+    }
+    // Anything else — a fifth color, wrong type — falls through to the
+    // next layer down and ultimately the default.
+    expect(resolveSettings({ user: { lastMarkerColor: 'chartreuse' } }).lastMarkerColor).toBe('yellow');
+    expect(resolveSettings({ user: { lastMarkerColor: 3 } }).lastMarkerColor).toBe('yellow');
+    expect(
+      resolveSettings({ workspace: { lastMarkerColor: 'blue' }, user: { lastMarkerColor: 'nope' } }).lastMarkerColor
+    ).toBe('blue');
+
+    // U-layer precedence: the User value wins over every shared layer.
+    expect(
+      resolveSettings({ global: { lastMarkerColor: 'green' }, user: { lastMarkerColor: 'pink' } }).lastMarkerColor
+    ).toBe('pink');
+    expect(winningLayer('lastMarkerColor', { user: { lastMarkerColor: 'pink' } })).toBe('user');
+
+    // parseSettings (the flat User file) honors and validates it the same way.
+    expect(parseSettings('{"lastMarkerColor":"green"}').lastMarkerColor).toBe('green');
+    expect(parseSettings('{"lastMarkerColor":"mauve"}').lastMarkerColor).toBe('yellow');
   });
 });

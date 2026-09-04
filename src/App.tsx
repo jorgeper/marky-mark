@@ -42,7 +42,16 @@ import {
   type SmartEditHandle,
   type SmartFormatOp,
 } from '@marky-mark/editor';
-import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
+// PRD 022 Req 1: MARKER_COLORS is the swatch popup's order/vocabulary.
+import {
+  type Anchor,
+  type CommentColor,
+  type CommentData,
+  createAnchor,
+  MARKER_COLORS,
+  reanchor,
+  type ReanchorMatch,
+} from './lib/anchoring';
 import { COPY_LINK_FILE_LABEL, COPY_LINK_WORKSPACE_LABEL, fileShareUrl, headingAnchors, headingShareUrl, slugFromHash, workspaceShareUrl, type HeadingAnchor } from './lib/shareLinks';
 import { CopyLinkButton } from './components/CopyLinkButton';
 import { rewriteFenceWidthAt } from './lib/diagramResize';
@@ -555,7 +564,12 @@ export default function App() {
   const findReplaceText = findOptions.regex ? findReplace : literalReplacement(findReplace);
   // SPEC30 §3: the boot-time draft offer.
   const [restorePrompt, setRestorePrompt] = useState<Draft | null>(null);
-  const [pending, setPending] = useState<{ start: number; end: number } | null>(null);
+  // PRD 022 Reqs 1–2: `cid` set means the composer is attached to an
+  // already-created highlight ("add note"); `color` seeds a create-on-submit
+  // composer (type-to-comment) with the armed marker color.
+  const [pending, setPending] = useState<{ start: number; end: number; cid?: string; color?: CommentColor } | null>(
+    null
+  );
   const [draft, setDraft] = useState('');
   const [selInfo, setSelInfo] = useState<{ start: number; end: number; x: number; y: number } | null>(null);
   // Issue #38: whether plain edit mode has a live selection, so that surface
@@ -745,9 +759,10 @@ export default function App() {
   const lastEditorSelRef = useRef<{ from: number; to: number }>({ from: 0, to: 0 });
   const pendingEditorSelRef = useRef<{ from: number; to: number } | null>(null);
   const pendingPreviewSelRef = useRef<{ from: number; to: number } | null>(null);
-  // Issue #38: the edit-mode affordance routes through the SPEC25 carry —
-  // armed on click, consumed when the carried selection lands as selInfo.
-  const composeOnCarryRef = useRef(false);
+  // Issue #38 + PRD 022 Req 1: the edit-mode affordance routes through the
+  // SPEC25 carry — armed on click (with the chosen action: a swatch color or
+  // "add note"), consumed when the carried selection lands as selInfo.
+  const carryActionRef = useRef<{ kind: 'note' } | { kind: 'swatch'; color: CommentColor } | null>(null);
   /** True once the preview injection pass ran to completion for the current DOM. */
   const injectionCompleteRef = useRef(false);
   const positionsRef = useRef<PositionStore>({ version: 1, entries: [] });
@@ -5925,6 +5940,11 @@ export default function App() {
           const m = pos[c.id];
           if (m) {
             const marks = highlightRange(el, m.start, m.end, c.id);
+            // PRD 022 Req 14: the color rides the existing mark as a data
+            // attribute — absent means the legacy tint (Req 3). The painting
+            // path itself is unchanged.
+            const color = c.color;
+            if (color) marks.forEach((mk) => (mk.dataset.color = color));
             // Ghosted resolved highlights (SPEC6 §3): faint tint, still clickable.
             if (c.resolved) marks.forEach((mk) => mk.classList.add('ghost'));
           }
@@ -6035,7 +6055,7 @@ export default function App() {
     // also disarm the edit-affordance composer so it can't fire on a later,
     // unrelated selection.
     const abandonCompose = () => {
-      composeOnCarryRef.current = false;
+      carryActionRef.current = null;
     };
     const buffer = stateRef.current.buffer;
     const needle = visibleTextForRange(buffer, pending.from, pending.to);
@@ -6341,14 +6361,76 @@ export default function App() {
   }, [mode, settings.splitEdit]);
 
   // --- comment operations -----------------------------------------------------------
-  const startComposer = (seed = '') => {
-    if (!selInfo || !mayComment) return; // PRD 004 Req 15 + PRD 007 Req 17
-    setPending({ start: selInfo.start, end: selInfo.end });
-    setDraft(seed);
+  // PRD 022 Req 4: the last-used marker color pre-arms the popup and seeds
+  // "add note" and type-to-comment; a swatch use updates it (user-scoped).
+  const armedColor = settings.lastMarkerColor;
+  const rememberMarkerColor = (color: CommentColor) => {
+    if (stateRef.current.settings.lastMarkerColor !== color) {
+      updateSettings({ ...stateRef.current.settings, lastMarkerColor: color });
+    }
+  };
+
+  // PRD 022 Req 1: a swatch click creates a note-less highlight in that color
+  // (empty body, no thread — format 1.1.0's shape from #230) and closes the
+  // popup; nothing else opens.
+  const createHighlight = (color: CommentColor): CommentData | null => {
+    if (!selInfo || !mayComment) return null; // PRD 004 Req 15 + PRD 007 Req 17
+    const entry: CommentData = {
+      id: crypto.randomUUID(),
+      author: settings.author,
+      createdAt: new Date().toISOString(),
+      body: '',
+      resolved: false,
+      thread: [],
+      anchor: createAnchor(docTextRef.current, selInfo.start, selInfo.end),
+      color,
+    };
+    setComments((prev) => [...prev, entry]);
+    rememberMarkerColor(color);
     setActiveId(null);
     window.getSelection()?.removeAllRanges();
     setSelInfo(null);
+    return entry;
   };
+
+  // PRD 022 Req 1: "add note" creates a highlight in the armed color and
+  // opens today's composer attached to it — the note lands on submit.
+  const startComposer = (seed = '') => {
+    if (!selInfo || !mayComment) return; // PRD 004 Req 15 + PRD 007 Req 17
+    const { start, end } = selInfo;
+    const entry = createHighlight(armedColor);
+    if (!entry) return;
+    setPending({ start, end, cid: entry.id });
+    setDraft(seed);
+  };
+
+  // PRD 022 Reqs 1+4: the popup's shared content — the four swatches (armed
+  // color first) then "add note" — rendered once per surface; each surface
+  // supplies its own action routing (direct on preview, the SPEC25 carry in
+  // plain edit).
+  const markerPopupButtons = (onSwatch: (color: CommentColor) => void, onNote: () => void) => (
+    <>
+      {[armedColor, ...MARKER_COLORS.filter((c) => c !== armedColor)].map((color) => (
+        <button
+          key={color}
+          className={`icon-btn marker-swatch marker-swatch-${color}${color === armedColor ? ' armed' : ''}`}
+          data-testid={`marker-swatch-${color}`}
+          aria-label={`Highlight ${color}`}
+          aria-pressed={color === armedColor}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onSwatch(color)}
+        />
+      ))}
+      <button
+        className="btn btn-sm btn-quiet"
+        data-testid="add-note-btn"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => onNote()}
+      >
+        Add note
+      </button>
+    </>
+  );
 
   // Issue #38: a stale edit selection must not survive the surface (or the
   // document) it came from — any swap retires the affordance; the editor's
@@ -6363,13 +6445,17 @@ export default function App() {
   // composer opens for exactly the anchor preview would have produced.
   useEffect(() => {
     if (mode !== 'preview') {
-      composeOnCarryRef.current = false;
+      carryActionRef.current = null;
       return;
     }
-    if (!composeOnCarryRef.current || !selInfo) return;
-    composeOnCarryRef.current = false;
-    startComposer();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- startComposer is recreated per render
+    const action = carryActionRef.current;
+    if (!action || !selInfo) return;
+    carryActionRef.current = null;
+    // PRD 022 Req 1: both popup actions ride the carry — a swatch creates the
+    // note-less highlight, "add note" opens the composer on a fresh one.
+    if (action.kind === 'swatch') createHighlight(action.color);
+    else startComposer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the handlers are recreated per render
   }, [mode, selInfo]);
 
   // --- type-to-comment (SPEC7 §3): a printable key over a selection opens the composer
@@ -6390,7 +6476,9 @@ export default function App() {
         return;
       }
       e.preventDefault();
-      setPending({ start, end });
+      // PRD 022 Req 2: type-to-comment produces a highlight-with-note in the
+      // armed color (read live — the ref dodges a stale closure).
+      setPending({ start, end, color: stateRef.current.settings.lastMarkerColor });
       setDraft(e.key);
       setActiveId(null);
       window.getSelection()?.removeAllRanges();
@@ -6403,6 +6491,16 @@ export default function App() {
   const submitComment = () => {
     const body = draft.trim();
     if (!body || !pending) return;
+    // PRD 022 Req 2: submitting yields ONE object — "add note" attached the
+    // composer to an already-created highlight, so the note lands on it.
+    if (pending.cid) {
+      const cid = pending.cid;
+      setComments((prev) => prev.map((c) => (c.id === cid ? { ...c, body } : c)));
+      setPending(null);
+      setDraft('');
+      setActiveId(cid);
+      return;
+    }
     const comment: CommentData = {
       id: crypto.randomUUID(),
       author: settings.author,
@@ -6411,11 +6509,25 @@ export default function App() {
       resolved: false,
       thread: [],
       anchor: createAnchor(docTextRef.current, pending.start, pending.end),
+      // PRD 022 Req 2: the armed color rides type-to-comment's composer.
+      ...(pending.color ? { color: pending.color } : {}),
     };
     setComments((prev) => [...prev, comment]);
     setPending(null);
     setDraft('');
     setActiveId(comment.id);
+  };
+
+  // PRD 022 Req 1: cancel undoes what "add note" created — an abandoned
+  // composer leaves no note-less entry behind (a swatch-created highlight,
+  // which never had a composer, is untouched by this).
+  const cancelComposer = () => {
+    if (pending?.cid) {
+      const cid = pending.cid;
+      setComments((prev) => prev.filter((c) => c.id !== cid));
+    }
+    setPending(null);
+    setDraft('');
   };
 
   const updateComment = (next: CommentData) => {
@@ -6456,9 +6568,12 @@ export default function App() {
 
   type Item = { kind: 'comment'; c: CommentData; ghost?: boolean } | { kind: 'composer' };
   // With "Show resolved" on, resolved comments join the flow as ghosts (SPEC6 §3).
-  const items: Item[] = settings.showResolved
+  let items: Item[] = settings.showResolved
     ? [...comments].sort(byPosition).map((c) => ({ kind: 'comment' as const, c, ghost: c.resolved }))
     : open.map((c) => ({ kind: 'comment' as const, c }));
+  // PRD 022 Req 1: while "add note"'s composer is attached to a fresh
+  // highlight, the composer stands in for that entry's card.
+  if (pending?.cid) items = items.filter((it) => !(it.kind === 'comment' && it.c.id === pending.cid));
   if (pending) {
     let at = items.findIndex(
       (it) => it.kind === 'comment' && (positions[it.c.id]?.start ?? it.c.anchor.start) > pending.start
@@ -6518,8 +6633,7 @@ export default function App() {
                   e.preventDefault();
                   submitComment();
                 } else if (e.key === 'Escape') {
-                  setPending(null);
-                  setDraft('');
+                  cancelComposer();
                 }
               }}
             />
@@ -6527,14 +6641,7 @@ export default function App() {
               <Button variant="quiet" size="sm" data-testid="composer-submit" onClick={submitComment}>
                 Comment
               </Button>
-              <Button
-                variant="quiet"
-                size="sm"
-                onClick={() => {
-                  setPending(null);
-                  setDraft('');
-                }}
-              >
+              <Button variant="quiet" size="sm" onClick={cancelComposer}>
                 Cancel
               </Button>
             </div>
@@ -7442,43 +7549,44 @@ export default function App() {
 
       </div>
 
+      {/* PRD 022 Req 1: the selection affordance is a compact popup of four
+          marker swatches plus "add note" — the armed (last-used, Req 4)
+          color listed first. The toolbar-shell floor (issue #18) carries
+          over from the pill this popup replaces. */}
       {selInfo && affordanceSurface === 'preview' && (
-        <button
-          className="btn btn-pill add-comment-btn"
-          data-testid="add-comment-btn"
-          // The toolbar shell (z-index 80) covers the top 42px of the window,
-          // so a selection near the pane's top edge used to clamp this button
-          // (z-index 60) underneath it, where `.docname` swallowed the click
-          // and the button could not be pressed at all (issue #18). Where that
-          // shell exists, floor the button below it: 42px band + the 8px gap.
+        <div
+          className="marker-popup"
+          data-testid="marker-popup"
           style={{ left: selInfo.x, top: Math.max(nativeMenu ? 8 : 50, selInfo.y - 42) }}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => startComposer()}
         >
-          💬 Add comment
-        </button>
+          {markerPopupButtons(
+            (color) => createHighlight(color),
+            () => startComposer()
+          )}
+        </div>
       )}
 
-      {/* Issue #38: plain edit mode's route to a comment. The editor has no
-          rendered DOM to anchor from, so the click does NOT invent a source-
-          offset anchor — it parks the selection in the SPEC25 carry, switches
-          to preview, and the compose-on-carry effect opens the composer on
+      {/* Issue #38: plain edit mode's route to a highlight. The editor has no
+          rendered DOM to anchor from, so a click does NOT invent a source-
+          offset anchor — it parks the selection (and the chosen action) in
+          the SPEC25 carry, switches to preview, and the carry effect acts on
           the selection preview re-establishes. Fixed top-right (CM reports
-          carry no pixel rect), floored below the toolbar band like the
-          preview button (issue #18). */}
+          carry no pixel rect), floored below the toolbar band (issue #18). */}
       {affordanceSurface === 'edit' && (
-        <button
-          className="btn btn-pill add-comment-btn add-comment-btn-edit"
-          data-testid="add-comment-btn-edit"
-          style={{ top: nativeMenu ? 8 : 50 }}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            composeOnCarryRef.current = true;
-            toggleMode();
-          }}
-        >
-          💬 Add comment
-        </button>
+        // Wider than the pill it replaced, the popup would cover the corner
+        // mode/split controls at the pill's old offset — sit one row lower.
+        <div className="marker-popup marker-popup-edit" data-testid="marker-popup-edit" style={{ top: nativeMenu ? 44 : 86 }}>
+          {markerPopupButtons(
+            (color) => {
+              carryActionRef.current = { kind: 'swatch', color };
+              toggleMode();
+            },
+            () => {
+              carryActionRef.current = { kind: 'note' };
+              toggleMode();
+            }
+          )}
+        </div>
       )}
 
       {/* PRD 011 Req 21: the docked level indicator. Present whenever the
