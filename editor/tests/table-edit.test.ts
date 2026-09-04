@@ -376,7 +376,7 @@ describe('SPEC40 grid-for-all helpers', () => {
   // The tableGridView SETTING assertions that used to ride along here moved
   // app-side (tests/unit/settings.test.ts U1094) with the PRD 021 workspace
   // split — the setting is app-owned; this package only renders the grids.
-  test('U74: allTableRegions and the tableGridView setting', async () => {
+  test('U74: allTableRegions — none/one/many, exact offsets, order', async () => {
     const { allTableRegions } = await import('../src/lib/tableEdit');
 
     // --- none / one / many, exact offsets, order ----------------------------
@@ -398,7 +398,6 @@ describe('SPEC40 grid-for-all helpers', () => {
     const rz = allTableRegions(zeroRow);
     expect(rz).toHaveLength(1);
     expect(zeroRow.slice(rz[0].start, rz[0].end)).toBe(zeroRow);
-
   });
 });
 

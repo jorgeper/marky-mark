@@ -17,11 +17,11 @@ import {
   useRef,
   useState,
   type MouseEventHandler,
-  type MutableRefObject,
   type PointerEventHandler,
   type ReactNode,
   type Ref,
 } from 'react';
+import { assignRef } from './assignRef';
 import { renderMarkdown } from '../lib/markdown';
 import { decorateCodeBlocks } from '../lib/codeCopy';
 import { renderFenceDiagrams } from '../lib/fenceDiagrams';
@@ -100,12 +100,6 @@ export interface PreviewProps {
   initialHtml?: string;
   /** Test id on the scroll container. Defaults to `split-preview`. */
   testId?: string;
-}
-
-function assignRef<T>(ref: Ref<T> | undefined, value: T | null): void {
-  if (!ref) return;
-  if (typeof ref === 'function') ref(value);
-  else (ref as MutableRefObject<T | null>).current = value;
 }
 
 export function Preview({

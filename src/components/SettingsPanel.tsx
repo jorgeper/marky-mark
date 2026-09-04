@@ -20,9 +20,9 @@ import {
   combosConflict,
   DEFAULT_HOTKEYS,
   displayCombo,
+  SMART_EDIT_NAME,
   type HotkeyMap,
 } from '@marky-mark/editor';
-import { SMART_EDIT_NAME } from '@marky-mark/editor';
 import { expandImageName, isValidImageFolder } from '../lib/imagePaste';
 import { LlmSettings } from './LlmSettings';
 import { NO_LLM_CAPABILITIES, type LlmCapabilities, type LlmTestResult } from '../lib/llmSettings';

@@ -11,6 +11,7 @@
  * host collapses `.split-editor` to display:contents outside split mode).
  */
 import { useCallback, useRef, useState, useEffect, type ReactNode, type RefObject } from 'react';
+import { assignRef } from './assignRef';
 import { Preview, type PreviewProps } from './Preview';
 import type { EditorSyncHandle } from './Editor';
 import { collectAnchors, lineAtOffset, offsetForLine, type SyncAnchor } from '../lib/scrollSync';
@@ -63,12 +64,6 @@ export interface SplitViewProps {
   onSplitRatioChange?(ratio: number): void;
   /** Everything for the preview pane — see PreviewProps. */
   preview: PreviewProps;
-}
-
-function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null): void {
-  if (!ref) return;
-  if (typeof ref === 'function') ref(value);
-  else (ref as React.MutableRefObject<T | null>).current = value;
 }
 
 export function SplitView({ editor, split, editorSyncRef, syncScroll = true, splitRatio, onSplitRatioChange, preview }: SplitViewProps) {
@@ -153,8 +148,8 @@ export function SplitView({ editor, split, editorSyncRef, syncScroll = true, spl
 
   // --- SPEC15: synchronized split scrolling ------------------------------------
   // Whichever pane the user scrolls leads; the other follows within a frame.
-  // Programmatic follower writes are counted in `suppress` so they never
-  // re-lead (no feedback loop). Ends clamp mutually reachable (§1.3).
+  // Programmatic follower writes open a `quiet` window so they never re-lead
+  // (no feedback loop). Ends clamp mutually reachable (§1.3).
   useEffect(() => {
     if (!split) return;
     // Issue #167: syncScroll off ⇒ the panes free-scroll — no subscriptions

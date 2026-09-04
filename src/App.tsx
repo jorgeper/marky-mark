@@ -1,16 +1,52 @@
 import { lazy, Suspense, useCallback, useMemo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getPlatform, type Platform, type WriteResult } from './platform';
-import { renderMarkdown, SplitView } from '@marky-mark/editor';
+// PRD 021 (issue #237): everything editor/preview/split — components, handles
+// and the pure libraries that moved with them — comes from the workspace
+// package's one entry point.
+import {
+  blockLineFor,
+  collectAnchors,
+  compileQuery,
+  countNormalized,
+  decorateCodeBlocks,
+  decorateHeadingLinks,
+  diffLineSets,
+  displayCombo,
+  eventMatches,
+  fenceRendererFor,
+  findMatchRanges,
+  findNormalized,
+  findNormalizedNth,
+  lineAtOffset,
+  literalReplacement,
+  mapSelectionToSource,
+  offsetForLine,
+  registerMermaidRenderer,
+  renderedOffsetForSource,
+  renderFenceDiagrams,
+  renderMarkdown,
+  SplitView,
+  sourceCaretForRendered,
+  sourceOffsetForRendered,
+  VimNavResolver,
+  visibleTextForRange,
+  wordAt,
+  type DiagramRenderCache,
+  type DiffLineSets,
+  type EditorSearchHandle,
+  type EditorSyncHandle,
+  type LineMatch,
+  type SearchMatcher,
+  type SearchOptions,
+  type SearchResults,
+  type SmartEditHandle,
+  type SmartFormatOp,
+} from '@marky-mark/editor';
 import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
-import { decorateCodeBlocks } from '@marky-mark/editor';
 import { COPY_LINK_FILE_LABEL, COPY_LINK_WORKSPACE_LABEL, fileShareUrl, headingAnchors, headingShareUrl, slugFromHash, workspaceShareUrl, type HeadingAnchor } from './lib/shareLinks';
-import { decorateHeadingLinks } from '@marky-mark/editor';
 import { CopyLinkButton } from './components/CopyLinkButton';
-import { renderFenceDiagrams, type DiagramRenderCache } from '@marky-mark/editor';
 import { rewriteFenceWidthAt } from './lib/diagramResize';
 import { DiagramResizer } from './components/DiagramResizer';
-import { fenceRendererFor } from '@marky-mark/editor';
-import { registerMermaidRenderer } from '@marky-mark/editor';
 import { getDocText, highlightRange, offsetsToRange, rangeToOffsets, rectForOffsets } from './lib/domtext';
 import { readSidecar, serializeSidecar, sidecarPathFor } from './lib/sidecar';
 import { attachEmbedded, mergeComments, splitEmbedded } from './lib/embedded';
@@ -27,16 +63,13 @@ import {
   type SidebarView,
   type ViewMode,
 } from './lib/settings';
-import { displayCombo, eventMatches } from '@marky-mark/editor';
 import { dispatchCommand, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
 import { buildMenuSpec, type ViewMenuState } from './lib/menuSpec';
 import { deriveAppMode } from './lib/appMode';
 import { buildAppMenu } from './lib/appMenu';
 import { modesAreExclusive, planModeSwitch, viewModeForOpen, type ModeTarget } from './lib/modeSwitch';
 import { stepComment } from './lib/commentNav';
-import { collectAnchors, lineAtOffset, offsetForLine } from '@marky-mark/editor';
 import { installScrollbarFade } from './lib/autoHideScrollbars';
-import type { EditorSearchHandle, EditorSyncHandle, SmartEditHandle, SmartFormatOp } from '@marky-mark/editor';
 import { extractReviewPayload } from './lib/reviewBundle';
 import { buildStaticHtml, statsLine, type StaticComment } from './lib/exportDoc';
 import { buildPrintRootHtml, pickPrintTheme, PRINT_BODY_CLASS, PRINT_ROOT_ID } from './lib/printDoc';
@@ -54,7 +87,6 @@ import {
   type SavePickerKind,
 } from './lib/savePicker';
 import { UpdateDialog } from './components/UpdateDialog';
-import { diffLineSets, type DiffLineSets } from '@marky-mark/editor';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
 import { clearRecent, parseRecent, recentMenuEntries, rememberRecent, removeRecent, serializeRecent, type RecentStore } from './lib/recentFiles';
 import { ancestorsOf, isMarkdownFile, serializeFolderState, visibleEntries, type DirEntry } from './lib/folderTree';
@@ -93,7 +125,6 @@ import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton,
 import { FileTabStrip } from './components/FileTabStrip';
 import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
 import { SearchPanel } from './components/SearchPanel';
-import { compileQuery, findMatchRanges, literalReplacement, type LineMatch, type SearchMatcher, type SearchOptions, type SearchResults } from '@marky-mark/editor';
 import { DEFAULT_SEARCH_OPTIONS } from './lib/searchOptions';
 import { matchDocOffsets, runSearchScan } from './lib/searchScan';
 import { deriveSearchView } from './lib/searchView';
@@ -184,9 +215,6 @@ import {
   stepZoomLevel,
   SEMANTIC_ZOOM_COMBOS,
 } from './lib/semanticZoom';
-import { VimNavResolver } from '@marky-mark/editor';
-import { countNormalized, findNormalized, findNormalizedNth, mapSelectionToSource, renderedOffsetForSource, sourceCaretForRendered, sourceOffsetForRendered, visibleTextForRange } from '@marky-mark/editor';
-import { blockLineFor, wordAt } from '@marky-mark/editor';
 import { parseFrontMatter } from './lib/frontmatter';
 import { commentAffordanceSurface } from './lib/commentAffordance';
 import { isStaleDraft, parseDraft, serializeDraft, type Draft } from './lib/drafts';
