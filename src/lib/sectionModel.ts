@@ -67,8 +67,6 @@ export interface SectionNode {
  * render as real h1–h6 and must be addressable by `#<slug>` share links.
  */
 export interface DocumentHeading {
-  /** Heading depth 1–6. */
-  depth: number;
   /** Heading text, flattened to plain text. */
   title: string;
   /** 1-based source line of the heading. */
@@ -168,7 +166,7 @@ export function parseSections(source: string): DocumentSections {
       if (node.type === 'heading') {
         const line = node.position?.start?.line;
         if (typeof line === 'number') {
-          allHeadings.push({ depth: node.depth ?? 1, title: plainText(node).trim(), line });
+          allHeadings.push({ title: plainText(node).trim(), line });
         }
         continue; // a heading never nests another heading
       }
