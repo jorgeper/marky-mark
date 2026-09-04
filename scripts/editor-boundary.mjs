@@ -35,7 +35,7 @@ export function importSpecifiers(source) {
   return [...source.matchAll(IMPORT_SPEC)].map((m) => ({ line: lineOf(source, m.index), spec: m[2] }));
 }
 
-/** First path segment of a posix-style relative path ('' when escaping). */
+/** First path segment of a posix-style relative path ('..' when escaping the repo root). */
 function firstSegment(p) {
   return p.split('/', 1)[0];
 }
