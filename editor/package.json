@@ -17,6 +17,7 @@
   },
   "scripts": {
     "build": "vite build",
+    "build:standalone": "vite build --config vite.standalone.config.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

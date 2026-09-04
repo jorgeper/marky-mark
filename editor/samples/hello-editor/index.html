@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- PRD 021 Req 15 (issue #240): hello-editor — the smallest possible embed.
+     Build the package once (`npm run build:standalone -w editor`), then open
+     this file in a browser. No npm install, no build step for this page, no
+     network: the bundle is a classic script (IIFE), because Chromium blocks
+     cross-file module loads from file:// URLs. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>hello-editor — @marky-mark/editor</title>
+    <link rel="stylesheet" href="../../dist/standalone/marky-mark-editor.css" />
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+      #editor {
+        display: flex;
+        height: 100%;
+        /* The panes floor at --mm-pane-min and scroll sideways past it;
+           a small demo window prefers panes that just share the width. */
+        --mm-pane-min: 0px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="editor"></div>
+    <script src="../../dist/standalone/marky-mark-editor.js"></script>
+    <script>
+      MarkyMarkEditor.mountEditor(document.getElementById('editor'), {
+        markdown:
+          '# Hello, editor\n\nType on the left — the preview follows on the right.\n\n- Live **markdown**, tables, code and diagrams\n- Themeable via the `--mm-*` CSS variables\n',
+      });
+    </script>
+  </body>
+</html>
