@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
-  COPY_LINK_LABEL,
+  COPY_LINK_FILE_LABEL,
+  COPY_LINK_HEADING_LABEL,
+  COPY_LINK_WORKSPACE_LABEL,
   LINK_COPIED_LABEL,
   LINK_COPIED_MS,
   createCopyLinkController,
@@ -128,9 +130,12 @@ describe('PRD 020 Req 14 copy-link confirmation contract', () => {
 
   // Intent: the labels are the contract the tooltip and the aria-live
   // announcement carry — pinned here so a reworded control fails loudly, and
-  // the window stays ~2 seconds (the PRD's own figure).
+  // the window stays ~2 seconds (the PRD's own figure). Issue #227: each
+  // placement's rest label names its target; only the confirmation is shared.
   test('U1083: the rest and confirmation labels, and the ~2s window', () => {
-    expect(COPY_LINK_LABEL).toBe('Copy link');
+    expect(COPY_LINK_WORKSPACE_LABEL).toBe('Copy link to workspace');
+    expect(COPY_LINK_FILE_LABEL).toBe('Copy link to file');
+    expect(COPY_LINK_HEADING_LABEL).toBe('Copy link to heading');
     expect(LINK_COPIED_LABEL).toBe('Link copied');
     expect(LINK_COPIED_MS).toBe(2000);
   });

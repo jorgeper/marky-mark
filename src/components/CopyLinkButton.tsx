@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  COPY_LINK_LABEL,
-  LINK_COPIED_LABEL,
-  createCopyLinkController,
-} from '../lib/shareLinks';
+import { LINK_COPIED_LABEL, createCopyLinkController } from '../lib/shareLinks';
 import { IconButton } from './ui/IconButton';
 
 /**
  * PRD 020 Req 14 (issue #222): the one reusable copy-link control. Both
  * placements — the workspace's top-left cluster (Req 16) and the file's
  * top-right cluster (Req 17) — render this component and differ only in
- * where they hang it and what URL `getUrl` answers, the `createCopyButton`
- * house pattern. `getUrl` runs at click time so the copied text is the
+ * where they hang it, what URL `getUrl` answers, and (issue #227) the rest
+ * `label` naming that target, the `createCopyButton` house pattern. `getUrl` runs at click time so the copied text is the
  * canonical address of that moment; the contract itself (confirm only on a
  * landed write, ~2s, then revert) lives in `lib/shareLinks.ts` where it is
  * unit-tested. While confirming, the control swaps its link glyph for the
@@ -20,10 +16,12 @@ import { IconButton } from './ui/IconButton';
  */
 export function CopyLinkButton({
   testid,
+  label,
   getUrl,
   copy,
 }: {
   testid: string;
+  label: string;
   getUrl(): string | null;
   copy(text: string): Promise<boolean> | boolean;
 }) {
@@ -46,8 +44,8 @@ export function CopyLinkButton({
     <IconButton
       className={copied ? 'copy-link is-copied' : 'copy-link'}
       data-testid={testid}
-      title={COPY_LINK_LABEL}
-      aria-label={copied ? LINK_COPIED_LABEL : COPY_LINK_LABEL}
+      title={label}
+      aria-label={copied ? LINK_COPIED_LABEL : label}
       onClick={() => void ctrl.click()}
     >
       {copied ? (

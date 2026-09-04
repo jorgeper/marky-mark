@@ -3,7 +3,7 @@ import { getPlatform, type Platform, type WriteResult } from './platform';
 import { renderMarkdown } from './lib/markdown';
 import { type Anchor, type CommentData, createAnchor, reanchor, type ReanchorMatch } from './lib/anchoring';
 import { decorateCodeBlocks } from './lib/codeCopy';
-import { fileShareUrl, headingAnchors, headingShareUrl, slugFromHash, workspaceShareUrl, type HeadingAnchor } from './lib/shareLinks';
+import { COPY_LINK_FILE_LABEL, COPY_LINK_WORKSPACE_LABEL, fileShareUrl, headingAnchors, headingShareUrl, slugFromHash, workspaceShareUrl, type HeadingAnchor } from './lib/shareLinks';
 import { decorateHeadingLinks } from './lib/headingLinks';
 import { CopyLinkButton } from './components/CopyLinkButton';
 import { renderFenceDiagrams, type DiagramRenderCache } from './lib/fenceDiagrams';
@@ -7027,6 +7027,7 @@ export default function App() {
     // PRD 020 Req 16: the workspace placement copies /<workspace-name>.
     <CopyLinkButton
       testid="copy-link-workspace"
+      label={COPY_LINK_WORKSPACE_LABEL}
       getUrl={() => workspaceShareUrl(window.location.origin, window.location.pathname)}
       copy={copyToClipboard}
     />
@@ -7037,6 +7038,7 @@ export default function App() {
       // — and is absent for untitled buffers (their docPath is null).
       <CopyLinkButton
         testid="copy-link-file"
+        label={COPY_LINK_FILE_LABEL}
         getUrl={() => fileShareUrl(window.location.origin, window.location.pathname)}
         copy={copyToClipboard}
       />

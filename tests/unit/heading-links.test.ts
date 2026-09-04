@@ -71,7 +71,9 @@ describe('PRD 020 Req 18 preview heading copy-link graft', () => {
     expect(live.textContent).toBe('Link copied');
     vi.advanceTimersByTime(LINK_COPIED_MS);
     expect(alpha.classList.contains('is-copied')).toBe(false);
-    expect(alpha.getAttribute('aria-label')).toBe('Copy link');
+    // Issue #227: the rest label names the target, both placements' factory.
+    expect(alpha.getAttribute('aria-label')).toBe('Copy link to heading');
+    expect(alpha.title).toBe('Copy link to heading');
     expect(live.textContent).toBe('');
 
     // The null-URL heading: no write, no confirmation, nothing announced.

@@ -17,7 +17,7 @@
  * The editor gutter placement (`components/Editor.tsx`) builds its marker
  * from the same `createHeadingLinkButton` factory below.
  */
-import { COPY_LINK_LABEL, LINK_COPIED_LABEL, createCopyLinkController } from './shareLinks';
+import { COPY_LINK_HEADING_LABEL, LINK_COPIED_LABEL, createCopyLinkController } from './shareLinks';
 
 /** The per-heading button; also its `data-testid`. */
 export const HEADING_LINK_CLASS = 'mm-heading-link';
@@ -55,12 +55,14 @@ export function createHeadingLinkButton(
   btn.type = 'button';
   btn.className = opts.className;
   btn.dataset.testid = opts.testid;
-  btn.title = COPY_LINK_LABEL;
-  btn.setAttribute('aria-label', COPY_LINK_LABEL);
+  // Issue #227: the rest label names the target, so hover distinguishes the
+  // heading control from the workspace/file placements.
+  btn.title = COPY_LINK_HEADING_LABEL;
+  btn.setAttribute('aria-label', COPY_LINK_HEADING_LABEL);
   btn.innerHTML = LINK_SVG;
   const ctrl = createCopyLinkController(opts.getUrl, opts.copy, (on) => {
     btn.classList.toggle('is-copied', on);
-    btn.setAttribute('aria-label', on ? LINK_COPIED_LABEL : COPY_LINK_LABEL);
+    btn.setAttribute('aria-label', on ? LINK_COPIED_LABEL : COPY_LINK_HEADING_LABEL);
     opts.setLiveText(on ? LINK_COPIED_LABEL : '');
   });
   return { btn, ctrl };

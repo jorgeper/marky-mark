@@ -4285,9 +4285,12 @@ test('E407: hosted copy-link — the workspace control (pane open) and the file 
   const fileShare = page.getByTestId('copy-link-file');
   await expect(wsShare).toBeVisible();
   await expect(fileShare).toBeVisible();
-  // Req 14: at rest the control is a link icon with the "Copy link" tooltip.
-  await expect(wsShare).toHaveAttribute('title', 'Copy link');
-  await expect(wsShare).toHaveAttribute('aria-label', 'Copy link');
+  // Req 14 as reworded by issue #227: at rest each control is a link icon
+  // whose tooltip and accessible name say the placement's target.
+  await expect(wsShare).toHaveAttribute('title', 'Copy link to workspace');
+  await expect(wsShare).toHaveAttribute('aria-label', 'Copy link to workspace');
+  await expect(fileShare).toHaveAttribute('title', 'Copy link to file');
+  await expect(fileShare).toHaveAttribute('aria-label', 'Copy link to file');
 
   // Req 16: a click copies the absolute canonical /<workspace-name> URL and
   // the control ITSELF confirms — no dialog, no toast stack.
@@ -4297,7 +4300,7 @@ test('E407: hosted copy-link — the workspace control (pane open) and the file 
   expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}`);
   // …briefly (~2s): then the control reverts to rest on its own.
   await expect(page.getByTestId('copy-link-workspace-copied')).toHaveCount(0, { timeout: 4000 });
-  await expect(wsShare).toHaveAttribute('aria-label', 'Copy link');
+  await expect(wsShare).toHaveAttribute('aria-label', 'Copy link to workspace');
 
   // Req 17: the file control copies the file's Req 5 URL — origin included,
   // segments percent-encoded, no heading fragment.
@@ -4372,12 +4375,13 @@ test('E409: hovering a preview heading reveals the copy-link control, which copi
   await expect(setupLink).toHaveCSS('opacity', '0');
   await setup.hover();
   await expect(setupLink).toHaveCSS('opacity', '1');
-  await expect(setupLink).toHaveAttribute('aria-label', 'Copy link');
+  await expect(setupLink).toHaveAttribute('title', 'Copy link to heading');
+  await expect(setupLink).toHaveAttribute('aria-label', 'Copy link to heading');
   await setupLink.click();
   expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guide.md#set-up--go`);
   await expect(setupLink).toHaveAttribute('aria-label', 'Link copied');
   // …and reverts to rest on its own (~2s).
-  await expect(setupLink).toHaveAttribute('aria-label', 'Copy link', { timeout: 4000 });
+  await expect(setupLink).toHaveAttribute('aria-label', 'Copy link to heading', { timeout: 4000 });
 
   // The SECOND "Notes" heading dedupes to -1, in document order.
   const notes1 = page.getByTestId('doc').locator('h2').filter({ hasText: 'Notes' }).nth(1);
@@ -4407,7 +4411,7 @@ test('E410: a cursor resting on a heading line reveals the editor gutter copy-li
   await editor.locator('.cm-line').filter({ hasText: 'Set Up & Go' }).click();
   const gutterLink = page.getByTestId('heading-copy-link-gutter');
   await expect(gutterLink).toBeVisible();
-  await expect(gutterLink).toHaveAttribute('aria-label', 'Copy link');
+  await expect(gutterLink).toHaveAttribute('aria-label', 'Copy link to heading');
   await gutterLink.click();
   expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guide.md#set-up--go`);
   await expect(gutterLink).toHaveAttribute('aria-label', 'Link copied');

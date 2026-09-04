@@ -13,8 +13,17 @@
 import { buildAppPath, parseAppPath } from './hostedPaths';
 import type { DocumentSections } from './sectionModel';
 
-/** PRD 020 Req 14: the control's rest tooltip and accessible name. */
-export const COPY_LINK_LABEL = 'Copy link';
+/**
+ * PRD 020 Req 14 as reworded by issue #227: each placement's rest tooltip
+ * and accessible name says its target — the PRD's uniform "Copy link" made
+ * the three controls indistinguishable on hover. The rest of Req 14's
+ * contract (icon, click-to-copy, confirmation) is unchanged.
+ */
+export const COPY_LINK_WORKSPACE_LABEL = 'Copy link to workspace';
+/** Issue #227: the file placement's rest tooltip and accessible name. */
+export const COPY_LINK_FILE_LABEL = 'Copy link to file';
+/** Issue #227: both heading placements' rest tooltip and accessible name. */
+export const COPY_LINK_HEADING_LABEL = 'Copy link to heading';
 /** PRD 020 Req 14: the inline confirmation the control transforms into. */
 export const LINK_COPIED_LABEL = 'Link copied';
 /** PRD 020 Req 14: how long the confirmation shows (~2s) before reverting. */
