@@ -129,6 +129,7 @@ import {
 import { addOpen, closeOpen, cycleOpen, pruneOpen, remapOpen } from './lib/openFiles';
 import { closeOthersTargets } from './lib/fileTabs';
 import { isDirtyText, normalizeEol } from './lib/dirty';
+import { docDisplayName } from './lib/docName';
 import { moveTarget, relativePath, remapPath, uniqueChildName } from './lib/folderOps';
 import { ALL_FILE_GRANTS, type FileGrants } from './lib/fileGrants';
 import { uploadRejection } from './lib/fileTransfer';
@@ -464,8 +465,17 @@ export default function App() {
   // Armed once by the boot's `platform.scratchStart` hook; cleared by every
   // exit — a save or a real document replacing the buffer (openDoc), closing
   // to the splash, or a fresh ⌘N buffer (an ordinary untitled prompts as
-  // always). A ref, not state: no UI renders from it, only the guards read it.
+  // always). PRD 023 Req 6 (issue #291): state AND a ref now — the name
+  // surfaces (toolbar, file tab, window title) render the "Scratch file"
+  // placeholder from `scratch`, while the guards keep reading `scratchRef`,
+  // which is correct synchronously inside callbacks where state would lag.
+  // Every write goes through setScratchMark so the two can never disagree.
   const scratchRef = useRef(false);
+  const [scratch, setScratch] = useState(false);
+  const setScratchMark = useCallback((on: boolean) => {
+    scratchRef.current = on;
+    setScratch(on);
+  }, []);
   const [buffer, setBuffer] = useState('');
   const [savedText, setSavedText] = useState('');
   const [mode, setMode] = useState<Mode>('preview');
@@ -851,6 +861,13 @@ export default function App() {
   const canonicalOf = useCallback((t: string) => smartEditRef.current?.canonicalText(t) ?? t, []);
   // Issue #42: every dirty decision goes through the one shared predicate.
   const dirty = isDirtyText(canonicalOf(buffer), savedText);
+  // PRD 023 Reqs 6–7: the one name resolution the toolbar renders (the
+  // title effect and the tab strip call the same helper, so the three
+  // surfaces cannot drift). Null until the platform binds — no name
+  // surface renders before that anyway.
+  const docNameDisplay = platform
+    ? docDisplayName({ path: docPath, untitled, scratch }, platform.basename)
+    : { name: null, scratch: false };
   // Issue #42: the parked half of the same rule — every "is this parked file
   // dirty?" site asks here, so they can never disagree either. Park entries
   // hold canonical text (see parkActive), so no canonicalOf on this path.
@@ -2232,7 +2249,7 @@ export default function App() {
       setFmOverride(null); // SPEC26 §3.3: a new document follows the setting
       setDocPath(path);
       setUntitled(false); // SPEC22 §3.3: a real document replaces any untitled buffer
-      scratchRef.current = false; // PRD 019 Req 11: replaced (or saved via Save As, which lands here) ⇒ exemption over
+      setScratchMark(false); // PRD 019 Req 11: replaced (or saved via Save As, which lands here) ⇒ exemption over
       setBuffer(content);
       setSavedText(saved);
       setComments(stored);
@@ -2375,7 +2392,7 @@ export default function App() {
     setFindDebounced('');
     setDocPath(null);
     setUntitled(false);
-    scratchRef.current = false; // PRD 019 Req 11: the scratch buffer is gone with it
+    setScratchMark(false); // PRD 019 Req 11: the scratch buffer is gone with it
     setBuffer('');
     setSavedText('');
     setHtml('');
@@ -2799,8 +2816,9 @@ export default function App() {
       // workspace's existing files still land in the sidebar as usual.
       if (p.scratchStart) {
         startUntitledRef.current();
-        // PRD 019 Req 11: and that one buffer is the prompt-exempt scratch.
-        scratchRef.current = true;
+        // PRD 019 Req 11: and that one buffer is the prompt-exempt scratch —
+        // PRD 023 Req 6: the same mark drives its "Scratch file" label.
+        setScratchMark(true);
       }
       // PRD 020 Req 5: a path deep link's file half — armed before the
       // workspace binding below opens; the workspace open consumes it.
@@ -3798,7 +3816,9 @@ export default function App() {
     setUntitled(true);
     // PRD 019 Req 11: a NEW untitled buffer is ordinary — only the boot's
     // scratchStart hook re-arms the exemption, after calling this.
-    scratchRef.current = false;
+    // PRD 023 Req 8: so a ⌘N buffer (even inside the scratch workspace)
+    // reads "Untitled", normally styled.
+    setScratchMark(false);
     setBuffer('');
     setSavedText('');
     setHtml('');
@@ -5907,11 +5927,13 @@ export default function App() {
   useEffect(() => {
     const p = platform;
     if (!p) return;
-    const name = docPath ? p.basename(docPath) : untitled ? 'Untitled' : null;
+    // PRD 023 Req 6: the shared resolution — the scratch buffer titles the
+    // window/browser tab "Scratch file" like the toolbar and its file tab.
+    const { name } = docDisplayName({ path: docPath, untitled, scratch }, p.basename);
     const title = name ? `${name}${dirty ? ' •' : ''} — Marky Mark` : 'Marky Mark';
     void p.setTitle(title);
     document.title = title;
-  }, [platform, docPath, untitled, dirty]);
+  }, [platform, docPath, untitled, scratch, dirty]);
 
   // PRD 020 Req 6: the address bar tracks the active document — a platform
   // that binds its URL to content (hosted) rewrites the canonical path form
@@ -7195,7 +7217,11 @@ export default function App() {
             onMouseLeave={toolbarLeave}
           >
             <Toolbar
-              docName={docPath ? platform.basename(docPath) : untitled ? 'Untitled' : null}
+              // PRD 023 Req 6: the shared resolution — the scratch buffer's
+              // toolbar name reads "Scratch file"; Req 7: flagged so the
+              // Toolbar applies the accent/italic token treatment.
+              docName={docNameDisplay.name}
+              docNameScratch={docNameDisplay.scratch}
               docPath={docPath}
               dirty={dirty}
               mode={mode}
@@ -7417,6 +7443,9 @@ export default function App() {
           openFiles={openFiles}
           activePath={docPath}
           untitled={untitled}
+          // PRD 023 Reqs 6–8: only the scratch boot's buffer gets the
+          // "Scratch file" tab treatment; ⌘N buffers stay "Untitled".
+          untitledScratch={scratch}
           // PRD 013 Req 8 (SPEC36 §2.6): the untitled buffer sits outside
           // the open set — and so outside dirtyOpenFiles — so its tab's ●
           // reads App's own dirty flag instead.

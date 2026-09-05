@@ -39,6 +39,7 @@ bundled themes restyle the chrome without defining a single chrome token.
 | `--mm-hover` | `color-mix(in srgb, var(--mm-accent) 8%, transparent)` | Hover wash on rows and buttons |
 | `--mm-muted` | `var(--mm-fg-muted)` | De-emphasised chrome text |
 | `--mm-focus-ring` | `color-mix(in srgb, var(--mm-accent) 35%, transparent)` | Keyboard-focus ring |
+| `--mm-scratch-name` / `--mm-scratch-name-style` | `var(--mm-accent)` / `italic` | The scratch buffer's "Scratch file" placeholder name in the toolbar and its file tab (PRD 023 Req 7) |
 | `--mm-find` / `--mm-find-active` / `--mm-find-fg` | `#ffdf5d` / `#f0883e` / `#1f2328` | Find-match highlights (deliberately theme-independent so matches stay legible anywhere) |
 | `--mm-fence-ring` | `var(--mm-border)` | Hairline ring around code-fence cards in edit mode |
 | `--mm-split` / `--mm-folders` | `50%` / `240px` | JS-driven layout defaults before the user drags |

@@ -17,6 +17,7 @@ import {
   railWheelTarget,
   type RailArrowState,
 } from '../lib/fileTabs';
+import { docDisplayName } from '../lib/docName';
 import { useAnchoredMenu } from '@marky-mark/editor';
 import { IconButton } from './ui/IconButton';
 
@@ -33,6 +34,13 @@ export interface FileTabStripProps {
    * ephemeral tab is replaced by the real one (SPEC36, via openDoc's addOpen).
    */
   untitled: boolean;
+  /**
+   * PRD 023 Reqs 6–8 (issue #291): the untitled buffer is the scratch
+   * boot's buffer — its tab reads "Scratch file" in the token-driven
+   * accent/italic treatment instead of "Untitled". False for every other
+   * untitled buffer (⌘N stays "Untitled", normally styled).
+   */
+  untitledScratch: boolean;
   /**
    * PRD 013 Req 8 (SPEC36 §2.6): the untitled buffer's unsaved-changes flag —
    * App's own `dirty`, because an untitled buffer sits outside the open set
@@ -81,12 +89,14 @@ export interface FileTabStripProps {
 }
 
 /** One tab: a real keyboard-reachable button, ellipsis-clipped, tooltipped. */
-function Tab({ active, label, title, path, dirty, onClick, onClose, onMenu }: {
+function Tab({ active, label, title, path, dirty, scratch, onClick, onClose, onMenu }: {
   active: boolean;
   label: string;
   title: string;
   path: string;
   dirty?: boolean;
+  /** PRD 023 Req 7: the scratch placeholder label — token-styled + hooked. */
+  scratch?: boolean;
   /** Absent (the ACTIVE tab, and the untitled one) ⇒ clicking it is inert. */
   onClick?: () => void;
   /** Every tab closes — open-set tabs via SPEC36 §3.4, the untitled tab via
@@ -129,7 +139,15 @@ function Tab({ active, label, title, path, dirty, onClick, onClose, onMenu }: {
       // menu, no activation — activation rides onClick, main button only).
       onContextMenu={onMenu}
     >
-      <span className="file-tab-label">{label}</span>
+      {/* PRD 023 Req 7: the scratch placeholder rides the .scratch-name
+          token treatment (accent + italic), with data-scratch as the stable
+          hook for the hosted e2e slice (issue #293). */}
+      <span
+        className={`file-tab-label${scratch ? ' scratch-name' : ''}`}
+        data-scratch={scratch ? 'true' : undefined}
+      >
+        {label}
+      </span>
       {/* PRD 013 Req 5 (SPEC36 §3.4/§3.6 rotated up): the trailing slot —
           the dirty ● swaps for the ✕ on tab hover (styles.css); the slot
           always renders so the label never reflows when they swap. The ✕
@@ -192,6 +210,12 @@ function ScrollArrow({ dir, enabled, onStep }: { dir: -1 | 1; enabled: boolean; 
 }
 
 export function FileTabStrip(p: FileTabStripProps) {
+  // PRD 023 Req 6: the untitled tab's label rides the same resolution the
+  // toolbar and the title effect use, so the surfaces cannot drift.
+  const untitledName = docDisplayName(
+    { path: null, untitled: true, scratch: p.untitledScratch },
+    p.basename
+  );
   // PRD 013 Req 7: the context menu's anchor — transient UI state only.
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   // SPEC35 §3.2: anchored at the pointer and dismissed by Esc / outside
@@ -361,12 +385,15 @@ export function FileTabStrip(p: FileTabStripProps) {
           // openFiles, and it is always the active one (docPath is null while
           // untitled). No onMenu: the menu's walks are open-set walks this
           // buffer sits outside, so right-click opens nothing here.
+          // PRD 023 Req 6: the label comes from the shared resolution — the
+          // scratch buffer's tab reads "Scratch file", any other "Untitled".
           <Tab
             active
-            label="Untitled"
-            title="Untitled"
+            label={untitledName.name ?? ''}
+            title={untitledName.name ?? ''}
             path=""
             dirty={p.untitledDirty}
+            scratch={untitledName.scratch}
             onClose={p.onCloseUntitled}
           />
         )}

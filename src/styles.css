@@ -124,6 +124,13 @@ body,
   --mm-hover: color-mix(in srgb, var(--mm-accent, #0969da) 8%, transparent);
   --mm-muted: var(--mm-fg-muted, #59636e);
   --mm-focus-ring: color-mix(in srgb, var(--mm-accent, #0969da) 35%, transparent);
+  /* Scratch placeholder name (PRD 023 Req 7, issue #291): the boot-opened
+     scratch buffer's "Scratch file" label in the toolbar and its file tab —
+     the theme accent, italicised. Colour derives from the contract accent
+     (PRD 018 Req 2), so every bundled theme restyles it without defining
+     anything; a theme may override either half. */
+  --mm-scratch-name: var(--mm-accent, #0969da);
+  --mm-scratch-name-style: italic;
 
   /* Find-match highlights (PRD 018 Req 3). Deliberately NOT theme-derived:
      E291 asserts identical, self-contained mark colours on light and dark
@@ -569,6 +576,14 @@ button {
 .toolbar .docname .ws-sep {
   color: var(--mm-fg-muted, #59636e);
   opacity: 0.6;
+}
+
+/* PRD 023 Req 7 (issue #291): the scratch buffer's placeholder name — the
+   toolbar name and the file tab label both carry .scratch-name; colour and
+   slant come from the token pair only, so themes restyle it for free. */
+.scratch-name {
+  color: var(--mm-scratch-name);
+  font-style: var(--mm-scratch-name-style);
 }
 
 .toolbar .dirty-dot {

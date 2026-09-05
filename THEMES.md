@@ -126,6 +126,8 @@ variables above, so your theme restyles the chrome automatically.
 | `--mm-hover` | `color-mix(in srgb, var(--mm-accent) 8%, transparent)` | Hover wash on rows and buttons |
 | `--mm-muted` | `var(--mm-fg-muted)` | De-emphasised chrome text |
 | `--mm-focus-ring` | `color-mix(in srgb, var(--mm-accent) 35%, transparent)` | Keyboard-focus ring |
+| `--mm-scratch-name` | `var(--mm-accent)` | Colour of the scratch buffer's "Scratch file" placeholder name (toolbar and file tab) |
+| `--mm-scratch-name-style` | `italic` | Font style of the scratch buffer's placeholder name |
 | `--mm-find` | `#ffdf5d` | Find-match highlight (theme-independent by default, so matches stay legible on any theme) |
 | `--mm-find-active` | `#f0883e` | The current find match |
 | `--mm-find-fg` | `#1f2328` | Text inside find matches |

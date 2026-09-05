@@ -6,6 +6,12 @@ import { displayCombo, type HotkeyMap } from '@marky-mark/editor';
 interface Props {
   docName: string | null;
   /**
+   * PRD 023 Req 7 (issue #291): docName is the scratch buffer's placeholder
+   * ("Scratch file") — rendered in the `--mm-scratch-name` token treatment
+   * (accent + italic) with a `data-scratch` hook for the hosted e2e slice.
+   */
+  docNameScratch?: boolean;
+  /**
    * PRD 009 Req 11: the open workspace's name, shown here now that the
    * bottom-right switcher chip is gone. Null outside workspace mode, where
    * this affordance stays exactly the filename it has always been.
@@ -236,7 +242,16 @@ export function Toolbar(p: Props) {
             {p.docName && <span className="ws-sep"> / </span>}
           </>
         )}
-        {p.docName}
+        {/* PRD 023 Req 7: the scratch placeholder carries .scratch-name (the
+            token-driven accent/italic treatment) and data-scratch as the
+            stable e2e hook; every other name renders as plain text. */}
+        {p.docNameScratch && p.docName ? (
+          <span className="scratch-name" data-scratch="true">
+            {p.docName}
+          </span>
+        ) : (
+          p.docName
+        )}
         {/* SPEC5 §1 (amended, issue #197): the badge never fills the title
             slot — it stays empty when nothing is named there. */}
         {p.dirty && (
