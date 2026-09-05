@@ -206,7 +206,7 @@ function isLegacyVersion(version: string): boolean {
  * It is ignored at parse — not interpreted, not bagged, not re-emitted —
  * the same stance the seam takes on a wrong-typed known key: a known key is
  * a schema question, never an unknown-key one (documented in
- * docs/COMMENT-FORMAT.md, pinned by U1088/U1116).
+ * docs/COMMENT-FORMAT.md, pinned by U1088/U1122).
  */
 export const COMMENT_RECORD_KEYS: readonly string[] = [
   'kind',

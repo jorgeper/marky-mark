@@ -731,7 +731,7 @@ describe('comment format 2.0.0: the kind split (PRD 023 §1/§3 — issue #283)'
     expect(Object.keys(entries[1])).toEqual(['kind', 'id', 'author', 'createdAt', 'body', 'resolved', 'thread', 'anchor']);
   });
 
-  test('U1115: a record with a missing, non-string or unrecognized kind is dropped whole — never crashed on, never guessed at', () => {
+  test('U1121: a record with a missing, non-string or unrecognized kind is dropped whole — never crashed on, never guessed at', () => {
     const text = JSON.stringify({
       version: '2.0.0',
       comments: [
@@ -755,7 +755,7 @@ describe('comment format 2.0.0: the kind split (PRD 023 §1/§3 — issue #283)'
     expect(parseSidecar(noBody).map((c) => c.id)).toEqual([highlight.id]);
   });
 
-  test('U1116: a foreign known key — the other kind’s field — is ignored: not parsed, not bagged, not re-emitted', () => {
+  test('U1122: a foreign known key — the other kind’s field — is ignored: not parsed, not bagged, not re-emitted', () => {
     // PRD 023 §1 (issue #283), as documented in docs/COMMENT-FORMAT.md: a
     // known key is a schema question, never an unknown-key one, so `color`
     // on a comment (and body/thread/resolved on a highlight) neither rides
@@ -781,7 +781,7 @@ describe('comment format 2.0.0: the kind split (PRD 023 §1/§3 — issue #283)'
     expect(Object.keys(mixed[0].extra ?? {})).toEqual(['pinned']);
   });
 
-  test('U1117: legacy and malformed stores are tolerated end to end — zero annotations, readable verdicts, no throw from the seam', () => {
+  test('U1123: legacy and malformed stores are tolerated end to end — zero annotations, readable verdicts, no throw from the seam', () => {
     // Issue #283 acceptance: a pre-2.0.0 or malformed store must never cost
     // the user the document. Legacy versions (with real 1.x-shaped entries):
     for (const payload of [
