@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { type CommentData, isComment } from '../lib/anchoring';
+import { COPY_LINK_COMMENT_LABEL } from '../lib/shareLinks';
 import { timeAgo } from '../lib/time';
 import { Button } from './ui/Button';
+import { CopyLinkButton } from './CopyLinkButton';
 
 /** Ported from ../md-with-comments — margin comment card with threads. */
 
@@ -19,6 +21,14 @@ interface Props {
    * Default false: every other call site keeps its editable card.
    */
   readOnly?: boolean;
+  /**
+   * PRD 023 §20 (issue #288): the card-side copy-link — the one copy-link a
+   * comment carries. Null (the default) renders no control: the caller gates
+   * it hosted-with-an-addressed-file (PRD 020 Req 15). Copying is a read
+   * action, so it rides every card the pane renders — readOnly and resolved
+   * included — independent of the authoring controls' gates.
+   */
+  copyLink?: { getUrl(): string | null; copy(text: string): Promise<boolean> | boolean } | null;
   onActivate: (id: string) => void;
   onUpdate: (next: CommentData) => void;
   onDelete: (id: string) => void;
@@ -35,6 +45,7 @@ export function CommentCard({
   active,
   ghost,
   readOnly = false,
+  copyLink = null,
   onActivate,
   onUpdate,
   onDelete,
@@ -114,6 +125,21 @@ export function CommentCard({
       )}
 
       <div className="entry" data-testid="thread-entry">
+        {/* PRD 023 §20 (issue #288): the comment's copy-link, floated at the
+            card's top-right — the shared CopyLinkButton (same glyph, same
+            confirmation contract), copying the file URL plus #hl-<id>. Only
+            a comment record has an addressable card; the wrapper stops the
+            click from doubling as card activation like every control row. */}
+        {copyLink && note && (
+          <span className="card-copy-link" onClick={stop}>
+            <CopyLinkButton
+              testid="copy-link-comment"
+              label={COPY_LINK_COMMENT_LABEL}
+              getUrl={copyLink.getUrl}
+              copy={copyLink.copy}
+            />
+          </span>
+        )}
         <div className="entry-meta">
           <strong>{c.author}</strong> <span className="time">{timeAgo(c.createdAt)}</span>
         </div>
