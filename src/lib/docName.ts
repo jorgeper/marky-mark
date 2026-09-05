@@ -34,6 +34,18 @@ export interface DocDisplayName {
   scratch: boolean;
 }
 
+/**
+ * PRD 023 Reqs 6–8: the untitled buffer's half of the resolution, on its own
+ * because the file tab strip renders that case and nothing else — it needs no
+ * path, no basename seam and no "nothing is open" branch. `docDisplayName`
+ * delegates here, so the tab can never drift from the toolbar or the title.
+ */
+export function untitledDisplayName(scratch: boolean): { name: string; scratch: boolean } {
+  // PRD 023 Req 8: only the boot's scratch buffer carries the placeholder —
+  // a ⌘N buffer (even inside the scratch workspace) stays "Untitled".
+  return scratch ? { name: SCRATCH_NAME, scratch: true } : { name: 'Untitled', scratch: false };
+}
+
 export function docDisplayName(
   s: DocNameState,
   basename: (p: string) => string
@@ -42,7 +54,5 @@ export function docDisplayName(
   // still set — the scratch treatment is for the unsaved buffer only.
   if (s.path) return { name: basename(s.path), scratch: false };
   if (!s.untitled) return { name: null, scratch: false };
-  return s.scratch
-    ? { name: SCRATCH_NAME, scratch: true }
-    : { name: 'Untitled', scratch: false };
+  return untitledDisplayName(s.scratch);
 }

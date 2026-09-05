@@ -17,7 +17,7 @@ import {
   railWheelTarget,
   type RailArrowState,
 } from '../lib/fileTabs';
-import { docDisplayName } from '../lib/docName';
+import { untitledDisplayName } from '../lib/docName';
 import { useAnchoredMenu } from '@marky-mark/editor';
 import { IconButton } from './ui/IconButton';
 
@@ -212,10 +212,7 @@ function ScrollArrow({ dir, enabled, onStep }: { dir: -1 | 1; enabled: boolean; 
 export function FileTabStrip(p: FileTabStripProps) {
   // PRD 023 Req 6: the untitled tab's label rides the same resolution the
   // toolbar and the title effect use, so the surfaces cannot drift.
-  const untitledName = docDisplayName(
-    { path: null, untitled: true, scratch: p.untitledScratch },
-    p.basename
-  );
+  const untitledName = untitledDisplayName(p.untitledScratch);
   // PRD 013 Req 7: the context menu's anchor — transient UI state only.
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   // SPEC35 §3.2: anchored at the pointer and dismissed by Esc / outside
@@ -389,8 +386,8 @@ export function FileTabStrip(p: FileTabStripProps) {
           // scratch buffer's tab reads "Scratch file", any other "Untitled".
           <Tab
             active
-            label={untitledName.name ?? ''}
-            title={untitledName.name ?? ''}
+            label={untitledName.name}
+            title={untitledName.name}
             path=""
             dirty={p.untitledDirty}
             scratch={untitledName.scratch}

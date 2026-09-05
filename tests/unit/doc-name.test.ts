@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
-import { docDisplayName, SCRATCH_NAME } from '../../src/lib/docName';
+import { docDisplayName, SCRATCH_NAME, untitledDisplayName } from '../../src/lib/docName';
 
 const basename = (p: string) => p.split('/').pop()!;
 
@@ -20,11 +20,14 @@ describe('PRD 023 Req 6 — document display-name resolution (issue #291)', () =
   test('U1125: an ordinary untitled buffer shows "Untitled", normally styled (PRD 023 Req 8)', () => {
     expect(docDisplayName({ path: null, untitled: true, scratch: false }, basename))
       .toEqual({ name: 'Untitled', scratch: false });
+    // The tab strip's entry point resolves the same case identically.
+    expect(untitledDisplayName(false)).toEqual({ name: 'Untitled', scratch: false });
   });
 
   test('U1126: the scratch buffer shows "Scratch file", flagged for the token treatment (PRD 023 Req 7)', () => {
     expect(docDisplayName({ path: null, untitled: true, scratch: true }, basename))
       .toEqual({ name: SCRATCH_NAME, scratch: true });
+    expect(untitledDisplayName(true)).toEqual({ name: SCRATCH_NAME, scratch: true });
     expect(SCRATCH_NAME).toBe('Scratch file');
   });
 
@@ -44,11 +47,12 @@ describe('PRD 023 Req 6 — document display-name resolution (issue #291)', () =
     expect(app).toContain("from './lib/docName'");
     expect(app.match(/docDisplayName\(/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
 
-    // The tab strip's untitled tab resolves through the same helper — no
-    // hard-coded "Untitled" label remains.
+    // The tab strip's untitled tab resolves through the same module — no
+    // hard-coded "Untitled" label remains (untitledDisplayName is the half
+    // of the resolution docDisplayName itself delegates to).
     const strip = src('src/components/FileTabStrip.tsx');
     expect(strip).toContain("from '../lib/docName'");
-    expect(strip).toContain('docDisplayName(');
+    expect(strip).toContain('untitledDisplayName(');
     expect(strip).not.toContain('label="Untitled"');
 
     // PRD 023 Req 7 + the issue #293 e2e hook: both visible surfaces carry
