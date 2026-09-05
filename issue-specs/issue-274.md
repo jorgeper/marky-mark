@@ -1,0 +1,31 @@
+# Spec: Cloud build: default the comment author name to the signed-in user's display name instead of "Reviewer" (#274)
+
+## Goal
+
+All acceptance criteria in issue-specs/issue-274.md are satisfied for issue #274, with evidence visible in the session: in the hosted build a reader who has never customised **Comment author name** gets their signed-in display name (falling back to `username`) as the author of new comments and as the pre-filled Settings field, derived from the session rather than written into stored settings; desktop/shim/single-file builds and any explicitly stored `author` value are unchanged; `npm run validate:quick` passes; and a summary comment from the implementer exists on issue #274.
+
+## Acceptance criteria
+
+- In the hosted build, when the session (`GET /api/me` → `SessionMe`, held in `App.tsx`'s `sessionMe`) is known and no settings layer supplies `author`, the effective comment author name is `sessionMe.displayName`, falling back to `sessionMe.username` when `displayName` is empty or whitespace-only.
+- New comments **and** replies created in that state carry that name (both `settings.author` reads in `App.tsx`, ~lines 6466 and 6592, plus the composer `author` props resolve to it).
+- Settings ▸ General → **Comment author name** (`data-testid="author-input"`) is pre-filled with that name in the same state, so the reader sees their own name without typing it.
+- The name is **derived, not persisted**: signing in never writes an `author` key into the stored user layer (`settings.json`). Opening Settings and saving an unrelated setting must not persist the derived name either — only keys the reader actually changed travel (`diffSettings` → `applySettingsEdit`, `App.tsx:3040`).
+- The derived value tracks the session: it is recomputed when `sessionMe` arrives (it is `null` until `/api/me` answers) and when it changes, rather than being copied once.
+- An explicit override still wins and still persists: if any settings layer supplies a valid `author`, that value is the effective one — the session-derived name never overrides a stored value. Layered precedence for `author` is otherwise unchanged (it stays `U!`-scoped in `SETTINGS_SCOPES`, absent from `WORKSPACE_PINNABLE_KEYS`, and `resolveSettings` / `winningLayer` behaviour for other keys is untouched).
+- Builds without a signed-in identity are unchanged: desktop (Tauri), the shim/browser flavor and the single-file web build still default to `Reviewer`, and `DEFAULT_SETTINGS.author` in `src/lib/settings.ts` is still `'Reviewer'`. The hosted-only behaviour is gated on the session/capability (`platform.sessionUser` / a non-null `sessionMe`), not on `platform.kind` — see the "branch on capabilities, never on `kind`" rule in `src/platform/types.ts`.
+- Comments already stored with `Reviewer` (or any other author) are not rewritten on load or save.
+- The name-derivation rule lives in a pure, exported helper (e.g. in `src/lib/settings.ts` or a small sibling module) and has unit tests in `tests/unit/` covering: display name present, display name empty/blank → username, no session → `Reviewer`, and a stored layer value winning over the derived default.
+- A new e2e test in `tests/e2e/hosted.spec.ts` with the next free E-number (E433 at time of writing — check `grep -rho 'E[0-9]\{2,4\}:' tests/e2e/*.spec.ts`) signs in as a seeded mock user with a display name (e.g. `ada` → `Ada Lovelace`, via the existing `signInTo` helper) and asserts both (a) a newly added comment is authored by that display name and (b) the Settings **Comment author name** field shows it.
+- Every new or changed behaviour carries a citation comment per `.sandcastle/CODING_STANDARDS.md`; if any `SPEC<n>` citation was added or moved, `docs/MAP.md` has been regenerated with `npm run map` and committed (the gate diffs it).
+- Iteration used `npm run typecheck` and `npm run test:unit` (or targeted runs such as `npx playwright test -g 'E433'`); the full gate was **not** run after every change nor as a start-of-attempt baseline.
+- `npm run validate:quick` has been run once, at the end, in the implementer's session and printed `QUICK VALIDATION: ALL PASSED`.
+- A summary comment from the implementer exists on issue #274 describing what changed and quoting the gate evidence.
+
+## Context
+
+- Setting: `src/lib/settings.ts` — `author` is declared in `Settings` (line ~83), defaults to `'Reviewer'` (line ~191), is scope-tagged `U!` (line ~277) and validated by `nonEmptyString` (line ~397). `U!` means `CANDIDATE_LAYERS` is `['user']`: only the User layer can supply it, and `sanitizeSettingsEdit` already rejects workspace-scoped `author` edits (see `tests/unit/aux-protocol.test.ts:63`). The issue's note about a "workspace pin" therefore reduces to: whatever layer wins today must keep winning over the new derived default.
+- Session: `SessionMe` is defined in `src/lib/deploymentSettings.ts:209` (`id`, `username`, `displayName`, `handle`, `admin`, …); `App.tsx:4711` loads it from `platform.sessionUser()`.
+- Likely seam: `App.tsx` already has `sessionOverridesRef` — session-only settings values spread over the resolved layers in `applyResolved` (`App.tsx:1751`), never written back, and cleared for a key when the reader edits it (`App.tsx:3051`). Because overrides are spread **after** resolution they beat stored layers, so a session-derived `author` must only be applied when no layer supplies one — `winningLayer('author', layers) === 'default'` is the test for that. Any equivalent approach is fine as long as the criteria above hold.
+- Consumers: `src/App.tsx` (comment + reply creation, composer props), `src/components/SettingsPanel.tsx:753` (the `author-input` field, `onChange` at line 306 diffs before writing).
+- Tests: `tests/e2e/hosted.spec.ts` runs against the local hosted server on port 4924 (booted by `playwright.config.ts`) and is part of the default desktop-shim suite that `validate:quick` runs; helpers `signIn`/`signInTo` and `addComment`/`openSettings` (`tests/e2e/helpers.ts`) are already in place. Seeded mock users live in `server/providers/mock/users.ts`. `scripts/validate.mjs` enforces a committed e2e count *floor*, so adding a test is safe.
+- Background: PRD 007 (hosted workspaces) and PRD 017 (`/api/me` / deployment admins) own the session facts; grep `SPEC` citations rather than reading `src/App.tsx` end-to-end.
