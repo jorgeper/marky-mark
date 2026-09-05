@@ -4290,6 +4290,157 @@ test('E434: re-entering the scratch workspace over a dirty scratch buffer replac
   expect(dialogs).toEqual([]);
 });
 
+test('E446: the browser tab title reads "Scratch file" while the scratch buffer is focused — dirty marker included — and reverts to the file’s real name once saved', async ({
+  page,
+}) => {
+  // PRD 023 Req 6 (issue #293): the scratch buffer titles the browser tab
+  // "Scratch file" through the same docDisplayName resolution as the toolbar
+  // and its file tab — nothing else in the suite asserts document.title for
+  // it. PRD 023 Req 12: once committed, the title sheds the placeholder for
+  // the file's real name like any ordinary document.
+  const token = await signIn(page.request, 'ada');
+  await dropDraft(page, token);
+  await page.goto(`${HOSTED}/scratch`);
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('editor')).toBeVisible();
+
+  // Req 6: the tab title carries the placeholder in the SPEC12 §2.2
+  // "<name> — Marky Mark" frame.
+  await expect(page).toHaveTitle('Scratch file — Marky Mark');
+
+  // The usual unsaved signal reaches the title too (SPEC12 §2.2's bullet
+  // beside Req 7's dirty dot in the chrome).
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('titled scratch text');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect(page).toHaveTitle('Scratch file • — Marky Mark');
+
+  // Req 12: commit the save — the picker pre-fills a free Untitled name
+  // (E399 owns that contract) — and the title reverts to the real name.
+  await page.keyboard.press('Control+s');
+  const picker = page.getByTestId('save-picker');
+  await expect(picker).toBeVisible();
+  const name = await page.getByTestId('save-picker-name').inputValue();
+  await page.getByTestId('save-picker-confirm').click();
+  await expect(picker).toHaveCount(0);
+  await expect(page.getByTestId('docname')).toContainText(name);
+  await expect(page).toHaveTitle(`${name} — Marky Mark`);
+});
+
+test('E447: the scratch placeholder renders in the accent/italic token treatment on both name surfaces — the toolbar name and the file-tab label resolve the --mm-scratch-name tokens', async ({
+  page,
+}) => {
+  // PRD 023 Req 7 (issue #293): "Scratch file" is not just label text — the
+  // toolbar name (span.scratch-name[data-scratch]) and the file-tab label
+  // (.file-tab-label.scratch-name) resolve to italic and the theme accent
+  // colour through the --mm-scratch-name / --mm-scratch-name-style chrome
+  // tokens (PRD 018), so every bundled theme restyles the treatment without
+  // defining anything (tests/unit/theme-catalog.test.ts pins the token side).
+  const token = await signIn(page.request, 'alan');
+  await dropDraft(page, token);
+  await page.goto(`${HOSTED}/scratch`);
+  await page.getByTestId('hosted-sign-in-username').fill('alan');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('editor')).toBeVisible();
+
+  // Both surfaces carry the marked span with the placeholder text.
+  const toolbarName = page.getByTestId('docname').locator('span.scratch-name[data-scratch="true"]');
+  await expect(toolbarName).toHaveText('Scratch file');
+  const tabLabel = page.getByTestId('file-tab').locator('.file-tab-label.scratch-name');
+  await expect(tabLabel).toHaveText('Scratch file');
+
+  // Resolve the treatment where each surface sits (the E380 probe pattern):
+  // sibling probes styled straight off the tokens give the expected computed
+  // values, so the comparison survives a theme change instead of pinning one
+  // theme's accent hex.
+  const paint = (el: Element) => {
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--mm-scratch-name, #0969da)';
+    probe.style.fontStyle = 'var(--mm-scratch-name-style, italic)';
+    const accentProbe = document.createElement('span');
+    accentProbe.style.color = 'var(--mm-accent, #0969da)';
+    el.parentElement!.append(probe, accentProbe);
+    const cs = getComputedStyle(el);
+    const tokens = getComputedStyle(probe);
+    const out = {
+      color: cs.color,
+      fontStyle: cs.fontStyle,
+      tokenColor: tokens.color,
+      tokenStyle: tokens.fontStyle,
+      accent: getComputedStyle(accentProbe).color,
+    };
+    probe.remove();
+    accentProbe.remove();
+    return out;
+  };
+  for (const surface of [toolbarName, tabLabel]) {
+    const got = await surface.evaluate(paint);
+    // Req 7 "italic", via the style token — not hard-coded on the element.
+    expect(got.fontStyle).toBe('italic');
+    expect(got.fontStyle).toBe(got.tokenStyle);
+    // Req 7 "accent colour", via the colour token whose chain bottoms out at
+    // the theme's --mm-accent.
+    expect(got.color).toBe(got.tokenColor);
+    expect(got.color).toBe(got.accent);
+  }
+
+  // Req 7: the usual dirty dot rides beside the styled name, which keeps its
+  // treatment while dirty.
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('accented scratch text');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect(toolbarName).toHaveText('Scratch file');
+});
+
+test('E448: a non-boot buffer inside the scratch workspace is not scratch-labelled or scratch-styled — hosted’s ⌘N routes to the New File picker, whose file is an ordinary document', async ({
+  page,
+}) => {
+  // PRD 023 Req 8 (issue #293): Reqs 6–7 are scoped to the buffer the boot
+  // opened. Hosted has no ⌘N untitled-buffer route — beginNewFile in
+  // src/App.tsx routes to the in-workspace New File picker when the platform
+  // has no saveFileDialog (PRD 009 Req 13) — so the scoping is asserted
+  // through the route hosted actually offers: ⌘N over the scratch buffer
+  // opens the picker, and the file it creates carries neither the "Scratch
+  // file" label nor the .scratch-name treatment on any chrome surface. The
+  // pure ⌘N-untitled branch ("Untitled", normal styling) stays pinned by
+  // U1125 in tests/unit/doc-name.test.ts.
+  const token = await signIn(page.request, 'mary');
+  await dropDraft(page, token);
+  await page.goto(`${HOSTED}/scratch`);
+  await page.getByTestId('hosted-sign-in-username').fill('mary');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  // Sanity: the boot's own buffer IS scratch-marked before ⌘N replaces it.
+  await expect(page.getByTestId('docname').locator('.scratch-name')).toBeVisible();
+
+  // ⌘N inside the scratch workspace: the picker, never an untitled buffer.
+  await page.keyboard.press('Control+n');
+  const picker = page.getByTestId('save-picker');
+  await expect(picker).toBeVisible();
+  const name = await page.getByTestId('save-picker-name').inputValue();
+  await page.getByTestId('save-picker-confirm').click();
+  await expect(picker).toHaveCount(0);
+
+  // The created file is the open document — named normally, with no scratch
+  // label or treatment anywhere in the chrome: toolbar name, file tab, or
+  // browser tab title (the scratch buffer it replaced left silently, Req 4).
+  await expect(page.getByTestId('docname')).toContainText(name);
+  await expect(page.getByTestId('docname')).not.toContainText('Scratch file');
+  await expect(page.locator('.scratch-name')).toHaveCount(0);
+  await expect(page.locator('[data-scratch]')).toHaveCount(0);
+  const label = page
+    .getByTestId('file-tab')
+    .filter({ hasText: name })
+    .first()
+    .locator('.file-tab-label');
+  expect(await label.evaluate((el) => getComputedStyle(el).fontStyle)).toBe('normal');
+  await expect(page).toHaveTitle(`${name} — Marky Mark`);
+});
+
 // --- path-based URLs (PRD 020 Reqs 5–9, issue #220) --------------------------
 
 /** A workspace with an explicit (timestamped, collision-proof) unique name. */
