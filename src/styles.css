@@ -750,7 +750,7 @@ button {
 /* ---------- comment highlights ---------- */
 
 mark.hl {
-  background: var(--mm-comment-tint, rgba(255, 214, 102, 0.42));
+  background: var(--mm-comment-tint, rgba(121, 192, 255, 0.45));
   color: inherit;
   border-radius: 2px;
   cursor: pointer;
@@ -759,26 +759,30 @@ mark.hl {
 
 mark.hl mark.hl {
   /* overlapping comments stack and read darker */
-  background: var(--mm-comment-tint-active, rgba(255, 193, 37, 0.6));
+  background: var(--mm-comment-tint-active, rgba(121, 192, 255, 0.7));
 }
 
 mark.hl.active,
 mark.hl.flash {
-  background: var(--mm-comment-tint-active, rgba(255, 193, 37, 0.6));
+  background: var(--mm-comment-tint-active, rgba(121, 192, 255, 0.7));
 }
 
-/* PRD 022 Req 13: the four marker tokens — theme-independent defaults a
-   theme MAY override (see THEMES.md; gruvbox-dark does, keeping its light
-   body text at WCAG AA over every tint). Each token holds the opaque hue;
-   the rules below derive the same strengths the legacy tint pair uses:
-   42% idle, 60% active/flash/overlap (and 12% for resolved ghosts). An
-   entry without a `color` field carries no data-color attribute and keeps
-   the legacy --mm-comment-tint rules above (Req 3). */
+/* PRD 022 Req 13 / PRD 023 §3 (issue #283): the four marker tokens — format
+   2.0.0 swaps blue for orange — plus the fixed COMMENT tint pair. All are
+   theme-independent defaults a theme MAY override (see THEMES.md;
+   gruvbox-dark does, keeping its light body text at WCAG AA over every
+   tint). Each marker token holds the opaque hue; the rules below derive the
+   strengths: 42% idle, 60% active/flash/overlap (and 12% for resolved
+   ghosts). A comment record carries no data-color attribute and renders in
+   the --mm-comment-tint pair above — a blue deliberately its own value,
+   never aliased to a marker hue (comments are not highlights). */
 .theme-root {
   --mm-marker-yellow: #ffd666;
   --mm-marker-green: #7ee787;
-  --mm-marker-blue: #79c0ff;
+  --mm-marker-orange: #ffab70;
   --mm-marker-pink: #ffa1c9;
+  --mm-comment-tint: rgba(121, 192, 255, 0.45);
+  --mm-comment-tint-active: rgba(121, 192, 255, 0.7);
 }
 
 /* Each colored mark resolves its hue once; the three strength rules below
@@ -791,8 +795,8 @@ mark.hl[data-color='yellow'] {
 mark.hl[data-color='green'] {
   --marker-hue: var(--mm-marker-green);
 }
-mark.hl[data-color='blue'] {
-  --marker-hue: var(--mm-marker-blue);
+mark.hl[data-color='orange'] {
+  --marker-hue: var(--mm-marker-orange);
 }
 mark.hl[data-color='pink'] {
   --marker-hue: var(--mm-marker-pink);
@@ -877,8 +881,8 @@ mark.hl.ghost[data-color] {
 .marker-swatch-green {
   background: var(--mm-marker-green);
 }
-.marker-swatch-blue {
-  background: var(--mm-marker-blue);
+.marker-swatch-orange {
+  background: var(--mm-marker-orange);
 }
 .marker-swatch-pink {
   background: var(--mm-marker-pink);
@@ -943,7 +947,7 @@ mark.hl.ghost[data-color] {
 
 /* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
 mark.hl.ghost {
-  background: color-mix(in srgb, var(--mm-comment-tint, rgba(255, 214, 102, 0.42)) 25%, transparent);
+  background: color-mix(in srgb, var(--mm-comment-tint, rgba(121, 192, 255, 0.45)) 25%, transparent);
 }
 /* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
@@ -2802,7 +2806,7 @@ input.folder-rename-input.invalid {
 /* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17): document-text highlights
    (the sidebar excerpt's mark, the landed match's flash). */
 .search-match-text mark {
-  background: var(--mm-comment-tint-active, rgba(255, 193, 37, 0.6));
+  background: var(--mm-comment-tint-active, rgba(121, 192, 255, 0.7));
   color: var(--mm-fg, #1f2328);
   border-radius: 2px;
 }
@@ -2814,7 +2818,7 @@ input.folder-rename-input.invalid {
 @keyframes mm-search-flash {
   0%,
   55% {
-    background: var(--mm-comment-tint-active, rgba(255, 193, 37, 0.6));
+    background: var(--mm-comment-tint-active, rgba(121, 192, 255, 0.7));
   }
   100% {
     background: transparent;

@@ -7,11 +7,41 @@
  * disturbs nothing, because alpha.4 ignores the field entirely.
  *
  * It is a record of a released binary, not a copy of live code: it must NEVER
- * be updated to track `src/`, and it deliberately imports nothing from `src/`
- * (only the type, erased at runtime). If a change to `src/` makes this reader
- * fail, that is the test doing its job — the format broke compatibility.
+ * be updated to track `src/`, and it deliberately imports nothing from `src/`.
+ * If a change to `src/` makes this reader fail, that is the test doing its
+ * job — the format broke compatibility.
+ *
+ * Issue #283 (comment format 2.0.0): the kind-split turned src's CommentData
+ * into a discriminated union that no longer describes what alpha.4 produced,
+ * so the alpha.4-era shapes are frozen here too — the type import removed,
+ * completing the freeze, with the parsing logic untouched.
  */
-import type { Anchor, CommentData, ThreadReply } from '../../src/lib/anchoring';
+interface Anchor {
+  exact: string;
+  prefix: string;
+  suffix: string;
+  start: number;
+  end: number;
+}
+
+interface ThreadReply {
+  id: string;
+  author: string;
+  createdAt: string;
+  body: string;
+}
+
+/** The comment shape as alpha.4's reader produced it (pre-kind-split). */
+export interface Alpha4CommentData {
+  id: string;
+  author: string;
+  createdAt: string;
+  body: string;
+  resolved: boolean;
+  thread: ThreadReply[];
+  anchor: Anchor;
+}
+type CommentData = Alpha4CommentData;
 
 const TRAILER_RE = /\n?<!-- (?:marky-mark|markimark)-comments\n([\s\S]*?)\n-->\s*$/;
 

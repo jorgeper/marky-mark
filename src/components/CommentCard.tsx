@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { type CommentColor, type CommentData, hasNote, MARKER_COLORS } from '../lib/anchoring';
+import { type CommentColor, type CommentData, isComment, MARKER_COLORS } from '../lib/anchoring';
 import { timeAgo } from '../lib/time';
 import { Button } from './ui/Button';
 
@@ -42,9 +42,12 @@ export function CommentCard({
   onDelete,
   onRecolor,
 }: Props) {
-  // PRD 022 Req 6: reply and resolve exist only once a note does — a
-  // note-less highlight's card offers "add note" and remove instead.
-  const noted = hasNote(c);
+  // PRD 023 §1 (issue #283): the card branches on the kind discriminant —
+  // a comment record carries the note/thread/resolve lifecycle; a highlight
+  // record's card (active-only, per the PRD 022 Req 9 standing-card rule)
+  // offers recolor, "add note" and remove.
+  const noted = isComment(c) ? c : null;
+  const resolved = noted?.resolved ?? false;
   const [replying, setReplying] = useState(false);
   const [replyDraft, setReplyDraft] = useState('');
   const [editing, setEditing] = useState<string | null>(null); // 'root' or reply id
@@ -53,10 +56,10 @@ export function CommentCard({
 
   const submitReply = () => {
     const body = replyDraft.trim();
-    if (!body) return;
+    if (!body || !noted) return;
     onUpdate({
-      ...c,
-      thread: [...c.thread, { id: newId(), author, createdAt: new Date().toISOString(), body }],
+      ...noted,
+      thread: [...noted.thread, { id: newId(), author, createdAt: new Date().toISOString(), body }],
     });
     setReplyDraft('');
     setReplying(false);
@@ -66,9 +69,18 @@ export function CommentCard({
     const body = editDraft.trim();
     if (!body || editing === null) return;
     if (editing === 'root') {
-      onUpdate({ ...c, body });
-    } else {
-      onUpdate({ ...c, thread: c.thread.map((r) => (r.id === editing ? { ...r, body } : r)) });
+      if (noted) {
+        onUpdate({ ...noted, body });
+      } else if (c.kind === 'highlight') {
+        // PRD 023 §1 (issue #283): adding a note to a highlight authors a
+        // kind:"comment" record in its place — same id and anchor, the color
+        // dropped (a comment renders in the fixed comment tint, never a
+        // marker hue).
+        const { color: _color, ...base } = c;
+        onUpdate({ ...base, kind: 'comment', body, resolved: false, thread: [] });
+      }
+    } else if (noted) {
+      onUpdate({ ...noted, thread: noted.thread.map((r) => (r.id === editing ? { ...r, body } : r)) });
     }
     setEditing(null);
   };
@@ -86,10 +98,10 @@ export function CommentCard({
 
   return (
     <div
-      className={`card${active ? ' active' : ''}${orphaned ? ' orphaned' : ''}${c.resolved ? ' resolved-card' : ''}${ghost ? ' resolved-ghost' : ''}`}
+      className={`card${active ? ' active' : ''}${orphaned ? ' orphaned' : ''}${resolved ? ' resolved-card' : ''}${ghost ? ' resolved-ghost' : ''}`}
       data-testid="comment-card"
       data-cid={c.id}
-      data-flowcard={c.resolved && !ghost ? undefined : c.id}
+      data-flowcard={resolved && !ghost ? undefined : c.id}
       onClick={() => onActivate(c.id)}
     >
       {orphaned && (
@@ -125,17 +137,17 @@ export function CommentCard({
             </div>
           </div>
         ) : (
-          // PRD 022 Req 9: a note-less highlight's card has no note to show —
-          // no empty body paragraph, just the swatches and controls below.
+          // PRD 023 §1 (issue #283): a highlight record has no note to show —
+          // no body paragraph, just the swatches and controls below.
           noted && (
             <p className="body" data-testid="card-body">
-              {c.body}
+              {noted.body}
             </p>
           )
         )}
       </div>
 
-      {c.thread.map((r) => (
+      {noted && noted.thread.map((r) => (
         <div className="entry reply" data-testid="thread-entry" key={r.id}>
           <div className="entry-meta">
             <strong>{r.author}</strong> <span className="time">{timeAgo(r.createdAt)}</span>
@@ -181,7 +193,7 @@ export function CommentCard({
                 variant="quiet"
                 size="sm"
                 data-testid="delete-reply"
-                onClick={() => onUpdate({ ...c, thread: c.thread.filter((x) => x.id !== r.id) })}
+                onClick={() => onUpdate({ ...noted, thread: noted.thread.filter((x) => x.id !== r.id) })}
               >
                 Delete
               </Button>
@@ -212,11 +224,12 @@ export function CommentCard({
         </div>
       )}
 
-      {/* PRD 022 Req 8 (issue #232): the active card offers recolor — the four
-          marker swatches in MARKER_COLORS order; the entry's current color
-          wears the ring. An authoring control, withheld read-only like the
-          rest; a resolved card's lifecycle stays reopen/delete only. */}
-      {active && !readOnly && !c.resolved && (
+      {/* PRD 022 Req 8 (issue #232), narrowed by PRD 023 §1 (issue #283): the
+          active HIGHLIGHT card offers recolor — the four marker swatches in
+          MARKER_COLORS order, the entry's current color wearing the ring. A
+          comment record has no color to change, so its card has no swatch
+          row. An authoring control, withheld read-only like the rest. */}
+      {active && !readOnly && c.kind === 'highlight' && (
         <div className="row card-swatches" data-testid="card-swatches" onClick={stop}>
           {MARKER_COLORS.map((color) => (
             <button
@@ -251,7 +264,7 @@ export function CommentCard({
             </>
           ) : (
             <>
-              {!c.resolved && noted && (
+              {noted && !noted.resolved && (
                 <>
                   <Button variant="quiet" size="sm" data-testid="reply-btn" onClick={() => setReplying(true)}>
                     Reply
@@ -262,7 +275,7 @@ export function CommentCard({
                     data-testid="edit-btn"
                     onClick={() => {
                       setEditing('root');
-                      setEditDraft(c.body);
+                      setEditDraft(noted.body);
                     }}
                   >
                     Edit
@@ -271,16 +284,16 @@ export function CommentCard({
                     variant="quiet"
                     size="sm"
                     data-testid="resolve-btn"
-                    onClick={() => onUpdate({ ...c, resolved: true })}
+                    onClick={() => onUpdate({ ...noted, resolved: true })}
                   >
                     Resolve
                   </Button>
                 </>
               )}
-              {/* PRD 022 Req 8: "add note" opens note editing on a note-less
-                  highlight; submitting turns it into a noted one (Req 6 keeps
-                  reply/resolve withheld until then). */}
-              {!c.resolved && !noted && editing !== 'root' && (
+              {/* PRD 023 §1 (issue #283): "add note" on a highlight card opens
+                  note editing; submitting authors a comment record in the
+                  highlight's place (saveEdit above). */}
+              {!noted && editing !== 'root' && (
                 <Button
                   variant="quiet"
                   size="sm"
@@ -293,17 +306,17 @@ export function CommentCard({
                   Add note
                 </Button>
               )}
-              {c.resolved && (
+              {noted && noted.resolved && (
                 <Button
                   variant="quiet"
                   size="sm"
                   data-testid="reopen-btn"
-                  onClick={() => onUpdate({ ...c, resolved: false })}
+                  onClick={() => onUpdate({ ...noted, resolved: false })}
                 >
                   Reopen
                 </Button>
               )}
-              {/* PRD 022 Req 8: every card offers remove; only a noted one has
+              {/* PRD 022 Req 8: every card offers remove; only a comment has
                   a thread to lose, so only it keeps the delete confirmation. */}
               <Button
                 variant="quiet"

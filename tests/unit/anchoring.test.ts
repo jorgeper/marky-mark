@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { createAnchor, hasNote, mapHighlightsToSource, reanchor, type Anchor } from '../../src/lib/anchoring';
+import { createAnchor, isComment, mapHighlightsToSource, reanchor, type Anchor, type CommentData } from '../../src/lib/anchoring';
 
 const DOC = [
   'Markimark is a lightweight markdown viewer.',
@@ -73,20 +73,37 @@ describe('re-anchoring cascade', () => {
   });
 });
 
-describe('PRD 022 Req 9 standing-card predicate (issue #232)', () => {
+/** A trivial anchor for predicate tests (offsets do not matter there). */
+function anchorAt(exact: string): Anchor {
+  return { exact, prefix: '', suffix: '', start: 0, end: exact.length };
+}
+
+/** PRD 023 §1 (issue #283): a highlight record for the mapping tests. */
+function hl(id: string, color: 'yellow' | 'green' | 'orange' | 'pink', anchor: Anchor): CommentData {
+  return { kind: 'highlight', id, author: 'a', createdAt: '2026-09-04T00:00:00.000Z', color, anchor };
+}
+
+/** A comment record: maps too, with no color (the fixed comment tint). */
+function note(id: string, anchor: Anchor): CommentData {
+  return { kind: 'comment', id, author: 'a', createdAt: '2026-09-04T00:00:00.000Z', body: 'n', resolved: false, thread: [], anchor };
+}
+
+describe('PRD 023 §1 standing-card predicate, re-expressed on kind (issue #283)', () => {
   const reply = { id: 'r1', author: 'a', createdAt: '2026-09-04T00:00:00.000Z', body: 'a reply' };
+  const base = { id: 'x', author: 'a', createdAt: '2026-09-04T00:00:00.000Z', anchor: anchorAt('x') };
 
-  test('U1103: an empty or whitespace-only body with no thread is note-less', () => {
-    expect(hasNote({ body: '', thread: [] })).toBe(false);
-    expect(hasNote({ body: '  \n\t', thread: [] })).toBe(false);
+  test('U1103: a highlight record is never a comment — no standing card, whatever else it carries', () => {
+    expect(isComment({ ...base, kind: 'highlight', color: 'orange' })).toBe(false);
+    expect(isComment({ ...base, kind: 'highlight', color: 'pink' })).toBe(false);
   });
 
-  test('U1104: a root note makes the entry noted', () => {
-    expect(hasNote({ body: 'a note', thread: [] })).toBe(true);
+  test('U1104: a comment record is a comment — the discriminant decides, not the body', () => {
+    expect(isComment({ ...base, kind: 'comment', body: 'a note', resolved: false, thread: [] })).toBe(true);
   });
 
-  test('U1105: a reply alone makes the entry noted — legacy shapes keep their standing card', () => {
-    expect(hasNote({ body: '', thread: [reply] })).toBe(true);
+  test('U1105: an empty-bodied comment record still stands — kind decides where 1.1.0 sniffed body/thread', () => {
+    expect(isComment({ ...base, kind: 'comment', body: '', resolved: false, thread: [reply] })).toBe(true);
+    expect(isComment({ ...base, kind: 'comment', body: '', resolved: false, thread: [] })).toBe(true);
   });
 });
 
@@ -102,7 +119,7 @@ describe('PRD 022 Req 12 editor-pane highlight mapping (issue #234)', () => {
   test('U1107: a unique exact-quote match paints with correct source offsets, id and color passed through', () => {
     const source = '# Title\n\nSome **bold** prose with a lone needle phrase in it.\n';
     const ranges = mapHighlightsToSource(
-      [{ id: 'c1', color: 'green', anchor: anchorFor('lone needle phrase') }],
+      [hl('c1', 'green', anchorFor('lone needle phrase'))],
       source
     );
     expect(ranges).toHaveLength(1);
@@ -115,7 +132,7 @@ describe('PRD 022 Req 12 editor-pane highlight mapping (issue #234)', () => {
     // Rendered "bold prose" spans a ** marker in source, so the exact quote
     // is absent there; the entry simply does not map.
     const source = 'Some **bold** prose here.\n';
-    const ranges = mapHighlightsToSource([{ id: 'c1', anchor: anchorFor('bold prose') }], source);
+    const ranges = mapHighlightsToSource([note('c1', anchorFor('bold prose'))], source);
     expect(ranges).toEqual([]);
   });
 
@@ -123,7 +140,7 @@ describe('PRD 022 Req 12 editor-pane highlight mapping (issue #234)', () => {
     const line = 'identical sentence with the twin phrase inside it and identical padding after.';
     const source = `${line}\n\n${line}\n`;
     const ranges = mapHighlightsToSource(
-      [{ id: 'c1', anchor: anchorFor('twin phrase', 'sentence with the ', ' inside it and ') }],
+      [note('c1', anchorFor('twin phrase', 'sentence with the ', ' inside it and '))],
       source
     );
     expect(ranges).toEqual([]);
@@ -132,7 +149,7 @@ describe('PRD 022 Req 12 editor-pane highlight mapping (issue #234)', () => {
   test('U1110: stored context disambiguates multiple occurrences when it yields one confident winner', () => {
     const source = 'alpha lead-in the target phrase ends alpha.\n\nbeta lead-in the target phrase ends beta.\n';
     const ranges = mapHighlightsToSource(
-      [{ id: 'c1', anchor: anchorFor('the target phrase', 'beta lead-in ', ' ends beta.') }],
+      [note('c1', anchorFor('the target phrase', 'beta lead-in ', ' ends beta.'))],
       source
     );
     expect(ranges).toHaveLength(1);
@@ -141,13 +158,13 @@ describe('PRD 022 Req 12 editor-pane highlight mapping (issue #234)', () => {
     expect(source.slice(ranges[0].from, ranges[0].to)).toBe('the target phrase');
   });
 
-  test('U1111: an empty exact skips, and mixed entries keep only the confident ones (colorless stays colorless)', () => {
+  test('U1111: an empty exact skips, and mixed entries keep only the confident ones (a comment record maps colorless)', () => {
     const source = 'One clear phrase here. Duplicate bit. Duplicate bit.\n';
     const ranges = mapHighlightsToSource(
       [
-        { id: 'empty', anchor: anchorFor('') },
-        { id: 'ok', anchor: anchorFor('clear phrase') },
-        { id: 'dup', anchor: anchorFor('Duplicate bit') },
+        note('empty', anchorFor('')),
+        note('ok', anchorFor('clear phrase')),
+        note('dup', anchorFor('Duplicate bit')),
       ],
       source
     );

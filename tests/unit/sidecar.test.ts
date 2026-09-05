@@ -10,6 +10,7 @@ describe('sidecar round-trip and md-with-comments interop', () => {
   test('U8: serialize → parse yields identical comments, and a real md-with-comments sidecar parses without loss', () => {
     const comments: CommentData[] = [
       {
+        kind: 'comment',
         id: '4c5a2b6e-1111-4222-8333-abcdefabcdef',
         author: 'Jorge',
         createdAt: '2026-07-07T10:00:00.000Z',
@@ -21,6 +22,7 @@ describe('sidecar round-trip and md-with-comments interop', () => {
         anchor: { exact: 'the selected text', prefix: 'chars before ', suffix: ' chars after', start: 1042, end: 1059 },
       },
       {
+        kind: 'comment',
         id: '9d8c7b6a-5555-4444-8333-222211110000',
         author: 'Reviewer',
         createdAt: '2026-07-07T11:00:00.000Z',
@@ -38,9 +40,10 @@ describe('sidecar round-trip and md-with-comments interop', () => {
     // Path convention matches md-with-comments: foo.md → foo.md.comments.json
     expect(sidecarPathFor('/docs/foo.md')).toBe('/docs/foo.md.comments.json');
 
-    // A real sidecar written by the md-with-comments app parses without loss:
-    // every comment survives with schema fields intact, and re-serializing
-    // preserves the parsed content exactly.
+    // The interop fixture — regenerated as a 2.0.0 store (issue #283; the
+    // legacy-tolerance cases live in comment-format.test.ts) — parses
+    // without loss: every record survives with schema fields intact, and
+    // re-serializing preserves the parsed content exactly.
     const raw = readFileSync(interopPath, 'utf8');
     const rawComments = (JSON.parse(raw) as { comments: unknown[] }).comments;
     const parsed = parseSidecar(raw);
@@ -48,29 +51,30 @@ describe('sidecar round-trip and md-with-comments interop', () => {
     expect(parsed.length).toBeGreaterThan(0);
     for (const c of parsed) {
       expect(typeof c.id).toBe('string');
-      expect(typeof c.body).toBe('string');
+      if (c.kind === 'comment') expect(typeof c.body).toBe('string');
+      else expect(typeof c.color).toBe('string');
       expect(typeof c.anchor.exact).toBe('string');
       expect(c.anchor.end).toBeGreaterThanOrEqual(c.anchor.start);
     }
     expect(parseSidecar(serializeSidecar(parsed))).toEqual(parsed);
     // Field-level spot check against the raw JSON (no silent renames).
     const first = rawComments[0] as Record<string, unknown>;
-    expect(parsed[0].id).toBe(first.id);
-    expect(parsed[0].body).toBe(first.body);
-    expect(parsed[0].anchor.exact).toBe((first.anchor as Record<string, unknown>).exact);
+    const firstParsed = parsed[0];
+    expect(firstParsed.id).toBe(first.id);
+    if (firstParsed.kind !== 'comment') throw new Error('fixture leads with its comment record');
+    expect(firstParsed.body).toBe(first.body);
+    expect(firstParsed.anchor.exact).toBe((first.anchor as Record<string, unknown>).exact);
   });
 });
 
-describe('PRD 022 Req 7: color in the sidecar container (issue #230)', () => {
-  test('U1092: a colored highlight round-trips byte-stably through the sidecar and stamps 1.1.0', () => {
+describe('PRD 023 §1: highlight records in the sidecar container (issue #283)', () => {
+  test('U1092: a highlight record round-trips byte-stably through the sidecar and stamps 2.0.0', () => {
     const highlight: CommentData = {
+      kind: 'highlight',
       id: 'h-1111',
       author: 'Jorge',
       createdAt: '2026-09-04T09:00:00.000Z',
-      body: '',
-      resolved: false,
-      color: 'blue',
-      thread: [],
+      color: 'orange',
       anchor: { exact: 'marked text', prefix: 'the ', suffix: ' here', start: 4, end: 15 },
     };
     const sidecar = serializeSidecar([highlight]);
@@ -78,9 +82,10 @@ describe('PRD 022 Req 7: color in the sidecar container (issue #230)', () => {
     expect(serializeSidecar([highlight])).toBe(sidecar);
     expect(serializeSidecar(parseSidecar(sidecar))).toBe(sidecar);
     expect(parseSidecar(sidecar)).toEqual([highlight]);
-    expect(parseSidecar(sidecar)[0].color).toBe('blue');
-    // The container stamps the version the color field requires.
-    expect((JSON.parse(sidecar) as { version: string }).version).toBe('1.1.0');
+    const parsed = parseSidecar(sidecar)[0];
+    expect(parsed.kind === 'highlight' && parsed.color).toBe('orange');
+    // The container stamps the 2.0.0 baseline the kind split requires.
+    expect((JSON.parse(sidecar) as { version: string }).version).toBe('2.0.0');
   });
 });
 

@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'vitest';
 import { attachEmbedded, mergeComments, serializeTrailer, splitEmbedded } from '../../src/lib/embedded';
-import type { CommentData } from '../../src/lib/anchoring';
+import type { CommentData, CommentRecord } from '../../src/lib/anchoring';
 
-function makeComment(id: string, body: string): CommentData {
+function makeComment(id: string, body: string): CommentRecord {
   return {
+    kind: 'comment',
     id,
     author: 'Jorge',
     createdAt: '2026-07-07T12:00:00.000Z',
@@ -39,7 +40,8 @@ describe('embedded comment trailer', () => {
     const split = splitEmbedded(doc);
     expect(split.hadTrailer).toBe(true);
     expect(split.comments).toEqual(comments); // escape restored by JSON.parse
-    expect(split.comments[1].body).toBe('tricky --> body --> twice');
+    const second = split.comments[1];
+    expect(second.kind === 'comment' && second.body).toBe('tricky --> body --> twice');
 
     // Zero comments → no trailer at all.
     expect(serializeTrailer([])).toBe('');
@@ -69,18 +71,27 @@ describe('embedded comment trailer', () => {
     expect(attachEmbedded(withTrailer, [])).toBe(content);
   });
 
-  test('U1093: a colored highlight round-trips byte-stably through the trailer and stamps 1.1.0 (PRD 022 Req 7 — issue #230)', () => {
-    const highlight: CommentData = { ...makeComment('h-1', 'a noted highlight'), color: 'yellow' };
+  test('U1093: a highlight record round-trips byte-stably through the trailer and stamps 2.0.0 (issue #283)', () => {
+    const base = makeComment('h-1', '');
+    const highlight: CommentData = {
+      kind: 'highlight',
+      id: base.id,
+      author: base.author,
+      createdAt: base.createdAt,
+      color: 'yellow',
+      anchor: base.anchor,
+    };
     const content = '# Doc\n\ntext\n';
     const attached = attachEmbedded(content, [highlight]);
     // Byte-stable: same bytes twice, and a split → attach reproduces them.
     expect(attachEmbedded(content, [highlight])).toBe(attached);
     const split = splitEmbedded(attached);
     expect(split.comments).toEqual([highlight]);
-    expect(split.comments[0].color).toBe('yellow');
+    const first = split.comments[0];
+    expect(first.kind === 'highlight' && first.color).toBe('yellow');
     expect(attachEmbedded(content, split.comments)).toBe(attached);
-    // The trailer stamps the version the color field requires.
-    expect(attached).toContain('"version": "1.1.0"');
+    // The trailer stamps the 2.0.0 baseline the kind split requires.
+    expect(attached).toContain('"version": "2.0.0"');
     expect(serializeTrailer([highlight])).toBe(serializeTrailer([highlight]));
   });
 
@@ -92,8 +103,9 @@ describe('embedded comment trailer', () => {
 
     const merged = mergeComments([trailerVersion, trailerOnly], [sidecarVersion, sidecarOnly]);
     expect(merged).toHaveLength(3);
-    expect(merged.find((c) => c.id === 'shared')?.body).toBe('trailer wins');
-    expect(merged.find((c) => c.id === 'shared')?.resolved).toBe(true);
+    const shared = merged.find((c) => c.id === 'shared');
+    expect(shared?.kind === 'comment' && shared.body).toBe('trailer wins');
+    expect(shared?.kind === 'comment' && shared.resolved).toBe(true);
     expect(merged.map((c) => c.id)).toEqual(['shared', 't-only', 's-only']);
 
     // Migration sidecar → embedded: attach trailer to plain content.

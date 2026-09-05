@@ -687,11 +687,12 @@
 
 /* PRD 022 Req 12 (issue #234): editor-pane comment highlights — the same
    strengths the preview's mark.hl derives (42% of the marker hue; the
-   legacy tint pair for colorless entries), over the host's marker tokens
-   with the tokens' own documented defaults as fallbacks. Display-only:
-   no cursor affordance — clicking is ordinary caret placement. */
+   fixed comment tint for comment records, issue #283), over the host's
+   tokens with the tokens' own documented defaults as fallbacks.
+   Display-only: no cursor affordance — clicking is ordinary caret
+   placement. */
 .editor-wrap .cm-content .mm-hl {
-  background: var(--mm-comment-tint, rgba(255, 214, 102, 0.42));
+  background: var(--mm-comment-tint, rgba(121, 192, 255, 0.45));
   border-radius: 2px;
 }
 .editor-wrap .cm-content .mm-hl[data-color='yellow'] {
@@ -700,8 +701,8 @@
 .editor-wrap .cm-content .mm-hl[data-color='green'] {
   background: color-mix(in srgb, var(--mm-marker-green, #7ee787) 42%, transparent);
 }
-.editor-wrap .cm-content .mm-hl[data-color='blue'] {
-  background: color-mix(in srgb, var(--mm-marker-blue, #79c0ff) 42%, transparent);
+.editor-wrap .cm-content .mm-hl[data-color='orange'] {
+  background: color-mix(in srgb, var(--mm-marker-orange, #ffab70) 42%, transparent);
 }
 .editor-wrap .cm-content .mm-hl[data-color='pink'] {
   background: color-mix(in srgb, var(--mm-marker-pink, #ffa1c9) 42%, transparent);

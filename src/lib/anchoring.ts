@@ -60,51 +60,77 @@ export interface ThreadReply {
 }
 
 /**
- * PRD 022 Req 5: the marker colors the comment format admits — exactly these
- * four literals, nothing else. The wire-format's own list lives in
- * commentFormat.ts (COMMENT_COLORS), beside the rest of its vocabulary.
+ * PRD 023 §3 (issue #283): the marker colors the comment format admits —
+ * exactly these four literals, nothing else. Format 2.0.0 swaps 1.1.0's
+ * `blue` for `orange`: blue is the fixed comment tint now, never a highlight
+ * hue. The wire-format's own list lives in commentFormat.ts (COMMENT_COLORS),
+ * beside the rest of its vocabulary.
  */
-export type CommentColor = 'yellow' | 'green' | 'blue' | 'pink';
+export type CommentColor = 'yellow' | 'green' | 'orange' | 'pink';
 
 /**
  * PRD 022 Reqs 1+4: the same vocabulary as a runtime list, in the popup's
  * display order, for callers outside the format seam (the swatch popup, the
  * lastMarkerColor setting) — only the two stores may import commentFormat.
  */
-export const MARKER_COLORS: readonly CommentColor[] = ['yellow', 'green', 'blue', 'pink'];
+export const MARKER_COLORS: readonly CommentColor[] = ['yellow', 'green', 'orange', 'pink'];
 
 /**
- * PRD 022 Req 9 (issue #232): the standing-card predicate. An entry is a
- * *noted* highlight once it carries a root note or any reply; a note-less
- * one (empty body, no thread — Req 6's shape) gets no standing panel card,
- * no navigator stop, and no reply/resolve until a note exists.
+ * PRD 023 §1 (issue #283): the standing-card predicate, re-expressed against
+ * the `kind` discriminant — a comment record has a standing panel card, a
+ * navigator stop, and reply/resolve; a highlight record has none of those.
+ * (It replaces PRD 022's `hasNote` empty-body test: under the kind split, a
+ * note IS a comment record.) A type guard, so callers narrow to the branch
+ * that actually carries `body`/`thread`/`resolved`.
  */
-export function hasNote(c: Pick<CommentData, 'body' | 'thread'>): boolean {
-  return c.body.trim() !== '' || c.thread.length > 0;
+export function isComment(c: CommentData): c is CommentRecord {
+  return c.kind === 'comment';
 }
 
-export interface CommentData {
+/** The fields both record kinds share (PRD 023 §1, issue #283). */
+interface AnnotationBase {
   id: string;
   author: string;
   createdAt: string;
-  body: string;
-  resolved: boolean;
-  /**
-   * PRD 022 Req 5: the highlight tint, format 1.1.0's one optional addition.
-   * Absent means the legacy default tint — never a fifth color value.
-   */
-  color?: CommentColor;
-  thread: ThreadReply[];
   anchor: Anchor;
   extra?: RetainedKeys;
   /**
-   * The comment-format version this comment's retained keys came from, so a
+   * The comment-format version this record's retained keys came from, so a
    * save can stamp the lowest version that still represents them (PRD Req 21,
-   * 23, 24). Set by the seam on read, only for comments that retained
+   * 23, 24). Set by the seam on read, only for records that retained
    * something; in-memory only, like `extra` itself.
    */
   extraVersion?: string;
 }
+
+/**
+ * PRD 023 §1 (issue #283): a comment — a note with a thread and a resolve
+ * lifecycle, rendered in the one fixed comment tint. No `color`: reading one
+ * off a comment is a type error, not a runtime `undefined`.
+ */
+export interface CommentRecord extends AnnotationBase {
+  kind: 'comment';
+  body: string;
+  resolved: boolean;
+  thread: ThreadReply[];
+}
+
+/**
+ * PRD 023 §1 (issue #283): a highlight — a painted range in one of the four
+ * marker colors, always colored, never resolved, never threaded. No `body`:
+ * reading one off a highlight is a type error.
+ */
+export interface HighlightRecord extends AnnotationBase {
+  kind: 'highlight';
+  color: CommentColor;
+}
+
+/**
+ * One stored annotation: the PRD 023 §1 discriminated union on `kind`
+ * (issue #283). The name survives the split — every store, seam and caller
+ * already traffics in `CommentData` sets.
+ */
+export type CommentData = CommentRecord | HighlightRecord;
 
 export function createAnchor(text: string, start: number, end: number): Anchor {
   if (start < 0 || end > text.length || end < start) {
@@ -194,7 +220,7 @@ function fuzzyMatch(anchor: Anchor, text: string): ReanchorMatch | null {
  * PRD 022 Req 12 (issue #234): one editor-pane highlight — the entry's id
  * and color riding a SOURCE-offset range the exact quote confidently maps
  * to. The editor paints these as background decorations; color absent means
- * the legacy tint, like the preview's mark.
+ * the fixed comment tint (issue #283), like the preview's mark.
  */
 export interface SourceHighlight {
   id: string;
@@ -213,9 +239,13 @@ export interface SourceHighlight {
  * strictly best-scoring occurrence — a tie, or no context agreement at
  * all, skips. Skipping is the contract: a highlight the source cannot
  * place confidently does not paint, and is never guessed at.
+ *
+ * PRD 023 §1 (issue #283): both record kinds paint — a highlight rides its
+ * required color; a comment record carries none, which the editor renders
+ * as the fixed comment tint (the role `color: undefined` always had).
  */
 export function mapHighlightsToSource(
-  entries: readonly Pick<CommentData, 'id' | 'anchor' | 'color'>[],
+  entries: readonly CommentData[],
   source: string
 ): SourceHighlight[] {
   const out: SourceHighlight[] = [];
@@ -241,7 +271,7 @@ export function mapHighlightsToSource(
       at = tied ? null : best;
     }
     if (at === null) continue;
-    out.push({ id: e.id, from: at, to: at + exact.length, ...(e.color ? { color: e.color } : {}) });
+    out.push({ id: e.id, from: at, to: at + exact.length, ...(e.kind === 'highlight' ? { color: e.color } : {}) });
   }
   return out;
 }

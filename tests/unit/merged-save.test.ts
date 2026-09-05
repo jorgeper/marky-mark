@@ -7,6 +7,7 @@ import { createAnchor, type CommentData } from '../../src/lib/anchoring';
 // the caret and the notice — decided by a pure function, proven without a DOM.
 
 const comment = (id: string, body: string): CommentData => ({
+  kind: 'comment',
   id,
   author: 'Ada',
   createdAt: '2026-01-01T00:00:00.000Z',

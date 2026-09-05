@@ -1,6 +1,6 @@
 # The Marky Mark comment format
 
-**Current format version: `1.1.0`**
+**Current format version: `2.0.0`**
 
 This is the published specification of the format Marky Mark uses to store
 comments alongside a markdown document. It is written for someone building a
@@ -18,7 +18,7 @@ maintainers; no rule below depends on reading them.
 
 - [The version string](#the-version-string)
 - [The two containers](#the-two-containers)
-- [The payload schema (1.1.0)](#the-payload-schema-110)
+- [The payload schema (2.0.0)](#the-payload-schema-200)
 - [A complete worked example](#a-complete-worked-example)
 - [MAJOR / MINOR / PATCH](#major--minor--patch)
 - [Reader rules](#reader-rules)
@@ -32,7 +32,7 @@ A comment store declares its format version in a single key, `version`, at the
 top level of the payload:
 
 ```json
-{ "version": "1.0.0", "comments": [] }
+{ "version": "2.0.0", "comments": [] }
 ```
 
 A valid version is `MAJOR.MINOR.PATCH`, where each component is a run of ASCII
@@ -50,7 +50,7 @@ simply an unknown key, retained like any other — see
 ### The format version is not the application version
 
 **The comment-format version is independent of the Marky Mark application
-version, and the two move separately.** Format `1.0.0` has nothing to do with
+version, and the two move separately.** Format `2.0.0` has nothing to do with
 app version `0.4.0-alpha.4` — they are different numbers describing different
 things, and neither one can be derived from the other. The app may ship a
 dozen releases without touching the format, and one day may bump the format
@@ -61,7 +61,7 @@ the `version` key.
 ## The two containers
 
 The same payload — the identical JSON object described in
-[The payload schema](#the-payload-schema-110), with the same `version` key in
+[The payload schema](#the-payload-schema-200), with the same `version` key in
 the same place — is stored in one of two containers. A document may carry
 either, or both.
 
@@ -164,71 +164,103 @@ entries win** a collision; the merged order is the trailer's comments first,
 then the sidecar-only ones. The two containers are judged independently for
 readability (see [Reader rules](#reader-rules)).
 
-## The payload schema (1.1.0)
+## The payload schema (2.0.0)
 
 The payload is a JSON object. Every field below is part of the wire format at
-version `1.1.0`.
+version `2.0.0`.
 
 Each table carries a **Min version** column: the lowest format version in
-which that field exists. Every field of the original shape requires `1.0.0`;
-the one addition since — the comment's optional `color` — requires `1.1.0`.
-**Every future field addition must
-record its own minimum version in the same way.** That column is not
-decoration: it is what makes the writer's "stamp the lowest version that can
-represent this data" rule (see [Writer rules](#writer-rules)) computable as
-the format grows. Without a per-field minimum, a writer cannot tell which
-version its data actually needs.
+which that field exists. Every `2.0.0` field requires `2.0.0` — the kind
+split landed as one MAJOR break, so no field of this shape predates it.
+**Every future field addition must record its own minimum version in the
+same way.** That column is not decoration: it is what makes the writer's
+"stamp the lowest version that can represent this data" rule (see
+[Writer rules](#writer-rules)) computable as the format grows. Without a
+per-field minimum, a writer cannot tell which version its data actually
+needs.
 
 ### The payload object
 
-| Key        | Type              | Required | Min version | Meaning                                                    |
-| ---------- | ----------------- | -------- | ----------- | ---------------------------------------------------------- |
-| `version`  | string            | yes      | 1.0.0       | The format version this store is written at (see above).    |
-| `comments` | array of comments | yes      | 1.0.0       | The document's comments. May be empty in a payload, but an empty comment set is normally stored as *no container at all*. |
+| Key        | Type             | Required | Min version | Meaning                                                    |
+| ---------- | ---------------- | -------- | ----------- | ---------------------------------------------------------- |
+| `version`  | string           | yes      | 2.0.0       | The format version this store is written at (see above).    |
+| `comments` | array of records | yes      | 2.0.0       | The document's annotation records. May be empty in a payload, but an empty record set is normally stored as *no container at all*. |
 
-### The comment object
+### The two record kinds
+
+Every element of `comments` is a **record**, and every record carries a
+required `kind` key holding exactly `"comment"` or `"highlight"`. The two
+kinds share their identity fields (`kind`, `id`, `author`, `createdAt`,
+`anchor`) and split the rest: a comment carries `body`, `thread` and
+`resolved` and **no** `color`; a highlight carries `color` and **none** of
+`body`, `thread` or `resolved`. A record whose `kind` is missing, not a
+string, or not one of the two literals is never guessed at — the reader
+skips it whole (see the
+[entry-level schema check](#7-entry-level-schema-check)).
+
+**Foreign known keys.** A key that belongs to the *other* kind — `color` on
+a comment record; `body`, `thread` or `resolved` on a highlight record — is
+a **known key with no meaning on that kind**, not an unknown key. A reader
+ignores it entirely: it is not interpreted, not retained, and not re-emitted
+on write. This is the same stance the format takes on a wrong-typed known
+key (a known key is a schema question, never an unknown-key one), and it is
+deliberate: without it, `body` on a highlight would fall into the
+unknown-key bag and silently ride along forever. A writer never emits a
+foreign key.
+
+### The comment record
 
 | Key         | Type             | Required | Min version | Meaning                                                     |
 | ----------- | ---------------- | -------- | ----------- | ----------------------------------------------------------- |
-| `id`        | string           | yes      | 1.0.0       | Unique within the document; how a comment is identified when two containers merge. Opaque — no format is defined or may be assumed. |
-| `author`    | string           | yes      | 1.0.0       | Display name of the comment's author. Free text.             |
-| `createdAt` | string           | yes      | 1.0.0       | ISO 8601 timestamp, UTC (`2026-05-14T09:31:02.418Z`).        |
-| `body`      | string           | yes      | 1.0.0       | The comment text. Markdown source; may contain any character, including `-->`. |
-| `resolved`  | boolean          | yes      | 1.0.0       | Whether the thread is resolved. A reader treats *only* the literal `true` as resolved; anything else, including a missing key, is `false`. A writer always emits it. |
-| `color`     | string           | no       | 1.1.0       | Highlight tint: exactly one of `"yellow"`, `"green"`, `"blue"`, `"pink"`. Absent means the legacy default tint. Any other value is a known key with an invalid value, not an unknown key: a reader treats it as absent (and does not retain it), and a writer emits the key only when a valid color is present. |
-| `thread`    | array of replies | yes      | 1.0.0       | Replies, oldest first. Empty array when there are none — the key is still written. |
-| `anchor`    | anchor object    | yes      | 1.0.0       | Where in the document the comment attaches.                  |
+| `kind`      | string           | yes      | 2.0.0       | The literal `"comment"`.                                     |
+| `id`        | string           | yes      | 2.0.0       | Unique within the document; how a record is identified when two containers merge. Opaque — no format is defined or may be assumed. |
+| `author`    | string           | yes      | 2.0.0       | Display name of the comment's author. Free text.             |
+| `createdAt` | string           | yes      | 2.0.0       | ISO 8601 timestamp, UTC (`2026-05-14T09:31:02.418Z`).        |
+| `body`      | string           | yes      | 2.0.0       | The comment text. Markdown source; may contain any character, including `-->`. |
+| `resolved`  | boolean          | yes      | 2.0.0       | Whether the thread is resolved. A reader treats *only* the literal `true` as resolved; anything else, including a missing key, is `false`. A writer always emits it. |
+| `thread`    | array of replies | yes      | 2.0.0       | Replies, oldest first. Empty array when there are none — the key is still written. |
+| `anchor`    | anchor object    | yes      | 2.0.0       | Where in the document the comment attaches.                  |
 
-**A note-less highlight is a valid comment.** An entry may carry an empty
-`body` and an empty `thread`: that is how a highlight without a note is
-stored. No new field is involved, so storing one requires only `1.0.0` — and
-the accepted degradation for a `1.0.0` reader follows from the rules already
-stated: it parses the entry normally (every required field is present), may
-show it as an empty comment in its default tint (`color`, if present, is just
-an unknown key to it), and preserves it — retained `color` included — through
-a read → write round-trip.
+A comment has no `color`: comments render in one fixed tint, not a marker
+hue. `color` on a comment record is a foreign known key (see above).
+
+### The highlight record
+
+| Key         | Type          | Required | Min version | Meaning                                                        |
+| ----------- | ------------- | -------- | ----------- | -------------------------------------------------------------- |
+| `kind`      | string        | yes      | 2.0.0       | The literal `"highlight"`.                                      |
+| `id`        | string        | yes      | 2.0.0       | Unique within the document, exactly as on a comment record.     |
+| `author`    | string        | yes      | 2.0.0       | Display name of the highlight's author. Free text.              |
+| `createdAt` | string        | yes      | 2.0.0       | ISO 8601 timestamp, UTC.                                        |
+| `color`     | string        | yes      | 2.0.0       | Marker tint: exactly one of `"yellow"`, `"green"`, `"orange"`, `"pink"`. **Required** — a highlight IS its color. A record whose `color` is missing or holds any other value (`"blue"` included) fails the schema check and is skipped whole; it is never coerced to a default tint. |
+| `anchor`    | anchor object | yes      | 2.0.0       | Where in the document the highlight paints.                     |
+
+A highlight has no `body`, no `thread` and no `resolved`: it is a painted
+range, not a conversation. Each of those on a highlight record is a foreign
+known key (see above).
 
 ### The reply object
 
 | Key         | Type   | Required | Min version | Meaning                                       |
 | ----------- | ------ | -------- | ----------- | --------------------------------------------- |
-| `id`        | string | yes      | 1.0.0       | Unique within the thread.                     |
-| `author`    | string | yes      | 1.0.0       | Display name of the reply's author.           |
-| `createdAt` | string | yes      | 1.0.0       | ISO 8601 timestamp, UTC.                      |
-| `body`      | string | yes      | 1.0.0       | The reply text (markdown source).             |
+| `id`        | string | yes      | 2.0.0       | Unique within the thread.                     |
+| `author`    | string | yes      | 2.0.0       | Display name of the reply's author.           |
+| `createdAt` | string | yes      | 2.0.0       | ISO 8601 timestamp, UTC.                      |
+| `body`      | string | yes      | 2.0.0       | The reply text (markdown source).             |
 
-A reply has no `resolved`, no `thread` and no `anchor`: threads are one level
-deep and a reply inherits its comment's anchor.
+A reply has no `kind`, no `resolved`, no `thread` and no `anchor`: replies
+exist only inside a comment record's `thread`, threads are one level deep,
+and a reply inherits its comment's anchor.
 
 ### The anchor object
 
 | Key      | Type   | Required | Min version | Meaning                                                        |
 | -------- | ------ | -------- | ----------- | -------------------------------------------------------------- |
-| `exact`  | string | yes      | 1.0.0       | The exact text the comment was made on.                        |
-| `prefix` | string | yes      | 1.0.0       | Up to 32 characters of context immediately **before** `exact`. |
-| `suffix` | string | yes      | 1.0.0       | Up to 32 characters of context immediately **after** `exact`.  |
-| `start`  | number | yes      | 1.0.0       | Character offset of the start of `exact`.                      |
-| `end`    | number | yes      | 1.0.0       | Character offset just past the end of `exact`.                 |
+| `exact`  | string | yes      | 2.0.0       | The exact text the record was made on.                         |
+| `prefix` | string | yes      | 2.0.0       | Up to 32 characters of context immediately **before** `exact`. |
+| `suffix` | string | yes      | 2.0.0       | Up to 32 characters of context immediately **after** `exact`.  |
+| `start`  | number | yes      | 2.0.0       | Character offset of the start of `exact`.                      |
+| `end`    | number | yes      | 2.0.0       | Character offset just past the end of `exact`.                 |
 
 **The coordinate space is stated, not assumed.** `start` and `end` are
 character offsets into the document's **rendered plain text** — the text
@@ -249,18 +281,19 @@ them.
 
 ### Unknown keys, `extra` and `extraVersion`
 
-Keys not listed above are **unknown keys** and are governed by the
-[reader](#reader-rules) and [writer](#writer-rules) rules: retained per object,
-re-emitted at the level they were read from.
+Keys not listed above — and not known to the *other* record kind (see
+[Foreign known keys](#the-two-record-kinds)) — are **unknown keys** and are
+governed by the [reader](#reader-rules) and [writer](#writer-rules) rules:
+retained per object, re-emitted at the level they were read from.
 
 Marky Mark holds them in memory on fields named `extra` (the retained keys)
 and `extraVersion` (the version they came from). **Neither is part of the wire
 format.** No `extra` object and no `extraVersion` key is ever written to a
 container, and a reader must not expect one. A retained key is re-emitted as a
 plain key of the object it was read from — beside `id` and `body` on a
-comment, beside `start` and `end` on an anchor — never nested inside anything.
-(If a store *does* contain a key literally named `extra`, it is just an
-unknown key like any other, and is retained and re-emitted as one.)
+comment record, beside `start` and `end` on an anchor — never nested inside
+anything. (If a store *does* contain a key literally named `extra`, it is just
+an unknown key like any other, and is retained and re-emitted as one.)
 
 ## A complete worked example
 
@@ -272,22 +305,35 @@ Release checklist
 The installer must be signed before upload.
 ```
 
-with one yellow highlight on the word `signed` (offsets 41–47) whose note
-carries one reply, and where the reply's body happens to contain `-->`. The
-payload (stamped `1.1.0` because an entry carries `color` — see
-[Writer rules](#writer-rules)):
+with one orange highlight on the word `installer` (offsets 23–32) and one
+comment on the word `signed` (offsets 41–47) whose note carries one reply,
+and where the reply's body happens to contain `-->`. The payload:
 
 ```json
 {
-  "version": "1.1.0",
+  "version": "2.0.0",
   "comments": [
     {
+      "kind": "highlight",
+      "id": "h-27b1",
+      "author": "Dana",
+      "createdAt": "2026-05-14T09:29:44.102Z",
+      "color": "orange",
+      "anchor": {
+        "exact": "installer",
+        "prefix": "Release checklist\n\nThe ",
+        "suffix": " must be signed before upload.\n",
+        "start": 23,
+        "end": 32
+      }
+    },
+    {
+      "kind": "comment",
       "id": "c-9f2a",
       "author": "Dana",
       "createdAt": "2026-05-14T09:31:02.418Z",
       "body": "Signed with which certificate?",
       "resolved": false,
-      "color": "yellow",
       "thread": [
         {
           "id": "r-41c8",
@@ -308,9 +354,9 @@ payload (stamped `1.1.0` because an entry carries `color` — see
 }
 ```
 
-Note the anchor: `prefix` is 32 characters (it starts mid-word, at `hecklist`,
-because 32 characters back from offset 41 lands there), while `suffix` is only
-16 — the document ends first.
+Note the second record's anchor: `prefix` is 32 characters (it starts
+mid-word, at `hecklist`, because 32 characters back from offset 41 lands
+there), while `suffix` is only 16 — the document ends first.
 
 As a sidecar, that is the whole of `notes.md.comments.json`, plus a trailing
 newline.
@@ -321,15 +367,29 @@ the reply body rendered as `-\u002d>`:
 ```text
 <!-- marky-mark-comments
 {
-  "version": "1.1.0",
+  "version": "2.0.0",
   "comments": [
     {
+      "kind": "highlight",
+      "id": "h-27b1",
+      "author": "Dana",
+      "createdAt": "2026-05-14T09:29:44.102Z",
+      "color": "orange",
+      "anchor": {
+        "exact": "installer",
+        "prefix": "Release checklist\n\nThe ",
+        "suffix": " must be signed before upload.\n",
+        "start": 23,
+        "end": 32
+      }
+    },
+    {
+      "kind": "comment",
       "id": "c-9f2a",
       "author": "Dana",
       "createdAt": "2026-05-14T09:31:02.418Z",
       "body": "Signed with which certificate?",
       "resolved": false,
-      "color": "yellow",
       "thread": [
         {
           "id": "r-41c8",
@@ -357,7 +417,7 @@ The version components mean this, and only this:
 
 | Component | Incremented when                                                                                                                                   | Effect on an older reader                                                              | Worked example                                                                                                                                                                     |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **MAJOR** | A change a reader of the previous major cannot correctly interpret: removing a field, renaming a field, changing a field's type, or changing the meaning of an existing field. | It must refuse the store outright — it would misread the data.                           | Redefining `anchor.start` / `anchor.end` to count offsets into the **markdown source** instead of the rendered plain text: same keys, same types, silently different meaning → `2.0.0`. Dropping `anchor.prefix` and `suffix` in favour of a new locator is the same story → `2.0.0`. |
+| **MAJOR** | A change a reader of the previous major cannot correctly interpret: removing a field, renaming a field, changing a field's type, or changing the meaning of an existing field. | It must refuse the store outright — it would misread the data.                           | Splitting every entry on a required `kind` and making `color` a highlight-only, required field (the change that became `2.0.0`): a `1.x` reader would misread the records, so the major moved. Redefining `anchor.start` / `anchor.end` to count offsets into the **markdown source** would be the same story → `3.0.0`. |
 | **MINOR** | A backwards-compatible addition: a new **optional** field on a comment, reply or anchor, whose absence a previous reader tolerates and whose presence it can safely ignore.     | It reads the store normally, ignores the new field, and preserves it on write.            | Adding an optional `color` to a comment (a highlight tint — the addition that became `1.1.0`), or an optional `mentions` array of names on a comment or reply: an older reader shows the comment exactly as before → `1.1.0`. |
 | **PATCH** | A change that alters no shape at all: a clarification of the semantics already implied, or a serialization fix that produces byte-different but schema-identical output.        | None — it parses the same object it always did.                                          | The `-->` escape in the embedded trailer (byte-different trailer, identical parsed payload), or fixing key order / indentation so output is byte-stable across saves → `1.0.1`.        |
 
@@ -402,43 +462,63 @@ Rules 2 and 3 are the only two legacy coercions that exist. They are a closed
 list, not a pattern: a reader must not invent a coercion for a version that
 never shipped.
 
-### 2. Decide whether the resolved version is supported
+### 2. Decide what the resolved version is
 
 Compare the resolved version against what the reader knows — for this build,
-supported `1.1.0`, within a MAJOR whose oldest shipped version is `1.0.0` —
-on **MAJOR, then MINOR. PATCH never decides.**
+supported `2.0.0`, within a MAJOR whose oldest shipped version is `2.0.0` —
+on **MAJOR, then MINOR. PATCH never decides.** There are three verdicts:
 
-A store is supported when **both** hold:
+A store is **supported** when **both** hold:
 
 - the resolved MAJOR **equals** the reader's supported MAJOR, and
 - the resolved MINOR is **greater than or equal to** the MINOR of the
-  *oldest version of that MAJOR that ever shipped* (`1.0.0` for this build,
+  *oldest version of that MAJOR that ever shipped* (`2.0.0` for this build,
   so a MINOR of `0` or more).
 
 A MINOR at or below the reader's own is readable because every minor of a
-major that shipped is the previous shape plus optional fields — a `1.1.0`
-reader interprets a `1.0.0` store as its own schema minus `color`. A
-*greater* MINOR is readable by the compatibility promise MINOR makes (rule 5
-below).
+major that shipped is the previous shape plus optional fields. A *greater*
+MINOR is readable by the compatibility promise MINOR makes (rule 6 below).
 
-Everything else is unsupported: a greater MAJOR (obviously — it may mean
-anything), a *lesser* MAJOR, and a MINOR below the oldest one that shipped at
-the right MAJOR.
+A store whose resolved MAJOR is **lesser** than the reader's is **legacy**:
+readable in the degenerate sense of rule 3 below — it yields zero records
+and is simply written over.
 
-That last pair surprises people, so it is worth being blunt: **it is not true
-that "anything below the supported version is readable."** A version outside
-the shipped range is readable only if the reader registers an explicit
-transformation for it, and the two coercions of rule 1 are the only
-transformations that exist — which is why the legacy encodings are read while
-a store that declared, say, `0.9.0` is not: nothing is registered for a version
-that never shipped. An uninterpretable version is a signal to be careful, not
-to guess.
+Everything else is **unsupported**: a greater MAJOR (obviously — it may mean
+anything), an uninterpretable version (rule 1's case 5), and a MINOR below
+the oldest one that shipped at the right MAJOR. On that last case: **it is
+not true that "anything below the supported version is readable."** A
+version inside a MAJOR is readable only back to the oldest minor of that
+MAJOR that actually shipped; nothing is registered for a version that never
+existed, and an uninterpretable version is a signal to be careful, not to
+guess.
 
-For this build, supported `1.1.0` with `1.0.0` the oldest of its major, that
-reduces to: MAJOR must be `1`, MINOR may be anything (`>= 0`), PATCH is
-ignored. `1.0.0`, `1.4.2` and `1.99.0` are read; `2.0.0` and `0.9.9` are not.
+For this build, supported `2.0.0` with `2.0.0` the oldest of its major, that
+reduces to: MAJOR `2` reads normally (`2.0.0`, `2.4.2`, `2.99.0`); MAJOR `1`
+and below — including both legacy coercions of rule 1 — is legacy and reads
+as empty; `3.0.0` and an uninterpretable version are unsupported. PATCH is
+ignored throughout.
 
-### 3. What an unsupported store does — and does not do
+### 3. A lesser MAJOR is the deliberate legacy break
+
+The move to `2.0.0` (the kind split, issue #283) happened while Marky Mark
+was unreleased, and PRD 023 is explicit that `1.x` stores are **not**
+migrated. A store at a lesser MAJOR — a `1.x` version string, the integer
+`1`, no version key at all, or a non-object payload — therefore:
+
+- contributes **zero** records. Not a best-effort reinterpretation: the
+  `1.x` shape is not this shape, and partial reads are how data gets
+  corrupted.
+- does **not** stop the markdown from opening, raises **no** unreadable
+  verdict, shows **no** notice, and does **not** freeze authoring. To the
+  user the document simply has no annotations.
+- is **not** preserved: the next save writes a current store over it (or
+  removes the container when there are no records). The legacy annotations
+  are intentionally lost.
+
+This is a one-time, pre-release break. A future MAJOR bump against a
+*shipped* format must not reuse this rule without restating it here.
+
+### 4. What an unsupported store does — and does not do
 
 An unsupported store (unsupported version, or, in the embedded trailer, JSON
 that does not parse at all):
@@ -460,10 +540,10 @@ that does not parse at all):
   that stays on screen for as long as the document is open, saying the comments
   cannot be shown and are left untouched. When the store declared a version,
   Marky Mark names it — "written by a newer version of Marky Mark (comment
-  format 2.0.0)"; when it declared none, the notice says only that this version
+  format 3.0.0)"; when it declared none, the notice says only that this version
   could not read them.
 
-### 4. Verdicts are per store
+### 5. Verdicts are per store
 
 The trailer and the sidecar are judged **independently**. A document with an
 unsupported trailer and a supported sidecar still shows the sidecar's
@@ -477,7 +557,7 @@ ignored and contributes no comments, and it does not by itself freeze the
 document; only a sidecar that parsed as JSON and then declared a version this
 build may not interpret does.)
 
-### 5. A newer MINOR of a supported MAJOR
+### 6. A newer MINOR of a supported MAJOR
 
 Parse it normally — that is what MINOR compatibility means. On top of that:
 
@@ -497,59 +577,70 @@ Parse it normally — that is what MINOR compatibility means. On top of that:
   check below is skipped whole, taking its unknown keys with it — a retained
   bag with nothing valid to hang off has nowhere to be re-emitted from.
 
-### 6. Entry-level schema check
+### 7. Entry-level schema check
 
 Within a supported payload, each element of `comments` is checked
-individually, and a failing entry is **skipped rather than crashing the
-parse** — one malformed comment must not cost the reader the other forty.
-An entry is kept when:
+individually, and a failing record is **skipped rather than crashing the
+parse** — one malformed record must not cost the reader the other forty.
+A record is kept when:
 
 - it is a non-null object, and
-- `id`, `author`, `createdAt` and `body` are all strings, and
+- `id`, `author` and `createdAt` are all strings, and
 - `anchor` is a non-null object whose `exact`, `prefix` and `suffix` are
-  strings and whose `start` and `end` are numbers.
+  strings and whose `start` and `end` are numbers, and
+- `kind` is the literal `"comment"` or `"highlight"` (a missing, non-string
+  or unrecognized `kind` skips the record whole — never a guess), and
+- per kind: a comment record's `body` is a string; a highlight record's
+  `color` is one of the four vocabulary literals (anything else — a missing
+  color, `"blue"`, `"YELLOW"`, a number — skips the record whole; it is
+  never coerced to a default tint).
 
-Then:
+Then, on a comment record:
 
 - `resolved` is `true` only if it is literally `true`; anything else is
   `false`.
 - `thread`, if it is not an array, becomes an empty one. Elements that are not
   valid replies (a non-null object with string `id`, `author`, `createdAt` and
   `body`) are dropped individually; the surviving replies keep their order.
-- `comments` itself, if it is not an array, yields zero comments.
+
+And at the payload level, `comments` itself, if it is not an array, yields
+zero records. Foreign known keys on either kind are ignored, per
+[the rule above](#the-two-record-kinds).
 
 ## Writer rules
 
 - **Stamp the lowest version capable of representing the data being
   written — not the version the writer supports.** A writer that supports
-  `1.4.0` but emits only fields that exist in `1.0.0` writes
-  `"version": "1.0.0"`, so the store stays readable by every `1.x` reader.
+  `2.4.0` but emits only fields that exist in `2.0.0` writes
+  `"version": "2.0.0"`, so the store stays readable by every `2.x` reader.
   This is what the per-field **Min version** column is for: the stamp is the
   highest minimum among the fields actually present.
 - **Retained fields from a newer version keep that newer version.** If a
-  comment carries unknown keys read from a `1.4.0` store, writing it back
-  stamps `1.4.0` — the store really does contain `1.4.0` data, and claiming
-  `1.0.0` would lie to the next reader. When comments read from several stores
+  record carries unknown keys read from a `2.4.0` store, writing it back
+  stamps `2.4.0` — the store really does contain `2.4.0` data, and claiming
+  `2.0.0` would lie to the next reader. When comments read from several stores
   are written together, the **highest** such version wins. A retained bag
   whose version was uninterpretable can never win that contest.
 - **Both containers carry the same payload**: the same schema, the same
   `version` key in the same place. They differ only in how the JSON text is
   wrapped.
 - **Serialization is byte-stable and idempotent.** Known keys are emitted in
-  the fixed order of the tables above (`id`, `author`, `createdAt`, `body`,
-  `resolved`, `color`, `thread`, `anchor`; `exact`, `prefix`, `suffix`,
-  `start`, `end`; `version` before `comments`), and retained unknown keys
-  follow the known ones in the order they were read. An optional key
-  (`color`) keeps its slot in that order but is simply omitted when absent —
-  never written as `null` or an empty string. Serializing the same comment
-  set twice produces identical bytes, and attaching a trailer to a document
-  that already has one replaces it rather than appending a second.
+  the fixed per-kind order of the tables above (comment records: `kind`,
+  `id`, `author`, `createdAt`, `body`, `resolved`, `thread`, `anchor`;
+  highlight records: `kind`, `id`, `author`, `createdAt`, `color`, `anchor`;
+  replies: `id`, `author`, `createdAt`, `body`; anchors: `exact`, `prefix`,
+  `suffix`, `start`, `end`; `version` before `comments`), and retained
+  unknown keys follow the known ones in the order they were read. A foreign
+  known key is never emitted. Serializing the same record set twice produces
+  identical bytes, and attaching a trailer to a document that already has
+  one replaces it rather than appending a second.
 - **Never write a container for zero comments.** No empty trailer; no sidecar
   file holding an empty array — the trailer is omitted and the sidecar file is
   removed.
 - **Never write a store the reader could not interpret.** If any of the
   document's stores was unsupported, nothing is written to either of them (see
-  reader rule 3).
+  reader rule 4). A *legacy* store is different: it was interpreted — as
+  empty, per reader rule 3 — so writing proceeds and replaces it.
 
 ## The container is frozen
 
@@ -585,6 +676,35 @@ Entries are **newest first**. Every change to the comment payload appends an
 entry here and bumps the version per
 [MAJOR / MINOR / PATCH](#major--minor--patch) — see `CONTRIBUTING.md`, which
 makes that a review gate.
+
+### 2.0.0 — 2026-09-05
+
+The PRD 023 kind split (issue #283): comments and highlights become two
+record kinds, and the format deliberately breaks with `1.x`.
+
+- Every record now carries a required `kind` — `"comment"` or `"highlight"`,
+  first in the key order. A comment record carries `body`, `thread` and
+  `resolved` and no `color`; a highlight record carries a **required**
+  `color` and no `body`, `thread` or `resolved`. A record with a missing,
+  non-string or unrecognized `kind` is skipped whole.
+- The highlight color vocabulary is `"yellow"`, `"green"`, `"orange"`,
+  `"pink"` — `orange` replaces 1.1.0's `"blue"` (blue is the fixed comment
+  tint now, and comments are not highlights). An out-of-vocabulary color —
+  `"blue"` included — skips the record at parse: a deliberate change from
+  1.1.0's "invalid color reads as absent", because a highlight IS its color
+  and has no colorless form to degrade to.
+- Foreign known keys are pinned: a known key of the other kind (`color` on a
+  comment record; `body`, `thread` or `resolved` on a highlight record) is
+  ignored — not interpreted, not retained, never re-emitted.
+- The break with `1.x` readers and stores is deliberate and one-way (Marky
+  Mark is unreleased; PRD 023's non-goal is no migration of 1.x stores): a
+  `2.0.0` reader opens a pre-2.0.0 store — a `1.x` version string or either
+  legacy coercion — as zero records with no unreadable verdict and no
+  authoring freeze, and the next save writes a `2.0.0` store over it
+  (reader rule 3). A `1.x` reader, by its own MAJOR rule, refuses a `2.0.0`
+  store outright — including the shipped v0.4.0-alpha.4 reader, whose
+  PRD 004 Req 39 forward-compatibility guarantee this MAJOR deliberately
+  ends.
 
 ### 1.1.0 — 2026-09-04
 

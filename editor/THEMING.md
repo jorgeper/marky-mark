@@ -80,8 +80,8 @@ lock-step. Re-derive it with:
 | `--mm-active-word` | SPEC44 caret-word tint in the editor — **no fallback** |
 | `--mm-diff-changed-bg` | SPEC16 changed-line tint — **no fallback** |
 | `--mm-diff-removed` | SPEC16 deleted-run left edge — **no fallback** |
-| `--mm-comment-tint` | PRD 022 Req 12 editor highlight legacy tint (colorless entries) |
-| `--mm-marker-yellow` / `--mm-marker-green` / `--mm-marker-blue` / `--mm-marker-pink` | PRD 022 Req 13 marker hues; editor highlights mix them at 42% |
+| `--mm-comment-tint` | The fixed comment tint (blue) — comment records' editor highlight (PRD 022 Req 12, issue #283) |
+| `--mm-marker-yellow` / `--mm-marker-green` / `--mm-marker-orange` / `--mm-marker-pink` | PRD 022 Req 13 marker hues; editor highlights mix them at 42% |
 
 ## Scale and shadow tokens
 

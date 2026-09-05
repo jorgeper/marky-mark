@@ -40,7 +40,7 @@ const NEWER_DOC = '# Newer document\n\nThis paragraph reads perfectly well even 
 const NEWER_TRAILER = `
 <!-- marky-mark-comments
 {
-  "version": "2.0.0",
+  "version": "3.0.0",
   "comments": [
     {
       "id": "from-the-future",
@@ -748,7 +748,7 @@ test('E137: a newer-major trailer — the doc opens and edits normally, and its 
   expect(saved).toContain('EDITED ');
   expect(saved.slice(saved.length - NEWER_TRAILER.length)).toBe(NEWER_TRAILER); // byte-for-byte
   expect(saved.match(/marky-mark-comments/g)?.length).toBe(1); // never doubled
-  expect(saved).not.toContain('"1.0.0"'); // never restamped to our version
+  expect(saved).not.toContain('"2.0.0"'); // never restamped to our version
 
   // Re-saving keeps it bit-identical (Req 14: "and re-saving repeatedly").
   await page.keyboard.press('Control+e');
@@ -773,7 +773,7 @@ test('E138: a newer-major trailer — every authoring route is closed and the in
   const indication = page.getByTestId('store-unreadable');
   await expect(indication).toBeVisible();
   await expect(indication).toContainText('newer version of Marky Mark');
-  await expect(indication).toContainText('2.0.0'); // the version as declared
+  await expect(indication).toContainText('3.0.0'); // the version as declared
   await expect(page.getByTestId('notice')).toHaveCount(0);
   expect(await indication.evaluate((el) => el.className)).not.toContain('mm-notice');
 
@@ -1033,6 +1033,7 @@ test('E158: a parked doc reopens fresh when an external tool edited its sidecar 
   await openWelcomeViaHelp(page);
   const external = JSON.parse((await fsRead(page, sidecarPath))!);
   external.comments.push({
+    kind: 'comment',
     id: 'external-1',
     author: 'md-with-comments',
     createdAt: '2026-08-04T00:00:00.000Z',
@@ -1082,65 +1083,72 @@ test('E419: PRD 022 Req 1 — a swatch click creates a note-less colored highlig
   await expect(mark).toBeVisible();
   await expect(mark).toHaveAttribute('data-color', 'green');
 
-  // On disk: a note-less entry (empty body, no thread) carrying the color —
-  // format 1.1.0's shape from #230.
+  // On disk: a kind:"highlight" record — color required, no body/thread/
+  // resolved (PRD 023 §1, issue #283) — in a 2.0.0 store.
   await waitForSidecar(page, (s) => !!s && s.includes('"color": "green"'));
   const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
-  expect(sidecar.version).toBe('1.1.0');
+  expect(sidecar.version).toBe('2.0.0');
   expect(sidecar.comments).toHaveLength(1);
-  expect(sidecar.comments[0].body).toBe('');
-  expect(sidecar.comments[0].thread).toEqual([]);
+  expect(sidecar.comments[0].kind).toBe('highlight');
+  expect(sidecar.comments[0].body).toBeUndefined();
+  expect(sidecar.comments[0].thread).toBeUndefined();
 });
 
-test('E416: PRD 022 Reqs 1–2 — "add note" creates a highlight in the armed color and opens the composer attached to it', async ({
+test('E416: PRD 023 §1 (issue #283) — "add note" authors a comment record: no marker color, the fixed comment tint, composer attached', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);
   await clickClearOfToolbar(page.getByTestId('add-note-btn'));
 
-  // The highlight already exists — armed default yellow — with the composer
-  // open and standing in for its card.
+  // The comment record already exists — painted in the comment tint, never a
+  // marker hue — with the composer open and standing in for its card.
   await expect(page.getByTestId('composer')).toBeVisible();
   const mark = page.locator('mark.hl').first();
   await expect(mark).toBeVisible();
-  await expect(mark).toHaveAttribute('data-color', 'yellow');
+  expect(await mark.getAttribute('data-color')).toBeNull();
 
   await page.getByTestId('composer-input').fill('a note on a highlight');
   await page.getByTestId('composer-submit').click();
   await expect(page.getByTestId('comment-card')).toHaveCount(1);
   await expect(page.getByTestId('card-body')).toHaveText('a note on a highlight');
 
-  // ONE object: the note landed on the same colored entry.
+  // ONE object: the note landed on the same entry — a kind:"comment" record
+  // with no color key at all.
   await waitForSidecar(page, (s) => !!s && s.includes('a note on a highlight'));
   const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
   expect(sidecar.comments).toHaveLength(1);
-  expect(sidecar.comments[0].color).toBe('yellow');
+  expect(sidecar.comments[0].kind).toBe('comment');
+  expect(sidecar.comments[0].color).toBeUndefined();
   expect(sidecar.comments[0].body).toBe('a note on a highlight');
 });
 
-test('E417: PRD 022 Req 4 — the last-used swatch pre-arms the popup and seeds type-to-comment', async ({ page }) => {
+test('E417: PRD 022 Req 4 — the last-used swatch pre-arms the popup; type-to-comment authors an uncolored comment record (issue #283)', async ({ page }) => {
   await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-blue'));
-  await expect(page.locator('mark.hl[data-color="blue"]').first()).toBeVisible();
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-orange'));
+  await expect(page.locator('mark.hl[data-color="orange"]').first()).toBeVisible();
 
-  // A new selection: blue now leads the popup, pre-armed.
+  // A new selection: orange now leads the popup, pre-armed.
   await selectPhrase(page, 'GitHub-flavored markdown');
   const popup = page.getByTestId('marker-popup');
   await expect(popup).toBeVisible();
-  await expect(popup.locator('.marker-swatch').first()).toHaveAttribute('data-testid', 'marker-swatch-blue');
-  await expect(popup.getByTestId('marker-swatch-blue')).toHaveAttribute('aria-pressed', 'true');
+  await expect(popup.locator('.marker-swatch').first()).toHaveAttribute('data-testid', 'marker-swatch-orange');
+  await expect(popup.getByTestId('marker-swatch-orange')).toHaveAttribute('aria-pressed', 'true');
 
-  // …and seeds type-to-comment: the printable key still opens the composer,
-  // whose submit yields a highlight-with-note in the armed color.
+  // Type-to-comment still opens the composer — but its submit authors a
+  // kind:"comment" record, which carries no marker color at all (PRD 023 §1).
   await page.keyboard.press('x');
   await expect(page.getByTestId('composer')).toBeVisible();
   await page.getByTestId('composer-submit').click();
   await waitForSidecar(page, (s) => !!s && s.includes('"x"'));
   const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
-  expect(sidecar.comments.filter((c: { color?: string }) => c.color === 'blue')).toHaveLength(2);
+  const kinds = sidecar.comments.map((c: { kind: string }) => c.kind).sort();
+  expect(kinds).toEqual(['comment', 'highlight']);
+  const typed = sidecar.comments.find((c: { kind: string }) => c.kind === 'comment');
+  expect(typed.body).toBe('x');
+  expect(typed.color).toBeUndefined();
 });
 
-test('E418: PRD 022 Req 3 — a legacy colorless sidecar renders in the default tint; re-saving adds no colors and keeps 1.0.0', async ({
+test('E418: issue #283 — a pre-2.0.0 sidecar opens with no annotations and no notice, and new annotations save as a 2.0.0 store', async ({
   page,
 }) => {
   const DOC = '/docs/legacy-tint.md';
@@ -1169,20 +1177,24 @@ test('E418: PRD 022 Req 3 — a legacy colorless sidecar renders in the default 
   );
   await page.goto(`/#open=${DOC}`);
 
-  // The colorless entry paints as a noted highlight in the legacy tint.
-  const mark = page.locator('mark.hl').first();
-  await expect(mark).toBeVisible();
-  expect(await mark.getAttribute('data-color')).toBeNull();
-  await expect(mark).toHaveCSS('background-color', 'rgba(255, 214, 102, 0.42)');
-  await expect(page.getByTestId('card-body')).toHaveText('an old note');
+  // PRD 023 non-goal (no 1.x migration): the document opens normally with
+  // NO annotations, no error dialog and no persistent notice — the legacy
+  // store is simply empty to this build.
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Legacy');
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+  await expect(page.getByTestId('store-unreadable')).toHaveCount(0);
 
-  // Re-save (resolve triggers the autosave rewrite): entries the user didn't
-  // recolor gain no `color`, and the colorless store still stamps 1.0.0.
-  await page.getByTestId('resolve-btn').click();
-  await expect.poll(() => fsRead(page, `${DOC}.comments.json`)).toContain('"resolved": true');
+  // Authoring is NOT frozen: a selection still offers the marker popup, and
+  // a new highlight writes a 2.0.0 store over the legacy sidecar.
+  await selectPhrase(page, 'commented text');
+  await expect(page.getByTestId('marker-popup')).toBeVisible();
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-orange'));
+  await expect(page.locator('mark.hl[data-color="orange"]').first()).toBeVisible();
+  await expect.poll(() => fsRead(page, `${DOC}.comments.json`)).toContain('"version": "2.0.0"');
   const rewritten = (await fsRead(page, `${DOC}.comments.json`))!;
-  expect(rewritten).not.toContain('"color"');
-  expect(rewritten).toContain('"version": "1.0.0"');
+  expect(rewritten).toContain('"kind": "highlight"');
+  expect(rewritten).not.toContain('an old note'); // the 1.x annotations are gone, by design
 });
 
 test('E420: PRD 022 Req 8 — recoloring from the active card repaints the marks, persists, and re-arms the popup', async ({
@@ -1207,8 +1219,9 @@ test('E420: PRD 022 Req 8 — recoloring from the active card repaints the marks
   await waitForSidecar(page, (s) => !!s && s.includes('"color": "pink"'));
   const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
   expect(sidecar.comments).toHaveLength(1);
+  expect(sidecar.comments[0].kind).toBe('highlight');
   expect(sidecar.comments[0].color).toBe('pink');
-  expect(sidecar.comments[0].body).toBe('');
+  expect(sidecar.comments[0].body).toBeUndefined();
 
   // Req 4: recoloring re-arms the last-used color for the next selection.
   await selectPhrase(page, 'GitHub-flavored markdown');
@@ -1239,11 +1252,11 @@ test('E421: PRD 022 Req 9 — a note-less highlight has no standing card; its ca
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
 });
 
-test('E422: PRD 022 Req 8 — adding a note from the active card turns a note-less highlight into a standing noted card', async ({
+test('E422: PRD 022 Req 8 — adding a note from the active card authors a comment record in the highlight’s place (issue #283)', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-blue'));
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-orange'));
   await page.locator('mark.hl').first().click();
 
   const card = page.getByTestId('comment-card');
@@ -1252,15 +1265,18 @@ test('E422: PRD 022 Req 8 — adding a note from the active card turns a note-le
   await card.getByTestId('save-edit').click();
   await expect(card.getByTestId('card-body')).toHaveText('now it has a note');
 
-  // Noted from here on: the card stands in the panel after deactivation, and
-  // the note landed on the same colored entry.
+  // A comment from here on: the card stands in the panel after deactivation,
+  // and the entry was re-authored as a kind:"comment" record — same id slot,
+  // the marker color dropped (a comment renders in the comment tint).
   await page.getByTestId('doc').locator('h1').click();
   await expect(page.getByTestId('comment-card')).toHaveCount(1);
   await expect(page.getByTestId('comment-card')).not.toHaveClass(/active/);
   await waitForSidecar(page, (s) => !!s && s.includes('now it has a note'));
   const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
   expect(sidecar.comments).toHaveLength(1);
-  expect(sidecar.comments[0].color).toBe('blue');
+  expect(sidecar.comments[0].kind).toBe('comment');
+  expect(sidecar.comments[0].color).toBeUndefined();
+  await expect(page.locator('mark.hl[data-color]')).toHaveCount(0); // comment tint now
 });
 
 test('E423: PRD 022 Reqs 6+8 — a note-less card offers no reply/resolve, and Remove deletes the entry and unpaints its marks', async ({
@@ -1328,15 +1344,15 @@ test('E425: PRD 022 Req 12 — the split-edit editor paints too, and clicking a 
   page,
 }) => {
   await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-blue'));
-  await expect(page.locator('mark.hl[data-color="blue"]').first()).toBeVisible();
+  await clickClearOfToolbar(page.getByTestId('marker-swatch-orange'));
+  await expect(page.locator('mark.hl[data-color="orange"]').first()).toBeVisible();
 
   await page.keyboard.press('Control+e'); // splitEdit defaults on — split edit
   await expect(page.getByTestId('split-divider')).toBeVisible();
 
   const hl = page.getByTestId('editor').locator('.mm-hl');
   await expect(hl.first()).toBeVisible();
-  await expect(hl.first()).toHaveAttribute('data-color', 'blue');
+  await expect(hl.first()).toHaveAttribute('data-color', 'orange');
 
   // The note-less entry has no standing card until the editor click brings
   // its transient active card into the panel — same outcome as clicking the
@@ -1358,13 +1374,11 @@ test('E426: PRD 022 Req 12 — anchors the source cannot place confidently (abse
     `# Best effort\n\nSome **bold** prose here.\n\n${twinLine}\n\n${twinLine}\n\nA unique control phrase paints.\n`
   );
   const entry = (id: string, color: string, exact: string, prefix: string, suffix: string) => ({
+    kind: 'highlight',
     id,
     author: 'Reader',
     createdAt: '2026-01-01T00:00:00.000Z',
-    body: `${id} note`,
-    resolved: false,
     color,
-    thread: [],
     anchor: { exact, prefix, suffix, start: 0, end: exact.length },
   });
   await fsWrite(
@@ -1372,7 +1386,7 @@ test('E426: PRD 022 Req 12 — anchors the source cannot place confidently (abse
     `${DOC}.comments.json`,
     JSON.stringify(
       {
-        version: '1.1.0',
+        version: '2.0.0',
         comments: [
           // Rendered "bold prose" crosses a ** marker in source: absent there.
           entry('absent', 'green', 'bold prose', 'Some ', ' here.'),

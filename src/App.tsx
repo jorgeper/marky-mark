@@ -48,7 +48,7 @@ import {
   type CommentColor,
   type CommentData,
   createAnchor,
-  hasNote,
+  isComment,
   mapHighlightsToSource,
   MARKER_COLORS,
   reanchor,
@@ -586,9 +586,9 @@ export default function App() {
   // SPEC30 §3: the boot-time draft offer.
   const [restorePrompt, setRestorePrompt] = useState<Draft | null>(null);
   // PRD 022 Reqs 1–2: `cid` set means the composer is attached to an
-  // already-created highlight ("add note"); `color` seeds a create-on-submit
-  // composer (type-to-comment) with the armed marker color.
-  const [pending, setPending] = useState<{ start: number; end: number; cid?: string; color?: CommentColor } | null>(
+  // already-created comment record ("add note", issue #283); without it the
+  // composer creates the comment record on submit (type-to-comment).
+  const [pending, setPending] = useState<{ start: number; end: number; cid?: string } | null>(
     null
   );
   const [draft, setDraft] = useState('');
@@ -4210,9 +4210,9 @@ export default function App() {
     if (!s.settings.commentsEnabled || !s.showComments) return;
     if (s.mode === 'edit' && !s.settings.splitEdit) return;
     const ordered = s.comments
-      // PRD 022 Req 9 (issue #232): step through noted highlights only — a
-      // note-less entry has no standing card, so the hotkeys skip it.
-      .filter((c) => !c.resolved && hasNote(c))
+      // PRD 023 §1 (issue #283): step through open comment records only — a
+      // highlight has no standing card, so the hotkeys skip it.
+      .filter((c) => isComment(c) && !c.resolved)
       .sort((a, b) => (s.positions[a.id]?.start ?? a.anchor.start) - (s.positions[b.id]?.start ?? b.anchor.start))
       .map((c) => c.id);
     const id = stepComment(ordered, s.activeId, dir);
@@ -4247,32 +4247,38 @@ export default function App() {
       if (req.includeComments) {
         const text = getDocText(holder);
         const open = s.comments
-          .filter((c) => !c.resolved)
+          .filter((c) => !isComment(c) || !c.resolved)
           .map((c) => ({ c, m: reanchor(c.anchor, text) }))
           .sort((a, b) => (a.m?.start ?? a.c.anchor.start) - (b.m?.start ?? b.c.anchor.start));
-        staticComments = open.map(({ c, m }, i) => {
-          const n = i + 1;
-          if (m) {
-            const marks = highlightRange(holder, m.start, m.end, c.id);
-            const last = marks[marks.length - 1];
-            if (last) {
-              const sup = document.createElement('sup');
-              sup.className = 'mm-ref';
-              const a = document.createElement('a');
-              a.href = `#mm-comment-${n}`;
-              a.textContent = String(n);
-              sup.appendChild(a);
-              last.after(sup);
-            }
+        staticComments = [];
+        for (const { c, m } of open) {
+          const marks = m ? highlightRange(holder, m.start, m.end, c.id) : [];
+          if (!isComment(c)) {
+            // PRD 023 §1 (issue #283): a highlight record paints its color in
+            // the export but is not a note — no numbered ref, no entry in the
+            // static Comments section.
+            marks.forEach((mk) => (mk.dataset.color = c.color));
+            continue;
           }
-          return {
+          const n = staticComments.length + 1;
+          const last = marks[marks.length - 1];
+          if (last) {
+            const sup = document.createElement('sup');
+            sup.className = 'mm-ref';
+            const a = document.createElement('a');
+            a.href = `#mm-comment-${n}`;
+            a.textContent = String(n);
+            sup.appendChild(a);
+            last.after(sup);
+          }
+          staticComments.push({
             n,
             excerpt: c.anchor.exact,
             author: c.author,
             body: c.body,
             replies: c.thread.map((r) => ({ author: r.author, body: r.body })),
-          };
-        });
+          });
+        }
       }
       const name = p.basename(s.docPath);
       const html = buildStaticHtml({
@@ -5661,7 +5667,7 @@ export default function App() {
       return;
     }
     const t = setTimeout(() => {
-      const painted = comments.filter((c) => !c.resolved || settings.showResolved);
+      const painted = comments.filter((c) => !isComment(c) || !c.resolved || settings.showResolved);
       setEditorHighlights(mapHighlightsToSource(painted, canonicalOf(buffer)));
     }, 200);
     return () => clearTimeout(t);
@@ -6006,17 +6012,16 @@ export default function App() {
       }
       if (showComments && settings.commentsEnabled) {
         for (const c of comments) {
-          if (c.resolved && !settings.showResolved) continue;
+          if (isComment(c) && c.resolved && !settings.showResolved) continue;
           const m = pos[c.id];
           if (m) {
             const marks = highlightRange(el, m.start, m.end, c.id);
-            // PRD 022 Req 14: the color rides the existing mark as a data
-            // attribute — absent means the legacy tint (Req 3). The painting
-            // path itself is unchanged.
-            const color = c.color;
-            if (color) marks.forEach((mk) => (mk.dataset.color = color));
-            // Ghosted resolved highlights (SPEC6 §3): faint tint, still clickable.
-            if (c.resolved) marks.forEach((mk) => mk.classList.add('ghost'));
+            // PRD 023 §1 (issue #283): a highlight rides its required color as
+            // the mark's data attribute; a comment record carries none and
+            // keeps the fixed comment tint. The painting path is unchanged.
+            if (!isComment(c)) marks.forEach((mk) => (mk.dataset.color = c.color));
+            // Ghosted resolved comments (SPEC6 §3): faint tint, still clickable.
+            if (isComment(c) && c.resolved) marks.forEach((mk) => mk.classList.add('ghost'));
           }
         }
       }
@@ -6456,20 +6461,18 @@ export default function App() {
     }
   };
 
-  // PRD 022 Req 1: a swatch click creates a note-less highlight in that color
-  // (empty body, no thread — format 1.1.0's shape from #230) and closes the
+  // PRD 023 §1 (issue #283): a swatch click creates a kind:"highlight" record
+  // in that color (color required, no body/thread/resolved) and closes the
   // popup; nothing else opens.
   const createHighlight = (color: CommentColor): CommentData | null => {
     if (!selInfo || !mayComment) return null; // PRD 004 Req 15 + PRD 007 Req 17
     const entry: CommentData = {
+      kind: 'highlight',
       id: crypto.randomUUID(),
       author: settings.author,
       createdAt: new Date().toISOString(),
-      body: '',
-      resolved: false,
-      thread: [],
-      anchor: createAnchor(docTextRef.current, selInfo.start, selInfo.end),
       color,
+      anchor: createAnchor(docTextRef.current, selInfo.start, selInfo.end),
     };
     setComments((prev) => [...prev, entry]);
     rememberMarkerColor(color);
@@ -6479,13 +6482,27 @@ export default function App() {
     return entry;
   };
 
-  // PRD 022 Req 1: "add note" creates a highlight in the armed color and
-  // opens today's composer attached to it — the note lands on submit.
+  // PRD 023 §1 (issue #283): "add note" authors a kind:"comment" record — the
+  // composer attaches to a fresh empty-bodied comment (painted at once in the
+  // fixed comment tint, never a marker hue) and the note lands on submit;
+  // cancel removes it (PRD 022 Req 1's no-abandoned-entry rule).
   const startComposer = (seed = '') => {
     if (!selInfo || !mayComment) return; // PRD 004 Req 15 + PRD 007 Req 17
     const { start, end } = selInfo;
-    const entry = createHighlight(armedColor);
-    if (!entry) return;
+    const entry: CommentData = {
+      kind: 'comment',
+      id: crypto.randomUUID(),
+      author: settings.author,
+      createdAt: new Date().toISOString(),
+      body: '',
+      resolved: false,
+      thread: [],
+      anchor: createAnchor(docTextRef.current, start, end),
+    };
+    setComments((prev) => [...prev, entry]);
+    setActiveId(null);
+    window.getSelection()?.removeAllRanges();
+    setSelInfo(null);
     setPending({ start, end, cid: entry.id });
     setDraft(seed);
   };
@@ -6562,9 +6579,9 @@ export default function App() {
         return;
       }
       e.preventDefault();
-      // PRD 022 Req 2: type-to-comment produces a highlight-with-note in the
-      // armed color (read live — the ref dodges a stale closure).
-      setPending({ start, end, color: stateRef.current.settings.lastMarkerColor });
+      // PRD 023 §1 (issue #283): type-to-comment authors a kind:"comment"
+      // record — no marker color; comments render in the fixed comment tint.
+      setPending({ start, end });
       setDraft(e.key);
       setActiveId(null);
       window.getSelection()?.removeAllRanges();
@@ -6588,6 +6605,8 @@ export default function App() {
       return;
     }
     const comment: CommentData = {
+      // PRD 023 §1 (issue #283): the composer's product is a comment record.
+      kind: 'comment',
       id: crypto.randomUUID(),
       author: settings.author,
       createdAt: new Date().toISOString(),
@@ -6595,8 +6614,6 @@ export default function App() {
       resolved: false,
       thread: [],
       anchor: createAnchor(docTextRef.current, pending.start, pending.end),
-      // PRD 022 Req 2: the armed color rides type-to-comment's composer.
-      ...(pending.color ? { color: pending.color } : {}),
     };
     setComments((prev) => [...prev, comment]);
     setPending(null);
@@ -6620,7 +6637,7 @@ export default function App() {
     setComments((prev) => prev.map((c) => (c.id === next.id ? next : c)));
     // Resolving retires the card from focus — otherwise its ghost keeps the
     // brighter `.active` styling and never reads as resolved (SPEC7 §4).
-    if (next.resolved) setActiveId((a) => (a === next.id ? null : a));
+    if (isComment(next) && next.resolved) setActiveId((a) => (a === next.id ? null : a));
   };
 
   const deleteComment = (id: string) => {
@@ -6628,12 +6645,12 @@ export default function App() {
     setActiveId((a) => (a === id ? null : a));
   };
 
-  // PRD 022 Req 8 (issue #232): recoloring from the active card updates the
-  // entry (a legacy colorless one gains a `color`; stamping then follows the
-  // lowest-version rule), repaints through the normal highlight pass, and
+  // PRD 022 Req 8 (issue #232), narrowed by PRD 023 §1 (issue #283):
+  // recoloring from the active card updates a highlight record only — a
+  // comment has no color — repaints through the normal highlight pass, and
   // re-arms the last-used color (Req 4).
   const recolorHighlight = (id: string, color: CommentColor) => {
-    setComments((prev) => prev.map((c) => (c.id === id ? { ...c, color } : c)));
+    setComments((prev) => prev.map((c) => (c.id === id && c.kind === 'highlight' ? { ...c, color } : c)));
     rememberMarkerColor(color);
   };
 
@@ -6656,18 +6673,18 @@ export default function App() {
   // --- panel ordering ------------------------------------------------------------------
   const byPosition = (a: CommentData, b: CommentData) =>
     (positions[a.id]?.start ?? a.anchor.start) - (positions[b.id]?.start ?? b.anchor.start);
-  const open = comments.filter((c) => !c.resolved).sort(byPosition);
-  const resolved = comments.filter((c) => c.resolved);
+  const open = comments.filter((c) => !isComment(c) || !c.resolved).sort(byPosition);
+  const resolved = comments.filter((c) => isComment(c) && c.resolved);
 
   type Item = { kind: 'comment'; c: CommentData; ghost?: boolean } | { kind: 'composer' };
   // With "Show resolved" on, resolved comments join the flow as ghosts (SPEC6 §3).
   let items: Item[] = settings.showResolved
-    ? [...comments].sort(byPosition).map((c) => ({ kind: 'comment' as const, c, ghost: c.resolved }))
+    ? [...comments].sort(byPosition).map((c) => ({ kind: 'comment' as const, c, ghost: isComment(c) && c.resolved }))
     : open.map((c) => ({ kind: 'comment' as const, c }));
-  // PRD 022 Req 9 (issue #232): a note-less entry has no standing card — it
+  // PRD 023 §1 (issue #283): a highlight record has no standing card — it
   // joins the panel flow only while it is the active highlight, and leaves on
   // deactivation (click-away, activating another).
-  items = items.filter((it) => it.kind !== 'comment' || hasNote(it.c) || it.c.id === activeId);
+  items = items.filter((it) => it.kind !== 'comment' || isComment(it.c) || it.c.id === activeId);
   // PRD 022 Req 1: while "add note"'s composer is attached to a fresh
   // highlight, the composer stands in for that entry's card.
   if (pending?.cid) items = items.filter((it) => !(it.kind === 'comment' && it.c.id === pending.cid));
@@ -6702,10 +6719,10 @@ export default function App() {
   const panelVisible =
     commentSurfaceUp && showComments && settings.commentsEnabled && (comments.length > 0 || pending !== null);
 
-  // PRD 022 Req 9 (issue #232): the navigator (pill + hotkeys) steps through
-  // noted highlights only — a note-less entry has no standing card to land
-  // on, so it neither counts in the pill nor shows it while active.
-  const navigable = open.filter(hasNote);
+  // PRD 023 §1 (issue #283): the navigator (pill + hotkeys) steps through
+  // comment records only — a highlight has no standing card to land on, so
+  // it neither counts in the pill nor shows it while active.
+  const navigable = open.filter(isComment);
   // Navigator pill label, frozen across the fade-out (SPEC14 §3.5).
   const navIdx = activeId ? navigable.findIndex((c) => c.id === activeId) : -1;
   if (navIdx >= 0) navLabelRef.current = `${navIdx + 1} / ${navigable.length}`;

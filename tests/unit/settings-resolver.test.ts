@@ -269,16 +269,20 @@ describe('PRD 022 Req 4: the last-used marker color', () => {
     expect(SETTINGS_SCOPES.lastMarkerColor).toBe('U');
 
     // The four literals are accepted from the User layer.
-    for (const color of ['yellow', 'green', 'blue', 'pink'] as const) {
+    for (const color of ['yellow', 'green', 'orange', 'pink'] as const) {
       expect(resolveSettings({ user: { lastMarkerColor: color } }).lastMarkerColor).toBe(color);
     }
     // Anything else — a fifth color, wrong type — falls through to the
-    // next layer down and ultimately the default.
+    // next layer down and ultimately the default. PRD 023 §3 (issue #283):
+    // 'blue' left the vocabulary with format 2.0.0, so a persisted 'blue'
+    // fails validation and falls back like any invalid value — it never
+    // survives as a fifth color.
     expect(resolveSettings({ user: { lastMarkerColor: 'chartreuse' } }).lastMarkerColor).toBe('yellow');
+    expect(resolveSettings({ user: { lastMarkerColor: 'blue' } }).lastMarkerColor).toBe('yellow');
     expect(resolveSettings({ user: { lastMarkerColor: 3 } }).lastMarkerColor).toBe('yellow');
     expect(
-      resolveSettings({ workspace: { lastMarkerColor: 'blue' }, user: { lastMarkerColor: 'nope' } }).lastMarkerColor
-    ).toBe('blue');
+      resolveSettings({ workspace: { lastMarkerColor: 'orange' }, user: { lastMarkerColor: 'nope' } }).lastMarkerColor
+    ).toBe('orange');
 
     // U-layer precedence: the User value wins over every shared layer.
     expect(

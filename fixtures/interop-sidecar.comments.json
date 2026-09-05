@@ -1,6 +1,8 @@
 {
+  "version": "2.0.0",
   "comments": [
     {
+      "kind": "comment",
       "id": "214eaf06-601c-40aa-bed2-2c4bcb71f378",
       "author": "Reviewer",
       "createdAt": "2026-07-06T12:41:34.828Z",
@@ -13,6 +15,20 @@
         "suffix": "\n\n\n\nSome code\nfunction greet(nam",
         "start": 348,
         "end": 435
+      }
+    },
+    {
+      "kind": "highlight",
+      "id": "5b0d2c1a-7c33-4e0f-9b56-0d5a7c1e2f88",
+      "author": "Reviewer",
+      "createdAt": "2026-07-06T12:44:10.001Z",
+      "color": "orange",
+      "anchor": {
+        "exact": "Some code",
+        "prefix": "card in the margin\n\n\n\n",
+        "suffix": "\nfunction greet(nam",
+        "start": 439,
+        "end": 448
       }
     }
   ]

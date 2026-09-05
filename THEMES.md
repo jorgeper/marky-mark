@@ -80,8 +80,8 @@ Markdown elements:
 | `--mm-table-border` / `--mm-table-stripe` | Table grid and zebra rows |
 | `--mm-hr` | Horizontal rules |
 | `--mm-selection` | Text-selection background |
-| `--mm-comment-tint` / `--mm-comment-tint-active` | Comment highlights (idle / active) |
-| `--mm-marker-yellow` / `--mm-marker-green` / `--mm-marker-blue` / `--mm-marker-pink` | Optional marker-highlight hue overrides (opaque colors; the app derives idle/active/ghost strengths) |
+| `--mm-comment-tint` / `--mm-comment-tint-active` | The fixed comment tint (idle / active) — blue, a comment record's one rendering; never aliased to a marker hue (issue #283) |
+| `--mm-marker-yellow` / `--mm-marker-green` / `--mm-marker-orange` / `--mm-marker-pink` | Optional marker-highlight hue overrides (opaque colors; the app derives idle/active/ghost strengths) |
 
 Syntax highlighting (fenced code blocks):
 
@@ -168,8 +168,8 @@ obligations.
   --mm-table-stripe: #fafafa;
   --mm-hr: #e0e0e0;
   --mm-selection: rgba(10, 102, 194, 0.18);
-  --mm-comment-tint: rgba(255, 214, 102, 0.4);
-  --mm-comment-tint-active: rgba(255, 193, 37, 0.6);
+  --mm-comment-tint: rgba(121, 192, 255, 0.45);
+  --mm-comment-tint-active: rgba(121, 192, 255, 0.7);
 
   --mm-syn-keyword: #b0257a;
   --mm-syn-string: #1a7f37;

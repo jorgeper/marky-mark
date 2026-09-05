@@ -12,12 +12,13 @@
   --mm-accent: #fe8019;
   --mm-border: #504945;
 
-  /* PRD 022 Req 13: darker marker hues than the theme-independent defaults,
-     so the light body text keeps WCAG AA over every tint (ratios in the
-     issue #231 summary). */
+  /* PRD 022 Req 13 / PRD 023 §3 (issue #283): darker marker hues than the
+     theme-independent defaults, so the light body text keeps WCAG AA over
+     every tint (blue→orange ratios in the issue #283 summary; the rest in
+     issue #231's). */
   --mm-marker-yellow: #8a6d00;
   --mm-marker-green: #1b6b3a;
-  --mm-marker-blue: #1a5e9e;
+  --mm-marker-orange: #96480c;
   --mm-marker-pink: #8f3e69;
 
   --mm-content-width: 60rem;
@@ -35,8 +36,10 @@
   --mm-table-stripe: #32302f;
   --mm-hr: #504945;
   --mm-selection: rgba(131, 165, 152, 0.3);
-  --mm-comment-tint: rgba(250, 189, 47, 0.26);
-  --mm-comment-tint-active: rgba(250, 189, 47, 0.48);
+  /* PRD 023 §3 (issue #283): comments render blue — a dark hue here so the
+     light body text keeps WCAG AA (ratios in the issue #283 summary). */
+  --mm-comment-tint: rgba(26, 94, 158, 0.35);
+  --mm-comment-tint-active: rgba(26, 94, 158, 0.55);
 
   --mm-syn-keyword: #fb4934;
   --mm-syn-string: #b8bb26;

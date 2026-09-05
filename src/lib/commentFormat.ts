@@ -17,19 +17,22 @@ import type { Anchor, CommentColor, CommentData, RetainedKeys, ThreadReply } fro
  * The highest comment-format version this build supports (PRD Req 2, Req 11),
  * declared exactly once. Deliberately unrelated to the app version in
  * package.json — the format and the app move independently (PRD non-goals).
- * `1.1.0` is `1.0.0` (the shape that first shipped) plus one optional
- * comment field, `color` (PRD 022 Req 5).
+ * `2.0.0` is the PRD 023 kind split (issue #283): every record carries a
+ * required `kind` discriminant — `"comment"` (body/thread/resolved) or
+ * `"highlight"` (color) — a deliberate MAJOR break with the `1.x` shape.
  */
-export const SUPPORTED_COMMENT_FORMAT_VERSION = '1.1.0';
+export const SUPPORTED_COMMENT_FORMAT_VERSION = '2.0.0';
 
 /**
  * The lowest version capable of representing a comment set that uses no field
- * newer than the original shape (PRD Req 23). It is deliberately its own
- * declaration and NOT derived from SUPPORTED_COMMENT_FORMAT_VERSION: the two
- * mean different things, and bumping the supported version to 1.4.0 later must
- * not silently start stamping 1.4.0 on data that 1.0.0 can hold.
+ * newer than the current baseline shape (PRD Req 23). It is deliberately its
+ * own declaration and NOT derived from SUPPORTED_COMMENT_FORMAT_VERSION: the
+ * two mean different things, and bumping the supported version to 2.4.0 later
+ * must not silently start stamping 2.4.0 on data that 2.0.0 can hold.
+ * `2.0.0` here because `kind` is required on every record (issue #283): no
+ * older version can represent even the plainest 2.0.0 record.
  */
-export const BASELINE_COMMENT_FORMAT_VERSION = '1.0.0';
+export const BASELINE_COMMENT_FORMAT_VERSION = '2.0.0';
 
 /** A version parsed into its three numeric components. */
 export interface FormatVersionParts {
@@ -141,7 +144,7 @@ function asRecord(payload: unknown): Record<string, unknown> {
  * transformation first, then a valid version string taken at face value.
  * null means the declared version is uninterpretable — per PRD Req 5 that is
  * a signal to be careful, not to guess, so the caller treats it as
- * unsupported rather than assuming 1.0.0.
+ * unsupported rather than assuming a version.
  */
 function resolveVersion(record: Record<string, unknown>): string | null {
   for (const step of MIGRATIONS) {
@@ -165,11 +168,10 @@ const BASELINE_PARTS = parseFormatVersion(BASELINE_COMMENT_FORMAT_VERSION);
  * within the supported MAJOR parses normally (PRD Req 18). Within that MAJOR
  * the floor is the baseline's MINOR, not the supported one (issue #230):
  * every minor from the baseline up to the supported one really shipped, and
- * each is the previous shape plus optional fields, so a 1.1.0 reader
- * interprets a 1.0.0 store exactly as its own schema minus `color`. Below
- * the baseline nothing ever existed, so no transformation is registered and
- * PRD Req 30 forbids inventing one — Req 5's principle applies, an
- * uninterpretable version is a signal to be careful, not to guess.
+ * each is the previous shape plus optional fields. Below the baseline nothing
+ * of this MAJOR ever existed — Req 5's principle applies, an uninterpretable
+ * version is a signal to be careful, not to guess. A *lesser* MAJOR is the
+ * legacy case, decided by readCommentPayload itself (issue #283).
  */
 function isSupportedVersion(version: string): boolean {
   const parts = parseFormatVersion(version);
@@ -180,41 +182,47 @@ function isSupportedVersion(version: string): boolean {
 }
 
 /**
- * The keys this build understands at each level of the payload. Everything
- * else on an entry is unknown to this build and is retained verbatim rather
- * than dropped (PRD Req 19); a key listed here is parsed by the build's own
- * rules and is never also bagged (PRD Req 20), including when its value has
- * the wrong type — a wrong-typed known key is a schema question, not an
- * unknown one.
+ * PRD 023 §1 (issue #283): the per-kind known-key sets — what this build
+ * understands on each record kind, in the exact order the writer emits.
+ * `kind` leads (it is the discriminant a reader dispatches on), the shared
+ * identity fields follow, then the kind's own fields, then `anchor`.
+ * Everything else on a record is unknown to this build and is retained
+ * verbatim rather than dropped (PRD 004 Req 19) — with one deliberate
+ * exception: a key that is known to the OTHER kind (e.g. `color` on a
+ * comment record, `body` on a highlight record) is a *foreign known key*.
+ * It is ignored at parse — not interpreted, not bagged, not re-emitted —
+ * the same stance the seam takes on a wrong-typed known key: a known key is
+ * a schema question, never an unknown-key one (documented in
+ * docs/COMMENT-FORMAT.md, pinned by U1088/U1120).
  */
-export const COMMENT_KEYS: readonly string[] = [
+export const COMMENT_RECORD_KEYS: readonly string[] = [
+  'kind',
   'id',
   'author',
   'createdAt',
   'body',
   'resolved',
-  'color',
   'thread',
+  'anchor',
+];
+export const HIGHLIGHT_RECORD_KEYS: readonly string[] = [
+  'kind',
+  'id',
+  'author',
+  'createdAt',
+  'color',
   'anchor',
 ];
 export const REPLY_KEYS: readonly string[] = ['id', 'author', 'createdAt', 'body'];
 export const ANCHOR_KEYS: readonly string[] = ['exact', 'prefix', 'suffix', 'start', 'end'];
 
 /**
- * PRD 022 Req 5: the exact `color` vocabulary of format 1.1.0. The wire
- * format admits these four literals and nothing else; the type they narrow
- * to lives with CommentData in anchoring.ts.
+ * PRD 023 §3 (issue #283): the exact highlight `color` vocabulary of format
+ * 2.0.0 — `orange` replaces 1.1.0's `blue` (blue is the comment tint now).
+ * The wire format admits these four literals and nothing else; the type they
+ * narrow to lives with CommentData in anchoring.ts.
  */
-export const COMMENT_COLORS: readonly CommentColor[] = ['yellow', 'green', 'blue', 'pink'];
-
-/**
- * The lowest format version in which `color` exists — the field's Min
- * version in docs/COMMENT-FORMAT.md, consulted by stampedFormatVersion. A
- * literal for the version that introduced the field, deliberately not
- * derived from SUPPORTED_COMMENT_FORMAT_VERSION (same reasoning as the
- * baseline: the supported version moving on must not move this).
- */
-const COLOR_MIN_FORMAT_VERSION = '1.1.0';
+export const COMMENT_COLORS: readonly CommentColor[] = ['yellow', 'green', 'orange', 'pink'];
 
 const COMMENT_COLOR_SET: ReadonlySet<unknown> = new Set(COMMENT_COLORS);
 
@@ -223,7 +231,11 @@ function isCommentColor(value: unknown): value is CommentColor {
   return COMMENT_COLOR_SET.has(value);
 }
 
-const COMMENT_KEY_SET = new Set(COMMENT_KEYS);
+// The bag filter uses the UNION of both kinds' key sets, so a foreign known
+// key can never fall into the unknown-key bag by accident (issue #283): it
+// is decided by the rule above, not by whichever kind the record happens
+// to be.
+const RECORD_KEY_SET = new Set([...COMMENT_RECORD_KEYS, ...HIGHLIGHT_RECORD_KEYS]);
 const REPLY_KEY_SET = new Set(REPLY_KEYS);
 const ANCHOR_KEY_SET = new Set(ANCHOR_KEYS);
 
@@ -246,12 +258,12 @@ function bagUnknownKeys<T extends { extra?: RetainedKeys }>(
   return { ...known, extra: Object.fromEntries(unknown) };
 }
 
-/** True when this comment, one of its replies or its anchor retained a key. */
+/** True when this record, one of its replies or its anchor retained a key. */
 function hasRetained(c: CommentData): boolean {
   return (
     c.extra !== undefined ||
     c.anchor.extra !== undefined ||
-    c.thread.some((r) => r.extra !== undefined)
+    (c.kind === 'comment' && c.thread.some((r) => r.extra !== undefined))
   );
 }
 
@@ -321,7 +333,16 @@ function parseAnchor(o: Record<string, unknown>): Anchor {
  * that parse, deliberately, because a bag with nothing valid to hang off has
  * nowhere to be re-emitted from.
  *
- * `version` is the version the payload was interpreted at; a comment that
+ * PRD 023 §1 (issue #283): the check dispatches on the required `kind`
+ * discriminant first. A record with a missing, non-string or unrecognized
+ * `kind` is dropped whole — never crashed on, never guessed at. A comment
+ * record then needs its `body`; a highlight record needs a `color` inside
+ * the four-literal vocabulary — a highlight whose color is `"blue"` (1.1.0's
+ * vocabulary) or anything else outside it is dropped, deliberately harder
+ * than 1.1.0's "invalid color reads as absent", because a highlight IS its
+ * color: there is no colorless highlight to degrade to.
+ *
+ * `version` is the version the payload was interpreted at; a record that
  * retained anything from it remembers it, which is how a newer minor survives
  * a read → write round-trip without the caller threading it (PRD Req 21/24).
  */
@@ -335,25 +356,37 @@ function parseEntries(list: unknown, version: string): CommentData[] {
       typeof c.id !== 'string' ||
       typeof c.author !== 'string' ||
       typeof c.createdAt !== 'string' ||
-      typeof c.body !== 'string' ||
       !isAnchor(c.anchor)
     ) {
       continue;
     }
-    const comment: CommentData = {
-      id: c.id,
-      author: c.author,
-      createdAt: c.createdAt,
-      body: c.body,
-      resolved: c.resolved === true,
-      // PRD 022 Req 5: a `color` outside the four literals is a wrong-typed
-      // known key — treated as absent (the legacy tint), like `resolved:
-      // "yes"` coercing to false, and never bagged as unknown.
-      ...(isCommentColor(c.color) ? { color: c.color } : {}),
-      thread: Array.isArray(c.thread) ? c.thread.filter(isReply).map(parseReply) : [],
-      anchor: parseAnchor(c.anchor),
-    };
-    const parsed = bagUnknownKeys(comment, c, COMMENT_KEY_SET);
+    let known: CommentData;
+    if (c.kind === 'comment') {
+      if (typeof c.body !== 'string') continue;
+      known = {
+        kind: 'comment',
+        id: c.id,
+        author: c.author,
+        createdAt: c.createdAt,
+        body: c.body,
+        resolved: c.resolved === true,
+        thread: Array.isArray(c.thread) ? c.thread.filter(isReply).map(parseReply) : [],
+        anchor: parseAnchor(c.anchor),
+      };
+    } else if (c.kind === 'highlight') {
+      if (!isCommentColor(c.color)) continue;
+      known = {
+        kind: 'highlight',
+        id: c.id,
+        author: c.author,
+        createdAt: c.createdAt,
+        color: c.color,
+        anchor: parseAnchor(c.anchor),
+      };
+    } else {
+      continue; // missing/non-string/unrecognized kind: dropped whole (issue #283)
+    }
+    const parsed = bagUnknownKeys(known, c, RECORD_KEY_SET);
     out.push(hasRetained(parsed) ? { ...parsed, extraVersion: version } : parsed);
   }
   return out;
@@ -361,14 +394,28 @@ function parseEntries(list: unknown, version: string): CommentData[] {
 
 /**
  * Read a raw parsed payload (the result of `JSON.parse`, not a pre-validated
- * object) through the seam. Never throws: a payload that is not an object at
- * all carries no version key, so it is interpreted at 1.0.0 and contributes
- * zero comments — matching what parseSidecar did with such input before #15.
+ * object) through the seam. Never throws.
+ *
+ * PRD 023 §4 (issue #283): a payload at a LESSER MAJOR — a `1.x` version
+ * string, or a legacy coercion (the integer `1`, an absent version key, a
+ * non-object payload) resolving to `1.0.0` — is supported-but-empty: it
+ * contributes zero comments, raises no unreadable verdict, and is simply
+ * written over by the next save (Marky Mark is unreleased; PRD 023's
+ * non-goal is explicit that `1.x` stores are not migrated). A GREATER major
+ * and an uninterpretable version keep PRD 004's frozen-store behaviour:
+ * unsupported, zero comments, bytes preserved, authoring frozen.
  */
 export function readCommentPayload(payload: unknown): CommentFormatRead {
   const record = asRecord(payload);
   const version = resolveVersion(record);
-  if (version === null || !isSupportedVersion(version)) {
+  if (version === null) {
+    return { supported: false, declaredVersion: record.version };
+  }
+  const parts = parseFormatVersion(version);
+  if (parts !== null && SUPPORTED_PARTS !== null && parts.major < SUPPORTED_PARTS.major) {
+    return { supported: true, version, comments: [] }; // legacy: readable, empty (issue #283)
+  }
+  if (!isSupportedVersion(version)) {
     return { supported: false, declaredVersion: record.version };
   }
   return { supported: true, version, comments: parseEntries(record.comments, version) };
@@ -376,21 +423,17 @@ export function readCommentPayload(payload: unknown): CommentFormatRead {
 
 /**
  * The version to stamp on a write: the lowest one capable of representing the
- * data (PRD Req 23), which is the baseline unless some comment carries fields
+ * data (PRD Req 23), which is the baseline unless some record carries fields
  * retained from a newer version (PRD Req 24). It defers to the retained
- * *fields*, not to the version a file happened to declare, and when comments
+ * *fields*, not to the version a file happened to declare, and when records
  * from several reads are written together (mergeComments) the highest wins.
+ * Every 2.0.0 field's Min version IS the baseline (the kind split landed
+ * whole, issue #283), so no per-field minimum outranks it today; a future
+ * optional field brings its own Min literal here, like 1.1.0's `color` did.
  */
 export function stampedFormatVersion(comments: readonly CommentData[]): string {
   let stamp = BASELINE_COMMENT_FORMAT_VERSION;
   for (const c of comments) {
-    // PRD 022 Req 5: `color` is the one known field newer than the baseline
-    // shape, so an entry carrying it needs at least the version that
-    // introduced it — while a set whose entries all lack it still stamps the
-    // baseline (fields actually present decide, PRD 004 Req 23).
-    if (c.color !== undefined && compareFormatVersions(COLOR_MIN_FORMAT_VERSION, stamp) > 0) {
-      stamp = COLOR_MIN_FORMAT_VERSION;
-    }
     if (!hasRetained(c) || c.extraVersion === undefined) continue;
     if (compareFormatVersions(c.extraVersion, stamp) > 0) stamp = c.extraVersion;
   }
@@ -400,10 +443,11 @@ export function stampedFormatVersion(comments: readonly CommentData[]): string {
 /**
  * The payload both stores write: the same schema, the same `version` key in
  * the same place (PRD Req 26), differing only by container. Known keys are
- * emitted in a fixed order and retained keys follow in the order they were
- * read, so serializing twice produces identical bytes (PRD Req 27). The bag is
- * an in-memory field only — `extra`/`extraVersion` are never emitted, only
- * their contents, at the level they were found at.
+ * emitted in the fixed per-kind order of COMMENT_RECORD_KEYS /
+ * HIGHLIGHT_RECORD_KEYS and retained keys follow in the order they were
+ * read, so serializing twice produces identical bytes (PRD Req 27). The bag
+ * is an in-memory field only — `extra`/`extraVersion` are never emitted, only
+ * their contents, at the level they were read from.
  */
 export function commentPayload(comments: readonly CommentData[]): {
   version: string;
@@ -413,31 +457,45 @@ export function commentPayload(comments: readonly CommentData[]): {
     version: stampedFormatVersion(comments),
     comments: comments.map((c) =>
       withRetained(
-        {
-          id: c.id,
-          author: c.author,
-          createdAt: c.createdAt,
-          body: c.body,
-          resolved: c.resolved,
-          // PRD 022 Req 5: `color` holds a fixed slot in the key order —
-          // after `resolved`, before `thread` — and, being optional, is
-          // emitted only when present, so colorless data serializes to the
-          // exact 1.0.0 bytes it always did.
-          ...(c.color !== undefined ? { color: c.color } : {}),
-          thread: c.thread.map((r) =>
-            withRetained({ id: r.id, author: r.author, createdAt: r.createdAt, body: r.body }, r.extra),
-          ),
-          anchor: withRetained(
-            {
-              exact: c.anchor.exact,
-              prefix: c.anchor.prefix,
-              suffix: c.anchor.suffix,
-              start: c.anchor.start,
-              end: c.anchor.end,
+        c.kind === 'comment'
+          ? {
+              kind: c.kind,
+              id: c.id,
+              author: c.author,
+              createdAt: c.createdAt,
+              body: c.body,
+              resolved: c.resolved,
+              thread: c.thread.map((r) =>
+                withRetained({ id: r.id, author: r.author, createdAt: r.createdAt, body: r.body }, r.extra),
+              ),
+              anchor: withRetained(
+                {
+                  exact: c.anchor.exact,
+                  prefix: c.anchor.prefix,
+                  suffix: c.anchor.suffix,
+                  start: c.anchor.start,
+                  end: c.anchor.end,
+                },
+                c.anchor.extra,
+              ),
+            }
+          : {
+              kind: c.kind,
+              id: c.id,
+              author: c.author,
+              createdAt: c.createdAt,
+              color: c.color,
+              anchor: withRetained(
+                {
+                  exact: c.anchor.exact,
+                  prefix: c.anchor.prefix,
+                  suffix: c.anchor.suffix,
+                  start: c.anchor.start,
+                  end: c.anchor.end,
+                },
+                c.anchor.extra,
+              ),
             },
-            c.anchor.extra,
-          ),
-        },
         c.extra,
       ),
     ),
