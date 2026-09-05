@@ -114,8 +114,9 @@ describe('PRD 020 Req 5+6+9 visit intent and boot hand-off', () => {
     storeHostedBoot(store, { workspaceId: 'ws-42', uniqueName: 'notes', file: 'guides/intro.md' });
     expect(takeHostedBoot(store)).toEqual({ workspaceId: 'ws-42', uniqueName: 'notes', file: 'guides/intro.md' });
     // Read-and-clear: the gate re-mints the record from the canonical URL on
-    // every page load, so nothing stale can bind a later page (PRD 019 Req 3
-    // kept: a reload boots as a plain workspace binding, no scratch buffer).
+    // every page load, so nothing stale can bind a later page (PRD 023 Req 1:
+    // that re-mint is exactly what makes a reload of the bare own-scratch URL
+    // boot a fresh scratch buffer again, guard-free).
     expect(takeHostedBoot(store)).toBeNull();
     storeHostedBoot(store, { workspaceId: 'ws-42', scratch: true });
     expect(takeHostedBoot(store)).toEqual({ workspaceId: 'ws-42', scratch: true });

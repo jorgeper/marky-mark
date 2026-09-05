@@ -222,6 +222,27 @@ export function buildScratchPath(username: string, file: readonly string[] = [])
 }
 
 /**
+ * PRD 023 Reqs 1–5 (amending PRD 019 Req 10): the ONE scratch boot decision.
+ * A visit boots the fresh scratch buffer iff it enters the CALLER'S OWN
+ * scratch workspace with no target file — whatever route delivered it.
+ * `/scratch` is definitionally the caller's own; `/<username>/scratch`
+ * matches its username against the caller's handle case-insensitively, the
+ * way workspace-name matching itself does. A file segment (Req 2), someone
+ * else's scratch (Req 5), or a caller with no resolved handle boots nothing.
+ * Stateless on purpose (Req 4): re-entry asks the same question and gets the
+ * same yes, so the new buffer silently replaces whatever was open.
+ */
+export function scratchBootsFresh(target: AppPathTarget, callerHandle: string | undefined): boolean {
+  if (callerHandle === undefined) return false;
+  if (target.kind === 'scratch') return true;
+  return (
+    target.kind === 'user-scratch' &&
+    target.file.length === 0 &&
+    uniqueNameKey(target.username) === uniqueNameKey(callerHandle)
+  );
+}
+
+/**
  * PRD 020 Req 5: match a visited name against listing rows the same way the
  * server enforces uniqueness — case-insensitively via `uniqueNameKey`, so
  * `/Notes` and `/notes` open the same workspace. Rows without a unique name

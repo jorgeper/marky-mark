@@ -3920,15 +3920,16 @@ test.describe('PRD 017 in-app guest invitations', () => {
   });
 });
 
-test('E397: /scratch gates on sign-in, then lands on /<username>/scratch — untitled buffer in edit mode, canonical scratch URL, same workspace on a repeat visit', async ({
+test('E397: /scratch gates on sign-in, then lands on /<username>/scratch — untitled buffer in edit mode, canonical scratch URL, fresh again on the bare URL and its reload', async ({
   page,
 }) => {
-  // PRD 019 Req 1+2+3 as amended by PRD 020 Req 10+11 (issue #221): an
-  // unauthenticated visit to the /scratch shortcut shows the normal hosted
-  // sign-in gate; local dev mode never navigates, so completing sign-in
-  // continues to the caller's own scratch — resolved through the existing
-  // POST /api/me/scratchpad and normalized in place via history.replaceState
-  // before the platform binds.
+  // PRD 019 Req 1+2 as amended by PRD 020 Req 10+11 (issue #221) and PRD 023
+  // Req 1 (issue #290): an unauthenticated visit to the /scratch shortcut
+  // shows the normal hosted sign-in gate; local dev mode never navigates, so
+  // completing sign-in continues to the caller's own scratch — resolved
+  // through the existing POST /api/me/scratchpad and normalized in place via
+  // history.replaceState before the platform binds. Both bare URL forms and
+  // a reload of the canonical one all boot the fresh scratch buffer.
   const token = await signIn(page.request, 'alan');
   await dropDraft(page, token);
   await page.goto(`${HOSTED}/scratch`);
@@ -3957,11 +3958,21 @@ test('E397: /scratch gates on sign-in, then lands on /<username>/scratch — unt
   await expect(page.getByTestId('editor')).toBeVisible();
   expect(new URL(page.url()).pathname).toBe(scratchPath);
 
-  // Req 3: a reload of the rewritten URL boots as a PLAIN workspace binding
-  // — no scratch buffer re-opens, the binding alone is what survives.
+  // PRD 023 Req 1: a first-class visit to the bare canonical URL itself is
+  // an own-scratch, no-target-file entry — it boots fresh exactly like the
+  // shortcut form.
+  await page.goto(`${HOSTED}${scratchPath}`);
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe(scratchPath);
+
+  // PRD 023 Req 1 (amending PRD 019 Req 10): so is a browser reload of the
+  // canonical bare URL — the old "a reload just re-binds" guard is gone, and
+  // a fresh scratch buffer boots here too.
   await page.reload();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await expect(page.getByTestId('docname')).not.toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('editor')).toBeVisible();
   // PRD 020 Req 10: and the reloaded page keeps the canonical scratch URL.
   expect(new URL(page.url()).pathname).toBe(scratchPath);
 });
@@ -4143,6 +4154,92 @@ test('E405: /scratchpad is replaced, not kept — it resolves like any workspace
   await expect(page.getByTestId('hosted-not-found-message')).toContainText('scratchpad');
   // The way out is the page's own link back to the workspace list.
   await expect(page.getByTestId('hosted-not-found-home')).toBeVisible();
+});
+
+test('E433: the Open Workspace dialog’s badged "My scratch" row boots a fresh scratch buffer, while a scratch file URL boots none', async ({
+  page,
+}) => {
+  // PRD 023 Req 3 (issue #290): choosing your own scratch in the Open
+  // Workspace dialog is an "enter your scratch with no target file" entry —
+  // the row's existing navigation lands a full page load on the canonical
+  // bare URL, which now boots fresh with the same semantics as the URL
+  // forms. En route, Req 2: the file URL the test starts from opens that
+  // file and boots NO scratch buffer over it.
+  const token = await signIn(page.request, 'alan');
+  await dropDraft(page, token);
+  const resolve = await page.request.post(`${HOSTED}/api/me/scratchpad`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(resolve.status()).toBe(200);
+  const id = ((await resolve.json()) as { id: string }).id;
+  const put = await page.request.put(`${HOSTED}/api/workspaces/${id}/files/opened.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# Opened\n\nA scratch resident.\n',
+  });
+  expect(put.status()).toBe(200);
+
+  // PRD 023 Req 2: the file URL opens the file — no fresh buffer boots.
+  await page.goto(`${HOSTED}/alan/scratch/opened.md`);
+  await page.getByTestId('hosted-sign-in-username').fill('alan');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('docname')).toContainText('opened.md');
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Untitled' })).toHaveCount(0);
+
+  // PRD 023 Req 3: the badged "My scratch" row (PRD 019 Req 8) re-enters the
+  // scratch workspace with no target file — and lands in a fresh, empty
+  // scratch buffer in edit mode at the canonical bare URL.
+  await openAppMenu(page);
+  await page.getByTestId('menu-open-workspace').click();
+  await expect(page.getByTestId(`open-workspace-scratchpad-${id}`)).toBeVisible();
+  await page.getByTestId(`open-workspace-item-${id}`).click();
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/alan/scratch');
+  // The file the visit came from stays reachable in the sidebar — visible,
+  // not reopened over the fresh boot.
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'opened.md' })).toBeVisible();
+});
+
+test('E434: re-entering the scratch workspace over a dirty scratch buffer replaces it silently — no prompt, no beforeunload, a fresh empty buffer', async ({
+  page,
+}) => {
+  // PRD 023 Req 4 (issue #290): a scratch buffer — dirty or not — already on
+  // screen when the user re-enters the scratch workspace by any fresh-boot
+  // route is discarded with no unsaved-changes prompt and no beforeunload
+  // dialog (PRD 019 Req 11's exemption covers the close guard), and a new
+  // empty scratch buffer takes its place, still prompt-exempt.
+  const dialogs: string[] = [];
+  page.on('dialog', (dialog) => {
+    dialogs.push(dialog.type());
+    void dialog.accept();
+  });
+  const token = await signIn(page.request, 'katherine');
+  await dropDraft(page, token);
+  await page.goto(`${HOSTED}/scratch`);
+  await page.getByTestId('hosted-sign-in-username').fill('katherine');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('editor')).toBeVisible();
+
+  // Dirty the scratch buffer; the dot is the one "unsaved" signal shown.
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('doomed scratch text');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Re-enter by the canonical bare URL. (Drop any crash-safe shadow draft
+  // first: PRD 019 Req 11 keeps the SPEC30 §3 draft as a separate concern,
+  // and its boot-time restore offer is not the prompt under test here.)
+  await dropDraft(page, token);
+  await page.goto(`${HOSTED}/katherine/scratch`);
+
+  // PRD 023 Req 4: the dirty buffer is gone — silently — and a fresh empty
+  // scratch buffer stands in its place, in edit mode.
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.locator('.cm-content')).not.toContainText('doomed scratch text');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  expect(dialogs).toEqual([]);
 });
 
 // --- path-based URLs (PRD 020 Reqs 5–9, issue #220) --------------------------
