@@ -421,7 +421,7 @@ describe('PRD 012 Req 11: the remembered sidebar view', () => {
 });
 
 describe('PRD 023 §15 showComments setting (issue #284)', () => {
-  test('U1124: the pane defaults CLOSED, a bad stored value falls back, and the open state round-trips', () => {
+  test('U1135: the pane defaults CLOSED, a bad stored value falls back, and the open state round-trips', () => {
     // Closed by default — a fresh install (and a pre-#284 settings file with
     // no key at all) reads the document full-width.
     expect(DEFAULT_SETTINGS.showComments).toBe(false);
@@ -438,7 +438,7 @@ describe('PRD 023 §15 showComments setting (issue #284)', () => {
     expect(parseSettings('{"showComments":true}').showComments).toBe(true);
 
     // Machine-scoped like its layout neighbours, so it never travels to a
-    // shared layer (the merge exclusion itself is asserted in U1125).
+    // shared layer (the merge exclusion itself is asserted in U1136).
     expect(SETTINGS_SCOPES.showComments).toBe('M');
     expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain('showComments');
   });

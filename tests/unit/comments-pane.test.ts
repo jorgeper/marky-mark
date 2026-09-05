@@ -4,7 +4,7 @@ import { commentsPaneOpen, commentsSeamUp, type CommentsPaneState } from '../../
 const base: CommentsPaneState = { commentsEnabled: true, showComments: true, docOpen: true, zoomed: false };
 
 describe('PRD 023 §14–§15 comments pane visibility (issue #284)', () => {
-  test('U1126: the seam is per-document and mode-free; the pane follows the setting; every seam gate removes pane and chevron together', () => {
+  test('U1137: the seam is per-document and mode-free; the pane follows the setting; every seam gate removes pane and chevron together', () => {
     // Open document, comments enabled: chevron up, pane follows the setting.
     expect(commentsSeamUp(base)).toBe(true);
     expect(commentsPaneOpen(base)).toBe(true);
