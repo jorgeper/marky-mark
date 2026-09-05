@@ -306,10 +306,12 @@ export interface EditorProps {
   }): void;
   /**
    * SPEC23 §1: imperative select-source-range for mirrored preview
-   * selections — sets the CM selection and scrolls it into view WITHOUT
-   * focusing the editor (the preview selection must survive).
+   * selections — sets the CM selection WITHOUT focusing the editor (the
+   * preview selection must survive). `reveal` opts into scrolling the
+   * range into view (caret placement, search landings); the mirror omits
+   * it, because its reveal moved both panes (SPEC23 §1.3, issue #278).
    */
-  selectRangeRef?: MutableRefObject<((from: number, to: number) => void) | null>;
+  selectRangeRef?: MutableRefObject<((from: number, to: number, opts?: { reveal?: boolean }) => void) | null>;
   /**
    * SPEC25 §1: a selection carried across a mode switch — consumed once at
    * mount, applied AFTER the parked-history restore so it wins over the
@@ -1605,14 +1607,18 @@ export default function Editor({
     }
 
     // SPEC23 §1: mirrored selection entry point — no focus() here, ever.
+    // SPEC23 §1.3 (amended by issue #278): scroll-neutral by default — the
+    // mirror's old unconditional reveal scrolled the editor, and SPEC15's
+    // follower dragged the preview along with it. Callers that legitimately
+    // reveal (preview-click carets, search landings) pass `reveal: true`.
     if (selectRangeRef) {
-      selectRangeRef.current = (from, to) => {
+      selectRangeRef.current = (from, to, opts) => {
         const len = view.state.doc.length;
         const a = Math.max(0, Math.min(from, len));
         const b = Math.max(a, Math.min(to, len));
         view.dispatch({
           selection: { anchor: a, head: b },
-          effects: EditorView.scrollIntoView(a, { y: 'center' }),
+          effects: opts?.reveal ? [EditorView.scrollIntoView(a, { y: 'center' })] : [],
         });
       };
     }
