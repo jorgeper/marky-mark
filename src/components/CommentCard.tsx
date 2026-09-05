@@ -41,9 +41,11 @@ export function CommentCard({
 }: Props) {
   // PRD 023 §1 (issue #283): the card branches on the kind discriminant —
   // a comment record carries the note/thread/resolve lifecycle; a highlight
-  // record's card (active-only, per the PRD 022 Req 9 standing-card rule)
-  // offers recolor, "add note" and remove. `note` is that comment record, or
-  // null on a highlight: the one narrowing the whole card reads off.
+  // record's card offers "add note" and remove. `note` is that comment
+  // record, or null on a highlight: the one narrowing the whole card reads
+  // off. PRD 023 §16 (issue #284): the comments pane renders comment records
+  // only, so no app surface reaches the highlight branch today — it stays
+  // for the menu slice that gives a highlight its controls back (Req 9).
   const note = isComment(c) ? c : null;
   const resolved = note?.resolved ?? false;
   const [replying, setReplying] = useState(false);

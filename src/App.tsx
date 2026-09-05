@@ -767,6 +767,9 @@ export default function App() {
   const parkHistoryFixupRef = useRef<string | null>(null);
   const pendingHistoryRef = useRef<{ value: unknown } | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  // PRD 023 §14 (issue #284): the comments pane — the scroller the `.panel`
+  // card flow lives in, measured against by the flow pass.
+  const commentsPaneRef = useRef<HTMLElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const vimRef = useRef(new VimNavResolver());
@@ -6322,8 +6325,7 @@ export default function App() {
     if (!panel) return;
     // Anchor tops relative to the pane's SCROLL ORIGIN (rect top + scrollTop),
     // so the pane's own scrolling never re-aims the flow it is revealing.
-    const pane = panel.parentElement;
-    const panelTop = panel.getBoundingClientRect().top + (pane?.scrollTop ?? 0);
+    const panelTop = panel.getBoundingClientRect().top + (commentsPaneRef.current?.scrollTop ?? 0);
     const els = Array.from(panel.querySelectorAll<HTMLElement>('[data-flowcard]'));
     const entries = els.map((el) => {
       const key = el.dataset.flowcard!;
@@ -6375,10 +6377,13 @@ export default function App() {
     });
     panel.style.minHeight = `${Math.max(bottom, 0)}px`;
   };
+  // Every render lays the flow out again (this pass has always been
+  // dependency-free); the ref hands the same pass to the scroll listener
+  // below without re-subscribing it on each render.
   const layoutFlowCardsRef = useRef(layoutFlowCards);
-  layoutFlowCardsRef.current = layoutFlowCards;
   useLayoutEffect(() => {
-    layoutFlowCardsRef.current();
+    layoutFlowCardsRef.current = layoutFlowCards;
+    layoutFlowCards();
   });
   // PRD 023 §16 (issue #284): the pane no longer lives inside the document
   // scrollers, so a scroll moves the anchors without a re-render — re-run
@@ -6388,7 +6393,7 @@ export default function App() {
   useEffect(() => {
     let raf = 0;
     const onScroll = (e: Event) => {
-      if (e.target instanceof Element && e.target.closest('.comments-pane')) return;
+      if (e.target instanceof Node && commentsPaneRef.current?.contains(e.target)) return;
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => layoutFlowCardsRef.current());
     };
@@ -6725,9 +6730,10 @@ export default function App() {
 
   const handleMarkClick = (id: string) => {
     setActiveId(id);
-    // PRD 022 Req 9: a note-less entry's card enters the panel flow only on
-    // this activation — it isn't in the DOM yet, so scroll on the next frame
-    // (same feel for noted cards, which are already there).
+    // Activation re-lays the flow out (the active card anchors level with
+    // its mark, SPEC6 §2), so scroll on the next frame — once the card's top
+    // has settled. A highlight's mark has no card to reach at all since
+    // issue #284; the query simply finds nothing.
     requestAnimationFrame(() =>
       panelRef.current?.querySelector(`[data-flowcard="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' })
     );
@@ -6786,32 +6792,28 @@ export default function App() {
     canWrite: docGrants.commentWrite,
   });
 
-  // PRD 023 §14/§15 (issue #284): whether the comments pane is on screen —
-  // the pure predicate over the master switch, the persisted setting and an
-  // open document. Never the view mode: the pane is a third workspace pane
-  // in plain edit, full preview and split alike.
-  const commentsPaneWanted = commentsPaneOpen({
+  // PRD 023 §14/§15 (issue #284): the one input both pane predicates read —
+  // the master switch, the persisted setting and an open document. Never the
+  // view mode: the pane is a third workspace pane in plain edit, full
+  // preview and split alike.
+  const commentsPaneState = {
     commentsEnabled: settings.commentsEnabled,
     showComments,
     docOpen,
     zoomed: !!zoomDoc,
-  });
+  };
   // PRD 023 §14: the second chevron exists wherever the pane could —
   // independent of open/closed, so the closed pane can always be reopened.
-  const commentsSeam = commentsSeamUp({
-    commentsEnabled: settings.commentsEnabled,
-    showComments,
-    docOpen,
-    zoomed: !!zoomDoc,
-  });
+  const commentsSeam = commentsSeamUp(commentsPaneState);
+  // PRD 023 §15: …and the pane itself is on screen when the setting says so.
+  const commentsPaneWanted = commentsPaneOpen(commentsPaneState);
 
-  // PRD 023 §1 (issue #283): the navigator (pill + hotkeys) steps through
-  // comment records only — since issue #284 those are the only records with
-  // cards at all (`open` is already comment-only).
-  const navigable = open;
-  // Navigator pill label, frozen across the fade-out (SPEC14 §3.5).
-  const navIdx = activeId ? navigable.findIndex((c) => c.id === activeId) : -1;
-  if (navIdx >= 0) navLabelRef.current = `${navIdx + 1} / ${navigable.length}`;
+  // Navigator pill label, frozen across the fade-out (SPEC14 §3.5). PRD 023
+  // §1 (issue #283): the navigator steps through comment records only —
+  // since issue #284 those are the only records with cards at all, so `open`
+  // (already comment-only) IS the navigable set.
+  const navIdx = activeId ? open.findIndex((c) => c.id === activeId) : -1;
+  if (navIdx >= 0) navLabelRef.current = `${navIdx + 1} / ${open.length}`;
 
   // PRD 023 §16 (issue #284): ONE home for the cards — the pane at the
   // body-row's right edge (rendered below), in every mode. The `.panel` flow
@@ -7781,7 +7783,7 @@ export default function App() {
           PRD 003 Req 9: it stays mounted through the exit slide. */}
       {commentsPaneMounted && (
         <div className={`comments-slide${commentsSliding ? ' sliding' : ''}${commentsOut ? ' out' : ''}`}>
-          <aside className="comments-pane" data-testid="comments-pane">
+          <aside className="comments-pane" data-testid="comments-pane" ref={commentsPaneRef}>
             {panelInner}
           </aside>
         </div>

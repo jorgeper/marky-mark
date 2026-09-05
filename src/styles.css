@@ -940,18 +940,19 @@ mark.hl.ghost[data-color] {
 
 /* ---------- comments panel ---------- */
 
+/* The card flow itself. Issue #284: its one host is .comments-pane above —
+   it fills that pane's fixed width, padding included. */
 .panel {
   width: 300px;
-  box-sizing: border-box; /* issue #284: fills the 300px pane, padding included */
-  flex-shrink: 0;
+  box-sizing: border-box;
   padding: 40px 24px 96px 8px;
   /* Containing block for the absolutely-positioned, animated-top cards
      (SPEC6 §2). Plain relative — NOT sticky (#20's `sticky; right: 0`
      pinned the panel to the scrollport's edge, drawing the cards on top of
-     the doc text whenever the host pane overflowed sideways, #24). In flow
-     the panel always sits to the right of the doc; when doc floor + panel
-     outgrow the pane, the pane's overflow-x scrollbar takes over, and the
-     cards keep their right-edge gap (#19/#20) once scrolled into view. */
+     the doc text whenever the host pane overflowed sideways, #24). Since
+     issue #284 the flow has a pane of its own, disjoint from the document
+     scrollers, so no width the document takes can reach the cards' own
+     right-edge gap (#19/#20). */
   position: relative;
 }
 
@@ -959,7 +960,7 @@ mark.hl.ghost[data-color] {
   position: absolute;
   left: 8px;
   /* #19: a clearly visible gap between the cards and the window's right
-     border — the panel sits flush against it in both preview hosts. */
+     border — the pane the panel fills sits flush against it (issue #284). */
   right: 24px;
   transition: top 180ms ease;
 }
