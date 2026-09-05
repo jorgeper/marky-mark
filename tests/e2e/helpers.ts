@@ -235,6 +235,21 @@ export async function addComment(page: Page, phrase: string, body: string): Prom
   await page.getByTestId('composer-submit').click();
 }
 
+/**
+ * Issue #284 (PRD 023 §15): the comments pane ships CLOSED — a session that
+ * only loads stored comments (no in-session authoring, which auto-opens it)
+ * must open the pane before asserting on cards. Idempotent: waits for the
+ * chevron in either state and clicks only the closed one.
+ */
+export async function openCommentsPane(page: Page): Promise<void> {
+  const chevron = page.getByTestId('comments-expand').or(page.getByTestId('comments-collapse'));
+  await chevron.first().waitFor();
+  if (await page.getByTestId('comments-expand').count()) {
+    await page.getByTestId('comments-expand').click();
+  }
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+}
+
 /** Wait until the autosaved sidecar (debounced 800 ms) satisfies `predicate`. */
 export async function waitForSidecar(
   page: Page,

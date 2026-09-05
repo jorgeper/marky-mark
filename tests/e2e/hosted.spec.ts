@@ -18,7 +18,7 @@ import {
 // the module that owns the format, so a rephrased size fails here loudly.
 import { formatByteSize } from '../../src/lib/deploymentAdmin';
 import { expect, test } from './fixtures';
-import { addComment, clickClearOfToolbar, landInPreview, menuSave, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
+import { addComment, clickClearOfToolbar, landInPreview, menuSave, openCommentsPane, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
 // PRD 011 Req 9 (#121): the sentence under test comes from the module that
 // owns it, so a reworded message fails E246 rather than passing a stale copy.
 import { NO_LLM_CONFIGURED_MESSAGE } from '../../src/lib/llmDeployment';
@@ -588,6 +588,7 @@ test('E331: a comment one member writes is a workspace blob the next member read
   await signOut(page);
   await signInTo(page, 'grace', id);
   await openFromSidebar(page, 'shared.md');
+  await openCommentsPane(page); // issue #284: stored comments need the pane opened
   await expect(page.getByTestId('comment-card')).toHaveCount(1);
   await expect(page.getByTestId('comment-card')).toContainText('Ada was here');
 });
@@ -2096,6 +2097,7 @@ test('E205: a Commenter comments on a document they cannot edit, and a second me
   await signOut(page);
   await signInTo(page, 'ada', id);
   await openFromSidebar(page, 'shared.md');
+  await openCommentsPane(page); // issue #284: stored comments need the pane opened
   await expect(page.getByTestId('comment-card')).toContainText('Grace may comment');
 });
 
@@ -2234,6 +2236,7 @@ test('E208: comment.read gates whether comments load at all, and comment.write w
   await signOut(page);
   await signInTo(page, 'grace', id);
   await openFromSidebar(page, 'talked.md');
+  await openCommentsPane(page); // issue #284: stored comments need the pane opened
   await expect(page.getByTestId('comment-card')).toContainText('Ada started a thread');
   await selectPhrase(page, PHRASE);
   await expect(page.getByTestId('marker-popup')).toHaveCount(0);
@@ -2256,6 +2259,7 @@ test('E208: comment.read gates whether comments load at all, and comment.write w
   await signInTo(page, 'alan', noComments);
   await openFromSidebar(page, 'talked.md');
   await expect(page.getByTestId('docname')).toContainText('talked.md');
+  await openCommentsPane(page); // issue #284: even open, the pane holds nothing for him
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
   const alan = await signIn(request, 'alan');
   const read = await request.get(`${HOSTED}/api/workspaces/${noComments}/files/talked.md.comments.json`, {
@@ -4682,7 +4686,9 @@ test('E429: the active highlight reveals a left-margin copy-link that copies the
   await clickClearOfToolbar(page.getByTestId('marker-swatch-yellow'));
   const mark = page.locator('mark.hl').first();
   await mark.click();
-  await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
+  // Issue #284 (PRD 023 §16): a highlight has no card — activation shows on
+  // the marks, and the copy-link graft below is mark-side as ever.
+  await expect(page.locator('mark.hl.active').first()).toBeVisible();
 
   // The control names its target (the #227 convention) and sits at the left
   // margin level with the highlight's first line.
@@ -4820,6 +4826,7 @@ test('E432: an active highlight on an untitled buffer offers no copy-link — no
   await clickClearOfToolbar(page.getByTestId('marker-swatch-yellow'));
   const mark = page.locator('mark.hl').first();
   await mark.click();
-  await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
+  // Issue #284 (PRD 023 §16): activation shows on the marks — no card.
+  await expect(page.locator('mark.hl.active').first()).toBeVisible();
   await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
 });

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { type CommentColor, type CommentData, isComment, MARKER_COLORS } from '../lib/anchoring';
+import { type CommentData, isComment } from '../lib/anchoring';
 import { timeAgo } from '../lib/time';
 import { Button } from './ui/Button';
 
@@ -22,8 +22,6 @@ interface Props {
   onActivate: (id: string) => void;
   onUpdate: (next: CommentData) => void;
   onDelete: (id: string) => void;
-  /** PRD 022 Req 8 (issue #232): a swatch on the active card recolors the highlight. */
-  onRecolor: (id: string, color: CommentColor) => void;
 }
 
 function newId(): string {
@@ -40,7 +38,6 @@ export function CommentCard({
   onActivate,
   onUpdate,
   onDelete,
-  onRecolor,
 }: Props) {
   // PRD 023 §1 (issue #283): the card branches on the kind discriminant —
   // a comment record carries the note/thread/resolve lifecycle; a highlight
@@ -225,26 +222,8 @@ export function CommentCard({
         </div>
       )}
 
-      {/* PRD 022 Req 8 (issue #232), narrowed by PRD 023 §1 (issue #283): the
-          active HIGHLIGHT card offers recolor — the four marker swatches in
-          MARKER_COLORS order, the entry's current color wearing the ring. A
-          comment record has no color to change, so its card has no swatch
-          row. An authoring control, withheld read-only like the rest. */}
-      {active && !readOnly && c.kind === 'highlight' && (
-        <div className="row card-swatches" data-testid="card-swatches" onClick={stop}>
-          {MARKER_COLORS.map((color) => (
-            <button
-              key={color}
-              className={`icon-btn marker-swatch marker-swatch-${color}${c.color === color ? ' armed' : ''}`}
-              data-testid={`card-swatch-${color}`}
-              aria-label={`Recolor ${color}`}
-              aria-pressed={c.color === color}
-              onClick={() => onRecolor(c.id, color)}
-            />
-          ))}
-        </div>
-      )}
-
+      {/* PRD 023 §16 (issue #284): the recolor swatch row is gone — only
+          comment records reach the pane, and a comment has no color. */}
       {!readOnly && (
         <div className="row controls" onClick={stop}>
           {confirmingDelete ? (

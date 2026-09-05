@@ -667,11 +667,12 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
   await expect.poll(() => gapOf('comment-card')).toBeGreaterThanOrEqual(16);
   await expect.poll(() => gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
 
-  // The #20 repro: the shipped paneMinWidth (768px) makes the split pane's
-  // content (doc floor + 300px panel) overflow sideways at this 1280px
-  // window. #24's model: the panel stays in flow beside the doc — never
-  // drawn over the text — and the pane grows a horizontal scrollbar;
-  // scrolling fully right brings the cards into view with the gap intact.
+  // Rewritten for issue #284 (PRD 023 §14–§16): the panel left the split
+  // pane — it is a 300px body-row sibling at the window's right edge now.
+  // The #20/#24 narrow-window model becomes: the PANE keeps its full width
+  // and its right-edge card gap; the workspace (doc floor 768px squeezed by
+  // the pane at this 1280px window) is what scrolls sideways, and the pane
+  // is never drawn over the document — they are disjoint boxes.
   await waitForSidecar(page, (s) => !!s && s.includes('second note'));
   const raw = await fsRead(page, '/config/settings.json');
   const settings = raw ? JSON.parse(raw) : {};
@@ -680,45 +681,27 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
   await page.reload();
   await openWelcomeViaHelp(page);
   await expect(page.getByTestId('comment-card').first()).toBeVisible();
-  await expect.poll(() => gapOf('comment-card')).toBeGreaterThanOrEqual(16); // preview still fits
+  await expect.poll(() => gapOf('comment-card')).toBeGreaterThanOrEqual(16); // preview keeps the gap
   await page.keyboard.press('Control+e');
-  const pane = page.getByTestId('split-preview');
-  await expect(pane).toBeVisible();
+  await expect(page.getByTestId('split-preview')).toBeVisible();
   await expect(page.getByTestId('comment-card').first()).toBeVisible();
 
-  /** Measured geometry (#24): the box must sit fully right of the doc's box. */
-  const clearOfDoc = async (testId: string) => {
-    // Both rects move while the split settles — poll the relation itself.
-    await expect
-      .poll(async () => {
-        const doc = (await pane.locator('.doc').boundingBox())!;
-        const box = (await page.getByTestId(testId).first().boundingBox())!;
-        return box.x - (doc.x + doc.width);
-      })
-      .toBeGreaterThanOrEqual(0);
-  };
-
-  // Overflow, not overlay: the pane scrolls sideways…
-  const scroll = await pane.evaluate((el) => ({
-    left: el.scrollLeft,
-    width: el.scrollWidth,
-    client: el.clientWidth,
-  }));
-  expect(scroll.width).toBeGreaterThan(scroll.client);
-  // …and at scroll-left 0 the doc text is unobscured — the panel and its
-  // cards are beside the doc in flow, not on top of it.
-  expect(scroll.left).toBe(0);
-  await clearOfDoc('panel');
-  await clearOfDoc('comment-card');
-  // Scrolled fully right, the cards come into view, still clear of the doc,
-  // with the #19/#20 right-edge gap intact.
-  await pane.evaluate((el) => {
-    el.scrollLeft = el.scrollWidth;
-  });
-  await clearOfDoc('panel');
-  await clearOfDoc('comment-card');
+  // The pane holds its fixed 300px against the squeeze (no responsive
+  // shrink — PRD non-goal) and the cards keep the #19/#20 gap.
+  const paneBox = (await page.getByTestId('comments-pane').boundingBox())!;
+  expect(Math.round(paneBox.width)).toBe(300);
   await expect.poll(() => gapOf('comment-card')).toBeGreaterThanOrEqual(16);
   await expect.poll(() => gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
+
+  // Overflow, not overlay: narrow windows scroll exactly as today — the
+  // squeezed split-preview PANE grows the horizontal scrollbar (its content
+  // floors at 768px inside the ~490px half) — and the workspace never
+  // extends beneath the pane's box.
+  const sp = page.getByTestId('split-preview');
+  const scroll = await sp.evaluate((el) => ({ width: el.scrollWidth, client: el.clientWidth }));
+  expect(scroll.width).toBeGreaterThan(scroll.client);
+  const wsBox = (await page.locator('.workspace').boundingBox())!;
+  expect(wsBox.x + wsBox.width).toBeLessThanOrEqual(paneBox.x + 1);
 });
 
 test('E137: a newer-major trailer — the doc opens and edits normally, and its trailer survives saves byte-for-byte', async ({
@@ -889,22 +872,30 @@ test('E140: a frozen document’s resolved cards are read-only too, inside the c
 });
 // --- Issue #38: the "Add comment" gate, verdict tests + the plain-edit affordance ----
 
-test('E151: comments hidden (Mod+Shift+C) with the master switch ON — selection offers no button until shown again', async ({
+// Rewritten for issue #284 (PRD 023 §15/§17): Mod+Shift+C toggles the
+// comments PANE now, and the pane's state no longer gates authoring — the
+// selection affordances stay offered with the pane closed (inserting a
+// comment auto-opens it, E437).
+test('E151: Mod+Shift+C toggles the comments pane; the selection affordances are independent of it', async ({
   page,
 }) => {
-  // The `showComments` conjunct alone (E36 covers commentsEnabled off).
-  await page.keyboard.press('Control+Shift+C');
-  await expect(page.getByTestId('comments-toggle')).not.toHaveClass(/active/);
+  // Closed by default (PRD 023 §15) — and the closed pane hides no authoring.
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await expect(page.getByTestId('comments-expand')).toBeVisible();
   await selectPhrase(page, PHRASE);
-  await page.waitForTimeout(200);
-  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
-  // Type-to-comment stays closed too (same gate in the SPEC7 §3 effect).
-  await page.keyboard.press('x');
-  await page.waitForTimeout(150);
-  await expect(page.getByTestId('composer')).toHaveCount(0);
+  await expect(page.getByTestId('marker-popup')).toBeVisible();
+  await page.keyboard.press('Escape');
 
-  // Showing comments again is the only change — the button comes right back.
+  // The hotkey opens the pane; toolbar button and chevron agree on state.
   await page.keyboard.press('Control+Shift+C');
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(page.getByTestId('comments-collapse')).toBeVisible();
+  await expect(page.getByTestId('comments-toggle')).toHaveClass(/(^|\s)on(\s|$)/);
+
+  // …and closes it again; the popup is still offered afterwards.
+  await page.keyboard.press('Control+Shift+C');
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await expect(page.getByTestId('comments-toggle')).not.toHaveClass(/(^|\s)on(\s|$)/);
   await selectPhrase(page, PHRASE);
   await expect(page.getByTestId('marker-popup')).toBeVisible();
 });
@@ -970,7 +961,7 @@ test('E153: plain edit mode reaches a comment — the affordance rides the SPEC2
   expect(await fsRead(page, sidecarPath)).toContain('alpha bravo charlie delta.');
 });
 
-test('E154: the edit-mode affordance obeys every gate — frozen store, hidden comments, master switch off', async ({
+test('E154: the edit-mode affordance obeys every gate — frozen store, master switch off — and ignores the pane toggle (issue #284)', async ({
   page,
 }) => {
   // PRD 004 Req 15: a frozen document closes this authoring route too.
@@ -1001,13 +992,15 @@ test('E154: the edit-mode affordance obeys every gate — frozen store, hidden c
   const afford = page.getByTestId('marker-popup-edit');
   await expect(afford).toBeVisible();
 
-  // …until comments are hidden (Mod+Shift+C)…
+  // Issue #284 (PRD 023 §15): toggling the PANE (Mod+Shift+C) no longer
+  // withholds the affordance — authoring feeds the pane and auto-opens it,
+  // so the route stays offered with the pane open or closed alike.
   await page.keyboard.press('Control+Shift+C');
-  await expect(afford).toHaveCount(0);
+  await expect(afford).toBeVisible();
   await page.keyboard.press('Control+Shift+C');
   await expect(afford).toBeVisible();
 
-  // …or the master switch goes off (SPEC7 §2).
+  // …until the master switch goes off (SPEC7 §2).
   await openSettings(page, 'general');
   await page.getByTestId('set-comments-enabled').uncheck();
   await page.getByTestId('settings-close').click();
@@ -1197,39 +1190,40 @@ test('E418: issue #283 — a pre-2.0.0 sidecar opens with no annotations and no 
   expect(rewritten).not.toContain('an old note'); // the 1.x annotations are gone, by design
 });
 
-test('E420: PRD 022 Req 8 — recoloring from the active card repaints the marks, persists, and re-arms the popup', async ({
+// Rewritten for issue #284 (PRD 023 §16): the card swatch row is gone with
+// the highlight's transient card — recolor has NO surface in this slice, by
+// design (PRD 023 Req 9 restores it in the menu slice). The entry keeps its
+// color untouched on disk.
+test('E420: recolor has no surface — an activated highlight grows no card and no swatches, and its color persists unchanged', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);
   await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
   const mark = page.locator('mark.hl').first();
   await expect(mark).toHaveAttribute('data-color', 'green');
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "green"'));
 
-  // Clicking the highlight activates its card, which offers the four swatches
-  // with the entry's current color ringed.
+  // Open the pane, then activate the highlight: no card enters the flow and
+  // no swatch surface exists anywhere in the pane.
+  await page.keyboard.press('Control+Shift+C');
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
   await mark.click();
-  const card = page.getByTestId('comment-card');
-  await expect(card).toHaveClass(/active/);
-  await expect(card.getByTestId('card-swatch-green')).toHaveAttribute('aria-pressed', 'true');
-  await card.getByTestId('card-swatch-pink').click();
+  await expect(page.locator('mark.hl.active').first()).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+  await expect(page.getByTestId('card-swatches')).toHaveCount(0);
 
-  // The marks repaint immediately and the entry persists recolored, still
-  // note-less.
-  await expect(page.locator('mark.hl').first()).toHaveAttribute('data-color', 'pink');
-  await waitForSidecar(page, (s) => !!s && s.includes('"color": "pink"'));
+  // The entry persists exactly as created — still a note-less green highlight.
   const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
   expect(sidecar.comments).toHaveLength(1);
   expect(sidecar.comments[0].kind).toBe('highlight');
-  expect(sidecar.comments[0].color).toBe('pink');
+  expect(sidecar.comments[0].color).toBe('green');
   expect(sidecar.comments[0].body).toBeUndefined();
-
-  // Req 4: recoloring re-arms the last-used color for the next selection.
-  await selectPhrase(page, 'GitHub-flavored markdown');
-  const popup = page.getByTestId('marker-popup');
-  await expect(popup.locator('.marker-swatch').first()).toHaveAttribute('data-testid', 'marker-swatch-pink');
 });
 
-test('E421: PRD 022 Req 9 — a note-less highlight has no standing card; its card appears while active and leaves on deactivation', async ({
+// Rewritten for issue #284 (PRD 023 §16): the PRD 022 Req 9 transient
+// active-highlight card is gone — a highlight NEVER produces a card in the
+// pane, active or not. Activation still marks the text (SPEC14 §3.1).
+test('E421: a highlight has no card at all — activation tints the marks, the pane stays card-free, the pill stays hidden', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);
@@ -1237,82 +1231,88 @@ test('E421: PRD 022 Req 9 — a note-less highlight has no standing card; its ca
   const mark = page.locator('mark.hl').first();
   await expect(mark).toBeVisible();
 
-  // No standing card in the margin flow for the note-less entry.
+  // Pane open, highlight active: still no card and no pill.
+  await page.keyboard.press('Control+Shift+C');
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
-
-  // Clicking the highlight brings its card in, active…
   await mark.click();
-  await expect(page.getByTestId('comment-card')).toHaveCount(1);
-  await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
-  // …but the navigator pill stays hidden: nav steps over noted entries only.
+  await expect(page.locator('mark.hl.active').first()).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
   await expect(page.getByTestId('comment-nav')).toBeHidden();
 
-  // Click-away deactivates (SPEC14 §3.1) and the card leaves the panel.
+  // Click-away deactivates (SPEC14 §3.1); the pane is unchanged.
   await page.getByTestId('doc').locator('h1').click();
+  await expect(page.locator('mark.hl.active')).toHaveCount(0);
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
 });
 
-test('E422: PRD 022 Req 8 — adding a note from the active card authors a comment record in the highlight’s place (issue #283)', async ({
+// Rewritten for issue #284 (PRD 023 §16): with the highlight's transient
+// card retired, the card-side "add note" route is gone with it — a
+// highlight's note/remove surfaces return in the menu slice (PRD 023 Reqs
+// 8–9). The popup's "add note" (a fresh comment record, E416) is the one
+// note-authoring route this slice keeps.
+test('E422: an active highlight offers no card-side add-note — the record stays a highlight on disk', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);
   await clickClearOfToolbar(page.getByTestId('marker-swatch-orange'));
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "orange"'));
+  await page.keyboard.press('Control+Shift+C');
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
   await page.locator('mark.hl').first().click();
 
-  const card = page.getByTestId('comment-card');
-  await card.getByTestId('card-add-note').click();
-  await card.getByTestId('edit-input').fill('now it has a note');
-  await card.getByTestId('save-edit').click();
-  await expect(card.getByTestId('card-body')).toHaveText('now it has a note');
+  await expect(page.locator('mark.hl.active').first()).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+  await expect(page.getByTestId('card-add-note')).toHaveCount(0);
 
-  // A comment from here on: the card stands in the panel after deactivation,
-  // and the entry was re-authored as a kind:"comment" record — same id slot,
-  // the marker color dropped (a comment renders in the comment tint).
-  await page.getByTestId('doc').locator('h1').click();
-  await expect(page.getByTestId('comment-card')).toHaveCount(1);
-  await expect(page.getByTestId('comment-card')).not.toHaveClass(/active/);
-  await waitForSidecar(page, (s) => !!s && s.includes('now it has a note'));
+  // Nothing was re-authored: still ONE note-less highlight record.
   const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
   expect(sidecar.comments).toHaveLength(1);
-  expect(sidecar.comments[0].kind).toBe('comment');
-  expect(sidecar.comments[0].color).toBeUndefined();
-  await expect(page.locator('mark.hl[data-color]')).toHaveCount(0); // comment tint now
+  expect(sidecar.comments[0].kind).toBe('highlight');
+  expect(sidecar.comments[0].body).toBeUndefined();
 });
 
-test('E423: PRD 022 Reqs 6+8 — a note-less card offers no reply/resolve, and Remove deletes the entry and unpaints its marks', async ({
+// Rewritten for issue #284 (PRD 023 §16): the note-less card this test drove
+// no longer exists — reply/resolve/edit stay comment-card affordances, and a
+// highlight's remove surface is deferred to the menu slice (PRD 023 Req 9).
+test('E423: comment cards keep reply/resolve/delete; a highlight, cardless, exposes none of them', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);
   await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
   await waitForSidecar(page, (s) => !!s && s.includes('"color": "green"'));
-  await page.locator('mark.hl').first().click();
+  await addComment(page, 'GitHub-flavored markdown', 'a real thread');
 
-  // Reply and resolve are withheld until a note exists; recolor, add-note and
-  // remove are what the card offers.
+  // The pane holds exactly the comment's card — the highlight contributes
+  // nothing, so every visible authoring control belongs to the comment.
   const card = page.getByTestId('comment-card');
-  await expect(card.getByTestId('card-swatches')).toBeVisible();
-  await expect(card.getByTestId('card-add-note')).toBeVisible();
-  await expect(card.getByTestId('reply-btn')).toHaveCount(0);
-  await expect(card.getByTestId('resolve-btn')).toHaveCount(0);
-  await expect(card.getByTestId('edit-btn')).toHaveCount(0);
+  await expect(card).toHaveCount(1);
+  await expect(card.getByTestId('reply-btn')).toBeVisible();
+  await expect(card.getByTestId('resolve-btn')).toBeVisible();
+  await expect(card.getByTestId('delete-btn')).toHaveText('Delete');
+  await expect(page.getByTestId('card-add-note')).toHaveCount(0);
+  await expect(page.getByTestId('card-swatches')).toHaveCount(0);
 
-  // Remove deletes without the thread confirmation — there is no thread.
-  await expect(card.getByTestId('delete-btn')).toHaveText('Remove');
+  // Deleting the comment leaves the highlight's marks painted and its record
+  // on disk — the two kinds' lifecycles stay independent.
   await card.getByTestId('delete-btn').click();
+  await card.getByTestId('confirm-delete').click();
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
-  await expect(page.locator('mark.hl')).toHaveCount(0);
-  await waitForSidecar(page, (s) => !s || !s.includes('"color": "green"'));
+  await expect(page.locator('mark.hl[data-color="green"]').first()).toBeVisible();
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "green"') && !s.includes('a real thread'));
 });
 
 test('E428: PRD 022 Req 10 — off the hosted platform an active highlight offers no copy-link control', async ({
   page,
 }) => {
   // PRD 020 Req 15 gates every share placement hosted-only; the dev shim
-  // (this suite's platform) activates the card fine but grafts no control.
+  // (this suite's platform) activates the marks fine but grafts no control.
+  // Issue #284 (PRD 023 §16): activation shows on the marks — a highlight
+  // has no card to carry the state any more.
   await selectPhrase(page, PHRASE);
   await clickClearOfToolbar(page.getByTestId('marker-swatch-yellow'));
   await page.locator('mark.hl').first().click();
-  await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
+  await expect(page.locator('mark.hl.active').first()).toBeVisible();
   await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
 });
 
@@ -1340,7 +1340,7 @@ test('E424: PRD 022 Req 12 — a highlight paints in the plain-edit editor as a 
   expect(await hl.first().evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
 });
 
-test('E425: PRD 022 Req 12 — the split-edit editor paints too, and clicking a painted range activates the card in the preview panel', async ({
+test('E425: PRD 022 Req 12 — the split-edit editor paints too, and clicking a painted range activates the marks in the preview', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);
@@ -1354,13 +1354,13 @@ test('E425: PRD 022 Req 12 — the split-edit editor paints too, and clicking a 
   await expect(hl.first()).toBeVisible();
   await expect(hl.first()).toHaveAttribute('data-color', 'orange');
 
-  // The note-less entry has no standing card until the editor click brings
-  // its transient active card into the panel — same outcome as clicking the
-  // preview mark (issue #232).
+  // Issue #284 (PRD 023 §16): a highlight never grows a card, so the editor
+  // click's activation shows on the preview marks — same outcome as clicking
+  // the preview mark itself (issue #232's routing, minus the retired card).
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
   await hl.first().click();
-  await expect(page.getByTestId('comment-card')).toHaveCount(1);
-  await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
+  await expect(page.locator('mark.hl.active').first()).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
 });
 
 test('E426: PRD 022 Req 12 — anchors the source cannot place confidently (absent or ambiguous quotes) do not paint in the editor', async ({
@@ -1441,4 +1441,129 @@ test('E427: PRD 022 Req 12 — plain edit is paint-only: a click just places the
   await page.keyboard.type('X');
   await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('X');
   await expect(hl).toHaveCount(0);
+});
+
+// --- Issue #284 (PRD 023 Reqs 14–17): the dedicated comments pane ----------
+
+test('E435: the comments pane ships closed; the second chevron opens and closes it; the state survives a reload; print never shows it', async ({
+  page,
+}) => {
+  // Closed by default (PRD 023 §15): no pane, and the chevron shows the
+  // closed state at the right of the workspace's top-right cluster.
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await expect(page.getByTestId('comments-expand')).toBeVisible();
+
+  // The chevron opens the pane — fixed at 300px (PRD 023 §15), the
+  // second-plane backdrop under the workspace's seam.
+  await page.getByTestId('comments-expand').click();
+  const pane = page.getByTestId('comments-pane');
+  await expect(pane).toBeVisible();
+  await expect(page.getByTestId('comments-collapse')).toBeVisible();
+  await expect.poll(async () => Math.round((await pane.boundingBox())!.width)).toBe(300);
+  // …at the workspace's right edge: the pane's right edge is the window's
+  // (polled — the 180ms entry slide has to settle first).
+  const innerWidth = await page.evaluate(() => window.innerWidth);
+  await expect
+    .poll(async () => {
+      const b = (await pane.boundingBox())!;
+      return Math.round(b.x + b.width);
+    })
+    .toBe(innerWidth);
+
+  // Print (PRD 023 §15): the pane is chrome — never on paper.
+  await page.emulateMedia({ media: 'print' });
+  await expect.poll(() => page.locator('.comments-slide').evaluate((el) => getComputedStyle(el).display)).toBe('none');
+  await page.emulateMedia({ media: 'screen' });
+
+  // Open state persists across a reload (PRD 023 §15)…
+  await page.reload();
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+
+  // …and so does closed, via the open pane's chevron.
+  await page.getByTestId('comments-collapse').click();
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await page.reload();
+  await openWelcomeViaHelp(page);
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await expect(page.getByTestId('comments-expand')).toBeVisible();
+});
+
+test('E436: the pane is the single home for cards in all three modes — full preview, split, and plain edit', async ({
+  page,
+}) => {
+  // Full preview: authoring lands the card in the pane (which auto-opened).
+  await addComment(page, PHRASE, 'a card for every mode');
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  // …and the in-preview aside is gone for good (PRD 023 §16): the panel
+  // lives in the pane, not in the preview's scroller.
+  await expect(page.locator('.workspace .panel')).toHaveCount(0);
+  await expect(page.getByTestId('comments-pane').getByTestId('panel')).toBeVisible();
+
+  // Split edit: same pane, same card, reached by the same state.
+  await page.keyboard.press('Control+e'); // splitEdit defaults on
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.locator('[data-testid="split-preview"] .panel')).toHaveCount(0);
+
+  // Plain edit: the split closes, the pane stays — the card flow anchors
+  // against the editor's painted decoration (PRD 022 Req 12's .mm-hl).
+  await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  const hl = page.getByTestId('editor').locator('.mm-hl').first();
+  await expect(hl).toBeVisible();
+  // Balloon flow (SPEC6 §2): the card settles level with its anchor (±10px,
+  // polled through the 180ms glide).
+  await expect
+    .poll(async () => {
+      const card = (await page.getByTestId('comment-card').boundingBox())!;
+      const mark = (await hl.boundingBox())!;
+      return Math.abs(card.y - mark.y);
+    })
+    .toBeLessThanOrEqual(10);
+});
+
+test('E437: inserting a comment auto-opens the closed pane, with the composer reachable in it', async ({ page }) => {
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0); // closed by default
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('add-note-btn'));
+  // The pane opened programmatically (no user toggle) and hosts the composer.
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(page.getByTestId('comments-pane').getByTestId('composer')).toBeVisible();
+  await expect(page.getByTestId('composer-input')).toBeFocused();
+  await page.getByTestId('composer-input').fill('opened by authoring');
+  await page.getByTestId('composer-submit').click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+});
+
+test('E438: the commentsEnabled master switch removes pane and chevron together, and no route toggles the pane back on', async ({
+  page,
+}) => {
+  await page.keyboard.press('Control+Shift+C');
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+
+  await openSettings(page, 'general');
+  await page.getByTestId('set-comments-enabled').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await expect(page.getByTestId('comments-collapse')).toHaveCount(0);
+  await expect(page.getByTestId('comments-expand')).toHaveCount(0);
+
+  // The command routes are inert while the switch is off (SPEC7 §2 / E36).
+  await page.keyboard.press('Control+Shift+C');
+  await page.waitForTimeout(150);
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+
+  // Re-enabling restores the pane exactly where it was — the persisted open
+  // state was never destroyed.
+  await openSettings(page, 'general');
+  await page.getByTestId('set-comments-enabled').check();
+  await page.getByTestId('settings-close').click();
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(page.getByTestId('comments-collapse')).toBeVisible();
 });

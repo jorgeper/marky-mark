@@ -134,7 +134,7 @@ import { ALL_FILE_GRANTS, type FileGrants } from './lib/fileGrants';
 import { uploadRejection } from './lib/fileTransfer';
 import { isSaveConflict, planSaveConflict, type SaveConflictChoice } from './lib/saveConflict';
 import { planMergedSave } from './lib/mergedSave';
-import { FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton, SyncScrollButton } from './components/FolderPanel';
+import { CommentsToggleButton, FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton, SyncScrollButton } from './components/FolderPanel';
 import { FileTabStrip } from './components/FileTabStrip';
 import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
 import { SearchPanel } from './components/SearchPanel';
@@ -230,6 +230,7 @@ import {
 } from './lib/semanticZoom';
 import { parseFrontMatter } from './lib/frontmatter';
 import { commentAffordanceSurface } from './lib/commentAffordance';
+import { commentsPaneOpen, commentsSeamUp } from './lib/commentsPane';
 import { isStaleDraft, parseDraft, serializeDraft, type Draft } from './lib/drafts';
 import { FindBar } from './components/FindBar';
 import { FrontMatterCard } from './components/FrontMatterCard';
@@ -439,6 +440,11 @@ function summaryPriceFor(ctx: { providerId: string; modelId: string }): TokenPri
 export default function App() {
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  // PRD 023 §15 (issue #284): the comments pane's open/closed state is the
+  // persisted setting — the old ephemeral React state is gone, so the
+  // chevron, toolbar button, View → Comments and Mod+Shift+C all read (and
+  // survive a reload through) this one source.
+  const showComments = settings.showComments;
   // PRD 002 §E18: the raw per-layer objects behind `settings` (the resolved
   // result). settings.json is the USER layer only; the Workspace layer lives
   // on the current Workspace value. Global/Team load once, read-only (§E20).
@@ -547,7 +553,6 @@ export default function App() {
     bufferText: string;
   } | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [showComments, setShowComments] = useState(true);
   // SPEC26 §3: per-document front-matter override — null means "follow the
   // setting". Beats the boot race where #open docs load before settings do.
   const [fmOverride, setFmOverride] = useState<boolean | null>(null);
@@ -896,7 +901,6 @@ export default function App() {
     themes,
     positions,
     activeId,
-    showComments,
     html,
     docGrants,
     folderGrants,
@@ -915,7 +919,6 @@ export default function App() {
     themes,
     positions,
     activeId,
-    showComments,
     html,
     // PRD 007 Req 17: the command handlers gate on this too, so a hotkey is
     // exactly as inert as the menu item it mirrors.
@@ -2971,6 +2974,10 @@ export default function App() {
   // restores) switch instantly, exactly as before this PRD.
   const armFolderSlide = useRef(false);
   const armSplitSlide = useRef(false);
+  // PRD 023 §14 (issue #284): the comments pane slides on explicit toggles
+  // only — programmatic flips (auto-open on insert, doc close) switch
+  // instantly, the same contract as its two arm-ref neighbours.
+  const armCommentsSlide = useRef(false);
   // Issue #165: the centred text column's offset from its pane's left edge —
   // the distance the column glides during the split slide. Measured at toggle
   // time (the only moment both end states are known) and published to CSS as
@@ -4206,9 +4213,10 @@ export default function App() {
   /** SPEC14 §1: step activation through the open comments in position order. */
   const navigateComment = useCallback((dir: 1 | -1) => {
     const s = stateRef.current;
-    // Only where the comments panel renders: preview or split-edit (§1.4).
-    if (!s.settings.commentsEnabled || !s.showComments) return;
-    if (s.mode === 'edit' && !s.settings.splitEdit) return;
+    // SPEC14 §1.4 amended by PRD 023 §17 (issue #284): the gate follows the
+    // pane, not the preview — the pane hosts cards in every mode now, so
+    // navigation works wherever it is open (plain edit included).
+    if (!s.settings.commentsEnabled || !s.settings.showComments) return;
     const ordered = s.comments
       // PRD 023 §1 (issue #283): step through open comment records only — a
       // highlight has no standing card, so the hotkeys skip it.
@@ -4591,7 +4599,13 @@ export default function App() {
       },
       toggleComments: () => {
         // Master switch off (SPEC7 §2): the comments UI is gone, commands included.
-        if (stateRef.current.settings.commentsEnabled) setShowComments((v) => !v);
+        // PRD 023 §14/§15 (issue #284): every surface of this command is an
+        // explicit user toggle of the persisted pane setting — armed so the
+        // flip slides (the toggleSplit/toggleFolders precedent).
+        const st = stateRef.current.settings;
+        if (!st.commentsEnabled) return;
+        armCommentsSlide.current = true;
+        updateSettings({ ...st, showComments: !st.showComments });
       },
       nextComment: () => navigateComment(1),
       prevComment: () => navigateComment(-1),
@@ -5662,7 +5676,9 @@ export default function App() {
   // resolved entries only while "Show resolved" is — the editor paints at
   // most what the preview shows, and skips anything the source can't place.
   useEffect(() => {
-    if (mode !== 'edit' || !showComments || !settings.commentsEnabled || comments.length === 0) {
+    // PRD 023 §15 (issue #284): marks render with the pane closed — only the
+    // commentsEnabled master switch gates the paint, not the pane setting.
+    if (mode !== 'edit' || !settings.commentsEnabled || comments.length === 0) {
       setEditorHighlights(null);
       return;
     }
@@ -5671,7 +5687,7 @@ export default function App() {
       setEditorHighlights(mapHighlightsToSource(painted, canonicalOf(buffer)));
     }, 200);
     return () => clearTimeout(t);
-  }, [mode, comments, buffer, showComments, settings.commentsEnabled, settings.showResolved, canonicalOf]);
+  }, [mode, comments, buffer, settings.commentsEnabled, settings.showResolved, canonicalOf]);
 
   // --- SPEC16 §5: word-count chip (selection-aware in preview) ------------------
   useEffect(() => {
@@ -6010,7 +6026,9 @@ export default function App() {
         setComments(updated);
         return false;
       }
-      if (showComments && settings.commentsEnabled) {
+      // PRD 023 §15 (issue #284): marks paint with the pane closed too —
+      // only the master switch gates them.
+      if (settings.commentsEnabled) {
         for (const c of comments) {
           if (isComment(c) && c.resolved && !settings.showResolved) continue;
           const m = pos[c.id];
@@ -6027,7 +6045,7 @@ export default function App() {
       }
       return true;
     },
-    [comments, showComments, settings.showResolved, settings.commentsEnabled]
+    [comments, settings.showResolved, settings.commentsEnabled]
   );
 
   // --- inject rendered doc, re-anchor, highlight ----------------------------------
@@ -6157,7 +6175,7 @@ export default function App() {
     const sel = window.getSelection();
     sel?.removeAllRanges();
     sel?.addRange(range);
-  }, [mode, html, comments, showComments, settings.showResolved, settings.commentsEnabled]);
+  }, [mode, html, comments, settings.showResolved, settings.commentsEnabled]);
 
   // SPEC30 §1.2: live find, debounced ≤200ms.
   useEffect(() => {
@@ -6185,7 +6203,7 @@ export default function App() {
     setFindCount(n);
     setFindCurrent(n > 0 ? 1 : 0);
     if (n > 0) activateFindMatch(0);
-  }, [mode, findOpen, findDebounced, findCompiled, html, comments, showComments, settings.showResolved, settings.commentsEnabled, applyFindMarks, activateFindMatch, clearFindMarks]);
+  }, [mode, findOpen, findDebounced, findCompiled, html, comments, settings.showResolved, settings.commentsEnabled, applyFindMarks, activateFindMatch, clearFindMarks]);
 
   // SPEC30 §1.4: edit engine — the bar drives CM once the editor is mounted.
   useEffect(() => {
@@ -6283,26 +6301,43 @@ export default function App() {
           : highlightShareUrl(window.location.origin, window.location.pathname, linkable),
       copy: copyToClipboard,
     });
-  }, [activeId, positions, showComments, copyToClipboard]);
+  }, [activeId, positions, copyToClipboard]);
 
   // --- margin card layout (SPEC6 §2): absolutely-positioned, animated tops.
   // Idle: cards sit level with their highlights, pushing later ones down.
   // Active: the active card anchors level with its highlight (Word behavior);
   // earlier cards stack upward above it, later ones downward.
-  useLayoutEffect(() => {
-    const doc = docRef.current ?? splitDocRef.current; // split-edit hosts marks too (#19)
+  // PRD 023 §16 (issue #284): the pane hosts the flow in every mode now. The
+  // anchor surface is the rendered preview (full or split) or, in plain edit,
+  // the editor's painted .mm-hl[data-cid] decorations; a card whose anchor
+  // has no measurable rect (off-viewport in CM's windowed paint, unplaced,
+  // orphaned) keeps desired=null and stacks in document order below.
+  const layoutFlowCards = () => {
+    const doc =
+      docRef.current ??
+      splitDocRef.current ??
+      workspaceRef.current?.querySelector<HTMLElement>('.cm-content') ??
+      null;
     const panel = panelRef.current;
-    if (!doc || !panel) return;
-    const panelTop = panel.getBoundingClientRect().top;
+    if (!panel) return;
+    // Anchor tops relative to the pane's SCROLL ORIGIN (rect top + scrollTop),
+    // so the pane's own scrolling never re-aims the flow it is revealing.
+    const pane = panel.parentElement;
+    const panelTop = panel.getBoundingClientRect().top + (pane?.scrollTop ?? 0);
     const els = Array.from(panel.querySelectorAll<HTMLElement>('[data-flowcard]'));
     const entries = els.map((el) => {
       const key = el.dataset.flowcard!;
       let desired: number | null = null;
       if (key === '__composer' && pending) {
-        const rect = rectForOffsets(doc, pending.start, pending.end);
+        // The composer's offsets are rendered-DOM offsets — only the preview
+        // surfaces can place it (authoring always lands on one, SPEC25).
+        const previewDoc = docRef.current ?? splitDocRef.current;
+        const rect = previewDoc ? rectForOffsets(previewDoc, pending.start, pending.end) : null;
         if (rect) desired = rect.top - panelTop;
-      } else if (key !== '__resolved') {
-        const mark = doc.querySelector<HTMLElement>(`mark.hl[data-cid="${CSS.escape(key)}"]`);
+      } else if (key !== '__resolved' && doc) {
+        const mark = doc.querySelector<HTMLElement>(
+          `mark.hl[data-cid="${CSS.escape(key)}"], .mm-hl[data-cid="${CSS.escape(key)}"]`
+        );
         if (mark) desired = mark.getBoundingClientRect().top - panelTop;
       }
       return { el, key, desired, h: el.offsetHeight };
@@ -6339,7 +6374,30 @@ export default function App() {
       e.el.style.top = `${tops[i]}px`;
     });
     panel.style.minHeight = `${Math.max(bottom, 0)}px`;
+  };
+  const layoutFlowCardsRef = useRef(layoutFlowCards);
+  layoutFlowCardsRef.current = layoutFlowCards;
+  useLayoutEffect(() => {
+    layoutFlowCardsRef.current();
   });
+  // PRD 023 §16 (issue #284): the pane no longer lives inside the document
+  // scrollers, so a scroll moves the anchors without a re-render — re-run
+  // the flow pass per scrolled frame (capture catches the workspace, the
+  // split preview and CodeMirror's scroller alike). The pane's own scroll is
+  // skipped: it reveals the flow, it never re-aims it.
+  useEffect(() => {
+    let raf = 0;
+    const onScroll = (e: Event) => {
+      if (e.target instanceof Element && e.target.closest('.comments-pane')) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => layoutFlowCardsRef.current());
+    };
+    document.addEventListener('scroll', onScroll, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener('scroll', onScroll, true);
+    };
+  }, []);
 
   // --- debounced comment autosave (sidecar or embedded per settings) -------------------
   useEffect(() => {
@@ -6567,7 +6625,10 @@ export default function App() {
 
   // --- type-to-comment (SPEC7 §3): a printable key over a selection opens the composer
   useEffect(() => {
-    if (mode !== 'preview' || !selInfo || pending || !showComments) return;
+    // PRD 023 §15 (issue #284): the pane setting no longer gates authoring —
+    // a comment typed with the pane closed auto-opens it (see the `pending`
+    // effect below), so only the master switch and the feature toggle gate.
+    if (mode !== 'preview' || !selInfo || pending) return;
     if (!settings.commentsEnabled || !settings.typeToComment) return;
     // PRD 004 Req 15: no composer for a frozen doc; PRD 007 Req 17: none
     // without comment.write either.
@@ -6593,7 +6654,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selInfo, pending, mode, showComments, settings.commentsEnabled, settings.typeToComment, mayComment]);
+  }, [selInfo, pending, mode, settings.commentsEnabled, settings.typeToComment, mayComment]);
 
   const submitComment = () => {
     const body = draft.trim();
@@ -6647,14 +6708,20 @@ export default function App() {
     setActiveId((a) => (a === id ? null : a));
   };
 
-  // PRD 022 Req 8 (issue #232), narrowed by PRD 023 §1 (issue #283):
-  // recoloring from the active card updates a highlight record only — a
-  // comment has no color — repaints through the normal highlight pass, and
-  // re-arms the last-used color (Req 4).
-  const recolorHighlight = (id: string, color: CommentColor) => {
-    setComments((prev) => prev.map((c) => (c.id === id && c.kind === 'highlight' ? { ...c, color } : c)));
-    rememberMarkerColor(color);
-  };
+  // PRD 023 §16 (issue #284): recolorHighlight is gone with the card swatch
+  // row — no live surface reaches a highlight's color in this slice (PRD 023
+  // Req 9 restores recolor in the menu slice).
+
+  // PRD 023 §15 (issue #284): inserting a comment auto-opens the pane —
+  // every authoring surface in this slice (selection popup "add note", the
+  // edit-mode affordance / SPEC25 carry, type-to-comment) opens the composer
+  // by setting `pending`, so watching it covers them all. Programmatic, so
+  // unarmed: the pane switches in instantly with the composer reachable.
+  useEffect(() => {
+    if (!pending) return;
+    const st = stateRef.current.settings;
+    if (st.commentsEnabled && !st.showComments) updateSettings({ ...st, showComments: true });
+  }, [pending, updateSettings]);
 
   const handleMarkClick = (id: string) => {
     setActiveId(id);
@@ -6675,7 +6742,10 @@ export default function App() {
   // --- panel ordering ------------------------------------------------------------------
   const byPosition = (a: CommentData, b: CommentData) =>
     (positions[a.id]?.start ?? a.anchor.start) - (positions[b.id]?.start ?? b.anchor.start);
-  const open = comments.filter((c) => !isComment(c) || !c.resolved).sort(byPosition);
+  // PRD 023 §16 (issue #284): only kind:"comment" records produce cards — a
+  // highlight never appears in the pane, active or not (the PRD 022 Req 9
+  // transient active-highlight card is retired with the in-preview aside).
+  const open = comments.filter((c) => isComment(c) && !c.resolved).sort(byPosition);
   const resolved = comments.filter((c) => isComment(c) && c.resolved);
 
   // One row of the panel flow: a record's card, or the composer standing in
@@ -6684,12 +6754,8 @@ export default function App() {
   type Item = { row: 'card'; c: CommentData; ghost?: boolean } | { row: 'composer' };
   // With "Show resolved" on, resolved comments join the flow as ghosts (SPEC6 §3).
   let items: Item[] = settings.showResolved
-    ? [...comments].sort(byPosition).map((c) => ({ row: 'card' as const, c, ghost: isComment(c) && c.resolved }))
+    ? comments.filter(isComment).sort(byPosition).map((c) => ({ row: 'card' as const, c, ghost: c.resolved }))
     : open.map((c) => ({ row: 'card' as const, c }));
-  // PRD 023 §1 (issue #283): a highlight record has no standing card — it
-  // joins the panel flow only while it is the active highlight, and leaves on
-  // deactivation (click-away, activating another).
-  items = items.filter((it) => it.row !== 'card' || isComment(it.c) || it.c.id === activeId);
   // PRD 022 Req 1: while "add note"'s composer is attached to a fresh
   // highlight, the composer stands in for that entry's card.
   if (pending?.cid) items = items.filter((it) => !(it.row === 'card' && it.c.id === pending.cid));
@@ -6712,7 +6778,6 @@ export default function App() {
     mode,
     splitEdit: settings.splitEdit,
     hasSelection: commentSurfaceUp ? selInfo !== null : editHasSelection,
-    showComments,
     commentsEnabled: settings.commentsEnabled,
     composerOpen: pending !== null,
     authoringFrozen,
@@ -6721,21 +6786,38 @@ export default function App() {
     canWrite: docGrants.commentWrite,
   });
 
-  const panelVisible =
-    commentSurfaceUp && showComments && settings.commentsEnabled && (comments.length > 0 || pending !== null);
+  // PRD 023 §14/§15 (issue #284): whether the comments pane is on screen —
+  // the pure predicate over the master switch, the persisted setting and an
+  // open document. Never the view mode: the pane is a third workspace pane
+  // in plain edit, full preview and split alike.
+  const commentsPaneWanted = commentsPaneOpen({
+    commentsEnabled: settings.commentsEnabled,
+    showComments,
+    docOpen,
+    zoomed: !!zoomDoc,
+  });
+  // PRD 023 §14: the second chevron exists wherever the pane could —
+  // independent of open/closed, so the closed pane can always be reopened.
+  const commentsSeam = commentsSeamUp({
+    commentsEnabled: settings.commentsEnabled,
+    showComments,
+    docOpen,
+    zoomed: !!zoomDoc,
+  });
 
   // PRD 023 §1 (issue #283): the navigator (pill + hotkeys) steps through
-  // comment records only — a highlight has no standing card to land on, so
-  // it neither counts in the pill nor shows it while active.
-  const navigable = open.filter(isComment);
+  // comment records only — since issue #284 those are the only records with
+  // cards at all (`open` is already comment-only).
+  const navigable = open;
   // Navigator pill label, frozen across the fade-out (SPEC14 §3.5).
   const navIdx = activeId ? navigable.findIndex((c) => c.id === activeId) : -1;
   if (navIdx >= 0) navLabelRef.current = `${navIdx + 1} / ${navigable.length}`;
 
-  // One panel, two hosts (#19): the preview margin and the split preview pane.
-  // Only one renders at a time, so the shared panelRef stays unambiguous.
-  const panelAside = panelVisible ? (
-    <aside className="panel" data-testid="panel" ref={panelRef}>
+  // PRD 023 §16 (issue #284): ONE home for the cards — the pane at the
+  // body-row's right edge (rendered below), in every mode. The `.panel` flow
+  // container survives inside it: same balloon-flow CSS, same panelRef.
+  const panelInner = (
+    <div className="panel" data-testid="panel" ref={panelRef}>
       {items.map((it) =>
         it.row === 'composer' ? (
           <div className="card composer" data-flowcard="__composer" data-testid="composer" key="__composer">
@@ -6781,7 +6863,6 @@ export default function App() {
             onActivate={handleCardActivate}
             onUpdate={updateComment}
             onDelete={deleteComment}
-            onRecolor={recolorHighlight}
           />
         )
       )}
@@ -6799,13 +6880,12 @@ export default function App() {
               onActivate={(id) => setActiveId(id)}
               onUpdate={updateComment}
               onDelete={deleteComment}
-              onRecolor={recolorHighlight}
             />
           ))}
         </details>
       )}
-    </aside>
-  ) : null;
+    </div>
+  );
 
   // Issue #22 / PRD 003 Req 5: the folder seam — pane or its edge chevron —
   // exists only in workspace mode on platforms with the folder capabilities.
@@ -7072,6 +7152,13 @@ export default function App() {
   const sidebarMounted = slideMounted(folderSlide, settings.showFolders);
   const splitSlide = usePaneSlide(settings.splitEdit, armSplitSlide);
   const { sliding: previewSliding, out: previewOut, pre: previewPre } = slideClasses(splitSlide);
+  // PRD 023 §14 (issue #284): the comments pane rides the same slide
+  // machinery as its two siblings — keyed on the resolved predicate so a
+  // doc close or master-switch flip swaps it out instantly (unarmed), and
+  // only the toggleComments command slides.
+  const commentsSlide = usePaneSlide(commentsPaneWanted, armCommentsSlide);
+  const commentsPaneMounted = slideMounted(commentsSlide, commentsPaneWanted);
+  const { sliding: commentsSliding, out: commentsOut } = slideClasses(commentsSlide);
   // Issue #165: the split layout is on screen — open, or still sliding out.
   // The merged edit branch below keys the workspace class and the
   // divider/preview mount on it, so the Editor subtree itself is shared by
@@ -7159,7 +7246,7 @@ export default function App() {
   // PRD 020 Req 17: the file copy-link rides this cluster but not its edit
   // gate — a read-only reader in preview mode still shares the file.
   const rightCluster =
-    mode === 'edit' || mayToggleMode || fileShare ? (
+    mode === 'edit' || mayToggleMode || fileShare || commentsSeam ? (
       <>
         {fileShare}
         {/* Issue #167: the sync toggle exists only where synchronized
@@ -7171,6 +7258,12 @@ export default function App() {
         {mayToggleMode && <ModeSwitchButton mode={mode} onClick={() => dispatchCommand('toggleMode')} />}
         {mode === 'edit' && (
           <PreviewToggleButton open={settings.splitEdit} onClick={() => dispatchCommand('toggleSplit')} />
+        )}
+        {/* PRD 023 §14 (issue #284): the comments chevron — immediately
+            right of the preview chevron, in EVERY document mode, dispatching
+            the same command as the toolbar button, menu and hotkey. */}
+        {commentsSeam && (
+          <CommentsToggleButton open={showComments} onClick={() => dispatchCommand('toggleComments')} />
         )}
       </>
     ) : null;
@@ -7539,13 +7632,15 @@ export default function App() {
                   return; // any other protocol is inert
                 }
                 const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
-                if (mark?.dataset.cid && showComments) handleMarkClick(mark.dataset.cid);
+                // PRD 023 §15 (issue #284): with the pane closed a mark click
+                // still activates (flash + active tint) but does NOT open the
+                // pane — two-way sync is Req 18's slice, not this one.
+                if (mark?.dataset.cid && settings.commentsEnabled) handleMarkClick(mark.dataset.cid);
                 else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
                 placeFromPreviewClick(docRef.current, e); // SPEC44 §4.2
               }}
             />
           </div>
-          {panelAside}
         </div>
       ) : (
         // Issue #165: ONE branch for both edit layouts. Split and plain used
@@ -7604,7 +7699,9 @@ export default function App() {
               onDocClick: (e) => {
                 // Highlights activate their card here too (#19).
                 const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
-                if (mark?.dataset.cid && showComments) handleMarkClick(mark.dataset.cid);
+                // PRD 023 §15 (issue #284): activation with the pane closed —
+                // same contract as the full-preview click above.
+                if (mark?.dataset.cid && settings.commentsEnabled) handleMarkClick(mark.dataset.cid);
                 else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
                 placeFromPreviewClick(splitDocRef.current, e);
               },
@@ -7612,7 +7709,6 @@ export default function App() {
                 frontMatter && showFrontmatter ? (
                   <FrontMatterCard entries={frontMatter.entries} onClose={() => setFmOverride(false)} />
                 ) : undefined,
-              aside: panelAside,
             }}
             editor={
             <Suspense fallback={<div className="editor-wrap" data-testid="editor-loading" />}>
@@ -7676,6 +7772,20 @@ export default function App() {
         </div>
       )}
       </div>
+
+      {/* PRD 023 §14 (issue #284): the comments pane — a body-row sibling at
+          the workspace's RIGHT edge, in every document mode. Fixed at 300px
+          (no drag handle, no breakpoints — PRD non-goal), mirrored folder-
+          pane slide: the wrapper's width animates while the pane translates
+          toward the right edge on the same 180ms curve.
+          PRD 003 Req 9: it stays mounted through the exit slide. */}
+      {commentsPaneMounted && (
+        <div className={`comments-slide${commentsSliding ? ' sliding' : ''}${commentsOut ? ' out' : ''}`}>
+          <aside className="comments-pane" data-testid="comments-pane">
+            {panelInner}
+          </aside>
+        </div>
+      )}
 
       </div>
 
@@ -7819,9 +7929,10 @@ export default function App() {
       )}
 
       {/* SPEC14 §3: fixed navigator pill, centered over the comment margin —
-          park the mouse and click through. Stays mounted while the panel shows
-          so it can fade out; the label freezes so the fade never shows "0/N". */}
-      {panelVisible && (
+          park the mouse and click through. Stays mounted while the pane shows
+          (issue #284: the pane, in every mode) so it can fade out; the label
+          freezes so the fade never shows "0/N". */}
+      {commentsPaneMounted && (
         <div
           className={`comment-nav${navIdx >= 0 ? ' visible' : ''}`}
           data-testid="comment-nav"

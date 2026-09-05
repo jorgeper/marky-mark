@@ -283,6 +283,30 @@ export function PreviewToggleButton({ open, onClick }: { open: boolean; onClick(
 }
 
 /**
+ * PRD 023 §14 (issue #284): the comments pane's edge chevron — immediately
+ * right of the preview chevron in the workspace's top-right cluster, in every
+ * document mode. The same compact edge tab as its two siblings, pointing in
+ * the direction a click will move the pane (open ⇒ right, toward the edge;
+ * closed ⇒ left, back in). The owner dispatches the existing `toggleComments`
+ * command — only the persisted `settings.showComments` flips, so the toolbar
+ * button, View → Comments and Mod+Shift+C stay in sync.
+ */
+export function CommentsToggleButton({ open, onClick }: { open: boolean; onClick(): void }) {
+  const label = open ? 'Hide the comments pane' : 'Show the comments pane';
+  return (
+    <IconButton
+      className="comments-edge"
+      data-testid={open ? 'comments-collapse' : 'comments-expand'}
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+    >
+      <Chevron dir={open ? 'right' : 'left'} />
+    </IconButton>
+  );
+}
+
+/**
  * Issue #125: the edit/preview switch — immediately left of the preview
  * chevron in the workspace's top-right cluster. One icon button in the
  * chevron's own style; the glyph names the mode a click moves TO (pencil ⇒

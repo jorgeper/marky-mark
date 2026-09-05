@@ -13,8 +13,6 @@ export interface AffordanceState {
   splitEdit: boolean;
   /** A non-empty selection exists on the active surface. */
   hasSelection: boolean;
-  /** The session Comments toggle (Mod+Shift+C). */
-  showComments: boolean;
   /** The master switch (SPEC7 §2). */
   commentsEnabled: boolean;
   /** A composer is already open for a pending anchor. */
@@ -37,7 +35,10 @@ export interface AffordanceState {
  * selection carry), or nowhere.
  */
 export function commentAffordanceSurface(s: AffordanceState): 'preview' | 'edit' | null {
-  if (!s.hasSelection || !s.showComments || !s.commentsEnabled || s.composerOpen || s.authoringFrozen) {
+  // PRD 023 §15 (issue #284): the pane's open/closed state (the old session
+  // Comments toggle) no longer gates authoring — a comment inserted with the
+  // pane closed auto-opens it, so the affordance must be offered either way.
+  if (!s.hasSelection || !s.commentsEnabled || s.composerOpen || s.authoringFrozen) {
     return null;
   }
   // PRD 007 Req 17: a member who cannot write a comment is offered no route

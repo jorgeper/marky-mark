@@ -79,8 +79,6 @@ export interface PreviewProps {
   onPointerDownCapture?: PointerEventHandler<HTMLDivElement>;
   /** Rendered inside `.docwrap`, before the doc (Marky Mark: the front-matter card). */
   header?: ReactNode;
-  /** Rendered inside the scroller, after `.docwrap` (Marky Mark: the comments panel). */
-  aside?: ReactNode;
   /**
    * Identity of the document `markdown` belongs to. When it changes the pane
    * resets INSTANTLY — stale HTML is dropped in the same commit and the next
@@ -115,7 +113,6 @@ export function Preview({
   onDocClick,
   onPointerDownCapture,
   header,
-  aside,
   docKey = null,
   initialHtml,
   testId = 'split-preview',
@@ -206,7 +203,6 @@ export function Preview({
         {header}
         <div className={codeSyntax ? 'doc' : 'doc mm-code-plain'} ref={setDocEl} onClick={onDocClick} />
       </div>
-      {aside}
     </div>
   );
 }
