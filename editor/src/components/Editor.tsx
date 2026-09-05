@@ -668,6 +668,9 @@ function docHighlightRanges(state: EditorState, ranges: readonly HighlightRange[
 
 // PRD 023 §18 (issue #285): the reveal flash — a transient per-id cue the
 // revealHighlight seam raises and clears (SPEC14 §1.3's flash, editor side).
+// The same 900ms the preview's mark flash runs for, so both surfaces feel
+// alike.
+const HL_FLASH_MS = 900;
 const setHlFlash = StateEffect.define<string | null>();
 const hlFlashField = StateField.define<string | null>({
   create: () => null,
@@ -708,6 +711,7 @@ const highlightsExt = (
   ranges: readonly HighlightRange[],
   onClick: MutableRefObject<((ids: readonly string[]) => void) | undefined>
 ): Extension => {
+  const DRAG_SLOP_PX = 3; // past this the press was a selection drag, not a click
   let downAt: { x: number; y: number } | null = null;
   return [
     EditorView.decorations.of((view) => highlightDecorations(view.state, ranges)),
@@ -720,7 +724,9 @@ const highlightsExt = (
         const down = downAt;
         downAt = null;
         if (!down || !onClick.current) return false;
-        if (Math.abs(event.clientX - down.x) > 3 || Math.abs(event.clientY - down.y) > 3) return false;
+        if (Math.abs(event.clientX - down.x) > DRAG_SLOP_PX || Math.abs(event.clientY - down.y) > DRAG_SLOP_PX) {
+          return false;
+        }
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
         if (pos === null) return false;
         // PRD 023 §5 (issue #285): overlapping records stack — report EVERY
@@ -1828,14 +1834,18 @@ export default function Editor({
           // id's first painted range and flash all of it. An id the source
           // could not place (PRD 022 Req 12 skip) paints nothing here and
           // returns false: the caller's card still activates, nothing throws.
-          const placed = docHighlightRanges(view.state, highlightsRef.current ?? []).filter((h) => h.id === id);
-          if (placed.length === 0) return false;
+          const first = docHighlightRanges(view.state, highlightsRef.current ?? []).find((h) => h.id === id);
+          if (!first) return false;
           view.dispatch({
-            effects: [EditorView.scrollIntoView(placed[0].from, { y: 'center' }), setHlFlash.of(id)],
+            effects: [EditorView.scrollIntoView(first.from, { y: 'center' }), setHlFlash.of(id)],
           });
           window.setTimeout(() => {
-            if (viewRef.current === view) view.dispatch({ effects: setHlFlash.of(null) });
-          }, 900);
+            // Only clear OUR flash: a reveal that landed meanwhile owns the
+            // field now and keeps its own full 900ms.
+            if (viewRef.current === view && view.state.field(hlFlashField, false) === id) {
+              view.dispatch({ effects: setHlFlash.of(null) });
+            }
+          }, HL_FLASH_MS);
           return true;
         },
       };

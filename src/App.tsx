@@ -329,11 +329,7 @@ function centerAndFlashMarks(doc: HTMLElement, id: string): boolean {
  */
 function markChainIds(innermost: HTMLElement): string[] {
   const ids: string[] = [];
-  for (
-    let m: HTMLElement | null = innermost;
-    m;
-    m = m.parentElement ? (m.parentElement.closest('mark.hl') as HTMLElement | null) : null
-  ) {
+  for (let m: HTMLElement | null = innermost; m; m = m.parentElement?.closest<HTMLElement>('mark.hl') ?? null) {
     if (m.dataset.cid) ids.push(m.dataset.cid);
   }
   return ids;
@@ -6806,6 +6802,24 @@ export default function App() {
     requestAnimationFrame(attempt);
   };
 
+  // PRD 023 §5/§18 (issue #285): the one route from a surface's stacked hit
+  // set to activation — every surface (both preview panes, both edit
+  // layouts) reports the ids covering the click and the kind-aware rule
+  // picks the record it activates.
+  const activateFromHit = (ids: readonly string[]) => {
+    const id = pickHitRecord(ids, stateRef.current.comments);
+    if (id) handleMarkClick(id);
+  };
+
+  // The preview half of that route, shared by the full and the split pane:
+  // where marks nest, the clicked mark's `mark.hl` ancestor chain IS the hit
+  // set; a click landing on no mark deactivates (SPEC14 §3.1).
+  const activateFromPreviewClick = (target: EventTarget | null) => {
+    const mark = (target as HTMLElement | null)?.closest?.('mark.hl') as HTMLElement | null;
+    if (!mark) setActiveId(null);
+    else if (settings.commentsEnabled) activateFromHit(markChainIds(mark));
+  };
+
   const handleCardActivate = (id: string) => {
     setActiveId(id);
     // PRD 023 §18 (issue #285): the SPEC14 §1.3 activation feel lands on
@@ -7716,15 +7730,10 @@ export default function App() {
                   }
                   return; // any other protocol is inert
                 }
-                const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
-                // PRD 023 §5/§18 (issue #285): where marks nest, the whole
-                // stacked chain feeds the kind-aware rule — the comment wins
-                // over the highlight — and handleMarkClick opens the pane for
-                // the comment it resolves to; a highlight has no pane effect.
-                if (mark && settings.commentsEnabled) {
-                  const id = pickHitRecord(markChainIds(mark), stateRef.current.comments);
-                  if (id) handleMarkClick(id);
-                } else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
+                // PRD 023 §5/§18 (issue #285): the comment wins over the
+                // highlight it shares text with, and reaching a comment opens
+                // the pane onto its card; a highlight has no pane effect.
+                activateFromPreviewClick(e.target);
                 placeFromPreviewClick(docRef.current, e); // SPEC44 §4.2
               }}
             />
@@ -7785,14 +7794,9 @@ export default function App() {
               scrollerRef: splitPreviewRef,
               docRef: splitDocRef,
               onDocClick: (e) => {
-                const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
                 // PRD 023 §5/§18 (issue #285): same contract as the
-                // full-preview click above — kind-aware resolution over the
-                // stacked chain, pane-open + card reveal for a comment only.
-                if (mark && settings.commentsEnabled) {
-                  const id = pickHitRecord(markChainIds(mark), stateRef.current.comments);
-                  if (id) handleMarkClick(id);
-                } else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
+                // full-preview click above.
+                activateFromPreviewClick(e.target);
                 placeFromPreviewClick(splitDocRef.current, e);
               },
               header:
@@ -7820,10 +7824,7 @@ export default function App() {
                 // still lands where the click fell (the handler never claims
                 // the event).
                 highlights={editorMarks}
-                onHighlightClick={(ids) => {
-                  const id = pickHitRecord(ids, stateRef.current.comments);
-                  if (id) handleMarkClick(id);
-                }}
+                onHighlightClick={activateFromHit}
                 onPasteImages={pasteImages}
                 insertRef={editorInsertRef}
                 syntax={settings.editorSyntax}
