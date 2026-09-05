@@ -330,7 +330,12 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
     .toBe('none');
   const previewBox = (await page.getByTestId('split-preview').boundingBox())!;
   const collapseBox = (await collapse.boundingBox())!;
-  expect(collapseBox.x + collapseBox.width).toBeGreaterThan(previewBox.x + previewBox.width - 24); // hugs the right edge
+  // Issue #284 (PRD 023 §14): the comments chevron is the right-most edge
+  // tab now — the preview chevron sits immediately to ITS left.
+  const commentsBox = (await page.getByTestId('comments-expand').boundingBox())!;
+  expect(commentsBox.x + commentsBox.width).toBeGreaterThan(previewBox.x + previewBox.width - 24); // hugs the right edge
+  expect(collapseBox.x + collapseBox.width).toBeLessThanOrEqual(commentsBox.x + 1);
+  expect(commentsBox.x - (collapseBox.x + collapseBox.width)).toBeLessThan(8);
   expect(collapseBox.y).toBeLessThan(previewBox.y + 64); // near the top
 
   // Clicking it closes the split (today's full-screen editor), persisted.
@@ -347,12 +352,14 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   await expect(expand).toHaveAttribute('aria-label', 'Show the preview pane');
   const viewport = page.viewportSize()!;
   // The chevron re-pins once the preview has finished sliding away.
+  // Issue #284: the comments chevron holds the corner itself; the preview
+  // chevron re-pins immediately left of it.
   await expect
     .poll(async () => {
       const b = (await expand.boundingBox())!;
       return b.x + b.width;
     })
-    .toBeGreaterThan(viewport.width - 24);
+    .toBeGreaterThan(viewport.width - 24 - 26);
   await expand.click();
   await expect(page.getByTestId('split-preview')).toBeVisible();
   await expect(expand).toHaveCount(0);
@@ -826,13 +833,18 @@ test('E247: issue #125 — the edit/preview switch sits left of the preview chev
   await expect(sw).toHaveAttribute('title', 'Switch to edit');
   await expect(sw).toHaveAttribute('aria-label', 'Switch to edit');
   await expect(page.getByTestId('mode-switch-icon')).toHaveAttribute('data-icon', 'pencil');
-  // PRD 003 Reqs 6–7: full preview is not a closed split — no chevron there,
-  // so the switch has the corner to itself and hugs the right edge.
+  // PRD 003 Reqs 6–7: full preview is not a closed split — no preview
+  // chevron there. Issue #284 (PRD 023 §14): the comments chevron IS there
+  // (every mode), holding the corner, with the switch immediately left of it.
   await expect(collapse).toHaveCount(0);
   await expect(page.getByTestId('preview-expand')).toHaveCount(0);
   const viewport = page.viewportSize()!;
+  const commentsChevron = page.getByTestId('comments-expand');
+  await expect(commentsChevron).toBeVisible();
   const soloBox = (await stableBox(sw))!;
-  expect(soloBox.x + soloBox.width).toBeGreaterThan(viewport.width - 24);
+  const commentsSolo = (await stableBox(commentsChevron))!;
+  expect(commentsSolo.x + commentsSolo.width).toBeGreaterThan(viewport.width - 24);
+  expect(soloBox.x + soloBox.width).toBeLessThanOrEqual(commentsSolo.x + 1);
 
   // It dispatches toggleMode: preview → edit, exactly like ⌘E.
   await sw.click();
@@ -850,7 +862,11 @@ test('E247: issue #125 — the edit/preview switch sits left of the preview chev
   expect(switchBox.x + switchBox.width).toBeLessThanOrEqual(chevronBox.x + 1);
   expect(chevronBox.x - (switchBox.x + switchBox.width)).toBeLessThan(8);
   expect(Math.abs(switchBox.y - chevronBox.y)).toBeLessThan(4);
-  expect(chevronBox.x + chevronBox.width).toBeGreaterThan(viewport.width - 24);
+  // Issue #284: the comments chevron sits right of the preview chevron and
+  // takes the edge-hugging spot.
+  const commentsEdit = (await stableBox(commentsChevron))!;
+  expect(chevronBox.x + chevronBox.width).toBeLessThanOrEqual(commentsEdit.x + 1);
+  expect(commentsEdit.x + commentsEdit.width).toBeGreaterThan(viewport.width - 24);
 
   // The chevron still drives the split alone — the switch does not move.
   await collapse.click();
