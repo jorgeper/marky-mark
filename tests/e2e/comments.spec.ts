@@ -12,6 +12,7 @@ import {
   NAV_P1,
   NAV_P2,
   NAV_P3,
+  openCommentsPane,
   openFolderRoot,
   openPath,
   openSettings,
@@ -1340,27 +1341,43 @@ test('E424: PRD 022 Req 12 — a highlight paints in the plain-edit editor as a 
   expect(await hl.first().evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
 });
 
+// Rewritten for issue #285 (PRD 023 §18): the split-edit editor click is
+// two-way sync now — a comment range opens the closed pane and activates its
+// card; a highlight range keeps its no-pane-effect contract.
 test('E425: PRD 022 Req 12 — the split-edit editor paints too, and clicking a painted range activates the marks in the preview', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);
   await clickClearOfToolbar(page.getByTestId('marker-swatch-orange'));
   await expect(page.locator('mark.hl[data-color="orange"]').first()).toBeVisible();
+  await addComment(page, NAV_P1, 'a split-edit card');
+  // Authoring auto-opened the pane (E437) — close it so both clicks below
+  // start from the persisted-closed state.
+  await page.getByTestId('comments-collapse').click();
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
 
   await page.keyboard.press('Control+e'); // splitEdit defaults on — split edit
   await expect(page.getByTestId('split-divider')).toBeVisible();
 
-  const hl = page.getByTestId('editor').locator('.mm-hl');
+  const editor = page.getByTestId('editor');
+  const hl = editor.locator('.mm-hl[data-color="orange"]');
   await expect(hl.first()).toBeVisible();
-  await expect(hl.first()).toHaveAttribute('data-color', 'orange');
 
-  // Issue #284 (PRD 023 §16): a highlight never grows a card, so the editor
-  // click's activation shows on the preview marks — same outcome as clicking
-  // the preview mark itself (issue #232's routing, minus the retired card).
-  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+  // The highlight range: activation shows on the preview marks, and the pane
+  // stays closed — a highlight click has no pane effect (PRD 023 §18).
   await hl.first().click();
   await expect(page.locator('mark.hl.active').first()).toBeVisible();
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
+
+  // The comment range (no data-color): the click opens the pane, activates
+  // the card, and reveals it (PRD 023 §18, issue #285).
+  const commentHl = editor.locator('.mm-hl:not([data-color])');
+  await expect(commentHl.first()).toBeVisible();
+  await commentHl.first().click();
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
+  await expect(page.getByTestId('comment-card')).toBeInViewport();
 });
 
 test('E426: PRD 022 Req 12 — anchors the source cannot place confidently (absent or ambiguous quotes) do not paint in the editor', async ({
@@ -1414,14 +1431,19 @@ test('E426: PRD 022 Req 12 — anchors the source cannot place confidently (abse
   await expect(hl).toHaveAttribute('data-color', 'yellow');
 });
 
-test('E427: PRD 022 Req 12 — plain edit is paint-only: a click just places the caret, and an edited quote unpaints instead of mispainting', async ({
+// Rewritten for issue #285 (PRD 023 §18): plain edit is no longer paint-only
+// — clicks are wired here too. A HIGHLIGHT click still has no pane effect
+// (the mark treatment is its whole surface), the caret still lands where the
+// click fell, and the unpaint-over-mispaint rule is unchanged; the comment
+// side of the plain-edit click is E442's.
+test('E427: PRD 022 Req 12 — a plain-edit highlight click places the caret and opens nothing, and an edited quote unpaints instead of mispainting', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);
   await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
   await waitForSidecar(page, (s) => !!s && s.includes('"color": "green"'));
 
-  // PLAIN edit: split off (it defaults on) — the paint-only surface.
+  // PLAIN edit: split off (it defaults on).
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').uncheck();
   await page.getByTestId('settings-close').click();
@@ -1431,9 +1453,12 @@ test('E427: PRD 022 Req 12 — plain edit is paint-only: a click just places the
   await expect(hl.first()).toBeVisible();
   await hl.first().click();
 
-  // No comment-related effect: no card, no panel — display only.
+  // A highlight has no pane effect (PRD 023 §18): no card, no pane opening.
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
   await expect(page.getByTestId('panel')).toHaveCount(0);
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  // …but the click DID reach the record: the decoration carries the active cue.
+  await expect(page.getByTestId('editor').locator('.mm-hl.active').first()).toBeVisible();
 
   // Normal cursor placement stands: typing edits at the clicked point, which
   // breaks the exact quote — the highlight skips (unpaints) rather than
@@ -1566,4 +1591,262 @@ test('E438: the commentsEnabled master switch removes pane and chevron together,
   await page.getByTestId('settings-close').click();
   await expect(page.getByTestId('comments-pane')).toBeVisible();
   await expect(page.getByTestId('comments-collapse')).toBeVisible();
+});
+
+// --- Issue #285 (PRD 023 Reqs 5 + 18): overlap layers and two-way sync ------
+
+// A document seeded with an identical-range pair (comment + highlight over
+// the same quote) and an intersecting pair, in plain unique prose so the
+// SOURCE places every anchor too (PRD 022 Req 12).
+const OVERLAP_DOC = '/docs/overlap.md';
+const OVERLAP_SIDECAR = `${OVERLAP_DOC}.comments.json`;
+async function seedOverlapDoc(page: import('@playwright/test').Page): Promise<void> {
+  await fsWrite(
+    page,
+    OVERLAP_DOC,
+    '# Overlap\n\nalpha bravo charlie delta echo foxtrot.\n\nThe quick brown fox jumps over the lazy dog tonight.\n'
+  );
+  const base = { author: 'Reader', createdAt: '2026-01-01T00:00:00.000Z' };
+  const anchor = (exact: string, prefix: string, suffix: string) => ({
+    exact,
+    prefix,
+    suffix,
+    start: 0,
+    end: exact.length,
+  });
+  await fsWrite(
+    page,
+    OVERLAP_SIDECAR,
+    JSON.stringify(
+      {
+        version: '2.0.0',
+        comments: [
+          { kind: 'comment', id: 'c-same', ...base, body: 'same note', resolved: false, thread: [], anchor: anchor('bravo charlie delta', 'alpha ', ' echo') },
+          { kind: 'highlight', id: 'h-same', ...base, color: 'green', anchor: anchor('bravo charlie delta', 'alpha ', ' echo') },
+          { kind: 'comment', id: 'c-cross', ...base, body: 'cross note', resolved: false, thread: [], anchor: anchor('quick brown fox', 'The ', ' jumps') },
+          { kind: 'highlight', id: 'h-cross', ...base, color: 'pink', anchor: anchor('brown fox jumps', 'quick ', ' over') },
+        ],
+      },
+      null,
+      2
+    )
+  );
+  await page.goto(`/#open=${OVERLAP_DOC}`);
+}
+
+test('E439: PRD 023 Req 5 — identical and intersecting comment+highlight pairs paint as two independent layers in the preview', async ({
+  page,
+}) => {
+  await seedOverlapDoc(page);
+
+  // Every record paints — no record's paint replaces another's.
+  for (const cid of ['c-same', 'h-same', 'c-cross', 'h-cross']) {
+    await expect(page.locator(`mark.hl[data-cid="${cid}"]`).first()).toBeVisible();
+  }
+  // The comment layer carries no marker color; the highlight layer does.
+  expect(await page.locator('mark.hl[data-cid="c-same"]').first().getAttribute('data-color')).toBeNull();
+  await expect(page.locator('mark.hl[data-cid="h-same"]').first()).toHaveAttribute('data-color', 'green');
+  await expect(page.locator('mark.hl[data-cid="h-cross"]').first()).toHaveAttribute('data-color', 'pink');
+
+  // Each layer covers its own full range, identical or merely intersecting.
+  await expect.poll(async () => (await page.locator('mark.hl[data-cid="c-same"]').allTextContents()).join('')).toBe('bravo charlie delta');
+  await expect.poll(async () => (await page.locator('mark.hl[data-cid="c-cross"]').allTextContents()).join('')).toBe('quick brown fox');
+  await expect.poll(async () => (await page.locator('mark.hl[data-cid="h-cross"]').allTextContents()).join('')).toBe('brown fox jumps');
+
+  // The overlapped runs are genuinely stacked marks (highlightRange nests the
+  // later record inside the earlier one), and the stacked run's paint is the
+  // stronger mark.hl mark.hl treatment — not transparent, not the idle tint.
+  const nested = page.locator('mark.hl mark.hl');
+  await expect(nested.first()).toBeVisible();
+  expect(await nested.count()).toBeGreaterThanOrEqual(2); // one per pair
+  // The comment tint and the marker hue are distinct paints in one document.
+  const commentBg = await page.locator('mark.hl[data-cid="c-cross"]').first().evaluate((el) => getComputedStyle(el).backgroundColor);
+  const markerBg = await page.locator('mark.hl[data-cid="h-cross"]').last().evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(commentBg).not.toBe('rgba(0, 0, 0, 0)');
+  expect(markerBg).not.toBe('rgba(0, 0, 0, 0)');
+  expect(commentBg).not.toBe(markerBg);
+});
+
+test('E440: PRD 023 Req 5 — the same pairs paint as two decorations each in the editor, comment tint-less and highlight colored', async ({
+  page,
+}) => {
+  await seedOverlapDoc(page);
+  await expect(page.locator('mark.hl[data-cid="h-cross"]').first()).toBeVisible();
+
+  // PLAIN edit: split off (it defaults on).
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+
+  const editor = page.getByTestId('editor');
+  // A pair the source can place paints as TWO decorations, never as one:
+  // the comment's with no data-color, the highlight's with its color.
+  for (const cid of ['c-same', 'h-same', 'c-cross', 'h-cross']) {
+    await expect(editor.locator(`.mm-hl[data-cid="${cid}"]`).first()).toBeVisible();
+  }
+  expect(await editor.locator('.mm-hl[data-cid="c-same"]').first().getAttribute('data-color')).toBeNull();
+  await expect(editor.locator('.mm-hl[data-cid="h-same"]').first()).toHaveAttribute('data-color', 'green');
+  await expect(editor.locator('.mm-hl[data-cid="h-cross"]').first()).toHaveAttribute('data-color', 'pink');
+  // Each decoration covers its record's own source range (spans join if CM
+  // splits them across nested layers).
+  await expect.poll(async () => (await editor.locator('.mm-hl[data-cid="c-same"]').allTextContents()).join('')).toContain('bravo charlie delta');
+  await expect.poll(async () => (await editor.locator('.mm-hl[data-cid="h-cross"]').allTextContents()).join('')).toContain('brown fox jumps');
+});
+
+test('E441: PRD 023 Req 5 — activating, resolving or deleting one layer never mutates the other', async ({
+  page,
+}) => {
+  await seedOverlapDoc(page);
+  await expect(page.locator('mark.hl[data-cid="h-same"]').first()).toBeVisible();
+  await openCommentsPane(page);
+
+  // Activating the comment adds the active treatment to ITS marks only.
+  await page.locator('[data-testid="comment-card"][data-cid="c-same"]').click();
+  await expect(page.locator('mark.hl.active[data-cid="c-same"]').first()).toBeVisible();
+  await expect(page.locator('mark.hl.active[data-cid="h-same"]')).toHaveCount(0);
+
+  // Resolving the comment ghosts the comment's marks only (showResolved
+  // defaults on, SPEC7 §4); the highlight keeps painting at full strength.
+  await page.locator('[data-testid="comment-card"][data-cid="c-same"]').getByTestId('resolve-btn').click();
+  await expect(page.locator('mark.hl.ghost[data-cid="c-same"]').first()).toBeVisible();
+  await expect(page.locator('mark.hl.ghost[data-cid="h-same"]')).toHaveCount(0);
+  await expect(page.locator('mark.hl[data-cid="h-same"]').first()).toBeVisible();
+
+  // Deleting the intersecting comment leaves the highlight painted and its
+  // record on disk, color and kind untouched.
+  const crossCard = page.locator('[data-testid="comment-card"][data-cid="c-cross"]');
+  await crossCard.getByTestId('delete-btn').click();
+  await crossCard.getByTestId('confirm-delete').click();
+  await expect(page.locator('mark.hl[data-cid="c-cross"]')).toHaveCount(0);
+  await expect(page.locator('mark.hl[data-cid="h-cross"]').first()).toBeVisible();
+  await expect
+    .poll(async () => {
+      const s = await fsRead(page, OVERLAP_SIDECAR);
+      return !!s && s.includes('"color": "pink"') && !s.includes('cross note');
+    })
+    .toBe(true);
+
+  // Deleting the highlight (store-side — this slice ships no highlight-remove
+  // UI, PRD 023 Req 9 is the menu slice) leaves the comment record, its card,
+  // its thread and its paint untouched.
+  const store = JSON.parse((await fsRead(page, OVERLAP_SIDECAR))!);
+  store.comments = store.comments.filter((c: { id: string }) => c.id !== 'h-same');
+  await fsWrite(page, OVERLAP_SIDECAR, JSON.stringify(store, null, 2));
+  await page.reload(); // the #open hash re-opens the document against the rewritten store
+  await expect(page.locator('mark.hl[data-cid="h-same"]')).toHaveCount(0);
+  await expect(page.locator('mark.hl.ghost[data-cid="c-same"]').first()).toBeVisible(); // still resolved, still painted
+  // …and its card still carries the body (showResolved defaults on, so the
+  // resolved comment rides the flow as a ghost card).
+  await expect(page.locator('[data-testid="comment-card"][data-cid="c-same"]')).toContainText('same note');
+});
+
+test('E442: PRD 023 Req 18 — clicking the overlapped run in the preview resolves to the comment and opens the closed pane onto its card', async ({
+  page,
+}) => {
+  await seedOverlapDoc(page);
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0); // closed by default
+
+  // The overlapped run hosts BOTH records' marks; the kind-aware rule picks
+  // the comment (PRD 023 §5), and the click opens the pane, activates the
+  // card and reveals it — surviving the pane's mount + slide.
+  await page.locator('mark.hl[data-cid="h-same"]').first().click();
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  const card = page.locator('[data-testid="comment-card"][data-cid="c-same"]');
+  await expect(card).toHaveClass(/active/);
+  await expect(card).toBeInViewport();
+  await expect(page.locator('mark.hl.active[data-cid="c-same"]').first()).toBeVisible();
+  // The persisted setting flipped, so the pane STAYS open (PRD 023 §18).
+  await page.reload();
+  await page.goto(`/#open=${OVERLAP_DOC}`);
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+});
+
+test('E443: PRD 023 Req 18 — clicking a run the highlight covers alone activates the highlight and has no pane effect', async ({
+  page,
+}) => {
+  await seedOverlapDoc(page);
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+
+  // h-cross's LAST fragment (" jumps") lies outside the comment's range: the
+  // hit set is the highlight alone, and a highlight never touches the pane.
+  await page.locator('mark.hl[data-cid="h-cross"]').last().click();
+  await expect(page.locator('mark.hl.active[data-cid="h-cross"]').first()).toBeVisible();
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+});
+
+test('E444: PRD 023 Req 18 — clicking a comment decoration in the PLAIN edit editor opens the closed pane and activates the card', async ({
+  page,
+}) => {
+  await seedOverlapDoc(page);
+  await expect(page.locator('mark.hl[data-cid="c-cross"]').first()).toBeVisible();
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0); // still closed
+
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.mm-hl[data-cid="c-cross"]').first()).toBeVisible();
+  // The click lands inside the intersecting pair's shared run — the editor
+  // reports every covering range and the kind rule picks the comment.
+  await editor.locator('.mm-hl[data-cid="c-cross"]').first().click();
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  const card = page.locator('[data-testid="comment-card"][data-cid="c-cross"]');
+  await expect(card).toHaveClass(/active/);
+  await expect(card).toBeInViewport();
+  // The activation cue exists on the editor side too: the active card's
+  // decoration is visibly distinguishable (PRD 023 §18, editor half).
+  await expect(editor.locator('.mm-hl.active[data-cid="c-cross"]').first()).toBeVisible();
+});
+
+test('E445: PRD 023 Req 18 — activating a card in plain edit scrolls the EDITOR to the anchor with the centre-and-flash feel', async ({
+  page,
+}) => {
+  // A long document parks the anchor far off-screen in the editor.
+  const LONG_DOC = '/docs/long-anchor.md';
+  const filler = Array.from({ length: 90 }, (_, i) => `Filler paragraph number ${i} keeps the anchor far away.`).join('\n\n');
+  await fsWrite(page, LONG_DOC, `# Long\n\n${filler}\n\nThe final anchor phrase sits here.\n`);
+  await fsWrite(
+    page,
+    `${LONG_DOC}.comments.json`,
+    JSON.stringify({
+      version: '2.0.0',
+      comments: [
+        {
+          kind: 'comment',
+          id: 'far',
+          author: 'Reader',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          body: 'a distant note',
+          resolved: false,
+          thread: [],
+          anchor: { exact: 'final anchor phrase', prefix: 'The ', suffix: ' sits', start: 0, end: 19 },
+        },
+      ],
+    })
+  );
+  await page.goto(`/#open=${LONG_DOC}`);
+  await expect(page.locator('mark.hl[data-cid="far"]').first()).toBeVisible();
+
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await page.getByTestId('settings-close').click();
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  await openCommentsPane(page);
+
+  // The editor sits at the top; the anchor's decoration is out of view (CM
+  // may not even render it yet). Activating the card scrolls the EDITOR —
+  // plain edit has no preview to aim at — and flashes the decoration
+  // (SPEC14 §1.3 through the revealHighlight seam).
+  await page.locator('[data-testid="comment-card"][data-cid="far"]').click();
+  const hl = page.getByTestId('editor').locator('.mm-hl[data-cid="far"]');
+  await expect(hl.first()).toBeVisible();
+  await expect(hl.first()).toBeInViewport();
+  await expect(page.getByTestId('editor').locator('.mm-hl.flash').first()).toBeVisible();
+  await expect(page.locator('[data-testid="comment-card"][data-cid="far"]')).toHaveClass(/active/);
 });

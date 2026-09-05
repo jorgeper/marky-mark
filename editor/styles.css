@@ -689,8 +689,8 @@
    strengths the preview's mark.hl derives (42% of the marker hue; the
    fixed comment tint for comment records, issue #283), over the host's
    tokens with the tokens' own documented defaults as fallbacks.
-   Display-only: no cursor affordance — clicking is ordinary caret
-   placement. */
+   No cursor affordance: a click reports the hit (PRD 023 §18) but stays
+   ordinary caret placement first. */
 .editor-wrap .cm-content .mm-hl {
   background: var(--mm-comment-tint, rgba(121, 192, 255, 0.45));
   border-radius: 2px;
@@ -706,6 +706,35 @@
 }
 .editor-wrap .cm-content .mm-hl[data-color='pink'] {
   background: color-mix(in srgb, var(--mm-marker-pink, #ffa1c9) 42%, transparent);
+}
+/* PRD 023 §18 (issue #285): the activation cue and the reveal flash on the
+   editor side — the same 60% strength the preview's active/flash marks
+   derive, over the same tokens. `active` rides the owner's HighlightRange
+   flag; `flash` rides the revealHighlight seam's transient field. */
+.editor-wrap .cm-content .mm-hl.active,
+.editor-wrap .cm-content .mm-hl.flash {
+  background: var(--mm-comment-tint-active, rgba(121, 192, 255, 0.7));
+}
+.editor-wrap .cm-content .mm-hl.active[data-color='yellow'],
+.editor-wrap .cm-content .mm-hl.flash[data-color='yellow'] {
+  background: color-mix(in srgb, var(--mm-marker-yellow, #ffd666) 60%, transparent);
+}
+.editor-wrap .cm-content .mm-hl.active[data-color='green'],
+.editor-wrap .cm-content .mm-hl.flash[data-color='green'] {
+  background: color-mix(in srgb, var(--mm-marker-green, #7ee787) 60%, transparent);
+}
+.editor-wrap .cm-content .mm-hl.active[data-color='orange'],
+.editor-wrap .cm-content .mm-hl.flash[data-color='orange'] {
+  background: color-mix(in srgb, var(--mm-marker-orange, #ffab70) 60%, transparent);
+}
+.editor-wrap .cm-content .mm-hl.active[data-color='pink'],
+.editor-wrap .cm-content .mm-hl.flash[data-color='pink'] {
+  background: color-mix(in srgb, var(--mm-marker-pink, #ffa1c9) 60%, transparent);
+}
+/* PRD 023 §18 (issue #285): resolved comments ghost here like the preview's
+   faint marks (SPEC6 §3) — the tint mixed down to the ghost strength. */
+.editor-wrap .cm-content .mm-hl.ghost {
+  background: color-mix(in srgb, var(--mm-comment-tint, rgba(121, 192, 255, 0.45)) 27%, transparent);
 }
 /* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
