@@ -672,7 +672,7 @@ describe('comment format 2.0.0: the kind split (PRD 023 §1/§3 — issue #283)'
     // colorless fallback to degrade to; the record is skipped like any other
     // schema failure, and the parse never crashes.
     for (const bad of ['blue', 'purple', 'YELLOW', 'yellow ', '', 7, true, null, ['yellow'], { name: 'yellow' }, undefined]) {
-      const label = JSON.stringify(bad ?? 'undefined');
+      const label = JSON.stringify(bad) ?? 'undefined'; // stringify(undefined) is undefined
       const parsed = parseSidecar(
         JSON.stringify({ version: '2.0.0', comments: [{ ...highlight, color: bad }, comment] }),
       );

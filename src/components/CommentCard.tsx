@@ -45,9 +45,10 @@ export function CommentCard({
   // PRD 023 §1 (issue #283): the card branches on the kind discriminant —
   // a comment record carries the note/thread/resolve lifecycle; a highlight
   // record's card (active-only, per the PRD 022 Req 9 standing-card rule)
-  // offers recolor, "add note" and remove.
-  const noted = isComment(c) ? c : null;
-  const resolved = noted?.resolved ?? false;
+  // offers recolor, "add note" and remove. `note` is that comment record, or
+  // null on a highlight: the one narrowing the whole card reads off.
+  const note = isComment(c) ? c : null;
+  const resolved = note?.resolved ?? false;
   const [replying, setReplying] = useState(false);
   const [replyDraft, setReplyDraft] = useState('');
   const [editing, setEditing] = useState<string | null>(null); // 'root' or reply id
@@ -56,10 +57,10 @@ export function CommentCard({
 
   const submitReply = () => {
     const body = replyDraft.trim();
-    if (!body || !noted) return;
+    if (!body || !note) return;
     onUpdate({
-      ...noted,
-      thread: [...noted.thread, { id: newId(), author, createdAt: new Date().toISOString(), body }],
+      ...note,
+      thread: [...note.thread, { id: newId(), author, createdAt: new Date().toISOString(), body }],
     });
     setReplyDraft('');
     setReplying(false);
@@ -69,8 +70,8 @@ export function CommentCard({
     const body = editDraft.trim();
     if (!body || editing === null) return;
     if (editing === 'root') {
-      if (noted) {
-        onUpdate({ ...noted, body });
+      if (note) {
+        onUpdate({ ...note, body });
       } else if (c.kind === 'highlight') {
         // PRD 023 §1 (issue #283): adding a note to a highlight authors a
         // kind:"comment" record in its place — same id and anchor, the color
@@ -79,8 +80,8 @@ export function CommentCard({
         const { color: _color, ...base } = c;
         onUpdate({ ...base, kind: 'comment', body, resolved: false, thread: [] });
       }
-    } else if (noted) {
-      onUpdate({ ...noted, thread: noted.thread.map((r) => (r.id === editing ? { ...r, body } : r)) });
+    } else if (note) {
+      onUpdate({ ...note, thread: note.thread.map((r) => (r.id === editing ? { ...r, body } : r)) });
     }
     setEditing(null);
   };
@@ -139,15 +140,15 @@ export function CommentCard({
         ) : (
           // PRD 023 §1 (issue #283): a highlight record has no note to show —
           // no body paragraph, just the swatches and controls below.
-          noted && (
+          note && (
             <p className="body" data-testid="card-body">
-              {noted.body}
+              {note.body}
             </p>
           )
         )}
       </div>
 
-      {noted && noted.thread.map((r) => (
+      {note && note.thread.map((r) => (
         <div className="entry reply" data-testid="thread-entry" key={r.id}>
           <div className="entry-meta">
             <strong>{r.author}</strong> <span className="time">{timeAgo(r.createdAt)}</span>
@@ -193,7 +194,7 @@ export function CommentCard({
                 variant="quiet"
                 size="sm"
                 data-testid="delete-reply"
-                onClick={() => onUpdate({ ...noted, thread: noted.thread.filter((x) => x.id !== r.id) })}
+                onClick={() => onUpdate({ ...note, thread: note.thread.filter((x) => x.id !== r.id) })}
               >
                 Delete
               </Button>
@@ -264,7 +265,7 @@ export function CommentCard({
             </>
           ) : (
             <>
-              {noted && !noted.resolved && (
+              {note && !note.resolved && (
                 <>
                   <Button variant="quiet" size="sm" data-testid="reply-btn" onClick={() => setReplying(true)}>
                     Reply
@@ -275,7 +276,7 @@ export function CommentCard({
                     data-testid="edit-btn"
                     onClick={() => {
                       setEditing('root');
-                      setEditDraft(noted.body);
+                      setEditDraft(note.body);
                     }}
                   >
                     Edit
@@ -284,7 +285,7 @@ export function CommentCard({
                     variant="quiet"
                     size="sm"
                     data-testid="resolve-btn"
-                    onClick={() => onUpdate({ ...noted, resolved: true })}
+                    onClick={() => onUpdate({ ...note, resolved: true })}
                   >
                     Resolve
                   </Button>
@@ -293,7 +294,7 @@ export function CommentCard({
               {/* PRD 023 §1 (issue #283): "add note" on a highlight card opens
                   note editing; submitting authors a comment record in the
                   highlight's place (saveEdit above). */}
-              {!noted && editing !== 'root' && (
+              {!note && editing !== 'root' && (
                 <Button
                   variant="quiet"
                   size="sm"
@@ -306,12 +307,12 @@ export function CommentCard({
                   Add note
                 </Button>
               )}
-              {noted && noted.resolved && (
+              {note && note.resolved && (
                 <Button
                   variant="quiet"
                   size="sm"
                   data-testid="reopen-btn"
-                  onClick={() => onUpdate({ ...noted, resolved: false })}
+                  onClick={() => onUpdate({ ...note, resolved: false })}
                 >
                   Reopen
                 </Button>
@@ -322,9 +323,9 @@ export function CommentCard({
                 variant="quiet"
                 size="sm"
                 data-testid="delete-btn"
-                onClick={() => (noted ? setConfirmingDelete(true) : onDelete(c.id))}
+                onClick={() => (note ? setConfirmingDelete(true) : onDelete(c.id))}
               >
-                {noted ? 'Delete' : 'Remove'}
+                {note ? 'Delete' : 'Remove'}
               </Button>
             </>
           )}

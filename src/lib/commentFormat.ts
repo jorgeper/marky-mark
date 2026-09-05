@@ -182,6 +182,19 @@ function isSupportedVersion(version: string): boolean {
 }
 
 /**
+ * PRD 023 §4 (issue #283): the third verdict beside supported and
+ * unsupported. A resolved version at a *lesser* MAJOR than this build's is
+ * legacy: a shape this build deliberately does not migrate, read as zero
+ * records rather than refused, so the document opens unannotated instead of
+ * frozen. Same refuse-rather-than-guess guard as isSupportedVersion.
+ */
+function isLegacyVersion(version: string): boolean {
+  const parts = parseFormatVersion(version);
+  if (parts === null || SUPPORTED_PARTS === null) return false;
+  return parts.major < SUPPORTED_PARTS.major;
+}
+
+/**
  * PRD 023 §1 (issue #283): the per-kind known-key sets — what this build
  * understands on each record kind, in the exact order the writer emits.
  * `kind` leads (it is the discriminant a reader dispatches on), the shared
@@ -193,7 +206,7 @@ function isSupportedVersion(version: string): boolean {
  * It is ignored at parse — not interpreted, not bagged, not re-emitted —
  * the same stance the seam takes on a wrong-typed known key: a known key is
  * a schema question, never an unknown-key one (documented in
- * docs/COMMENT-FORMAT.md, pinned by U1088/U1120).
+ * docs/COMMENT-FORMAT.md, pinned by U1088/U1116).
  */
 export const COMMENT_RECORD_KEYS: readonly string[] = [
   'kind',
@@ -411,9 +424,8 @@ export function readCommentPayload(payload: unknown): CommentFormatRead {
   if (version === null) {
     return { supported: false, declaredVersion: record.version };
   }
-  const parts = parseFormatVersion(version);
-  if (parts !== null && SUPPORTED_PARTS !== null && parts.major < SUPPORTED_PARTS.major) {
-    return { supported: true, version, comments: [] }; // legacy: readable, empty (issue #283)
+  if (isLegacyVersion(version)) {
+    return { supported: true, version, comments: [] }; // readable, and empty by design
   }
   if (!isSupportedVersion(version)) {
     return { supported: false, declaredVersion: record.version };
@@ -438,6 +450,25 @@ export function stampedFormatVersion(comments: readonly CommentData[]): string {
     if (compareFormatVersions(c.extraVersion, stamp) > 0) stamp = c.extraVersion;
   }
   return stamp;
+}
+
+/**
+ * One anchor as it is written: ANCHOR_KEYS in their fixed order, then the
+ * keys that anchor retained. Shared by both record kinds, whose anchors are
+ * the same object (PRD 023 §1, issue #283) — written once so the two branches
+ * of commentPayload differ only where the kinds themselves do.
+ */
+function anchorPayload(anchor: Anchor) {
+  return withRetained(
+    {
+      exact: anchor.exact,
+      prefix: anchor.prefix,
+      suffix: anchor.suffix,
+      start: anchor.start,
+      end: anchor.end,
+    },
+    anchor.extra,
+  );
 }
 
 /**
@@ -468,16 +499,7 @@ export function commentPayload(comments: readonly CommentData[]): {
               thread: c.thread.map((r) =>
                 withRetained({ id: r.id, author: r.author, createdAt: r.createdAt, body: r.body }, r.extra),
               ),
-              anchor: withRetained(
-                {
-                  exact: c.anchor.exact,
-                  prefix: c.anchor.prefix,
-                  suffix: c.anchor.suffix,
-                  start: c.anchor.start,
-                  end: c.anchor.end,
-                },
-                c.anchor.extra,
-              ),
+              anchor: anchorPayload(c.anchor),
             }
           : {
               kind: c.kind,
@@ -485,16 +507,7 @@ export function commentPayload(comments: readonly CommentData[]): {
               author: c.author,
               createdAt: c.createdAt,
               color: c.color,
-              anchor: withRetained(
-                {
-                  exact: c.anchor.exact,
-                  prefix: c.anchor.prefix,
-                  suffix: c.anchor.suffix,
-                  start: c.anchor.start,
-                  end: c.anchor.end,
-                },
-                c.anchor.extra,
-              ),
+              anchor: anchorPayload(c.anchor),
             },
         c.extra,
       ),

@@ -4254,9 +4254,9 @@ export default function App() {
         for (const { c, m } of open) {
           const marks = m ? highlightRange(holder, m.start, m.end, c.id) : [];
           if (!isComment(c)) {
-            // PRD 023 §1 (issue #283): a highlight record paints its color in
-            // the export but is not a note — no numbered ref, no entry in the
-            // static Comments section.
+            // PRD 023 §1 (issue #283): a highlight record's mark carries its
+            // color for the export's stylesheet to use, but it is not a note —
+            // no numbered ref, no entry in the static Comments section.
             marks.forEach((mk) => (mk.dataset.color = c.color));
             continue;
           }
@@ -6461,6 +6461,16 @@ export default function App() {
     }
   };
 
+  // PRD 023 §1 (issue #283): the identity fields both record kinds share
+  // (AnnotationBase in anchoring.ts) — authored once, so each creation site
+  // below reads as just the kind it is authoring.
+  const newAnnotation = (start: number, end: number) => ({
+    id: crypto.randomUUID(),
+    author: settings.author,
+    createdAt: new Date().toISOString(),
+    anchor: createAnchor(docTextRef.current, start, end),
+  });
+
   // PRD 023 §1 (issue #283): a swatch click creates a kind:"highlight" record
   // in that color (color required, no body/thread/resolved) and closes the
   // popup; nothing else opens.
@@ -6468,11 +6478,8 @@ export default function App() {
     if (!selInfo || !mayComment) return null; // PRD 004 Req 15 + PRD 007 Req 17
     const entry: CommentData = {
       kind: 'highlight',
-      id: crypto.randomUUID(),
-      author: settings.author,
-      createdAt: new Date().toISOString(),
+      ...newAnnotation(selInfo.start, selInfo.end),
       color,
-      anchor: createAnchor(docTextRef.current, selInfo.start, selInfo.end),
     };
     setComments((prev) => [...prev, entry]);
     rememberMarkerColor(color);
@@ -6491,13 +6498,10 @@ export default function App() {
     const { start, end } = selInfo;
     const entry: CommentData = {
       kind: 'comment',
-      id: crypto.randomUUID(),
-      author: settings.author,
-      createdAt: new Date().toISOString(),
+      ...newAnnotation(start, end),
       body: '',
       resolved: false,
       thread: [],
-      anchor: createAnchor(docTextRef.current, start, end),
     };
     setComments((prev) => [...prev, entry]);
     setActiveId(null);
@@ -6594,11 +6598,12 @@ export default function App() {
   const submitComment = () => {
     const body = draft.trim();
     if (!body || !pending) return;
-    // PRD 022 Req 2: submitting yields ONE object — "add note" attached the
-    // composer to an already-created highlight, so the note lands on it.
+    // PRD 022 Req 2, PRD 023 §1 (issue #283): submitting yields ONE object —
+    // "add note" attached the composer to a comment record it created empty,
+    // so the note lands on that record (the only kind with a body to land on).
     if (pending.cid) {
       const cid = pending.cid;
-      setComments((prev) => prev.map((c) => (c.id === cid ? { ...c, body } : c)));
+      setComments((prev) => prev.map((c) => (c.id === cid && c.kind === 'comment' ? { ...c, body } : c)));
       setPending(null);
       setDraft('');
       setActiveId(cid);
@@ -6607,13 +6612,10 @@ export default function App() {
     const comment: CommentData = {
       // PRD 023 §1 (issue #283): the composer's product is a comment record.
       kind: 'comment',
-      id: crypto.randomUUID(),
-      author: settings.author,
-      createdAt: new Date().toISOString(),
+      ...newAnnotation(pending.start, pending.end),
       body,
       resolved: false,
       thread: [],
-      anchor: createAnchor(docTextRef.current, pending.start, pending.end),
     };
     setComments((prev) => [...prev, comment]);
     setPending(null);
@@ -6622,8 +6624,8 @@ export default function App() {
   };
 
   // PRD 022 Req 1: cancel undoes what "add note" created — an abandoned
-  // composer leaves no note-less entry behind (a swatch-created highlight,
-  // which never had a composer, is untouched by this).
+  // composer leaves no empty comment record behind (a swatch-created
+  // highlight, which never had a composer, is untouched by this).
   const cancelComposer = () => {
     if (pending?.cid) {
       const cid = pending.cid;
@@ -6676,24 +6678,27 @@ export default function App() {
   const open = comments.filter((c) => !isComment(c) || !c.resolved).sort(byPosition);
   const resolved = comments.filter((c) => isComment(c) && c.resolved);
 
-  type Item = { kind: 'comment'; c: CommentData; ghost?: boolean } | { kind: 'composer' };
+  // One row of the panel flow: a record's card, or the composer standing in
+  // the flow. Its discriminant is `row`, not `kind`, so it never reads as the
+  // records' own `kind` discriminant (PRD 023 §1, issue #283).
+  type Item = { row: 'card'; c: CommentData; ghost?: boolean } | { row: 'composer' };
   // With "Show resolved" on, resolved comments join the flow as ghosts (SPEC6 §3).
   let items: Item[] = settings.showResolved
-    ? [...comments].sort(byPosition).map((c) => ({ kind: 'comment' as const, c, ghost: isComment(c) && c.resolved }))
-    : open.map((c) => ({ kind: 'comment' as const, c }));
+    ? [...comments].sort(byPosition).map((c) => ({ row: 'card' as const, c, ghost: isComment(c) && c.resolved }))
+    : open.map((c) => ({ row: 'card' as const, c }));
   // PRD 023 §1 (issue #283): a highlight record has no standing card — it
   // joins the panel flow only while it is the active highlight, and leaves on
   // deactivation (click-away, activating another).
-  items = items.filter((it) => it.kind !== 'comment' || isComment(it.c) || it.c.id === activeId);
+  items = items.filter((it) => it.row !== 'card' || isComment(it.c) || it.c.id === activeId);
   // PRD 022 Req 1: while "add note"'s composer is attached to a fresh
   // highlight, the composer stands in for that entry's card.
-  if (pending?.cid) items = items.filter((it) => !(it.kind === 'comment' && it.c.id === pending.cid));
+  if (pending?.cid) items = items.filter((it) => !(it.row === 'card' && it.c.id === pending.cid));
   if (pending) {
     let at = items.findIndex(
-      (it) => it.kind === 'comment' && (positions[it.c.id]?.start ?? it.c.anchor.start) > pending.start
+      (it) => it.row === 'card' && (positions[it.c.id]?.start ?? it.c.anchor.start) > pending.start
     );
     if (at === -1) at = items.length;
-    items.splice(at, 0, { kind: 'composer' });
+    items.splice(at, 0, { row: 'composer' });
   }
 
   // Comments live on whichever preview surface is up: full preview or the
@@ -6732,7 +6737,7 @@ export default function App() {
   const panelAside = panelVisible ? (
     <aside className="panel" data-testid="panel" ref={panelRef}>
       {items.map((it) =>
-        it.kind === 'composer' ? (
+        it.row === 'composer' ? (
           <div className="card composer" data-flowcard="__composer" data-testid="composer" key="__composer">
             <textarea
               className="field"
