@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
+  COPY_LINK_COMMENT_LABEL,
   COPY_LINK_FILE_LABEL,
   COPY_LINK_HEADING_LABEL,
   COPY_LINK_WORKSPACE_LABEL,
@@ -140,6 +141,17 @@ describe('PRD 020 Req 14 copy-link confirmation contract', () => {
     expect(COPY_LINK_HEADING_LABEL).toBe('Copy link to heading');
     expect(LINK_COPIED_LABEL).toBe('Link copied');
     expect(LINK_COPIED_MS).toBe(2000);
+  });
+
+  // Intent: PRD 023 §20 (issue #288) — the comment card placement names ITS
+  // target per the issue #227 convention, and its copied URL is the plain
+  // `highlightShareUrl` on the comment's id: the reserved `#hl-` namespace is
+  // shared with highlights, never extended with a comment-specific prefix.
+  test('U1139: the comment card copy-link label names a comment, and its URL rides the hl- namespace', () => {
+    expect(COPY_LINK_COMMENT_LABEL).toBe('Copy link to comment');
+    expect(highlightShareUrl(ORIGIN, '/ada/notes.md', 'c1')).toBe(`${ORIGIN}/ada/notes.md#hl-c1`);
+    // No file on the path ⇒ no address to share (the caller hides the card control).
+    expect(highlightShareUrl(ORIGIN, '/ada', 'c1')).toBeNull();
   });
 });
 

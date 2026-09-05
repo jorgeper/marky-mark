@@ -42,6 +42,13 @@ export const COPY_LINK_FILE_LABEL = 'Copy link to file';
  * and accessible name — the same name-the-target rule.
  */
 export const COPY_LINK_HIGHLIGHT_LABEL = 'Copy link to highlight';
+/**
+ * PRD 023 §20 (issue #288): the comment card placement's rest tooltip and
+ * accessible name — the same name-the-target rule. The copied URL reuses the
+ * highlight fragment namespace (`highlightShareUrl` below): comments and
+ * highlights share one id space and one `#hl-` landing path.
+ */
+export const COPY_LINK_COMMENT_LABEL = 'Copy link to comment';
 
 /**
  * PRD 020 Req 16: the workspace share URL — absolute (origin included) and

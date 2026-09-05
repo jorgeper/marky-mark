@@ -5032,3 +5032,162 @@ test('E432: an active highlight on an untitled buffer offers no copy-link — no
   await expect(page.locator('mark.hl.active').first()).toBeVisible();
   await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
 });
+
+// --- comment card copy-links and their #hl-<id> landing (PRD 023 §20, issue #288) --
+
+test('E450: a comment card carries a copy-link that copies the file URL plus #hl-<id>, on open and resolved cards alike', async ({
+  page,
+  request,
+}) => {
+  // PRD 023 §20: the card-side control is the comment's ONE copy-link — the
+  // shared CopyLinkButton contract (named target, inline confirmation, ~2s
+  // revert), copying the canonical URL on the reserved hl- namespace; the
+  // margin graft stays highlight-only, so the active comment grafts nothing.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e446');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# Notes\n\nA phrase to thread on rides here.\n',
+  });
+  await stubClipboard(page);
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'notes.md');
+
+  await addComment(page, 'phrase to thread on', 'A shared thought');
+  const card = page.getByTestId('comment-card');
+  await expect(card).toHaveCount(1);
+  const cid = await card.getAttribute('data-cid');
+
+  // The control names its target (the #227 convention) and copies the file's
+  // canonical URL plus #hl-<comment id>, confirming inline then reverting.
+  const link = card.getByTestId('copy-link-comment');
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute('title', 'Copy link to comment');
+  await expect(link).toHaveAttribute('aria-label', 'Copy link to comment');
+  await link.click();
+  await expect(link).toHaveAttribute('aria-label', 'Link copied');
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/notes.md#hl-${cid}`);
+  await expect(link).toHaveAttribute('aria-label', 'Copy link to comment', { timeout: 4000 });
+
+  // One control per annotation: activating the comment from its mark grafts
+  // NO margin copy-link — that placement is the highlight's alone now.
+  await page.locator('mark.hl').first().click();
+  await expect(card).toHaveClass(/active/);
+  await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
+
+  // A resolved card keeps the control: copying a link is a read action. With
+  // show-resolved on (the default) the ghost card in the flow carries it…
+  await card.getByTestId('resolve-btn').click();
+  await expect(card).toHaveClass(/resolved-ghost/);
+  await expect(card.getByTestId('copy-link-comment')).toBeVisible();
+  // …and with it off (a Settings toggle), so does the card inside the
+  // collapsed resolved section.
+  await openSettings(page, 'general');
+  await page.getByTestId('show-resolved').uncheck();
+  await page.getByTestId('settings-close').click();
+  const resolvedSection = page.getByTestId('resolved-section');
+  await resolvedSection.locator('summary').click();
+  const resolvedLink = resolvedSection.getByTestId('comment-card').getByTestId('copy-link-comment');
+  await resolvedLink.click();
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/notes.md#hl-${cid}`);
+});
+
+test('E451: visiting #hl-<comment id> lands centred and flashed AND activates the comment — pane open, card active', async ({
+  page,
+  request,
+}) => {
+  // PRD 023 §20 landing parity: the comment fragment rides the existing
+  // #hl- landing (SPEC14 §1.3 centre + flash, E430's contract) and then
+  // takes the mark-click activation path (PRD 023 §18): the pane opens and
+  // the comment's card goes active. No miss notice.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e447');
+  const doc = [
+    '# Top',
+    '',
+    ...Array.from({ length: 60 }, (_, i) => [`filler paragraph ${i} keeps the phrase off-screen.`, '']).flat(),
+    'The threaded phrase sits far down the document.',
+    '',
+  ].join('\n');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: doc,
+  });
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'notes.md');
+
+  await addComment(page, 'threaded phrase', 'Deep thread');
+  const cid = await page.getByTestId('comment-card').getAttribute('data-cid');
+  // The sidecar must land on the server before the reload boots from the URL.
+  await expect
+    .poll(async () => await readAs(request, token, id, 'notes.md.comments.json'), { timeout: 10_000 })
+    .toContain(cid!);
+  // Authoring auto-opened the pane; close it so the landing's pane-open half
+  // is exercised (best-effort — the setting's persistence is not the test).
+  await page.getByTestId('comments-collapse').click();
+
+  // The deep link, then a reload so the boot runs from the URL; the flash is
+  // recorded by an in-page observer registered before boot (E430's pattern).
+  await page.goto(`${HOSTED}/${unique}/notes.md#hl-${cid}`);
+  await page.addInitScript((id: string) => {
+    const seen = new MutationObserver(() => {
+      if (document.querySelector(`mark.hl.flash[data-cid="${id}"]`)) {
+        (window as unknown as { __hlFlashSeen?: boolean }).__hlFlashSeen = true;
+        seen.disconnect();
+      }
+    });
+    seen.observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+  }, cid!);
+  await page.reload();
+  await expect(page.getByTestId('docname')).toContainText('notes.md');
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __hlFlashSeen?: boolean }).__hlFlashSeen === true), {
+      timeout: 15_000,
+    })
+    .toBe(true);
+  await expect(page.locator(`mark.hl[data-cid="${cid}"]`).first()).toBeInViewport();
+  await expect
+    .poll(() => page.locator('.workspace').evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(0);
+  // …and the activation half: pane open, the landed-on comment's card active.
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(page.locator(`[data-testid="comment-card"][data-cid="${cid}"]`)).toHaveClass(/active/);
+  await expect(page.getByTestId('highlight-miss-notice')).toHaveCount(0);
+});
+
+test('E452: a #hl-<id> naming no record keeps the one dismissible miss notice and activates nothing', async ({
+  page,
+  request,
+}) => {
+  // PRD 023 §20: the landing side cannot know which KIND a missing id was,
+  // so the notice is not split — E431's wording and test ids hold, the file
+  // opens at the top, and no pane opens for a miss.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e448');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guide.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: HEADED_DOC,
+  });
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'guide.md');
+
+  await page.goto(`${HOSTED}/${unique}/guide.md#hl-11111111-1111-4111-8111-111111111111`);
+  await page.reload();
+  await expect(page.getByTestId('docname')).toContainText('guide.md');
+  const notice = page.getByTestId('highlight-miss-notice');
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("That highlight wasn't found — it may have been removed");
+  await landInPreview(page);
+  expect(await page.locator('.workspace').evaluate((el) => el.scrollTop)).toBe(0);
+  // A miss activates nothing — no card goes active. (Not asserted on the
+  // pane: its open/closed state is a persisted per-user setting other
+  // sessions may have left either way.)
+  await expect(page.locator('.card.active')).toHaveCount(0);
+  await page.getByTestId('highlight-miss-dismiss').click();
+  await expect(notice).toHaveCount(0);
+});

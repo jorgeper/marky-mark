@@ -1317,6 +1317,19 @@ test('E428: PRD 022 Req 10 — off the hosted platform an active highlight offer
   await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
 });
 
+test('E449: PRD 023 §20 (issue #288) — off the hosted platform a comment card offers no copy-link control', async ({
+  page,
+}) => {
+  // PRD 020 Req 15 gates every share placement hosted-only; the dev shim
+  // (this suite's platform) renders the card with its thread controls but
+  // no card-side copy-link — there is no canonical URL to copy.
+  await addComment(page, PHRASE, 'No address to share');
+  const card = page.getByTestId('comment-card');
+  await expect(card).toHaveCount(1);
+  await expect(card.getByTestId('reply-btn')).toBeVisible();
+  await expect(card.getByTestId('copy-link-comment')).toHaveCount(0);
+});
+
 test('E424: PRD 022 Req 12 — a highlight paints in the plain-edit editor as a background decoration in its color', async ({
   page,
 }) => {

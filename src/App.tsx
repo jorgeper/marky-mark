@@ -775,6 +775,12 @@ export default function App() {
    */
   const landOnFragmentRef = useRef<() => void>(() => {});
   /**
+   * PRD 023 §20 (issue #288): the fragment landing activates a landed-on
+   * comment through the same path a mark click takes (pane open, card
+   * active) — declared later, so reached through the same ref pattern.
+   */
+  const handleMarkClickRef = useRef<(id: string) => void>(() => {});
+  /**
    * PRD 009 Req 4/5: opens a local file as a crossing action (a workspace
    * closes first). Ref'd for the same reason: the boot effect registers the
    * window drop long before the crossing helpers are declared.
@@ -4192,10 +4198,18 @@ export default function App() {
       const hlTick = () => {
         const s = stateRef.current;
         const doc = docRef.current ?? splitDocRef.current;
-        if (doc && centerAndFlashMarks(doc, hlId)) return;
+        const entry = s.comments.find((c) => c.id === hlId);
+        if (doc && centerAndFlashMarks(doc, hlId)) {
+          // PRD 023 §20 (issue #288): when the landed-on id names a comment,
+          // the link also activates it the way a mark click does (PRD 023
+          // §18: the pane opens and its card goes active). A highlight keeps
+          // today's centre+flash-only landing — no pane, no card.
+          if (entry && isComment(entry)) handleMarkClickRef.current(hlId);
+          return;
+        }
         // The entry is known missing once the document is in (its comments
         // load with it): say so now rather than at the retry bound.
-        if (canonicalOf(s.buffer) !== '' && !s.comments.some((c) => c.id === hlId)) {
+        if (canonicalOf(s.buffer) !== '' && !entry) {
           showFragmentMiss('highlight');
           return;
         }
@@ -6338,7 +6352,12 @@ export default function App() {
     // only, the gate every share placement takes; an untitled buffer never
     // shows it.
     const s = stateRef.current;
-    const linkable = s.platform?.kind === 'hosted' && s.docPath ? activeId : null;
+    // PRD 023 §20 (issue #288): the margin graft is highlight-only — a
+    // comment's one copy-link is card-side in the pane, so an active comment
+    // grafts nothing here (one control per annotation).
+    const activeRec = s.comments.find((c) => c.id === activeId);
+    const linkable =
+      s.platform?.kind === 'hosted' && s.docPath && activeRec?.kind === 'highlight' ? activeId : null;
     updateHighlightLink(doc, linkable, {
       // Click time, like every placement: that moment's canonical address
       // (PRD 020 Req 17 derivation) plus #hl-<entry id> (Req 11).
@@ -6797,6 +6816,9 @@ export default function App() {
     };
     requestAnimationFrame(attempt);
   };
+  // PRD 023 §20 (issue #288): the fragment landing reaches this handler
+  // through the ref (it runs from the boot path, declared far earlier).
+  handleMarkClickRef.current = handleMarkClick;
 
   // PRD 023 §5/§18 (issue #285): the one route from a surface's stacked hit
   // set to activation — every surface (both preview panes, both edit
@@ -6898,6 +6920,20 @@ export default function App() {
   const navIdx = activeId ? open.findIndex((c) => c.id === activeId) : -1;
   if (navIdx >= 0) navLabelRef.current = `${navIdx + 1} / ${open.length}`;
 
+  // PRD 023 §20 (issue #288): each card's copy-link — hosted with an
+  // addressed file only (PRD 020 Req 15: the untitled buffer has no address,
+  // the desktop builds no share DOM), and a read action, so it rides
+  // readOnly and resolved cards too. The URL is read at click time like
+  // every placement: that moment's canonical file URL plus #hl-<id>
+  // (`highlightShareUrl` — comments share the reserved namespace).
+  const commentCopyLink = (id: string) =>
+    platform?.kind === 'hosted' && docPath !== null
+      ? {
+          getUrl: () => highlightShareUrl(window.location.origin, window.location.pathname, id),
+          copy: copyToClipboard,
+        }
+      : null;
+
   // PRD 023 §16 (issue #284): ONE home for the cards — the pane at the
   // body-row's right edge (rendered below), in every mode. The `.panel` flow
   // container survives inside it: same balloon-flow CSS, same panelRef.
@@ -6945,6 +6981,7 @@ export default function App() {
             active={activeId === it.c.id}
             ghost={it.ghost}
             readOnly={!mayComment}
+            copyLink={commentCopyLink(it.c.id)}
             onActivate={handleCardActivate}
             onUpdate={updateComment}
             onDelete={deleteComment}
@@ -6962,6 +6999,7 @@ export default function App() {
               orphaned={positions[c.id] === null}
               active={activeId === c.id}
               readOnly={!mayComment}
+              copyLink={commentCopyLink(c.id)}
               // PRD 023 §18 (issue #285): resolved cards activate through the
               // same path as flow cards — with "Show resolved" on their ghost
               // marks paint, so the reveal reaches them too; off, it no-ops.

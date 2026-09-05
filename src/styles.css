@@ -1025,6 +1025,14 @@ mark.hl.ghost {
   margin-bottom: 2px;
 }
 
+/* PRD 023 §20 (issue #288): the comment card's copy-link floats at the
+   card's top-right, clear of the meta line — the shared .copy-link control
+   carries the glyph, confirmation and live region. */
+.card .card-copy-link {
+  float: right;
+  margin-left: 6px;
+}
+
 .card .entry-meta strong {
   color: var(--mm-fg, #1f2328);
 }
