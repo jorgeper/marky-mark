@@ -158,7 +158,7 @@ describe('PRD 002 §A layered resolver', () => {
     expect(r.splitEdit).toBe(false);
   });
 
-  test('U1125: showComments (issue #284) is M-excluded like its layout neighbours — no shared layer can force the pane open', () => {
+  test('U1133: showComments (issue #284) is M-excluded like its layout neighbours — no shared layer can force the pane open', () => {
     const shared = resolveSettings({
       global: { showComments: true },
       team: { showComments: true },
