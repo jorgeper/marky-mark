@@ -127,9 +127,11 @@ export function CommentCard({
       <div className="entry" data-testid="thread-entry">
         {/* PRD 023 §20 (issue #288): the comment's copy-link, floated at the
             card's top-right — the shared CopyLinkButton (same glyph, same
-            confirmation contract), copying the file URL plus #hl-<id>. Only
-            a comment record has an addressable card; the wrapper stops the
-            click from doubling as card activation like every control row. */}
+            confirmation contract), copying the file URL plus #hl-<id>. The
+            `note` gate keeps it to comment records: a highlight's one
+            copy-link is the mark-side margin graft, never a card control.
+            The wrapper stops the click from doubling as card activation,
+            like every control row. */}
         {copyLink && note && (
           <span className="card-copy-link" onClick={stop}>
             <CopyLinkButton

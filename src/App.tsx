@@ -4198,17 +4198,18 @@ export default function App() {
       const hlTick = () => {
         const s = stateRef.current;
         const doc = docRef.current ?? splitDocRef.current;
+        const entry = s.comments.find((c) => c.id === hlId);
         if (doc && centerAndFlashMarks(doc, hlId)) {
           // PRD 023 §20 (issue #288): when the landed-on id names a comment,
           // the link also activates it the way a mark click does (PRD 023
           // §18: the pane opens and its card goes active). A highlight keeps
           // today's centre+flash-only landing — no pane, no card.
-          if (s.comments.some((c) => c.id === hlId && isComment(c))) handleMarkClickRef.current(hlId);
+          if (entry && isComment(entry)) handleMarkClickRef.current(hlId);
           return;
         }
         // The entry is known missing once the document is in (its comments
         // load with it): say so now rather than at the retry bound.
-        if (canonicalOf(s.buffer) !== '' && !s.comments.some((c) => c.id === hlId)) {
+        if (canonicalOf(s.buffer) !== '' && !entry) {
           showFragmentMiss('highlight');
           return;
         }
@@ -6354,7 +6355,7 @@ export default function App() {
     // PRD 023 §20 (issue #288): the margin graft is highlight-only — a
     // comment's one copy-link is card-side in the pane, so an active comment
     // grafts nothing here (one control per annotation).
-    const activeRec = activeId === null ? undefined : s.comments.find((c) => c.id === activeId);
+    const activeRec = s.comments.find((c) => c.id === activeId);
     const linkable =
       s.platform?.kind === 'hosted' && s.docPath && activeRec?.kind === 'highlight' ? activeId : null;
     updateHighlightLink(doc, linkable, {
