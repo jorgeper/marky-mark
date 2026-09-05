@@ -4357,24 +4357,28 @@ test('E447: the scratch placeholder renders in the accent/italic token treatment
   // values, so the comparison survives a theme change instead of pinning one
   // theme's accent hex.
   const paint = (el: Element) => {
-    const probe = document.createElement('span');
-    probe.style.color = 'var(--mm-scratch-name, #0969da)';
-    probe.style.fontStyle = 'var(--mm-scratch-name-style, italic)';
+    const parent = el.parentElement;
+    if (!parent) throw new Error('the name surface has no parent to hang the probes off');
+    const tokenProbe = document.createElement('span');
+    tokenProbe.style.color = 'var(--mm-scratch-name, #0969da)';
+    tokenProbe.style.fontStyle = 'var(--mm-scratch-name-style, italic)';
     const accentProbe = document.createElement('span');
     accentProbe.style.color = 'var(--mm-accent, #0969da)';
-    el.parentElement!.append(probe, accentProbe);
-    const cs = getComputedStyle(el);
-    const tokens = getComputedStyle(probe);
-    const out = {
-      color: cs.color,
-      fontStyle: cs.fontStyle,
-      tokenColor: tokens.color,
-      tokenStyle: tokens.fontStyle,
+    parent.append(tokenProbe, accentProbe);
+    const surface = getComputedStyle(el);
+    const token = getComputedStyle(tokenProbe);
+    // Computed styles are live views, so read every value before the probes
+    // leave the tree.
+    const resolved = {
+      color: surface.color,
+      fontStyle: surface.fontStyle,
+      tokenColor: token.color,
+      tokenStyle: token.fontStyle,
       accent: getComputedStyle(accentProbe).color,
     };
-    probe.remove();
+    tokenProbe.remove();
     accentProbe.remove();
-    return out;
+    return resolved;
   };
   for (const surface of [toolbarName, tabLabel]) {
     const got = await surface.evaluate(paint);
@@ -4387,12 +4391,15 @@ test('E447: the scratch placeholder renders in the accent/italic token treatment
     expect(got.color).toBe(got.accent);
   }
 
-  // Req 7: the usual dirty dot rides beside the styled name, which keeps its
-  // treatment while dirty.
+  // Req 7: the usual dirty dot rides beside the styled name, which keeps
+  // both the placeholder and its treatment while dirty.
   await page.locator('.cm-content').click();
   await page.keyboard.type('accented scratch text');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
   await expect(toolbarName).toHaveText('Scratch file');
+  const dirty = await toolbarName.evaluate(paint);
+  expect(dirty.fontStyle).toBe('italic');
+  expect(dirty.color).toBe(dirty.accent);
 });
 
 test('E448: a non-boot buffer inside the scratch workspace is not scratch-labelled or scratch-styled — hosted’s ⌘N routes to the New File picker, whose file is an ordinary document', async ({
@@ -4425,9 +4432,9 @@ test('E448: a non-boot buffer inside the scratch workspace is not scratch-labell
   await page.getByTestId('save-picker-confirm').click();
   await expect(picker).toHaveCount(0);
 
-  // The created file is the open document — named normally, with no scratch
-  // label or treatment anywhere in the chrome: toolbar name, file tab, or
-  // browser tab title (the scratch buffer it replaced left silently, Req 4).
+  // The created file is the open document, opened over the scratch buffer —
+  // named normally, with no scratch label or treatment anywhere in the
+  // chrome: toolbar name, file tab, or browser tab title.
   await expect(page.getByTestId('docname')).toContainText(name);
   await expect(page.getByTestId('docname')).not.toContainText('Scratch file');
   await expect(page.locator('.scratch-name')).toHaveCount(0);
