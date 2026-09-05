@@ -108,6 +108,11 @@ export function defaultFolder(folders: readonly PickerFolder[], docDir: string |
  * PRD 009 Req 13+14: the pre-filled name — a FREE `Untitled.md` for New File
  * (the same first guess the sidebar's New File makes), the current document's
  * basename for Save As… (an untitled buffer has none, so it falls back).
+ *
+ * PRD 023 Req 9 (replacing PRD 019 Req 12): the scratch buffer's first save
+ * takes the untitled fallback like any other untitled buffer — a free
+ * `Untitled.md` deduped via `uniqueChildName`; no heading-, first-line- or
+ * timestamp-derived name is proposed anywhere.
  */
 export function defaultName(
   kind: SavePickerKind,
@@ -167,58 +172,4 @@ export function canOfferNewFile(opts: {
 }): boolean {
   if (opts.hasSaveDialog) return true;
   return opts.inWorkspace && opts.canList && opts.canCreate;
-}
-
-/** PRD 019 Req 12: the first heading's text (ATX or setext), else the first
- * non-empty line — a small local scan, per the spec, not a Markdown parse. */
-const ATX = /^ {0,3}#{1,6}\s+(.*)$/;
-const SETEXT_UNDERLINE = /^ {0,3}(=+|-+)\s*$/;
-function firstContentLine(text: string): string {
-  const lines = text.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const atx = ATX.exec(lines[i]);
-    if (atx) return atx[1].replace(/\s+#+\s*$/, ''); // a closing '#' run is decoration
-    if (lines[i].trim() && i + 1 < lines.length && SETEXT_UNDERLINE.test(lines[i + 1])) return lines[i];
-  }
-  return lines.find((l) => l.trim()) ?? '';
-}
-
-/** Inline markup off a single line: links/images keep their text, emphasis
- * and code markers go; intraword underscores (snake_case) are not emphasis. */
-const stripMarkup = (line: string) =>
-  line
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/[`*~]+/g, '')
-    .replace(/\b_+|_+\b/g, '');
-
-/** Toward a name `validateEntryName` accepts: no separators, no leading dot
- * (hidden from the tree), no trailing dot/space, room for '.md' within 255. */
-const sanitizeName = (text: string) =>
-  text
-    .replace(/[/\\]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/^\.+/, '')
-    .slice(0, 252)
-    .replace(/[. ]+$/, '');
-
-const two = (n: number) => String(n).padStart(2, '0');
-const timestampName = (d: Date) =>
-  `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}.${two(d.getMinutes())}`;
-
-/**
- * PRD 019 Req 12: the scratch buffer's Save As pre-fill, named from its own
- * content — the first Markdown heading, else the first non-empty line,
- * stripped of markup and sanitized; a buffer with no usable text (or a name
- * `validateEntryName` still refuses, e.g. a reserved Windows stem) falls back
- * to a `YYYY-MM-DD HH.mm` timestamp. `.md` is appended when the derived name
- * lacks an extension, and a collision in the target folder dedupes via
- * `uniqueChildName` exactly like `defaultName`. Pure: the clock comes in as
- * `now`, so the unit suite pins it.
- */
-export function scratchSaveName(text: string, opts: { existing: readonly string[]; now: Date }): string {
-  const cleaned = sanitizeName(stripMarkup(firstContentLine(text)));
-  let name = cleaned ? withDefaultExtension(cleaned) : '';
-  if (!name || validateEntryName(name)) name = `${timestampName(opts.now)}.md`;
-  return uniqueChildName([...opts.existing], name);
 }

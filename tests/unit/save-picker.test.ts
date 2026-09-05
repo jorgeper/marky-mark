@@ -5,9 +5,10 @@ import {
   defaultFolder,
   defaultName,
   pickerFolders,
-  scratchSaveName,
   withDefaultExtension,
 } from '../../src/lib/savePicker';
+import * as savePicker from '../../src/lib/savePicker';
+import { uniqueChildName } from '../../src/lib/folderOps';
 
 const dir = (name: string) => ({ name, isDir: true });
 const file = (name: string) => ({ name, isDir: false });
@@ -134,54 +135,48 @@ describe('PRD 009 Req 13/14 save picker', () => {
   });
 });
 
-describe('PRD 019 Req 12 scratch save name', () => {
-  // The clock comes in as `now`, so every expectation can pin the timestamp.
-  const now = new Date(2026, 8, 3, 14, 5);
+describe('PRD 023 Req 9 scratch save pre-fill', () => {
+  // PRD 023 Req 9 replaces PRD 019 Req 12: the scratch buffer's first save
+  // pre-fills through defaultName like every other untitled buffer — a free
+  // Untitled.md, never a name derived from the buffer's content.
 
-  test('U1039: the scratch pre-fill takes the first heading — ATX or setext — over the first line', () => {
-    // The first ATX heading wins even when prose precedes it.
-    expect(scratchSaveName('intro prose\n\n# Meeting Notes\n\nbody\n', { existing: [], now })).toBe(
-      'Meeting Notes.md'
-    );
-    // A closing '#' run is ATX decoration, not part of the title.
-    expect(scratchSaveName('## Plan ##\n', { existing: [], now })).toBe('Plan.md');
-    // A setext underline promotes the line above it to the heading.
-    expect(scratchSaveName('intro prose\n\nQuarterly Report\n====\n', { existing: [], now })).toBe(
-      'Quarterly Report.md'
-    );
-    // No heading anywhere: the first non-empty line names the buffer.
-    expect(scratchSaveName('\n\n  a plain first line\nmore\n', { existing: [], now })).toBe('a plain first line.md');
+  test('U1039: an untitled Save As pre-fills a free Untitled.md — content never enters', () => {
+    // The pre-fill is not a function of the buffer's text: defaultName takes
+    // no content, and the retired content-derived namer is gone outright.
+    expect(defaultName('saveAs', { docBasename: null, existing: [] })).toBe('Untitled.md');
+    expect(savePicker).not.toHaveProperty('scratchSaveName');
   });
 
-  test('U1040: markup is stripped and the text sanitized into a name validateEntryName accepts', () => {
-    // Inline formatting goes; a link keeps only its text.
-    expect(scratchSaveName('# **Bold** `code` and [a link](https://x.y)\n', { existing: [], now })).toBe(
-      'Bold code and a link.md'
+  test('U1040: the pre-fill dedupes through uniqueChildName exactly as the sidebar’s New File does', () => {
+    // Case-insensitive, gap-free suffixes — and literally the same answer
+    // uniqueChildName gives, so the two surfaces cannot drift apart.
+    const existing = ['Untitled.md', 'untitled 2.md', 'notes.md'];
+    expect(defaultName('saveAs', { docBasename: null, existing })).toBe('Untitled 3.md');
+    expect(defaultName('saveAs', { docBasename: null, existing })).toBe(uniqueChildName([...existing], 'Untitled.md'));
+  });
+
+  test('U1041: an empty buffer gets the same pre-fill — saving nothing still asks with Untitled.md', () => {
+    // PRD 023 Req 11: emptiness cannot change the answer, because content is
+    // not an input to the pre-fill at all.
+    expect(defaultName('saveAs', { docBasename: null, existing: [] })).toBe('Untitled.md');
+    expect(defaultName('saveAs', { docBasename: null, existing: ['Untitled.md'] })).toBe('Untitled 2.md');
+  });
+
+  test('U1042: ordinary callers keep their pre-fills — New File and a named document’s Save As unchanged', () => {
+    expect(defaultName('new', { existing: ['Untitled.md'] })).toBe('Untitled 2.md');
+    expect(defaultName('saveAs', { docBasename: 'report.md', existing: ['report.md'] })).toBe('report.md');
+  });
+
+  test('U1131: the scratch pre-fill is free against the scratch root’s live listing', () => {
+    // The dedupe walks the listing the picker fetched, whatever crowds it.
+    expect(defaultName('saveAs', { docBasename: null, existing: ['kept.md', 'Plan.md'] })).toBe('Untitled.md');
+    expect(defaultName('saveAs', { docBasename: null, existing: ['Untitled.md'] })).toBe('Untitled 2.md');
+    expect(defaultName('saveAs', { docBasename: null, existing: ['Untitled.md', 'Untitled 2.md'] })).toBe(
+      'Untitled 3.md'
     );
-    // Path separators cannot survive into a filename; whitespace collapses.
-    expect(scratchSaveName('notes/2026\\draft\n', { existing: [], now })).toBe('notes 2026 draft.md');
-    // Leading dots would hide the file from the tree; trailing dots are invalid.
-    expect(scratchSaveName('# ...hidden agenda...\n', { existing: [], now })).toBe('hidden agenda.md');
-    // Overlong titles are cut so the name with its .md stays within 255.
-    const long = scratchSaveName(`# ${'x'.repeat(300)}\n`, { existing: [], now });
-    expect(long).toBe(`${'x'.repeat(252)}.md`);
-  });
-
-  test('U1041: an empty or unusable buffer pre-fills the timestamp, zero-padded', () => {
-    expect(scratchSaveName('', { existing: [], now })).toBe('2026-09-03 14.05.md');
-    expect(scratchSaveName('   \n\t\n', { existing: [], now })).toBe('2026-09-03 14.05.md');
-    // A first line that sanitizes away entirely is as good as empty.
-    expect(scratchSaveName('***\n', { existing: [], now })).toBe('2026-09-03 14.05.md');
-    // A reserved Windows stem would fail validateEntryName: fall back too.
-    expect(scratchSaveName('con\n', { existing: [], now })).toBe('2026-09-03 14.05.md');
-  });
-
-  test('U1042: .md is appended only when the derived name lacks an extension, and collisions dedupe', () => {
-    // An extension already present is kept, exactly like withDefaultExtension.
-    expect(scratchSaveName('notes.markdown\n', { existing: [], now })).toBe('notes.markdown');
-    expect(scratchSaveName('plain title\n', { existing: [], now })).toBe('plain title.md');
-    // Collisions dedupe through uniqueChildName, matching defaultName's use.
-    expect(scratchSaveName('# Plan\n', { existing: ['Plan.md', 'plan 2.md'], now })).toBe('Plan 3.md');
-    expect(scratchSaveName('', { existing: ['2026-09-03 14.05.md'], now })).toBe('2026-09-03 14.05 2.md');
+    // A freed suffix is reused: the guess is the first free name, not a counter.
+    expect(defaultName('saveAs', { docBasename: null, existing: ['Untitled.md', 'Untitled 3.md'] })).toBe(
+      'Untitled 2.md'
+    );
   });
 });

@@ -4031,15 +4031,17 @@ test('E398: the scratch buffer starts fresh over existing files and discards sil
   expect(new URL(page.url()).pathname).toBe('/grace/scratch');
 });
 
-test('E399: the scratch buffer’s first save pre-fills the picker from its heading, lands in the scratchpad root, and the saved file is a normal document', async ({
+test('E399: the scratch buffer’s first save pre-fills a free Untitled.md at the scratchpad root; cancel keeps the buffer, an empty buffer still asks, and the saved file is a normal document', async ({
   page,
   request,
 }) => {
-  // PRD 019 Req 12+13 (issue #216): Save on the scratch buffer routes to the
-  // in-workspace picker with a content-derived name (the first Markdown
-  // heading) and the scratchpad's root as the folder; once committed the
-  // file sheds every scratch semantic — re-save is a plain Save, and the
-  // SPEC36 §2.6 prompt guards its edits like any other document's.
+  // PRD 023 Reqs 9–12 (issue #292, replacing PRD 019 Req 12): Save on the
+  // scratch buffer routes to the in-workspace picker with a free Untitled.md
+  // — never a content-derived name — and the scratchpad's root as the
+  // folder; cancel returns to the untouched scratch buffer; an empty buffer
+  // asks the same way and commits an empty file; once committed the file
+  // sheds every scratch semantic — re-save is a plain Save, and the SPEC36
+  // §2.6 prompt guards its edits like any other document's.
   const token = await signIn(request, 'katherine');
   await dropDraft(page, token);
   const resolve = await request.post(`${HOSTED}/api/me/scratchpad`, {
@@ -4062,22 +4064,40 @@ test('E399: the scratch buffer’s first save pre-fills the picker from its head
   await page.keyboard.type('body text');
   await page.keyboard.press('Control+s');
 
-  // Req 12: pre-filled from the heading, not Untitled.md (a prior retry may
-  // have left the name taken — the uniqueChildName suffix is the contract).
+  // Req 9: pre-filled with a free Untitled.md, NOT the heading (a prior retry
+  // may have left Untitled.md taken — the uniqueChildName suffix is the
+  // contract), and the folder defaulted to the scratchpad's root, which is
+  // the workspace's first — and only — root, so the select's first option.
   const picker = page.getByTestId('save-picker');
   await expect(picker).toBeVisible();
   const prefill = page.getByTestId('save-picker-name');
-  await expect(prefill).toHaveValue(/^Meeting Notes( \d+)?\.md$/);
+  await expect(prefill).toHaveValue(/^Untitled( \d+)?\.md$/);
   const name = await prefill.inputValue();
+  const folderSelect = page.getByTestId('save-picker-folder');
+  await expect(folderSelect).toHaveValue((await folderSelect.locator('option').first().getAttribute('value')) ?? '');
+
+  // Req 10: cancel keeps the buffer — still "Scratch file", still dirty,
+  // its text intact, and nothing written to the workspace.
+  await page.getByTestId('save-picker-cancel').click();
+  await expect(picker).toHaveCount(0);
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect(page.locator('.cm-content')).toContainText('body text');
+  expect(await listFiles(request, token, id)).not.toContain(name);
+
+  // Save again: the same picker, the same free pre-fill; commit it this time.
+  await page.keyboard.press('Control+s');
+  await expect(picker).toBeVisible();
+  await expect(prefill).toHaveValue(name);
   await page.getByTestId('save-picker-confirm').click();
   await expect(picker).toHaveCount(0);
 
-  // Req 12: it landed in the scratchpad ROOT and is now the open document.
+  // Req 9: it landed in the scratchpad ROOT and is now the open document.
   await expect(page.getByTestId('docname')).toContainText(name);
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   await expect.poll(() => listFiles(request, token, id)).toContain(name);
 
-  // Req 13: re-saving is a plain Save — no picker returns, the dot clears.
+  // Req 12: re-saving is a plain Save — no picker returns, the dot clears.
   // (The committed document reopens like any other — in the REMEMBERED view
   // mode, issue #125 — so land in preview first, then enter edit cleanly.)
   await landInPreview(page);
@@ -4090,7 +4110,7 @@ test('E399: the scratch buffer’s first save pre-fills the picker from its head
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   await expect(page.getByTestId('save-picker')).toHaveCount(0);
 
-  // Req 13: the SPEC36 §2.6 close guard treats it like any file — closing
+  // Req 12: the SPEC36 §2.6 close guard treats it like any file — closing
   // its tab with a dirty edit raises the unsaved-changes prompt where the
   // scratch buffer would have discarded silently (E398).
   await page.keyboard.type(' again');
@@ -4101,6 +4121,27 @@ test('E399: the scratch buffer’s first save pre-fills the picker from its head
   await expect(page.getByTestId('open-prompt')).toBeVisible();
   await page.getByTestId('open-cancel').click();
   await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  // Settle the dirty edit so the fresh-scratch revisit below can navigate.
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // Req 11: an empty buffer still asks — a fresh scratch visit, Save with
+  // nothing typed, and the picker opens with the same Untitled pre-fill,
+  // deduped against the file just written; committing lands an empty file.
+  await page.goto(`${HOSTED}/scratch`);
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.locator('.cm-content').click(); // focus only — the buffer stays empty
+  await page.keyboard.press('Control+s');
+  await expect(picker).toBeVisible();
+  await expect(prefill).toHaveValue(/^Untitled( \d+)?\.md$/);
+  const emptyName = await prefill.inputValue();
+  expect(emptyName).not.toBe(name);
+  await page.getByTestId('save-picker-confirm').click();
+  await expect(picker).toHaveCount(0);
+  await expect(page.getByTestId('docname')).toContainText(emptyName);
+  await expect.poll(() => listFiles(request, token, id)).toContain(emptyName);
+  expect(await readAs(request, token, id, emptyName)).toMatch(/^\s*$/);
 });
 
 test('E404: a file saved in scratch shows its canonical /<username>/scratch/… URL, and that URL reopens it', async ({
