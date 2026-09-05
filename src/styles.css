@@ -907,19 +907,67 @@ mark.hl.ghost[data-color] {
   outline-offset: 1px;
 }
 
-/* ---------- comments panel ---------- */
+/* ---------- comments pane (PRD 023 §14, issue #284) ---------- */
 
-.panel {
+/* The third workspace pane — a body-row sibling at the RIGHT edge, in every
+   document mode, fixed at 300px (no drag handle, no breakpoints: PRD
+   non-goal). The slide mirrors .folder-slide: the wrapper's width animates
+   while the pane keeps its full width and translates toward the right edge
+   on the same 180ms curve. overflow: hidden clips the translating pane so
+   the exit slide never grows a page-level horizontal scrollbar. */
+.comments-slide {
   width: 300px;
   flex-shrink: 0;
+  display: flex;
+  overflow: hidden;
+}
+.comments-slide.sliding {
+  transition: width 180ms var(--mm-slide-ease);
+}
+.comments-slide.sliding .comments-pane {
+  transition: transform 180ms var(--mm-slide-ease);
+  will-change: transform;
+}
+.comments-slide.out {
+  width: 0;
+}
+.comments-slide.out .comments-pane {
+  transform: translateX(100%);
+}
+/* The folder pane's second-plane treatment: the --mm-bg-elevated layer the
+   workspace floats in front of. The seam hairline + cast shadow are painted
+   once by .workspace-stack::after (its outward shadow now bleeds right onto
+   this pane exactly as it falls left onto the folder pane). The pane scrolls
+   its card flow itself — it sits outside the document scrollers. */
+.comments-pane {
+  position: relative;
+  width: 300px;
+  flex-shrink: 0;
+  background: var(--mm-bg-elevated, #f6f8fa);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+/* Only where an in-app toolbar exists (web/shim static mode) does the pane
+   need to clear it — the .folder-panel precedent. */
+.theme-root.toolbar-static .comments-pane {
+  padding-top: 42px;
+}
+
+/* ---------- comments panel ---------- */
+
+/* The card flow itself. Issue #284: its one host is .comments-pane above —
+   it fills that pane's fixed width, padding included. */
+.panel {
+  width: 300px;
+  box-sizing: border-box;
   padding: 40px 24px 96px 8px;
   /* Containing block for the absolutely-positioned, animated-top cards
      (SPEC6 §2). Plain relative — NOT sticky (#20's `sticky; right: 0`
      pinned the panel to the scrollport's edge, drawing the cards on top of
-     the doc text whenever the host pane overflowed sideways, #24). In flow
-     the panel always sits to the right of the doc; when doc floor + panel
-     outgrow the pane, the pane's overflow-x scrollbar takes over, and the
-     cards keep their right-edge gap (#19/#20) once scrolled into view. */
+     the doc text whenever the host pane overflowed sideways, #24). Since
+     issue #284 the flow has a pane of its own, disjoint from the document
+     scrollers, so no width the document takes can reach the cards' own
+     right-edge gap (#19/#20). */
   position: relative;
 }
 
@@ -927,7 +975,7 @@ mark.hl.ghost[data-color] {
   position: absolute;
   left: 8px;
   /* #19: a clearly visible gap between the cards and the window's right
-     border — the panel sits flush against it in both preview hosts. */
+     border — the pane the panel fills sits flush against it (issue #284). */
   right: 24px;
   transition: top 180ms ease;
 }
@@ -1142,6 +1190,9 @@ mark.hl.ghost {
 @media (prefers-reduced-motion: reduce) {
   .folder-slide.sliding,
   .folder-slide.sliding .folder-panel,
+  /* PRD 023 §14 (issue #284): the comments pane's slide is stilled too. */
+  .comments-slide.sliding,
+  .comments-slide.sliding .comments-pane,
   /* Issue #165: the :not(.preview-pre) forms match the armed rules above at
      equal-or-higher specificity, so this carve-out still wins by source
      order — including the text column's transform transition. */
@@ -1737,6 +1788,8 @@ input.palette-input {
   .comment-nav,
   .word-chip,
   .split-divider,
+  /* PRD 023 §15 (issue #284): the comments pane is chrome — never on paper. */
+  .comments-slide,
   .panel,
   .editor-wrap,
   .fm-card,
@@ -2126,14 +2179,18 @@ input.palette-input {
   top: -60px; /* no strip: only the left edge shows — the top is clipped */
   pointer-events: none;
   z-index: 1;
-  clip-path: inset(60px 0 0 -48px);
+  /* PRD 023 §14 (issue #284): the right bleed is open too, so the same
+     outward shadow falls onto the comments pane (a body-row sibling on the
+     right) exactly as it falls onto the folder pane. With no pane open the
+     workspace's right edge is the window's, and the bleed is off-screen. */
+  clip-path: inset(60px -48px 0 -48px);
   box-shadow:
     0 0 0 1px var(--mm-border, #d1d9e0),
     var(--mm-panel-shadow);
 }
 .workspace-stack.with-tabs::after {
   top: var(--mm-tabstrip-h);
-  clip-path: inset(-48px 0 0 -48px);
+  clip-path: inset(-48px -48px 0 -48px);
 }
 .theme-root.toolbar-static .workspace-stack.with-tabs::after {
   top: calc(42px + var(--mm-tabstrip-h));

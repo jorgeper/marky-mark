@@ -86,6 +86,9 @@ describe('PRD 002 §B5 scope inventory', () => {
       // PRD 013 Req 13: the tab strip's visibility is this reader's own
       // screen arrangement, like the three sidebar keys beside it.
       fileTabs: 'M',
+      // PRD 023 §15 (issue #284): the comments pane's open/closed state is
+      // this reader's own screen arrangement, like showFolders beside it.
+      showComments: 'M',
     };
     expect(SETTINGS_SCOPES).toEqual(expected);
     // The inventory covers the runtime key set exactly — no extras, no gaps.
@@ -153,6 +156,18 @@ describe('PRD 002 §A layered resolver', () => {
     // …while the machine-local store (settings.json, read as the User input) holds.
     expect(r.splitRatio).toBe(0.25);
     expect(r.splitEdit).toBe(false);
+  });
+
+  test('U1125: showComments (issue #284) is M-excluded like its layout neighbours — no shared layer can force the pane open', () => {
+    const shared = resolveSettings({
+      global: { showComments: true },
+      team: { showComments: true },
+      workspace: { showComments: true },
+    });
+    expect(shared.showComments).toBe(false); // the baked default: closed
+    // The machine-local store (read as the User input) is the one that holds.
+    expect(resolveSettings({ user: { showComments: true } }).showComments).toBe(true);
+    expect(resolveSettings({ user: { showComments: 'open' } }).showComments).toBe(false); // invalid → default
   });
 
   test('U82: malformed values fall through layers to the next valid one, ultimately baked defaults', () => {

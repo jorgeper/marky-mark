@@ -61,6 +61,12 @@ export interface Settings {
   showSyncScrollButton: boolean;
   showResolved: boolean;
   commentsEnabled: boolean;
+  /**
+   * PRD 023 §15: the comments pane's open/closed state — persisted, closed by
+   * default, and the single source every toggle surface (chevron, toolbar,
+   * View → Comments, Mod+Shift+C) reads.
+   */
+  showComments: boolean;
   typeToComment: boolean;
   /**
    * PRD 022 Req 4: the most recently used marker color — remembered state
@@ -178,6 +184,9 @@ export const DEFAULT_SETTINGS: Settings = {
   showSyncScrollButton: true,
   showResolved: true,
   commentsEnabled: true,
+  // PRD 023 §15: the pane ships closed — a fresh install reads the document
+  // full-width until the reader opens it.
+  showComments: false,
   typeToComment: true,
   // PRD 022 Req 4: yellow matches the legacy tint family.
   lastMarkerColor: 'yellow',
@@ -261,6 +270,10 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   showSyncScrollButton: 'U',
   showResolved: 'U',
   commentsEnabled: 'U',
+  // PRD 023 §15: machine/session-local like its layout neighbours
+  // (showFolders / splitEdit) — whether THIS screen shows the pane is this
+  // reader's arrangement, not a workspace's to dictate.
+  showComments: 'M',
   typeToComment: 'U',
   // PRD 022 Req 4: the reader's own marker memory — user-scoped like its
   // comment-authoring neighbours.
@@ -381,6 +394,8 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   showSyncScrollButton: bool,
   showResolved: bool,
   commentsEnabled: bool,
+  // PRD 023 §15: a hand-edited non-boolean falls back to the default (closed).
+  showComments: bool,
   typeToComment: bool,
   // PRD 022 Req 4: only the four marker literals; anything else falls back.
   lastMarkerColor: (raw) => (MARKER_COLORS.includes(raw as CommentColor) ? (raw as CommentColor) : undefined),

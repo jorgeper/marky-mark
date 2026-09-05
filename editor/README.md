@@ -90,7 +90,8 @@ import '@marky-mark/editor/default-theme.css';  // presentable defaults (optiona
   `markdown`; it renders (debounced, `renderDebounceMs`) into a
   `.split-preview > .docwrap > .doc` tree with `data-mm-line` anchors on
   block elements. `docKey` identifies the document so swapping documents
-  resets instantly; `header` / `aside` slot host chrome around the doc.
+  resets instantly; the `header` slot hosts chrome above the doc (the `aside`
+  slot was retired with the in-preview comment panel, PRD 023 §16).
 - **`SplitView` / `SplitViewProps`** — editor + divider + preview with
   synchronized scrolling. Pass the editor element as the `editor` node, the
   preview's props as `preview`, and the same ref you gave the Editor's
@@ -168,7 +169,7 @@ The package is self-contained and host-agnostic (the rules live in
   are the host's job (`value`/`onChange`, `onPasteImages`, `resolveImageSrc`).
 - **No app settings** — every behavior is a prop; persistence is the host's.
 - **No comment overlays or app chrome** — hosts draw overlays through
-  `onRendered` and the `header`/`aside` slots.
+  `onRendered` and the `header` slot.
 - **No theme collection** — one variable contract, no bundled theme picker;
   hosts inject whatever `--mm-*` values they like.
 - **No imports from any host** — app-flavored needs become new seams, never

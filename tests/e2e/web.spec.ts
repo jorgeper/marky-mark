@@ -257,6 +257,9 @@ test('W6: a review bundle boots straight into its document with the comment inta
 
   await page.goto('/review.html');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Bundle Doc');
+  // Issue #284: the comments pane ships closed — a bundle's stored comments
+  // show once it is opened (the hotkey is one of the four toggle surfaces).
+  await page.keyboard.press('Control+Shift+C');
   await expect(page.getByTestId('comment-card')).toContainText('bundle note travels with the file');
   await expect(page.locator('mark.hl')).toBeVisible();
   expect(external).toEqual([]);

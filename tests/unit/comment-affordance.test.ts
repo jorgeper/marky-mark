@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'vitest';
 import { commentAffordanceSurface, type AffordanceState } from '../../src/lib/commentAffordance';
 
+// Issue #284 (PRD 023 §15): `showComments` left the gate — the pane's
+// open/closed state no longer withholds authoring (inserting a comment
+// auto-opens the pane instead), so the predicate never reads it.
 const base: AffordanceState = {
   mode: 'preview',
   splitEdit: false,
   hasSelection: true,
-  showComments: true,
   commentsEnabled: true,
   composerOpen: false,
   authoringFrozen: false,
@@ -26,7 +28,6 @@ describe('issue #38 comment affordance surface', () => {
     for (const mode of ['preview', 'edit'] as const) {
       const on: AffordanceState = { ...base, mode };
       expect(commentAffordanceSurface({ ...on, hasSelection: false })).toBeNull();
-      expect(commentAffordanceSurface({ ...on, showComments: false })).toBeNull();
       expect(commentAffordanceSurface({ ...on, commentsEnabled: false })).toBeNull();
       expect(commentAffordanceSurface({ ...on, composerOpen: true })).toBeNull();
       expect(commentAffordanceSurface({ ...on, authoringFrozen: true })).toBeNull();
