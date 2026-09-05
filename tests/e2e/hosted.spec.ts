@@ -3939,7 +3939,7 @@ test('E397: /scratch gates on sign-in, then lands on /<username>/scratch — unt
 
   // Req 1+10: the landing is a fresh untitled buffer in edit mode, inside
   // the scratch workspace (sidebar present, workspace name beside it).
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
 
@@ -3954,7 +3954,7 @@ test('E397: /scratch gates on sign-in, then lands on /<username>/scratch — unt
   // Req 5 (pinned client-side): a repeat signed-in visit reuses the same
   // workspace — provisioned exactly once per user — and starts fresh again.
   await page.goto(`${HOSTED}/scratch`);
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
   await expect(page.getByTestId('editor')).toBeVisible();
   expect(new URL(page.url()).pathname).toBe(scratchPath);
 
@@ -3962,7 +3962,7 @@ test('E397: /scratch gates on sign-in, then lands on /<username>/scratch — unt
   // an own-scratch, no-target-file entry — it boots fresh exactly like the
   // shortcut form.
   await page.goto(`${HOSTED}${scratchPath}`);
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
   await expect(page.getByTestId('editor')).toBeVisible();
   expect(new URL(page.url()).pathname).toBe(scratchPath);
 
@@ -3971,7 +3971,7 @@ test('E397: /scratch gates on sign-in, then lands on /<username>/scratch — unt
   // a fresh scratch buffer boots here too.
   await page.reload();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
   await expect(page.getByTestId('editor')).toBeVisible();
   // PRD 020 Req 10: and the reloaded page keeps the canonical scratch URL.
   expect(new URL(page.url()).pathname).toBe(scratchPath);
@@ -4004,7 +4004,7 @@ test('E398: the scratch buffer starts fresh over existing files and discards sil
 
   // Req 10: a fresh untitled buffer — the existing file stays visible and
   // reachable in the sidebar, not auto-opened over the scratch.
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
   await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
 
   // Dirty the scratch buffer; the dot shows (the one "unsaved" signal kept).
@@ -4021,7 +4021,7 @@ test('E398: the scratch buffer starts fresh over existing files and discards sil
   // Req 10 again: a repeat visit starts fresh once more — untitled buffer,
   // same workspace, the last-active file NOT reopened over it.
   await page.goto(`${HOSTED}/scratch`);
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
   await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
   // PRD 020 Req 10: the same workspace, shown at its canonical scratch URL.
   expect(new URL(page.url()).pathname).toBe('/grace/scratch');
@@ -4047,7 +4047,7 @@ test('E399: the scratch buffer’s first save pre-fills the picker from its head
   await page.goto(`${HOSTED}/scratch`);
   await page.getByTestId('hosted-sign-in-username').fill('katherine');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
   await expect(page.getByTestId('editor')).toBeVisible();
 
   // Content that begins with a heading, then Save — on an untitled buffer it
@@ -4111,7 +4111,7 @@ test('E404: a file saved in scratch shows its canonical /<username>/scratch/… 
   await page.goto(`${HOSTED}/scratch`);
   await page.getByTestId('hosted-sign-in-username').fill('mary');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
   await expect(page.getByTestId('editor')).toBeVisible();
 
   await page.locator('.cm-content').click();
@@ -4183,7 +4183,9 @@ test('E433: the Open Workspace dialog’s badged "My scratch" row boots a fresh 
   await page.getByTestId('hosted-sign-in-username').fill('alan');
   await page.getByTestId('hosted-sign-in-submit').click();
   await expect(page.getByTestId('docname')).toContainText('opened.md');
-  await expect(page.getByTestId('file-tab').filter({ hasText: 'Untitled' })).toHaveCount(0);
+  // PRD 023 Req 6 (issue #291): a booted scratch tab would read "Scratch
+  // file" now — assert neither label boots over the opened file.
+  await expect(page.getByTestId('file-tab').filter({ hasText: /Untitled|Scratch file/ })).toHaveCount(0);
 
   // PRD 023 Req 3: the badged "My scratch" row (PRD 019 Req 8) re-enters the
   // scratch workspace with no target file — and lands in a fresh, empty
@@ -4192,7 +4194,7 @@ test('E433: the Open Workspace dialog’s badged "My scratch" row boots a fresh 
   await page.getByTestId('menu-open-workspace').click();
   await expect(page.getByTestId(`open-workspace-scratchpad-${id}`)).toBeVisible();
   await page.getByTestId(`open-workspace-item-${id}`).click();
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect.poll(() => new URL(page.url()).pathname).toBe('/alan/scratch');
   // The file the visit came from stays reachable in the sidebar — visible,
@@ -4218,7 +4220,7 @@ test('E434: re-entering the scratch workspace over a dirty scratch buffer replac
   await page.goto(`${HOSTED}/scratch`);
   await page.getByTestId('hosted-sign-in-username').fill('katherine');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
   await expect(page.getByTestId('editor')).toBeVisible();
 
   // Dirty the scratch buffer; the dot is the one "unsaved" signal shown.
@@ -4234,7 +4236,7 @@ test('E434: re-entering the scratch workspace over a dirty scratch buffer replac
 
   // PRD 023 Req 4: the dirty buffer is gone — silently — and a fresh empty
   // scratch buffer stands in its place, in edit mode.
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.locator('.cm-content')).not.toContainText('doomed scratch text');
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
@@ -4435,7 +4437,7 @@ test('E408: the file copy-link is absent for an untitled buffer while the worksp
   await page.goto(`${HOSTED}/scratch`);
   await page.getByTestId('hosted-sign-in-username').fill('alan');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
   await expect(page.getByTestId('copy-link-workspace')).toBeVisible();
   await expect(page.getByTestId('copy-link-file')).toHaveCount(0);
 });
@@ -4811,7 +4813,7 @@ test('E432: an active highlight on an untitled buffer offers no copy-link — no
   await page.goto(`${HOSTED}/scratch`);
   await page.getByTestId('hosted-sign-in-username').fill('alan');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('docname')).toContainText('Scratch file');
 
   await page.locator('.cm-content').click();
   await page.keyboard.type('# Draft\n\nAn unshareable phrase sits here.\n');
