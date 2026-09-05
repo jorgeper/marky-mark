@@ -226,6 +226,16 @@ export interface EditorSyncHandle {
   setScrollTop(top: number): void;
   /** Subscribe to scroll events; returns the unsubscribe function. */
   onScroll(cb: () => void): () => void;
+  /**
+   * PRD 023 §18 (issue #285): centre the first painted fragment of the given
+   * annotation id and flash its ranges — SPEC14 §1.3's activation feel for
+   * the editor surface. Lives here because the canonical-offset → editor-doc
+   * mapping is this package's (docHighlightRanges); the owner never
+   * re-derives it. False when the id paints no range (the PRD 022 Req 12
+   * skip rule, or no `highlights` at all): the caller's no-op degrade.
+   * Scroll-only — the caret and selection never move.
+   */
+  revealHighlight(id: string): boolean;
 }
 
 /**
@@ -254,12 +264,15 @@ export interface EditorProps {
    */
   highlights?: readonly HighlightRange[] | null;
   /**
-   * PRD 022 Req 12: a click landing on a painted range reports the
-   * highlight's id (read through a live ref, so identity churn never
-   * rebuilds the extension). The owner passes this in split edit only —
-   * absent ⇒ painting is display-only and a click just places the cursor.
+   * PRD 022 Req 12, amended by PRD 023 §18 (issue #285): a click landing on
+   * painted ranges reports the ids of EVERY range covering the position
+   * (document order), read through a live ref so identity churn never
+   * rebuilds the extension. Overlap resolution is the owner's (its kind
+   * rule needs the records this package never sees); the click itself is
+   * never claimed, so caret placement always stands. Absent ⇒ painting is
+   * display-only.
    */
-  onHighlightClick?(id: string): void;
+  onHighlightClick?(ids: readonly string[]): void;
   /**
    * Undo history survival (SPEC7 §6): the serialized editor state (doc +
    * history) is parked here on unmount and revived on the next mount, so
@@ -577,6 +590,14 @@ export interface HighlightRange {
   to: number;
   /** One of the four marker literals; absent ⇒ the legacy tint (styles.css). */
   color?: string;
+  /**
+   * PRD 023 §18 (issue #285): the owner's activation cue — the active card's
+   * range paints with the stronger `.active` treatment, so plain edit shows
+   * which annotation the pane is on just like the preview's mark sweep.
+   */
+  active?: boolean;
+  /** PRD 023 §18 (issue #285): faint `.ghost` treatment (resolved comments). */
+  ghost?: boolean;
 }
 
 /**
@@ -633,16 +654,40 @@ function docHighlightRanges(state: EditorState, ranges: readonly HighlightRange[
     const from = canonToDocOffset(h.from, spans, canonLens);
     const to = canonToDocOffset(h.to, spans, canonLens);
     if (from === null || to === null || from < 0 || to <= from || to > state.doc.length) continue;
-    out.push({ id: h.id, from, to, ...(h.color ? { color: h.color } : {}) });
+    out.push({
+      id: h.id,
+      from,
+      to,
+      ...(h.color ? { color: h.color } : {}),
+      ...(h.active ? { active: true } : {}),
+      ...(h.ghost ? { ghost: true } : {}),
+    });
   }
   return out;
 }
 
+// PRD 023 §18 (issue #285): the reveal flash — a transient per-id cue the
+// revealHighlight seam raises and clears (SPEC14 §1.3's flash, editor side).
+// The same 900ms the preview's mark flash runs for, so both surfaces feel
+// alike.
+const HL_FLASH_MS = 900;
+const setHlFlash = StateEffect.define<string | null>();
+const hlFlashField = StateField.define<string | null>({
+  create: () => null,
+  update(v, tr) {
+    for (const e of tr.effects) if (e.is(setHlFlash)) v = e.value;
+    return v;
+  },
+});
+
 function highlightDecorations(state: EditorState, ranges: readonly HighlightRange[]): DecorationSet {
+  const flash = state.field(hlFlashField, false) ?? null;
   return Decoration.set(
     docHighlightRanges(state, ranges).map((h) =>
       Decoration.mark({
-        class: 'mm-hl',
+        // PRD 023 §18 (issue #285): active/flash ride the class list like the
+        // preview's mark sweep; styles.css derives both from the same tokens.
+        class: `mm-hl${h.active ? ' active' : ''}${flash === h.id ? ' flash' : ''}${h.ghost ? ' ghost' : ''}`,
         attributes: { 'data-cid': h.id, ...(h.color ? { 'data-color': h.color } : {}) },
       }).range(h.from, h.to)
     ),
@@ -652,29 +697,48 @@ function highlightDecorations(state: EditorState, ranges: readonly HighlightRang
 
 /**
  * PRD 022 Req 12: the highlight extension — decorations plus the click
- * report. The click handler never claims the event (return false), so
- * normal cursor placement always stands; it only names the painted range
- * under the pointer to the owner. Hit-testing is by document position, not
- * DOM ancestry: the mousedown's selection change re-renders the line (the
- * active-line band moves), so by click time the pointer's original mark
- * element may already be replaced.
+ * report. The handlers never claim their events (return false), so normal
+ * cursor placement always stands; they only name the painted ranges under
+ * the pointer to the owner. Hit-testing is by document position, not DOM
+ * ancestry, and rides a mousedown+mouseup pair rather than `click`: the
+ * mousedown's selection change re-renders the line (the active-line band
+ * and the caret-word cue move), which can detach the pressed mark element —
+ * and a click whose mousedown target left the DOM is never dispatched at
+ * all (issue #285). A press that travels more than a few pixels is a drag,
+ * not a click, and reports nothing.
  */
 const highlightsExt = (
   ranges: readonly HighlightRange[],
-  onClick: MutableRefObject<((id: string) => void) | undefined>
-): Extension => [
-  EditorView.decorations.of((view) => highlightDecorations(view.state, ranges)),
-  EditorView.domEventHandlers({
-    click: (event, view) => {
-      if (!onClick.current) return false;
-      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-      if (pos === null) return false;
-      const hit = docHighlightRanges(view.state, ranges).find((h) => pos >= h.from && pos <= h.to);
-      if (hit) onClick.current(hit.id);
-      return false;
-    },
-  }),
-];
+  onClick: MutableRefObject<((ids: readonly string[]) => void) | undefined>
+): Extension => {
+  const DRAG_SLOP_PX = 3; // past this the press was a selection drag, not a click
+  let downAt: { x: number; y: number } | null = null;
+  return [
+    EditorView.decorations.of((view) => highlightDecorations(view.state, ranges)),
+    EditorView.domEventHandlers({
+      mousedown: (event) => {
+        downAt = { x: event.clientX, y: event.clientY };
+        return false;
+      },
+      mouseup: (event, view) => {
+        const down = downAt;
+        downAt = null;
+        if (!down || !onClick.current) return false;
+        if (Math.abs(event.clientX - down.x) > DRAG_SLOP_PX || Math.abs(event.clientY - down.y) > DRAG_SLOP_PX) {
+          return false;
+        }
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        if (pos === null) return false;
+        // PRD 023 §5 (issue #285): overlapping records stack — report EVERY
+        // painted range covering the position and let the owner's kind-aware
+        // rule pick, instead of whichever range the array yields first.
+        const hits = docHighlightRanges(view.state, ranges).filter((h) => pos >= h.from && pos <= h.to);
+        if (hits.length > 0) onClick.current(hits.map((h) => h.id));
+        return false;
+      },
+    }),
+  ];
+};
 
 /** SPEC23 §2: Ctrl+d/u — half the viewport, cursor moves, view centers on it. */
 function halfPage(view: EditorView, dir: 1 | -1): void {
@@ -911,6 +975,10 @@ export default function Editor({
   const hlComp = useRef(new Compartment());
   const onHighlightClickRef = useRef(onHighlightClick);
   onHighlightClickRef.current = onHighlightClick;
+  // PRD 023 §18 (issue #285): revealHighlight reads the CURRENT ranges — the
+  // sync handle is built once at mount, so it goes through a live ref.
+  const highlightsRef = useRef(highlights);
+  highlightsRef.current = highlights;
   const syntaxComp = useRef(new Compartment());
   const codeSynComp = useRef(new Compartment()); // Issue #122
   // PRD 006 §1: live preview rides its own compartment, same live-toggle pattern.
@@ -1430,7 +1498,9 @@ export default function Editor({
       readOnlyComp.current.of(readOnlyExt(readOnly)),
       diffComp.current.of([]),
       // PRD 022 Req 12: comment highlights — filled by the effect below,
-      // exactly like diff.
+      // exactly like diff. The flash field lives OUTSIDE the compartment so
+      // revealHighlight's effects always have a home (PRD 023 §18).
+      hlFlashField,
       hlComp.current.of([]),
       // SPEC23 §3: highlighting rides a compartment — toggling the setting
       // reconfigures live, undo history intact. PRD 006 §12: while live
@@ -1758,6 +1828,25 @@ export default function Editor({
         onScroll(cb) {
           dom.addEventListener('scroll', cb);
           return () => dom.removeEventListener('scroll', cb);
+        },
+        revealHighlight(id) {
+          // PRD 023 §18 (issue #285): SPEC14 §1.3 for the editor — centre the
+          // id's first painted range and flash all of it. An id the source
+          // could not place (PRD 022 Req 12 skip) paints nothing here and
+          // returns false: the caller's card still activates, nothing throws.
+          const first = docHighlightRanges(view.state, highlightsRef.current ?? []).find((h) => h.id === id);
+          if (!first) return false;
+          view.dispatch({
+            effects: [EditorView.scrollIntoView(first.from, { y: 'center' }), setHlFlash.of(id)],
+          });
+          window.setTimeout(() => {
+            // Only clear OUR flash: a reveal that landed meanwhile owns the
+            // field now and keeps its own full 900ms.
+            if (viewRef.current === view && view.state.field(hlFlashField, false) === id) {
+              view.dispatch({ effects: setHlFlash.of(null) });
+            }
+          }, HL_FLASH_MS);
+          return true;
         },
       };
     }

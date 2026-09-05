@@ -438,7 +438,7 @@ describe('PRD 023 §15 showComments setting (issue #284)', () => {
     expect(parseSettings('{"showComments":true}').showComments).toBe(true);
 
     // Machine-scoped like its layout neighbours, so it never travels to a
-    // shared layer (the merge exclusion itself is asserted in U1125).
+    // shared layer (the merge exclusion itself is asserted in U1133).
     expect(SETTINGS_SCOPES.showComments).toBe('M');
     expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain('showComments');
   });

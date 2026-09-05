@@ -231,6 +231,7 @@ import {
 import { parseFrontMatter } from './lib/frontmatter';
 import { commentAffordanceSurface } from './lib/commentAffordance';
 import { commentsPaneOpen, commentsSeamUp } from './lib/commentsPane';
+import { pickHitRecord } from './lib/markHit';
 import { isStaleDraft, parseDraft, serializeDraft, type Draft } from './lib/drafts';
 import { FindBar } from './components/FindBar';
 import { FrontMatterCard } from './components/FrontMatterCard';
@@ -317,6 +318,20 @@ function centerAndFlashMarks(doc: HTMLElement, id: string): boolean {
     setTimeout(() => m.classList.remove('flash'), 900);
   }
   return true;
+}
+
+/**
+ * PRD 023 §5 (issue #285): every record whose preview mark covers the click,
+ * innermost first. highlightRange nests a later record's mark inside an
+ * earlier one over shared text, so the clicked mark's `mark.hl` ancestor
+ * chain is exactly the candidate set pickHitRecord resolves by kind.
+ */
+function markChainIds(innermost: HTMLElement): string[] {
+  const ids: string[] = [];
+  for (let m: HTMLElement | null = innermost; m; m = m.parentElement?.closest<HTMLElement>('mark.hl') ?? null) {
+    if (m.dataset.cid) ids.push(m.dataset.cid);
+  }
+  return ids;
 }
 
 /** SPEC29 §2 + PRD 002 §D15: best-effort write of a recent store's file. */
@@ -4246,10 +4261,12 @@ export default function App() {
     if (!id) return;
     setActiveId(id);
     // Same activation feel as clicking the card (SPEC14 §1.3): center + flash
-    // the highlight (split-edit marks live in the split preview) and keep the
-    // margin card in view.
+    // the anchor in whichever surface shows the text — the preview marks, or
+    // in plain edit the editor's decorations through the revealHighlight seam
+    // (PRD 023 §18, issue #285) — and keep the margin card in view.
     const doc = docRef.current ?? splitDocRef.current;
     if (doc) centerAndFlashMarks(doc, id);
+    else editorSyncRef.current?.revealHighlight(id);
     panelRef.current?.querySelector(`[data-flowcard="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
   }, []);
 
@@ -5708,6 +5725,15 @@ export default function App() {
     return () => clearTimeout(t);
   }, [mode, comments, buffer, settings.commentsEnabled, settings.showResolved, canonicalOf]);
 
+  // PRD 023 §18 (issue #285): the activation cue rides the ranges into the
+  // package — derived at render, NOT in the debounced mapping effect above,
+  // so the active treatment lands the frame activeId changes, matching the
+  // preview's instant mark sweep.
+  const editorMarks = useMemo(
+    () => editorHighlights && editorHighlights.map((h) => (h.id === activeId ? { ...h, active: true } : h)),
+    [editorHighlights, activeId]
+  );
+
   // --- SPEC16 §5: word-count chip (selection-aware in preview) ------------------
   useEffect(() => {
     if (!docPath && !untitled) {
@@ -6748,19 +6774,58 @@ export default function App() {
 
   const handleMarkClick = (id: string) => {
     setActiveId(id);
-    // Activation re-lays the flow out (the active card anchors level with
-    // its mark, SPEC6 §2), so scroll on the next frame — once the card's top
-    // has settled. A highlight's mark has no card to reach at all since
-    // issue #284; the query simply finds nothing.
-    requestAnimationFrame(() =>
-      panelRef.current?.querySelector(`[data-flowcard="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' })
-    );
+    const s = stateRef.current;
+    const rec = s.comments.find((c) => c.id === id);
+    // PRD 023 §18 (issue #285): only a comment reaches the pane — a highlight
+    // click's whole effect stays on the text surface's mark treatment (E420/
+    // E421's no-card contract): never opens the pane, never grows a card.
+    if (!rec || !isComment(rec)) return;
+    // A comment mark click opens the closed pane through the persisted
+    // setting (the pending-composer effect's precedent), so it stays open.
+    if (s.settings.commentsEnabled && !s.settings.showComments) {
+      updateSettings({ ...s.settings, showComments: true });
+    }
+    // Activation re-lays the flow out (the active card anchors level with its
+    // mark, SPEC6 §2), and the pane may first have to mount and slide — one
+    // frame is not enough, so retry until the card exists (bounded, the
+    // pendingScrollLine pattern).
+    let tries = 120; // ~2s of frames
+    const attempt = () => {
+      const card = panelRef.current?.querySelector(`[data-flowcard="${CSS.escape(id)}"]`);
+      if (card) card.scrollIntoView({ block: 'nearest' });
+      else if (tries-- > 0) requestAnimationFrame(attempt);
+    };
+    requestAnimationFrame(attempt);
+  };
+
+  // PRD 023 §5/§18 (issue #285): the one route from a surface's stacked hit
+  // set to activation — every surface (both preview panes, both edit
+  // layouts) reports the ids covering the click and the kind-aware rule
+  // picks the record it activates.
+  const activateFromHit = (ids: readonly string[]) => {
+    const id = pickHitRecord(ids, stateRef.current.comments);
+    if (id) handleMarkClick(id);
+  };
+
+  // The preview half of that route, shared by the full and the split pane:
+  // where marks nest, the clicked mark's `mark.hl` ancestor chain IS the hit
+  // set; a click landing on no mark deactivates (SPEC14 §3.1).
+  const activateFromPreviewClick = (target: EventTarget | null) => {
+    const mark = (target as HTMLElement | null)?.closest?.('mark.hl') as HTMLElement | null;
+    if (!mark) setActiveId(null);
+    else if (settings.commentsEnabled) activateFromHit(markChainIds(mark));
   };
 
   const handleCardActivate = (id: string) => {
     setActiveId(id);
-    const doc = docRef.current ?? splitDocRef.current; // split-edit hosts marks too (#19)
+    // PRD 023 §18 (issue #285): the SPEC14 §1.3 activation feel lands on
+    // whichever surface shows the text — the full preview, the split preview,
+    // or, in plain edit, the editor through the package's revealHighlight
+    // seam. An orphaned or source-unplaceable anchor paints nowhere: both
+    // paths no-op and the card still activates.
+    const doc = docRef.current ?? splitDocRef.current;
     if (doc) centerAndFlashMarks(doc, id);
+    else editorSyncRef.current?.revealHighlight(id);
   };
 
   // --- panel ordering ------------------------------------------------------------------
@@ -6897,7 +6962,10 @@ export default function App() {
               orphaned={positions[c.id] === null}
               active={activeId === c.id}
               readOnly={!mayComment}
-              onActivate={(id) => setActiveId(id)}
+              // PRD 023 §18 (issue #285): resolved cards activate through the
+              // same path as flow cards — with "Show resolved" on their ghost
+              // marks paint, so the reveal reaches them too; off, it no-ops.
+              onActivate={handleCardActivate}
               onUpdate={updateComment}
               onDelete={deleteComment}
             />
@@ -7658,12 +7726,10 @@ export default function App() {
                   }
                   return; // any other protocol is inert
                 }
-                const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
-                // PRD 023 §15 (issue #284): with the pane closed a mark click
-                // still activates (flash + active tint) but does NOT open the
-                // pane — two-way sync is Req 18's slice, not this one.
-                if (mark?.dataset.cid && settings.commentsEnabled) handleMarkClick(mark.dataset.cid);
-                else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
+                // PRD 023 §5/§18 (issue #285): the comment wins over the
+                // highlight it shares text with, and reaching a comment opens
+                // the pane onto its card; a highlight has no pane effect.
+                activateFromPreviewClick(e.target);
                 placeFromPreviewClick(docRef.current, e); // SPEC44 §4.2
               }}
             />
@@ -7724,12 +7790,9 @@ export default function App() {
               scrollerRef: splitPreviewRef,
               docRef: splitDocRef,
               onDocClick: (e) => {
-                // Highlights activate their card here too (#19).
-                const mark = (e.target as HTMLElement).closest?.('mark.hl') as HTMLElement | null;
-                // PRD 023 §15 (issue #284): activation with the pane closed —
-                // same contract as the full-preview click above.
-                if (mark?.dataset.cid && settings.commentsEnabled) handleMarkClick(mark.dataset.cid);
-                else if (!mark) setActiveId(null); // click-away deactivates (SPEC14 §3.1)
+                // PRD 023 §5/§18 (issue #285): same contract as the
+                // full-preview click above.
+                activateFromPreviewClick(e.target);
                 placeFromPreviewClick(splitDocRef.current, e);
               },
               header:
@@ -7749,10 +7812,15 @@ export default function App() {
                 syncRef={editorSyncRef}
                 diff={diff}
                 // PRD 022 Req 12 (issue #234): highlight painting through the
-                // package seam; the click callback rides only in split edit —
-                // plain edit is paint-only, a click just places the caret.
-                highlights={editorHighlights}
-                onHighlightClick={settings.splitEdit ? handleMarkClick : undefined}
+                // package seam, with the active card's cue riding the ranges.
+                // PRD 023 §18 (issue #285): the click callback is wired in
+                // EVERY edit layout — plain edit included — reporting the
+                // full hit set; the kind-aware rule picks the record and
+                // handleMarkClick opens the pane for a comment. The caret
+                // still lands where the click fell (the handler never claims
+                // the event).
+                highlights={editorMarks}
+                onHighlightClick={activateFromHit}
                 onPasteImages={pasteImages}
                 insertRef={editorInsertRef}
                 syntax={settings.editorSyntax}

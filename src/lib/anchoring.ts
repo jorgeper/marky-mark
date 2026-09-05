@@ -227,6 +227,12 @@ export interface SourceHighlight {
   from: number;
   to: number;
   color?: CommentColor;
+  /**
+   * PRD 023 §18 (issue #285): a resolved comment's range — the editor ghosts
+   * it like the preview's faint resolved marks, closing the one treatment
+   * gap between the two surfaces (SPEC6 §3's ghost, editor side).
+   */
+  ghost?: boolean;
 }
 
 /**
@@ -271,7 +277,14 @@ export function mapHighlightsToSource(
       at = tied ? null : best;
     }
     if (at === null) continue;
-    out.push({ id: e.id, from: at, to: at + exact.length, ...(e.kind === 'highlight' ? { color: e.color } : {}) });
+    out.push({
+      id: e.id,
+      from: at,
+      to: at + exact.length,
+      ...(e.kind === 'highlight' ? { color: e.color } : {}),
+      // PRD 023 §18 (issue #285): resolved comments ghost in the editor too.
+      ...(isComment(e) && e.resolved ? { ghost: true } : {}),
+    });
   }
   return out;
 }
