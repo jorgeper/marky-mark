@@ -3521,10 +3521,9 @@ export default function App() {
       const folder = defaultFolder(folders, docDir);
       if (!folder) return false;
       const existing = await listPickerNames(folder);
-      // PRD 023 Req 9 (replacing PRD 019 Req 12): every caller — the scratch
-      // buffer's first save included — pre-fills through defaultName, so an
-      // untitled buffer gets a free Untitled.md deduped via uniqueChildName
-      // exactly as the sidebar's New File does; no content-derived name.
+      // PRD 023 Req 9 (replacing PRD 019 Req 12): the scratch buffer's first
+      // save has no special case here — it pre-fills through defaultName like
+      // every other untitled buffer, so no content-derived name is proposed.
       const name = defaultName(kind, { docBasename: s.docPath ? p.basename(s.docPath) : null, existing });
       savePickerResolveRef.current?.(false); // never leave an earlier caller hanging
       return new Promise<boolean>((resolve) => {

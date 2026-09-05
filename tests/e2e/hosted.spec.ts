@@ -25,6 +25,9 @@ import { NO_LLM_CONFIGURED_MESSAGE } from '../../src/lib/llmDeployment';
 // Issue #179: E325 poisons the store with a real draft payload, built by the
 // module that owns the format so a schema change fails the test loudly.
 import { serializeDraft } from '../../src/lib/drafts';
+// Issue #292: E399 names the scratchpad's root folder through the module that
+// owns the virtual-path scheme, so a changed layout fails the test loudly.
+import { hostedFilesRoot } from '../../src/lib/hostedPaths';
 
 // PRD 007 Req 1+4: the hosted backend in local dev mode — booted by the
 // second `webServer` entry in playwright.config.ts (`npm run server:local`:
@@ -4066,15 +4069,13 @@ test('E399: the scratch buffer’s first save pre-fills a free Untitled.md at th
 
   // Req 9: pre-filled with a free Untitled.md, NOT the heading (a prior retry
   // may have left Untitled.md taken — the uniqueChildName suffix is the
-  // contract), and the folder defaulted to the scratchpad's root, which is
-  // the workspace's first — and only — root, so the select's first option.
+  // contract), and the folder defaulted to the scratchpad workspace's root.
   const picker = page.getByTestId('save-picker');
   await expect(picker).toBeVisible();
   const prefill = page.getByTestId('save-picker-name');
   await expect(prefill).toHaveValue(/^Untitled( \d+)?\.md$/);
   const name = await prefill.inputValue();
-  const folderSelect = page.getByTestId('save-picker-folder');
-  await expect(folderSelect).toHaveValue((await folderSelect.locator('option').first().getAttribute('value')) ?? '');
+  await expect(page.getByTestId('save-picker-folder')).toHaveValue(hostedFilesRoot(id));
 
   // Req 10: cancel keeps the buffer — still "Scratch file", still dirty,
   // its text intact, and nothing written to the workspace.
