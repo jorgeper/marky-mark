@@ -32,9 +32,12 @@ import {
   buildAppPath,
   buildScratchPath,
   findWorkspaceByUniqueName,
+  isOwnScratch,
   parseAppPath,
   SCRATCH_SEGMENT,
+  scratchBootsFresh,
   workspaceIdFromSearch,
+  type AppPathTarget,
 } from '../lib/hostedPaths';
 import type { WorkspaceListing } from '../lib/workspaceLifecycle';
 import { AppBadge } from './Toolbar';
@@ -124,8 +127,9 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
   /**
    * PRD 020 Req 10+13: land in a scratch workspace — verify the file half
    * exists (like any workspace visit), rewrite the bar to the canonical
-   * `/<username>/scratch[/…]` form, and bind. `fresh` marks the Req 11
-   * shortcut's visit: that one boots the PRD 019 Req 10 scratch buffer.
+   * `/<username>/scratch[/…]` form, and bind. `fresh` is what boots the PRD
+   * 019 Req 10 scratch buffer, and every caller answers it the one PRD 023
+   * way: scratchBootsFresh — own scratch, no target file.
    */
   const bindScratch = async (
     id: string,
@@ -158,9 +162,9 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
 
   if (path.kind === 'scratch' || path.kind === 'user-scratch') {
     const handle = await myHandle();
-    const own =
-      path.kind === 'scratch' || (handle !== undefined && path.username.toLowerCase() === handle.toLowerCase());
-    if (own && handle !== undefined) {
+    // PRD 020 Req 12: whose scratch this addresses — the same case-insensitive
+    // handle match the boot decision below makes, so the two can't disagree.
+    if (handle !== undefined && isOwnScratch(path, handle)) {
       // The caller's own scratch: the idempotent resolve-or-create (PRD 019 Reqs 5–7).
       const body = await getJson<{ id?: string }>('/api/me/scratchpad', auth, { method: 'POST' });
       if (!body?.id) {
@@ -169,9 +173,16 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
         window.history.replaceState(null, '', '/');
         return null;
       }
-      // PRD 019 Req 10 stays the SHORTCUT's semantic: `/scratch` boots the
-      // fresh scratch buffer; a reload of the canonical URL just re-binds.
-      return bindScratch(body.id, handle, path.kind === 'user-scratch' ? path.file : [], path.kind === 'scratch');
+      // PRD 023 Req 1 (amending PRD 019 Req 10): BOTH bare URL forms boot the
+      // fresh scratch buffer on every entry, reloads of the canonical URL
+      // included — the old "a reload just re-binds" guard is gone. Only a
+      // file segment suppresses the boot (Req 2).
+      return bindScratch(
+        body.id,
+        handle,
+        path.kind === 'user-scratch' ? path.file : [],
+        scratchBootsFresh(path, handle),
+      );
     }
     if (path.kind === 'scratch') {
       // No handle to land on — same bail-out as an unanswerable resolve.
@@ -192,7 +203,9 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
         file: path.file.length > 0 ? path.file.join('/') : null,
       };
     }
-    return bindScratch(resolved.id, resolved.owner ?? path.username, path.file, false);
+    // PRD 023 Req 5: someone else's scratch (or an own visit with no resolved
+    // handle) never boots a scratch buffer — the same one decision answers no.
+    return bindScratch(resolved.id, resolved.owner ?? path.username, path.file, scratchBootsFresh(path, handle));
   }
 
   const rows = await listRows();
@@ -204,7 +217,14 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
   // caller's own scratch; nobody else's is ever listed).
   if (row?.scratchpad) {
     const handle = await myHandle();
-    if (handle !== undefined) return bindScratch(row.id, handle, wanted?.file ?? [], false);
+    if (handle !== undefined) {
+      // PRD 023 Reqs 1+2 (one rule, not per-route): a flagged row is always
+      // the caller's OWN scratch, so this address decides the boot the same
+      // way the URLs do — on the canonical target bindScratch rewrites to.
+      const file = wanted?.file ?? [];
+      const canonical: AppPathTarget = { kind: 'user-scratch', username: handle, file };
+      return bindScratch(row.id, handle, file, scratchBootsFresh(canonical, handle));
+    }
   }
   const file = wanted && wanted.file.length > 0 ? wanted.file.join('/') : null;
   if (!row?.uniqueName) {

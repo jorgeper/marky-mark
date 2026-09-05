@@ -221,6 +221,37 @@ export function buildScratchPath(username: string, file: readonly string[] = [])
   return buildAppPath(username, [SCRATCH_SEGMENT, ...file]);
 }
 
+/** PRD 020 Req 10+11: the two targets that address a scratch workspace. */
+type ScratchTarget = Extract<AppPathTarget, { kind: 'scratch' | 'user-scratch' }>;
+
+/**
+ * PRD 020 Req 12: does this target address the CALLER'S OWN scratch?
+ * `/scratch` is definitionally the caller's own; `/<username>/scratch[/…]`
+ * matches its username against the caller's handle through `uniqueNameKey`,
+ * the same case-insensitive comparison workspace-name matching makes. A
+ * caller whose handle never resolved owns no scratch here.
+ */
+export function isOwnScratch(target: AppPathTarget, callerHandle: string | undefined): target is ScratchTarget {
+  if (callerHandle === undefined) return false;
+  if (target.kind === 'scratch') return true;
+  return target.kind === 'user-scratch' && uniqueNameKey(target.username) === uniqueNameKey(callerHandle);
+}
+
+/**
+ * PRD 023 Reqs 1–5 (amending PRD 019 Req 10): the ONE scratch boot decision.
+ * A visit boots the fresh scratch buffer iff it enters the caller's own
+ * scratch workspace with no target file — whatever route delivered it. A
+ * file segment (Req 2), someone else's scratch (Req 5), or a caller with no
+ * resolved handle boots nothing. Stateless on purpose (Req 4): re-entry asks
+ * the same question and gets the same yes, so the new buffer silently
+ * replaces whatever was open.
+ */
+export function scratchBootsFresh(target: AppPathTarget, callerHandle: string | undefined): boolean {
+  // `/scratch` carries no file segments at all; the canonical form must
+  // likewise name none.
+  return isOwnScratch(target, callerHandle) && (target.kind === 'scratch' || target.file.length === 0);
+}
+
 /**
  * PRD 020 Req 5: match a visited name against listing rows the same way the
  * server enforces uniqueness — case-insensitively via `uniqueNameKey`, so

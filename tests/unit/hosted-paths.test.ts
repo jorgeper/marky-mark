@@ -15,7 +15,9 @@ import {
   buildAppPath,
   buildScratchPath,
   findWorkspaceByUniqueName,
+  isOwnScratch,
   parseAppPath,
+  scratchBootsFresh,
 } from '../../src/lib/hostedPaths';
 import { parseWorkspaceFile } from '../../src/lib/workspace';
 
@@ -141,6 +143,61 @@ describe('PRD 020 Req 10+11 the scratch routes', () => {
       username: 'ada',
       file: ['meeting notes.md'],
     });
+  });
+});
+
+describe('PRD 023 Reqs 1–5 the scratch boot decision', () => {
+  // One rule, not per-route: own scratch AND no target file boots the fresh
+  // scratch buffer; everything else boots nothing. scratchBootsFresh is the
+  // pure decision every bindScratch call in HostedSignIn.tsx routes through.
+  it('U1115: /scratch boots fresh — it is definitionally the caller’s own; without a resolved handle nothing binds, so nothing boots', () => {
+    expect(scratchBootsFresh(parseAppPath('/scratch'), 'ada')).toBe(true);
+    expect(scratchBootsFresh(parseAppPath('/scratch'), undefined)).toBe(false);
+  });
+
+  it('U1116: the caller’s own bare /<username>/scratch boots fresh on EVERY ask — case-insensitively, and again on re-entry (the decision is stateless)', () => {
+    const target = parseAppPath('/ada/scratch');
+    expect(scratchBootsFresh(target, 'ada')).toBe(true);
+    // Handle matching is case-insensitive, like workspace-name matching.
+    expect(scratchBootsFresh(parseAppPath('/Ada/scratch'), 'ada')).toBe(true);
+    expect(scratchBootsFresh(target, 'Ada')).toBe(true);
+    // PRD 023 Req 4: re-entry (a reload, the Open Workspace row, a repeat
+    // visit) re-asks the same question and gets the same yes — no "already
+    // booted once" state suppresses the fresh buffer.
+    expect(scratchBootsFresh(target, 'ada')).toBe(true);
+  });
+
+  it('U1117: a file segment suppresses the boot — the caller’s own /<username>/scratch/<path> opens the file, fresh buffer never', () => {
+    expect(scratchBootsFresh(parseAppPath('/ada/scratch/notes.md'), 'ada')).toBe(false);
+    expect(scratchBootsFresh(parseAppPath('/ada/scratch/guides/intro.md'), 'ada')).toBe(false);
+  });
+
+  it('U1118: someone else’s scratch boots nothing — with or without a file segment, and whether or not the caller’s handle resolved', () => {
+    expect(scratchBootsFresh(parseAppPath('/grace/scratch'), 'ada')).toBe(false);
+    expect(scratchBootsFresh(parseAppPath('/grace/scratch/notes.md'), 'ada')).toBe(false);
+    expect(scratchBootsFresh(parseAppPath('/grace/scratch'), undefined)).toBe(false);
+  });
+
+  it('U1119: only scratch targets can boot — home and workspace paths never do, and the unique-name/legacy route decides on its canonical user-scratch form', () => {
+    expect(scratchBootsFresh(parseAppPath('/'), 'ada')).toBe(false);
+    expect(scratchBootsFresh(parseAppPath('/notes/intro.md'), 'ada')).toBe(false);
+    // The row?.scratchpad branch (a flagged row is always the caller's own)
+    // constructs exactly this canonical form: no file boots fresh, a file
+    // suppresses — the same one rule as the scratch URLs.
+    expect(scratchBootsFresh({ kind: 'user-scratch', username: 'ada', file: [] }, 'ada')).toBe(true);
+    expect(scratchBootsFresh({ kind: 'user-scratch', username: 'ada', file: ['kept.md'] }, 'ada')).toBe(false);
+  });
+
+  it('U1120: the ownership half (PRD 020 Req 12) is its own answer — the routing gate in HostedSignIn.tsx asks it, and a file segment does not change it', () => {
+    // isOwnScratch decides own-vs-someone-else's (resolve-or-create against
+    // /api/scratch/<username>); scratchBootsFresh adds "no target file".
+    expect(isOwnScratch(parseAppPath('/scratch'), 'ada')).toBe(true);
+    expect(isOwnScratch(parseAppPath('/Ada/scratch'), 'ada')).toBe(true);
+    expect(isOwnScratch(parseAppPath('/ada/scratch/notes.md'), 'ada')).toBe(true);
+    expect(isOwnScratch(parseAppPath('/grace/scratch'), 'ada')).toBe(false);
+    expect(isOwnScratch(parseAppPath('/notes/intro.md'), 'ada')).toBe(false);
+    // No resolved handle: not even the shortcut is anyone's own scratch.
+    expect(isOwnScratch(parseAppPath('/scratch'), undefined)).toBe(false);
   });
 });
 

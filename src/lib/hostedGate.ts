@@ -105,7 +105,11 @@ export interface HostedBoot {
   uniqueName?: string;
   /** The file the path named, relative to the workspace's files root. */
   file?: string;
-  /** PRD 019 Req 10: this binding is a scratch visit (fresh scratch buffer). */
+  /**
+   * PRD 023 Req 1 (amending PRD 019 Req 10): this binding entered the
+   * caller's own scratch with no target file — boot the fresh scratch buffer,
+   * on every such entry, reloads of the canonical bare URL included.
+   */
   scratch?: boolean;
   /**
    * PRD 020 Req 10+13: the bound workspace is a scratch workspace, owned by
