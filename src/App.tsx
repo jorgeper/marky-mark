@@ -68,8 +68,8 @@ import {
   diffSettings,
   MARGIN_WIDTHS,
   resolveSettings,
-  sessionAuthorOverride,
   serializeSettingsLayer,
+  sessionAuthorDefault,
   ZOOM_LEVELS,
   type Settings,
   type SettingsLayers,
@@ -1758,15 +1758,18 @@ export default function App() {
     const view = currentLayerView();
     setLayerView(view);
     setSettings((prev) => {
-      const next = { ...resolveSettings(view.layers), ...sessionOverridesRef.current };
       // Issue #274: hosted sessions default the comment author to the
       // signed-in display name. Derived at resolution time — never written
       // into a layer — and only when no layer supplies `author`, so a stored
-      // value (or an explicit edit, which lands in the user layer) still wins.
-      const derivedAuthor = sessionAuthorOverride(view.layers, sessionMeRef.current);
-      if (derivedAuthor !== undefined && sessionOverridesRef.current.author === undefined) {
-        next.author = derivedAuthor;
-      }
+      // value (or an explicit edit, which lands in the user layer) still
+      // wins. The spread order IS the precedence: layers, then this default,
+      // then the session-only overrides that beat everything.
+      const derivedAuthor = sessionAuthorDefault(view.layers, sessionMeRef.current);
+      const next = {
+        ...resolveSettings(view.layers),
+        ...(derivedAuthor === undefined ? {} : { author: derivedAuthor }),
+        ...sessionOverridesRef.current,
+      };
       // Identity-stable: unchanged resolutions keep the previous object (no
       // spurious re-renders, editor reconfigures, or aux broadcasts), and an
       // entry-wise-equal hotkeys map keeps its identity too.

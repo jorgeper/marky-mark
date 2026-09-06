@@ -4735,7 +4735,7 @@ test('E433: a signed-in reader authors comments under their display name, with t
   // comment author from /api/me — Ada signs in and both surfaces show
   // 'Ada Lovelace' without her ever opening Settings to type it.
   const ada = await signIn(request, 'ada');
-  const id = await sharedWorkspace(request, ada, `E433 w${test.info().workerIndex}`, []);
+  const id = await createWorkspace(request, ada, `E433 w${test.info().workerIndex}`);
   const put = await request.put(`${HOSTED}/api/workspaces/${id}/files/authored.md`, {
     headers: { Authorization: `Bearer ${ada}` },
     data: '# Authored\n\nA remark lands on this very phrase today.\n',
