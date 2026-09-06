@@ -9,6 +9,7 @@
  */
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState, Text } from '@codemirror/state';
+import type { SyntaxNode } from '@lezer/common';
 
 export type InlineStyle = 'strong' | 'emphasis' | 'strikethrough' | 'inline-code';
 
@@ -42,6 +43,39 @@ export type LivePreviewDeco =
 export interface VisibleRange {
   readonly from: number;
   readonly to: number;
+}
+
+/** SPEC43 §11 (issue #270): one Link node's collapse geometry. */
+export interface LinkSpanSpec {
+  /** The `[` mark, then one span from `]` through the construct's end
+   * (closing bracket, parens, URL and any title) — exactly what hides. */
+  hide: { from: number; to: number }[];
+  /** The link text between the `[` and the `]`. */
+  text: { from: number; to: number };
+  /** The raw href, or null when the node carries no URL child (a
+   * reference-style link) — nothing to render or open. */
+  url: string | null;
+}
+
+/**
+ * SPEC43 §11 (issue #270): the ONE Link decoration rule — extracted from the
+ * PRD 006 §5 live-preview Link case so the standalone link view (linkSpans.ts)
+ * and the whole-document live preview can never diverge on what a collapsed
+ * link hides. Null when the node has fewer than two LinkMark children (a
+ * malformed/partial construct decorates nothing).
+ */
+export function linkSpanSpec(node: SyntaxNode, doc: Text): LinkSpanSpec | null {
+  const marks = node.getChildren('LinkMark');
+  if (marks.length < 2) return null;
+  const url = node.getChild('URL');
+  return {
+    hide: [
+      { from: marks[0].from, to: marks[0].to },
+      { from: marks[1].from, to: node.to },
+    ],
+    text: { from: marks[0].to, to: marks[1].from },
+    url: url ? doc.sliceString(url.from, url.to) : null,
+  };
 }
 
 /**
@@ -242,19 +276,14 @@ export function computeLivePreviewDecos(
           // carries the URL so the component layer can wire cmd/ctrl-click.
           case 'Link': {
             if (overlapsRevealed(n.from, n.to)) return;
-            const marks = n.node.getChildren('LinkMark');
-            if (marks.length < 2) return;
-            const url = n.node.getChild('URL');
-            push({ from: marks[0].from, to: marks[0].to, deco: 'hide' });
-            push({
-              from: marks[0].to,
-              to: marks[1].from,
-              deco: 'link',
-              url: url ? doc.sliceString(url.from, url.to) : '',
-            });
-            // One span from `]` to the construct's end covers the closing
-            // bracket, parens, URL and any title.
-            push({ from: marks[1].from, to: n.to, deco: 'hide' });
+            // SPEC43 §11 (issue #270): the shared rule — one span from `]` to
+            // the construct's end covers the closing bracket, parens, URL and
+            // any title.
+            const spec = linkSpanSpec(n.node, doc);
+            if (!spec) return;
+            push({ from: spec.hide[0].from, to: spec.hide[0].to, deco: 'hide' });
+            push({ from: spec.text.from, to: spec.text.to, deco: 'link', url: spec.url ?? '' });
+            push({ from: spec.hide[1].from, to: spec.hide[1].to, deco: 'hide' });
             return;
           }
           // PRD 006 §6: blockquotes — a quote-bar line style per line. §8:

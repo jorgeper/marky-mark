@@ -113,6 +113,8 @@ export interface Settings {
   codeBlockView: boolean;
   /** PRD 013 Req 5: registered-language fences render as diagrams in the editor (default on). */
   diagramView: boolean;
+  /** SPEC43 §11 (issue #270): inline links collapse to styled link text in the editor (default on). */
+  linkView: boolean;
   /** SPEC26 §3: show the front-matter card by default when a doc has one. */
   showFrontmatter: boolean;
   /** SPEC34 §2.2: the folder sidebar's visibility (persisted toggle). */
@@ -211,6 +213,8 @@ export const DEFAULT_SETTINGS: Settings = {
   codeBlockView: true,
   // PRD 013 Req 5: like its three view neighbours, diagrams ship rendered.
   diagramView: true,
+  // SPEC43 §11 (issue #270): like its four view siblings, links ship rendered.
+  linkView: true,
   showFrontmatter: true,
   showFolders: false,
   folderWidth: 240,
@@ -304,6 +308,9 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   // PRD 013 Req 5: User scope, the tableGridView/inlineImages precedent —
   // whether diagrams draw in someone's editor is a reader's preference.
   diagramView: 'U',
+  // SPEC43 §11 (issue #270): User scope like codeBlockView/diagramView —
+  // how links read in someone's editor is theirs, not a workspace's to set.
+  linkView: 'U',
   showFrontmatter: 'U',
   showFolders: 'M',
   folderWidth: 'M',
@@ -423,6 +430,8 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   codeBlockView: bool,
   // PRD 013 Req 5: a hand-edited non-boolean falls back to the default.
   diagramView: bool,
+  // SPEC43 §11 (issue #270): a hand-edited non-boolean falls back to the default.
+  linkView: bool,
   showFrontmatter: bool,
   showFolders: bool,
   folderWidth: clampedInt(FOLDER_WIDTH_MIN, FOLDER_WIDTH_MAX),

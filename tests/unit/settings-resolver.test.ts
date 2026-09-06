@@ -37,6 +37,8 @@ describe('PRD 002 §B5 scope inventory', () => {
       codeBlockView: 'U',
       // PRD 013 Req 5: the edit-pane diagram view, the same reader-owned scope.
       diagramView: 'U',
+      // SPEC43 §11 (issue #270): the rendered-links view, the same reader-owned scope.
+      linkView: 'U',
       showFrontmatter: 'U',
       showWordCount: 'U',
       showResolved: 'U',

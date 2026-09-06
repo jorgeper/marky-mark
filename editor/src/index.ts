@@ -38,6 +38,7 @@ export * from './components/anchoredMenu';
 export * from './components/codeBlockView';
 export * from './components/diagramView';
 export * from './components/imageView';
+export * from './components/linkView';
 export * from './components/livePreview';
 export * from './components/tableMode';
 
@@ -57,6 +58,7 @@ export * from './lib/fenceWidth';
 export * from './lib/headingLinks';
 export * from './lib/hotkeys';
 export * from './lib/imageResize';
+export * from './lib/linkSpans';
 export * from './lib/livePreview';
 export * from './lib/markdown';
 export * from './lib/mermaidRenderer';

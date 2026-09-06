@@ -95,6 +95,9 @@ export type CommandId =
   | 'fmtQuote'
   | 'fmtCodeBlock'
   | 'fmtHr'
+  // SPEC43 §11 (issue #270): open the link under the editor caret — silent
+  // no-op outside edit mode or outside a link.
+  | 'openLink'
   // PRD 023 §12 (issue #286): the annotation hotkeys — silent no-ops when
   // the authoring gate is closed or nothing resolves to an anchor.
   | 'insertComment'

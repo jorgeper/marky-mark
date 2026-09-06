@@ -5288,3 +5288,41 @@ test('E475: a signed-in reader authors comments under their display name, with t
   await openSettings(page, 'general');
   await expect(page.getByTestId('author-input')).toHaveValue('Ada Lovelace');
 });
+
+test('E482: SPEC43 §11 (issue #270) — the hosted build carries the Link ▸ submenu too: toggle, Create Link and Open Link', async ({
+  page,
+  request,
+}) => {
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E482 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/links.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Links\n\nvisit [site](https://example.com/page) today\n',
+  });
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'links.md');
+
+  // Build-agnostic (nothing gated on platform.kind): the submenu sits in the
+  // hosted smart menu with its three rows, and the top-level link row is gone.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'visit' }).click();
+  // Opening is retried whole: a late caret-scroll or split-sync scroll event
+  // dismisses the anchored menu (issue #286's anchor rule), so a single
+  // open-then-assert sequence can lose the race on the hosted layout.
+  await expect(async () => {
+    await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'visit' }).click({ button: 'right' });
+    await expect(page.getByTestId('smart-edit-menu')).toBeVisible({ timeout: 1000 });
+    await expect(page.getByTestId('smart-edit-link-view')).toBeVisible({ timeout: 500 });
+    await expect(page.getByTestId('smart-edit-link')).toHaveCount(0); // moved under the flyout
+    await page.getByTestId('smart-edit-link-view').click();
+    await expect(page.getByTestId('smart-edit-toggle-links')).toHaveText(/Show (Raw|Rendered) Links/, { timeout: 1000 });
+  }).toPass({ timeout: 20_000 });
+  await expect(page.getByTestId('smart-edit-link')).toContainText('Create Link');
+  await expect(page.getByTestId('smart-edit-open-link')).toContainText('Open Link');
+  for (let i = 0; i < 4 && (await page.getByTestId('smart-edit-menu').count()); i++) {
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(50);
+  }
+  await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
+});

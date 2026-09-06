@@ -140,6 +140,9 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   strikethrough: 'Strikethrough',
   inlineCode: 'Inline code',
   link: 'Link',
+  // SPEC43 §11 (issue #270): listed, rebindable and reset-to-default like
+  // every row, in the Smart Edit group beside its Create Link sibling.
+  openLink: 'Open link',
   heading1: 'Heading 1',
   heading2: 'Heading 2',
   heading3: 'Heading 3',
@@ -165,6 +168,8 @@ const SMART_EDIT_KEYS: Array<keyof HotkeyMap> = [
   'strikethrough',
   'inlineCode',
   'link',
+  // SPEC43 §11 (issue #270): the open-link binding, beside Create Link.
+  'openLink',
   'heading1',
   'heading2',
   'heading3',
@@ -937,6 +942,22 @@ export function SettingsPanel({
           Show diagrams in the editor
         </label>
         {scopeNote('diagramView')}
+      </div>
+
+      {/* SPEC43 §11 (issue #270): the rendered-links view, beside its four view kin. */}
+      <h3 className="tab-section">Links</h3>
+      <div className="checkbox-row">
+        <input
+          id="settings-link-view"
+          type="checkbox"
+          data-testid="settings-link-view"
+          checked={settings.linkView}
+          onChange={(e) => onChange({ ...settings, linkView: e.target.checked })}
+        />
+        <label htmlFor="settings-link-view" style={{ margin: 0, fontWeight: 400 }}>
+          Show rendered links in the editor
+        </label>
+        {scopeNote('linkView')}
       </div>
     </>
   );

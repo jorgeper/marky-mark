@@ -279,3 +279,69 @@ identical feature minus `paste` where clipboard read is unavailable.
 3. README: a Smart Edit bullet (button, right-click, hotkeys).
    ARCHITECTURE.md: a Smart Edit section — the pure module, the gutter,
    the menu, the `readClipboardText` seam, and the no-op stubs' status.
+
+## 11. Smart links (issue #270)
+
+Amendment: the Link submenu, the rendered-links view, and open-link —
+added after SPEC40 (table grid), SPEC41 (inline images), issue #157
+(code cards) and PRD 013 Req 5 (diagrams) gave every other smart
+construct its view. Code cites this as `SPEC43 §11 (issue #270)`.
+
+1. **The Link submenu.** `buildSmartMenu` emits a `Link` submenu in the
+   smart-construct group, after `Diagram` and before the annotation
+   entries. Its id is `link-view` (the `code-block-view` precedent —
+   `link` stays taken by Create Link), so its row testid is
+   `smart-edit-link-view`. Rows, in order:
+   1. `toggle-links` — `Show Raw Links` while the rendered view is on,
+      `Show Rendered Links` while it is off (the toggle-grid label
+      rule); always enabled. Invoking it flips the `linkView` setting
+      through the owner (`onToggleLinkView`), like its three siblings.
+   2. `link` — `Create Link`, carrying the `hk.link` binding (⌘⇧K).
+      The id, `runFormat`'s `wrapLink` branch, the `SmartFormatOp`
+      union, `fmtLink` and the binding are unchanged — only the row's
+      location moved out of the top-level inline group, which now reads
+      Bold, Italic, Strikethrough, Inline Code, then the separator.
+   3. `open-link` — `Open Link`, showing the `openLink` binding via
+      `displayCombo`; enabled only when the caret/selection head sits
+      inside an inline link carrying a URL (resolved by `linkAt`,
+      below); disabled — never absent — otherwise. An image reference
+      is not a link and never enables it.
+2. **The rendered-links view.** A user-scoped `linkView` setting
+   (default ON, `U` scope, boolean-validated) collapses every inline
+   link in the edit pane to just its link text, styled on the
+   `--mm-link` token with the URL as a `title` tooltip; the `[`, `](`,
+   URL, title and `)` hide by decoration only — text, history and the
+   dirty state never move. The caret or any part of the selection
+   entering the link node reveals the whole construct raw, in place;
+   leaving re-collapses it. Scope: Lezer `Link` nodes with a `URL`
+   child. Reference-style links, autolinks, images and fenced-code
+   content stay raw. The pure core is `editor/src/lib/linkSpans.ts`
+   (built on the SAME `linkSpanSpec` rule the PRD 006 §5 live preview
+   hides with); the view wiring is `editor/src/components/linkView.ts`.
+   While `livePreview` is on, the standalone view stands down (the live
+   preview already collapses those ranges — nothing hides twice);
+   table-grid display regions are excluded like every sibling view.
+3. **Open-link: one command, three entry points.** `linkAt(state, pos)`
+   is the single offset→link resolution; the menu row, the rebindable
+   `openLink` hotkey (`Mod+Alt+O` default — `Mod+Shift+O` is taken by
+   `toggleOpenOnly`; listed in Settings ▸ Hotkeys' Smart Edit group)
+   and ⌘/Ctrl-click (via `posAtCoords`, so it works in raw AND rendered
+   views; plain clicks just place the caret) all call it and hand the
+   raw href to the host through `onOpenExternal`. Holding the modifier
+   shows a pointer cursor over link text (a class dropped on keyup and
+   on blur). The host applies EXACTLY the preview's managed-link rule
+   (SPEC11 §4) through the shared `classifyManagedLink` helper
+   (`src/lib/managedLinks.ts`): http(s) → `platform.openExternal`,
+   `#anchor` → the rendered heading, anything else inert. Deliberate
+   parity: the preview does not open relative in-workspace files today,
+   so neither does the editor — changing that is a separate issue that
+   must move both surfaces through the one helper. Nothing is gated on
+   `platform.kind`.
+4. **Tests.** U1153–U1161 (menu shape and labels; the conflict-free
+   default map; `linkAt` contexts; span geometry and reveal; the
+   mousedown factory; the shared managed-link rule; the setting's
+   default/scope/validator) and E476+ (submenu and moved row; toggle +
+   persistence; collapsed render and reveal-on-cursor; modifier-click,
+   hotkey and menu opens through the seam; anchor jump; hosted-build
+   presence). U65's and issue #286's menu-order assertions are amended
+   in place — still complete, exact row lists.

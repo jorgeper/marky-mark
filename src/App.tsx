@@ -85,6 +85,7 @@ import {
   type ViewMode,
 } from './lib/settings';
 import { dispatchCommand, registerCommands, registerRecentHandler, type CommandId } from './lib/commands';
+import { classifyManagedLink } from './lib/managedLinks';
 import { buildMenuSpec, type ViewMenuState } from './lib/menuSpec';
 import { deriveAppMode } from './lib/appMode';
 import { buildAppMenu } from './lib/appMenu';
@@ -899,6 +900,26 @@ export default function App() {
   const toggleDiagramView = useCallback(() => {
     const s = stateRef.current.settings;
     updateSettings({ ...s, diagramView: !s.diagramView });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // SPEC43 §11 (issue #270): the Link ▸ toggle and the Settings checkbox flip this.
+  const toggleLinkView = useCallback(() => {
+    const s = stateRef.current.settings;
+    updateSettings({ ...s, linkView: !s.linkView });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // SPEC43 §11 (issue #270): every href leaving the editor (modifier-click,
+  // openLink hotkey, Link ▸ Open Link, live-preview links) lands here and gets
+  // EXACTLY the preview pane's managed-link rule (SPEC11 §4) through the one
+  // shared classifier — http(s) to the OS browser, #anchor jumps in the
+  // rendered document, anything else inert.
+  const openEditorLink = useCallback((href: string) => {
+    const link = classifyManagedLink(href);
+    if (link.kind === 'external') void stateRef.current.platform?.openExternal(link.url);
+    else if (link.kind === 'anchor')
+      document.getElementById(link.id)?.scrollIntoView({ behavior: 'smooth' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -4461,12 +4482,15 @@ export default function App() {
   // SPEC43 §5.2: one guard for every format command — never steal a combo
   // from a focused text field (find bar, composer, settings recorders), and
   // a silent no-op without a mounted editor (preview mode).
-  const fmtCommand = useCallback((op: SmartFormatOp | 'open') => {
+  const fmtCommand = useCallback((op: SmartFormatOp | 'open' | 'open-link') => {
     const ae = document.activeElement as HTMLElement | null;
     if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
     const h = smartEditRef.current;
     if (!h) return;
     if (op === 'open') h.openSmartMenu();
+    // SPEC43 §11 (issue #270): the openLink hotkey — the handle's one open
+    // command; a caret outside a link is a silent no-op inside it.
+    else if (op === 'open-link') h.openLink();
     else h.applyFormat(op);
   }, []);
 
@@ -4760,6 +4784,8 @@ export default function App() {
       fmtQuote: () => fmtCommand('quote'),
       fmtCodeBlock: () => fmtCommand('code-block'),
       fmtHr: () => fmtCommand('hr'),
+      // SPEC43 §11 (issue #270): open the link under the editor caret.
+      openLink: () => fmtCommand('open-link'),
       // PRD 023 §12 (issue #286): the annotation hotkeys — through a live
       // ref (this effect registers once; the closure reads each render's
       // gate, selection and model).
@@ -5997,6 +6023,8 @@ export default function App() {
           [hk.blockquote, 'fmtQuote'],
           [hk.codeBlock, 'fmtCodeBlock'],
           [hk.horizontalRule, 'fmtHr'],
+          // SPEC43 §11 (issue #270): the rebindable open-link binding.
+          [hk.openLink, 'openLink'],
         ];
         for (const [combo, id] of fmt) {
           if (eventMatches(e, combo)) {
@@ -7942,12 +7970,13 @@ export default function App() {
                 const a = (e.target as HTMLElement).closest?.('a[href]') as HTMLAnchorElement | null;
                 if (a) {
                   e.preventDefault();
-                  const href = a.getAttribute('href') ?? '';
-                  if (href.startsWith('#')) {
-                    const id = decodeURIComponent(href.slice(1));
-                    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-                  } else if (/^https?:\/\//i.test(href)) {
-                    void platform.openExternal(href); // explicit hand-off to the OS browser
+                  // SPEC43 §11 (issue #270): the rule lives in the shared
+                  // classifier so the editor hand-off can never drift from it.
+                  const link = classifyManagedLink(a.getAttribute('href') ?? '');
+                  if (link.kind === 'anchor') {
+                    document.getElementById(link.id)?.scrollIntoView({ behavior: 'smooth' });
+                  } else if (link.kind === 'external') {
+                    void platform.openExternal(link.url); // explicit hand-off to the OS browser
                   }
                   return; // any other protocol is inert
                 }
@@ -8051,7 +8080,9 @@ export default function App() {
                 syntax={settings.editorSyntax}
                 codeSyntax={settings.codeSyntax}
                 livePreview={settings.livePreview}
-                onOpenExternal={(u) => void platform?.openExternal(u)}
+                // SPEC43 §11 (issue #270): the editor's open seam applies the
+                // preview's managed-link rule via the shared classifier.
+                onOpenExternal={openEditorLink}
                 vimNav={settings.vimNav}
                 onVimModeChange={seamVimMode}
                 onEditState={handleEditState}
@@ -8075,6 +8106,8 @@ export default function App() {
                 onToggleCodeBlockView={toggleCodeBlockView}
                 diagramView={settings.diagramView}
                 onToggleDiagramView={toggleDiagramView}
+                linkView={settings.linkView}
+                onToggleLinkView={toggleLinkView}
                 themeVariant={activeThemeVariant}
                 // PRD 020 Req 18 (issue #223): the heading copy-link gutter —
                 // hosted-only (Req 15), and only for a document with an

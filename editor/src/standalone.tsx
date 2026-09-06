@@ -88,6 +88,7 @@ function StandaloneEditor({
             inlineImages
             codeBlockView
             diagramView
+            linkView
             themeVariant={themeVariant}
           />
         }
