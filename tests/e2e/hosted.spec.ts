@@ -35,6 +35,7 @@ import {
   revealToolbar,
   saveSettings,
   selectPhrase,
+  viewMenuClick,
 } from './helpers';
 // Issue #179: E325 poisons the store with a real draft payload, built by the
 // module that owns the format so a schema change fails the test loudly.
@@ -4569,15 +4570,9 @@ test('E397: /scratchpad gates on sign-in, then lands on /<username>/scratchpad �
   expect(new URL(page.url()).pathname).toBe(scratchPath);
 });
 
-test('E398: the scratch buffer starts fresh over existing files and discards silently when one opens — no unsaved-changes prompt, dirty or not', async ({
-  page,
-}) => {
-  // PRD 019 Req 10+11 (issue #215): every visit starts a new untitled buffer
-  // even when the scratchpad already holds files, and that buffer — alone —
-  // is exempt from the SPEC36 §2.6 three-way prompt: opening a sidebar file
-  // over it, dirty, lands directly with no dialog. The dirty dot stays the
-  // only "unsaved" signal.
-  const token = await signIn(page.request, 'grace');
+/** Issue #311: sign in to the scratchpad with `kept.md` already resident. */
+async function scratchpadWithKept(page: Page, username: string): Promise<{ id: string; token: string }> {
+  const token = await signIn(page.request, username);
   await dropDraft(page, token);
   const resolve = await page.request.post(`${HOSTED}/api/me/scratchpad`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -4589,15 +4584,27 @@ test('E398: the scratch buffer starts fresh over existing files and discards sil
     data: '# Kept\n\nA scratchpad resident.\n',
   });
   expect(put.status()).toBe(200);
-
   await page.goto(`${HOSTED}/scratchpad`);
-  await page.getByTestId('hosted-sign-in-username').fill('grace');
+  await page.getByTestId('hosted-sign-in-username').fill(username);
   await page.getByTestId('hosted-sign-in-submit').click();
-
-  // Req 10: a fresh untitled buffer — the existing file stays visible and
-  // reachable in the sidebar, not auto-opened over the scratch.
   await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
+  return { id, token };
+}
+
+test('E398: the scratch buffer starts fresh over existing files and parks silently when one opens — no unsaved-changes prompt, dirty or not, and its text returns on click-back', async ({
+  page,
+}) => {
+  // PRD 019 Req 10+11 (issue #215): every visit starts a new untitled buffer
+  // even when the scratchpad already holds files, and that buffer — alone —
+  // is exempt from the SPEC36 §2.6 three-way prompt: opening a sidebar file
+  // over it, dirty, lands directly with no dialog. The dirty dot stays the
+  // only "unsaved" signal. Issue #311 amends the discard leg: the buffer is
+  // PARKED, not discarded — its row and tab stay and a click brings it back.
+  // Req 10 is the helper's landing: a fresh untitled buffer, the existing
+  // file visible and reachable in the sidebar, not auto-opened over it.
+  await scratchpadWithKept(page, 'grace');
 
   // Dirty the scratch buffer; the dot shows (the one "unsaved" signal kept).
   await page.locator('.cm-content').click();
@@ -4605,18 +4612,264 @@ test('E398: the scratch buffer starts fresh over existing files and discards sil
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
 
   // Req 11: opening the file over the dirty scratch buffer raises NO
-  // unsaved-changes prompt — it lands directly, the scratch text discarded.
+  // unsaved-changes prompt — it lands directly.
   await page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first().click();
   await expect(page.getByTestId('docname')).toContainText('kept.md');
   await expect(page.getByTestId('open-prompt')).toHaveCount(0);
 
+  // Issue #311: the scratch buffer is parked, not discarded — its row and
+  // tab stay (inactive), and clicking the row brings the text back.
+  const row = page.getByTestId('folder-item-scratch');
+  await expect(row).toHaveClass(/\bopen\b/);
+  await row.click();
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.locator('.cm-content')).toContainText('ephemeral scratch text');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+
   // Req 10 again: a repeat visit starts fresh once more — untitled buffer,
-  // same workspace, the last-active file NOT reopened over it.
+  // same workspace, the last-active file NOT reopened over it, the old
+  // (dirty) scratch buffer gone without a word (PRD 023 Reqs 1–3), and
+  // exactly one scratch row for the new one.
   await page.goto(`${HOSTED}/scratchpad`);
   await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
+  await expect(page.getByTestId('folder-item-scratch')).toHaveCount(1);
+  await expect(page.locator('.cm-content')).not.toContainText('ephemeral scratch text');
   // PRD 020 Req 10: the same workspace, shown at its canonical scratch URL.
   expect(new URL(page.url()).pathname).toBe('/grace/scratchpad');
+});
+
+test('E550: issue #311 — the folder panel shows a "Scratchpad file" row for the boot’s scratch buffer: first under the root and in the only-open list, selected while active, in the --mm-scratch-name accent/italic treatment', async ({
+  page,
+}) => {
+  await scratchpadWithKept(page, 'alan');
+
+  // The row exists, with its own test id and hook, labelled from the shared
+  // resolution, selected while the buffer is the document on screen.
+  const row = page.getByTestId('folder-item-scratch');
+  await expect(row).toBeVisible();
+  await expect(row).toHaveAttribute('data-scratch', 'true');
+  await expect(row).toHaveClass(/\bselected\b/);
+  const label = row.locator('.scratch-name[data-scratch="true"]');
+  await expect(label).toHaveText('Scratchpad file');
+  // It is the first row under the root (tree view) — ahead of kept.md.
+  await expect(page.locator('.folder-list > :first-child')).toHaveAttribute('data-testid', 'folder-item-scratch');
+  // Existing `folder-item` counts are untouched: the row is not one of them.
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'Scratchpad file' })).toHaveCount(0);
+
+  // PRD 023 Req 7: the same blue/italics as the toolbar name and the tab —
+  // resolved through the token pair where the row sits (the E447 probe).
+  const got = await label.evaluate((el) => {
+    const parent = el.parentElement!;
+    const tokenProbe = document.createElement('span');
+    tokenProbe.style.color = 'var(--mm-scratch-name, #0969da)';
+    tokenProbe.style.fontStyle = 'var(--mm-scratch-name-style, italic)';
+    const accentProbe = document.createElement('span');
+    accentProbe.style.color = 'var(--mm-accent, #0969da)';
+    parent.append(tokenProbe, accentProbe);
+    const surface = getComputedStyle(el);
+    const token = getComputedStyle(tokenProbe);
+    const resolved = {
+      color: surface.color,
+      fontStyle: surface.fontStyle,
+      tokenColor: token.color,
+      tokenStyle: token.fontStyle,
+      accent: getComputedStyle(accentProbe).color,
+    };
+    tokenProbe.remove();
+    accentProbe.remove();
+    return resolved;
+  });
+  expect(got.fontStyle).toBe('italic');
+  expect(got.fontStyle).toBe(got.tokenStyle);
+  expect(got.color).toBe(got.tokenColor);
+  expect(got.color).toBe(got.accent);
+
+  // SPEC36 §3.6: the ● rides in the row's trailing slot once dirty.
+  await expect(row.getByTestId('folder-dirty')).toHaveCount(0);
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('row text');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect(row.getByTestId('folder-dirty')).toBeVisible();
+
+  // Clicking the row while the buffer is already active is a no-op.
+  await row.click();
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.locator('.cm-content')).toContainText('row text');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Right-click opens nothing — neither a row menu nor the root's.
+  await row.click({ button: 'right' });
+  await expect(page.getByTestId('folder-menu')).toHaveCount(0);
+
+  // SPEC36 §5.3: first in the only-open list too (no "No open files" state).
+  await viewMenuClick(page, 'toggleOpenOnly');
+  await expect(page.getByTestId('folder-open-empty')).toHaveCount(0);
+  await expect(page.locator('.folder-list > :first-child')).toHaveAttribute('data-testid', 'folder-item-scratch');
+  await expect(page.getByTestId('folder-item-scratch')).toHaveClass(/\bselected\b/);
+  await viewMenuClick(page, 'toggleOpenOnly');
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
+});
+
+test('E551: issue #311 — opening another file parks the scratch buffer; its row and tab stay, and clicking either brings the text, dirty state and canonical URL back', async ({
+  page,
+}) => {
+  await scratchpadWithKept(page, 'grace');
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('parked scratch text');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Open kept.md over the dirty scratch: no prompt (PRD 019 Req 11), the
+  // file lands, and the scratch row and tab STAY — parked, inactive, dirty.
+  await page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first().click();
+  await expect(page.getByTestId('docname')).toContainText('kept.md');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  const row = page.getByTestId('folder-item-scratch');
+  await expect(row).toHaveClass(/\bopen\b/);
+  await expect(row).not.toHaveClass(/\bselected\b/);
+  await expect(row.getByTestId('folder-dirty')).toBeVisible();
+  const tab = page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' });
+  await expect(tab).toHaveCount(1);
+  await expect(tab).toHaveAttribute('data-active', 'false');
+  await expect(tab.locator('.file-tab-label.scratch-name')).toHaveText('Scratchpad file');
+  await expect(tab.getByTestId('file-tab-dirty')).toBeVisible();
+  // kept.md is the selected row; the URL names it.
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first()).toHaveClass(/\bselected\b/);
+  expect(new URL(page.url()).pathname).toBe('/grace/scratchpad/kept.md');
+
+  // Click the row: the buffer returns — text, dirty dot, name surfaces,
+  // edit mode, canonical scratch URL — and kept.md parks as usual.
+  await row.click();
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.locator('.cm-content')).toContainText('parked scratch text');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect(page).toHaveTitle('Scratchpad file • — Marky Mark');
+  await expect(row).toHaveClass(/\bselected\b/);
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first()).toHaveClass(/\bopen\b/);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveAttribute('data-active', 'true');
+  expect(new URL(page.url()).pathname).toBe('/grace/scratchpad');
+
+  // The round trip holds through the tab strip as well: the kept.md tab
+  // parks the scratch again, the scratch tab restores it — text intact, and
+  // an edit made in between survives too.
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' plus more');
+  await page.getByTestId('file-tab').filter({ hasText: 'kept.md' }).click();
+  await expect(page.getByTestId('docname')).toContainText('kept.md');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(row).toHaveClass(/\bopen\b/);
+  await page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' }).click();
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.locator('.cm-content')).toContainText('parked scratch text plus more');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/grace/scratchpad');
+});
+
+test('E552: issue #311 — the scratch row’s ✕ discards the buffer silently, active or parked, and a parked close leaves the active file untouched', async ({
+  page,
+}) => {
+  await scratchpadWithKept(page, 'katherine');
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('doomed scratch text');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Parked: open kept.md, then ✕ the parked scratch row — no prompt, the
+  // row and tab go, kept.md stays the open document.
+  await page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first().click();
+  await expect(page.getByTestId('docname')).toContainText('kept.md');
+  const row = page.getByTestId('folder-item-scratch');
+  await expect(row).toHaveClass(/\bopen\b/);
+  await row.hover();
+  await row.getByTestId('folder-tab-close').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('folder-item-scratch')).toHaveCount(0);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(0);
+  await expect(page.getByTestId('docname')).toContainText('kept.md');
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first()).toHaveClass(/\bselected\b/);
+
+  // Active: a fresh visit, dirty the new scratch, ✕ its (selected) row — no
+  // prompt, the row and tab go, SPEC36 §3.5 follows (nothing else open ⇒
+  // the splash: no document name, no editor).
+  await page.goto(`${HOSTED}/scratchpad`);
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('also doomed');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  const active = page.getByTestId('folder-item-scratch');
+  await expect(active).toHaveClass(/\bselected\b/);
+  await active.hover();
+  await active.getByTestId('folder-tab-close').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('folder-item-scratch')).toHaveCount(0);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(0);
+  await expect(page.getByTestId('docname')).not.toContainText('Scratchpad file');
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  // The workspace's own files are still there to open.
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
+});
+
+test('E553: issue #311 — the first save turns the scratch buffer into an ordinary file: the scratch row disappears and the saved file’s own row is the selected one', async ({
+  page,
+  request,
+}) => {
+  const { id, token } = await scratchpadWithKept(page, 'ada');
+  await expect(page.getByTestId('folder-item-scratch')).toHaveClass(/\bselected\b/);
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('saved scratch text');
+  await page.keyboard.press('Control+s');
+  const picker = page.getByTestId('save-picker');
+  await expect(picker).toBeVisible();
+  const name = await page.getByTestId('save-picker-name').inputValue();
+  await page.getByTestId('save-picker-confirm').click();
+  await expect(picker).toHaveCount(0);
+
+  // PRD 023 Req 12 + issue #311: an ordinary document now — no scratch row,
+  // no scratch tab, no scratch treatment anywhere; its own row is selected.
+  await expect(page.getByTestId('docname')).toContainText(name);
+  await expect.poll(() => listFiles(request, token, id)).toContain(name);
+  await expect(page.getByTestId('folder-item-scratch')).toHaveCount(0);
+  await expect(page.locator('.scratch-name')).toHaveCount(0);
+  await expect(page.getByTestId('folder-item').filter({ hasText: name }).first()).toHaveClass(/\bselected\b/);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(0);
+});
+
+test('E554: issue #311 — an open that never lands parks nothing: closing the still-active scratch buffer afterwards resurrects no parked row', async ({
+  page,
+}) => {
+  // The park is made at the commit that replaces the buffer, not at the
+  // click — so a failed open (here: the file vanished under its row) leaves
+  // no entry, and the close that follows shows no stale "Scratchpad file"
+  // row or tab holding the pre-failure text.
+  const { id, token } = await scratchpadWithKept(page, 'grace');
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('never parked');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  const gone = await page.request.delete(`${HOSTED}/api/workspaces/${id}/files/kept.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(gone.status()).toBe(200);
+  const refused = page.waitForResponse((r) => r.url().endsWith('/files/kept.md') && r.status() === 404);
+  await page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first().click();
+  await refused;
+  // The open failed: the scratch buffer is still the document on screen.
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.locator('.cm-content')).toContainText('never parked');
+  const row = page.getByTestId('folder-item-scratch');
+  await expect(row).toHaveClass(/\bselected\b/);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(1);
+
+  // Close it: the splash, and nothing left claiming to be a parked scratch.
+  await row.hover();
+  await row.getByTestId('folder-tab-close').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(page.getByTestId('folder-item-scratch')).toHaveCount(0);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(0);
 });
 
 test('E521: issue #262 — the scratchpad’s auto-started buffer arrives focused: PRD 019’s blinking cursor, no click', async ({

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
-import { docDisplayName, SCRATCH_NAME, untitledDisplayName } from '../../src/lib/docName';
+import { docDisplayName, SCRATCH_NAME, scratchPresence, untitledDisplayName } from '../../src/lib/docName';
 
 const basename = (p: string) => p.split('/').pop()!;
 
@@ -63,5 +63,26 @@ describe('PRD 023 Req 6 — document display-name resolution (issue #291)', () =
       expect(text).toContain('scratch-name');
       expect(text).toContain('data-scratch');
     }
+  });
+});
+
+describe('Issue #311 — the scratch buffer’s presence in the folder panel and tab strip', () => {
+  test('U1265: an active scratch buffer is present, active, carrying its own dirty flag', () => {
+    expect(scratchPresence({ scratch: true, dirty: false, parked: null })).toEqual({ active: true, dirty: false });
+    expect(scratchPresence({ scratch: true, dirty: true, parked: null })).toEqual({ active: true, dirty: true });
+  });
+
+  test('U1266: a parked scratch buffer is present but inactive, dirty per its park entry', () => {
+    expect(scratchPresence({ scratch: false, dirty: true, parked: { dirty: false } })).toEqual({ active: false, dirty: false });
+    expect(scratchPresence({ scratch: false, dirty: false, parked: { dirty: true } })).toEqual({ active: false, dirty: true });
+  });
+
+  test('U1267: no scratch buffer alive ⇒ no presence (an ordinary dirty Untitled never gets a row, PRD 023 Req 8)', () => {
+    expect(scratchPresence({ scratch: false, dirty: true, parked: null })).toBeNull();
+    expect(scratchPresence({ scratch: false, dirty: false, parked: null })).toBeNull();
+  });
+
+  test('U1268: the active buffer wins over a stale park entry — the scratch never renders twice', () => {
+    expect(scratchPresence({ scratch: true, dirty: false, parked: { dirty: true } })).toEqual({ active: true, dirty: false });
   });
 });

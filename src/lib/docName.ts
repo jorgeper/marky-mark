@@ -56,3 +56,35 @@ export function docDisplayName(
   if (!s.untitled) return { name: null, scratch: false };
   return untitledDisplayName(s.scratch);
 }
+
+/**
+ * Issue #311: the scratch buffer's presence in the open-set surfaces — the
+ * folder panel's "Scratchpad file" row and the file tab strip's scratch tab
+ * both derive from this one value, so they cannot disagree about whether the
+ * buffer is alive, active, or dirty. Null ⇒ no scratch buffer is alive (the
+ * surfaces render nothing for it); an ordinary untitled buffer never has one
+ * (PRD 023 Req 8 — callers pass `scratch` from the boot mark only).
+ */
+export interface ScratchPresence {
+  /** The scratch buffer is the document on screen (row `selected`, tab active). */
+  active: boolean;
+  /** Unsaved changes — the active buffer's own flag, or the parked entry's. */
+  dirty: boolean;
+}
+
+export function scratchPresence(s: {
+  /** PRD 019 Req 11: the buffer on screen is the boot's scratch buffer. */
+  scratch: boolean;
+  /** The on-screen buffer's dirty flag (read only while `scratch`). */
+  dirty: boolean;
+  /** Issue #311: the parked scratch entry's dirtiness, or null when none is parked. */
+  parked: { dirty: boolean } | null;
+}): ScratchPresence | null {
+  // The active buffer wins over any park entry: the slot is filled only by
+  // the commit that replaces the buffer and emptied by the restore, so while
+  // the scratch is on screen an entry could only be a caller's mistake — and
+  // rendering both would show the buffer twice.
+  if (s.scratch) return { active: true, dirty: s.dirty };
+  if (s.parked) return { active: false, dirty: s.parked.dirty };
+  return null;
+}
