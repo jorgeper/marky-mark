@@ -917,9 +917,12 @@ export default function App() {
   // rendered document, anything else inert.
   const openEditorLink = useCallback((href: string) => {
     const link = classifyManagedLink(href);
-    if (link.kind === 'external') void stateRef.current.platform?.openExternal(link.url);
-    else if (link.kind === 'anchor')
+    if (link.kind === 'external') {
+      void stateRef.current.platform?.openExternal(link.url);
+    } else if (link.kind === 'anchor') {
       document.getElementById(link.id)?.scrollIntoView({ behavior: 'smooth' });
+    }
+    // 'inert' is exactly that: no hand-off, no navigation, no error.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

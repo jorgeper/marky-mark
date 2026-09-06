@@ -1245,7 +1245,6 @@ export default function Editor({
     if (link) onOpenExternalRef.current?.(link.url);
   };
 
-
   // SPEC38 §3.6: a chip action — mutate the parsed display model, re-layout,
   // one splice, one undo step; the cursor lands in the inserted column/row's
   // first cell (clamped after a delete).

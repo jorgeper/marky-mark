@@ -15,6 +15,7 @@
  */
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
+import type { SyntaxNode } from '@lezer/common';
 import { linkSpanSpec, type VisibleRange } from './livePreview';
 import type { Span } from './codeBlockSpans';
 
@@ -45,7 +46,7 @@ export interface LinkView {
 export function linkAt(state: EditorState, pos: number): { from: number; to: number; url: string } | null {
   const tree = syntaxTree(state);
   for (const side of [-1, 1] as const) {
-    for (let n = tree.resolveInner(pos, side) as ReturnType<typeof tree.resolveInner> | null; n; n = n.parent) {
+    for (let n: SyntaxNode | null = tree.resolveInner(pos, side); n; n = n.parent) {
       // An Image node is its own construct (`![alt](src)` is not a link) —
       // the walk never crosses one on the way up.
       if (n.name === 'Image') break;

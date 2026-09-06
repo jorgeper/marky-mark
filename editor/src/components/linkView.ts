@@ -35,8 +35,8 @@ function buildDecorations(view: EditorView): DecorationSet {
   const links = computeLinkViews(view.state, view.visibleRanges, grid?.spans ?? []);
   const ranges = [];
   for (const link of links) {
-    if (link.revealed) continue;
-    ranges.push(HIDE.range(link.hide[0].from, link.hide[0].to));
+    if (link.revealed) continue; // shows raw, in place — nothing to paint
+    for (const h of link.hide) ranges.push(HIDE.range(h.from, h.to));
     if (link.text.from < link.text.to) {
       ranges.push(
         Decoration.mark({ class: 'mm-link-view', attributes: { title: link.url } }).range(
@@ -45,8 +45,8 @@ function buildDecorations(view: EditorView): DecorationSet {
         )
       );
     }
-    ranges.push(HIDE.range(link.hide[1].from, link.hide[1].to));
   }
+  // Sorted here (not by push order), so the hide spans need no ordering.
   return Decoration.set(ranges, true);
 }
 
@@ -120,20 +120,22 @@ export const LINK_MODIFIER_CLASS = 'mm-link-modifier';
  * SPEC43 §11 (issue #270): the pointer-cursor cue — while ⌘/Ctrl is held the
  * editor root carries LINK_MODIFIER_CLASS, and styles.css turns the cursor
  * to a pointer over link text (raw `.mm-md-link` and rendered
- * `.mm-link-view` alike). Released on keyup AND on view/window blur, so the
- * class can never stick after the modifier is let go or focus leaves.
+ * `.mm-link-view` alike). Released on keyup AND on window blur, so the class
+ * can never stick after the modifier is let go or focus leaves.
  */
 export function linkModifierCue(): Extension {
   return ViewPlugin.fromClass(
     class {
+      /** The window the listeners live on — kept so destroy() can detach them. */
+      readonly win: (Window & typeof globalThis) | null;
+
       constructor(readonly view: EditorView) {
-        const win = view.dom.ownerDocument.defaultView;
-        win?.addEventListener('keydown', this.onKey);
-        win?.addEventListener('keyup', this.onKey);
-        win?.addEventListener('blur', this.onBlur);
-        this.win = win;
+        this.win = view.dom.ownerDocument.defaultView;
+        this.win?.addEventListener('keydown', this.onKey);
+        this.win?.addEventListener('keyup', this.onKey);
+        this.win?.addEventListener('blur', this.onBlur);
       }
-      win: (Window & typeof globalThis) | null | undefined;
+
       onKey = (e: KeyboardEvent) => {
         this.view.dom.classList.toggle(LINK_MODIFIER_CLASS, e.metaKey || e.ctrlKey);
       };
