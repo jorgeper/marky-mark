@@ -133,12 +133,11 @@ export function createHostedWorkspaceLifecycle(
   // Answers whether it navigated, so a session with no handle (the record
   // never landed) can fall back rather than land nowhere.
   const goToOwnScratch = async (): Promise<boolean> => {
-  const handle = (await sessionMe())?.handle;
+    const handle = (await sessionMe())?.handle;
     if (handle === undefined) return false;
     window.location.assign(buildScratchPath(handle));
     return true;
   };
-
 
   const getUser = async (id: string): Promise<DirectoryEntry | null> => {
     const user = await json<DirectoryEntry>(await api(`/api/directory/users/${encodeURIComponent(id)}`));

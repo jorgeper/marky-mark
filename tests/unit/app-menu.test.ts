@@ -12,14 +12,14 @@ import type { StartActionId } from '../../src/lib/startActions';
  */
 
 /** The capability lists lib/startActions.ts derives per flavor (PRD 007 Req 22). */
-const CAPS: Record<'desktopish' | 'hosted' | 'hostedScratch' | 'web', StartActionId[]> = {
+const CAPS: Record<'desktopish' | 'managed' | 'hosted' | 'web', StartActionId[]> = {
   desktopish: ['openFile', 'openFolder', 'newWorkspace', 'openWorkspace'],
   // A managed-workspace flavor without the scratchpad seam — the neutral
   // baseline every item-set test below is frozen against.
-  hosted: ['openFile', 'newWorkspace', 'openWorkspace'],
-  // Issue #275: what the hosted flavor actually derives now — the scratchpad
-  // seam adds `openScratchpad` immediately after `openWorkspace`.
-  hostedScratch: ['openFile', 'newWorkspace', 'openWorkspace', 'openScratchpad'],
+  managed: ['openFile', 'newWorkspace', 'openWorkspace'],
+  // Issue #275: what the hosted flavor derives — the scratchpad seam adds
+  // `openScratchpad` immediately after `openWorkspace`.
+  hosted: ['openFile', 'newWorkspace', 'openWorkspace', 'openScratchpad'],
   web: ['openFile'],
 };
 
@@ -54,7 +54,7 @@ const state = (over: Partial<AppMenuState> = {}): AppMenuState => ({
   docOpen: true,
   canEdit: true,
   canNewFile: true,
-  entryActions: CAPS.hosted,
+  entryActions: CAPS.managed,
   view: viewState(),
   // PRD 009 Req 17: the sign-out capability is its own axis — off by default
   // here so every item-set test below stays the flavor-free baseline it was.
@@ -197,7 +197,7 @@ describe('PRD 009 Req 9: mode and capability gating', () => {
 
   test('U344: the workspace group is a capability test — absent on the static web build', () => {
     const wsRows = ['menu-new-workspace', 'menu-open-workspace', 'menu-close-workspace'];
-    for (const caps of [CAPS.desktopish, CAPS.hosted]) {
+    for (const caps of [CAPS.desktopish, CAPS.managed]) {
       expect(groupIds(state({ entryActions: caps }))).toContain('workspace');
       for (const id of wsRows) expect(testIds(state({ entryActions: caps })), id).toContain(id);
     }
@@ -210,7 +210,7 @@ describe('PRD 009 Req 9: mode and capability gating', () => {
     // Issue #275 (PRD 009 Req 8 amended): the group's pinned order. Management…
     // moved from third place to last, and Open Scratchpad took the slot right
     // after Open Workspace… — the same position it holds on the entry list.
-    const admin = state({ entryActions: [...CAPS.hostedScratch, 'management'] });
+    const admin = state({ entryActions: [...CAPS.hosted, 'management'] });
     const workspaceRows = buildAppMenu(admin).find((g) => g.id === 'workspace')!.rows;
     expect(workspaceRows.map((r) => r.testId)).toEqual([
       'menu-new-workspace',
@@ -237,14 +237,14 @@ describe('PRD 009 Req 9: mode and capability gating', () => {
     // Issue #275: not admin-gated (unlike Management…) and not mode-gated
     // (unlike Close Workspace) — the home page and a bound workspace alike.
     for (const mode of ['splash', 'file', 'workspace'] as const) {
-      const s = state({ mode, docOpen: mode !== 'splash', entryActions: CAPS.hostedScratch });
+      const s = state({ mode, docOpen: mode !== 'splash', entryActions: CAPS.hosted });
       expect(testIds(s), mode).toContain('menu-open-scratchpad');
       expect(testIds(s), mode).not.toContain('menu-management');
     }
     // And nowhere without the capability — the static web build has no
     // workspace group at all, the pre-#275 managed set no scratchpad row.
     expect(testIds(state({ entryActions: CAPS.web }))).not.toContain('menu-open-scratchpad');
-    expect(testIds(state({ entryActions: CAPS.hosted }))).not.toContain('menu-open-scratchpad');
+    expect(testIds(state({ entryActions: CAPS.managed }))).not.toContain('menu-open-scratchpad');
   });
 
   test('U345: Save / Save As… are hidden for a non-editable file, disabled with no document', () => {
@@ -447,7 +447,7 @@ describe('PRD 009 Req 17: Sign out — a capability row, never a flavor check', 
 
   test('U356: signing out is not mode-dependent — the row is there in every AppMode', () => {
     const modes = [
-      state({ canSignOut: true, mode: 'splash', docOpen: false, entryActions: CAPS.hosted }),
+      state({ canSignOut: true, mode: 'splash', docOpen: false, entryActions: CAPS.managed }),
       state({ canSignOut: true, mode: 'file', docOpen: true, entryActions: CAPS.web }),
       state({ canSignOut: true, mode: 'workspace', docOpen: true }),
     ];

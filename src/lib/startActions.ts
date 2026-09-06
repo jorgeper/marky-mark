@@ -20,7 +20,7 @@ export type StartActionId =
   | 'openScratchpad'
   | 'management';
 
-/** What the platform declares about the four actions' prerequisites. */
+/** What the platform declares about the gated actions' prerequisites. */
 export interface StartCapabilities {
   /**
    * The platform can pick a REAL local folder the user chose — the trap this
@@ -58,7 +58,7 @@ export interface StartPlatformCaps {
 }
 
 /**
- * Fold a Platform's optional members into the four prerequisites. Every local
+ * Fold a Platform's optional members into those prerequisites. Every local
  * folder/workspace flow also needs `readDirEntries` — the sidebar seam PRD 002
  * §D14 builds on — so a flavor without it (the single-file web build) offers
  * neither, whatever else it defines.
@@ -79,10 +79,11 @@ export function startCapabilities(p: StartPlatformCaps): StartCapabilities {
 
 /**
  * The ordered action list. Open File is universal — every flavor can read a
- * file the user hands it. The folder and workspace rows appear only where the
- * flavor can honour them: desktop/shim show all four, the hosted flavor shows
- * everything but Open Folder (its workspaces are managed, its folders are
- * not local), and the single-file web build shows only Open File.
+ * file the user hands it. The folder, workspace and scratchpad rows appear
+ * only where the flavor can honour them: desktop/shim show the four local
+ * ones, the hosted flavor shows everything but Open Folder (its workspaces
+ * are managed, its folders are not local, and it alone has a scratchpad),
+ * and the single-file web build shows only Open File.
  */
 export function startActions(caps: StartCapabilities): StartActionId[] {
   const list: StartActionId[] = ['openFile'];
@@ -101,8 +102,8 @@ export function startActions(caps: StartCapabilities): StartActionId[] {
 
 /**
  * The label each action carries on the start page. The File menu names the
- * same three gated items identically; only Open File… differs, appearing
- * there under the File submenu's own older name, "Open…".
+ * gated items identically; only Open File… differs, appearing there under
+ * the File submenu's own older name, "Open…".
  */
 export const START_ACTION_LABELS: Record<StartActionId, string> = {
   openFile: 'Open File…',
