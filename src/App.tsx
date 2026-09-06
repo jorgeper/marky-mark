@@ -4880,18 +4880,19 @@ export default function App() {
   // switch (issue #125) share — an open document this reader may change.
   const mayToggleMode = docOpen && docGrants.edit;
   /**
-   * Issue #243 (SPEC27 §3 + SPEC2 §4.1 amendments): the hosted home page —
-   * the cloud build with nothing open. It gates both halves of the issue: the
-   * About paragraphs under the splash badge, and the toolbar's Edit toggle,
-   * which `toggleMode` already ignores with no document (dispatchCommand's
-   * `toggleMode` case), so dropping the button removes an inert affordance
-   * rather than an action. Hosted-only is the owner's 2026-09-05
-   * build-applicability decision — a deliberate flavor branch, not the
-   * capability-first default `Platform` states (platform/types.ts): desktop,
-   * the dev shim and the single-file web build keep today's splash text and
-   * toolbar exactly (E87, E78).
+   * Issue #243 (SPEC27 §3 + SPEC2 §4.1 amendments): the cloud build with
+   * nothing open — the hosted home page the amendments name, and equally a
+   * bound workspace with no file picked. It gates both halves of the issue:
+   * the About paragraphs under the splash badge (only ever rendered on the
+   * home page anyway), and the toolbar's Edit toggle, which `toggleMode`
+   * already ignores with no document (dispatchCommand's `toggleMode` case),
+   * so dropping the button removes an inert affordance rather than an action.
+   * Hosted-only is the owner's 2026-09-05 build-applicability decision — a
+   * deliberate flavor branch, not the capability-first default `Platform`
+   * states (platform/types.ts): desktop, the dev shim and the single-file web
+   * build keep today's splash text and toolbar exactly (E87, E78).
    */
-  const hostedHome = platform?.kind === 'hosted' && !docOpen;
+  const hostedNothingOpen = platform?.kind === 'hosted' && !docOpen;
 
   // --- PRD 012: the Table of Contents view of the sidebar -----------------------
   /**
@@ -7580,9 +7581,9 @@ export default function App() {
               // switcher chip used to show it.
               workspaceName={workspaceName}
               // PRD 007 Req 17: no Edit toggle for a read-only role. Issue
-              // #243: nor on the hosted home page, where it would toggle
-              // nothing — hidden, never disabled.
-              canEdit={docGrants.edit && !hostedHome}
+              // #243: nor on the hosted build with nothing open, where it
+              // would toggle nothing — hidden, never disabled.
+              canEdit={docGrants.edit && !hostedNothingOpen}
               // PRD 009 Req 8: the whole item set, already gated.
               menu={appMenu}
               onToggleMode={() => dispatchCommand('toggleMode')}
@@ -7876,7 +7877,7 @@ export default function App() {
                       desktop/shim/web only — the hosted home page is the
                       badge and the start actions, nothing between them. Same
                       facts still reachable there through About. */}
-                  {!hostedHome && (
+                  {!hostedNothingOpen && (
                     <>
                       <p className="splash-version">v{__APP_VERSION__}</p>
                       <p className="splash-alpha">Alpha — pre-release software, expect rough edges.</p>

@@ -31,9 +31,9 @@ interface Props {
    * lib/appMenu.ts.
    *
    * Issue #243: the hosted home page rides this flag too — App.tsx passes
-   * `docGrants.edit && !hostedHome`, so false here means "no Edit toggle",
-   * either because the reader may not edit or because there is nothing open
-   * to edit. This component still decides neither.
+   * false there as well, so false means "no Edit toggle" either because the
+   * reader may not edit or because there is nothing open to edit. This
+   * component decides neither.
    */
   canEdit?: boolean;
   /**
