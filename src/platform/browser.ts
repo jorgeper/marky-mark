@@ -243,7 +243,7 @@ export function createBrowserPlatform(): Platform {
       aux.focused[kind] += 1;
       return;
     }
-    auxHandles[kind] = window.open(`/?window=${kind}&nativeMenu=1`, `mm-${kind}`, 'width=620,height=560');
+    auxHandles[kind] = window.open(`/?window=${kind}&nativeMenu=1`, `mm-${kind}`, 'width=720,height=650');
     aux.opened[kind] += 1;
   };
 

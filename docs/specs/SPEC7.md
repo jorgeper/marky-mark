@@ -10,10 +10,16 @@ of scope (author's call): scroll sync between split panes, a fully fledged edito
 ## 1. Fixed-size settings dialog (FR-S)
 
 1. The settings modal must render at **the same fixed size on every tab**:
-   `width: min(560px, 94vw)`, `height: min(480px, 85vh)`. Switching tabs must not
-   change the dialog's box in any dimension.
+   `width: min(560px, 94vw)`, `height: min(480px, 85vh)` — the pinned pixel
+   pair is **superseded by issue #246**, which grows the box ~15% to
+   `width: min(648px, 94vw)`, `height: min(552px, 85vh)`; the viewport caps
+   and the same-size-on-every-tab rule stand unchanged. Switching tabs must
+   not change the dialog's box in any dimension.
 2. Content taller than the dialog scrolls inside `.tab-content` (already
-   `overflow-y: auto`); the rail and dialog chrome stay put.
+   `overflow-y: auto`); the rail and dialog chrome stay put. Issue #246 adds
+   the pinned `.dialog-actions` footer as a SIBLING of `.tab-content` — the
+   Save / Cancel buttons are dialog chrome, so they never scroll away and
+   never move between tabs (**E486**).
 3. **E35** asserts: open Settings, record the dialog's `boundingBox()` on each of the
    three tabs — all three identical (±1 px).
 

@@ -5,11 +5,18 @@ import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
   LAYER_LABELS,
+  mergePendingEdit,
+  NO_PENDING_EDITS,
+  overlayPendingLayers,
+  overlayPendingSettings,
   PANE_MIN_WIDTH_MAX,
   PANE_MIN_WIDTH_MIN,
+  pendingIsDirty,
+  pendingScopePatches,
   settingsRowStatus,
   ZOOM_LEVELS,
   type Margins,
+  type PendingSettingsEdits,
   type Settings,
   type SettingsLayers,
   type SettingsScopeTab,
@@ -34,6 +41,17 @@ import { useWorkspaceAccess, WorkspacePeopleTab } from './WorkspaceAccessSetting
 import { Button } from './ui/Button';
 import { IconButton } from './ui/IconButton';
 
+/**
+ * Issue #246: what a host window needs to close a Settings dialog politely —
+ * whether closing would lose work, and the Cancel path to run instead.
+ */
+export interface SettingsCloseIntent {
+  /** True while there are pending edits that closing would discard. */
+  dirty: boolean;
+  /** Run the Cancel path: confirm when dirty, close immediately otherwise. */
+  request(): void;
+}
+
 interface Props {
   /** The EFFECTIVE (resolved) settings — every row displays these (§E19). */
   settings: Settings;
@@ -57,8 +75,15 @@ interface Props {
   /** Desktop only: reveal the themes folder in the OS file manager. */
   onRevealThemesDir?: () => void | Promise<void>;
   onClose(): void;
-  /** SPEC13 §1.3: aux-window mode — no scrim, no Done button. */
+  /** SPEC13 §1.3 (issue #246): aux-window mode — no scrim; the footer stays. */
   frameless?: boolean;
+  /**
+   * Issue #246: the seam a host window closes THROUGH. The aux window's
+   * Esc / Mod+W and its OS close guard read `dirty` and call `request()`
+   * instead of closing outright, so those routes get the Cancel path's
+   * confirmation rather than dropping unsaved edits on the floor.
+   */
+  closeIntentRef?: React.MutableRefObject<SettingsCloseIntent | null>;
   /** SPEC20 §1: current doc basename (no extension) for the pattern example. */
   docName?: string;
   /**
@@ -255,8 +280,8 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
 ];
 
 export function SettingsPanel({
-  settings,
-  layers,
+  settings: incomingSettings,
+  layers: incomingLayers,
   workspaceOpen,
   scopeSelector,
   themes,
@@ -269,6 +294,7 @@ export function SettingsPanel({
   onRevealThemesDir,
   onClose,
   frameless,
+  closeIntentRef,
   docName,
   workspaceLifecycle,
   deploymentAdmin,
@@ -280,6 +306,18 @@ export function SettingsPanel({
   onSummaryCacheClear,
   initialTab,
 }: Props) {
+  // Issue #246: edits are PENDING, not live — every row's edit lands here and
+  // nothing reaches `onEdit` (settings.json, the workspace layer, the aux
+  // bus) until Save. `settings`/`layers` below are the incoming props with
+  // the pending set overlaid, so the rest of the panel reads them unchanged.
+  const [pending, setPending] = useState<PendingSettingsEdits>(NO_PENDING_EDITS);
+  const dirty = pendingIsDirty(pending);
+  const settings = overlayPendingSettings(incomingSettings, incomingLayers, pending);
+  const layers = overlayPendingLayers(incomingLayers, pending);
+  // Issue #246: Cancel (and Esc, the scrim, the aux window's close routes)
+  // asks before discarding pending work; with nothing pending it just closes.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
   const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'general');
   // §E18: which layer this window writes. Without the selector (web) it is
   // permanently 'user'; closing the workspace kicks the view back to User.
@@ -315,7 +353,26 @@ export function SettingsPanel({
   // the layer the current scope names (§E18 layer-targeted writes).
   const onChange = (next: Settings) => {
     const patch = diffSettings(settings, next);
-    if (Object.keys(patch).length > 0) onEdit(scope, patch);
+    if (Object.keys(patch).length === 0) return;
+    // Issue #246: held per scope against the INCOMING settings, so an edit
+    // walked back to its original value leaves nothing to save.
+    setPending((p) => mergePendingEdit(p, scope, patch, incomingSettings));
+  };
+
+  /** Issue #246: flush one `onEdit` per non-empty scope, then close. */
+  const save = () => {
+    for (const [target, patch] of pendingScopePatches(pending)) onEdit(target, patch);
+    onClose();
+  };
+
+  /**
+   * Issue #246: the Cancel path — shared by the button, Esc, the scrim and
+   * the aux window's close routes. Pending work asks first; a clean dialog
+   * closes straight away.
+   */
+  const requestClose = () => {
+    if (pendingIsDirty(pending)) setConfirmDiscard(true);
+    else onClose();
   };
 
   // §E19 row status: override indicator + per-scope locking (W keys lock in
@@ -390,6 +447,40 @@ export function SettingsPanel({
     setHotkey(action, combo);
     (e.target as HTMLInputElement).blur();
   };
+
+  /**
+   * Issue #246: Esc is a Cancel, not a silent discard — it prompts when there
+   * is pending work, and dismisses the prompt itself when one is up. Bubble
+   * phase, on purpose: a nested control that owns Esc (the membership
+   * picker's dropdown, the hotkey recorder) stops the event first and the
+   * dialog stays open. The frameless window routes ITS Esc / Mod+W through
+   * `closeIntentRef` instead, so it is handled exactly once.
+   */
+  useEffect(() => {
+    if (frameless) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if ((e.target as HTMLElement | null)?.closest?.('[data-hotkey-recorder]')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (confirmDiscard) setConfirmDiscard(false);
+      else requestClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  // Issue #246: the host's window-level close routes (the aux window's
+  // Esc / Mod+W and, through `registerCloseGuard`, the OS close button) read
+  // the live dialog state here — refreshed every render, since an OS close
+  // can land between any two of them.
+  useEffect(() => {
+    if (!closeIntentRef) return;
+    closeIntentRef.current = { dirty, request: requestClose };
+    return () => {
+      closeIntentRef.current = null;
+    };
+  });
 
   const themeOptions = themes.map((t) => (
     <option value={t.id} key={t.id}>
@@ -1077,11 +1168,36 @@ export function SettingsPanel({
     </>
   );
 
-  const doneButton = !frameless && (
-    <div className="dialog-actions">
-      <Button variant="primary" data-testid="settings-close" onClick={onClose}>
-        Done
-      </Button>
+  /**
+   * Issue #246: the pinned action footer — a SIBLING of the scrolling
+   * `.tab-content`, so it is on screen on every tab and in both scopes
+   * (frameless included: the aux window no longer leans on OS chrome alone).
+   * With a discard pending it becomes the confirmation, in place.
+   */
+  const footer = (
+    <div className="dialog-actions settings-actions" data-testid="settings-actions">
+      {confirmDiscard ? (
+        <>
+          <span className="settings-discard-prompt" data-testid="settings-discard-prompt">
+            Discard your unsaved settings changes?
+          </span>
+          <Button data-testid="settings-discard-cancel" onClick={() => setConfirmDiscard(false)}>
+            Keep editing
+          </Button>
+          <Button variant="danger" data-testid="settings-discard-confirm" onClick={onClose}>
+            Discard
+          </Button>
+        </>
+      ) : (
+        <>
+          <Button data-testid="settings-cancel" onClick={requestClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" data-testid="settings-save" onClick={save}>
+            Save
+          </Button>
+        </>
+      )}
     </div>
   );
 
@@ -1150,16 +1266,19 @@ export function SettingsPanel({
           {tab === 'hotkeys' && scope === 'user' && hotkeysTab}
           {tab === 'llm' && scope === 'user' && llmTab}
           {tab === 'experimental' && scope === 'user' && experimentalTab}
-          {doneButton}
         </div>
       </div>
+      {footer}
     </div>
   );
 
-  // SPEC13 §1.3: in an aux window the OS chrome is the close affordance.
+  // SPEC13 §1.3 (superseded in part by issue #246): an aux window still has
+  // no scrim — but it now carries the same Save / Cancel footer as the
+  // overlay, and its OS close routes come back through `closeIntentRef`.
   if (frameless) return body;
+  // Issue #246: a scrim mousedown is a Cancel, prompt and all.
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && requestClose()}>
       {body}
     </div>
   );

@@ -22,6 +22,7 @@ import {
   openWelcomeViaHelp,
   PHRASE,
   previewSelectionAnnotation,
+  saveSettings,
   seedFolders,
   selectPhrase,
   selectPhraseInPane,
@@ -107,7 +108,7 @@ test('E9: reply, edit reply, resolve (highlight gone, card in Resolved), reopen 
   // below are unchanged from SPEC2).
   await openSettings(page, 'general');
   await page.getByTestId('show-resolved').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   await addComment(page, PHRASE, 'Root comment');
 
@@ -220,7 +221,7 @@ test('E15: embedded mode — comments autosave into an invisible trailer, sideca
   await expect(page.getByTestId('settings-tab-hotkeys')).toHaveCount(0);
   await expect(page.getByTestId('settings-tab-general')).toHaveClass(/(^|\s)on(\s|$)/);
   await page.getByTestId('comment-storage').selectOption('embedded');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // Any comment change triggers the embedded autosave + sidecar cleanup.
   await page.getByTestId('reply-btn').click();
@@ -253,7 +254,7 @@ test('E16: embedded autosave never flushes unsaved text edits; explicit save wri
   await expect(page.getByTestId('comment-storage')).toBeDisabled(); // W key: locked in User scope
   await page.getByTestId('settings-scope-workspace').click();
   await page.getByTestId('comment-storage').selectOption('embedded');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // Dirty the buffer without saving.
   await page.keyboard.press('Control+e');
@@ -349,7 +350,7 @@ test('E33: resolved comments can be shown ghosted in place, reopened from the gh
   await page.getByTestId('resolve-btn').click();
   await openSettings(page, 'general');
   await page.getByTestId('show-resolved').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(page.getByTestId('resolved-section')).toContainText('Resolved (1)');
   await expect(page.locator('mark.hl')).toHaveCount(0);
 });
@@ -364,7 +365,7 @@ test('E36: disabling comments hides every comment affordance non-destructively; 
 
   await openSettings(page, 'general');
   await page.getByTestId('set-comments-enabled').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // Highlights, panel, and the toolbar toggle are gone — the doc reads clean.
   await expect(page.locator('mark.hl')).toHaveCount(0);
@@ -386,7 +387,7 @@ test('E36: disabling comments hides every comment affordance non-destructively; 
 
   await openSettings(page, 'general');
   await page.getByTestId('set-comments-enabled').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(page.getByTestId('comment-card')).toHaveCount(1);
   await expect(page.locator('mark.hl').first()).toBeVisible();
   await expect(page.getByTestId('comments-toggle')).toBeVisible();
@@ -410,7 +411,7 @@ test('E37: issue #286 — typing over a selection opens nothing; no popup and no
   await openSettings(page, 'general');
   await expect(page.getByTestId('set-comments-enabled')).toBeVisible();
   await expect(page.getByTestId('set-type-to-comment')).toHaveCount(0);
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 });
 
 test('E38: resolving defaults to a faint ghost in place; the toggle lives in Settings, not the panel', async ({
@@ -437,7 +438,7 @@ test('E38: resolving defaults to a faint ghost in place; the toggle lives in Set
   // Turning the setting off collapses resolved comments as before.
   await openSettings(page, 'general');
   await page.getByTestId('show-resolved').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(page.getByTestId('resolved-section')).toContainText('Resolved (1)');
   await expect(page.locator('mark.hl')).toHaveCount(0);
 });
@@ -496,7 +497,7 @@ test('E55: nav hotkeys — defaults enter at first/last; rebinding Next takes ef
   await openSettings(page, 'hotkeys');
   await page.getByTestId('hotkey-nextComment').click();
   await page.keyboard.press('Control+Shift+J');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   await page.keyboard.press('Control+Alt+ArrowDown'); // old combo — must do nothing
   await expect(page.getByTestId('comment-nav-count')).toHaveText('2 / 2');
@@ -535,6 +536,7 @@ test('E56: the native menu carries Next/Previous Comment; clicking steps; the ma
   await sp.getByTestId('settings-panel').waitFor();
   await sp.getByTestId('settings-tab-general').click();
   await sp.getByTestId('set-comments-enabled').click();
+  await sp.getByTestId('settings-save').click(); // issue #246: pending until Save
   await expect.poll(async () => (await menuItem(page, 'nextComment')) === undefined).toBe(true);
   await expect.poll(async () => (await menuItem(page, 'prevComment')) === undefined).toBe(true);
 });
@@ -556,7 +558,7 @@ test('E129: split edit — highlights + panel in the live pane, comment from a s
 
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor')).toBeVisible();
 
@@ -665,7 +667,7 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
   await page.getByTestId('resolve-btn').click();
   await openSettings(page, 'general');
   await page.getByTestId('show-resolved').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await addComment(page, 'markdown itself stays untouched', 'second note');
   await expect(page.getByTestId('resolved-section')).toBeVisible();
   await expect.poll(() => gapOf('resolved-section')).toBeGreaterThanOrEqual(16);
@@ -676,7 +678,7 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
   // Split-edit host at the suite's pinned pane floor (fits without overflow).
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-preview')).toBeVisible();
   await expect.poll(() => gapOf('comment-card')).toBeGreaterThanOrEqual(16);
@@ -879,7 +881,7 @@ test('E140: a frozen document’s resolved cards are read-only too, inside the c
   // …and so is the same card inside the collapsed resolved section.
   await openSettings(page, 'general');
   await page.getByTestId('show-resolved').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   const section = page.getByTestId('resolved-section');
   await expect(section).toContainText('Resolved (1)');
   await section.locator('summary').click(); // expand it
@@ -1063,7 +1065,7 @@ test('E154: the menu entries obey every gate — frozen store, master switch off
   // …until the master switch goes off (SPEC7 §2): both entries vanish.
   await openSettings(page, 'general');
   await page.getByTestId('set-comments-enabled').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'saved to a sidecar' }).click();
   await openSmartMenu();
   await expect(page.getByTestId('smart-edit-diagram')).toBeVisible();
@@ -1401,7 +1403,7 @@ test('E424: PRD 022 Req 12 — a highlight paints in the plain-edit editor as a 
   // PLAIN edit: split off (it defaults on), so no preview pane exists.
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
   const editor = page.getByTestId('editor');
   await expect(editor.locator('.cm-content')).toBeVisible();
@@ -1518,7 +1520,7 @@ test('E427: PRD 022 Req 12 — a plain-edit highlight click places the caret and
   // PLAIN edit: split off (it defaults on).
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-divider')).toHaveCount(0);
   const hl = page.getByTestId('editor').locator('.mm-hl');
@@ -1650,7 +1652,7 @@ test('E438: the commentsEnabled master switch removes pane and chevron together,
 
   await openSettings(page, 'general');
   await page.getByTestId('set-comments-enabled').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(page.getByTestId('comments-pane')).toHaveCount(0);
   await expect(page.getByTestId('comments-collapse')).toHaveCount(0);
   await expect(page.getByTestId('comments-expand')).toHaveCount(0);
@@ -1664,7 +1666,7 @@ test('E438: the commentsEnabled master switch removes pane and chevron together,
   // state was never destroyed.
   await openSettings(page, 'general');
   await page.getByTestId('set-comments-enabled').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(page.getByTestId('comments-pane')).toBeVisible();
   await expect(page.getByTestId('comments-collapse')).toBeVisible();
 });
@@ -1752,7 +1754,7 @@ test('E440: PRD 023 Req 5 — the same pairs paint as two decorations each in th
   // PLAIN edit: split off (it defaults on).
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-divider')).toHaveCount(0);
 
@@ -1860,7 +1862,7 @@ test('E444: PRD 023 Req 18 — clicking a comment decoration in the PLAIN edit e
   await expect(page.locator('mark.hl[data-cid="c-cross"]').first()).toBeVisible();
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-divider')).toHaveCount(0);
   await expect(page.getByTestId('comments-pane')).toHaveCount(0); // still closed
@@ -1910,7 +1912,7 @@ test('E445: PRD 023 Req 18 — activating a card in plain edit scrolls the EDITO
 
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-divider')).toHaveCount(0);
   await openCommentsPane(page);
@@ -2247,7 +2249,7 @@ test('E465: PRD 023 §13 — a full-preview selection grows the hash button left
   // ABSENT on a fresh selection, not disabled.
   await openSettings(page, 'general');
   await page.getByTestId('set-comments-enabled').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await selectPhrase(page, PHRASE);
   await page.waitForTimeout(200);
   await expect(btn).toHaveCount(0);

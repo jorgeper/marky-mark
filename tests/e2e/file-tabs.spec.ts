@@ -1,6 +1,16 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { dirtyActiveDoc, freshApp, fsRead, fsWrite, openNotesRoot, openSettings, revealToolbar, seedFolders } from './helpers';
+import {
+  dirtyActiveDoc,
+  freshApp,
+  fsRead,
+  fsWrite,
+  openNotesRoot,
+  openSettings,
+  revealToolbar,
+  saveSettings,
+  seedFolders,
+} from './helpers';
 
 // PRD 013 (issue #144): the file tab strip — presence, the tab list,
 // activation, labels and the View-menu toggle. A pure view of the SPEC36
@@ -1199,7 +1209,7 @@ test('E306: the plane ordering holds in a dark theme — strip < inactive < acti
   await page.getByTestId('settings-theme-dark').selectOption('one-dark');
   const useDark = page.getByTestId('use-dark-theme');
   if (!(await useDark.isChecked())) await useDark.check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect
     .poll(() => bgOf(page.locator('.theme-root')))
@@ -1233,7 +1243,7 @@ test('E307: Ctrl+Tab across multi-table documents — the wrap past the last tab
   await openSettings(page);
   await page.getByTestId('settings-tab-general').click();
   await page.getByTestId('set-split-edit').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
   const editor = page.getByTestId('editor');
   await expect(editor.locator('.cm-content')).toBeVisible();

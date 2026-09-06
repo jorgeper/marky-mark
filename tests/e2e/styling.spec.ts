@@ -8,7 +8,14 @@
 // out instead of a pixel diff.
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { dirtyActiveDoc, freshApp, openSettings, openWelcomeViaHelp, revealToolbar } from './helpers';
+import {
+  dirtyActiveDoc,
+  freshApp,
+  openSettings,
+  openWelcomeViaHelp,
+  revealToolbar,
+  saveSettings,
+} from './helpers';
 
 // PRD 007 Req 4: the hosted backend in local dev mode (see hosted.spec.ts)
 // — E394/E395 sample the pre-auth sign-in page and a workspace settings
@@ -106,8 +113,8 @@ async function assertChromeAgreement(page: Page, expectedElevated: string): Prom
 
   // The Settings panel's primary Close.
   await openSettings(page);
-  const settingsPrimary = await sampleControl(page.getByTestId('settings-close'));
-  await page.getByTestId('settings-close').click();
+  const settingsPrimary = await sampleControl(page.getByTestId('settings-save'));
+  await saveSettings(page);
 
   // The splash's neutral action, reached the way a user reaches it — a
   // relaunch always lands on the splash — sampled before the dialog step
@@ -137,7 +144,7 @@ async function assertChromeAgreement(page: Page, expectedElevated: string): Prom
   await page.getByTestId('open-cancel').click();
   await expect(page.getByTestId('open-save')).toHaveCount(0);
 
-  expectSameGeometry('btn-primary: open-save vs settings-close', dialogPrimary, settingsPrimary);
+  expectSameGeometry('btn-primary: open-save vs settings-save', dialogPrimary, settingsPrimary);
   // The primary modifier changes fill only — geometry is the .btn base's.
   expectSameGeometry('btn base: open-cancel vs open-save', dialogNeutral, dialogPrimary);
   expectSameGeometry('btn neutral: start-openFile vs open-cancel', splash, dialogNeutral);
@@ -161,10 +168,10 @@ test('E393: the same computed-style agreement holds under the dark GitHub Dark t
   await freshApp(page);
   await openSettings(page);
   await page.getByTestId('settings-theme-light').selectOption('github-dark');
+  await saveSettings(page); // issue #246: the pick applies on Save
   await expect
     .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
     .toBe('rgb(13, 17, 23)'); // github-dark --mm-bg, the theme has applied
-  await page.getByTestId('settings-close').click();
   await assertChromeAgreement(page, 'rgb(22, 27, 34)'); // github-dark #161b22
 });
 
@@ -228,7 +235,7 @@ test('E395: the workspace settings destructive button is the danger fill on the 
   await openSettings(page, 'people');
   await expect(page.getByTestId('workspace-delete-section')).toBeVisible();
   const destructive = await sampleControl(page.getByTestId('workspace-delete-submit'));
-  const settingsPrimary = await sampleControl(page.getByTestId('settings-close'));
+  const settingsPrimary = await sampleControl(page.getByTestId('settings-save'));
   expectSameGeometry('danger fill keeps .btn geometry', settingsPrimary, destructive);
   expect(destructive.bg, 'destructive fill is --mm-danger').toBe(
     await resolvedColor(page, '.theme-root', '--mm-danger'),

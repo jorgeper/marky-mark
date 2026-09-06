@@ -1,5 +1,7 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
+  cancelSettings,
   freshApp,
   freshNativeMenuApp,
   fsRead,
@@ -9,6 +11,7 @@ import {
   openSettings,
   openWelcomeViaHelp,
   revealToolbar,
+  saveSettings,
   seedFolders,
 } from './helpers';
 
@@ -30,11 +33,12 @@ test('E2: Settings lists the 7 built-in themes; Monokai changes the background; 
   const before = await page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(before).toBe('rgb(255, 255, 255)'); // Crisp default (#ffffff)
 
+  // Issue #246: the pick is pending — the main window restyles on Save.
   await select.selectOption('monokai');
+  await saveSettings(page);
   await expect
     .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
     .toBe('rgb(39, 40, 34)'); // Monokai #272822
-  await page.getByTestId('settings-close').click();
 
   await page.reload();
   await openWelcomeViaHelp(page);
@@ -58,6 +62,7 @@ test('E3: dropping a user theme into the config themes dir + Reload themes (in S
   await expect(option).toHaveCount(1);
   await expect(option).toHaveText(/Midnight Ocean/);
   await select.selectOption('midnight-ocean');
+  await saveSettings(page); // issue #246: the pick applies on Save
   await expect
     .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
     .toBe('rgb(1, 2, 3)');
@@ -67,11 +72,14 @@ test('E19: customized font size applies to the document; Auto restores the theme
   await openSettings(page);
   await page.getByTestId('fontsize-custom').check();
   await page.getByTestId('fontsize-input').fill('20');
+  await saveSettings(page); // issue #246: pending until Save
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
     .toBe('20px');
 
+  await openSettings(page);
   await page.getByTestId('fontsize-auto').check();
+  await saveSettings(page);
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
     .toBe('16px'); // Crisp's --mm-font-size
@@ -89,11 +97,13 @@ test('E20: zoom scales only the document text — the settings UI keeps its size
   const modalFontBefore = await page.getByTestId('settings-panel').evaluate((el) => getComputedStyle(el).fontSize);
 
   await page.getByTestId('zoom-select').selectOption('150');
+  await saveSettings(page); // issue #246: the zoom applies on Save
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
     .toBe('21px'); // 14px default × 1.5 — document text only
 
   // The UI is NOT zoomed: settings modal font size unchanged, root not CSS-zoomed.
+  await openSettings(page);
   expect(await page.getByTestId('settings-panel').evaluate((el) => getComputedStyle(el).fontSize)).toBe(
     modalFontBefore
   );
@@ -101,6 +111,7 @@ test('E20: zoom scales only the document text — the settings UI keeps its size
 
   await page.getByTestId('zoom-reset').click();
   await expect(page.getByTestId('zoom-select')).toHaveValue('100');
+  await saveSettings(page);
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).fontSize))
     .toBe('14px');
@@ -114,7 +125,7 @@ test('E21: light/dark theme pair follows the OS scheme; unchecking uses the ligh
   await page.getByTestId('settings-theme-dark').selectOption('one-dark');
   const useDark = page.getByTestId('use-dark-theme');
   if (!(await useDark.isChecked())) await useDark.check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   const bg = () => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
   await page.emulateMedia({ colorScheme: 'dark' });
@@ -125,7 +136,7 @@ test('E21: light/dark theme pair follows the OS scheme; unchecking uses the ligh
   // Uncheck "Use separate theme in dark mode" → dark scheme keeps the light theme.
   await openSettings(page);
   await page.getByTestId('use-dark-theme').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect.poll(bg).toBe('rgb(255, 255, 255)');
 });
@@ -143,10 +154,10 @@ test('E22: Wide text margins narrow the column; line numbers gutter follows its 
     .toBe('1216px'); // 76rem — even fewer margins than narrow
 
   await page.getByTestId('settings-margins').selectOption('wide');
+  await saveSettings(page); // issue #246: the column moves on Save
   await expect
     .poll(() => page.getByTestId('doc').evaluate((el) => getComputedStyle(el).maxWidth))
     .toBe('608px'); // 38rem
-  await page.getByTestId('settings-close').click();
 
   // Default: gutter present.
   await page.keyboard.press('Control+e');
@@ -170,7 +181,7 @@ test('E24: the new Claude theme — Typora-derived paper, serif body, tight head
   // theme column — this test is about the THEME's own width, so pick
   // "Theme default" explicitly.
   await page.getByTestId('settings-margins').selectOption('default');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   const doc = page.getByTestId('doc');
   await expect
@@ -220,7 +231,7 @@ test('E26: settings shows four left tabs with the right content on each; control
   // A control still works through its tab: change author in General, persists.
   await page.getByTestId('settings-tab-general').click();
   await page.getByTestId('author-input').fill('TabTester');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('TabTester');
 });
 
@@ -228,18 +239,24 @@ test('E34: the theme catalog lists 27+ themes; new classics apply their canonica
   page,
 }) => {
   await openSettings(page);
-  const select = page.getByTestId('settings-theme-light');
-  expect(await select.locator('option').count()).toBeGreaterThanOrEqual(27);
+  expect(await page.getByTestId('settings-theme-light').locator('option').count()).toBeGreaterThanOrEqual(27);
 
   const bg = () => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor);
 
-  await select.selectOption('gruvbox-dark');
+  // Issue #246: one pick per dialog session — each applies on its Save.
+  const pick = async (id: string) => {
+    if ((await page.getByTestId('settings-panel').count()) === 0) await openSettings(page);
+    await page.getByTestId('settings-theme-light').selectOption(id);
+    await saveSettings(page);
+  };
+
+  await pick('gruvbox-dark');
   await expect.poll(bg).toBe('rgb(40, 40, 40)'); // #282828
 
-  await select.selectOption('github-dark');
+  await pick('github-dark');
   await expect.poll(bg).toBe('rgb(13, 17, 23)'); // #0d1117
 
-  await select.selectOption('phosphor');
+  await pick('phosphor');
   await expect.poll(bg).toBe('rgb(10, 15, 10)'); // near-black CRT
   // Phosphor is a mono theme — the document body uses a monospace stack.
   expect(
@@ -280,7 +297,9 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
   await sp.getByTestId('settings-panel').waitFor();
   await sp.getByTestId('settings-tab-appearance').click();
   await sp.getByTestId('settings-margins').selectOption('wide');
-  await sp.close();
+  // Issue #246: the aux window holds edits pending too — Save commits and
+  // closes the window itself.
+  await sp.getByTestId('settings-save').click();
   await menuClick(page, 'toggleSplit'); // full-screen edit: the pane IS the window
 
   await menuClick(page, 'toggleMode');
@@ -364,7 +383,7 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
     await s.getByTestId('settings-panel').waitFor();
     await s.getByTestId('settings-tab-appearance').click();
     await s.getByTestId('settings-margins').selectOption(value);
-    await s.close();
+    await s.getByTestId('settings-save').click(); // issue #246: Save commits, then closes
   };
   // The movers that used to change the slack now change nothing about the
   // anchor. The folder panel squeezes the pane from the left…
@@ -440,7 +459,7 @@ test('E156: issue #52 — the line-number gutter follows the theme instead of st
   // Switch to Monokai (the E2 pattern): every reading follows the new tokens.
   await openSettings(page);
   await page.getByTestId('settings-theme-light').selectOption('monokai');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect.poll(async () => (await colors()).bg).toBe('rgb(39, 40, 34)'); // --mm-bg
   await expect.poll(async () => (await colors()).fg).toBe('rgb(165, 159, 133)'); // --mm-fg-muted
   expect(await activeBg()).toBe('rgba(0, 0, 0, 0)');
@@ -496,6 +515,11 @@ test('E227: configuring a provider, a curated model and a key enables Test conne
   await page.getByTestId('llm-api-key').fill('sk-e227-secret');
   await expect(page.getByTestId('llm-availability')).toContainText('Ready');
 
+  // Issue #246: edits are pending until Save, and Test connection runs
+  // against the SAVED settings — so commit, then reopen to test the key.
+  await saveSettings(page);
+  await openSettings(page, 'llm');
+
   // Req 10: one user-invoked request, reported as success or a specific failure.
   await page.getByTestId('llm-test').click();
   await expect(page.getByTestId('llm-test-result')).toContainText('succeeded');
@@ -527,15 +551,22 @@ test('E228: on desktop the settings window round-trips Test connection through t
   await sp.getByTestId('llm-model-preset').selectOption('claude-sonnet-5');
   await sp.getByTestId('llm-api-key').fill('sk-e228-secret');
   await expect(sp.getByTestId('llm-availability')).toContainText('Ready');
+  // Issue #246: the key is pending until Save (which closes the window), and
+  // Test connection runs against the saved settings — so save, then reopen.
+  await sp.getByTestId('settings-save').click();
+  const reopened = page.waitForEvent('popup');
+  await menuClick(page, 'settings');
+  const sp2 = await reopened;
+  await sp2.getByTestId('settings-tab-llm').click();
 
   // Req 10: the aux window holds no capability — the request travels to the
   // main window over the bus and the verdict comes back for it to render.
-  await sp.getByTestId('llm-test').click();
-  await expect(sp.getByTestId('llm-test-result')).toContainText('succeeded');
+  await sp2.getByTestId('llm-test').click();
+  await expect(sp2.getByTestId('llm-test-result')).toContainText('succeeded');
 
   // Req 7: no key crosses into anything the main window renders or persists
   // outside the User layer, and the settings window never shows it back.
-  const rendered = await sp.getByTestId('settings-panel').innerHTML();
+  const rendered = await sp2.getByTestId('settings-panel').innerHTML();
   expect(rendered.replace(/<input[^>]*data-testid="llm-api-key"[^>]*>/g, '')).not.toContain('sk-e228-secret');
   await expect
     .poll(async () => {
@@ -590,7 +621,7 @@ test('E265: issue #122 — code block syntax coloring is on by default, toggles 
   await openSettings(page, 'general');
   await page.getByTestId('settings-tab-editor').click();
   await page.getByTestId('code-syntax').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(editor.locator('[class*="mm-code-"]:not(.mm-code-sel)')).toHaveCount(0);
   // The markdown highlighting beside it is untouched — the two are independent.
   await expect(editor.locator('.mm-md-code').first()).toBeVisible();
@@ -655,7 +686,7 @@ test('E314: issue #167 — scrollbars fade after the idle delay without reflow; 
   await openSettings(page, 'general');
   await expect(page.getByTestId('settings-autohide-scrollbars')).toBeChecked();
   await page.getByTestId('settings-autohide-scrollbars').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(page.locator('.theme-root')).not.toHaveClass(/autohide-scrollbars/);
   await expect(ws).not.toHaveAttribute('data-scrollbars');
   await ws.evaluate((el) => (el.scrollTop = 200));
@@ -668,4 +699,121 @@ test('E314: issue #167 — scrollbars fade after the idle delay without reflow; 
   await page.reload();
   await expect(ws.locator('h2').first()).toContainText('Section 1');
   await expect(page.locator('.theme-root')).not.toHaveClass(/autohide-scrollbars/);
+});
+
+
+// --- Issue #246: the enlarged dialog, its pinned footer, and Save / Cancel ---
+
+/** The Editor tab's syntax checkbox: on by default, and it persists. */
+const readSetting = async (page: Page, key: string): Promise<unknown> => {
+  const raw = await fsRead(page, '/config/settings.json');
+  return raw ? (JSON.parse(raw) as Record<string, unknown>)[key] : undefined;
+};
+
+test('E486: issue #246 — the action footer is pinned outside the scrolling tab content, on every tab', async ({
+  page,
+}) => {
+  await openSettings(page, 'general');
+  const panel = page.getByTestId('settings-panel');
+  const panelBox = (await panel.boundingBox())!;
+  // A little bigger than the old 560x480, still inside the viewport caps.
+  expect(panelBox.width).toBeGreaterThanOrEqual(640);
+  expect(panelBox.height).toBeGreaterThanOrEqual(540);
+
+  // The footer is a child of the dialog and a SIBLING of the scrolling
+  // region — the whole point: it cannot scroll away with the tab content.
+  const actions = page.getByTestId('settings-actions');
+  expect(
+    await actions.evaluate((el) => ({
+      parent: el.parentElement?.className ?? '',
+      insideScroller: el.closest('.tab-content') !== null,
+    }))
+  ).toEqual({ parent: 'dialog settings-modal', insideScroller: false });
+  await expect(page.getByTestId('settings-close')).toHaveCount(0); // Done is gone
+
+  const first = (await actions.boundingBox())!;
+  for (const tab of ['appearance', 'editor', 'hotkeys', 'llm', 'experimental'] as const) {
+    await page.getByTestId(`settings-tab-${tab}`).click();
+    const box = (await actions.boundingBox())!;
+    expect(Math.abs(box.y - first.y)).toBeLessThanOrEqual(1); // it never moves
+    expect(Math.abs(box.x - first.x)).toBeLessThanOrEqual(1);
+    // …and it stays inside the dialog, below the scrolling region.
+    expect(box.y + box.height).toBeLessThanOrEqual(panelBox.y + panelBox.height + 1);
+    await expect(page.getByTestId('settings-save')).toBeVisible();
+    await expect(page.getByTestId('settings-cancel')).toBeVisible();
+  }
+
+  // Scrolling the longest tab to its end leaves the footer exactly where it was.
+  const scroller = page.getByTestId('settings-scope-content-user');
+  await scroller.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  const scrolled = (await actions.boundingBox())!;
+  expect(Math.abs(scrolled.y - first.y)).toBeLessThanOrEqual(1);
+});
+
+test('E487: issue #246 — nothing is written until Save, which commits and closes', async ({ page }) => {
+  await openSettings(page, 'editor');
+  const syntax = page.getByTestId('editor-syntax');
+  await expect(syntax).toBeChecked();
+  await syntax.click();
+  await expect(syntax).not.toBeChecked(); // the pending value shows
+
+  // Pending means pending: settings.json has not moved while the dialog is up.
+  expect(await readSetting(page, 'editorSyntax')).toBeUndefined();
+
+  await saveSettings(page);
+  await expect.poll(() => readSetting(page, 'editorSyntax')).toBe(false);
+  await openSettings(page, 'editor');
+  await expect(page.getByTestId('editor-syntax')).not.toBeChecked();
+  await saveSettings(page);
+});
+
+test('E488: issue #246 — Cancel confirms before discarding, and go-back keeps the dialog as it was', async ({
+  page,
+}) => {
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-syntax').click();
+
+  await page.getByTestId('settings-cancel').click();
+  await expect(page.getByTestId('settings-discard-prompt')).toBeVisible();
+
+  // Go back: still open, still on the Editor tab, the pending edit intact.
+  await page.getByTestId('settings-discard-cancel').click();
+  await expect(page.getByTestId('settings-discard-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('settings-panel')).toBeVisible();
+  await expect(page.getByTestId('settings-tab-editor')).toHaveClass(/(^|\s)on(\s|$)/);
+  await expect(page.getByTestId('editor-syntax')).not.toBeChecked();
+
+  // Confirm: no write, and reopening shows the original value.
+  await page.getByTestId('settings-cancel').click();
+  await page.getByTestId('settings-discard-confirm').click();
+  await expect(page.getByTestId('settings-panel')).toHaveCount(0);
+  expect(await readSetting(page, 'editorSyntax')).toBeUndefined();
+  await openSettings(page, 'editor');
+  await expect(page.getByTestId('editor-syntax')).toBeChecked();
+  await cancelSettings(page); // nothing pending → closes with no prompt
+});
+
+test('E489: issue #246 — Esc and a scrim click take the Cancel path; a clean dialog closes with no prompt', async ({
+  page,
+}) => {
+  // Nothing pending: Cancel, Esc and the scrim each close on the spot.
+  await openSettings(page, 'general');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('settings-panel')).toHaveCount(0);
+
+  await openSettings(page, 'editor');
+  await page.getByTestId('editor-syntax').click();
+
+  // Esc with pending work asks first, and go-back leaves it open.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('settings-discard-prompt')).toBeVisible();
+  await page.getByTestId('settings-discard-cancel').click();
+  await expect(page.getByTestId('settings-panel')).toBeVisible();
+
+  // A scrim mousedown is the same route, not a silent discard.
+  await page.mouse.click(6, 300);
+  await expect(page.getByTestId('settings-discard-prompt')).toBeVisible();
+  await page.getByTestId('settings-discard-confirm').click();
+  await expect(page.getByTestId('settings-panel')).toHaveCount(0);
+  expect(await readSetting(page, 'editorSyntax')).toBeUndefined();
 });

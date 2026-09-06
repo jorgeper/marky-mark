@@ -16,6 +16,7 @@ import {
   openWelcomeViaHelp,
   PHRASE,
   revealToolbar,
+  saveSettings,
   seedFolders,
   selectPhrase,
   stableBox,
@@ -189,7 +190,7 @@ test('E25: toolbar auto-hides after launch, reveals on top-edge hover (with shad
   // Auto-hide is opt-in as of SPEC5 — enable it first (persists in settings).
   await openSettings(page, 'general');
   await page.getByTestId('settings-autohide').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // Fresh load with the mouse parked away from the top edge (freshApp leaves
   // it in the hot zone, which would legitimately pin the bar forever).
@@ -267,7 +268,7 @@ test('E29: the toolbar stays put by default; the auto-hide setting turns hiding 
   // Enable auto-hide → it hides once the mouse is away.
   await openSettings(page, 'general');
   await page.getByTestId('settings-autohide').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.mouse.move(500, 400);
   await expect(shell).toHaveAttribute('data-visible', 'false', { timeout: 6000 });
 
@@ -279,7 +280,7 @@ test('E29: the toolbar stays put by default; the auto-hide setting turns hiding 
   await expect(shell).toHaveAttribute('data-visible', 'true');
   await openSettings(page, 'general');
   await page.getByTestId('settings-autohide').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 });
 
 test('E30: the empty-state hint sits in the true center of the window', async ({ page }) => {
@@ -311,7 +312,7 @@ test('E31: the edit-mode text column pins to the pane left edge while the previe
   await page.evaluate(() => window.__mmDispatch!('toggleLineNumbers')); // issue #10: off
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   const p1 = await previewTextLeft();
   await page.keyboard.press('Control+e');
@@ -325,7 +326,7 @@ test('E31: the edit-mode text column pins to the pane left edge while the previe
   // difference on the right while its left edge holds.
   await openSettings(page);
   await page.getByTestId('settings-margins').selectOption('wide');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect.poll(previewTextLeft).toBeGreaterThan(p1); // preview: centred, so narrower starts further right
   const p2 = await previewTextLeft();
   await page.keyboard.press('Control+e');
@@ -356,10 +357,10 @@ test('E476: issue #272 — the gutter sits flush at the pane edge and every left
   await page.setViewportSize({ width: 1600, height: 900 });
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await openSettings(page);
   await page.getByTestId('settings-margins').selectOption('wide');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
 
   // Line numbers are on by default: the gutter's left edge IS the pane's…
@@ -565,6 +566,7 @@ test('E49: the auto-hide toolbar setting is absent under native menus, present o
   // PRD 002 §E18, settings.json is the sparse User LAYER — the edit patches
   // editorSyntax in and leaves the seeded paneMinWidth untouched.
   await sp.getByTestId('editor-syntax').click();
+  await sp.getByTestId('settings-save').click(); // issue #246: pending until Save
   await expect
     .poll(async () => {
       const raw = await fsRead(page, '/config/settings.json');
@@ -627,6 +629,9 @@ test('E51: Settings opens its own window — no in-page overlay; edits apply liv
   await sp.getByTestId('settings-tab-editor').click();
   await expect(page.locator('.mm-md-h1').first()).toBeVisible();
   await sp.getByTestId('editor-syntax').click();
+  // Issue #246: the edit is pending until Save — which commits it and closes
+  // the settings window, so the zoom echo below reopens it.
+  await sp.getByTestId('settings-save').click();
   await expect(page.locator('.mm-md-h1')).toHaveCount(0);
   // …and persists through the main window (the sole owner of settings.json).
   await expect
@@ -637,9 +642,12 @@ test('E51: Settings opens its own window — no in-page overlay; edits apply liv
     .toBe(false);
 
   // Canonical echo: zoom stepped via the main window's menu lands in the popup control.
-  await sp.getByTestId('settings-tab-appearance').click();
+  const reopened = page.waitForEvent('popup');
+  await menuClick(page, 'settings');
+  const sp2 = await reopened;
+  await sp2.getByTestId('settings-tab-appearance').click();
   await menuClick(page, 'zoomIn');
-  await expect(sp.getByTestId('zoom-select')).toHaveValue('110');
+  await expect(sp2.getByTestId('zoom-select')).toHaveValue('110');
 });
 
 test('E52: rebinding Save in the settings window updates the menu accelerator; old combo dead, new combo saves', async ({
@@ -656,6 +664,7 @@ test('E52: rebinding Save in the settings window updates the menu accelerator; o
   await sp.getByTestId('settings-tab-hotkeys').click();
   await sp.getByTestId('hotkey-save').click();
   await sp.keyboard.press('Control+Shift+D');
+  await sp.getByTestId('settings-save').click(); // issue #246: rebinds commit on Save
 
   // The main window's installed menu spec follows the rebind (SPEC13 §1.5).
   await expect
@@ -853,10 +862,10 @@ test('E134: split mode — the editor column hugs its pane, leaving no blank str
   // seam and the gutter — the "blank folder pane" of the issue screenshot.
   await openSettings(page);
   await page.getByTestId('settings-margins').selectOption('wide');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-preview')).toBeVisible();
 

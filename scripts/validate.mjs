@@ -366,7 +366,11 @@ record('editor package boundary', Date.now() - boundaryStart);
 // U1164/U1165 the annotation hotkey defaults). The floor had drifted 9
 // behind again through issues #270 and #272; re-pinned to the collected
 // count.
-const E2E_TEST_FLOOR = 473;
+// 479 as of issue #246: the Settings dialog's pinned Save / Cancel footer
+// added E486-E489 (the footer's placement across tabs, Save committing the
+// pending edits, Cancel's discard confirmation, and the Esc / scrim routes)
+// on top of the collected 475. Re-pinned to the collected count.
+const E2E_TEST_FLOOR = 479;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {

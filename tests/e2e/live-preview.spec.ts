@@ -12,6 +12,7 @@ import {
   goToDocStart,
   openSettings,
   previewTopAnchorLines,
+  saveSettings,
   selectPhraseInPane,
   splitApp,
   waitForSidecar,
@@ -28,7 +29,7 @@ async function setLivePreview(page: import('@playwright/test').Page, on: boolean
   const box = page.getByTestId('editor-live-preview');
   if (on) await box.check();
   else await box.uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 }
 
 const LP_DOC = '# Big Title\n\nsome **bold** here\n\n> a quote line\n\ntail\n';
@@ -49,7 +50,7 @@ test('E142: live preview toggle — off by default with zero effect; on renders 
   await openSettings(page, 'general');
   await page.getByTestId('settings-tab-editor').click();
   await expect(page.getByTestId('editor-live-preview')).not.toBeChecked();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // Type AAA on the tail line (undo baseline), then toggle on live.
   await editor.locator('.cm-line').last().click();
@@ -139,7 +140,7 @@ test('E144: live preview styling rides the theme tokens — heading color follow
   await page.getByTestId('settings-theme-dark').selectOption('one-dark');
   const useDark = page.getByTestId('use-dark-theme');
   if (!(await useDark.isChecked())) await useDark.check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect
     .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
@@ -200,7 +201,7 @@ test('E147: vim nav keeps working with live preview on', async ({ page }) => {
   await page.getByTestId('settings-vimnav').check();
   await page.getByTestId('settings-tab-editor').click();
   await page.getByTestId('editor-live-preview').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   await page.keyboard.press('Control+e');
   const editor = page.getByTestId('editor');
@@ -229,7 +230,7 @@ test('E148: comments still attach from the split pane with live preview on', asy
   await page.getByTestId('set-split-edit').check();
   await page.getByTestId('settings-tab-editor').click();
   await page.getByTestId('editor-live-preview').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   await page.keyboard.press('Control+e');
   const pane = page.getByTestId('split-preview');
@@ -306,7 +307,7 @@ test('E150: live preview supersedes SPEC23 highlighting — revealed lines keep 
   await openSettings(page, 'general');
   await page.getByTestId('settings-tab-editor').click();
   await page.getByTestId('editor-syntax').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(editor.locator('.mm-md-h1:not(.mm-md-mark)').first()).toContainText('Big Title');
   await expect(editor.locator('.mm-lp-strong').first()).toContainText('bold');
 
@@ -337,7 +338,7 @@ test('E327: table grid + live preview (#55) — grid lines keep raw cell markdow
   await page.getByTestId('set-split-edit').uncheck();
   await page.getByTestId('settings-tab-editor').click();
   await page.getByTestId('editor-live-preview').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
   const editor = page.getByTestId('editor');
   await expect(editor.locator('.cm-content')).toBeVisible();

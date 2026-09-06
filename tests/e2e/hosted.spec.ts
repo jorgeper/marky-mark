@@ -18,7 +18,19 @@ import {
 // the module that owns the format, so a rephrased size fails here loudly.
 import { formatByteSize } from '../../src/lib/deploymentAdmin';
 import { expect, test } from './fixtures';
-import { addComment, addHighlight, clickClearOfToolbar, landInPreview, menuSave, openCommentsPane, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
+import {
+  addComment,
+  addHighlight,
+  clickClearOfToolbar,
+  landInPreview,
+  menuSave,
+  openCommentsPane,
+  openSettings,
+  pasteImage,
+  revealToolbar,
+  saveSettings,
+  selectPhrase,
+} from './helpers';
 // PRD 011 Req 9 (#121): the sentence under test comes from the module that
 // owns it, so a reworded message fails E246 rather than passing a stale copy.
 import { NO_LLM_CONFIGURED_MESSAGE } from '../../src/lib/llmDeployment';
@@ -727,7 +739,7 @@ test('E333: the User settings layer roams per user while the Workspace layer com
   // The Workspace layer is already in force: it came from the manifest.
   await page.getByTestId('settings-tab-editor').click();
   await expect(page.getByTestId('image-folder')).toHaveValue('shared-assets');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // It is stored server-side under her own prefix, not in this browser.
   await expect
@@ -749,7 +761,7 @@ test('E333: the User settings layer roams per user while the Workspace layer com
   await expect(page.getByTestId('settings-theme-light')).toHaveValue(chosen);
   await page.getByTestId('settings-tab-editor').click();
   await expect(page.getByTestId('image-folder')).toHaveValue('shared-assets');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // A DIFFERENT user inherits neither: their own User layer is untouched…
   await signOut(page);
@@ -1805,7 +1817,7 @@ test('E364: People is its own settings tab, immediately after Editor, holding me
   await expect(page.getByTestId('workspace-members-section')).toBeVisible();
   await expect(page.getByTestId('workspace-roles-section')).toBeVisible();
   await expect(page.getByTestId('workspace-delete-section')).toBeVisible();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // Without a workspace bound there is no People tab at all.
   await signOut(page);
@@ -1908,9 +1920,12 @@ test('E366: the Add people input and the role select share the one text-input ru
 
   const seenBorders: string[] = [];
   for (const theme of ['crisp', 'one-dark']) {
+    // Issue #246: the theme applies on Save, which closes the dialog — so
+    // pick, save, and come back to the People tab to measure.
     await page.getByTestId('settings-tab-appearance').click();
     await page.getByTestId('settings-theme-light').selectOption(theme);
-    await page.getByTestId('settings-tab-people').click();
+    await saveSettings(page);
+    await openWorkspaceSettings(page);
     await expect(input).toBeVisible();
     if (seenBorders.length > 0) {
       // Wait for the theme swap to actually repaint the border variable.
@@ -2811,7 +2826,7 @@ test('E246: PRD 011 Reqs 8+9 — hosted with no operator provider says so, and o
   // the section is absent rather than drawn over a store that does not exist.
   await expect(page.getByTestId('summary-cache-size')).toHaveCount(0);
   await expect(page.getByTestId('summary-cache-clear')).toHaveCount(0);
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 });
 
 test('E325: a crash-safe draft left in the store by a killed test does not hijack the next sign-in', async ({
@@ -3354,7 +3369,7 @@ test.describe('PRD 017 the Management view', () => {
       await input.fill('katherine');
       await page.getByTestId('membership-picker-result-mock-katherine').click();
       await page.getByTestId('workspace-member-role-mock-katherine').selectOption('Owner');
-      await page.getByTestId('settings-close').click();
+      await saveSettings(page);
       // …and the banner ends with the dialog: she holds a role now (Req 5).
       await expect(page.getByTestId('admin-view-banner')).toHaveCount(0);
       // The grant is real — the same save answers 200 now.
@@ -5115,7 +5130,7 @@ test('E450: a comment card carries a copy-link that copies the file URL plus #hl
   // collapsed resolved section.
   await openSettings(page, 'general');
   await page.getByTestId('show-resolved').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   const resolvedSection = page.getByTestId('resolved-section');
   await resolvedSection.locator('summary').click();
   const resolvedLink = resolvedSection.getByTestId('comment-card').getByTestId('copy-link-comment');

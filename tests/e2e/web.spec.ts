@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, test } from './fixtures';
 // PRD 015 Req 12 (#172): the one drag-geometry helper the desktop resize
 // tests settle on; pure Playwright, nothing shim-bound.
-import { stableBox } from './helpers';
+import { saveSettings, stableBox } from './helpers';
 // PRD 011 Req 9 (#121): the static-web sentence comes from the module that
 // owns it, so a reword fails W14 rather than passing against a stale copy.
 import { NO_LLM_PLATFORM_MESSAGE } from '../../src/lib/llmSettings';
@@ -77,7 +77,7 @@ test('W1: single-file page loads with the welcome doc; theme change persists acr
   await expect
     .poll(() => page.locator('.theme-root').evaluate((el) => getComputedStyle(el).backgroundColor))
     .toBe('rgb(39, 40, 34)');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
@@ -169,7 +169,7 @@ test('W4: zero network requests after initial load (self-contained page)', async
   // must be inlined, not fetched), comments UI.
   await openSettings(page);
   await page.getByTestId('settings-theme-light').selectOption('dracula');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('Welcome to Marky Mark');
   await page.keyboard.press('Control+e');
@@ -377,7 +377,7 @@ test('W10: markdown token classes on by default in edit mode; vim NAV badge and 
 
   await openSettings(page, 'general');
   await page.getByTestId('settings-vimnav').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await editor.locator('.cm-line').first().click();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('vim-badge')).toBeVisible();
@@ -427,7 +427,7 @@ test('W12: §H25 platform boundary — no folder sidebar, no scope selector or W
   await expect(page.getByTestId('settings-scope')).toHaveCount(0);
   await expect(page.getByTestId('settings-scope-user')).toHaveCount(0);
   await expect(page.getByTestId('settings-scope-workspace')).toHaveCount(0);
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // No workspace or session stores were written: nothing under
   // <configDir>/session/, no recent-workspaces.json, no .marky-workspace.
@@ -547,7 +547,7 @@ test('W14: PRD 011 Reqs 8+9 — the LLM providers area says the platform has no 
   ]) {
     await expect(page.getByTestId(id), `${id} is drawn on a platform that cannot use it`).toHaveCount(0);
   }
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 });
 
 test('W15: PRD 011 Req 22 — all five levels work on excerpts, and the view says they are excerpts', async ({
@@ -555,7 +555,7 @@ test('W15: PRD 011 Req 22 — all five levels work on excerpts, and the view say
 }) => {
   await openSettings(page, 'experimental');
   await page.getByTestId('experimental-semantic-zoom').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await dropFile(page, 'zoom.md', ZOOM_DOC);
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
 

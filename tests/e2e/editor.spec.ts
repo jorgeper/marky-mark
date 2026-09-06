@@ -10,6 +10,7 @@ import {
   openSettings,
   PHRASE,
   revealToolbar,
+  saveSettings,
   selectPhrase,
   selectPhraseInPane,
   WELCOME,
@@ -63,7 +64,7 @@ test('E6: remapping the edit-toggle hotkey in settings takes effect immediately;
   // folder sidebar's DEFAULT binding, so the conflict detector (rightly)
   // refuses it. The test's semantics are unchanged: remap, old dies, new works.
   await page.keyboard.press('Control+Shift+Y');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   await page.keyboard.press('Control+e'); // old combo — must do nothing
   await expect(page.getByTestId('editor')).toHaveCount(0);
@@ -91,7 +92,7 @@ test('E23: vim navigation — off by default, full motion set when enabled, neve
 
   await openSettings(page, 'general');
   await page.getByTestId('settings-vimnav').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // j scrolls down, k back up.
   await page.keyboard.press('j');
@@ -182,7 +183,7 @@ test('E81: editor vim nav — Esc inert with the setting off; full modal keyset 
   // Enable vim, back to the editor.
   await openSettings(page, 'general');
   await page.getByTestId('settings-vimnav').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.getByTestId('editor').locator('.cm-line').first().click();
   await goToDocStart(page); // deterministic start (native nav still works)
 
@@ -265,7 +266,7 @@ test('E82: markdown highlighting — themed token classes on by default, live to
   await openSettings(page, 'general');
   await page.getByTestId('settings-tab-editor').click();
   await page.getByTestId('editor-syntax').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(editor.locator('[class*="mm-md-"]')).toHaveCount(0);
 
   // Undo history survived the live reconfigure: type BBB, undo removes it only.
@@ -319,7 +320,7 @@ test('E86: front matter becomes a dismissable card — never rendered markdown; 
   // Setting off ⇒ the next open starts hidden (doc renders as ever).
   await openSettings(page, 'general');
   await page.getByTestId('settings-frontmatter').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"showFrontmatter": false');
   await page.reload();
   await expect(page.getByTestId('doc').locator('h1')).toContainText('FM Title');
@@ -653,7 +654,7 @@ test('E291: every match carries its own foreground and the current one is a dist
   await page.getByTestId('settings-theme-dark').selectOption('one-dark');
   const useDark = page.getByTestId('use-dark-theme');
   if (!(await useDark.isChecked())) await useDark.check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   const style = (loc: ReturnType<typeof page.locator>) =>
     loc.evaluate((el) => {
@@ -858,14 +859,14 @@ test('E309: issue #157 — code blocks render as cards by default, caret reveal,
   await page.getByTestId('settings-tab-editor').click();
   await expect(page.getByTestId('settings-code-block-view')).not.toBeChecked();
   await page.getByTestId('settings-code-block-view').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(editor.locator('.cm-line.mm-fence-card')).toHaveCount(4);
 
   // Off again, and the setting survives a reload.
   await openSettings(page);
   await page.getByTestId('settings-tab-editor').click();
   await page.getByTestId('settings-code-block-view').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(editor.locator('.cm-line.mm-fence-card')).toHaveCount(0);
   await page.reload();
   // Issue #125: the reload reopens in the remembered edit mode.
@@ -1100,7 +1101,7 @@ test('E484: issue #269 — every preview language colours in the edit pane and i
   await openSettings(page, 'general');
   await page.getByTestId('settings-tab-editor').click();
   await page.getByTestId('code-syntax').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(editor.locator('[class*="mm-code-"]:not(.mm-code-sel)')).toHaveCount(0);
 
   // --- the edit half of split view colours identically -----------------------

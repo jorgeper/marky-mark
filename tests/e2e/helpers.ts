@@ -118,6 +118,27 @@ export async function openSettings(
   await page.getByTestId(`settings-tab-${tab}`).click();
 }
 
+/**
+ * Issue #246: commit the dialog's pending edits and close it. Settings are no
+ * longer applied live, so a test that changed one MUST leave this way or the
+ * change never lands.
+ */
+export async function saveSettings(page: Page): Promise<void> {
+  await page.getByTestId('settings-save').click();
+  await expect(page.getByTestId('settings-panel')).toHaveCount(0);
+}
+
+/**
+ * Issue #246: leave without committing — confirming the discard prompt when
+ * there are pending edits to lose (a clean dialog closes with no prompt).
+ */
+export async function cancelSettings(page: Page): Promise<void> {
+  await page.getByTestId('settings-cancel').click();
+  const confirm = page.getByTestId('settings-discard-confirm');
+  if (await confirm.isVisible()) await confirm.click();
+  await expect(page.getByTestId('settings-panel')).toHaveCount(0);
+}
+
 export function fsRead(page: Page, path: string): Promise<string | null> {
   return page.evaluate((p) => window.__mmfs!.read(p), path);
 }

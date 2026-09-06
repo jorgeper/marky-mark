@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getPlatform, type Platform } from './platform';
 import {
   buildAuxInit,
@@ -24,7 +24,7 @@ import type { LlmTestResult } from './lib/llmSettings';
 import type { SummaryCacheClearResult, SummaryCacheSizeResult } from './lib/summaryCacheReport';
 import type { Theme } from './lib/themes';
 import { applyThemeCss } from './themeRuntime';
-import { SettingsPanel } from './components/SettingsPanel';
+import { SettingsPanel, type SettingsCloseIntent } from './components/SettingsPanel';
 import { AboutDialog } from './components/AboutDialog';
 
 /**
@@ -40,6 +40,14 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [init, setInit] = useState<AuxInit | null>(null);
   const [prefersDark, setPrefersDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
+  /**
+   * Issue #246: the Settings panel publishes its close intent here — whether
+   * closing would lose unsaved edits, and the Cancel path to run instead of
+   * closing. Every close route this window owns (Esc, Mod+W, the OS close
+   * button) asks it first; without a panel mounted (About) it stays null and
+   * each route closes outright, as before.
+   */
+  const closeIntentRef = useRef<SettingsCloseIntent | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -59,6 +67,13 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
           setInit((i) => (i ? { ...i, themes: payload as Theme[] } : i))
         )
       );
+      // Issue #246: the OS close button is a Cancel too — the existing guard
+      // seam blocks it while the dialog holds unsaved edits and shows the
+      // discard confirmation instead of dropping them silently.
+      await p.registerCloseGuard(
+        () => closeIntentRef.current?.dirty === true,
+        () => closeIntentRef.current?.request()
+      );
       await p.busEmit(EV_AUX_READY, { kind });
     })();
     return () => {
@@ -74,7 +89,9 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
       if ((e.target as HTMLElement | null)?.closest?.('[data-hotkey-recorder]')) return;
       if (e.key === 'Escape' || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w')) {
         e.preventDefault();
-        void platform?.closeNow();
+        // Issue #246: both keys take the dialog's Cancel path when it has one.
+        if (closeIntentRef.current) closeIntentRef.current.request();
+        else void platform?.closeNow();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -175,6 +192,7 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
           onReloadThemes={() => request({ req: 'reloadThemes' })}
           onRevealThemesDir={() => request({ req: 'revealThemesDir' })}
           onClose={close}
+          closeIntentRef={closeIntentRef}
         />
       ) : (
         <AboutDialog frameless onClose={close} onOpenUrl={(url) => request({ req: 'openExternal', url })} />

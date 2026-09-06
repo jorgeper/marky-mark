@@ -2,7 +2,17 @@
 // panes — the real mermaid library, lazily loaded through the vite dev
 // server, behind the fence-renderer seam. The edit pane is #162's, not here.
 import { expect, test } from './fixtures';
-import { addComment, freshApp, fsRead, fsWrite, landInPreview, openPath, openSettings, stableBox } from './helpers';
+import {
+  addComment,
+  freshApp,
+  fsRead,
+  fsWrite,
+  landInPreview,
+  openPath,
+  openSettings,
+  saveSettings,
+  stableBox,
+} from './helpers';
 
 const DOC_PATH = '/docs/diagrams.md';
 
@@ -104,6 +114,7 @@ test('E311: switching the active theme redraws the on-screen diagram with the ne
   // side — no document edit, no mode switch, the diagram redraws in place.
   await openSettings(page, 'appearance');
   await page.getByTestId('settings-theme-light').selectOption('monokai');
+  await saveSettings(page); // issue #246: the pick applies on Save
   await expect
     .poll(() => svg.evaluate((el) => el.outerHTML), FIRST_DRAW)
     .not.toBe(lightSide);
@@ -193,7 +204,7 @@ test('E313: the Diagram ▸ toggle and the Settings checkbox flip and persist ON
   await openSettings(page, 'editor');
   await expect(page.getByTestId('settings-diagram-view')).toBeChecked();
   await page.getByTestId('settings-diagram-view').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(editor.locator('.mm-editor-diagram')).toHaveCount(0);
   await expect(content).toContainText('A[Write]');
 

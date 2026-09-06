@@ -3,7 +3,7 @@
 // configured at all. Nothing here contacts a provider (PRD 011 Req 35).
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { freshApp, fsRead, fsWrite, openSettings } from './helpers';
+import { freshApp, fsRead, fsWrite, openSettings, saveSettings } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
@@ -38,7 +38,7 @@ async function setSemanticZoom(page: Page, on: boolean): Promise<void> {
   const box = page.getByTestId('experimental-semantic-zoom');
   if (on) await box.check();
   else await box.uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 }
 
 test('E229: PRD 011 Reqs 1+2 — the Experimental section ships off, and off means the feature is absent', async ({
@@ -61,7 +61,7 @@ test('E229: PRD 011 Reqs 1+2 — the Experimental section ships off, and off mea
   await expect(page.getByTestId('experimental-semantic-zoom-description')).toContainText('five levels');
   await expect(page.getByTestId('experimental-warning')).toHaveCount(1);
   await expect(page.getByTestId('experimental-warning')).toContainText('may change');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // On: the control exists. Off again: it is gone, with no restart.
   await setSemanticZoom(page, true);
@@ -227,12 +227,12 @@ test('E234: PRD 011 Req 22 — the excerpt notice routes to the LLM providers ar
   await page.getByTestId('semantic-zoom-configure').click();
   // Landing on the providers tab itself — not on General with the tab to hunt.
   await expect(page.getByTestId('llm-provider')).toBeVisible();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // Every other way in still opens on General, unchanged.
   await openSettings(page, 'experimental');
   await expect(page.getByTestId('experimental-semantic-zoom')).toBeChecked();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 });
 
 // --- PRD 011 Reqs 25–27 (#118): real summaries, on demand -------------------
@@ -264,7 +264,7 @@ async function configureProvider(page: Page): Promise<void> {
   await page.getByTestId('llm-model-preset').selectOption('claude-opus-5');
   await page.getByTestId('llm-api-key').fill('sk-e235-secret');
   await expect(page.getByTestId('llm-availability')).toContainText('Ready');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 }
 
 /**
@@ -477,12 +477,12 @@ test('E238: PRD 011 Req 30 — the page reports what the cache holds, and one cl
   await expect(page.getByTestId('summary-cache-size')).toContainText('Empty');
   await expect(page.getByTestId('summary-cache-clear-failure')).toHaveCount(0);
   expect(await fakeCalls(page)).toBe(4);
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // The store really is empty: a fresh read on a reopened page says so too.
   await openSettings(page, 'llm');
   await expect(page.getByTestId('summary-cache-size')).toContainText('Empty');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // …and the session memo went with it. Re-entering the SAME level asks the
   // fake again instead of being served from memory.
@@ -528,7 +528,7 @@ test('E239: PRD 011 Req 3 — the Experimental row routes to Remove key, and rem
   await expect(page.getByTestId('llm-remove-key')).toBeDisabled();
   // Removing the key did NOT clear the cache: two actions, side by side.
   await expect(page.getByTestId('summary-cache-size')).toContainText('4 summaries');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // The open level falls back to #117's excerpts and its notice — no error
   // state, no empty view, and no request made along the way.
@@ -598,7 +598,7 @@ test('E240: PRD 011 Req 3 — off leaves nothing running, deletes nothing, and b
   // PRD 011 Req 4: the page, its tab and Test connection are not gated on the
   // Experimental switch at all.
   await expect(page.getByTestId('llm-test')).toBeEnabled();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 });
 
 // --- PRD 011 Reqs 31–33 (#119): cost transparency ---------------------------
@@ -640,7 +640,7 @@ test('E241: PRD 011 Req 31 — the page names a recommended model, its price and
   await expect(page.getByTestId('llm-recommended-none')).toContainText('custom endpoint');
   await expect(page.getByTestId('llm-recommended-price')).toHaveCount(0);
   await expect(page.getByTestId('llm-price-caveat')).toContainText('as of');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 });
 
 test('E242: PRD 011 Reqs 32+33 — Cancel spends nothing, Proceed reports what it spent', async ({ page }) => {
@@ -683,7 +683,7 @@ test('E242: PRD 011 Reqs 32+33 — Cancel spends nothing, Proceed reports what i
   await expect(page.getByTestId('llm-usage-last')).toContainText('800,000 output');
   await expect(page.getByTestId('llm-usage-total')).toContainText('4,000,000 input');
   await expect(page.getByTestId('llm-usage-total')).not.toContainText('Nothing summarized yet');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 });
 
 test('E243: PRD 011 Reqs 32+33 — “don’t ask again” is reversible, and Reset empties only the total', async ({
@@ -726,7 +726,7 @@ test('E243: PRD 011 Reqs 32+33 — “don’t ask again” is reversible, and Re
 
   // Turning confirmations back on makes the next spending level ask again.
   await page.getByTestId('llm-confirm-summaries').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.getByTestId('semantic-zoom-slider').fill('2');
   await expect(page.getByTestId('summary-confirm')).toBeVisible();
   await page.getByTestId('summary-confirm-cancel').click();
@@ -752,7 +752,7 @@ test('E244: PRD 011 Req 32 — a provider that returns no usage is said so, not 
   await expect(page.getByTestId('llm-usage-last')).toContainText('4 calls could not be measured');
   await expect(page.getByTestId('llm-usage-last')).not.toContainText('USD 0.00');
   await expect(page.getByTestId('llm-usage-total')).toContainText('The provider returned no usage data');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 });
 
 // --- PRD 011 Req 35 (#121): the enumerated item the audit found uncovered ----
@@ -821,5 +821,5 @@ test('E245: PRD 011 Reqs 28+29 — reopening the document serves the cache, and 
   // The cache grew by that one entry rather than being rebuilt from scratch.
   await openSettings(page, 'llm');
   await expect(page.getByTestId('summary-cache-size')).toContainText('5 summaries');
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 });

@@ -10,6 +10,7 @@ import {
   menuClick,
   openSettings,
   previewTopAnchorLines,
+  saveSettings,
   selectPhraseInPane,
   selectSpanInPane,
   splitApp,
@@ -26,7 +27,7 @@ test.beforeEach(async ({ page }) => {
 test('E39: side-by-side edit shows editor plus live preview; typing updates the right pane', async ({ page }) => {
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor')).toBeVisible();
@@ -50,7 +51,7 @@ test('E40: the split divider drags within bounds, persists its ratio, and double
 }) => {
   await openSettings(page, 'general');
   await page.getByTestId('set-split-edit').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
 
   const wsBox = (await page.locator('.workspace.split').boundingBox())!;
@@ -418,12 +419,12 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   // drives the same surface back.
   await openSettings(page, 'general');
   await expect(page.getByTestId('set-split-edit')).toBeChecked();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await collapse.click();
   await openSettings(page, 'general');
   await expect(page.getByTestId('set-split-edit')).not.toBeChecked();
   await page.getByTestId('set-split-edit').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(collapse).toBeVisible();
 
   // Native-menu surface: View carries the checkbox and click() toggles it.
@@ -1077,7 +1078,7 @@ test('E315: issue #167 — the sync toggle rides beside the mode switch, frees t
   // The Settings switch hides only the button — the sync state is untouched.
   await openSettings(page, 'general');
   await page.getByTestId('settings-sync-scroll-button').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(btn).toHaveCount(0);
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"showSyncScrollButton": false');
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"syncScroll": false');

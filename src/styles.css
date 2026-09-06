@@ -1185,13 +1185,33 @@ mark.hl.ghost {
 
 /* Tabbed settings (SPEC4 §3). Fixed box (SPEC7 §1): switching tabs never
    resizes the dialog — long tabs scroll inside .tab-content instead. */
+/* Issue #246: ~15% more room in each dimension (was 560x480), keeping the
+   viewport caps so a small screen still clamps it. */
 .settings-modal {
   display: flex;
   flex-direction: column;
   padding: 0;
-  width: min(560px, 94vw);
-  height: min(480px, 85vh);
+  width: min(648px, 94vw);
+  height: min(552px, 85vh);
   overflow: hidden;
+}
+
+/* Issue #246: the pinned action footer — a sibling of the scrolling
+   .tab-content, never a part of it, so Save / Cancel sit bottom-right on
+   every tab without scrolling and never move when the tab changes. */
+.settings-modal .settings-actions {
+  margin-top: 0;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 10px 20px;
+  border-top: 1px solid var(--mm-border, #d1d9e0);
+  background: color-mix(in srgb, var(--mm-bg, #fff) 55%, var(--mm-bg-elevated, #f6f8fa));
+}
+
+/* The discard question takes the footer's free space, left of its buttons. */
+.settings-modal .settings-discard-prompt {
+  margin-right: auto;
+  font-size: var(--mm-text-body);
 }
 
 /* PRD 002 §E18: the User | Workspace scope selector above the category rail. */

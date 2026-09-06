@@ -6,6 +6,7 @@ import {
   fsWrite,
   openGridDoc,
   openSettings,
+  saveSettings,
   wordRect,
 } from './helpers';
 
@@ -30,7 +31,7 @@ test('E109: view-flip lifecycle — grids by default, the menu toggle flips ALL 
   await openSettings(page);
   await page.getByTestId('settings-tab-general').click();
   await page.getByTestId('set-split-edit').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+e');
   const editor = page.getByTestId('editor');
   const content = editor.locator('.cm-content');
@@ -70,7 +71,7 @@ test('E109: view-flip lifecycle — grids by default, the menu toggle flips ALL 
   await openSettings(page);
   await page.getByTestId('settings-tab-general').click();
   await page.getByTestId('settings-vimnav').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await content.click();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('vim-badge')).toBeVisible();
@@ -349,7 +350,7 @@ test('E117: the two switches — menu labels flip the view, the Settings checkbo
   await page.getByTestId('settings-tab-editor').click();
   await expect(page.getByTestId('settings-table-grid')).toBeChecked();
   await page.getByTestId('settings-table-grid').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect.poll(gridLines).toBe(0);
   await editor.locator('.cm-line').filter({ hasText: '| 1 | 2 |' }).click();
   await page.getByTestId('smart-edit-gutter').click();

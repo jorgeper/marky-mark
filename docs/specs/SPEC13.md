@@ -25,18 +25,27 @@ screenshot refresh.
 1. On desktop the `settings` command opens a dedicated window, label
    `settings`, title **"Settings"** — never the in-app overlay. Fixed-size
    and content-sized (~620×560 logical px; exact values implementer's
-   choice), `resizable: false`, `maximizable: false`, minimizable allowed,
-   centered on first open.
+   choice — grown to ~720×650 by issue #246, which enlarged the panel and
+   gave it a pinned footer), `resizable: false`, `maximizable: false`,
+   minimizable allowed, centered on first open.
 2. **Singleton:** if the window is already open, the command focuses it
    (unminimizing if needed). At most one settings window ever exists.
 3. Content is the existing `SettingsPanel` — same three tabs (Appearance /
    General / Hotkeys), same controls, same test ids — rendered as a
    standalone page: no scrim, no in-page close button (the window chrome is
    the close affordance). `Esc` and `⌘W`/`Ctrl+W` close the window.
+   **Superseded in part by issue #246:** the window now carries the same
+   pinned **Save** / **Cancel** footer as the overlay (the scrolling *Done*
+   button is gone from both), and every close route it owns — `Esc`,
+   `⌘W`/`Ctrl+W` and the OS close button, through
+   `platform.registerCloseGuard` — runs the Cancel path, which confirms
+   before discarding unsaved edits.
 4. The window is themed like the main window: active theme CSS,
    light/dark selection, and font-size variables apply, and re-apply live
    when they change (a theme picked in the Settings window restyles the
-   Settings window too).
+   Settings window too — **superseded in part by issue #246**: settings edits
+   are pending until **Save**, so the restyle follows the Save, not the
+   picker).
 5. Hotkey capture (Hotkeys tab) records key events in the Settings window
    itself and behaves exactly as the overlay did, including the
    exactly-once accelerator invariant (SPEC12 §1.3) after a rebind.

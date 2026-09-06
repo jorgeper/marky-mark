@@ -1,9 +1,5 @@
 import { expect, test } from './fixtures';
-import {
-  freshApp,
-  fsWrite,
-  openSettings,
-} from './helpers';
+import { freshApp, fsWrite, openSettings, saveSettings } from './helpers';
 
 // Smart Edit: the gutter button, formatting commands, the context menu and
 // its hotkeys.
@@ -284,7 +280,7 @@ test('E108: hotkeys & settings — Smart Edit recorder group, rebind updates men
   await rec.click();
   await page.keyboard.press('Control+F6');
   await expect(rec).toHaveValue(/F6/);
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // The new combo applies; the old one no longer does.
   await page.keyboard.press('Control+e');
@@ -315,7 +311,7 @@ test('E108: hotkeys & settings — Smart Edit recorder group, rebind updates men
   await openSettings(page, 'hotkeys');
   await page.getByTestId('reset-hotkeys').click();
   await expect(page.getByTestId('hotkey-bold')).toHaveValue(/(⌘B|Ctrl\+B)/);
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.getByTestId('smart-edit-gutter').click();
   await expect(page.getByTestId('smart-edit-bold').locator('.menu-hotkey')).toHaveText(/(⌘B|Ctrl\+B)/);
 });
@@ -415,7 +411,7 @@ test('E477: SPEC43 §11 — Show Rendered/Raw Links flips the view and the label
   await openSettings(page);
   await page.getByTestId('settings-tab-editor').click();
   await expect(page.getByTestId('settings-link-view')).not.toBeChecked();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // The choice persists across a reload (user-scoped like its siblings).
   await page.reload();
@@ -426,7 +422,7 @@ test('E477: SPEC43 §11 — Show Rendered/Raw Links flips the view and the label
   await openSettings(page);
   await page.getByTestId('settings-tab-editor').click();
   await page.getByTestId('settings-link-view').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   expect(await text()).not.toContain('](https://example.com/page)');
 });
 

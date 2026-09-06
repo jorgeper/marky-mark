@@ -8,6 +8,7 @@ import {
   openFolderRoot,
   openSettings,
   pasteImage,
+  saveSettings,
   seedFolders,
   stableBox,
 } from './helpers';
@@ -108,7 +109,7 @@ test('E73: the Editor settings tab holds the image fields — defaults, live exa
   await page.getByTestId('image-folder').fill('assets');
   await expect(page.getByTestId('image-folder-error')).toHaveCount(0);
 
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   // §E18 layer-targeted writes: the untitled workspace's session slot gets
   // the values; the User layer (settings.json) never does.
   await expect.poll(() => fsRead(page, '/config/session/untitled.json')).toContain('"imageFolder": "assets"');
@@ -266,14 +267,14 @@ test('E121: the rendered view — widgets by default, caret-reveal, both switche
   await page.getByTestId('settings-tab-editor').click();
   await expect(page.getByTestId('settings-inline-images')).not.toBeChecked();
   await page.getByTestId('settings-inline-images').check();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(editor.locator('.mm-image-widget img')).toBeVisible();
 
   // Off again, and the setting survives a reload.
   await openSettings(page);
   await page.getByTestId('settings-tab-editor').click();
   await page.getByTestId('settings-inline-images').uncheck();
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await expect(editor.locator('.mm-image-widget')).toHaveCount(0);
   await page.reload();
   // Issue #125: the reload reopens in the remembered edit mode.

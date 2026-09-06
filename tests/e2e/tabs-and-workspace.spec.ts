@@ -8,6 +8,7 @@ import {
   menuClick,
   openNotesRoot,
   openSettings,
+  saveSettings,
   seedFolders,
 } from './helpers';
 
@@ -648,7 +649,7 @@ test('E177: issue #84 — rebinding nextFile in Settings cycles on the new combo
   await prev.click();
   await page.keyboard.press('Control+F8');
   await expect(prev).toHaveValue(/F8/);
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
 
   // The new combos cycle immediately — no restart — and the old ones do not.
   await page.keyboard.press('Control+Tab');
@@ -669,7 +670,7 @@ test('E177: issue #84 — rebinding nextFile in Settings cycles on the new combo
   await page.getByTestId('reset-hotkey-nextFile').click();
   await expect(next).toHaveValue(/(⌃Tab|Ctrl\+Tab)/);
   await expect(prev).toHaveValue(/F8/);
-  await page.getByTestId('settings-close').click();
+  await saveSettings(page);
   await page.keyboard.press('Control+Tab');
   await expect(page.getByTestId('docname')).toContainText('a.md');
   await page.keyboard.press('Control+F7');
@@ -724,10 +725,17 @@ test('E178: issue #84 — View → Next/Previous Open File dispatch the cycle, f
   await sp.getByTestId('settings-tab-hotkeys').click();
   await sp.getByTestId('hotkey-nextFile').click();
   await sp.keyboard.press('Control+F7');
+  // Issue #246: the rebind is pending until Save, which closes the window.
+  await sp.getByTestId('settings-save').click();
   await expect.poll(async () => (await viewItem('nextFile')).accelerator).toBe('Mod+F7');
 
   // …and the per-row restore puts Ctrl+Tab back on the menu item alone.
-  await sp.getByTestId('reset-hotkey-nextFile').click();
+  const reopened = page.waitForEvent('popup');
+  await menuClick(page, 'settings');
+  const sp2 = await reopened;
+  await sp2.getByTestId('settings-tab-hotkeys').click();
+  await sp2.getByTestId('reset-hotkey-nextFile').click();
+  await sp2.getByTestId('settings-save').click();
   await expect.poll(async () => (await viewItem('nextFile')).accelerator).toBe('Ctrl+Tab');
 });
 

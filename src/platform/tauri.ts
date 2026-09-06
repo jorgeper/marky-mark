@@ -62,7 +62,10 @@ export async function createTauriPlatform(): Promise<Platform> {
   // SPEC13 §1–§2: the two aux windows — fixed-size, non-resizable, singleton.
   const AUX_LABELS: readonly AuxKind[] = ['settings', 'about'];
   const AUX_OPTIONS: Record<AuxKind, { title: string; width: number; height: number }> = {
-    settings: { title: 'Settings', width: 620, height: 560 },
+    // Issue #246: grown with the panel (was 620x560) so the enlarged
+    // dialog and its pinned Save / Cancel footer are not clipped; still
+    // `resizable: false` below.
+    settings: { title: 'Settings', width: 720, height: 650 },
     about: { title: 'About Marky Mark', width: 360, height: 420 },
   };
 

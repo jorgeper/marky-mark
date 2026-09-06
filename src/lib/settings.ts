@@ -659,6 +659,85 @@ export function diffSettings(prev: Settings, next: Settings): Partial<Settings> 
 }
 
 /**
+ * Issue #246: what the open Settings dialog has changed but NOT yet saved,
+ * keyed by the layer each patch will be written to. The dialog holds this
+ * instead of firing `onEdit` per keystroke; Save flushes it, Cancel drops it.
+ */
+export type PendingSettingsEdits = Record<SettingsScopeTab, Partial<Settings>>;
+
+/** Issue #246: the empty pending set — a fresh dialog, nothing to save. */
+export const NO_PENDING_EDITS: PendingSettingsEdits = { user: {}, workspace: {} };
+
+/**
+ * Issue #246: fold one row edit into the pending set. `baseline` is the
+ * effective settings the dialog was handed (before any pending overlay), so
+ * `diffSettings` semantics drop a key edited back to the value it started at
+ * — three round trips through a checkbox leave the dialog clean.
+ */
+export function mergePendingEdit(
+  pending: PendingSettingsEdits,
+  scope: SettingsScopeTab,
+  patch: Partial<Settings>,
+  baseline: Settings
+): PendingSettingsEdits {
+  const merged = { ...pending[scope], ...patch };
+  return { ...pending, [scope]: diffSettings(baseline, { ...baseline, ...merged }) };
+}
+
+/** Issue #246: is there anything Save would write (and Cancel would lose)? */
+export function pendingIsDirty(pending: PendingSettingsEdits): boolean {
+  return Object.keys(pending.user).length > 0 || Object.keys(pending.workspace).length > 0;
+}
+
+/** Issue #246: the non-empty patches Save flushes, one `onEdit` per scope. */
+export function pendingScopePatches(
+  pending: PendingSettingsEdits
+): Array<[SettingsScopeTab, Partial<Settings>]> {
+  return (['user', 'workspace'] as const)
+    .map((scope) => [scope, pending[scope]] as [SettingsScopeTab, Partial<Settings>])
+    .filter(([, patch]) => Object.keys(patch).length > 0);
+}
+
+/**
+ * Issue #246: the layers as they WOULD be once saved — each pending patch
+ * spread over its own layer. §E19's override indicators and row locking read
+ * this, so they answer for what the dialog shows rather than for stale input.
+ */
+export function overlayPendingLayers(
+  layers: SettingsLayers,
+  pending: PendingSettingsEdits
+): SettingsLayers {
+  return {
+    ...layers,
+    user: { ...normalizeLayer(layers.user), ...pending.user },
+    workspace: { ...normalizeLayer(layers.workspace), ...pending.workspace },
+  };
+}
+
+/**
+ * Issue #246: the effective settings every row displays while edits are
+ * pending — the incoming `settings` prop with ONLY the pended keys replaced
+ * by what they resolve to through the overlaid layers (so layer precedence,
+ * not the raw patch, decides what an edit shows). Untouched keys pass the
+ * prop through verbatim, including any the host updates live.
+ */
+export function overlayPendingSettings(
+  settings: Settings,
+  layers: SettingsLayers,
+  pending: PendingSettingsEdits
+): Settings {
+  const keys = [
+    ...Object.keys(pending.user),
+    ...Object.keys(pending.workspace),
+  ] as Array<keyof Settings>;
+  if (keys.length === 0) return settings;
+  const resolved = resolveSettings(overlayPendingLayers(layers, pending));
+  const out: Settings = { ...settings };
+  for (const key of keys) (out as Record<keyof Settings, unknown>)[key] = resolved[key];
+  return out;
+}
+
+/**
  * settings.json now stores the raw User LAYER (sparse, only what the user
  * set) rather than the full effective Settings — serialize it as-is.
  */

@@ -4,8 +4,18 @@ import {
   MARGIN_WIDTHS,
   parseSettings,
   serializeSettings,
+  mergePendingEdit,
+  NO_PENDING_EDITS,
+  overlayPendingLayers,
+  overlayPendingSettings,
+  pendingIsDirty,
+  pendingScopePatches,
+  resolveSettings,
   SETTINGS_SCOPES,
+  winningLayer,
   WORKSPACE_ELIGIBLE_KEYS,
+  type Settings,
+  type SettingsLayers,
 } from '../../src/lib/settings';
 import { combosConflict, DEFAULT_HOTKEYS, type HotkeyMap } from '@marky-mark/editor';
 
@@ -451,5 +461,69 @@ describe('SPEC40 §1 tableGridView setting', () => {
     expect(parseSettings('{}').tableGridView).toBe(true);
     expect(parseSettings('{"tableGridView":false}').tableGridView).toBe(false);
     expect(parseSettings('{"tableGridView":"nope"}').tableGridView).toBe(true);
+  });
+});
+
+describe('issue #246 pending settings edits', () => {
+  const baseline = (over: Partial<Settings> = {}): Settings => ({ ...DEFAULT_SETTINGS, ...over });
+
+  test('U1173: nothing pending is not dirty; an edit back to the original value clears itself', () => {
+    expect(pendingIsDirty(NO_PENDING_EDITS)).toBe(false);
+    expect(pendingScopePatches(NO_PENDING_EDITS)).toEqual([]);
+
+    const base = baseline({ fontSize: 14 });
+    const one = mergePendingEdit(NO_PENDING_EDITS, 'user', { fontSize: 18 }, base);
+    expect(pendingIsDirty(one)).toBe(true);
+    expect(pendingScopePatches(one)).toEqual([['user', { fontSize: 18 }]]);
+
+    // Back to where it started: Save would write nothing, so Cancel loses
+    // nothing and must not prompt.
+    const back = mergePendingEdit(one, 'user', { fontSize: 14 }, base);
+    expect(back.user).toEqual({});
+    expect(pendingIsDirty(back)).toBe(false);
+  });
+
+  test('U1174: edits accumulate per scope, one patch per layer, carrying only changed keys', () => {
+    const base = baseline({ fontSize: 14, editorSyntax: true, margins: 'default' });
+    let pending = mergePendingEdit(NO_PENDING_EDITS, 'user', { fontSize: 18 }, base);
+    pending = mergePendingEdit(pending, 'user', { editorSyntax: false }, base);
+    pending = mergePendingEdit(pending, 'workspace', { margins: 'wide' }, base);
+
+    expect(pending.user).toEqual({ fontSize: 18, editorSyntax: false });
+    expect(pending.workspace).toEqual({ margins: 'wide' });
+    expect(pendingScopePatches(pending)).toEqual([
+      ['user', { fontSize: 18, editorSyntax: false }],
+      ['workspace', { margins: 'wide' }],
+    ]);
+
+    // Hotkeys diff entry-wise, like every other edit funnelled through here.
+    const rebuilt = mergePendingEdit(NO_PENDING_EDITS, 'user', { hotkeys: { ...base.hotkeys } }, base);
+    expect(rebuilt.user).toEqual({});
+  });
+
+  test('U1175: the overlay resolves pending values through layer precedence and passes every other key through', () => {
+    const layers: SettingsLayers = { workspace: { fontSize: 20 }, user: { fontSize: 18 } };
+    const settings = resolveSettings(layers);
+    expect(settings.fontSize).toBe(18); // User wins today
+
+    // The overlaid layers are what §E19's indicators read.
+    const pending = mergePendingEdit(NO_PENDING_EDITS, 'user', { fontSize: 22 }, settings);
+    const overlaid = overlayPendingLayers(layers, pending);
+    expect(overlaid.user).toEqual({ fontSize: 22 });
+    expect(overlaid.workspace).toEqual({ fontSize: 20 }); // untouched layer, verbatim
+    expect(winningLayer('fontSize', overlaid)).toBe('user');
+
+    // Only the pended key moves; a prop that changed under the open dialog
+    // (here: a live author update) still shows exactly what was passed in.
+    const live = { ...settings, author: 'Live Update' };
+    const shown = overlayPendingSettings(live, layers, pending);
+    expect(shown.fontSize).toBe(22);
+    expect(shown.author).toBe('Live Update');
+
+    // A workspace-scoped pend loses to the User layer, and the row shows the
+    // winner rather than the raw patch.
+    const wsPending = mergePendingEdit(NO_PENDING_EDITS, 'workspace', { fontSize: 24 }, settings);
+    expect(overlayPendingSettings(settings, layers, wsPending).fontSize).toBe(18);
+    expect(overlayPendingSettings(settings, layers, NO_PENDING_EDITS)).toBe(settings);
   });
 });
