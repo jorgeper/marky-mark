@@ -124,6 +124,22 @@ function TocRow({
   );
 }
 
+/**
+ * The sidebar's search glyph, drawn once: the TOC header's heading-search
+ * toggle and the view switch's Search button name the same verb, so they show
+ * the same icon.
+ */
+function Magnifier() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round">
+        <circle cx="7" cy="7" r="4.2" />
+        <line x1="10.2" y1="10.2" x2="13.6" y2="13.6" />
+      </g>
+    </svg>
+  );
+}
+
 export function TocPanel(p: TocPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const slideRef = useRef<HTMLDivElement>(null);
@@ -140,6 +156,22 @@ export function TocPanel(p: TocPanelProps) {
   // PRD 012 Req 1: the folder pane's own width drag — one pane, one
   // `settings.folderWidth`, so dragging in either view moves the same edge.
   const dragWidth = paneWidthDrag({ panelRef, slideRef, width: p.width, onWidth: p.onWidth });
+
+  /* PRD 012 Req 8: a document with no headings says so — a blank pane reads as
+     a bug, and "no headings yet" is the true statement. Issue #255: a live
+     query that matched nothing gets the same treatment with its own true
+     statement, so "you filtered everything out" never reads as "this document
+     has no headings". */
+  const emptyState =
+    p.searchOpen && p.searchQuery.trim() !== '' ? (
+      <div className="folder-open-empty" data-testid="toc-search-empty">
+        No headings match “{p.searchQuery}”
+      </div>
+    ) : (
+      <div className="folder-open-empty" data-testid="toc-empty">
+        No headings in this document
+      </div>
+    );
 
   const { sliding, out } = slideClasses(p.slide);
   return (
@@ -167,13 +199,7 @@ export function TocPanel(p: TocPanelProps) {
             aria-label="Search headings"
             onClick={p.onSearchToggle}
           >
-            {/* A magnifier — the sidebar's search glyph. */}
-            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-              <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round">
-                <circle cx="7" cy="7" r="4.2" />
-                <line x1="10.2" y1="10.2" x2="13.6" y2="13.6" />
-              </g>
-            </svg>
+            <Magnifier />
           </IconButton>
           <IconButton
             data-testid="toc-collapse"
@@ -215,21 +241,8 @@ export function TocPanel(p: TocPanelProps) {
             />
           </div>
         )}
-        {/* PRD 012 Req 8: a document with no headings says so — a blank pane
-            reads as a bug, and "no headings yet" is the true statement. Issue
-            #255: a live query that matched nothing gets the same treatment with
-            its own true statement, so "you filtered everything out" never reads
-            as "this document has no headings". */}
         {p.rows.length === 0 ? (
-          p.searchOpen && p.searchQuery.trim() !== '' ? (
-            <div className="folder-open-empty" data-testid="toc-search-empty">
-              No headings match “{p.searchQuery}”
-            </div>
-          ) : (
-            <div className="folder-open-empty" data-testid="toc-empty">
-              No headings in this document
-            </div>
-          )
+          emptyState
         ) : (
           <div className="folder-list toc-list">
             {p.rows.map((row) => (
@@ -339,13 +352,7 @@ export function SidebarViewSwitch({
           aria-label="Search in workspace"
           onClick={onSearch}
         >
-          {/* A magnifier. */}
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round">
-              <circle cx="7" cy="7" r="4.2" />
-              <line x1="10.2" y1="10.2" x2="13.6" y2="13.6" />
-            </g>
-          </svg>
+          <Magnifier />
         </IconButton>
       )}
     </span>

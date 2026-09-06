@@ -2704,29 +2704,17 @@ input.folder-rename-input.invalid {
 .folder-item.toc-active:hover:not(:disabled) {
   background: color-mix(in srgb, var(--mm-accent, #0969da) 20%, transparent);
 }
-/* PRD 012 Req 4 (issue #255): the TOC's in-pane heading search — the query row
-   the ⌘K palette's box became. Layout only: the box itself is the `.field`
-   primitive and the toggle above it is an `.icon-btn` with the shared `.on`
-   accent, so this section adds no colour, no size literal and no bare
-   descendant selector. Same treatment as `.search-query-row` one view over,
-   because it is the same control doing the same job. */
-.toc-search-row {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 8px 4px;
-}
-.toc-search-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  box-sizing: border-box;
-}
-
 /* PRD 014 Req 7 (issue #151): the Search view — its rows are folder rows
    (`.folder-item` supplies hit area and hover); these add only the query box,
-   the group header's count badge and the match line's highlight. */
-.search-query-row {
+   the group header's count badge and the match line's highlight.
+
+   PRD 012 Req 4 (issue #255): the TOC's in-pane heading search is the same
+   control doing the same job one view over, so it draws the same query row
+   rather than a second copy of it. Layout only either way: the box is the
+   `.field` primitive and the TOC's toggle above it an `.icon-btn` with the
+   shared `.on` accent, so no colour, no size literal, no bare descendant. */
+.search-query-row,
+.toc-search-row {
   flex: none;
   display: flex;
   align-items: center;
@@ -2735,7 +2723,8 @@ input.folder-rename-input.invalid {
 }
 /* PRD 018 Req 13 (issue #204): the query box is a .field primitive; only
    its row-flex layout stays. */
-.search-query {
+.search-query,
+.toc-search-input {
   flex: 1 1 auto;
   min-width: 0;
   box-sizing: border-box;

@@ -72,6 +72,16 @@ const rowLabels = (page: Page) =>
     els.map((e) => `${e.getAttribute('data-depth')}:${e.querySelector('.toc-label')!.textContent}`)
   );
 
+/**
+ * PRD 012 Req 4 (issue #255): the row titles alone, in the order drawn — what a
+ * search asserts on, where `rowLabels` above asserts on the tree's shape too
+ * (a filtered list is flat, so its depth prefix says nothing).
+ */
+const searchRows = (page: Page) =>
+  page.$$eval('[data-testid="toc-item"]', (els) =>
+    els.map((e) => e.querySelector('.toc-label')!.textContent)
+  );
+
 const openTree = async (page: Page) => {
   await fsWrite(page, '/docs/tree.md', TREE_DOC);
   await openPath(page, '/docs/tree.md');
@@ -718,15 +728,6 @@ test('E260: the sidebar reopens in the view it was left on — the TOC across a 
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await expect(page.getByTestId('toc-panel')).toHaveCount(0);
 });
-
-/**
- * PRD 012 Req 4 (issue #255): a document tall enough that a jump has somewhere
- * to go, with titles that make fuzzy ranking observable.
- */
-const searchRows = (page: Page) =>
-  page.$$eval('[data-testid="toc-item"]', (els) =>
-    els.map((e) => e.querySelector('.toc-label')!.textContent)
-  );
 
 test('E530: the search toggle is the TOC header\'s alone — never in Folders or Search, never while the sidebar is hidden, never a switch member', async ({
   page,
