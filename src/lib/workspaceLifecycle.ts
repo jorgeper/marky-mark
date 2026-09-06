@@ -135,15 +135,14 @@ export function orderByRecentUse(
   items: readonly WorkspaceListing[],
   recentIds: readonly string[] = [],
 ): WorkspaceListing[] {
-  const byModified = [...items].sort(newestFirst);
-  if (recentIds.length === 0) return byModified;
+  // An id's rank is its first position; a workspace the user never opened
+  // ranks behind every one they did, and equal ranks fall through to modified.
   const rank = new Map<string, number>();
   recentIds.forEach((id, i) => {
     if (!rank.has(id)) rank.set(id, i);
   });
-  const used = byModified.filter((w) => rank.has(w.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
-  const rest = byModified.filter((w) => !rank.has(w.id));
-  return [...used, ...rest];
+  const rankOf = (w: WorkspaceListing): number => rank.get(w.id) ?? recentIds.length;
+  return [...items].sort((a, b) => rankOf(a) - rankOf(b) || newestFirst(a, b));
 }
 
 /**

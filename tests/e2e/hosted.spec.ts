@@ -1398,9 +1398,13 @@ test('E550: the Open Workspace dialog lists the signed-in user’s most recently
     id: string;
     modified: string;
   }[];
+  const newestFirst = (a: { modified: string }, b: { modified: string }): number => {
+    if (a.modified === b.modified) return 0;
+    return a.modified > b.modified ? -1 : 1;
+  };
   const byModified = listed
     .filter((r) => ids.includes(r.id))
-    .sort((a, b) => (a.modified === b.modified ? 0 : a.modified > b.modified ? -1 : 1))
+    .sort(newestFirst)
     .map((r) => r.id);
   expect(byModified).toHaveLength(ids.length);
 
