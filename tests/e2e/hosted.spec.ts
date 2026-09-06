@@ -7009,16 +7009,18 @@ test('E569: settings → Names lists former names read-only under the unique-nam
   const former = page.getByTestId('workspace-former-names');
   await expect(page.getByTestId('workspace-names-section')).toBeVisible();
   await expect(former).toHaveText(`Previous names: ${unique}. Links to these still open this workspace.`);
-  // Below the unique-name field and above the display-name one.
-  const order = await page.getByTestId('workspace-names-section').evaluate((section) => {
-    const ids = ['workspace-unique-name', 'workspace-former-names', 'workspace-friendly-name'];
-    const nodes = ids.map((id) => section.querySelector(`[data-testid="${id}"]`)!);
-    return nodes[0].compareDocumentPosition(nodes[1]) & Node.DOCUMENT_POSITION_FOLLOWING &&
-      nodes[1].compareDocumentPosition(nodes[2]) & Node.DOCUMENT_POSITION_FOLLOWING
-      ? 'unique, former, friendly'
-      : 'out of order';
-  });
-  expect(order).toBe('unique, former, friendly');
+  // Below the unique-name field and above the display-name one:
+  // `querySelectorAll` yields document order, so the three ids come back in
+  // the order they render.
+  const fields = ['workspace-unique-name', 'workspace-former-names', 'workspace-friendly-name'];
+  const order = await page.getByTestId('workspace-names-section').evaluate(
+    (section, ids) =>
+      Array.from(section.querySelectorAll('[data-testid]'))
+        .map((el) => el.getAttribute('data-testid'))
+        .filter((id) => id !== null && ids.includes(id)),
+    fields,
+  );
+  expect(order).toEqual(fields);
 
   // A second rename appends: both former names, oldest first.
   await page.getByTestId('workspace-unique-name').fill(third);
