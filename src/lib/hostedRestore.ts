@@ -10,9 +10,11 @@
 // re-ask its two questions on every re-show — is there a session to continue
 // into, and if not, is this page still usable?
 //
-// This module owns that decision, and only that decision: pure, no React, no
-// DOM, no storage of its own (the caller reads the token and applies the
-// plan), so both branches are testable without a renderer.
+// This module owns that decision: pure, no React, no DOM, no storage of its
+// own (the caller reads the token and applies the plan), so both branches are
+// testable without a renderer. The one line the page says while a sign-in
+// redirect is in flight rides along at the bottom, so the page and its tests
+// name it from one place.
 
 /**
  * How the sign-in page came (back) on screen:

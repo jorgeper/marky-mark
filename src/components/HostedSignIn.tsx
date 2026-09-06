@@ -411,6 +411,22 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
     onSignInPage.current = phase.kind === 'signed-out';
   });
 
+  /**
+   * The end of a session resolve, wherever it started (the mount boot below,
+   * or the issue #242 restore after it): the resolve is no longer running, the
+   * phase it landed on is the phase, and — issue #253 — the gate's own
+   * surfaces ARE the destination. Sign-in for a visitor whose session is gone,
+   * the PRD 020 Req 8 not-found page for a visit that resolves to nothing:
+   * each is the first screen painted, so the frame comes down in the same
+   * update that renders it. Only a load entering the app keeps holding (App
+   * drops that one).
+   */
+  const settle = useCallback((p: Phase) => {
+    resolving.current = false;
+    setPhase(p);
+    if (p.kind !== 'ready') setHolding(false);
+  }, []);
+
   // The backstop — never the timing anything correct relies on: however a boot
   // ends (a workspace open that failed, a seam that never answered), the held
   // frame is not the last word on screen. It covers only the window where
@@ -428,15 +444,7 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
   useEffect(() => {
     let cancelled = false;
     const finish = (p: Phase) => {
-      if (cancelled) return;
-      resolving.current = false;
-      setPhase(p);
-      // Issue #253: the gate's own surfaces ARE the destination — sign-in for
-      // a visitor whose session is gone, the PRD 020 Req 8 not-found page for
-      // a visit that resolves to nothing. Each is the first screen painted, so
-      // the frame comes down in the same update that renders it; only a load
-      // entering the app keeps holding (App drops that one).
-      if (p.kind !== 'ready') setHolding(false);
+      if (!cancelled) settle(p);
     };
     void (async () => {
       if (mode === 'azure') {
@@ -479,7 +487,7 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
     return () => {
       cancelled = true;
     };
-  }, [mode]);
+  }, [mode, settle]);
 
   // Issue #242 (PRD 007 Req 5): the sign-in page can come back on screen
   // without remounting. The Entra redirect leaves it mid-sign-in — `busy`
@@ -490,43 +498,43 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
   // hostedRestore's (pure, unit-tested); only applying it lives here.
   useEffect(() => {
     let cancelled = false;
-    const reshown = (reshow: SignInReshow) => {
+    const handleReshow = (reshow: SignInReshow) => {
       const plan = planSignInRestore({
         reshow,
         onSignInPage: onSignInPage.current,
         resolving: resolving.current,
         token: readStoredToken(window.localStorage),
       });
-      if (plan.kind === 'ignore') return;
-      if (plan.kind === 'reset') {
-        // No session behind the restore: nothing the abandoned redirect froze
-        // into the page survives it — an enabled button, no stale error, the
-        // signed-out visitor's own destination again.
-        setPhase({ kind: 'signed-out', error: null, busy: false });
-        return;
+      switch (plan.kind) {
+        case 'ignore':
+          return;
+        case 'reset':
+          // No session behind the restore: nothing the abandoned redirect
+          // froze into the page survives it — an enabled button, no stale
+          // error, the signed-out visitor's own destination again.
+          setPhase({ kind: 'signed-out', error: null, busy: false });
+          return;
+        case 'resume': {
+          // A session to continue into: the same resolve a fresh load with
+          // this token makes, under the same one holding frame (issue #253) —
+          // so the page the restore rests on is the app, never the sign-in
+          // page, and never a bare shell on the way.
+          resolving.current = true;
+          setHolding(true);
+          setPhase({ kind: 'checking' });
+          void (async () => {
+            const next = await phaseForToken(plan.token);
+            if (!cancelled) settle(next);
+          })();
+          return;
+        }
       }
-      // A session to continue into: the same resolve a fresh load with this
-      // token makes, under the same one holding frame (issue #253) — so the
-      // page the restore rests on is the app, never the sign-in page, and
-      // never a bare shell on the way.
-      resolving.current = true;
-      setHolding(true);
-      setPhase({ kind: 'checking' });
-      void (async () => {
-        const next = await phaseForToken(plan.token);
-        if (cancelled) return;
-        resolving.current = false;
-        setPhase(next);
-        // The gate's own surfaces ARE the destination (issue #253): the frame
-        // comes down with them; only a load entering the app keeps holding.
-        if (next.kind !== 'ready') setHolding(false);
-      })();
     };
-    const onPageShow = (e: PageTransitionEvent) => reshown(e.persisted ? 'restored' : 'first-load');
+    const onPageShow = (e: PageTransitionEvent) => handleReshow(e.persisted ? 'restored' : 'first-load');
     // The equivalent re-show: a tab that becomes visible again was never
     // reparsed either, so it carries the same frozen state a restore does.
     const onVisibility = () => {
-      if (document.visibilityState === 'visible') reshown('revisited');
+      if (document.visibilityState === 'visible') handleReshow('revisited');
     };
     window.addEventListener('pageshow', onPageShow);
     document.addEventListener('visibilitychange', onVisibility);
@@ -535,7 +543,7 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
       window.removeEventListener('pageshow', onPageShow);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, []);
+  }, [settle]);
 
   // Local dev mode: `POST /api/auth/sign-in {username}` answers a token.
   const signInLocal = useCallback(async () => {
