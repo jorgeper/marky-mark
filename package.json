@@ -12,6 +12,8 @@
     "sandcastle:design":    "npx tsx .sandcastle/design.ts",
     "sandcastle:decompose": "npx tsx .sandcastle/decompose.ts",
     "sandcastle:issue":     "npx tsx .sandcastle/issue.ts",
+    "sandcastle:agents":    "npx tsx .sandcastle/main.ts --agents",
+    "sandcastle:test":      "vitest run --dir .sandcastle --config /dev/null",
     "dev": "vite",
     "server:local": "tsx server/local.ts",
     "build": "vite build",

@@ -4,7 +4,7 @@ PR mode (issues labeled `sandcastle:require-pr`) runs entirely as **your own
 GitHub account** — no bot account, no GitHub App. Every PR action an agent
 performs (opening the PR, commenting, replying) leads with an attribution
 marker: `**[agent-name · harness · model]**`, e.g.
-`**[pr-reviewer · claude-code · claude-fable-5]**` — so you always know
+`**[pr-reviewer · claude-code · claude-opus-5]**` — so you always know
 which agent, on which harness, with which model, acted on your behalf.
 Anything unmarked is you. (Set `MARKER_DETAIL = false` in
 `.sandcastle/main.mts` for plain `**[agent-name]**` markers.) Because you
@@ -40,10 +40,18 @@ decisions, files touched — with all branch commits preserved for history
 | `sandcastle`                | issue   | you                            | queue this issue for the loop                |
 | `sandcastle:require-pr`     | issue   | you                            | gate it behind a PR + outer review           |
 | `sandcastle:agent-approve`  | issue   | you                            | same PR flow, reviewer agent approves for you |
+| `sandcastle:effort-<tier>`  | issue   | you                            | needs that effort tier (`normal`, `hard`, …) on every agent that works it; skipped with a note until the agents are configured that high |
 | `sandcastle:in-review`      | PR      | orchestrator                   | agent debate in progress                     |
 | `sandcastle:ready`          | PR      | orchestrator                   | debate settled, awaiting you                 |
 | `sandcastle:needs-decision` | PR      | orchestrator                   | deadlocked threads await your verdict        |
 | `sandcastle:approved`       | PR      | you — or the reviewer agent on `sandcastle:agent-approve` issues | authorize the merge — next run squash-merges |
+
+Effort tiers are the owner's two separate choices: the label on the issue
+says how hard it is, and `AGENT_TIERS` in `config.mts` says which tier each
+agent runs at (`npm run sandcastle:agents` prints the table, `/config-agents`
+edits it). The loop takes an issue only when every agent on its path is
+configured at or above the issue's tier; otherwise it skips the issue and
+leaves one comment per configuration explaining which agents fall short.
 
 The merge gate is code-enforced: `sandcastle:approved` present AND zero
 unresolved review threads. The orchestrator lazily creates its own status

@@ -77,3 +77,37 @@ export const QUICK_VERIFY_COMMANDS: string[] = [
   "npm run typecheck",
   "npm run test:unit",
 ];
+
+// --- Effort tiers (issue label → required tier; agent → configured tier) --
+
+// Effort tiers, ordered weakest → strongest. Each tier names the model that
+// agents configured at that tier run on. Every tier also provisions an
+// issue label `sandcastle:effort-<name>` (created by `sandcastle:init`)
+// that says "this issue needs at least this tier". An unlabeled issue needs
+// the first (weakest) tier. Add a tier here and the label, the eligibility
+// check, and `/config-agents` all follow.
+export const EFFORT_TIERS = [
+  { name: "normal", model: "claude-opus-5" },
+  { name: "hard", model: "claude-fable-5-1" },
+] as const;
+
+// The tier each agent runs at — a static choice you make for this setup,
+// independent of any issue. Change it by hand or with `/config-agents`
+// (`npm run sandcastle:agents` prints the current table). The loop skips an
+// issue, with a comment, when an agent on its path is configured below the
+// tier the issue's label requires; see effort.mts for the path per issue.
+export const AGENT_TIERS = {
+  // The loop (main.ts)
+  planner: "hard",
+  "spec-writer": "hard",
+  implementer: "hard",
+  reviewer: "hard",
+  merger: "hard",
+  "conflict-resolver": "hard",
+  decomposer: "hard",
+  "pr-reviewer": "hard",
+  addresser: "hard",
+  // The conversational scripts (design.ts, issue.ts)
+  designer: "hard",
+  filer: "hard",
+} as const satisfies Record<string, (typeof EFFORT_TIERS)[number]["name"]>;

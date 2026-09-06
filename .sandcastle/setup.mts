@@ -6,7 +6,8 @@ import { execFile } from "node:child_process";
 import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { QUICK_VERIFY_COMMANDS, VERIFY_COMMANDS } from "./config.mts";
+import { EFFORT_TIERS, QUICK_VERIFY_COMMANDS, VERIFY_COMMANDS } from "./config.mts";
+import { agentTable, effortConfigErrors, EFFORT_LABEL_PREFIX } from "./effort.mts";
 import { parseEnvFile } from "./env.mts";
 import * as github from "./github.mts";
 import {
@@ -27,12 +28,27 @@ export const LABEL_ROWS: [string, string, string, string][] = [
   [github.AGENT_APPROVE_LABEL, "issue", "you", "same PR flow, but the reviewer agent approves in your place"],
   [github.REQUIRES_PRD_LABEL, "issue", "you", "needs an approved PRD PR before decompose/implement"],
   [github.RELEASE_LABEL, "issue", "/new-release", "release request — the owner cuts it via /cut-release (prd/008)"],
+  ...github.EFFORT_LABEL_DEFS.map(
+    (def): [string, string, string, string] => [
+      def.name,
+      "issue",
+      "you",
+      `needs the ${def.name.slice(EFFORT_LABEL_PREFIX.length)} effort tier on every agent that works it (see \`npm run sandcastle:agents\`)`,
+    ],
+  ),
   ["sandcastle:in-review", "PR", "orchestrator", "agent debate in progress"],
   ["sandcastle:ready", "PR", "orchestrator", "debate settled, awaiting you"],
   ["sandcastle:needs-decision", "PR", "orchestrator", "deadlocked threads await your verdict"],
   ["sandcastle:ready-to-merge", "issue", "orchestrator", "goal verified on the branch — merge phase takes it directly"],
   ["sandcastle:approved", "PR", "you", "authorize the merge — next run squash-merges"],
 ];
+
+// `npm run sandcastle:agents` — the table /config-agents reads before it
+// edits config.mts. Configuration problems print under the table and exit 1.
+export const printAgents = (): number => {
+  console.log(agentTable());
+  return effortConfigErrors().length === 0 ? 0 : 1;
+};
 
 export const printHelp = (): void => {
   console.log(
@@ -43,8 +59,9 @@ export const printHelp = (): void => {
       `  npm run sandcastle           run the loop (classify → merge → debate → plan → implement)`,
       `  npm run sandcastle:init      create the sandcastle label vocabulary in this repo`,
       `  npm run sandcastle:doctor    check env, auth, docker image, and labels`,
+      `  npm run sandcastle:agents    show effort tiers and which tier each agent runs at (/config-agents edits them)`,
       `      -- --image-gaps          also live-scan logs for in-sandbox installs + Dockerfile suggestions`,
-      `  npx tsx .sandcastle/main.mts [--init | --doctor [--image-gaps] | --help]`,
+      `  npx tsx .sandcastle/main.mts [--init | --doctor [--image-gaps] | --agents | --help]`,
       ``,
       `Labels (see .sandcastle/PR_SETUP.md for the full protocol):`,
       ...LABEL_ROWS.map(
@@ -335,6 +352,22 @@ export const runDoctor = async (options?: {
       };
     }
     return { ok: true, detail: VERIFY_COMMANDS.join(", ") };
+  });
+
+  await check("effort tiers", async () => {
+    const errors = effortConfigErrors();
+    if (errors.length > 0) {
+      return {
+        ok: false,
+        detail: errors.join("; "),
+        hint: "fix EFFORT_TIERS / AGENT_TIERS in .sandcastle/config.mts, or run /config-agents",
+      };
+    }
+    const tiers = EFFORT_TIERS.map((t) => `${t.name}=${t.model}`).join(", ");
+    return {
+      ok: true,
+      detail: `${tiers}; every agent resolves to a model (\`npm run sandcastle:agents\` lists them)`,
+    };
   });
 
   await check("docker sandbox image", async () => {

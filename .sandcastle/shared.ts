@@ -3,13 +3,16 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as readline from "node:readline/promises";
+import { modelFor } from "./effort.mts";
 
 // Helpers shared by the conversational-prd template scripts (design.ts,
 // decompose.ts, issue.ts). Shared *within* the template only — ADR 0009
 // forbids sharing across templates, not within one. Pure functions live at
 // the top so tests can import this file without side effects.
 
-export const MODEL = "claude-fable-5";
+// Models come from config.mts (EFFORT_TIERS × AGENT_TIERS) via effort.mts;
+// re-exported so the scripts import one module for their identity.
+export { modelFor } from "./effort.mts";
 export const HARNESS = "claude-code";
 
 /** Routing labels: which lane (agent) handles an issue. */
@@ -20,7 +23,7 @@ export const IMPLEMENT_LABEL = "Sandcastle";
 /** Identity marker for everything an agent writes on GitHub on the human's
  *  behalf: [agent · harness · model]. Unmarked text = the human. */
 export const markerFor = (role: string): string =>
-  `**[${role} · ${HARNESS} · ${MODEL}]**`;
+  `**[${role} · ${HARNESS} · ${modelFor(role)}]**`;
 
 export const slugify = (text: string): string =>
   text

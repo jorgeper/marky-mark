@@ -6,7 +6,7 @@ import {
 import { chat } from "@ai-hero/sandcastle/chat";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import {
-  MODEL,
+  modelFor,
   DESIGN_LABEL,
   DECOMPOSE_LABEL,
   IMPLEMENT_LABEL,
@@ -39,7 +39,7 @@ import {
 //
 // Ctrl-C is always safe — the issue persists; conversations re-attach.
 
-const agent = claudeCode(MODEL);
+const agent = claudeCode(modelFor("filer"));
 const sandbox = docker();
 const AGENT_MARKER = markerFor("filer");
 const ROUTING_LABELS = [DESIGN_LABEL, DECOMPOSE_LABEL, IMPLEMENT_LABEL];
