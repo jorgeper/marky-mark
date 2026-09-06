@@ -123,6 +123,19 @@ export interface FolderPanelProps {
 type MenuTarget = { kind: 'dir' | 'file' | 'root'; path: string; x: number; y: number };
 
 /**
+ * SPEC35 §2.5 + PRD 020 Req 15/17 (issue #259): what the open menu's file
+ * branch copies. Asked as the menu opens, so the answer is for THIS row and
+ * reads the address bar as it stands — not as it stood at the owner's last
+ * render. No share seam (every build but hosted) keeps today's two path
+ * items; a seam with no URL for this row (Req 17: unaddressable) gets
+ * neither them nor a link. Dir and root menus never consult it.
+ */
+function fileCopyMode(shareUrl: FolderPanelProps['shareUrl'], menu: MenuTarget): 'paths' | 'link' | 'none' {
+  if (menu.kind !== 'file' || !shareUrl) return 'paths';
+  return shareUrl(menu.path) === null ? 'none' : 'link';
+}
+
+/**
  * PRD 007 Req 18: the sidebar's drag-and-drop, as one object threaded down
  * the row tree. Two drops land on a folder row: another row (a move) or OS
  * files (an upload). The dragged path also rides in `dataTransfer` so a
@@ -825,11 +838,7 @@ export function FolderPanel(p: FolderPanelProps) {
             {folderContextMenu(menu.kind, {
               isMac: p.isMac,
               ...p.caps,
-              // SPEC35 §2.5 + PRD 020 Req 15/17 (issue #259): asked here, as
-              // the menu opens, so the answer is for THIS row and reads the
-              // address bar as it stands — not as it stood at the owner's
-              // last render.
-              fileCopy: p.shareUrl ? (p.shareUrl(menu.path) === null ? 'none' : 'link') : 'paths',
+              fileCopy: fileCopyMode(p.shareUrl, menu),
             }).map((it, i) =>
               it === 'sep' ? (
                 <div key={`sep-${i}`} className="menu-sep" />

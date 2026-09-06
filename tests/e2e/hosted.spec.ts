@@ -5022,13 +5022,15 @@ test('E517: the hosted file menu copies a link, not paths — any row, nested an
   // stay, and neither grows a Copy Link.
   await page.locator(`[data-path="/w/${id}/files/guides"]`).click({ button: 'right' });
   await expect(page.getByTestId('folder-menu')).toBeVisible();
-  expect(await menuIds()).toEqual(expect.arrayContaining(['copy-path', 'copy-relative-path']));
-  expect(await menuIds()).not.toContain('copy-link');
+  const dirIds = await menuIds();
+  expect(dirIds).toEqual(expect.arrayContaining(['copy-path', 'copy-relative-path']));
+  expect(dirIds).not.toContain('copy-link');
   await page.keyboard.press('Escape');
   await page.locator('.folder-list').click({ button: 'right', position: { x: 40, y: 260 } });
   await expect(page.getByTestId('folder-menu')).toBeVisible();
-  expect(await menuIds()).toContain('copy-path');
-  expect(await menuIds()).not.toContain('copy-link');
+  const rootIds = await menuIds();
+  expect(rootIds).toContain('copy-path');
+  expect(rootIds).not.toContain('copy-link');
 });
 
 // --- heading share links and #<slug> landing (PRD 020 Reqs 18–19, issue #223) --

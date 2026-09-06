@@ -190,6 +190,8 @@ describe('PRD 020 Req 15/17 the hosted file menu copies a link, not paths (issue
   // and an unaddressable row gets neither. Every other menu, and every build
   // without the seam, is byte-identical to before.
   test('U1212: fileCopy swaps the file menu’s two path items for Copy Link — and defaults to today’s pair', () => {
+    // A hosted owner's capabilities: every verb granted, and no reveal —
+    // there is no filesystem on the cloud to reveal a row in.
     const all = {
       isMac: true,
       canReveal: false,
