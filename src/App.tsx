@@ -5602,8 +5602,22 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * `UNTITLED_DOCUMENT`.
    */
   const zoomFallbackTitle = docPath ? (platform?.basename(docPath) ?? docPath) : undefined;
-  /** PRD 011 Req 2: the flag is the only switch; off ⇒ nothing below exists. */
-  const zoomActive = settings.semanticZoom && isZoomReadOnly(zoomLevel) && docOpen;
+  /**
+   * Issue #247: can THIS host run the semantic-zoom experiment? A CAPABILITY,
+   * never a flavor test — the browser builds declare none, and the Experimental
+   * row draws its checkbox disabled with a note there instead of live.
+   */
+  const semanticZoomAvailable = platform?.semanticZoom === true;
+  /**
+   * Issue #247 / #305: the experiment is ON only where the host can run it AND
+   * the flag is set. `semanticZoom` is a U-scoped setting, so a `true` written
+   * by the desktop app roams into the hosted build through the per-user
+   * settings.json (and into the static web build through localStorage); the
+   * capability, not the flag, decides whether anything below mounts there.
+   */
+  const semanticZoomOn = semanticZoomAvailable && settings.semanticZoom;
+  /** PRD 011 Req 2: the flag is the only user switch; off ⇒ nothing below exists. */
+  const zoomActive = semanticZoomOn && isZoomReadOnly(zoomLevel) && docOpen;
   const zoomSections = useMemo(
     () => (zoomActive ? parseSections(canonicalOf(buffer)) : null),
     [zoomActive, buffer]
@@ -5627,10 +5641,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   }, [docPath, untitled]);
 
   // PRD 011 Req 2: turning the feature off snaps the view back to the full
-  // document within the session — no restart, nothing left behind.
+  // document within the session — no restart, nothing left behind. Issue #305:
+  // "off" includes a host without the capability, whatever the flag says.
   useEffect(() => {
-    if (!settings.semanticZoom) setZoomLevel(ZOOM_LEVEL_FULL);
-  }, [settings.semanticZoom]);
+    if (!semanticZoomOn) setZoomLevel(ZOOM_LEVEL_FULL);
+  }, [semanticZoomOn]);
 
   /**
    * PRD 011 Req 19: one click moves one level toward L5, focused on the
@@ -6157,13 +6172,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * settings page draws no cache section where there is nothing to report.
    */
   const summaryCacheAvailable = platform?.summaryCache !== undefined;
-
-  /**
-   * Issue #247: can THIS host run the semantic-zoom experiment? A CAPABILITY,
-   * never a flavor test — the browser builds declare none, and the Experimental
-   * row draws its checkbox disabled with a note there instead of live.
-   */
-  const semanticZoomAvailable = platform?.semanticZoom === true;
 
   /**
    * PRD 011 Reqs 16+30: what the cache holds, read from the STORE — never from
@@ -8779,13 +8787,50 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
       </div>
 
-      {/* PRD 011 Req 21: the docked level indicator. Present whenever the
-          Experimental feature is on and a document is open — never at the
-          splash, never gated on LLM availability, never branched on
-          platform.kind. It sits bottom-RIGHT, clear of the word-count chip. */}
-      {settings.semanticZoom && docOpen && (
-        <SemanticZoomControl level={zoomLevel} onLevel={setZoomLevel} />
-      )}
+      {/* Issue #305: the bottom-right corner is ONE fixed stack (styles.css
+          .corner-stack), not three independently fixed boxes painting over
+          each other. Top to bottom: the SPEC14 §3 navigator pill, the PRD 011
+          Req 21 zoom control (desktop only), the SPEC16 §5 word-count chip at
+          the bottom edge. A piece that is absent leaves no row behind. */}
+      <div className="corner-stack">
+        {/* SPEC14 §3: fixed navigator pill — park the mouse and click through;
+            it never moves while stepping. Stays mounted while the pane shows
+            (issue #284: the pane, in every mode) so it can fade out; the label
+            freezes so the fade never shows "0/N". Hidden, it still holds the
+            top row — nothing below it moves when it fades. */}
+        {commentsPaneMounted && (
+          <div
+            className={`comment-nav${navIdx >= 0 ? ' visible' : ''}`}
+            data-testid="comment-nav"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <IconButton data-testid="comment-nav-prev" title="Previous comment" onClick={() => dispatchCommand('prevComment')}>
+              ↑
+            </IconButton>
+            <span data-testid="comment-nav-count">{navLabelRef.current}</span>
+            <IconButton data-testid="comment-nav-next" title="Next comment" onClick={() => dispatchCommand('nextComment')}>
+              ↓
+            </IconButton>
+          </div>
+        )}
+
+        {/* PRD 011 Req 21: the docked level indicator. Present whenever the
+            Experimental feature is on and a document is open — never at the
+            splash, never gated on LLM availability, never branched on
+            platform.kind. Issue #247 / #305: "on" means the host declares the
+            capability AND the flag is set, so a roamed `semanticZoom: true`
+            mounts nothing in the hosted or static web build. */}
+        {semanticZoomOn && docOpen && (
+          <SemanticZoomControl level={zoomLevel} onLevel={setZoomLevel} />
+        )}
+
+        {/* SPEC16 §5: quiet word-count chip, bottom-right (toggleable). */}
+        {chip && settings.showWordCount && (
+          <div className="word-chip" data-testid="word-chip">
+            {chip}
+          </div>
+        )}
+      </div>
 
       {/* PRD 023 §13 (issue #287): the preview selection button — the SPEC43
           §3 hash glyph as floating viewport chrome, in the host .doc's left
@@ -8833,13 +8878,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             onInvoke={invokePreviewRow}
             onClose={() => setPreviewMenu(null)}
           />
-        </div>
-      )}
-
-      {/* SPEC16 §5: quiet word-count chip, bottom-left (toggleable). */}
-      {chip && settings.showWordCount && (
-        <div className="word-chip" data-testid="word-chip">
-          {chip}
         </div>
       )}
 
@@ -8903,26 +8941,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             onClick={dismissFragmentMiss}
           >
             ✕
-          </IconButton>
-        </div>
-      )}
-
-      {/* SPEC14 §3: fixed navigator pill, centered over the comment margin —
-          park the mouse and click through. Stays mounted while the pane shows
-          (issue #284: the pane, in every mode) so it can fade out; the label
-          freezes so the fade never shows "0/N". */}
-      {commentsPaneMounted && (
-        <div
-          className={`comment-nav${navIdx >= 0 ? ' visible' : ''}`}
-          data-testid="comment-nav"
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <IconButton data-testid="comment-nav-prev" title="Previous comment" onClick={() => dispatchCommand('prevComment')}>
-            ↑
-          </IconButton>
-          <span data-testid="comment-nav-count">{navLabelRef.current}</span>
-          <IconButton data-testid="comment-nav-next" title="Next comment" onClick={() => dispatchCommand('nextComment')}>
-            ↓
           </IconButton>
         </div>
       )}

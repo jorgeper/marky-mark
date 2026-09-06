@@ -6222,7 +6222,7 @@ test('E429: the active highlight reveals a left-margin copy-link that copies the
   await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
 });
 
-test('E566: the highlight copy-link\'s "Link copied" caption is an opaque pill beside the glyph, clear of the paragraph text', async ({
+test('E567: the highlight copy-link\'s "Link copied" caption is an opaque pill beside the glyph, clear of the paragraph text', async ({
   page,
   request,
 }) => {
@@ -7224,4 +7224,59 @@ test('E508: the legacy ?workspace=<uuid> form boots into the workspace with no i
   const painted = await bootScreens(page);
   expect(painted.screens).toEqual([]);
   expect(painted.holds).toEqual(['hosted-booting']);
+});
+
+test('E566: issue #305 — a roamed settings.json carrying semanticZoom: true still mounts no zoom control in the hosted build', async ({
+  page,
+  request,
+}) => {
+  // Issue #247 / #305: the semantic-zoom experiment is a host CAPABILITY the
+  // hosted flavor does not declare. The per-user settings blob roams across
+  // flavors (PRD 007 Req 9), so a desktop user's `semanticZoom: true` reaches
+  // this build's settings — and must still produce no −/+ control, no zoomed
+  // level and no zoomed view. `showWordCount: false` rides along as the proof
+  // that the seeded file was applied at all (the chip is on by default).
+  const ada = await signIn(request, 'ada');
+  const headers = { Authorization: `Bearer ${ada}` };
+  const settingsBlob = `${HOSTED}/api/me/files/settings.json`;
+  await request.delete(settingsBlob, { headers });
+  const seeded = await request.put(settingsBlob, {
+    headers,
+    data: JSON.stringify({ semanticZoom: true, showWordCount: false }),
+  });
+  expect(seeded.status()).toBe(200);
+  try {
+    const id = await createWorkspace(request, ada, `E566 w${test.info().workerIndex}`);
+    const put = await request.put(`${HOSTED}/api/workspaces/${id}/files/zoom.md`, {
+      headers,
+      data: '# Field Notes\n\n## Editing\n\nEditing prose lives here.\n\n## Viewing\n\nViewing prose lives here.\n',
+    });
+    expect(put.status()).toBe(200);
+
+    await signInTo(page, 'ada', id);
+    await openFromSidebar(page, 'zoom.md');
+    await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
+    // The roamed file took: the chip it switched off is gone…
+    await expect(page.getByTestId('word-chip')).toHaveCount(0);
+    // …and the experiment it switched on mounts nothing here.
+    await expect(page.getByTestId('semantic-zoom-control')).toHaveCount(0);
+    await expect(page.getByTestId('semantic-zoom-level')).toHaveCount(0);
+    await expect(page.getByTestId('semantic-zoom-out')).toHaveCount(0);
+    await expect(page.getByTestId('semantic-zoom-in')).toHaveCount(0);
+    await expect(page.getByTestId('semantic-zoom-slider')).toHaveCount(0);
+    await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
+
+    // The Experimental row is exactly what E246 pins: dead, unchecked, with
+    // the "web version" note — the roamed true never surfaces as a tick.
+    await revealToolbar(page);
+    await openSettings(page, 'experimental');
+    const box = page.getByTestId('experimental-semantic-zoom');
+    await expect(box).toBeDisabled();
+    await expect(box).not.toBeChecked();
+    await expect(page.getByTestId('experimental-semantic-zoom-unavailable')).toContainText('web version');
+    await cancelSettings(page);
+  } finally {
+    // Per-user blobs outlive the run: leave later hosted tests a clean layer.
+    await request.delete(settingsBlob, { headers });
+  }
 });
