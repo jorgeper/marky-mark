@@ -56,8 +56,8 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   await expect(page.getByTestId('folder-collapse')).toHaveAttribute('title', 'Hide sidebar');
   await expect(page.getByTestId('folder-filter')).toHaveCount(0);
   await expect(page.getByTestId('folder-open-only')).toHaveCount(0);
-  const nonMdRow = await openViewMenu(page);
-  await expect(nonMdRow.getByTestId('menu-view-toggleNonMd')).toHaveAttribute('aria-checked', 'false');
+  const view = await openViewMenu(page);
+  await expect(view.getByTestId('menu-view-toggleNonMd')).toHaveAttribute('aria-checked', 'false');
   await closeAppMenu(page);
   await viewMenuClick(page, 'toggleNonMd');
   await expect((await openViewMenu(page)).getByTestId('menu-view-toggleNonMd')).toHaveAttribute(

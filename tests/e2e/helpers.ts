@@ -533,15 +533,12 @@ export async function openViewMenu(page: Page): Promise<Locator> {
 }
 
 /**
- * Issue #257: put the sidebar on the TOC view. The view switch renders only
- * while the sidebar shows, so a collapsed pane takes the toggleToc hotkey —
- * the same command the button dispatches — and the button itself is clicked
- * only to SWITCH a sidebar that is already up.
+ * Issue #257: put the sidebar on the TOC view. The switch's TOC button exists
+ * only while the sidebar already shows, so the way in from a collapsed pane
+ * is the toggleToc hotkey — the same command that button dispatches.
  */
 export async function showToc(page: Page): Promise<void> {
-  const btn = page.getByTestId('sidebar-view-toc');
-  if ((await btn.count()) > 0) await btn.click();
-  else await page.keyboard.press('Control+Shift+T');
+  await page.keyboard.press('Control+Shift+T');
   await expect(page.getByTestId('toc-panel')).toBeVisible();
 }
 

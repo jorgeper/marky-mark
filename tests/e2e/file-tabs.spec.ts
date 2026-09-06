@@ -310,9 +310,10 @@ test('E271: a pure view of the open set — Ctrl+Tab moves the active tab; a ren
   await page.locator('[data-path="/notes/sub"]').click();
   await page.locator('[data-path="/notes/sub/b.md"]').click();
   await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/z.md']);
-  // Issue #257: the mode is entered from View ▸ Only Open Files now.
+  // Issue #257: the mode is entered from View ▸ Only Open Files now — the
+  // flat open-set list replacing the tree is what says it took (SPEC36 §5.3).
   await viewMenuClick(page, 'toggleOpenOnly');
-  await expect(page.getByTestId('folder-open-empty')).toHaveCount(0);
+  await expect(page.locator('.folder-item-dir')).toHaveCount(0);
   expect(await tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/z.md']);
   await expect(page.locator('[data-tab="/notes/sub/b.md"]')).toHaveAttribute('data-active', 'true');
   await page.locator('[data-tab="/notes/z.md"]').click();

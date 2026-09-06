@@ -207,6 +207,9 @@ export function buildViewItems(s: ViewMenuState): MenuItemSpec[] {
   const wsOpen = s.appMode === 'workspace';
   // Issue #84: cycling needs two open files in a workspace to mean anything.
   const noCycle = !wsOpen || (s.openFileCount ?? 0) < 2;
+  // Issue #257: the only-open view drives its own checkbox AND grays the
+  // filter row below it, so the absent-reads-off default is named once.
+  const openOnly = s.openOnly ?? false;
   // PRD 007 Req 17: absent ⇒ no permission model ⇒ every writing item stays.
   const noEdit = s.canEdit === false;
 
@@ -218,13 +221,13 @@ export function buildViewItems(s: ViewMenuState): MenuItemSpec[] {
     // workspace-only gating are the ones it always had.
     cmd('toggleFolders', 'Sidebar', s.hotkeys.toggleFolders, s.showFolders, !wsOpen),
     // SPEC36 §5.2: the only-open-files view rides directly after the sidebar.
-    cmd('toggleOpenOnly', 'Only Open Files', s.hotkeys.toggleOpenOnly, s.openOnly ?? false, !wsOpen),
+    cmd('toggleOpenOnly', 'Only Open Files', s.hotkeys.toggleOpenOnly, openOnly, !wsOpen),
     // Issue #257: the folder header's filter button moved here, right after
     // its neighbour filter. Checked means "non-markdown files show too"; it
     // is grayed outside workspace mode like the rows around it, and while
     // Only Open Files is on — that view lists the open set, so the filter is
     // inert there exactly as the removed button was disabled there.
-    cmd('toggleNonMd', 'Show All Files', undefined, s.showNonMd ?? false, !wsOpen || (s.openOnly ?? false)),
+    cmd('toggleNonMd', 'Show All Files', undefined, s.showNonMd ?? false, !wsOpen || openOnly),
     // Issue #84 (SPEC36 §6.4, amended): the cycle is discoverable, not
     // hotkey-only — accelerators follow the live map.
     cmd('nextFile', 'Next Open File', s.hotkeys.nextFile, undefined, noCycle),

@@ -4022,11 +4022,13 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   }, [persistFolderState, revealFolderPane, updateSettings]);
 
   /**
-   * PRD 012 Req 9: the rule BOTH view buttons follow, stated once. Pressing
-   * the view already on screen hides the sidebar; pressing the other one puts
-   * it on screen, opening the sidebar if it was closed. Only the press that
-   * actually flips visibility arms the slide (PRD 003 Reqs 9/12) — a press
-   * that merely swaps views leaves the pane where it is.
+   * PRD 012 Req 9 (amended by issue #257): the rule every view COMMAND
+   * follows, stated once. Dispatching the view already on screen hides the
+   * sidebar; dispatching another puts it on screen, opening the sidebar if it
+   * was closed. Only the call that actually flips visibility arms the slide
+   * (PRD 003 Reqs 9/12) — one that merely swaps views leaves the pane where
+   * it is. The switch's buttons never reach the hiding half: they drop a
+   * press on the live view before dispatching (`switchToView` below).
    *
    * Req 12: nothing here asks about the folder seam; the folders route's own
    * gating stays in the `toggleFolders` command that calls this.
@@ -7675,6 +7677,16 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   if (!platform) return bootHeld ? null : <div className="theme-root" />;
 
   /**
+   * Issue #257: a press on the view already showing is dropped HERE rather
+   * than in the commands — the buttons are stateless mode switches, while
+   * `toggleFolders`/`toggleToc`/`toggleSearch` keep the toggle semantics the
+   * hotkeys and the View menu ride on.
+   */
+  const switchToView = (view: SidebarView, command: CommandId) => () => {
+    if (sidebarView === view) return; // already the live view — nothing to switch
+    dispatchCommand(command);
+  };
+  /**
    * PRD 012 Req 9 (amended by issue #257): the one Folders/TOC/Search switch,
    * built here and handed to whichever panel header is up. It is mounted only
    * while the sidebar shows — the buttons choose what is INSIDE the sidebar,
@@ -7683,16 +7695,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * to zero while it does not. A button exists only where its view could:
    * folders needs the seam (and so keeps the folders route's existing
    * gating), the TOC needs a document.
-   *
-   * Issue #257: a press on the view already showing is dropped here rather
-   * than in the commands — the buttons are stateless mode switches, while
-   * `toggleFolders`/`toggleToc`/`toggleSearch` keep the toggle semantics the
-   * hotkeys and the View menu ride on.
    */
-  const switchToView = (view: SidebarView, command: CommandId) => () => {
-    if (sidebarView === view) return; // the switch exists only while shown
-    dispatchCommand(command);
-  };
   const sidebarSwitch = sidebarShown ? (
     <SidebarViewSwitch
       active={sidebarView}
@@ -7758,11 +7761,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // wrapper at all. It reopens on the view the sidebar was last showing,
   // falling back to the one view this platform/state can actually put up, so
   // taking the switch out of the cluster left no view hotkey-only.
-  const reopenView: SidebarView = folderSeam
-    ? sidebarView === 'toc' && !docOpen
-      ? 'folders'
-      : sidebarView
-    : 'toc';
+  let reopenView: SidebarView = sidebarView;
+  if (!folderSeam) reopenView = 'toc'; // no seam ⇒ the TOC is the only view left
+  else if (sidebarView === 'toc' && !docOpen) reopenView = 'folders'; // nothing to outline
   const leftCluster =
     !sidebarShown && (folderSeam || docOpen) ? (
       <FolderExpandButton onClick={() => dispatchCommand(SIDEBAR_VIEW_COMMANDS[reopenView])} />

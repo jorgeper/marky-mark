@@ -168,8 +168,9 @@ like `folderTree.ts`:
    > neither `folder-open-only` nor the `folder-filter` (#) button beside
    > it. The folder header keeps only `folder-sync`; both filters are View
    > menu rows (**Only Open Files** and **Show All Files**, on both View
-   > surfaces), each grayed outside workspace mode.
-2. Toggled by the button (issue #257: by the View row alone), by a new rebindable hotkey `toggleOpenOnly`
+   > surfaces), each grayed outside workspace mode. §5.2's button route
+   > goes with it: the mode is toggled by that View row and the hotkey.
+2. Toggled by the button, by a new rebindable hotkey `toggleOpenOnly`
    (default **Mod+Shift+O**), and by a new View-menu item **"Only Open
    Files"** (checked when on) inserted directly after the "Folders"
    item. The hotkey works whether or not the panel is visible; turning
@@ -178,13 +179,12 @@ like `folderTree.ts`:
    order — same `folder-item` rows/test ids, no chevrons, no depth
    indent, glyph + basename, full tab styling per §4 (active front,
    others behind), hover ✕ per §3.4. The # filter button is disabled
-   while in this mode.
+   while in this mode. With an empty open set the list area shows a
+   muted "No open files" line, test id `folder-open-empty`.
 
    > **Amended (issue #257, 2026-09-06):** the filter is the View ▸ **Show
    > All Files** row now, and it is the ROW that grays out while this mode
    > is on — the inertness is unchanged, only the surface moved.
- With an empty open set the list area shows a
-   muted "No open files" line, test id `folder-open-empty`.
 4. The sync button ("Navigate to the open file") in this mode
    switches back to tree view and reveals the active file (existing
    reveal). The Open Folder…/root-less empty state is unchanged and
