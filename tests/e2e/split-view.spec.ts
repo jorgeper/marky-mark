@@ -1525,3 +1525,45 @@ test('E559: Issue #310 — a heading cue levels within 16 px and a body-text cue
     expect(await caretLevelGap(page)).toBeLessThan(10);
   }
 });
+
+test('E564: issue #307 — the preview and comments edge toggles carry distinct glyphs, each flipping state with its own pane only', async ({
+  page,
+}) => {
+  // Edit mode with the split open (comments are enabled by default), so both
+  // edge toggles are up in the top-right cluster.
+  await splitApp(page);
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+
+  const previewIcon = page.getByTestId('preview-toggle-icon');
+  const commentsIcon = page.getByTestId('comments-toggle-icon');
+  await expect(previewIcon).toBeVisible();
+  await expect(commentsIcon).toBeVisible();
+
+  // Issue #307: the two glyphs never coincide — a split pane vs. a speech
+  // bubble, not one chevron twice. Pinning each exact value also proves the
+  // pair differ, here and after every toggle below.
+  await expect(previewIcon).toHaveAttribute('data-icon', 'preview-open');
+  await expect(commentsIcon).toHaveAttribute('data-icon', 'comments-closed');
+
+  // Collapsing the preview flips only the preview glyph to its closed state.
+  await page.getByTestId('preview-collapse').click();
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await expect(previewIcon).toHaveAttribute('data-icon', 'preview-closed');
+  await expect(commentsIcon).toHaveAttribute('data-icon', 'comments-closed');
+
+  // Opening the comments pane flips only the comments glyph to its open state.
+  await page.getByTestId('comments-expand').click();
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(commentsIcon).toHaveAttribute('data-icon', 'comments-open');
+  await expect(previewIcon).toHaveAttribute('data-icon', 'preview-closed');
+
+  // And each returns to where it started, still independently.
+  await page.getByTestId('preview-expand').click();
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect(previewIcon).toHaveAttribute('data-icon', 'preview-open');
+  await expect(commentsIcon).toHaveAttribute('data-icon', 'comments-open');
+  await page.getByTestId('comments-collapse').click();
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await expect(commentsIcon).toHaveAttribute('data-icon', 'comments-closed');
+  await expect(previewIcon).toHaveAttribute('data-icon', 'preview-open');
+});

@@ -298,13 +298,19 @@ export function FolderExpandButton({ onClick }: { onClick(): void }) {
 }
 
 /**
- * PRD 003 Reqs 6–7: the split preview's edge chevron, pinned at the
- * workspace's top-right edge in edit mode — right collapses the open
- * preview into the full-screen editor, left reopens the split. The same
+ * PRD 003 Reqs 6–7: the split preview's edge toggle, pinned at the
+ * workspace's top-right edge in edit mode — a click collapses the open
+ * preview into the full-screen editor, or reopens the split. The same
  * compact edge tab as FolderExpandButton, mirrored to the opposite edge;
- * it lives here to share the Chevron/edge-tab pattern. The owner
+ * it lives here to share the IconButton/edge-tab pattern. The owner
  * dispatches the existing `toggleSplit` command — only `settings.splitEdit`
  * flips, so the menu checkbox, Mod+\, and the Settings toggle stay in sync.
+ *
+ * Issue #307: the glyph is a split pane, not a chevron, so it can be told
+ * apart from the comments toggle beside it. The frame and divider are the
+ * same in both states; the text lines sit in the right (preview) half while
+ * the preview is open and in the left (editor) half while it is closed — one
+ * glyph, two visibly different states, pinned by `data-icon` for tests.
  */
 export function PreviewToggleButton({ open, onClick }: { open: boolean; onClick(): void }) {
   const label = open ? 'Hide the preview pane' : 'Show the preview pane';
@@ -316,19 +322,36 @@ export function PreviewToggleButton({ open, onClick }: { open: boolean; onClick(
       aria-label={label}
       onClick={onClick}
     >
-      <Chevron dir={open ? 'right' : 'left'} />
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        aria-hidden="true"
+        data-testid="preview-toggle-icon"
+        data-icon={open ? 'preview-open' : 'preview-closed'}
+      >
+        <g stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="3" width="12" height="10" rx="1.5" />
+          <path d="M8 3v10" />
+          {open ? <path d="M10 5.5h2M10 8h2M10 10.5h2" /> : <path d="M4 5.5h2M4 8h2M4 10.5h2" />}
+        </g>
+      </svg>
     </IconButton>
   );
 }
 
 /**
- * PRD 023 §14 (issue #284): the comments pane's edge chevron — immediately
- * right of the preview chevron in the workspace's top-right cluster, in every
- * document mode. The same compact edge tab as its two siblings, pointing in
- * the direction a click will move the pane (open ⇒ right, toward the edge;
- * closed ⇒ left, back in). The owner dispatches the existing `toggleComments`
- * command — only the persisted `settings.showComments` flips, so View →
- * Comments and Mod+Shift+C stay in sync.
+ * PRD 023 §14 (issue #284): the comments pane's edge toggle — immediately
+ * right of the preview toggle in the workspace's top-right cluster, in every
+ * document mode. The same compact edge tab as its two siblings. The owner
+ * dispatches the existing `toggleComments` command — only the persisted
+ * `settings.showComments` flips, so View → Comments and Mod+Shift+C stay in
+ * sync.
+ *
+ * Issue #307: the glyph is a speech bubble, not a chevron, so it reads as
+ * "comments" next to the preview toggle's split pane. Open shows the bubble
+ * with its text lines; closed shows the empty outline — pinned by
+ * `data-icon` for tests.
  */
 export function CommentsToggleButton({ open, onClick }: { open: boolean; onClick(): void }) {
   const label = open ? 'Hide the comments pane' : 'Show the comments pane';
@@ -340,7 +363,19 @@ export function CommentsToggleButton({ open, onClick }: { open: boolean; onClick
       aria-label={label}
       onClick={onClick}
     >
-      <Chevron dir={open ? 'right' : 'left'} />
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        aria-hidden="true"
+        data-testid="comments-toggle-icon"
+        data-icon={open ? 'comments-open' : 'comments-closed'}
+      >
+        <g stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2.5 3.5A1.5 1.5 0 0 1 4 2h8a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 12 11H7.5L4.5 13.8V11H4a1.5 1.5 0 0 1-1.5-1.5z" />
+          {open ? <path d="M5.5 5.5h5M5.5 8h3" /> : null}
+        </g>
+      </svg>
     </IconButton>
   );
 }
