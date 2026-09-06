@@ -11,6 +11,7 @@ import {
 import type { MemberEntry } from '../../src/lib/membership';
 import { UNIQUE_NAME_MAX_LENGTH, uniqueNameProblem } from '../../src/lib/workspaceNames';
 import {
+  OPEN_WORKSPACE_ROW_CAP,
   deleteConfirmationMatches,
   deleteOffered,
   emptyNewWorkspaceForm,
@@ -19,6 +20,7 @@ import {
   isUniqueNameError,
   noAccessMessage,
   validateNewWorkspaceForm,
+  visibleWorkspaces,
   workspaceRowBadge,
   type WorkspaceListing,
 } from '../../src/lib/workspaceLifecycle';
@@ -213,6 +215,39 @@ describe('PRD 007 Req 11: the Open Workspace list', () => {
   it('U288: the access flag on the row is what distinguishes open from ask-for-access', () => {
     expect(items.filter((w) => w.access).map((w) => w.id)).toEqual(['a', 'b']);
     expect(items.filter((w) => !w.access).map((w) => w.id)).toEqual(['c']);
+  });
+});
+
+// PRD 007 Req 10/11 (issue #252): the dialog's list area is a fixed height
+// sized for OPEN_WORKSPACE_ROW_CAP rows, so what it renders is capped ahead of
+// the JSX. `filterWorkspaces` still answers the whole filtered listing (U286 /
+// U287); the cap is the separate seam layered over it.
+describe('PRD 007 Req 11 (issue #252): the Open Workspace list is capped at the newest few', () => {
+  const at = (id: string, day: number, name = `Workspace ${id}`): WorkspaceListing =>
+    listing({ id, name, modified: `2026-08-${String(day).padStart(2, '0')}T00:00:00.000Z` });
+  // Eight workspaces, deliberately out of order, so truncation cannot pass by
+  // accident on an already-sorted input.
+  const many = [at('a', 1), at('h', 8), at('c', 3), at('f', 6), at('b', 2), at('g', 7), at('d', 4), at('e', 5)];
+
+  it('U1196: an over-cap listing truncates to the cap, most recently modified first', () => {
+    expect(OPEN_WORKSPACE_ROW_CAP).toBe(5);
+    expect(visibleWorkspaces('', many).map((w) => w.id)).toEqual(['h', 'g', 'f', 'e', 'd']);
+    expect(visibleWorkspaces('   ', many)).toHaveLength(OPEN_WORKSPACE_ROW_CAP);
+    // The unfiltered seam still answers everything — the cap is layered over it.
+    expect(filterWorkspaces('', many)).toHaveLength(many.length);
+  });
+
+  it('U1197: an under-cap listing is returned whole, still newest first', () => {
+    expect(visibleWorkspaces('', many.slice(0, 3)).map((w) => w.id)).toEqual(['h', 'c', 'a']);
+    expect(visibleWorkspaces('', [])).toEqual([]);
+  });
+
+  it('U1198: a query matches across the whole listing and still truncates to the cap', () => {
+    // Every name matches "wor", so the query narrows nothing: the cap is what
+    // bounds the rows, and a search can never grow the dialog.
+    expect(visibleWorkspaces('wor', many)).toHaveLength(OPEN_WORKSPACE_ROW_CAP);
+    // A query that matches fewer than the cap keeps them all, best first.
+    expect(visibleWorkspaces('workspace b', many).map((w) => w.id)).toEqual(['b']);
   });
 });
 

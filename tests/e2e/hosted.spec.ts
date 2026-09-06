@@ -43,6 +43,11 @@ import { serializeDraft } from '../../src/lib/drafts';
 // Issue #292: E399 names the scratchpad's root folder through the module that
 // owns the virtual-path scheme, so a changed layout fails the test loudly.
 import { hostedFilesRoot } from '../../src/lib/hostedPaths';
+// Issue #252: the row cap and the scratchpad's display name come from the
+// modules that own them, so changing either fails these tests loudly rather
+// than leaving them asserting a stale number or name.
+import { OPEN_WORKSPACE_ROW_CAP } from '../../src/lib/workspaceLifecycle';
+import { SCRATCHPAD_NAME } from '../../server/workspaces';
 
 // PRD 007 Req 1+4: the hosted backend in local dev mode — booted by the
 // second `webServer` entry in playwright.config.ts (`npm run server:local`:
@@ -969,7 +974,7 @@ test('E182: the New Workspace flow names a workspace, grants a member a role, an
   ]);
 });
 
-test('E183: the Open Workspace dialog lists every workspace, filters as you type, and opens an accessible one', async ({
+test('E183: the Open Workspace dialog lists the deployment’s workspaces, filters as you type, and opens an accessible one', async ({
   page,
   request,
 }) => {
@@ -987,6 +992,11 @@ test('E183: the Open Workspace dialog lists every workspace, filters as you type
   await openAppMenu(page);
   await page.getByTestId('menu-open-workspace').click();
   await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
+  // Issue #252: the list holds only the newest OPEN_WORKSPACE_ROW_CAP rows and
+  // the local lane's store is shared across parallel workers, so this test's
+  // own workspace can sit outside them — the search box is the real user's
+  // route to it, and search runs over the WHOLE fetched listing.
+  await page.getByTestId('open-workspace-search').fill(mine);
   await expect(page.getByTestId(`open-workspace-item-${mineId}`)).toBeVisible();
   // Name and last-modified both show on the row.
   await expect(page.getByTestId(`open-workspace-item-${mineId}`)).toContainText(mine);
@@ -995,7 +1005,7 @@ test('E183: the Open Workspace dialog lists every workspace, filters as you type
   // Search-as-you-type narrows the already-fetched list.
   await page.getByTestId('open-workspace-search').fill('quokka');
   await expect(page.getByTestId(`open-workspace-item-${mineId}`)).toHaveCount(0);
-  await page.getByTestId('open-workspace-search').fill('zebra');
+  await page.getByTestId('open-workspace-search').fill(mine);
   await expect(page.getByTestId(`open-workspace-item-${mineId}`)).toBeVisible();
 
   await page.getByTestId(`open-workspace-item-${mineId}`).click();
@@ -1026,6 +1036,103 @@ test('E184: choosing a workspace the signed-in user cannot access shows a no-acc
   // Still in the dialog, still no workspace bound.
   await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
   expect(new URL(page.url()).searchParams.get('workspace')).toBeNull();
+});
+
+/** Every workspace row the Open dialog is currently rendering. */
+const workspaceRows = (page: Page) => page.locator('[data-testid^="open-workspace-item-"]');
+
+test('E503: the Open Workspace dialog opens at its final size — a loading indicator holds the list area and the empty state waits for the fetch to settle', async ({
+  page,
+  request,
+}) => {
+  // Issue #252 (PRD 007 Req 10/11): the listing arriving must not resize the
+  // dialog, and "No workspace matches …" is a settled-fetch answer — it never
+  // flashes while the rows are still on the wire.
+  const ada = await signIn(request, 'ada');
+  await createWorkspace(request, ada, `E503 held w${test.info().workerIndex}`);
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+
+  // Hold the listing open, pinning the loading phase long enough to measure it.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/workspaces', async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    await held;
+    await route.continue();
+  });
+
+  await openAppMenu(page);
+  await page.getByTestId('menu-open-workspace').click();
+  await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
+  // The list area is held by a spinner carrying the same role the search
+  // panel's scan indicator uses.
+  await expect(page.getByTestId('open-workspace-loading')).toBeVisible();
+  await expect(page.getByTestId('open-workspace-loading')).toHaveAttribute('role', 'status');
+  // The empty state does not exist while the fetch is in flight.
+  await expect(page.getByTestId('open-workspace-empty')).toHaveCount(0);
+  await expect(workspaceRows(page)).toHaveCount(0);
+  const loading = await page.getByTestId('open-workspace-dialog').boundingBox();
+
+  release();
+  await expect(workspaceRows(page).first()).toBeVisible();
+  await expect(page.getByTestId('open-workspace-loading')).toHaveCount(0);
+  const listed = await page.getByTestId('open-workspace-dialog').boundingBox();
+
+  // Same box, to the pixel, across the whole transition.
+  expect(listed).toEqual(loading);
+  await page.unroute('**/api/workspaces');
+});
+
+test('E504: the Open Workspace dialog lists at most the newest few workspaces, never scrolls, and keeps that cap while searching', async ({
+  page,
+  request,
+}) => {
+  // Issue #252 (PRD 007 Req 10/11): a bounded row count is what lets the list
+  // area have a fixed height — with more workspaces in the deployment than the
+  // cap, the dialog still shows exactly the cap's worth and grows no scrollbar.
+  const w = test.info().workerIndex;
+  const ada = await signIn(request, 'ada');
+  const prefix = `E504 kangaroo w${w}`;
+  for (let i = 0; i < OPEN_WORKSPACE_ROW_CAP + 2; i++) await createWorkspace(request, ada, `${prefix} n${i}`);
+
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await openAppMenu(page);
+  await page.getByTestId('menu-open-workspace').click();
+  await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
+  await expect(page.getByTestId('open-workspace-loading')).toHaveCount(0);
+
+  // The deployment holds more than the cap (this test alone created cap + 2).
+  await expect(workspaceRows(page)).toHaveCount(OPEN_WORKSPACE_ROW_CAP);
+  const unfiltered = await page.getByTestId('open-workspace-dialog').boundingBox();
+  const list = page.getByTestId('open-workspace-list');
+  expect(await list.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+  // The reserved area holds a full cap's worth of rows with nothing clipped —
+  // the stylesheet's row count and OPEN_WORKSPACE_ROW_CAP agree.
+  const area = page.getByTestId('open-workspace-list-area');
+  expect(await area.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+  const areaBox = await area.boundingBox();
+  const listBox = await list.boundingBox();
+  expect(listBox!.height).toBe(areaBox!.height);
+
+  // Searching runs over the whole fetched listing and is capped the same way,
+  // so no query can change the dialog's size.
+  await page.getByTestId('open-workspace-search').fill(prefix);
+  await expect(workspaceRows(page)).toHaveCount(OPEN_WORKSPACE_ROW_CAP);
+  expect(await list.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+  expect(await page.getByTestId('open-workspace-dialog').boundingBox()).toEqual(unfiltered);
+
+  // A query that matches fewer than the cap still leaves the dialog's box
+  // alone — the reserved list area does not shrink to its rows.
+  await page.getByTestId('open-workspace-search').fill(`${prefix} n1`);
+  await expect(workspaceRows(page)).toHaveCount(1);
+  expect(await page.getByTestId('open-workspace-dialog').boundingBox()).toEqual(unfiltered);
+
+  // And a query matching nothing shows the settled empty state, in the same box.
+  await page.getByTestId('open-workspace-search').fill('zzzqqqxxx');
+  await expect(page.getByTestId('open-workspace-empty')).toBeVisible();
+  expect(await page.getByTestId('open-workspace-dialog').boundingBox()).toEqual(unfiltered);
 });
 
 test('E185: Workspace settings deletes the workspace behind an exact-name gate and returns to the start page', async ({
@@ -2064,6 +2171,9 @@ test('E203: New Workspace… and Open Workspace… on the hosted start page land
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await page.getByTestId('start-openWorkspace').click();
   await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
+  // Issue #252: only the newest few rows render, so reach this one the way a
+  // user would — by typing its name.
+  await page.getByTestId('open-workspace-search').fill(name);
   await page.getByTestId(`open-workspace-item-${existing}`).click();
   await expect(page).toHaveURL(new RegExp(`/${await uniqueNameOf(request, ada, existing)}$`));
   await expect(page.getByTestId('docname-workspace')).toContainText(name);
@@ -3127,6 +3237,11 @@ test.describe('PRD 017 deployment policies', () => {
       await openAppMenu(page);
       await page.getByTestId('menu-open-workspace').click();
       await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
+      // Issue #252: search first, so the absence below is the LISTING's doing
+      // and not the row cap's — with the name typed, a listed row would be
+      // among the handful the dialog shows.
+      await page.getByTestId('open-workspace-search').fill(name);
+      await expect(page.getByTestId('open-workspace-empty')).toBeVisible();
       await expect(page.getByTestId(`open-workspace-item-${id}`)).toHaveCount(0);
     } finally {
       await resetDeploymentSettings();
@@ -4346,6 +4461,10 @@ test('E433: the Open Workspace dialog’s badged "My scratchpad" row boots a fre
   // scratch buffer in edit mode at the canonical bare URL.
   await openAppMenu(page);
   await page.getByTestId('menu-open-workspace').click();
+  // Issue #252: the dialog shows only the newest few rows, so type the name to
+  // reach this one. PRD 019 Req 8 keeps other users' scratchpads off the
+  // listing entirely, so this query can only match the caller's own.
+  await page.getByTestId('open-workspace-search').fill(SCRATCHPAD_NAME);
   await expect(page.getByTestId(`open-workspace-scratchpad-${id}`)).toBeVisible();
   await page.getByTestId(`open-workspace-item-${id}`).click();
   await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
