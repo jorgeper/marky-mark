@@ -998,3 +998,146 @@ test('E317: issue #163 — the card copy control copies the body only, a selecti
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   await expect(content).toContainText('```js');
 });
+
+test('E484: issue #269 — every preview language colours in the edit pane and in split, and unknown fences stay plain', async ({
+  page,
+}) => {
+  // SPEC23 §3 (issue #269): issue #122 wired three CodeMirror grammars into
+  // the edit pane, so a python / rust / sql fence stayed flat code text while
+  // the preview coloured it. The edit pane now reuses the preview's own
+  // highlighter (lowlight) over the fence body, so both panes cover the same
+  // language set through the same eight --mm-syn-* tokens. Against the pre-fix
+  // build every language below has zero mm-code-* spans in the editor.
+  const LANGS: Array<[string, string]> = [
+    ['python', 'def greet(name):'],
+    ['bash', 'echo "building"'],
+    ['json', '{ "alpha": 42 }'],
+    ['yaml', 'server: marky'],
+    ['rust', 'fn plus(a: i32) -> i32 { a + 7 }'],
+    ['go', 'func Plus(a int) int { return a + 7 }'],
+    ['java', 'class Demo { int plus() { return 7; } }'],
+    ['sql', 'SELECT name FROM users WHERE id = 7;'],
+    ['c', 'int cplus(int a) { return a + 7; }'],
+    ['cpp', 'auto cppplus(int a) -> int { return a + 7; }'],
+  ];
+  const DOC = [
+    '# Fences',
+    '',
+    ...LANGS.flatMap(([lang, body]) => ['```' + lang, body, '```', '']),
+    // The three degrade-gracefully shapes: no info string, a bogus one, empty.
+    '```',
+    'untagged body line',
+    '```',
+    '',
+    '```notalang',
+    'bogus tagged body line',
+    '```',
+    '',
+    '```',
+    '```',
+    '',
+    'Tail prose.',
+    '',
+  ].join('\n');
+
+  // Any thrown error or console noise from an unknown grammar fails the test.
+  const noise: string[] = [];
+  page.on('pageerror', (e) => noise.push(`pageerror: ${e.message}`));
+  page.on('console', (m) => {
+    if (m.type() === 'error' || m.type() === 'warning') noise.push(`${m.type()}: ${m.text()}`);
+  });
+
+  /** Boot on DOC with a settings patch, landing in edit mode. */
+  const boot = async (patch: Record<string, unknown>) => {
+    await fsWrite(page, '/docs/langs.md', DOC);
+    await page.evaluate((p) => {
+      const raw = window.__mmfs!.read('/config/settings.json');
+      const s = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      window.__mmfs!.write('/config/settings.json', JSON.stringify({ ...s, ...p }));
+    }, patch);
+    await page.reload();
+    await page.goto('/#open=/docs/langs.md');
+    await expect(page.locator('.doc h1, .cm-content').first()).toBeVisible();
+    if ((await page.locator('.cm-content').count()) === 0) await page.keyboard.press('Control+e');
+    await expect(page.locator('.cm-content').first()).toBeVisible();
+  };
+  /** Token spans on the fence line holding `body` (the selection tint aside). */
+  const tokensOn = (pane: Locator, body: string) =>
+    pane.locator('.cm-line', { hasText: body }).first().locator('[class*="mm-code-"]:not(.mm-code-sel)');
+
+  await boot({ splitEdit: false, themeLight: 'crisp' });
+  const editor = page.getByTestId('editor');
+
+  for (const [lang, body] of LANGS) {
+    const tokens = tokensOn(editor, body);
+    await expect(tokens.first(), lang).toBeVisible();
+    // Actually coloured, not merely classed: the token paints a different
+    // colour from the flat code foreground its enclosing .mm-md-code sets.
+    const [tokenColor, flatColor] = await tokens.first().evaluate((el) => [
+      getComputedStyle(el).color,
+      getComputedStyle(el.parentElement!).color,
+    ]);
+    expect(tokenColor, lang).not.toBe(flatColor);
+  }
+
+  // SPEC23 §3 (issue #122): the fence background still paints over the newly
+  // coloured bodies, with the token spans nested inside it.
+  const pyLine = editor.locator('.cm-line', { hasText: 'def greet' }).first();
+  await expect(pyLine.locator('.mm-md-code').first()).toBeVisible();
+  await expect(pyLine.locator('.mm-md-code [class*="mm-code-"]').first()).toBeVisible();
+  expect(
+    await pyLine.locator('.mm-md-code').first().evaluate((el) => getComputedStyle(el).backgroundColor),
+  ).toBe('rgb(246, 248, 250)');
+
+  // Unlabelled, bogus and empty fences: plain code text, nothing lost.
+  for (const body of ['untagged body line', 'bogus tagged body line']) {
+    await expect(editor.locator('.cm-line', { hasText: body }).first()).toBeVisible();
+    await expect(tokensOn(editor, body)).toHaveCount(0);
+  }
+  expect(noise).toEqual([]);
+
+  // The codeSyntax switch still clears every token span in the editor.
+  await openSettings(page, 'general');
+  await page.getByTestId('settings-tab-editor').click();
+  await page.getByTestId('code-syntax').uncheck();
+  await page.getByTestId('settings-close').click();
+  await expect(editor.locator('[class*="mm-code-"]:not(.mm-code-sel)')).toHaveCount(0);
+
+  // --- the edit half of split view colours identically -----------------------
+  await boot({ splitEdit: true, themeLight: 'crisp', codeSyntax: true });
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  const splitEditor = page.locator('.split-editor');
+  for (const [lang, body] of [LANGS[0], LANGS[4], LANGS[7]]) {
+    await expect(tokensOn(splitEditor, body).first(), `split ${lang}`).toBeVisible();
+  }
+  await expect(tokensOn(splitEditor, 'untagged body line')).toHaveCount(0);
+  expect(noise).toEqual([]);
+});
+
+test('E485: issue #269 — typing inside a several-hundred-line python fence stays responsive and stays coloured', async ({
+  page,
+}) => {
+  // SPEC23 §3 (issue #269): highlighting is computed over the editor's visible
+  // ranges and memoized on the slice text, so a fence far longer than a
+  // viewport costs a viewport's work per keystroke, not a document's.
+  const lines: string[] = [];
+  for (let i = 0; i < 600; i++) lines.push(`def fn_${i}(arg):  # row ${i}`, `    return arg + ${i}`);
+  const DOC = ['# Big', '', '```python', ...lines, '```', '', 'Tail prose.', ''].join('\n');
+  await fsWrite(page, '/docs/bigfence.md', DOC);
+  await page.goto('/#open=/docs/bigfence.md');
+  await expect(page.getByTestId('doc')).toBeVisible();
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.mm-code-keyword').first()).toBeVisible();
+
+  const target = editor.locator('.cm-line', { hasText: 'def fn_2(' }).first();
+  await target.click();
+  await page.keyboard.press('End');
+  const started = Date.now();
+  await page.keyboard.type('  # typed');
+  await expect(editor.locator('.cm-line', { hasText: '# typed' }).first()).toBeVisible();
+  // Generous by an order of magnitude over a viewport-scoped re-highlight; a
+  // whole-document one on every keystroke blows straight through it.
+  expect(Date.now() - started).toBeLessThan(5000);
+  await expect(editor.locator('.mm-code-comment').first()).toBeVisible();
+});

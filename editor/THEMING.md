@@ -59,6 +59,13 @@ lock-step. Re-derive it with:
 
 ## Syntax highlighting (fenced code, both panes)
 
+These eight are the whole palette for code in either pane, across every
+language: the preview maps them from `rehype-highlight`'s `hljs-*` classes,
+and the editor maps them onto the same eight `mm-code-*` classes — through
+CodeMirror's nested grammars for `js`/`ts`/`css`/`html`, and through the same
+`lowlight` grammars the preview uses for the rest (issue #269). A theme that
+sets these eight is complete; there is nothing per-language to add.
+
 | Variable | Colors |
 |---|---|
 | `--mm-syn-keyword` | keywords, tags |
