@@ -11,7 +11,7 @@
 
 import { readStoredToken } from '../lib/hostedGate';
 import { resolveMembers, type DirectoryEntry, type MemberEntry, type MemberRef } from '../lib/membership';
-import { buildAppPath, buildScratchPath } from '../lib/hostedPaths';
+import { buildAppPath, buildScratchPath, renamedWorkspaceUrl } from '../lib/hostedPaths';
 import {
   resolvePermissions,
   validateWorkspaceManifest,
@@ -139,6 +139,32 @@ export function createHostedWorkspaceLifecycle(
     return true;
   };
 
+  /**
+   * PRD 024 Req 11+12 (issue #302): land THIS tab on the renamed workspace's
+   * new URL without a reload. The binding takes the name the SERVER stored,
+   * and the address bar is rewritten in place with the PRD 020 Req 6
+   * `replaceState` pattern — so every later rewrite (`reflectDocumentPath`)
+   * and every copy-link (they read `location.pathname` at call time) carries
+   * the new name with no second source of truth for it.
+   *
+   * Req 12 is the guard: a save that left the unique name as it was (the
+   * friendly-name-only save) and a save against a workspace this page is not
+   * bound to (the settings dialog only ever renames the bound one — the
+   * guard says so rather than assuming it) both write neither path nor
+   * fragment. A save the server refused never reaches here at all.
+   */
+  const adoptRenamedBinding = (id: string, uniqueName: string | undefined): void => {
+    const bound = binding.current;
+    if (!bound || bound.id !== id || !uniqueName || uniqueName === bound.uniqueName) return;
+    binding.current = { ...bound, uniqueName };
+    // PRD 020 Req 10+13: a scratch binding is addressed as
+    // `/<owner>/scratchpad[/…]`, which no unique name appears in — the pure
+    // derivation reads that off the visited path and answers null, so the
+    // scratchpad's bar stays exactly where it is.
+    const url = renamedWorkspaceUrl(window.location.pathname, window.location.hash, uniqueName);
+    if (url !== null) window.history.replaceState(null, '', url);
+  };
+
   const getUser = async (id: string): Promise<DirectoryEntry | null> => {
     const user = await json<DirectoryEntry>(await api(`/api/directory/users/${encodeURIComponent(id)}`));
     return user ? withAvatarToken(user) : null;
@@ -225,10 +251,15 @@ export function createHostedWorkspaceLifecycle(
       return api(workspacePath(id, '/manifest')).then(readManifest);
     },
 
-    putManifest(id, manifest) {
+    async putManifest(id, manifest) {
       // PRD 020 Req 4: rename rides the existing manifest PUT — same verb,
       // same server-side validation, same verbatim-refusal contract.
-      return mutate(workspacePath(id, '/manifest'), 'PUT', manifest);
+      const result = await mutate(workspacePath(id, '/manifest'), 'PUT', manifest);
+      // PRD 024 Req 11 (issue #302): a save the server accepted is where the
+      // renaming tab catches up with itself — nothing else in the app knows a
+      // rename happened. A refusal (the taken-name path) returns untouched.
+      if (result.ok) adoptRenamedBinding(id, result.manifest.uniqueName);
+      return result;
     },
 
     addMember(id, member) {

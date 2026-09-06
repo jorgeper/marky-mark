@@ -24,6 +24,7 @@ import { expect, test } from './fixtures';
 import {
   addComment,
   addHighlight,
+  cancelSettings,
   clickClearOfToolbar,
   expectReadyToType,
   landInPreview,
@@ -6299,6 +6300,139 @@ test('E535: renaming to a taken unique name paints the Names section red — bod
   await input.fill(mine.unique);
   await expect(typed).toHaveCount(0);
   expect(await paint()).toEqual(normal);
+});
+
+/**
+ * PRD 024 Reqs 11–13 (issue #302): the tab that renames a workspace lands on
+ * the new canonical URL by itself — no reload, nothing else disturbed. The
+ * first tests to drive the real Names section as a rename (E535 drives it as
+ * a refusal).
+ */
+test('E536: renaming through settings → Names moves the tab to /<new-name>/<file> in place — fragment, open document, dialog and unsaved text all kept', async ({
+  page,
+  request,
+}) => {
+  // PRD 024 Req 11: the binding takes the stored name and the bar is rewritten
+  // with replaceState, so the tab that did the rename is not left holding a URL
+  // that now names nothing.
+  const ada = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, ada, 'e536');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guides/notes.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Notes\n\n## Setup\n\nWords.\n',
+  });
+  const renamed = `${unique}-renamed`;
+
+  await signInTo(page, 'ada', id);
+  // Let the completed sign-in land (its token is what the deep link below
+  // rides on) before revisiting.
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  // The deep link (E400's shape) is what puts a #fragment on the bar to keep.
+  await page.goto(`${HOSTED}/${unique}/guides/notes.md#setup`);
+  await expect(page.getByTestId('docname')).toContainText('notes.md');
+  expect(new URL(page.url()).hash).toBe('#setup');
+
+  // Unsaved editor state the rename must not cost the user. The mode a deep
+  // link lands in is the session's, so settle on preview before toggling —
+  // otherwise the toggle click can land the other way and there is no buffer.
+  await landInPreview(page);
+  await page.getByTestId('edit-toggle').click();
+  const buffer = page.getByTestId('editor').locator('.cm-content');
+  await expect(buffer).toBeVisible();
+  await buffer.click();
+  await page.keyboard.type('typed but never saved');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  await openWorkspaceSettings(page);
+  await expect(page.getByTestId('workspace-names-section')).toBeVisible();
+  // A page-lifetime sentinel: it survives a replaceState and nothing else, so
+  // it is the proof that no navigation or reload happened on this path.
+  await page.evaluate(() => ((window as unknown as { e536?: number }).e536 = 302));
+  const history = await page.evaluate(() => window.history.length);
+
+  await page.getByTestId('workspace-unique-name').fill(renamed);
+  await page.getByTestId('workspace-names-save').click();
+
+  // Req 11: the bar moves to the new name, keeping the file path and the
+  // fragment; the workspace-only segment is the only thing that changed.
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${renamed}/guides/notes.md`);
+  expect(new URL(page.url()).hash).toBe('#setup');
+  expect(await page.evaluate(() => (window as unknown as { e536?: number }).e536)).toBe(302);
+  expect(await page.evaluate(() => window.history.length)).toBe(history);
+
+  // Nothing else about the tab is disturbed: the dialog is still up on the
+  // Workspace tab, the document is still open and active, and the unsaved
+  // text is still in the buffer.
+  await expect(page.getByTestId('workspace-names-section')).toBeVisible();
+  await expect(page.getByTestId('workspace-unique-name')).toHaveValue(renamed);
+  await expect(page.getByTestId('docname')).toContainText('notes.md');
+  await expect(buffer).toContainText('typed but never saved');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+});
+
+/** The display name the server holds — a names save's own proof that it landed. */
+async function storedDisplayName(request: APIRequestContext, token: string, id: string): Promise<string | undefined> {
+  const res = await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return ((await res.json()) as { manifest?: { name?: string } }).manifest?.name;
+}
+
+test('E537: after a rename the tab keeps writing the new name — the next document switch and a reload both land on it, and a display-name-only save moves nothing', async ({
+  page,
+  request,
+}) => {
+  // PRD 024 Req 11–13: the rename updates the page's binding, so the PRD 020
+  // Req 6 rewrites that follow use the new name (the old one is never written
+  // to the bar again), the URL it left behind is a working deep link, and a
+  // save that touches only the display name rewrites nothing at all.
+  const ada = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, ada, 'e537');
+  for (const name of ['notes.md', 'other.md']) {
+    await request.put(`${HOSTED}/api/workspaces/${id}/files/${name}`, {
+      headers: { Authorization: `Bearer ${ada}` },
+      data: `# ${name}\n`,
+    });
+  }
+  const renamed = `${unique}-renamed`;
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'notes.md');
+  expect(new URL(page.url()).pathname).toBe(`/${unique}/notes.md`);
+
+  await openWorkspaceSettings(page);
+  await page.getByTestId('workspace-unique-name').fill(renamed);
+  await page.getByTestId('workspace-names-save').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${renamed}/notes.md`);
+
+  // Req 12: a display-name-only save leaves the bar exactly as it is. Both
+  // waits are what make that assertion mean anything — the bar is read after
+  // the save round trip, never before it: the server holds the new display
+  // name, and the field has left its in-flight `disabled` state, which the
+  // section only leaves once putManifest has returned (after any rewrite it
+  // would have made).
+  const friendly = page.getByTestId('workspace-friendly-name');
+  await friendly.fill('E537 display only');
+  await page.getByTestId('workspace-names-save').click();
+  await expect.poll(() => storedDisplayName(request, ada, id)).toBe('E537 display only');
+  await expect(friendly).toBeEnabled();
+  await expect(page.getByTestId('workspace-names-error')).toHaveCount(0);
+  expect(new URL(page.url()).pathname).toBe(`/${renamed}/notes.md`);
+  expect(new URL(page.url()).hash).toBe('');
+
+  // Req 11: the next document switch writes the NEW name — the old one never
+  // reaches the bar again from this tab.
+  await cancelSettings(page);
+  await openFromSidebar(page, 'other.md');
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${renamed}/other.md`);
+
+  // Req 13: reloading the renaming tab stays put — same workspace, same file,
+  // no not-found page on the way.
+  await page.reload();
+  await expect(page.getByTestId('docname')).toContainText('other.md');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('hosted-not-found')).toHaveCount(0);
+  expect(new URL(page.url()).pathname).toBe(`/${renamed}/other.md`);
 });
 
 test('E494: the hosted home page is the badge and the start actions — no version, alpha, developer/license or repo text', async ({
