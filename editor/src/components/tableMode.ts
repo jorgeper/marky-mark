@@ -1,4 +1,13 @@
-import { EditorState, MapMode, StateEffect, StateField, Transaction, Prec, RangeSetBuilder } from '@codemirror/state';
+import {
+  EditorState,
+  MapMode,
+  StateEffect,
+  StateField,
+  Transaction,
+  Prec,
+  RangeSetBuilder,
+  type Line,
+} from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, keymap, type ViewUpdate } from '@codemirror/view';
 import {
   allTableRegions,
@@ -268,6 +277,12 @@ function collapseSpan(text: string, span: GridSpan): string | null {
   return modelSig(parsed.model) === span.sig ? span.original : serializeCompactTable(parsed.model);
 }
 
+const countNewlines = (s: string): number => {
+  let n = 0;
+  for (let i = s.indexOf('\n'); i !== -1; i = s.indexOf('\n', i + 1)) n++;
+  return n;
+};
+
 /** SPEC40 §2.4: the canonical view — every tracked span collapsed. */
 export function canonicalizeAll(text: string, set: GridSet): string {
   let out = text;
@@ -294,26 +309,21 @@ export function canonicalizeAll(text: string, set: GridSet): string {
  *
  * Identity, and free, when no grid is tracked. Spans are sorted and
  * non-overlapping (`GridSet`), so the walk stops at the first one reaching
- * past `pos`; a span that no longer parses is skipped exactly as
+ * past `line`; a span that no longer parses is skipped exactly as
  * `canonicalizeAll` skips it, keeping the two arithmetics in step.
  */
-export function canonicalLineAt(state: EditorState, pos: number, rawLine: number): number {
+export function canonicalLineAt(state: EditorState, line: Line): number {
   const set = state.field(tableModeField, false);
-  if (!set || set.spans.length === 0) return rawLine;
+  if (!set || set.spans.length === 0) return line.number;
   const text = state.doc.toString();
-  const newlines = (s: string): number => {
-    let n = 0;
-    for (let i = s.indexOf('\n'); i !== -1; i = s.indexOf('\n', i + 1)) n++;
-    return n;
-  };
-  let line = rawLine;
+  let canonical = line.number;
   for (const span of set.spans) {
-    if (span.to > pos) break;
+    if (span.to > line.from) break;
     const collapsed = collapseSpan(text, span);
     if (collapsed === null) continue;
-    line -= newlines(text.slice(span.from, span.to)) - newlines(collapsed);
+    canonical -= countNewlines(text.slice(span.from, span.to)) - countNewlines(collapsed);
   }
-  return line;
+  return canonical;
 }
 
 /** SPEC40 §2.2: grid every untracked valid table (history-transparent). */

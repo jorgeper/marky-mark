@@ -5059,7 +5059,6 @@ test('E493: headings hundreds of lines down carry the copy-link control in both 
   }
 });
 
-
 // --- highlight share links and #hl-<id> landing (PRD 022 Reqs 10–11, issue #233) --
 
 test('E429: the active highlight reveals a left-margin copy-link that copies the file URL plus #hl-<id>, confirming inline', async ({

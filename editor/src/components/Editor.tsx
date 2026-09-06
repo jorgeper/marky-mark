@@ -464,6 +464,11 @@ export interface AnnotationSelection {
 
 /** PRD 020 Req 18: the App-provided half of the heading copy-link gutter. */
 export interface HeadingLinkSeam {
+  /**
+   * The share URL for a 1-based line of the CANONICAL buffer — what
+   * `canonicalText` hands the host, not the raw editor line (issue #260:
+   * a gridded table above the line puts the two apart).
+   */
   getUrl(line: number): string | null;
   copy(text: string): Promise<boolean> | boolean;
 }
@@ -986,6 +991,7 @@ function smartEditButton(title: string, onOpen: (view: EditorView, rect: DOMRect
 class HeadingLinkMarker extends GutterMarker {
   private ctrl: { click(): Promise<void>; dispose(): void } | null = null;
   constructor(
+    /** The raw editor line the marker sits on — its identity for `eq`. */
     private readonly lineNo: number,
     /** Issue #260: the seam's coordinate — the canonical line `lineNo` maps to. */
     private readonly canonicalLine: number,
@@ -1054,7 +1060,7 @@ function headingLinkGutter(seam: MutableRefObject<HeadingLinkSeam | undefined>):
       if (!isHeadingLine(view.state, head)) return null;
       // Issue #260: the seam addresses the CANONICAL buffer, this gutter a raw
       // editor line — a gridded table above the cursor puts them apart.
-      const canonical = canonicalLineAt(view.state, head.from, head.number);
+      const canonical = canonicalLineAt(view.state, head);
       if (cfg.getUrl(canonical) === null) return null;
       return new HeadingLinkMarker(head.number, canonical, seam);
     },

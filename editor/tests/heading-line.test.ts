@@ -52,8 +52,24 @@ describe('PRD 020 Req 18 (issue #260): the gutter heading pre-filter', () => {
   });
 
   test('U1188: it still says no to a fenced `#` line and yes to setext and container-nested headings', () => {
-    const doc = ['# Top', '', '```sh', '# not a heading', '```', '', 'Setext Title', '===', '', '- item', '  ## Listed', ''].join('\n');
+    const doc = [
+      '# Top',
+      '',
+      '```sh',
+      '# not a heading',
+      '```',
+      '',
+      'Setext Title',
+      '===',
+      '',
+      '- item',
+      '  ## Listed',
+      '',
+    ].join('\n');
     const state = fresh(doc);
+    // Parse the whole (tiny) document up front and take the state that carries
+    // the finished tree, so the `false` below tests the SCAN and can never be
+    // the abstain — which answers true whenever the budget runs out.
     ensureSyntaxTree(state, state.doc.length, 5000);
     const s = state.update({}).state;
     const at = (n: number) => isHeadingLine(s, s.doc.line(n));
