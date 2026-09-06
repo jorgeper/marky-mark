@@ -881,6 +881,44 @@ mark.hl.ghost[data-color] {
   opacity: 1;
   pointer-events: auto;
 }
+/* PRD 022 Req 10 (issue #309): the "Link copied" caption must not draw over
+   the paragraph. The heading placement's caption flows inline after the
+   heading text, but here the button sits in the doc's 32px padding column,
+   so an in-flow caption (~70px) ran rightward across the words. The glyph
+   keeps its place (the button's box is unchanged, so E429's position holds)
+   and the caption becomes an opaque pill — elevated surface, chrome
+   border/radius/shadow tokens — hung off the glyph's LEFT edge. It is
+   position: fixed because .doc fills the workspace at every ordinary width
+   (no gutter) and .workspace clips sideways overflow: fixed escapes that
+   clip, so the pill lands over the workspace's left seam / the folder pane
+   instead of being cut off, above the document and panes like .comment-nav
+   (z-index 60, below .overlay). lib/highlightLink.ts sets the coordinates
+   at click time from the button's viewport box (--mm-hl-caption-x is the
+   right inset on the left side, the left inset on the right side) and
+   flips the side when the viewport edge is too close for the pill, so it
+   floats — opaque, legible — over the words rather than off-screen. The
+   caption stays a pseudo-element: no text node enters the anchor space. */
+.doc .mm-heading-link.mm-hl-link.is-copied svg {
+  display: block;
+}
+.doc .mm-heading-link.mm-hl-link.is-copied::after {
+  position: fixed;
+  top: var(--mm-hl-caption-y, 0px);
+  right: var(--mm-hl-caption-x, 0px);
+  transform: translateY(-50%);
+  z-index: 60;
+  padding: var(--mm-space-1) var(--mm-space-3);
+  line-height: 1.2;
+  color: var(--mm-accent);
+  background: var(--mm-bg-elevated);
+  border: 1px solid var(--mm-border);
+  border-radius: var(--mm-radius-pill);
+  box-shadow: var(--mm-card-shadow);
+}
+.doc .mm-heading-link.mm-hl-link.is-copied[data-caption-side='right']::after {
+  right: auto;
+  left: var(--mm-hl-caption-x, 0px);
+}
 /* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 /* ---------- comments pane (PRD 023 §14, issue #284) ---------- */

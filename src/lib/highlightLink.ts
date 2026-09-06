@@ -79,6 +79,7 @@ export function updateHighlightLink(
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation(); // the .doc click delegate treats it as click-away otherwise
+      placeCaption(btn);
       void ctrl.click();
     });
     root.appendChild(btn);
@@ -102,4 +103,36 @@ export function updateHighlightLink(
     }
   }
   g.btn.style.left = `${Math.max(6, clipLeft + 8 - rootRect.left)}px`;
+}
+
+/**
+ * Issue #309: the viewport room the "Link copied" pill needs beside the
+ * glyph — the caption at `--mm-text-caption` plus its padding, border and
+ * gap (styles.css `.mm-hl-link.is-copied::after`), with slack for wider
+ * fonts — and the gap between the glyph and the pill.
+ */
+const CAPTION_ROOM = 100;
+const CAPTION_GAP = 4;
+
+/**
+ * PRD 022 Req 10 (issue #309): aim the confirmation caption for this click.
+ * The pill is position: fixed (it escapes the workspace's sideways clip —
+ * the doc has no gutter to grow into at ordinary widths), so the button
+ * hands it that moment's viewport coordinates: level with the glyph's
+ * centre, hung off the glyph's LEFT edge so the paragraph's text column
+ * stays clear — unless the viewport edge is too close for it, when it goes
+ * right instead, floating opaque over the words rather than off-screen.
+ * Decided per click, against the layout of that moment, since the panes may
+ * have moved since the graft landed.
+ */
+function placeCaption(btn: HTMLElement): void {
+  const b = btn.getBoundingClientRect();
+  const side = b.left - CAPTION_GAP >= CAPTION_ROOM ? 'left' : 'right';
+  const viewportWidth = btn.ownerDocument.documentElement.clientWidth;
+  btn.dataset.captionSide = side;
+  btn.style.setProperty('--mm-hl-caption-y', `${b.top + b.height / 2}px`);
+  btn.style.setProperty(
+    '--mm-hl-caption-x',
+    side === 'left' ? `${viewportWidth - b.left + CAPTION_GAP}px` : `${b.right + CAPTION_GAP}px`
+  );
 }

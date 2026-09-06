@@ -6222,6 +6222,110 @@ test('E429: the active highlight reveals a left-margin copy-link that copies the
   await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
 });
 
+test('E564: the highlight copy-link\'s "Link copied" caption is an opaque pill beside the glyph, clear of the paragraph text', async ({
+  page,
+  request,
+}) => {
+  // PRD 022 Req 10 (issue #309): the confirmation used to flow rightward
+  // from the 32px padding column across the words. Now the glyph stays put
+  // and the caption is an opaque, fixed-position pill hung off its left
+  // edge, so its box ends before the paragraph's content-left edge and stays
+  // in the viewport; with no room on the left it flips to the right side,
+  // still opaque over the words rather than off-screen.
+  const token = await signIn(request, 'ada');
+  const { id } = await pathWorkspace(request, token, 'e564');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/notes.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# Notes\n\nA long body paragraph whose work account phrase gets a highlight, with enough words after it to fill the line.\n',
+  });
+  await stubClipboard(page);
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'notes.md');
+
+  await addHighlight(page, 'work account');
+  const mark = page.locator('mark.hl').first();
+  await mark.click();
+  await expect(page.locator('mark.hl.active').first()).toBeVisible();
+  const link = page.getByTestId('mm-hl-link');
+  await expect(link).toBeVisible();
+
+  // The caption is a ::after pseudo-element (no text node in the anchor
+  // space), so its border box is read from the resolved style: for a fixed
+  // pseudo the insets resolve viewport-relative, width/height are the
+  // content box, and translateY(-50%) centres it on `top`.
+  const measure = () =>
+    link.evaluate((btn) => {
+      const cs = getComputedStyle(btn, '::after');
+      const px = (v: string) => parseFloat(v);
+      const width =
+        px(cs.width) + px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth);
+      const height =
+        px(cs.height) + px(cs.paddingTop) + px(cs.paddingBottom) + px(cs.borderTopWidth) + px(cs.borderBottomWidth);
+      const p = btn.ownerDocument.querySelector('mark.hl')!.closest('p')!;
+      return {
+        content: cs.content,
+        visibility: cs.visibility,
+        background: cs.backgroundColor,
+        left: px(cs.left),
+        right: px(cs.left) + width,
+        top: px(cs.top) - height / 2,
+        bottom: px(cs.top) + height / 2,
+        blockContentLeft: p.getBoundingClientRect().left + px(getComputedStyle(p).paddingLeft),
+        viewport: { w: window.innerWidth, h: window.innerHeight },
+      };
+    });
+  const expectLegiblePill = (m: Awaited<ReturnType<typeof measure>>, glyph: { y: number; height: number }) => {
+    expect(m.content).toBe('"Link copied"');
+    expect(m.visibility).toBe('visible');
+    expect(m.right).toBeGreaterThan(m.left);
+    expect(m.background).not.toBe('rgba(0, 0, 0, 0)'); // opaque surface
+    // Inside the viewport, level with the glyph.
+    expect(m.left).toBeGreaterThanOrEqual(0);
+    expect(m.right).toBeLessThanOrEqual(m.viewport.w);
+    expect(m.top).toBeGreaterThanOrEqual(0);
+    expect(m.bottom).toBeLessThanOrEqual(m.viewport.h);
+    expect(Math.abs((m.top + m.bottom) / 2 - (glyph.y + glyph.height / 2))).toBeLessThan(6);
+  };
+
+  // Default layout (sidebar open): the pill hangs LEFT of the glyph, ending
+  // before the paragraph's content edge, and the glyph does not move.
+  const restBox = (await link.boundingBox())!;
+  await link.click();
+  await expect(link).toHaveAttribute('aria-label', 'Link copied');
+  const left = await measure();
+  expectLegiblePill(left, restBox);
+  expect(left.right).toBeLessThanOrEqual(left.blockContentLeft);
+  const copiedBox = (await link.boundingBox())!;
+  expect(Math.abs(copiedBox.x - restBox.x)).toBeLessThan(1);
+  expect(Math.abs(copiedBox.y - restBox.y)).toBeLessThan(1);
+  await expect(link).toHaveAttribute('aria-label', 'Copy link to highlight', { timeout: 4000 });
+
+  // Squeezed layout: with the sidebar hidden the glyph sits a few px from
+  // the viewport's left edge — no room for the pill there, so it flips to
+  // the right of the glyph, opaque over the words instead of off-screen.
+  await page.getByTestId('folder-collapse').click();
+  // The pane slides out over 180ms and the doc re-centres behind it: wait
+  // for the glyph to come to rest near the edge before aiming the pill.
+  await expect
+    .poll(
+      async () => {
+        const before = (await link.boundingBox())?.x ?? Infinity;
+        await page.waitForTimeout(250);
+        const after = (await link.boundingBox())?.x ?? Infinity;
+        return before < 100 && before === after;
+      },
+      { timeout: 5000 }
+    )
+    .toBe(true);
+  const squeezedBox = (await link.boundingBox())!;
+  await link.click();
+  await expect(link).toHaveAttribute('aria-label', 'Link copied');
+  const right = await measure();
+  expectLegiblePill(right, squeezedBox);
+  expect(right.left).toBeGreaterThanOrEqual(squeezedBox.x + squeezedBox.width);
+  await expect(link).toHaveAttribute('aria-label', 'Copy link to highlight', { timeout: 4000 });
+});
+
 test('E430: visiting a #hl-<id> URL opens the file scrolled to the highlight and flashes it, with no miss notice', async ({
   page,
   request,
