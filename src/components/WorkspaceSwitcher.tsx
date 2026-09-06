@@ -222,15 +222,27 @@ export function NewWorkspaceDialog({
   );
 }
 
-/** The Open Workspace dialog: the whole deployment, filtered as you type. */
+/**
+ * The Open Workspace dialog: the whole deployment, filtered as you type. PRD
+ * 007 Req 11 (issue #312): the signed-in user's most recently used workspaces
+ * lead the list, most-recently-used first, then the rest most recently
+ * modified first.
+ */
 export function OpenWorkspaceDialog({
   lifecycle,
   me,
+  recentIds = [],
   onClose,
 }: {
   lifecycle: WorkspaceLifecycle;
   /** PRD 020 Req 12: the signed-in session, for the identity footer. */
   me?: SessionMe | null;
+  /**
+   * PRD 007 Req 11 (issue #312): the user's recently opened workspace ids,
+   * most recent first — read off the per-user recent-workspaces.json store
+   * the app already keeps. Ids the listing does not contain are ignored.
+   */
+  recentIds?: readonly string[];
   onClose: () => void;
 }) {
   const [all, setAll] = useState<WorkspaceListing[]>([]);
@@ -276,8 +288,10 @@ export function OpenWorkspaceDialog({
 
   // PRD 007 Req 10/11 (issue #252): at most OPEN_WORKSPACE_ROW_CAP rows — the
   // fixed-height list area's worth — chosen by the pure seam, never sliced in
-  // the JSX below.
-  const shown = visibleWorkspaces(query, all);
+  // the JSX below. Issue #312: the seam puts the user's recently used
+  // workspaces first, so they fill the visible rows ahead of merely
+  // recently modified ones.
+  const shown = visibleWorkspaces(query, all, recentIds);
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

@@ -111,6 +111,7 @@ import {
 import { UpdateDialog } from './components/UpdateDialog';
 import { parsePositions, positionFor, rememberPosition, serializePositions, type PositionStore } from './lib/readingPositions';
 import { clearRecent, parseRecent, recentMenuEntries, rememberRecent, removeRecent, serializeRecent, type RecentStore } from './lib/recentFiles';
+import { recentWorkspaceIds } from './lib/hostedPaths';
 import { ancestorsOf, isMarkdownFile, serializeFolderState, visibleEntries, type DirEntry } from './lib/folderTree';
 import {
   addWorkspaceFolder,
@@ -8691,7 +8692,15 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         <NewWorkspaceDialog lifecycle={platform.workspaces} onClose={() => setManagedWsDialog('none')} />
       )}
       {platform.workspaces && managedWsDialog === 'open' && (
-        <OpenWorkspaceDialog lifecycle={platform.workspaces} me={sessionMe} onClose={() => setManagedWsDialog('none')} />
+        // PRD 007 Req 11 (issue #312): the dialog orders by the user's recent
+        // opens — the same per-user recent-workspaces.json store every hosted
+        // open already touches through commitRecentWs, read as manifest ids.
+        <OpenWorkspaceDialog
+          lifecycle={platform.workspaces}
+          me={sessionMe}
+          recentIds={recentWorkspaceIds(recentWs)}
+          onClose={() => setManagedWsDialog('none')}
+        />
       )}
 
       {/* PRD 017 Req 13: the deployment-admin Management view, mounted on

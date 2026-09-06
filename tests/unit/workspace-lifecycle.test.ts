@@ -19,6 +19,7 @@ import {
   formatOwnerNames,
   isUniqueNameError,
   noAccessMessage,
+  orderByRecentUse,
   validateNewWorkspaceForm,
   visibleWorkspaces,
   workspaceRowBadge,
@@ -394,5 +395,62 @@ describe('Issue #245: which create failures the unique name earned', () => {
     expect(isUniqueNameError('')).toBe(false);
     // A name in the text is not enough — the refusal has to be about it.
     expect(isUniqueNameError('The unique name service is unavailable.')).toBe(false);
+  });
+});
+
+// PRD 007 Req 11 (issue #312): the dialog used to order by the server's
+// `modified` stamp alone — who last edited, not who last opened. The seam now
+// puts the caller's recently used workspaces first (the per-user MRU list's
+// order), then the rest newest-modified; without ids it is byte-for-byte the
+// old order, which U286 / U287 / U1196 keep pinning.
+describe('PRD 007 Req 11 (issue #312): recently used workspaces lead the Open Workspace list', () => {
+  const at = (id: string, day: number): WorkspaceListing =>
+    listing({ id, name: `Workspace ${id}`, modified: `2026-08-${String(day).padStart(2, '0')}T00:00:00.000Z` });
+  const many = [at('a', 1), at('h', 8), at('c', 3), at('f', 6), at('b', 2), at('g', 7), at('d', 4), at('e', 5)];
+
+  it('U1265: recently used ids come first in the given order, then the rest most recently modified', () => {
+    expect(orderByRecentUse(many, ['c', 'a']).map((w) => w.id)).toEqual(['c', 'a', 'h', 'g', 'f', 'e', 'd', 'b']);
+    expect(filterWorkspaces('', many, ['c', 'a']).map((w) => w.id)).toEqual(['c', 'a', 'h', 'g', 'f', 'e', 'd', 'b']);
+    // A repeated id counts at its first (most recent) position, once.
+    expect(orderByRecentUse(many, ['b', 'c', 'b']).map((w) => w.id)).toEqual(['b', 'c', 'h', 'g', 'f', 'e', 'd', 'a']);
+    // No recency data: exactly today's newest-modified order, and the input is untouched.
+    const before = many.map((w) => w.id);
+    expect(orderByRecentUse(many).map((w) => w.id)).toEqual(['h', 'g', 'f', 'e', 'd', 'c', 'b', 'a']);
+    expect(orderByRecentUse(many, [])).toEqual(filterWorkspaces('', many));
+    expect(many.map((w) => w.id)).toEqual(before);
+  });
+
+  it('U1266: a recent id the listing does not contain is skipped without a row or a gap', () => {
+    expect(orderByRecentUse(many, ['zzz', 'd', 'deleted']).map((w) => w.id)).toEqual([
+      'd', 'h', 'g', 'f', 'e', 'c', 'b', 'a',
+    ]);
+    expect(visibleWorkspaces('', many, ['gone']).map((w) => w.id)).toEqual(['h', 'g', 'f', 'e', 'd']);
+    expect(orderByRecentUse([], ['a'])).toEqual([]);
+  });
+
+  it('U1267: recency-first ordering is applied before the row cap, so a used-but-old workspace stays visible', () => {
+    // 'a' (oldest modified) was opened most recently; 'b' after it. Both make
+    // the five rows, pushing the merely newest-modified 'e' and 'd' off.
+    expect(visibleWorkspaces('', many, ['a', 'b']).map((w) => w.id)).toEqual(['a', 'b', 'h', 'g', 'f']);
+    expect(visibleWorkspaces('', many, ['a', 'b'])).toHaveLength(OPEN_WORKSPACE_ROW_CAP);
+    expect(visibleWorkspaces('', many, ['a', 'b']).map((w) => w.id)).not.toContain('e');
+  });
+
+  it('U1268: with a query the match set is unchanged and, among equal scores, recent use precedes modified', () => {
+    const named = [
+      listing({ id: 'a', name: 'Design docs', modified: '2026-08-01T00:00:00.000Z' }),
+      listing({ id: 'b', name: 'Release notes', modified: '2026-08-05T00:00:00.000Z' }),
+      listing({ id: 'c', name: 'Design system', modified: '2026-08-03T00:00:00.000Z', access: false }),
+    ];
+    // Same matches as U287, whatever the recency data says.
+    expect(filterWorkspaces('desgn', named, ['a']).map((w) => w.id).sort()).toEqual(['a', 'c']);
+    expect(filterWorkspaces('rel', named, ['a', 'c']).map((w) => w.id)).toEqual(['b']);
+    expect(filterWorkspaces('zzz', named, ['a', 'b', 'c'])).toEqual([]);
+    // "Design" scores the same on both; today 'c' (newer) leads, a recent
+    // open of 'a' puts it first; and a score difference still wins over use.
+    expect(filterWorkspaces('design', named).map((w) => w.id)).toEqual(['c', 'a']);
+    expect(filterWorkspaces('design', named, ['a']).map((w) => w.id)).toEqual(['a', 'c']);
+    expect(visibleWorkspaces('design', named, ['a']).map((w) => w.id)).toEqual(['a', 'c']);
+    expect(filterWorkspaces('design docs', named, ['c']).map((w) => w.id)).toEqual(['a']);
   });
 });

@@ -10,6 +10,7 @@ import {
   manifestSettingsToWorkspaceFile,
   normalizeHostedPath,
   parseHostedPath,
+  recentWorkspaceIds,
   workspaceFileToManifestSettings,
   workspaceIdFromSearch,
   LEGACY_SCRATCH_SEGMENT,
@@ -362,5 +363,23 @@ describe('PRD 024 Req 11 the renaming tab’s new URL', () => {
     expect(renamedWorkspaceUrl('/scratchpad', '', 'field-notes')).toBeNull();
     expect(renamedWorkspaceUrl('/ada/scratchpad', '', 'field-notes')).toBeNull();
     expect(renamedWorkspaceUrl('/ada/scratchpad/notes.md', '#top', 'field-notes')).toBeNull();
+  });
+});
+
+describe('PRD 007 Req 11 (issue #312): the recent store’s workspace ids for the Open dialog', () => {
+  it('U1269: recentWorkspaceIds keeps manifest paths only, most recent first, and drops every other path', () => {
+    const store = {
+      version: 1 as const,
+      entries: [
+        { path: hostedWorkspaceFilePath('ws-newest'), at: '2026-09-03T00:00:00.000Z' },
+        { path: '/w/ws-doc/files/notes/a.md', at: '2026-09-02T00:00:00.000Z' },
+        { path: '/config/recent-workspaces.json', at: '2026-09-02T00:00:00.000Z' },
+        { path: '/Users/me/Projects/notes.marky-workspace', at: '2026-09-01T00:00:00.000Z' },
+        { path: '/w/ws-older/workspace.marky-workspace', at: '2026-08-31T00:00:00.000Z' },
+        { path: '/w/', at: '2026-08-30T00:00:00.000Z' },
+      ],
+    };
+    expect(recentWorkspaceIds(store)).toEqual(['ws-newest', 'ws-older']);
+    expect(recentWorkspaceIds({ version: 1, entries: [] })).toEqual([]);
   });
 });

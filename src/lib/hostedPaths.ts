@@ -20,6 +20,7 @@
 
 import { WORKSPACE_FILE_EXT } from './workspace.ts';
 import { uniqueNameKey } from './workspaceNames.ts';
+import type { RecentStore } from './recentFiles.ts';
 
 /** The virtual config directory: the per-user, workspace-independent blobs. */
 export const HOSTED_CONFIG_DIR = '/config';
@@ -84,6 +85,23 @@ export function parseHostedPath(path: string): HostedTarget | null {
   if (rest.length === 1 && rest[0] === `workspace${WORKSPACE_FILE_EXT}`) return { kind: 'manifest', id };
   if (rest[0] !== HOSTED_FILES_DIR) return null;
   return { kind: 'workspace', id, rel: rest.slice(1).join('/') };
+}
+
+/**
+ * PRD 007 Req 11 (issue #312): the workspace ids in a recent store, most
+ * recent first. Hosted opens remember the virtual manifest path
+ * (`/w/<id>/workspace.marky-workspace`) in the per-user recent-workspaces.json,
+ * so the ids the Open dialog orders by are read straight off those entries;
+ * anything that is not a manifest path (a document, a `/config/…` blob, a
+ * desktop path that somehow roamed) is dropped rather than misread as an id.
+ */
+export function recentWorkspaceIds(store: RecentStore): string[] {
+  const ids: string[] = [];
+  for (const entry of store.entries) {
+    const target = parseHostedPath(entry.path);
+    if (target?.kind === 'manifest') ids.push(target.id);
+  }
+  return ids;
 }
 
 const encodeRel = (rel: string): string => rel.split('/').map(encodeURIComponent).join('/');

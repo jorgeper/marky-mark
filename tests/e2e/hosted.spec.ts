@@ -1370,6 +1370,82 @@ test('E504: the Open Workspace dialog lists at most the newest few workspaces, n
   expect(await page.getByTestId('open-workspace-dialog').boundingBox()).toEqual(unfiltered);
 });
 
+test('E550: the Open Workspace dialog lists the signed-in user’s most recently opened workspaces first, and opening another moves it to the top', async ({
+  page,
+  request,
+}) => {
+  // PRD 007 Req 11 (issue #312): the dialog used to order by `modified` alone
+  // — who last edited — so a workspace the user opens daily could hide behind
+  // five that other people touched. Now the user's own recent opens (the
+  // per-user recent-workspaces.json MRU list every hosted open writes) lead,
+  // and the rest follow newest-modified. The hosted lane shares the seeded
+  // users across parallel workers and that store is a read-modify-write
+  // blob, so this test signs in as alan — whom the suite otherwise rarely
+  // opens workspaces as — filters to its own prefix, and asserts in the page
+  // that performed each open.
+  const w = test.info().workerIndex;
+  const alan = await signIn(request, 'alan');
+  const headers = { Authorization: `Bearer ${alan}` };
+  const prefix = `E550 wombat w${w}`;
+  const ids: string[] = [];
+  for (let i = 0; i < OPEN_WORKSPACE_ROW_CAP + 2; i++) ids.push(await createWorkspace(request, alan, `${prefix} n${i}`));
+  const [oldest, second] = ids;
+
+  // Today's order for this test's rows — the server listing sorted newest
+  // modified first, exactly as the seam does without recency data — so the
+  // "rest" expectation cannot drift on a same-second `modified` tie.
+  const listed = (await (await request.get(`${HOSTED}/api/workspaces`, { headers })).json()) as {
+    id: string;
+    modified: string;
+  }[];
+  const byModified = listed
+    .filter((r) => ids.includes(r.id))
+    .sort((a, b) => (a.modified === b.modified ? 0 : a.modified > b.modified ? -1 : 1))
+    .map((r) => r.id);
+  expect(byModified).toHaveLength(ids.length);
+
+  const rowIds = () =>
+    workspaceRows(page).evaluateAll((els) =>
+      els.map((el) => el.getAttribute('data-testid')!.replace('open-workspace-item-', '')),
+    );
+  const openDialogOnPrefix = async () => {
+    await openAppMenu(page);
+    await page.getByTestId('menu-open-workspace').click();
+    await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
+    await expect(page.getByTestId('open-workspace-loading')).toHaveCount(0);
+    await page.getByTestId('open-workspace-search').fill(prefix);
+    await expect(workspaceRows(page)).toHaveCount(OPEN_WORKSPACE_ROW_CAP);
+  };
+
+  // Open the OLDEST-created one by URL — the boot route lands it through the
+  // same openWorkspaceFromPath every other route uses, touching the store.
+  await signInTo(page, 'alan', oldest);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await openDialogOnPrefix();
+  await expect
+    .poll(rowIds)
+    .toEqual([oldest, ...byModified.filter((id) => id !== oldest)].slice(0, OPEN_WORKSPACE_ROW_CAP));
+
+  // The touch is persisted per user before the next boot reads it back.
+  await expect
+    .poll(async () => {
+      const res = await request.get(`${HOSTED}/api/me/files/recent-workspaces.json`, { headers });
+      return res.status() === 200 ? ((await res.json()) as { content: string }).content : '';
+    })
+    .toContain(oldest);
+
+  // Opening another one — a plain `/<unique-name>` visit in the still
+  // signed-in page — moves it above the first; the rest stay newest-modified.
+  await page.goto(`${HOSTED}/${encodeURIComponent(await uniqueNameOf(request, alan, second))}`);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await openDialogOnPrefix();
+  await expect
+    .poll(rowIds)
+    .toEqual(
+      [second, oldest, ...byModified.filter((id) => id !== oldest && id !== second)].slice(0, OPEN_WORKSPACE_ROW_CAP),
+    );
+});
+
 test('E185: Workspace settings deletes the workspace behind an exact-name gate and returns to the start page', async ({
   page,
   request,

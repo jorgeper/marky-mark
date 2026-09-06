@@ -122,13 +122,46 @@ function newestFirst(a: WorkspaceListing, b: WorkspaceListing): number {
 }
 
 /**
+ * PRD 007 Req 11 (issue #312): the Open dialog's base order — the signed-in
+ * user's recently USED workspaces first, in the order `recentIds` gives them
+ * (the per-user recent-workspaces.json is already an MRU list: front is the
+ * last opened), then every other workspace most recently MODIFIED first. Ids
+ * with no row in the listing (deleted, or no longer listed) are skipped; a
+ * repeated id counts at its first position. With no recency data the result
+ * is exactly the newest-modified order, so every caller without ids is
+ * unchanged.
+ */
+export function orderByRecentUse(
+  items: readonly WorkspaceListing[],
+  recentIds: readonly string[] = [],
+): WorkspaceListing[] {
+  const byModified = [...items].sort(newestFirst);
+  if (recentIds.length === 0) return byModified;
+  const rank = new Map<string, number>();
+  recentIds.forEach((id, i) => {
+    if (!rank.has(id)) rank.set(id, i);
+  });
+  const used = byModified.filter((w) => rank.has(w.id)).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+  const rest = byModified.filter((w) => !rank.has(w.id));
+  return [...used, ...rest];
+}
+
+/**
  * PRD 007 Req 11: search-as-you-type over the already-fetched list — the same
  * `fuzzyFilter` the TOC's heading search uses, so no keystroke costs a round
  * trip.
- * An empty query keeps every workspace, most recently modified first.
+ * An empty query keeps every workspace: the caller's recently used ones first
+ * (issue #312, `recentIds` most-recent-first), then most recently modified
+ * first. With a query the matches rank by fuzzy score, then that same order —
+ * `fuzzyFilter` is stable on input position, so pre-ordering the input is the
+ * whole tie-break.
  */
-export function filterWorkspaces(query: string, items: readonly WorkspaceListing[]): WorkspaceListing[] {
-  return fuzzyFilter(query, [...items].sort(newestFirst), (w) => w.name);
+export function filterWorkspaces(
+  query: string,
+  items: readonly WorkspaceListing[],
+  recentIds: readonly string[] = [],
+): WorkspaceListing[] {
+  return fuzzyFilter(query, orderByRecentUse(items, recentIds), (w) => w.name);
 }
 
 /**
@@ -143,13 +176,21 @@ export const OPEN_WORKSPACE_ROW_CAP = 5;
 /**
  * PRD 007 Req 10/11 (issue #252): the rows the Open Workspace dialog actually
  * renders — the filtered listing (whole deployment, search-as-you-type) cut to
- * OPEN_WORKSPACE_ROW_CAP. With no query that is the most recently modified
- * few; with one it is the best matches, recency breaking ties, so a search
- * never changes the dialog's height. Kept apart from `filterWorkspaces`, which
- * still answers the complete filtered list.
+ * OPEN_WORKSPACE_ROW_CAP. With no query that is the caller's most recently
+ * used workspaces (PRD 007 Req 11, issue #312: `recentIds` most-recent-first)
+ * followed by the most recently modified few — the cap is applied AFTER the
+ * ordering, so a workspace the user opens daily is never hidden behind five
+ * that other people edited; with a query it is the best matches, recent use
+ * then modified breaking ties, so a search never changes the dialog's height.
+ * Kept apart from `filterWorkspaces`, which still answers the complete
+ * filtered list.
  */
-export function visibleWorkspaces(query: string, items: readonly WorkspaceListing[]): WorkspaceListing[] {
-  return filterWorkspaces(query, items).slice(0, OPEN_WORKSPACE_ROW_CAP);
+export function visibleWorkspaces(
+  query: string,
+  items: readonly WorkspaceListing[],
+  recentIds: readonly string[] = [],
+): WorkspaceListing[] {
+  return filterWorkspaces(query, items, recentIds).slice(0, OPEN_WORKSPACE_ROW_CAP);
 }
 
 /**
