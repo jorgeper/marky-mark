@@ -6648,7 +6648,11 @@ export default function App() {
       resolved: false,
       thread: [],
     };
-    setComments((prev) => [...prev, entry]);
+    // A second insert while a composer is open abandons the first one — its
+    // still-empty record goes with it (PRD 022 Req 1's no-abandoned-entry
+    // rule, the cancel path's semantics).
+    const staleCid = pending?.cid ?? null;
+    setComments((prev) => [...prev.filter((c) => c.id !== staleCid), entry]);
     setActiveId(null);
     setPending({ start, end, cid: entry.id });
     setDraft('');
@@ -6690,14 +6694,19 @@ export default function App() {
         authoringFrozen,
         canWrite: docGrants.commentWrite,
       },
-      source: canonicalOf(buffer),
+      // The editor's own doc text and offsets (grid form included) — its
+      // visible text is what the rendered cache is matched against, and a
+      // range inside a table grid simply fails to map (disabled, never
+      // mis-anchored). Caret-mark hits arrive pre-resolved (idsAtHead).
+      source: sel.text,
       rendered: editRenderedTextRef.current,
-      selFrom: sel.canonFrom,
-      selTo: sel.canonTo,
-      head: sel.canonHead,
-      marks: editorHighlights ?? [],
+      selFrom: sel.from,
+      selTo: sel.to,
+      head: sel.head,
+      idsAtCaret: sel.idsAtHead,
       records: comments,
     });
+    (window as unknown as { __mmAnnotProbe?: unknown }).__mmAnnotProbe = { sel: { from: sel.from, to: sel.to, head: sel.head, ids: sel.idsAtHead, textLen: sel.text.length }, model, renderedLen: editRenderedTextRef.current.length };
     annotationModelRef.current = model;
     return model;
   };
@@ -6739,9 +6748,21 @@ export default function App() {
       previewAnnotation(kind);
       return;
     }
+    // The split live preview is a preview surface too: a selection made there
+    // (selInfo, rendered-DOM offsets) wins over the editor's caret context —
+    // its anchors come straight from the rendered DOM, like full preview.
+    if (settings.splitEdit && selInfo) {
+      previewAnnotation(kind);
+      return;
+    }
     const h = smartEditRef.current;
     if (!h) return;
-    const model = resolveAnnotationModel(h.annotationSelection());
+    const sel = h.annotationSelection();
+    // In split mode an UNFOCUSED editor's caret is stale context (the user
+    // is over in the preview — its selection may not have landed as selInfo
+    // yet): silent no-op rather than an anchor the user is not looking at.
+    if (settings.splitEdit && !sel.focused) return;
+    const model = resolveAnnotationModel(sel);
     if (!model.show) return;
     if (kind === 'comment') {
       if (model.anchor && model.insertCommentEnabled) {

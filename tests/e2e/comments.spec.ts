@@ -1,7 +1,9 @@
 import { expect, test } from './fixtures';
 import {
   addComment,
-  clickClearOfToolbar,
+  addHighlight,
+  caretInto,
+  dragAcrossText,
   freshApp,
   freshNativeMenuApp,
   fsRead,
@@ -22,6 +24,7 @@ import {
   selectPhrase,
   selectPhraseInPane,
   selectSpan,
+  smartEditAnnotation,
   stableBox,
   waitForSidecar,
   WELCOME,
@@ -60,11 +63,14 @@ const NEWER_TRAILER = `
 `;
 const NEWER_PATH = '/docs/from-the-future.md';
 
-test('E7: select text → Add comment → highlight in DOM and card in panel with the body text', async ({ page }) => {
+// Rewritten for issue #286 (PRD 023 §12): the selection popup is retired —
+// preview authoring is the Insert Comment hotkey over the selection.
+test('E7: select text → Insert Comment hotkey → highlight in DOM and card in panel with the body text', async ({ page }) => {
   await selectPhrase(page, PHRASE);
-  await expect(page.getByTestId('marker-popup')).toBeVisible();
-  await page.getByTestId('add-note-btn').click();
-  await expect(page.getByTestId('composer')).toBeVisible();
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
   await page.getByTestId('composer-input').fill('First note');
   await page.getByTestId('composer-submit').click();
 
@@ -130,7 +136,11 @@ test('E10: a comment spanning two blocks highlights in both; deleting it (confir
 }) => {
   // From inside the "Reading" paragraph into the blockquote further down.
   await selectSpan(page, 'GitHub-flavored markdown', 'A task list');
-  await page.getByTestId('add-note-btn').click();
+  // Issue #286: the popup's add-note is the Insert Comment hotkey now.
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
   await page.getByTestId('composer-input').fill('Spanning comment');
   await page.getByTestId('composer-submit').click();
 
@@ -359,13 +369,15 @@ test('E36: disabling comments hides every comment affordance non-destructively; 
   await expect(page.getByTestId('panel')).toHaveCount(0);
   await expect(page.getByTestId('comments-toggle')).toHaveCount(0);
 
-  // Selecting text produces no floating button, and typing starts no composer.
+  // Issue #286: the annotation hotkeys are inert while the switch is off —
+  // a selection plus Mod+Alt+M / Mod+Alt+H starts nothing at all.
   await selectPhrase(page, PHRASE);
   await page.waitForTimeout(200);
-  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
-  await page.keyboard.press('x');
+  await page.keyboard.press('Control+Alt+M');
+  await page.keyboard.press('Control+Alt+H');
   await page.waitForTimeout(150);
   await expect(page.getByTestId('composer')).toHaveCount(0);
+  await expect(page.locator('mark.hl')).toHaveCount(0);
 
   // The stored comment was never touched.
   expect(await fsRead(page, WELCOME_SIDECAR)).toContain('still here');
@@ -378,30 +390,25 @@ test('E36: disabling comments hides every comment affordance non-destructively; 
   await expect(page.getByTestId('comments-toggle')).toBeVisible();
 });
 
-test('E37: typing over a selection opens the composer seeded with the keystroke; off → button only', async ({
+// Rewritten for issue #286 (PRD 023 §6): type-to-comment is retired with the
+// selection popup — typing over a selection is plain typing, never a
+// composer, and the Settings row that governed it is gone.
+test('E37: issue #286 — typing over a selection opens nothing; no popup and no type-to-comment setting exist', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);
-  await expect(page.getByTestId('marker-popup')).toBeVisible();
+  await page.waitForTimeout(200);
+  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
+  await expect(page.getByTestId('add-note-btn')).toHaveCount(0);
   await page.keyboard.press('x');
-  await expect(page.getByTestId('composer')).toBeVisible();
-  await expect(page.getByTestId('composer-input')).toHaveValue('x');
-  await expect(page.getByTestId('composer-input')).toBeFocused();
-  // The caret sits after the seed: continuing to type appends.
-  await page.keyboard.type('yz');
-  await expect(page.getByTestId('composer-input')).toHaveValue('xyz');
-  await page.getByTestId('composer-submit').click();
-  await expect(page.getByTestId('card-body')).toHaveText('xyz');
-
-  // Setting off → typing over a selection does nothing; the button still works.
-  await openSettings(page, 'general');
-  await page.getByTestId('set-type-to-comment').uncheck();
-  await page.getByTestId('settings-close').click();
-  await selectPhrase(page, 'GitHub-flavored markdown');
-  await expect(page.getByTestId('marker-popup')).toBeVisible();
-  await page.keyboard.press('q');
   await page.waitForTimeout(150);
   await expect(page.getByTestId('composer')).toHaveCount(0);
+
+  // The retired setting's row is gone from Settings → General.
+  await openSettings(page, 'general');
+  await expect(page.getByTestId('set-comments-enabled')).toBeVisible();
+  await expect(page.getByTestId('set-type-to-comment')).toHaveCount(0);
+  await page.getByTestId('settings-close').click();
 });
 
 test('E38: resolving defaults to a faint ghost in place; the toggle lives in Settings, not the panel', async ({
@@ -598,9 +605,12 @@ test('E129: split edit — highlights + panel in the live pane, comment from a s
     }
   });
   await selectPhraseInPane(page, '[data-testid="split-preview"] .doc', 'renders GitHub-flavored markdown');
-  await expect(page.getByTestId('marker-popup')).toBeVisible();
-  await clickClearOfToolbar(page.getByTestId('add-note-btn'));
-  await expect(page.getByTestId('composer')).toBeVisible();
+  // Issue #286: a split live-preview selection authors through the Insert
+  // Comment hotkey (the popup is gone; the selection still wins).
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
   await page.getByTestId('composer-input').fill('From the split pane');
   await page.getByTestId('composer-submit').click();
   await expect(page.getByTestId('comment-card')).toHaveCount(2);
@@ -641,8 +651,10 @@ test('E130: comment boxes keep a clear right-edge gap — every surface and stat
 
   // Open composer.
   await selectPhrase(page, 'markdown itself stays untouched');
-  await page.getByTestId('add-note-btn').click();
-  await expect(page.getByTestId('composer')).toBeVisible();
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
   await expect.poll(() => gapOf('composer')).toBeGreaterThanOrEqual(16);
   await page.keyboard.press('Escape');
 
@@ -761,12 +773,13 @@ test('E138: a newer-major trailer — every authoring route is closed and the in
   await expect(page.getByTestId('notice')).toHaveCount(0);
   expect(await indication.evaluate((el) => el.className)).not.toContain('mm-notice');
 
-  // Req 15: selecting text offers no Add comment button…
+  // Req 15 (issue #286): the annotation hotkeys are inert over a selection…
   await selectPhrase(page, 'paragraph');
-  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
-  // …and type-to-comment opens no composer.
-  await page.keyboard.type('x');
+  await page.waitForTimeout(200);
+  await page.keyboard.press('Control+Alt+M');
+  await page.keyboard.press('Control+Alt+H');
   await expect(page.getByTestId('composer')).toHaveCount(0);
+  await expect(page.locator('mark.hl')).toHaveCount(0);
   await expect(page.getByTestId('composer-input')).toHaveCount(0);
   await expect(page.getByTestId('panel')).toHaveCount(0);
 
@@ -818,7 +831,11 @@ test('E139: per store — an unreadable trailer beside a readable sidecar shows 
     await expect(card.getByTestId(id)).toHaveCount(0);
   }
   await selectPhrase(page, 'reads perfectly');
-  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
+  await page.waitForTimeout(200);
+  await page.keyboard.press('Control+Alt+M');
+  await page.keyboard.press('Control+Alt+H');
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+  await expect(page.locator('mark.hl')).toHaveCount(1); // the readable store's one mark
 
   // Req 14: a save leaves the trailer byte-identical and never touches the
   // sidecar — no migration in either direction.
@@ -880,12 +897,9 @@ test('E140: a frozen document’s resolved cards are read-only too, inside the c
 test('E151: Mod+Shift+C toggles the comments pane; the selection affordances are independent of it', async ({
   page,
 }) => {
-  // Closed by default (PRD 023 §15) — and the closed pane hides no authoring.
+  // Closed by default (PRD 023 §15).
   await expect(page.getByTestId('comments-pane')).toHaveCount(0);
   await expect(page.getByTestId('comments-expand')).toBeVisible();
-  await selectPhrase(page, PHRASE);
-  await expect(page.getByTestId('marker-popup')).toBeVisible();
-  await page.keyboard.press('Escape');
 
   // The hotkey opens the pane; toolbar button and chevron agree on state.
   await page.keyboard.press('Control+Shift+C');
@@ -893,32 +907,57 @@ test('E151: Mod+Shift+C toggles the comments pane; the selection affordances are
   await expect(page.getByTestId('comments-collapse')).toBeVisible();
   await expect(page.getByTestId('comments-toggle')).toHaveClass(/(^|\s)on(\s|$)/);
 
-  // …and closes it again; the popup is still offered afterwards.
+  // …and closes it again; authoring stays offered with the pane closed
+  // (issue #286: proven by opening a composer via the hotkey — it lands in
+  // the auto-opened pane, E437 — then cancelling leaves no record behind).
   await page.keyboard.press('Control+Shift+C');
   await expect(page.getByTestId('comments-pane')).toHaveCount(0);
   await expect(page.getByTestId('comments-toggle')).not.toHaveClass(/(^|\s)on(\s|$)/);
   await selectPhrase(page, PHRASE);
-  await expect(page.getByTestId('marker-popup')).toBeVisible();
-});
-
-test('E152: an open composer suppresses a second Add-comment button until it closes', async ({ page }) => {
-  await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('add-note-btn'));
-  await expect(page.getByTestId('composer')).toBeVisible();
-
-  // A new selection while the composer is pending offers no second button.
-  await selectPhrase(page, 'GitHub-flavored markdown');
-  await page.waitForTimeout(200);
-  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
-
-  // Cancel closes the composer — the same selection offers the button again.
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('composer')).toHaveCount(0);
-  await selectPhrase(page, 'GitHub-flavored markdown');
-  await expect(page.getByTestId('marker-popup')).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
 });
 
-test('E153: plain edit mode reaches a comment — the affordance rides the SPEC25 carry and anchors the selected phrase', async ({
+// Rewritten for issue #286: there is no second button to suppress any more —
+// instead a second Insert Comment while a composer is pending REPLACES it,
+// taking the first still-empty record with it (PRD 022 Req 1's
+// no-abandoned-entry rule). One composer, one record, always.
+test('E152: a second Insert Comment replaces the open composer — never two composers or a stranded empty record', async ({ page }) => {
+  await selectPhrase(page, PHRASE);
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
+  await page.getByTestId('composer-input').fill('first draft');
+
+  // Blur the composer (a focused text field keeps its own keys), select
+  // elsewhere, insert again: the composer swaps to the new, empty one.
+  await page.getByTestId('doc').locator('h1').click();
+  await selectPhrase(page, 'GitHub-flavored markdown');
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer-input')).toHaveValue('', { timeout: 500 });
+  }).toPass({ timeout: 5000 });
+  await expect(page.getByTestId('composer')).toHaveCount(1);
+
+  await page.getByTestId('composer-input').fill('the one that lands');
+  await page.getByTestId('composer-submit').click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('card-body')).toHaveText('the one that lands');
+  // The abandoned first record never reached the store.
+  await waitForSidecar(page, (s) => !!s && s.includes('the one that lands'));
+  const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
+  expect(sidecar.comments).toHaveLength(1);
+});
+
+// Rewritten for issue #286 (PRD 023 §8): the SPEC25 comment carry and the
+// edit-mode popup are gone — plain edit authors through the Smart Edit menu.
+test('E153: plain edit mode reaches a comment — Smart Edit ▸ Insert Comment anchors the phrase without switching modes', async ({
   page,
 }) => {
   const AFFORD_PATH = '/docs/edit-affordance.md';
@@ -932,28 +971,27 @@ test('E153: plain edit mode reaches a comment — the affordance rides the SPEC2
   if (await page.getByTestId('split-preview').count()) await page.keyboard.press('Control+\\');
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
 
-  // No selection → no affordance.
-  await expect(page.getByTestId('marker-popup-edit')).toHaveCount(0);
-
   // Select the whole middle paragraph in the editor.
   await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'alpha bravo' }).click();
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('alpha bravo charlie delta.');
-  const afford = page.getByTestId('marker-popup-edit');
-  await expect(afford).toBeVisible();
 
-  // Acting on it ("add note") switches surface (SPEC25 carry) and opens the
-  // composer on the SAME selection, now in preview's rendered-DOM offsets.
-  await clickClearOfToolbar(afford.getByTestId('add-note-btn'));
+  // Issue #286 (PRD 023 §8): Smart Edit ▸ Comment ▸ Insert Comment opens the
+  // composer in the auto-opened pane — the mode NEVER switches: the editor
+  // stays up, no carry, no preview hop.
+  await smartEditAnnotation(page, 'comment', 'insert-comment');
   await expect(page.getByTestId('composer')).toBeVisible();
-  await expect(page.getByTestId('doc').locator('h1')).toContainText('Edit Affordance'); // preview is up
+  await expect(page.getByTestId('composer-input')).toBeFocused();
+  await expect(page.getByTestId('editor')).toBeVisible(); // still plain edit
   await page.getByTestId('composer-input').fill('from plain edit mode');
   await page.getByTestId('composer-submit').click();
 
-  // The comment exists, highlights exactly the selected phrase, and persists.
+  // The comment exists and, back in preview, highlights exactly the phrase.
   await expect(page.getByTestId('comment-card')).toHaveCount(1);
   await expect(page.getByTestId('card-body')).toHaveText('from plain edit mode');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Edit Affordance');
   await expect.poll(async () => (await page.locator('mark.hl').allTextContents()).join('')).toBe(
     'alpha bravo charlie delta.'
   );
@@ -962,10 +1000,27 @@ test('E153: plain edit mode reaches a comment — the affordance rides the SPEC2
   expect(await fsRead(page, sidecarPath)).toContain('alpha bravo charlie delta.');
 });
 
-test('E154: the edit-mode affordance obeys every gate — frozen store, master switch off — and ignores the pane toggle (issue #284)', async ({
+// Rewritten for issue #286 (PRD 023 §7): the edit-mode popup is gone — the
+// same gates now decide whether the Smart Edit menu carries the Comment and
+// Highlight entries AT ALL (absence, the popup's all-or-nothing gate).
+test('E154: the menu entries obey every gate — frozen store, master switch off — and ignore the pane toggle (issue #284)', async ({
   page,
 }) => {
-  // PRD 004 Req 15: a frozen document closes this authoring route too.
+  const openSmartMenu = async () => {
+    await page.keyboard.press('Control+.');
+    await expect(page.getByTestId('smart-edit-menu')).toBeVisible();
+  };
+  const closeSmartMenu = async () => {
+    // The menu focuses itself a beat after mounting — an early Escape can
+    // land in the editor instead, so press until the menu is really gone.
+    for (let i = 0; i < 4 && (await page.getByTestId('smart-edit-menu').count()); i++) {
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(50);
+    }
+    await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
+  };
+
+  // PRD 004 Req 15: a frozen document removes both entries from the menu.
   await fsWrite(page, NEWER_PATH, `${NEWER_DOC}${NEWER_TRAILER}`);
   await openPath(page, NEWER_PATH);
   await expect(page.getByTestId('store-unreadable')).toBeVisible();
@@ -974,42 +1029,45 @@ test('E154: the edit-mode affordance obeys every gate — frozen store, master s
   if (await page.getByTestId('split-preview').count()) await page.keyboard.press('Control+\\');
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
   await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'reads perfectly' }).click();
-  await page.keyboard.press('Home');
-  await page.keyboard.press('Shift+End');
-  await expect.poll(() => page.evaluate(() => (window.__mmEdit?.selText ?? '').length)).toBeGreaterThan(0);
-  await page.waitForTimeout(200);
-  await expect(page.getByTestId('marker-popup-edit')).toHaveCount(0);
-  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
+  await openSmartMenu();
+  await expect(page.getByTestId('smart-edit-diagram')).toBeVisible(); // the menu itself is fine
+  await expect(page.getByTestId('smart-edit-comment')).toHaveCount(0);
+  await expect(page.getByTestId('smart-edit-highlight')).toHaveCount(0);
+  await closeSmartMenu();
 
-  // A clean document in the same session DOES offer it (back to plain edit —
-  // opening a document lands in preview; the split-off setting persisted)…
+  // A clean document in the same session DOES carry them (back to plain
+  // edit — opening a document lands in preview; split-off persisted)…
   await openWelcomeViaHelp(page);
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
   await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'saved to a sidecar' }).click();
-  await page.keyboard.press('Home');
-  await page.keyboard.press('Shift+End');
-  const afford = page.getByTestId('marker-popup-edit');
-  await expect(afford).toBeVisible();
+  await openSmartMenu();
+  await expect(page.getByTestId('smart-edit-comment')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-highlight')).toBeVisible();
+  await closeSmartMenu();
 
-  // Issue #284 (PRD 023 §15): toggling the PANE (Mod+Shift+C) no longer
-  // withholds the affordance — authoring feeds the pane and auto-opens it,
-  // so the route stays offered with the pane open or closed alike.
+  // Issue #284 (PRD 023 §15): toggling the PANE (Mod+Shift+C) never
+  // withholds the entries — authoring feeds the pane and auto-opens it.
   await page.keyboard.press('Control+Shift+C');
-  await expect(afford).toBeVisible();
+  await openSmartMenu();
+  await expect(page.getByTestId('smart-edit-comment')).toBeVisible();
+  await closeSmartMenu();
   await page.keyboard.press('Control+Shift+C');
-  await expect(afford).toBeVisible();
+  await openSmartMenu();
+  await expect(page.getByTestId('smart-edit-comment')).toBeVisible();
+  await closeSmartMenu();
 
-  // …until the master switch goes off (SPEC7 §2).
+  // …until the master switch goes off (SPEC7 §2): both entries vanish.
   await openSettings(page, 'general');
   await page.getByTestId('set-comments-enabled').uncheck();
   await page.getByTestId('settings-close').click();
   await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'saved to a sidecar' }).click();
-  await page.keyboard.press('Home');
-  await page.keyboard.press('Shift+End');
-  await page.waitForTimeout(200);
-  await expect(page.getByTestId('marker-popup-edit')).toHaveCount(0);
+  await openSmartMenu();
+  await expect(page.getByTestId('smart-edit-diagram')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-comment')).toHaveCount(0);
+  await expect(page.getByTestId('smart-edit-highlight')).toHaveCount(0);
+  await closeSmartMenu();
 });
 
 test('E158: a parked doc reopens fresh when an external tool edited its sidecar (issue #64) — and a mid-debounce comment edit flushes on the switch instead of going stale', async ({
@@ -1061,18 +1119,25 @@ test('E158: a parked doc reopens fresh when an external tool edited its sidecar 
 
 // Renumbered from E415 (issue #185 collision rule): #240's hello-editor
 // suite took E415 first on this branch, so the newer test moved up.
-test('E419: PRD 022 Req 1 — a swatch click creates a note-less colored highlight and closes the popup; no composer opens', async ({
+// Rewritten for issue #286 (PRD 023 §9): color choice lives in the Smart
+// Edit menu's Highlight ▸ rows now — a color row over an editor selection
+// creates the note-less colored highlight; no composer opens.
+test('E419: PRD 023 §9 — a Highlight ▸ color row creates a note-less colored highlight; no composer opens', async ({
   page,
 }) => {
-  await selectPhrase(page, PHRASE);
-  await expect(page.getByTestId('marker-popup')).toBeVisible();
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
-
-  // The popup closed and nothing else opened.
-  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
+  // Into split edit (the default), select the phrase in the EDITOR pane.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'saved to a sidecar' }).first().click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await smartEditAnnotation(page, 'highlight', 'hl-green');
   await expect(page.getByTestId('composer')).toHaveCount(0);
 
-  // The highlight painted in the chosen color through the existing mark path.
+  // Back in preview: the highlight painted through the existing mark path.
+  // (The selected line crosses inline-code markup, so the EDITOR pane
+  // rightly skips painting it — PRD 022 Req 12; editor paint is E455/E424.)
+  await page.keyboard.press('Control+e');
   const mark = page.locator('mark.hl').first();
   await expect(mark).toBeVisible();
   await expect(mark).toHaveAttribute('data-color', 'green');
@@ -1088,11 +1153,15 @@ test('E419: PRD 022 Req 1 — a swatch click creates a note-less colored highlig
   expect(sidecar.comments[0].thread).toBeUndefined();
 });
 
-test('E416: PRD 023 §1 (issue #283) — "add note" authors a comment record: no marker color, the fixed comment tint, composer attached', async ({
+// Rewritten for issue #286: "add note" is Insert Comment (hotkey/menu) now.
+test('E416: PRD 023 §1 (issue #283) — Insert Comment authors a comment record: no marker color, the fixed comment tint, composer attached', async ({
   page,
 }) => {
   await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('add-note-btn'));
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
 
   // The comment record already exists — painted in the comment tint, never a
   // marker hue — with the composer open and standing in for its card.
@@ -1116,30 +1185,28 @@ test('E416: PRD 023 §1 (issue #283) — "add note" authors a comment record: no
   expect(sidecar.comments[0].body).toBe('a note on a highlight');
 });
 
-test('E417: PRD 022 Req 4 — the last-used swatch pre-arms the popup; type-to-comment authors an uncolored comment record (issue #283)', async ({ page }) => {
-  await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-orange'));
+// Rewritten for issue #286 (PRD 022 Req 4 semantics unchanged): the menu's
+// color rows update the last-used color, and Mod+Alt+H applies exactly it.
+test('E417: PRD 022 Req 4 — a menu color row re-arms the last-used color, and Mod+Alt+H applies it in the preview', async ({ page }) => {
+  // Author orange through the menu — this ARMS orange.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'saved to a sidecar' }).first().click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await smartEditAnnotation(page, 'highlight', 'hl-orange');
+  await page.keyboard.press('Control+e');
   await expect(page.locator('mark.hl[data-color="orange"]').first()).toBeVisible();
 
-  // A new selection: orange now leads the popup, pre-armed.
-  await selectPhrase(page, 'GitHub-flavored markdown');
-  const popup = page.getByTestId('marker-popup');
-  await expect(popup).toBeVisible();
-  await expect(popup.locator('.marker-swatch').first()).toHaveAttribute('data-testid', 'marker-swatch-orange');
-  await expect(popup.getByTestId('marker-swatch-orange')).toHaveAttribute('aria-pressed', 'true');
-
-  // Type-to-comment still opens the composer — but its submit authors a
-  // kind:"comment" record, which carries no marker color at all (PRD 023 §1).
-  await page.keyboard.press('x');
-  await expect(page.getByTestId('composer')).toBeVisible();
-  await page.getByTestId('composer-submit').click();
-  await waitForSidecar(page, (s) => !!s && s.includes('"x"'));
+  // A preview selection plus Mod+Alt+H: the armed (last-used) color lands.
+  // (Mark COUNT is per painted fragment, not per record — the menu-authored
+  // line crosses inline markup and splits; the store below counts records.)
+  await addHighlight(page, 'GitHub-flavored markdown');
+  await expect(page.locator('mark.hl[data-color="orange"]').first()).toBeVisible();
+  await waitForSidecar(page, (s) => !!s && s.split('"color": "orange"').length === 3);
   const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
-  const kinds = sidecar.comments.map((c: { kind: string }) => c.kind).sort();
-  expect(kinds).toEqual(['comment', 'highlight']);
-  const typed = sidecar.comments.find((c: { kind: string }) => c.kind === 'comment');
-  expect(typed.body).toBe('x');
-  expect(typed.color).toBeUndefined();
+  expect(sidecar.comments).toHaveLength(2);
+  expect(sidecar.comments.every((c: { kind: string; color: string }) => c.kind === 'highlight' && c.color === 'orange')).toBe(true);
 });
 
 test('E418: issue #283 — a pre-2.0.0 sidecar opens with no annotations and no notice, and new annotations save as a 2.0.0 store', async ({
@@ -1179,30 +1246,27 @@ test('E418: issue #283 — a pre-2.0.0 sidecar opens with no annotations and no 
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
   await expect(page.getByTestId('store-unreadable')).toHaveCount(0);
 
-  // Authoring is NOT frozen: a selection still offers the marker popup, and
-  // a new highlight writes a 2.0.0 store over the legacy sidecar.
-  await selectPhrase(page, 'commented text');
-  await expect(page.getByTestId('marker-popup')).toBeVisible();
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-orange'));
-  await expect(page.locator('mark.hl[data-color="orange"]').first()).toBeVisible();
+  // Authoring is NOT frozen: the highlight hotkey (issue #286) still works,
+  // and a new highlight writes a 2.0.0 store over the legacy sidecar.
+  await addHighlight(page, 'commented text');
+  await expect(page.locator('mark.hl[data-color="yellow"]').first()).toBeVisible();
   await expect.poll(() => fsRead(page, `${DOC}.comments.json`)).toContain('"version": "2.0.0"');
   const rewritten = (await fsRead(page, `${DOC}.comments.json`))!;
   expect(rewritten).toContain('"kind": "highlight"');
   expect(rewritten).not.toContain('an old note'); // the 1.x annotations are gone, by design
 });
 
-// Rewritten for issue #284 (PRD 023 §16): the card swatch row is gone with
-// the highlight's transient card — recolor has NO surface in this slice, by
-// design (PRD 023 Req 9 restores it in the menu slice). The entry keeps its
-// color untouched on disk.
-test('E420: recolor has no surface — an activated highlight grows no card and no swatches, and its color persists unchanged', async ({
+// Rewritten for issue #284 (PRD 023 §16) and again for issue #286: recolor
+// lives in the Smart Edit menu now (E456) — but the CARDS stay swatch-free:
+// an activated highlight still grows no card and no swatch row, and its
+// color persists unchanged on disk.
+test('E420: an activated highlight grows no card and no swatches, and its color persists unchanged', async ({
   page,
 }) => {
-  await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
+  await addHighlight(page, PHRASE);
   const mark = page.locator('mark.hl').first();
-  await expect(mark).toHaveAttribute('data-color', 'green');
-  await waitForSidecar(page, (s) => !!s && s.includes('"color": "green"'));
+  await expect(mark).toHaveAttribute('data-color', 'yellow');
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "yellow"'));
 
   // Open the pane, then activate the highlight: no card enters the flow and
   // no swatch surface exists anywhere in the pane.
@@ -1213,11 +1277,11 @@ test('E420: recolor has no surface — an activated highlight grows no card and 
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
   await expect(page.getByTestId('card-swatches')).toHaveCount(0);
 
-  // The entry persists exactly as created — still a note-less green highlight.
+  // The entry persists exactly as created — still a note-less highlight.
   const sidecar = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
   expect(sidecar.comments).toHaveLength(1);
   expect(sidecar.comments[0].kind).toBe('highlight');
-  expect(sidecar.comments[0].color).toBe('green');
+  expect(sidecar.comments[0].color).toBe('yellow');
   expect(sidecar.comments[0].body).toBeUndefined();
 });
 
@@ -1227,8 +1291,7 @@ test('E420: recolor has no surface — an activated highlight grows no card and 
 test('E421: a highlight has no card at all — activation tints the marks, the pane stays card-free, the pill stays hidden', async ({
   page,
 }) => {
-  await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-yellow'));
+  await addHighlight(page, PHRASE); // issue #286: hotkey-authored, armed color
   const mark = page.locator('mark.hl').first();
   await expect(mark).toBeVisible();
 
@@ -1255,9 +1318,8 @@ test('E421: a highlight has no card at all — activation tints the marks, the p
 test('E422: an active highlight offers no card-side add-note — the record stays a highlight on disk', async ({
   page,
 }) => {
-  await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-orange'));
-  await waitForSidecar(page, (s) => !!s && s.includes('"color": "orange"'));
+  await addHighlight(page, PHRASE); // issue #286: hotkey-authored, armed color
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "yellow"'));
   await page.keyboard.press('Control+Shift+C');
   await expect(page.getByTestId('comments-pane')).toBeVisible();
   await page.locator('mark.hl').first().click();
@@ -1279,9 +1341,8 @@ test('E422: an active highlight offers no card-side add-note — the record stay
 test('E423: comment cards keep reply/resolve/delete; a highlight, cardless, exposes none of them', async ({
   page,
 }) => {
-  await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
-  await waitForSidecar(page, (s) => !!s && s.includes('"color": "green"'));
+  await addHighlight(page, PHRASE); // issue #286: hotkey-authored, armed color
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "yellow"'));
   await addComment(page, 'GitHub-flavored markdown', 'a real thread');
 
   // The pane holds exactly the comment's card — the highlight contributes
@@ -1299,8 +1360,8 @@ test('E423: comment cards keep reply/resolve/delete; a highlight, cardless, expo
   await card.getByTestId('delete-btn').click();
   await card.getByTestId('confirm-delete').click();
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
-  await expect(page.locator('mark.hl[data-color="green"]').first()).toBeVisible();
-  await waitForSidecar(page, (s) => !!s && s.includes('"color": "green"') && !s.includes('a real thread'));
+  await expect(page.locator('mark.hl[data-color="yellow"]').first()).toBeVisible();
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "yellow"') && !s.includes('a real thread'));
 });
 
 test('E428: PRD 022 Req 10 — off the hosted platform an active highlight offers no copy-link control', async ({
@@ -1310,8 +1371,7 @@ test('E428: PRD 022 Req 10 — off the hosted platform an active highlight offer
   // (this suite's platform) activates the marks fine but grafts no control.
   // Issue #284 (PRD 023 §16): activation shows on the marks — a highlight
   // has no card to carry the state any more.
-  await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-yellow'));
+  await addHighlight(page, PHRASE); // issue #286: hotkey-authored
   await page.locator('mark.hl').first().click();
   await expect(page.locator('mark.hl.active').first()).toBeVisible();
   await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
@@ -1333,9 +1393,8 @@ test('E449: PRD 023 §20 (issue #288) — off the hosted platform a comment card
 test('E424: PRD 022 Req 12 — a highlight paints in the plain-edit editor as a background decoration in its color', async ({
   page,
 }) => {
-  await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
-  await expect(page.locator('mark.hl[data-color="green"]').first()).toBeVisible();
+  await addHighlight(page, PHRASE); // issue #286: hotkey-authored, armed color
+  await expect(page.locator('mark.hl[data-color="yellow"]').first()).toBeVisible();
 
   // PLAIN edit: split off (it defaults on), so no preview pane exists.
   await openSettings(page, 'general');
@@ -1347,7 +1406,7 @@ test('E424: PRD 022 Req 12 — a highlight paints in the plain-edit editor as a 
   await expect(page.getByTestId('split-divider')).toHaveCount(0);
   const hl = editor.locator('.mm-hl');
   await expect(hl.first()).toBeVisible();
-  await expect(hl.first()).toHaveAttribute('data-color', 'green');
+  await expect(hl.first()).toHaveAttribute('data-color', 'yellow');
   // The decoration covers exactly the anchored quote (spans join if CM splits).
   await expect.poll(async () => (await hl.allTextContents()).join('')).toBe(PHRASE);
   // …and the marker CSS actually lands on it.
@@ -1360,9 +1419,8 @@ test('E424: PRD 022 Req 12 — a highlight paints in the plain-edit editor as a 
 test('E425: PRD 022 Req 12 — the split-edit editor paints too, and clicking a painted range activates the marks in the preview', async ({
   page,
 }) => {
-  await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-orange'));
-  await expect(page.locator('mark.hl[data-color="orange"]').first()).toBeVisible();
+  await addHighlight(page, PHRASE); // issue #286: hotkey-authored, armed color
+  await expect(page.locator('mark.hl[data-color="yellow"]').first()).toBeVisible();
   await addComment(page, NAV_P1, 'a split-edit card');
   // Authoring auto-opened the pane (E437) — close it so both clicks below
   // start from the persisted-closed state.
@@ -1373,7 +1431,7 @@ test('E425: PRD 022 Req 12 — the split-edit editor paints too, and clicking a 
   await expect(page.getByTestId('split-divider')).toBeVisible();
 
   const editor = page.getByTestId('editor');
-  const hl = editor.locator('.mm-hl[data-color="orange"]');
+  const hl = editor.locator('.mm-hl[data-color="yellow"]');
   await expect(hl.first()).toBeVisible();
 
   // The highlight range: activation shows on the preview marks, and the pane
@@ -1452,9 +1510,8 @@ test('E426: PRD 022 Req 12 — anchors the source cannot place confidently (abse
 test('E427: PRD 022 Req 12 — a plain-edit highlight click places the caret and opens nothing, and an edited quote unpaints instead of mispainting', async ({
   page,
 }) => {
-  await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
-  await waitForSidecar(page, (s) => !!s && s.includes('"color": "green"'));
+  await addHighlight(page, PHRASE); // issue #286: hotkey-authored, armed color
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "yellow"'));
 
   // PLAIN edit: split off (it defaults on).
   await openSettings(page, 'general');
@@ -1569,7 +1626,11 @@ test('E436: the pane is the single home for cards in all three modes — full pr
 test('E437: inserting a comment auto-opens the closed pane, with the composer reachable in it', async ({ page }) => {
   await expect(page.getByTestId('comments-pane')).toHaveCount(0); // closed by default
   await selectPhrase(page, PHRASE);
-  await clickClearOfToolbar(page.getByTestId('add-note-btn'));
+  // Issue #286: authoring is the Insert Comment hotkey now.
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
   // The pane opened programmatically (no user toggle) and hosts the composer.
   await expect(page.getByTestId('comments-pane')).toBeVisible();
   await expect(page.getByTestId('comments-pane').getByTestId('composer')).toBeVisible();
@@ -1862,4 +1923,294 @@ test('E445: PRD 023 Req 18 — activating a card in plain edit scrolls the EDITO
   await expect(hl.first()).toBeInViewport();
   await expect(page.getByTestId('editor').locator('.mm-hl.flash').first()).toBeVisible();
   await expect(page.locator('[data-testid="comment-card"][data-cid="far"]')).toHaveClass(/active/);
+});
+
+// --- Issue #286 (PRD 023 §§7–12, §19): the Smart Edit annotation entries ----
+//
+// The selection popup's replacement: Comment ▸ and Highlight ▸ under the
+// Marky Mark smart-edit menu, plus the Mod+Alt+M / Mod+Alt+H hotkeys. All in
+// PLAIN edit (split off) against a small dedicated document, except where a
+// test says otherwise.
+
+const MENU_DOC = '/docs/menu-annotations.md';
+const MENU_SIDECAR = `${MENU_DOC}.comments.json`;
+
+/** Open the fixture in plain edit mode (split off, the E153 pattern). */
+async function menuDoc(page: import('@playwright/test').Page): Promise<void> {
+  await fsWrite(
+    page,
+    MENU_DOC,
+    '# Menu Annotations\n\nalpha bravo charlie delta once.\n\nunique sentinel words linger here.\n\nclosing thoughts end quietly.\n'
+  );
+  await page.goto(`/#open=${MENU_DOC}`);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Menu Annotations');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  if (await page.getByTestId('split-preview').count()) await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+}
+
+test('E453: PRD 023 §8 — Insert Comment from the menu in plain edit: pane opens, composer focused, mode unchanged, record persisted', async ({
+  page,
+}) => {
+  await menuDoc(page);
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0); // ships closed
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'alpha bravo' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await smartEditAnnotation(page, 'comment', 'insert-comment');
+
+  // The pane auto-opened with the composer focused; the editor never left.
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(page.getByTestId('composer-input')).toBeFocused();
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('doc')).toHaveCount(0); // no mode switch
+
+  await page.getByTestId('composer-input').fill('menu-authored comment');
+  await page.getByTestId('composer-submit').click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('card-body')).toHaveText('menu-authored comment');
+  // The record persisted with the phrase as its anchor (rendered-text space).
+  await expect.poll(() => fsRead(page, MENU_SIDECAR)).toContain('menu-authored comment');
+  expect(await fsRead(page, MENU_SIDECAR)).toContain('alpha bravo charlie delta once.');
+  // …and its marks paint on the editor surface too.
+  await expect(page.getByTestId('editor').locator('.mm-hl').first()).toBeVisible();
+});
+
+test('E454: PRD 023 §8 — Delete Comment by caret context removes the record, its card and its marks in both surfaces', async ({
+  page,
+}) => {
+  await menuDoc(page);
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'alpha bravo' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await smartEditAnnotation(page, 'comment', 'insert-comment');
+  await page.getByTestId('composer-input').fill('doomed');
+  await page.getByTestId('composer-submit').click();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect.poll(() => fsRead(page, MENU_SIDECAR)).toContain('doomed');
+
+  // Land the caret inside the painted range (a click on the decoration), no
+  // selection — Delete Comment resolves the record under the caret.
+  await page.getByTestId('editor').locator('.mm-hl').first().click();
+  await smartEditAnnotation(page, 'comment', 'delete-comment');
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+  await expect(page.getByTestId('editor').locator('.mm-hl')).toHaveCount(0);
+  // Both surfaces: the preview paints nothing either, and the store is empty.
+  await page.keyboard.press('Control+e');
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+  // Deleting the last record removes the sidecar file itself.
+  await expect
+    .poll(async () => {
+      const raw = await fsRead(page, MENU_SIDECAR);
+      return raw === null || !raw.includes('doomed');
+    })
+    .toBe(true);
+});
+
+test('E455: PRD 023 §9 — a color row over a selection inserts a highlight in that color, even overlapping an existing one', async ({
+  page,
+}) => {
+  await menuDoc(page);
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'unique sentinel' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await smartEditAnnotation(page, 'highlight', 'hl-green');
+  await expect(page.getByTestId('editor').locator('.mm-hl[data-color="green"]').first()).toBeVisible();
+
+  // A selection OVERLAPPING the highlight still inserts a new record —
+  // selection wins over caret context (never a recolor of the old one).
+  await dragAcrossText(page, '.cm-content', 'sentinel', 'words');
+  await smartEditAnnotation(page, 'highlight', 'hl-pink');
+  await expect(page.getByTestId('editor').locator('.mm-hl').first()).toBeVisible();
+  await expect.poll(async () => {
+    const raw = await fsRead(page, MENU_SIDECAR);
+    if (!raw) return [];
+    return JSON.parse(raw).comments.map((c: { color: string }) => c.color).sort();
+  }).toEqual(['green', 'pink']);
+});
+
+test('E456: PRD 023 §9 — with no selection, a color row recolors the caret highlight in place: same id, new color, last-used updated', async ({
+  page,
+}) => {
+  await menuDoc(page);
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'unique sentinel' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await smartEditAnnotation(page, 'highlight', 'hl-green');
+  await expect(page.getByTestId('editor').locator('.mm-hl[data-color="green"]').first()).toBeVisible();
+  await expect.poll(() => fsRead(page, MENU_SIDECAR)).toContain('"color": "green"');
+  const before = JSON.parse((await fsRead(page, MENU_SIDECAR))!);
+  const id = before.comments[0].id;
+
+  // Caret inside the painted range, NO selection → the color rows recolor.
+  await page.getByTestId('editor').locator('.mm-hl').first().click();
+  await smartEditAnnotation(page, 'highlight', 'hl-orange');
+  await expect(page.getByTestId('editor').locator('.mm-hl[data-color="orange"]').first()).toBeVisible();
+  await expect.poll(() => fsRead(page, MENU_SIDECAR)).toContain('"color": "orange"');
+  const after = JSON.parse((await fsRead(page, MENU_SIDECAR))!);
+  expect(after.comments).toHaveLength(1); // same record, no second entry
+  expect(after.comments[0].id).toBe(id);
+  expect(after.comments[0].color).toBe('orange');
+
+  // Recolor updated the last-used color: Mod+Alt+H in the preview lands orange.
+  await page.keyboard.press('Control+e');
+  await addHighlight(page, 'closing thoughts');
+  await expect(page.locator('mark.hl[data-color="orange"]')).toHaveCount(2);
+});
+
+test('E457: PRD 023 §9 — Remove Highlight deletes the caret highlight; it is disabled in every other context', async ({
+  page,
+}) => {
+  await menuDoc(page);
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'unique sentinel' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await smartEditAnnotation(page, 'highlight', 'hl-yellow');
+  await expect(page.getByTestId('editor').locator('.mm-hl').first()).toBeVisible();
+
+  // With a selection, Remove Highlight is disabled (selection wins).
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.keyboard.press('Control+.');
+  await expect(page.getByTestId('smart-edit-menu')).toBeVisible();
+  await page.getByTestId('smart-edit-highlight').click();
+  await expect(page.getByTestId('smart-edit-remove-highlight')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
+
+  // Caret on the highlight, no selection → Remove Highlight deletes it.
+  await page.getByTestId('editor').locator('.mm-hl').first().click();
+  await smartEditAnnotation(page, 'highlight', 'remove-highlight');
+  await expect(page.getByTestId('editor').locator('.mm-hl')).toHaveCount(0);
+  await expect
+    .poll(async () => JSON.parse((await fsRead(page, MENU_SIDECAR)) ?? '{"comments":[]}').comments.length)
+    .toBe(0);
+});
+
+test('E458: PRD 023 §10 — with no selection, the word under the caret is the anchor for a color row', async ({
+  page,
+}) => {
+  await menuDoc(page);
+  // Caret inside "sentinel" (no selection): the word is the anchor.
+  await caretInto(page, 'unique sentinel words', 9);
+  await smartEditAnnotation(page, 'highlight', 'hl-green');
+  const hl = page.getByTestId('editor').locator('.mm-hl[data-color="green"]');
+  await expect.poll(async () => (await hl.allTextContents()).join('')).toBe('sentinel');
+  // The sidecar write is debounced (~800ms) — poll rather than read once.
+  await expect.poll(() => fsRead(page, MENU_SIDECAR)).toContain('"exact": "sentinel"');
+});
+
+test('E459: PRD 023 §10 — on an empty line the color rows and Insert Comment are disabled: present, greyed, invoking nothing', async ({
+  page,
+}) => {
+  await menuDoc(page);
+  // First prove the same session ENABLES them on a word (so the disabled
+  // state below is the context rule, not a stale cache).
+  await caretInto(page, 'unique sentinel words', 9);
+  await expect(async () => {
+    for (let i = 0; i < 3 && (await page.getByTestId('smart-edit-menu').count()); i++) {
+      await page.keyboard.press('Escape');
+    }
+    await page.keyboard.press('Control+.');
+    await expect(page.getByTestId('smart-edit-menu')).toBeVisible({ timeout: 1000 });
+    await page.getByTestId('smart-edit-comment').click();
+    await expect(page.getByTestId('smart-edit-insert-comment')).toBeEnabled({ timeout: 500 });
+  }).toPass({ timeout: 8000 });
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
+
+  // Now the empty line between paragraphs: rows present, greyed.
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'alpha bravo' }).click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('ArrowDown'); // the blank separator line
+  await page.keyboard.press('Control+.');
+  await expect(page.getByTestId('smart-edit-menu')).toBeVisible();
+  await page.getByTestId('smart-edit-comment').click();
+  await expect(page.getByTestId('smart-edit-insert-comment')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await page.getByTestId('smart-edit-highlight').click();
+  await expect(page.getByTestId('smart-edit-hl-yellow')).toBeDisabled();
+  await expect(page.getByTestId('smart-edit-hl-pink')).toBeDisabled();
+  await expect(page.getByTestId('smart-edit-remove-highlight')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+  await expect(page.getByTestId('editor').locator('.mm-hl')).toHaveCount(0);
+});
+
+test('E460: PRD 023 §12 — both hotkeys work in the editor: word fallback for Mod+Alt+H, selection for Mod+Alt+M', async ({
+  page,
+}) => {
+  await menuDoc(page);
+  // Mod+Alt+H with no selection highlights the word under the caret in the
+  // last-used color (yellow on a fresh profile).
+  await caretInto(page, 'unique sentinel words', 9);
+  const hl = page.getByTestId('editor').locator('.mm-hl[data-color="yellow"]');
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+H');
+    await expect(hl.first()).toBeVisible({ timeout: 700 });
+  }).toPass({ timeout: 8000 });
+  await expect.poll(async () => (await hl.allTextContents()).join('')).toBe('sentinel');
+
+  // Mod+Alt+M over a selection opens the composer without leaving edit mode.
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'closing thoughts' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 700 });
+  }).toPass({ timeout: 8000 });
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('doc')).toHaveCount(0); // never a mode switch
+  await page.getByTestId('composer-input').fill('hotkey in the editor');
+  await page.getByTestId('composer-submit').click();
+  await expect.poll(() => fsRead(page, MENU_SIDECAR)).toContain('hotkey in the editor');
+  expect(await fsRead(page, MENU_SIDECAR)).toContain('closing thoughts end quietly.');
+});
+
+test('E461: PRD 023 §12 — in the preview the hotkeys require a selection: silent no-ops without one, armed-color insert with one', async ({
+  page,
+}) => {
+  // The welcome doc in full preview (the suite's beforeEach state).
+  await page.keyboard.press('Control+Alt+M');
+  await page.keyboard.press('Control+Alt+H');
+  await page.waitForTimeout(200);
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+
+  // With a selection both act: H inserts the armed color, M opens a composer.
+  await addHighlight(page, NAV_P2);
+  await expect(page.locator('mark.hl[data-color="yellow"]').first()).toBeVisible();
+  await addComment(page, PHRASE, 'preview hotkey comment');
+  await expect(page.getByTestId('card-body')).toHaveText('preview hotkey comment');
+});
+
+test('E462: PRD 023 §6 — no selection popup exists on any surface: preview, split live preview, plain edit', async ({
+  page,
+}) => {
+  const assertNoPopup = async () => {
+    await page.waitForTimeout(250);
+    await expect(page.getByTestId('marker-popup')).toHaveCount(0);
+    await expect(page.getByTestId('marker-popup-edit')).toHaveCount(0);
+    await expect(page.getByTestId('add-note-btn')).toHaveCount(0);
+    expect(await page.locator('[class*="marker-popup"]').count()).toBe(0);
+  };
+  // Full preview.
+  await selectPhrase(page, PHRASE);
+  await assertNoPopup();
+  // Split live preview.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await selectPhraseInPane(page, '[data-testid="split-preview"] .doc', 'renders GitHub-flavored markdown');
+  await assertNoPopup();
+  // Plain edit, an editor selection.
+  await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'saved to a sidecar' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await assertNoPopup();
 });

@@ -418,10 +418,18 @@ export interface AnnotationSelection {
   from: number;
   to: number;
   head: number;
-  /** The same three offsets in CANONICAL text coordinates (SPEC44). */
-  canonFrom: number;
-  canonTo: number;
-  canonHead: number;
+  /** Whether the editor view holds focus — split-mode hotkeys treat an
+   * unfocused editor's caret as stale context (PRD 023 §12, issue #286). */
+  focused: boolean;
+  /** The editor document text the offsets index (table-grid form included). */
+  text: string;
+  /**
+   * Painted annotation ids covering the caret, document order — resolved
+   * through the SAME canonical→doc mapping the click seam uses
+   * (docHighlightRanges), so "is the caret on a comment/highlight" agrees
+   * with what is visibly painted, table grids included.
+   */
+  idsAtHead: readonly string[];
 }
 
 /** PRD 020 Req 18: the App-provided half of the heading copy-link gutter. */
@@ -1100,19 +1108,14 @@ export default function Editor({
    */
   const annotationSelection = (view: EditorView): AnnotationSelection => {
     const sel = view.state.selection.main;
-    const gridSet = view.state.field(tableModeField, false);
-    const canon = (h: number) => {
-      if (!gridSet || gridSet.spans.length === 0) return h;
-      const raw = view.state.doc.toString();
-      return mapOffsetByLineFlat(raw, canonicalizeAll(raw, gridSet), h);
-    };
+    const painted = docHighlightRanges(view.state, highlightsRef.current ?? []);
     return {
       from: sel.from,
       to: sel.to,
       head: sel.head,
-      canonFrom: canon(sel.from),
-      canonTo: canon(sel.to),
-      canonHead: canon(sel.head),
+      focused: view.hasFocus,
+      text: view.state.doc.toString(),
+      idsAtHead: painted.filter((h) => sel.head >= h.from && sel.head <= h.to).map((h) => h.id),
     };
   };
 

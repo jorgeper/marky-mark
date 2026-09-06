@@ -116,7 +116,11 @@ test('E23: vim navigation — off by default, full motion set when enabled, neve
   await page.keyboard.press('g');
   await expect.poll(scrollTop).toBe(0);
   await selectPhrase(page, PHRASE);
-  await page.getByTestId('add-note-btn').click();
+  // Issue #286: the popup is gone — the Insert Comment hotkey authors it.
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
   await expect(page.getByTestId('composer-input')).toBeFocused();
   // Bring the composer on-screen first — otherwise Chromium scrolls the
   // focused textarea into view on the first keystroke (unrelated to vim nav).

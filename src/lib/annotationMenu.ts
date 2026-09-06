@@ -5,10 +5,10 @@
  * to the editor package's SmartMenuAnnotations, and resolves the invoked row
  * against the same object — one rule for what each entry does.
  *
- * Coordinate spaces: `selFrom`/`selTo`/`head` and `marks` ranges are
- * CANONICAL source offsets (the space `mapHighlightsToSource` emits);
- * `anchor` is rendered-plain-text offsets (the space `createAnchor` and the
- * preview use).
+ * Coordinate spaces: `selFrom`/`selTo`/`head` index the editor DOCUMENT text
+ * (`source`, table-grid form included — the editor resolves caret-mark hits
+ * itself and hands in `idsAtCaret`); `anchor` is rendered-plain-text offsets
+ * (the space `createAnchor` and the preview use).
  */
 
 import {
@@ -72,16 +72,20 @@ export interface AnnotationGate {
 
 export interface AnnotationMenuInput {
   gate: AnnotationGate;
-  /** The canonical source text. */
+  /** The editor document text (table-grid form included). */
   source: string;
   /** The rendered plain text (cached for edit mode; the preview's docText). */
   rendered: string;
-  /** Selection and caret in canonical source offsets. */
+  /** Selection and caret as offsets into `source`. */
   selFrom: number;
   selTo: number;
   head: number;
-  /** Painted annotation ranges in canonical source offsets (id + range). */
-  marks: readonly { id: string; from: number; to: number }[];
+  /**
+   * Painted annotation ids covering the caret, document order — resolved by
+   * the editor package's own canonical→doc mapping (the click seam's), so
+   * caret context agrees with what is visibly painted, grids included.
+   */
+  idsAtCaret: readonly string[];
   records: readonly CommentData[];
 }
 
@@ -122,14 +126,13 @@ const CLOSED: AnnotationMenuModel = {
  * mapping is ambiguous are disabled, never mis-anchored (§19).
  */
 export function annotationMenuModel(input: AnnotationMenuInput): AnnotationMenuModel {
-  const { gate, source, rendered, selFrom, selTo, head, marks, records } = input;
+  const { gate, source, rendered, selFrom, selTo, head, idsAtCaret, records } = input;
   if (!gate.commentsEnabled || gate.authoringFrozen || !gate.canWrite) return CLOSED;
 
   const hasSelection = selFrom < selTo;
 
   // Delete Comment is caret context by its own condition — the caret sits
   // inside an existing comment's painted range (a highlight's never counts).
-  const idsAtCaret = marks.filter((m) => head >= m.from && head <= m.to).map((m) => m.id);
   const commentHit = pickHitRecord(idsAtCaret, records);
   const commentRec = commentHit === null ? undefined : records.find((r) => r.id === commentHit);
   const deleteCommentId = commentRec && isComment(commentRec) ? commentRec.id : null;

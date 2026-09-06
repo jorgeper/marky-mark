@@ -652,8 +652,12 @@ test('E126: hygiene — comments anchor through the cues, find coexists/suppress
   // …and the comment coordinate space is undisturbed: a comment over a span
   // CROSSING the marked word (the mark fragments text nodes) anchors exactly.
   await selectSpanInPane(page, '[data-testid="doc"]', 'beta', 'delta');
-  await page.getByTestId('add-note-btn').click();
-  await page.keyboard.type('anchored fine');
+  // Issue #286: the popup is gone — the Insert Comment hotkey authors it.
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
+  await page.getByTestId('composer-input').fill('anchored fine');
   await page.keyboard.press('ControlOrMeta+Enter');
   await expect
     .poll(async () => (await page.locator('[data-testid="doc"] mark.hl').allTextContents()).join(''))

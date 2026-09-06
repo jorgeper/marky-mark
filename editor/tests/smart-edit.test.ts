@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_HOTKEYS } from '../src/lib/hotkeys';
+import { combosConflict, DEFAULT_HOTKEYS } from '../src/lib/hotkeys';
 import {
   buildSmartMenu,
   detectContext,
@@ -11,6 +11,7 @@ import {
   toggleList,
   toggleQuote,
   wrapLink,
+  type SmartMenuAnnotations,
   type SmartMenuCtx,
   type SmartMenuEntry,
 } from '../src/lib/smartEdit';
@@ -358,6 +359,104 @@ describe('SPEC43 smart edit', () => {
       expect(r!.from).toBeGreaterThanOrEqual(0);
       expect(r!.to).toBeGreaterThanOrEqual(r!.from);
       expect(r!.to).toBeLessThanOrEqual(t.length);
+    }
+  });
+});
+
+describe('PRD 023 §§7–12 annotation menu entries (issue #286)', () => {
+  const annotations = (over: Partial<SmartMenuAnnotations> = {}): SmartMenuAnnotations => ({
+    insertCommentEnabled: true,
+    deleteCommentEnabled: false,
+    colors: ['yellow', 'green', 'orange', 'pink'],
+    colorsEnabled: true,
+    armedColor: 'yellow',
+    removeHighlightEnabled: false,
+    ...over,
+  });
+
+  test('U1140: Comment and Highlight sit below Diagram, gate-absent when annotations is null, rows carry their enabled flags and hotkeys', () => {
+    // §7: with the gate closed (null/absent), NEITHER entry exists at all —
+    // the popup's all-or-nothing gate, pinned as absence.
+    expect(ids(buildSmartMenu(ctx()))).not.toContain('comment');
+    expect(ids(buildSmartMenu(ctx({ annotations: null })))).not.toContain('highlight');
+
+    // §7: Comment then Highlight, immediately below Diagram, above the
+    // separator that precedes Bold — the Table/Image submenu idiom.
+    const entries = buildSmartMenu(ctx({ annotations: annotations() }));
+    expect(ids(entries)).toEqual([
+      'table', 'image', 'code-block-view', 'diagram', 'comment', 'highlight',
+      'sep',
+      'bold', 'italic', 'strike', 'code', 'link',
+      'sep',
+      'heading', 'lists', 'callout', 'quote', 'code-block', 'hr',
+      'sep',
+      'cut', 'copy', 'paste',
+    ]);
+
+    // §8: Insert Comment renders its hotkey through displayCombo (mac form
+    // for Mod+Alt+M) and both rows are always LISTED, each enabled by its
+    // own condition — the Table submenu's Insert/Delete idiom.
+    const comment = find(entries, 'comment').submenu!;
+    expect(comment.map((e) => e !== 'sep' && [e.id, e.enabled])).toEqual([
+      ['insert-comment', true],
+      ['delete-comment', false],
+    ]);
+    const insert = comment.find((e) => e !== 'sep' && e.id === 'insert-comment');
+    expect(insert !== 'sep' && insert?.hotkey).toBe('⌘⌥M');
+
+    // §9: the four color rows in FIXED vocabulary order plus Remove
+    // Highlight; the armed color's cue is the Mod+Alt+H hotkey it applies.
+    const hl = find(entries, 'highlight').submenu!;
+    expect(hl.map((e) => e !== 'sep' && e.id)).toEqual([
+      'hl-yellow', 'hl-green', 'hl-orange', 'hl-pink', 'remove-highlight',
+    ]);
+    const armedRow = hl.find((e) => e !== 'sep' && e.id === 'hl-yellow');
+    expect(armedRow !== 'sep' && armedRow?.hotkey).toBe('⌘⌥H');
+    const otherRow = hl.find((e) => e !== 'sep' && e.id === 'hl-green');
+    expect(otherRow !== 'sep' && otherRow?.hotkey).toBeUndefined();
+    // A different armed color moves the cue, never the order.
+    const rearmed = find(
+      buildSmartMenu(ctx({ annotations: annotations({ armedColor: 'pink' }) })),
+      'highlight'
+    ).submenu!;
+    expect(rearmed.map((e) => e !== 'sep' && e.id)).toEqual([
+      'hl-yellow', 'hl-green', 'hl-orange', 'hl-pink', 'remove-highlight',
+    ]);
+    const pinkRow = rearmed.find((e) => e !== 'sep' && e.id === 'hl-pink');
+    expect(pinkRow !== 'sep' && pinkRow?.hotkey).toBe('⌘⌥H');
+
+    // §§10–11: disabled contexts grey the rows in place — still listed.
+    const greyed = buildSmartMenu(
+      ctx({
+        annotations: annotations({
+          insertCommentEnabled: false,
+          colorsEnabled: false,
+          deleteCommentEnabled: true,
+          removeHighlightEnabled: true,
+        }),
+      })
+    );
+    const gComment = find(greyed, 'comment').submenu!;
+    expect(gComment.map((e) => e !== 'sep' && [e.id, e.enabled])).toEqual([
+      ['insert-comment', false],
+      ['delete-comment', true],
+    ]);
+    const gHl = find(greyed, 'highlight').submenu!;
+    expect(gHl.map((e) => e !== 'sep' && [e.id, e.enabled])).toEqual([
+      ['hl-yellow', false],
+      ['hl-green', false],
+      ['hl-orange', false],
+      ['hl-pink', false],
+      ['remove-highlight', true],
+    ]);
+
+    // §12: the two new defaults collide with no shipped combo (chord-level
+    // conflict, not string equality — issue #84).
+    for (const fresh of ['Mod+Alt+M', 'Mod+Alt+H']) {
+      for (const [name, combo] of Object.entries(DEFAULT_HOTKEYS)) {
+        if (combo === fresh) continue; // its own entry
+        expect(combosConflict(fresh, combo), `${fresh} vs ${name}`).toBe(false);
+      }
     }
   });
 });

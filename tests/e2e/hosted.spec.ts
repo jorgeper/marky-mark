@@ -18,7 +18,7 @@ import {
 // the module that owns the format, so a rephrased size fails here loudly.
 import { formatByteSize } from '../../src/lib/deploymentAdmin';
 import { expect, test } from './fixtures';
-import { addComment, clickClearOfToolbar, landInPreview, menuSave, openCommentsPane, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
+import { addComment, addHighlight, landInPreview, menuSave, openCommentsPane, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
 // PRD 011 Req 9 (#121): the sentence under test comes from the module that
 // owns it, so a reworded message fails E246 rather than passing a stale copy.
 import { NO_LLM_CONFIGURED_MESSAGE } from '../../src/lib/llmDeployment';
@@ -2242,7 +2242,12 @@ test('E208: comment.read gates whether comments load at all, and comment.write w
   await openCommentsPane(page); // issue #284: stored comments need the pane opened
   await expect(page.getByTestId('comment-card')).toContainText('Ada started a thread');
   await selectPhrase(page, PHRASE);
-  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
+  // Issue #286: without comment.write the annotation hotkeys are inert (the
+  // popup they replaced is gone everywhere).
+  await page.waitForTimeout(200);
+  await page.keyboard.press('Control+Alt+M');
+  await page.keyboard.press('Control+Alt+H');
+  await expect(page.getByTestId('composer')).toHaveCount(0);
   const grace = await signIn(request, 'grace');
   const write = await request.put(`${HOSTED}/api/workspaces/${id}/files/talked.md.comments.json`, {
     headers: { Authorization: `Bearer ${grace}` },
@@ -4884,8 +4889,7 @@ test('E429: the active highlight reveals a left-margin copy-link that copies the
   await signInTo(page, 'ada', id);
   await openFromSidebar(page, 'notes.md');
 
-  await selectPhrase(page, 'phrase to highlight');
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-yellow'));
+  await addHighlight(page, 'phrase to highlight'); // issue #286: hotkey-authored
   const mark = page.locator('mark.hl').first();
   await mark.click();
   // Issue #284 (PRD 023 §16): a highlight has no card — activation shows on
@@ -4938,8 +4942,7 @@ test('E430: visiting a #hl-<id> URL opens the file scrolled to the highlight and
   await signInTo(page, 'ada', id);
   await openFromSidebar(page, 'notes.md');
 
-  await selectPhrase(page, 'linked phrase');
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-green'));
+  await addHighlight(page, 'linked phrase'); // issue #286: hotkey-authored
   const cid = await page.locator('mark.hl').first().getAttribute('data-cid');
   // The sidecar must land on the server before the reload boots from the URL.
   await expect
@@ -5024,8 +5027,7 @@ test('E432: an active highlight on an untitled buffer offers no copy-link — no
   await page.locator('.cm-content').click();
   await page.keyboard.type('# Draft\n\nAn unshareable phrase sits here.\n');
   await landInPreview(page);
-  await selectPhrase(page, 'unshareable phrase');
-  await clickClearOfToolbar(page.getByTestId('marker-swatch-yellow'));
+  await addHighlight(page, 'unshareable phrase'); // issue #286: hotkey-authored
   const mark = page.locator('mark.hl').first();
   await mark.click();
   // Issue #284 (PRD 023 §16): activation shows on the marks — no card.
@@ -5190,4 +5192,40 @@ test('E452: a #hl-<id> naming no record keeps the one dismissible miss notice an
   await expect(page.locator('.card.active')).toHaveCount(0);
   await page.getByTestId('highlight-miss-dismiss').click();
   await expect(notice).toHaveCount(0);
+});
+
+test('E463: issue #286 (PRD 023 §7) — the hosted build carries the Comment and Highlight menu entries; the popup is gone', async ({
+  page,
+  request,
+}) => {
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E463 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/annot.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Annot\n\na hosted paragraph to mark up.\n',
+  });
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'annot.md');
+
+  // The popup is gone from this build too.
+  await selectPhrase(page, 'hosted paragraph');
+  await page.waitForTimeout(200);
+  await expect(page.getByTestId('marker-popup')).toHaveCount(0);
+  await expect(page.getByTestId('add-note-btn')).toHaveCount(0);
+
+  // The menu is build-agnostic: both entries sit in the hosted smart menu.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'hosted paragraph' }).click();
+  await page.keyboard.press('Control+.');
+  await expect(page.getByTestId('smart-edit-menu')).toBeVisible();
+  // Presence is the contract here (the submenu structure is U1140's) — no
+  // flyout hover, so hosted layout/geometry timing cannot flake the click.
+  await expect(page.getByTestId('smart-edit-comment')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-highlight')).toBeVisible();
+  for (let i = 0; i < 4 && (await page.getByTestId('smart-edit-menu').count()); i++) {
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(50);
+  }
+  await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
 });

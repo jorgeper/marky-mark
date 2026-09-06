@@ -4,7 +4,6 @@
 // supersede of SPEC23's markdown-highlighting setting while preview is on.
 import { expect, test } from './fixtures';
 import {
-  clickClearOfToolbar,
   dragAcrossText,
   editorTopGutterLine,
   freshApp,
@@ -252,9 +251,11 @@ test('E148: comments still attach from the split pane with live preview on', asy
 
   // PRD 006 §11: selecting in the preview and commenting works as before.
   await selectPhraseInPane(page, '[data-testid="split-preview"] .doc', 'renders GitHub-flavored markdown');
-  await expect(page.getByTestId('marker-popup')).toBeVisible();
-  await clickClearOfToolbar(page.getByTestId('add-note-btn'));
-  await expect(page.getByTestId('composer')).toBeVisible();
+  // Issue #286: the popup is gone — the Insert Comment hotkey authors it.
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
   await page.getByTestId('composer-input').fill('From the split pane, preview on');
   await page.getByTestId('composer-submit').click();
   await expect(page.getByTestId('comment-card')).toHaveCount(1);

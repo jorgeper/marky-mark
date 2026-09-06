@@ -55,17 +55,31 @@ export function SmartEditMenu({ x, y, entries, onInvoke, onClose }: Props) {
     menuRef.current?.focus();
   }, []);
 
-  // Dismissal: outside pointerdown, scroll anywhere, resize (Esc via keydown).
+  // Dismissal: outside pointerdown, scroll, resize (Esc via keydown).
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
       if (!menuRef.current?.contains(e.target as Node)) onClose();
     };
+    // Issue #286: only a scroll that can move the menu's ANCHOR dismisses —
+    // the document, an ancestor of the menu, or something inside the menu's
+    // own host (the editor's scroller). A scroll in an unrelated pane (the
+    // split preview's async sync-follow after a caret move) must not close
+    // the menu the caret's pane just opened.
+    const onScroll = (e: Event) => {
+      const menu = menuRef.current;
+      const t = e.target;
+      if (menu && t instanceof Node && t !== document) {
+        const host = menu.parentElement;
+        if (!t.contains(menu) && !(host && host.contains(t))) return;
+      }
+      onClose();
+    };
     document.addEventListener('pointerdown', onDown);
-    window.addEventListener('scroll', onClose, true);
+    window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onClose);
     return () => {
       document.removeEventListener('pointerdown', onDown);
-      window.removeEventListener('scroll', onClose, true);
+      window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onClose);
     };
   }, [onClose]);

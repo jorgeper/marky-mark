@@ -181,11 +181,12 @@ export async function selectSpan(page: Page, phraseA: string, phraseB: string): 
  * Click `target` only once the toolbar shell provably cannot intercept it.
  *
  * `.toolbar-shell` (src/styles.css:66 — `z-index: 80`, `transition: transform
- * 180ms`) owns the top 42px of the window, and the floating `marker-popup`
- * is `position: fixed` at z-index 60: a target that lands in that band is
- * clicked by `.docname` instead (issue #18, E129). Waiting on the two rects
- * catches both a transitioning shell and a genuinely mispositioned control —
- * loudly, at 4s, rather than as a 30s intercepted-click timeout.
+ * 180ms`) owns the top 42px of the window: any floating control that lands in
+ * that band is clicked by `.docname` instead (issue #18, E129). Waiting on
+ * the two rects catches both a transitioning shell and a genuinely
+ * mispositioned control — loudly, at 4s, rather than as a 30s
+ * intercepted-click timeout. (Issue #286 retired its original marker-popup
+ * customer; other floating chrome still routes through it.)
  */
 export async function clickClearOfToolbar(target: Locator): Promise<void> {
   await expect(target).toBeVisible();
@@ -227,12 +228,69 @@ export async function stableBox(target: Locator): Promise<Box> {
   return (await target.boundingBox())!;
 }
 
-/** Full comment flow: select, click the floating button, type, submit. */
+/**
+ * Full comment flow — issue #286 (PRD 023 §12): the selection popup is gone,
+ * so preview authoring is the Insert Comment hotkey (Mod+Alt+M) over the
+ * selection. The press is retried until the composer appears because the
+ * hotkey reads the selection state the selectionchange handler commits a
+ * beat after `selectPhrase`; a second press with the composer focused is a
+ * guarded no-op, so the retry can never double-author.
+ */
 export async function addComment(page: Page, phrase: string, body: string): Promise<void> {
   await selectPhrase(page, phrase);
-  await clickClearOfToolbar(page.getByTestId('add-note-btn'));
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer-input')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
   await page.getByTestId('composer-input').fill(body);
   await page.getByTestId('composer-submit').click();
+}
+
+/**
+ * Issue #286 (PRD 023 §12): author a highlight over `phrase` in the preview
+ * via Mod+Alt+H — always the ARMED (last-used) color, yellow on a fresh
+ * profile; color choice lives in the editor's Smart Edit menu until issue
+ * #287's selection button. Retried like addComment: once the insert lands
+ * the selection is cleared, so a duplicate press is a silent no-op.
+ */
+export async function addHighlight(page: Page, phrase: string): Promise<void> {
+  await selectPhrase(page, phrase);
+  const before = await page.locator('mark.hl').count();
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+H');
+    await expect
+      .poll(() => page.locator('mark.hl').count(), { timeout: 500 })
+      .toBeGreaterThan(before);
+  }).toPass({ timeout: 5000 });
+}
+
+/**
+ * Issue #286 (PRD 023 §§7–11): invoke an annotation row of the editor's
+ * Smart Edit menu — open with its hotkey, enter the Comment/Highlight
+ * submenu, click the leaf. Retried whole: the rows resolve against the
+ * debounced rendered-text cache and highlight mapping, so right after a
+ * mode switch or an edit they may open disabled for a beat.
+ */
+export async function smartEditAnnotation(
+  page: Page,
+  submenu: 'comment' | 'highlight',
+  leaf: string
+): Promise<void> {
+  await expect(async () => {
+    // Close a half-open menu from a failed pass — but never send a bare
+    // Escape into CodeMirror: it would collapse the very selection the row
+    // is meant to act on (simplifySelection). The menu holds focus while
+    // open, so Escape only goes out when it will land there.
+    for (let i = 0; i < 3 && (await page.getByTestId('smart-edit-menu').count()); i++) {
+      await page.keyboard.press('Escape');
+    }
+    await page.keyboard.press('Control+.');
+    await expect(page.getByTestId('smart-edit-menu')).toBeVisible({ timeout: 1000 });
+    await page.getByTestId(`smart-edit-${submenu}`).click();
+    const row = page.getByTestId(`smart-edit-${leaf}`);
+    await expect(row).toBeEnabled({ timeout: 700 });
+    await row.click();
+  }).toPass({ timeout: 15000 });
 }
 
 /**

@@ -128,7 +128,11 @@ test('W3: open via file-input fallback, comment, Save downloads the file with th
     }
     throw new Error('phrase not found');
   });
-  await page.getByTestId('add-note-btn').click();
+  // Issue #286: the popup is gone — the Insert Comment hotkey authors it.
+  await expect(async () => {
+    await page.keyboard.press('Control+Alt+M');
+    await expect(page.getByTestId('composer')).toBeVisible({ timeout: 500 });
+  }).toPass({ timeout: 5000 });
   await page.getByTestId('composer-input').fill('web comment');
   await page.getByTestId('composer-submit').click();
   await expect(page.getByTestId('card-body')).toHaveText('web comment');
