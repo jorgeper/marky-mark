@@ -1506,12 +1506,13 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       const containerOf = (el: Element | null): HTMLElement | null =>
         (el?.closest<HTMLElement>(ACTIVE_CONTAINERS) ?? null);
       // The head's rendered point: its innermost container plus the exact
-      // text position, for the issue #310 head marker.
-      const headPoint = (): { container: HTMLElement | null; at: { node: Node; offset: number } | null } => {
+      // text position, for the issue #310 head marker. Null when the head
+      // does not resolve to a rendered container.
+      const headPoint = (): { container: HTMLElement; at: { node: Node; offset: number } } | null => {
         const off = renderedOffsetForSource(buffer, blockStart, head, blockRendered);
-        if (off === null) return { container: null, at: null };
+        if (off === null) return null;
         const r = offsetsToRange(pane, rs + Math.min(off, Math.max(0, blockRendered.length - 1)), rs + Math.min(off + 1, blockRendered.length));
-        if (!r) return { container: null, at: null };
+        if (!r) return null;
         // The range START can land at the tail of an inter-item whitespace
         // node (parent = the list itself); the END sits inside the real
         // container's text — take the first that resolves (the END point
@@ -1525,7 +1526,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           const c = el && pane.contains(el) ? containerOf(el) : null;
           if (c) return { container: c, at };
         }
-        return { container: null, at: null };
+        return null;
       };
       const tint = (el: HTMLElement | null) => (el && pane.contains(el) ? el : blockEl).classList.add('mm-active-block');
       // Issue #310: when no word mark is painted (a selection, a whitespace or
@@ -1536,13 +1537,13 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       // so text nodes stay whole for the find and comment marks painted over
       // them (E291) and rendered text and offsets are untouched.
       const tintAtHead = () => {
-        const { container, at } = headPoint();
-        tint(container); // the head's container — like the editor's active line
-        if (!at || !container || !pane.contains(container)) return;
+        const point = headPoint();
+        tint(point?.container ?? null); // the head's container — like the editor's active line
+        if (!point || !pane.contains(point.container)) return;
         const pre = document.createRange();
-        pre.setStart(container, 0);
-        pre.setEnd(at.node, at.offset);
-        container.dataset.mmHead = String(pre.toString().length);
+        pre.setStart(point.container, 0);
+        pre.setEnd(point.at.node, point.at.offset);
+        point.container.dataset.mmHead = String(pre.toString().length);
       };
       if (hasSel) {
         tintAtHead();
@@ -1565,7 +1566,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         m.className = 'mm-active-word';
         delete m.dataset.cid; // never the comment machinery's business
       }
-      tint(containerOf(marks[0] ?? null) ?? headPoint().container);
+      tint(containerOf(marks[0] ?? null) ?? headPoint()?.container ?? null);
     },
     [clearActiveCues]
   );

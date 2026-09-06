@@ -1320,6 +1320,11 @@ const caretLevelGap = (page: Page) =>
 
 const editorScrollTop = (page: Page) => page.locator('.cm-scroller').evaluate((el) => el.scrollTop);
 const previewScrollTop = (page: Page) => page.getByTestId('split-preview').evaluate((el) => el.scrollTop);
+/**
+ * Screen top of CodeMirror's drawn cursor. CM repositions it a frame after a
+ * caret move — poll it to the new row so a level check cannot pass on the old.
+ */
+const cursorTop = (page: Page) => page.locator('.cm-cursor-primary').evaluate((el) => el.getBoundingClientRect().top);
 
 /** Screen point on the first visible `.cm-line` row at least `dy` px below the caret's row. */
 const editorRowBelowCaret = (page: Page, dy: number) =>
@@ -1352,12 +1357,9 @@ test('E555: Issue #310 — a click on a lower editor row levels the preview cue 
   const edBefore = await editorScrollTop(page);
   const pvBefore = await previewScrollTop(page);
 
-  // CodeMirror repositions its drawn cursor a frame after the click — wait
-  // for it to reach the new row so the level check cannot pass on the old.
-  const cursorTop = () => page.locator('.cm-cursor-primary').evaluate((el) => el.getBoundingClientRect().top);
-  const cursorBefore = await cursorTop();
+  const cursorBefore = await cursorTop(page);
   await page.getByTestId('editor').locator('.cm-line', { hasText: 'gap landing sentence' }).click({ position: { x: 4, y: 6 } });
-  await expect.poll(cursorTop).toBeGreaterThan(cursorBefore + 100);
+  await expect.poll(() => cursorTop(page)).toBeGreaterThan(cursorBefore + 100);
   // The preview realigns on the new caret's cue (body text: centres within 10 px)…
   await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
   // …by really moving: the caret sits ~nine rows lower in the editor's
@@ -1389,12 +1391,11 @@ test('E556: Issue #310 — ArrowDown and Shift+ArrowDown walk visual rows and th
   // it (the preview's own rows wrap differently, so its scrollTop is free to
   // move either way — only the level matters). Each step is checked after
   // the follower settles, so a stale pass cannot mask a missed row.
-  const cursorTop = () => page.locator('.cm-cursor-primary').evaluate((el) => el.getBoundingClientRect().top);
-  let lastCursor = await cursorTop();
+  let lastCursor = await cursorTop(page);
   for (let i = 0; i < 3; i++) {
     await page.keyboard.press('ArrowDown');
-    await expect.poll(cursorTop).toBeGreaterThan(lastCursor + 8); // really one row down
-    lastCursor = await cursorTop();
+    await expect.poll(() => cursorTop(page)).toBeGreaterThan(lastCursor + 8); // really one row down
+    lastCursor = await cursorTop(page);
     await expect(pvWord).toHaveCount(1);
     await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
   }
@@ -1402,8 +1403,8 @@ test('E556: Issue #310 — ArrowDown and Shift+ArrowDown walk visual rows and th
   // carries the head's rendered offset and the panes stay level on that row.
   for (let i = 0; i < 2; i++) {
     await page.keyboard.press('Shift+ArrowUp');
-    await expect.poll(cursorTop).toBeLessThan(lastCursor - 8);
-    lastCursor = await cursorTop();
+    await expect.poll(() => cursorTop(page)).toBeLessThan(lastCursor - 8);
+    lastCursor = await cursorTop(page);
     await expect(pvWord).toHaveCount(0);
     await expect(pvHead).toHaveCount(1);
     await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);

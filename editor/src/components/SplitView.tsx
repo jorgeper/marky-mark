@@ -255,8 +255,11 @@ export function SplitView({ editor, split, editorSyncRef, syncScroll = true, spl
     const expected: { editor: number | null; preview: number | null } = { editor: null, preview: null };
     const QUIET_MS = 120;
     const AT_END = 2; // px slack for end clamping
-    const isEcho = (pane: 'editor' | 'preview', scrollTop: number) =>
-      performance.now() < quiet[pane] && (expected[pane] === null || Math.abs(scrollTop - expected[pane]) < 2);
+    const isEcho = (pane: 'editor' | 'preview', scrollTop: number) => {
+      if (performance.now() >= quiet[pane]) return false;
+      const landing = expected[pane];
+      return landing === null || Math.abs(scrollTop - landing) < 2;
+    };
 
     // SPEC45: while the SPEC44 cue is near the leader's viewport, the panes
     // align on IT — the selected word keeps the same vertical position on
@@ -348,17 +351,19 @@ export function SplitView({ editor, split, editorSyncRef, syncScroll = true, spl
     // (split mount, sync back on, a re-render) yields when the preview led
     // in the meantime — the reader's position wins over a housekeeping pass.
     let alignRaf = 0;
-    let settleOnly = false;
-    const scheduleAlign = (settle: boolean) => {
-      settleOnly = alignRaf ? settleOnly && settle : settle;
+    let caretPending = false; // a caret follow is in the queued frame
+    const scheduleAlign = (reason: 'caret' | 'settle') => {
+      if (reason === 'caret') caretPending = true;
       if (alignRaf) return;
       alignRaf = requestAnimationFrame(() => {
         alignRaf = 0;
-        if (settleOnly && lastLeaderRef.current === 'preview') return;
+        const caretFollow = caretPending;
+        caretPending = false;
+        if (!caretFollow && lastLeaderRef.current === 'preview') return;
         editorLeads();
       });
     };
-    if (followRef) followRef.current = { followCaret: () => scheduleAlign(false) };
+    if (followRef) followRef.current = { followCaret: () => scheduleAlign('caret') };
 
     // The editor loads lazily — retry the subscription until its handle
     // appears (bounded; the injection-keyed rerun also gets a fresh shot).
@@ -374,7 +379,7 @@ export function SplitView({ editor, split, editorSyncRef, syncScroll = true, spl
         // or a re-render replaced the preview's DOM and cues — the editor
         // leads, so both panes open level on the caret (cue-anchored when its
         // block is in view). A preview that led last keeps its position.
-        scheduleAlign(true);
+        scheduleAlign('settle');
       } else if (retries-- > 0) requestAnimationFrame(subscribe);
     };
     subscribe();
