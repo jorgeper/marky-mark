@@ -388,6 +388,20 @@ export interface SmartMenuAnnotations {
   removeHighlightEnabled: boolean;
 }
 
+/** SPEC43 §2.10: one menu row — enabled unless said otherwise, and the
+ * optional keys omitted rather than set undefined. Shared by both builders. */
+const item = (
+  id: string,
+  label: string,
+  opts: { hotkey?: string; enabled?: boolean; submenu?: SmartMenuEntry[] } = {}
+): SmartMenuEntry => ({
+  id,
+  label,
+  enabled: opts.enabled !== false,
+  ...(opts.hotkey ? { hotkey: opts.hotkey } : {}),
+  ...(opts.submenu ? { submenu: opts.submenu } : {}),
+});
+
 /**
  * PRD 023 §13 (issue #287): the ONE definition of the Comment ▸ and
  * Highlight ▸ entries, shared by `buildSmartMenu` (the editor's full menu)
@@ -404,39 +418,29 @@ export function buildAnnotationMenu(
 ): SmartMenuEntry[] {
   const hk = (combo: string) => displayCombo(combo, isMac);
   return [
-    {
-      id: 'comment',
-      label: 'Comment',
-      enabled: true,
+    item('comment', 'Comment', {
       submenu: [
-        {
-          id: 'insert-comment',
-          label: 'Insert Comment',
+        item('insert-comment', 'Insert Comment', {
           hotkey: hk(hotkeys.insertComment),
           enabled: a.insertCommentEnabled,
-        },
-        { id: 'delete-comment', label: 'Delete Comment', enabled: a.deleteCommentEnabled },
+        }),
+        item('delete-comment', 'Delete Comment', { enabled: a.deleteCommentEnabled }),
       ],
-    },
-    {
-      id: 'highlight',
-      label: 'Highlight',
-      enabled: true,
+    }),
+    item('highlight', 'Highlight', {
       submenu: [
         // PRD 023 §9: the four colors in fixed vocabulary order — never
         // reordered by last-used; the armed color's cue is the Mod+Alt+H
         // hotkey it would apply (PRD 022 Req 4).
-        ...a.colors.map(
-          (c): SmartMenuEntry => ({
-            id: `hl-${c}`,
-            label: c.charAt(0).toUpperCase() + c.slice(1),
+        ...a.colors.map((c) =>
+          item(`hl-${c}`, c.charAt(0).toUpperCase() + c.slice(1), {
             enabled: a.colorsEnabled,
             ...(c === a.armedColor ? { hotkey: hk(hotkeys.applyHighlight) } : {}),
           })
         ),
-        { id: 'remove-highlight', label: 'Remove Highlight', enabled: a.removeHighlightEnabled },
+        item('remove-highlight', 'Remove Highlight', { enabled: a.removeHighlightEnabled }),
       ],
-    },
+    }),
   ];
 }
 
@@ -461,17 +465,6 @@ export interface SmartMenuCtx {
 
 export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
   const hk = (combo: string) => displayCombo(combo, ctx.isMac);
-  const item = (
-    id: string,
-    label: string,
-    opts: { hotkey?: string; enabled?: boolean; submenu?: SmartMenuEntry[] } = {}
-  ): SmartMenuEntry => ({
-    id,
-    label,
-    enabled: opts.enabled !== false,
-    ...(opts.hotkey ? { hotkey: opts.hotkey } : {}),
-    ...(opts.submenu ? { submenu: opts.submenu } : {}),
-  });
   const h = ctx.hotkeys;
 
   const out: SmartMenuEntry[] = [];

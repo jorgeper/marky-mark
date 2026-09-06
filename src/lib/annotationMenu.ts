@@ -115,6 +115,33 @@ const CLOSED: AnnotationMenuModel = {
 };
 
 /**
+ * PRD 023 §§8–11: the hit context a candidate id set resolves to — the
+ * comment Delete Comment removes, and the highlight the color rows recolor
+ * and Remove Highlight deletes. ONE kind-aware rule (`pickHitRecord`) over
+ * both surfaces' candidates: the editor's ids under the caret (issue #286)
+ * and the preview selection button's overlapping painted ranges (issue
+ * #287). Filtering to highlights first is what keeps a comment at the same
+ * spot from shadowing the recolor; among several highlights `pickHitRecord`'s
+ * comment-free branch takes the first candidate. Ids naming no record, or a
+ * kind that cannot answer the row, resolve to null.
+ */
+function hitContext(
+  ids: readonly string[],
+  records: readonly CommentData[]
+): { deleteCommentId: string | null; highlightId: string | null } {
+  const commentHit = pickHitRecord(ids, records);
+  const commentRec = commentHit === null ? undefined : records.find((r) => r.id === commentHit);
+  const highlightIds = ids.filter((id) => {
+    const r = records.find((c) => c.id === id);
+    return r !== undefined && !isComment(r);
+  });
+  return {
+    deleteCommentId: commentRec && isComment(commentRec) ? commentRec.id : null,
+    highlightId: pickHitRecord(highlightIds, records),
+  };
+}
+
+/**
  * PRD 023 §§8–11 (issue #286): the one context rule for the Comment and
  * Highlight entries. A selection always wins over caret context: it is the
  * insert target for Insert Comment and every color row (even overlapping an
@@ -125,6 +152,48 @@ const CLOSED: AnnotationMenuModel = {
  * enables Delete Comment (kind-aware pick, `pickHitRecord`). Rows whose
  * mapping is ambiguous are disabled, never mis-anchored (§19).
  */
+export function annotationMenuModel(input: AnnotationMenuInput): AnnotationMenuModel {
+  const { gate, source, rendered, selFrom, selTo, head, idsAtCaret, records } = input;
+  if (!gate.commentsEnabled || gate.authoringFrozen || !gate.canWrite) return CLOSED;
+
+  const hasSelection = selFrom < selTo;
+
+  // Delete Comment is caret context by its own condition — the caret sits
+  // inside an existing comment's painted range (a highlight's never counts);
+  // `highlightId` is the caret's highlight, read below with no selection.
+  const { deleteCommentId, highlightId } = hitContext(idsAtCaret, records);
+
+  if (hasSelection) {
+    const anchor = mapSourceRangeToRendered(source, rendered, selFrom, selTo);
+    return {
+      show: true,
+      anchor,
+      insertCommentEnabled: anchor !== null,
+      deleteCommentId,
+      colorsEnabled: anchor !== null,
+      recolorId: null,
+      removeHighlightId: null,
+    };
+  }
+
+  // No selection: the caret's highlight (the `hitContext` pick above) turns
+  // the color rows into a recolor of that record — same id, no second
+  // record — and arms Remove Highlight; the word under the caret is the
+  // insert anchor.
+  const w = wordAt(source, head);
+  const wordAnchor = w ? mapSourceRangeToRendered(source, rendered, w.start, w.end) : null;
+
+  return {
+    show: true,
+    anchor: wordAnchor,
+    insertCommentEnabled: wordAnchor !== null,
+    deleteCommentId,
+    colorsEnabled: highlightId !== null || wordAnchor !== null,
+    recolorId: highlightId,
+    removeHighlightId: highlightId,
+  };
+}
+
 export interface PreviewAnnotationInput {
   gate: AnnotationGate;
   /** The selection as rendered-plain-text offsets (rangeToOffsets — no
@@ -160,28 +229,19 @@ export function previewAnnotationModel(input: PreviewAnnotationInput): Annotatio
   if (!gate.commentsEnabled || gate.authoringFrozen || !gate.canWrite) return CLOSED;
   if (end <= start) return CLOSED; // no selection ⇒ no button, no context
 
-  // The records whose painted range overlaps the selection, document order
-  // (painted start) — the order the editor feeds pickHitRecord too.
+  // The ids whose painted range overlaps the selection, in document order
+  // (painted start) — this surface's candidates, the role the editor's caret
+  // ids play there. An overlapped highlight makes the color rows a recolor of
+  // that record (same id, never a second one); with none they insert over the
+  // selection.
   const overlapping = records
-    .map((r) => ({ r, m: positions[r.id] }))
-    .filter((x): x is { r: CommentData; m: RenderedRange } =>
+    .map((r) => ({ id: r.id, m: positions[r.id] }))
+    .filter((x): x is { id: string; m: RenderedRange } =>
       x.m != null && x.m.start < end && x.m.end > start
     )
     .sort((a, b) => a.m.start - b.m.start)
-    .map((x) => x.r);
-
-  // Delete Comment: the kind-aware pick — a highlight never counts.
-  const hit = pickHitRecord(overlapping.map((r) => r.id), records);
-  const hitRec = hit === null ? undefined : records.find((r) => r.id === hit);
-  const deleteCommentId = hitRec && isComment(hitRec) ? hitRec.id : null;
-
-  // The color rows recolor an overlapped highlight in place (same id, never
-  // a second record); with none they insert over the selection. Filtering to
-  // highlights first keeps an overlapping comment from shadowing the pick.
-  const highlightId = pickHitRecord(
-    overlapping.filter((r) => !isComment(r)).map((r) => r.id),
-    records
-  );
+    .map((x) => x.id);
+  const { deleteCommentId, highlightId } = hitContext(overlapping, records);
 
   return {
     show: true,
@@ -190,57 +250,6 @@ export function previewAnnotationModel(input: PreviewAnnotationInput): Annotatio
     insertCommentEnabled: true,
     deleteCommentId,
     colorsEnabled: true,
-    recolorId: highlightId,
-    removeHighlightId: highlightId,
-  };
-}
-
-export function annotationMenuModel(input: AnnotationMenuInput): AnnotationMenuModel {
-  const { gate, source, rendered, selFrom, selTo, head, idsAtCaret, records } = input;
-  if (!gate.commentsEnabled || gate.authoringFrozen || !gate.canWrite) return CLOSED;
-
-  const hasSelection = selFrom < selTo;
-
-  // Delete Comment is caret context by its own condition — the caret sits
-  // inside an existing comment's painted range (a highlight's never counts).
-  const commentHit = pickHitRecord(idsAtCaret, records);
-  const commentRec = commentHit === null ? undefined : records.find((r) => r.id === commentHit);
-  const deleteCommentId = commentRec && isComment(commentRec) ? commentRec.id : null;
-
-  if (hasSelection) {
-    const anchor = mapSourceRangeToRendered(source, rendered, selFrom, selTo);
-    return {
-      show: true,
-      anchor,
-      insertCommentEnabled: anchor !== null,
-      deleteCommentId,
-      colorsEnabled: anchor !== null,
-      recolorId: null,
-      removeHighlightId: null,
-    };
-  }
-
-  // No selection: a caret on an existing highlight makes the color rows a
-  // recolor of that record (same id, no second record) and arms Remove
-  // Highlight. Filtering to highlights first is what keeps a comment at the
-  // same caret from shadowing the recolor; among several overlapping
-  // highlights `pickHitRecord`'s comment-free branch takes the first painted.
-  const highlightIds = idsAtCaret.filter((id) => {
-    const r = records.find((c) => c.id === id);
-    return r !== undefined && !isComment(r);
-  });
-  const highlightId = pickHitRecord(highlightIds, records);
-
-  // The word under the caret is the no-selection insert anchor.
-  const w = wordAt(source, head);
-  const wordAnchor = w ? mapSourceRangeToRendered(source, rendered, w.start, w.end) : null;
-
-  return {
-    show: true,
-    anchor: wordAnchor,
-    insertCommentEnabled: wordAnchor !== null,
-    deleteCommentId,
-    colorsEnabled: highlightId !== null || wordAnchor !== null,
     recolorId: highlightId,
     removeHighlightId: highlightId,
   };

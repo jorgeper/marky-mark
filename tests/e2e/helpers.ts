@@ -267,14 +267,18 @@ export async function addHighlight(page: Page, phrase: string): Promise<void> {
 }
 
 /**
- * Issue #286 (PRD 023 §§7–11): invoke an annotation row of the editor's
- * Smart Edit menu — open with its hotkey, enter the Comment/Highlight
- * submenu, click the leaf. Retried whole: the rows resolve against the
- * debounced rendered-text cache and highlight mapping, so right after a
- * mode switch or an edit they may open disabled for a beat.
+ * Issue #286 (PRD 023 §§7–11) + #287 (§13): invoke an annotation row of the
+ * Comment/Highlight menu — `open` opens it the way the surface under test
+ * does, then the submenu and its leaf are clicked. Retried whole: the editor
+ * rows resolve against the debounced rendered-text cache and highlight
+ * mapping (so right after a mode switch or an edit they may open disabled for
+ * a beat), and the preview button appears a beat after the selectionchange
+ * handler commits. A landed row clears the context it acted on, so a retry
+ * can never double-author.
  */
-export async function smartEditAnnotation(
+async function annotationMenuRow(
   page: Page,
+  open: () => Promise<unknown>,
   submenu: 'comment' | 'highlight',
   leaf: string
 ): Promise<void> {
@@ -286,7 +290,7 @@ export async function smartEditAnnotation(
     for (let i = 0; i < 3 && (await page.getByTestId('smart-edit-menu').count()); i++) {
       await page.keyboard.press('Escape');
     }
-    await page.keyboard.press('Control+.');
+    await open();
     await expect(page.getByTestId('smart-edit-menu')).toBeVisible({ timeout: 1000 });
     await page.getByTestId(`smart-edit-${submenu}`).click();
     const row = page.getByTestId(`smart-edit-${leaf}`);
@@ -295,33 +299,30 @@ export async function smartEditAnnotation(
   }).toPass({ timeout: 15000 });
 }
 
-/**
- * Issue #287 (PRD 023 §13): invoke an annotation row from the PREVIEW
- * selection button — click the floating hash left of the selection, enter
- * the Comment/Highlight submenu, click the leaf. Assumes a selection was
- * just made in a preview surface (selectPhrase / selectPhraseInPane).
- * Retried whole, mirroring smartEditAnnotation: the button appears a beat
- * after the selectionchange handler commits, and a landed row clears the
- * selection (button and menu go with it), so a retry can never
- * double-author. Escape is only sent while the menu (which holds focus) is
- * open, so it can't disturb the app underneath.
- */
+/** Issue #286 (PRD 023 §§7–11): the EDITOR surface's menu, opened by its
+ * hotkey over the caret/selection the editor already holds. */
+export async function smartEditAnnotation(
+  page: Page,
+  submenu: 'comment' | 'highlight',
+  leaf: string
+): Promise<void> {
+  await annotationMenuRow(page, () => page.keyboard.press('Control+.'), submenu, leaf);
+}
+
+/** Issue #287 (PRD 023 §13): the PREVIEW surface's menu, opened by the
+ * floating hash button left of the selection. Assumes a selection was just
+ * made in a preview surface (selectPhrase / selectPhraseInPane). */
 export async function previewSelectionAnnotation(
   page: Page,
   submenu: 'comment' | 'highlight',
   leaf: string
 ): Promise<void> {
-  await expect(async () => {
-    for (let i = 0; i < 3 && (await page.getByTestId('smart-edit-menu').count()); i++) {
-      await page.keyboard.press('Escape');
-    }
-    await clickClearOfToolbar(page.getByTestId('smart-edit-selection'));
-    await expect(page.getByTestId('smart-edit-menu')).toBeVisible({ timeout: 1000 });
-    await page.getByTestId(`smart-edit-${submenu}`).click();
-    const row = page.getByTestId(`smart-edit-${leaf}`);
-    await expect(row).toBeEnabled({ timeout: 700 });
-    await row.click();
-  }).toPass({ timeout: 15000 });
+  await annotationMenuRow(
+    page,
+    () => clickClearOfToolbar(page.getByTestId('smart-edit-selection')),
+    submenu,
+    leaf
+  );
 }
 
 /**

@@ -461,6 +461,25 @@ function summaryPriceFor(ctx: { providerId: string; modelId: string }): TokenPri
   return isLlmProviderKind(ctx.providerId) ? priceFor(ctx.providerId, ctx.modelId) : null;
 }
 
+/**
+ * PRD 023 §13 (issue #287): where the preview selection button sits — the
+ * 24px square `.preview-sel-btn` (styles.css) one gap LEFT of the selection
+ * rect and vertically centred on it, clamped to stay inside the viewport and
+ * below the .toolbar-shell band (the issue #18 toolbar floor). One place to
+ * change if the button's size or the band ever does.
+ */
+const PREVIEW_BTN = { size: 24, gap: 6, edge: 4, toolbarFloor: 46 };
+function previewButtonPos(sel: { x: number; y: number; h: number }): { left: number; top: number } {
+  const { size, gap, edge, toolbarFloor } = PREVIEW_BTN;
+  return {
+    left: Math.max(edge, Math.min(sel.x - size - gap, window.innerWidth - size - edge)),
+    top: Math.max(
+      toolbarFloor,
+      Math.min(sel.y + sel.h / 2 - size / 2, window.innerHeight - size - edge)
+    ),
+  };
+}
+
 export default function App() {
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -6724,13 +6743,17 @@ export default function App() {
   // editor's rows anchor into the rendered-text cache, the preview button's
   // into the preview's docText — one invoke path serves both surfaces.
   const annotationModelRef = useRef<{ model: AnnotationMenuModel; text: string } | null>(null);
+  // PRD 023 §7: the all-or-nothing authoring gate, written once — both
+  // surfaces' models read this object, so the editor menu, the hotkeys and
+  // the preview selection button (issue #287) can never disagree about it.
+  const annotationGate = {
+    commentsEnabled: settings.commentsEnabled,
+    authoringFrozen,
+    canWrite: docGrants.commentWrite,
+  };
   const resolveAnnotationModel = (sel: AnnotationSelection): AnnotationMenuModel => {
     const model = annotationMenuModel({
-      gate: {
-        commentsEnabled: settings.commentsEnabled,
-        authoringFrozen,
-        canWrite: docGrants.commentWrite,
-      },
+      gate: annotationGate,
       // The editor's own doc text and offsets (grid form included) — its
       // visible text is what the rendered cache is matched against, and a
       // range inside a table grid simply fails to map (disabled, never
@@ -6797,11 +6820,7 @@ export default function App() {
   const openPreviewMenu = (rect: DOMRect) => {
     if (!selInfo) return;
     const model = previewAnnotationModel({
-      gate: {
-        commentsEnabled: settings.commentsEnabled,
-        authoringFrozen,
-        canWrite: docGrants.commentWrite,
-      },
+      gate: annotationGate,
       start: selInfo.start,
       end: selInfo.end,
       positions,
@@ -6810,6 +6829,8 @@ export default function App() {
     if (!model.show) return; // the model is fed the button's own gate
     annotationModelRef.current = { model, text: docTextRef.current };
     setPreviewMenu({
+      // Anchored under the button — the component clamps it into the
+      // viewport from there (SPEC43 §4).
       x: rect.left,
       y: rect.bottom + 4,
       entries: buildAnnotationMenu(
@@ -6856,8 +6877,9 @@ export default function App() {
     const onScroll = (e: Event) => {
       const t = e.target;
       const surface = mode === 'preview' ? docRef.current : splitDocRef.current;
-      if (t instanceof Node && t !== document && surface && !t.contains(surface)) return;
-      setPreviewMenu(null);
+      const movesAnchor =
+        !(t instanceof Node) || t === document || surface === null || t.contains(surface);
+      if (movesAnchor) setPreviewMenu(null);
     };
     window.addEventListener('scroll', onScroll, true);
     return () => window.removeEventListener('scroll', onScroll, true);
@@ -8103,10 +8125,7 @@ export default function App() {
           className="icon-btn smart-edit-btn preview-sel-btn"
           data-testid="smart-edit-selection"
           title="Comment / Highlight"
-          style={{
-            left: Math.max(4, Math.min(selInfo.x - 30, window.innerWidth - 28)),
-            top: Math.max(46, Math.min(selInfo.y + selInfo.h / 2 - 12, window.innerHeight - 28)),
-          }}
+          style={previewButtonPos(selInfo)}
           // SPEC43 §3's widget idiom, verbatim: open on mousedown with the
           // default prevented, so the press never collapses the selection
           // the menu's rows are about to act on (a prevented mousedown also
