@@ -225,10 +225,8 @@ export function Toolbar(p: Props) {
         )}
       </div>
 
-      {/* PRD 020 Req 16 (issue #254): the workspace link sits between the
-          hamburger and the name it links to — the toolbar's own gap and
-          icon idiom carry it, so it reads as chrome rather than as a
-          transplanted corner control. */}
+      {/* PRD 020 Req 16 (issue #254): the workspace link, seated between the
+          hamburger and the name it links to. */}
       {p.workspaceShare}
 
       <span className="docname" data-testid="docname" title={p.docPath ?? undefined}>

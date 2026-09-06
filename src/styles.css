@@ -607,9 +607,10 @@ button {
 
 /* PRD 020 Req 16 (issue #254): the hosted workspace copy-link lives in the
    top bar now, between the hamburger and the name it links to. Layout only —
-   the control is still the .icon-btn-based .copy-link primitive; this rule
-   just halves the toolbar's gap on the name side so the glyph reads as that
-   name's link rather than as a free-standing toolbar button. */
+   the control is still the .icon-btn-based .copy-link primitive. The pull-in
+   is the toolbar's own 8px gap (--mm-space-3) less --mm-space-1, leaving 4px
+   on the name side so the glyph reads as that name's link rather than as a
+   free-standing toolbar button. */
 .toolbar .copy-link {
   margin-right: calc(var(--mm-space-1) - var(--mm-space-3));
 }

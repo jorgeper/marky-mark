@@ -7670,6 +7670,25 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     />
   );
 
+  // PRD 020 Req 15: the copy-link placements are hosted-only — Tauri, the
+  // dev shim and the single-file build render neither (this `kind` check is
+  // the one gate; nothing else in the tree grows share DOM). The copied URL
+  // is read off the canonical address bar at click time (Req 6 keeps
+  // `location` on the Req 5 form), so it is absolute and never the legacy
+  // `?workspace=` shape.
+  const hostedWorkspace = platform.kind === 'hosted' && wsKind !== 'none';
+  // PRD 020 Req 16 (issue #254): the workspace placement copies
+  // /<workspace-name>. The Toolbar seats it (below), so it rides no corner
+  // cluster and the folder pane's state cannot reach it.
+  const workspaceShare = hostedWorkspace ? (
+    <CopyLinkButton
+      testid="copy-link-workspace"
+      label={COPY_LINK_WORKSPACE_LABEL}
+      getUrl={() => workspaceShareUrl(window.location.origin, window.location.pathname)}
+      copy={copyToClipboard}
+    />
+  ) : null;
+
   // The workspace's corner controls. With the file tab strip up they ride in
   // its end slots (FileTabStrip leading/trailing) so the closed pane's
   // chevron keeps the exact spot the open pane's header gives it and the
@@ -7681,25 +7700,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // the splash and for a read-only document) and, in edit mode, the preview
   // chevron (never in full preview: that's a different surface, not a
   // closed split).
-  // PRD 020 Req 15: the copy-link placements are hosted-only — Tauri, the
-  // dev shim and the single-file build render neither (this `kind` check is
-  // the one gate; nothing else in the tree grows share DOM). The copied URL
-  // is read off the canonical address bar at click time (Req 6 keeps
-  // `location` on the Req 5 form), so it is absolute and never the legacy
-  // `?workspace=` shape.
-  const hostedWorkspace = platform.kind === 'hosted' && wsKind !== 'none';
-  const workspaceShare = hostedWorkspace ? (
-    // PRD 020 Req 16 (issue #254): the workspace placement copies
-    // /<workspace-name>, and is handed to the Toolbar, which seats it
-    // immediately left of the workspace name — it rides no corner cluster
-    // and so no longer depends on the folder pane's state.
-    <CopyLinkButton
-      testid="copy-link-workspace"
-      label={COPY_LINK_WORKSPACE_LABEL}
-      getUrl={() => workspaceShareUrl(window.location.origin, window.location.pathname)}
-      copy={copyToClipboard}
-    />
-  ) : null;
   const fileShare =
     hostedWorkspace && docPath !== null ? (
       // PRD 020 Req 17: the file placement copies the open file's Req 5 URL
@@ -7711,10 +7711,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         copy={copyToClipboard}
       />
     ) : null;
-  // PRD 003 Req 2 + PRD 012 Req 9: the chevron + view switch, only while the
-  // pane is closed — with the workspace copy-link moved to the top bar
-  // (issue #254) the cluster has no other member, so its pane-closed gate is
-  // once again the cluster's own gate and it is absent, not empty, when off.
   const leftCluster =
     !sidebarShown && (folderSeam || docOpen) ? (
       <>
@@ -7781,10 +7777,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
               // PRD 009 Req 11: the open workspace's name, where the removed
               // switcher chip used to show it.
               workspaceName={workspaceName}
-              // PRD 020 Req 16 (issue #254): the hosted workspace copy-link,
-              // seated by the Toolbar immediately left of the name it links
-              // to. The gate and the click-time URL stay here; the Toolbar
-              // only places what it is given.
+              // PRD 020 Req 16 (issue #254): the hosted workspace copy-link.
+              // The gate and the click-time URL stay here; the Toolbar only
+              // places what it is given.
               workspaceShare={workspaceShare}
               // PRD 007 Req 17: no Edit toggle for a read-only role. Issue
               // #243: nor on the hosted build with nothing open, where it

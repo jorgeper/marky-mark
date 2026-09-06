@@ -4996,9 +4996,11 @@ test('E407: hosted copy-link — the workspace control sits in the top bar left 
   await expect(wsShare).toBeVisible();
   await expect(fileShare).toBeVisible();
   // A child of `.toolbar`, sitting between the hamburger and `.docname` —
-  // read off the DOM order rather than from coordinates.
+  // read off the DOM order rather than from coordinates. Each child is named
+  // by its own testid, or by the first one inside it (the hamburger rides the
+  // wrapper its popover anchors to).
   const topBarOrder = () =>
-    page.$eval('.toolbar', (bar) =>
+    page.locator('.toolbar').evaluate((bar) =>
       Array.from(bar.children).map(
         (el) =>
           el.getAttribute('data-testid') ??
@@ -5063,7 +5065,7 @@ test('E408: the file copy-link is absent for an untitled buffer while the worksp
   // Issue #254: the workspace control renders in the top bar — one instance,
   // and none left in the corner clusters or the tab strip's end slots.
   await expect(page.getByTestId('copy-link-workspace')).toBeVisible();
-  await expect(page.locator('.toolbar [data-testid="copy-link-workspace"]')).toHaveCount(1);
+  await expect(page.locator('.toolbar').getByTestId('copy-link-workspace')).toHaveCount(1);
   await expect(page.locator('.edge-cluster-left, .file-tab-strip-lead').getByTestId('copy-link-workspace')).toHaveCount(
     0,
   );
