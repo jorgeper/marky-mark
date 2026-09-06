@@ -109,6 +109,24 @@ encryption, session restore beyond the single last document.
    the draft's document (untitled ⇒ a fresh untitled buffer), installs
    the draft content as the dirty buffer; Discard deletes the file.
    Both paths remove `draft.json`.
+   - *Amended by issue #319 — trailer-aware staleness.* The draft holds
+     the document **body** (the buffer after SPEC2 §5's `splitEmbedded`),
+     so staleness is judged against the on-disk text with any
+     embedded-comment trailer stripped, line endings still ignored
+     (issue #42). A draft equal to the body of a commented file is stale
+     and silently removed; a real content difference is still offered.
+   - *Amended by issue #319 — the dialog explains itself.* The note says
+     in one plain sentence where the copy came from (edits that were
+     never saved when the previous session ended). When the draft's
+     `docPath` is set and no file exists at that path, the note also
+     says the file no longer exists and that Restore opens the edits as
+     a new Untitled document (the existing `restoreDraft` fallback). The
+     ordinary wording stays when the file is still there.
+   - *Amended by issue #319 — §3.2's write settles honestly.* A shadow
+     write that resolves after the buffer turned clean (a save landed
+     while the write was in flight) or after an explicit discard removes
+     the copy it just landed instead of keeping it (`src/lib/draftShadow.ts`),
+     so a saved document never leaves an orphan `draft.json` behind.
 
 ## 4. Tests (added: U58–U59, E89–E92, W11; amended: U19, E25, E49, E60)
 

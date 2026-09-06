@@ -5,6 +5,7 @@
  * Pure: parse/serialize/staleness only — I/O and debounce live in the app.
  */
 import { isDirtyText } from './dirty.ts';
+import { splitEmbedded } from './embedded.ts';
 
 export interface Draft {
   version: 1;
@@ -39,5 +40,12 @@ export function serializeDraft(draft: Draft): string {
  */
 export function isStaleDraft(draft: Draft, diskContent: string | null): boolean {
   if (draft.docPath === null) return draft.content === '';
-  return diskContent !== null && !isDirtyText(diskContent, draft.content);
+  if (diskContent === null) return false;
+  // SPEC30 §3.3 (issue #319): the draft holds the BODY — what the buffer
+  // held, i.e. the file after splitEmbedded (SPEC2 §5) — while the disk holds
+  // body + comment trailer. Compare like with like, or a leftover draft for
+  // any commented document could never read as stale and would be re-offered
+  // on every launch until the user clicked Discard. A draft that somehow
+  // carries a trailer of its own is stripped the same way.
+  return !isDirtyText(splitEmbedded(diskContent).content, splitEmbedded(draft.content).content);
 }
