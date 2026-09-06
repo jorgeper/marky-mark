@@ -2789,9 +2789,11 @@ test('E218: workspace New File names the file in the picker, creates it through 
   await expect.poll(() => listFiles(request, ada, id)).toEqual(['minted.md', 'seed.md']);
   expect(await readAs(request, ada, id, 'minted.md')).toBe('');
 
-  // …and it edits and saves like any other workspace document.
-  await page.getByTestId('edit-toggle').click();
-  await page.locator('.cm-content').click();
+  // …and it edits and saves like any other workspace document — from where
+  // the creation left it: issue #262 lands this open in edit mode with the
+  // caret already in the text, so neither the toggle nor a click is needed
+  // (E520 is that contract's own test).
+  await expect(page.getByTestId('mode-switch')).toHaveAttribute('data-mode', 'edit');
   await page.keyboard.type('# Minted');
   await menuSave(page);
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
