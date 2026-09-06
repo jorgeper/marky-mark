@@ -8307,10 +8307,10 @@ export default function App() {
           onSummaryCacheClear={clearSummaryCache}
           // Issue #183 §1 (was PRD 007 Req 12's appended sections): a
           // capability check, not a flavor check — only a platform offering
-          // the workspace lifecycle has a People tab to show. The panel gates
+          // the workspace lifecycle has a Workspace tab to show. The panel gates
           // the tab on the open workspace and the member's permissions.
           workspaceLifecycle={platform.workspaces}
-          // PRD 017 Req 32: the People tab's invite row needs the admin
+          // PRD 017 Req 32: the Workspace tab's invite row needs the admin
           // transport and the session's /api/me answer; both optional, so
           // every non-hosted mount is unchanged.
           deploymentAdmin={platform.deploymentAdmin}

@@ -145,7 +145,7 @@ export function NewWorkspaceDialog({
           />
           {form.members.map((member) => (
             // Issue #183 §2: name-as-label over a full-width select, matching
-            // the settings People tab's member rows.
+            // the settings Workspace tab's member rows.
             <div className="field" key={member.id}>
               <label htmlFor={`new-workspace-role-${member.id}`}>
                 {picked.find((p) => p.id === member.id)?.displayName ?? member.id}

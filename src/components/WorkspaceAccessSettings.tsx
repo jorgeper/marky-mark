@@ -1,12 +1,13 @@
-// Issue #183 §1 (was PRD 007 Req 15+16+17's appended sections): the People
-// tab of Settings. The hook loads the open workspace's manifest and the
-// signed-in user's resolved permissions ONCE — SettingsPanel reads it to
-// decide whether the tab exists at all, and the tab body hands both to the
-// people and roles sections so a role created in one is grantable in the
-// other without a reload. Each section still renders only for a holder of
-// its single verb — the same pattern WorkspaceDangerZone uses for
-// `workspace.delete` — and the server endpoints behind them refuse anyone
-// else regardless.
+// Issue #183 §1 (was PRD 007 Req 15+16+17's appended sections), renamed by
+// issue #248: the Workspace tab of Settings — the workspace's own settings
+// (names, members, roles, danger zone), not just its people. The hook loads
+// the open workspace's manifest and the signed-in user's resolved
+// permissions ONCE — SettingsPanel reads it to decide whether the tab exists
+// at all, and the tab body hands both to the people and roles sections so a
+// role created in one is grantable in the other without a reload. Each
+// section still renders only for a holder of its single verb — the same
+// pattern WorkspaceDangerZone uses for `workspace.delete` — and the server
+// endpoints behind them refuse anyone else regardless.
 
 import { useEffect, useState } from 'react';
 import type { Permission, WorkspaceManifest } from '../lib/hostedWorkspace';
@@ -23,15 +24,15 @@ export interface WorkspaceAccess {
   permissions: Permission[];
   setManifest: (manifest: WorkspaceManifest) => void;
   /**
-   * Issue #183 §1: whether the People tab exists — a hosted workspace is
+   * Issue #183 §1: whether the Workspace tab exists — a hosted workspace is
    * open AND the member holds at least one of the verbs the tab's sections
    * gate on. No permission-denied placeholder tab.
    */
-  peopleTab: boolean;
+  workspaceTab: boolean;
 }
 
-/** The verbs that give the People tab something to show. */
-const PEOPLE_TAB_PERMISSIONS: readonly Permission[] = [
+/** The verbs that give the Workspace tab something to show. */
+const WORKSPACE_TAB_PERMISSIONS: readonly Permission[] = [
   // PRD 020 Req 4: the names section gates on workspace.settings, so that
   // verb alone is enough for the tab to exist.
   'workspace.settings',
@@ -69,13 +70,13 @@ export function useWorkspaceAccess(lifecycle: WorkspaceLifecycle | undefined): W
     manifest,
     permissions,
     setManifest,
-    peopleTab:
-      workspaceId !== null && manifest !== null && PEOPLE_TAB_PERMISSIONS.some((p) => permissions.includes(p)),
+    workspaceTab:
+      workspaceId !== null && manifest !== null && WORKSPACE_TAB_PERMISSIONS.some((p) => permissions.includes(p)),
   };
 }
 
-/** Issue #183 §1: the People tab body — members, roles, then the danger zone. */
-export function WorkspacePeopleTab({
+/** Issue #183 §1: the Workspace tab body — names, members, roles, danger zone. */
+export function WorkspaceSettingsTab({
   lifecycle,
   access,
   admin,

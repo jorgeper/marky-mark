@@ -195,7 +195,7 @@ export function createHostedWorkspaceLifecycle(
       const validated = validateWorkspaceManifest(body.manifest);
       // PRD 017 Req 4 (issue #189): /api/me now says whether the caller is a
       // deployment admin, so the client predicts the same implicit union the
-      // server resolves — the Settings People tab appears for a non-member
+      // server resolves — the Settings Workspace tab appears for a non-member
       // admin exactly because of this flag.
       return validated.ok ? [...resolvePermissions(validated.manifest, me.id, me.admin === true)] : [];
     },

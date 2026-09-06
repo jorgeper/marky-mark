@@ -59,7 +59,7 @@ export interface DeploymentAdmin {
    * Issue #195: a fresh redeem URL for a pending guest — the server
    * re-POSTs the invitation with the mail suppressed. The refusal is the
    * server's own sentence (the 409's eligibility message, a 502's Graph
-   * refusal) for the People row to show verbatim.
+   * refusal) for the Workspace tab's People row to show verbatim.
    */
   inviteLink(userId: string): Promise<{ ok: true; redeemUrl: string } | { ok: false; error: string }>;
 }

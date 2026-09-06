@@ -231,8 +231,8 @@ test('E395: the workspace settings destructive button is the danger fill on the 
   await page.getByTestId('hosted-sign-in-submit').click();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
 
-  // Issue #183 §1: the danger zone lives at the foot of the People tab.
-  await openSettings(page, 'people');
+  // Issue #183 §1: the danger zone lives at the foot of the Workspace tab.
+  await openSettings(page, 'workspace');
   await expect(page.getByTestId('workspace-delete-section')).toBeVisible();
   const destructive = await sampleControl(page.getByTestId('workspace-delete-submit'));
   const settingsPrimary = await sampleControl(page.getByTestId('settings-save'));

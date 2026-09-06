@@ -1044,8 +1044,8 @@ test('E185: Workspace settings deletes the workspace behind an exact-name gate a
 
   await signInTo(page, 'ada', id);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
-  // Issue #183 §1: the danger zone now lives at the foot of the People tab.
-  await openSettings(page, 'people');
+  // Issue #183 §1: the danger zone now lives at the foot of the Workspace tab.
+  await openSettings(page, 'workspace');
   await expect(page.getByTestId('workspace-delete-section')).toBeVisible();
 
   // Inert until the exact name is typed — a near-miss does not arm it.
@@ -1080,10 +1080,10 @@ test('E186: a member without workspace.delete never sees the delete action', asy
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await openSettings(page, 'general');
   // Issue #183 §1: without workspace.delete (or members/roles) there is no
-  // People tab at all — and no delete section anywhere else either.
+  // Workspace tab at all — and no delete section anywhere else either.
   await page.getByTestId('settings-scope-workspace').click();
   await expect(page.getByTestId('settings-scope-content-workspace')).toBeVisible();
-  await expect(page.getByTestId('settings-tab-people')).toHaveCount(0);
+  await expect(page.getByTestId('settings-tab-workspace')).toHaveCount(0);
   await expect(page.getByTestId('workspace-delete-section')).toHaveCount(0);
 });
 
@@ -1548,12 +1548,12 @@ test('E225: a concurrent save that overlaps still fails 412 and shows the unchan
 
 // --- Workspace settings: membership and custom roles (PRD 007 Req 15+16) -----
 
-/** Issue #183 §1: open the People tab of Settings for the bound workspace. */
+/** Issue #183 §1: open the Workspace tab of Settings for the bound workspace. */
 async function openWorkspaceSettings(page: Page): Promise<void> {
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   // The tab button appears once the panel has the manifest + permissions;
   // the click auto-waits for it.
-  await openSettings(page, 'people');
+  await openSettings(page, 'workspace');
 }
 
 /** Write a file as `token` and report the status — what a role actually allows. */
@@ -1758,13 +1758,13 @@ test('E198: a member without workspace.members or workspace.roles sees neither s
   ]);
 
   await signInTo(page, 'grace', id);
-  // Issue #183 §1: for a member with neither verb the People tab itself is
+  // Issue #183 §1: for a member with neither verb the Workspace tab itself is
   // absent — no permission-denied placeholder — so open General and look.
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await openSettings(page, 'general');
   await page.getByTestId('settings-scope-workspace').click();
   await expect(page.getByTestId('settings-scope-content-workspace')).toBeVisible();
-  await expect(page.getByTestId('settings-tab-people')).toHaveCount(0);
+  await expect(page.getByTestId('settings-tab-workspace')).toHaveCount(0);
   await expect(page.getByTestId('workspace-members-section')).toHaveCount(0);
   await expect(page.getByTestId('workspace-roles-section')).toHaveCount(0);
 
@@ -1785,7 +1785,7 @@ test('E198: a member without workspace.members or workspace.roles sees neither s
 // Renumbered from E360 (issue #189): the parallel issue-#188 merge already
 // used E360–E362, and test IDs are unique — the newer tests took the next
 // unused numbers.
-test('E364: People is its own settings tab, immediately after Editor, holding members, roles and the danger zone — and absent without a workspace', async ({
+test('E364: Workspace is its own settings tab, immediately after Editor, holding members, roles and the danger zone — and absent without a workspace', async ({
   page,
   request,
 }) => {
@@ -1797,12 +1797,12 @@ test('E364: People is its own settings tab, immediately after Editor, holding me
   await signInTo(page, 'ada', id);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await openSettings(page, 'general');
-  await expect(page.getByTestId('settings-tab-people')).toBeVisible();
+  await expect(page.getByTestId('settings-tab-workspace')).toBeVisible();
   await expect(page.getByTestId('settings-tabs').locator('button')).toHaveText([
     'General',
     'Appearance',
     'Editor',
-    'People',
+    'Workspace',
     'Hotkeys',
     'LLM providers',
     'Experimental',
@@ -1814,21 +1814,21 @@ test('E364: People is its own settings tab, immediately after Editor, holding me
   await expect(page.getByTestId('settings-scope-content-workspace')).toBeVisible();
   await expect(page.getByTestId('workspace-members-section')).toHaveCount(0);
   await expect(page.getByTestId('workspace-delete-section')).toHaveCount(0);
-  // People is workspace-tied, not layer-tied: it opens from Workspace scope
+  // The tab is workspace-tied, not layer-tied: it opens from Workspace scope
   // too, and one tab holds all three sections.
-  await page.getByTestId('settings-tab-people').click();
+  await page.getByTestId('settings-tab-workspace').click();
   await expect(page.getByTestId('workspace-members-section')).toBeVisible();
   await expect(page.getByTestId('workspace-roles-section')).toBeVisible();
   await expect(page.getByTestId('workspace-delete-section')).toBeVisible();
   await saveSettings(page);
 
-  // Without a workspace bound there is no People tab at all.
+  // Without a workspace bound there is no Workspace tab at all.
   await signOut(page);
   await signInTo(page, 'ada');
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await openSettings(page, 'general');
   await expect(page.getByTestId('settings-tab-hotkeys')).toBeVisible();
-  await expect(page.getByTestId('settings-tab-people')).toHaveCount(0);
+  await expect(page.getByTestId('settings-tab-workspace')).toHaveCount(0);
 });
 
 test('E365: Add people autocompletes from the directory — guest badge, ↑/↓/Enter/Esc, and inline empty/error answers', async ({
@@ -1924,7 +1924,7 @@ test('E366: the Add people input and the role select share the one text-input ru
   const seenBorders: string[] = [];
   for (const theme of ['crisp', 'one-dark']) {
     // Issue #246: the theme applies on Save, which closes the dialog — so
-    // pick, save, and come back to the People tab to measure.
+    // pick, save, and come back to the Workspace tab to measure.
     await page.getByTestId('settings-tab-appearance').click();
     await page.getByTestId('settings-theme-light').selectOption(theme);
     await saveSettings(page);
