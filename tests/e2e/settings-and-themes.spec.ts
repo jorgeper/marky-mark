@@ -729,7 +729,9 @@ test('E486: issue #246 — the action footer is pinned outside the scrolling tab
       insideScroller: el.closest('.tab-content') !== null,
     }))
   ).toEqual({ parent: 'dialog settings-modal', insideScroller: false });
-  await expect(page.getByTestId('settings-close')).toHaveCount(0); // Done is gone
+  // Exactly two close controls, both here: the scrolling third button the
+  // tab content used to carry is gone.
+  await expect(actions.getByRole('button')).toHaveCount(2);
 
   const first = (await actions.boundingBox())!;
   for (const tab of ['appearance', 'editor', 'hotkeys', 'llm', 'experimental'] as const) {
