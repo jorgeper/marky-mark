@@ -30,7 +30,7 @@ function slowIo() {
 const draft = (content: string): Draft => ({ version: 1, docPath: '/docs/a.md', content, at: '2026-09-06T12:00:00Z' });
 
 describe('SPEC30 §3.2 shadow-write sequencing (issue #319)', () => {
-  test('U1236: a write that lands after the buffer turned clean is removed, not kept', async () => {
+  test('U1245: a write that lands after the buffer turned clean is removed, not kept', async () => {
     const { io, log, settle } = slowIo();
     const shadow = new DraftShadow(io);
     let dirty = true;

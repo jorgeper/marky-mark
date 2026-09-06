@@ -33,7 +33,7 @@ describe('SPEC30 crash-safe drafts', () => {
     expect(isStaleDraft(doc, 'one\r\ntwo!\r\nthree\r\n')).toBe(false);
   });
 
-  test('U1235: issue #319 — a draft equal to the body of a file carrying an embedded-comment trailer is stale', () => {
+  test('U1244: issue #319 — a draft equal to the body of a file carrying an embedded-comment trailer is stale', () => {
     // SPEC30 §3.3: the buffer (and so the draft) holds the body after
     // splitEmbedded; the disk holds body + trailer. Staleness is judged
     // against the body, or a leftover draft for any commented document would
