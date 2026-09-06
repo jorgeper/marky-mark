@@ -469,8 +469,8 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   // PRD 023 §15 (issue #284): the comments pane's open/closed state is the
   // persisted setting — the old ephemeral React state is gone, so the
-  // chevron, toolbar button, View → Comments and Mod+Shift+C all read (and
-  // survive a reload through) this one source.
+  // chevron, View → Comments and Mod+Shift+C all read (and survive a reload
+  // through) this one source.
   const showComments = settings.showComments;
   // PRD 002 §E18: the raw per-layer objects behind `settings` (the resolved
   // result). settings.json is the USER layer only; the Workspace layer lives

@@ -363,9 +363,12 @@ test('E36: disabling comments hides every comment affordance non-destructively; 
   await addComment(page, PHRASE, 'still here');
   await waitForSidecar(page, (s) => !!s && s.includes('still here'));
   await expect(page.locator('mark.hl').first()).toBeVisible();
-  // Issue #256: the toolbar button is gone — the View ▸ Comments row is the
-  // affordance the master switch has to hide.
-  await expect((await openViewMenu(page)).getByTestId('menu-view-toggleComments')).toBeVisible();
+  // Issue #256: the toolbar button is gone — the View ▸ Comments row and the
+  // edge chevron are the affordances the master switch has to hide. Inserting
+  // the comment auto-opened the pane (E437), so the chevron reads `collapse`.
+  await expect(page.getByTestId('comments-collapse')).toBeVisible();
+  let view = await openViewMenu(page);
+  await expect(view.getByTestId('menu-view-toggleComments')).toBeVisible();
   await closeAppMenu(page);
 
   await openSettings(page, 'general');
@@ -376,8 +379,11 @@ test('E36: disabling comments hides every comment affordance non-destructively; 
   // reads clean (issue #256: the View row carries what the toolbar button did).
   await expect(page.locator('mark.hl')).toHaveCount(0);
   await expect(page.getByTestId('panel')).toHaveCount(0);
+  // The chevron is gone outright, not merely flipped to its closed form.
+  await expect(page.getByTestId('comments-collapse')).toHaveCount(0);
   await expect(page.getByTestId('comments-expand')).toHaveCount(0);
-  await expect((await openViewMenu(page)).getByTestId('menu-view-toggleComments')).toHaveCount(0);
+  view = await openViewMenu(page);
+  await expect(view.getByTestId('menu-view-toggleComments')).toHaveCount(0);
   await closeAppMenu(page);
 
   // Issue #286: the annotation hotkeys are inert while the switch is off —
@@ -398,7 +404,9 @@ test('E36: disabling comments hides every comment affordance non-destructively; 
   await saveSettings(page);
   await expect(page.getByTestId('comment-card')).toHaveCount(1);
   await expect(page.locator('mark.hl').first()).toBeVisible();
-  await expect((await openViewMenu(page)).getByTestId('menu-view-toggleComments')).toBeVisible();
+  await expect(page.getByTestId('comments-collapse')).toBeVisible();
+  view = await openViewMenu(page);
+  await expect(view.getByTestId('menu-view-toggleComments')).toBeVisible();
   await closeAppMenu(page);
 });
 
@@ -919,10 +927,8 @@ test('E151: Mod+Shift+C toggles the comments pane; the selection affordances are
   await page.keyboard.press('Control+Shift+C');
   await expect(page.getByTestId('comments-pane')).toBeVisible();
   await expect(page.getByTestId('comments-collapse')).toBeVisible();
-  await expect((await openViewMenu(page)).getByTestId('menu-view-toggleComments')).toHaveAttribute(
-    'aria-checked',
-    'true'
-  );
+  const viewPaneOpen = await openViewMenu(page);
+  await expect(viewPaneOpen.getByTestId('menu-view-toggleComments')).toHaveAttribute('aria-checked', 'true');
   await closeAppMenu(page);
 
   // …and closes it again; authoring stays offered with the pane closed
@@ -931,10 +937,8 @@ test('E151: Mod+Shift+C toggles the comments pane; the selection affordances are
   await page.keyboard.press('Control+Shift+C');
   await expect(page.getByTestId('comments-pane')).toHaveCount(0);
   await expect(page.getByTestId('comments-expand')).toBeVisible();
-  await expect((await openViewMenu(page)).getByTestId('menu-view-toggleComments')).toHaveAttribute(
-    'aria-checked',
-    'false'
-  );
+  const viewPaneClosed = await openViewMenu(page);
+  await expect(viewPaneClosed.getByTestId('menu-view-toggleComments')).toHaveAttribute('aria-checked', 'false');
   await closeAppMenu(page);
   await selectPhrase(page, PHRASE);
   await expect(async () => {

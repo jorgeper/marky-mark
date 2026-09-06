@@ -51,8 +51,9 @@ of scope (author's call): scroll sync between split panes, a fully fledged edito
    > **Amendment (issue #256, 2026-09-06):** the toolbar's
    > show/hide-comments button is removed, so E36 asserts in its place that
    > the **View ▸ Comments row** (`menu-view-toggleComments`) and the
-   > edge-cluster chevron (`comments-expand`) disappear and come back. The
-   > View row and its `toggleComments` hotkey are the toggle's home now.
+   > edge-cluster chevron (`comments-collapse` / `comments-expand`) disappear
+   > and come back. The View row and its `toggleComments` hotkey are the
+   > toggle's home now.
 
 ## 3. Type-to-comment (FR-T) — superseded
 
