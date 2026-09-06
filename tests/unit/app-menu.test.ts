@@ -310,7 +310,8 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
       'toggleComments',
       'nextComment',
       'prevComment',
-      'headingPalette',
+      // Issue #255: Go to Heading… is gone with the ⌘K palette — the capability
+      // is the TOC view's in-pane search now, not a View row.
       'toggleWordCount',
       'toggleFrontmatter',
       'toggleLineNumbers',
@@ -422,7 +423,7 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
       'nextComment',
       'prevComment',
       'toggleDiff',
-      'headingPalette',
+      // Issue #255: no palette row on either surface.
       'toggleWordCount',
       'toggleFrontmatter',
       'toggleLineNumbers',

@@ -179,7 +179,7 @@ RENDERING` blocks, and every `.tsx` under `src/` except
 - **Don't** end a selector in a bare descendant ` button`, ` input`,
   ` select`, or ` textarea` (the ancestor-rule pattern that styled half
   the app's buttons by accident). **Do** style a primitive class, or
-  element-qualify a specific class (`input.palette-input`). **[lint]**
+  element-qualify a specific class (`input.folder-rename-input`). **[lint]**
 - **Don't** write literal `font-size`, `border-radius`, or `box-shadow`
   values in a chrome rule. **Do** use the type/radius/shadow scale tokens
   (keywords like `none`/`inherit`/`0` are fine). **[lint]**

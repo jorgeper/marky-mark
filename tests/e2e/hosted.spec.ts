@@ -5414,7 +5414,7 @@ const WRAPPED_DOC = [
   '',
 ].join('\n');
 
-test('E530: the editor heading copy-link sits right of the heading text (last visual line when it wraps) and the gutter is only the line numbers', async ({
+test('E534: the editor heading copy-link sits right of the heading text (last visual line when it wraps) and the gutter is only the line numbers', async ({
   page,
   request,
 }) => {

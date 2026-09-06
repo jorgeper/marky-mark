@@ -244,7 +244,7 @@ export interface EditorSyncHandle {
    * PRD 012 Req 6: scroll to a 1-based source line AND place the caret on it —
    * the TOC's edit-mode jump. A sibling of `scrollToLine` rather than a flag on
    * it, so every existing scroll-only caller (mode-switch restore, split sync,
-   * the heading palette) keeps moving the viewport and nothing else.
+   * a preview-link landing) keeps moving the viewport and nothing else.
    */
   goToLine(line: number): void;
   scrollInfo(): { top: number; max: number };

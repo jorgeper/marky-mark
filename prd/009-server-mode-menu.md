@@ -152,6 +152,11 @@ with the initial-page buttons acting as shortcuts to those same actions.
     Numbers, and Zoom In / Zoom Out / Actual Size. Items a flavor
     cannot honor are omitted, matching desktop's gating rules.
 
+    > **Amended (issue #255, 2026-09-06):** **Go to Heading…** is no longer
+    > in the inventory — it left both the desktop View menu and this submenu
+    > with the ⌘K heading palette. The mirroring rule is unchanged; the list
+    > is one item shorter.
+
 ### Files: create and save
 
 13. In workspace mode, **New File** prompts for a name (and target

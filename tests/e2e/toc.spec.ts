@@ -19,6 +19,9 @@ import {
 // PRD 012 (issue #134): Reqs 10–11 — the toggleToc hotkey, which is the TOC
 // button's action reached from the keyboard, and the persisted last view the
 // app reopens the sidebar in.
+//
+// PRD 012 Req 4 (issue #255): the in-pane heading search — E530–E533, which
+// carry the coverage the retired ⌘K palette's E61 used to hold.
 
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
@@ -67,6 +70,16 @@ const TREE_DOC = [
 const rowLabels = (page: Page) =>
   page.$$eval('[data-testid="toc-item"]', (els) =>
     els.map((e) => `${e.getAttribute('data-depth')}:${e.querySelector('.toc-label')!.textContent}`)
+  );
+
+/**
+ * PRD 012 Req 4 (issue #255): the row titles alone, in the order drawn — what a
+ * search asserts on, where `rowLabels` above asserts on the tree's shape too
+ * (a filtered list is flat, so its depth prefix says nothing).
+ */
+const searchRows = (page: Page) =>
+  page.$$eval('[data-testid="toc-item"]', (els) =>
+    els.map((e) => e.querySelector('.toc-label')!.textContent)
   );
 
 const openTree = async (page: Page) => {
@@ -152,7 +165,7 @@ test('E335: TOC click in preview scrolls the heading to the viewport top, and du
   const secondLine = Number(await notes.nth(1).getAttribute('data-line'));
   expect(secondLine).toBeGreaterThan(firstLine);
 
-  // PRD 012 Req 5: the SPEC16 §4 preview path — the heading lands at the top.
+  // PRD 012 Req 5: the preview scroll-to-line path — the heading lands at the top.
   const deltaOf = (line: number) =>
     page.evaluate((l) => {
       const ws = document.querySelector('.workspace')!;
@@ -714,4 +727,201 @@ test('E260: the sidebar reopens in the view it was left on — the TOC across a 
   await openFolderRoot(page);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await expect(page.getByTestId('toc-panel')).toHaveCount(0);
+});
+
+test('E530: the search toggle is the TOC header\'s alone — never in Folders or Search, never while the sidebar is hidden, never a switch member', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await fsWrite(page, '/notes/head.md', TREE_DOC);
+  await openFolderRoot(page);
+  await page.locator('[data-testid="folder-item"][data-path="/notes/head.md"]').click();
+  await expect(page.getByTestId('doc')).toContainText('Alpha');
+
+  // The folders view is up: the header button does not exist at all.
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('toc-search-toggle')).toHaveCount(0);
+
+  // The TOC view is up: exactly one, with the sidebar's pressed-state idiom and
+  // a constant tooltip.
+  await page.getByTestId('sidebar-view-toc').click();
+  const toggle = page.getByTestId('toc-search-toggle');
+  await expect(toggle).toHaveCount(1);
+  await expect(toggle).toHaveAttribute('title', 'Search headings');
+  await expect(toggle).toHaveAttribute('aria-label', 'Search headings');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(toggle).toHaveAttribute('data-active', 'false');
+  await expect(page.getByTestId('toc-search-input')).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toHaveAttribute('data-active', 'true');
+  await expect(toggle).toHaveClass(/\bon\b/);
+
+  // It is NOT a member of the view switch: the switch still carries its three
+  // buttons and nothing else, in every view.
+  await expect(page.getByTestId('sidebar-switch').locator('button')).toHaveCount(3);
+  await expect(page.getByTestId('sidebar-view-folders')).toHaveCount(1);
+  await expect(page.getByTestId('sidebar-view-toc')).toHaveCount(1);
+  await expect(page.getByTestId('sidebar-view-search')).toHaveCount(1);
+
+  // The Search view: no heading-search button anywhere in its header.
+  await page.getByTestId('sidebar-view-search').click();
+  await expect(page.getByTestId('search-panel')).toBeVisible();
+  await expect(page.getByTestId('toc-search-toggle')).toHaveCount(0);
+  await expect(page.getByTestId('sidebar-switch').locator('button')).toHaveCount(3);
+
+  // …and with the sidebar hidden, zero elements.
+  await page.getByTestId('sidebar-view-toc').click();
+  await expect(page.getByTestId('toc-search-toggle')).toHaveCount(1);
+  await page.getByTestId('toc-collapse').click();
+  await expect(page.getByTestId('toc-panel')).toHaveCount(0);
+  await expect(page.getByTestId('toc-search-toggle')).toHaveCount(0);
+});
+
+test('E531: the box fuzzy-filters the headings in place — collapsed ancestors included, empty query is no filter, no match says so', async ({
+  page,
+}) => {
+  await openTree(page);
+  await showToc(page);
+  await expect(page.getByTestId('toc-item')).toHaveCount(5);
+
+  // PRD 012 Req 4: fold Alpha first — the filter must see what the fold hides.
+  const alpha = page.getByTestId('toc-item').filter({ hasText: 'Alpha' });
+  await alpha.getByTestId('toc-twisty').click();
+  await expect.poll(() => rowLabels(page)).toEqual(['1:Alpha', '1:Beta']);
+
+  // Opening the box focuses it, and leaves the list alone until something is typed.
+  await page.getByTestId('toc-search-toggle').click();
+  const box = page.getByTestId('toc-search-input');
+  await expect(box).toBeFocused();
+  await expect.poll(() => rowLabels(page)).toEqual(['1:Alpha', '1:Beta']);
+
+  // Typing filters in place — and reaches `Deep one`, buried two levels under
+  // the collapsed Alpha.
+  await box.fill('deep');
+  await expect.poll(() => searchRows(page)).toEqual(['Deep one']);
+  // The matches are ordinary TOC rows: same testid, still carrying the id, the
+  // source line and the depth the jump and the indent need.
+  const deep = page.getByTestId('toc-item');
+  await expect(deep).toHaveAttribute('data-toc-id', /.+/);
+  await expect(deep).toHaveAttribute('data-depth', '3');
+  await expect(deep).toHaveAttribute('data-line', /\d+/);
+
+  // Fuzzy, not substring: a subsequence match reaches both `Notes` rows, and
+  // ranking is `fuzzyFilter`'s.
+  await box.fill('nts');
+  await expect.poll(() => searchRows(page)).toEqual(['Notes', 'Notes']);
+
+  // No match: a visible empty state, not a blank pane.
+  await box.fill('zzzz');
+  await expect(page.getByTestId('toc-item')).toHaveCount(0);
+  await expect(page.getByTestId('toc-search-empty')).toBeVisible();
+  await expect(page.getByTestId('toc-search-empty')).toContainText('zzzz');
+  await expect(page.getByTestId('toc-empty')).toHaveCount(0);
+
+  // An empty query is not a filter: the ordinary tree comes back WITH the fold
+  // it had, and the empty state goes.
+  await box.fill('');
+  await expect(page.getByTestId('toc-search-empty')).toHaveCount(0);
+  await expect.poll(() => rowLabels(page)).toEqual(['1:Alpha', '1:Beta']);
+
+  // While a query is live, scrolling does not re-fold or reorder the list —
+  // the scroll-driven reveal sits the search out.
+  await box.fill('note');
+  await expect.poll(() => searchRows(page)).toEqual(['Notes', 'Notes']);
+  await page.locator('.workspace').evaluate((el) => (el.scrollTop = el.scrollHeight * 0.5));
+  await page.waitForTimeout(300);
+  expect(await searchRows(page)).toEqual(['Notes', 'Notes']);
+});
+
+test('E532: a filtered match jumps exactly as the palette did — the preview heading lands at the viewport top, and the sidebar stays put', async ({
+  page,
+}) => {
+  await openTree(page);
+  await showToc(page);
+  await expect(page.getByTestId('toc-item')).toHaveCount(5);
+
+  const deltaOf = (line: number) =>
+    page.evaluate((l) => {
+      const ws = document.querySelector('.workspace')!;
+      const el = document.querySelector(`.doc [data-mm-line="${l}"]`);
+      return el ? Math.abs(el.getBoundingClientRect().top - ws.getBoundingClientRect().top) : 1e6;
+    }, line);
+
+  await page.getByTestId('toc-search-toggle').click();
+  const box = page.getByTestId('toc-search-input');
+  await box.fill('beta');
+  await expect.poll(() => searchRows(page)).toEqual(['Beta']);
+  const betaLine = Number(await page.getByTestId('toc-item').getAttribute('data-line'));
+
+  // Clicking the match takes the TOC's own jump: the heading at the top.
+  await page.getByTestId('toc-item').click();
+  await expect.poll(() => deltaOf(betaLine)).toBeLessThan(120);
+
+  // PRD 012 Req 4 (issue #255): the jump leaves the sidebar as it is — this is
+  // a filter, not a modal that dismisses itself.
+  await expect(box).toBeVisible();
+  await expect(box).toHaveValue('beta');
+  await expect.poll(() => searchRows(page)).toEqual(['Beta']);
+
+  // Enter jumps the top-ranked match — the palette's keyboard parity.
+  await page.locator('.workspace').evaluate((el) => (el.scrollTop = 0));
+  await box.fill('deep one');
+  await expect.poll(() => searchRows(page)).toEqual(['Deep one']);
+  const deepLine = Number(await page.getByTestId('toc-item').getAttribute('data-line'));
+  await box.press('Enter');
+  await expect.poll(() => deltaOf(deepLine)).toBeLessThan(120);
+  await expect(box).toHaveValue('deep one');
+});
+
+test('E533: the filtered jump lands on the source line in edit mode, and Esc or the toggle restores the full list', async ({
+  page,
+}) => {
+  await openTree(page);
+  await showToc(page);
+  await expect(page.getByTestId('toc-item')).toHaveCount(5);
+
+  const betaLine = Number(
+    await page.getByTestId('toc-item').filter({ hasText: 'Beta' }).getAttribute('data-line')
+  );
+
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('toc-search-toggle').click();
+  const box = page.getByTestId('toc-search-input');
+  await box.fill('beta');
+  await expect.poll(() => searchRows(page)).toEqual(['Beta']);
+  await box.press('Enter');
+
+  // PRD 012 Req 6: the editor goes to the heading's source line, caret and all.
+  await expect(page.locator('.cm-activeLine')).toHaveText('# Beta');
+  await expect
+    .poll(() => editorTopGutterLine(page), { timeout: 20000 })
+    .toBeGreaterThan(betaLine - 6);
+  expect(await editorTopGutterLine(page)).toBeLessThan(betaLine + 6);
+
+  // Esc closes the box, clears the query and restores the full list.
+  await box.press('Escape');
+  await expect(page.getByTestId('toc-search-input')).toHaveCount(0);
+  await expect(page.getByTestId('toc-search-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('toc-panel')).toBeVisible(); // the pane itself stays
+  await expect.poll(() => rowLabels(page)).toEqual([
+    '1:Alpha',
+    '2:Notes',
+    '3:Deep one',
+    '2:Notes',
+    '1:Beta',
+  ]);
+
+  // Reopening starts empty, and the toggle closes it the same way Esc does —
+  // clearing the query and restoring the collapse state the list had.
+  await page.getByTestId('toc-search-toggle').click();
+  await expect(page.getByTestId('toc-search-input')).toHaveValue('');
+  await page.getByTestId('toc-item').filter({ hasText: 'Alpha' }).getByTestId('toc-twisty').click();
+  await expect.poll(() => rowLabels(page)).toEqual(['1:Alpha', '1:Beta']);
+  await page.getByTestId('toc-search-input').fill('deep');
+  await expect.poll(() => searchRows(page)).toEqual(['Deep one']);
+  await page.getByTestId('toc-search-toggle').click();
+  await expect(page.getByTestId('toc-search-input')).toHaveCount(0);
+  await expect.poll(() => rowLabels(page)).toEqual(['1:Alpha', '1:Beta']);
 });

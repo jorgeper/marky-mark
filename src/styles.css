@@ -187,7 +187,6 @@ body,
   --mm-orphan-bg: rgba(255, 214, 102, 0.35);
   --mm-split-edge-shade: inset -12px 0 14px -12px rgba(0, 0, 0, 0.28); /* split-divider edge */
   --mm-overlay-scrim: rgba(0, 0, 0, 0.35); /* modal backdrop */
-  --mm-palette-scrim: rgba(0, 0, 0, 0.18); /* heading-palette backdrop (under .overlay) */
   --mm-alpha-note: #b3591f; /* the About dialog's alpha warning */
 }
 
@@ -452,7 +451,7 @@ textarea.field:disabled {
 }
 
 /* PRD 018 Req 8 (issue #204): menu-row states, once — the keyboard-active
-   row (smart-edit/palette `.active`) and the picked row (theme picker
+   row (the smart-edit menu's `.active`) and the picked row (theme picker
    `.selected`). */
 .menu-item.active {
   background: var(--mm-hover);
@@ -1704,52 +1703,6 @@ mark.hl.ghost {
   pointer-events: none;
 }
 
-/* --- SPEC16: heading palette --- */
-.palette-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 90; /* under .overlay modals, over everything else */
-  background: var(--mm-palette-scrim);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 12vh;
-}
-/* PRD 018 Req 15 (issue #204): the palette shell rides .menu; what stays is
-   its own sizing and the genuinely different flush search input. */
-.palette {
-  width: min(480px, 92vw);
-  max-height: 50vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0; /* the input sits flush to the shell's edges */
-}
-/* PRD 018 §E26 (issue #205): class-targeted (was `.palette input`) — the
-   lint bans bare element descendants; HeadingPalette.tsx carries the class. */
-input.palette-input {
-  font: inherit;
-  font-size: var(--mm-text-heading);
-  color: inherit;
-  background: var(--mm-bg, #fff);
-  border: none;
-  border-bottom: 1px solid var(--mm-border, #d1d9e0);
-  padding: var(--mm-space-5) var(--mm-space-6);
-  outline: none;
-}
-.palette ul {
-  list-style: none;
-  margin: 0;
-  padding: 6px;
-  overflow-y: auto;
-}
-.palette .menu-item {
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17): print is the document on
    paper — the block below hides the chrome and restates document/theme
    values for a light page, so it is document rendering, not chrome, and
@@ -1797,8 +1750,6 @@ input.palette-input {
   .editor-wrap,
   .fm-card,
   .find-bar,
-  .palette-scrim,
-  .palette,
   .img-resize-overlay,
   /* Issue #122: the copy button is chrome — never on paper. */
   .mm-copy-code,
@@ -2755,8 +2706,15 @@ input.folder-rename-input.invalid {
 }
 /* PRD 014 Req 7 (issue #151): the Search view — its rows are folder rows
    (`.folder-item` supplies hit area and hover); these add only the query box,
-   the group header's count badge and the match line's highlight. */
-.search-query-row {
+   the group header's count badge and the match line's highlight.
+
+   PRD 012 Req 4 (issue #255): the TOC's in-pane heading search is the same
+   control doing the same job one view over, so it draws the same query row
+   rather than a second copy of it. Layout only either way: the box is the
+   `.field` primitive and the TOC's toggle above it an `.icon-btn` with the
+   shared `.on` accent, so no colour, no size literal, no bare descendant. */
+.search-query-row,
+.toc-search-row {
   flex: none;
   display: flex;
   align-items: center;
@@ -2765,7 +2723,8 @@ input.folder-rename-input.invalid {
 }
 /* PRD 018 Req 13 (issue #204): the query box is a .field primitive; only
    its row-flex layout stays. */
-.search-query {
+.search-query,
+.toc-search-input {
   flex: 1 1 auto;
   min-width: 0;
   box-sizing: border-box;

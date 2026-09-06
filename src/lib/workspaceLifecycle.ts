@@ -115,7 +115,8 @@ function newestFirst(a: WorkspaceListing, b: WorkspaceListing): number {
 
 /**
  * PRD 007 Req 11: search-as-you-type over the already-fetched list — the same
- * fuzzy matcher the heading palette uses, so no keystroke costs a round trip.
+ * `fuzzyFilter` the TOC's heading search uses, so no keystroke costs a round
+ * trip.
  * An empty query keeps every workspace, most recently modified first.
  */
 export function filterWorkspaces(query: string, items: readonly WorkspaceListing[]): WorkspaceListing[] {

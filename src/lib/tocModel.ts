@@ -15,6 +15,7 @@
  * owns.
  */
 
+import { fuzzyFilter } from './fuzzy.ts';
 import type { DocumentSections, SectionNode } from './sectionModel.ts';
 
 /**
@@ -221,4 +222,45 @@ export function activeTocReveal(
   const next = expandTocAncestors(entries, collapsed, id);
   // `expandTocAncestors` only ever deletes, so an equal size means an equal set.
   return { id, collapsed: next.size === collapsed.size ? collapsed : next };
+}
+
+/**
+ * PRD 012 Req 4 (issue #255): the entries a TOC search query yields — the pure
+ * half of the sidebar's in-pane heading search, which replaced the ⌘K heading
+ * palette. Ranking is `fuzzyFilter`'s, unchanged: the palette's own matcher,
+ * now reading the section model's titles instead of scraped `data-mm-line`
+ * headings.
+ *
+ * The query sees EVERY heading, `flattenToc` order in, so a match buried under
+ * a collapsed ancestor still comes back — a filter that could only find what
+ * was already on screen would be no filter at all. An empty query is not a
+ * filter and returns the whole list in document order (`fuzzyFilter`'s own
+ * empty-query contract).
+ */
+export function filterTocEntries(entries: TocEntry[], query: string): TocEntry[] {
+  return fuzzyFilter(query, flattenToc(entries), (e) => e.title);
+}
+
+/**
+ * PRD 012 Req 4 (issue #255): the rows the sidebar draws, query included — the
+ * one decision `TocPanel` renders, so the view still invents no rule of its own.
+ *
+ * A blank query is the ordinary tree with its collapse state, byte for byte
+ * what `visibleTocEntries` returned before this issue. A live query replaces it
+ * with the ranked matches as a FLAT list: nothing is nested, so nothing folds,
+ * and `hasChildren`/`collapsed` are both false — a filtered row has no
+ * disclosure behaviour to honour. They stay ordinary `VisibleTocEntry` rows, so
+ * the view draws one row species either way.
+ */
+export function tocPanelRows(
+  entries: TocEntry[],
+  collapsed: ReadonlySet<string>,
+  query: string
+): VisibleTocEntry[] {
+  if (!query.trim()) return visibleTocEntries(entries, collapsed);
+  return filterTocEntries(entries, query).map((entry) => ({
+    entry,
+    hasChildren: false,
+    collapsed: false,
+  }));
 }

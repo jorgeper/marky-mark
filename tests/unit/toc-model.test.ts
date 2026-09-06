@@ -5,8 +5,10 @@ import {
   activeTocReveal,
   buildTocTree,
   expandTocAncestors,
+  filterTocEntries,
   findTocEntry,
   flattenToc,
+  tocPanelRows,
   tocAncestorIds,
   toggleTocCollapsed,
   visibleTocEntries,
@@ -276,5 +278,82 @@ describe('PRD 012 Req 7 — the active entry and its reveal, resolved together',
     // A heading-less document resolves to nothing and leaves the set alone.
     const none = new Set<string>(['x']);
     expect(activeTocReveal(tree('Just prose.\n'), none, 1)).toEqual({ id: null, collapsed: none });
+  });
+});
+
+/**
+ * PRD 012 Req 4 (issue #255): the in-pane heading search that replaced the ⌘K
+ * palette. The decision — which entries a query yields, and which rows the pane
+ * therefore draws — is this module's, so it is tested straight here: a markdown
+ * string through `parseSections`, a query, and an assertion on the result.
+ */
+describe('PRD 012 Req 4 (issue #255) — the TOC search filter', () => {
+  test('U1229: a query fuzzy-matches heading titles and ranks them, the palette\'s own matcher', () => {
+    const entries = tree(doc);
+
+    // Subsequence matching, case-insensitively: "al" reaches both Alphas.
+    expect(filterTocEntries(entries, 'al').map((e) => e.title)).toEqual(['Alpha', 'Alpha one']);
+    expect(filterTocEntries(entries, 'ALPHA ONE').map((e) => e.title)).toEqual(['Alpha one']);
+
+    // Ranking is `fuzzyFilter`'s: the consecutive word-start run in "Beta"
+    // outscores the scattered b-e-t-a subsequence in "Alpha one body"-less
+    // titles, so an exact prefix leads.
+    expect(filterTocEntries(entries, 'beta')[0].title).toBe('Beta');
+
+    // Identically-titled headings stay distinct entries — the id is positional.
+    const dupes = tree('# Notes\n\n## Notes\n');
+    expect(filterTocEntries(dupes, 'notes').map((e) => e.id).sort()).toEqual(['1', '1.1']);
+  });
+
+  test('U1230: an empty query is not a filter, and a query matching nothing yields no entries', () => {
+    const entries = tree(doc);
+
+    // Empty (and whitespace-only) query: every entry, document order.
+    const all = flattenToc(entries).map((e) => e.title);
+    expect(filterTocEntries(entries, '').map((e) => e.title)).toEqual(all);
+    expect(filterTocEntries(entries, '   ').map((e) => e.title)).toEqual(all);
+
+    expect(filterTocEntries(entries, 'zzz')).toEqual([]);
+  });
+
+  test('U1231: the filter sees every heading, collapsed ancestors included', () => {
+    const entries = tree(doc);
+
+    // `Alpha one` is buried under a collapsed `Alpha`: `visibleTocEntries` hides
+    // it, the filter still finds it.
+    const folded = new Set(['1.2']);
+    expect(visibleTocEntries(entries, folded).map((v) => v.entry.title)).not.toContain('Alpha one');
+    expect(filterTocEntries(entries, 'alpha one').map((e) => e.title)).toEqual(['Alpha one']);
+    expect(tocPanelRows(entries, folded, 'alpha one').map((r) => r.entry.title)).toEqual(['Alpha one']);
+  });
+
+  test('U1232: the pane draws the ordinary tree for a blank query and a flat match list for a live one', () => {
+    const entries = tree(doc);
+    const folded = new Set(['1.2']);
+
+    // Blank query ⇒ byte-for-byte what the pane drew before this issue.
+    expect(tocPanelRows(entries, folded, '')).toEqual(visibleTocEntries(entries, folded));
+
+    // A live query ⇒ ranked matches as a FLAT list: nothing nests, so nothing
+    // folds, and a filtered row has no disclosure behaviour to honour.
+    const rows = tocPanelRows(entries, new Set<string>(), 'al');
+    expect(rows.map((r) => r.entry.title)).toEqual(['Alpha', 'Alpha one']);
+    expect(rows.every((r) => !r.hasChildren && !r.collapsed)).toBe(true);
+    // The rows stay ordinary entries — depth and line survive for the indent
+    // and the jump.
+    expect(rows.map((r) => [r.entry.depth, r.entry.headingLine])).toEqual([
+      [2, 11],
+      [3, 13],
+    ]);
+
+    // No match ⇒ no rows at all, which is what the pane's empty state renders.
+    expect(tocPanelRows(entries, new Set<string>(), 'zzz')).toEqual([]);
+  });
+
+  test('U1233: a heading-less document filters to nothing without erroring', () => {
+    const none = tree('Just prose.\n');
+    expect(filterTocEntries(none, 'anything')).toEqual([]);
+    expect(tocPanelRows(none, new Set<string>(), 'anything')).toEqual([]);
+    expect(tocPanelRows(none, new Set<string>(), '')).toEqual([]);
   });
 });

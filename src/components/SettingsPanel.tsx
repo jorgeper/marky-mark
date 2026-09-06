@@ -175,7 +175,6 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   // Edit format group (they author records, not markdown).
   insertComment: 'Insert comment',
   applyHighlight: 'Highlight (last-used color)',
-  headingPalette: 'Go to heading',
   toggleWordCount: 'Show / hide word count',
   smartMenu: 'Open Smart Edit menu',
   bold: 'Bold',

@@ -243,7 +243,7 @@ export function diveFrom(level: ZoomLevel, sectionId: string): DiveTarget {
 /**
  * PRD 011 Req 19: the line a dive should scroll to at L5 — the focused
  * section's heading line, or null when the id names nothing with a heading.
- * The caller feeds it to the SAME scroll path the heading palette uses.
+ * The caller feeds it to the SAME preview scroll path the TOC's jump uses.
  */
 export function focusLine(doc: DocumentSections, focusId: string | null): number | null {
   if (!focusId) return null;

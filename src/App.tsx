@@ -163,7 +163,6 @@ import {
 } from './lib/paneSlide';
 import { countWords } from './lib/wordCount';
 import { expandImageName, extForMime, imageMarkdownRef, pickedImageName } from './lib/imagePaste';
-import { HeadingPalette, type PaletteHeading } from './components/HeadingPalette';
 import {
   buildAuxInit,
   EV_AUX_INIT,
@@ -228,7 +227,7 @@ import {
 // and its data-mm-line anchors exactly as they were.
 import { SemanticZoomControl, SemanticZoomView } from './components/SemanticZoomView';
 import { parseSections } from './lib/sectionModel';
-import { activeTocReveal, buildTocTree, toggleTocCollapsed, visibleTocEntries } from './lib/tocModel';
+import { activeTocReveal, buildTocTree, tocPanelRows, toggleTocCollapsed } from './lib/tocModel';
 import { zoomView, ZOOM_LEVEL_FULL, type ZoomLevel } from './lib/zoomLevels';
 import { buildZoomDocumentFromView, diveFrom, focusLine, isZoomReadOnly } from './lib/semanticZoom';
 import { parseFrontMatter } from './lib/frontmatter';
@@ -712,8 +711,20 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * pays for a parse per keystroke — the SPEC16 §2 idiom.
    */
   const [tocBuffer, setTocBuffer] = useState('');
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [paletteHeadings, setPaletteHeadings] = useState<PaletteHeading[]>([]);
+  /**
+   * PRD 012 Req 4 (issue #255): the TOC's in-pane heading search — the ⌘K
+   * palette's capability, folded into the view that already holds the heading
+   * tree. Session state, deliberately: it is never written to settings and
+   * never persisted, so a restart opens the pane on the plain list.
+   *
+   * It DOES survive a switch to another sidebar view and back (the state is not
+   * tied to which view is up) — a filter you set is still the filter you set
+   * after a glance at the folder tree — and is reset by the document-change
+   * effect below, because a query about one document's headings means nothing
+   * for the next.
+   */
+  const [tocSearchOpen, setTocSearchOpen] = useState(false);
+  const [tocSearchQuery, setTocSearchQuery] = useState('');
   const [chip, setChip] = useState('');
   // SPEC20 §2: transient bottom notice (paste feedback); auto-dismisses.
   const [notice, setNotice] = useState<string | null>(null);
@@ -4260,8 +4271,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   );
 
   /**
-   * SPEC16 §4: the ONE preview scroll-to-line path — the heading palette's,
-   * reused by a PRD 011 Req 19 dive that lands at L5 rather than reimplemented.
+   * PRD 012 Reqs 5–6 (retargeted from SPEC16 §4 by issue #255, which retired
+   * the palette this path was built for): the ONE preview scroll-to-line path —
+   * the TOC's jump, reused by a PRD 011 Req 19 dive that lands at L5 rather
+   * than reimplemented.
    * Returns false while the line has not been rendered yet. A line only a
    * container-nested heading occupies matches its `data-mm-hline` stamp
    * (issue #226), so a Req 19 `#<slug>` landing on such a heading arrives too.
@@ -4360,7 +4373,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       if (action.kind === 'external') {
         void stateRef.current.platform?.openExternal(action.url); // explicit hand-off
       } else if (action.kind === 'heading') {
-        // Cancel any in-flight scroll carry for the palette's reason: its
+        // Cancel any in-flight scroll carry for the TOC jump's reason: its
         // retry loop would yank the viewport back and swallow this landing.
         pendingScrollLineRef.current = null;
         scrollToLine(action.line);
@@ -4459,7 +4472,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           showFragmentMiss('heading');
           return;
         }
-        // Cancel any in-flight scroll carry, the palette's reason: its retry
+        // Cancel any in-flight scroll carry, the TOC jump's reason: its retry
         // loop would yank the viewport back and swallow this landing.
         if (s.mode === 'edit') {
           if (editorSyncRef.current) {
@@ -4854,29 +4867,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         const s = stateRef.current.settings;
         updateSettings({ ...s, lineNumbers: !s.lineNumbers });
       },
-      headingPalette: () => {
-        // Live preview DOM when there is one; in full edit, parse the latest
-        // rendered html (the render loop keeps it fresh on a debounce).
-        const live: ParentNode | null = docRef.current ?? splitDocRef.current;
-        const root: ParentNode | null =
-          live ??
-          ((stateRef.current.docPath || stateRef.current.untitled) && stateRef.current.html
-            ? new DOMParser().parseFromString(stateRef.current.html, 'text/html')
-            : null);
-        const headings: PaletteHeading[] = root
-          ? Array.from(
-              root.querySelectorAll<HTMLElement>(
-                'h1[data-mm-line],h2[data-mm-line],h3[data-mm-line],h4[data-mm-line],h5[data-mm-line],h6[data-mm-line]'
-              )
-            ).map((el) => ({
-              line: Number(el.dataset.mmLine),
-              depth: Number(el.tagName[1]),
-              text: el.textContent ?? '',
-            }))
-          : [];
-        setPaletteHeadings(headings);
-        setPaletteOpen((v) => !v);
-      },
       toggleMode,
       // SPEC25 §3: first-class split toggle — flips the persisted setting live.
       toggleSplit: () => {
@@ -5239,11 +5229,30 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     () => (tocTree ? activeTocReveal(tocTree, tocCollapsedNow, tocTopLine).id : null),
     [tocTree, tocCollapsedNow, tocTopLine]
   );
-  /** PRD 012 Req 4: the rows to draw — the module decides, the view renders. */
+  /**
+   * PRD 012 Req 4 (issue #255): a live query — the box is open AND holds
+   * something other than whitespace. An empty query is not a filter, so the
+   * pane is the ordinary tree and every rule below behaves as it did.
+   */
+  const tocSearchActive = tocSearchOpen && tocSearchQuery.trim() !== '';
+  /**
+   * PRD 012 Req 4: the rows to draw — the module decides, the view renders.
+   * Issue #255: the query goes in with them, so the filtered list is the same
+   * one decision (`tocPanelRows`) rather than a second row-picking rule here.
+   */
   const tocRows = useMemo(
-    () => (tocTree ? visibleTocEntries(tocTree, tocCollapsedNow) : []),
-    [tocTree, tocCollapsedNow]
+    () => (tocTree ? tocPanelRows(tocTree, tocCollapsedNow, tocSearchActive ? tocSearchQuery : '') : []),
+    [tocTree, tocCollapsedNow, tocSearchActive, tocSearchQuery]
   );
+  /**
+   * PRD 012 Req 4 (issue #255): the search is about ONE document's headings, so
+   * it resets to closed-and-empty when a different document becomes active —
+   * the same `docPath`/`untitled` identity every other per-document reset uses.
+   */
+  useEffect(() => {
+    setTocSearchOpen(false);
+    setTocSearchQuery('');
+  }, [docPath, untitled]);
   /**
    * PRD 012 Req 7: the auto-reveal — the same resolver's collapse set, written
    * back so the highlighted row is on screen and a later manual toggle starts
@@ -5260,6 +5269,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const tocRevealedAtRef = useRef<{ key: string; line: number | null }>({ key: '', line: null });
   useEffect(() => {
     if (!tocOpen || !tocTree || tocTopLine === null) return;
+    // Issue #255: a live query owns the list. Scrolling must not re-fold or
+    // reorder it underneath the reader mid-search, so the reveal sits out until
+    // the query clears; the active-row highlight itself is unaffected.
+    if (tocSearchActive) return;
     const seen = tocRevealedAtRef.current;
     if (seen.key === tocKey && seen.line === tocTopLine) return;
     tocRevealedAtRef.current = { key: tocKey, line: tocTopLine };
@@ -5270,7 +5283,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       // render, and every other document's folds stay the objects they were.
       return collapsed === now ? cur : { ...cur, [tocKey]: new Set(collapsed) };
     });
-  }, [tocOpen, tocTree, tocTopLine, tocKey]);
+  }, [tocOpen, tocTree, tocTopLine, tocKey, tocSearchActive]);
   /** PRD 012 Req 4: fold/unfold one entry, through the module's rule. */
   const toggleTocEntry = useCallback(
     (id: string) => {
@@ -5284,10 +5297,14 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   );
   /**
    * PRD 012 Reqs 5–6: one click, two modes, no new scroll implementation.
-   * Preview goes through `scrollPreviewToLine` (SPEC16 §4, the heading
-   * palette's path); edit goes through the editor handle — `goToLine`, which
-   * is `scrollToLine` plus the caret Req 6 asks for. The in-flight mode-switch
-   * restore is cancelled first for the same reason the palette cancels it.
+   * Preview goes through `scrollPreviewToLine`; edit goes through the editor
+   * handle — `goToLine`, which is `scrollToLine` plus the caret Req 6 asks for.
+   * The in-flight mode-switch restore is cancelled first, or its retry loop
+   * would yank the viewport back and swallow the jump on a slow machine.
+   *
+   * Issue #255: this is the ONE jump the pane performs — a click on a plain row
+   * and a click (or Enter) on a search match both arrive here, which is why a
+   * filtered match jumps exactly as the retired ⌘K palette did.
    */
   const jumpToTocEntry = useCallback(
     (line: number) => {
@@ -5341,7 +5358,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   /**
    * PRD 011 Req 19: one click moves one level toward L5, focused on the
    * clicked section. The decision is `diveFrom()`; arriving at L5 scrolls
-   * through the heading palette's own path once the document has rendered.
+   * through the preview's one scroll-to-line path once the document has
+   * rendered.
    */
   const diveIntoSection = useCallback(
     (sectionId: string) => {
@@ -6175,9 +6193,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       } else if (eventMatches(e, hk.prevComment)) {
         e.preventDefault();
         dispatchCommand('prevComment', 'hotkey');
-      } else if (eventMatches(e, hk.headingPalette)) {
-        e.preventDefault();
-        dispatchCommand('headingPalette', 'hotkey');
       } else if (eventMatches(e, hk.toggleWordCount)) {
         e.preventDefault();
         dispatchCommand('toggleWordCount', 'hotkey');
@@ -7602,8 +7617,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * (`goToLine`'s caret + scroll, then the SPEC23 mirrored selection paints
    * the hit itself). Preview goes through the SPEC16 anchor interpolation the
    * position restore uses — a match line inside a paragraph has no
-   * `data-mm-line` anchor of its own, so the heading palette's exact-anchor
-   * path cannot serve — and flashes the block the match sits in.
+   * `data-mm-line` anchor of its own, so the TOC jump's exact-anchor path
+   * cannot serve — and flashes the block the match sits in.
    */
   const landSearchMatch = useCallback(
     (match: LineMatch) => {
@@ -8012,6 +8027,21 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             width={settings.folderWidth}
             onToggle={toggleTocEntry}
             onSelect={(row) => jumpToTocEntry(row.entry.headingLine)}
+            /* PRD 012 Req 4 (issue #255): a jump leaves the sidebar exactly as
+               it is — the box stays open with its query and the filtered list
+               stays on screen. Only Esc and the toggle close it, and both clear
+               the query so the full list comes back with its folds intact. */
+            searchOpen={tocSearchOpen}
+            searchQuery={tocSearchQuery}
+            onSearchToggle={() => {
+              setTocSearchQuery('');
+              setTocSearchOpen((v) => !v);
+            }}
+            onSearchQuery={setTocSearchQuery}
+            onSearchClose={() => {
+              setTocSearchQuery('');
+              setTocSearchOpen(false);
+            }}
             onClose={() => dispatchCommand('toggleToc')}
             onWidth={(w) => updateSettings({ ...stateRef.current.settings, folderWidth: w })}
           />
@@ -8510,26 +8540,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             ✕
           </IconButton>
         </div>
-      )}
-
-      {/* SPEC16 §4: the ⌘K heading palette. */}
-      {paletteOpen && (
-        <HeadingPalette
-          headings={paletteHeadings}
-          onClose={() => setPaletteOpen(false)}
-          onJump={(h) => {
-            const s = stateRef.current;
-            if (s.mode === 'edit') {
-              // Cancel any in-flight mode-switch scroll restore — its retry
-              // loop would otherwise yank the viewport back to the carried
-              // line and swallow this jump on slow machines.
-              pendingScrollLineRef.current = null;
-              editorSyncRef.current?.scrollToLine(h.line);
-              return;
-            }
-            scrollPreviewToLine(h.line);
-          }}
-        />
       )}
 
       {/* SPEC14 §3: fixed navigator pill, centered over the comment margin —

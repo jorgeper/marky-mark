@@ -21,7 +21,6 @@ export type CommandId =
   | 'prevComment'
   | 'toggleDiff'
   | 'insertImage'
-  | 'headingPalette'
   | 'toggleWordCount'
   | 'toggleFrontmatter'
   // Issue #10: the line-number gutter toggles from View, not Settings.

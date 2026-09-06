@@ -4,7 +4,7 @@
  * repo already parses (remark-parse → remark-frontmatter → remark-gfm, the
  * front half of the render pipeline in `markdown.ts`), never from scraping the
  * rendered HTML: the `data-mm-line` anchors and their consumers (scroll sync,
- * heading palette, comment anchoring) are untouched by this module and keep
+ * preview jumps, comment anchoring) are untouched by this module and keep
  * behaving at L5 exactly as before.
  *
  * PRD 011 Req 34: pure — no network, no DOM, no host. Parsing only; every

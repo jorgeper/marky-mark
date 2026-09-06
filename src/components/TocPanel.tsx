@@ -1,4 +1,4 @@
-import { useRef, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { Chevron, paneWidthDrag } from './FolderPanel';
 import { slideClasses, type SlidePhase } from '../lib/paneSlide';
 import { IconButton } from './ui/IconButton';
@@ -32,10 +32,24 @@ export interface TocPanelProps {
   width: number;
   /** PRD 012 Req 9: the Folders/TOC switch, rendered at the head of the header. */
   viewSwitch?: ReactNode;
+  /**
+   * PRD 012 Req 4 (issue #255): the header's search toggle is pressed — the box
+   * is open. Session state owned by `src/App.tsx`; this view only reports the
+   * clicks, exactly as it does for the collapse set.
+   */
+  searchOpen: boolean;
+  /** PRD 012 Req 4 (issue #255): the live query the box shows (`''` while closed). */
+  searchQuery: string;
   /** PRD 012 Req 4: the disclosure triangle — the owner flips the collapse set. */
   onToggle(id: string): void;
   /** PRD 012 Reqs 5–6: a row click — the owner navigates to this row's line. */
   onSelect(row: VisibleTocEntry): void;
+  /** PRD 012 Req 4 (issue #255): the header toggle — the owner flips it open/closed. */
+  onSearchToggle(): void;
+  /** PRD 012 Req 4 (issue #255): a keystroke in the box — the owner holds the query. */
+  onSearchQuery(query: string): void;
+  /** PRD 012 Req 4 (issue #255): Esc in the box — the owner closes it and clears the query. */
+  onSearchClose(): void;
   onClose(): void;
   onWidth(width: number): void;
 }
@@ -110,13 +124,54 @@ function TocRow({
   );
 }
 
+/**
+ * The sidebar's search glyph, drawn once: the TOC header's heading-search
+ * toggle and the view switch's Search button name the same verb, so they show
+ * the same icon.
+ */
+function Magnifier() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round">
+        <circle cx="7" cy="7" r="4.2" />
+        <line x1="10.2" y1="10.2" x2="13.6" y2="13.6" />
+      </g>
+    </svg>
+  );
+}
+
 export function TocPanel(p: TocPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const slideRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // PRD 012 Req 4 (issue #255): opening the box puts the caret in it — the
+  // palette's one genuinely good habit, kept. It fires on the OPEN edge only,
+  // so a re-render while the reader types (a new row set, a scroll) never
+  // re-grabs focus.
+  useEffect(() => {
+    if (p.searchOpen) searchRef.current?.focus();
+  }, [p.searchOpen]);
 
   // PRD 012 Req 1: the folder pane's own width drag — one pane, one
   // `settings.folderWidth`, so dragging in either view moves the same edge.
   const dragWidth = paneWidthDrag({ panelRef, slideRef, width: p.width, onWidth: p.onWidth });
+
+  /* PRD 012 Req 8: a document with no headings says so — a blank pane reads as
+     a bug, and "no headings yet" is the true statement. Issue #255: a live
+     query that matched nothing gets the same treatment with its own true
+     statement, so "you filtered everything out" never reads as "this document
+     has no headings". */
+  const emptyState =
+    p.searchOpen && p.searchQuery.trim() !== '' ? (
+      <div className="folder-open-empty" data-testid="toc-search-empty">
+        No headings match “{p.searchQuery}”
+      </div>
+    ) : (
+      <div className="folder-open-empty" data-testid="toc-empty">
+        No headings in this document
+      </div>
+    );
 
   const { sliding, out } = slideClasses(p.slide);
   return (
@@ -129,6 +184,23 @@ export function TocPanel(p: TocPanelProps) {
         <div className="folder-header" data-testid="toc-header">
           {p.viewSwitch}
           <span className="folder-title">Contents</span>
+          {/* PRD 012 Req 4 (issue #255): the search toggle — a header button of
+              the TOC pane, so it exists only where the heading list does and
+              never joins the three-member view switch. Pressed state is the
+              sidebar's shared idiom (aria-pressed + data-active + the
+              `.icon-btn.on` accent), and the title is a constant: it says what
+              the button searches, never "hide". */}
+          <IconButton
+            className={p.searchOpen ? 'on' : undefined}
+            data-testid="toc-search-toggle"
+            data-active={p.searchOpen ? 'true' : 'false'}
+            aria-pressed={p.searchOpen}
+            title="Search headings"
+            aria-label="Search headings"
+            onClick={p.onSearchToggle}
+          >
+            <Magnifier />
+          </IconButton>
           <IconButton
             data-testid="toc-collapse"
             title="Hide sidebar"
@@ -138,12 +210,39 @@ export function TocPanel(p: TocPanelProps) {
             <Chevron dir="left" />
           </IconButton>
         </div>
-        {/* PRD 012 Req 8: a document with no headings says so — a blank pane
-            reads as a bug, and "no headings yet" is the true statement. */}
-        {p.rows.length === 0 ? (
-          <div className="folder-open-empty" data-testid="toc-empty">
-            No headings in this document
+        {/* PRD 012 Req 4 (issue #255): the query box, between the header and the
+            list — the `SearchPanel` query-row treatment (a `.field` primitive in
+            a flex row), because it is the same control doing the same job one
+            view over. Enter jumps the top-ranked match, which is the ranking
+            `p.rows` already arrived in; Esc closes and clears. Neither key
+            dismisses the pane: this is a filter, not a modal. */}
+        {p.searchOpen && (
+          <div className="toc-search-row">
+            <input
+              ref={searchRef}
+              className="field toc-search-input"
+              data-testid="toc-search-input"
+              type="text"
+              placeholder="Filter headings"
+              aria-label="Filter headings"
+              spellCheck={false}
+              value={p.searchQuery}
+              onChange={(e) => p.onSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  p.onSearchClose();
+                } else if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const top = p.rows[0];
+                  if (top) p.onSelect(top);
+                }
+              }}
+            />
           </div>
+        )}
+        {p.rows.length === 0 ? (
+          emptyState
         ) : (
           <div className="folder-list toc-list">
             {p.rows.map((row) => (
@@ -253,13 +352,7 @@ export function SidebarViewSwitch({
           aria-label="Search in workspace"
           onClick={onSearch}
         >
-          {/* A magnifier. */}
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-            <g stroke="currentColor" strokeWidth="1.6" fill="none" strokeLinecap="round">
-              <circle cx="7" cy="7" r="4.2" />
-              <line x1="10.2" y1="10.2" x2="13.6" y2="13.6" />
-            </g>
-          </svg>
+          <Magnifier />
         </IconButton>
       )}
     </span>
