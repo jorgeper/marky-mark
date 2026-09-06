@@ -36,6 +36,9 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
   // the shared judge, so a permission or network refusal still shows its
   // message with the field left alone.
   const nameRejected = typedProblem !== null || (error !== '' && isUniqueNameError(error));
+  // PRD 024 Req 16 (issue #304): `formerNames` is optional on read — an
+  // undefined list is an empty one, and an empty one renders nothing at all.
+  const formerNames = manifest.formerNames ?? [];
 
   const save = async () => {
     const problem = uniqueNameProblem(uniqueName);
@@ -94,6 +97,18 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
           </p>
         )}
       </div>
+      {formerNames.length > 0 && (
+        // PRD 024 Req 16 (issue #304): the names this workspace used to
+        // carry, read-only, in the manifest's order (oldest first) — read
+        // straight off the `manifest` prop, never copied into state, so the
+        // server-computed list the save hands back shows in this same dialog.
+        // The muted caption treatment (`.hotkey-hint`), not `.form-error`:
+        // it is information, not a refusal. Nothing here removes an entry —
+        // former names are the server's (Req 1–3) and stay reachable.
+        <p className="hotkey-hint" data-testid="workspace-former-names">
+          Previous names: {formerNames.join(', ')}. Links to these still open this workspace.
+        </p>
+      )}
       <div className="field">
         <label htmlFor="workspace-friendly-name">Display name (optional)</label>
         <input

@@ -6982,6 +6982,56 @@ test('E537: after a rename the tab keeps writing the new name — the next docum
   expect(new URL(page.url()).pathname).toBe(`/${renamed}/other.md`);
 });
 
+test('E569: settings → Names lists former names read-only under the unique-name field — absent before any rename, present in the same open dialog right after one, both names in order after a second, and never a control', async ({
+  page,
+  request,
+}) => {
+  // PRD 024 Req 16 (issue #304): the line is derived from the manifest the
+  // save hands back (the server-owned `formerNames` of Req 1–3), so it
+  // appears without closing the dialog; it is plain text with nothing to
+  // remove an entry.
+  const ada = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, ada, 'e569');
+  const second = `${unique}-second`;
+  const third = `${unique}-third`;
+
+  await signInTo(page, 'ada', id);
+  await openWorkspaceSettings(page);
+  await expect(page.getByTestId('workspace-names-section')).toBeVisible();
+  // Never renamed: no element at all, not an empty line.
+  await expect(page.getByTestId('workspace-former-names')).toHaveCount(0);
+
+  await page.getByTestId('workspace-unique-name').fill(second);
+  await page.getByTestId('workspace-names-save').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${second}`);
+
+  // Same dialog, no reopen: the old name is now listed.
+  const former = page.getByTestId('workspace-former-names');
+  await expect(page.getByTestId('workspace-names-section')).toBeVisible();
+  await expect(former).toHaveText(`Previous names: ${unique}. Links to these still open this workspace.`);
+  // Below the unique-name field and above the display-name one.
+  const order = await page.getByTestId('workspace-names-section').evaluate((section) => {
+    const ids = ['workspace-unique-name', 'workspace-former-names', 'workspace-friendly-name'];
+    const nodes = ids.map((id) => section.querySelector(`[data-testid="${id}"]`)!);
+    return nodes[0].compareDocumentPosition(nodes[1]) & Node.DOCUMENT_POSITION_FOLLOWING &&
+      nodes[1].compareDocumentPosition(nodes[2]) & Node.DOCUMENT_POSITION_FOLLOWING
+      ? 'unique, former, friendly'
+      : 'out of order';
+  });
+  expect(order).toBe('unique, former, friendly');
+
+  // A second rename appends: both former names, oldest first.
+  await page.getByTestId('workspace-unique-name').fill(third);
+  await page.getByTestId('workspace-names-save').click();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${third}`);
+  await expect(former).toHaveText(
+    `Previous names: ${unique}, ${second}. Links to these still open this workspace.`,
+  );
+
+  // Read-only: no button, input or other control lives inside the line.
+  await expect(former.locator('button, input, select, textarea, a, [role="button"]')).toHaveCount(0);
+});
+
 test('E494: the hosted home page is the badge and the start actions — no version, alpha, developer/license or repo text', async ({
   page,
 }) => {
