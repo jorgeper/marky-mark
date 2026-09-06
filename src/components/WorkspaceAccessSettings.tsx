@@ -3,7 +3,7 @@
 // (names, members, roles, danger zone), not just its people. The hook loads
 // the open workspace's manifest and the signed-in user's resolved
 // permissions ONCE — SettingsPanel reads it to decide whether the tab exists
-// at all, and the tab body hands both to the people and roles sections so a
+// at all, and the tab body hands both to the members and roles sections so a
 // role created in one is grantable in the other without a reload. Each
 // section still renders only for a holder of its single verb — the same
 // pattern WorkspaceDangerZone uses for `workspace.delete` — and the server

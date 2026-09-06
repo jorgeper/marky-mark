@@ -274,10 +274,11 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'general', label: 'General' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'editor', label: 'Editor' },
-  // Issue #183 §1: the tab sits immediately after Editor. It renders only
-  // while a hosted workspace is open and the member holds a permitted
-  // section (the render-time filter below), and — being workspace-tied, not
-  // layer-tied — it shows in both scopes of the scope selector.
+  // Issue #183 §1: the workspace tab sits immediately after Editor. It
+  // renders only while a hosted workspace is open and the member holds a
+  // permitted section (the render-time filter below), and — being
+  // workspace-tied, not layer-tied — it shows in both scopes of the scope
+  // selector.
   // Issue #248: named for its scope, not its first section — the tab holds
   // the workspace's own settings (names, members, roles, danger zone).
   { id: 'workspace', label: 'Workspace' },
@@ -1287,8 +1288,9 @@ export function SettingsPanel({
           {tab === 'general' && generalTab}
           {tab === 'appearance' && appearanceTab}
           {tab === 'editor' && editorTab}
-          {/* Issue #183 §1: members, roles, then the danger zone — the
-              sections PRD 007 Req 12 used to append to the General tab. */}
+          {/* Issue #183 §1: the sections PRD 007 Req 12 used to append to
+              the General tab — members, roles, then the danger zone, with
+              PRD 020 Req 4's names section ahead of them. */}
           {tab === 'workspace' && workspaceLifecycle && (
             <WorkspaceSettingsTab
               lifecycle={workspaceLifecycle}
