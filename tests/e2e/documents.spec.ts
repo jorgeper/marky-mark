@@ -1,12 +1,12 @@
 import { expect, test } from './fixtures';
 import {
   addComment,
+  expectReadyToType,
   freshApp,
   freshNativeMenuApp,
   fsRead,
   fsWrite,
   menuClick,
-  expectReadyToType,
   openWelcomeViaHelp,
   PHRASE,
   revealToolbar,

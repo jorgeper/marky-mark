@@ -1037,11 +1037,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * prompt) unmounts in that same commit. The effect below runs after both,
    * so the editor keeps the focus instead of losing it to a late blur.
    */
-  const [editorFocusReq, setEditorFocusReq] = useState(0);
-  const requestEditorFocus = useCallback(() => setEditorFocusReq((n) => n + 1), []);
+  const [editorFocusTick, setEditorFocusTick] = useState(0);
+  const requestEditorFocus = useCallback(() => setEditorFocusTick((t) => t + 1), []);
 
   useEffect(() => {
-    if (!editorFocusReq) return; // 0 is "never asked" — no focus steal at boot
+    if (!editorFocusTick) return; // 0 is "never asked" — no focus steal at boot
     // PRD 007 Req 17: a preview landing (a role without doc.edit, or a
     // request the mode rule declined) is never given a caret. The ref is null
     // outside edit mode anyway; this states the rule where it can be read.
@@ -1049,7 +1049,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     // The seam is null while the Editor's lazy chunk is still loading; that
     // mount runs its own focus(), so dropping the request there is correct.
     editorFocusRef.current?.({ caret: 0 }); // the buffers these paths create are empty
-  }, [editorFocusReq]);
+  }, [editorFocusTick]);
 
   // PRD 015 Req 7: the full preview's render-result cache — a buffer write
   // re-injects the preview, and this is what keeps the re-render of every
@@ -2381,13 +2381,13 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       setActiveId(null);
       setPending(null);
       // Issue #125; SPEC35 §4.2 (issue #194): edit intent beats the memory.
-      const opened = viewModeForOpen(stateRef.current.settings.lastViewMode, mayEdit, opts?.editIntent);
-      setMode(opened);
+      const nextMode = viewModeForOpen(stateRef.current.settings.lastViewMode, mayEdit, opts?.editIntent);
+      setMode(nextMode);
       // SPEC35 §4.2 (issue #262): a file the app just created is entered
       // ready to type — the same `editIntent` that chose edit mode also asks
       // for the caret. Ordinary opens (and a read-only landing, which never
       // resolves to edit) are untouched: no existing-file focus steal.
-      if (opts?.editIntent && opened === 'edit') requestEditorFocus();
+      if (opts?.editIntent && nextMode === 'edit') requestEditorFocus();
       setShowDiff(false); // SPEC16 §2: the diff toggle resets per document
       setDiff(null);
 

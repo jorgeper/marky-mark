@@ -775,9 +775,10 @@ export async function menuSave(page: Page): Promise<void> {
  * types into the buffer with zero clicks in between. Both halves matter: a
  * focused `.cm-content` with the caret nowhere would still swallow the
  * keystroke, so the probe text is typed bare (no click, no Tab) and read back
- * out of the buffer.
+ * out of the buffer. Every caller names its own `probe`, so the text a landing
+ * typed says which landing it was.
  */
-export async function expectReadyToType(page: Page, probe = 'READY262'): Promise<void> {
+export async function expectReadyToType(page: Page, probe: string): Promise<void> {
   const content = page.getByTestId('editor').locator('.cm-content');
   await expect(content).toBeFocused();
   await page.keyboard.type(probe);
