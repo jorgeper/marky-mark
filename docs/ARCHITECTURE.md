@@ -328,17 +328,24 @@ migrates to `themeLight`):
   or shifts the dialog; a tab taller than the box scrolls inside
   `.tab-content` while the rail and chrome stay put.
 - **Comments master switch**: `commentsEnabled` (default on) gates every
-  comment affordance — highlight injection, the margin panel, the floating
-  selection button, type-to-comment, the toolbar toggle, and its hotkey.
+  comment affordance — highlight injection, the margin panel, the authoring
+  menu entries and hotkeys, the toolbar toggle, and its hotkey.
   It is strictly non-destructive: stored comments (sidecar or trailer) are
   never rewritten by the switch; disabling only stops *rendering* them, and
   saves keep attaching the untouched comment set as before.
-- **Type-to-comment**: `typeToComment` (default on). While the floating
-  button is showing (non-collapsed preview selection), a printable keydown
-  with no Cmd/Ctrl/Alt opens the composer seeded with that character (caret
-  after it, via a focus-time `setSelectionRange`). App hotkeys and inputs
-  are excluded by the same guards as elsewhere; vim-nav now ignores keys
-  whenever a selection is live, so the two features can't fight.
+- **Menu-and-hotkey authoring** (PRD 023 §§7–12, issue #286 — replaced the
+  floating selection popup and type-to-comment): the Smart Edit menu carries
+  **Comment ▸** (Insert / Delete) and **Highlight ▸** (the four marker
+  colors + Remove) below Diagram, fed by the pure context model in
+  `src/lib/annotationMenu.ts` through the `onAnnotationMenu` /
+  `onAnnotationAction` seam. Two rebindable hotkeys — `Mod+Alt+M` (Insert
+  Comment) and `Mod+Alt+H` (highlight in the last-used color) — act on the
+  selection, else the word under the caret, in the editor; in the preview
+  they require a selection. Editor-side authoring maps selection/caret to
+  rendered-text anchors against a debounced rendered-text cache and disables
+  the entries where the mapping is ambiguous, never guessing an anchor.
+  Vim-nav still ignores keys whenever a selection is live — a selection is
+  authoring context now, never nav's to scroll.
 - **Resolved ghosts, settings-owned**: the "Show resolved" switch moved from
   the panel header into Settings → General → Comments, and its default
   flipped to **on** — resolving now ghosts the card in place immediately.

@@ -69,9 +69,10 @@ export interface ThreadReply {
 export type CommentColor = 'yellow' | 'green' | 'orange' | 'pink';
 
 /**
- * PRD 022 Reqs 1+4: the same vocabulary as a runtime list, in the popup's
- * display order, for callers outside the format seam (the swatch popup, the
- * lastMarkerColor setting) — only the two stores may import commentFormat.
+ * PRD 022 Reqs 1+4, PRD 023 §9 (issue #286): the same vocabulary as a
+ * runtime list, in the Highlight ▸ rows' fixed display order, for callers
+ * outside the format seam (the menu seam, the lastMarkerColor setting) —
+ * only the two stores may import commentFormat.
  */
 export const MARKER_COLORS: readonly CommentColor[] = ['yellow', 'green', 'orange', 'pink'];
 

@@ -68,9 +68,10 @@ export interface Settings {
    */
   showComments: boolean;
   /**
-   * PRD 022 Req 4: the most recently used marker color — remembered state
-   * (the `lastViewMode` precedent, no Settings row) that pre-arms the swatch
-   * popup and seeds "add note" and type-to-comment.
+   * PRD 022 Req 4 (semantics kept by PRD 023 §9, issue #286): the most
+   * recently used marker color — remembered state (the `lastViewMode`
+   * precedent, no Settings row) that cues the menu's armed color row and is
+   * what Mod+Alt+H applies; a color-row insert or recolor updates it.
    */
   lastMarkerColor: CommentColor;
   splitEdit: boolean;

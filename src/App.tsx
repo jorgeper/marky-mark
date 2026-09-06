@@ -43,7 +43,8 @@ import {
   type SmartEditHandle,
   type SmartFormatOp,
 } from '@marky-mark/editor';
-// PRD 022 Req 1: MARKER_COLORS is the swatch popup's order/vocabulary.
+// PRD 023 §9 (issue #286): MARKER_COLORS is the Highlight ▸ rows' fixed
+// order/vocabulary (formerly the swatch popup's).
 import {
   type Anchor,
   type CommentColor,
@@ -617,9 +618,10 @@ export default function App() {
   const findReplaceText = findOptions.regex ? findReplace : literalReplacement(findReplace);
   // SPEC30 §3: the boot-time draft offer.
   const [restorePrompt, setRestorePrompt] = useState<Draft | null>(null);
-  // PRD 022 Reqs 1–2: `cid` set means the composer is attached to an
-  // already-created comment record ("add note", issue #283); without it the
-  // composer creates the comment record on submit (type-to-comment).
+  // PRD 022 Reqs 1–2, PRD 023 §8 (issue #286): the composer is attached to
+  // an already-created empty comment record — `cid` always set now, since
+  // every authoring path (menu Insert Comment, both hotkeys) creates the
+  // record first and lands the body on submit.
   const [pending, setPending] = useState<{ start: number; end: number; cid?: string } | null>(
     null
   );
@@ -6790,8 +6792,8 @@ export default function App() {
     setActiveId(cid);
   };
 
-  // PRD 022 Req 1: cancel undoes what "add note" created — an abandoned
-  // composer leaves no empty comment record behind (a swatch-created
+  // PRD 022 Req 1: cancel undoes what Insert Comment created — an abandoned
+  // composer leaves no empty comment record behind (a menu/hotkey-created
   // highlight, which never had a composer, is untouched by this).
   const cancelComposer = () => {
     if (pending?.cid) {
@@ -6818,11 +6820,12 @@ export default function App() {
   // row — no live surface reaches a highlight's color in this slice (PRD 023
   // Req 9 restores recolor in the menu slice).
 
-  // PRD 023 §15 (issue #284): inserting a comment auto-opens the pane —
-  // every authoring surface in this slice (selection popup "add note", the
-  // edit-mode affordance / SPEC25 carry, type-to-comment) opens the composer
-  // by setting `pending`, so watching it covers them all. Programmatic, so
-  // unarmed: the pane switches in instantly with the composer reachable.
+  // PRD 023 §15 (issue #284) + §8 (issue #286): inserting a comment
+  // auto-opens the pane — every authoring surface (menu Insert Comment on
+  // either editor layout, the Mod+Alt+M hotkey on both surfaces) opens the
+  // composer by setting `pending`, so watching it covers them all.
+  // Programmatic, so unarmed: the pane switches in instantly with the
+  // composer reachable — and the mode NEVER switches.
   useEffect(() => {
     if (!pending) return;
     const st = stateRef.current.settings;
@@ -6905,8 +6908,8 @@ export default function App() {
   let items: Item[] = settings.showResolved
     ? comments.filter(isComment).sort(byPosition).map((c) => ({ row: 'card' as const, c, ghost: c.resolved }))
     : open.map((c) => ({ row: 'card' as const, c }));
-  // PRD 022 Req 1: while "add note"'s composer is attached to a fresh
-  // highlight, the composer stands in for that entry's card.
+  // PRD 022 Req 1: while Insert Comment's composer is attached to a fresh
+  // empty record, the composer stands in for that entry's card.
   if (pending?.cid) items = items.filter((it) => !(it.row === 'card' && it.c.id === pending.cid));
   if (pending) {
     let at = items.findIndex(
