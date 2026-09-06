@@ -78,6 +78,14 @@ writing code. The Definition of Done in §8 is the goal condition.
    > View ▸ **Comments** menu row and its `toggleComments` hotkey are the
    > toggle's only home now (plus the edge-cluster chevron of PRD 023 §14).
 
+   > **Amendment (issue #243, 2026-09-06):** on the **hosted (cloud) build
+   > only**, the Edit/Preview toggle is absent on the home page — signed in
+   > with no document and no untitled buffer. It is hidden, never rendered
+   > disabled, and returns unchanged the moment a document is open. With
+   > nothing open `toggleMode` was already a no-op, so this drops an inert
+   > affordance and changes no behaviour. Desktop, the dev shim and the
+   > single-file web build keep today's toolbar exactly.
+
 2. **Settings panel** gains the theme chooser as the primary control (the `<select>`
    already exists — keep it, listing built-ins and user themes) plus a
    **"Reload themes"** button (moved from the old picker) and (web only) "Import

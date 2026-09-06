@@ -56,6 +56,16 @@ and hosted sign-in call sites are unchanged.
      untouched).
 2. Identical on desktop, dev shim, and web (pure app UI).
 
+> **Amendment (issue #243, 2026-09-06):** on the **hosted (cloud) build
+> only**, item 1's About-dialog information — the version line, the alpha
+> notice, "Developer: Jorge Pereira · MIT License" and the repo link — is
+> not rendered: the hosted splash is the app badge followed straight by the
+> entry actions (PRD 007 Req 21/22), whose rows and the "Drop a file to
+> open" hint are unchanged. Those facts stay reachable there through the
+> About dialog. Item 2's "identical on desktop, dev shim, and web" therefore
+> carves out the hosted flavor and holds for the other three byte-for-byte
+> (E87). Owner's 2026-09-05 build-applicability decision.
+
 ## 4. Tests (amended: E1, E78; added: E87)
 
 1. **Amended, not weakened:** E1's splash-copy assertion becomes the new

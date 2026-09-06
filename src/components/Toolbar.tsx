@@ -29,6 +29,11 @@ interface Props {
    * stays exactly as it was. False hides it, matching the native menu's
    * grayed items. The menu's own Save rows ride the same flag through
    * lib/appMenu.ts.
+   *
+   * Issue #243: the hosted home page rides this flag too — App.tsx passes
+   * `docGrants.edit && !hostedHome`, so false here means "no Edit toggle",
+   * either because the reader may not edit or because there is nothing open
+   * to edit. This component still decides neither.
    */
   canEdit?: boolean;
   /**

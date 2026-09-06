@@ -18,7 +18,7 @@ E-number cite the spec outside any test body (file header or shared setup).
 | Spec | Title | src files | e2e |
 | --- | --- | --- | --- |
 | [SPEC](specs/SPEC.md) | SPEC: Markimark — a fast, themeable Markdown viewer | `editor/src/components/Editor.tsx`, `editor/src/lib/hotkeys.ts`, `src/bundled.ts`, `src/lib/anchoring.ts`, `src/platform/types.ts` | _none_ |
-| [SPEC2](specs/SPEC2.md) | SPEC2: Markimark v2 — three targets, simpler chrome, embedded comments | `src/App.tsx`, `src/components/Toolbar.tsx`, `src/lib/embedded.ts`, `src/platform/index.ts`, `src/platform/localDocs.ts`, `src/platform/web.ts` | E9 |
+| [SPEC2](specs/SPEC2.md) | SPEC2: Markimark v2 — three targets, simpler chrome, embedded comments | `src/App.tsx`, `src/components/Toolbar.tsx`, `src/lib/embedded.ts`, `src/platform/index.ts`, `src/platform/localDocs.ts`, `src/platform/web.ts` | E9, E495 |
 | [SPEC3](specs/SPEC3.md) | SPEC3: Markimark v3 — Typora-grade settings, vim nav, tighter Claude theme | `editor/src/components/Editor.tsx`, `editor/src/lib/vimnav.ts`, `src/App.tsx`, `src/components/Toolbar.tsx`, `src/lib/settings.ts` | E105, E490 |
 | [SPEC4](specs/SPEC4.md) | SPEC4: Markimark v4 — vanishing toolbar, tabbed settings, text-only zoom, clean start | `src/App.tsx`, `src/lib/commands.ts`, `src/lib/settings.ts`, `src/styles.css` | E24, E13 |
 | [SPEC5](specs/SPEC5.md) | SPEC5: Marky Mark v5 — app badge, opt-in auto-hide, centered hint, rename | `src/App.tsx`, `src/components/Toolbar.tsx`, `src/styles.css` | E1, E25, E28 |
@@ -43,7 +43,7 @@ E-number cite the spec outside any test body (file header or shared setup).
 | [SPEC24](specs/SPEC24.md) | SPEC24: Marky Mark v24 — mirrored selection, both ways | `editor/src/components/Editor.tsx`, `editor/src/lib/codeSelection.ts`, `editor/src/lib/selectionMap.ts`, `src/App.tsx`, `src/platform/browser.ts`, `src/styles.css` | _none_ |
 | [SPEC25](specs/SPEC25.md) | SPEC25: Marky Mark v25 — selection across mode switches; first-class split toggle | `editor/src/components/Editor.tsx`, `src/App.tsx`, `src/lib/menuSpec.ts` | `tests/e2e/comments.spec.ts` |
 | [SPEC26](specs/SPEC26.md) | SPEC26: Marky Mark v26 — YAML front matter: parsed, carded, dismissable | `editor/src/lib/markdown.ts`, `src/App.tsx`, `src/components/FrontMatterCard.tsx`, `src/lib/frontmatter.ts`, `src/lib/menuSpec.ts`, `src/lib/settings.ts`, `src/styles.css` | _none_ |
-| [SPEC27](specs/SPEC27.md) | SPEC27: Marky Mark v27 — the new icon, everywhere, and a real splash | `src/App.tsx`, `src/components/HostedSignIn.tsx`, `src/components/Toolbar.tsx`, `src/styles.css` | E78, E391, E1, E87 |
+| [SPEC27](specs/SPEC27.md) | SPEC27: Marky Mark v27 — the new icon, everywhere, and a real splash | `src/App.tsx`, `src/components/HostedSignIn.tsx`, `src/components/Toolbar.tsx`, `src/styles.css` | E78, E391, E494, E1, E87 |
 | [SPEC29](specs/SPEC29.md) | SPEC29: Marky Mark v29 — File → Open Recent | `src/App.tsx`, `src/lib/commands.ts`, `src/lib/menuSpec.ts`, `src/lib/recentFiles.ts`, `src/platform/browser.ts`, `src/platform/tauri.ts` | _none_ |
 | [SPEC30](specs/SPEC30.md) | SPEC30: Marky Mark v30 — Find, reopen-on-launch, crash-safe drafts | `editor/src/components/Editor.tsx`, `src/App.tsx`, `src/components/FindBar.tsx`, `src/lib/drafts.ts`, `src/lib/menuSpec.ts`, `src/platform/types.ts`, `src/styles.css` | E345, E325, E434, `tests/e2e/hosted.spec.ts` |
 | [SPEC31](specs/SPEC31.md) | SPEC31: Marky Mark v31 — New Window (multi-window) | _none_ | _none_ |

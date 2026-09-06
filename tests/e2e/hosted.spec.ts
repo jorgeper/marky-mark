@@ -1,4 +1,7 @@
 import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
+// Issue #243: E494 asserts the hosted splash does NOT carry the build version,
+// read from the same package.json the desktop splash's E87 asserts it from.
+import pkg from '../../package.json' with { type: 'json' };
 // PRD 017 Req 6: the deployment-settings blob sits under the reserved
 // deployment/ prefix the API itself refuses (E363), so the policy tests
 // write it the way an operator's storage tooling would — straight to
@@ -5560,4 +5563,61 @@ test('E492: a duplicate unique name paints the New Workspace dialog red — body
   await input.fill(`${taken}-3`);
   await expect(typed).toHaveCount(0);
   expect(await paint()).toEqual(normal);
+});
+
+test('E494: the hosted home page is the badge and the start actions — no version, alpha, developer/license or repo text', async ({
+  page,
+}) => {
+  // Issue #243 (SPEC27 §3 amendment): hosted-only, the About paragraphs
+  // under the splash badge are gone; the entry actions (PRD 007 Req 21/22)
+  // and the drop hint stay exactly as they are. E87 pins the desktop shim's
+  // unchanged splash — this is the flavor branch, not a replacement.
+  await signInTo(page, 'ada');
+  const hint = page.getByTestId('empty-hint');
+  await expect(hint).toBeVisible();
+  await expect(page.getByTestId('splash-mark')).toBeVisible();
+  await expect(page.getByTestId('splash-badge')).toBeVisible();
+  await expect(page.getByTestId('start-actions')).toBeVisible();
+  await expect(page.getByTestId('start-drop')).toContainText('Drop a file to open');
+  await expect(hint).not.toContainText(`v${pkg.version}`);
+  await expect(hint).not.toContainText('Alpha — pre-release software');
+  await expect(hint).not.toContainText('Developer: Jorge Pereira');
+  await expect(hint).not.toContainText('MIT License');
+  await expect(hint).not.toContainText('github.com/jorgeper');
+});
+
+test('E495: the hosted home page hides the toolbar Edit toggle, and opening a file brings it back', async ({
+  page,
+  request,
+}) => {
+  // Issue #243 (SPEC2 §4.1 amendment): with nothing open, `toggleMode` is
+  // already a no-op, so the button is removed rather than shown disabled.
+  // The rest of the toolbar is untouched — the hamburger, the name slot.
+  const ada = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, ada, 'e495');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/note.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# note\n\nA line to read.\n',
+  });
+
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await revealToolbar(page);
+  await expect(page.getByTestId('menu-btn')).toBeVisible();
+  // The name slot is still in the tree (empty, as it always is with nothing
+  // open) — only the Edit toggle goes.
+  await expect(page.getByTestId('docname')).toHaveCount(1);
+  await expect(page.getByTestId('edit-toggle')).toHaveCount(0);
+
+  // With a document open it is back, and toggles both ways as it always has.
+  await page.goto(`${HOSTED}/${unique}`);
+  await openFromSidebar(page, 'note.md');
+  await revealToolbar(page);
+  await expect(page.getByTestId('edit-toggle')).toBeVisible();
+  await page.getByTestId('edit-toggle').click();
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('edit-toggle')).toHaveText(/Preview/);
+  await page.getByTestId('edit-toggle').click();
+  await expect(page.getByTestId('doc')).toBeVisible();
+  await expect(page.getByTestId('edit-toggle')).toHaveText(/Edit/);
 });

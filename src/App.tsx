@@ -4879,6 +4879,19 @@ export default function App() {
   // PRD 007 Req 17: the edit gate the toolbar's Edit button and the edge
   // switch (issue #125) share — an open document this reader may change.
   const mayToggleMode = docOpen && docGrants.edit;
+  /**
+   * Issue #243 (SPEC27 §3 + SPEC2 §4.1 amendments): the hosted home page —
+   * the cloud build with nothing open. It gates both halves of the issue: the
+   * About paragraphs under the splash badge, and the toolbar's Edit toggle,
+   * which `toggleMode` already ignores with no document (dispatchCommand's
+   * `toggleMode` case), so dropping the button removes an inert affordance
+   * rather than an action. Hosted-only is the owner's 2026-09-05
+   * build-applicability decision — a deliberate flavor branch, not the
+   * capability-first default `Platform` states (platform/types.ts): desktop,
+   * the dev shim and the single-file web build keep today's splash text and
+   * toolbar exactly (E87, E78).
+   */
+  const hostedHome = platform?.kind === 'hosted' && !docOpen;
 
   // --- PRD 012: the Table of Contents view of the sidebar -----------------------
   /**
@@ -7566,8 +7579,10 @@ export default function App() {
               // PRD 009 Req 11: the open workspace's name, where the removed
               // switcher chip used to show it.
               workspaceName={workspaceName}
-              // PRD 007 Req 17: no Edit toggle for a read-only role.
-              canEdit={docGrants.edit}
+              // PRD 007 Req 17: no Edit toggle for a read-only role. Issue
+              // #243: nor on the hosted home page, where it would toggle
+              // nothing — hidden, never disabled.
+              canEdit={docGrants.edit && !hostedHome}
               // PRD 009 Req 8: the whole item set, already gated.
               menu={appMenu}
               onToggleMode={() => dispatchCommand('toggleMode')}
@@ -7857,20 +7872,28 @@ export default function App() {
                   <div className="splash-mark" data-testid="splash-mark">
                     <AppBadge size={132} testId="splash-badge" />
                   </div>
-                  <p className="splash-version">v{__APP_VERSION__}</p>
-                  <p className="splash-alpha">Alpha — pre-release software, expect rough edges.</p>
-                  <p className="splash-meta">Developer: Jorge Pereira · MIT License</p>
-                  <p className="splash-meta">
-                    <a
-                      href="https://github.com/jorgeper/marky-mark"
-                      onClick={(e) => {
-                        e.preventDefault(); // managed hand-off (SPEC11 §4.2)
-                        void platform.openExternal('https://github.com/jorgeper/marky-mark');
-                      }}
-                    >
-                      github.com/jorgeper/marky-mark
-                    </a>
-                  </p>
+                  {/* SPEC27 §3 (issue #243): the About information is
+                      desktop/shim/web only — the hosted home page is the
+                      badge and the start actions, nothing between them. Same
+                      facts still reachable there through About. */}
+                  {!hostedHome && (
+                    <>
+                      <p className="splash-version">v{__APP_VERSION__}</p>
+                      <p className="splash-alpha">Alpha — pre-release software, expect rough edges.</p>
+                      <p className="splash-meta">Developer: Jorge Pereira · MIT License</p>
+                      <p className="splash-meta">
+                        <a
+                          href="https://github.com/jorgeper/marky-mark"
+                          onClick={(e) => {
+                            e.preventDefault(); // managed hand-off (SPEC11 §4.2)
+                            void platform.openExternal('https://github.com/jorgeper/marky-mark');
+                          }}
+                        >
+                          github.com/jorgeper/marky-mark
+                        </a>
+                      </p>
+                    </>
+                  )}
                   {/* PRD 007 Req 21/22: the entry actions — one list, shared
                       with the File menu, each row present only where this
                       flavor can honour it (lib/startActions.ts). */}
