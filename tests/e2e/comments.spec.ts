@@ -2294,7 +2294,7 @@ test('E467: PRD 023 §13 — the button menu holds ONLY the Comment/Highlight ro
   // Exactly the two annotation rows — no text-editing entry, no separator.
   await expect(page.getByTestId('smart-edit-comment')).toBeVisible();
   await expect(page.getByTestId('smart-edit-highlight')).toBeVisible();
-  for (const absent of ['table', 'image', 'code-block-view', 'diagram', 'bold', 'italic', 'link', 'heading', 'lists', 'cut', 'copy', 'paste']) {
+  for (const absent of ['table', 'image', 'code-block-view', 'diagram', 'link-view', 'bold', 'italic', 'link', 'heading', 'lists', 'cut', 'copy', 'paste']) {
     await expect(page.getByTestId(`smart-edit-${absent}`)).toHaveCount(0);
   }
   expect(await menu.locator('.menu-item').count()).toBe(2);

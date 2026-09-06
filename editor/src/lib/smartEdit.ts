@@ -461,6 +461,14 @@ export interface SmartMenuCtx {
   codeView: boolean;
   /** PRD 013 Req 6: the global edit-pane diagram view is on. */
   diagramView: boolean;
+  /** SPEC43 §11 (issue #270): the global rendered-links view is on. */
+  linkView: boolean;
+  /**
+   * SPEC43 §11 (issue #270): the caret/selection head sits inside a link
+   * that has a URL — resolved by the owner through `linkAt` (linkSpans.ts),
+   * pure logic like `table`/`image`; an image reference never sets it.
+   */
+  link: boolean;
 }
 
 export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
@@ -509,6 +517,21 @@ export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
       ],
     })
   );
+  // SPEC43 §11 (issue #270): the Link submenu, after Diagram — the id is
+  // `link-view` (the `code-block-view` precedent: `link` is taken by the
+  // Create Link row below, which keeps its id so runFormat's wrapLink branch,
+  // the SmartFormatOp union, fmtLink and the hk.link binding are untouched;
+  // only the row's location in the menu tree changes). Open Link is listed
+  // always and enabled only with the caret inside a URL-carrying link.
+  out.push(
+    item('link-view', 'Link', {
+      submenu: [
+        item('toggle-links', ctx.linkView ? 'Show Raw Links' : 'Show Rendered Links'),
+        item('link', 'Create Link', { hotkey: hk(h.link) }),
+        item('open-link', 'Open Link', { hotkey: hk(h.openLink), enabled: ctx.link }),
+      ],
+    })
+  );
   // PRD 023 §§7–11 (issue #286): Comment then Highlight, below Diagram and
   // above the Bold separator — the Table submenu's always-listed Insert/
   // Delete idiom, each row enabled by its own condition. The rows come from
@@ -524,7 +547,8 @@ export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
     item('italic', 'Italic', { hotkey: hk(h.italic) }),
     item('strike', 'Strikethrough', { hotkey: hk(h.strikethrough) }),
     item('code', 'Inline Code', { hotkey: hk(h.inlineCode) }),
-    item('link', 'Link', { hotkey: hk(h.link) }),
+    // SPEC43 §11 (issue #270): no top-level `link` row — Create Link lives
+    // under the Link submenu above.
     'sep',
     item('heading', 'Heading', {
       submenu: [

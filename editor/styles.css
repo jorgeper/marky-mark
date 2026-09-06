@@ -493,6 +493,21 @@
   opacity: 0.7;
   font-weight: 400;
 }
+/* SPEC43 §11 (issue #270): the rendered-links view — a collapsed link's text
+   reads as the theme's link treatment, on the same --mm-link token the raw
+   mm-md-link span resolves. */
+.editor-wrap .mm-link-view {
+  color: var(--mm-link, var(--mm-accent, #0969da));
+  text-decoration: underline;
+}
+/* SPEC43 §11 (issue #270): while ⌘/Ctrl is held (mm-link-modifier on the
+   editor root, dropped on keyup and on blur) link text advertises the
+   modifier-click open with a pointer — raw and rendered views alike. */
+.editor-wrap .mm-link-modifier .mm-link-view,
+.editor-wrap .mm-link-modifier .mm-md-link,
+.editor-wrap .mm-link-modifier .mm-md-url {
+  cursor: pointer;
+}
 /* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
 .editor-wrap .cm-editor {

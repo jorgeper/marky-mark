@@ -28,6 +28,8 @@ const ctx = (over: Partial<SmartMenuCtx> = {}): SmartMenuCtx => ({
   imageView: true, // SPEC41 §8 amendment to U65
   codeView: true, // Issue #157 amendment to U65
   diagramView: true, // PRD 013 Req 6 amendment to U65
+  linkView: true, // SPEC43 §11 (issue #270) amendment to U65
+  link: false, // SPEC43 §11 (issue #270): caret outside any link by default
   ...over,
 });
 
@@ -49,10 +51,13 @@ describe('SPEC43 smart edit', () => {
     // present); the SPEC43 top-level resize-image stub is gone.
     // Issue #157 amendment: the Code Block submenu joins them, after Image.
     // PRD 013 Req 6 amendment: the Diagram submenu joins them, after Code Block.
+    // SPEC43 §11 (issue #270) amendment: the Link submenu joins them, after
+    // Diagram, and the top-level `link` row moves under it — the inline group
+    // reads Bold, Italic, Strikethrough, Inline Code, then the separator.
     expect(ids(buildSmartMenu(ctx()))).toEqual([
-      'table', 'image', 'code-block-view', 'diagram',
+      'table', 'image', 'code-block-view', 'diagram', 'link-view',
       'sep',
-      'bold', 'italic', 'strike', 'code', 'link',
+      'bold', 'italic', 'strike', 'code',
       'sep',
       'heading', 'lists', 'callout', 'quote', 'code-block', 'hr',
       'sep',
@@ -384,10 +389,12 @@ describe('PRD 023 §§7–12 annotation menu entries (issue #286)', () => {
     // §7: Comment then Highlight, immediately below Diagram, above the
     // separator that precedes Bold — the Table/Image submenu idiom.
     const entries = buildSmartMenu(ctx({ annotations: annotations() }));
+    // SPEC43 §11 (issue #270) amendment: Link sits between Diagram and the
+    // annotation entries; the top-level `link` row lives under it now.
     expect(ids(entries)).toEqual([
-      'table', 'image', 'code-block-view', 'diagram', 'comment', 'highlight',
+      'table', 'image', 'code-block-view', 'diagram', 'link-view', 'comment', 'highlight',
       'sep',
-      'bold', 'italic', 'strike', 'code', 'link',
+      'bold', 'italic', 'strike', 'code',
       'sep',
       'heading', 'lists', 'callout', 'quote', 'code-block', 'hr',
       'sep',
@@ -495,5 +502,60 @@ describe('PRD 023 §§7–12 annotation menu entries (issue #286)', () => {
     // output — deep-equal, so the two surfaces cannot drift.
     const full = buildSmartMenu(ctx({ annotations: a }));
     expect([find(full, 'comment'), find(full, 'highlight')]).toEqual(built);
+  });
+
+  test('U1153: SPEC43 §11 (issue #270) — the Link submenu: position after Diagram, its three rows, and no top-level link row', () => {
+    const entries = buildSmartMenu(ctx());
+    const top = ids(entries);
+    // After Diagram, before the first separator; the inline group has no link.
+    expect(top.indexOf('link-view')).toBe(top.indexOf('diagram') + 1);
+    expect(top).not.toContain('link');
+
+    // The rows in order, with ids, labels, hotkeys and enabled flags.
+    const sub = find(entries, 'link-view').submenu!;
+    expect(sub.map((e) => e !== 'sep' && [e.id, e.label])).toEqual([
+      ['toggle-links', 'Show Raw Links'],
+      ['link', 'Create Link'],
+      ['open-link', 'Open Link'],
+    ]);
+    const create = sub.find((e) => e !== 'sep' && e.id === 'link');
+    expect(create !== 'sep' && create?.hotkey).toBe('⌘⇧K');
+    expect(create !== 'sep' && create?.enabled).toBe(true);
+    // Open Link documents its binding through displayCombo, mac and PC forms.
+    const open = sub.find((e) => e !== 'sep' && e.id === 'open-link');
+    expect(open !== 'sep' && open?.hotkey).toBe('⌘⌥O');
+    const pc = find(buildSmartMenu(ctx({ isMac: false })), 'link-view').submenu!.find(
+      (e) => e !== 'sep' && e.id === 'open-link'
+    );
+    expect(pc !== 'sep' && pc?.hotkey).toBe('Ctrl+Alt+O');
+  });
+
+  test('U1154: SPEC43 §11 (issue #270) — the toggle label follows the view flag; Open Link is enabled only with the link context', () => {
+    const toggleOf = (c: SmartMenuCtx) =>
+      find(buildSmartMenu(c), 'link-view').submenu!.find((e) => e !== 'sep' && e.id === 'toggle-links');
+    const on = toggleOf(ctx({ linkView: true }));
+    expect(on !== 'sep' && on && [on.label, on.enabled]).toEqual(['Show Raw Links', true]);
+    const off = toggleOf(ctx({ linkView: false }));
+    expect(off !== 'sep' && off && [off.label, off.enabled]).toEqual(['Show Rendered Links', true]);
+
+    const openOf = (c: SmartMenuCtx) =>
+      find(buildSmartMenu(c), 'link-view').submenu!.find((e) => e !== 'sep' && e.id === 'open-link');
+    const out = openOf(ctx({ link: false }));
+    expect(out !== 'sep' && out?.enabled).toBe(false); // disabled, never absent
+    const inside = openOf(ctx({ link: true }));
+    expect(inside !== 'sep' && inside?.enabled).toBe(true);
+  });
+
+  test('U1155: SPEC43 §11 (issue #270) — the whole default map stays chord-conflict-free with openLink in it', () => {
+    expect(DEFAULT_HOTKEYS.openLink).toBe('Mod+Alt+O');
+    const entries = Object.entries(DEFAULT_HOTKEYS);
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        expect(
+          combosConflict(entries[i][1], entries[j][1]),
+          `${entries[i][0]} vs ${entries[j][0]}`
+        ).toBe(false);
+      }
+    }
   });
 });

@@ -71,6 +71,8 @@ import { codeBlockViewExtension } from './codeBlockView';
 import { diagramViewExtension } from './diagramView';
 import { fenceRendererFor } from '../lib/fenceRenderers';
 import { imageViewExtension, setImageView } from './imageView';
+import { linkOpenExtension, linkViewExtension } from './linkView';
+import { linkAt } from '../lib/linkSpans';
 import { livePreviewExtension } from './livePreview';
 import { allImageRefs, applyImageRewrite, deleteImageAt, type ImageRef } from '../lib/imageResize';
 
@@ -141,6 +143,13 @@ export type SmartFormatOp =
 export interface SmartEditHandle {
   applyFormat(op: SmartFormatOp): void;
   openSmartMenu(): void;
+  /**
+   * SPEC43 §11 (issue #270): open the link under the caret through the
+   * onOpenExternal seam — the openLink hotkey's target, the SAME resolution
+   * (linkAt) the menu row and the modifier-click use. A caret outside any
+   * URL-carrying link is a silent no-op (never an error, never a text change).
+   */
+  openLink(): void;
   /**
    * SPEC38 §3.5: the canonical view — identity when table mode is off; with
    * it on, the text with the display region collapsed to the compact table.
@@ -391,6 +400,10 @@ export interface EditorProps {
   diagramView: boolean;
   /** PRD 013 Req 6: the Diagram ▸ toggle flips the setting (App persists it). */
   onToggleDiagramView?(): void;
+  /** SPEC43 §11 (issue #270): collapse ALL inline links to their text (the global view setting). */
+  linkView: boolean;
+  /** SPEC43 §11 (issue #270): the Link ▸ toggle flips the setting (App persists it). */
+  onToggleLinkView?(): void;
   /** PRD 013 Req 9: the app's active theme side — diagram widgets draw to match. */
   themeVariant: 'light' | 'dark';
   /**
@@ -1007,6 +1020,8 @@ export default function Editor({
   onToggleCodeBlockView,
   diagramView,
   onToggleDiagramView,
+  linkView,
+  onToggleLinkView,
   themeVariant,
   readOnly = false,
   headingLink,
@@ -1039,6 +1054,8 @@ export default function Editor({
   const codeCardComp = useRef(new Compartment());
   // PRD 013 Req 5: the edit-pane diagram view, same live-toggle pattern.
   const diagramComp = useRef(new Compartment());
+  // SPEC43 §11 (issue #270): the rendered-links view, same live-toggle pattern.
+  const linkComp = useRef(new Compartment());
   const smartComp = useRef(new Compartment());
   // PRD 007 Req 17: read-only rides a compartment like every other live prop.
   const readOnlyComp = useRef(new Compartment());
@@ -1071,8 +1088,8 @@ export default function Editor({
   inlineImagesRef.current = inlineImages;
   const resolveImageSrcRef = useRef(resolveImageSrc);
   resolveImageSrcRef.current = resolveImageSrc;
-  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView, onAnnotationMenu, onAnnotationAction });
-  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView, onAnnotationMenu, onAnnotationAction };
+  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView, linkView, onToggleLinkView, onAnnotationMenu, onAnnotationAction });
+  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView, linkView, onToggleLinkView, onAnnotationMenu, onAnnotationAction };
   // Issue #163: the card copy control's clipboard seam — read through the
   // live props ref, so neither the mount nor a reconfigure ever captures a
   // stale handler, and only an explicit `true` counts as a landed write.
@@ -1152,6 +1169,11 @@ export default function Editor({
         codeView: sp.codeBlockView,
         // PRD 013 Req 6: the diagram view state, same pattern.
         diagramView: sp.diagramView,
+        // SPEC43 §11 (issue #270): the rendered-links view state, and the
+        // caret's link context through the ONE resolution (linkAt) the open
+        // paths use — an image reference never enables Open Link.
+        linkView: sp.linkView,
+        link: linkAt(view.state, sel.head) !== null,
         // PRD 023 §7 (issue #286): the annotation entries' context, asked of
         // the owner fresh at open with the live selection — null (or no seam)
         // keeps both entries out of the menu entirely.
@@ -1207,6 +1229,17 @@ export default function Editor({
     if (r) applySplice(view, r);
   };
 
+  /**
+   * SPEC43 §11 (issue #270): the ONE open-link command — the menu row, the
+   * openLink hotkey (via smartRef) and the modifier-click all resolve
+   * through linkAt and leave through the onOpenExternal seam; the host
+   * applies the preview's managed-link rule. No link under the caret ⇒
+   * silent no-op.
+   */
+  const openLinkAtCaret = (view: EditorView): void => {
+    const link = linkAt(view.state, view.state.selection.main.head);
+    if (link) onOpenExternalRef.current?.(link.url);
+  };
 
   // SPEC38 §3.6: a chip action — mutate the parsed display model, re-layout,
   // one splice, one undo step; the cursor lands in the inserted column/row's
@@ -1297,6 +1330,18 @@ export default function Editor({
     // PRD 013 Req 6: the diagram view's global toggle, same pattern.
     if (id === 'toggle-diagrams') {
       sp.onToggleDiagramView?.();
+      view.focus();
+      return;
+    }
+    // SPEC43 §11 (issue #270): the rendered-links view's global toggle, same
+    // pattern — and the menu's Open Link row, through the ONE open command.
+    if (id === 'toggle-links') {
+      sp.onToggleLinkView?.();
+      view.focus();
+      return;
+    }
+    if (id === 'open-link') {
+      openLinkAtCaret(view);
       view.focus();
       return;
     }
@@ -1619,6 +1664,14 @@ export default function Editor({
       diagramComp.current.of(
         diagramView ? diagramViewExtension({ rendererFor: fenceRendererFor, theme: themeVariant }) : []
       ),
+      // SPEC43 §11 (issue #270): the rendered-links view — pure decoration,
+      // present only while the setting is on AND live preview is off (the
+      // live preview collapses the same ranges; exactly one of the two may
+      // paint a link). After table mode, to read the grid spans it excludes.
+      linkComp.current.of(linkView && !livePreview ? linkViewExtension() : []),
+      // SPEC43 §11 (issue #270): modifier-click open + the pointer-cursor
+      // cue — unconditional, so ⌘/Ctrl-click works in the raw view too.
+      linkOpenExtension(() => onOpenExternalRef.current),
       history(),
       highlightActiveLine(),
       // SPEC44 §2: word-under-caret decoration (cleared while selecting).
@@ -1765,6 +1818,9 @@ export default function Editor({
     if (smartRef) {
       smartRef.current = {
         applyFormat: (op) => runFormat(view, op),
+        // SPEC43 §11 (issue #270): the openLink hotkey's path to the ONE
+        // open command the menu row and the modifier-click share.
+        openLink: () => openLinkAtCaret(view),
         openSmartMenu: () => {
           const c = view.coordsAtPos(view.state.selection.main.head);
           openMenuAt(c ? c.left : 80, c ? c.bottom + 4 : 80);
@@ -2033,6 +2089,15 @@ export default function Editor({
       ),
     });
   }, [diagramView, themeVariant]);
+
+  // SPEC43 §11 (issue #270): the rendered-links toggle, same restyle-only
+  // pattern — livePreview in the deps because the view stands down while the
+  // live preview owns the link collapse (never two decorations on one range).
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: linkComp.current.reconfigure(linkView && !livePreview ? linkViewExtension() : []),
+    });
+  }, [linkView, livePreview]);
 
   // SPEC41 §2.3: flipping the image view is an effect-only dispatch — no
   // text, no history, no dirty dot, ever.

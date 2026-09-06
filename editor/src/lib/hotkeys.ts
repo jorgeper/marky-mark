@@ -47,6 +47,8 @@ export interface HotkeyMap {
   insertComment: string;
   /** PRD 023 §12 (issue #286): highlight in the last-used marker color. */
   applyHighlight: string;
+  /** SPEC43 §11 (issue #270): open the link under the caret through the host seam. */
+  openLink: string;
   /** SPEC36 §5: the only-open-files sidebar view. */
   toggleOpenOnly: string;
   /** SPEC36 §6: cycle the open set (strict Ctrl — the browser-tab idiom). */
@@ -102,6 +104,11 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   // collides with any shipped combo (combosConflict over this map is clean).
   insertComment: 'Mod+Alt+M',
   applyHighlight: 'Mod+Alt+H',
+  // SPEC43 §11 (issue #270): O for Open, in the Mod+Alt+<letter> family its
+  // codeBlock/insertComment/applyHighlight neighbours use — Mod+Shift+O is
+  // taken by toggleOpenOnly, and Mod+Alt+O collides with no shipped combo
+  // (combosConflict over this map stays clean).
+  openLink: 'Mod+Alt+O',
   toggleOpenOnly: 'Mod+Shift+O',
   nextFile: 'Ctrl+Tab',
   prevFile: 'Ctrl+Shift+Tab',

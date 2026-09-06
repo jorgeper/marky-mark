@@ -319,3 +319,232 @@ test('E108: hotkeys & settings — Smart Edit recorder group, rebind updates men
   await page.getByTestId('smart-edit-gutter').click();
   await expect(page.getByTestId('smart-edit-bold').locator('.menu-hotkey')).toHaveText(/(⌘B|Ctrl\+B)/);
 });
+
+// --- SPEC43 §11 (issue #270): the Link submenu, the rendered-links view and
+// open-link — one command, three entry points.
+
+const LINK_DOC = [
+  'intro line',
+  'go [site](https://example.com/page) here',
+  'jump [down](#target) now',
+  ...Array.from({ length: 40 }, (_, i) => `filler ${i}`),
+  '## Target',
+  'tail text',
+].join('\n\n');
+
+/** External-open hand-offs the desktop shim recorded (browser.ts seam). */
+const externalOpens = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => (window as unknown as { __mmExternalOpens?: string[] }).__mmExternalOpens ?? []);
+
+async function openLinkDoc(page: import('@playwright/test').Page) {
+  await fsWrite(page, '/docs/links270.md', LINK_DOC);
+  await page.goto('/#open=/docs/links270.md');
+  await expect(page.getByTestId('doc')).toContainText('intro line');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  return editor;
+}
+
+test('E483: SPEC43 §11 — the Link ▸ submenu after Diagram: toggle, the moved Create Link (⌘⇧K), Open Link with its hotkey; no top-level link row', async ({
+  page,
+}) => {
+  const editor = await openLinkDoc(page);
+  await editor.locator('.cm-line').filter({ hasText: 'intro line' }).click();
+  await page.getByTestId('smart-edit-gutter').click();
+  await expect(page.getByTestId('smart-edit-menu')).toBeVisible();
+
+  // The submenu row exists; the top-level inline group has NO link row (the
+  // `smart-edit-link` id only appears once the flyout opens, as Create Link).
+  await expect(page.getByTestId('smart-edit-link-view')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-link-view')).toHaveText(/^Link/);
+  await expect(page.getByTestId('smart-edit-bold')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-link')).toHaveCount(0);
+
+  // The flyout: Show Raw Links (view ships on), Create Link with the kept
+  // ⌘⇧K binding, Open Link documenting its own binding — disabled here
+  // (caret on plain text), never absent.
+  await page.getByTestId('smart-edit-link-view').click();
+  await expect(page.getByTestId('smart-edit-toggle-links')).toHaveText(/Show Raw Links/);
+  await expect(page.getByTestId('smart-edit-toggle-links')).toBeEnabled();
+  await expect(page.getByTestId('smart-edit-link')).toContainText('Create Link');
+  await expect(page.getByTestId('smart-edit-link').locator('.menu-hotkey')).toHaveText(/(⌘⇧K|Ctrl\+Shift\+K)/);
+  await expect(page.getByTestId('smart-edit-link')).toBeEnabled();
+  await expect(page.getByTestId('smart-edit-open-link')).toContainText('Open Link');
+  await expect(page.getByTestId('smart-edit-open-link').locator('.menu-hotkey')).toHaveText(/(⌘⌥O|Ctrl\+Alt\+O)/);
+  await expect(page.getByTestId('smart-edit-open-link')).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
+
+  // Create Link still wraps a selection exactly as before, from its new home.
+  await editor.locator('.cm-line').filter({ hasText: 'intro line' }).dblclick();
+  await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toMatch(/^(intro|line)$/);
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-link-view').click();
+  await page.getByTestId('smart-edit-link').click();
+  await expect(editor.locator('.cm-content')).toContainText('](url)');
+  await page.keyboard.press('Control+z');
+});
+
+test('E477: SPEC43 §11 — Show Rendered/Raw Links flips the view and the label, the Settings checkbox mirrors it, and the choice survives a reload', async ({
+  page,
+}) => {
+  const editor = await openLinkDoc(page);
+  const content = editor.locator('.cm-content');
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+  await editor.locator('.cm-line').filter({ hasText: 'intro line' }).click();
+
+  // Ships rendered: the syntax is not visible, the text is.
+  expect(await text()).not.toContain('](https://example.com/page)');
+  await expect(content).toContainText('go site here');
+
+  // Show Raw Links: every link drops to raw syntax at once; no dirty dot.
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-link-view').click();
+  await page.getByTestId('smart-edit-toggle-links').click();
+  await expect(content).toContainText('[site](https://example.com/page)');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // The label flipped; the Settings checkbox reflects the flip.
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-link-view').click();
+  await expect(page.getByTestId('smart-edit-toggle-links')).toHaveText(/Show Rendered Links/);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await openSettings(page);
+  await page.getByTestId('settings-tab-editor').click();
+  await expect(page.getByTestId('settings-link-view')).not.toBeChecked();
+  await page.getByTestId('settings-close').click();
+
+  // The choice persists across a reload (user-scoped like its siblings).
+  await page.reload();
+  await expect(content).toBeVisible();
+  await expect(content).toContainText('[site](https://example.com/page)');
+
+  // The Settings checkbox drives it back on.
+  await openSettings(page);
+  await page.getByTestId('settings-tab-editor').click();
+  await page.getByTestId('settings-link-view').check();
+  await page.getByTestId('settings-close').click();
+  expect(await text()).not.toContain('](https://example.com/page)');
+});
+
+test('E478: SPEC43 §11 — a link renders collapsed as styled text with the URL tooltip, reveals raw when the caret enters it, and re-collapses on leave', async ({
+  page,
+}) => {
+  const editor = await openLinkDoc(page);
+  const content = editor.locator('.cm-content');
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+  await editor.locator('.cm-line').filter({ hasText: 'intro line' }).click();
+
+  // Collapsed: the styled text span carries the URL as its title.
+  const span = editor.locator('.mm-link-view').first();
+  await expect(span).toHaveText('site');
+  await expect(span).toHaveAttribute('title', 'https://example.com/page');
+  expect(await text()).not.toContain('[site]');
+
+  // Caret into the link (arrow through 'go ' — the construct reveals whole
+  // and stays editable in place).
+  await editor.locator('.cm-line').filter({ hasText: 'go ' }).click();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowRight');
+  await expect(content).toContainText('[site](https://example.com/page)');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // Caret out — it collapses again; the document text never changed.
+  await editor.locator('.cm-line').filter({ hasText: 'intro line' }).click();
+  expect(await text()).not.toContain('[site]');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
+
+test('E479: SPEC43 §11 — Ctrl/⌘-click on link text hands the URL to the host seam in BOTH views; a plain click just places the caret', async ({
+  page,
+}) => {
+  const editor = await openLinkDoc(page);
+  const content = editor.locator('.cm-content');
+  await editor.locator('.cm-line').filter({ hasText: 'intro line' }).click();
+
+  // Rendered view: modifier-click the collapsed text span.
+  await editor.locator('.mm-link-view').first().click({ modifiers: ['Control'] });
+  await expect.poll(() => externalOpens(page)).toContain('https://example.com/page');
+  const afterFirst = (await externalOpens(page)).length;
+
+  // A plain click never opens — it just places the caret (the link reveals).
+  await editor.locator('.mm-link-view').first().click();
+  await expect(content).toContainText('[site](https://example.com/page)');
+  expect((await externalOpens(page)).length).toBe(afterFirst);
+
+  // Raw view: same click, same seam — resolution is by document offset,
+  // not a rendered-only DOM attribute.
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-link-view').click();
+  await page.getByTestId('smart-edit-toggle-links').click();
+  await expect(content).toContainText('[site](https://example.com/page)');
+  await editor.locator('.mm-md-link').first().click({ modifiers: ['Control'] });
+  await expect.poll(async () => (await externalOpens(page)).length).toBe(afterFirst + 1);
+  expect((await externalOpens(page)).at(-1)).toBe('https://example.com/page');
+});
+
+test('E480: SPEC43 §11 — the openLink hotkey opens with the caret inside a link and is a no-op outside one', async ({
+  page,
+}) => {
+  const editor = await openLinkDoc(page);
+  const content = editor.locator('.cm-content');
+
+  // Caret inside the link text (reveal, then step inside).
+  await editor.locator('.cm-line').filter({ hasText: 'go ' }).click();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
+  await expect(content).toContainText('[site](https://example.com/page)');
+  await page.keyboard.press('Control+Alt+o');
+  await expect.poll(() => externalOpens(page)).toContain('https://example.com/page');
+  const opens = (await externalOpens(page)).length;
+
+  // Outside any link: silent no-op — nothing opens, nothing changes.
+  await editor.locator('.cm-line').filter({ hasText: 'intro line' }).click();
+  await page.keyboard.press('Control+Alt+o');
+  await page.waitForTimeout(150);
+  expect((await externalOpens(page)).length).toBe(opens);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
+
+test('E481: SPEC43 §11 — Link ▸ Open Link opens through the seam with the caret in a link, and a #anchor link follows the preview rule instead of leaving the app', async ({
+  page,
+}) => {
+  const editor = await openLinkDoc(page);
+  const content = editor.locator('.cm-content');
+  const appUrl = page.url();
+
+  // Caret into the https link's text — the menu row is enabled and invokes
+  // the ONE command; the menu closes and the URL reaches the host seam.
+  await editor.locator('.cm-line').filter({ hasText: 'go ' }).click();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
+  await expect(content).toContainText('[site](https://example.com/page)');
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-link-view').click();
+  await expect(page.getByTestId('smart-edit-open-link')).toBeEnabled();
+  await page.getByTestId('smart-edit-open-link').click();
+  await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
+  await expect.poll(() => externalOpens(page)).toContain('https://example.com/page');
+  const opens = (await externalOpens(page)).length;
+
+  // Caret into the anchor link: the shared managed-link rule (SPEC11 §4)
+  // handles #target exactly as a preview click would — it is NEVER handed to
+  // the browser and the app never navigates. (The rendered pane carries no
+  // element for a plain markdown heading id today, so like the preview the
+  // jump resolves to a safe no-op — the deliberate parity contract.)
+  await editor.locator('.cm-line').filter({ hasText: 'jump' }).click();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight');
+  await expect(content).toContainText('[down](#target)');
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-link-view').click();
+  await expect(page.getByTestId('smart-edit-open-link')).toBeEnabled();
+  await page.getByTestId('smart-edit-open-link').click();
+  await page.waitForTimeout(150);
+  expect((await externalOpens(page)).length).toBe(opens); // not handed off
+  expect(page.url()).toBe(appUrl); // the app never navigated
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
