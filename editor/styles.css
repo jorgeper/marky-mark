@@ -870,6 +870,13 @@
   background: var(--mm-find-active);
   color: var(--mm-find-fg);
 }
+/* PRD 014 Req 8 (issue #313): the landed Search-view hit — the same
+   find-active pair as the current find match, so a landing reads exactly
+   as loud as the find bar's own active hit. */
+.editor-wrap .cm-editor .cm-mm-searchHit {
+  background: var(--mm-find-active);
+  color: var(--mm-find-fg);
+}
 
 /* ---------- SPEC43: Smart Edit ---------- */
 

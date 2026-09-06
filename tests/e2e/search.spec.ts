@@ -252,6 +252,122 @@ test('E342: clicking a content match opens the file AT the match (preview and ed
   await expect(page.getByTestId('search-file')).toHaveCount(2);
 });
 
+/**
+ * PRD 014 Req 8 (issue #313): the repro document — a hit before any table,
+ * a hit inside a gridded table cell, a hit on the line below the table, and
+ * a hit inside inline markup further down. Every match below the table used
+ * to select the wrong characters (canonical offsets dispatched into the
+ * SPEC40-expanded editor document).
+ */
+const TABLE_DOC = [
+  'Intro needleword one.',
+  '',
+  '| col a | col b |',
+  '| --- | --- |',
+  '| cell | needleword four |',
+  '',
+  '> quoted needleword five',
+  '',
+  'Tail paragraph **bold needleword six** end.',
+  '',
+].join('\n');
+const TABLE_HITS = ['needleword one', 'needleword four', 'needleword five', 'needleword six'];
+
+test('E543: in edit mode a result click selects EXACTLY the hit — before a gridded table, inside a table cell and below the table — and paints it in the find-active colours', async ({
+  page,
+}) => {
+  await seedSearchTree(page);
+  await fsWrite(page, '/notes/table.md', TABLE_DOC);
+  await openFolderRoot(page);
+  await page.locator('[data-path="/notes/table.md"]').click();
+  await expect(page.getByTestId('doc')).toContainText('Intro needleword one');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  // SPEC40: the table IS gridded in the editor — cells padded to the column
+  // width, the expanded form the landing must resolve against.
+  await expect(page.locator('.cm-content')).toContainText('| ----- | --------------- |');
+
+  await page.getByTestId('sidebar-view-search').click();
+  await page.getByTestId('search-opt-regex').click(); // distinct hit text per row
+  await searchFor(page, 'needleword \\w+');
+  await expect(page.getByTestId('search-match')).toHaveCount(TABLE_HITS.length);
+
+  const selected = () => page.evaluate(() => document.getSelection()?.toString() ?? '');
+  const marked = () =>
+    page.evaluate(() =>
+      Array.from(document.querySelectorAll('.cm-mm-searchHit'))
+        .map((el) => el.textContent)
+        .join('')
+    );
+  for (let i = 0; i < TABLE_HITS.length; i++) {
+    await page.getByTestId('search-match').nth(i).click();
+    await expect.poll(selected, { message: `hit ${i}` }).toBe(TABLE_HITS[i]);
+    // The loud half: the find-active mark covers the same characters, in
+    // the find colours — and never the comment machinery's classes.
+    await expect.poll(marked, { message: `mark ${i}` }).toBe(TABLE_HITS[i]);
+    await expect(page.locator('.cm-mm-searchHit').first()).toHaveCSS('background-color', 'rgb(240, 136, 62)');
+    await expect(page.locator('.cm-mm-searchHit').first()).toHaveCSS('color', 'rgb(31, 35, 40)');
+    await expect(page.locator('.cm-mm-searchHit.mm-hl, .cm-mm-searchHit[data-cid]')).toHaveCount(0);
+  }
+  // The mark is a cue for THIS landing: a caret move clears it, the
+  // selection stays the user's.
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.cm-mm-searchHit')).toHaveCount(0);
+  // The Search view kept its query and its results across the landings.
+  await expect(page.getByTestId('search-input')).toHaveValue('needleword \\w+');
+  await expect(page.getByTestId('search-match')).toHaveCount(TABLE_HITS.length);
+});
+
+test('E544: in preview mode a result click marks EXACTLY the hit words in the find-active colours — cross-file and same-file, in a table cell and inside inline markup — the row excerpt uses the find tint, and the mark clears on a query change', async ({
+  page,
+}) => {
+  await seedSearchTree(page);
+  await fsWrite(page, '/notes/table.md', TABLE_DOC);
+  await openFolderRoot(page);
+  await page.locator('[data-path="/notes/a.md"]').click(); // a DIFFERENT file is active
+  await expect(page.getByTestId('doc')).toContainText('A doc');
+
+  await page.getByTestId('sidebar-view-search').click();
+  await page.getByTestId('search-opt-regex').click();
+  await searchFor(page, 'needleword \\w+');
+  await expect(page.getByTestId('search-match')).toHaveCount(TABLE_HITS.length);
+  // The result rows' excerpt mark: the --mm-find tint with its own foreground.
+  await expect(page.locator('.search-match-text mark').first()).toHaveCSS('background-color', 'rgb(255, 223, 93)');
+  await expect(page.locator('.search-match-text mark').first()).toHaveCSS('color', 'rgb(31, 35, 40)');
+
+  // Cross-file: the table-cell hit opens table.md and the mark wraps those
+  // words alone, inside the rendered cell.
+  const hit = page.locator('.doc mark.mm-search-hit');
+  await page.getByTestId('search-match').nth(1).click();
+  await expect(page.getByTestId('doc')).toContainText('Intro needleword one');
+  await expect(hit).toHaveCount(1);
+  await expect(hit).toHaveText('needleword four');
+  await expect(page.locator('.doc td mark.mm-search-hit')).toHaveCount(1);
+  await expect(hit).toHaveCSS('background-color', 'rgb(240, 136, 62)');
+  await expect(hit).toHaveCSS('color', 'rgb(31, 35, 40)');
+  await expect(hit).toBeInViewport();
+
+  // Same-file: the next landing replaces the mark — one mark, the new words,
+  // inside the inline markup they sit in.
+  await page.getByTestId('search-match').nth(3).click();
+  await expect(hit).toHaveCount(1);
+  await expect(hit).toHaveText('needleword six');
+  await expect(page.locator('.doc strong mark.mm-search-hit')).toHaveCount(1);
+  await page.getByTestId('search-match').nth(2).click();
+  await expect(hit).toHaveCount(1);
+  await expect(hit).toHaveText('needleword five');
+  await expect(page.locator('.doc blockquote mark.mm-search-hit')).toHaveCount(1);
+  // Never the comment machinery's mark, and the document text is unchanged.
+  await expect(page.locator('.doc mark.hl, .doc mark[data-cid]')).toHaveCount(0);
+  await expect(page.getByTestId('doc')).toContainText('Tail paragraph bold needleword six end.');
+
+  // A query change unwraps the mark; the results follow the new query.
+  await searchFor(page, 'needleword f\\w+');
+  await expect(page.getByTestId('search-match')).toHaveCount(2);
+  await expect(hit).toHaveCount(0);
+  await expect(page.getByTestId('doc')).toContainText('quoted needleword five');
+});
+
 test('E343: with no folder root open the Search view says so plainly', async ({ page }) => {
   // PRD 007 Req 22's root-less state: a fresh local workspace with no folder.
   await page.evaluate(() => window.__mmDispatch!('closeFile'));

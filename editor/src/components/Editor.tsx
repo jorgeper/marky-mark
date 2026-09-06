@@ -142,6 +142,7 @@ import {
   tableModeField,
   type GridSpan,
   canonicalLineAt,
+  canonicalLineMapper,
 } from './tableMode';
 import { diffLineMarks, type DiffLineMark } from './diffMarks';
 
@@ -264,6 +265,21 @@ export interface EditorSyncHandle {
    * Scroll-only — the caret and selection never move.
    */
   revealHighlight(id: string): boolean;
+  /**
+   * PRD 014 Req 8 (issue #313): the raw editor lines a CANONICAL 1-based
+   * line occupies — where each starts and what it says. Lives here because
+   * the canonical → raw line map is this package's (`canonicalLineMapper`,
+   * SPEC40 table mode); the owner resolves its Search-view match against
+   * these rows instead of trusting canonical offsets. Empty past the end.
+   */
+  rawLinesOf(canonicalLine: number): { from: number; text: string }[];
+  /**
+   * PRD 014 Req 8 (issue #313): land a Search-view hit — select exactly
+   * [from, to), centre it, focus the editor (typing continues at the hit,
+   * like `goToLine`) and paint the find-active mark over it. One dispatch,
+   * so the caret, the viewport and the cue never disagree.
+   */
+  landSearchHit(from: number, to: number): void;
 }
 
 /**
@@ -880,6 +896,29 @@ const hlFlashField = StateField.define<string | null>({
     for (const e of tr.effects) if (e.is(setHlFlash)) v = e.value;
     return v;
   },
+});
+
+// PRD 014 Req 8 (issue #313): the landed Search-view hit — a mark in the
+// find-active colours over exactly the matched range, so the landing reads
+// louder than the 18%-alpha selection wash alone. Its own field and its own
+// class: it never touches @codemirror/search's state (the FindBar's engine
+// keeps working exactly as before) and never carries the comment/highlight
+// machinery's classes or data attributes. Cleared by the next selection
+// change or document edit — a persisting cue, not a timer.
+const setSearchHit = StateEffect.define<{ from: number; to: number } | null>();
+const searchHitField = StateField.define<{ from: number; to: number } | null>({
+  create: () => null,
+  update(v, tr) {
+    if (tr.docChanged || tr.selection) v = null;
+    for (const e of tr.effects) if (e.is(setSearchHit)) v = e.value;
+    return v;
+  },
+  provide: (f) =>
+    EditorView.decorations.from(f, (hit) =>
+      hit && hit.to > hit.from
+        ? Decoration.set(Decoration.mark({ class: 'cm-mm-searchHit' }).range(hit.from, hit.to))
+        : Decoration.none
+    ),
 });
 
 function highlightDecorations(state: EditorState, ranges: readonly HighlightRange[]): DecorationSet {
@@ -1865,6 +1904,7 @@ export default function Editor({
       // exactly like diff. The flash field lives OUTSIDE the compartment so
       // revealHighlight's effects always have a home (PRD 023 §18).
       hlFlashField,
+      searchHitField, // PRD 014 Req 8 (issue #313): the landed Search hit's mark
       hlComp.current.of([]),
       // SPEC23 §3: highlighting rides a compartment — toggling the setting
       // reconfigures live, undo history intact. PRD 006 §12: while live
@@ -2235,6 +2275,23 @@ export default function Editor({
             }
           }, HL_FLASH_MS);
           return true;
+        },
+        rawLinesOf(canonicalLine) {
+          const doc = view.state.doc;
+          return canonicalLineMapper(view.state)(canonicalLine).map((n) => {
+            const line = doc.line(n);
+            return { from: line.from, text: line.text };
+          });
+        },
+        landSearchHit(from, to) {
+          const len = view.state.doc.length;
+          const anchor = Math.max(0, Math.min(from, len));
+          const head = Math.max(anchor, Math.min(to, len));
+          view.focus();
+          view.dispatch({
+            selection: { anchor, head },
+            effects: [EditorView.scrollIntoView(anchor, { y: 'center' }), setSearchHit.of({ from: anchor, to: head })],
+          });
         },
       };
     }

@@ -150,7 +150,8 @@ import { FileTabStrip } from './components/FileTabStrip';
 import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
 import { SearchPanel } from './components/SearchPanel';
 import { DEFAULT_SEARCH_OPTIONS } from './lib/searchOptions';
-import { matchDocOffsets, runSearchScan } from './lib/searchScan';
+import { blockLineRange, blockOccurrenceIndex, rawMatchOffsets } from './lib/searchLanding';
+import { runSearchScan } from './lib/searchScan';
 import { deriveSearchView } from './lib/searchView';
 import {
   SLIDE_SETTLE_MS,
@@ -1296,6 +1297,26 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     findMarksRef.current = [];
     if (!pane) return;
     pane.querySelectorAll('mark.mm-find').forEach((m) => {
+      const parent = m.parentNode;
+      if (!parent) return;
+      while (m.firstChild) parent.insertBefore(m.firstChild, m);
+      m.remove();
+      parent.normalize();
+    });
+  }, []);
+
+  /**
+   * PRD 014 Req 8 (issue #313): unwrap the landed Search-view hit's mark —
+   * `mark.mm-search-hit`, the preview's word-level landing cue. Unwrap and
+   * `normalize()`, exactly as the find marks go, so the document's text is
+   * unchanged and nothing survives into the comment anchoring pass. Queried
+   * from the pane rather than held in a ref: a re-injection replaces the DOM
+   * anyway, and a stale handle could never point at a live mark.
+   */
+  const clearSearchHitMark = useCallback(() => {
+    const pane = docRef.current;
+    if (!pane) return;
+    pane.querySelectorAll('mark.mm-search-hit').forEach((m) => {
       const parent = m.parentNode;
       if (!parent) return;
       while (m.firstChild) parent.insertBefore(m.firstChild, m);
@@ -7633,46 +7654,91 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   }, []);
   /**
    * PRD 014 Req 8: land on a match in the CURRENT document — the same mode
-   * split `jumpToTocEntry` makes. Edit goes through the editor handle
-   * (`goToLine`'s caret + scroll, then the SPEC23 mirrored selection paints
-   * the hit itself). Preview goes through the SPEC16 anchor interpolation the
-   * position restore uses — a match line inside a paragraph has no
-   * `data-mm-line` anchor of its own, so the TOC jump's exact-anchor path
-   * cannot serve — and flashes the block the match sits in.
+   * split `jumpToTocEntry` makes. Issue #313: in BOTH modes the landing
+   * resolves the match against the text the surface actually holds, never
+   * against canonical offsets (`src/lib/searchLanding.ts` is the pure half).
+   *
+   * Edit: the canonical line maps to the raw editor lines it occupies
+   * (`rawLinesOf` — SPEC40 table mode expands every gridded table onto more
+   * characters and lines, which is why canonical offsets selected the wrong
+   * characters for every match at or below a table), the hit is re-found on
+   * those rows, and `landSearchHit` selects it, centres it and paints the
+   * find-active mark. A hit the rows cannot show degrades to a caret at the
+   * row's start.
+   *
+   * Preview: the SPEC16 anchor interpolation the position restore uses puts
+   * the block in view (a match line inside a paragraph has no `data-mm-line`
+   * anchor of its own, so the TOC jump's exact-anchor path cannot serve);
+   * then the hit itself is wrapped in a `mark` the way the find bar's
+   * `applyFindMarks` wraps its matches — the compiled matcher's occurrences
+   * in the block's rendered text, picked by the match's index among the
+   * file's matches inside the block's source-line span. A hit the rendered
+   * text does not carry (dropped markup: a link URL, a fence info string)
+   * falls back to flashing the whole block in the find colours.
    */
   const landSearchMatch = useCallback(
     (match: LineMatch) => {
       if (stateRef.current.mode === 'edit') {
+        const ed = editorSyncRef.current;
+        if (!ed) return;
         pendingScrollLineRef.current = null; // the click outvotes a queued restore
-        editorSyncRef.current?.goToLine(match.line);
-        const off = matchDocOffsets(stateRef.current.buffer, match);
-        // PRD 014 Req 8: landing on a match is a reveal by definition.
-        if (off) editorSelectRef.current?.(off.from, off.to, { reveal: true });
+        const rows = ed.rawLinesOf(match.line);
+        const off = rawMatchOffsets(rows, match);
+        if (off) ed.landSearchHit(off.from, off.to);
+        else if (rows[0]) ed.landSearchHit(rows[0].from, rows[0].from);
+        else ed.goToLine(match.line); // a stale map, mid-debounce: the clamp lands nearby
         return;
       }
       const ws = workspaceRef.current;
       const doc = docRef.current;
       if (!ws || !doc || doc.childElementCount === 0) return;
       pendingScrollLineRef.current = null;
+      clearSearchHitMark();
       ws.scrollTop = offsetForLine(collectAnchors(ws, doc), Math.max(ws.scrollHeight, 1), match.line);
-      // The highlight: the nearest anchored block at or above the match's
-      // line, flashed the way an activated comment's mark is (SPEC14 §1.3).
-      let target: HTMLElement | null = null;
-      let best = -1;
-      for (const el of doc.querySelectorAll<HTMLElement>('[data-mm-line]')) {
-        const line = Number(el.dataset.mmLine);
-        if (line > best && line <= match.line) {
-          best = line;
-          target = el;
+      // The block: the nearest anchored block at or above the match's line.
+      const anchored = Array.from(doc.querySelectorAll<HTMLElement>('[data-mm-line]'));
+      const range = blockLineRange(
+        anchored.map((el) => Number(el.dataset.mmLine)),
+        match.line
+      );
+      const target = range ? (anchored.find((el) => Number(el.dataset.mmLine) === range.from) ?? null) : null;
+      if (!target || !range) return;
+      const fileMatches = searchResults?.files.find((f) => f.path === stateRef.current.docPath)?.matches ?? [];
+      const nth = blockOccurrenceIndex(fileMatches, match, range);
+      const hit =
+        searchCompiled.kind === 'matcher' && nth >= 0 ? searchCompiled.matcher.findAll(getDocText(target))[nth] : undefined;
+      if (hit && hit.end > hit.start) {
+        // Block-relative → pane-relative: the pane's doc-text offset of the
+        // block's start (rangeToOffsets over an empty range at its front).
+        const front = document.createRange();
+        front.setStart(target, 0);
+        front.setEnd(target, 0);
+        const base = rangeToOffsets(doc, front).start;
+        const marks = highlightRange(doc, base + hit.start, base + hit.end, '__search__');
+        for (const m of marks) {
+          m.className = 'mm-search-hit';
+          delete m.dataset.cid; // never the comment machinery's business
+        }
+        if (marks.length > 0) {
+          marks[0].scrollIntoView({ block: 'nearest' });
+          return;
         }
       }
-      if (target) {
-        target.classList.add('search-flash');
-        setTimeout(() => target.classList.remove('search-flash'), 900);
-      }
+      // The fallback: the whole block, flashed the way an activated comment's
+      // mark is (SPEC14 §1.3) — in the find colours (issue #313).
+      target.classList.add('search-flash');
+      setTimeout(() => target.classList.remove('search-flash'), 900);
     },
-    []
+    [clearSearchHitMark, searchCompiled, searchResults]
   );
+  /**
+   * PRD 014 Req 8 (issue #313): the landed hit's mark lives exactly until the
+   * next landing (cleared above), a query change, a document switch or a
+   * mode toggle — and a preview re-injection replaces the DOM outright.
+   */
+  useEffect(() => {
+    clearSearchHitMark();
+  }, [clearSearchHitMark, searchDebounced, docPath, mode]);
   /**
    * PRD 014 Req 8: a result click. A match in the file already on screen
    * lands immediately; any other file opens through `openDocGuarded` — the
