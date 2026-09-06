@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { STYLES, THEMES, contrast, hexToRgb, mix, rgbToken, tokenValue, type Rgb } from './css-contrast';
 
 // Issue #245: the New Workspace dialog's refusals moved off the small muted
 // `.hotkey-hint` treatment onto `--mm-danger` at the dialog's body text size.
@@ -8,15 +7,8 @@ import { fileURLToPath } from 'node:url';
 // tempered toward the theme foreground, and on dark themes it came out at
 // 1.7–3.4:1 against the dialog background — a red nobody can read. These
 // tests do the arithmetic over the shipped CSS, in the style of
-// marker-tokens.test.ts, so a new or re-tuned theme is held to the floor too.
-
-const ROOT = fileURLToPath(new URL('../../', import.meta.url));
-const STYLES = readFileSync(`${ROOT}src/styles.css`, 'utf8');
-
-/** Every bundled theme, read once — the only source of `--mm-danger` overrides. */
-const THEMES = readdirSync(`${ROOT}themes`)
-  .filter((file) => file.endsWith('.css'))
-  .map((file) => ({ file, css: readFileSync(`${ROOT}themes/${file}`, 'utf8') }));
+// marker-tokens.test.ts (whose CSS reading and WCAG maths they share, from
+// ./css-contrast), so a new or re-tuned theme is held to the floor too.
 
 /**
  * The floor: WCAG AA for body text. The error line is body-size prose, so it
@@ -25,68 +17,34 @@ const THEMES = readdirSync(`${ROOT}themes`)
  */
 const FLOOR = 4.5;
 
-/** The value of a custom property inside a source, last declaration winning. */
-function tokenValue(css: string, name: string): string | undefined {
-  const hits = [...css.matchAll(new RegExp(`--mm-${name}\\s*:\\s*([^;]+);`, 'g'))];
-  return hits.length ? hits[hits.length - 1][1].trim() : undefined;
-}
-
-type Rgb = [number, number, number];
-
-function hexToRgb(hex: string): Rgb {
-  const h = hex.trim().replace('#', '');
-  const full = h.length === 3 ? [...h].map((c) => c + c).join('') : h;
-  return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16)) as Rgb;
-}
-
-/** A hex token in one source, failing by name rather than on NaN. */
-function rgbToken(css: string, name: string, label: string): Rgb {
-  const value = tokenValue(css, name) ?? '';
-  expect(value, `${label} --mm-${name}`).toMatch(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i);
-  return hexToRgb(value);
-}
-
-/** WCAG 2.x relative luminance. */
-function luminance([r, g, b]: Rgb): number {
-  const lin = (c: number) => {
-    const s = c / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-}
-
-/** WCAG 2.x contrast ratio between two opaque colours. */
-function contrast(a: Rgb, b: Rgb): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
-
-function mix(a: Rgb, b: Rgb, weight: number): Rgb {
-  return a.map((c, i) => weight * c + (1 - weight) * b[i]) as Rgb;
-}
-
 /**
  * The shared default, read off the stylesheet rather than restated here: a
  * base red mixed toward the theme's own foreground. A re-tuned default is
  * re-checked against every theme instead of leaving this test behind on a
- * recipe the app no longer paints.
+ * recipe the app no longer paints — and a rewrite this stops recognising
+ * fails the file loudly rather than leaving it with nothing to resolve.
  */
-const DEFAULT_DANGER =
-  /--mm-danger:\s*color-mix\(in srgb,\s*(#[0-9a-fA-F]{3,8})\s+(\d+)%,\s*var\(--mm-fg[^)]*\)\s+\d+%\)/.exec(STYLES);
+function defaultDangerRecipe(): { base: Rgb; weight: number } {
+  const recipe =
+    /--mm-danger:\s*color-mix\(in srgb,\s*(#[0-9a-fA-F]{3,8})\s+(\d+)%,\s*var\(--mm-fg[^)]*\)\s+\d+%\)/.exec(STYLES);
+  if (!recipe) {
+    throw new Error('src/styles.css no longer declares --mm-danger as a base red color-mixed toward --mm-fg');
+  }
+  return { base: hexToRgb(recipe[1]), weight: Number(recipe[2]) / 100 };
+}
+
+const DEFAULT_DANGER = defaultDangerRecipe();
 
 /** What `--mm-danger` resolves to inside a theme: its override, or the default. */
 function dangerFor(themeCss: string, label: string): Rgb {
-  const override = tokenValue(themeCss, 'danger');
-  if (override !== undefined) return rgbToken(themeCss, 'danger', label);
-  const base = hexToRgb(DEFAULT_DANGER![1]);
-  return mix(base, rgbToken(themeCss, 'fg', label), Number(DEFAULT_DANGER![2]) / 100);
+  if (tokenValue(themeCss, 'danger') !== undefined) return rgbToken('danger', label, themeCss);
+  return mix(DEFAULT_DANGER.base, rgbToken('fg', label, themeCss), DEFAULT_DANGER.weight);
 }
 
 describe('Issue #245: the error colour is legible on every bundled theme', () => {
   test('U1180: --mm-danger clears WCAG AA body text against the dialog and page backgrounds of all bundled themes', () => {
-    // Never vacuous: the default recipe must still parse, and the directory
-    // is enumerated, so a newly bundled theme is covered without a code edit.
-    expect(DEFAULT_DANGER, '--mm-danger default in src/styles.css').not.toBeNull();
+    // Never vacuous: the theme directory is enumerated rather than listed, so
+    // a newly bundled theme is covered without a code edit.
     expect(THEMES.length, 'bundled themes').toBeGreaterThanOrEqual(27);
 
     for (const { file, css } of THEMES) {
@@ -95,7 +53,7 @@ describe('Issue #245: the error colour is legible on every bundled theme', () =>
       // Dialogs (the New Workspace dialog included) paint on --mm-bg-elevated;
       // --mm-danger also paints on the page background elsewhere in chrome.
       for (const surface of ['bg-elevated', 'bg'] as const) {
-        const ratio = contrast(danger, rgbToken(css, surface, label));
+        const ratio = contrast(danger, rgbToken(surface, label, css));
         expect(ratio, `${label} danger on --mm-${surface}`).toBeGreaterThanOrEqual(FLOOR);
       }
     }
@@ -103,8 +61,10 @@ describe('Issue #245: the error colour is legible on every bundled theme', () =>
 
   test('U1181: the dialog error line is body-size danger text, and .hotkey-hint stays the small muted hint', () => {
     // The rule the New Workspace errors render through: body size, danger
-    // colour, both through tokens (the issue's "too small, not red").
-    const errorRule = /\.picker-error,\s*\n\.form-error\s*\{([^}]*)\}/.exec(STYLES)?.[1] ?? '';
+    // colour, both through tokens (the issue's "too small, not red"). Matched
+    // from `.form-error` alone, so grouping another selector onto the rule is
+    // not a false failure.
+    const errorRule = /\.form-error[^{]*\{([^}]*)\}/.exec(STYLES)?.[1] ?? '';
     expect(errorRule, '.form-error rule in src/styles.css').toContain('font-size: var(--mm-text-body)');
     expect(errorRule).toContain('color: var(--mm-danger)');
 

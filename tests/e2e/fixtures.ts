@@ -10,24 +10,24 @@ import { offsiteOrigin } from './offsite';
 const EXPECTED_NETWORK_LOG = /Failed to load resource:.*412 \(Precondition Failed\)/;
 
 /**
- * The exemptions scoped by URL instead of message — the URL rides in the
- * log's location, not its text, and Chromium logs each failed request just
- * like the 412. Issue #183 §3: E361 forces `/api/directory/search` to fail
- * to prove the picker's inline error state. PRD 017 Req 29 (issue #190):
- * E379 drives `/api/admin/invitations` into a directory refusal to prove
- * the inline 502 lane.
+ * The exemptions a message alone cannot express, because the route matters:
+ * the URL rides in the log's location, not its text, and Chromium logs each
+ * failed request just like the 412. Each entry must match both, so a failure
+ * on any other route — or any other failure on the same route — still fails
+ * the test.
+ *
+ * Issue #183 §3: E361 forces `/api/directory/search` to fail to prove the
+ * picker's inline error state. PRD 017 Req 29 (issue #190): E379 drives
+ * `/api/admin/invitations` into a directory refusal to prove the inline 502
+ * lane. Issue #245: E491 submits an already-taken unique name, and the 409
+ * refusal is the feature working — the New Workspace dialog catches it and
+ * paints the message, the field and the typed name.
  */
-const EXPECTED_FAILURE_URLS = [/\/api\/directory\/search/, /\/api\/admin\/invitations/];
-
-/**
- * Issue #245: E491 submits a unique name that is already taken to prove the
- * New Workspace dialog's error treatment. The 409 refusal is the feature
- * working — the dialog catches it and paints the message, the field and the
- * typed name — but Chromium logs the failed request just like the 412 above.
- * Scoped to that status on that route, so any other workspace-API failure
- * still fails the test.
- */
-const EXPECTED_FAILURE_LOGS = [{ message: /409 \(Conflict\)/, url: /\/api\/workspaces$/ }];
+const EXPECTED_FAILURE_LOGS: { message: RegExp; url: RegExp }[] = [
+  { message: /Failed to load resource/, url: /\/api\/directory\/search/ },
+  { message: /Failed to load resource/, url: /\/api\/admin\/invitations/ },
+  { message: /409 \(Conflict\)/, url: /\/api\/workspaces$/ },
+];
 
 /**
  * Shared test fixture: any browser console error or uncaught page error
@@ -39,12 +39,6 @@ export const test = base.extend<{ consoleGuard: void; loopbackGuard: void }>({
       const errors: string[] = [];
       page.on('console', (msg) => {
         if (msg.type() !== 'error' || EXPECTED_NETWORK_LOG.test(msg.text())) return;
-        if (
-          /Failed to load resource/.test(msg.text()) &&
-          EXPECTED_FAILURE_URLS.some((url) => url.test(msg.location().url ?? ''))
-        ) {
-          return;
-        }
         if (
           EXPECTED_FAILURE_LOGS.some(
             ({ message, url }) => message.test(msg.text()) && url.test(msg.location().url ?? ''),
