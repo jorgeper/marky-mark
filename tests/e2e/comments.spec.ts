@@ -1,3 +1,4 @@
+import type { Locator } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
   addComment,
@@ -1567,6 +1568,18 @@ test('E427: PRD 022 Req 12 — a plain-edit highlight click places the caret and
 
 // --- Issue #308: comment records paint in the editor; View ▸ Editor Highlights
 
+/**
+ * Issue #308: the editor-pane paint a COMMENT record must show — the fixed
+ * comment tint (no data-color), a non-transparent background, and the joined
+ * `.mm-hl` text equal to the anchored quote (spans join if CM splits).
+ */
+async function expectCommentTintOver(hl: Locator, quote: string): Promise<void> {
+  await expect(hl.first()).toBeVisible();
+  await expect(hl.first()).not.toHaveAttribute('data-color', /./);
+  await expect.poll(async () => (await hl.allTextContents()).join('')).toBe(quote);
+  expect(await hl.first().evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
+}
+
 test('E555: issue #308 — a comment record (no marker color) paints in plain edit and in split edit with the fixed comment tint over exactly its quote', async ({
   page,
 }) => {
@@ -1583,12 +1596,7 @@ test('E555: issue #308 — a comment record (no marker color) paints in plain ed
   await expect(editor.locator('.cm-content')).toBeVisible();
   await expect(page.getByTestId('split-divider')).toHaveCount(0);
   const hl = editor.locator('.mm-hl');
-  await expect(hl.first()).toBeVisible();
-  // A comment record carries no marker color — the fixed comment tint.
-  await expect(hl.first()).not.toHaveAttribute('data-color', /./);
-  // The decoration covers exactly the anchored quote (spans join if CM splits).
-  await expect.poll(async () => (await hl.allTextContents()).join('')).toBe(PHRASE);
-  expect(await hl.first().evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
+  await expectCommentTintOver(hl, PHRASE);
 
   // SPLIT edit: the same paint beside the preview's mark.
   await page.keyboard.press('Control+e'); // back to preview
@@ -1598,11 +1606,7 @@ test('E555: issue #308 — a comment record (no marker color) paints in plain ed
   await saveSettings(page);
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-divider')).toBeVisible();
-  const splitHl = page.getByTestId('editor').locator('.mm-hl');
-  await expect(splitHl.first()).toBeVisible();
-  await expect(splitHl.first()).not.toHaveAttribute('data-color', /./);
-  await expect.poll(async () => (await splitHl.allTextContents()).join('')).toBe(PHRASE);
-  expect(await splitHl.first().evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
+  await expectCommentTintOver(hl, PHRASE);
   await expect(page.locator('mark.hl').first()).toBeVisible();
 });
 
