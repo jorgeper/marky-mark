@@ -11,18 +11,35 @@ import DiffMatchPatch from 'diff-match-patch';
 export interface DiffLineSets {
   changed: number[];
   deletedAfter: number[];
+  /**
+   * SPEC16 §2 (issue #315): every run of saved lines that no longer exists
+   * in the buffer, with its TEXT — what the editor shows as a red block
+   * (`Editor.tsx`'s `removedBlockWidget`). One entry per removed run, in
+   * buffer order; `after` is the same anchor `deletedAfter` names (0 =
+   * before line 1). Unlike `deletedAfter`, a replacement's run is KEPT: the
+   * old text next to the green line is the whole point.
+   */
+  removed: RemovedRun[];
+}
+
+/** SPEC16 §2 (issue #315): one contiguous run of removed saved lines. */
+export interface RemovedRun {
+  /** The current-buffer line the run followed (0 = before line 1). */
+  after: number;
+  /** The removed lines' text, in saved order, without line terminators. */
+  lines: string[];
 }
 
 const dmp = new DiffMatchPatch();
 
 export function diffLineSets(saved: string, current: string): DiffLineSets {
-  if (saved === current) return { changed: [], deletedAfter: [] };
+  if (saved === current) return { changed: [], deletedAfter: [], removed: [] };
 
   // Normalize trailing newlines so "the last line" compares as itself —
   // otherwise appending below it makes the unchanged line read as changed.
   const s = saved.endsWith('\n') ? saved : `${saved}\n`;
   const c = current.endsWith('\n') ? current : `${current}\n`;
-  if (s === c) return { changed: [], deletedAfter: [] };
+  if (s === c) return { changed: [], deletedAfter: [], removed: [] };
 
   const { chars1, chars2, lineArray } = dmp.diff_linesToChars_(s, c);
   const diffs = dmp.diff_main(chars1, chars2, false);
@@ -30,6 +47,9 @@ export function diffLineSets(saved: string, current: string): DiffLineSets {
 
   const changed = new Set<number>();
   const deletedAfter = new Set<number>();
+  // SPEC16 §2 (issue #315): the removed text, keyed by anchor so two `-1`
+  // ops the diff happens to split at one position still read as one run.
+  const removed = new Map<number, string[]>();
   let line = 0; // last completed current-buffer line
 
   const lineCount = (text: string) => {
@@ -47,12 +67,21 @@ export function diffLineSets(saved: string, current: string): DiffLineSets {
       line += n;
     } else {
       // Deletion: saved lines vanished after the current position.
-      if (n > 0) deletedAfter.add(line);
+      if (n > 0) {
+        deletedAfter.add(line);
+        const run = removed.get(line) ?? [];
+        // Each chunk is whole lines; drop the terminator each line carries
+        // (a last chunk without one splits clean).
+        run.push(...text.replace(/\n$/, '').split('\n'));
+        removed.set(line, run);
+      }
     }
   }
 
   // A replacement produces adjacent delete+insert; the changed tint already
   // tells the story there — drop deletion markers that sit on a changed line.
+  // (Issue #315: the EDGE only. The run stays in `removed`, so the old text
+  // is shown in red right above the green line, git-style.)
   for (const d of [...deletedAfter]) {
     if (changed.has(d + 1)) deletedAfter.delete(d);
   }
@@ -60,5 +89,8 @@ export function diffLineSets(saved: string, current: string): DiffLineSets {
   return {
     changed: [...changed].sort((a, b) => a - b),
     deletedAfter: [...deletedAfter].sort((a, b) => a - b),
+    removed: [...removed]
+      .sort(([a], [b]) => a - b)
+      .map(([after, lines]) => ({ after, lines })),
   };
 }

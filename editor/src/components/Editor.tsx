@@ -11,7 +11,7 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from '@codemirror/view';
-import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField, type Extension } from '@codemirror/state';
+import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField, type Extension, type Range } from '@codemirror/state';
 import {
   cursorCharLeft,
   cursorCharRight,
@@ -143,7 +143,7 @@ import {
   type GridSpan,
   canonicalLineAt,
 } from './tableMode';
-import { diffLineMarks, type DiffLineMark } from './diffMarks';
+import { diffLineMarks, diffRemovedBlocks, type DiffLineMark } from './diffMarks';
 
 /** SPEC43 §5.2: the ops the App's format commands drive (menu ids, same set). */
 export type SmartFormatOp =
@@ -771,12 +771,94 @@ const changedAndDeletedLine = Decoration.line({ class: 'mm-diff-changed mm-diff-
  * changed when it did not.
  */
 function diffDecorations(state: EditorState, diff: DiffLineSets): DecorationSet {
-  const builder = new RangeSetBuilder<Decoration>();
+  const ranges: Range<Decoration>[] = [];
   for (const m of diffLineMarks(state, diff)) {
     const from = state.doc.line(m.line).from;
-    builder.add(from, from, lineDeco(m));
+    ranges.push(lineDeco(m).range(from));
   }
-  return builder.finish();
+  // SPEC16 §2 (issue #315): the removed text itself, as a block widget under
+  // (or, before line 1, over) its anchor row. Block widgets sort outside the
+  // line decorations' side, so the set is sorted rather than built in order.
+  for (const b of diffRemovedBlocks(state, diff.removed)) {
+    const line = state.doc.line(b.line);
+    ranges.push(
+      b.above
+        ? removedBlockWidget(b.lines, -1).range(line.from)
+        : removedBlockWidget(b.lines, 1).range(line.to)
+    );
+  }
+  return Decoration.set(ranges, true);
+}
+
+/**
+ * SPEC16 §2 (issue #315): the red block of saved lines that no longer exist
+ * in the buffer — the inline-diff picture GitHub and VS Code draw. A block
+ * widget (the `diagramView` precedent), so it is NOT document text: the
+ * caret cannot enter it, typing never lands in it, line numbering, word
+ * count, the dirty flag and what gets saved are all untouched. Its colours
+ * derive from `--mm-diff-removed` in styles.css.
+ */
+class RemovedBlockWidget extends WidgetType {
+  constructor(readonly lines: readonly string[]) {
+    super();
+  }
+
+  // Same text ⇒ same DOM: CodeMirror keeps the element across rebuilds.
+  eq(other: RemovedBlockWidget): boolean {
+    return other.lines.length === this.lines.length && other.lines.every((l, i) => l === this.lines[i]);
+  }
+
+  toDOM(): HTMLElement {
+    const block = document.createElement('div');
+    block.className = 'mm-diff-removed-block';
+    block.dataset.testid = 'diff-removed-block';
+    block.setAttribute('aria-label', 'Removed since save');
+    // Not a caret target, in both directions: `ignoreEvent` keeps CodeMirror
+    // out of events inside the block, and taking focus here (default
+    // prevented, so the browser parks no selection in the buffer) means a
+    // click followed by typing edits nothing — the block is not editable,
+    // and CodeMirror ignores keys whose target it ignores.
+    block.tabIndex = -1;
+    block.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      block.focus();
+    });
+    for (const text of this.lines) {
+      const row = document.createElement('div');
+      row.className = 'mm-diff-removed-line';
+      // An empty removed line still takes a row: a ZWSP gives it height
+      // without adding text a screen reader would voice.
+      row.textContent = text.length ? text : '\u200b';
+      block.appendChild(row);
+    }
+    return block;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+}
+
+const removedBlockWidget = (lines: readonly string[], side: -1 | 1): Decoration =>
+  Decoration.widget({ widget: new RemovedBlockWidget(lines), block: true, side });
+
+/**
+ * SPEC16 §2 (issue #315): the diff decorations as a StateField. Block widgets
+ * change the vertical layout, so CodeMirror requires them from a field
+ * (`diagramView`'s rule) rather than the view-function facet the line tints
+ * used to ride. Rebuilt when the text or a grid/diagram span changes (the
+ * effects), never on a bare selection move — the picture depends on the doc
+ * and the tracked spans only.
+ */
+function diffField(diff: DiffLineSets): Extension {
+  return StateField.define<DecorationSet>({
+    create: (state) => diffDecorations(state, diff),
+    update(decos, tr) {
+      if (!tr.docChanged && !tr.effects.length) return decos;
+      return diffDecorations(tr.state, diff);
+    },
+    provide: (f) => EditorView.decorations.from(f, (v) => v),
+  });
 }
 
 /** The one line decoration a mark's treatments add up to. */
@@ -2423,9 +2505,7 @@ export default function Editor({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: diffComp.current.reconfigure(
-        diff ? EditorView.decorations.of((v) => diffDecorations(v.state, diff)) : []
-      ),
+      effects: diffComp.current.reconfigure(diff ? diffField(diff) : []),
     });
   }, [diff]);
 

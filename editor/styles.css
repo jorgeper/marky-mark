@@ -782,6 +782,25 @@
 .cm-line.mm-diff-deleted-after {
   box-shadow: inset 3px 0 0 var(--mm-diff-removed);
 }
+/* SPEC16 §2 (issue #315): the removed saved lines themselves, as a read-only
+   block under their anchor row (Editor.tsx's RemovedBlockWidget). Background
+   and edge both derive from --mm-diff-removed the way the callouts mix a hue
+   over --mm-bg: a light theme gets a pink wash, a dark theme a dark
+   red-tinted band behind its own light text — no hard-coded light-only red.
+   Not document text: never selectable, never a caret target. */
+.editor-wrap .mm-diff-removed-block {
+  background: color-mix(in srgb, var(--mm-diff-removed) 14%, var(--mm-bg, #ffffff));
+  box-shadow: inset 3px 0 0 var(--mm-diff-removed);
+  color: var(--mm-fg, #1f2328);
+  white-space: pre-wrap;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+.editor-wrap .mm-diff-removed-line {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--mm-diff-removed) 55%, transparent);
+}
 /* SPEC16 §2 (issue #264): inside a fenced-code card the tint moves INTO the
    card's own background layer instead of riding the line's. The card paints
    an opaque --mm-code-bg through .mm-fence-card::before; painting the tint

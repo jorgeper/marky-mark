@@ -201,3 +201,145 @@ test('E500: removing a whole fenced block leaves ONE deletion marker, not one pe
   await expect(editor.locator('.cm-line.mm-diff-deleted-after')).toHaveCount(1);
   await expect(editor.locator('.cm-line.mm-diff-changed')).toHaveCount(0);
 });
+
+// SPEC16 §2 (issue #315): the removed saved lines themselves, as read-only
+// red blocks at the point of deletion — not just a 3px edge on the anchor.
+
+/**
+ * The block's edge declaration, resolved against the theme root through a
+ * probe element (the token lives on `.theme-root`, not on the document) —
+ * the same computed serialisation the block's own box-shadow gets.
+ */
+async function removedEdge(page: Page): Promise<string> {
+  return page.getByTestId('editor').evaluate((editor) => {
+    const probe = document.createElement('span');
+    probe.style.boxShadow = 'inset 3px 0 0 var(--mm-diff-removed)';
+    editor.appendChild(probe);
+    const edge = getComputedStyle(probe).boxShadow;
+    probe.remove();
+    return edge;
+  });
+}
+
+const rgb = (s: string) => (s.match(/[\d.]+/g) ?? []).map(Number);
+
+/** Delete the `intro prose` line whole (caret on it, select down, backspace). */
+async function deleteIntroLine(page: Page) {
+  const editor = page.getByTestId('editor');
+  await editor.locator('.cm-line').filter({ hasText: 'intro prose' }).first().click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Backspace');
+}
+
+test('E543: deleting a prose line shows ONE red block of its text directly under the anchor, coloured from --mm-diff-removed', async ({
+  page,
+}) => {
+  const editor = await openMixWithDiff(page);
+  await deleteIntroLine(page);
+  const block = editor.getByTestId('diff-removed-block');
+  await expect(block).toHaveCount(1);
+  await expect(block).toHaveText('intro prose');
+  await expect(block.locator('.mm-diff-removed-line')).toHaveCount(1);
+  // The buffer no longer has the line — the block is the only copy on screen.
+  await expect(editor.locator('.cm-line').filter({ hasText: 'intro prose' })).toHaveCount(0);
+  // Directly below the anchor row, which still carries its edge class.
+  const anchor = editor.locator('.cm-line.mm-diff-deleted-after');
+  await expect(anchor).toHaveCount(1);
+  const anchorBox = (await anchor.boundingBox())!;
+  const blockBox = (await block.boundingBox())!;
+  expect(blockBox.height).toBeGreaterThan(0);
+  expect(blockBox.y).toBeGreaterThanOrEqual(anchorBox.y + anchorBox.height - 1);
+  expect(blockBox.y).toBeLessThan(anchorBox.y + anchorBox.height + blockBox.height);
+  // The red is the theme's: the edge IS --mm-diff-removed, the background a
+  // tint of it (red channel dominant), and neither is transparent.
+  const edge = await removedEdge(page);
+  const styles = await block.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { bg: cs.backgroundColor, shadow: cs.boxShadow };
+  });
+  expect(edge).not.toBe('none');
+  expect(styles.shadow).toBe(edge);
+  expect(styles.bg).not.toBe('rgba(0, 0, 0, 0)');
+  expect(styles.bg).not.toBe('transparent');
+  const [r, g, b] = rgb(styles.bg);
+  expect(r).toBeGreaterThan(g);
+  expect(r).toBeGreaterThan(b);
+});
+
+test('E544: a deletion before line 1 places its block ABOVE line 1', async ({ page }) => {
+  const editor = await openMixWithDiff(page);
+  await editor.locator('.cm-line').first().click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Backspace');
+  const block = editor.getByTestId('diff-removed-block');
+  await expect(block).toHaveCount(1);
+  await expect(block).toHaveText('---'); // the front matter's opening fence
+  // Line 1 still carries the edge (E499); the block sits over it, not under.
+  const first = editor.locator('.cm-line').first();
+  await expect(first).toHaveClass(/mm-diff-deleted-after/);
+  const firstBox = (await first.boundingBox())!;
+  const blockBox = (await block.boundingBox())!;
+  expect(blockBox.y + blockBox.height).toBeLessThanOrEqual(firstBox.y + 1);
+});
+
+test('E545: the block is not document text — clicking it and typing changes nothing, and the checkbox off removes it', async ({
+  page,
+}) => {
+  const editor = await openMixWithDiff(page);
+  await deleteIntroLine(page);
+  const block = editor.getByTestId('diff-removed-block');
+  await expect(block).toHaveCount(1);
+  const linesBefore = await editor.locator('.cm-line').allTextContents();
+  await block.click();
+  await page.keyboard.type('zzz');
+  await page.waitForTimeout(400); // past the diff debounce, so a change would have repainted
+  const linesAfter = await editor.locator('.cm-line').allTextContents();
+  expect(linesAfter).toEqual(linesBefore);
+  await expect(block).toHaveText('intro prose'); // nothing landed in the block either
+  // Turning the checkbox off removes every block and every edge.
+  const view = await openViewMenu(page);
+  await view.getByTestId('menu-view-toggleDiff').click();
+  await expect(editor.getByTestId('diff-removed-block')).toHaveCount(0);
+  await expect(editor.locator('.cm-line.mm-diff-deleted-after')).toHaveCount(0);
+});
+
+test('E546: a replaced line shows its old text in red right above the green line, and saving clears it', async ({
+  page,
+}) => {
+  const editor = await openMixWithDiff(page);
+  await caretToTail(page);
+  await page.keyboard.press('End');
+  await page.keyboard.type('!');
+  const changed = editor.locator('.cm-line.mm-diff-changed');
+  await expect(changed).toHaveText('tail line!');
+  const block = editor.getByTestId('diff-removed-block');
+  await expect(block).toHaveCount(1);
+  await expect(block).toHaveText('tail line');
+  // Git-style: the old line directly above the new one. The anchor's edge is
+  // still dropped for a replacement — the block tells the story now.
+  const blockBox = (await block.boundingBox())!;
+  const changedBox = (await changed.boundingBox())!;
+  expect(blockBox.y + blockBox.height).toBeLessThanOrEqual(changedBox.y + 1);
+  await expect(editor.locator('.cm-line.mm-diff-deleted-after')).toHaveCount(0);
+  // Saving makes buffer equal saved: every block and tint goes.
+  await page.keyboard.press('Control+s');
+  await expect(editor.getByTestId('diff-removed-block')).toHaveCount(0);
+  await expect(editor.locator('.cm-line.mm-diff-changed')).toHaveCount(0);
+});
+
+test('E547: removing a whole fenced block yields ONE block carrying all three of its lines', async ({
+  page,
+}) => {
+  const editor = await openMixWithDiff(page);
+  await editor.locator('.cm-line.mm-fence-card-first').click();
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowDown');
+  await page.keyboard.press('Backspace');
+  await caretToTail(page);
+  const block = editor.getByTestId('diff-removed-block');
+  await expect(block).toHaveCount(1);
+  await expect(block.locator('.mm-diff-removed-line')).toHaveText(['```js', 'const answer = 42;', '```']);
+  await expect(editor.locator('.cm-line.mm-diff-deleted-after')).toHaveCount(1);
+});

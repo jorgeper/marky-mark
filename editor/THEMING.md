@@ -86,7 +86,7 @@ sets these eight is complete; there is nothing per-language to add.
 | `--mm-find-fg` | Foreground on find matches — **no fallback** |
 | `--mm-active-word` | SPEC44 caret-word tint in the editor — **no fallback** |
 | `--mm-diff-changed-bg` | SPEC16 changed-line tint — **no fallback** |
-| `--mm-diff-removed` | SPEC16 deleted-run left edge — **no fallback** |
+| `--mm-diff-removed` | SPEC16 deleted-run red: the 3px left edge on the anchor line and, since issue #315, the read-only block of removed saved text under it — the block's background is this hue at 14% over `--mm-bg`, its edge the hue itself, its text `--mm-fg`, so dark themes keep light text on a dark red-tinted band — **no fallback** |
 | `--mm-comment-tint` | The fixed comment tint (blue) — comment records' editor highlight (PRD 022 Req 12, issue #283); resolved ghosts mix it down (issue #285) |
 | `--mm-comment-tint-active` | The stronger comment tint — the editor highlight's active/flash treatment (PRD 023 §18, issue #285) |
 | `--mm-marker-yellow` / `--mm-marker-green` / `--mm-marker-orange` / `--mm-marker-pink` | PRD 022 Req 13 marker hues; editor highlights mix them at 42%, 60% active/flash (issue #285) |

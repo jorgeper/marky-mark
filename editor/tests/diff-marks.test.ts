@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { EditorState } from '@codemirror/state';
-import { diffLineMarks } from '../src/components/diffMarks';
+import { diffLineMarks, diffRemovedBlocks } from '../src/components/diffMarks';
 import { canonicalizeAll, setGridSet, tableModeExtension, tableModeField } from '../src/components/tableMode';
 import { diffLineSets } from '../src/lib/diffLines';
 import { layoutTable, parseTable } from '../src/lib/tableEdit';
@@ -107,7 +107,7 @@ describe('SPEC16 §2 (issue #264): changes-since-save marks in raw editor lines'
     const rawTail = lineOf(DOC, 'tail');
     expect(changedLines(diffLineMarks(plain, { changed: [rawTail], deletedAfter: [] }))).toEqual([rawTail]);
     // An identical buffer produces empty sets, and empty sets produce no marks.
-    expect(diffLineSets(DOC, DOC)).toEqual({ changed: [], deletedAfter: [] });
+    expect(diffLineSets(DOC, DOC)).toEqual({ changed: [], deletedAfter: [], removed: [] });
     expect(diffLineMarks(plain, { changed: [], deletedAfter: [] })).toEqual([]);
     // A canonical line past the document's end is dropped, never clamped onto
     // an unrelated construct.
@@ -122,5 +122,46 @@ describe('SPEC16 §2 (issue #264): changes-since-save marks in raw editor lines'
     }).state;
     expect(canonicalizeAll(DOC, broken.field(tableModeField)!)).toBe(DOC);
     expect(changedLines(diffLineMarks(broken, { changed: [rawTail], deletedAfter: [] }))).toEqual([rawTail]);
+  });
+});
+
+// SPEC16 §2 (issue #315): the removed runs' red blocks follow the same
+// anchor rules as the edge marker, in raw editor lines.
+describe('SPEC16 §2 (issue #315): removed-run blocks in raw editor lines', () => {
+  test('U1256: a run after a gridded row hangs under the grid’s LAST display row; the identity holds without a grid', () => {
+    const state = gridded();
+    const canonHeader = lineOf(canonicalOf(state), '| Metric | Value |');
+    const display = GRID.split('\n');
+    const rawGridFirst = DOC.split('\n').indexOf(display[0]) + 1;
+    expect(diffRemovedBlocks(state, [{ after: canonHeader + 3, lines: ['gone'] }])).toEqual([
+      { line: rawGridFirst + display.length - 1, above: false, lines: ['gone'] },
+    ]);
+    // Below the grid the anchor drifts by the grid's extra rows, like the marks.
+    const rawTail = lineOf(DOC, 'tail');
+    const canonTail = lineOf(canonicalOf(state), 'tail');
+    expect(diffRemovedBlocks(state, [{ after: canonTail, lines: ['a', 'b'] }])).toEqual([
+      { line: rawTail, above: false, lines: ['a', 'b'] },
+    ]);
+    const plain = EditorState.create({ doc: DOC, extensions: tableModeExtension() });
+    expect(diffRemovedBlocks(plain, [{ after: 5, lines: ['x'] }])).toEqual([{ line: 5, above: false, lines: ['x'] }]);
+    expect(diffRemovedBlocks(plain, [])).toEqual([]);
+  });
+
+  test('U1257: a run before line 1 sits ABOVE line 1, and a stale past-the-end anchor rides the last line', () => {
+    const state = gridded();
+    expect(diffRemovedBlocks(state, [{ after: 0, lines: ['first'] }])).toEqual([
+      { line: 1, above: true, lines: ['first'] },
+    ]);
+    expect(diffRemovedBlocks(state, [{ after: state.doc.lines + 50, lines: ['late'] }])).toEqual([
+      { line: state.doc.lines, above: false, lines: ['late'] },
+    ]);
+    // Real sets flow through end to end: deleting `intro` from the canonical
+    // text carries its text and lands under the raw line above it.
+    const canonical = canonicalOf(state);
+    const diff = diffLineSets(canonical, canonical.replace('intro\n', ''));
+    expect(diff.removed).toEqual([{ after: lineOf(DOC, 'intro') - 1, lines: ['intro'] }]);
+    expect(diffRemovedBlocks(state, diff.removed)).toEqual([
+      { line: lineOf(DOC, 'intro') - 1, above: false, lines: ['intro'] },
+    ]);
   });
 });
