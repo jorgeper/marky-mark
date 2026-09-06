@@ -4970,7 +4970,7 @@ test('E403: a path matching no workspace, no file, or an unknown legacy UUID ren
 
 // --- the copy-link share affordance (PRD 020 Reqs 14–17, issue #222) ---------
 
-test('E407: hosted copy-link — the workspace control (pane open) and the file control copy the canonical absolute URLs, confirm "Link copied" inline, and revert', async ({
+test('E407: hosted copy-link — the workspace control sits in the top bar left of the workspace name, the file control at the top right, and both copy the canonical absolute URLs, confirm "Link copied" inline, and revert', async ({
   page,
   request,
 }) => {
@@ -4987,13 +4987,42 @@ test('E407: hosted copy-link — the workspace control (pane open) and the file 
   await signInTo(page, 'ada', id);
   await openFromSidebar(page, 'intro guide.md');
 
-  // Req 16: the workspace control sits top-left WITH THE FOLDER PANE OPEN —
-  // the placement does not take the old cluster's pane-closed gate.
+  // Req 16 as amended by issue #254: the workspace control lives in the TOP
+  // BAR, immediately left of the name it links to — the top bar reads
+  // hamburger · link · workspace name · `/` · file name.
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   const wsShare = page.getByTestId('copy-link-workspace');
   const fileShare = page.getByTestId('copy-link-file');
   await expect(wsShare).toBeVisible();
   await expect(fileShare).toBeVisible();
+  // A child of `.toolbar`, sitting between the hamburger and `.docname` —
+  // read off the DOM order rather than from coordinates.
+  const topBarOrder = () =>
+    page.$eval('.toolbar', (bar) =>
+      Array.from(bar.children).map(
+        (el) =>
+          el.getAttribute('data-testid') ??
+          el.querySelector('[data-testid]')?.getAttribute('data-testid') ??
+          el.tagName,
+      ),
+    );
+  expect((await topBarOrder()).slice(0, 3)).toEqual(['menu-btn', 'copy-link-workspace', 'docname']);
+  // …and the workspace name leads the name slot, so the link's next visible
+  // neighbour is that name.
+  await expect(page.locator('[data-testid="docname"] > :first-child')).toHaveAttribute(
+    'data-testid',
+    'docname-workspace',
+  );
+  // Issue #254: exactly one instance, whatever the folder pane is doing —
+  // the control left the corner clusters, so the pane's state no longer
+  // decides whether or where it shows.
+  await expect(wsShare).toHaveCount(1);
+  await page.getByTestId('folder-collapse').click();
+  await expect(page.getByTestId('folder-expand')).toBeVisible();
+  await expect(wsShare).toHaveCount(1);
+  expect((await topBarOrder()).slice(0, 3)).toEqual(['menu-btn', 'copy-link-workspace', 'docname']);
+  await page.getByTestId('folder-expand').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
   // Req 14 as reworded by issue #227: at rest each control is a link icon
   // whose tooltip and accessible name say the placement's target.
   await expect(wsShare).toHaveAttribute('title', 'Copy link to workspace');
@@ -5031,7 +5060,13 @@ test('E408: the file copy-link is absent for an untitled buffer while the worksp
   await page.getByTestId('hosted-sign-in-username').fill('alan');
   await page.getByTestId('hosted-sign-in-submit').click();
   await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  // Issue #254: the workspace control renders in the top bar — one instance,
+  // and none left in the corner clusters or the tab strip's end slots.
   await expect(page.getByTestId('copy-link-workspace')).toBeVisible();
+  await expect(page.locator('.toolbar [data-testid="copy-link-workspace"]')).toHaveCount(1);
+  await expect(page.locator('.edge-cluster-left, .file-tab-strip-lead').getByTestId('copy-link-workspace')).toHaveCount(
+    0,
+  );
   await expect(page.getByTestId('copy-link-file')).toHaveCount(0);
 });
 

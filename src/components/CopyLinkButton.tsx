@@ -4,10 +4,11 @@ import { IconButton } from './ui/IconButton';
 
 /**
  * PRD 020 Req 14 (issue #222): the one reusable copy-link control. Both
- * placements — the workspace's top-left cluster (Req 16) and the file's
- * top-right cluster (Req 17) — render this component and differ only in
- * where they hang it, what URL `getUrl` answers, and (issue #227) the rest
- * `label` naming that target — the `createCopyButton` house pattern.
+ * placements — the top bar's workspace link, seated left of the workspace
+ * name (Req 16, moved there by issue #254), and the file's top-right
+ * cluster (Req 17) — render this component and differ only in where they
+ * hang it, what URL `getUrl` answers, and (issue #227) the rest `label`
+ * naming that target — the `createCopyButton` house pattern.
  * `getUrl` runs at click time so the copied text is the canonical address
  * of that moment; the contract itself (confirm only on a landed write,
  * ~2s, then revert) lives in `lib/copyLink.ts` where it is unit-tested.

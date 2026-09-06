@@ -151,8 +151,12 @@ icons at the three depths that matter — workspace, file, heading.
 15. **Hosted only.** The control renders only on the hosted platform;
     Tauri, dev-shim, and single-file builds show none of the three
     placements.
-16. **Workspace share.** The control sits with the workspace's
-    top-left icon cluster and copies `/<workspace-name>`.
+16. **Workspace share.** The control sits in the top bar, immediately
+    left of the workspace name it links to (hamburger · link ·
+    workspace name · `/` · file name), and copies
+    `/<workspace-name>`. *(Amended by issue #254: this placement
+    replaces the workspace's top-left icon cluster, where the control
+    originally shipped.)*
 17. **File share.** The control sits top-right above the open file
     and copies the file's Req 5 URL. It is absent for untitled
     buffers.

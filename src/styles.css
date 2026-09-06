@@ -605,6 +605,15 @@ button {
   display: block;
 }
 
+/* PRD 020 Req 16 (issue #254): the hosted workspace copy-link lives in the
+   top bar now, between the hamburger and the name it links to. Layout only —
+   the control is still the .icon-btn-based .copy-link primitive; this rule
+   just halves the toolbar's gap on the name side so the glyph reads as that
+   name's link rather than as a free-standing toolbar button. */
+.toolbar .copy-link {
+  margin-right: calc(var(--mm-space-1) - var(--mm-space-3));
+}
+
 /* ---------- theme picker popover ---------- */
 
 .theme-picker {
@@ -2128,7 +2137,7 @@ input.palette-input {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  /* PRD 020 Req 16: the edge clusters anchor to the workspace COLUMN — with
+  /* PRD 003 Req 2: the edge clusters anchor to the workspace COLUMN — with
      the folder pane open the left pill still sits at the workspace's own
      top-left corner, not over the pane's header. */
   position: relative;

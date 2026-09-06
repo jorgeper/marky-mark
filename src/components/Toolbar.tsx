@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { AppMenuGroup, AppMenuRow } from '../lib/appMenu';
 import type { CommandId } from '../lib/commands';
 import { displayCombo, type HotkeyMap } from '@marky-mark/editor';
@@ -17,6 +17,14 @@ interface Props {
    * this affordance stays exactly the filename it has always been.
    */
   workspaceName?: string | null;
+  /**
+   * PRD 020 Req 16 (issue #254): the hosted workspace copy-link control,
+   * seated immediately left of the workspace name it links to — hamburger ·
+   * link · workspace name · `/` · file name. A slot, not a decision: App
+   * owns the hosted gate and the URL the control copies, and passes nothing
+   * on every build that has no share affordance.
+   */
+  workspaceShare?: ReactNode;
   /** Full on-disk path, shown as the filename's hover tooltip (SPEC2 FR-U.3). */
   docPath: string | null;
   dirty: boolean;
@@ -216,6 +224,12 @@ export function Toolbar(p: Props) {
           </div>
         )}
       </div>
+
+      {/* PRD 020 Req 16 (issue #254): the workspace link sits between the
+          hamburger and the name it links to — the toolbar's own gap and
+          icon idiom carry it, so it reads as chrome rather than as a
+          transplanted corner control. */}
+      {p.workspaceShare}
 
       <span className="docname" data-testid="docname" title={p.docPath ?? undefined}>
         {/* PRD 009 Req 11: with a workspace open its name lives here — the

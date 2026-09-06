@@ -7689,7 +7689,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // `?workspace=` shape.
   const hostedWorkspace = platform.kind === 'hosted' && wsKind !== 'none';
   const workspaceShare = hostedWorkspace ? (
-    // PRD 020 Req 16: the workspace placement copies /<workspace-name>.
+    // PRD 020 Req 16 (issue #254): the workspace placement copies
+    // /<workspace-name>, and is handed to the Toolbar, which seats it
+    // immediately left of the workspace name — it rides no corner cluster
+    // and so no longer depends on the folder pane's state.
     <CopyLinkButton
       testid="copy-link-workspace"
       label={COPY_LINK_WORKSPACE_LABEL}
@@ -7708,16 +7711,15 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         copy={copyToClipboard}
       />
     ) : null;
-  // PRD 020 Req 16: the chevron + view switch keep their pane-closed gate,
-  // but the cluster itself outlives it — the workspace copy-link stays in
-  // the top-left region with the folder pane open too.
-  const leftControls = !sidebarShown && (folderSeam || docOpen);
+  // PRD 003 Req 2 + PRD 012 Req 9: the chevron + view switch, only while the
+  // pane is closed — with the workspace copy-link moved to the top bar
+  // (issue #254) the cluster has no other member, so its pane-closed gate is
+  // once again the cluster's own gate and it is absent, not empty, when off.
   const leftCluster =
-    leftControls || workspaceShare ? (
+    !sidebarShown && (folderSeam || docOpen) ? (
       <>
-        {leftControls && folderSeam && <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />}
-        {leftControls && sidebarSwitch}
-        {workspaceShare}
+        {folderSeam && <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />}
+        {sidebarSwitch}
       </>
     ) : null;
   // PRD 020 Req 17: the file copy-link rides this cluster but not its edit
@@ -7779,6 +7781,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
               // PRD 009 Req 11: the open workspace's name, where the removed
               // switcher chip used to show it.
               workspaceName={workspaceName}
+              // PRD 020 Req 16 (issue #254): the hosted workspace copy-link,
+              // seated by the Toolbar immediately left of the name it links
+              // to. The gate and the click-time URL stay here; the Toolbar
+              // only places what it is given.
+              workspaceShare={workspaceShare}
               // PRD 007 Req 17: no Edit toggle for a read-only role. Issue
               // #243: nor on the hosted build with nothing open, where it
               // would toggle nothing — hidden, never disabled.
@@ -7969,10 +7976,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         {/* PRD 003 Req 2: with the pane closed, a chevron at the workspace's
             left edge reopens it — PRD 012 Req 9 seats the view switch beside
             it in one row, so the two edge tabs cannot overlap.
-            PRD 020 Req 16: both overlays anchor to the workspace COLUMN, not
-            the body row — with the folder pane open the left cluster (now
-            holding the hosted copy-link) sits at the workspace's own top-left
-            instead of over the pane's header. */}
+            Both overlays anchor to the workspace COLUMN, not the body row,
+            so neither can ever sit over the folder pane's header. */}
         {!showFileTabs && leftCluster && <div className="edge-cluster-left">{leftCluster}</div>}
 
         {/* The workspace's top-right edge cluster: the edit/preview switch
