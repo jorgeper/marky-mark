@@ -622,10 +622,12 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
   // wait — React keeps this node mounted across every phase change under it,
   // so a boot can never alternate between two holding surfaces or re-enter
   // this one. Quiet by construction: the app background, and a spinner that
-  // only fades in if the wait outlasts a beat.
+  // only fades in if the wait outlasts a beat. Issue #316: the spinner is
+  // styled by its own rule (a 32px accent ring), no longer the search
+  // panel's 9px caption spinner.
   const hold = holding ? (
     <div className="hosted-booting" data-testid="hosted-booting" role="status" aria-label="Opening Marky Mark">
-      <span className="search-scanning-spinner hosted-booting-spinner" aria-hidden="true" />
+      <span className="hosted-booting-spinner" data-testid="hosted-booting-spinner" aria-hidden="true" />
     </div>
   ) : null;
 
