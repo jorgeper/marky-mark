@@ -127,6 +127,11 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   save: 'Save',
   nextComment: 'Next comment',
   prevComment: 'Previous comment',
+  // PRD 023 §12 (issue #286): listed, rebindable and reset-to-default like
+  // every row — beside their comment-navigation neighbours, not the Smart
+  // Edit format group (they author records, not markdown).
+  insertComment: 'Insert comment',
+  applyHighlight: 'Highlight (last-used color)',
   headingPalette: 'Go to heading',
   toggleWordCount: 'Show / hide word count',
   smartMenu: 'Open Smart Edit menu',
@@ -708,24 +713,9 @@ export function SettingsPanel({
           onChange={(e) => onChange({ ...settings, commentsEnabled: e.target.checked })}
         />
         <label htmlFor="set-comments-enabled" style={{ margin: 0, fontWeight: 400 }}>
-          Enable comments (highlights, panel, and the selection button)
+          Enable comments (highlights, panel, and the menu entries)
         </label>
         {scopeNote('commentsEnabled')}
-      </div>
-
-      <div className="checkbox-row">
-        <input
-          id="set-type-to-comment"
-          type="checkbox"
-          data-testid="set-type-to-comment"
-          disabled={!settings.commentsEnabled}
-          checked={settings.typeToComment}
-          onChange={(e) => onChange({ ...settings, typeToComment: e.target.checked })}
-        />
-        <label htmlFor="set-type-to-comment" style={{ margin: 0, fontWeight: 400 }}>
-          Start a comment by typing over a selection (no button click needed)
-        </label>
-        {scopeNote('typeToComment')}
       </div>
 
       <div className="checkbox-row">

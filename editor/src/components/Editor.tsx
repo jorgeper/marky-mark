@@ -62,6 +62,7 @@ import {
   wrapLink,
   type CalloutKind,
   type EditResult,
+  type SmartMenuAnnotations,
   type SmartMenuEntry,
 } from '../lib/smartEdit';
 import { SmartEditMenu } from './SmartEditMenu';
@@ -145,6 +146,11 @@ export interface SmartEditHandle {
    * Every path where the buffer escapes the editor routes through this.
    */
   canonicalText(text: string): string;
+  /**
+   * PRD 023 §12 (issue #286): the live selection, raw + canonical — what the
+   * App's annotation hotkeys feed the same context model the menu uses.
+   */
+  annotationSelection(): AnnotationSelection;
 }
 
 /**
@@ -389,6 +395,33 @@ export interface EditorProps {
    * no file rides the path), read at click time like every placement.
    */
   headingLink?: HeadingLinkSeam;
+  /**
+   * PRD 023 §7 (issue #286): the annotation seam — called at menu-open time
+   * with the live selection (raw editor-doc offsets AND their canonical
+   * mapping, since annotation ranges live in canonical space like the
+   * `highlights` prop). Returns the entries' context, or null when the
+   * owner's authoring gate is closed (both entries absent). Synchronous:
+   * menu open never awaits.
+   */
+  onAnnotationMenu?(sel: AnnotationSelection): SmartMenuAnnotations | null;
+  /**
+   * PRD 023 §§8–11 (issue #286): an annotation row was invoked —
+   * 'insert-comment', 'delete-comment', 'remove-highlight' or 'hl-<color>'.
+   * The owner resolves it against the context it computed at open time
+   * (the onToggleDiagramView routing precedent, comment store stays outside).
+   */
+  onAnnotationAction?(id: string): void;
+}
+
+/** PRD 023 §7 (issue #286): the live selection handed to the annotation seam. */
+export interface AnnotationSelection {
+  from: number;
+  to: number;
+  head: number;
+  /** The same three offsets in CANONICAL text coordinates (SPEC44). */
+  canonFrom: number;
+  canonTo: number;
+  canonHead: number;
 }
 
 /** PRD 020 Req 18: the App-provided half of the heading copy-link gutter. */
@@ -956,6 +989,8 @@ export default function Editor({
   themeVariant,
   readOnly = false,
   headingLink,
+  onAnnotationMenu,
+  onAnnotationAction,
 }: EditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -1019,8 +1054,8 @@ export default function Editor({
   inlineImagesRef.current = inlineImages;
   const resolveImageSrcRef = useRef(resolveImageSrc);
   resolveImageSrcRef.current = resolveImageSrc;
-  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView });
-  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView };
+  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView, onAnnotationMenu, onAnnotationAction });
+  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView, onAnnotationMenu, onAnnotationAction };
   // Issue #163: the card copy control's clipboard seam — read through the
   // live props ref, so neither the mount nor a reconfigure ever captures a
   // stale handler, and only an explicit `true` counts as a landed write.
@@ -1057,6 +1092,30 @@ export default function Editor({
   const gutterTitle = () =>
     `${SMART_EDIT_NAME} (${displayCombo(smartPropsRef.current.hotkeys.smartMenu, smartPropsRef.current.isMac)})`;
 
+  /**
+   * PRD 023 §7 (issue #286): the live selection in raw AND canonical
+   * coordinates — the annotation seam's argument, shared by the menu open
+   * and the App's hotkey path (smartRef.annotationSelection), so both
+   * resolve annotation context through one mapping.
+   */
+  const annotationSelection = (view: EditorView): AnnotationSelection => {
+    const sel = view.state.selection.main;
+    const gridSet = view.state.field(tableModeField, false);
+    const canon = (h: number) => {
+      if (!gridSet || gridSet.spans.length === 0) return h;
+      const raw = view.state.doc.toString();
+      return mapOffsetByLineFlat(raw, canonicalizeAll(raw, gridSet), h);
+    };
+    return {
+      from: sel.from,
+      to: sel.to,
+      head: sel.head,
+      canonFrom: canon(sel.from),
+      canonTo: canon(sel.to),
+      canonHead: canon(sel.head),
+    };
+  };
+
   /** §6.2: context is computed fresh at open time — never stale offsets. */
   const openMenuAt = (x: number, y: number) => {
     const view = viewRef.current;
@@ -1081,6 +1140,10 @@ export default function Editor({
         codeView: sp.codeBlockView,
         // PRD 013 Req 6: the diagram view state, same pattern.
         diagramView: sp.diagramView,
+        // PRD 023 §7 (issue #286): the annotation entries' context, asked of
+        // the owner fresh at open with the live selection — null (or no seam)
+        // keeps both entries out of the menu entirely.
+        annotations: sp.onAnnotationMenu ? sp.onAnnotationMenu(annotationSelection(view)) : null,
       }),
     });
   };
@@ -1223,6 +1286,16 @@ export default function Editor({
     if (id === 'toggle-diagrams') {
       sp.onToggleDiagramView?.();
       view.focus();
+      return;
+    }
+    // PRD 023 §§8–11 (issue #286): the annotation rows route to the owner,
+    // which resolves them against the context it computed at open time.
+    // Insert Comment deliberately skips the refocus: the composer it opens
+    // must keep the focus it takes (PRD 023 §8 — never a mode switch, and
+    // the caret lands in the composer).
+    if (id === 'insert-comment' || id === 'delete-comment' || id === 'remove-highlight' || id.startsWith('hl-')) {
+      sp.onAnnotationAction?.(id);
+      if (id !== 'insert-comment') view.focus();
       return;
     }
     if (id === 'insert-image') {
@@ -1702,6 +1775,10 @@ export default function Editor({
           const set = view.state.field(tableModeField, false);
           return set && set.spans.length ? canonicalizeAll(t, set) : t;
         },
+        // PRD 023 §12 (issue #286): the App's annotation hotkeys read the
+        // live selection through the same raw+canonical mapping the menu
+        // seam uses — one context model for both entry paths.
+        annotationSelection: () => annotationSelection(view),
       };
     }
 

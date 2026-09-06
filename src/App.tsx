@@ -31,6 +31,7 @@ import {
   VimNavResolver,
   visibleTextForRange,
   wordAt,
+  type AnnotationSelection,
   type DiagramRenderCache,
   type DiffLineSets,
   type EditorSearchHandle,
@@ -229,7 +230,9 @@ import {
   SEMANTIC_ZOOM_COMBOS,
 } from './lib/semanticZoom';
 import { parseFrontMatter } from './lib/frontmatter';
-import { commentAffordanceSurface } from './lib/commentAffordance';
+// PRD 023 §§7–12 + §19 (issue #286): the annotation menu/hotkey context model
+// and the editor-side rendered-text mapping — one pure rule for both paths.
+import { annotationMenuModel, type AnnotationMenuModel } from './lib/annotationMenu';
 import { commentsPaneOpen, commentsSeamUp } from './lib/commentsPane';
 import { pickHitRecord } from './lib/markHit';
 import { isStaleDraft, parseDraft, serializeDraft, type Draft } from './lib/drafts';
@@ -622,11 +625,6 @@ export default function App() {
   );
   const [draft, setDraft] = useState('');
   const [selInfo, setSelInfo] = useState<{ start: number; end: number; x: number; y: number } | null>(null);
-  // Issue #38: whether plain edit mode has a live selection, so that surface
-  // can offer a comment affordance too (previously it dead-ended with nothing
-  // at all). Only presence matters — the range itself rides in
-  // lastEditorSelRef and reaches preview through the SPEC25 carry.
-  const [editHasSelection, setEditHasSelection] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // PRD 017 Req 13: the deployment-admin Management dialog.
   const [managementOpen, setManagementOpen] = useState(false);
@@ -822,10 +820,6 @@ export default function App() {
   const lastEditorSelRef = useRef<{ from: number; to: number }>({ from: 0, to: 0 });
   const pendingEditorSelRef = useRef<{ from: number; to: number } | null>(null);
   const pendingPreviewSelRef = useRef<{ from: number; to: number } | null>(null);
-  // Issue #38 + PRD 022 Req 1: the edit-mode affordance routes through the
-  // SPEC25 carry — armed on click (with the chosen action: a swatch color or
-  // "add note"), consumed when the carried selection lands as selInfo.
-  const carryActionRef = useRef<{ kind: 'note' } | { kind: 'swatch'; color: CommentColor } | null>(null);
   /** True once the preview injection pass ran to completion for the current DOM. */
   const injectionCompleteRef = useRef(false);
   const positionsRef = useRef<PositionStore>({ version: 1, entries: [] });
@@ -1416,12 +1410,6 @@ export default function App() {
       seamEditState(s);
       lastEditorSelRef.current = { from: s.selFrom, to: s.selTo }; // SPEC25 §2.1
       const st = stateRef.current;
-      // Issue #38: plain edit mode tracks its selection in state so the
-      // comment affordance can render from it (split's live preview keeps
-      // the existing selInfo path).
-      if (st.mode === 'edit' && !st.settings.splitEdit) {
-        setEditHasSelection(s.selFrom !== s.selTo);
-      }
       if (st.mode !== 'edit' || !st.settings.splitEdit) return;
       if (mirrorTimerRef.current) clearTimeout(mirrorTimerRef.current);
       mirrorTimerRef.current = setTimeout(() => {
@@ -4726,6 +4714,11 @@ export default function App() {
       fmtQuote: () => fmtCommand('quote'),
       fmtCodeBlock: () => fmtCommand('code-block'),
       fmtHr: () => fmtCommand('hr'),
+      // PRD 023 §12 (issue #286): the annotation hotkeys — through a live
+      // ref (this effect registers once; the closure reads each render's
+      // gate, selection and model).
+      insertComment: () => annotationHotkeyRef.current('comment'),
+      applyHighlight: () => annotationHotkeyRef.current('highlight'),
       // SPEC36 §5.2/§6.3: the tabs commands (silent no-ops without the seam).
       toggleOpenOnly,
       nextFile: () => cycleFile(1),
@@ -5739,6 +5732,30 @@ export default function App() {
     return () => clearTimeout(t);
   }, [mode, comments, buffer, settings.commentsEnabled, settings.showResolved, canonicalOf]);
 
+  // PRD 023 §19 (issue #286): edit-mode authoring needs the document's
+  // rendered PLAIN TEXT (the space anchors live in), which plain edit never
+  // renders — so it is cached here: the canonical buffer through the same
+  // renderMarkdown → detached-holder → getDocText pipeline the export path
+  // uses. Debounced on the highlight mapping's 200ms above, so it stays off
+  // the keystroke path; menu open and the hotkeys read it synchronously.
+  const editRenderedTextRef = useRef('');
+  useEffect(() => {
+    if (mode !== 'edit' || !settings.commentsEnabled) {
+      editRenderedTextRef.current = '';
+      return;
+    }
+    const t = setTimeout(() => {
+      const epoch = docEpochRef.current; // issue #43: tied to the doc it renders
+      void renderMarkdown(canonicalOf(buffer)).then((rendered) => {
+        if (epoch !== docEpochRef.current) return;
+        const holder = document.createElement('div');
+        holder.innerHTML = rendered;
+        editRenderedTextRef.current = getDocText(holder);
+      });
+    }, 200);
+    return () => clearTimeout(t);
+  }, [mode, buffer, settings.commentsEnabled, canonicalOf]);
+
   // PRD 023 §18 (issue #285): the activation cue rides the ranges into the
   // package — derived at render, NOT in the debounced mapping effect above,
   // so the active treatment lands the frame activeId changes, matching the
@@ -5886,6 +5903,15 @@ export default function App() {
       } else if (eventMatches(e, hk.toggleWordCount)) {
         e.preventDefault();
         dispatchCommand('toggleWordCount', 'hotkey');
+      } else if (eventMatches(e, hk.insertComment)) {
+        // PRD 023 §12 (issue #286): the annotation hotkeys — standard rows of
+        // the rebindable map, dispatched through the registry like every
+        // binding above; their gates live in the command handler alone.
+        e.preventDefault();
+        dispatchCommand('insertComment', 'hotkey');
+      } else if (eventMatches(e, hk.applyHighlight)) {
+        e.preventDefault();
+        dispatchCommand('applyHighlight', 'hotkey');
       } else if (eventMatches(e, hk.toggleOpenOnly)) {
         e.preventDefault();
         dispatchCommand('toggleOpenOnly', 'hotkey');
@@ -5941,7 +5967,8 @@ export default function App() {
         vimRef.current.reset();
         return;
       }
-      // A live selection belongs to type-to-comment (SPEC7 §3), never to nav.
+      // PRD 023 §12 (issue #286): a live selection is authoring context — the
+      // anchor the annotation hotkeys and menu act on — never nav's to scroll.
       const sel = document.getSelection();
       if (sel && !sel.isCollapsed) {
         vimRef.current.reset();
@@ -6205,19 +6232,13 @@ export default function App() {
     const doc = docRef.current;
     if (!doc || doc.childElementCount === 0) return;
     pendingPreviewSelRef.current = null;
-    // Issue #38: from here on the carry is consumed — a bail-out below must
-    // also disarm the edit-affordance composer so it can't fire on a later,
-    // unrelated selection.
-    const abandonCompose = () => {
-      carryActionRef.current = null;
-    };
     const buffer = stateRef.current.buffer;
     const needle = visibleTextForRange(buffer, pending.from, pending.to);
-    if (!needle.replace(/\s+/g, ' ').trim()) return abandonCompose();
+    if (!needle.replace(/\s+/g, ' ').trim()) return;
     const fromLine = buffer.slice(0, pending.from).split('\n').length;
     const toLine = buffer.slice(0, pending.to).split('\n').length;
     const stamped = Array.from(doc.querySelectorAll<HTMLElement>('[data-mm-line]'));
-    if (stamped.length === 0) return abandonCompose();
+    if (stamped.length === 0) return;
     let startEl = stamped[0];
     for (const el of stamped) {
       if (Number(el.dataset.mmLine) <= fromLine) startEl = el;
@@ -6228,11 +6249,11 @@ export default function App() {
     region.setStartBefore(startEl);
     if (after) region.setEndBefore(after);
     else if (doc.lastChild) region.setEndAfter(doc.lastChild);
-    else return abandonCompose();
+    else return;
     const { start: rs, end: re } = rangeToOffsets(doc, region);
     const hit = findNormalized(getDocText(doc).slice(rs, re), needle);
     const range = offsetsToRange(doc, hit ? rs + hit.start : rs, hit ? rs + hit.end : re);
-    if (!range) return abandonCompose();
+    if (!range) return;
     const sel = window.getSelection();
     sel?.removeAllRanges();
     sel?.addRange(range);
@@ -6578,8 +6599,8 @@ export default function App() {
   }, [mode, settings.splitEdit]);
 
   // --- comment operations -----------------------------------------------------------
-  // PRD 022 Req 4: the last-used marker color pre-arms the popup and seeds
-  // "add note" and type-to-comment; a swatch use updates it (user-scoped).
+  // PRD 022 Req 4: the last-used marker color arms the menu's cue and is what
+  // Mod+Alt+H applies; an insert or recolor updates it (user-scoped).
   const armedColor = settings.lastMarkerColor;
   const rememberMarkerColor = (color: CommentColor) => {
     if (stateRef.current.settings.lastMarkerColor !== color) {
@@ -6589,167 +6610,163 @@ export default function App() {
 
   // PRD 023 §1 (issue #283): the identity fields both record kinds share
   // (AnnotationBase in anchoring.ts) — authored once, so each creation site
-  // below reads as just the kind it is authoring.
-  const newAnnotation = (start: number, end: number) => ({
+  // below reads as just the kind it is authoring. `text` is the rendered
+  // plain text the anchor offsets index into: the preview's docText, or the
+  // edit-mode rendered cache (PRD 023 §19, issue #286).
+  const newAnnotation = (text: string, start: number, end: number) => ({
     id: crypto.randomUUID(),
     author: settings.author,
     createdAt: new Date().toISOString(),
-    anchor: createAnchor(docTextRef.current, start, end),
+    anchor: createAnchor(text, start, end),
   });
 
-  // PRD 023 §1 (issue #283): a swatch click creates a kind:"highlight" record
-  // in that color (color required, no body/thread/resolved) and closes the
-  // popup; nothing else opens.
-  const createHighlight = (color: CommentColor): CommentData | null => {
-    if (!selInfo || !mayComment) return null; // PRD 004 Req 15 + PRD 007 Req 17
+  // PRD 023 §§9–10 (issue #286): insert a kind:"highlight" record in `color`
+  // over a rendered-text range — the menu's color rows and Mod+Alt+H, both
+  // surfaces. Updates the last-used marker color (PRD 022 Req 4).
+  const insertHighlightAt = (text: string, start: number, end: number, color: CommentColor) => {
     const entry: CommentData = {
       kind: 'highlight',
-      ...newAnnotation(selInfo.start, selInfo.end),
+      ...newAnnotation(text, start, end),
       color,
     };
     setComments((prev) => [...prev, entry]);
     rememberMarkerColor(color);
     setActiveId(null);
-    window.getSelection()?.removeAllRanges();
-    setSelInfo(null);
-    return entry;
   };
 
-  // PRD 023 §1 (issue #283): "add note" authors a kind:"comment" record — the
-  // composer attaches to a fresh empty-bodied comment (painted at once in the
-  // fixed comment tint, never a marker hue) and the note lands on submit;
-  // cancel removes it (PRD 022 Req 1's no-abandoned-entry rule).
-  const startComposer = (seed = '') => {
-    if (!selInfo || !mayComment) return; // PRD 004 Req 15 + PRD 007 Req 17
-    const { start, end } = selInfo;
+  // PRD 023 §8 (issue #286): Insert Comment — a fresh empty-bodied
+  // kind:"comment" record over the range, with the composer attached
+  // (`pending.cid`); the note lands on submit, cancel removes the record
+  // (PRD 022 Req 1's no-abandoned-entry rule). Setting `pending` auto-opens
+  // the pane (the §15 effect below) and the composer autofocuses — the mode
+  // never switches.
+  const insertCommentAt = (text: string, start: number, end: number) => {
     const entry: CommentData = {
       kind: 'comment',
-      ...newAnnotation(start, end),
+      ...newAnnotation(text, start, end),
       body: '',
       resolved: false,
       thread: [],
     };
     setComments((prev) => [...prev, entry]);
     setActiveId(null);
-    window.getSelection()?.removeAllRanges();
-    setSelInfo(null);
     setPending({ start, end, cid: entry.id });
-    setDraft(seed);
+    setDraft('');
   };
 
-  // PRD 022 Reqs 1+4: the popup's shared content — the four swatches (armed
-  // color first) then "add note" — rendered once per surface; each surface
-  // supplies its own action routing (direct on preview, the SPEC25 carry in
-  // plain edit).
-  const markerPopupButtons = (onSwatch: (color: CommentColor) => void, onNote: () => void) => (
-    <>
-      {[armedColor, ...MARKER_COLORS.filter((c) => c !== armedColor)].map((color) => (
-        <button
-          key={color}
-          className={`icon-btn marker-swatch marker-swatch-${color}${color === armedColor ? ' armed' : ''}`}
-          data-testid={`marker-swatch-${color}`}
-          aria-label={`Highlight ${color}`}
-          aria-pressed={color === armedColor}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onSwatch(color)}
-        />
-      ))}
-      <button
-        className="btn btn-sm btn-quiet"
-        data-testid="add-note-btn"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => onNote()}
-      >
-        Add note
-      </button>
-    </>
-  );
+  // PRD 023 §9 (issue #286): recolor an existing highlight in place — same
+  // id, same anchor, new color, never a second record; remembers the color.
+  const recolorHighlight = (id: string, color: CommentColor) => {
+    setComments((prev) =>
+      prev.map((c) => (c.id === id && c.kind === 'highlight' ? { ...c, color } : c))
+    );
+    rememberMarkerColor(color);
+  };
 
-  // Issue #38: a stale edit selection must not survive the surface (or the
-  // document) it came from — any swap retires the affordance; the editor's
-  // next selection report re-establishes it if a selection is still there.
-  useEffect(() => {
-    setEditHasSelection(false);
-  }, [mode, settings.splitEdit, docPath, untitled]);
+  // PRD 023 §12 (issue #286): the preview half of the hotkeys — a selection
+  // is required (selInfo carries its rendered-DOM offsets); without one both
+  // are silent no-ops. The gate matches the menu's (PRD 004 Req 15 frozen,
+  // PRD 007 Req 17 comment.write, SPEC7 §2 master switch).
+  const previewAnnotation = (kind: 'comment' | 'highlight') => {
+    if (!selInfo || !mayComment || !settings.commentsEnabled) return;
+    const { start, end } = selInfo;
+    if (kind === 'highlight') insertHighlightAt(docTextRef.current, start, end, armedColor);
+    else insertCommentAt(docTextRef.current, start, end);
+    window.getSelection()?.removeAllRanges();
+    setSelInfo(null);
+  };
 
-  // Issue #38: the edit-mode affordance parks the selection in the SPEC25
-  // carry and switches to preview; once the carry lands there as a native
-  // selection (→ selInfo, with preview's own rendered-DOM offsets), the
-  // composer opens for exactly the anchor preview would have produced.
-  useEffect(() => {
-    if (mode !== 'preview') {
-      carryActionRef.current = null;
+  // PRD 023 §§7–11 (issue #286): the editor surface's annotation context —
+  // resolved through the pure model (lib/annotationMenu.ts) from the
+  // canonical selection the package reports, the debounced source-range
+  // mapping (`editorHighlights`) and the rendered-text cache. The resolution
+  // is stashed so the invoked row acts on exactly what the open-time menu
+  // showed (never a re-derived, possibly different context).
+  const annotationModelRef = useRef<AnnotationMenuModel | null>(null);
+  const resolveAnnotationModel = (sel: AnnotationSelection): AnnotationMenuModel => {
+    const model = annotationMenuModel({
+      gate: {
+        commentsEnabled: settings.commentsEnabled,
+        authoringFrozen,
+        canWrite: docGrants.commentWrite,
+      },
+      source: canonicalOf(buffer),
+      rendered: editRenderedTextRef.current,
+      selFrom: sel.canonFrom,
+      selTo: sel.canonTo,
+      head: sel.canonHead,
+      marks: editorHighlights ?? [],
+      records: comments,
+    });
+    annotationModelRef.current = model;
+    return model;
+  };
+
+  // PRD 023 §§8–11 (issue #286): an annotation menu row was invoked — act on
+  // the stashed open-time resolution.
+  const handleAnnotationAction = (id: string) => {
+    const model = annotationModelRef.current;
+    if (!model || !model.show) return;
+    if (id === 'insert-comment' && model.anchor && model.insertCommentEnabled) {
+      insertCommentAt(editRenderedTextRef.current, model.anchor.start, model.anchor.end);
+    } else if (id === 'delete-comment' && model.deleteCommentId) {
+      deleteComment(model.deleteCommentId);
+    } else if (id === 'remove-highlight' && model.removeHighlightId) {
+      deleteComment(model.removeHighlightId);
+    } else if (id.startsWith('hl-')) {
+      const color = id.slice(3) as CommentColor;
+      if (!MARKER_COLORS.includes(color)) return;
+      if (model.recolorId) recolorHighlight(model.recolorId, color);
+      else if (model.anchor && model.colorsEnabled) {
+        insertHighlightAt(editRenderedTextRef.current, model.anchor.start, model.anchor.end, color);
+      }
+    }
+  };
+
+  // PRD 023 §12 (issue #286): the two annotation hotkeys, dispatched through
+  // the command registry like every hotkey. Read through a live ref so the
+  // one-time registerCommands effect always reaches this render's closures.
+  // The guard is fmtCommand's: a focused text input (find bar, composer,
+  // settings recorders) keeps its own combos. In the editor they resolve
+  // through the SAME context model as the menu rows (selection, else recolor
+  // at caret for Mod+Alt+H, else the word under the caret — else a silent
+  // no-op); in the preview they require a selection (previewAnnotation).
+  const annotationHotkeyRef = useRef<(kind: 'comment' | 'highlight') => void>(() => {});
+  annotationHotkeyRef.current = (kind) => {
+    const ae = document.activeElement as HTMLElement | null;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) return;
+    if (mode === 'preview') {
+      previewAnnotation(kind);
       return;
     }
-    const action = carryActionRef.current;
-    if (!action || !selInfo) return;
-    carryActionRef.current = null;
-    // PRD 022 Req 1: both popup actions ride the carry — a swatch creates the
-    // note-less highlight, "add note" opens the composer on a fresh one.
-    if (action.kind === 'swatch') createHighlight(action.color);
-    else startComposer();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the handlers are recreated per render
-  }, [mode, selInfo]);
-
-  // --- type-to-comment (SPEC7 §3): a printable key over a selection opens the composer
-  useEffect(() => {
-    // PRD 023 §15 (issue #284): the pane setting no longer gates authoring —
-    // a comment typed with the pane closed auto-opens it (see the `pending`
-    // effect below), so only the master switch and the feature toggle gate.
-    if (mode !== 'preview' || !selInfo || pending) return;
-    if (!settings.commentsEnabled || !settings.typeToComment) return;
-    // PRD 004 Req 15: no composer for a frozen doc; PRD 007 Req 17: none
-    // without comment.write either.
-    if (!mayComment) return;
-    const { start, end } = selInfo;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1) return; // printable only
-      const target = e.target as HTMLElement | null;
-      if (
-        target?.closest?.('input, textarea, select, [contenteditable], .dialog') ||
-        document.querySelector('.overlay')
-      ) {
-        return;
+    const h = smartEditRef.current;
+    if (!h) return;
+    const model = resolveAnnotationModel(h.annotationSelection());
+    if (!model.show) return;
+    if (kind === 'comment') {
+      if (model.anchor && model.insertCommentEnabled) {
+        insertCommentAt(editRenderedTextRef.current, model.anchor.start, model.anchor.end);
       }
-      e.preventDefault();
-      // PRD 023 §1 (issue #283): type-to-comment authors a kind:"comment"
-      // record — no marker color; comments render in the fixed comment tint.
-      setPending({ start, end });
-      setDraft(e.key);
-      setActiveId(null);
-      window.getSelection()?.removeAllRanges();
-      setSelInfo(null);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selInfo, pending, mode, settings.commentsEnabled, settings.typeToComment, mayComment]);
+    } else if (model.recolorId) {
+      recolorHighlight(model.recolorId, armedColor);
+    } else if (model.anchor && model.colorsEnabled) {
+      insertHighlightAt(editRenderedTextRef.current, model.anchor.start, model.anchor.end, armedColor);
+    }
+  };
 
   const submitComment = () => {
     const body = draft.trim();
-    if (!body || !pending) return;
+    if (!body || !pending?.cid) return;
     // PRD 022 Req 2, PRD 023 §1 (issue #283): submitting yields ONE object —
-    // "add note" attached the composer to a comment record it created empty,
-    // so the note lands on that record (the only kind with a body to land on).
-    if (pending.cid) {
-      const cid = pending.cid;
-      setComments((prev) => prev.map((c) => (c.id === cid && c.kind === 'comment' ? { ...c, body } : c)));
-      setPending(null);
-      setDraft('');
-      setActiveId(cid);
-      return;
-    }
-    const comment: CommentData = {
-      // PRD 023 §1 (issue #283): the composer's product is a comment record.
-      kind: 'comment',
-      ...newAnnotation(pending.start, pending.end),
-      body,
-      resolved: false,
-      thread: [],
-    };
-    setComments((prev) => [...prev, comment]);
+    // Insert Comment attached the composer to a comment record it created
+    // empty, so the note lands on that record and its card becomes the
+    // active one (PRD 023 §8, issue #286: every authoring path creates the
+    // record first, so `pending` always carries a cid now).
+    const cid = pending.cid;
+    setComments((prev) => prev.map((c) => (c.id === cid && c.kind === 'comment' ? { ...c, body } : c)));
     setPending(null);
     setDraft('');
-    setActiveId(comment.id);
+    setActiveId(cid);
   };
 
   // PRD 022 Req 1: cancel undoes what "add note" created — an abandoned
@@ -6877,25 +6894,6 @@ export default function App() {
     if (at === -1) at = items.length;
     items.splice(at, 0, { row: 'composer' });
   }
-
-  // Comments live on whichever preview surface is up: full preview or the
-  // split-edit live preview (#19).
-  const commentSurfaceUp = mode === 'preview' || (mode === 'edit' && settings.splitEdit);
-
-  // Issue #38: which surface may offer "Add comment" for the live selection —
-  // the preview surfaces keep the floating button; plain edit mode gets an
-  // affordance that routes through the SPEC25 carry instead of dead-ending.
-  const affordanceSurface = commentAffordanceSurface({
-    mode,
-    splitEdit: settings.splitEdit,
-    hasSelection: commentSurfaceUp ? selInfo !== null : editHasSelection,
-    commentsEnabled: settings.commentsEnabled,
-    composerOpen: pending !== null,
-    authoringFrozen,
-    // PRD 007 Req 17: a role without comment.write is offered no route to a
-    // comment on either surface.
-    canWrite: docGrants.commentWrite,
-  });
 
   // PRD 023 §14/§15 (issue #284): the one input both pane predicates read —
   // the master switch, the persisted setting and an open document. Never the
@@ -7898,6 +7896,23 @@ export default function App() {
                     ? { getUrl: headingUrlForLine, copy: copyToClipboard }
                     : undefined
                 }
+                // PRD 023 §7 (issue #286): the annotation seam — the menu's
+                // Comment/Highlight context, computed fresh at open through
+                // the pure model, and the invoked row's routing back. Build-
+                // agnostic: never gated on platform.kind.
+                onAnnotationMenu={(sel) => {
+                  const model = resolveAnnotationModel(sel);
+                  if (!model.show) return null;
+                  return {
+                    insertCommentEnabled: model.insertCommentEnabled,
+                    deleteCommentEnabled: model.deleteCommentId !== null,
+                    colors: MARKER_COLORS,
+                    colorsEnabled: model.colorsEnabled,
+                    armedColor,
+                    removeHighlightEnabled: model.removeHighlightId !== null,
+                  };
+                }}
+                onAnnotationAction={handleAnnotationAction}
               />
             </Suspense>
             }
@@ -7921,46 +7936,6 @@ export default function App() {
       )}
 
       </div>
-
-      {/* PRD 022 Req 1: the selection affordance is a compact popup of four
-          marker swatches plus "add note" — the armed (last-used, Req 4)
-          color listed first. The toolbar-shell floor (issue #18) carries
-          over from the pill this popup replaces. */}
-      {selInfo && affordanceSurface === 'preview' && (
-        <div
-          className="marker-popup"
-          data-testid="marker-popup"
-          style={{ left: selInfo.x, top: Math.max(nativeMenu ? 8 : 50, selInfo.y - 42) }}
-        >
-          {markerPopupButtons(
-            (color) => createHighlight(color),
-            () => startComposer()
-          )}
-        </div>
-      )}
-
-      {/* Issue #38: plain edit mode's route to a highlight. The editor has no
-          rendered DOM to anchor from, so a click does NOT invent a source-
-          offset anchor — it parks the selection (and the chosen action) in
-          the SPEC25 carry, switches to preview, and the carry effect acts on
-          the selection preview re-establishes. Fixed top-right (CM reports
-          carry no pixel rect), floored below the toolbar band (issue #18). */}
-      {affordanceSurface === 'edit' && (
-        // Wider than the pill it replaced, the popup would cover the corner
-        // mode/split controls at the pill's old offset — sit one row lower.
-        <div className="marker-popup marker-popup-edit" data-testid="marker-popup-edit" style={{ top: nativeMenu ? 44 : 86 }}>
-          {markerPopupButtons(
-            (color) => {
-              carryActionRef.current = { kind: 'swatch', color };
-              toggleMode();
-            },
-            () => {
-              carryActionRef.current = { kind: 'note' };
-              toggleMode();
-            }
-          )}
-        </div>
-      )}
 
       {/* PRD 011 Req 21: the docked level indicator. Present whenever the
           Experimental feature is on and a document is open — never at the

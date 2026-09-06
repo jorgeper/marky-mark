@@ -67,7 +67,6 @@ export interface Settings {
    * View → Comments, Mod+Shift+C) reads.
    */
   showComments: boolean;
-  typeToComment: boolean;
   /**
    * PRD 022 Req 4: the most recently used marker color — remembered state
    * (the `lastViewMode` precedent, no Settings row) that pre-arms the swatch
@@ -187,7 +186,6 @@ export const DEFAULT_SETTINGS: Settings = {
   // PRD 023 §15: the pane ships closed — a fresh install reads the document
   // full-width until the reader opens it.
   showComments: false,
-  typeToComment: true,
   // PRD 022 Req 4: yellow matches the legacy tint family.
   lastMarkerColor: 'yellow',
   splitEdit: true,
@@ -274,7 +272,6 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   // (showFolders / splitEdit) — whether THIS screen shows the pane is this
   // reader's arrangement, not a workspace's to dictate.
   showComments: 'M',
-  typeToComment: 'U',
   // PRD 022 Req 4: the reader's own marker memory — user-scoped like its
   // comment-authoring neighbours.
   lastMarkerColor: 'U',
@@ -395,8 +392,10 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   showResolved: bool,
   commentsEnabled: bool,
   // PRD 023 §15: a hand-edited non-boolean falls back to the default (closed).
+  // PRD 023 §6 (issue #286): `typeToComment` is retired with the popup UX —
+  // no parser entry, so a persisted file still carrying the key parses like
+  // any unknown key: ignored, nothing resurrected, nothing thrown.
   showComments: bool,
-  typeToComment: bool,
   // PRD 022 Req 4: only the four marker literals; anything else falls back.
   lastMarkerColor: (raw) => (MARKER_COLORS.includes(raw as CommentColor) ? (raw as CommentColor) : undefined),
   splitEdit: bool,

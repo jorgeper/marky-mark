@@ -94,7 +94,11 @@ export type CommandId =
   | 'fmtTask'
   | 'fmtQuote'
   | 'fmtCodeBlock'
-  | 'fmtHr';
+  | 'fmtHr'
+  // PRD 023 §12 (issue #286): the annotation hotkeys — silent no-ops when
+  // the authoring gate is closed or nothing resolves to an anchor.
+  | 'insertComment'
+  | 'applyHighlight';
 
 export type CommandHandlers = Record<CommandId, () => void>;
 export type CommandSource = 'menu' | 'hotkey' | 'ui';

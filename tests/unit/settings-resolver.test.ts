@@ -41,7 +41,6 @@ describe('PRD 002 §B5 scope inventory', () => {
       showWordCount: 'U',
       showResolved: 'U',
       vimNav: 'U',
-      typeToComment: 'U',
       // PRD 022 Req 4: the last-used marker color — the reader's own memory.
       lastMarkerColor: 'U',
       autosaveOnToggle: 'U',

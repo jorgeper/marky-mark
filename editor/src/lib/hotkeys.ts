@@ -43,6 +43,10 @@ export interface HotkeyMap {
   blockquote: string;
   codeBlock: string;
   horizontalRule: string;
+  /** PRD 023 §12 (issue #286): insert a comment on the selection (editor: word fallback). */
+  insertComment: string;
+  /** PRD 023 §12 (issue #286): highlight in the last-used marker color. */
+  applyHighlight: string;
   /** SPEC36 §5: the only-open-files sidebar view. */
   toggleOpenOnly: string;
   /** SPEC36 §6: cycle the open set (strict Ctrl — the browser-tab idiom). */
@@ -93,6 +97,11 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   blockquote: 'Mod+Shift+B',
   codeBlock: 'Mod+Alt+C',
   horizontalRule: 'Mod+Alt+-',
+  // PRD 023 §12 (issue #286): M for coMment, H for Highlight — the
+  // Mod+Alt+<letter> family their codeBlock neighbour uses; neither chord
+  // collides with any shipped combo (combosConflict over this map is clean).
+  insertComment: 'Mod+Alt+M',
+  applyHighlight: 'Mod+Alt+H',
   toggleOpenOnly: 'Mod+Shift+O',
   nextFile: 'Ctrl+Tab',
   prevFile: 'Ctrl+Shift+Tab',

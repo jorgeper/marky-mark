@@ -84,11 +84,13 @@ describe('v3 settings', () => {
 
 describe('v7 settings', () => {
   test('U15: comment controls and split-edit fields parse with defaults; malformed values fall back', () => {
-    // Defaults: comments on, type-to-comment on, split ON (owner call,
-    // SPEC20 follow-up — was off in SPEC7), ratio 0.5.
+    // Defaults: comments on, split ON (owner call, SPEC20 follow-up — was
+    // off in SPEC7), ratio 0.5. PRD 023 §6 (issue #286): typeToComment is
+    // retired with the popup — a persisted file still carrying it parses
+    // without throwing and without resurrecting the key.
     const d = parseSettings('{}');
     expect(d.commentsEnabled).toBe(true);
-    expect(d.typeToComment).toBe(true);
+    expect('typeToComment' in parseSettings('{"typeToComment":true}')).toBe(false);
     expect(d.splitEdit).toBe(true);
     expect(d.splitRatio).toBe(0.5);
 
@@ -97,21 +99,18 @@ describe('v7 settings', () => {
       serializeSettings({
         ...DEFAULT_SETTINGS,
         commentsEnabled: false,
-        typeToComment: false,
         showResolved: false,
         splitEdit: true,
         splitRatio: 0.35,
       })
     );
     expect(custom.commentsEnabled).toBe(false);
-    expect(custom.typeToComment).toBe(false);
     expect(custom.showResolved).toBe(false);
     expect(custom.splitEdit).toBe(true);
     expect(custom.splitRatio).toBe(0.35);
 
     // Malformed booleans fall back to their defaults.
     expect(parseSettings('{"commentsEnabled":"no"}').commentsEnabled).toBe(true);
-    expect(parseSettings('{"typeToComment":0}').typeToComment).toBe(true);
     expect(parseSettings('{"splitEdit":"yes"}').splitEdit).toBe(true); // falls back to the (on) default
     expect(parseSettings('{"splitEdit":false}').splitEdit).toBe(false); // explicit off is honored
 

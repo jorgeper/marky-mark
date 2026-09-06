@@ -855,58 +855,6 @@ mark.hl.ghost[data-color] {
 }
 /* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
-/* PRD 022 Req 1: the marker popup replaces the Add-comment pill — same
-   floating placement (and the issue #18 toolbar floor, applied inline),
-   now a compact row of swatch buttons plus "add note". */
-.marker-popup {
-  position: fixed;
-  transform: translateX(-50%);
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 7px;
-  background: var(--mm-bg-elevated, #f6f8fa);
-  border: 1px solid var(--mm-border, #d1d9e0);
-  border-radius: var(--mm-radius-medium);
-  box-shadow: var(--mm-panel-shadow);
-}
-
-/* Issue #38: the plain-edit-mode affordance — same popup, pinned top-right
-   (editor selections carry no pixel rect to float over). */
-.marker-popup-edit {
-  left: auto;
-  right: 14px;
-  transform: none;
-}
-
-/* The swatch: an icon-btn whose face IS the marker hue (content, not
-   restated chrome), shared by its two hosts — the selection popup and the
-   active card's recolor row (PRD 022 Req 8, issue #232). The ringed one is
-   the popup's armed color (Req 4) or the card entry's current color. */
-.marker-swatch {
-  width: 20px;
-  height: 20px;
-  min-width: 20px;
-  border-radius: var(--mm-radius-small);
-}
-.marker-swatch-yellow {
-  background: var(--mm-marker-yellow);
-}
-.marker-swatch-green {
-  background: var(--mm-marker-green);
-}
-.marker-swatch-orange {
-  background: var(--mm-marker-orange);
-}
-.marker-swatch-pink {
-  background: var(--mm-marker-pink);
-}
-.marker-swatch.armed {
-  outline: 2px solid var(--mm-accent, #0969da);
-  outline-offset: 1px;
-}
-
 /* ---------- comments pane (PRD 023 §14, issue #284) ---------- */
 
 /* The third workspace pane — a body-row sibling at the RIGHT edge, in every

@@ -351,6 +351,28 @@ export type SmartMenuEntry =
     }
   | 'sep';
 
+/**
+ * PRD 023 §7 (issue #286): the owner-fed annotation context — computed by the
+ * app at menu-open time (the package never sees the comment store) and handed
+ * in through SmartMenuCtx. Null/absent means the authoring gate is closed
+ * (comments off, frozen store, no comment.write) and NEITHER entry appears at
+ * all — the popup's all-or-nothing gate, expressed as absence.
+ */
+export interface SmartMenuAnnotations {
+  /** A selection or word-under-caret mapped confidently to rendered text. */
+  insertCommentEnabled: boolean;
+  /** The caret sits inside an existing comment's painted range. */
+  deleteCommentEnabled: boolean;
+  /** The marker vocabulary in its fixed display order (owner-supplied). */
+  colors: readonly string[];
+  /** Insert (selection/word) or recolor (caret on a highlight) is possible. */
+  colorsEnabled: boolean;
+  /** The last-used marker color — its row carries the hotkey cue. */
+  armedColor: string;
+  /** No selection and the caret sits on an existing highlight. */
+  removeHighlightEnabled: boolean;
+}
+
 export interface SmartMenuCtx {
   table: boolean;
   image: boolean;
@@ -358,6 +380,8 @@ export interface SmartMenuCtx {
   canPaste: boolean;
   hotkeys: HotkeyMap;
   isMac: boolean;
+  /** PRD 023 §7 (issue #286): annotation entries; null/absent ⇒ gate closed. */
+  annotations?: SmartMenuAnnotations | null;
   /** SPEC40 §1.2: the global grid view is on — the toggle item flips it. */
   gridView: boolean;
   /** SPEC41 §1.2: the global inline-image view is on. */
@@ -425,6 +449,39 @@ export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
       ],
     })
   );
+  // PRD 023 §§7–11 (issue #286): Comment then Highlight, below Diagram and
+  // above the Bold separator — the Table submenu's always-listed Insert/
+  // Delete idiom, each row enabled by its own condition. The ids ('comment',
+  // 'highlight', 'insert-comment', 'delete-comment', 'hl-<color>',
+  // 'remove-highlight') collide with nothing existing.
+  if (ctx.annotations) {
+    const a = ctx.annotations;
+    out.push(
+      item('comment', 'Comment', {
+        submenu: [
+          item('insert-comment', 'Insert Comment', {
+            hotkey: hk(h.insertComment),
+            enabled: a.insertCommentEnabled,
+          }),
+          item('delete-comment', 'Delete Comment', { enabled: a.deleteCommentEnabled }),
+        ],
+      }),
+      item('highlight', 'Highlight', {
+        submenu: [
+          // PRD 023 §9: the four colors in fixed vocabulary order — never
+          // reordered by last-used; the armed color's cue is the Mod+Alt+H
+          // hotkey it would apply (PRD 022 Req 4).
+          ...a.colors.map((c) =>
+            item(`hl-${c}`, c.charAt(0).toUpperCase() + c.slice(1), {
+              enabled: a.colorsEnabled,
+              ...(c === a.armedColor ? { hotkey: hk(h.applyHighlight) } : {}),
+            })
+          ),
+          item('remove-highlight', 'Remove Highlight', { enabled: a.removeHighlightEnabled }),
+        ],
+      })
+    );
+  }
   out.push('sep');
 
   out.push(
