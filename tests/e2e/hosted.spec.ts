@@ -34,9 +34,6 @@ import {
   saveSettings,
   selectPhrase,
 } from './helpers';
-// PRD 011 Req 9 (#121): the sentence under test comes from the module that
-// owns it, so a reworded message fails E246 rather than passing a stale copy.
-import { NO_LLM_CONFIGURED_MESSAGE } from '../../src/lib/llmDeployment';
 // Issue #179: E325 poisons the store with a real draft payload, built by the
 // module that owns the format so a schema change fails the test loudly.
 import { serializeDraft } from '../../src/lib/drafts';
@@ -1911,7 +1908,8 @@ test('E364: Workspace is its own settings tab, immediately after Editor, holding
     'Editor',
     'Workspace',
     'Hotkeys',
-    'LLM providers',
+    // Issue #247: no 'LLM providers' — it is a nested page under the Semantic
+    // zoom experiment now, not a rail tab, in this build or any other.
     'Experimental',
   ]);
   // The sections are no longer appended to the General tab — in either scope.
@@ -2904,41 +2902,32 @@ test('E220: dropping a local file with a workspace open crosses into single-file
 // meet. Nothing here contacts a provider: the server makes no outbound request
 // until a POST asks it to, and no test posts one.
 
-test('E246: PRD 011 Reqs 8+9 — hosted with no operator provider says so, and offers a member no key field', async ({
+test('E246: issue #247 — hosted cannot turn the Semantic zoom experiment on, so the LLM providers page it serves is offered nowhere', async ({
   page,
 }) => {
   await signInTo(page, 'ada');
   await revealToolbar(page);
-  await openSettings(page, 'llm');
+  await openSettings(page, 'experimental');
 
-  // The sentence is the deployment's own (src/lib/llmDeployment.ts), not one
-  // this panel composed: it names what is missing and who can fix it.
-  await expect(page.getByTestId('llm-availability')).toHaveText(NO_LLM_CONFIGURED_MESSAGE);
+  // Issue #247: the hosted build declares no `semanticZoom` capability, so the
+  // row shows the feature exists and says plainly that it cannot run here.
+  const box = page.getByTestId('experimental-semantic-zoom');
+  await expect(box).toBeDisabled();
+  await expect(box).not.toBeChecked();
+  await expect(page.getByTestId('experimental-semantic-zoom-unavailable')).toContainText('web version');
 
-  // Req 8: the credential is the operator's. A member is offered no field to
-  // type one into, and no action to remove one they never had.
-  await expect(page.getByTestId('llm-api-key')).toHaveCount(0);
-  await expect(page.getByTestId('llm-remove-key')).toHaveCount(0);
-  // …and no provider or model control either: choosing them is not theirs.
-  await expect(page.getByTestId('llm-provider')).toHaveCount(0);
-  await expect(page.getByTestId('llm-model')).toHaveCount(0);
-  await expect(page.getByTestId('llm-model-preset')).toHaveCount(0);
-  await expect(page.getByTestId('llm-base-url')).toHaveCount(0);
-  // Nothing is configured, so there is nothing to name as in use.
-  await expect(page.getByTestId('llm-hosted-provider')).toHaveCount(0);
-
-  // Req 9: no control that cannot work. Test connection is rendered but inert,
-  // and the reason it is inert is the availability sentence itself — not a
-  // second wording invented for the button.
-  await expect(page.getByTestId('llm-test')).toBeDisabled();
-  await expect(page.getByTestId('llm-test')).toHaveAttribute('title', NO_LLM_CONFIGURED_MESSAGE);
-  await expect(page.getByTestId('llm-test-result')).toHaveCount(0);
-
-  // Req 9+30, the same rule again: on hosted the cache belongs to the
-  // workspace (src/platform/hosted.ts), and this session has none open — so
-  // the section is absent rather than drawn over a store that does not exist.
-  await expect(page.getByTestId('summary-cache-size')).toHaveCount(0);
-  await expect(page.getByTestId('summary-cache-clear')).toHaveCount(0);
+  // The LLM provider settings exist only to serve that experiment, so with the
+  // experiment unturnable nothing routes to them: no rail tab (it is gone in
+  // every build), a dead `Settings…` button, and no stand-down link for a
+  // feature that never ran. What PRD 011 Reqs 8+9 promised the page would SAY
+  // on a hosted deployment — the deployment's own NO_LLM_CONFIGURED_MESSAGE,
+  // and no key/provider/model control for a member whose credential is the
+  // operator's — is asserted where it is decided, by U564 and U627 in
+  // tests/unit/llm-settings.test.ts.
+  await expect(page.getByTestId('settings-tab-llm')).toHaveCount(0);
+  await expect(page.getByTestId('experimental-semantic-zoom-settings')).toBeDisabled();
+  await expect(page.getByTestId('experimental-semantic-zoom-stand-down-link')).toHaveCount(0);
+  await expect(page.getByTestId('llm-availability')).toHaveCount(0);
   await saveSettings(page);
 });
 

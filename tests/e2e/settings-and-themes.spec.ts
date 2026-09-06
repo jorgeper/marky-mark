@@ -747,7 +747,9 @@ test('E486: issue #246 — the action footer is pinned outside the scrolling tab
   await expect(actions.getByRole('button')).toHaveCount(2);
 
   const first = (await actions.boundingBox())!;
-  for (const tab of ['appearance', 'editor', 'hotkeys', 'llm', 'experimental'] as const) {
+  // Issue #247: `llm` left the rail — the nested page it became is checked
+  // right after this loop, because the footer must pin on BOTH levels.
+  for (const tab of ['appearance', 'editor', 'hotkeys', 'experimental'] as const) {
     await page.getByTestId(`settings-tab-${tab}`).click();
     const box = (await actions.boundingBox())!;
     expect(Math.abs(box.y - first.y)).toBeLessThanOrEqual(1); // it never moves
@@ -763,6 +765,21 @@ test('E486: issue #246 — the action footer is pinned outside the scrolling tab
   await scroller.evaluate((el) => el.scrollTo(0, el.scrollHeight));
   const scrolled = (await actions.boundingBox())!;
   expect(Math.abs(scrolled.y - first.y)).toBeLessThanOrEqual(1);
+
+  // Issue #247: and one level down. The nested page replaces the rail and the
+  // tab content, never the footer — same sibling, same place, still scrolling
+  // independently of it.
+  await page.getByTestId('settings-tab-experimental').click();
+  await page.getByTestId('experimental-semantic-zoom-stand-down-link').click();
+  await expect(page.getByTestId('settings-page-llm')).toBeVisible();
+  const nested = (await actions.boundingBox())!;
+  expect(Math.abs(nested.y - first.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(nested.x - first.x)).toBeLessThanOrEqual(1);
+  expect(
+    await actions.evaluate((el) => el.parentElement?.dataset.testid ?? '')
+  ).toBe('settings-panel');
+  await expect(page.getByTestId('settings-save')).toBeVisible();
+  await expect(page.getByTestId('settings-cancel')).toBeVisible();
 });
 
 test('E487: issue #246 — nothing is written until Save, which commits and closes', async ({ page }) => {
