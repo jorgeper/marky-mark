@@ -4510,11 +4510,13 @@ export default function App() {
         // visibility toggle it has always been.
         showSidebarView('folders');
       },
-      // PRD 013 Req 13: View → File Tabs flips the persisted setting through
-      // the ordinary settings write path, so the strip and the checkmark
-      // follow together and the open set, the active file, the park map and
-      // dirty state are untouched. Silent no-op without the tab-strip seam
-      // (the static web build; issue #186) — the toggleFolders discipline.
+      // PRD 013 Req 13 (issue #258): the strip's toggle is the Settings ▸
+      // Appearance checkbox now — it writes `fileTabs` through the scoped
+      // settings path, so no surface dispatches this command today. It stays
+      // as the command form of that flip: the ordinary settings write path,
+      // so the strip follows and the open set, the active file, the park map
+      // and dirty state are untouched. Silent no-op without the tab-strip
+      // seam (the static web build; issue #186) — the toggleFolders discipline.
       toggleFileTabs: () => {
         const st = stateRef.current;
         if (!st.platform?.multiFileSession) return;

@@ -9,6 +9,10 @@ regress. §8 is the goal condition.
 expand/collapse folders, markdown files marked with a `#` glyph and
 clickable, everything else grayed and inert. Resizable, closeable,
 toggled from **View → Folders** and a rebindable hotkey (**⌘⇧E**).
+Expanded state and the chosen root persist. Opening a file **reveals it
+in the tree by default**, and a **sync button** re-reveals on demand.
+**File → Open Folder…** opens a folder as the tree root without opening
+any file.
 
 > **Amended (issue #258, 2026-09-06):** the View row is labelled
 > **Sidebar**, not Folders — the pane hosts the folders, TOC and search
@@ -16,10 +20,6 @@ toggled from **View → Folders** and a rebindable hotkey (**⌘⇧E**).
 > `toggleFolders` command, the `showFolders` setting, the ⌘⇧E binding, the
 > checkbox and the workspace-only gating are unchanged, and the panel's own
 > header and view switch still say Folders for the Folders *view*.
-Expanded state and the chosen root persist. Opening a file **reveals it
-in the tree by default**, and a **sync button** re-reveals on demand.
-**File → Open Folder…** opens a folder as the tree root without opening
-any file.
 
 Out of scope: the web build (it defines neither seam method below, so
 the entire feature is unreachable there — no hamburger change, E13
@@ -132,10 +132,9 @@ Two OPTIONAL `Platform` methods (absent ⇒ the feature never renders):
    empty), state round-trip/corruption/cap.
 2. **U61** — menu/hotkeys/settings: View starts with the Sidebar
    checkbox (issue #258; accelerator `Mod+Shift+E`, tracks
-   `showFolders`); File
-   carries Open Folder… after the Open Recent submenu; both layouts;
-   `showFolders` default false, `folderWidth` clamps 160–480 (default
-   240), hotkey merges into old settings files.
+   `showFolders`); File carries Open Folder… after the Open Recent
+   submenu; both layouts; `showFolders` default false, `folderWidth`
+   clamps 160–480 (default 240), hotkey merges into old settings files.
 3. **E93** — tree basics (shim, seeded virtual folders): open panel via
    hotkey → empty state → Open Folder…, (hook-armed) → root lists,
    folders sort first, dotfiles absent; expand/collapse persists across

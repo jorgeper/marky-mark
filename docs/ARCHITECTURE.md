@@ -829,7 +829,8 @@ requires `ctrlKey` and `mod` then matches `metaKey` alone; `displayCombo`
 renders ⌃ on mac. No shipped default or recorded binding ever used the
 old `ctrl`→Mod alias, and `comboFromEvent` (recording) still emits `Mod`.
 Defaults: `nextFile` Ctrl+Tab, `prevFile` Ctrl+Shift+Tab, `toggleOpenOnly`
-Mod+Shift+O (a View menu checkbox item rides after Folders).
+Mod+Shift+O (a View menu checkbox item rides after Sidebar — issue
+#258 renamed that row from Folders).
 
 ## Open Recent (SPEC29)
 

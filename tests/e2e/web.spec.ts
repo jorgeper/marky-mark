@@ -619,16 +619,16 @@ test('W16: PRD 013 Req 14 (issue #149, amended by #258) — the file tab strip i
   await expect(flyout).toBeVisible();
   await expect(flyout.getByTestId('menu-view-toggleMode')).toBeVisible();
   await expect(flyout.getByTestId('menu-view-toggleFileTabs')).toHaveCount(0);
-  await page.keyboard.press('Escape');
+  // Close the menu with an outside mousedown — besides a row or the
+  // hamburger, the only close the app menu implements (W13). The hamburger
+  // would only toggle it shut, leaving openSettings() nothing to click.
+  await page.getByTestId('docname').click();
+  await expect(page.getByTestId('app-menu')).toHaveCount(0);
 
   // PRD 013 Req 13 (issue #258): the checkbox that inherited the toggle is
   // gated on the same seam, so this build shows no row there either — no
   // dead switch for a strip that cannot exist.
-  await revealToolbar(page);
-  await page.getByTestId('menu-btn').click();
-  await page.getByTestId('menu-settings').click();
-  await page.getByTestId('settings-panel').waitFor();
-  await page.getByTestId('settings-tab-appearance').click();
+  await openSettings(page, 'appearance');
   await expect(page.getByTestId('settings-theme-light')).toBeVisible();
   await expect(page.getByTestId('settings-file-tabs')).toHaveCount(0);
 });

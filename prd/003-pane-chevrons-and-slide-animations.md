@@ -10,13 +10,13 @@ Closing a side pane is easy; getting it back is not.
 The folder pane's header carries an X (`data-testid="folder-close"`,
 `FolderPanel.tsx`). Clicking it unmounts the pane completely — nothing
 remains on the left edge — so reopening requires the View → Folders menu,
-the `Mod+Shift+E` hotkey, or knowing that the setting exists at all.
+the `Mod+Shift+E` hotkey, or knowing that the setting exists at all. The
+close affordance and the open affordance live in different places.
 
 > **Amended (issue #258, 2026-09-06):** that menu item is labelled **View →
 > Sidebar** now — here and everywhere below in this PRD. Only the label
 > changed: the same `toggleFolders` command, `showFolders` setting and
-> `Mod+Shift+E` binding, so every statement about its behaviour holds. The
-close affordance and the open affordance live in different places.
+> `Mod+Shift+E` binding, so every statement about its behaviour holds.
 
 The split preview is worse: it has no close control at all. Hiding it means
 flipping the Split Edit setting via menu, hotkey (`Mod+\`), or the Settings
