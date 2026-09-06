@@ -6292,9 +6292,9 @@ test('E564: the highlight copy-link\'s "Link copied" caption is an opaque pill b
   const restBox = (await link.boundingBox())!;
   await link.click();
   await expect(link).toHaveAttribute('aria-label', 'Link copied');
-  const left = await measure();
-  expectLegiblePill(left, restBox);
-  expect(left.right).toBeLessThanOrEqual(left.blockContentLeft);
+  const leftPill = await measure();
+  expectLegiblePill(leftPill, restBox);
+  expect(leftPill.right).toBeLessThanOrEqual(leftPill.blockContentLeft);
   const copiedBox = (await link.boundingBox())!;
   expect(Math.abs(copiedBox.x - restBox.x)).toBeLessThan(1);
   expect(Math.abs(copiedBox.y - restBox.y)).toBeLessThan(1);
@@ -6320,9 +6320,9 @@ test('E564: the highlight copy-link\'s "Link copied" caption is an opaque pill b
   const squeezedBox = (await link.boundingBox())!;
   await link.click();
   await expect(link).toHaveAttribute('aria-label', 'Link copied');
-  const right = await measure();
-  expectLegiblePill(right, squeezedBox);
-  expect(right.left).toBeGreaterThanOrEqual(squeezedBox.x + squeezedBox.width);
+  const rightPill = await measure();
+  expectLegiblePill(rightPill, squeezedBox);
+  expect(rightPill.left).toBeGreaterThanOrEqual(squeezedBox.x + squeezedBox.width);
   await expect(link).toHaveAttribute('aria-label', 'Copy link to highlight', { timeout: 4000 });
 });
 

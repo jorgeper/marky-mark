@@ -128,11 +128,13 @@ const CAPTION_GAP = 4;
 function placeCaption(btn: HTMLElement): void {
   const b = btn.getBoundingClientRect();
   const side = b.left - CAPTION_GAP >= CAPTION_ROOM ? 'left' : 'right';
-  const viewportWidth = btn.ownerDocument.documentElement.clientWidth;
   btn.dataset.captionSide = side;
   btn.style.setProperty('--mm-hl-caption-y', `${b.top + b.height / 2}px`);
-  btn.style.setProperty(
-    '--mm-hl-caption-x',
-    side === 'left' ? `${viewportWidth - b.left + CAPTION_GAP}px` : `${b.right + CAPTION_GAP}px`
-  );
+  // The x value is the inset the CSS reads for that side: on the left a
+  // `right` inset measured from the viewport's right edge, so the pill ENDS
+  // one gap before the glyph; on the right a `left` inset, so it STARTS one
+  // gap after it.
+  const viewportWidth = btn.ownerDocument.documentElement.clientWidth;
+  const inset = side === 'left' ? viewportWidth - b.left + CAPTION_GAP : b.right + CAPTION_GAP;
+  btn.style.setProperty('--mm-hl-caption-x', `${inset}px`);
 }
