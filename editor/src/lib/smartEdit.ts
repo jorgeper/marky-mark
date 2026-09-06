@@ -463,6 +463,8 @@ export interface SmartMenuCtx {
   diagramView: boolean;
   /** SPEC43 §11 (issue #270): the global rendered-links view is on. */
   linkView: boolean;
+  /** Issue #318: the global edit-pane callout view is on — the toggle row flips it. */
+  calloutView: boolean;
   /**
    * SPEC43 §11 (issue #270): the caret/selection head sits inside a link
    * that has a URL — resolved by the owner through `linkAt` (linkSpans.ts),
@@ -569,6 +571,10 @@ export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
     }),
     item('callout', 'Callout', {
       submenu: [
+        // Issue #318: the edit-pane callout view's global toggle, first in
+        // the submenu — the toggle-grid / toggle-links idiom. The five insert
+        // rows below keep their ids, labels, order and no-hotkey status.
+        item('toggle-callouts', ctx.calloutView ? 'Show Raw Callouts' : 'Show Rendered Callouts'),
         item('note', 'Note'),
         item('tip', 'Tip'),
         item('important', 'Important'),

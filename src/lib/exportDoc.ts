@@ -79,6 +79,15 @@ export const STATIC_PAGE_CSS = `body { margin: 0; }
 .doc pre { background: var(--mm-code-bg, #f6f8fa); border-radius: 9px; padding: 14px 16px; overflow-x: auto; }
 .doc pre code { background: none; padding: 0; }
 .doc blockquote { margin: 1em 0; padding: 0.1em 1.1em; border-left: 3px solid var(--mm-blockquote-border, #d1d9e0); color: var(--mm-blockquote-fg, #59636e); }
+/* Issue #318: GitHub-alert callouts — the editor stylesheet's .doc rules, so an exported or printed page paints them too. */
+.mm-callout-note { --mm-callout-hue: var(--mm-callout-note, #0969da); }
+.mm-callout-tip { --mm-callout-hue: var(--mm-callout-tip, #1a7f37); }
+.mm-callout-important { --mm-callout-hue: var(--mm-callout-important, #8250df); }
+.mm-callout-warning { --mm-callout-hue: var(--mm-callout-warning, #9a6700); }
+.mm-callout-caution { --mm-callout-hue: var(--mm-callout-caution, #cf222e); }
+.doc blockquote.mm-callout { padding: 0.55em 1.1em 0.6em; border-left-color: var(--mm-callout-hue); border-radius: 0 6px 6px 0; background: color-mix(in srgb, var(--mm-callout-hue) 12%, var(--mm-bg, #ffffff)); color: var(--mm-callout-fg, var(--mm-fg, #1f2328)); }
+.doc blockquote.mm-callout > .mm-callout-title { margin: 0.35em 0 0; font-weight: 600; color: color-mix(in srgb, var(--mm-callout-hue) 25%, var(--mm-callout-fg, var(--mm-fg, #1f2328))); }
+.doc blockquote.mm-callout > .mm-callout-title + * { margin-top: 0.35em; }
 .doc table { border-collapse: collapse; margin: 1em 0; }
 .doc th, .doc td { border: 1px solid var(--mm-table-border, #d1d9e0); padding: 6px 13px; }
 .doc img { max-width: 100%; }

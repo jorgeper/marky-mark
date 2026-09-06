@@ -89,6 +89,7 @@ function StandaloneEditor({
             codeBlockView
             diagramView
             linkView
+            calloutView
             themeVariant={themeVariant}
           />
         }

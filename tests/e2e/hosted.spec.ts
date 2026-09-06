@@ -492,6 +492,70 @@ test('E391: the badge holds one anchored position across sign-in and the splash,
   expect(signedOut.h, 'signed-out h').toBe(splash.h);
 });
 
+test('E541: the held boot frame shows a large accent-ring indicator of its own — at least 28px square, spinning, and stilled under reduced motion', async ({
+  page,
+}) => {
+  // PRD 020 Req 5+6 (issue #316): the frame's indicator used to borrow the
+  // search panel's 9px caption spinner and read as a speck on a full-viewport
+  // surface. It now owns its own rule: a 32px thin-stroke accent ring on the
+  // plain app background — still one element, no text, the same role/label
+  // contract, and the late fade-in unchanged.
+  await page.goto(`${HOSTED}/`);
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('splash-badge')).toBeVisible();
+
+  // Hold /api/me open so the frame stays up long enough to measure.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/me', async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.reload();
+  const frame = page.getByTestId('hosted-booting');
+  await expect(frame).toBeVisible();
+  await expect(frame).toHaveAttribute('role', 'status');
+  await expect(frame).toHaveAttribute('aria-label', 'Opening Marky Mark');
+
+  const spinner = page.getByTestId('hosted-booting-spinner');
+  await expect(spinner).toHaveAttribute('aria-hidden', 'true');
+  const measured = await spinner.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    return {
+      w: r.width,
+      h: r.height,
+      classes: el.className,
+      text: el.textContent,
+      animations: cs.animationName,
+      // The frame holds exactly one child: the indicator, no text or panel.
+      frameChildren: el.parentElement?.childElementCount ?? 0,
+      frameText: el.parentElement?.textContent ?? '',
+    };
+  });
+  expect(measured.w, 'indicator width').toBeGreaterThanOrEqual(28);
+  expect(measured.h, 'indicator height').toBeGreaterThanOrEqual(28);
+  // Its own rule, not the search panel's 9px class.
+  expect(measured.classes).not.toContain('search-scanning-spinner');
+  expect(measured.frameChildren).toBe(1);
+  expect(measured.frameText).toBe('');
+  // Spins, and keeps the late fade-in.
+  expect(measured.animations).toContain('mm-search-spin');
+  expect(measured.animations).toContain('mm-boot-hold-in');
+
+  // Reduced motion: no continuous spin, the fade-in alone.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const stilled = await spinner.evaluate((el) => getComputedStyle(el).animationName);
+  expect(stilled).not.toContain('mm-search-spin');
+  expect(stilled).toContain('mm-boot-hold-in');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+
+  release();
+  await expect(page.getByTestId('splash-badge')).toBeVisible();
+  await expect(frame).toHaveCount(0);
+});
+
 /** Create a workspace and return its id (PRD 007 Req 10: creator → Owner). */
 async function createWorkspace(request: APIRequestContext, token: string, name: string): Promise<string> {
   const res = await request.post(`${HOSTED}/api/workspaces`, {
@@ -3784,7 +3848,7 @@ test.describe('PRD 017 the Management view', () => {
     await expect(page.getByTestId('admin-user-admin-mock-ada')).toHaveCount(0);
   });
 
-  test('E538: issue #317 — the Management dialog is the Settings dialog’s box, with all three tabs still reachable inside it', async ({
+  test('E542: issue #317 — the Management dialog is the Settings dialog’s box, with all three tabs still reachable inside it', async ({
     page,
   }) => {
     // PRD 017 Req 13 as amended by issue #317: the two dialogs size from one

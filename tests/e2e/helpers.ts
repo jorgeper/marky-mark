@@ -328,7 +328,11 @@ async function annotationMenuRow(
     }
     await open();
     await expect(page.getByTestId('smart-edit-menu')).toBeVisible({ timeout: 1000 });
-    await page.getByTestId(`smart-edit-${submenu}`).click();
+    // Bounded like the row check below: the menu can close again a beat after
+    // it opened (the same debounced re-resolve), and an unbounded click would
+    // then wait on the vanished row for the whole toPass budget instead of
+    // letting the pass retry.
+    await page.getByTestId(`smart-edit-${submenu}`).click({ timeout: 1000 });
     const row = page.getByTestId(`smart-edit-${leaf}`);
     await expect(row).toBeEnabled({ timeout: 700 });
     await row.click();

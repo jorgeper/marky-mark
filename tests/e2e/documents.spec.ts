@@ -7,12 +7,14 @@ import {
   fsRead,
   fsWrite,
   menuClick,
+  openGridDoc,
   openWelcomeViaHelp,
   PHRASE,
   revealToolbar,
   waitForSidecar,
   WELCOME,
 } from './helpers';
+import { serializeDraft } from '../../src/lib/drafts';
 
 // Opening, saving and remembering documents: Save As, the unsaved-changes
 // guard, new buffers, Open Recent, the never-reopen launch (#81), crash-safe
@@ -363,6 +365,118 @@ test('E92: crash-safe drafts — shadow write, restore, discard, staleness after
   await expect(page.getByTestId('docname')).toContainText('Untitled');
   await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('ScratchDraft');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
+});
+
+test('E538: the restore dialog explains itself — where the copy came from, and a drafted file that no longer exists is said to be gone and lands in Untitled (issue #319)', async ({
+  page,
+}) => {
+  // SPEC30 §3.3, the ordinary case: the drafted file still exists. The
+  // dialog names it AND says in plain words where the copy came from —
+  // edits never saved when the previous session ended. The word "kept" is
+  // deliberately not asserted; the sentence is, so a reword that drops the
+  // explanation fails here.
+  await fsWrite(
+    page,
+    '/config/draft.json',
+    serializeDraft({ version: 1, docPath: WELCOME, content: '# Welcome to Marky Mark\n\nORPHAN EDIT\n', at: new Date().toISOString() })
+  );
+  await page.reload();
+  const prompt = page.getByTestId('restore-prompt');
+  await expect(prompt).toBeVisible({ timeout: 15000 });
+  await expect(prompt).toContainText('welcome.md');
+  await expect(prompt).toContainText('never saved when it ended');
+  await expect(prompt).not.toContainText('no longer exists');
+  await page.getByTestId('restore-no').click();
+  await expect(prompt).toHaveCount(0);
+  await expect.poll(() => fsRead(page, '/config/draft.json')).toBeNull();
+
+  // The reported case: the drafted path is gone (deleted, renamed, or a path
+  // from another machine's disk). Before #319 the dialog named the file as if
+  // it were still there; now it says the file is gone and what Restore does.
+  await fsWrite(
+    page,
+    '/config/draft.json',
+    serializeDraft({ version: 1, docPath: '/docs/vanished.md', content: '# Vanished\n\nRESCUED EDIT\n', at: new Date().toISOString() })
+  );
+  expect(await fsRead(page, '/docs/vanished.md')).toBeNull();
+  await page.reload();
+  await expect(prompt).toBeVisible({ timeout: 15000 });
+  await expect(prompt).toContainText('vanished.md');
+  await expect(prompt).toContainText('no longer exists');
+  await expect(prompt).toContainText('new Untitled document');
+  // Restore keeps the edits: a fresh Untitled buffer, dirty, holding the draft.
+  await page.getByTestId('restore-yes').click();
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('RESCUED EDIT');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect.poll(() => fsRead(page, '/config/draft.json')).toBeNull();
+});
+
+test('E539: opening a document without editing it never produces a draft — CRLF, embedded-comment trailer, and a table in grid mode (issue #319)', async ({
+  page,
+}) => {
+  // SPEC30 §3.2 writes the shadow copy ~2 s after the buffer turns dirty, so
+  // each document is opened, flipped into edit (the buffer round-trips
+  // through CodeMirror, the grid renders), and left alone past the debounce.
+  // A document that opened dirty would show the dot and land draft.json.
+  const untouched = async () => {
+    await page.waitForTimeout(2500); // intentional: outwait the 2 s shadow-write debounce
+    await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+    expect(await fsRead(page, '/config/draft.json')).toBeNull();
+    // Back to preview, so the next #open renders into the preview container.
+    await page.keyboard.press('Control+e');
+    await expect(page.getByTestId('editor')).toHaveCount(0);
+  };
+
+  // A CRLF file (issue #42: line endings normalize once, at load).
+  await fsWrite(page, '/docs/crlf.md', '# CRLF doc\r\n\r\nLine one\r\nLine two\r\n');
+  await page.goto('/#open=/docs/crlf.md');
+  await expect(page.getByTestId('doc')).toContainText('Line two');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('Line two');
+  await untouched();
+
+  // A file carrying an embedded-comment trailer (SPEC2 §5): the buffer holds
+  // the body, the trailer is not content.
+  const body = '# Commented doc\n\nA paragraph someone commented on.\n';
+  const trailer =
+    '\n<!-- marky-mark-comments\n' +
+    JSON.stringify({
+      version: '2.0.0',
+      comments: [
+        {
+          kind: 'comment',
+          id: 'e539-c1',
+          author: 'Reviewer',
+          createdAt: '2026-09-01T00:00:00.000Z',
+          body: 'nit',
+          resolved: false,
+          thread: [],
+          anchor: { exact: 'paragraph', prefix: 'A ', suffix: ' someone', start: 19, end: 28 },
+        },
+      ],
+    }) +
+    '\n-->\n';
+  await fsWrite(page, '/docs/commented.md', body + trailer);
+  await page.goto('/#open=/docs/commented.md');
+  await expect(page.getByTestId('doc')).toContainText('someone commented on');
+  await expect(page.getByTestId('doc')).not.toContainText('marky-mark-comments');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('someone commented on');
+  await untouched();
+
+  // A table opened in grid mode (SPEC38 §3.5): the display grid never counts
+  // as an edit, and the draft would hold the canonical text anyway.
+  await openGridDoc(page, '/docs/grid.md', 'top\n\n| aaa | b |\n| --- | --- |\n| 1 | 2 |\n\ntail', 'top');
+  await untouched();
+
+  // A "crash" after all three: a hash-less relaunch (the #open hash would be
+  // an explicit open again, per E91) lands on the splash with no offer.
+  await page.goto('/');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.waitForTimeout(750); // intentional: the offer fires ~250 ms after boot
+  await expect(page.getByTestId('restore-prompt')).toHaveCount(0);
+  expect(await fsRead(page, '/config/draft.json')).toBeNull();
 });
 
 test('E326: closing to the splash leaves no stale document behind — preview, edit, and split edit (issue #43)', async ({

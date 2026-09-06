@@ -1175,6 +1175,22 @@ export function SettingsPanel({
         </label>
         {scopeNote('linkView')}
       </div>
+
+      {/* Issue #318: the edit-pane callout view, beside its five view kin. */}
+      <SectionHeader>Callouts</SectionHeader>
+      <div className="checkbox-row">
+        <input
+          id="settings-callout-view"
+          type="checkbox"
+          data-testid="settings-callout-view"
+          checked={settings.calloutView}
+          onChange={(e) => onChange({ ...settings, calloutView: e.target.checked })}
+        />
+        <label htmlFor="settings-callout-view" style={{ margin: 0, fontWeight: 400 }}>
+          Show callouts in the editor
+        </label>
+        {scopeNote('calloutView')}
+      </div>
     </>
   );
 

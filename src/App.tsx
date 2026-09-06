@@ -237,6 +237,7 @@ import { annotationMenuModel, previewAnnotationModel, type AnnotationMenuModel }
 import { commentsPaneOpen, commentsSeamUp } from './lib/commentsPane';
 import { pickHitRecord } from './lib/markHit';
 import { isStaleDraft, parseDraft, serializeDraft, type Draft } from './lib/drafts';
+import { DraftShadow } from './lib/draftShadow';
 import { FindBar } from './components/FindBar';
 import { FrontMatterCard } from './components/FrontMatterCard';
 import type { Theme } from './lib/themes';
@@ -656,8 +657,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * it was before the toggles existed.
    */
   const findReplaceText = findOptions.regex ? findReplace : literalReplacement(findReplace);
-  // SPEC30 §3: the boot-time draft offer.
-  const [restorePrompt, setRestorePrompt] = useState<Draft | null>(null);
+  // SPEC30 §3: the boot-time draft offer. Issue #319: `fileMissing` rides
+  // along so the dialog can say the drafted file is gone (Restore then lands
+  // in a fresh Untitled) instead of naming it as if it were still there.
+  const [restorePrompt, setRestorePrompt] = useState<{ draft: Draft; fileMissing: boolean } | null>(null);
   // PRD 022 Reqs 1–2, PRD 023 §8 (issue #286): the composer is attached to
   // an already-created empty comment record — `cid` always set now, since
   // every authoring path (menu Insert Comment, both hotkeys) creates the
@@ -884,7 +887,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   /** SPEC30 §1.3: preview match mark groups, index-aligned with the count. */
   const findMarksRef = useRef<HTMLElement[][]>([]);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const draftWrittenRef = useRef(false);
   // SPEC25: selection carry across mode switches.
   const lastEditorSelRef = useRef<{ from: number; to: number }>({ from: 0, to: 0 });
   const pendingEditorSelRef = useRef<{ from: number; to: number } | null>(null);
@@ -941,6 +943,13 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const toggleLinkView = useCallback(() => {
     const s = stateRef.current.settings;
     updateSettings({ ...s, linkView: !s.linkView });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Issue #318: the Callout ▸ toggle and the Settings checkbox flip this.
+  const toggleCalloutView = useCallback(() => {
+    const s = stateRef.current.settings;
+    updateSettings({ ...s, calloutView: !s.calloutView });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1050,6 +1059,27 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     // SIDEBAR's grants (file.create) — not the open document's.
     folderGrants,
   };
+  // SPEC30 §3.2 (issue #319): the shadow copy's sequencing lives in the pure
+  // DraftShadow; only the I/O is bound here. Its io reads the platform lazily
+  // so it can outlive the binding and the write/remove never race the ref.
+  // A ref, not useMemo: the instance carries state (what landed, what was
+  // dropped), and React may discard a memoized value at any time.
+  const draftPath = async (pf: Platform) => pf.join(await pf.configDir(), 'draft.json');
+  const draftShadowRef = useRef(
+    new DraftShadow({
+      write: async (d) => {
+        const pf = stateRef.current.platform;
+        if (!pf) return;
+        await pf.writeTextFile(await draftPath(pf), serializeDraft(d));
+      },
+      remove: async () => {
+        const pf = stateRef.current.platform;
+        if (!pf) return;
+        const d = await draftPath(pf);
+        if (await pf.exists(d)) await pf.remove(d);
+      },
+    })
+  );
 
   /**
    * Issue #262: every new-file path ends with the caret in the editor, ready
@@ -3075,13 +3105,17 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
               await p.remove(dPath);
               return;
             }
-            const disk =
-              draft.docPath && (await p.exists(draft.docPath)) ? await p.readTextFile(draft.docPath) : null;
+            // Issue #319: a drafted path that no longer exists is remembered
+            // for the dialog's wording. §3.3: isStaleDraft strips the disk
+            // copy's comment trailer before comparing, so a saved commented
+            // document is stale here rather than re-offered every launch.
+            const fileMissing = draft.docPath !== null && !(await p.exists(draft.docPath));
+            const disk = draft.docPath && !fileMissing ? await p.readTextFile(draft.docPath) : null;
             if (isStaleDraft(draft, disk)) {
               await p.remove(dPath);
               return;
             }
-            setRestorePrompt(draft);
+            setRestorePrompt({ draft, fileMissing });
           } catch {
             /* best effort */
           }
@@ -4040,17 +4074,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // The boot effect's PRD 019 Req 10 scratch-start hook calls through here.
   startUntitledRef.current = startUntitled;
 
-  /** SPEC30 §3.2: remove the shadow draft (best effort). */
+  /** SPEC30 §3.2: remove the shadow draft (best effort) — an explicit discard. */
   const deleteDraft = useCallback(async () => {
-    const p = stateRef.current.platform;
-    draftWrittenRef.current = false;
-    if (!p) return;
-    try {
-      const d = p.join(await p.configDir(), 'draft.json');
-      if (await p.exists(d)) await p.remove(d);
-    } catch {
-      /* best effort */
-    }
+    await draftShadowRef.current.discard();
   }, []);
 
   /** SPEC36 §5.2: flip the only-open-files view (shows the panel if hidden). */
@@ -6092,32 +6118,26 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
   // SPEC30 §3.2: the dirty-buffer shadow copy — ~2s idle debounce; a clean
   // transition deletes it; never touch it while the restore offer is open.
+  // Issue #319: the write re-checks dirtiness once it lands (DraftShadow), so
+  // a save that completes while the write is in flight leaves no orphan.
   useEffect(() => {
     if (!platform || restorePrompt) return;
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     if (!dirty) {
-      if (draftWrittenRef.current) void deleteDraft();
+      void draftShadowRef.current.clean();
       return;
     }
     draftTimerRef.current = setTimeout(() => {
       const s = stateRef.current;
-      const pf = s.platform;
-      if (!s.dirty || !pf) return;
+      if (!s.dirty || !s.platform) return;
       // SPEC38 §3.5: drafts shadow-save the canonical text, never the grid.
       const draft: Draft = { version: 1, docPath: s.docPath, content: canonicalOf(s.buffer), at: new Date().toISOString() };
-      void (async () => {
-        try {
-          await pf.writeTextFile(pf.join(await pf.configDir(), 'draft.json'), serializeDraft(draft));
-          draftWrittenRef.current = true;
-        } catch {
-          /* best effort */
-        }
-      })();
+      void draftShadowRef.current.write(draft, () => stateRef.current.dirty);
     }, 2000);
     return () => {
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     };
-  }, [buffer, dirty, platform, restorePrompt, deleteDraft]);
+  }, [buffer, dirty, platform, restorePrompt, canonicalOf]);
 
   // --- SPEC16 §3: capture the reading position on preview scrolls (debounced) ---
   useEffect(() => {
@@ -8366,6 +8386,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                 onToggleDiagramView={toggleDiagramView}
                 linkView={settings.linkView}
                 onToggleLinkView={toggleLinkView}
+                calloutView={settings.calloutView}
+                onToggleCalloutView={toggleCalloutView}
                 themeVariant={activeThemeVariant}
                 // PRD 020 Req 18 (issue #223): the heading copy-link seam —
                 // hosted-only (Req 15), and only for a document with an
@@ -8882,9 +8904,14 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         <div className="overlay">
           <div className="dialog" data-testid="restore-prompt">
             <h2>Restore unsaved changes?</h2>
+            {/* SPEC30 §3.3 (issue #319): say where the copy came from, and when
+                the drafted file is gone say so — Restore then lands in Untitled
+                (restoreDraft's existing fallback). Ordinary wording otherwise. */}
             <p className="dialog-note">
-              “{restorePrompt.docPath ? platform.basename(restorePrompt.docPath) : 'Untitled'}” has unsaved changes
-              from a previous session.
+              “{restorePrompt.draft.docPath ? platform.basename(restorePrompt.draft.docPath) : 'Untitled'}” has
+              unsaved changes from a previous session — edits that were never saved when it ended.
+              {restorePrompt.fileMissing &&
+                ' That file no longer exists at its path, so Restore opens these edits as a new Untitled document.'}
             </p>
             <div className="dialog-actions">
               <Button
@@ -8900,7 +8927,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                 variant="primary"
                 data-testid="restore-yes"
                 onClick={() => {
-                  const d = restorePrompt;
+                  const d = restorePrompt?.draft;
                   setRestorePrompt(null);
                   if (d) void restoreDraft(d);
                 }}

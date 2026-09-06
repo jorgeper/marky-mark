@@ -82,6 +82,8 @@ Markdown elements:
 | `--mm-selection` | Text-selection background |
 | `--mm-comment-tint` / `--mm-comment-tint-active` | The fixed comment tint (idle / active) — blue, a comment record's one rendering; never aliased to a marker hue (issue #283) |
 | `--mm-marker-yellow` / `--mm-marker-green` / `--mm-marker-orange` / `--mm-marker-pink` | Optional marker-highlight hue overrides (opaque colors; the app derives idle/active/ghost strengths) |
+| `--mm-callout-note` / `--mm-callout-tip` / `--mm-callout-important` / `--mm-callout-warning` / `--mm-callout-caution` | Optional GitHub-alert callout hue overrides (`> [!NOTE]` …; opaque colors — the app mixes each with `--mm-bg` for the tint and with the body colour for the title, so a dark theme gets a dark pastel) (issue #318) |
+| `--mm-callout-fg` | Optional callout body text; falls back to `--mm-fg`. Set it only when the body text is under WCAG AA (4.5:1) on the bare background, as the bundled solarized pair do (issue #318) |
 
 Syntax highlighting (fenced code blocks):
 

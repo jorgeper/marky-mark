@@ -5,6 +5,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { effortLabelDefs } from "./effort.mts";
 import {
   APPROVED_LABEL,
   speakerOf,
@@ -357,8 +358,14 @@ export const APPROVED_LABEL_DEF: LabelDef = {
   desc: "Owner authorized the merge — next run squash-merges",
 };
 
+// One `sandcastle:effort-<tier>` label per configured tier (config.mts
+// EFFORT_TIERS): the owner's statement of how hard an issue is, checked
+// against AGENT_TIERS by the loop before the issue reaches the planner.
+export const EFFORT_LABEL_DEFS: LabelDef[] = effortLabelDefs();
+
 export const ALL_LABEL_DEFS: LabelDef[] = [
   ...TRIGGER_LABEL_DEFS,
+  ...EFFORT_LABEL_DEFS,
   ...STATUS_LABEL_DEFS,
   APPROVED_LABEL_DEF,
 ];

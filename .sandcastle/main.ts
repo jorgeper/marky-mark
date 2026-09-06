@@ -11,7 +11,7 @@
 //                        agent, then merge on the next pass.
 //   Phase 0.7 (Debate):  PRs awaiting an agent turn resume the outer
 //                        reviewer ⇄ addresser debate in PR review threads.
-//   Phase 1 (Plan):      A Fable agent picks unblocked issues among those
+//   Phase 1 (Plan):      The planner agent picks unblocked issues among those
 //                        with no open PR (dependency analysis).
 //   Phase 2 (Execute):   Per issue: a spec writer distills the issue into a
 //                        committed spec (<SPEC_DIR>/issue-<n>.md, linked from
@@ -34,11 +34,15 @@
 // and the merge gate is the `sandcastle:approved` label — added by the owner,
 // or by the reviewer agent on `sandcastle:agent-approve` issues. GitHub
 // review approvals are never used, since authors cannot approve their own PRs.
+// `sandcastle:effort-<tier>` says how hard an issue is; the loop skips it
+// (with a note) until every agent on its path is configured at that tier
+// (config.mts AGENT_TIERS, edited with /config-agents; see effort.mts).
 //
 // Usage:
 //   npx tsx .sandcastle/main.ts              run the loop
 //   npx tsx .sandcastle/main.ts --init       create the label vocabulary
 //   npx tsx .sandcastle/main.ts --doctor     check env/auth/docker/labels
+//   npx tsx .sandcastle/main.ts --agents     show effort tiers and agent → tier → model
 //   npx tsx .sandcastle/main.ts --help       show usage
 
 import { existsSync, readFileSync } from "node:fs";
@@ -70,7 +74,14 @@ import {
   type PrdPrHead,
 } from "./prd-lane.mts";
 import { logStep, timed } from "./timing.mts";
-import { printHelp, runDoctor, runInit } from "./setup.mts";
+import { printAgents, printHelp, runDoctor, runInit } from "./setup.mts";
+import {
+  effortConfigErrors,
+  eligibility,
+  modelFor,
+  skipAlreadyPosted,
+  skipComment,
+} from "./effort.mts";
 import {
   COPY_TO_WORKTREE,
   GOAL_MAX_TURNS,
@@ -99,6 +110,9 @@ if (cliArgs.includes("--help") || cliArgs.includes("-h")) {
 if (cliArgs.includes("--init")) {
   await runInit();
   process.exit(0);
+}
+if (cliArgs.includes("--agents")) {
+  process.exit(printAgents());
 }
 if (cliArgs.includes("--doctor")) {
   process.exit(
@@ -149,9 +163,11 @@ const TARGET_BRANCH = (
   await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"])
 ).stdout.trim();
 
-// Models are deliberately NOT configured here: each agent's harness and
-// model are declared inline at its sandbox.run()/run() call site, so any
-// agent can run a different model (or harness) by editing that one spot.
+// Models come from config.mts: AGENT_TIERS names the effort tier each agent
+// runs at and EFFORT_TIERS maps tiers to models. Every sandbox.run()/run()
+// call site resolves its own with modelFor("<role>") (effort.mts), so the
+// marker it passes can never drift from what actually ran. `/config-agents`
+// edits the table; `npm run sandcastle:agents` prints it.
 
 const branchFor = (issueNumber: number) => `sandcastle/issue-${issueNumber}`;
 
@@ -208,10 +224,9 @@ const QUICK_VERIFY_TEXT = verifyCommandsText(
 // Agent identity & attribution
 // ---------------------------------------------------------------------------
 
-// This script IS the config: each agent's harness and model are declared
-// inline at its sandbox.run() call site, so any agent can run a different
-// model (or harness) by editing that one spot. Pass the same values to
-// markerFor so the marker can never drift from what actually ran.
+// Each agent's harness is declared inline at its sandbox.run() call site
+// and its model resolved there with modelFor("<role>"). Pass the same
+// values to markerFor so the marker can never drift from what actually ran.
 
 // Every action an agent performs on a PR (opening it, commenting, replying)
 // is attributed with this marker, like a signature on behalf of the owner.
@@ -422,7 +437,7 @@ const runDebate = async (
     if (turn === "pr-reviewer") {
       reviewerTurns += 1;
       const finalRound = reviewerTurns >= MAX_DEBATE_ROUNDS;
-      const model = "claude-fable-5";
+      const model = modelFor("pr-reviewer");
       await timed("pr-reviewer", { pr: prNumber, round: reviewerTurns }, () =>
         sandbox.run({
           name: "pr-reviewer",
@@ -442,7 +457,7 @@ const runDebate = async (
       );
       if (finalRound) break;
     } else {
-      const model = "claude-fable-5";
+      const model = modelFor("addresser");
       await timed("addresser", { pr: prNumber }, () =>
         sandbox.run({
           name: "addresser",
@@ -573,6 +588,28 @@ const warnNonDefaultBranch = async (): Promise<void> => {
 // freshly decomposed sub-issues are picked up by iteration 1.
 // ---------------------------------------------------------------------------
 
+// The skip comment is posted once per configuration: the body carries a
+// signature marker, and a matching marker already on the issue means the
+// owner has been told. Best-effort — a gh hiccup never blocks the loop.
+const noteEffortSkip = async (
+  issueNumber: number,
+  verdict: Extract<ReturnType<typeof eligibility>, { ok: false }>,
+): Promise<void> => {
+  try {
+    const view = JSON.parse(await github.issueCommentsJson(issueNumber)) as {
+      comments?: { body?: string }[];
+    };
+    const bodies = (view.comments ?? []).map((c) => c.body ?? "");
+    if (skipAlreadyPosted(bodies)) return;
+    await github.postIssueComment(issueNumber, skipComment(verdict));
+    console.log(`  #${issueNumber}: left a note explaining the skip.`);
+  } catch (error) {
+    console.warn(
+      `  ⚠ #${issueNumber}: could not leave the skip note (${error instanceof Error ? error.message.split("\n", 1)[0] : error}).`,
+    );
+  }
+};
+
 const runPrdLane = async (): Promise<void> => {
   let issues: github.IssueInfo[];
   try {
@@ -665,7 +702,7 @@ const runPrdLane = async (): Promise<void> => {
           TARGET_BRANCH,
         ]);
         step = "running the decomposer";
-        const decomposerModel = "claude-fable-5";
+        const decomposerModel = modelFor("decomposer");
         await timed("decomposer", { issue: issue.number }, () =>
           sandcastle.run({
             hooks,
@@ -741,6 +778,18 @@ const runPrdLane = async (): Promise<void> => {
 // Main loop
 // ---------------------------------------------------------------------------
 
+// A broken tier table would surface as a thrown modelFor() deep inside a
+// lane; name it here, before any sandbox starts.
+{
+  const errors = effortConfigErrors();
+  if (errors.length > 0) {
+    console.error(
+      `Effort tier configuration is invalid (.sandcastle/config.mts):\n${errors.map((e) => `  ✗ ${e}`).join("\n")}\nFix it by hand or with /config-agents, then re-run.`,
+    );
+    process.exit(1);
+  }
+}
+
 await warnUncommittedSkill();
 warnEmptyVerifyCommands();
 await warnNonDefaultBranch();
@@ -767,9 +816,31 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       `Skipping ${prdParents.length} \`${github.REQUIRES_PRD_LABEL}\` parent issue(s): ${prdParents.map((i) => `#${i.number}`).join(", ")}.`,
     );
   }
-  const workIssues = openIssues.filter(
-    (issue) => !issue.labels.includes(github.REQUIRES_PRD_LABEL),
-  );
+  // Effort gate: an issue labeled `sandcastle:effort-<tier>` only proceeds
+  // when every agent on its path is configured at that tier or above
+  // (effort.mts). Held issues get one console line per run and one GitHub
+  // comment per configuration, and re-enter the moment the table changes.
+  const workIssues: github.IssueInfo[] = [];
+  let heldForEffort = 0;
+  for (const issue of openIssues) {
+    if (issue.labels.includes(github.REQUIRES_PRD_LABEL)) continue;
+    const verdict = eligibility(issue.labels, isPrLabeled(issue.labels));
+    if (verdict.ok) {
+      workIssues.push(issue);
+      continue;
+    }
+    heldForEffort += 1;
+    console.log(
+      `Skipping #${issue.number}: needs the \`${verdict.required}\` effort tier, but ${verdict.short.map((s) => `${s.role} runs at ${s.tier}`).join(", ")}. Run /config-agents to change that.`,
+    );
+    await noteEffortSkip(issue.number, verdict);
+  }
+  if (workIssues.length === 0 && heldForEffort > 0) {
+    console.log(
+      `${heldForEffort} issue(s) are waiting on a higher effort tier than the current agents run at. Raise the agents with /config-agents (or relabel the issues) and re-run.`,
+    );
+    break;
+  }
   if (workIssues.length === 0) {
     console.log("No open issues labeled `sandcastle`.");
     const labelNames = await github.listLabelNames().catch(() => []);
@@ -853,7 +924,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         sandbox.run({
           name: "conflict-resolver",
           maxIterations: 10,
-          agent: sandcastle.claudeCode("claude-fable-5"),
+          agent: sandcastle.claudeCode(modelFor("conflict-resolver")),
           promptFile: "./.sandcastle/pr-conflict-prompt.md",
           // TARGET_BRANCH is a built-in prompt arg (injected by run()) —
           // passing it in promptArgs is a PromptError that kills the run
@@ -1001,7 +1072,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
               name: "planner",
               // One iteration is enough: the planner just needs to read and reason.
               maxIterations: 1,
-              agent: sandcastle.claudeCode("claude-fable-5"),
+              agent: sandcastle.claudeCode(modelFor("planner")),
               promptFile: "./.sandcastle/plan-prompt.md",
               promptArgs: {
                 CANDIDATE_NUMBERS: candidates.join(", "),
@@ -1072,7 +1143,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         // the durable source of truth; the <spec> tag just hands the
         // statement to this script (extractTag pattern, like the pr-writer —
         // sandbox.run has no structured output).
-        const specModel = "claude-fable-5";
+        const specModel = modelFor("spec-writer");
         const specPath = `${SPEC_DIR}/issue-${issue.id}.md`;
         const specRun = await timed("spec-writer", { issue: issue.id }, async () =>
           sandbox.run({
@@ -1113,7 +1184,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         // self-verifies (judge checks the condition after every turn); the
         // outer iterations are fresh-context retries that continue from git
         // state when an attempt exhausts its turn bound.
-        const implementerModel = "claude-fable-5";
+        const implementerModel = modelFor("implementer");
         const implement = await timed("implementer", { issue: issue.id }, () =>
           sandbox.run({
             name: "implementer",
@@ -1170,7 +1241,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             sandbox.run({
               name: "reviewer",
               maxIterations: 1,
-              agent: sandcastle.claudeCode("claude-fable-5"),
+              agent: sandcastle.claudeCode(modelFor("reviewer")),
               promptFile: "./.sandcastle/review-prompt.md",
               // TARGET_BRANCH reaches the prompt via the built-in arg.
               promptArgs: {
@@ -1313,7 +1384,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       sandbox: docker(),
       name: "merger",
       maxIterations: 1,
-      agent: sandcastle.claudeCode("claude-fable-5"),
+      agent: sandcastle.claudeCode(modelFor("merger")),
       promptFile: "./.sandcastle/merge-prompt.md",
       promptArgs: {
         BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),

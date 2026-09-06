@@ -1140,9 +1140,17 @@ mark.hl.ghost {
 }
 
 /* PRD 003 Req 11 — the app's only prefers-reduced-motion carve-out, scoped
-   to the two pane slides (the toolbar slide is unchanged). The phase hook
-   already skips the animated phases; this also stills any mid-flight run. */
+   to the pane slides (the toolbar slide is unchanged) and, since issue #316,
+   the hosted boot indicator. The phase hook already skips the animated
+   phases; this also stills any mid-flight run. */
 @media (prefers-reduced-motion: reduce) {
+  /* PRD 020 Req 5+6 (issue #316): the boot indicator does not spin — it
+     keeps only its late fade-in and sits as a still accent arc. Scoped under
+     the frame so it outranks the spinner's own rule, which sits later in
+     source order at single-class specificity. */
+  .hosted-booting .hosted-booting-spinner {
+    animation: mm-boot-hold-in 120ms linear 400ms forwards;
+  }
   .folder-slide.sliding,
   .folder-slide.sliding .folder-panel,
   /* PRD 023 §14 (issue #284): the comments pane's slide is stilled too. */
@@ -2924,9 +2932,9 @@ input.folder-rename-input.invalid {
    Deliberately almost nothing to look at: the app background (this mounts
    OUTSIDE .theme-root, like the sign-in page, so no theme colours it — it is
    the same unchanging surface the browser already showed while the bundle
-   loaded), with issue #252's spinner idiom fading in only if the wait
-   outlasts a beat. A boot that lands quickly therefore shows one still frame
-   and then the workspace. */
+   loaded), with its own indicator (the rule below, issue #316) fading in
+   only if the wait outlasts a beat. A boot that lands quickly therefore shows
+   one still frame and then the workspace. */
 .hosted-booting {
   position: fixed;
   inset: 0;
@@ -2938,12 +2946,25 @@ input.folder-rename-input.invalid {
   background: var(--mm-bg, #ffffff);
 }
 
-/* The spinner itself is `search-scanning-spinner` (keyframes included); this
-   adds only the late fade-in, so the shorthand restates the spin it rides. */
+/* PRD 020 Req 5+6 (issue #316): the frame's ONE indicator owns its own size,
+   stroke and shape — it used to borrow `.search-scanning-spinner`, whose 9px
+   box was sized for the search panel's caption line and read as a speck on a
+   full-viewport surface. A thin accent arc over a faint fg-derived track,
+   sharing the search spinner's `mm-search-spin` keyframes and keeping the
+   late fade-in (`mm-boot-hold-in`: invisible for the first 400ms, so a quick
+   boot still shows one still frame). Contract variables with fallbacks only —
+   this mounts outside .theme-root. Still one element, no text, no card. */
 .hosted-booting-spinner {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  box-sizing: border-box;
+  border: 2px solid color-mix(in srgb, var(--mm-fg, #1f2328) 12%, transparent);
+  border-top-color: var(--mm-accent, #0969da);
+  border-radius: var(--mm-radius-pill);
   opacity: 0;
   animation:
-    mm-search-spin 0.8s linear infinite,
+    mm-search-spin 0.9s linear infinite,
     mm-boot-hold-in 120ms linear 400ms forwards;
 }
 

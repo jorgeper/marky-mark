@@ -526,4 +526,12 @@ describe('issue #246 pending settings edits', () => {
     expect(overlayPendingSettings(settings, layers, wsPending).fontSize).toBe(18);
     expect(overlayPendingSettings(settings, layers, NO_PENDING_EDITS)).toBe(settings);
   });
+
+  // Issue #318: the calloutView setting, following linkView (U1161) exactly.
+  test('U1248: calloutView — ships rendered (true), user-scoped like its five view siblings, and a hand-edited non-boolean falls back', () => {
+    expect(DEFAULT_SETTINGS.calloutView).toBe(true);
+    expect(SETTINGS_SCOPES.calloutView).toBe('U');
+    expect(resolveSettings({ user: { calloutView: false } }).calloutView).toBe(false);
+    expect(resolveSettings({ user: { calloutView: 'raw' } }).calloutView).toBe(true); // invalid → default
+  });
 });

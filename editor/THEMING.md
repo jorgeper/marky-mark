@@ -90,6 +90,8 @@ sets these eight is complete; there is nothing per-language to add.
 | `--mm-comment-tint` | The fixed comment tint (blue) — comment records' editor highlight (PRD 022 Req 12, issue #283); resolved ghosts mix it down (issue #285) |
 | `--mm-comment-tint-active` | The stronger comment tint — the editor highlight's active/flash treatment (PRD 023 §18, issue #285) |
 | `--mm-marker-yellow` / `--mm-marker-green` / `--mm-marker-orange` / `--mm-marker-pink` | PRD 022 Req 13 marker hues; editor highlights mix them at 42%, 60% active/flash (issue #285) |
+| `--mm-callout-note` / `--mm-callout-tip` / `--mm-callout-important` / `--mm-callout-warning` / `--mm-callout-caution` | Issue #318 GitHub-alert callout hues (`> [!NOTE]` …). Both panes derive the block from them: the hue at 12% over `--mm-bg` is the tint, at 25% over the callout body colour the title, and the hue itself the accent edge — so a dark theme gets a dark pastel behind light text |
+| `--mm-callout-fg` | Issue #318 callout body text; falls back to `--mm-fg`. Set it only when the theme's body text is under WCAG AA (4.5:1) on its own background — the bundled solarized pair do |
 
 ## Scale and shadow tokens
 

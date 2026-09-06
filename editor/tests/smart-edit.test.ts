@@ -29,6 +29,7 @@ const ctx = (over: Partial<SmartMenuCtx> = {}): SmartMenuCtx => ({
   codeView: true, // Issue #157 amendment to U65
   diagramView: true, // PRD 013 Req 6 amendment to U65
   linkView: true, // SPEC43 §11 (issue #270) amendment to U65
+  calloutView: true, // Issue #318 amendment to U65
   link: false, // SPEC43 §11 (issue #270): caret outside any link by default
   ...over,
 });
@@ -125,8 +126,10 @@ describe('SPEC43 smart edit', () => {
     expect(find(buildSmartMenu(ctx()), 'lists').submenu!.map((e) => e !== 'sep' && e.id)).toEqual([
       'bullet', 'numbered', 'task',
     ]);
+    // Issue #318 amendment: the view toggle leads the submenu; the five
+    // insert rows keep their ids and order behind it.
     expect(find(buildSmartMenu(ctx()), 'callout').submenu!.map((e) => e !== 'sep' && e.id)).toEqual([
-      'note', 'tip', 'important', 'warning', 'caution',
+      'toggle-callouts', 'note', 'tip', 'important', 'warning', 'caution',
     ]);
 
     // --- hotkey labels follow the current (rebound) bindings ----------------
@@ -544,6 +547,23 @@ describe('PRD 023 §§7–12 annotation menu entries (issue #286)', () => {
     expect(out !== 'sep' && out?.enabled).toBe(false); // disabled, never absent
     const inside = openOf(ctx({ link: true }));
     expect(inside !== 'sep' && inside?.enabled).toBe(true);
+  });
+
+  test('U1247: Issue #318 — the Callout submenu leads with the view toggle whose label follows the flag; the five insert rows keep ids, labels, order and no hotkey', () => {
+    const sub = (c: SmartMenuCtx) => find(buildSmartMenu(c), 'callout').submenu!;
+    const rows = sub(ctx({ calloutView: true })).map((e) => e !== 'sep' && [e.id, e.label, e.hotkey]);
+    expect(rows).toEqual([
+      ['toggle-callouts', 'Show Raw Callouts', undefined],
+      ['note', 'Note', undefined],
+      ['tip', 'Tip', undefined],
+      ['important', 'Important', undefined],
+      ['warning', 'Warning', undefined],
+      ['caution', 'Caution', undefined],
+    ]);
+    const off = sub(ctx({ calloutView: false }))[0];
+    expect(off !== 'sep' && off && [off.id, off.label, off.enabled]).toEqual(['toggle-callouts', 'Show Rendered Callouts', true]);
+    // The flip changes nothing else in the submenu.
+    expect(sub(ctx({ calloutView: false })).slice(1)).toEqual(sub(ctx({ calloutView: true })).slice(1));
   });
 
   test('U1155: SPEC43 §11 (issue #270) — the whole default map stays chord-conflict-free with openLink in it', () => {

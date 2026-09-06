@@ -8,7 +8,7 @@ import {
 import { chat } from "@ai-hero/sandcastle/chat";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import {
-  MODEL,
+  modelFor,
   DESIGN_LABEL,
   DECOMPOSE_LABEL,
   IMPLEMENT_LABEL,
@@ -52,7 +52,7 @@ import { mergePrArgs } from "./github.mts";
 //
 // Ctrl-C is always safe — conversations are durable and re-attach.
 
-const agent = claudeCode(MODEL);
+const agent = claudeCode(modelFor("designer"));
 const sandbox = docker();
 const AGENT_MARKER = markerFor("designer");
 const ANCHOR_TEXT = "Designer conversation started";
