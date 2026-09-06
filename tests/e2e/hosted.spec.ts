@@ -4726,3 +4726,31 @@ test('E432: an active highlight on an untitled buffer offers no copy-link — no
   await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
   await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
 });
+
+test('E433: a signed-in reader authors comments under their display name, with the Settings field pre-filled', async ({
+  page,
+  request,
+}) => {
+  // Issue #274: with no stored `author`, the hosted session derives the
+  // comment author from /api/me — Ada signs in and both surfaces show
+  // 'Ada Lovelace' without her ever opening Settings to type it.
+  const ada = await signIn(request, 'ada');
+  const id = await sharedWorkspace(request, ada, `E433 w${test.info().workerIndex}`, []);
+  const put = await request.put(`${HOSTED}/api/workspaces/${id}/files/authored.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Authored\n\nA remark lands on this very phrase today.\n',
+  });
+  expect(put.status()).toBe(200);
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'authored.md');
+  await addComment(page, 'this very phrase', 'Signed by the session');
+  const card = page.getByTestId('comment-card');
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText('Ada Lovelace');
+  await expect(card).toContainText('Signed by the session');
+
+  // The same derived name pre-fills Settings ▸ General → Comment author name.
+  await openSettings(page, 'general');
+  await expect(page.getByTestId('author-input')).toHaveValue('Ada Lovelace');
+});

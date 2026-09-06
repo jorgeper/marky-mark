@@ -552,6 +552,24 @@ export function winningLayer(key: keyof Settings, layers: SettingsLayers): Layer
   return 'default';
 }
 
+/**
+ * Issue #274: the hosted flavor's session-derived comment author. When the
+ * signed-in session record is known and NO settings layer supplies `author`,
+ * the effective author is the display name (falling back to `username` when
+ * blank). Returns `undefined` when there is nothing to derive — no session,
+ * a blank identity, or a stored value already winning — so the caller leaves
+ * layered resolution untouched. Pure and never persisted: the derived name is
+ * applied at resolution time, not written into any layer.
+ */
+export function sessionAuthorOverride(
+  layers: SettingsLayers,
+  me: { displayName: string; username: string } | null
+): string | undefined {
+  if (!me) return undefined;
+  if (winningLayer('author', layers) !== 'default') return undefined;
+  return me.displayName.trim() || me.username.trim() || undefined;
+}
+
 /** The Settings window's two writable scopes (§E18); Global/Team never edit. */
 export type SettingsScopeTab = 'user' | 'workspace';
 

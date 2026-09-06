@@ -68,6 +68,7 @@ import {
   diffSettings,
   MARGIN_WIDTHS,
   resolveSettings,
+  sessionAuthorOverride,
   serializeSettingsLayer,
   ZOOM_LEVELS,
   type Settings,
@@ -447,6 +448,10 @@ export default function App() {
   // bundle carries its theme) — never persisted, dropped when the user edits
   // the same key.
   const sessionOverridesRef = useRef<Partial<Settings>>({});
+  // Issue #274: the signed-in session record, mirrored into a ref so
+  // resolution can derive the hosted default comment author (display name →
+  // username) without re-creating applyResolved when /api/me answers.
+  const sessionMeRef = useRef<SessionMe | null>(null);
   // What the settings UI renders indicators from (mirrors the refs, in state
   // so panels re-render when a layer changes without the effective changing).
   const [layerView, setLayerView] = useState<{ layers: SettingsLayers; workspaceOpen: boolean }>({
@@ -1754,6 +1759,14 @@ export default function App() {
     setLayerView(view);
     setSettings((prev) => {
       const next = { ...resolveSettings(view.layers), ...sessionOverridesRef.current };
+      // Issue #274: hosted sessions default the comment author to the
+      // signed-in display name. Derived at resolution time — never written
+      // into a layer — and only when no layer supplies `author`, so a stored
+      // value (or an explicit edit, which lands in the user layer) still wins.
+      const derivedAuthor = sessionAuthorOverride(view.layers, sessionMeRef.current);
+      if (derivedAuthor !== undefined && sessionOverridesRef.current.author === undefined) {
+        next.author = derivedAuthor;
+      }
       // Identity-stable: unchanged resolutions keep the previous object (no
       // spurious re-renders, editor reconfigures, or aux broadcasts), and an
       // entry-wise-equal hotkeys map keeps its identity too.
@@ -4719,6 +4732,14 @@ export default function App() {
       cancelled = true;
     };
   }, [platform]);
+  // Issue #274: the derived comment author tracks the session — recomputed
+  // when /api/me answers (sessionMe is null until then) and on any later
+  // change, never copied once. Resolution reads the ref; re-resolving here
+  // is what makes the arrival visible.
+  useEffect(() => {
+    sessionMeRef.current = sessionMe;
+    applyResolved();
+  }, [sessionMe, applyResolved]);
   /**
    * PRD 007 Req 21/22: the entry surface — the ordered actions this flavor can
    * honour, derived from platform capabilities alone (lib/startActions.ts).
