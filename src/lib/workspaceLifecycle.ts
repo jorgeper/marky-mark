@@ -123,6 +123,27 @@ export function filterWorkspaces(query: string, items: readonly WorkspaceListing
 }
 
 /**
+ * PRD 007 Req 10/11 (issue #252): how many rows the Open Workspace dialog
+ * shows. Five — the list area is a fixed height sized for exactly this many,
+ * so the dialog opens at its final size and never grows a scrollbar. The
+ * number lives here, next to the seam that applies it, so the stylesheet's
+ * reserved height and the rendered row count are traceable to one source.
+ */
+export const OPEN_WORKSPACE_ROW_CAP = 5;
+
+/**
+ * PRD 007 Req 10/11 (issue #252): the rows the Open Workspace dialog actually
+ * renders — the filtered listing (whole deployment, search-as-you-type) cut to
+ * OPEN_WORKSPACE_ROW_CAP. With no query that is the most recently modified
+ * few; with one it is the best matches, recency breaking ties, so a search
+ * never changes the dialog's height. Kept apart from `filterWorkspaces`, which
+ * still answers the complete filtered list.
+ */
+export function visibleWorkspaces(query: string, items: readonly WorkspaceListing[]): WorkspaceListing[] {
+  return filterWorkspaces(query, items).slice(0, OPEN_WORKSPACE_ROW_CAP);
+}
+
+/**
  * PRD 007 Req 11: the owners of an inaccessible workspace, phrased for the
  * message. Display names when the directory resolves them, the plain
  * identifier when it does not (`resolveMembers` marks those unresolved), and

@@ -20,10 +20,10 @@ import {
   DEFAULT_MEMBER_ROLE,
   GRANTABLE_ROLES,
   emptyNewWorkspaceForm,
-  filterWorkspaces,
   isUniqueNameError,
   noAccessMessage,
   validateNewWorkspaceForm,
+  visibleWorkspaces,
   workspaceRowBadge,
   type NewWorkspaceForm,
   type WorkspaceListing,
@@ -234,6 +234,10 @@ export function OpenWorkspaceDialog({
   onClose: () => void;
 }) {
   const [all, setAll] = useState<WorkspaceListing[]>([]);
+  // PRD 007 Req 10/11 (issue #252): loading is a state of its own, not "the
+  // list is still empty" — the empty state used to flash while the fetch was
+  // in flight, and only a settled fetch can honestly say nothing matched.
+  const [settled, setSettled] = useState(false);
   const [query, setQuery] = useState('');
   // The no-access state names the chosen workspace's Owners; resolving them
   // is one directory round trip, made only when it is actually needed.
@@ -241,9 +245,18 @@ export function OpenWorkspaceDialog({
 
   useEffect(() => {
     let cancelled = false;
-    void lifecycle.list().then((items) => {
-      if (!cancelled) setAll(items);
-    });
+    // A rejected listing settles too: the dialog says nothing matched rather
+    // than spinning forever.
+    void lifecycle.list().then(
+      (items) => {
+        if (cancelled) return;
+        setAll(items);
+        setSettled(true);
+      },
+      () => {
+        if (!cancelled) setSettled(true);
+      },
+    );
     return () => {
       cancelled = true;
     };
@@ -261,7 +274,10 @@ export function OpenWorkspaceDialog({
     setDenied(noAccessMessage(workspace.name, owners));
   };
 
-  const shown = filterWorkspaces(query, all);
+  // PRD 007 Req 10/11 (issue #252): at most OPEN_WORKSPACE_ROW_CAP rows — the
+  // fixed-height list area's worth — chosen by the pure seam, never sliced in
+  // the JSX below.
+  const shown = visibleWorkspaces(query, all);
 
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -281,40 +297,60 @@ export function OpenWorkspaceDialog({
             }}
           />
         </div>
-        <ul className="workspace-list" data-testid="open-workspace-list">
-          {shown.map((workspace) => (
-            <li key={workspace.id}>
-              <button
-                type="button"
-                className="btn-quiet workspace-list-item"
-                data-testid={`open-workspace-item-${workspace.id}`}
-                onClick={() => void choose(workspace)}
-              >
-                <span className="workspace-list-name">{workspace.name}</span>
-                {/* PRD 019 Req 8: the caller's own scratchpad row carries a
-                    distinguishing badge; every other row renders none. */}
-                {workspaceRowBadge(workspace) && (
-                  <span className="badge scratchpad" data-testid={`open-workspace-scratchpad-${workspace.id}`}>
-                    {workspaceRowBadge(workspace)}
+        {/* PRD 007 Req 10/11 (issue #252): the reserved list area. Its height
+            is fixed at the row cap's worth, so the loading indicator, the rows
+            and the settled-empty line — all rendered INSIDE it — leave the
+            dialog at the size it opened at. */}
+        <div className="workspace-list-area" data-testid="open-workspace-list-area">
+          <ul className="workspace-list" data-testid="open-workspace-list">
+            {shown.map((workspace) => (
+              <li key={workspace.id}>
+                <button
+                  type="button"
+                  className="btn-quiet workspace-list-item"
+                  data-testid={`open-workspace-item-${workspace.id}`}
+                  onClick={() => void choose(workspace)}
+                >
+                  <span className="workspace-list-name">{workspace.name}</span>
+                  {/* PRD 019 Req 8: the caller's own scratchpad row carries a
+                      distinguishing badge; every other row renders none. */}
+                  {workspaceRowBadge(workspace) && (
+                    <span className="badge scratchpad" data-testid={`open-workspace-scratchpad-${workspace.id}`}>
+                      {workspaceRowBadge(workspace)}
+                    </span>
+                  )}
+                  <span className="workspace-list-modified" data-testid={`open-workspace-modified-${workspace.id}`}>
+                    {timeAgo(workspace.modified)}
                   </span>
-                )}
-                <span className="workspace-list-modified" data-testid={`open-workspace-modified-${workspace.id}`}>
-                  {timeAgo(workspace.modified)}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        {shown.length === 0 && (
-          <p className="hotkey-hint" data-testid="open-workspace-empty">
-            No workspace matches “{query}”.
-          </p>
-        )}
-        {denied && (
-          <p className="hotkey-hint" data-testid="open-workspace-no-access" role="alert">
-            {denied}
-          </p>
-        )}
+                </button>
+              </li>
+            ))}
+          </ul>
+          {/* Issue #252: the in-flight affordance is SearchPanel's spinner
+              idiom (`search-scanning`), role="status" and keyframes included,
+              holding the space the rows will take. */}
+          {!settled && (
+            <div className="workspace-list-status" data-testid="open-workspace-loading" role="status">
+              <span className="search-scanning-spinner" aria-hidden="true" />
+              Loading workspaces…
+            </div>
+          )}
+          {/* Issue #252: only a settled fetch can say nothing matched — while
+              one is in flight this element does not exist. */}
+          {settled && shown.length === 0 && (
+            <p className="workspace-list-status" data-testid="open-workspace-empty">
+              No workspace matches “{query}”.
+            </p>
+          )}
+          {/* Issue #252: the refusal overlays the bottom of the reserved area
+              instead of adding a line under it, so an unopenable choice cannot
+              reflow the dialog however long the Owners list runs. */}
+          {denied && (
+            <p className="workspace-no-access" data-testid="open-workspace-no-access" role="alert">
+              {denied}
+            </p>
+          )}
+        </div>
         {/* PRD 020 Req 12: the signed-in identity surface — display name,
             assigned username (the URL segment, distinct from the UPN), and
             the resulting scratchpad URL, right where workspaces are picked. */}

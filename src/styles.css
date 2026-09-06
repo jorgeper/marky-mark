@@ -3174,17 +3174,63 @@ input.folder-rename-input.invalid {
   white-space: nowrap;
 }
 
+/* PRD 007 Req 10/11 (issue #252): the Open Workspace dialog's list area is a
+   FIXED height — exactly OPEN_WORKSPACE_ROW_CAP rows of --mm-workspace-row —
+   so the dialog opens at its final size: the loading spinner, the rows and the
+   settled "no workspace matches" line all render inside this box and none of
+   them changes the dialog's geometry. The cap in
+   src/lib/workspaceLifecycle.ts bounds the rows, so nothing can overflow and
+   .workspace-list needs no scrolling of its own (the max-height/overflow-y
+   pair that used to live below is gone). */
+.workspace-list-area {
+  /* One row: --mm-space-2 padding above and below the 13px/23.8px line box
+     the rows have always rendered at, so the fixed area changes no row's
+     appearance. */
+  --mm-workspace-row: 36px;
+  --mm-workspace-rows: 5;
+  position: relative;
+  height: calc(var(--mm-workspace-row) * var(--mm-workspace-rows));
+  overflow: hidden;
+}
+
 .workspace-list {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 260px;
-  overflow-y: auto;
+}
+
+/* Issue #252: the loading indicator and the settled-empty line share the
+   reserved area's top-left slot, so the rows they stand in for arrive in
+   place. Muted like every other in-dialog hint. */
+.workspace-list-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--mm-workspace-row);
+  margin: 0;
+  padding: 0 var(--mm-space-3);
+  font-size: var(--mm-text-caption);
+  color: var(--mm-fg-muted, #59636e);
+}
+
+/* Issue #252: the no-access refusal OVERLAYS the bottom of the reserved area
+   rather than taking a line under it — a message of any length leaves the
+   dialog exactly the height it opened at. */
+.workspace-no-access {
+  position: absolute;
+  inset: auto 0 0;
+  margin: 0;
+  padding: var(--mm-space-2) var(--mm-space-3);
+  font-size: var(--mm-text-caption);
+  color: var(--mm-fg-muted, #59636e);
+  background: var(--mm-bg-elevated);
+  border-top: 1px solid var(--mm-border);
 }
 
 .workspace-list-item {
   display: flex;
   width: 100%;
+  height: var(--mm-workspace-row);
   align-items: baseline;
   gap: 10px;
   color: var(--mm-fg, #1f2328);
