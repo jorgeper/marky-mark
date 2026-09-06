@@ -256,16 +256,6 @@ type SettingsPageId = 'llm';
  */
 export type SettingsRoute = SettingsTab | SettingsPageId;
 
-/** Issue #247: the rail label a nested page's breadcrumb leads with. */
-const TAB_LABELS: Record<SettingsTab, string> = {
-  general: 'General',
-  appearance: 'Appearance',
-  editor: 'Editor',
-  workspace: 'Workspace',
-  hotkeys: 'Hotkeys',
-  experimental: 'Experimental',
-};
-
 /**
  * PRD 011 Req 1: the Experimental features, as DATA. A second experiment is
  * one more entry here — a key, a label and one line saying what turning it on
@@ -352,6 +342,15 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   // only — it reads as *the* place experiments live, and it is last.
   { id: 'experimental', label: 'Experimental' },
 ];
+
+/**
+ * Issue #247: the rail label a nested page's breadcrumb leads with. Read off
+ * TABS rather than a second list, so renaming a tab renames its breadcrumbs
+ * with it.
+ */
+function tabLabel(id: SettingsTab): string {
+  return TABS.find((t) => t.id === id)?.label ?? '';
+}
 
 export function SettingsPanel({
   settings: incomingSettings,
@@ -1258,7 +1257,9 @@ export function SettingsPanel({
         {EXPERIMENTAL_WARNING}
       </p>
       {EXPERIMENTAL_FEATURES.map((f) => {
-        const { standDown } = f;
+        // `page` is the panel's own state below, so the row's descriptor is
+        // named apart from it.
+        const { page: featurePage, standDown } = f;
         // Issue #247: what this host can do with this experiment, from the
         // capability the panel was handed — never a flavor test here.
         const available = f.capability === undefined || capabilities[f.capability];
@@ -1293,16 +1294,16 @@ export function SettingsPanel({
             {/* Issue #247: the experiment's own settings, one level down. Live
                 only while the experiment is on — so it is dead with the box
                 unchecked, and dead where the host cannot run it at all. */}
-            {f.page && (
+            {featurePage && (
               <p className="experimental-desc experimental-page-row">
                 <Button
                   size="sm"
                   data-testid={`${f.testId}-settings`}
                   disabled={!on}
                   title={on ? undefined : `Turn ${f.label} on to change its settings`}
-                  onClick={() => setPage(f.page!.id)}
+                  onClick={() => setPage(featurePage.id)}
                 >
-                  {f.page.buttonLabel}
+                  {featurePage.buttonLabel}
                 </Button>
               </p>
             )}
@@ -1365,6 +1366,77 @@ export function SettingsPanel({
     </div>
   );
 
+  /**
+   * Issue #247: a second-level page in place of the rail + tab content — a
+   * breadcrumb saying where the reader is and the Back affordance out of it.
+   * The markup is shared by every nested page there will be; `pageContent`
+   * above is the only place a page says what it draws.
+   */
+  const nestedBody =
+    page && pageOwner ? (
+      <div className="settings-body settings-nested">
+        <header className="settings-page-header">
+          <Button
+            variant="quiet"
+            size="sm"
+            data-testid="settings-page-back"
+            onClick={() => setPage(null)}
+          >
+            ‹ Back
+          </Button>
+          <span className="settings-page-crumb" data-testid="settings-page-crumb">
+            {tabLabel(tab)} › {pageOwner.label}
+          </span>
+        </header>
+        <div className="tab-content" data-testid={`settings-page-${page}`}>
+          {pageContent[page]}
+        </div>
+      </div>
+    ) : null;
+
+  /** The tab rail and the tab it is on — the first level, unchanged. */
+  const tabsBody = (
+    <div className="settings-body">
+      {/* Issue #21: both scopes share one tab rail; Hotkeys is User-only. */}
+      <nav className="tab-rail" data-testid="settings-tabs">
+        {TABS.filter(
+          (t) =>
+            (scope === 'user' || !USER_ONLY_TABS.includes(t.id)) &&
+            // Issue #183 §1: no workspace open, or no permitted section —
+            // no Workspace tab (and no placeholder in its place).
+            (t.id !== 'workspace' || wsAccess.workspaceTab),
+        ).map((t) => (
+          <button
+            key={t.id}
+            className={`btn btn-quiet tab-btn${tab === t.id ? ' on' : ''}`}
+            data-testid={`settings-tab-${t.id}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+      <div className="tab-content" data-testid={`settings-scope-content-${scope}`}>
+        {tab === 'general' && generalTab}
+        {tab === 'appearance' && appearanceTab}
+        {tab === 'editor' && editorTab}
+        {/* Issue #183 §1: the sections PRD 007 Req 12 used to append to
+            the General tab — members, roles, then the danger zone, with
+            PRD 020 Req 4's names section ahead of them. */}
+        {tab === 'workspace' && workspaceLifecycle && (
+          <WorkspaceSettingsTab
+            lifecycle={workspaceLifecycle}
+            access={wsAccess}
+            admin={deploymentAdmin}
+            me={sessionMe}
+          />
+        )}
+        {tab === 'hotkeys' && scope === 'user' && hotkeysTab}
+        {tab === 'experimental' && scope === 'user' && experimentalTab}
+      </div>
+    </div>
+  );
+
   const body = (
     <div className="dialog settings-modal" data-testid="settings-panel">
       {/* §E18/§H25: the User | Workspace scope selector — desktop only. */}
@@ -1393,71 +1465,11 @@ export function SettingsPanel({
           )}
         </nav>
       )}
-      {/* Issue #247: a second-level page takes the whole body — the rail is
-          replaced by a breadcrumb saying where the reader is and the Back
-          affordance out of it, and the pinned footer below still governs BOTH
-          levels (Save commits edits made here with the rest, Cancel discards
-          them). The markup is shared by every nested page there will be. */}
-      {page && pageOwner ? (
-        <div className="settings-body settings-nested">
-          <header className="settings-page-header">
-            <Button
-              variant="quiet"
-              size="sm"
-              data-testid="settings-page-back"
-              onClick={() => setPage(null)}
-            >
-              ‹ Back
-            </Button>
-            <span className="settings-page-crumb" data-testid="settings-page-crumb">
-              {TAB_LABELS[tab]} › {pageOwner.label}
-            </span>
-          </header>
-          <div className="tab-content" data-testid={`settings-page-${page}`}>
-            {pageContent[page]}
-          </div>
-        </div>
-      ) : (
-      <div className="settings-body">
-        {/* Issue #21: both scopes share one tab rail; Hotkeys is User-only. */}
-        <nav className="tab-rail" data-testid="settings-tabs">
-          {TABS.filter(
-            (t) =>
-              (scope === 'user' || !USER_ONLY_TABS.includes(t.id)) &&
-              // Issue #183 §1: no workspace open, or no permitted section —
-              // no Workspace tab (and no placeholder in its place).
-              (t.id !== 'workspace' || wsAccess.workspaceTab),
-          ).map((t) => (
-            <button
-              key={t.id}
-              className={`btn btn-quiet tab-btn${tab === t.id ? ' on' : ''}`}
-              data-testid={`settings-tab-${t.id}`}
-              onClick={() => setTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-        <div className="tab-content" data-testid={`settings-scope-content-${scope}`}>
-          {tab === 'general' && generalTab}
-          {tab === 'appearance' && appearanceTab}
-          {tab === 'editor' && editorTab}
-          {/* Issue #183 §1: the sections PRD 007 Req 12 used to append to
-              the General tab — members, roles, then the danger zone, with
-              PRD 020 Req 4's names section ahead of them. */}
-          {tab === 'workspace' && workspaceLifecycle && (
-            <WorkspaceSettingsTab
-              lifecycle={workspaceLifecycle}
-              access={wsAccess}
-              admin={deploymentAdmin}
-              me={sessionMe}
-            />
-          )}
-          {tab === 'hotkeys' && scope === 'user' && hotkeysTab}
-          {tab === 'experimental' && scope === 'user' && experimentalTab}
-        </div>
-      </div>
-      )}
+      {/* Issue #247: a nested page takes the whole body, so the rail and the
+          tab content give way to it — but the pinned footer below still
+          governs BOTH levels (Save commits edits made on the page with the
+          rest, Cancel discards them). */}
+      {nestedBody ?? tabsBody}
       {footer}
     </div>
   );
