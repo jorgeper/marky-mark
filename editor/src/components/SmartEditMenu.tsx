@@ -75,10 +75,19 @@ export function SmartEditMenu({ x, y, entries, onInvoke, onClose }: Props) {
     // the menu mounted and closed it on its own (E528). Ancestor offsets are
     // remembered at open and compared against, so a real gesture — which
     // clears SETTLE_PX in its first frame — still dismisses at once.
-    const settled = new Map<Element, [number, number]>();
+    const settled = new Map<Element, { left: number; top: number }>();
     for (let el = menuRef.current?.parentElement ?? null; el; el = el.parentElement) {
-      settled.set(el, [el.scrollLeft, el.scrollTop]);
+      settled.set(el, { left: el.scrollLeft, top: el.scrollTop });
     }
+    /** Still within SETTLE_PX of where this ancestor stood when the menu opened. */
+    const isSettle = (el: Element): boolean => {
+      const was = settled.get(el);
+      return (
+        was !== undefined &&
+        Math.abs(el.scrollLeft - was.left) <= SETTLE_PX &&
+        Math.abs(el.scrollTop - was.top) <= SETTLE_PX
+      );
+    };
     const onScroll = (e: Event) => {
       const menu = menuRef.current;
       const t = e.target;
@@ -86,11 +95,7 @@ export function SmartEditMenu({ x, y, entries, onInvoke, onClose }: Props) {
         const host = menu.parentElement;
         const movesAnchor = t.contains(menu) || host?.contains(t) === true;
         if (!movesAnchor) return;
-        const el = t instanceof Element ? t : null;
-        const was = el ? settled.get(el) : undefined;
-        if (el && was && Math.abs(el.scrollLeft - was[0]) <= SETTLE_PX && Math.abs(el.scrollTop - was[1]) <= SETTLE_PX) {
-          return;
-        }
+        if (t instanceof Element && isSettle(t)) return;
       }
       onClose();
     };

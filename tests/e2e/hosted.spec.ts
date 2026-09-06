@@ -6474,11 +6474,3 @@ test('E508: the legacy ?workspace=<uuid> form boots into the workspace with no i
   expect(painted.screens).toEqual([]);
   expect(painted.holds).toEqual(['hosted-booting']);
 });
-
-
-
-
-
-
-
-

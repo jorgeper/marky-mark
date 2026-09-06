@@ -4309,10 +4309,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   }, [canonicalOf]);
   /**
    * PRD 020 Req 18: what BOTH heading placements (preview button, editor
-   * line-end control) copy for a 1-based source line — the file's canonical Req 5 URL
-   * off the address bar plus `#<slug>`, or null when the line is no heading
-   * or no file rides the path (untitled buffers share nothing). Read at
-   * click time, like the Req 16/17 placements.
+   * line-end control) copy for a 1-based source line — the file's canonical
+   * Req 5 URL off the address bar plus `#<slug>`, or null when the line is
+   * no heading or no file rides the path (untitled buffers share nothing).
+   * Read at click time, like the Req 16/17 placements.
    */
   const headingUrlForLine = useCallback(
     (line: number): string | null => {

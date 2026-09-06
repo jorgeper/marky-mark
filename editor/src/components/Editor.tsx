@@ -1123,8 +1123,8 @@ class HeadingLinkWidget extends WidgetType {
 }
 
 /**
- * PRD 020 Req 18: the control's extension — a widget appears only on the
- * line the cursor rests on, and only when that line is a heading twice over:
+ * PRD 020 Req 18: where the control belongs right now — a widget on the line
+ * the cursor rests on, and only when that line is a heading twice over:
  * the syntax check says so (`isHeadingLine`, which excludes fenced
  * `# not-a-heading` lines the same way the preview excludes them) AND the
  * section model resolves it to a slugged share URL (`getUrl`, which also
@@ -1136,15 +1136,7 @@ class HeadingLinkWidget extends WidgetType {
  * which reports only as far as the background parse has reached — so every
  * heading past the cut-off of a long document was called "not a heading" and
  * lost its control. `isHeadingLine` (`lib/headingLine.ts`) owns the fix and
- * the reasoning; this extension just asks it.
- *
- * It rides a ViewPlugin holding its set rather than a plain decoration
- * function (the `smartEditButton` shape above), because a function is re-run
- * on EVERY view update — a scroll measure included — while both questions
- * here cost real work: `isHeadingLine` may parse, and the seam's `getUrl`
- * canonicalizes the buffer to address the line. Recomputing on selection and
- * document changes alone is exactly the budget the gutter's
- * `lineMarkerChange` kept, and nothing else can change the answer.
+ * the reasoning; this just asks it.
  */
 function headingLinkDecoration(
   view: EditorView,
@@ -1164,6 +1156,16 @@ function headingLinkDecoration(
   return Decoration.set(Decoration.widget({ widget, side: 1 }).range(head.to));
 }
 
+/**
+ * PRD 020 Req 18 (issue #261): the extension the compartment mounts — a
+ * ViewPlugin holding the set above rather than a plain decoration function
+ * (the `smartEditButton` shape), because a function is re-run on EVERY view
+ * update — a scroll measure included — while both questions the set asks
+ * cost real work: `isHeadingLine` may parse, and the seam's `getUrl`
+ * canonicalizes the buffer to address the line. Recomputing on selection and
+ * document changes alone is exactly the budget the gutter's
+ * `lineMarkerChange` kept, and nothing else can change the answer.
+ */
 function headingLinkControl(seam: MutableRefObject<HeadingLinkSeam | undefined>): Extension {
   return ViewPlugin.fromClass(
     class {
