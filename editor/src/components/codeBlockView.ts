@@ -81,7 +81,8 @@ function cardLineDeco(index: number, lastIndex: number): Decoration {
  * card's first line (a hidden delimiter row — absolute-positioned chrome in
  * a blank row, so the layout never moves). The body span is read from the
  * live state at click time; a doc change that shifts it rebuilds the widget
- * (`eq` is positional), so the span the click reads is always current.
+ * (both `eq` and `updateDOM` key on the span), so the span the click reads
+ * is always current.
  *
  * Issue #265: the widget also carries the cursor-inside flag, so the block
  * holding the main selection lights its button steadily. The flag rides the
@@ -103,9 +104,9 @@ class CardCopyWidget extends WidgetType {
   eq(other: CardCopyWidget): boolean {
     // Same span ⇒ same DOM kept across selection-only rebuilds, so a running
     // "Copied" confirmation survives caret moves elsewhere in the document.
-    // Issue #265: the caret crossing this block's boundary is a real change,
-    // but updateDOM below reuses the node for it, so the confirmation and the
-    // hover class survive that too.
+    // Issue #265: the caret crossing THIS block's boundary is a real change,
+    // but updateDOM below repaints that node in place, so the confirmation
+    // and the hover class survive it too.
     return (
       other.body.from === this.body.from &&
       other.body.to === this.body.to &&
@@ -118,8 +119,16 @@ class CardCopyWidget extends WidgetType {
    * repaint it in place. Returning true keeps the very same node, so a
    * running "Copied" state and the hover class survive the caret entering or
    * leaving the block.
+   *
+   * The span is the condition, not a formality: CodeMirror offers any unused
+   * node of this widget type here (`from` is the widget that built it, not
+   * necessarily this position's), and toDOM's readRaw closure reads ITS
+   * widget's span. Adopting a node built for another span would make the
+   * click copy that span — off by an edit, or another block entirely — so a
+   * moved body refuses and is redrawn, as it was before this issue.
    */
-  updateDOM(dom: HTMLElement): boolean {
+  updateDOM(dom: HTMLElement, _view: EditorView, from: CardCopyWidget): boolean {
+    if (from.body.from !== this.body.from || from.body.to !== this.body.to) return false;
     dom.classList.toggle(CARD_COPY_CURSOR_CLASS, this.cursorInside);
     return true;
   }

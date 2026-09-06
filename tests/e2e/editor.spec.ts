@@ -1251,4 +1251,17 @@ test('E527: issue #265 — the code card holding the caret keeps its copy button
   await expectDark(btnA);
   await expectDark(btnB);
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // The widget carries the caret flag now, so it is rebuilt far more often —
+  // and a button node reads the body span of the widget that BUILT it. An
+  // edit above the block must therefore redraw it, not repaint it, or the
+  // click would copy a stale span. Type in the prose, then copy A by hover.
+  await editor.locator('.cm-line').filter({ hasText: 'intro' }).click();
+  await page.keyboard.type('XY');
+  const writes = () => page.evaluate(() => window.__mmClipboard?.length ?? 0);
+  const before = await writes();
+  await cardFirst.nth(0).hover();
+  await btnA.click();
+  await expect.poll(writes).toBe(before + 1);
+  expect(await page.evaluate(() => window.__mmClipboard?.at(-1))).toBe('const a = 1;\nconst b = 2;');
 });
