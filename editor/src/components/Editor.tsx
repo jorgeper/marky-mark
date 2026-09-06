@@ -619,6 +619,28 @@ const CODE_LANGUAGES = [
 ];
 
 /**
+ * SPEC23 §3 (issue #269): does one of the nested parsers above already own
+ * this info string? Asked of `CODE_LANGUAGES` itself, with the very matcher
+ * `markdown({ codeLanguages })` applies to a fence — so the answer includes
+ * its fuzzy hits (```` ```scss ```` mounts the CSS grammar) and cannot drift
+ * from the parser list the way a hand-kept second list of names would.
+ */
+const nativeFenceLanguage = (name: string): boolean =>
+  LanguageDescription.matchLanguageName(CODE_LANGUAGES, name, true) !== null;
+
+/** One reusable mark per `mm-code-*` class — there are eight of them. */
+const codeTokenMarks = new Map<string, Decoration>();
+
+function codeTokenMark(cls: string): Decoration {
+  let mark = codeTokenMarks.get(cls);
+  if (!mark) {
+    mark = Decoration.mark({ class: cls });
+    codeTokenMarks.set(cls, mark);
+  }
+  return mark;
+}
+
+/**
  * SPEC23 §3 (issue #269): the languages the three nested parsers above do NOT
  * cover — python, bash, json, yaml, rust, go, java, sql, c/cpp and the rest of
  * lowlight's `common` set — painted as mark decorations over the fence body
@@ -637,17 +659,6 @@ const CODE_LANGUAGES = [
  * (Prec.high): the fence keeps its background and radius, and the token colour
  * paints on top of the flat code foreground rather than under it.
  */
-const codeTokenMarks = new Map<string, Decoration>();
-
-function codeTokenMark(cls: string): Decoration {
-  let mark = codeTokenMarks.get(cls);
-  if (!mark) {
-    mark = Decoration.mark({ class: cls });
-    codeTokenMarks.set(cls, mark);
-  }
-  return mark;
-}
-
 function lowlightCodeDeco(view: EditorView): DecorationSet {
   const ranges = view.visibleRanges;
   if (!ranges.length) return Decoration.none;
@@ -664,7 +675,10 @@ function lowlightCodeDeco(view: EditorView): DecorationSet {
     enter: (n) => {
       if (n.name !== 'FencedCode') return;
       const info = n.node.getChild('CodeInfo');
-      const lang = resolveFenceLanguage(info ? doc.sliceString(info.from, info.to) : null);
+      const lang = resolveFenceLanguage(
+        info ? doc.sliceString(info.from, info.to) : null,
+        nativeFenceLanguage
+      );
       if (!lang) return false; // unlabelled, unknown, or a nested parser's own
       const body = n.node.getChild('CodeText');
       if (!body) return false; // an empty fence has no body to colour

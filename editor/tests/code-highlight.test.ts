@@ -6,9 +6,16 @@ import {
   flattenHighlight,
   highlightCode,
   highlightCodeCached,
-  NATIVE_FENCE_LANGUAGES,
   resolveFenceLanguage,
 } from '../src/lib/codeHighlight';
+
+/**
+ * The nested-parser predicate `Editor.tsx` passes in: issue #122's
+ * `CODE_LANGUAGES` matched the way `markdown({ codeLanguages })` matches an
+ * info string — fuzzily, which is why `scss` lands on the CSS grammar.
+ */
+const NATIVE = ['javascript', 'js', 'jsx', 'ts', 'tsx', 'typescript', 'node', 'css', 'scss', 'html', 'htm', 'xhtml'];
+const isNative = (name: string) => NATIVE.includes(name);
 
 /** Line bounds over a plain string, the shape CodeMirror's `doc.lineAt` has. */
 function lineBoundsOf(text: string) {
@@ -32,25 +39,27 @@ describe('SPEC23 §3 (issue #269) editor fenced-code highlighting', () => {
       'arduino', 'bash', 'c', 'cpp', 'csharp', 'diff', 'go', 'graphql', 'ini',
       'java', 'json', 'kotlin', 'less', 'lua', 'makefile', 'markdown',
       'objectivec', 'perl', 'php', 'plaintext', 'python', 'r', 'ruby', 'rust',
-      'scss', 'shell', 'sql', 'swift', 'vbnet', 'wasm', 'xml', 'yaml',
+      'shell', 'sql', 'swift', 'vbnet', 'wasm', 'xml', 'yaml',
     ]) {
-      expect(resolveFenceLanguage(lang), lang).toBe(lang);
+      expect(resolveFenceLanguage(lang, isNative), lang).toBe(lang);
     }
-    // Aliases resolve to their canonical grammar, and meta after the tag is ignored.
-    expect(resolveFenceLanguage('py')).toBe('py');
-    expect(resolveFenceLanguage('python {1,3}')).toBe('python');
-    expect(resolveFenceLanguage('  YAML  ')).toBe('yaml');
+    // A registered alias is a grammar name lowlight answers to, so it comes
+    // back as written; meta after the tag, case and padding are all ignored.
+    expect(resolveFenceLanguage('py', isNative)).toBe('py');
+    expect(resolveFenceLanguage('python {1,3}', isNative)).toBe('python');
+    expect(resolveFenceLanguage('  YAML  ', isNative)).toBe('yaml');
   });
 
   it('U1163: an absent, empty, bogus or natively-parsed info string stays plain', () => {
-    expect(resolveFenceLanguage(undefined)).toBeNull();
-    expect(resolveFenceLanguage(null)).toBeNull();
-    expect(resolveFenceLanguage('')).toBeNull();
-    expect(resolveFenceLanguage('   ')).toBeNull();
-    expect(resolveFenceLanguage('notalang')).toBeNull();
+    expect(resolveFenceLanguage(undefined, isNative)).toBeNull();
+    expect(resolveFenceLanguage(null, isNative)).toBeNull();
+    expect(resolveFenceLanguage('', isNative)).toBeNull();
+    expect(resolveFenceLanguage('   ', isNative)).toBeNull();
+    expect(resolveFenceLanguage('notalang', isNative)).toBeNull();
     // Issue #122's nested CodeMirror parsers already colour these — lowlight
-    // must stay off them so no span is painted twice.
-    for (const lang of NATIVE_FENCE_LANGUAGES) expect(resolveFenceLanguage(lang), lang).toBeNull();
+    // must stay off them so no span is painted twice, even where lowlight has
+    // a grammar of its own for the tag (`scss`, `xhtml`).
+    for (const lang of NATIVE) expect(resolveFenceLanguage(lang, isNative), lang).toBeNull();
     expect(highlightCode('notalang', 'x = 1')).toEqual([]);
     expect(highlightCode('python', '')).toEqual([]);
   });
