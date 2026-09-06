@@ -156,6 +156,15 @@ export interface WorkspaceManifest {
    * unchanged, and the Req 3 migration is what fills it in.
    */
   uniqueName?: string;
+  /**
+   * PRD 024 Req 1: the unique names this workspace has given up, oldest
+   * first — one flat list of names that each point at this workspace, so a
+   * former name resolves in a single lookup with no chain to follow (Req 4).
+   * Server-owned: optional on read (absent means none, so every manifest
+   * written before the field existed parses unchanged) and always written by
+   * the server, a client's value on a manifest PUT discarded like `created`.
+   */
+  formerNames?: string[];
   /** ISO 8601 creation timestamp; preserved across updates. */
   created: string;
   /** ISO 8601 last-manifest-update timestamp. */
@@ -213,6 +222,24 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
     const problem = uniqueNameFormatProblem(data.uniqueName);
     if (problem) return fail(`manifest uniqueName is invalid: ${problem}`);
     uniqueName = data.uniqueName;
+  }
+  // PRD 024 Req 1: former names are optional (absent means none — every
+  // pre-existing manifest still parses, which is load-bearing because a parse
+  // failure is a 500 on every workspace route) but a present value must be an
+  // array of well-formed unique names. Format only, exactly like `uniqueName`
+  // above: reserved words and collisions are creation/rename policy, so
+  // history a later policy outlaws never makes the manifest unreadable.
+  let formerNames: string[] | undefined;
+  if (data.formerNames !== undefined) {
+    if (!Array.isArray(data.formerNames)) return fail('manifest formerNames must be an array');
+    const names: string[] = [];
+    for (const entry of data.formerNames as unknown[]) {
+      if (typeof entry !== 'string') return fail('manifest formerNames must be an array of strings');
+      const problem = uniqueNameFormatProblem(entry);
+      if (problem) return fail(`manifest formerNames entry ${JSON.stringify(entry)} is invalid: ${problem}`);
+      names.push(entry);
+    }
+    formerNames = names;
   }
   if (!isIsoTimestamp(created)) return fail('manifest created must be an ISO 8601 timestamp');
   if (!isIsoTimestamp(modified)) return fail('manifest modified must be an ISO 8601 timestamp');
@@ -279,6 +306,7 @@ export function validateWorkspaceManifest(data: unknown): ManifestResult {
       version: MANIFEST_VERSION,
       name,
       ...(uniqueName !== undefined ? { uniqueName } : {}),
+      ...(formerNames !== undefined ? { formerNames } : {}),
       created,
       modified,
       members,

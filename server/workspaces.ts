@@ -35,6 +35,7 @@ import type { WorkspaceListing } from '../src/lib/workspaceLifecycle.ts';
 import {
   dedupeUniqueName,
   planUniqueNameMigration,
+  recordFormerName,
   slugifyWorkspaceName,
   uniqueNameKey,
   uniqueNameProblem,
@@ -281,25 +282,77 @@ async function loadManifest(
 }
 
 /**
- * PRD 020 Req 1: every unique name currently held, as case-insensitive keys —
- * the collision set creation and rename check against. Derived by loading
- * every manifest, exactly like the listing loop: there is no database, one
- * manifest blob per workspace is all the state there is. `excludeId` leaves
- * out the workspace being renamed, so a case-only rename never collides with
- * itself. Corrupt manifests contribute nothing (their reads fail loudly on
- * their own routes).
+ * PRD 024 Req 6+8: what one pass over the manifests knows about names.
+ * `taken` stays the PRD 020 Req 1 collision set — CURRENT names only, so a
+ * name that is merely some workspace's former name never counts as taken and
+ * creation and rename accept it under exactly today's rules (Req 6).
+ * `formerHolders` is the other half read in the SAME fan-out: which
+ * workspaces still list a given name as former, which is all Req 8's reclaim
+ * needs to strip it from its old holder without a second full pass (the PRD's
+ * non-goals rule out a per-name claim index).
  */
-async function takenUniqueNames(storage: StorageProvider, excludeId?: string): Promise<Set<string>> {
+interface UniqueNameScan {
+  /** Case-insensitive keys of the names currently held. */
+  taken: Set<string>;
+  /** Former-name key → the workspace ids still carrying it. */
+  formerHolders: Map<string, string[]>;
+}
+
+/**
+ * PRD 020 Req 1 + PRD 024 Req 8: read the deployment's name state. Derived by
+ * loading every manifest, exactly like the listing loop: there is no
+ * database, one manifest blob per workspace is all the state there is.
+ * `excludeId` leaves out the workspace being renamed, so a case-only rename
+ * never collides with itself and never tries to reclaim from itself. Corrupt
+ * manifests contribute nothing (their reads fail loudly on their own routes).
+ */
+async function scanUniqueNames(storage: StorageProvider, excludeId?: string): Promise<UniqueNameScan> {
   const taken = new Set<string>();
+  const formerHolders = new Map<string, string[]>();
   for (const blob of await storage.list(WORKSPACES_PREFIX)) {
     const id = MANIFEST_BLOB_RE.exec(blob.path)?.[1];
     if (!id || id === excludeId) continue;
     const manifest = await loadManifest(storage, id);
-    if (manifest && typeof manifest !== 'string' && manifest.uniqueName) {
-      taken.add(uniqueNameKey(manifest.uniqueName));
+    if (!manifest || typeof manifest === 'string') continue;
+    if (manifest.uniqueName) taken.add(uniqueNameKey(manifest.uniqueName));
+    for (const former of manifest.formerNames ?? []) {
+      const key = uniqueNameKey(former);
+      const holders = formerHolders.get(key);
+      if (holders) holders.push(id);
+      else formerHolders.set(key, [id]);
     }
   }
-  return taken;
+  return { taken, formerHolders };
+}
+
+/**
+ * PRD 024 Req 8: reclaiming ends the redirect — when a request makes `name`
+ * current, every OTHER workspace that still lists it as a former name loses
+ * that entry, rewritten as part of the same request, so the name resolves to
+ * exactly one workspace. The holders come from the caller's own scan, so this
+ * costs one blob read and one write per holder and no extra fan-out; normally
+ * there is no holder at all, and more than one only where the pre-existing
+ * unconditional-manifest-write race left a stale entry (inert by design, and
+ * cleared here too). `modified` is left alone: dropping a name this workspace
+ * no longer answers to is not an edit anyone made to it.
+ */
+async function releaseFormerName(
+  storage: StorageProvider,
+  scan: UniqueNameScan,
+  name: string,
+): Promise<void> {
+  const key = uniqueNameKey(name);
+  for (const holderId of scan.formerHolders.get(key) ?? []) {
+    const manifest = await loadManifest(storage, holderId);
+    if (!manifest || typeof manifest === 'string') continue;
+    const formerNames = (manifest.formerNames ?? []).filter((former) => uniqueNameKey(former) !== key);
+    if (formerNames.length === (manifest.formerNames ?? []).length) continue;
+    const { formerNames: _replaced, ...rest } = manifest;
+    await storage.write(
+      manifestBlob(holderId),
+      serializeWorkspaceManifest(formerNames.length > 0 ? { ...rest, formerNames } : rest),
+    );
+  }
 }
 
 /** PRD 020 Req 1: the 409 refusal creation and rename both send — one template, so the two routes can never drift apart. */
@@ -549,10 +602,8 @@ export async function handleScratchpadResolve(
   // slugifies to `my-scratchpad`, deduped `-2`, `-3`… deployment-wide. The
   // unique name stays the workspace's manifest identity; its CANONICAL URL
   // is the Req 10 `/<username>/scratchpad` form.
-  const uniqueName = dedupeUniqueName(
-    slugifyWorkspaceName(SCRATCHPAD_NAME),
-    await takenUniqueNames(storage),
-  );
+  const scan = await scanUniqueNames(storage);
+  const uniqueName = dedupeUniqueName(slugifyWorkspaceName(SCRATCHPAD_NAME), scan.taken);
   const manifest: WorkspaceManifest = {
     ...built.manifest,
     uniqueName,
@@ -572,6 +623,10 @@ export async function handleScratchpadResolve(
   await storage.write(manifestBlob(id), serializeWorkspaceManifest(manifest));
   const claimed = await storage.writeIfAbsent(pointer, JSON.stringify({ workspaceId: id }));
   if (claimed) {
+    // PRD 024 Req 8: the minted name is now current here, so no other
+    // workspace may keep answering to it — done only on the winning call, so
+    // the loser below strips nothing before dropping its orphan manifest.
+    await releaseFormerName(storage, scan, uniqueName);
     sendJson(res, 200, { id });
     return;
   }
@@ -674,9 +729,9 @@ export async function handleWorkspaceApi(
     // reserved words were refused inside buildNewWorkspaceManifest) — a name
     // any workspace already holds, compared case-insensitively, is a 409 the
     // dialog shows verbatim.
-    const taken = await takenUniqueNames(storage);
+    const scan = await scanUniqueNames(storage);
     if (built.manifest.uniqueName) {
-      if (taken.has(uniqueNameKey(built.manifest.uniqueName))) {
+      if (scan.taken.has(uniqueNameKey(built.manifest.uniqueName))) {
         sendJson(res, 409, { error: uniqueNameTakenError(built.manifest.uniqueName) });
         return;
       }
@@ -685,7 +740,7 @@ export async function handleWorkspaceApi(
       // its canonical path URL depends on one. A name-only body (an older
       // client) gets its display name minted into one exactly like the Req 3
       // migration would: slugified, deduped deployment-wide.
-      built.manifest.uniqueName = dedupeUniqueName(slugifyWorkspaceName(built.manifest.name), taken);
+      built.manifest.uniqueName = dedupeUniqueName(slugifyWorkspaceName(built.manifest.name), scan.taken);
     }
     // PRD 007 Req 6 (issue #180): snapshot each initial member's display
     // name at add time — the creator's from their own token, the rest from
@@ -705,6 +760,10 @@ export async function handleWorkspaceApi(
     // PRD 007 Req 7: the id is an opaque server-generated UUID.
     const id = randomUUID();
     await storage.write(manifestBlob(id), serializeWorkspaceManifest(manifest));
+    // PRD 024 Req 6+8: a name that was another workspace's former name is
+    // freely creatable (it never joined `scan.taken`), and taking it strips it
+    // from that workspace in this same request — the link now opens this one.
+    if (manifest.uniqueName) await releaseFormerName(storage, scan, manifest.uniqueName);
     sendJson(res, 201, { id, manifest });
     return;
   }
@@ -744,6 +803,10 @@ export async function handleWorkspaceApi(
         // the same listing policy — as the rest of the metadata: a workspace
         // the policy hides from this caller reveals its name nowhere.
         ...(manifest.uniqueName !== undefined ? { uniqueName: manifest.uniqueName } : {}),
+        // PRD 024 Req 5: the names this workspace has given up, `[]` when it
+        // has none — the same row, and so the same listing policy, as the
+        // unique name above: a workspace the policy hides names nothing here.
+        formerNames: manifest.formerNames ?? [],
         created: manifest.created,
         modified: manifest.modified,
         owners: workspaceOwnerIds(manifest),
@@ -796,7 +859,10 @@ export async function handleWorkspaceApi(
     // files/, comment sidecars, pasted images and the summary cache (PRD 011
     // Req 29) alike. Listing the prefix (rather than the files/ subtree) is
     // what makes that exhaustive: nothing of the workspace survives to be
-    // listed or read afterwards.
+    // listed or read afterwards. PRD 024 Req 10: that
+    // includes the former-name history, which lives on the manifest and
+    // nowhere else — so deletion takes it with it and no tombstone or
+    // separate name index has to be swept.
     const prefix = `${WORKSPACES_PREFIX}${id}/`;
     const blobs = await storage.list(prefix);
     const manifestPath = manifestBlob(id);
@@ -843,29 +909,54 @@ export async function handleWorkspaceApi(
       // omits the field keeps the stored one — a pre-#219 client's manifest
       // write must never strip the workspace's identity.
       const requested = validated.manifest.uniqueName;
+      let scan: UniqueNameScan | null = null;
       if (requested !== undefined && requested !== existing.uniqueName) {
         // Format already passed validateWorkspaceManifest, so the shared rule
         // can only trip on a reserved word — same message the dialogs show.
+        // PRD 024 Req 9: unchanged, and since only a name that was
+        // legitimately current can be recorded below, no reserved word can
+        // ever reach `formerNames`.
         const problem = uniqueNameProblem(requested);
         if (problem) {
           sendJson(res, 400, { error: problem });
           return;
         }
-        if ((await takenUniqueNames(storage, id)).has(uniqueNameKey(requested))) {
+        // PRD 024 Req 6: `taken` is current names only, so renaming ONTO
+        // another workspace's former name is not a collision — it succeeds
+        // and reclaims the name below.
+        scan = await scanUniqueNames(storage, id);
+        if (scan.taken.has(uniqueNameKey(requested))) {
           sendJson(res, 409, { error: uniqueNameTakenError(requested) });
           return;
         }
       }
       const uniqueName = requested ?? existing.uniqueName;
+      // PRD 024 Req 1: `formerNames` is server-owned — computed from the
+      // EXISTING manifest plus the rename that just happened, so whatever the
+      // body carried in that field is discarded exactly as `created` is (the
+      // rest spread below is what drops it). PRD 024 Req 2+3+4: a rename
+      // appends the name given up, a case-only change and a body that omits
+      // `uniqueName` record nothing, and renaming back takes the name out of
+      // the history as it becomes current again.
+      const formerNames =
+        requested !== undefined
+          ? recordFormerName(existing.formerNames ?? [], existing.uniqueName, requested)
+          : (existing.formerNames ?? []);
+      const { formerNames: _clientSupplied, ...requestedManifest } = validated.manifest;
       // The server owns the timestamps: creation is immutable, modification
       // is stamped here (PRD 007 Req 7's created/modified record).
       const manifest: WorkspaceManifest = {
-        ...validated.manifest,
+        ...requestedManifest,
         ...(uniqueName !== undefined ? { uniqueName } : {}),
+        ...(formerNames.length > 0 ? { formerNames } : {}),
         created: existing.created,
         modified: new Date().toISOString(),
       };
       await storage.write(manifestBlob(id), serializeWorkspaceManifest(manifest));
+      // PRD 024 Req 8: the requested name is current here now, so any other
+      // workspace still listing it as former stops answering to it. Only on a
+      // real rename — `scan` is null when nothing about the name changed.
+      if (scan && requested !== undefined) await releaseFormerName(storage, scan, requested);
       sendJson(res, 200, { id, manifest });
       return;
     }

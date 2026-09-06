@@ -32,6 +32,8 @@ const listing = (over: Partial<WorkspaceListing> & { id: string; name: string })
   modified: NOW,
   owners: [],
   access: true,
+  // PRD 024 Req 5: every row carries the former-name history, empty by default.
+  formerNames: [],
   ...over,
 });
 

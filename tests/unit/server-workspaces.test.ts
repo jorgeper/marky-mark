@@ -5,6 +5,7 @@ import { createApp } from '../../server/app';
 import { createMockAuthProvider } from '../../server/providers/mock/auth';
 import { createMockDirectoryProvider } from '../../server/providers/mock/directory';
 import { PERMISSIONS, type WorkspaceManifest } from '../../src/lib/hostedWorkspace';
+import type { WorkspaceListing } from '../../src/lib/workspaceLifecycle';
 import { migrateWorkspaceUniqueNames, WORKSPACE_ROUTE_PERMISSIONS } from '../../server/workspaces';
 import { createMemoryStorage, describeStorageContract } from './storage-contract';
 
@@ -964,6 +965,21 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     return ((await res.json()) as { manifest: WorkspaceManifest }).manifest;
   };
 
+  /** Create a workspace under `uniqueName` and return its id. */
+  const create = async (uniqueName: string): Promise<string> => {
+    const res = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName }));
+    expect(res.status).toBe(201);
+    return ((await res.json()) as { id: string }).id;
+  };
+
+  /** PUT the stored manifest back under a new unique name; answer what was stored. */
+  const rename = async (id: string, uniqueName: string): Promise<WorkspaceManifest> => {
+    const current = await readManifest(id);
+    const res = await call('ada', 'PUT', `/api/workspaces/${id}/manifest`, JSON.stringify({ ...current, uniqueName }));
+    expect(res.status).toBe(200);
+    return readManifest(id);
+  };
+
   it('U1053: creation stores both names and rejects reserved or case-insensitively colliding unique names verbatim', async () => {
     const created = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'Design-Docs', name: 'Design Docs' }));
     expect(created.status).toBe(201);
@@ -1024,6 +1040,116 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     const forbidden = await call('grace', 'PUT', `/api/workspaces/${a.id}/manifest`, JSON.stringify(await readManifest(a.id)));
     expect(forbidden.status).toBe(403);
     expect(((await forbidden.json()) as { required: string }).required).toBe('workspace.settings');
+    blobs.clear();
+  });
+
+  it('U1236: a rename records the name given up, a case-only change records nothing, and renaming back reclaims it', async () => {
+    // PRD 024 Req 1: a workspace that has never been renamed carries no
+    // history at all — absent means none.
+    const id = await create('hist-a');
+    expect((await readManifest(id)).formerNames).toBeUndefined();
+
+    // Req 2: the previous name is appended when the name really changes.
+    expect((await rename(id, 'hist-b')).formerNames).toEqual(['hist-a']);
+    // Req 2: a case-only change updates the current name as today and is not
+    // a rename for history purposes.
+    const cased = await rename(id, 'Hist-B');
+    expect(cased.uniqueName).toBe('Hist-B');
+    expect(cased.formerNames).toEqual(['hist-a']);
+    // Req 4: chains are flat — one list, append order preserved, no old→new
+    // mapping to follow.
+    expect((await rename(id, 'hist-c')).formerNames).toEqual(['hist-a', 'Hist-B']);
+    // Req 3: the name becoming current leaves the list, and the one just
+    // given up joins it — so the list never holds the current name.
+    const back = await rename(id, 'hist-a');
+    expect(back.uniqueName).toBe('hist-a');
+    expect(back.formerNames).toEqual(['Hist-B', 'hist-c']);
+
+    // Req 3 at its simplest: after A → B → A the history is exactly [B].
+    const pinged = await create('ping');
+    await rename(pinged, 'pong');
+    const reclaimed = await rename(pinged, 'ping');
+    expect(reclaimed.uniqueName).toBe('ping');
+    expect(reclaimed.formerNames).toEqual(['pong']);
+
+    // Req 2: a friendly-name-only save records nothing…
+    const current = await readManifest(pinged);
+    const friendly = await call('ada', 'PUT', `/api/workspaces/${pinged}/manifest`, JSON.stringify({ ...current, name: 'Ping Docs' }));
+    expect(friendly.status).toBe(200);
+    expect((await readManifest(pinged)).formerNames).toEqual(['pong']);
+    // …and neither does a body that omits `uniqueName` entirely.
+    const { uniqueName: _drop, ...withoutUnique } = await readManifest(pinged);
+    expect((await call('ada', 'PUT', `/api/workspaces/${pinged}/manifest`, JSON.stringify(withoutUnique))).status).toBe(200);
+    const kept = await readManifest(pinged);
+    expect(kept.uniqueName).toBe('ping');
+    expect(kept.formerNames).toEqual(['pong']);
+    blobs.clear();
+  });
+
+  it('U1237: a client-supplied formerNames on a manifest PUT is ignored, like created', async () => {
+    // PRD 024 Req 1: the field is server-owned — the stored value is computed
+    // from the existing manifest plus the rename that just happened.
+    const id = await create('owned');
+    const current = await readManifest(id);
+    const smuggled = await call(
+      'ada',
+      'PUT',
+      `/api/workspaces/${id}/manifest`,
+      JSON.stringify({ ...current, formerNames: ['fabricated', 'also-fake'] }),
+    );
+    expect(smuggled.status).toBe(200);
+    expect((await readManifest(id)).formerNames).toBeUndefined();
+    // The same on a real rename: the body's value is discarded, and only the
+    // name actually given up is recorded.
+    const renamed = await call(
+      'ada',
+      'PUT',
+      `/api/workspaces/${id}/manifest`,
+      JSON.stringify({ ...current, uniqueName: 'owned-2', formerNames: ['fabricated'] }),
+    );
+    expect(renamed.status).toBe(200);
+    expect((await readManifest(id)).formerNames).toEqual(['owned']);
+    blobs.clear();
+  });
+
+  it('U1238: creation and rename take another workspace\u2019s former name and strip it from that workspace', async () => {
+    // PRD 024 Req 6: a former name is not taken — creation with it succeeds
+    // under exactly today's rules, no warning and no confirmation…
+    const abandoned = await create('reclaim-me');
+    await rename(abandoned, 'moved-on');
+    expect((await readManifest(abandoned)).formerNames).toEqual(['reclaim-me']);
+    const created = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'Reclaim-Me' }));
+    expect(created.status).toBe(201);
+    expect(((await created.json()) as { manifest: WorkspaceManifest }).manifest.uniqueName).toBe('Reclaim-Me');
+    // …and Req 8: the old holder stops answering to it in the same request.
+    expect((await readManifest(abandoned)).formerNames).toBeUndefined();
+
+    // The same on rename, and only the reclaimed entry goes: the giver has
+    // two former names and keeps the other one.
+    const giver = await create('giver');
+    await rename(giver, 'giver-2');
+    await rename(giver, 'giver-3');
+    expect((await readManifest(giver)).formerNames).toEqual(['giver', 'giver-2']);
+    const taker = await create('taker');
+    const took = await rename(taker, 'GIVER');
+    expect(took.uniqueName).toBe('GIVER');
+    expect(took.formerNames).toEqual(['taker']);
+    expect((await readManifest(giver)).formerNames).toEqual(['giver-2']);
+    blobs.clear();
+  });
+
+  it('U1239: listing rows carry the former names, an empty array when there are none', async () => {
+    // PRD 024 Req 5: the field rides the same row as the unique name.
+    const plain = await create('listed-plain');
+    const moved = await create('listed-old');
+    await rename(moved, 'listed-new');
+    const res = await call('ada', 'GET', '/api/workspaces');
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as WorkspaceListing[];
+    const row = (id: string) => rows.find((r) => r.id === id);
+    expect(row(plain)?.formerNames).toEqual([]);
+    expect(row(moved)?.uniqueName).toBe('listed-new');
+    expect(row(moved)?.formerNames).toEqual(['listed-old']);
     blobs.clear();
   });
 

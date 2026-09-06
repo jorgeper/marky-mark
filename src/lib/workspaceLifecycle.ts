@@ -34,6 +34,14 @@ export interface WorkspaceListing {
    * lists to them; absent only on a pre-migration manifest.
    */
   uniqueName?: string;
+  /**
+   * PRD 024 Req 5: the unique names this workspace has given up (empty when
+   * none) — the manifest history of Req 1, carried on the row so later slices
+   * can resolve a link under an old name without a second request. It rides
+   * the same row, and therefore the same PRD 017 Req 11 listing policy and
+   * PRD 019 Req 8 scratchpad filter, as `uniqueName` above.
+   */
+  formerNames: string[];
   created: string;
   modified: string;
   owners: string[];

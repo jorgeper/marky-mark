@@ -67,6 +67,28 @@ export function uniqueNameProblem(name: string): string | null {
 }
 
 /**
+ * PRD 024 Req 2+3+4: the `formerNames` history a rename leaves behind — pure,
+ * so the server route stays a thin caller. Three rules in one pass: the name
+ * becoming current leaves the list (Req 3 — the list never holds the current
+ * name, so renaming back reclaims your own name), the name just given up is
+ * appended in order (Req 2, and Req 4's flat list: no old→new mapping, so no
+ * chain and no loop is representable), and a case-only change records nothing
+ * because the previous and next names share a `uniqueNameKey`. An entry is
+ * never duplicated, and a rename from nothing (a manifest that carried no
+ * unique name) records nothing.
+ */
+export function recordFormerName(
+  formerNames: readonly string[],
+  previous: string | undefined,
+  next: string,
+): string[] {
+  const nextKey = uniqueNameKey(next);
+  const kept = formerNames.filter((name) => uniqueNameKey(name) !== nextKey);
+  if (previous === undefined || uniqueNameKey(previous) === nextKey) return kept;
+  return kept.some((name) => uniqueNameKey(name) === uniqueNameKey(previous)) ? kept : [...kept, previous];
+}
+
+/**
  * PRD 020 Req 3: a display name slugified into a unique-name candidate —
  * lowercased, runs of characters outside `[a-z0-9._-]` collapsed to `-`,
  * clamped to the length limit. A name with nothing usable at all (it cannot

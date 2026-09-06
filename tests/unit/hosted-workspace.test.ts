@@ -623,6 +623,35 @@ describe('PRD 020 Req 1 manifest unique name', () => {
     }
   });
 
+  it('U1235: former names are optional, round-trip, and a malformed entry is a named error', () => {
+    // PRD 024 Req 1: absent is valid — every pre-existing manifest still
+    // parses, which is load-bearing: a parse failure is a 500 on every
+    // workspace route.
+    const plain = validateWorkspaceManifest(base());
+    expect(plain.ok).toBe(true);
+    if (plain.ok) expect('formerNames' in plain.manifest).toBe(false);
+    // Present: an array of well-formed unique names, kept through
+    // validate + serialize + parse in order.
+    const withHistory = validateWorkspaceManifest({ ...base(), formerNames: ['alpha', 'Beta'] });
+    expect(withHistory.ok && withHistory.manifest.formerNames).toEqual(['alpha', 'Beta']);
+    if (!withHistory.ok) return;
+    const reparsed = parseWorkspaceManifest(serializeWorkspaceManifest(withHistory.manifest));
+    expect(reparsed.ok && reparsed.manifest.formerNames).toEqual(['alpha', 'Beta']);
+    // Malformed values are refused by name, like every other field — the
+    // entries pass the same format rule `uniqueName` does.
+    for (const [bad, problem] of [
+      ['alpha', 'formerNames must be an array'],
+      [[42], 'must be an array of strings'],
+      [[''], 'required'],
+      [['no spaces'], 'letters, digits'],
+      [['x'.repeat(101)], 'at most 100 characters'],
+    ] as const) {
+      const result = validateWorkspaceManifest({ ...base(), formerNames: bad });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toContain(problem);
+    }
+  });
+
   it('U1050: friendlyNameOf reads "friendly unset" out of name === uniqueName', () => {
     // PRD 020 Req 2: unset friendly name is stored as name === uniqueName.
     expect(friendlyNameOf({ name: 'design-docs', uniqueName: 'design-docs' })).toBeNull();
