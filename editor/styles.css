@@ -780,9 +780,13 @@
   vertical-align: top;
 }
 .smart-edit-btn {
+  /* SPEC43 §3 (issue #263): the gap between the button's right edge and the
+     line start, declared once so the fence-card override below can add the
+     card's inset to it instead of restating the number. */
+  --mm-smart-edit-gap: 4px;
   position: absolute;
   top: 0;
-  right: 4px;
+  right: var(--mm-smart-edit-gap);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -945,7 +949,11 @@
   /* The ring color, --mm-fence-ring, is defined in the chrome token block
      (PRD 018 Req 3) — same value it carried when scoped here. */
   position: relative;
-  padding-left: 16px;
+  /* Issue #163's 16px text inset, and (issue #263) the single declaration of
+     it: the smart-edit override below reads this inherited value, so the two
+     sites cannot drift. */
+  --mm-fence-inset: 16px;
+  padding-left: var(--mm-fence-inset);
 }
 .editor-wrap .cm-line.mm-fence-card::before {
   content: '';
@@ -974,6 +982,22 @@
 .editor-wrap .cm-line.mm-fence-card-first.mm-fence-card-last::before {
   border-radius: 9px;
   box-shadow: inset 0 0 0 1px var(--mm-fence-ring);
+}
+
+/* SPEC43 §3 (issue #263): the smart-edit button on a card line — pushed out
+   of the card, not hidden. The button hangs left of its zero-width anchor at
+   the line's start; on a card line that start is --mm-fence-inset past the
+   card's painted left edge (the ::before above is inset: 0 on the line), so
+   the plain `right: var(--mm-smart-edit-gap)` left the 24px glyph straddling
+   that edge — the reported half-in overlap. Adding the same inherited inset
+   back lands the button exactly where it sits on a prose line: inside
+   .cm-content's 32px side padding, its right edge --mm-smart-edit-gap left of
+   the card, still clickable and still unclipped with line numbers off.
+   Rendering it (rather than dropping it) keeps the affordance reachable by
+   the same click on every line. Chrome moves; no document text does — the
+   card's own 16px text inset is untouched. */
+.editor-wrap .cm-line.mm-fence-card .smart-edit-btn {
+  right: calc(var(--mm-smart-edit-gap) + var(--mm-fence-inset));
 }
 
 /* Issue #163: the card's copy control — the preview button's look

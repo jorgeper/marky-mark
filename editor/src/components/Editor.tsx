@@ -930,6 +930,10 @@ class SmartEditWidget extends WidgetType {
   toDOM(view: EditorView) {
     // A zero-size inline anchor at the line's start; the button hangs left
     // into .cm-content's 32px side padding, so the line's text never moves.
+    // Issue #263: on a fenced-code card line that start is the card's 16px
+    // text inset, so styles.css shifts the button out by the same
+    // --mm-fence-inset — it lands left of the card instead of half inside it
+    // (E490). Chrome-only: the widget itself is identical on every line.
     const anchor = document.createElement('span');
     anchor.className = 'smart-edit-anchor';
     const btn = document.createElement('button');

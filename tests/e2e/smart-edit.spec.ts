@@ -544,3 +544,124 @@ test('E481: SPEC43 §11 — Link ▸ Open Link opens through the seam with the c
   expect(page.url()).toBe(appUrl); // the app never navigated
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
 });
+
+// --- Issue #263: the button never paints inside a fenced-code card ----------
+
+test('E490: issue #263 — the smart-edit button sits entirely left of a fence card on every card line (delimiters, body, one-line, list- and quote-nested), keeps prose geometry and stays clickable', async ({
+  page,
+}) => {
+  // SPEC43 §3 (issue #263): the cursor-line button is chrome in .cm-content's
+  // left padding, so a fence card's 16px text inset must not drag it onto the
+  // card. Line indices: 2-5 plain block, 8-10 nested in a list item, 13-15
+  // nested in a blockquote, 17 a one-line (unclosed, doc-final) block.
+  const DOC = [
+    'intro',
+    '',
+    '```js',
+    'const a = 1;',
+    'const b = 2;',
+    '```',
+    '',
+    '- item',
+    '  ```sh',
+    '  echo hi',
+    '  ```',
+    '',
+    '> quoted',
+    '> ```py',
+    '> x = 1',
+    '> ```',
+    '',
+    '```txt', // no trailing newline: the block is this single line
+  ].join('\n');
+  await fsWrite(page, '/docs/card263.md', DOC);
+  await page.goto('/#open=/docs/card263.md');
+  await expect(page.getByTestId('doc')).toContainText('intro');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  const btn = page.getByTestId('smart-edit-gutter');
+  const line = (i: number) => editor.locator('.cm-line').nth(i);
+
+  // Every fenced block became a card: 4 + 3 + 3 + 1 rows, the last one
+  // drawing all four edges on its own.
+  await expect(editor.locator('.cm-line.mm-fence-card')).toHaveCount(11);
+  await expect(
+    editor.locator('.cm-line.mm-fence-card-first.mm-fence-card-last')
+  ).toHaveCount(1);
+
+  // Park the caret on line `i` and return the button's box once it has
+  // re-anchored there (CodeMirror re-measures after the click).
+  const parkOn = async (i: number) => {
+    await line(i).click();
+    const lineBox = (await line(i).boundingBox())!;
+    await expect
+      .poll(async () => Math.abs((await btn.boundingBox())!.y - lineBox.y))
+      .toBeLessThan(4);
+    return { lineBox, btnBox: (await btn.boundingBox())! };
+  };
+
+  // The prose baseline (E105's geometry): the button hangs in .cm-content's
+  // left padding, right of the pane edge, left of the line's text.
+  const contentBox = (await editor.locator('.cm-content').boundingBox())!;
+  const prose = await parkOn(0);
+  expect(prose.btnBox.x).toBeGreaterThanOrEqual(contentBox.x - 1);
+  expect(prose.btnBox.x + prose.btnBox.width).toBeLessThanOrEqual(prose.lineBox.x + 1);
+
+  // The contract on a card line: the card's painted left edge is the
+  // .cm-line box's left edge (the card ::before is inset: 0), and the whole
+  // button is left of it — never the reported half-in overlap. It also lands
+  // in exactly the prose column, so nothing is pushed out of the pane.
+  const offTheCard = async (i: number) => {
+    await expect(line(i)).toHaveClass(/mm-fence-card/);
+    const { lineBox, btnBox } = await parkOn(i);
+    expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(lineBox.x + 1);
+    expect(btnBox.x).toBeGreaterThanOrEqual(contentBox.x - 1);
+    expect(Math.abs(btnBox.x - prose.btnBox.x)).toBeLessThan(1);
+  };
+
+  // Parking the caret on a card line reveals that block (its delimiters show
+  // raw) and the row keeps mm-fence-card and its 16px inset — so every case
+  // below is also the "revealed card" case.
+  await offTheCard(2); // opening delimiter row
+  await expect(editor.locator('.cm-content')).toContainText('```js');
+  await offTheCard(3); // interior body row
+  await offTheCard(5); // closing delimiter row
+  await offTheCard(9); // body row, fence nested in a list item
+  await offTheCard(8); // its opening delimiter row
+  await offTheCard(14); // body row, fence nested in a blockquote
+  await offTheCard(15); // its closing delimiter row
+  await offTheCard(17); // the one-line block
+
+  // The card's own text inset is untouched: the chrome moved, the document
+  // did not. "const a = 1;" still starts 16px in from the card edge.
+  const bodyBox = (await line(3).boundingBox())!;
+  const textX = await line(3).evaluate(
+    (el) => (el.firstChild as HTMLElement).getBoundingClientRect().x
+  );
+  expect(Math.abs(textX - (bodyBox.x + 16))).toBeLessThan(1.5);
+
+  // Line numbers off (SPEC3 §2): the button is still fully inside the editor
+  // pane on a card line — the offset does not push it out to be clipped.
+  await page.evaluate(() => window.__mmDispatch!('toggleLineNumbers'));
+  await expect(editor.locator('.cm-gutter.cm-lineNumbers')).toHaveCount(0);
+  const narrow = await parkOn(4);
+  const paneBox = (await editor.boundingBox())!;
+  const noNumbersContent = (await editor.locator('.cm-content').boundingBox())!;
+  expect(narrow.btnBox.x).toBeGreaterThanOrEqual(paneBox.x - 1);
+  expect(narrow.btnBox.x).toBeGreaterThanOrEqual(noNumbersContent.x - 1);
+  expect(narrow.btnBox.x + narrow.btnBox.width).toBeLessThanOrEqual(narrow.lineBox.x + 1);
+  await page.evaluate(() => window.__mmDispatch!('toggleLineNumbers'));
+
+  // Still the live affordance on a code line: the click opens the smart menu
+  // and moves neither the caret nor the document.
+  const active = (await editor.locator('.cm-line.cm-activeLine').boundingBox())!;
+  await btn.click();
+  await expect(page.getByTestId('smart-edit-menu')).toBeVisible();
+  await expect(editor.locator('.cm-line.cm-activeLine.mm-fence-card')).toHaveCount(1);
+  expect(
+    Math.abs((await editor.locator('.cm-line.cm-activeLine').boundingBox())!.y - active.y)
+  ).toBeLessThan(2);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
