@@ -183,3 +183,80 @@ describe('PRD 007 Req 18 sidebar drag-and-drop + Req 17 menu gating', () => {
     ]);
   });
 });
+
+describe('PRD 020 Req 15/17 the hosted file menu copies a link, not paths (issue #259)', () => {
+  // Intent: on a build with share links (hosted), a file row trades the two
+  // filesystem-path items — meaningless to a cloud user — for one Copy Link,
+  // and an unaddressable row gets neither. Every other menu, and every build
+  // without the seam, is byte-identical to before.
+  test('U1212: fileCopy swaps the file menu’s two path items for Copy Link — and defaults to today’s pair', () => {
+    // A hosted owner's capabilities: every verb granted, and no reveal —
+    // there is no filesystem on the cloud to reveal a row in.
+    const all = {
+      isMac: true,
+      canReveal: false,
+      canTrash: true,
+      canRename: true,
+      canCopy: true,
+      canDownload: true,
+    };
+
+    // Hosted: the exact item set and order — Download, Rename, Delete keep
+    // their positions, Copy Link takes the path pair's slot.
+    expect(folderContextMenu('file', { ...all, fileCopy: 'link' })).toEqual([
+      { id: 'download', label: 'Download' },
+      'sep',
+      { id: 'rename', label: 'Rename' },
+      { id: 'delete', label: 'Delete' },
+      'sep',
+      { id: 'copy-link', label: 'Copy Link' },
+    ]);
+
+    // The default is today's behaviour, so no pre-#259 call site changes
+    // meaning: an omitted flag is the path pair, and so is an explicit
+    // 'paths'.
+    const paths = [
+      { id: 'download', label: 'Download' },
+      'sep',
+      { id: 'rename', label: 'Rename' },
+      { id: 'delete', label: 'Delete' },
+      'sep',
+      { id: 'copy-path', label: 'Copy Path' },
+      { id: 'copy-relative-path', label: 'Copy Relative Path' },
+    ];
+    expect(folderContextMenu('file', all)).toEqual(paths);
+    expect(folderContextMenu('file', { ...all, fileCopy: 'paths' })).toEqual(paths);
+
+    // Req 17's "absent when unaddressable": no link item — and the path items
+    // do NOT come back in its place. The trailing separator collapses.
+    expect(folderContextMenu('file', { ...all, fileCopy: 'none' })).toEqual([
+      { id: 'download', label: 'Download' },
+      'sep',
+      { id: 'rename', label: 'Rename' },
+      { id: 'delete', label: 'Delete' },
+    ]);
+
+    // A Viewer on hosted: the read-only file menu is Copy Link alone.
+    expect(
+      folderContextMenu('file', { ...all, canTrash: false, canRename: false, canDownload: false, fileCopy: 'link' })
+    ).toEqual([{ id: 'copy-link', label: 'Copy Link' }]);
+    // Without the clipboard seam there is nothing to copy with, so the link
+    // item is gated like the items it replaces.
+    expect(folderContextMenu('file', { ...all, canCopy: false, fileCopy: 'link' })).toEqual([
+      { id: 'download', label: 'Download' },
+      'sep',
+      { id: 'rename', label: 'Rename' },
+      { id: 'delete', label: 'Delete' },
+    ]);
+
+    // The dir and root menus are untouched on every build, hosted included.
+    for (const fileCopy of ['paths', 'link', 'none'] as const) {
+      expect(folderContextMenu('dir', { ...all, fileCopy })).toEqual(folderContextMenu('dir', all));
+      expect(folderContextMenu('root', { ...all, fileCopy })).toEqual(folderContextMenu('root', all));
+    }
+    expect(folderContextMenu('root', { ...all, fileCopy: 'link' })).toContainEqual({
+      id: 'copy-path',
+      label: 'Copy Path',
+    });
+  });
+});

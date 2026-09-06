@@ -81,6 +81,13 @@ New pure module, no DOM, no platform imports:
    - *reveal* label: **"Reveal in Finder"** when `isMac`, else
      **"Reveal in File Explorer"**. Items whose capability flag is false
      are omitted (and a flanking separator collapses).
+   - *(Amended, issue #259:)* a `fileCopy` option says what the **file**
+     menu copies, defaulting to the pair above so every other build is
+     unchanged. On hosted — where a filesystem path means nothing to the
+     user — it is `'link'`, and one **Copy Link** (`copy-link`, the row's
+     canonical share URL, PRD 020 Req 15/17) replaces both path items;
+     `'none'` for a row with no share URL omits the link without bringing
+     the paths back. The `dir` and `root` menus are unaffected.
 
 ## 3. The context menu (FR-MENU)
 
@@ -93,7 +100,7 @@ New pure module, no DOM, no platform imports:
    Esc, any outside pointer-down, scroll, resize, or invoking an item.
    Test ids: `folder-menu`, items `folder-menu-<id>` (`new-file`,
    `new-folder`, `rename`, `delete`, `reveal`, `copy-path`,
-   `copy-relative-path`).
+   `copy-relative-path`; `copy-link` on hosted file rows, issue #259).
 3. Menu actions never fire on left click; row click behavior (SPEC34) is
    unchanged.
 
@@ -161,12 +168,17 @@ New pure module, no DOM, no platform imports:
 `copy-relative-path` uses `relativePath(root, path)`. The empty-area
 menu copies the root's absolute path.
 
+*(Amended, issue #259:)* a hosted file row's `copy-link` goes through the
+same `copyText` seam, copying `entryShareUrl(origin, pathname, path)`
+(`lib/shareLinks.ts`) — the row's canonical share URL, identical to what
+the file copy-link control copies once that row is the open document.
+
 ## 8. Menus, hotkeys, settings
 
 No menubar changes, no new hotkeys, no new settings in this SPEC. (The
 menu is pointer-only; keyboard file management can be a later delta.)
 
-## 9. Tests (added: U63, E96–E99; issue #194 adds U1002, E389)
+## 9. Tests (added: U63, E96–E99; issue #194 adds U1002, E389; issue #259 adds U1212, U1213, E522)
 
 1. **U63** — `folderOps`: name validation (valid names; each rejection
    class incl. every Windows-reserved stem and case variants);
@@ -205,9 +217,17 @@ menu is pointer-only; keyboard file management can be a later delta.)
    untitled buffer, resolving the unsaved-changes guard with Don't Save
    still lands the new file in edit mode. **U1002** pins the pure rule
    (`viewModeForOpen` with edit intent, never past the edit grant).
-7. No existing test may be modified, weakened, skipped, or deleted;
+7. **E522** *(issue #259)* — the hosted file menu: a top-level and a
+   nested, never-opened row each show `download`, `rename`, `delete`,
+   `copy-link` and copy their own canonical URL (per-segment encoded,
+   byte-identical to the file copy-link control's once that row is the
+   open document); the hosted dir and root menus keep their path items
+   and grow no link. **U1212** pins the pure item sets for all three
+   `fileCopy` values, and **U1213** (`share-links`) the URL rule.
+8. No existing test may be modified, weakened, skipped, or deleted;
    E42–E44 stay reserved. The only permitted test additions are U63 and
-   E96–E99 — plus U1002 and E389 under the issue #194 amendment.
+   E96–E99 — plus U1002 and E389 under the issue #194 amendment, and
+   U1212, U1213 and E522 under the issue #259 one.
 
 ## 10. Definition of Done
 

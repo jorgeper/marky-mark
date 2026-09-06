@@ -127,12 +127,24 @@ export function folderContextMenu(
     canDownload?: boolean;
     /** Whether a folder may be created (hosted: `folder.manage`). */
     canCreateFolder?: boolean;
+    /**
+     * SPEC35 §2.5 + PRD 020 Req 15/17 (issue #259): what the FILE menu copies.
+     * `'paths'` — the default, so every call site without a share seam keeps
+     * today's Copy Path / Copy Relative Path pair. `'link'` — hosted, where a
+     * filesystem path is meaningless to the user and the row's share URL is
+     * the useful thing to copy, so the link REPLACES the two path items.
+     * `'none'` — hosted with no shareable URL for this row (Req 17's "absent
+     * when unaddressable"): the link item is omitted and the path items do
+     * not come back. Dir and root menus are unaffected either way.
+     */
+    fileCopy?: 'paths' | 'link' | 'none';
   }
 ): FolderMenuItem[] {
   const revealLabel = opts.isMac ? 'Reveal in Finder' : 'Reveal in File Explorer';
   const canCreate = opts.canCreate ?? true;
   const canCreateFolder = opts.canCreateFolder ?? canCreate;
   const item = (id: string, label: string, on: boolean): FolderMenuItem | null => (on ? { id, label } : null);
+  const fileCopy = opts.fileCopy ?? 'paths';
   const raw: Array<FolderMenuItem | null> =
     kind === 'dir'
       ? [
@@ -156,8 +168,12 @@ export function folderContextMenu(
             item('rename', 'Rename', opts.canRename),
             item('delete', 'Delete', opts.canTrash),
             'sep',
-            item('copy-path', 'Copy Path', opts.canCopy),
-            item('copy-relative-path', 'Copy Relative Path', opts.canCopy),
+            ...(fileCopy === 'paths'
+              ? [
+                  item('copy-path', 'Copy Path', opts.canCopy),
+                  item('copy-relative-path', 'Copy Relative Path', opts.canCopy),
+                ]
+              : [item('copy-link', 'Copy Link', fileCopy === 'link' && opts.canCopy)]),
           ]
         : [
             item('new-file', 'New File', canCreate),

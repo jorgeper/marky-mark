@@ -63,7 +63,7 @@ import {
   type ReanchorMatch,
   type SourceHighlight,
 } from './lib/anchoring';
-import { COPY_LINK_FILE_LABEL, COPY_LINK_WORKSPACE_LABEL, fileShareUrl, headingAnchors, headingShareUrl, highlightIdFromHash, highlightShareUrl, slugFromHash, workspaceShareUrl, type HeadingAnchor } from './lib/shareLinks';
+import { COPY_LINK_FILE_LABEL, COPY_LINK_WORKSPACE_LABEL, entryShareUrl, fileShareUrl, headingAnchors, headingShareUrl, highlightIdFromHash, highlightShareUrl, slugFromHash, workspaceShareUrl, type HeadingAnchor } from './lib/shareLinks';
 import { updateHighlightLink } from './lib/highlightLink';
 import { CopyLinkButton } from './components/CopyLinkButton';
 import { rewriteFenceWidthAt } from './lib/diagramResize';
@@ -2167,6 +2167,21 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     [revealNewEntry]
   );
 
+  /**
+   * PRD 020 Req 15/17 + SPEC35 §2.5 (issue #259): the share URL of a
+   * folder-pane row — hosted only (Req 15: share URLs exist nowhere else),
+   * read off the canonical address bar at call time exactly like the three
+   * CopyLinkButton placements. Null for a row with no address (the page is
+   * off a canonical workspace path): the menu then offers no Copy Link.
+   */
+  const folderEntryShareUrl = useCallback(
+    (path: string): string | null =>
+      stateRef.current.platform?.kind === 'hosted'
+        ? entryShareUrl(window.location.origin, window.location.pathname, path)
+        : null,
+    []
+  );
+
   /** SPEC35 §3: a folder-menu item was invoked — run the operation. */
   const folderMenuAction = useCallback(
     (id: string, target: { kind: 'dir' | 'file' | 'root'; path: string }) => {
@@ -2177,6 +2192,13 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       if (id === 'reveal') void p.revealPath?.(target.path);
       else if (id === 'copy-path') void p.copyText?.(target.path);
       else if (id === 'copy-relative-path' && root) void p.copyText?.(relativePath(root, target.path));
+      // PRD 020 Req 15/17 (issue #259): hosted file rows copy the row's
+      // canonical share URL — same clipboard seam as the path items it
+      // replaces, same URL the open file's copy-link control would copy.
+      else if (id === 'copy-link') {
+        const url = folderEntryShareUrl(target.path);
+        if (url !== null) void p.copyText?.(url);
+      }
       else if (id === 'rename') startFolderRename({ path: target.path, openOnDone: false });
       else if (id === 'new-file') void folderCreate(p, target.path, 'file');
       else if (id === 'new-folder') void folderCreate(p, target.path, 'dir');
@@ -2192,7 +2214,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         });
       }
     },
-    [startFolderRename, folderCreate]
+    [startFolderRename, folderCreate, folderEntryShareUrl]
   );
 
   // Guards the SPEC15/SPEC16 preview restore against firing on stale html
@@ -7847,6 +7869,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
               canUpload: !!platform.uploadFile && folderGrants.upload,
               canDownload: !!platform.downloadFile && folderGrants.download,
             }}
+            // PRD 020 Req 15 (issue #259): the share seam exists on hosted and
+            // nowhere else, so Tauri, the dev shim and the single-file build
+            // keep their Copy Path / Copy Relative Path pair untouched.
+            shareUrl={platform.kind === 'hosted' ? folderEntryShareUrl : undefined}
             onMoveEntry={
               platform.renameEntry ? (source, dest) => void folderMoveEntry(source, dest) : undefined
             }

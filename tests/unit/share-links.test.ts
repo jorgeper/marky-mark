@@ -7,6 +7,7 @@ import {
   LINK_COPIED_LABEL,
   LINK_COPIED_MS,
   createCopyLinkController,
+  entryShareUrl,
   fileShareUrl,
   headingAnchors,
   headingLineForSlug,
@@ -55,6 +56,39 @@ describe('PRD 020 Reqs 16–17 copy-link URL selection', () => {
     expect(fileShareUrl(ORIGIN, '/notes')).toBeNull();
     expect(fileShareUrl(ORIGIN, '/')).toBeNull();
     expect(fileShareUrl(ORIGIN, '/scratchpad')).toBeNull();
+  });
+
+  // Intent (issue #259): the folder pane's rows are addressable too — the
+  // workspace name off the address bar, the rest off the row's virtual path
+  // — and a row with no address answers null so the menu can omit the item.
+  test('U1213: entryShareUrl addresses ANY hosted pane row, and matches fileShareUrl for the open one', () => {
+    // A row the user has not opened, while the bar sits on the workspace.
+    expect(entryShareUrl(ORIGIN, '/notes', '/w/abc/files/guides/intro guide.md')).toBe(
+      `${ORIGIN}/notes/guides/intro%20guide.md`,
+    );
+    // …and while it sits on some OTHER file: the row, not the open document.
+    // A virtual path is raw, so a reserved character in a real filename is
+    // encoded once on the way out.
+    expect(entryShareUrl(ORIGIN, '/notes/other.md', '/w/abc/files/deep/a#b.md')).toBe(
+      `${ORIGIN}/notes/deep/a%23b.md`,
+    );
+    // For the open document itself the two functions agree byte-for-byte.
+    const open = '/notes/guides/intro%20guide.md';
+    expect(entryShareUrl(ORIGIN, open, '/w/abc/files/guides/intro guide.md')).toBe(fileShareUrl(ORIGIN, open));
+    // The workspace NAME comes from the bar, never from the row's `/w/<id>`.
+    expect(entryShareUrl(ORIGIN, '/team%20docs', '/w/abc/files/a.md')).toBe(`${ORIGIN}/team%20docs/a.md`);
+
+    // Null — the caller omits Copy Link rather than copying a wrong string:
+    // off any canonical workspace path…
+    expect(entryShareUrl(ORIGIN, '/', '/w/abc/files/a.md')).toBeNull();
+    expect(entryShareUrl(ORIGIN, '/scratchpad', '/w/abc/files/a.md')).toBeNull();
+    expect(entryShareUrl(ORIGIN, '/ada/scratchpad/a.md', '/w/abc/files/a.md')).toBeNull();
+    // …and for a row that is not a workspace blob: the files root itself, the
+    // manifest, the per-user config tree, an unmapped path.
+    expect(entryShareUrl(ORIGIN, '/notes', '/w/abc/files')).toBeNull();
+    expect(entryShareUrl(ORIGIN, '/notes', '/w/abc/workspace.marky-workspace')).toBeNull();
+    expect(entryShareUrl(ORIGIN, '/notes', '/config/settings.json')).toBeNull();
+    expect(entryShareUrl(ORIGIN, '/notes', '/Users/ada/notes/a.md')).toBeNull();
   });
 });
 

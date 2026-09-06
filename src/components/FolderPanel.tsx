@@ -82,6 +82,14 @@ export interface FolderPanelProps {
     canDownload: boolean;
   };
   /**
+   * PRD 020 Req 15/17 (issue #259): the share URL of a file row, or null when
+   * that row has no address to share. Present only where share links exist —
+   * hosted — and its presence IS the seam test: with it, a file row's menu
+   * copies the row's link instead of the two filesystem paths (which mean
+   * nothing to a cloud user); absent, the menu is exactly what it was.
+   */
+  shareUrl?(path: string): string | null;
+  /**
    * PRD 007 Req 18: a row was dragged onto a folder row — move it there. The
    * owner validates the target (`moveTarget` in lib/folderOps.ts) and runs
    * the rename seam. Absent ⇒ rows are not draggable at all.
@@ -113,6 +121,19 @@ export interface FolderPanelProps {
 }
 
 type MenuTarget = { kind: 'dir' | 'file' | 'root'; path: string; x: number; y: number };
+
+/**
+ * SPEC35 §2.5 + PRD 020 Req 15/17 (issue #259): what the open menu's file
+ * branch copies. Asked as the menu opens, so the answer is for THIS row and
+ * reads the address bar as it stands — not as it stood at the owner's last
+ * render. No share seam (every build but hosted) keeps today's two path
+ * items; a seam with no URL for this row (Req 17: unaddressable) gets
+ * neither them nor a link. Dir and root menus never consult it.
+ */
+function fileCopyMode(shareUrl: FolderPanelProps['shareUrl'], menu: MenuTarget): 'paths' | 'link' | 'none' {
+  if (menu.kind !== 'file' || !shareUrl) return 'paths';
+  return shareUrl(menu.path) === null ? 'none' : 'link';
+}
 
 /**
  * PRD 007 Req 18: the sidebar's drag-and-drop, as one object threaded down
@@ -814,7 +835,11 @@ export function FolderPanel(p: FolderPanelProps) {
             ref={menuRef}
             style={{ left: menu.x, top: menu.y }}
           >
-            {folderContextMenu(menu.kind, { isMac: p.isMac, ...p.caps }).map((it, i) =>
+            {folderContextMenu(menu.kind, {
+              isMac: p.isMac,
+              ...p.caps,
+              fileCopy: fileCopyMode(p.shareUrl, menu),
+            }).map((it, i) =>
               it === 'sep' ? (
                 <div key={`sep-${i}`} className="menu-sep" />
               ) : (
