@@ -210,6 +210,23 @@ describe('PRD 013 Req 13 file tab strip setting', () => {
   });
 });
 
+describe('Issue #308 editorHighlights setting', () => {
+  // Intent: the editor-pane paint ships ON (the report was that comments did
+  // not show in edit mode — a fresh install must paint), a stored `false`
+  // survives the save → reload round-trip, a hand-edited non-boolean falls
+  // back, and the key is the reader's own like lineNumbers.
+  test('U1271: editorHighlights defaults true, a stored false round-trips, malformed falls back, user-scoped', () => {
+    expect(DEFAULT_SETTINGS.editorHighlights).toBe(true);
+    expect(parseSettings('{}').editorHighlights).toBe(true);
+    expect(parseSettings('{"editorHighlights":false}').editorHighlights).toBe(false);
+    expect(parseSettings('{"editorHighlights":"off"}').editorHighlights).toBe(true); // malformed → default
+    expect(parseSettings('{"editorHighlights":0}').editorHighlights).toBe(true);
+    const round = parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, editorHighlights: false }));
+    expect(round.editorHighlights).toBe(false);
+    expect(SETTINGS_SCOPES.editorHighlights).toBe('U');
+  });
+});
+
 describe('Issue #167 scrollbar and sync-scroll settings', () => {
   // Intent: the three keys follow their neighbours' boolean contract — all
   // three ship ON, a hand-written `false` is obeyed, and a non-boolean in

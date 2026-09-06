@@ -23,6 +23,9 @@ describe('PRD 002 §B5 scope inventory', () => {
       margins: 'U',
       paneMinWidth: 'U',
       lineNumbers: 'U',
+      // Issue #308: the editor pane's anchor paint — a reader's preference
+      // like the gutter beside it.
+      editorHighlights: 'U',
       editorSyntax: 'U',
       // Issue #122: code-block colouring sits beside editorSyntax — a reader's
       // own preference, honored at the User layer like its neighbour.

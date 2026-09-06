@@ -982,6 +982,8 @@ test('E214: PRD 009 Req 12 — View ▸ opens the shared View items: checked, gr
     'menu-view-toggleComments',
     'menu-view-nextComment',
     'menu-view-prevComment',
+    // Issue #308: the editor-pane paint toggle rides the comments block.
+    'menu-view-toggleEditorHighlights',
     // Issue #255: Go to Heading… left with the ⌘K palette; heading search is
     // the TOC view's own box now (E530+).
     'menu-view-toggleWordCount',

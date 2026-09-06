@@ -68,6 +68,13 @@ export interface Settings {
    */
   showComments: boolean;
   /**
+   * Issue #308: whether the CodeMirror editor paints comment/highlight
+   * anchors as `.mm-hl` decorations (plain and split edit). A reader's
+   * View toggle, default on; off leaves the preview's marks and the pane
+   * untouched — only the editor pane's decorations go.
+   */
+  editorHighlights: boolean;
+  /**
    * PRD 022 Req 4 (semantics kept by PRD 023 §9, issue #286): the most
    * recently used marker color — remembered state (the `lastViewMode`
    * precedent, no Settings row) that cues the menu's armed color row and is
@@ -191,6 +198,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // PRD 023 §15: the pane ships closed — a fresh install reads the document
   // full-width until the reader opens it.
   showComments: false,
+  // Issue #308: the editor paints anchors by default; the setting exists to
+  // turn that paint off.
+  editorHighlights: true,
   // PRD 022 Req 4: yellow matches the legacy tint family.
   lastMarkerColor: 'yellow',
   splitEdit: true,
@@ -281,6 +291,9 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   // (showFolders / splitEdit) — whether THIS screen shows the pane is this
   // reader's arrangement, not a workspace's to dictate.
   showComments: 'M',
+  // Issue #308: a reader's preference like lineNumbers — how their editor
+  // pane looks is theirs, not a workspace's to dictate.
+  editorHighlights: 'U',
   // PRD 022 Req 4: the reader's own marker memory — user-scoped like its
   // comment-authoring neighbours.
   lastMarkerColor: 'U',
@@ -411,6 +424,8 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   // no parser entry, so a persisted file still carrying the key parses like
   // any unknown key: ignored, nothing resurrected, nothing thrown.
   showComments: bool,
+  // Issue #308: a hand-edited non-boolean falls back to the default (on).
+  editorHighlights: bool,
   // PRD 022 Req 4: only the four marker literals; anything else falls back.
   lastMarkerColor: (raw) => (MARKER_COLORS.includes(raw as CommentColor) ? (raw as CommentColor) : undefined),
   splitEdit: bool,

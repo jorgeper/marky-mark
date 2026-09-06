@@ -238,6 +238,30 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{"lineNumbers":"nope"}').lineNumbers).toBe(true);
   });
 
+  test('U1272: issue #308 — View carries Editor Highlights as a hotkey-less checkbox right after Previous Comment, gone with the master switch', () => {
+    for (const s of [base, { ...base, isMac: false }]) {
+      const view = commandsIn(s, 'View').map((i) => i.command);
+      // Inside the comments block, directly after the navigation rows.
+      expect(view.indexOf('toggleEditorHighlights')).toBe(view.indexOf('prevComment') + 1);
+      const row = find(s, 'View', 'toggleEditorHighlights')!;
+      expect(row.label).toBe('Editor Highlights');
+      // A checkbox mirroring the (optional) field: absent reads as on, the
+      // setting's default, so the frozen fixtures above see it checked.
+      expect(row.checked).toBe(true);
+      expect(find({ ...s, editorHighlights: true }, 'View', 'toggleEditorHighlights')!.checked).toBe(true);
+      expect(find({ ...s, editorHighlights: false }, 'View', 'toggleEditorHighlights')!.checked).toBe(false);
+      // Deliberately hotkey-less, like Line Numbers.
+      expect(row.accelerator).toBeUndefined();
+      // Master switch off (SPEC7 §2): the row leaves with the rest of the
+      // comments UI.
+      expect(find({ ...s, commentsEnabled: false }, 'View', 'toggleEditorHighlights')).toBeUndefined();
+    }
+    // The persisted key: user-scoped, defaulting to on, malformed falls back.
+    expect(parseSettings('{}').editorHighlights).toBe(true);
+    expect(parseSettings('{"editorHighlights":false}').editorHighlights).toBe(false);
+    expect(parseSettings('{"editorHighlights":"nope"}').editorHighlights).toBe(true);
+  });
+
   test('U57: Open Recent submenu sits right after Open Workspace… — entries in order, separator, Clear Menu; Clear alone when empty', () => {
     const recents = [
       { path: '/docs/b.md', label: 'b.md' },
