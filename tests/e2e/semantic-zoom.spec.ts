@@ -3,7 +3,7 @@
 // configured at all. Nothing here contacts a provider (PRD 011 Req 35).
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { freshApp, fsRead, fsWrite, openSettings, saveSettings } from './helpers';
+import { freshApp, fsRead, fsWrite, openLlmPage, openSettings, saveSettings } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
@@ -232,7 +232,10 @@ test('E234: PRD 011 Req 22 — the excerpt notice routes to the LLM providers ar
   // than the no-path message.
   await expect(page.getByTestId('semantic-zoom-no-llm')).toHaveCount(0);
   await page.getByTestId('semantic-zoom-configure').click();
-  // Landing on the providers tab itself — not on General with the tab to hunt.
+  // Issue #247: landing on the nested providers page itself — not on General
+  // with a tab to hunt, and not on a top-level tab, which no longer exists.
+  await expect(page.getByTestId('settings-page-llm')).toBeVisible();
+  await expect(page.getByTestId('settings-page-crumb')).toHaveText('Experimental › Semantic zoom');
   await expect(page.getByTestId('llm-provider')).toBeVisible();
   await saveSettings(page);
 
@@ -240,6 +243,75 @@ test('E234: PRD 011 Req 22 — the excerpt notice routes to the LLM providers ar
   await openSettings(page, 'experimental');
   await expect(page.getByTestId('experimental-semantic-zoom')).toBeChecked();
   await saveSettings(page);
+});
+
+// --- Issue #247: the nested settings page --------------------------------
+// The LLM providers area is no longer a top-level tab: it is a second-level
+// page opened from the Semantic zoom row, and Save / Cancel still govern both
+// levels (issue #246's pending-edit model owns the edits made on each).
+
+test('E505: issue #247 — the Semantic zoom row opens its nested settings page, Back returns, and edits on both levels survive the round trip and Save', async ({
+  page,
+}) => {
+  await openSettings(page, 'experimental');
+
+  // The button is live only while the experiment is on: unchecked, it is dead.
+  const settingsBtn = page.getByTestId('experimental-semantic-zoom-settings');
+  await expect(settingsBtn).toBeDisabled();
+  await page.getByTestId('experimental-semantic-zoom').check();
+  await expect(settingsBtn).toBeEnabled();
+
+  // One level down: the breadcrumb says where the reader is, the page holds
+  // exactly what the old tab held, and the pinned footer still governs it.
+  await settingsBtn.click();
+  await expect(page.getByTestId('settings-page-llm')).toBeVisible();
+  await expect(page.getByTestId('settings-page-crumb')).toHaveText('Experimental › Semantic zoom');
+  await expect(page.getByTestId('settings-tabs')).toHaveCount(0);
+  await expect(page.getByTestId('settings-actions')).toBeVisible();
+  await expect(page.getByTestId('llm-provider')).toBeVisible();
+
+  // An in-progress edit on the nested page, then Back to the tab it hangs off.
+  await page.getByTestId('llm-model').fill('claude-e505');
+  await page.getByTestId('llm-api-key').fill('sk-e505-secret');
+  await page.getByTestId('settings-page-back').click();
+  await expect(page.getByTestId('settings-page-llm')).toHaveCount(0);
+  await expect(page.getByTestId('settings-tab-experimental')).toHaveClass(/(^|\s)on(\s|$)/);
+  // The first level kept its own pending edit across the trip down and back.
+  await expect(page.getByTestId('experimental-semantic-zoom')).toBeChecked();
+
+  // …and going back down finds the nested edits exactly as they were left.
+  await settingsBtn.click();
+  await expect(page.getByTestId('llm-model')).toHaveValue('claude-e505');
+  await expect(page.getByTestId('llm-api-key')).toHaveValue('sk-e505-secret');
+
+  // Issue #246: Save from the nested page commits BOTH levels at once.
+  await saveSettings(page);
+  await expect
+    .poll(async () => {
+      const raw = await fsRead(page, '/config/settings.json');
+      return raw ? (JSON.parse(raw) as { llmModel?: string; semanticZoom?: boolean }) : undefined;
+    })
+    .toMatchObject({ llmModel: 'claude-e505', semanticZoom: true });
+});
+
+test('E506: issue #247 — Cancel from the nested page raises the same discard prompt, and discards both levels', async ({
+  page,
+}) => {
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-semantic-zoom').check();
+  await page.getByTestId('experimental-semantic-zoom-settings').click();
+  await page.getByTestId('llm-model').fill('claude-e506');
+
+  // The footer's Cancel is the same one, in the same place, on the nested page.
+  await page.getByTestId('settings-cancel').click();
+  await expect(page.getByTestId('settings-discard-prompt')).toBeVisible();
+  await page.getByTestId('settings-discard-confirm').click();
+  await expect(page.getByTestId('settings-panel')).toHaveCount(0);
+
+  // Nothing from either level landed.
+  await openSettings(page, 'experimental');
+  await expect(page.getByTestId('experimental-semantic-zoom')).not.toBeChecked();
+  await expect(page.getByTestId('experimental-semantic-zoom-settings')).toBeDisabled();
 });
 
 // --- PRD 011 Reqs 25–27 (#118): real summaries, on demand -------------------
@@ -267,7 +339,7 @@ declare global {
 
 /** Settings → LLM providers → a configured, ready provider (PRD 011 Req 9). */
 async function configureProvider(page: Page): Promise<void> {
-  await openSettings(page, 'llm');
+  await openLlmPage(page);
   await page.getByTestId('llm-model-preset').selectOption('claude-opus-5');
   await page.getByTestId('llm-api-key').fill('sk-e235-secret');
   await expect(page.getByTestId('llm-availability')).toContainText('Ready');
@@ -473,7 +545,7 @@ test('E238: PRD 011 Req 30 — the page reports what the cache holds, and one cl
   // Opening the page is the whole action: the size is read from the store and
   // reported in a sentence. The desktop cache is the reader's own, so there is
   // no shared-cache warning.
-  await openSettings(page, 'llm');
+  await openLlmPage(page);
   await expect(page.getByTestId('summary-cache-size')).toContainText('4 summaries');
   await expect(page.getByTestId('summary-cache-size')).toContainText('about');
   await expect(page.getByTestId('summary-cache-shared')).toHaveCount(0);
@@ -487,7 +559,7 @@ test('E238: PRD 011 Req 30 — the page reports what the cache holds, and one cl
   await saveSettings(page);
 
   // The store really is empty: a fresh read on a reopened page says so too.
-  await openSettings(page, 'llm');
+  await openLlmPage(page);
   await expect(page.getByTestId('summary-cache-size')).toContainText('Empty');
   await saveSettings(page);
 
@@ -523,6 +595,9 @@ test('E239: PRD 011 Req 3 — the Experimental row routes to Remove key, and rem
   await openSettings(page, 'experimental');
   await expect(page.getByTestId('experimental-semantic-zoom-stand-down')).toContainText('deletes nothing');
   await page.getByTestId('experimental-semantic-zoom-stand-down-link').click();
+  // Issue #247: the same nested page the Settings… button opens — and the link
+  // reaches it whatever the checkbox says.
+  await expect(page.getByTestId('settings-page-llm')).toBeVisible();
   await expect(page.getByTestId('llm-api-key')).toBeVisible();
 
   // One click takes the key out, and the area answers with the no-key sentence.
@@ -599,12 +674,13 @@ test('E240: PRD 011 Req 3 — off leaves nothing running, deletes nothing, and b
 
   // And the switch destroyed nothing: the pasted key and the paid-for cache are
   // both still there, offered for removal rather than removed.
-  await openSettings(page, 'llm');
+  await openLlmPage(page);
   await expect(page.getByTestId('llm-api-key')).toHaveValue('sk-e235-secret');
   await expect(page.getByTestId('llm-availability')).toContainText('Ready');
   await expect(page.getByTestId('summary-cache-size')).toContainText('4 summaries');
-  // PRD 011 Req 4: the page, its tab and Test connection are not gated on the
-  // Experimental switch at all.
+  // PRD 011 Req 4 (amended by issue #247): the page and Test connection are not
+  // gated on the Experimental switch — only the `Settings…` button is, and the
+  // stand-down link this test arrived by is live either way.
   await expect(page.getByTestId('llm-test')).toBeEnabled();
   await saveSettings(page);
 });
@@ -629,7 +705,7 @@ test('E241: PRD 011 Req 31 — the page names a recommended model, its price and
   await page.goto('/#open=/docs/zoom.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
 
-  await openSettings(page, 'llm');
+  await openLlmPage(page);
   // The default provider is Anthropic: a curated model, both prices, one caveat.
   await expect(page.getByTestId('llm-recommended-model')).toContainText('claude-haiku-4-5');
   await expect(page.getByTestId('llm-recommended-price')).toContainText('per million input tokens');
@@ -686,7 +762,7 @@ test('E242: PRD 011 Reqs 32+33 — Cancel spends nothing, Proceed reports what i
   expect(await fakeCalls(page)).toBe(4);
 
   // PRD 011 Req 32: the measured figures, from the counts the provider returned.
-  await openSettings(page, 'llm');
+  await openLlmPage(page);
   await expect(page.getByTestId('llm-usage-last')).toContainText('4,000,000 input');
   await expect(page.getByTestId('llm-usage-last')).toContainText('800,000 output');
   await expect(page.getByTestId('llm-usage-total')).toContainText('4,000,000 input');
@@ -719,7 +795,7 @@ test('E243: PRD 011 Reqs 32+33 — “don’t ask again” is reversible, and Re
   expect(await fakeCalls(page)).toBe(7);
   await page.getByTestId('semantic-zoom-full').click();
 
-  await openSettings(page, 'llm');
+  await openLlmPage(page);
   // The suppression is visible where it can be undone — no one-way door.
   await expect(page.getByTestId('llm-confirm-summaries')).not.toBeChecked();
   await expect(page.getByTestId('llm-usage-total')).toContainText('3,500,000 input');
@@ -755,7 +831,7 @@ test('E244: PRD 011 Req 32 — a provider that returns no usage is said so, not 
   await expect(page.getByTestId('semantic-zoom-body')).toHaveCount(4);
   expect(await fakeCalls(page)).toBe(4);
 
-  await openSettings(page, 'llm');
+  await openLlmPage(page);
   await expect(page.getByTestId('llm-usage-last')).toContainText('The provider returned no usage data');
   await expect(page.getByTestId('llm-usage-last')).toContainText('4 calls could not be measured');
   await expect(page.getByTestId('llm-usage-last')).not.toContainText('USD 0.00');
@@ -827,7 +903,7 @@ test('E245: PRD 011 Reqs 28+29 — reopening the document serves the cache, and 
   await expect(page.getByTestId('semantic-zoom-body').filter({ hasText: 'A generated summary.' })).toHaveCount(3);
 
   // The cache grew by that one entry rather than being rebuilt from scratch.
-  await openSettings(page, 'llm');
+  await openLlmPage(page);
   await expect(page.getByTestId('summary-cache-size')).toContainText('5 summaries');
   await saveSettings(page);
 });

@@ -8,6 +8,7 @@ import {
   fsWrite,
   menuClick,
   openFolderRoot,
+  openLlmPage,
   openSettings,
   openWelcomeViaHelp,
   revealToolbar,
@@ -192,7 +193,7 @@ test('E24: the new Claude theme — Typora-derived paper, serif body, tight head
   expect(await doc.locator('h1').first().evaluate((el) => getComputedStyle(el).fontSize)).toBe('22px'); // 1.375rem
 });
 
-test('E26: settings shows four left tabs with the right content on each; controls work through their tabs', async ({
+test('E26: settings shows five left tabs with the right content on each; controls work through their tabs', async ({
   page,
 }) => {
   // Open without the helper's tab click so the DEFAULT tab is observable.
@@ -201,10 +202,11 @@ test('E26: settings shows four left tabs with the right content on each; control
   await page.getByTestId('menu-settings').click();
   await page.getByTestId('settings-panel').waitFor();
   const tabs = page.getByTestId('settings-tabs');
-  // SPEC20 §1 added Editor; PRD 011 Req 4 added LLM providers as its own page;
-  // PRD 011 Req 1 added Experimental as the last one.
-  await expect(tabs.locator('button')).toHaveCount(6);
-  await expect(page.getByTestId('settings-tab-llm')).toHaveText('LLM providers');
+  // SPEC20 §1 added Editor; PRD 011 Req 1 added Experimental as the last one.
+  // Issue #247 took LLM providers back out of the rail — it is a nested page
+  // under the Semantic zoom experiment now, so the rail is back to five.
+  await expect(tabs.locator('button')).toHaveCount(5);
+  await expect(page.getByTestId('settings-tab-llm')).toHaveCount(0);
   await expect(page.getByTestId('settings-tab-experimental')).toHaveText('Experimental');
   // Issue #21: General is listed first and is the default tab.
   await expect(tabs.locator('button').first()).toHaveText('General');
@@ -215,7 +217,8 @@ test('E26: settings shows four left tabs with the right content on each; control
   await expect(page.getByTestId('settings-vimnav')).toBeVisible();
   await expect(page.getByTestId('zoom-select')).toHaveCount(0);
   await expect(page.getByTestId('hotkey-toggleEdit')).toHaveCount(0);
-  // PRD 011 Req 4: the LLM area is a page of its own, never a row on General.
+  // PRD 011 Req 4 (amended by issue #247): the LLM area is a page of its own
+  // — nested under the Semantic zoom experiment — and never a row on General.
   await expect(page.getByTestId('llm-provider')).toHaveCount(0);
 
   // Appearance: font size present, General content absent.
@@ -469,13 +472,16 @@ test('E156: issue #52 — the line-number gutter follows the theme instead of st
 // Every request here runs against src/lib/llmFake.ts, wired into the desktop
 // shim as its `llmTransport` (PRD 011 Req 35) — no real provider is contacted.
 
-test('E226: the LLM providers tab is its own User-scope page; with nothing configured it says why, and the test action is disabled', async ({
+test('E226: the LLM providers page is its own User-scope page under the experiment; with nothing configured it says why, and the test action is disabled', async ({
   page,
 }) => {
-  await openSettings(page, 'llm');
+  await openLlmPage(page);
 
-  // Req 4: a page of its own in the tab rail, not a row on another tab.
-  await expect(page.getByTestId('settings-tab-llm')).toBeVisible();
+  // Req 4 (amended by issue #247): a page of its own — nested under the
+  // experiment it serves, not a row on another tab and no longer a top-level
+  // tab.
+  await expect(page.getByTestId('settings-tab-llm')).toHaveCount(0);
+  await expect(page.getByTestId('settings-page-llm')).toBeVisible();
   await expect(page.getByTestId('llm-provider')).toBeVisible();
 
   // Req 5: exactly the seam's five kinds, and no sixth.
@@ -493,9 +499,12 @@ test('E226: the LLM providers tab is its own User-scope page; with nothing confi
   // Req 7: the key field is masked.
   await expect(page.getByTestId('llm-api-key')).toHaveAttribute('type', 'password');
 
-  // Req 4: User-scope only, following the Hotkeys precedent — the tab rail
-  // offers both User-only tabs together, and the Workspace scope offers
-  // neither (it is disabled here because no workspace is open).
+  // Req 4: User-scope only, following the Hotkeys precedent — issue #247's
+  // Back returns to the Experimental tab it hangs off, which is User-only
+  // beside Hotkeys, and the Workspace scope offers neither (it is disabled
+  // here because no workspace is open).
+  await page.getByTestId('settings-page-back').click();
+  await expect(page.getByTestId('settings-tab-experimental')).toHaveClass(/(^|\s)on(\s|$)/);
   await expect(page.getByTestId('settings-tab-hotkeys')).toBeVisible();
   await expect(page.getByTestId('settings-scope-workspace')).toBeDisabled();
 });
@@ -503,7 +512,7 @@ test('E226: the LLM providers tab is its own User-scope page; with nothing confi
 test('E227: configuring a provider, a curated model and a key enables Test connection, and the result is reported', async ({
   page,
 }) => {
-  await openSettings(page, 'llm');
+  await openLlmPage(page);
 
   // Req 6: the curated list fills the free-text field, which stays editable.
   await page.getByTestId('llm-model-preset').selectOption('claude-opus-5');
@@ -518,7 +527,7 @@ test('E227: configuring a provider, a curated model and a key enables Test conne
   // Issue #246: edits are pending until Save, and Test connection runs
   // against the SAVED settings — so commit, then reopen to test the key.
   await saveSettings(page);
-  await openSettings(page, 'llm');
+  await openLlmPage(page);
 
   // Req 10: one user-invoked request, reported as success or a specific failure.
   await page.getByTestId('llm-test').click();
@@ -547,7 +556,11 @@ test('E228: on desktop the settings window round-trips Test connection through t
   const sp = await popupPromise;
   await sp.getByTestId('settings-panel').waitFor();
 
-  await sp.getByTestId('settings-tab-llm').click();
+  // Issue #247: the aux window nests exactly like the overlay — Experimental,
+  // then the row's stand-down route to the LLM providers page.
+  await sp.getByTestId('settings-tab-experimental').click();
+  await sp.getByTestId('experimental-semantic-zoom-stand-down-link').click();
+  await expect(sp.getByTestId('settings-page-llm')).toBeVisible();
   await sp.getByTestId('llm-model-preset').selectOption('claude-sonnet-5');
   await sp.getByTestId('llm-api-key').fill('sk-e228-secret');
   await expect(sp.getByTestId('llm-availability')).toContainText('Ready');
@@ -557,7 +570,8 @@ test('E228: on desktop the settings window round-trips Test connection through t
   const reopened = page.waitForEvent('popup');
   await menuClick(page, 'settings');
   const sp2 = await reopened;
-  await sp2.getByTestId('settings-tab-llm').click();
+  await sp2.getByTestId('settings-tab-experimental').click();
+  await sp2.getByTestId('experimental-semantic-zoom-stand-down-link').click();
 
   // Req 10: the aux window holds no capability — the request travels to the
   // main window over the bus and the verdict comes back for it to render.

@@ -104,6 +104,19 @@ features reuse, not buried inside this one.
 4. Settings gains an **LLM providers** area (its own page/tab, not a row
    in an existing one) that is the single home for model configuration
    and is written to serve future LLM features, not just semantic zoom.
+
+   > **Amended (issue #247, 2026-09-06):** the area is no longer a
+   > **top-level tab**. `LLM providers` is off the tab rail in every build
+   > and both scopes; the same page — same controls, same test ids — is a
+   > **second-level page** reached from the Semantic zoom row on the
+   > Experimental tab (a `Settings…` button, live only while the experiment
+   > is on, plus the row's stand-down link, live either way), with a
+   > `Experimental › Semantic zoom` breadcrumb and a Back affordance. It
+   > stays the single home for model configuration: a future LLM feature
+   > that is not an experiment moves the page's mount point again rather
+   > than growing a second copy. The nesting mechanism itself is general —
+   > a page descriptor on the `EXPERIMENTAL_FEATURES` entry — so the next
+   > experiment gets its own nested page by adding data.
 5. It supports five provider types: **OpenAI**, **Anthropic**,
    **Google Gemini**, **OpenRouter**, and a **custom OpenAI-compatible
    endpoint** (base URL, key, model name). Exactly one provider is
@@ -190,6 +203,20 @@ features reuse, not buried inside this one.
     lines, truncated) in place of a summary, and the view states plainly
     that these are excerpts, with a link to configure a provider for
     real summaries. This is the only behavior in the static web build.
+
+    > **Amended (issue #247, 2026-09-06):** it is no longer *any* behavior
+    > in the browser builds. Semantic zoom is **not enableable** in the
+    > hosted and static web builds — the Experimental row still shows the
+    > feature, but its checkbox is disabled and unchecked with a line
+    > saying the feature is not available in the web version — so no level
+    > control, view or excerpt notice is reached there at all. Excerpt mode
+    > is unchanged where the feature can be turned on (desktop and the
+    > dev/e2e shim), which is where the "without a configured provider"
+    > behavior above is now exercised. Availability is a platform
+    > **capability** (`Platform.semanticZoom`), never a flavor test.
+    >
+    > The "link to configure a provider" route also follows Req 4's move:
+    > it opens the nested LLM providers page directly.
 23. Semantic zoom is a distinct feature from text zoom: its own View
     menu entries, its own commands, and its own accelerators
     (`Mod+Shift+=` / `Mod+Shift+-` / `Mod+Shift+0`). SPEC4 §4 text zoom

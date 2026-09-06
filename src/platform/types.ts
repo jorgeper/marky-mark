@@ -356,6 +356,16 @@ export interface Platform {
    */
   summaryCache?: SummaryCacheStore;
 
+  /**
+   * Issue #247: whether this host can run the semantic-zoom experiment at all.
+   * Declared by the flavors that can (desktop, and the dev/e2e shim that
+   * stands in for it); left undefined by the browser flavors, whose Settings
+   * panel then draws the row disabled with a note instead of a live checkbox.
+   * A capability, like `llm` and `summaryCache` above: app code mounts on this
+   * being present, never on which flavor is running.
+   */
+  semanticZoom?: boolean;
+
   updates?: {
     /** null ⇒ already up to date. Throws on network/manifest/signature errors. */
     check(): Promise<{ version: string; notes: string } | null>;

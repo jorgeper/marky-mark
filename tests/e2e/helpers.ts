@@ -104,19 +104,33 @@ export async function freshApp(page: Page): Promise<void> {
 /** Open the Settings panel through the overflow menu, on the given tab. */
 export async function openSettings(
   page: Page,
-  // PRD 011 Req 4: widened for the LLM providers tab — same helper, one more
+  // PRD 011 Req 1: widened for the Experimental tab — same helper, one more
   // destination, so no caller is duplicated or replaced.
-  // PRD 011 Req 1: widened again for the Experimental tab — same helper, one
-  // more destination.
   // Issue #183 §1: widened again for the hosted workspace tab (renamed
   // from 'people' to 'workspace' by issue #248).
-  tab: 'appearance' | 'general' | 'hotkeys' | 'editor' | 'workspace' | 'llm' | 'experimental' = 'appearance'
+  // Issue #247: narrowed again — `llm` is no longer a top-level tab; the LLM
+  // providers page is reached through `openLlmPage` below.
+  tab: 'appearance' | 'general' | 'hotkeys' | 'editor' | 'workspace' | 'experimental' = 'appearance'
 ): Promise<void> {
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('menu-settings').click();
   await page.getByTestId('settings-panel').waitFor();
   await page.getByTestId(`settings-tab-${tab}`).click();
+}
+
+/**
+ * Issue #247: open Settings on the nested LLM providers page — Experimental →
+ * the Semantic zoom row → its stand-down link, which is the one route that is
+ * live whatever the checkbox says (PRD 011 Req 3: a reader who has just turned
+ * the experiment off must still reach Remove key and Clear the cache). The
+ * `Settings…` button, which is live only while the experiment is on, is
+ * exercised on its own in E246.
+ */
+export async function openLlmPage(page: Page): Promise<void> {
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-semantic-zoom-stand-down-link').click();
+  await page.getByTestId('settings-page-llm').waitFor();
 }
 
 /**

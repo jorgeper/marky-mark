@@ -3328,6 +3328,34 @@ input.folder-rename-input.invalid {
   max-width: 46rem;
 }
 
+/* Issue #247: the row's own `Settings…` button — the route to the
+   experiment's nested settings page, aligned with the description above it. */
+.experimental-page-row {
+  margin: 8px 0 0 24px;
+}
+
+/* Issue #247: a second-level settings page. It takes the place of the rail +
+   tab content inside the same fixed-size dialog, so the pinned footer below is
+   untouched and Save / Cancel still govern both levels. */
+.settings-modal .settings-nested {
+  flex-direction: column;
+}
+
+.settings-modal .settings-page-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--mm-border, #d1d9e0);
+  background: color-mix(in srgb, var(--mm-bg, #fff) 55%, var(--mm-bg-elevated, #f6f8fa));
+}
+
+.settings-modal .settings-page-crumb {
+  font-size: var(--mm-text-caption);
+  color: var(--mm-fg-muted, #59636e);
+}
+
 /* PRD 011 Req 21: the docked semantic-zoom level indicator. Bottom-RIGHT, so
    it never overlaps the SPEC16 §5 word-count chip (bottom-left) or the
    toolbar, and it is only mounted with a document open. */

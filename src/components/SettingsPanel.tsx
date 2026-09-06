@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import {
   DEFAULT_SETTINGS,
   diffSettings,
@@ -134,12 +134,21 @@ interface Props {
   onSummaryCacheSize?: () => Promise<SummaryCacheSizeResult>;
   onSummaryCacheClear?: () => Promise<SummaryCacheClearResult>;
   /**
-   * PRD 011 Req 22: the tab to land on, so a caller that already knows where
-   * the reader is headed — the zoomed view's "configure a provider" route —
-   * opens the LLM providers area itself rather than General. Absent keeps the
+   * PRD 011 Req 22 (amended by issue #247): where to land, so a caller that
+   * already knows where the reader is headed — the zoomed view's "configure a
+   * provider" route — opens the LLM providers area itself rather than General.
+   * `'llm'` now names the nested page under Semantic zoom. Absent keeps the
    * default, so every existing mount point is unchanged.
    */
-  initialTab?: SettingsTab;
+  initialTab?: SettingsRoute;
+  /**
+   * Issue #247: whether this host can run the semantic-zoom experiment. A
+   * CAPABILITY the window holding the platform forwards, beside
+   * `llmCapabilities` and `summaryCacheAvailable` — the row branches on it,
+   * never on a flavor. Absent means available, which keeps every mount point
+   * that has no platform to ask (the desktop aux window) unchanged.
+   */
+  semanticZoomAvailable?: boolean;
 }
 
 const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
@@ -225,9 +234,37 @@ const MARGIN_LABELS: Array<{ value: Margins; label: string }> = [
   { value: 'wide', label: 'Wide margins (narrow text)' },
 ];
 
-// PRD 011 Req 4: the LLM providers area is a page of its own, not a row
-// appended to General, Editor or Appearance.
-type SettingsTab = 'appearance' | 'general' | 'editor' | 'workspace' | 'hotkeys' | 'llm' | 'experimental';
+// PRD 011 Req 4 (superseded by issue #247): the LLM providers area is still a
+// page of its own — but a SECOND-LEVEL one reached from the experiment it
+// serves, not a top-level tab beside General, Editor or Appearance.
+type SettingsTab = 'appearance' | 'general' | 'editor' | 'workspace' | 'hotkeys' | 'experimental';
+
+/**
+ * Issue #247: the second-level pages. A nested page is a page opened from a
+ * ROW on a tab, drawn in place of the rail + tab content with a breadcrumb
+ * saying where the reader is and a Back affordance out. The mechanism is
+ * general on purpose: a second experiment gets one by adding a `page`
+ * descriptor to its `EXPERIMENTAL_FEATURES` entry and one entry to
+ * `pageContent` below — no copy of the markup.
+ */
+type SettingsPageId = 'llm';
+
+/**
+ * PRD 011 Req 22 (amended by issue #247): where a caller that already knows
+ * the destination lands. A tab, or a nested page id — `'llm'` still names the
+ * LLM providers area, which is now the nested page rather than a tab.
+ */
+export type SettingsRoute = SettingsTab | SettingsPageId;
+
+/** Issue #247: the rail label a nested page's breadcrumb leads with. */
+const TAB_LABELS: Record<SettingsTab, string> = {
+  general: 'General',
+  appearance: 'Appearance',
+  editor: 'Editor',
+  workspace: 'Workspace',
+  hotkeys: 'Hotkeys',
+  experimental: 'Experimental',
+};
 
 /**
  * PRD 011 Req 1: the Experimental features, as DATA. A second experiment is
@@ -240,12 +277,26 @@ const EXPERIMENTAL_FEATURES: Array<{
   label: string;
   description: string;
   /**
+   * Issue #247: which platform capability decides whether this experiment can
+   * be turned on here at all. Named as DATA so the row branches on a
+   * capability the panel was handed, never on a flavor test; an entry without
+   * one is enableable everywhere.
+   */
+  capability?: keyof ExperimentalCapabilities;
+  /** Issue #247: the one line shown where `capability` is absent. */
+  unavailableNote?: string;
+  /**
+   * Issue #247: the experiment's own settings, as a nested page reached from
+   * this row. Data, not markup: a second experiment names its page here.
+   */
+  page?: { id: SettingsPageId; buttonLabel: string };
+  /**
    * PRD 011 Req 3: where an experiment's stored data and credentials are
    * removed. A reader standing the feature down must not have to hunt for the
    * actions, so the row names the page and routes there in one click (the
    * excerpt notice's route to the same tab is the precedent).
    */
-  standDown?: { tab: SettingsTab; sentence: string; linkLabel: string };
+  standDown?: { page: SettingsPageId; sentence: string; linkLabel: string };
 }> = [
   {
     key: 'semanticZoom',
@@ -253,8 +304,14 @@ const EXPERIMENTAL_FEATURES: Array<{
     label: 'Semantic zoom',
     description:
       'Adds a level control to the document view that collapses the document through five levels — every heading with a short block, down to the whole document in a paragraph — and back.',
+    // Issue #247: summarizing needs an LLM path this host does not have.
+    capability: 'semanticZoom',
+    unavailableNote: 'Not available in the web version — this feature needs the desktop app.',
+    // Issue #247: PRD 011 Req 4's page, now reached through the experiment it
+    // serves rather than from the top-level rail.
+    page: { id: 'llm', buttonLabel: 'Settings…' },
     standDown: {
-      tab: 'llm',
+      page: 'llm',
       sentence:
         'Turning this off stops every summary but deletes nothing. Your API key and the cached summaries are removed on the LLM providers page, one action each:',
       linkLabel: 'Remove the key or clear the summary cache',
@@ -266,8 +323,13 @@ const EXPERIMENTAL_FEATURES: Array<{
 const EXPERIMENTAL_WARNING =
   'These features are experiments. They may change, or be removed, in any release.';
 
-/** PRD 011 Req 4 (following issue #21's Hotkeys precedent): User-scope-only tabs. */
-const USER_ONLY_TABS: ReadonlyArray<SettingsTab> = ['hotkeys', 'llm', 'experimental'];
+/** Issue #21's Hotkeys precedent: User-scope-only tabs. */
+const USER_ONLY_TABS: ReadonlyArray<SettingsTab> = ['hotkeys', 'experimental'];
+
+/** Issue #247: the per-experiment capabilities the panel is handed. */
+interface ExperimentalCapabilities {
+  semanticZoom: boolean;
+}
 
 // Issue #21: General leads, and Hotkeys is a User-scope-only tab.
 const TABS: Array<{ id: SettingsTab; label: string }> = [
@@ -283,8 +345,9 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   // the workspace's own settings (names, members, roles, danger zone).
   { id: 'workspace', label: 'Workspace' },
   { id: 'hotkeys', label: 'Hotkeys' },
-  // PRD 011 Req 4: unconditional — no experimental flag gates it.
-  { id: 'llm', label: 'LLM providers' },
+  // Issue #247: no `llm` tab — PRD 011 Req 4's top-level LLM providers tab is
+  // superseded; the page is nested under the Semantic zoom experiment it
+  // serves (EXPERIMENTAL_FEATURES above).
   // PRD 011 Req 1: the Experimental area is a page of its own, User-scope
   // only — it reads as *the* place experiments live, and it is last.
   { id: 'experimental', label: 'Experimental' },
@@ -317,6 +380,7 @@ export function SettingsPanel({
   onSummaryCacheSize,
   onSummaryCacheClear,
   initialTab,
+  semanticZoomAvailable,
 }: Props) {
   // Issue #246: edits are PENDING, not live — every row's edit lands here and
   // nothing reaches `onEdit` (settings.json, the workspace layer, the aux
@@ -330,17 +394,39 @@ export function SettingsPanel({
   // asks before discarding pending work; with nothing pending it just closes.
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
-  const [tab, setTab] = useState<SettingsTab>(initialTab ?? 'general');
+  // Issue #247: an `'llm'` route is the nested page under Experimental, so it
+  // sets both levels at once — the reader lands on the page with the tab
+  // behind it, and Back leads somewhere sensible.
+  const [tab, setTab] = useState<SettingsTab>(
+    initialTab === 'llm' ? 'experimental' : (initialTab ?? 'general'),
+  );
+  /**
+   * Issue #247: the second-level page on top of `tab`, or null for the tab
+   * itself. ONE piece of state for every nested page there will ever be — the
+   * descriptor on the row says which page opens, so a second experiment adds
+   * data here, not markup.
+   */
+  const [page, setPage] = useState<SettingsPageId | null>(initialTab === 'llm' ? 'llm' : null);
+  /** Issue #247: what each nested page is reached from — its breadcrumb and Back. */
+  const pageOwner = EXPERIMENTAL_FEATURES.find((f) => f.page?.id === page);
+  const capabilities: ExperimentalCapabilities = {
+    // Absent ⇒ available: see the prop's note.
+    semanticZoom: semanticZoomAvailable !== false,
+  };
   // §E18: which layer this window writes. Without the selector (web) it is
   // permanently 'user'; closing the workspace kicks the view back to User.
   const [scope, setScope] = useState<SettingsScopeTab>('user');
   useEffect(() => {
     if (scope === 'workspace' && (!scopeSelector || !workspaceOpen)) setScope('user');
   }, [scope, scopeSelector, workspaceOpen]);
-  // Issue #21 + PRD 011 Req 4: Hotkeys and LLM providers are User-only —
-  // landing in Workspace scope on one bounces to General.
+  // Issue #21: Hotkeys and Experimental are User-only — landing in Workspace
+  // scope on one bounces to General, and issue #247's nested pages hang off
+  // those tabs, so the bounce closes the page with them.
   useEffect(() => {
-    if (scope === 'workspace' && USER_ONLY_TABS.includes(tab)) setTab('general');
+    if (scope === 'workspace' && USER_ONLY_TABS.includes(tab)) {
+      setTab('general');
+      setPage(null);
+    }
   }, [scope, tab]);
   // Issue #183 §1: what the Workspace tab may show, loaded once per open
   // workspace; the tab itself appears only when there is something to show.
@@ -1138,10 +1224,11 @@ export function SettingsPanel({
     </>
   );
 
-  // PRD 011 Req 4: the LLM providers page. It renders identically from both
-  // mount points — the inline panel in App.tsx and the desktop aux window —
-  // because everything platform-specific arrives as these two props.
-  const llmTab = (
+  // PRD 011 Req 4 (nested by issue #247): the LLM providers page, UNCHANGED —
+  // it renders identically from both mount points (the inline panel in
+  // App.tsx and the desktop aux window) because everything platform-specific
+  // arrives as these props. Only where it is mounted moved.
+  const llmPage = (
     <LlmSettings
       values={settings}
       capabilities={llmCapabilities ?? NO_LLM_CAPABILITIES}
@@ -1155,6 +1242,14 @@ export function SettingsPanel({
     />
   );
 
+  /**
+   * Issue #247: the nested pages, by id. The ONE place a second-level page's
+   * content is named — the row descriptor says which id it opens, the header
+   * and Back below are shared, so adding a page is an entry here plus a `page`
+   * field on the row, never a copy of the nesting markup.
+   */
+  const pageContent: Record<SettingsPageId, ReactNode> = { llm: llmPage };
+
   // PRD 011 Req 1: one row per data entry — off by default, each carrying the
   // one line that says what turning it on does.
   const experimentalTab = (
@@ -1164,6 +1259,10 @@ export function SettingsPanel({
       </p>
       {EXPERIMENTAL_FEATURES.map((f) => {
         const { standDown } = f;
+        // Issue #247: what this host can do with this experiment, from the
+        // capability the panel was handed — never a flavor test here.
+        const available = f.capability === undefined || capabilities[f.capability];
+        const on = available && settings[f.key] === true;
         return (
           <div className="experimental-row" key={f.key}>
             <div className="checkbox-row">
@@ -1171,7 +1270,10 @@ export function SettingsPanel({
                 id={f.testId}
                 type="checkbox"
                 data-testid={f.testId}
-                checked={settings[f.key] === true}
+                // Issue #247: where the host cannot run it, the row still says
+                // the feature exists — but unchecked and unturnable.
+                disabled={!available}
+                checked={on}
                 onChange={(e) => onChange({ ...settings, [f.key]: e.target.checked })}
               />
               <label htmlFor={f.testId} style={{ margin: 0, fontWeight: 400 }}>
@@ -1182,16 +1284,43 @@ export function SettingsPanel({
             <p className="hotkey-hint experimental-desc" data-testid={`${f.testId}-description`}>
               {f.description}
             </p>
+            {/* Issue #247: one line saying why the box is dead here. */}
+            {!available && f.unavailableNote && (
+              <p className="hotkey-hint experimental-desc" data-testid={`${f.testId}-unavailable`}>
+                {f.unavailableNote}
+              </p>
+            )}
+            {/* Issue #247: the experiment's own settings, one level down. Live
+                only while the experiment is on — so it is dead with the box
+                unchecked, and dead where the host cannot run it at all. */}
+            {f.page && (
+              <p className="experimental-desc experimental-page-row">
+                <Button
+                  size="sm"
+                  data-testid={`${f.testId}-settings`}
+                  disabled={!on}
+                  title={on ? undefined : `Turn ${f.label} on to change its settings`}
+                  onClick={() => setPage(f.page!.id)}
+                >
+                  {f.page.buttonLabel}
+                </Button>
+              </p>
+            )}
             {/* PRD 011 Req 3: standing down is OFFERED, never imposed — the row
-                says the switch deletes nothing and routes to where it is done. */}
-            {standDown && (
+                says the switch deletes nothing and routes to where it is done.
+                Issue #247: the route is the nested page, and this link stays
+                live whatever the box says — a reader who has JUST unchecked the
+                experiment must still reach Remove key and Clear the cache. It
+                is pointless where the host never ran the feature, so a row the
+                capability turned off shows the note instead. */}
+            {standDown && available && (
               <p className="hotkey-hint experimental-desc" data-testid={`${f.testId}-stand-down`}>
                 {standDown.sentence}{' '}
                 <Button
                   variant="quiet"
                   size="sm"
                   data-testid={`${f.testId}-stand-down-link`}
-                  onClick={() => setTab(standDown.tab)}
+                  onClick={() => setPage(standDown.page)}
                 >
                   {standDown.linkLabel}
                 </Button>
@@ -1264,6 +1393,31 @@ export function SettingsPanel({
           )}
         </nav>
       )}
+      {/* Issue #247: a second-level page takes the whole body — the rail is
+          replaced by a breadcrumb saying where the reader is and the Back
+          affordance out of it, and the pinned footer below still governs BOTH
+          levels (Save commits edits made here with the rest, Cancel discards
+          them). The markup is shared by every nested page there will be. */}
+      {page && pageOwner ? (
+        <div className="settings-body settings-nested">
+          <header className="settings-page-header">
+            <Button
+              variant="quiet"
+              size="sm"
+              data-testid="settings-page-back"
+              onClick={() => setPage(null)}
+            >
+              ‹ Back
+            </Button>
+            <span className="settings-page-crumb" data-testid="settings-page-crumb">
+              {TAB_LABELS[tab]} › {pageOwner.label}
+            </span>
+          </header>
+          <div className="tab-content" data-testid={`settings-page-${page}`}>
+            {pageContent[page]}
+          </div>
+        </div>
+      ) : (
       <div className="settings-body">
         {/* Issue #21: both scopes share one tab rail; Hotkeys is User-only. */}
         <nav className="tab-rail" data-testid="settings-tabs">
@@ -1300,10 +1454,10 @@ export function SettingsPanel({
             />
           )}
           {tab === 'hotkeys' && scope === 'user' && hotkeysTab}
-          {tab === 'llm' && scope === 'user' && llmTab}
           {tab === 'experimental' && scope === 'user' && experimentalTab}
         </div>
       </div>
+      )}
       {footer}
     </div>
   );

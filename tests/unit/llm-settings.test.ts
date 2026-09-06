@@ -7,6 +7,7 @@ import {
   LLM_PROVIDER_KINDS,
   LLM_PROVIDERS,
   NO_KEY_MESSAGE,
+  NO_LLM_CAPABILITIES,
   NO_LLM_PLATFORM_MESSAGE,
   NO_MODEL_MESSAGE,
   isLlmProviderKind,
@@ -18,6 +19,7 @@ import {
   type LlmSettingsValues,
 } from '../../src/lib/llmSettings';
 import { INVALID_BASE_URL_MESSAGE } from '../../src/lib/llmProviders';
+import { offersSummaryCacheSection } from '../../src/lib/summaryCacheReport';
 import { NO_LLM_CONFIGURED_MESSAGE } from '../../src/lib/llmDeployment';
 import { createFakeLlm } from '../../src/lib/llmFake';
 import { runLlmRequest, type LlmResponse } from '../../src/lib/llmSeam';
@@ -100,6 +102,28 @@ describe('PRD 011 Req 9 LLM availability', () => {
     const state = llmAreaState({ transport: false, hosted: null }, configured);
     expect(state).toEqual({ state: 'no-path', message: NO_LLM_PLATFORM_MESSAGE });
     expect(canTestConnection(state)).toBe(false);
+  });
+
+  test('U1199: the no-path state offers not one control — the coverage W14 held before issue #247', () => {
+    // Issue #247 took the LLM providers tab off the rail and nested the page
+    // under the Semantic zoom experiment, which the browser builds cannot turn
+    // on — so the static web build can no longer reach the page for W14 to
+    // read. The property W14 proved lands here instead, at the function that
+    // decides it: on a platform with no LLM path, the sentence names the two
+    // flavors that do have one, and every control the page could draw is
+    // withheld rather than drawn dead.
+    const state = llmAreaState(NO_LLM_CAPABILITIES, configured);
+    expect(state).toEqual({ state: 'no-path', message: NO_LLM_PLATFORM_MESSAGE });
+    // …and it says where a path exists rather than leaving the reader stuck.
+    expect(NO_LLM_PLATFORM_MESSAGE).toMatch(/desktop/i);
+    expect(canTestConnection(state)).toBe(false);
+    expect(canRemoveLlmKey(state)).toBe(false);
+    // No store behind it either, so no cache section is offered — with or
+    // without a store the no-path state draws none.
+    expect(offersSummaryCacheSection(state, false)).toBe(false);
+    expect(offersSummaryCacheSection(state, true)).toBe(false);
+    // The key the reader never typed is nowhere in what the page would render.
+    expect(JSON.stringify(state)).not.toContain(configured.llmApiKey);
   });
 
   test('U562: desktop with nothing configured names the missing piece, in order', () => {

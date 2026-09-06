@@ -5604,6 +5604,13 @@ export default function App() {
   const summaryCacheAvailable = platform?.summaryCache !== undefined;
 
   /**
+   * Issue #247: can THIS host run the semantic-zoom experiment? A CAPABILITY,
+   * never a flavor test — the browser builds declare none, and the Experimental
+   * row draws its checkbox disabled with a note there instead of live.
+   */
+  const semanticZoomAvailable = platform?.semanticZoom === true;
+
+  /**
    * PRD 011 Reqs 16+30: what the cache holds, read from the STORE — never from
    * a count this window kept. It is a store read (a file read on desktop, the
    * existing same-origin GET on hosted) and issues no LLM request; it runs when
@@ -8305,6 +8312,9 @@ export default function App() {
           summaryCacheAvailable={summaryCacheAvailable}
           onSummaryCacheSize={readSummaryCacheSize}
           onSummaryCacheClear={clearSummaryCache}
+          // Issue #247: the capability beside the two above — whether the
+          // Experimental row's checkbox is live on this host at all.
+          semanticZoomAvailable={semanticZoomAvailable}
           // Issue #183 §1 (was PRD 007 Req 12's appended sections): a
           // capability check, not a flavor check — only a platform offering
           // the workspace lifecycle has a Workspace tab to show. The panel gates

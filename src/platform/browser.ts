@@ -550,6 +550,10 @@ export function createBrowserPlatform(): Platform {
   // SAME `createFileSummaryCache` tauri.ts uses, not a second implementation,
   // so later e2e work drives the real eviction and corruption behaviour.
   platform.summaryCache = createFileSummaryCache(platform, { now: () => Date.now() });
+  // Issue #247: this host can run the semantic-zoom experiment, so the
+  // Settings row's checkbox stays live here. The browser flavors declare
+  // nothing and get the disabled row instead.
+  platform.semanticZoom = true;
   // PRD 011 Req 35: the dev/e2e shim's LLM transport is the local FAKE, so a
   // desktop-shim test drives the real seam and the real provider adapters and
   // only the sending is replaced — no real provider is ever contacted. Only

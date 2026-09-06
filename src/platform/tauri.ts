@@ -440,4 +440,8 @@ export async function createTauriPlatform(): Promise<Platform> {
   // injected here, at the edge, so the store itself stays pinnable by tests.
   platform.summaryCache = createFileSummaryCache(platform, { now: () => Date.now() });
   return platform;
+  // Issue #247: this host can run the semantic-zoom experiment, so the
+  // Settings row's checkbox stays live here. The browser flavors declare
+  // nothing and get the disabled row instead.
+  platform.semanticZoom = true;
 }
