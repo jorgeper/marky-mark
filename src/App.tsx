@@ -142,6 +142,7 @@ import { moveTarget, relativePath, remapPath, uniqueChildName } from './lib/fold
 import { ALL_FILE_GRANTS, type FileGrants } from './lib/fileGrants';
 import { uploadRejection } from './lib/fileTransfer';
 import { isSaveConflict, planSaveConflict, type SaveConflictChoice } from './lib/saveConflict';
+import { isHostedSessionExpired } from './lib/hostedGate';
 import { planMergedSave } from './lib/mergedSave';
 import { CommentsToggleButton, FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton, SyncScrollButton } from './components/FolderPanel';
 import { FileTabStrip } from './components/FileTabStrip';
@@ -1558,7 +1559,15 @@ export default function App() {
           refs.push(imageMarkdownRef(folder, name));
         }
       } catch (err) {
-        showNotice(`Couldn’t save the pasted image: ${err instanceof Error ? err.message : String(err)}`);
+        // PRD 007 Req 5 (issue #267): on hosted, the write can fail because
+        // the session itself expired — that is a sign-in-again outcome in the
+        // gate's own words, not a paste failure with a status code stapled to
+        // it. Every other cause keeps the SPEC20 §2 notice.
+        showNotice(
+          isHostedSessionExpired(err)
+            ? err.message
+            : `Couldn’t save the pasted image: ${err instanceof Error ? err.message : String(err)}`
+        );
         return null;
       }
       return refs.join('\n');

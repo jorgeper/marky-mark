@@ -49,6 +49,33 @@ export function clearToken(store: KeyValueStore): void {
 }
 
 /**
+ * PRD 007 Req 5 (issue #267): what the user is told when the stored bearer
+ * token is no longer accepted. The token IS the session and this client holds
+ * no refresh token, so an Entra access token that expired mid-edit turns
+ * every later request unauthenticated — the gate's own answer to that is to
+ * sign in again, and this is that answer worded for a surface inside the app.
+ */
+export const HOSTED_SESSION_EXPIRED = 'Your session expired — sign in again to continue.';
+
+/**
+ * PRD 007 Req 5 (issue #267): a request the server refused as unauthenticated
+ * (its one 401 guard, server/app.ts). Distinct from an ordinary failure so a
+ * caller — the pasted-image write of PRD 007 Req 8 / SPEC20 §2 above all —
+ * can surface a re-auth outcome instead of a bare status code.
+ */
+export class HostedSessionExpiredError extends Error {
+  constructor() {
+    super(HOSTED_SESSION_EXPIRED);
+    this.name = 'HostedSessionExpiredError';
+  }
+}
+
+/** Is this the session-expired outcome? (`instanceof` across bundle chunks.) */
+export function isHostedSessionExpired(err: unknown): err is HostedSessionExpiredError {
+  return err instanceof Error && err.name === 'HostedSessionExpiredError';
+}
+
+/**
  * PRD 020 Req 9 (generalizing PRD 019 Req 2): the visited URL across the
  * Entra round trip. The OAuth redirect URI is the origin root, so the URL a
  * sign-in began on — a path deep link, the legacy `?workspace=` form, a

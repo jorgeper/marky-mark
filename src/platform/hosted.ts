@@ -1,6 +1,6 @@
 import type { Platform } from './types';
 import { createLocalDocs } from './localDocs';
-import { clearToken, readStoredToken, takeHostedBoot } from '../lib/hostedGate';
+import { clearToken, HostedSessionExpiredError, readStoredToken, takeHostedBoot } from '../lib/hostedGate';
 import { createHostedWorkspaceLifecycle, type HostedBinding } from './hostedWorkspaces';
 import { createHostedAdmin } from './hostedAdmin';
 import { createHostedLlm } from './hostedLlm';
@@ -118,15 +118,39 @@ export function createHostedPlatform(): Platform {
   let bootDocPending = boot?.file !== undefined;
 
   /**
+   * PRD 007 Req 5 (issue #267): a 401 can only come from the server's single
+   * auth guard (server/app.ts), so it means this session's bearer token is no
+   * longer accepted — expired, above all, since sign-in stores an Entra
+   * access token and this client has no refresh token to renew it with.
+   * Handled here, once, for every request the platform makes: the stored
+   * token is dropped through hostedGate's one owner of that key, so the gate
+   * renders sign-in on the next load rather than the app running on a dead
+   * session, and the held /api/me record dies with it. Callers turn the same
+   * status into the re-auth outcome the user sees (`requestError` below).
+   */
+  let sessionDead = false;
+  const sessionExpired = (): void => {
+    if (sessionDead) return;
+    sessionDead = true;
+    me = null;
+    clearToken(window.localStorage);
+  };
+
+  /**
    * The bundle's hosted-platform network call site (SPEC11 §6.6 bundle-scan
    * allowlist): every API request this platform makes funnels through here,
-   * always same-origin and always bearer-authenticated.
+   * always same-origin and always bearer-authenticated — the raw `?raw=1`
+   * byte writes of PRD 007 Req 8 exactly like the JSON document saves, which
+   * is what makes the 401 handling above one behaviour and not per-caller.
    */
   const api = (
     path: string,
     init: { method?: string; headers?: Record<string, string>; body?: BodyInit } = {},
   ): Promise<Response> =>
-    fetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token()}` } });
+    fetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token()}` } }).then((res) => {
+      if (res.status === 401) sessionExpired();
+      return res;
+    });
 
   const json = async <T>(res: Response): Promise<T | null> => (res.ok ? ((await res.json()) as T) : null);
 
@@ -179,6 +203,16 @@ export function createHostedPlatform(): Platform {
     if (res.status === 403 && body?.required) return `You need the ${body.required} permission to do that.`;
     return body?.error ?? fallback;
   };
+
+  /**
+   * PRD 007 Req 5+17 (issue #267): the error a refused write becomes, shared
+   * by every write this platform makes so the raw image PUT and the ordinary
+   * JSON document save answer a refusal identically. A 401 is the dead
+   * session `api()` just dropped — a sign-in-again outcome, never a status
+   * code the user can do nothing with; a 403 keeps its named verb.
+   */
+  const requestError = async (res: Response, fallback: string): Promise<Error> =>
+    res.status === 401 ? new HostedSessionExpiredError() : new Error(await refusal(res, fallback));
 
   // Listings are the answer to `exists` and both directory reads, and the app
   // asks constantly (every doc open probes for a sidecar). One listing per
@@ -362,7 +396,7 @@ export function createHostedPlatform(): Platform {
         // The server refused the write; the stored content is untouched.
         throw new SaveConflictError(path);
       }
-      if (!res.ok) throw new Error(await refusal(res, `write failed (${res.status}): ${path}`));
+      if (!res.ok) throw await requestError(res, `write failed (${res.status}): ${path}`);
       const written = await json<{ etag: string; merged?: boolean; content?: string }>(res);
       // PRD 016 Req 9: what LANDED is the next save's merge base — the sent
       // text, or the merged text when the server merged someone else's
@@ -641,7 +675,11 @@ export function createHostedPlatform(): Platform {
         body: bytes.slice().buffer as ArrayBuffer,
       });
       invalidate(target);
-      if (!res.ok) throw new Error(`binary write failed (${res.status}): ${path}`);
+      // PRD 007 Req 8 (SPEC20 §2): the pasted image's write refuses through
+      // the same shared error as a document save — a session that expired
+      // mid-edit is re-auth, a role that lacks `file.create`/`doc.edit` is
+      // the named 403, and neither is a bare status code (issue #267).
+      if (!res.ok) throw await requestError(res, `binary write failed (${res.status}): ${path}`);
     },
 
     readDirEntries(dir) {
