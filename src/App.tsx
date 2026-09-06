@@ -502,16 +502,38 @@ function summaryPriceFor(ctx: { providerId: string; modelId: string }): TokenPri
 
 /**
  * PRD 023 §13 (issue #287): where the preview selection button sits — the
- * 24px square `.preview-sel-btn` (styles.css) one gap LEFT of the selection
- * rect and vertically centred on it, clamped to stay inside the viewport and
- * below the .toolbar-shell band (the issue #18 toolbar floor). One place to
- * change if the button's size or the band ever does.
+ * 24px square `.preview-sel-btn` (styles.css), clamped to stay inside the
+ * viewport and below the .toolbar-shell band (the issue #18 toolbar floor).
+ * One place to change if the button's size or the band ever does.
+ *
+ * Issue #306: it lives in the host `.doc`'s LEFT PADDING COLUMN, never over
+ * the words — the edit-mode gutter glyph's spot (SPEC43 §3 hangs the same
+ * 24px button in .cm-content's 32px padding with a 4px gap to the line
+ * start). So `left` is measured from the doc's content-left edge, not from
+ * the selection rect: a selection that starts mid-line used to drag the
+ * glyph across the preceding words. 24 + 4 = 28 fits the .doc's 32px
+ * padding (editor/styles.css). Vertically it is centred on the selection's
+ * FIRST line box (`y`/`h` below), so a selection spanning several lines or
+ * blocks keeps the button beside the line where it starts — the edit-mode
+ * glyph likewise rides one line — rather than on the centre of the whole
+ * selection rect. The measurements arrive from the preview selection
+ * tracking effect, which re-runs on scroll/resize, so the button rides the
+ * selection instead of floating detached.
  */
-const PREVIEW_BTN = { size: 24, gap: 6, edge: 4, toolbarFloor: 46 };
-function previewButtonPos(sel: { x: number; y: number; h: number }): { left: number; top: number } {
+const PREVIEW_BTN = { size: 24, gap: 4, edge: 4, toolbarFloor: 46 };
+/** The preview selection's placement inputs — see previewButtonPos. */
+interface PreviewSelectionRect {
+  /** The host .doc's content-left edge (its rect left + padding-left), viewport px. */
+  contentLeft: number;
+  /** Top of the selection's first non-empty line box, viewport px. */
+  y: number;
+  /** Height of that first line box. */
+  h: number;
+}
+function previewButtonPos(sel: PreviewSelectionRect): { left: number; top: number } {
   const { size, gap, edge, toolbarFloor } = PREVIEW_BTN;
   return {
-    left: Math.max(edge, Math.min(sel.x - size - gap, window.innerWidth - size - edge)),
+    left: Math.max(edge, Math.min(sel.contentLeft - gap - size, window.innerWidth - size - edge)),
     top: Math.max(
       toolbarFloor,
       Math.min(sel.y + sel.h / 2 - size / 2, window.innerHeight - size - edge)
@@ -729,9 +751,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     null
   );
   const [draft, setDraft] = useState('');
-  // PRD 023 §13 (issue #287): x/y/h are the selection rect's LEFT edge, top
-  // and height (viewport coords) — the preview selection button's anchor.
-  const [selInfo, setSelInfo] = useState<{ start: number; end: number; x: number; y: number; h: number } | null>(null);
+  // PRD 023 §13 (issue #287): the preview selection button's anchor — the
+  // host doc's content-left edge and the selection's first line box (issue
+  // #306, PreviewSelectionRect), in viewport coords.
+  const [selInfo, setSelInfo] = useState<({ start: number; end: number } & PreviewSelectionRect) | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // PRD 017 Req 13: the deployment-admin Management dialog.
   const [managementOpen, setManagementOpen] = useState(false);
@@ -7127,7 +7150,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // is the preview surfaces' authoring anchor (the annotation hotkeys) and
   // the word-count chip's selection source. PRD 023 §13 (issue #287): the
   // rect anchors the preview selection button, so a scroll or resize
-  // re-measures the live selection to keep the button glued to it.
+  // re-measures the live selection to keep the button glued to it. Issue
+  // #306: the button sits in the host doc's left padding column, level with
+  // the selection's FIRST line — so the doc's content-left edge and the first
+  // line box are measured here too, in the same handler, and stay as fresh as
+  // the selection itself (previewButtonPos does the arithmetic).
   useEffect(() => {
     const inSplit = mode === 'edit' && settings.splitEdit;
     if (mode !== 'preview' && !inSplit) return;
@@ -7148,13 +7175,19 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         setSelInfo((prev) => (prev === null ? prev : null));
         return;
       }
-      const rect = range.getBoundingClientRect();
-      const next = { start, end, x: rect.left, y: rect.top, h: rect.height };
+      // Issue #306: the first non-empty client rect is the selection's first
+      // line box (a range starting at a block boundary can lead with a
+      // zero-size rect); the bounding rect is the fallback if none is.
+      const rects = Array.from(range.getClientRects());
+      const first = rects.find((r) => r.width > 0 && r.height > 0) ?? range.getBoundingClientRect();
+      const docRect = doc.getBoundingClientRect();
+      const contentLeft = docRect.left + parseFloat(getComputedStyle(doc).paddingLeft);
+      const next = { start, end, contentLeft, y: first.top, h: first.height };
       // Identity-stable when nothing moved: scroll fires per frame.
       setSelInfo((prev) =>
         prev !== null &&
         prev.start === next.start && prev.end === next.end &&
-        prev.x === next.x && prev.y === next.y && prev.h === next.h
+        prev.contentLeft === next.contentLeft && prev.y === next.y && prev.h === next.h
           ? prev
           : next
       );
@@ -8751,10 +8784,14 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       )}
 
       {/* PRD 023 §13 (issue #287): the preview selection button — the SPEC43
-          §3 hash glyph as floating viewport chrome, LEFT of the selection and
-          vertically centred on it, clamped into the viewport and below the
-          .toolbar-shell band (the issue #18 toolbar floor; z-index in
-          styles.css). It rides selInfo, so it exists exactly when the
+          §3 hash glyph as floating viewport chrome, in the host .doc's left
+          padding column (issue #306: never over the words, the edit-mode
+          gutter glyph's spot) and vertically centred on the selection's
+          FIRST line, clamped into the viewport and below the .toolbar-shell
+          band (the issue #18 toolbar floor; z-index in styles.css). Both
+          preview surfaces — full and split pane — place it through the one
+          previewButtonPos, each fed its own doc's content edge. It rides
+          selInfo, so it exists exactly when the
           annotation hotkeys would act: both preview surfaces, either build,
           never the split editor half. Absent — not disabled — when the
           commentsEnabled/frozen/comment.write gate is closed. It is chrome:

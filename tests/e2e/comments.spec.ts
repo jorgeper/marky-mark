@@ -2381,6 +2381,88 @@ test('E465: PRD 023 §13 — a full-preview selection grows the hash button left
   await expect(btn).toHaveCount(0);
 });
 
+test('E565: PRD 023 §13 (issue #306) — the preview button sits in the .doc left padding column, level with the selection\'s FIRST line, never over the words', async ({
+  page,
+}) => {
+  // Issue #306: the button used to hang one gap left of the selection RECT,
+  // so a selection starting mid-line drew the glyph across the preceding
+  // words. It now lives in the .doc's 32px padding column — the edit-mode
+  // gutter glyph's spot — with its right edge at or left of the content-left
+  // edge whatever column the selection starts in.
+  const btn = page.getByTestId('smart-edit-selection');
+  const docEdges = () =>
+    page.evaluate(() => {
+      const doc = document.querySelector('[data-testid="doc"]') as HTMLElement;
+      const r = doc.getBoundingClientRect();
+      return { docLeft: r.left, contentLeft: r.left + parseFloat(getComputedStyle(doc).paddingLeft) };
+    });
+  // The selection's FIRST line box: the first non-empty client rect.
+  const firstLineRect = () =>
+    page.evaluate(() => {
+      const rects = Array.from(window.getSelection()!.getRangeAt(0).getClientRects());
+      const r = rects.find((c) => c.width > 0 && c.height > 0)!;
+      return { left: r.left, top: r.top, bottom: r.bottom };
+    });
+
+  // A phrase that starts well into its line: before the fix the glyph's box
+  // would have ended right of the content edge, over "A lightweight, ".
+  await selectPhrase(page, 'fast markdown viewer');
+  await expect(btn).toBeVisible();
+  const { docLeft, contentLeft } = await docEdges();
+  const first = await firstLineRect();
+  expect(first.left).toBeGreaterThan(contentLeft + 40); // materially mid-line
+  const box = await stableBox(btn);
+  expect(box.x + box.width).toBeLessThanOrEqual(contentLeft); // never over the words
+  expect(box.x).toBeGreaterThanOrEqual(docLeft); // inside the padding column
+  expect(box.y).toBeLessThan(first.bottom);
+  expect(box.y + box.height).toBeGreaterThan(first.top);
+
+  // A selection spanning two paragraphs rides the FIRST paragraph's first
+  // line, not the centre of the whole selection rect (which would land it on
+  // the heading between them) and not the second paragraph.
+  const second = await page.evaluate(() => {
+    const doc = document.querySelector('[data-testid="doc"]')!;
+    const walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
+    let from: { node: Node; idx: number } | null = null;
+    let to: { node: Node; idx: number } | null = null;
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const text = node.nodeValue ?? '';
+      if (!from && text.includes('fast markdown viewer')) from = { node, idx: text.indexOf('fast markdown viewer') };
+      else if (from && text.includes('renders GitHub-flavored')) {
+        to = { node, idx: text.indexOf('renders GitHub-flavored') + 'renders GitHub-flavored'.length };
+        break;
+      }
+    }
+    if (!from || !to) throw new Error('two-paragraph anchors not found');
+    from.node.parentElement?.scrollIntoView({ block: 'center' });
+    const range = document.createRange();
+    range.setStart(from.node, from.idx);
+    range.setEnd(to.node, to.idx);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const rects = Array.from(range.getClientRects()).filter((c) => c.width > 0 && c.height > 0);
+    const last = rects[rects.length - 1];
+    const whole = range.getBoundingClientRect();
+    return {
+      first: { top: rects[0].top, bottom: rects[0].bottom },
+      last: { top: last.top, bottom: last.bottom },
+      wholeMid: whole.top + whole.height / 2,
+    };
+  });
+  await expect(btn).toBeVisible();
+  const edges2 = await docEdges();
+  const box2 = await stableBox(btn);
+  expect(second.last.top).toBeGreaterThan(second.first.bottom); // really two lines apart
+  expect(box2.x + box2.width).toBeLessThanOrEqual(edges2.contentLeft);
+  expect(box2.x).toBeGreaterThanOrEqual(edges2.docLeft);
+  expect(box2.y).toBeLessThan(second.first.bottom);
+  expect(box2.y + box2.height).toBeGreaterThan(second.first.top);
+  expect(box2.y + box2.height).toBeLessThanOrEqual(second.last.top); // not the second paragraph's line
+  expect(box2.y + box2.height).toBeLessThan(second.wholeMid); // not the whole rect's centre
+});
+
 test('E466: PRD 023 §13 — the split preview grows the button and inserts without leaving split; the split editor half never does', async ({
   page,
 }) => {
