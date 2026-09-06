@@ -848,7 +848,10 @@
   position: fixed;
   top: auto;
   right: auto;
-  z-index: 60;
+  /* Issue #286: the menu grew the Comment/Highlight entries and can now
+     clamp into the host's toolbar band (z 80 in Marky Mark) — an open menu
+     must sit above passive chrome, below dialogs (z 100+). */
+  z-index: 90;
   min-width: 200px;
   outline: none;
 }
@@ -876,7 +879,7 @@
   left: calc(100% + 2px);
   top: -6px;
   right: auto;
-  z-index: 61;
+  z-index: 91; /* one above its menu (issue #286) */
   min-width: 170px;
 }
 .smart-edit-flyout.flip {
