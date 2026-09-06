@@ -5,7 +5,7 @@
 // mode signs in as a seeded dev user; azure mode drives the Entra ID
 // auth-code + PKCE redirect flow (logic in src/lib/hostedAuth.ts).
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import App from '../App';
 import {
   buildAuthorizeRedirect,
@@ -16,6 +16,7 @@ import {
   parseAuthorizeUrl,
 } from '../lib/hostedAuth';
 import { BOOT_HOLD_TIMEOUT_MS, holdsBootFrame, type BootHoldTarget } from '../lib/hostedBootHold';
+import { planSignInRestore, SIGNING_IN_STATUS, type SignInReshow } from '../lib/hostedRestore';
 import type { SessionMe } from '../lib/deploymentSettings';
 import {
   clearToken,
@@ -360,6 +361,25 @@ async function startBootSession(token: string): Promise<{ probes: BootProbes; me
   return { probes, me };
 }
 
+/**
+ * The phase a stored token resolves to — the ONE answer every entry that
+ * starts from a token in hand lands on: the mount boot below, and (issue
+ * #242) a sign-in page restored from the back/forward cache with that same
+ * token. Issue #253: the session validation IS the visit's `/api/me` read —
+ * one request, started alongside the visit's own probes rather than in front
+ * of them, and handed on to the platform (PRD 017 Req 3) so nothing asks the
+ * server who this is a second time before the workspace is on screen. PRD 020
+ * Req 5+7: an already-signed-in path (or legacy-query) visit resolves and
+ * canonicalizes before the app mounts. A token the guard no longer honours is
+ * cleared, and the visitor lands on a usable sign-in page.
+ */
+async function phaseForToken(token: string): Promise<Phase> {
+  const { probes, me } = await startBootSession(token);
+  if (me) return resolvedPhase(probes, me);
+  clearToken(window.localStorage);
+  return { kind: 'signed-out', error: null, busy: false };
+}
+
 export function HostedShell({ mode }: { mode: HostedMode }) {
   const [phase, setPhase] = useState<Phase>(initialPhase);
   const [username, setUsername] = useState('');
@@ -370,12 +390,26 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
    * the phase cannot disagree about which loads hold — and dropped exactly
    * once — when the gate answers with a surface of its own (sign-in,
    * not-found) or, for a load that enters the app, when <App/> reports its
-   * destination on screen. Nothing intermediate is painted under it, and it
-   * is never raised a second time: entering a workspace is one frame held,
-   * and then the workspace.
+   * destination on screen. Nothing intermediate is painted under it, and one
+   * boot never raises it twice: entering a workspace is one frame held, and
+   * then the workspace. Issue #242: a restored sign-in page that finds a
+   * session is a second boot of the same page, and raises it again — the
+   * alternative is showing the sign-in page while that resolve runs.
    */
   const [holding, setHolding] = useState(() => phase.kind === 'checking');
   const releaseHold = useCallback(() => setHolding(false), []);
+  /**
+   * Issue #242: what the re-show handler below needs to know, without
+   * re-subscribing on every phase change — whether a session resolve is
+   * already running (so one restore's two events, and a Back → Forward → Back
+   * burst, cannot stack resolves), and whether the sign-in page is still the
+   * surface on screen (only it can have been restored).
+   */
+  const resolving = useRef(phase.kind === 'checking');
+  const onSignInPage = useRef(phase.kind === 'signed-out');
+  useEffect(() => {
+    onSignInPage.current = phase.kind === 'signed-out';
+  });
 
   // The backstop — never the timing anything correct relies on: however a boot
   // ends (a workspace open that failed, a seam that never answered), the held
@@ -395,6 +429,7 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
     let cancelled = false;
     const finish = (p: Phase) => {
       if (cancelled) return;
+      resolving.current = false;
       setPhase(p);
       // Issue #253: the gate's own surfaces ARE the destination — sign-in for
       // a visitor whose session is gone, the PRD 020 Req 8 not-found page for
@@ -439,27 +474,68 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
         }
       }
       const token = readStoredToken(window.localStorage);
-      if (token) {
-        // Issue #253: the session validation IS the visit's `/api/me` read —
-        // one request, started alongside the visit's own probes rather than in
-        // front of them, and handed on to the platform (PRD 017 Req 3) so
-        // nothing asks the server who this is a second time before the
-        // workspace is on screen.
-        const { probes, me } = await startBootSession(token);
-        if (me) {
-          // PRD 020 Req 5+7: an already-signed-in path (or legacy-query)
-          // visit resolves and canonicalizes before the app mounts.
-          finish(await resolvedPhase(probes, me));
-          return;
-        }
-        clearToken(window.localStorage);
-      }
-      finish({ kind: 'signed-out', error: null, busy: false });
+      finish(token ? await phaseForToken(token) : { kind: 'signed-out', error: null, busy: false });
     })();
     return () => {
       cancelled = true;
     };
   }, [mode]);
+
+  // Issue #242 (PRD 007 Req 5): the sign-in page can come back on screen
+  // without remounting. The Entra redirect leaves it mid-sign-in — `busy`
+  // set, the button disabled — and browser Back restores it from the
+  // back/forward cache exactly like that, session and all; the boot effect
+  // above runs on mount only, so it never notices the token the round trip
+  // just stored. This re-asks its question on every re-show. The decision is
+  // hostedRestore's (pure, unit-tested); only applying it lives here.
+  useEffect(() => {
+    let cancelled = false;
+    const reshown = (reshow: SignInReshow) => {
+      const plan = planSignInRestore({
+        reshow,
+        onSignInPage: onSignInPage.current,
+        resolving: resolving.current,
+        token: readStoredToken(window.localStorage),
+      });
+      if (plan.kind === 'ignore') return;
+      if (plan.kind === 'reset') {
+        // No session behind the restore: nothing the abandoned redirect froze
+        // into the page survives it — an enabled button, no stale error, the
+        // signed-out visitor's own destination again.
+        setPhase({ kind: 'signed-out', error: null, busy: false });
+        return;
+      }
+      // A session to continue into: the same resolve a fresh load with this
+      // token makes, under the same one holding frame (issue #253) — so the
+      // page the restore rests on is the app, never the sign-in page, and
+      // never a bare shell on the way.
+      resolving.current = true;
+      setHolding(true);
+      setPhase({ kind: 'checking' });
+      void (async () => {
+        const next = await phaseForToken(plan.token);
+        if (cancelled) return;
+        resolving.current = false;
+        setPhase(next);
+        // The gate's own surfaces ARE the destination (issue #253): the frame
+        // comes down with them; only a load entering the app keeps holding.
+        if (next.kind !== 'ready') setHolding(false);
+      })();
+    };
+    const onPageShow = (e: PageTransitionEvent) => reshown(e.persisted ? 'restored' : 'first-load');
+    // The equivalent re-show: a tab that becomes visible again was never
+    // reparsed either, so it carries the same frozen state a restore does.
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') reshown('revisited');
+    };
+    window.addEventListener('pageshow', onPageShow);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('pageshow', onPageShow);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
 
   // Local dev mode: `POST /api/auth/sign-in {username}` answers a token.
   const signInLocal = useCallback(async () => {
@@ -524,7 +600,12 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
       clientId: app.clientId,
       scope: app.scope,
     });
-    window.location.assign(
+    // Issue #242: replace, not assign — the sign-in page has done its job and
+    // drops out of the back stack, so Back from the app does not aim at it in
+    // the first place. Not the fix on its own (where Back lands after this is
+    // Microsoft's history handling, not ours): the re-show effect above is
+    // what makes a restored page work whatever the browser decides.
+    window.location.replace(
       buildAuthorizeRedirect(authorizeUrl, { redirectUri: redirectUri(), state, codeChallenge: challenge }),
     );
   }, []);
@@ -644,6 +725,15 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
           </svg>
           Sign in with Microsoft
         </Button>
+      )}
+      {/* Issue #242: a disabled sign-in button never stands on screen alone —
+          while the sign-in is in flight the page says so, in both modes. It
+          shares the error's slot and shape: the two are mutually exclusive,
+          because every failure path clears `busy` as it sets the message. */}
+      {phase.busy && (
+        <p className="hosted-signin-hint" data-testid="hosted-sign-in-status" role="status">
+          {SIGNING_IN_STATUS}
+        </p>
       )}
       {phase.error && (
         <p className="hosted-signin-error" data-testid="hosted-sign-in-error" role="alert">

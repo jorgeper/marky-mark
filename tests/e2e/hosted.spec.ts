@@ -302,6 +302,121 @@ test('E168: a failed sign-in surfaces as an on-page error and the API guard stil
   expect(unauthenticated.status()).toBe(401);
 });
 
+/**
+ * Issue #242: re-show the page the way the browser does after Back — the same
+ * document, its React state untouched, announced by a persisted `pageshow`.
+ * Constructed as a plain Event with the flag defined on it so the assertion
+ * does not depend on the PageTransitionEvent constructor being available.
+ */
+async function restorePage(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const event = new Event('pageshow');
+    Object.defineProperty(event, 'persisted', { value: true });
+    window.dispatchEvent(event);
+  });
+}
+
+/**
+ * Issue #242: hold `POST /api/auth/sign-in` open so the in-flight sign-in
+ * stays on screen. Returns the release — answering `{}`, which is the E168
+ * unusable answer, so releasing lands on the failure path.
+ */
+async function holdSignIn(page: Page): Promise<() => void> {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/auth/sign-in', async (route) => {
+    await held;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+  });
+  return release;
+}
+
+test('E523: an in-flight sign-in says so — the disabled button never stands alone, and the failure replaces the status', async ({
+  page,
+}) => {
+  // Issue #242 criterion 3: `busy` used to be invisible — a greyed-out button
+  // and nothing else. The status carries it, and an error takes its place.
+  const release = await holdSignIn(page);
+  await page.goto(`${HOSTED}/`);
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('hosted-sign-in-status')).toHaveText(/signing you in/i);
+  await expect(page.getByTestId('hosted-sign-in-submit')).toBeDisabled();
+  release();
+  // E168's contract, unchanged in kind: the error replaces the status and the
+  // button comes back.
+  await expect(page.getByTestId('hosted-sign-in-error')).toContainText('Sign-in failed');
+  await expect(page.getByTestId('hosted-sign-in-status')).toHaveCount(0);
+  await expect(page.getByTestId('hosted-sign-in-submit')).toBeEnabled();
+});
+
+test('E524: a sign-in page restored with no session is a fresh one — the frozen busy state goes', async ({ page }) => {
+  // Issue #242 criterion 2: the redirect leaves `busy` set and never comes
+  // back to clear it, so the restored page used to hold a disabled button
+  // forever. A restore re-evaluates from scratch — and twice over, because
+  // Back → Forward → Back must not accumulate anything either.
+  const release = await holdSignIn(page);
+  await page.goto(`${HOSTED}/`);
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('hosted-sign-in-submit')).toBeDisabled();
+  for (const pass of [1, 2]) {
+    await restorePage(page);
+    await expect(page.getByTestId('hosted-sign-in-submit'), `restore ${pass}`).toBeEnabled();
+    await expect(page.getByTestId('hosted-sign-in-status'), `restore ${pass}`).toHaveCount(0);
+    await expect(page.getByTestId('hosted-sign-in-error'), `restore ${pass}`).toHaveCount(0);
+  }
+  // PRD 007 Req 5: still nothing of the app pre-auth, restored or not.
+  await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
+  await expect(page.getByTestId('empty-hint')).toHaveCount(0);
+  release();
+});
+
+test('E525: a sign-in page restored with a session continues into the app instead of showing itself', async ({
+  page,
+  request,
+}) => {
+  // Issue #242 criterion 1: the dead end the issue reports. Back from the app
+  // restores this page with the session the round trip stored, and the boot
+  // effect that would notice it runs on mount only — so the re-show is what
+  // has to resolve it. The stored token is planted here the way the Entra
+  // round trip leaves one behind: on a page that is already on screen.
+  const token = await signIn(request, 'ada');
+  await page.goto(`${HOSTED}/`);
+  await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
+  await page.evaluate((t: string) => window.localStorage.setItem('marky-mark.hosted.token', t), token);
+  await restorePage(page);
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await expect(page.getByTestId('hosted-sign-in')).toHaveCount(0);
+  // And the restore that resolved it is not still holding a frame over it.
+  await expect(page.getByTestId('hosted-booting')).toHaveCount(0);
+});
+
+test('E526: a restored sign-in page whose stored token the guard rejects settles on a usable page, not a dead one', async ({
+  page,
+}) => {
+  // Issue #242 criterion 1: a token the API no longer honours behaves exactly
+  // as it does on a fresh load — cleared, and the visitor left with a sign-in
+  // page they can use.
+  await page.goto(`${HOSTED}/`);
+  await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
+  // Local mode's button also waits on a username (E166), so the page has one:
+  // what this asserts is that the restore leaves it usable, not empty.
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.evaluate(() => window.localStorage.setItem('marky-mark.hosted.token', 'not-a-real-token'));
+  // Mocked the E168 way and for the E168 reason: a real 401 makes Chromium
+  // itself log a console error, which the fixtures' zero-console-error guard
+  // (rightly) rejects. An answer the boot cannot read is the same "no session"
+  // to the gate — E159 pins what the server really answers an unknown token.
+  await page.route('**/api/me', (route) => route.fulfill({ status: 200, body: '' }));
+  await restorePage(page);
+  await expect(page.getByTestId('hosted-sign-in-submit')).toBeEnabled();
+  await expect(page.getByTestId('hosted-sign-in-status')).toHaveCount(0);
+  expect(await page.evaluate(() => window.localStorage.getItem('marky-mark.hosted.token'))).toBeNull();
+});
+
 test('E390: the sign-in page is splash-styled — no card box, no title text, the badge at the splash size', async ({
   page,
 }) => {
