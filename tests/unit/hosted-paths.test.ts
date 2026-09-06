@@ -19,6 +19,7 @@ import {
   findWorkspaceByUniqueName,
   isOwnScratch,
   parseAppPath,
+  renamedWorkspaceUrl,
   scratchBootsFresh,
 } from '../../src/lib/hostedPaths';
 import { parseWorkspaceFile } from '../../src/lib/workspace';
@@ -323,5 +324,43 @@ describe('PRD 020 Req 5 the canonical path router', () => {
     expect(findWorkspaceByUniqueName(rows, 'missing')).toBeUndefined();
     // A pre-migration row (no unique name) is unaddressable, never matched.
     expect(findWorkspaceByUniqueName(rows, '')).toBeUndefined();
+  });
+});
+
+// PRD 024 Reqs 11–13 (issue #302): where the address bar goes when the
+// workspace this tab is bound to is renamed — the whole decision, taken from
+// the visited path alone, so the platform layer only has to call it.
+describe('PRD 024 Req 11 the renaming tab’s new URL', () => {
+  it('U1235: renamedWorkspaceUrl swaps the workspace segment, keeping the file path and the #heading fragment', () => {
+    // The nested file the tab has open (and the fragment it arrived with)
+    // belong to the same document after the rename — only the name moved.
+    expect(renamedWorkspaceUrl('/notes/guides/intro.md', '#setup', 'field-notes')).toBe(
+      '/field-notes/guides/intro.md#setup',
+    );
+    // No fragment on the URL, none invented.
+    expect(renamedWorkspaceUrl('/notes/guides/intro.md', '', 'field-notes')).toBe('/field-notes/guides/intro.md');
+    // The workspace-only form stays the workspace-only form.
+    expect(renamedWorkspaceUrl('/notes', '', 'field-notes')).toBe('/field-notes');
+    expect(renamedWorkspaceUrl('/notes/', '', 'field-notes')).toBe('/field-notes');
+    // A rename that only changes case still moves the bar to the stored casing.
+    expect(renamedWorkspaceUrl('/notes', '', 'Notes')).toBe('/Notes');
+  });
+
+  it('U1236: renamedWorkspaceUrl percent-encodes the new name and every file segment, per segment', () => {
+    // buildAppPath's encoding, reached through the rename path: an already
+    // encoded file segment survives the decode/encode round trip unchanged.
+    expect(renamedWorkspaceUrl('/notes/meeting%20notes.md', '', 'my notes')).toBe('/my%20notes/meeting%20notes.md');
+    expect(renamedWorkspaceUrl('/notes/100%.md', '#a%20b', 'q?notes')).toBe('/q%3Fnotes/100%25.md#a%20b');
+  });
+
+  it('U1237: renamedWorkspaceUrl rewrites nothing for the paths a unique name does not address', () => {
+    // PRD 024 Req 12 + PRD 020 Req 10/11: the start page and both scratchpad
+    // routes address their workspace by something other than its unique name,
+    // so a new unique name moves neither bar.
+    expect(renamedWorkspaceUrl('/', '', 'field-notes')).toBeNull();
+    expect(renamedWorkspaceUrl('', '', 'field-notes')).toBeNull();
+    expect(renamedWorkspaceUrl('/scratchpad', '', 'field-notes')).toBeNull();
+    expect(renamedWorkspaceUrl('/ada/scratchpad', '', 'field-notes')).toBeNull();
+    expect(renamedWorkspaceUrl('/ada/scratchpad/notes.md', '#top', 'field-notes')).toBeNull();
   });
 });

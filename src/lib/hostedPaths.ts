@@ -236,6 +236,24 @@ export function buildScratchPath(username: string, file: readonly string[] = [])
   return buildAppPath(username, [SCRATCH_SEGMENT, ...file]);
 }
 
+/**
+ * PRD 024 Req 11+12 (issue #302): where the address bar goes when the
+ * workspace this page is bound to is renamed. The visited path already names
+ * the open file (PRD 020 Req 6 keeps it there), so the rename replaces the
+ * workspace segment alone and keeps both the file segments and the
+ * `#<heading>` fragment the URL arrived with — the tab is looking at the same
+ * document, at the same heading, under a new name.
+ *
+ * Null means "leave the bar exactly as it is": the start page and both
+ * scratchpad routes (PRD 020 Req 10/11) address their workspace by something
+ * other than its unique name, so a new unique name moves nothing there.
+ */
+export function renamedWorkspaceUrl(pathname: string, hash: string, newName: string): string | null {
+  const target = parseAppPath(pathname);
+  if (target.kind !== 'workspace') return null;
+  return `${buildAppPath(newName, target.file)}${hash}`;
+}
+
 /** PRD 020 Req 10+11: the two targets that address a scratchpad workspace. */
 type ScratchTarget = Extract<AppPathTarget, { kind: 'scratch' | 'user-scratch' }>;
 
