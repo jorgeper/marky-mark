@@ -988,7 +988,7 @@
    of the card, not hidden. The button hangs left of its zero-width anchor at
    the line's start; on a card line that start is --mm-fence-inset past the
    card's painted left edge (the ::before above is inset: 0 on the line), so
-   the plain `right: var(--mm-smart-edit-gap)` left the 24px glyph straddling
+   the plain `right: var(--mm-smart-edit-gap)` left the 24px button straddling
    that edge — the reported half-in overlap. Adding the same inherited inset
    back lands the button exactly where it sits on a prose line: inside
    .cm-content's 32px side padding, its right edge --mm-smart-edit-gap left of

@@ -634,12 +634,10 @@ test('E490: issue #263 — the smart-edit button sits entirely left of a fence c
   await offTheCard(17); // the one-line block
 
   // The card's own text inset is untouched: the chrome moved, the document
-  // did not. "const a = 1;" still starts 16px in from the card edge.
-  const bodyBox = (await line(3).boundingBox())!;
-  const textX = await line(3).evaluate(
-    (el) => (el.firstChild as HTMLElement).getBoundingClientRect().x
-  );
-  expect(Math.abs(textX - (bodyBox.x + 16))).toBeLessThan(1.5);
+  // did not. Issue #163's 16px inset now resolves through --mm-fence-inset,
+  // so assert the computed value the way editor.spec.ts does — an undefined
+  // variable would compute to 0px here.
+  await expect(line(3)).toHaveCSS('padding-left', '16px');
 
   // Line numbers off (SPEC3 §2): the button is still fully inside the editor
   // pane on a card line — the offset does not push it out to be clipped.
