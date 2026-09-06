@@ -13,6 +13,13 @@
  * the preview's graft (lib/codeCopy.ts): the button holds no text node and
  * dispatches no transaction, so text, caret, history and the dirty state
  * never move. The write goes through the injected clipboard seam.
+ *
+ * Issue #265: that control is no longer hover-only. The block holding the
+ * main selection shows its button steadily until the caret leaves — which
+ * means the widget now renders for a REVEALED card too (issue #163 skipped
+ * it there), lit through its own `is-cursor` class so the hover walk below
+ * and the persistent state cannot clear each other. Visibility only: the
+ * button's position, styling and inertness are untouched.
  */
 import {
   ViewPlugin,
@@ -43,6 +50,15 @@ export interface CodeBlockViewConfig {
  */
 export const CARD_COPY_CLASS = 'mm-copy-code-editor';
 
+/**
+ * Issue #265: the persistent "the caret is in this block" class. Its own
+ * class, deliberately NOT `is-hover`: the `setHoveredCard` walk toggles
+ * `is-hover` off on every other button on each pass, so reusing it would let
+ * a pointer over block B clear block A's persistent state (and vice versa).
+ * Two independent lit states, either one enough — see styles.css.
+ */
+export const CARD_COPY_CURSOR_CLASS = 'is-cursor';
+
 /** The delimiter marks + info string vanish visually; the text stays. */
 const HIDE = Decoration.replace({});
 
@@ -66,10 +82,19 @@ function cardLineDeco(index: number, lastIndex: number): Decoration {
  * a blank row, so the layout never moves). The body span is read from the
  * live state at click time; a doc change that shifts it rebuilds the widget
  * (`eq` is positional), so the span the click reads is always current.
+ *
+ * Issue #265: the widget also carries the cursor-inside flag, so the block
+ * holding the main selection lights its button steadily. The flag rides the
+ * widget rather than a DOM walk because it is derived state — `revealed`
+ * from `computeCodeCards` — and the plugin already rebuilds on every
+ * selection move. On a revealed card the first line is the raw opening fence
+ * rather than a blank row; the button is absolutely positioned, so it still
+ * lands top-right and the fence text does not reflow.
  */
 class CardCopyWidget extends WidgetType {
   constructor(
     readonly body: Span,
+    readonly cursorInside: boolean,
     readonly copy: CodeBlockViewConfig['copy']
   ) {
     super();
@@ -78,7 +103,25 @@ class CardCopyWidget extends WidgetType {
   eq(other: CardCopyWidget): boolean {
     // Same span ⇒ same DOM kept across selection-only rebuilds, so a running
     // "Copied" confirmation survives caret moves elsewhere in the document.
-    return other.body.from === this.body.from && other.body.to === this.body.to;
+    // Issue #265: the caret crossing this block's boundary is a real change,
+    // but updateDOM below reuses the node for it, so the confirmation and the
+    // hover class survive that too.
+    return (
+      other.body.from === this.body.from &&
+      other.body.to === this.body.to &&
+      other.cursorInside === this.cursorInside
+    );
+  }
+
+  /**
+   * Issue #265: the cursor-inside flag is one class on an existing button —
+   * repaint it in place. Returning true keeps the very same node, so a
+   * running "Copied" state and the hover class survive the caret entering or
+   * leaving the block.
+   */
+  updateDOM(dom: HTMLElement): boolean {
+    dom.classList.toggle(CARD_COPY_CURSOR_CLASS, this.cursorInside);
+    return true;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -91,6 +134,9 @@ class CardCopyWidget extends WidgetType {
       () => view.state.sliceDoc(this.body.from, this.body.to),
       this.copy
     );
+    // Issue #265: lit from birth when the caret is already inside — a click
+    // that lands in a rendered block rebuilds the widget in the same update.
+    btn.classList.toggle(CARD_COPY_CURSOR_CLASS, this.cursorInside);
     // Inert chrome: the mousedown never reaches CodeMirror and never focuses
     // the button, so the caret does not move, the block does not reveal, and
     // nothing is dispatched.
@@ -118,10 +164,20 @@ function buildDecorations(view: EditorView, cfg: CodeBlockViewConfig): Decoratio
     const lastIndex = card.lines.length - 1;
     for (let i = 0; i <= lastIndex; i++) ranges.push(cardLineDeco(i, lastIndex).range(card.lines[i]));
     for (const h of card.hide) ranges.push(HIDE.range(h.from, h.to));
-    // Issue #163: rendered cards get the copy control; a revealed block is
-    // raw text under the caret and carries none.
-    if (!card.revealed)
-      ranges.push(Decoration.widget({ widget: new CardCopyWidget(card.body, cfg.copy), side: -1 }).range(card.from));
+    // Issue #163, amended by issue #265: EVERY card gets the copy control,
+    // revealed ones included — a caret inside the block IS the revealed state,
+    // so skipping it there (as #163 did) would mean the cursor-inside block,
+    // the one case that must show a button steadily, had no button at all.
+    // `revealed` is the visibility rule verbatim: `computeCodeCards`' main
+    // selection head within the FencedCode node, both boundaries inclusive,
+    // so at most one block is lit persistently and a selection dragged from
+    // prose into a block counts as inside.
+    ranges.push(
+      Decoration.widget({
+        widget: new CardCopyWidget(card.body, card.revealed, cfg.copy),
+        side: -1,
+      }).range(card.from)
+    );
   }
   return Decoration.set(ranges, true);
 }

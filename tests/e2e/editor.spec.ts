@@ -1142,3 +1142,113 @@ test('E485: issue #269 — typing inside a several-hundred-line python fence sta
   expect(Date.now() - started).toBeLessThan(5000);
   await expect(editor.locator('.mm-code-comment').first()).toBeVisible();
 });
+
+test('E527: issue #265 — the code card holding the caret keeps its copy button lit with no pointer, hover elsewhere still works, and the persistent click copies without dirtying', async ({
+  page,
+}) => {
+  // Issue #265: the edit-pane control used to be hover-only, and issue #163
+  // skipped it entirely on a revealed card — so the block you had clicked
+  // into, the one case that must show a button steadily, had none at all.
+  // Against the pre-fix build the first assertion below finds zero buttons on
+  // the revealed card.
+  const DOC = 'intro\n\n```js\nconst a = 1;\nconst b = 2;\n```\n\nmiddle\n\n```py\nx = 1\n```\n\noutro\n';
+  await fsWrite(page, '/docs/code265.md', DOC);
+  await page.goto('/#open=/docs/code265.md');
+  await expect(page.getByTestId('doc')).toContainText('intro');
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  await expect(content).toBeVisible();
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+
+  // One button per card, first-line anchored — the two blocks addressed by
+  // their own card rather than by a global index.
+  const cardFirst = editor.locator('.cm-line.mm-fence-card-first');
+  await expect(cardFirst).toHaveCount(2);
+  const btnA = cardFirst.nth(0).getByTestId('mm-copy-code-editor');
+  const btnB = cardFirst.nth(1).getByTestId('mm-copy-code-editor');
+  // The reveal is a 0.12s opacity transition, so both states are asserted
+  // with retrying matchers rather than a one-shot read mid-fade.
+  const expectLit = async (b: Locator) => {
+    await expect(b).toHaveCSS('opacity', '1');
+    await expect(b).toHaveCSS('pointer-events', 'auto');
+  };
+  const expectDark = async (b: Locator) => {
+    await expect(b).toHaveCSS('opacity', '0');
+    await expect(b).toHaveCSS('pointer-events', 'none');
+  };
+
+  // At rest, with the caret in the prose and the pointer on it: both hidden,
+  // exactly as before this issue.
+  await editor.locator('.cm-line').filter({ hasText: 'intro' }).click();
+  await expectDark(btnA);
+  await expectDark(btnB);
+
+  // Walk the caret INTO block A by keyboard — the pointer never leaves the
+  // "intro" line, so nothing here is hover. Two presses land it on the
+  // opening fence row, which counts as inside and reveals the raw fence.
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(content).toContainText('```js');
+  await expect(editor.locator('.cm-line.mm-fence-card.cm-activeLine')).toHaveCount(1);
+  // The revealed card carries the control, lit and clickable, pointer away.
+  await expectLit(btnA);
+  await expectDark(btnB);
+
+  // The widget takes no layout: on the revealed row the raw fence text still
+  // starts exactly where the card's body text does (the card's own 16px
+  // inset), so nothing reflowed or shifted when the button appeared.
+  const firstTextX = (line: Locator) =>
+    line.evaluate((el) => {
+      const node = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT).nextNode();
+      const range = el.ownerDocument.createRange();
+      range.selectNodeContents(node!);
+      return Math.round(range.getBoundingClientRect().left);
+    });
+  expect(await firstTextX(cardFirst.nth(0))).toBe(
+    await firstTextX(editor.locator('.cm-line').filter({ hasText: 'const a' }))
+  );
+
+  // Issue #263's cursor-line icon shares this very line and stays clear of it:
+  // the two boxes do not intersect, the smart-edit button sitting left of the
+  // card while the copy button sits inside its top-right corner.
+  const smart = await page.getByTestId('smart-edit-gutter').boundingBox();
+  const copy = await btnA.boundingBox();
+  expect(smart!.x + smart!.width).toBeLessThanOrEqual(copy!.x);
+
+  // Hover over block B: the persistent state and the hover state coexist —
+  // .is-cursor is its own class, so setHoveredCard's clearing pass over every
+  // other button cannot take A's light away.
+  await editor.locator('.cm-line').filter({ hasText: 'x = 1' }).hover();
+  await expectLit(btnA);
+  await expectLit(btnB);
+
+  // Pointer back to the prose: B goes dark again, A stays lit on the caret
+  // alone. This is the issue in one assertion.
+  await editor.locator('.cm-line').filter({ hasText: 'middle' }).hover();
+  await expectLit(btnA);
+  await expectDark(btnB);
+
+  // The persistent button copies what the hover button does — block A's
+  // interior only, no fences and no info string — and confirms.
+  await btnA.click();
+  await expect
+    .poll(() => page.evaluate(() => window.__mmClipboard?.at(-1)))
+    .toBe('const a = 1;\nconst b = 2;');
+  await expect(btnA).toHaveAttribute('aria-label', 'Copied');
+  // Inert chrome: the caret never moved (block A is still revealed), nothing
+  // was dispatched, nothing dirtied, and the file on disk is unchanged.
+  await expect(content).toContainText('```js');
+  await expect(editor.locator('.cm-line.mm-fence-card.cm-activeLine')).toHaveCount(1);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  expect(await fsRead(page, '/docs/code265.md')).toBe(DOC);
+  await expect(btnA).toHaveAttribute('aria-label', 'Copy code', { timeout: 4000 });
+
+  // Caret out of the block — that card returns to hover-only, at rest again,
+  // and the block re-renders with no raw fences anywhere.
+  await editor.locator('.cm-line').filter({ hasText: 'outro' }).click();
+  expect(await text()).not.toContain('```');
+  await expectDark(btnA);
+  await expectDark(btnB);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+});
