@@ -71,6 +71,13 @@ writing code. The Definition of Done in §8 is the goal condition.
    comments toggle · one **overflow menu button (⋯ or ☰) on the right** containing
    exactly: *Open…*, *Save*, *Settings…* (with hotkey hints). The 🎨 theme picker
    button and the separate Open/⚙ buttons are **removed** from the toolbar.
+
+   > **Amendment (issue #256, 2026-09-06):** the composition above loses
+   > one part — the toolbar's show/hide-comments button is removed. The
+   > toolbar is filename · Edit/Preview toggle · overflow menu button. The
+   > View ▸ **Comments** menu row and its `toggleComments` hotkey are the
+   > toggle's only home now (plus the edge-cluster chevron of PRD 023 §14).
+
 2. **Settings panel** gains the theme chooser as the primary control (the `<select>`
    already exists — keep it, listing built-ins and user themes) plus a
    **"Reload themes"** button (moved from the old picker) and (web only) "Import

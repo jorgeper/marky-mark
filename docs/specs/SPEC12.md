@@ -11,6 +11,14 @@ menu bar on Windows) and the **window title**. The document starts at the top
 edge of the window: zero app chrome. The web build keeps its header exactly
 as today.
 
+> **Amendment (issue #256, 2026-09-06):** the header's contents listed above
+> lose one item — the toolbar's show/hide-comments button is removed, so the
+> header is filename, Edit/Preview button and hamburger menu. The View ▸
+> **Comments** menu row and its `toggleComments` hotkey are the toggle's only
+> home now (plus the edge-cluster chevron from PRD 023 §14). Nothing about
+> the native-menu replacement changes: on desktop the header still does not
+> render at all (§3.1).
+
 Out of scope: Linux menus, tray icons, a Recent Files menu, macOS proxy
 icons, touch bar, per-window menus beyond the single main window, README
 screenshot refresh (appearance changed, but re-shooting is a manual follow-up).

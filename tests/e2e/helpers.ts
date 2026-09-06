@@ -502,6 +502,28 @@ export async function freshNativeMenuApp(page: Page): Promise<void> {
   await expect(page.getByTestId('empty-hint')).toBeVisible();
 }
 
+/**
+ * Issue #256: open the in-app menu's View ▸ flyout and hand back its panel.
+ * The toolbar's comments button is gone, so the tests that used to key on it
+ * assert the View row (`menu-view-toggleComments`) instead — presence for the
+ * SPEC7 §2 master switch, `aria-checked` for the pane's open state.
+ */
+export async function openViewMenu(page: Page): Promise<Locator> {
+  await revealToolbar(page);
+  await page.getByTestId('menu-btn').click();
+  await page.getByTestId('menu-view').click();
+  const view = page.getByTestId('app-menu-view');
+  await expect(view).toBeVisible();
+  return view;
+}
+
+/** Dismiss the in-app menu and its flyout (one mousedown outside the subtree). */
+export async function closeAppMenu(page: Page): Promise<void> {
+  await page.getByTestId('docname').click();
+  await expect(page.getByTestId('app-menu-view')).toHaveCount(0);
+  await expect(page.getByTestId('app-menu')).toHaveCount(0);
+}
+
 export const menuClick = (page: Page, command: string) =>
   page.evaluate((c) => window.__mmMenu!.click(c), command);
 

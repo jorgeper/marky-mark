@@ -7525,7 +7525,8 @@ export default function App() {
         )}
         {/* PRD 023 §14 (issue #284): the comments chevron — immediately
             right of the preview chevron, in EVERY document mode, dispatching
-            the same command as the toolbar button, menu and hotkey. */}
+            the same command as the View menu row and hotkey (issue #256
+            retired the toolbar button that used to share it). */}
         {commentsSeam && (
           <CommentsToggleButton open={showComments} onClick={() => dispatchCommand('toggleComments')} />
         )}
@@ -7560,9 +7561,6 @@ export default function App() {
               docPath={docPath}
               dirty={dirty}
               mode={mode}
-              showComments={showComments}
-              commentsEnabled={settings.commentsEnabled}
-              commentCount={comments.length}
               hotkeys={settings.hotkeys}
               isMac={platform.isMac}
               // PRD 009 Req 11: the open workspace's name, where the removed
@@ -7573,7 +7571,6 @@ export default function App() {
               // PRD 009 Req 8: the whole item set, already gated.
               menu={appMenu}
               onToggleMode={() => dispatchCommand('toggleMode')}
-              onToggleComments={() => dispatchCommand('toggleComments')}
               onCommand={(id) => dispatchCommand(id)}
               onMenuOpenChange={setMenuPin}
             />
