@@ -701,10 +701,9 @@ test('E314: issue #167 — scrollbars fade after the idle delay without reflow; 
   await expect(page.locator('.theme-root')).not.toHaveClass(/autohide-scrollbars/);
 });
 
-
 // --- Issue #246: the enlarged dialog, its pinned footer, and Save / Cancel ---
 
-/** The Editor tab's syntax checkbox: on by default, and it persists. */
+/** One key straight out of the User layer on disk — absent until a Save writes it. */
 const readSetting = async (page: Page, key: string): Promise<unknown> => {
   const raw = await fsRead(page, '/config/settings.json');
   return raw ? (JSON.parse(raw) as Record<string, unknown>)[key] : undefined;
@@ -725,10 +724,10 @@ test('E486: issue #246 — the action footer is pinned outside the scrolling tab
   const actions = page.getByTestId('settings-actions');
   expect(
     await actions.evaluate((el) => ({
-      parent: el.parentElement?.className ?? '',
+      parent: el.parentElement?.dataset.testid ?? '',
       insideScroller: el.closest('.tab-content') !== null,
     }))
-  ).toEqual({ parent: 'dialog settings-modal', insideScroller: false });
+  ).toEqual({ parent: 'settings-panel', insideScroller: false });
   // Exactly two close controls, both here: the scrolling third button the
   // tab content used to carry is gone.
   await expect(actions.getByRole('button')).toHaveCount(2);

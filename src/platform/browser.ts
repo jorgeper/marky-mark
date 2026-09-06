@@ -243,6 +243,9 @@ export function createBrowserPlatform(): Platform {
       aux.focused[kind] += 1;
       return;
     }
+    // Issue #246: one popup size for both kinds, grown with the Settings
+    // dialog (was 620x560) so the enlarged panel and its pinned Save / Cancel
+    // footer are not clipped — the shim mirror of `tauri.ts`'s AUX_OPTIONS.
     auxHandles[kind] = window.open(`/?window=${kind}&nativeMenu=1`, `mm-${kind}`, 'width=720,height=650');
     aux.opened[kind] += 1;
   };

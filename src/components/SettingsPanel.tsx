@@ -371,7 +371,7 @@ export function SettingsPanel({
    * closes straight away.
    */
   const requestClose = () => {
-    if (pendingIsDirty(pending)) setConfirmDiscard(true);
+    if (dirty) setConfirmDiscard(true);
     else onClose();
   };
 
@@ -454,7 +454,9 @@ export function SettingsPanel({
    * phase, on purpose: a nested control that owns Esc (the membership
    * picker's dropdown, the hotkey recorder) stops the event first and the
    * dialog stays open. The frameless window routes ITS Esc / Mod+W through
-   * `closeIntentRef` instead, so it is handled exactly once.
+   * `closeIntentRef` instead, so it is handled exactly once. No dep array,
+   * like the `closeIntentRef` effect below: the listener must read this
+   * render's pending set and prompt state, never a captured stale one.
    */
   useEffect(() => {
     if (frameless) return;
