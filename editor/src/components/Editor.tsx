@@ -81,6 +81,7 @@ import { diagramViewExtension } from './diagramView';
 import { fenceRendererFor } from '../lib/fenceRenderers';
 import { imageViewExtension, setImageView } from './imageView';
 import { linkOpenExtension, linkViewExtension } from './linkView';
+import { calloutViewExtension } from './calloutView';
 import { linkAt } from '../lib/linkSpans';
 import { livePreviewExtension } from './livePreview';
 import { allImageRefs, applyImageRewrite, deleteImageAt, type ImageRef } from '../lib/imageResize';
@@ -435,6 +436,10 @@ export interface EditorProps {
   linkView: boolean;
   /** SPEC43 §11 (issue #270): the Link ▸ toggle flips the setting (App persists it). */
   onToggleLinkView?(): void;
+  /** Issue #318: render ALL GitHub-alert callouts as tinted blocks (the global view setting). */
+  calloutView: boolean;
+  /** Issue #318: the Callout ▸ toggle flips the setting (App persists it). */
+  onToggleCalloutView?(): void;
   /** PRD 013 Req 9: the app's active theme side — diagram widgets draw to match. */
   themeVariant: 'light' | 'dark';
   /**
@@ -1239,6 +1244,8 @@ export default function Editor({
   onToggleDiagramView,
   linkView,
   onToggleLinkView,
+  calloutView,
+  onToggleCalloutView,
   themeVariant,
   readOnly = false,
   headingLink,
@@ -1273,6 +1280,7 @@ export default function Editor({
   const diagramComp = useRef(new Compartment());
   // SPEC43 §11 (issue #270): the rendered-links view, same live-toggle pattern.
   const linkComp = useRef(new Compartment());
+  const calloutComp = useRef(new Compartment()); // Issue #318
   const smartComp = useRef(new Compartment());
   // PRD 007 Req 17: read-only rides a compartment like every other live prop.
   const readOnlyComp = useRef(new Compartment());
@@ -1305,8 +1313,8 @@ export default function Editor({
   inlineImagesRef.current = inlineImages;
   const resolveImageSrcRef = useRef(resolveImageSrc);
   resolveImageSrcRef.current = resolveImageSrc;
-  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView, linkView, onToggleLinkView, onAnnotationMenu, onAnnotationAction });
-  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView, linkView, onToggleLinkView, onAnnotationMenu, onAnnotationAction };
+  const smartPropsRef = useRef({ hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView, linkView, onToggleLinkView, calloutView, onToggleCalloutView, onAnnotationMenu, onAnnotationAction });
+  smartPropsRef.current = { hotkeys, isMac, canPaste, onCopyText, onReadClipboard, tableGridView, onToggleTableGrid, inlineImages, onToggleInlineImages, onInsertImage, codeBlockView, onToggleCodeBlockView, diagramView, onToggleDiagramView, linkView, onToggleLinkView, calloutView, onToggleCalloutView, onAnnotationMenu, onAnnotationAction };
   // Issue #163: the card copy control's clipboard seam — read through the
   // live props ref, so neither the mount nor a reconfigure ever captures a
   // stale handler, and only an explicit `true` counts as a landed write.
@@ -1391,6 +1399,8 @@ export default function Editor({
         // paths use — an image reference never enables Open Link.
         linkView: sp.linkView,
         link: linkAt(view.state, sel.head) !== null,
+        // Issue #318: the callout view state, same pattern.
+        calloutView: sp.calloutView,
         // PRD 023 §7 (issue #286): the annotation entries' context, asked of
         // the owner fresh at open with the live selection — null (or no seam)
         // keeps both entries out of the menu entirely.
@@ -1554,6 +1564,12 @@ export default function Editor({
     // pattern — and the menu's Open Link row, through the ONE open command.
     if (id === 'toggle-links') {
       sp.onToggleLinkView?.();
+      view.focus();
+      return;
+    }
+    // Issue #318: the callout view's global toggle, same pattern.
+    if (id === 'toggle-callouts') {
+      sp.onToggleCalloutView?.();
       view.focus();
       return;
     }
@@ -1887,6 +1903,11 @@ export default function Editor({
       // live preview collapses the same ranges; exactly one of the two may
       // paint a link). After table mode, to read the grid spans it excludes.
       linkComp.current.of(linkView && !livePreview ? linkViewExtension() : []),
+      // Issue #318: the callout view — pure decoration, present only while
+      // the setting is on AND live preview is off (the live preview owns the
+      // quote lines then; exactly one of the two may paint a block). After
+      // table mode, to read the grid spans it excludes.
+      calloutComp.current.of(calloutView && !livePreview ? calloutViewExtension() : []),
       // SPEC43 §11 (issue #270): modifier-click open + the pointer-cursor
       // cue — unconditional, so ⌘/Ctrl-click works in the raw view too.
       linkOpenExtension(() => onOpenExternalRef.current),
@@ -2333,6 +2354,15 @@ export default function Editor({
       effects: linkComp.current.reconfigure(linkView && !livePreview ? linkViewExtension() : []),
     });
   }, [linkView, livePreview]);
+
+  // Issue #318: the callout-view toggle, the same restyle-only pattern —
+  // livePreview in the deps because the view stands down while the live
+  // preview owns the quote lines (never two decorations on one block).
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: calloutComp.current.reconfigure(calloutView && !livePreview ? calloutViewExtension() : []),
+    });
+  }, [calloutView, livePreview]);
 
   // SPEC41 §2.3: flipping the image view is an effect-only dispatch — no
   // text, no history, no dirty dot, ever.

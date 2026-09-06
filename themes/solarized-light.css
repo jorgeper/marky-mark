@@ -12,6 +12,12 @@
   --mm-accent: #cb4b16;
   --mm-border: #e4ddc8;
 
+  /* Issue #318: Solarized's body text (#657b83 on #fdf6e3) sits at 4.13:1
+     on the bare background — under the 4.5:1 floor
+     tests/unit/callout-tokens.test.ts holds callout text to on every
+     theme, and no tint can raise it. Callouts read in base02 instead. */
+  --mm-callout-fg: #073642;
+
   --mm-content-width: 60rem;
   --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;

@@ -43,6 +43,25 @@ describe('SPEC17/SPEC18 export builders', () => {
     expect(without).not.toContain('min read');
   });
 
+  // Issue #318: an exported or printed page paints callouts like the preview.
+  test('U1249: the static stylesheet carries the callout rules beside its blockquote rule, with the same tokens and fallbacks the preview resolves', () => {
+    const html = buildStaticHtml({
+      title: 'c.md',
+      bodyHtml: '<blockquote data-mm-line="1" class="mm-callout mm-callout-note"><p class="mm-callout-title">Note</p><p>body</p></blockquote>',
+      themeCss: '.theme-root { --mm-bg: #123456; }',
+    });
+    expect(html).toContain('.doc blockquote.mm-callout {');
+    expect(html).toContain('.doc blockquote.mm-callout > .mm-callout-title {');
+    for (const kind of ['note', 'tip', 'important', 'warning', 'caution']) {
+      expect(html).toMatch(new RegExp(`\\.mm-callout-${kind} \\{ --mm-callout-hue: var\\(--mm-callout-${kind}, #[0-9a-f]{6}\\); \\}`));
+    }
+    // The tint and title derive from the theme's own colours, so a theme that
+    // never heard of callouts still gets a pastel of its background.
+    expect(html).toContain('color-mix(in srgb, var(--mm-callout-hue) 12%, var(--mm-bg, #ffffff))');
+    expect(html).toContain('var(--mm-callout-fg, var(--mm-fg, #1f2328))');
+    expect(html).toContain('class="mm-callout mm-callout-note"');
+  });
+
   test('U39: static pages carry zero scripts; comments render as numbered static notes; title is escaped', () => {
     const comments: StaticComment[] = [
       {

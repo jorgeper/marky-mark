@@ -56,6 +56,12 @@
   --mm-marker-green: #7ee787;
   --mm-marker-orange: #ffab70;
   --mm-marker-pink: #ffa1c9;
+  /* Issue #318: GitHub-alert callout hues (styles.css derives the tints). */
+  --mm-callout-note: #0969da;
+  --mm-callout-tip: #1a7f37;
+  --mm-callout-important: #8250df;
+  --mm-callout-warning: #9a6700;
+  --mm-callout-caution: #cf222e;
 
   /* Scale and shadow tokens */
   --mm-text-caption: 11px;

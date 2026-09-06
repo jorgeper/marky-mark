@@ -35,6 +35,7 @@ export * from './components/Editor';
 // --- The editing surface's companion modules ----------------------------------
 export * from './components/SmartEditMenu';
 export * from './components/anchoredMenu';
+export * from './components/calloutView';
 export * from './components/codeBlockView';
 export * from './components/diagramView';
 export * from './components/imageView';
@@ -46,6 +47,8 @@ export * from './components/tableMode';
 // Exported wholesale: hosts (Marky Mark's app first) reuse these directly —
 // e.g. renderMarkdown, the search core, hotkey combos, scroll-sync mapping.
 export * from './lib/activePosition';
+export * from './lib/calloutSpans';
+export * from './lib/callouts';
 export * from './lib/codeBlockSpans';
 export * from './lib/codeCopy';
 export * from './lib/codeSelection';

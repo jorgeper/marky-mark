@@ -668,3 +668,98 @@ test('E490: issue #263 — the smart-edit button sits entirely left of a fence c
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
 });
+
+// --- Issue #318: GitHub-alert callouts — tinted in the preview, rendered in
+// the edit pane behind the Callout ▸ toggle and the Settings checkbox.
+
+const CALLOUT_DOC = [
+  'intro line',
+  '> [!NOTE]\n> note body',
+  '> [!TIP]\n> tip body',
+  '> [!IMPORTANT]\n> important body',
+  '> [!WARNING]\n> warning body',
+  '> [!CAUTION]\n> caution body',
+  '> [!HINT]\n> not a callout',
+  '> plain quote',
+].join('\n\n');
+
+test('E538: Issue #318 — the five callout kinds render tinted with a title row and no marker text in the preview; Show Raw/Rendered Callouts flips the edit pane and its label, the Settings checkbox mirrors it', async ({
+  page,
+}) => {
+  await fsWrite(page, '/docs/callouts318.md', CALLOUT_DOC);
+  await page.goto('/#open=/docs/callouts318.md');
+  const doc = page.getByTestId('doc');
+  await expect(doc).toContainText('intro line');
+
+  // Preview: one callout per kind, each with its label row and a distinct
+  // tint; the literal marker is gone from the rendered text.
+  const kinds = ['note', 'tip', 'important', 'warning', 'caution'] as const;
+  const labels = ['Note', 'Tip', 'Important', 'Warning', 'Caution'];
+  const tints = new Set<string>();
+  for (const [i, kind] of kinds.entries()) {
+    const block = doc.locator(`blockquote.mm-callout.mm-callout-${kind}`);
+    await expect(block).toHaveCount(1);
+    await expect(block.locator('.mm-callout-title')).toHaveText(labels[i]);
+    await expect(block).toContainText(`${kind} body`);
+    tints.add(await block.evaluate((el) => getComputedStyle(el).backgroundColor));
+  }
+  expect(tints.size).toBe(5);
+  const docText = await doc.innerText();
+  for (const kind of kinds) expect(docText).not.toContain(`[!${kind.toUpperCase()}]`);
+  // Not callouts: the unknown kind and the plain quote stay bare blockquotes
+  // with their text intact.
+  expect(docText).toContain('[!HINT]');
+  await expect(doc.locator('blockquote')).toHaveCount(7);
+  await expect(doc.locator('blockquote.mm-callout')).toHaveCount(5);
+
+  // Edit pane, shipped rendered: every kind's lines carry the tint class and
+  // the marker reads as its label, not as `[!KIND]`.
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  const content = editor.locator('.cm-content');
+  await expect(content).toBeVisible();
+  await editor.locator('.cm-line').filter({ hasText: 'intro line' }).click();
+  await expect(page.getByTestId('callout-label')).toHaveCount(5);
+  await expect(page.getByTestId('callout-label').first()).toHaveText('Note');
+  for (const kind of kinds) {
+    await expect(editor.locator(`.cm-line.mm-callout-line.mm-callout-${kind}`)).toHaveCount(2);
+  }
+  const text = () => content.evaluate((el) => (el as HTMLElement).innerText);
+  expect(await text()).not.toContain('[!NOTE]');
+  expect(await text()).toContain('[!HINT]'); // never a callout, never hidden
+
+  // The caret on the marker line reveals the raw marker for that block only.
+  await editor.locator('.cm-line').filter({ hasText: 'Note' }).first().click();
+  await expect(content).toContainText('[!NOTE]');
+  await expect(page.getByTestId('callout-label')).toHaveCount(4);
+
+  // Show Raw Callouts: the first row of Smart Edit ▸ Callout; every block
+  // drops to raw markdown at once; no dirty dot.
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-callout').click();
+  await expect(page.getByTestId('smart-edit-toggle-callouts')).toHaveText(/Show Raw Callouts/);
+  await page.getByTestId('smart-edit-toggle-callouts').click();
+  await expect(page.getByTestId('callout-label')).toHaveCount(0);
+  await expect(editor.locator('.cm-line.mm-callout-line')).toHaveCount(0);
+  await expect(content).toContainText('[!CAUTION]');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // The label flipped; the Settings checkbox reflects the flip.
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-callout').click();
+  await expect(page.getByTestId('smart-edit-toggle-callouts')).toHaveText(/Show Rendered Callouts/);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await openSettings(page);
+  await page.getByTestId('settings-tab-editor').click();
+  await expect(page.getByTestId('settings-callout-view')).not.toBeChecked();
+
+  // The Settings checkbox drives it back on, live: every block tints again,
+  // and four labels return — the caret is still parked on the Note marker
+  // line from the reveal step above, so that block keeps showing raw.
+  await page.getByTestId('settings-callout-view').check();
+  await saveSettings(page);
+  await expect(editor.locator('.cm-line.mm-callout-line')).toHaveCount(10);
+  await expect(page.getByTestId('callout-label')).toHaveCount(4);
+  await expect(content).toContainText('[!NOTE]');
+});
