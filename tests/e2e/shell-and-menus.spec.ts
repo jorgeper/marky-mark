@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import pkg from '../../package.json' with { type: 'json' };
 import {
@@ -28,6 +29,28 @@ import {
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
 });
+
+/**
+ * Where the edit column sits inside its own pane — the shared probe behind
+ * E31 and E476 (both cite the contract it measures). Everything is relative
+ * to `.editor-wrap` rather than the viewport, so the readings hold with the
+ * folder panel open or closed. `gutter*` are null with line numbers off
+ * (there is no `.cm-gutters` then), and `textLeft` stays viewport-absolute
+ * so it can be compared against the preview column's.
+ */
+const editColumn = (page: Page) =>
+  page.locator('.editor-wrap .cm-editor .cm-content').evaluate((el) => {
+    const pane = (el.closest('.editor-wrap') as HTMLElement).getBoundingClientRect();
+    const gutters = el.closest('.cm-editor')?.querySelector('.cm-gutters')?.getBoundingClientRect() ?? null;
+    const content = el.getBoundingClientRect();
+    return {
+      gutterInset: gutters ? gutters.left - pane.left : null,
+      gutterWidth: gutters ? gutters.width : null,
+      contentInset: content.left - pane.left,
+      textLeft: content.left + parseFloat(getComputedStyle(el).paddingLeft),
+      rightSlack: pane.right - content.right,
+    };
+  });
 
 test('E1: launch shows the clean empty state; Help opens the welcome doc fully rendered', async ({ page }) => {
   // beforeEach opened welcome — reset to a pristine launch for this test.
@@ -282,13 +305,6 @@ test('E31: the edit-mode text column pins to the pane left edge while the previe
     page
       .getByTestId('doc')
       .evaluate((el) => el.getBoundingClientRect().left + parseFloat(getComputedStyle(el).paddingLeft));
-  /** The column's slack, measured against its own pane. */
-  const editor = () =>
-    page.locator('.editor-wrap .cm-editor .cm-content').evaluate((el) => {
-      const pane = (el.closest('.editor-wrap') as HTMLElement).getBoundingClientRect();
-      const c = el.getBoundingClientRect();
-      return { inset: c.left - pane.left, rightSlack: pane.right - c.right };
-    });
 
   // Gutter off, FULL-SCREEN edit (split edit is the default now and always
   // had this geometry — issue #7; full-screen is the half that changed).
@@ -301,7 +317,7 @@ test('E31: the edit-mode text column pins to the pane left edge while the previe
   await page.keyboard.press('Control+e');
   // The editor mounts and lays out asynchronously — poll the anchor rather
   // than sampling the column the instant the swap starts.
-  await expect.poll(async () => (await editor()).inset).toBeLessThanOrEqual(2);
+  await expect.poll(async () => (await editColumn(page)).contentInset).toBeLessThanOrEqual(2);
   await page.keyboard.press('Control+e');
 
   // The margins presets still resize BOTH columns — preview centred (the
@@ -313,28 +329,22 @@ test('E31: the edit-mode text column pins to the pane left edge while the previe
   await expect.poll(previewTextLeft).toBeGreaterThan(p1); // preview: centred, so narrower starts further right
   const p2 = await previewTextLeft();
   await page.keyboard.press('Control+e');
-  await expect.poll(async () => (await editor()).inset).toBeLessThanOrEqual(2);
-  const wide = await editor();
+  await expect.poll(async () => (await editColumn(page)).contentInset).toBeLessThanOrEqual(2);
+  const wide = await editColumn(page);
   // A 38rem column in a 1280px pane leaves hundreds of px of slack — every
   // one of them on the right. Before issue #272 this split evenly and the
   // inset above equalled half of it.
   expect(wide.rightSlack).toBeGreaterThan(300);
   // The two columns no longer share a left edge: preview's centred text
-  // starts well right of the editor's flush-anchored line.
-  expect(p2 - 32).toBeGreaterThan(100); // 32 = .cm-content's own side padding
+  // starts well right of the editor's flush-anchored one (same pane, same
+  // margins — only the anchor differs).
+  expect(p2 - wide.textLeft).toBeGreaterThan(100);
 
   // With the gutter on, the anchor holds — the text just starts one gutter
   // width in, and the gutter's left edge IS the pane's.
   await page.evaluate(() => window.__mmDispatch!('toggleLineNumbers')); // issue #10: back on
   await expect(page.locator('.cm-gutters')).toBeVisible();
-  await expect
-    .poll(() =>
-      page.locator('.cm-gutters').evaluate((el) => {
-        const pane = (el.closest('.editor-wrap') as HTMLElement).getBoundingClientRect();
-        return el.getBoundingClientRect().left - pane.left;
-      })
-    )
-    .toBeLessThanOrEqual(2);
+  await expect.poll(async () => (await editColumn(page)).gutterInset ?? Infinity).toBeLessThanOrEqual(2);
 });
 
 test('E476: issue #272 — the gutter sits flush at the pane edge and every leftover px lands on the right', async ({
@@ -352,24 +362,10 @@ test('E476: issue #272 — the gutter sits flush at the pane edge and every left
   await page.getByTestId('settings-close').click();
   await page.keyboard.press('Control+e');
 
-  /** Pane-relative geometry of the gutter and the content column. */
-  const geom = () =>
-    page.locator('.editor-wrap .cm-editor .cm-content').evaluate((el) => {
-      const pane = (el.closest('.editor-wrap') as HTMLElement).getBoundingClientRect();
-      const g = el.closest('.cm-editor')!.querySelector('.cm-gutters')?.getBoundingClientRect() ?? null;
-      const c = el.getBoundingClientRect();
-      return {
-        gutterInset: g ? g.left - pane.left : null,
-        gutterWidth: g ? g.width : null,
-        contentInset: c.left - pane.left,
-        rightSlack: pane.right - c.right,
-      };
-    });
-
   // Line numbers are on by default: the gutter's left edge IS the pane's…
   await expect(page.locator('.cm-gutters')).toBeVisible();
-  await expect.poll(async () => (await geom()).gutterInset!).toBeLessThanOrEqual(2);
-  const withGutter = await geom();
+  await expect.poll(async () => (await editColumn(page)).gutterInset ?? Infinity).toBeLessThanOrEqual(2);
+  const withGutter = await editColumn(page);
   // …the content column starts exactly one gutter width in…
   expect(Math.abs(withGutter.contentInset - withGutter.gutterWidth!)).toBeLessThanOrEqual(2);
   // …and the leftover is ALL on the right: a 38rem column in a 1600px pane
@@ -381,8 +377,8 @@ test('E476: issue #272 — the gutter sits flush at the pane edge and every left
   // what meets the pane edge, with nothing to its left.
   await page.evaluate(() => window.__mmDispatch!('toggleLineNumbers'));
   await expect(page.locator('.cm-gutters')).toHaveCount(0);
-  await expect.poll(async () => (await geom()).contentInset).toBeLessThanOrEqual(2);
-  expect((await geom()).rightSlack).toBeGreaterThan(300);
+  await expect.poll(async () => (await editColumn(page)).contentInset).toBeLessThanOrEqual(2);
+  expect((await editColumn(page)).rightSlack).toBeGreaterThan(300);
 });
 
 test('E45: About dialog shows name, exact build version, alpha notice, developer, and MIT; Escape closes it', async ({

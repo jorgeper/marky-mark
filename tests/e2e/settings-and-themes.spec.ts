@@ -357,8 +357,6 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
   await page.emulateMedia({ colorScheme: 'light' });
   await expect.poll(async () => (await gutter()).right).toBe(light.right);
 
-  // The movers that used to change the slack now change nothing about the
-  // anchor. The folder panel squeezes the pane from the left…
   const setMargins = async (value: string) => {
     const p = page.waitForEvent('popup');
     await menuClick(page, 'settings');
@@ -368,6 +366,8 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
     await s.getByTestId('settings-margins').selectOption(value);
     await s.close();
   };
+  // The movers that used to change the slack now change nothing about the
+  // anchor. The folder panel squeezes the pane from the left…
   await setMargins('super-narrow');
   await seedFolders(page);
   await openFolderRoot(page);

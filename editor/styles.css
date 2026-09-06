@@ -506,7 +506,8 @@
 /* SPEC6 §1 (issue #272): the edit-mode text column anchors at the pane's
    LEFT edge — all leftover width lands on the right, in every mode. It keeps
    preview's --mm-content-width cap (border-box, like .doc) and 32px side
-   padding just below, so line length is unchanged; only the anchor moved.
+   padding — both in the .cm-content rule below — so line length is
+   unchanged; only the anchor moved.
    This is the geometry split mode always had (issue #7: hugging the folder
    seam), promoted to the base so plain edit and split match. Preview (.doc)
    stays centred — the two columns no longer share a left edge. */

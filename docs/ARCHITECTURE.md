@@ -645,7 +645,8 @@ whose only marker — the 18 px slanted-top hash — rides the selection
 head's line, placed after `lineNumbers()` so it sits between the numbers
 and the text. With numbers hidden in full-screen edit it keeps ZERO
 layout width (the button hangs into the column's own 32px left padding) so
-the line's text never shifts; the split pane keeps the real width. Openers: the button, right-click in the editor pane (native menu
+the line's text never shifts; the split pane keeps the real width.
+Openers: the button, right-click in the editor pane (native menu
 suppressed there only), and the rebindable `smartMenu` hotkey (⌘. by
 default) — 18 new `HotkeyMap` fields ride the existing recorder/conflict
 machinery under a "Smart Edit" group, and Alt/Shift combos now record and
