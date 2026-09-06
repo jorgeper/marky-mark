@@ -248,6 +248,8 @@ import { ManagementPanel } from './components/ManagementPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { NewWorkspaceDialog, OpenWorkspaceDialog } from './components/WorkspaceSwitcher';
 import { StartPage } from './components/StartPage';
+// PRD 020 Req 5+6 (issue #253): the hosted boot's holding-frame decisions.
+import { bootHoldSatisfied, type BootHoldTarget } from './lib/hostedBootHold';
 import { startActions, startCapabilities, type StartActionId } from './lib/startActions';
 import { CREATE_REFUSAL_HINTS, type SessionMe } from './lib/deploymentSettings';
 import { isViewingAsAdminOnly } from './lib/hostedWorkspace';
@@ -464,7 +466,21 @@ function previewButtonPos(sel: { x: number; y: number; h: number }): { left: num
   };
 }
 
-export default function App() {
+/**
+ * PRD 020 Req 5+6 (issue #253): the hosted gate's holding frame, handed down
+ * so App can say when the destination it is holding for has arrived. Every
+ * other flavor (Tauri, the dev shim, the single-file web build) mounts <App/>
+ * with no props at all and behaves exactly as before — `bootHold` undefined
+ * is "nothing is being held", which is the whole of the change here.
+ */
+interface AppProps {
+  /** What the held frame is waiting for, while it is still up. */
+  bootHold?: BootHoldTarget;
+  /** Called once that surface is on screen — the frame comes down. */
+  onBootHoldRelease?: () => void;
+}
+
+export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   // PRD 023 §15 (issue #284): the comments pane's open/closed state is the
@@ -5144,6 +5160,26 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, [zoomLevel, html, scrollPreviewToLine]);
   const appMode = deriveAppMode(docOpen, wsKind);
+  /**
+   * PRD 020 Req 5+6 (issue #253): is the hosted gate's frame still holding
+   * for something App has not painted yet? While it is, App paints NOTHING of
+   * its own that the visitor did not ask for — no bare shell before the
+   * platform lands, no home-page splash while the bound workspace is still
+   * opening — so entering a workspace is one held frame and then the
+   * workspace. Undefined outside a held hosted boot, so every other flavor
+   * renders exactly what it rendered before.
+   */
+  const bootHeld =
+    bootHold !== undefined &&
+    !bootHoldSatisfied(bootHold, {
+      platformReady: platform !== null,
+      workspaceOpen: appMode === 'workspace',
+      bootDocument: platform?.bootDocument !== undefined,
+      docOpen,
+    });
+  useEffect(() => {
+    if (bootHold !== undefined && !bootHeld) onBootHoldRelease?.();
+  }, [bootHold, bootHeld, onBootHoldRelease]);
 
   /**
    * PRD 009 Req 12: the View state BOTH menus are built from — the native menu
@@ -7450,7 +7486,10 @@ export default function App() {
   // both layouts and survives the toggle.
   const splitActive = slideMounted(splitSlide, settings.splitEdit);
 
-  if (!platform) return <div className="theme-root" />;
+  // Issue #253: the pre-bootstrap shell is an empty frame of its own — under
+  // a held hosted boot it must not exist at all (the gate's frame is the one
+  // on screen); everywhere else it is the same placeholder it always was.
+  if (!platform) return bootHeld ? null : <div className="theme-root" />;
 
   /**
    * PRD 012 Req 9: the one Folders/TOC switch, built here and handed to
@@ -7871,7 +7910,10 @@ export default function App() {
                 </p>
               </div>
             )}
-            {!docPath && !untitled && appMode !== 'workspace' && (
+            {/* Issue #253: with the hosted boot still held, the splash is a
+                home page nobody asked for — the visit is on its way into a
+                workspace, and only that workspace ends the wait. */}
+            {!docPath && !untitled && appMode !== 'workspace' && !bootHeld && (
               <div className="empty-center">
                 {/* SPEC27 §3 (revised): the splash — the app icon, larger,
                     then the About info and one drop hint. No title text, no

@@ -6,10 +6,12 @@ import {
   HOSTED_META_NAME,
   readStoredToken,
   storeHostedBoot,
+  storeSessionRecord,
   storePendingSignIn,
   storeToken,
   storeVisitIntent,
   takeHostedBoot,
+  takeSessionRecord,
   takePendingSignIn,
   takeVisitIntent,
   type KeyValueStore,
@@ -123,6 +125,31 @@ describe('PRD 020 Req 5+6+9 visit intent and boot hand-off', () => {
     // Corrupt entries read as absent.
     store.setItem('marky-mark.hosted.boot', JSON.stringify({ uniqueName: 'no-id' }));
     expect(takeHostedBoot(store)).toBeNull();
+    expect(store.size()).toBe(0);
+  });
+  it('U1205: the session record rides one page load from the gate to the platform', () => {
+    const store = memoryStore();
+    expect(takeSessionRecord(store)).toBeNull();
+    // PRD 017 Req 3 + issue #253: the gate's own /api/me answer, handed on so
+    // the platform (and the visit resolve's handle lookup) never fetch it a
+    // second time before the workspace is on screen.
+    const me = {
+      id: 'mock-ada',
+      username: 'ada',
+      displayName: 'Ada Lovelace',
+      handle: 'ada',
+      admin: false,
+      canCreateWorkspaces: true,
+    };
+    storeSessionRecord(store, me);
+    expect(takeSessionRecord(store)).toEqual(me);
+    // Read-and-clear, like the boot record beside it.
+    expect(takeSessionRecord(store)).toBeNull();
+    // Corrupt or unusable entries read as absent — the caller then fetches.
+    store.setItem('marky-mark.hosted.session', 'not json');
+    expect(takeSessionRecord(store)).toBeNull();
+    store.setItem('marky-mark.hosted.session', JSON.stringify({ username: 'no-id' }));
+    expect(takeSessionRecord(store)).toBeNull();
     expect(store.size()).toBe(0);
   });
 });

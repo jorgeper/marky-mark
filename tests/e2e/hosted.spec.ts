@@ -317,14 +317,19 @@ test('E390: the sign-in page is splash-styled — no card box, no title text, th
   expect(Math.round(width)).toBe(132);
 });
 
-test('E391: the badge holds one anchored position across sign-in, checking and the splash, and pre-auth text uses the body font', async ({
+test('E391: the badge holds one anchored position across sign-in and the splash, a held boot paints neither, and pre-auth text uses the body font', async ({
   page,
 }) => {
   // Issue #200 (SPEC27 §3): the big badge is anchored to the viewport, so
-  // advancing sign-in → "Checking session…" → the landing splash never moves
-  // it — the splash's position is the shared reference. And the pre-auth page
-  // mounts outside .theme-root, so .hosted-signin must declare the body font
-  // itself or everything falls back to the browser serif default.
+  // advancing sign-in → the landing splash never moves it — the splash's
+  // position is the shared reference. And the pre-auth page mounts outside
+  // .theme-root, so .hosted-signin must declare the body font itself or
+  // everything falls back to the browser serif default.
+  //
+  // Issue #253 amends the middle screen this test used to measure: a reload
+  // with a stored session paints no "Checking session…" frame at all, so what
+  // that moment shows now is the boot's one holding frame — asserted below in
+  // place of a badge that no longer moves because it is no longer there.
   const badgeBox = (id: string) =>
     page.getByTestId(id).evaluate((el) => {
       const r = el.getBoundingClientRect();
@@ -344,8 +349,9 @@ test('E391: the badge holds one anchored position across sign-in, checking and t
   await expect(page.getByTestId('splash-badge')).toBeVisible();
   const splash = await badgeBox('splash-badge');
 
-  // Reload with the stored session but hold /api/me open, pinning the
-  // transient "Checking session…" phase long enough to measure its badge.
+  // Reload with the stored session but hold /api/me open, pinning the moment
+  // the session is still being resolved. Issue #253: that moment is the quiet
+  // holding frame — no sign-in page behind it, and nothing else painted.
   let release!: () => void;
   const held = new Promise<void>((resolve) => (release = resolve));
   await page.route('**/api/me', async (route) => {
@@ -353,21 +359,20 @@ test('E391: the badge holds one anchored position across sign-in, checking and t
     await route.continue();
   });
   await page.reload();
-  await expect(page.getByTestId('hosted-sign-in')).toContainText('Checking session…');
-  const checking = await badgeBox('hosted-sign-in-badge');
+  await expect(page.getByTestId('hosted-booting')).toBeVisible();
+  await expect(page.getByTestId('hosted-booting')).toHaveAttribute('role', 'status');
+  await expect(page.getByTestId('hosted-sign-in')).toHaveCount(0);
   release();
   await expect(page.getByTestId('splash-badge')).toBeVisible();
+  // And the frame is gone the moment the app's own screen is there.
+  await expect(page.getByTestId('hosted-booting')).toHaveCount(0);
 
-  // One bounding box on all three screens (½px slack for subpixel centering).
-  for (const [name, box] of [
-    ['signed-out', signedOut],
-    ['checking', checking],
-  ] as const) {
-    expect(Math.abs(box.x - splash.x), `${name} x`).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(box.y - splash.y), `${name} y`).toBeLessThanOrEqual(0.5);
-    expect(box.w, `${name} w`).toBe(splash.w);
-    expect(box.h, `${name} h`).toBe(splash.h);
-  }
+  // The sign-in badge and the splash badge share one bounding box (½px slack
+  // for subpixel centering).
+  expect(Math.abs(signedOut.x - splash.x), 'signed-out x').toBeLessThanOrEqual(0.5);
+  expect(Math.abs(signedOut.y - splash.y), 'signed-out y').toBeLessThanOrEqual(0.5);
+  expect(signedOut.w, 'signed-out w').toBe(splash.w);
+  expect(signedOut.h, 'signed-out h').toBe(splash.h);
 });
 
 /** Create a workspace and return its id (PRD 007 Req 10: creator → Owner). */
@@ -5728,4 +5733,191 @@ test('E495: the hosted home page hides the toolbar Edit toggle, and opening a fi
   await page.getByTestId('edit-toggle').click();
   await expect(page.getByTestId('doc')).toBeVisible();
   await expect(page.getByTestId('edit-toggle')).toHaveText(/Edit/);
+});
+
+// --- issue #253: entering a workspace paints no intermediate screen ----------
+
+/**
+ * The screens a boot must never attach. Named by their test ids (plus the
+ * bare app shell, which has none): the sign-in page and its "Checking
+ * session…" frame, the not-found page, and the home page's splash and start
+ * actions. "Never attached", not "gone by the end" — a frame that existed for
+ * one commit is a frame the browser could paint.
+ */
+const FORBIDDEN_BOOT_SCREENS = ['hosted-sign-in', 'hosted-not-found', 'empty-hint', 'start-actions'];
+
+/**
+ * Issue #253: watch the NEXT document's boot from before it starts. An init
+ * script's MutationObserver records every forbidden screen that is ever in the
+ * document, and every ENTRY into a holding surface — so a boot that alternates
+ * between two of them, or re-enters one, shows up as more than one entry.
+ */
+async function watchBootScreens(page: Page): Promise<void> {
+  await page.addInitScript((forbidden: string[]) => {
+    const bag = window as unknown as { __bootScreens?: string[]; __bootHolds?: string[] };
+    const screens: string[] = (bag.__bootScreens = []);
+    const holds: string[] = (bag.__bootHolds = []);
+    let held = false;
+    const look = () => {
+      for (const id of forbidden) {
+        if (document.querySelector(`[data-testid="${id}"]`) && !screens.includes(id)) screens.push(id);
+      }
+      // The app shell with nothing inside it is an intermediate frame too.
+      const root = document.querySelector('.theme-root');
+      if (root && root.childElementCount === 0 && !screens.includes('bare-theme-root')) {
+        screens.push('bare-theme-root');
+      }
+      const hold = document.querySelector('[data-testid="hosted-booting"]');
+      if (!!hold !== held) {
+        held = !held;
+        if (held) holds.push('hosted-booting');
+      }
+    };
+    look();
+    // Init scripts run before <html> exists — observe the document node.
+    new MutationObserver(look).observe(document, { subtree: true, childList: true });
+  }, FORBIDDEN_BOOT_SCREENS);
+}
+
+/** What that observer recorded, read once the destination has landed. */
+async function bootScreens(page: Page): Promise<{ screens: string[]; holds: string[] }> {
+  return page.evaluate(() => {
+    const bag = window as unknown as { __bootScreens?: string[]; __bootHolds?: string[] };
+    // A missing bag would let every assertion below pass vacuously — say so.
+    return { screens: bag.__bootScreens ?? ['observer never ran'], holds: bag.__bootHolds ?? [] };
+  });
+}
+
+/**
+ * Seed the stored session so the next load is a signed-in BOOT — the entry
+ * the issue is about — rather than a sign-in. (An init script, so it is in
+ * place before the gate reads it, on every navigation the test makes.)
+ */
+async function seedSession(page: Page, token: string): Promise<void> {
+  await page.addInitScript((t: string) => window.localStorage.setItem('marky-mark.hosted.token', t), token);
+}
+
+test('E505: a signed-in boot at a file deep link paints no sign-in page, no bare shell and no home page — ONE held frame, then the workspace', async ({
+  page,
+  request,
+}) => {
+  // Issue #253 (PRD 020 Req 5+6): from the moment the destination page starts
+  // loading until the workspace surface is on screen, nothing else exists in
+  // the document — and what holds the screen meanwhile is one frame, entered
+  // once, never alternating and never painted after real content.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e505');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guides/deep.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# Deep\n\nThe linked document.\n',
+  });
+  await dropDraft(page, token);
+  await seedSession(page, token);
+
+  // Issue #253 (PRD 017 Req 3): and the boot issues no duplicate session
+  // probe — the gate's one /api/me is the visit resolve's and the platform's.
+  const meProbes: string[] = [];
+  page.on('request', (req) => {
+    if (new URL(req.url()).pathname === '/api/me') meProbes.push(req.method());
+  });
+
+  await watchBootScreens(page);
+  await page.goto(`${HOSTED}/${unique}/guides/deep.md`);
+  // The destination really arrived, so none of this can pass vacuously.
+  await expect(page.getByTestId('docname')).toContainText('deep.md');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  const landed = await bootScreens(page);
+  expect(landed.screens).toEqual([]);
+  // The one stable frame: a single holding surface, entered exactly once.
+  expect(landed.holds).toEqual(['hosted-booting']);
+  expect(meProbes).toEqual(['GET']);
+  // And it is gone once the workspace is there.
+  await expect(page.getByTestId('hosted-booting')).toHaveCount(0);
+
+  // A reload of the canonical URL is the same contract.
+  await watchBootScreens(page);
+  await page.reload();
+  await expect(page.getByTestId('docname')).toContainText('deep.md');
+  const reloaded = await bootScreens(page);
+  expect(reloaded.screens).toEqual([]);
+  expect(reloaded.holds).toEqual(['hosted-booting']);
+});
+
+test('E506: clicking a workspace row lands in that workspace with no home page, sign-in page or bare shell in between', async ({
+  page,
+  request,
+}) => {
+  // Issue #253: a row click is a real navigation (hostedWorkspaces.ts
+  // navigateTo), so the whole boot runs again on the new document — the home
+  // page the click started from must not be repainted on the way in.
+  const token = await signIn(request, 'ada');
+  const name = `E506 row w${test.info().workerIndex}`;
+  const id = await createWorkspace(request, token, name);
+  const unique = await uniqueNameOf(request, token, id);
+  await dropDraft(page, token);
+  await seedSession(page, token);
+
+  await page.goto(HOSTED);
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await openAppMenu(page);
+  await page.getByTestId('menu-open-workspace').click();
+  await expect(page.getByTestId('open-workspace-dialog')).toBeVisible();
+  // The store is shared across parallel workers, so search for this row
+  // rather than assuming it is among the newest listed.
+  await page.getByTestId('open-workspace-search').fill(name);
+  const row = page.getByTestId(`open-workspace-item-${id}`);
+  await expect(row).toBeVisible();
+
+  // Registered now: init scripts apply to the NEXT document, which is the
+  // navigation the click makes.
+  await watchBootScreens(page);
+  await row.click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('docname-workspace')).toContainText(name);
+  expect(new URL(page.url()).pathname).toBe(`/${unique}`);
+  const landed = await bootScreens(page);
+  expect(landed.screens).toEqual([]);
+  expect(landed.holds).toEqual(['hosted-booting']);
+});
+
+test('E507: a signed-in boot at /<username>/scratchpad lands on the fresh buffer with nothing painted in front of it', async ({
+  page,
+  request,
+}) => {
+  // Issue #253 + PRD 023 Req 1: the scratch route is an entry into a workspace
+  // like any other — the fresh untitled buffer still boots, and the home page
+  // never shows while it is being resolved.
+  const token = await signIn(request, 'grace');
+  await dropDraft(page, token);
+  await seedSession(page, token);
+
+  await watchBootScreens(page);
+  await page.goto(`${HOSTED}/grace/scratchpad`);
+  await expect(page.getByTestId('editor')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/grace/scratchpad');
+  const landed = await bootScreens(page);
+  expect(landed.screens).toEqual([]);
+  expect(landed.holds).toEqual(['hosted-booting']);
+});
+
+test('E508: the legacy ?workspace=<uuid> form boots into the workspace with no intermediate screen either', async ({
+  page,
+  request,
+}) => {
+  // Issue #253 (PRD 020 Req 7): the old bookmark shape resolves through the
+  // same gate, so it holds the same one frame on the way to the same place.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e508');
+  await dropDraft(page, token);
+  await seedSession(page, token);
+
+  await watchBootScreens(page);
+  await page.goto(`${HOSTED}/?workspace=${id}`);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  const landed = new URL(page.url());
+  expect(landed.pathname).toBe(`/${unique}`);
+  expect(landed.search).toBe('');
+  const painted = await bootScreens(page);
+  expect(painted.screens).toEqual([]);
+  expect(painted.holds).toEqual(['hosted-booting']);
 });
