@@ -93,3 +93,19 @@ export function highlightRange(root: HTMLElement, start: number, end: number, ci
   }
   return marks;
 }
+
+/**
+ * The inverse of `highlightRange` for every `mark` under root that matches
+ * `selector`: lift the mark's children back into its parent, drop the mark,
+ * and `normalize()` so the split text nodes rejoin. The document's plain text
+ * is unchanged, and anchors computed over it stay valid.
+ */
+export function unwrapMarks(root: ParentNode, selector: string): void {
+  root.querySelectorAll(selector).forEach((m) => {
+    const parent = m.parentNode;
+    if (!parent) return;
+    while (m.firstChild) parent.insertBefore(m.firstChild, m);
+    m.remove();
+    parent.normalize();
+  });
+}

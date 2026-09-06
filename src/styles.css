@@ -2842,21 +2842,35 @@ input.folder-rename-input.invalid {
   color: var(--mm-fg-muted, #59636e);
 }
 /* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17): document-text highlights
-   (the sidebar excerpt's mark, the landed match's flash). */
+   (the sidebar excerpt's mark, the landed match's mark and flash).
+   PRD 014 Req 8 (issue #313): all three sit on the find token set — the
+   same self-contained pair the find bar's marks use, with their own
+   foreground — rather than the pale comment tint, so a hit reads bright on
+   light and dark themes alike. */
 .search-match-text mark {
-  background: var(--mm-comment-tint-active, rgba(121, 192, 255, 0.7));
-  color: var(--mm-fg, #1f2328);
+  background: var(--mm-find);
+  color: var(--mm-find-fg);
   border-radius: 2px;
 }
-/* PRD 014 Req 8: the landed match's block, flashed the way an activated
-   comment highlight is — a fade that leaves no steady-state style behind. */
+/* PRD 014 Req 8 (issue #313): the landed hit's own words in the preview —
+   the find-active pair, exactly as the find bar's current match. */
+.doc mark.mm-search-hit {
+  background: var(--mm-find-active);
+  color: var(--mm-find-fg);
+  padding: 0;
+  border-radius: 2px;
+}
+/* PRD 014 Req 8: the landed match's block when its words cannot be marked,
+   flashed the way an activated comment highlight is — a fade that leaves
+   no steady-state style behind. */
 .doc .search-flash {
   animation: mm-search-flash 0.9s ease-out;
 }
 @keyframes mm-search-flash {
   0%,
   55% {
-    background: var(--mm-comment-tint-active, rgba(121, 192, 255, 0.7));
+    background: var(--mm-find-active);
+    color: var(--mm-find-fg);
   }
   100% {
     background: transparent;
