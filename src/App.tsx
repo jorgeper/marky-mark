@@ -228,14 +228,7 @@ import { SemanticZoomControl, SemanticZoomView } from './components/SemanticZoom
 import { parseSections } from './lib/sectionModel';
 import { activeTocReveal, buildTocTree, toggleTocCollapsed, visibleTocEntries } from './lib/tocModel';
 import { zoomView, ZOOM_LEVEL_FULL, type ZoomLevel } from './lib/zoomLevels';
-import {
-  buildZoomDocumentFromView,
-  diveFrom,
-  focusLine,
-  isZoomReadOnly,
-  stepZoomLevel,
-  SEMANTIC_ZOOM_COMBOS,
-} from './lib/semanticZoom';
+import { buildZoomDocumentFromView, diveFrom, focusLine, isZoomReadOnly } from './lib/semanticZoom';
 import { parseFrontMatter } from './lib/frontmatter';
 // PRD 023 §§7–12 + §19 (issue #286): the annotation menu/hotkey context model
 // and the editor-side rendered-text mapping — one pure rule for both paths.
@@ -441,17 +434,6 @@ function unreadableStoreMessage(stores: DocStores): string {
     ? `This document’s comments were written by a newer version of Marky Mark (comment format ${declared}) and cannot be shown. They are left untouched.`
     : 'This document’s comments could not be read by this version of Marky Mark and cannot be shown. They are left untouched.';
 }
-
-/**
- * PRD 011 Reqs 2+23: the semantic-zoom accelerators, paired with the commands
- * they fire. Fixed rather than rebindable, so the table is built once here and
- * not on every keystroke inside the global key handler.
- */
-const SEMANTIC_ZOOM_KEYS: ReadonlyArray<[combo: string, id: CommandId]> = [
-  [SEMANTIC_ZOOM_COMBOS.semanticZoomIn, 'semanticZoomIn'],
-  [SEMANTIC_ZOOM_COMBOS.semanticZoomOut, 'semanticZoomOut'],
-  [SEMANTIC_ZOOM_COMBOS.semanticZoomReset, 'semanticZoomReset'],
-];
 
 /**
  * PRD 011 Req 31: the curated price for the provider/model pair a run would
@@ -4123,16 +4105,6 @@ export default function App() {
   );
 
   /**
-   * PRD 011 Req 21: the one level step every route takes — `+`/`−`, the
-   * handle, the View rows and the accelerators. With the Experimental flag
-   * off it is inert (PRD 011 Req 2); clamping is `clampZoomLevel()`.
-   */
-  const stepSemanticZoom = useCallback((delta: 1 | -1) => {
-    if (!stateRef.current.settings.semanticZoom) return;
-    setZoomLevel((level) => stepZoomLevel(level, delta));
-  }, []);
-
-  /**
    * SPEC16 §4: the ONE preview scroll-to-line path — the heading palette's,
    * reused by a PRD 011 Req 19 dive that lands at L5 rather than reimplemented.
    * Returns false while the line has not been rendered yet. A line only a
@@ -4538,11 +4510,13 @@ export default function App() {
         // visibility toggle it has always been.
         showSidebarView('folders');
       },
-      // PRD 013 Req 13: View → File Tabs flips the persisted setting through
-      // the ordinary settings write path, so the strip and the checkmark
-      // follow together and the open set, the active file, the park map and
-      // dirty state are untouched. Silent no-op without the tab-strip seam
-      // (the static web build; issue #186) — the toggleFolders discipline.
+      // PRD 013 Req 13 (issue #258): the strip's toggle is the Settings ▸
+      // Appearance checkbox now — it writes `fileTabs` through the scoped
+      // settings path, so no surface dispatches this command today. It stays
+      // as the command form of that flip: the ordinary settings write path,
+      // so the strip follows and the open set, the active file, the park map
+      // and dirty state are untouched. Silent no-op without the tab-strip
+      // seam (the static web build; issue #186) — the toggleFolders discipline.
       toggleFileTabs: () => {
         const st = stateRef.current;
         if (!st.platform?.multiFileSession) return;
@@ -4725,16 +4699,6 @@ export default function App() {
       zoomIn: () => stepZoom(1),
       zoomOut: () => stepZoom(-1),
       zoomReset: () => updateSettings({ ...stateRef.current.settings, zoom: 100 }),
-      // PRD 011 Reqs 2+23: semantic zoom, distinct from the three text-zoom
-      // handlers directly above. `CommandHandlers` is exhaustive over
-      // `CommandId`, so the ids are registered — but with the Experimental
-      // flag off each one returns immediately, so dispatching them is a
-      // no-op and nothing about the feature exists.
-      semanticZoomIn: () => stepSemanticZoom(1),
-      semanticZoomOut: () => stepSemanticZoom(-1),
-      semanticZoomReset: () => {
-        if (stateRef.current.settings.semanticZoom) setZoomLevel(ZOOM_LEVEL_FULL);
-      },
       // SPEC43 §5.2: format commands forward to the mounted editor (the ref
       // is null outside edit mode ⇒ silent no-ops). A focused text input
       // (find bar, composer, settings) keeps its own Mod-combos.
@@ -5191,17 +5155,6 @@ export default function App() {
       openOnly: folderOpenOnly,
       // Issue #84: gates View → Next/Previous Open File.
       openFileCount: openFiles.length,
-      // PRD 013 Reqs 13–14 (amended by issue #186): undefined (no tab-strip
-      // seam — the static web build) ⇒ the File Tabs row is not there at all;
-      // supplied ⇒ a checkbox mirroring the persisted setting, on the native
-      // bar and the in-app flyout alike.
-      fileTabs: platform?.multiFileSession ? settings.fileTabs : undefined,
-      // PRD 011 Reqs 2+23: off ⇒ buildViewItems omits the rows entirely, on
-      // both the native menu bar and the in-app View ▸ flyout.
-      semanticZoom: settings.semanticZoom,
-      // Issue #167: the sync-scroll checkbox, on both menu surfaces — the
-      // route that stays when showSyncScrollButton hides the corner button.
-      syncScroll: settings.syncScroll,
     }),
     [
       platform,
@@ -5222,9 +5175,6 @@ export default function App() {
       sidebarView,
       folderOpenOnly,
       openFiles.length,
-      settings.fileTabs,
-      settings.semanticZoom,
-      settings.syncScroll,
     ]
   );
 
@@ -5886,20 +5836,9 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement | null)?.closest?.('[data-hotkey-recorder]')) return;
       const hk = stateRef.current.settings.hotkeys;
-      // PRD 011 Reqs 2+23: the three semantic-zoom combos, matched through the
-      // same `eventMatches` the rest of the app uses. They are checked before
-      // the rebindable map only so a future rebind cannot shadow them; with
-      // the Experimental flag off none of them is even looked at, so the
-      // accelerators do nothing at all.
-      if (stateRef.current.settings.semanticZoom) {
-        for (const [combo, id] of SEMANTIC_ZOOM_KEYS) {
-          if (eventMatches(e, combo)) {
-            e.preventDefault();
-            dispatchCommand(id, 'hotkey');
-            return;
-          }
-        }
-      }
+      // PRD 011 Req 23 (issue #258): no semantic-zoom accelerators — Mod+Shift+-,
+      // Mod+Shift+= and Mod+Shift+0 fire nothing on any build, experiment on or
+      // off. The docked control and heading dives drive the feature.
       if (eventMatches(e, hk.toggleEdit)) {
         e.preventDefault();
         dispatchCommand('toggleMode', 'hotkey');
@@ -8305,6 +8244,9 @@ export default function App() {
           isMac={platform.isMac}
           storageLocked={platform.kind === 'web'}
           autoHideAvailable={!nativeMenu}
+          // PRD 013 Req 13 (issue #258): the File Tabs checkbox rides the same
+          // seam the strip does, so the static web build shows no row.
+          fileTabsAvailable={tabStripSeam}
           onEdit={applySettingsEdit}
           onReloadThemes={() => void reloadThemes()}
           onImportTheme={

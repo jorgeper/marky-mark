@@ -2907,7 +2907,7 @@ test('E358: hosted — the tab strip renders on the open set and a tab click act
   await expect(hostedTab(page, 'beta.md')).toHaveAttribute('data-active', 'false');
 });
 
-test('E359: hosted — ✕ closes a tab without switching, and View ▸ File Tabs hides then restores the strip', async ({
+test('E359: hosted — ✕ closes a tab without switching, and Settings ▸ Appearance ▸ File Tabs hides then restores the strip', async ({
   page,
   request,
 }) => {
@@ -2930,18 +2930,24 @@ test('E359: hosted — ✕ closes a tab without switching, and View ▸ File Tab
   await expect(page.getByTestId('docname')).toContainText('keep.md');
   await expect(hostedTab(page, 'keep.md')).toHaveAttribute('data-active', 'true');
 
-  // PRD 013 Req 13: the View ▸ File Tabs toggle exists on hosted now and
+  // PRD 013 Req 13 (issue #258): the strip's toggle is the Settings ▸
+  // Appearance checkbox — hosted carries the seam, so the row is there — and
   // hides the strip; the open set is untouched, so toggling back restores it.
   // The setting roams per user (PRD 007), so this test restores what it flips.
+  // Issue #258: and the View flyout offers no File Tabs row to flip instead.
   await openAppMenu(page);
   await page.getByTestId('menu-view').click();
-  await page.getByTestId('app-menu-view').getByTestId('menu-view-toggleFileTabs').click();
-  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
-  await expect(page.getByTestId('docname')).toContainText('keep.md');
-  await openAppMenu(page);
-  await page.getByTestId('menu-view').click();
-  await page.getByTestId('app-menu-view').getByTestId('menu-view-toggleFileTabs').click();
-  await expect(page.getByTestId('file-tab-strip')).toBeVisible();
+  await expect(page.getByTestId('app-menu-view')).toBeVisible();
+  await expect(page.getByTestId('app-menu-view').getByTestId('menu-view-toggleFileTabs')).toHaveCount(0);
+  await page.getByTestId('docname').click();
+  for (const expected of [0, 1]) {
+    await openSettings(page, 'appearance');
+    await page.getByTestId('settings-file-tabs').click();
+    // Issue #246: the dialog no longer applies live — the flip only lands on Save.
+    await saveSettings(page);
+    await expect(page.getByTestId('file-tab-strip')).toHaveCount(expected);
+    await expect(page.getByTestId('docname')).toContainText('keep.md');
+  }
   await expect(hostedTab(page, 'keep.md')).toHaveAttribute('data-active', 'true');
 });
 

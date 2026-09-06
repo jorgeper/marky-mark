@@ -1,13 +1,13 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
+  cancelSettings,
   dirtyActiveDoc,
   freshApp,
   fsRead,
   fsWrite,
   openNotesRoot,
   openSettings,
-  revealToolbar,
   saveSettings,
   seedFolders,
 } from './helpers';
@@ -36,26 +36,29 @@ test.beforeEach(async ({ page }) => {
 const tabPaths = (page: Page) =>
   page.getByTestId('file-tab').evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.tab));
 
-/** Open the in-app View ▸ flyout and hand back its File Tabs row. */
-async function openFileTabsRow(page: Page): Promise<Locator> {
-  await revealToolbar(page);
-  await page.getByTestId('menu-btn').click();
-  await page.getByTestId('menu-view').click();
-  return page.getByTestId('app-menu-view').getByTestId('menu-view-toggleFileTabs');
+/**
+ * PRD 013 Req 13 (issue #258): the strip's toggle is a Settings ▸ Appearance
+ * checkbox — the View row is gone — so every flow below drives it there.
+ */
+function fileTabsBox(page: Page): Locator {
+  return page.getByTestId('settings-file-tabs');
 }
 
-/** Choose View ▸ File Tabs (the click closes the whole menu itself). */
-async function toggleFileTabsViaMenu(page: Page): Promise<void> {
-  await (await openFileTabsRow(page)).click();
+/** Flip the Appearance checkbox and commit it. */
+async function toggleFileTabsViaSettings(page: Page): Promise<void> {
+  await openSettings(page, 'appearance');
+  await fileTabsBox(page).click();
+  // Issue #246: the dialog no longer applies live — the flip only lands on Save.
+  await saveSettings(page);
 }
 
-/** The File Tabs row's aria-checked, read with the flyout open, then closed. */
-async function fileTabsChecked(page: Page): Promise<string | null> {
-  const checked = await (await openFileTabsRow(page)).getAttribute('aria-checked');
-  // The menu dismisses on an outside mousedown (Toolbar.tsx), not Escape —
-  // the inert `.docname` span is E215's dismiss target.
-  await page.getByTestId('docname').click();
-  await expect(page.getByTestId('app-menu')).toHaveCount(0);
+/** The checkbox's state, read with the dialog open, then closed again. */
+async function fileTabsChecked(page: Page): Promise<boolean> {
+  await openSettings(page, 'appearance');
+  const checked = await fileTabsBox(page).isChecked();
+  // Issue #246: a pure read changes nothing, so it leaves the clean way — no
+  // pending edits means Cancel closes with no discard prompt.
+  await cancelSettings(page);
   return checked;
 }
 
@@ -184,7 +187,7 @@ test('E268: a long basename clips with a CSS ellipsis inside the max tab width, 
   await expect(tab).toHaveAttribute('title', long);
 });
 
-test('E269: the View-menu toggle hides and shows the strip without touching the open set — dirty parked buffer included', async ({
+test('E269: the Settings ▸ Appearance toggle hides and shows the strip without touching the open set — dirty parked buffer included', async ({
   page,
 }) => {
   await seedFolders(page);
@@ -204,12 +207,12 @@ test('E269: the View-menu toggle hides and shows the strip without touching the 
   await expect(page.getByTestId('docname')).toContainText('a.md');
   await expect(page.locator('[data-path="/notes/sub/b.md"] [data-testid="folder-dirty"]')).toBeVisible();
 
-  // Checked on by default; choosing it removes the strip immediately —
-  // count 0, not a hidden or empty bar.
-  expect(await fileTabsChecked(page)).toBe('true');
-  await toggleFileTabsViaMenu(page);
+  // Checked on by default; clearing the Appearance checkbox removes the strip
+  // immediately — count 0, not a hidden or empty bar.
+  expect(await fileTabsChecked(page)).toBe(true);
+  await toggleFileTabsViaSettings(page);
   await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
-  expect(await fileTabsChecked(page)).toBe('false');
+  expect(await fileTabsChecked(page)).toBe(false);
 
   // The open set, the active file and the parked dirty state are untouched:
   // the sidebar still shows a selected, b open with its ●.
@@ -219,7 +222,7 @@ test('E269: the View-menu toggle hides and shows the strip without touching the 
 
   // Back on: same tabs, same active file, and b's parked buffer restores
   // with the typed text — the toggle altered nothing.
-  await toggleFileTabsViaMenu(page);
+  await toggleFileTabsViaSettings(page);
   await expect(page.getByTestId('file-tab-strip')).toBeVisible();
   expect(await tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/a.md']);
   await expect(page.locator('[data-tab="/notes/a.md"]')).toHaveAttribute('data-active', 'true');
@@ -228,27 +231,27 @@ test('E269: the View-menu toggle hides and shows the strip without touching the 
   await expect(page.locator('.cm-content').first()).toContainText('KEEPME');
 });
 
-test('E270: the setting persists across a restart — off stays off (item unchecked), on brings the strip back', async ({
+test('E270: the setting persists across a restart — off stays off (checkbox clear), on brings the strip back', async ({
   page,
 }) => {
   // Off, persisted: the settings pipeline writes fileTabs: false.
-  await toggleFileTabsViaMenu(page);
+  await toggleFileTabsViaSettings(page);
   await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"fileTabs": false');
 
   // Restart (relaunch lands on the splash — no strip there regardless), then
-  // reopen a document: the strip stays hidden and the View item unchecked.
+  // reopen a document: the strip stays hidden and the checkbox clear.
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await page.goto('/#open=/docs/welcome.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
   await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
-  expect(await fileTabsChecked(page)).toBe('false');
+  expect(await fileTabsChecked(page)).toBe(false);
 
   // On again, persisted, and it survives the next restart too. (goto('/')
   // drops the #open fragment — a fragment-removing navigation is a full
   // reload, so this boots clean onto the splash like the reload above.)
-  await toggleFileTabsViaMenu(page);
+  await toggleFileTabsViaSettings(page);
   await expect(page.getByTestId('file-tab-strip')).toBeVisible();
   await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"fileTabs": true');
   await page.goto('/');

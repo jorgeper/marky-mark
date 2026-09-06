@@ -260,14 +260,3 @@ export function stepZoomLevel(level: ZoomLevel, delta: number): ZoomLevel {
 export function canStepZoom(level: ZoomLevel, delta: number): boolean {
   return delta > 0 ? level < ZOOM_LEVEL_MAX : level > ZOOM_LEVEL_MIN;
 }
-
-/**
- * PRD 011 Req 23: the three accelerators, spelled once. `Mod+Shift+=` steps
- * toward the full document, `Mod+Shift+-` away from it, `Mod+Shift+0` returns
- * to L5 — deliberately parallel to, and distinct from, SPEC4 §4 text zoom.
- */
-export const SEMANTIC_ZOOM_COMBOS = {
-  semanticZoomIn: 'Mod+Shift+=',
-  semanticZoomOut: 'Mod+Shift+-',
-  semanticZoomReset: 'Mod+Shift+0',
-} as const;

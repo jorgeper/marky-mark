@@ -14,6 +14,13 @@ in the tree by default**, and a **sync button** re-reveals on demand.
 **File → Open Folder…** opens a folder as the tree root without opening
 any file.
 
+> **Amended (issue #258, 2026-09-06):** the View row is labelled
+> **Sidebar**, not Folders — the pane hosts the folders, TOC and search
+> views, so it is named for the pane. Only the label changed: the
+> `toggleFolders` command, the `showFolders` setting, the ⌘⇧E binding, the
+> checkbox and the workspace-only gating are unchanged, and the panel's own
+> header and view switch still say Folders for the Folders *view*.
+
 Out of scope: the web build (it defines neither seam method below, so
 the entire feature is unreachable there — no hamburger change, E13
 stands), file operations from the tree (rename/delete/create/drag),
@@ -50,6 +57,10 @@ Two OPTIONAL `Platform` methods (absent ⇒ the feature never renders):
    **`folderWidth: number`** (px, clamped 160–480, default 240) — house
    parse rules. `HotkeyMap` gains **`toggleFolders`, default
    `Mod+Shift+E`** (Settings → Hotkeys row "Show / hide folders").
+
+   > **Amended (issue #258, 2026-09-06):** the Hotkeys row reads
+   > **"Show / hide sidebar"**, matching the renamed View item. The
+   > `toggleFolders` key and its default binding are unchanged.
 3. Root + expanded set persist to `foldertree.json` (write-through,
    best-effort, same pattern as recents); width/visibility ride
    settings.
@@ -88,6 +99,10 @@ Two OPTIONAL `Platform` methods (absent ⇒ the feature never renders):
    hotkey, checked = `showFolders`), first item in View (above Edit
    Mode: layout chrome before mode toggles). Silent no-op on platforms
    without the seam (web).
+
+   > **Amended (issue #258, 2026-09-06):** the checkbox is labelled
+   > **"Sidebar"**. Position, accelerator, checked source and gating are
+   > exactly as stated above.
 2. **`openFolder`** — File → **Open Folder…** directly after Open
    Recent (before the separator), no default accelerator. Flow: pick a
    directory → it becomes the persisted root (expanded set reset to
@@ -115,11 +130,11 @@ Two OPTIONAL `Platform` methods (absent ⇒ the feature never renders):
 1. **U60** — `folderTree`: markdown detection, folder-first sort,
    dotfile filtering, `ancestorsOf` (nested, at-root, outside-root ⇒
    empty), state round-trip/corruption/cap.
-2. **U61** — menu/hotkeys/settings: View starts with the Folders
-   checkbox (accelerator `Mod+Shift+E`, tracks `showFolders`); File
-   carries Open Folder… after the Open Recent submenu; both layouts;
-   `showFolders` default false, `folderWidth` clamps 160–480 (default
-   240), hotkey merges into old settings files.
+2. **U61** — menu/hotkeys/settings: View starts with the Sidebar
+   checkbox (issue #258; accelerator `Mod+Shift+E`, tracks
+   `showFolders`); File carries Open Folder… after the Open Recent
+   submenu; both layouts; `showFolders` default false, `folderWidth`
+   clamps 160–480 (default 240), hotkey merges into old settings files.
 3. **E93** — tree basics (shim, seeded virtual folders): open panel via
    hotkey → empty state → Open Folder…, (hook-armed) → root lists,
    folders sort first, dotfiles absent; expand/collapse persists across

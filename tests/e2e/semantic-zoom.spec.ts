@@ -48,12 +48,9 @@ test('E229: PRD 011 Reqs 1+2 — the Experimental section ships off, and off mea
   await page.goto('/#open=/docs/zoom.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
 
-  // Off by default: no control, no zoomed view, no View row, no accelerator.
+  // Off by default: no control, no zoomed view.
   await expect(page.getByTestId('semantic-zoom-control')).toHaveCount(0);
   await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
-  await page.keyboard.press('Control+Shift+Minus');
-  await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
-  await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
 
   // The section itself: one row, unchecked, described, and warned about once.
   await openSettings(page, 'experimental');
@@ -68,6 +65,14 @@ test('E229: PRD 011 Reqs 1+2 — the Experimental section ships off, and off mea
   await expect(page.getByTestId('semantic-zoom-control')).toBeVisible();
   await page.getByTestId('semantic-zoom-out').click();
   await expect(page.getByTestId('semantic-zoom-view')).toBeVisible();
+  // PRD 011 Req 23 (issue #258): the trio's accelerators are gone on every
+  // build, so with the feature ON the three combos still move nothing — the
+  // view stays exactly at the level the docked control put it.
+  await page.keyboard.press('Control+Shift+Minus');
+  await page.keyboard.press('Control+Shift+Equal');
+  await page.keyboard.press('Control+Shift+0');
+  await expect(page.getByTestId('semantic-zoom-view')).toBeVisible();
+  await expect(page.getByTestId('semantic-zoom-level')).toContainText('Every heading, one block each');
   await setSemanticZoom(page, false);
   await expect(page.getByTestId('semantic-zoom-control')).toHaveCount(0);
   await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
@@ -109,10 +114,12 @@ test('E230: PRD 011 Reqs 17+21+22 — all five levels work on excerpts with no p
   // Bottom of the range: `−` is inert rather than wrapping.
   await expect(page.getByTestId('semantic-zoom-out')).toBeDisabled();
 
-  // The draggable handle drives the SAME state as the buttons and the keys.
+  // The draggable handle drives the SAME state as the buttons, and the zoomed
+  // view's Full document button (issue #258: the accelerators are gone, so the
+  // docked controls are the whole route) returns to the untouched document.
   await page.getByTestId('semantic-zoom-slider').fill('4');
   await expect(page.getByTestId('semantic-zoom-entry')).toHaveCount(4);
-  await page.keyboard.press('Control+Shift+Equal');
+  await page.getByTestId('semantic-zoom-full').click();
   await expect(page.getByTestId('semantic-zoom-view')).toHaveCount(0);
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
 });
@@ -569,8 +576,9 @@ test('E240: PRD 011 Req 3 — off leaves nothing running, deletes nothing, and b
   await setSemanticZoom(page, false);
 
   // With the feature off, on a document that HAS cached summaries: nothing is
-  // asked on a document open, on typing, on saving, or from any of the three
-  // accelerators — the feature is absent, so no path can build a request.
+  // asked on a document open, on typing, on saving, or from the combos the
+  // removed trio used to own (issue #258: they fire nothing now) — the feature
+  // is absent, so no path can build a request.
   await fsWrite(page, '/docs/other.md', '# Other\n\nOther prose.\n');
   await page.goto('/#open=/docs/other.md');
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Other');

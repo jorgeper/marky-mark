@@ -19,9 +19,6 @@ const base: MenuState = {
   showFolders: false, // SPEC34 §4: fixture-level only — no assertion changed
   appMode: 'workspace', // issue #22: everything enabled — U120 covers the gating
   docOpen: true,
-  // PRD 013 Req 13: the tab-strip seam exists in the frozen baseline, so the
-  // File Tabs row is part of every View expectation below (U680 owns it).
-  fileTabs: true,
 };
 
 const titles = (s: MenuState) => buildMenuSpec(s).submenus.map((m) => m.title);
@@ -192,16 +189,15 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{"hotkeys":{"save":"Mod+S"}}').hotkeys.toggleSplit).toBe('Mod+\\');
   });
 
-  test('U942: issue #167 — View carries Sync Scrolling beside Split Edit when supplied; checkbox tracks, hotkey-less', () => {
-    // The frozen baseline omits the key, so every pre-#167 expectation holds.
+  test('U942: issue #167, amended by #258 — View carries NO Sync Scrolling row; Split Edit is followed by the mode rows', () => {
+    // The corner button is the one toggle now, so no state produces the row.
     expect(find(base, 'View', 'toggleSyncScroll')).toBeUndefined();
     for (const on of [true, false]) {
-      const s = { ...base, syncScroll: on };
+      const s = { ...base, syncScroll: on } as MenuState;
       const view = commandsIn(s, 'View').map((i) => i.command);
-      expect(view.indexOf('toggleSyncScroll')).toBe(view.indexOf('toggleSplit') + 1);
-      expect(find(s, 'View', 'toggleSyncScroll')!.label).toBe('Sync Scrolling');
-      expect(find(s, 'View', 'toggleSyncScroll')!.checked).toBe(on);
-      expect(find(s, 'View', 'toggleSyncScroll')!.accelerator).toBeUndefined();
+      expect(view).not.toContain('toggleSyncScroll');
+      // Split Edit keeps its place; nothing slid in behind it.
+      expect(view[view.indexOf('toggleSplit') + 1]).toBe('toggleComments');
     }
   });
 
@@ -397,12 +393,13 @@ describe('SPEC12 menu spec', () => {
     }
   });
 
-  test('U61: View starts with Folders (Mod+Shift+E checkbox); File carries Open Folder… after Open Recent; settings clamp', () => {
+  test('U61: View starts with Sidebar (Mod+Shift+E checkbox); File carries Open Folder… after Open Recent; settings clamp', () => {
     expect(DEFAULT_HOTKEYS.toggleFolders).toBe('Mod+Shift+E');
     for (const s of [base, { ...base, isMac: false }]) {
       const view = commandsIn(s, 'View').map((i) => i.command);
       expect(view[0]).toBe('toggleFolders');
-      expect(find(s, 'View', 'toggleFolders')!.label).toBe('Folders');
+      // SPEC34 §4.1 (issue #258): the row names the pane, not one of its views.
+      expect(find(s, 'View', 'toggleFolders')!.label).toBe('Sidebar');
       expect(find(s, 'View', 'toggleFolders')!.accelerator).toBe('Mod+Shift+E');
       expect(find(s, 'View', 'toggleFolders')!.checked).toBe(false);
       // PRD 002 §D14: Open Folder… sits directly after Open… now.
@@ -542,75 +539,103 @@ describe('PRD 007 Req 17: document-write items follow the permission', () => {
   });
 });
 
-describe('PRD 011 Reqs 2+23: semantic zoom is absent until the Experimental flag is on', () => {
+describe('Issue #258: the View menu after the cleanup', () => {
+  const REMOVED = ['toggleFileTabs', 'toggleSyncScroll', 'semanticZoomIn', 'semanticZoomOut', 'semanticZoomReset'];
+
+  test('U1173: View leads with Sidebar on the live toggleFolders binding, and carries none of the removed commands — fields supplied or absent', () => {
+    // The rename is a label change and nothing else: the command, the
+    // checkbox source and the rebindable accelerator are the ones SPEC34 §4.1
+    // always specified.
+    const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, toggleFolders: 'Mod+Shift+B' }, showFolders: true };
+    expect(find(rebound, 'View', 'toggleFolders')).toMatchObject({
+      label: 'Sidebar',
+      accelerator: 'Mod+Shift+B',
+      checked: true,
+    });
+    // The pane's own view switch is untouched by the rename: nothing here
+    // claims the word Folders any more.
+    expect(commandsIn(base, 'View').map((i) => i.label)).not.toContain('Folders');
+
+    // Removed for every caller — including one still passing the three
+    // fields that used to summon the rows.
+    const stale = { ...base, fileTabs: true, syncScroll: true, semanticZoom: true } as MenuState;
+    for (const s of [base, stale, { ...base, isMac: false }, { ...base, docOpen: false }]) {
+      const ids = commandsIn(s, 'View').map((i) => i.command);
+      for (const id of REMOVED) expect(ids, id).not.toContain(id);
+    }
+    // …and the zoom trio the issue explicitly protects is exactly as it was:
+    // the ONE separator precedes it, and off mac it closes the menu — the
+    // separator that used to introduce the semantic rows is gone with them.
+    const win = { ...base, isMac: false };
+    const view = buildMenuSpec(win).submenus.find((m) => m.title === 'View')!;
+    expect(view.items.slice(-4).map((i) => (i.type === 'command' ? i.command : i.type === 'predefined' ? i.item : i.type))).toEqual([
+      'Separator',
+      'zoomIn',
+      'zoomOut',
+      'zoomReset',
+    ]);
+    expect(view.items.filter((i) => i.type === 'predefined' && i.item === 'Separator')).toHaveLength(1);
+    // On mac only the Fullscreen tail's separator joins it.
+    const mac = buildMenuSpec(base).submenus.find((m) => m.title === 'View')!;
+    expect(mac.items.filter((i) => i.type === 'predefined' && i.item === 'Separator')).toHaveLength(2);
+  });
+});
+
+describe('PRD 011 Req 23 (issue #258): semantic zoom has no View rows on any build', () => {
   const SEMANTIC = ['semanticZoomIn', 'semanticZoomOut', 'semanticZoomReset'];
 
-  test('U593: with the flag off — and with the field absent entirely — no View row exists', () => {
-    for (const state of [base, { ...base, semanticZoom: false }]) {
+  test('U593: no semantic-zoom row exists — flag off, flag on, or the field not supplied at all', () => {
+    for (const state of [base, { ...base, semanticZoom: false } as MenuState, { ...base, semanticZoom: true } as MenuState]) {
       const ids = commandsIn(state, 'View').map((i) => i.command);
       for (const id of SEMANTIC) expect(ids).not.toContain(id);
     }
   });
 
-  test('U594: with the flag on the three rows appear, carrying exactly the PRD’s accelerators', () => {
-    const on = { ...base, semanticZoom: true };
-    expect(find(on, 'View', 'semanticZoomOut')).toMatchObject({
-      label: 'Zoom Out Semantically',
-      accelerator: 'Mod+Shift+-',
-    });
-    expect(find(on, 'View', 'semanticZoomIn')).toMatchObject({
-      label: 'Zoom In Semantically',
-      accelerator: 'Mod+Shift+=',
-    });
-    expect(find(on, 'View', 'semanticZoomReset')).toMatchObject({
-      label: 'Full Document',
-      accelerator: 'Mod+Shift+0',
-    });
+  test('U594: the three accelerators are gone with the rows — nothing in View binds a Mod+Shift zoom combo', () => {
+    for (const state of [base, { ...base, semanticZoom: true } as MenuState]) {
+      const accels = commandsIn(state, 'View').map((i) => i.accelerator);
+      for (const combo of ['Mod+Shift+-', 'Mod+Shift+=', 'Mod+Shift+0']) expect(accels).not.toContain(combo);
+      // …and no label survives from the removed trio.
+      const labels = commandsIn(state, 'View').map((i) => i.label);
+      expect(labels).not.toContain('Zoom Out Semantically');
+      expect(labels).not.toContain('Zoom In Semantically');
+      expect(labels).not.toContain('Full Document');
+    }
   });
 
   test('U595: SPEC4 §4 text zoom is untouched — same rows, same labels, same combos, either way', () => {
-    for (const state of [base, { ...base, semanticZoom: true }]) {
+    for (const state of [base, { ...base, semanticZoom: true } as MenuState]) {
       expect(find(state, 'View', 'zoomIn')).toMatchObject({ label: 'Zoom In', accelerator: 'Mod+=' });
       expect(find(state, 'View', 'zoomOut')).toMatchObject({ label: 'Zoom Out', accelerator: 'Mod+-' });
       expect(find(state, 'View', 'zoomReset')).toMatchObject({ label: 'Actual Size', accelerator: 'Mod+0' });
     }
-    // Turning the feature on ADDS rows and changes nothing else.
+    // The stale field changes nothing at all now — not one row either way.
     const off = commandsIn(base, 'View').map((i) => i.command);
-    const on = commandsIn({ ...base, semanticZoom: true }, 'View').map((i) => i.command);
-    expect(on.filter((id) => !SEMANTIC.includes(id))).toEqual(off);
+    const on = commandsIn({ ...base, semanticZoom: true } as MenuState, 'View').map((i) => i.command);
+    expect(on).toEqual(off);
   });
 });
 
-describe('PRD 013 Req 13: the File Tabs View item', () => {
-  test('U915: File Tabs closes the layout group — checkbox tracks the setting, no accelerator, grayed with no document', () => {
+describe('PRD 013 Req 13 (issue #258): File Tabs left the View menu for Settings', () => {
+  test('U915: no File Tabs row — the layout group runs from the file cycle straight into the mode toggles', () => {
     for (const s of [base, { ...base, isMac: false }]) {
-      // Grouped with the workspace/layout rows: straight after the open-file
-      // cycle pair, ahead of the mode toggles.
       const view = commandsIn(s, 'View').map((i) => i.command);
-      expect(view.indexOf('toggleFileTabs')).toBe(view.indexOf('prevFile') + 1);
-      expect(view.indexOf('toggleFileTabs')).toBe(view.indexOf('toggleMode') - 1);
-      expect(find(s, 'View', 'toggleFileTabs')!.label).toBe('File Tabs');
-      // A checkbox mirroring the persisted setting…
-      expect(find(s, 'View', 'toggleFileTabs')!.checked).toBe(true);
-      expect(find({ ...s, fileTabs: false }, 'View', 'toggleFileTabs')!.checked).toBe(false);
-      // …deliberately hotkey-less (PRD 013 non-goal: menu item + setting only).
-      expect(find(s, 'View', 'toggleFileTabs')!.accelerator).toBeUndefined();
-      // Grayed exactly where the strip cannot render: no document open — the
-      // splash and the workspace-no-file state alike (the toggleMode shape).
-      expect(find(s, 'View', 'toggleFileTabs')!.disabled).toBeUndefined();
-      expect(find({ ...s, docOpen: false }, 'View', 'toggleFileTabs')!.disabled).toBe(true);
+      expect(view).not.toContain('toggleFileTabs');
+      // The rows the strip's checkbox used to separate now abut.
+      expect(view[view.indexOf('prevFile') + 1]).toBe('toggleMode');
+      expect(commandsIn(s, 'View').map((i) => i.label)).not.toContain('File Tabs');
     }
   });
 
-  test('U916: without the tab-strip seam the row is absent, not disabled — pre-#144 states keep their exact menu', () => {
-    // fileTabs undefined = a flavor with no strip (the static web build,
-    // since issue #186 gave hosted the strip): no row at all, and every
-    // other View item is exactly what it was.
-    const { fileTabs: _fileTabs, ...without } = base;
-    expect(find(without, 'View', 'toggleFileTabs')).toBeUndefined();
-    const withRow = commandsIn(base, 'View').map((i) => i.command);
-    const withoutRow = commandsIn(without, 'View').map((i) => i.command);
-    expect(withRow.filter((c) => c !== 'toggleFileTabs')).toEqual(withoutRow);
+  test('U916: a supplied tab-strip seam adds no row either — the menu is the same with the field and without it', () => {
+    // The state the app used to feed the row (the seam present, the setting
+    // on or off) now produces exactly the menu a seam-less flavor gets.
+    const withoutRow = commandsIn(base, 'View').map((i) => i.command);
+    for (const fileTabs of [true, false]) {
+      const withSeam = { ...base, fileTabs } as MenuState;
+      expect(find(withSeam, 'View', 'toggleFileTabs')).toBeUndefined();
+      expect(commandsIn(withSeam, 'View').map((i) => i.command)).toEqual(withoutRow);
+    }
   });
 });
 

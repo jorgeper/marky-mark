@@ -979,12 +979,11 @@ test('E214: PRD 009 Req 12 — View ▸ opens the shared View items: checked, gr
     'menu-view-toggleOpenOnly',
     'menu-view-nextFile',
     'menu-view-prevFile',
-    // PRD 013 Req 13 (issue #144): the strip's toggle rides the layout rows.
-    'menu-view-toggleFileTabs',
+    // Issue #258: File Tabs (a Settings ▸ Appearance checkbox now) and Sync
+    // Scrolling (the split view's corner button alone) left the menu, as did
+    // the semantic-zoom trio that used to trail the zoom group.
     'menu-view-toggleMode',
     'menu-view-toggleSplit',
-    // Issue #167: sync scrolling rides directly under the split it modifies.
-    'menu-view-toggleSyncScroll',
     'menu-view-toggleComments',
     'menu-view-nextComment',
     'menu-view-prevComment',

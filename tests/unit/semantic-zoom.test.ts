@@ -17,10 +17,10 @@ import {
   stepZoomLevel,
   zoomDocumentFromSource,
   EXCERPT_NOTICE,
-  SEMANTIC_ZOOM_COMBOS,
   ZOOM_LEVEL_LABELS,
   type ZoomBlock,
 } from '../../src/lib/semanticZoom';
+import * as semanticZoomModule from '../../src/lib/semanticZoom';
 import { combosConflict, DEFAULT_HOTKEYS, type HotkeyMap } from '@marky-mark/editor';
 
 /**
@@ -206,22 +206,24 @@ describe('PRD 011 Req 19 click to dive in', () => {
   });
 });
 
-describe('PRD 011 Req 23 a distinct feature from text zoom', () => {
-  test('U591: the three combos are exactly the ones the PRD names, and none is a text-zoom combo', () => {
-    expect(SEMANTIC_ZOOM_COMBOS).toEqual({
-      semanticZoomIn: 'Mod+Shift+=',
-      semanticZoomOut: 'Mod+Shift+-',
-      semanticZoomReset: 'Mod+Shift+0',
-    });
-    for (const combo of Object.values(SEMANTIC_ZOOM_COMBOS)) {
+describe('PRD 011 Req 23 (issue #258): semantic zoom has no accelerators of its own', () => {
+  // The combos the removed trio used to own. Nothing binds them now.
+  const FORMER_COMBOS = ['Mod+Shift+=', 'Mod+Shift+-', 'Mod+Shift+0'];
+
+  test('U591: the module exports no combo table — no dead accelerator data survives the removal', () => {
+    const exports = Object.keys(semanticZoomModule);
+    expect(exports).not.toContain('SEMANTIC_ZOOM_COMBOS');
+    expect(exports.filter((k) => /COMBO/i.test(k))).toEqual([]);
+    // SPEC4 §4 text zoom is a different feature and keeps its combos.
+    for (const combo of FORMER_COMBOS) {
       for (const text of ['Mod+=', 'Mod+-', 'Mod+0']) {
         expect(combosConflict(combo, text), `${combo} vs ${text}`).toBe(false);
       }
     }
   });
 
-  test('U592: no semantic-zoom combo collides with any DEFAULT_HOTKEYS binding', () => {
-    for (const combo of Object.values(SEMANTIC_ZOOM_COMBOS)) {
+  test('U592: no DEFAULT_HOTKEYS binding claims a former semantic-zoom combo, so the presses reach nothing', () => {
+    for (const combo of FORMER_COMBOS) {
       for (const action of Object.keys(DEFAULT_HOTKEYS) as Array<keyof HotkeyMap>) {
         expect(combosConflict(combo, DEFAULT_HOTKEYS[action]), `${combo} vs ${action}`).toBe(false);
       }

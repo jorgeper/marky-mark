@@ -467,7 +467,7 @@ describe('SPEC40 §1 tableGridView setting', () => {
 describe('issue #246 pending settings edits', () => {
   const baseline = (over: Partial<Settings> = {}): Settings => ({ ...DEFAULT_SETTINGS, ...over });
 
-  test('U1173: nothing pending is not dirty; an edit back to the original value clears itself', () => {
+  test('U1176: nothing pending is not dirty; an edit back to the original value clears itself', () => {
     expect(pendingIsDirty(NO_PENDING_EDITS)).toBe(false);
     expect(pendingScopePatches(NO_PENDING_EDITS)).toEqual([]);
 

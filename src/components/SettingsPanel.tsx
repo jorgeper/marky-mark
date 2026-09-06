@@ -67,6 +67,13 @@ interface Props {
   storageLocked: boolean;
   /** SPEC12 §4.1: desktop has no toolbar, so the auto-hide option hides too. */
   autoHideAvailable: boolean;
+  /**
+   * PRD 013 Req 13 (issue #258): the file-tab strip's checkbox moved here from
+   * the View menu, and rides the same seam the strip does
+   * (`platform.multiFileSession`) — the static single-file web build has no
+   * strip (Req 14), so it shows no row either.
+   */
+  fileTabsAvailable: boolean;
   /** §E18: an edit writes ONLY the named layer — never the other one. */
   onEdit(scope: SettingsScopeTab, patch: Partial<Settings>): void;
   onReloadThemes(): void;
@@ -143,7 +150,8 @@ const HOTKEY_LABELS: Record<keyof HotkeyMap, string> = {
   // Issue #158: listed, rebindable and reset-to-default like every row.
   closeFile: 'Close file',
   find: 'Find',
-  toggleFolders: 'Show / hide folders',
+  // SPEC34 §4.1 (issue #258): the row names the pane the View item names.
+  toggleFolders: 'Show / hide sidebar',
   // PRD 012 Req 10: listed, rebindable and reset-to-default like every row.
   toggleToc: 'Show / hide table of contents',
   // PRD 014 Req 3: listed, rebindable and reset-to-default like every row.
@@ -288,6 +296,7 @@ export function SettingsPanel({
   isMac,
   storageLocked,
   autoHideAvailable,
+  fileTabsAvailable,
   onEdit,
   onReloadThemes,
   onImportTheme,
@@ -737,6 +746,25 @@ export function SettingsPanel({
 
       {marginsRow}
 
+      {/* PRD 013 Req 13 (issue #258): the tab strip's toggle, moved off the
+          View menu. Present only where the strip's seam is — the static web
+          build (Req 14) has no strip and gets no row. Takes effect live. */}
+      {fileTabsAvailable && (
+        <div className="checkbox-row">
+          <input
+            id="settings-file-tabs"
+            type="checkbox"
+            data-testid="settings-file-tabs"
+            checked={settings.fileTabs}
+            onChange={(e) => onChange({ ...settings, fileTabs: e.target.checked })}
+          />
+          <label htmlFor="settings-file-tabs" style={{ margin: 0, fontWeight: 400 }}>
+            Show the file tab strip above the document
+          </label>
+          {scopeNote('fileTabs')}
+        </div>
+      )}
+
       <div className="field">
         <label htmlFor="settings-pane-min">
           Minimum pane width (px) — narrower panes scroll sideways
@@ -879,8 +907,10 @@ export function SettingsPanel({
         {scopeNote('autoHideScrollbars')}
       </div>
 
-      {/* Issue #167: hides only the corner button — the sync state itself
-          stays where it is, reachable through View ▸ Sync Scrolling. */}
+      {/* Issue #167, amended by issue #258: hides only the corner button. That
+          button is now sync scrolling's one toggle — there is no View row and
+          no hotkey behind it — so hiding it leaves the persisted state as it
+          stands, which is the accepted consequence. */}
       <div className="checkbox-row">
         <input
           id="settings-sync-scroll-button"

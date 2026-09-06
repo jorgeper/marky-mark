@@ -600,7 +600,7 @@ test('W15: PRD 011 Req 22 — all five levels work on excerpts, and the view say
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Field Notes');
 });
 
-test('W16: PRD 013 Req 14 (issue #149) — the file tab strip is desktop-only: no strip with a document open, no View ▸ File Tabs item', async ({
+test('W16: PRD 013 Req 14 (issue #149, amended by #258) — the file tab strip is desktop-only: no strip with a document open, no View row and no Settings checkbox', async ({
   page,
 }) => {
   // The beforeEach left the welcome document open — exactly the state where
@@ -610,9 +610,8 @@ test('W16: PRD 013 Req 14 (issue #149) — the file tab strip is desktop-only: n
   await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
   await expect(page.getByTestId('file-tab')).toHaveCount(0);
 
-  // The View ▸ flyout renders its usual rows but no File Tabs checkbox —
-  // menuSpec omits the item wherever the tab-strip seam is absent, rather
-  // than shipping a dead toggle.
+  // The View ▸ flyout renders its usual rows and no File Tabs row — issue
+  // #258 took the item off the menu on every flavor.
   await revealToolbar(page);
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('menu-view').click();
@@ -620,6 +619,18 @@ test('W16: PRD 013 Req 14 (issue #149) — the file tab strip is desktop-only: n
   await expect(flyout).toBeVisible();
   await expect(flyout.getByTestId('menu-view-toggleMode')).toBeVisible();
   await expect(flyout.getByTestId('menu-view-toggleFileTabs')).toHaveCount(0);
+  // Close the menu with an outside mousedown — besides a row or the
+  // hamburger, the only close the app menu implements (W13). The hamburger
+  // would only toggle it shut, leaving openSettings() nothing to click.
+  await page.getByTestId('docname').click();
+  await expect(page.getByTestId('app-menu')).toHaveCount(0);
+
+  // PRD 013 Req 13 (issue #258): the checkbox that inherited the toggle is
+  // gated on the same seam, so this build shows no row there either — no
+  // dead switch for a strip that cannot exist.
+  await openSettings(page, 'appearance');
+  await expect(page.getByTestId('settings-theme-light')).toBeVisible();
+  await expect(page.getByTestId('settings-file-tabs')).toHaveCount(0);
 });
 
 test('W17: PRD 013 Req 8 (issue #161) — a mermaid fence draws on the built single-file page with zero network requests', async ({

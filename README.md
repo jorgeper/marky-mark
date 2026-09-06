@@ -106,7 +106,7 @@ Either way it's a one-time step — the app opens normally afterwards.
 - **Never lose work** — dirty buffers shadow-save continuously; after a
   crash or force-quit the next launch offers to restore your unsaved
   changes, untitled buffers included.
-- **A folder sidebar, when you want it** — ⌘⇧E (or View → Folders) opens
+- **A folder sidebar, when you want it** — ⌘⇧E (or View → Sidebar) opens
   a VS Code-style tree: expand folders, markdown files marked with a `#`
   and one click away, everything else quietly grayed out. Resizable,
   closeable, remembers its root and what you had expanded; opening a

@@ -133,32 +133,6 @@ export interface ViewMenuState {
   appMode: AppMode;
   /** Issue #22: a document (file or untitled buffer) is open — gates Close File. */
   docOpen: boolean;
-  /**
-   * PRD 013 Reqs 13–14: the file tab strip's checkbox. OPTIONAL so every
-   * pre-#144 ViewMenuState call site (and frozen test fixtures) keeps its
-   * exact View menu: absent reads as "no tab-strip seam" and the row is
-   * simply not there — the semanticZoom idiom, chosen over the
-   * WORKSPACE_VIEW_COMMANDS omission set (lib/appMenu.ts) because that set
-   * keys on the workspace capability, which the hosted flavor HAS while its
-   * build must still show no strip (PRD 013 non-goal).
-   */
-  fileTabs?: boolean;
-  /**
-   * PRD 011 Reqs 2+23: the Experimental semantic-zoom switch. OPTIONAL so
-   * every pre-#117 ViewMenuState call site (and frozen test fixtures) keeps
-   * its exact View menu: absent reads as off, and the rows are simply not
-   * there — absent, not disabled.
-   */
-  semanticZoom?: boolean;
-  /**
-   * Issue #167: the split panes' sync-scroll checkbox. OPTIONAL so every
-   * pre-#167 ViewMenuState call site (and frozen test fixtures) keeps its
-   * exact View menu: absent reads as "no row". Supplied, the row rides
-   * beside Split Edit and dispatches the same `toggleSyncScroll` command as
-   * the corner button, so the state stays reachable when
-   * `showSyncScrollButton` hides that button.
-   */
-  syncScroll?: boolean;
 }
 
 /** Everything the whole native menu bar is derived from (SPEC12 §3.2). */
@@ -230,29 +204,28 @@ export function buildViewItems(s: ViewMenuState): MenuItemSpec[] {
   const noEdit = s.canEdit === false;
 
   return [
-    // SPEC34 §4.1: layout chrome ahead of the mode toggles. Issue #22:
-    // folder views only exist in workspace mode.
-    cmd('toggleFolders', 'Folders', s.hotkeys.toggleFolders, s.showFolders, !wsOpen),
-    // SPEC36 §5.2: the only-open-files view rides directly after Folders.
+    // SPEC34 §4.1 (issue #258): layout chrome ahead of the mode toggles. The
+    // row is labelled for the PANE it toggles — which hosts the folders, TOC
+    // and search views (SidebarView) — not for one of the three. Only the
+    // label changed: command, setting, hotkey, checkbox and the issue #22
+    // workspace-only gating are the ones it always had.
+    cmd('toggleFolders', 'Sidebar', s.hotkeys.toggleFolders, s.showFolders, !wsOpen),
+    // SPEC36 §5.2: the only-open-files view rides directly after the sidebar.
     cmd('toggleOpenOnly', 'Only Open Files', s.hotkeys.toggleOpenOnly, s.openOnly ?? false, !wsOpen),
     // Issue #84 (SPEC36 §6.4, amended): the cycle is discoverable, not
     // hotkey-only — accelerators follow the live map.
     cmd('nextFile', 'Next Open File', s.hotkeys.nextFile, undefined, noCycle),
     cmd('prevFile', 'Previous Open File', s.hotkeys.prevFile, undefined, noCycle),
-    // PRD 013 Req 13: the strip's checkbox closes the workspace/layout group.
-    // Present only where the tab-strip seam exists (state supplied — see the
-    // ViewMenuState field above); grayed with no document open, where the
-    // strip cannot render (Req 1). Deliberately hotkey-less (PRD non-goal).
-    ...(s.fileTabs !== undefined ? [cmd('toggleFileTabs', 'File Tabs', undefined, s.fileTabs, !s.docOpen)] : []),
+    // PRD 013 Req 13 (issue #258): the strip's checkbox is no longer a View
+    // row — it lives in Settings ▸ Appearance, gated on the same tab-strip
+    // seam. `toggleFileTabs` keeps its command and its no-hotkey status.
     // Issue #40: edit mode needs an open document (file or untitled) —
     // grayed on the splash and workspace-no-file states alike.
     cmd('toggleMode', 'Edit Mode', s.hotkeys.toggleEdit, s.mode === 'edit', !s.docOpen || noEdit),
     // SPEC25 §3: split is a first-class toggle, not just a Settings checkbox.
     cmd('toggleSplit', 'Split Edit', s.hotkeys.toggleSplit, s.splitEdit),
-    // Issue #167: sync scrolling rides directly under the split it modifies —
-    // a checkbox mirroring the persisted `syncScroll`, hotkey-less, on both
-    // menu surfaces, so it stays reachable with the corner button hidden.
-    ...(s.syncScroll !== undefined ? [cmd('toggleSyncScroll', 'Sync Scrolling', undefined, s.syncScroll)] : []),
+    // Issue #258 (was issue #167): sync scrolling has no View row — the split
+    // view's corner button is its one toggle, and it stays hotkey-less.
     // Master switch off (SPEC7 §2): the comments UI is gone, menu included —
     // navigation items too (SPEC14 §2.3).
     ...(s.commentsEnabled
@@ -281,17 +254,9 @@ export function buildViewItems(s: ViewMenuState): MenuItemSpec[] {
     cmd('zoomIn', 'Zoom In', 'Mod+='),
     cmd('zoomOut', 'Zoom Out', 'Mod+-'),
     cmd('zoomReset', 'Actual Size', 'Mod+0'),
-    // PRD 011 Reqs 2+23: the semantic-zoom rows exist only while the
-    // Experimental feature is on, and are labelled so the two zooms are not
-    // confusable with the three text-zoom rows directly above.
-    ...(s.semanticZoom
-      ? [
-          sep,
-          cmd('semanticZoomOut', 'Zoom Out Semantically', 'Mod+Shift+-'),
-          cmd('semanticZoomIn', 'Zoom In Semantically', 'Mod+Shift+='),
-          cmd('semanticZoomReset', 'Full Document', 'Mod+Shift+0'),
-        ]
-      : []),
+    // PRD 011 Req 23 (issue #258): no semantic-zoom rows and no separator for
+    // them, on either build and with the Experimental switch on or off — the
+    // feature is driven by its docked control and heading dives alone.
     ...(s.isMac ? [sep, pre('Fullscreen')] : []),
   ];
 }
