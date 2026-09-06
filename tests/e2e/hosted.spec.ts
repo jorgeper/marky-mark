@@ -530,7 +530,7 @@ test('E541: the held boot frame shows a large accent-ring indicator of its own â
       text: el.textContent,
       animations: cs.animationName,
       // The frame holds exactly one child: the indicator, no text or panel.
-      siblings: el.parentElement?.childElementCount ?? 0,
+      frameChildren: el.parentElement?.childElementCount ?? 0,
       frameText: el.parentElement?.textContent ?? '',
     };
   });
@@ -538,7 +538,7 @@ test('E541: the held boot frame shows a large accent-ring indicator of its own â
   expect(measured.h, 'indicator height').toBeGreaterThanOrEqual(28);
   // Its own rule, not the search panel's 9px class.
   expect(measured.classes).not.toContain('search-scanning-spinner');
-  expect(measured.siblings).toBe(1);
+  expect(measured.frameChildren).toBe(1);
   expect(measured.frameText).toBe('');
   // Spins, and keeps the late fade-in.
   expect(measured.animations).toContain('mm-search-spin');

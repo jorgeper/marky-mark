@@ -2925,9 +2925,9 @@ input.folder-rename-input.invalid {
    Deliberately almost nothing to look at: the app background (this mounts
    OUTSIDE .theme-root, like the sign-in page, so no theme colours it — it is
    the same unchanging surface the browser already showed while the bundle
-   loaded), with issue #252's spinner idiom fading in only if the wait
-   outlasts a beat. A boot that lands quickly therefore shows one still frame
-   and then the workspace. */
+   loaded), with its own indicator (the rule below, issue #316) fading in
+   only if the wait outlasts a beat. A boot that lands quickly therefore shows
+   one still frame and then the workspace. */
 .hosted-booting {
   position: fixed;
   inset: 0;
