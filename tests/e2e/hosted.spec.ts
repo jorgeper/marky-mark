@@ -821,7 +821,7 @@ test('E332: a pasted image is a workspace blob that renders for a second member'
   expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
 });
 
-test('E527: hosted Insert Image… picks a picture off the machine and uploads it into the workspace', async ({
+test('E528: hosted Insert Image… picks a picture off the machine and uploads it into the workspace', async ({
   page,
   request,
 }) => {
@@ -833,7 +833,7 @@ test('E527: hosted Insert Image… picks a picture off the machine and uploads i
   const TINY_PNG =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   const ada = await signIn(request, 'ada');
-  const id = await createWorkspace(request, ada, `E527 w${test.info().workerIndex}`);
+  const id = await createWorkspace(request, ada, `E528 w${test.info().workerIndex}`);
   const headers = { Authorization: `Bearer ${ada}` };
   const put = await request.put(`${HOSTED}/api/workspaces/${id}/files/shots.md`, {
     headers,

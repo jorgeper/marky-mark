@@ -1022,7 +1022,17 @@
    positioned siblings painted later in document order). Revealed by the
    hover walk in codeBlockView.ts (.is-hover), by keyboard focus, and while
    confirming — the label is ::after content, so the button holds no text
-   node and the document text stays byte-identical. */
+   node and the document text stays byte-identical.
+
+   Issue #265: plus .is-cursor, the persistent state — the widget sets it on
+   the one card holding the main selection (codeBlockView.ts), so a caret
+   clicked into a block keeps its button up with the pointer nowhere near it,
+   the revealed (raw-fence) card included. It is a separate class from
+   .is-hover on purpose: the hover walk clears .is-hover on every other
+   button each pass, so caret-in-A + pointer-over-B must light both. Purely a
+   visibility state — position, size and the card's 16px text inset below are
+   untouched, and the button stays clear of the smart-edit icon (issue #263),
+   which the rule above pushes out on the card's LEFT. */
 .editor-wrap .mm-copy-code-editor {
   position: absolute;
   top: 8px;
@@ -1050,6 +1060,7 @@
   content: 'Copied';
 }
 .editor-wrap .mm-copy-code-editor.is-hover,
+.editor-wrap .mm-copy-code-editor.is-cursor,
 .editor-wrap .mm-copy-code-editor:focus-visible,
 .editor-wrap .mm-copy-code-editor.is-copied {
   opacity: 1;
