@@ -1,3 +1,4 @@
+import type { Locator } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
   addComment,
@@ -1563,6 +1564,108 @@ test('E427: PRD 022 Req 12 — a plain-edit highlight click places the caret and
   await page.keyboard.type('X');
   await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('X');
   await expect(hl).toHaveCount(0);
+});
+
+// --- Issue #308: comment records paint in the editor; View ▸ Editor Highlights
+
+/**
+ * Issue #308: the editor-pane paint a COMMENT record must show — the fixed
+ * comment tint (no data-color), a non-transparent background, and the joined
+ * `.mm-hl` text equal to the anchored quote (spans join if CM splits).
+ */
+async function expectCommentTintOver(hl: Locator, quote: string): Promise<void> {
+  await expect(hl.first()).toBeVisible();
+  await expect(hl.first()).not.toHaveAttribute('data-color', /./);
+  await expect.poll(async () => (await hl.allTextContents()).join('')).toBe(quote);
+  expect(await hl.first().evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
+}
+
+test('E561: issue #308 — a comment record (no marker color) paints in plain edit and in split edit with the fixed comment tint over exactly its quote', async ({
+  page,
+}) => {
+  await addComment(page, PHRASE, 'an editor-painted note');
+  await waitForSidecar(page, (s) => !!s && s.includes('an editor-painted note'));
+  await expect(page.locator('mark.hl:not([data-color])').first()).toBeVisible();
+
+  // PLAIN edit: split off (it defaults on), so no preview pane exists.
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-content')).toBeVisible();
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  const hl = editor.locator('.mm-hl');
+  await expectCommentTintOver(hl, PHRASE);
+
+  // SPLIT edit: the same paint beside the preview's mark.
+  await page.keyboard.press('Control+e'); // back to preview
+  await expect(editor).toHaveCount(0);
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').check();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expectCommentTintOver(hl, PHRASE);
+  await expect(page.locator('mark.hl').first()).toBeVisible();
+});
+
+test('E562: issue #308 — toggling Editor Highlights off removes every editor decoration live, leaves the preview marks and the pane, and on again repaints', async ({
+  page,
+}) => {
+  await addComment(page, PHRASE, 'a toggled note');
+  await addHighlight(page, NAV_P1);
+  await waitForSidecar(page, (s) => !!s && s.includes('"color": "yellow"'));
+  await expect(page.locator('mark.hl')).toHaveCount(2);
+  await expect(page.getByTestId('comments-pane')).toBeVisible(); // authoring opened it (E437)
+
+  await page.keyboard.press('Control+e'); // splitEdit defaults on — split edit
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.mm-hl:not([data-color])').first()).toBeVisible();
+  await expect(editor.locator('.mm-hl[data-color="yellow"]').first()).toBeVisible();
+
+  // Off: no `.mm-hl` remains in the editor — the preview's marks, the pane
+  // and its card are untouched, and no mode switch or remount happened
+  // (the same .cm-content is still on screen).
+  await page.evaluate(() => window.__mmDispatch!('toggleEditorHighlights'));
+  await expect(editor.locator('.mm-hl')).toHaveCount(0);
+  await expect(page.locator('mark.hl')).toHaveCount(2);
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expect(editor.locator('.cm-content')).toBeVisible();
+
+  // On again: both records repaint in place.
+  await page.evaluate(() => window.__mmDispatch!('toggleEditorHighlights'));
+  await expect(editor.locator('.mm-hl:not([data-color])').first()).toBeVisible();
+  await expect(editor.locator('.mm-hl[data-color="yellow"]').first()).toBeVisible();
+  await expect(page.locator('mark.hl')).toHaveCount(2);
+});
+
+test('E563: issue #308 — the Editor Highlights off state is a persisted setting: it survives a reload', async ({ page }) => {
+  await addComment(page, PHRASE, 'a persisted-off note');
+  await waitForSidecar(page, (s) => !!s && s.includes('a persisted-off note'));
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.mm-hl').first()).toBeVisible();
+  await page.evaluate(() => window.__mmDispatch!('toggleEditorHighlights'));
+  await expect(editor.locator('.mm-hl')).toHaveCount(0);
+  // The write lands in settings.json before the reload.
+  await expect.poll(() => fsRead(page, '/config/settings.json')).toContain('"editorHighlights": false');
+
+  await page.reload();
+  await openWelcomeViaHelp(page);
+  await expect(page.locator('mark.hl').first()).toBeVisible(); // the preview still paints
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  // Give the (debounced) mapping a beat: with the setting off nothing paints.
+  await page.waitForTimeout(500);
+  await expect(page.getByTestId('editor').locator('.mm-hl')).toHaveCount(0);
+
+  // Back on after the reload: the range paints again.
+  await page.evaluate(() => window.__mmDispatch!('toggleEditorHighlights'));
+  await expect(page.getByTestId('editor').locator('.mm-hl').first()).toBeVisible();
 });
 
 // --- Issue #284 (PRD 023 Reqs 14–17): the dedicated comments pane ----------

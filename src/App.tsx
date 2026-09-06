@@ -5111,6 +5111,12 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         const s = stateRef.current.settings;
         updateSettings({ ...s, lineNumbers: !s.lineNumbers });
       },
+      // Issue #308: same shape as Line Numbers — the persisted key is the
+      // state, and the PRD 022 Req 12 highlight effect re-runs off it live.
+      toggleEditorHighlights: () => {
+        const s = stateRef.current.settings;
+        updateSettings({ ...s, editorHighlights: !s.editorHighlights });
+      },
       toggleMode,
       // SPEC25 §3: first-class split toggle — flips the persisted setting live.
       toggleSplit: () => {
@@ -5685,6 +5691,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       showFrontmatter,
       // Issue #10: the View checkbox mirrors the persisted gutter setting.
       lineNumbers: settings.lineNumbers,
+      // Issue #308: the View checkbox mirrors the persisted editor-paint setting.
+      editorHighlights: settings.editorHighlights,
       // PRD 012 Req 9: the View checkbox says whether the FOLDERS view is on
       // screen. Before the TOC existed the pane had one view, so this is the
       // same value it always was for every pre-#132 route.
@@ -5712,6 +5720,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       settings.showWordCount,
       showFrontmatter,
       settings.lineNumbers,
+      settings.editorHighlights,
       settings.showFolders,
       sidebarView,
       folderOpenOnly,
@@ -6272,7 +6281,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   useEffect(() => {
     // PRD 023 §15 (issue #284): marks render with the pane closed — only the
     // commentsEnabled master switch gates the paint, not the pane setting.
-    if (mode !== 'edit' || !settings.commentsEnabled || comments.length === 0) {
+    // Issue #308: View ▸ Editor Highlights is one more gate — off clears every
+    // editor-pane decoration (null ⇒ the compartment empties, no remount);
+    // back on, the ranges remap and repaint on the same debounce.
+    if (mode !== 'edit' || !settings.commentsEnabled || !settings.editorHighlights || comments.length === 0) {
       setEditorHighlights(null);
       return;
     }
@@ -6281,7 +6293,15 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       setEditorHighlights(mapHighlightsToSource(painted, canonicalOf(buffer)));
     }, 200);
     return () => clearTimeout(t);
-  }, [mode, comments, buffer, settings.commentsEnabled, settings.showResolved, canonicalOf]);
+  }, [
+    mode,
+    comments,
+    buffer,
+    settings.commentsEnabled,
+    settings.editorHighlights,
+    settings.showResolved,
+    canonicalOf,
+  ]);
 
   // PRD 023 §19 (issue #286): edit-mode authoring needs the document's
   // rendered PLAIN TEXT (the space anchors live in), which plain edit never

@@ -310,6 +310,9 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
       'toggleComments',
       'nextComment',
       'prevComment',
+      // Issue #308: the editor-pane paint toggle rides the comments block on
+      // both surfaces too.
+      'toggleEditorHighlights',
       // Issue #255: Go to Heading… is gone with the ⌘K palette — the capability
       // is the TOC view's in-pane search now, not a View row.
       'toggleWordCount',
@@ -422,6 +425,8 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
       'toggleComments',
       'nextComment',
       'prevComment',
+      // Issue #308: the editor-pane paint toggle inside the comments block.
+      'toggleEditorHighlights',
       'toggleDiff',
       // Issue #255: no palette row on either surface.
       'toggleWordCount',

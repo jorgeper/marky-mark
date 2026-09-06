@@ -25,6 +25,9 @@ export type CommandId =
   | 'toggleFrontmatter'
   // Issue #10: the line-number gutter toggles from View, not Settings.
   | 'toggleLineNumbers'
+  // Issue #308: the editor pane's anchor decorations toggle from View, not
+  // Settings (the toggleLineNumbers precedent).
+  | 'toggleEditorHighlights'
   | 'clearRecent'
   | 'find'
   | 'toggleFolders'

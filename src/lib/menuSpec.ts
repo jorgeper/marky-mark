@@ -100,6 +100,12 @@ export interface ViewMenuState {
   showFrontmatter: boolean;
   /** Issue #10: the line-number gutter (persisted setting). */
   lineNumbers: boolean;
+  /**
+   * Issue #308: the editor pane's anchor decorations (persisted setting).
+   * OPTIONAL so every pre-#308 call site (and the frozen test fixtures)
+   * stays valid; absent reads as on — the setting's own default.
+   */
+  editorHighlights?: boolean;
   /** SPEC34 §4.1: the folder sidebar's visibility (persisted setting). */
   showFolders: boolean;
   /**
@@ -254,6 +260,11 @@ export function buildViewItems(s: ViewMenuState): MenuItemSpec[] {
           ),
           cmd('nextComment', 'Next Comment', s.hotkeys.nextComment),
           cmd('prevComment', 'Previous Comment', s.hotkeys.prevComment),
+          // Issue #308: the editor pane's anchor paint — a checkbox mirroring
+          // the persisted setting, deliberately hotkey-less (the Line Numbers
+          // shape), inside the master-switch block so it leaves with the
+          // rest of the comments UI.
+          cmd('toggleEditorHighlights', 'Editor Highlights', undefined, s.editorHighlights ?? true),
         ]
       : []),
     // SPEC16 §2: diff toggle exists only where an editor does.
