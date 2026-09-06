@@ -22,7 +22,6 @@ export interface HotkeyMap {
   save: string;
   nextComment: string;
   prevComment: string;
-  headingPalette: string;
   toggleWordCount: string;
   // SPEC43 §5.1: Smart Edit.
   smartMenu: string;
@@ -78,9 +77,9 @@ export const DEFAULT_HOTKEYS: HotkeyMap = {
   save: 'Mod+S',
   nextComment: 'Mod+Alt+ArrowDown',
   prevComment: 'Mod+Alt+ArrowUp',
-  headingPalette: 'Mod+K',
   toggleWordCount: 'Mod+Shift+W',
-  // SPEC43 §5.1 (Mod+E/Mod+K classics are taken by toggleEdit/headingPalette).
+  // SPEC43 §5.1: the Mod+E classic is taken by toggleEdit. (Issue #255 freed
+  // Mod+K with the heading palette; it is deliberately left unassigned.)
   smartMenu: 'Mod+.',
   bold: 'Mod+B',
   italic: 'Mod+I',

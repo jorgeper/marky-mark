@@ -7,7 +7,12 @@
 
 Finding something in Marky Mark today stops at the edge of the open
 document: `Mod+F` searches the current buffer, the heading palette jumps
-within it, and the folder tree only browses names. Anyone working in a
+within it, and the folder tree only browses names.
+
+> **Amended (issue #255, 2026-09-06):** the heading palette named above was
+> retired; heading jumps are the sidebar's TOC view and its own in-pane search
+> now (PRD 012 Req 4). The problem this PRD solves — search stopping at the
+> edge of the open document — is unchanged. Anyone working in a
 folder of notes or specs — exactly the workspaces the sidebar was built
 for — has to remember which file holds a phrase, or leave the app to grep.
 The in-document find bar is also barer than it should be (issue #127): no

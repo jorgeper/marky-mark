@@ -1,7 +1,12 @@
 /**
- * SPEC16 §4: the heading palette's matcher. Case-insensitive subsequence
- * match with a simple score — word-start hits and consecutive runs rank
- * higher. Empty query returns the items unchanged (document order). Pure.
+ * The app's one fuzzy matcher (SPEC16 §4, retargeted by issue #255 when the ⌘K
+ * heading palette it was written for was retired in favour of the TOC view's
+ * in-pane search — see PRD 012 Req 4). Case-insensitive subsequence match with
+ * a simple score — word-start hits and consecutive runs rank higher. Empty
+ * query returns the items unchanged (document order). Pure.
+ *
+ * Callers: `tocModel.filterTocEntries` (the heading search) and
+ * `workspaceLifecycle.filterWorkspaces`.
  */
 
 function score(query: string, text: string): number | null {

@@ -14,6 +14,7 @@ build:
    against the last saved state.
 3. **Reading position memory** — every document reopens where you left off.
 4. **Heading palette** — `⌘K` fuzzy jump-to-heading, preview and edit.
+   *(Retired by issue #255 — see the amendment on §4.)*
 5. **Word count chip** — quiet live `words · min` readout, selection-aware.
 
 Out of scope: exporting from the web build (it only *opens* bundles),
@@ -104,6 +105,19 @@ body text, per-heading word counts, persistence of the diff toggle.
 
 ## 4. Heading palette (FR-K)
 
+> **Amended (issue #255, 2026-09-06):** the palette is **retired**. The
+> capability it named — fuzzy jump-to-heading — now lives in the sidebar's
+> Table of Contents view as an in-pane search box (PRD 012 Req 4): a
+> `toc-search-toggle` in the TOC header opens a `toc-search-input` that
+> fuzzy-filters the document's headings in place, and a match jumps through
+> `jumpToTocEntry` with exactly the two-mode behaviour §4.3 below specifies.
+> Everything in §4.1–§4.2 is gone: no `headingPalette` command, no `Mod+K`
+> binding (the chord is free and deliberately unassigned), no View item, no
+> Hotkeys-tab row, no `HeadingPalette.tsx` and no `.palette*` CSS. §4.3's jump
+> and §4.4's `fuzzy.ts` seam are the two parts that survive, unchanged and
+> reused; the search's own decision — which entries a query yields — lives in
+> `src/lib/tocModel.ts` (`filterTocEntries` / `tocPanelRows`).
+
 1. Command `headingPalette`, **rebindable hotkey** (HotkeyMap key
    `headingPalette`, default `Mod+K`, Hotkeys-tab label "Go to heading"),
    View-menu item **"Go to Heading…"** after the comment-navigation items.
@@ -146,17 +160,27 @@ body text, per-heading word counts, persistence of the diff toggle.
    gating). **View** gains, after `prevComment`: "Changes Since Save"
    (checkbox, edit modes only) and "Go to Heading…" (`headingPalette`
    accelerator). `MenuState` gains `canExportReview` and `showDiff`.
+
+   > **Amended (issue #255, 2026-09-06):** the "Go to Heading…" row is gone
+   > from View on both OS layouts. "Changes Since Save" is unchanged and is
+   > now the last thing this clause adds.
 2. **Amended, not weakened:** U19/U20's File-menu expectations are
    minimally updated to include `exportReview` — the only permitted
    existing-test amendment. U25's comment-nav triple stays contiguous
    (new View items come after it).
 3. HotkeyMap gains only `headingPalette`; settings round-trip as always.
 
+   > **Amended (issue #255, 2026-09-06):** `headingPalette` is gone from
+   > `HotkeyMap` and `DEFAULT_HOTKEYS`, so this clause adds nothing. The
+   > round-trip is unchanged and is what makes the removal safe: the parser
+   > iterates `DEFAULT_HOTKEYS`, so an old settings.json still carrying a
+   > `headingPalette` binding loads with the key simply dropped.
+
 ## 7. Web build & shim
 
 1. Web: the §1.3 boot path is the only behavior change; W1–W5 unchanged.
 2. Shim: provides the stub review template; everything else (positions,
-   palette, chip, diff) is plain app UI and needs no new seams.
+   heading search, chip, diff) is plain app UI and needs no new seams.
 
 ## 8. Tests (all suites stay green; only these are added)
 
@@ -178,11 +202,22 @@ body text, per-heading word counts, persistence of the diff toggle.
 6. **U34 (menu)** — File carries `exportReview` iff `canExportReview`; View
    carries `toggleDiff` (checkbox tracking `showDiff`) only in edit modes
    and `headingPalette` with its rebindable accelerator.
+
+   > **Amended (issue #255, 2026-09-06):** U34's palette half now asserts the
+   > opposite — View carries NO `headingPalette` row, on either OS layout or
+   > in either mode. The rebindable-accelerator mechanic it demonstrated is
+   > still covered by U21.
 7. **E60** — reading memory: scroll a long doc, open another doc, return →
    position restored (±one block); reload the app → still restored.
 8. **E61** — heading palette: `Mod+K` opens; typing filters; Enter jumps
    the preview (heading at viewport top); in split edit the editor jumps to
    the heading's line; Esc closes.
+
+   > **Amended (issue #255, 2026-09-06):** E61 is **retired with the palette**
+   > and its number is not reused. The same coverage — the box, the fuzzy
+   > filter, the preview jump, the edit-mode source-line jump, and Esc
+   > closing — is E530–E533 in `tests/e2e/toc.spec.ts`, over the TOC view's
+   > in-pane search.
 9. **E62** — word chip: shows the welcome doc's counts; selecting a
    paragraph switches to selection counts and back; typing in edit mode
    updates the count.

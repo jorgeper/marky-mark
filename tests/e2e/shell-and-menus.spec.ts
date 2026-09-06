@@ -982,7 +982,8 @@ test('E214: PRD 009 Req 12 — View ▸ opens the shared View items: checked, gr
     'menu-view-toggleComments',
     'menu-view-nextComment',
     'menu-view-prevComment',
-    'menu-view-headingPalette',
+    // Issue #255: Go to Heading… left with the ⌘K palette; heading search is
+    // the TOC view's own box now (E530+).
     'menu-view-toggleWordCount',
     'menu-view-toggleFrontmatter',
     'menu-view-toggleLineNumbers',
@@ -1004,7 +1005,9 @@ test('E214: PRD 009 Req 12 — View ▸ opens the shared View items: checked, gr
   await expect(view.getByTestId('menu-view-toggleMode')).toHaveAttribute('aria-checked', 'false');
   await expect(view.getByTestId('menu-view-toggleFolders')).toBeDisabled();
   await expect(view.getByTestId('menu-view-nextFile')).toBeDisabled();
-  await expect(view.getByTestId('menu-view-headingPalette')).toBeEnabled();
+  // …while an always-applicable row is a real enabled button (issue #255: this
+  // was the palette row before the TOC's in-pane search replaced it).
+  await expect(view.getByTestId('menu-view-toggleSplit')).toBeEnabled();
 
   // Choosing a row dispatches its existing command and closes the whole menu.
   await expect(page.getByTestId('word-chip')).toBeVisible();

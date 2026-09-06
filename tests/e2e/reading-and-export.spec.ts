@@ -3,7 +3,6 @@ import { expect, test } from './fixtures';
 import {
   addComment,
   dragAcrossText,
-  editorTopGutterLine,
   freshApp,
   freshNativeMenuApp,
   fsRead,
@@ -19,8 +18,12 @@ import {
   splitApp,
 } from './helpers';
 
-// Reading tools (position memory, heading palette, word count) plus Export
-// HTML, Print and Check for Updates.
+// Reading tools (position memory, word count) plus Export HTML, Print and
+// Check for Updates.
+//
+// Issue #255: E61 (the ⌘K heading palette) retired with the palette itself —
+// its coverage lives in tests/e2e/toc.spec.ts as E530–E533, over the TOC view's
+// in-pane heading search. The number is not reused.
 
 test.beforeEach(async ({ page }) => {
   await freshApp(page);
@@ -55,56 +58,6 @@ test('E60: reading position memory — reopening a document restores where you w
     .poll(() => page.locator('.workspace').evaluate((el) => el.scrollTop))
     .toBeGreaterThan(savedScroll * 0.8);
   expect(await page.locator('.workspace').evaluate((el) => el.scrollTop)).toBeLessThan(savedScroll * 1.2);
-});
-
-test('E61: heading palette — Mod+K opens, fuzzy-filters, Enter jumps preview and editor; Esc closes', async ({
-  page,
-}) => {
-  await splitApp(page, false); // long doc, entered full edit
-  await page.keyboard.press('Control+e'); // back to preview
-  await expect(page.getByTestId('doc').locator('h2').first()).toBeVisible();
-
-  // Capture the source line of a mid-document marker while the DOM has it.
-  const marker25Line = await page.evaluate(() => {
-    const el = Array.from(document.querySelectorAll<HTMLElement>('.doc [data-mm-line]')).find(
-      (h) => h.textContent === 'Marker 25'
-    )!;
-    return Number(el.dataset.mmLine);
-  });
-
-  await page.keyboard.press('Control+k');
-  await expect(page.getByTestId('heading-palette')).toBeVisible();
-  await page.getByTestId('heading-palette-input').fill('marker 15');
-  await expect(page.getByTestId('heading-palette-item').first()).toContainText('Marker 15');
-  await page.keyboard.press('Enter');
-  await expect(page.getByTestId('heading-palette')).toHaveCount(0);
-  // The heading sits at the viewport top (±120px).
-  const delta = () =>
-    page.evaluate(() => {
-      const ws = document.querySelector('.workspace')!;
-      const el = Array.from(document.querySelectorAll('.doc h2')).find((h) => h.textContent === 'Marker 15')!;
-      return Math.abs(el.getBoundingClientRect().top - ws.getBoundingClientRect().top);
-    });
-  await expect.poll(delta).toBeLessThan(120); // the jump scrolls asynchronously
-
-  // Esc closes without jumping.
-  await page.keyboard.press('Control+k');
-  await expect(page.getByTestId('heading-palette')).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(page.getByTestId('heading-palette')).toHaveCount(0);
-
-  // Edit mode: the editor scrolls to the chosen heading's source line.
-  await page.keyboard.press('Control+e');
-  await expect(page.getByTestId('editor')).toBeVisible();
-  await page.keyboard.press('Control+k');
-  await page.getByTestId('heading-palette-input').fill('marker 25');
-  await expect(page.getByTestId('heading-palette-item').first()).toContainText('Marker 25');
-  await page.keyboard.press('Enter');
-  // CI's 2-core runners need real time for CM's iterative scroll-measure
-  // convergence (heavier since the SPEC23/30 editor extensions) — timeout
-  // headroom only, the assertion is unchanged.
-  await expect.poll(() => editorTopGutterLine(page), { timeout: 20000 }).toBeGreaterThan(marker25Line - 6);
-  expect(await editorTopGutterLine(page)).toBeLessThan(marker25Line + 6);
 });
 
 test('E62: word-count chip — document counts, selection counts, live edit updates', async ({ page }) => {

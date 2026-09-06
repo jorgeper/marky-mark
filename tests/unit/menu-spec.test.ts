@@ -101,7 +101,7 @@ describe('SPEC12 menu spec', () => {
     expect(find(off, 'View', 'prevComment')).toBeUndefined();
   });
 
-  test('U34: exportDoc always present; toggleDiff only in edit modes tracking showDiff; palette accelerator follows rebinds', () => {
+  test('U34: exportDoc always present; toggleDiff only in edit modes tracking showDiff; no Go to Heading row', () => {
     // SPEC17 §5.1: Export… is unconditional — format gating lives in the dialog.
     for (const s of [base, { ...base, isMac: false }]) {
       expect(find(s, 'File', 'exportDoc')!.label).toBe('Export…');
@@ -113,10 +113,13 @@ describe('SPEC12 menu spec', () => {
     expect(find(edit, 'View', 'toggleDiff')!.checked).toBe(false);
     expect(find({ ...edit, showDiff: true }, 'View', 'toggleDiff')!.checked).toBe(true);
 
-    // Heading palette: always in View, rebindable accelerator.
-    expect(find(base, 'View', 'headingPalette')!.accelerator).toBe('Mod+K');
-    const rebound = { ...base, hotkeys: { ...DEFAULT_HOTKEYS, headingPalette: 'Mod+Shift+O' } };
-    expect(find(rebound, 'View', 'headingPalette')!.accelerator).toBe('Mod+Shift+O');
+    // Issue #255: the ⌘K palette is retired, so View carries no Go to Heading…
+    // row on either OS layout — the capability is the TOC view's own search.
+    // (SPEC16 §6.1's palette clause is amended; the rebindable-accelerator
+    // mechanic it demonstrated is still covered by U21's save rebind above.)
+    for (const s of [base, { ...base, isMac: false }, { ...base, mode: 'edit' as const }]) {
+      expect(commandsIn(s, 'View').map((i) => i.label)).not.toContain('Go to Heading…');
+    }
   });
 
   test('U35: Word Count is a View checkbox tracking the setting, with a rebindable accelerator', () => {

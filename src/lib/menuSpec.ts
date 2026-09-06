@@ -258,7 +258,6 @@ export function buildViewItems(s: ViewMenuState): MenuItemSpec[] {
       : []),
     // SPEC16 §2: diff toggle exists only where an editor does.
     ...(s.mode === 'edit' ? [cmd('toggleDiff', 'Changes Since Save', undefined, s.showDiff)] : []),
-    cmd('headingPalette', 'Go to Heading…', s.hotkeys.headingPalette),
     cmd('toggleWordCount', 'Word Count', s.hotkeys.toggleWordCount, s.showWordCount),
     // SPEC26 §3: session toggle for the metadata card (no accelerator).
     cmd('toggleFrontmatter', 'Front Matter', undefined, s.showFrontmatter),
