@@ -229,7 +229,7 @@ export function takePendingSignIn(store: KeyValueStore): PendingSignIn | null {
  * Read-and-clear like the boot record: the gate re-mints it on every load, so
  * nothing stale can outlive the session it describes.
  */
-export function storeSessionRecord(store: KeyValueStore, me: unknown): void {
+export function storeSessionRecord(store: KeyValueStore, me: SessionMe): void {
   store.setItem(SESSION_KEY, JSON.stringify(me));
 }
 

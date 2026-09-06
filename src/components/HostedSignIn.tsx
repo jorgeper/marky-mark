@@ -344,31 +344,50 @@ function initialPhase(): Phase {
     : { kind: 'signed-out', error: null, busy: false };
 }
 
+/**
+ * PRD 017 Req 3 + PRD 020 Req 5+6 (issue #253): open the boot from a token in
+ * hand — the visit's probes started together, and the ONE session record they
+ * fetch handed on to the platform, so nothing asks the server who this is a
+ * second time before the workspace is on screen. Every entry into the app
+ * (stored session, the Entra callback leg, a local sign-in) starts here, so
+ * none of them can forget the hand-off. `me` is null when that read failed;
+ * only the stored-token path reads that as "no session".
+ */
+async function startBootSession(token: string): Promise<{ probes: BootProbes; me: SessionMe | null }> {
+  const probes = startBootProbes(currentVisit(), token);
+  const me = await probes.me;
+  if (me) storeSessionRecord(window.sessionStorage, me);
+  return { probes, me };
+}
+
 export function HostedShell({ mode }: { mode: HostedMode }) {
   const [phase, setPhase] = useState<Phase>(initialPhase);
   const [username, setUsername] = useState('');
   /**
    * PRD 020 Req 5+6 (issue #253): the ONE holding frame. Raised before the
-   * first paint of any load that may end up inside the app, dropped exactly
+   * first paint of any load that may end up inside the app — that is exactly
+   * the `checking` phase initialPhase picked, read once here so the frame and
+   * the phase cannot disagree about which loads hold — and dropped exactly
    * once — when the gate answers with a surface of its own (sign-in,
    * not-found) or, for a load that enters the app, when <App/> reports its
    * destination on screen. Nothing intermediate is painted under it, and it
    * is never raised a second time: entering a workspace is one frame held,
    * and then the workspace.
    */
-  const [holding, setHolding] = useState(() =>
-    holdsBootFrame({ token: readStoredToken(window.localStorage), search: window.location.search })
-  );
+  const [holding, setHolding] = useState(() => phase.kind === 'checking');
   const releaseHold = useCallback(() => setHolding(false), []);
 
   // The backstop — never the timing anything correct relies on: however a boot
   // ends (a workspace open that failed, a seam that never answered), the held
-  // frame is not the last word on screen.
+  // frame is not the last word on screen. It covers only the window where
+  // <App/> is mounted under the frame: while the session is still resolving
+  // there is nothing underneath, so dropping the frame there would paint a
+  // blank page rather than a destination.
   useEffect(() => {
-    if (!holding) return;
+    if (!holding || phase.kind !== 'ready') return;
     const timer = window.setTimeout(() => setHolding(false), BOOT_HOLD_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
-  }, [holding]);
+  }, [holding, phase.kind]);
 
   // Boot: finish an in-flight Entra callback if this is one, else revalidate
   // a stored session against the API guard so it survives a page reload.
@@ -411,10 +430,8 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
             // at a deep link — the recorded intent continues there now, with
             // its probes started together like any other boot (issue #253),
             // and no home page painted on the way.
-            const probes = startBootProbes(currentVisit(), token);
-            const who = await probes.me;
-            if (who) storeSessionRecord(window.sessionStorage, who);
-            finish(await resolvedPhase(probes, who));
+            const { probes, me } = await startBootSession(token);
+            finish(await resolvedPhase(probes, me));
           } catch (err) {
             finish({ kind: 'signed-out', error: err instanceof Error ? err.message : String(err), busy: false });
           }
@@ -428,13 +445,11 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
         // front of them, and handed on to the platform (PRD 017 Req 3) so
         // nothing asks the server who this is a second time before the
         // workspace is on screen.
-        const probes = startBootProbes(currentVisit(), token);
-        const who = await probes.me;
-        if (who) {
-          storeSessionRecord(window.sessionStorage, who);
+        const { probes, me } = await startBootSession(token);
+        if (me) {
           // PRD 020 Req 5+7: an already-signed-in path (or legacy-query)
           // visit resolves and canonicalizes before the app mounts.
-          finish(await resolvedPhase(probes, who));
+          finish(await resolvedPhase(probes, me));
           return;
         }
         clearToken(window.localStorage);
@@ -459,10 +474,8 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
       storeToken(window.localStorage, body.token);
       // PRD 020 Req 9: local dev mode never navigated, so a sign-in that
       // began at a deep link still sits on that URL — continue there.
-      const probes = startBootProbes(currentVisit(), body.token);
-      const who = await probes.me;
-      if (who) storeSessionRecord(window.sessionStorage, who);
-      setPhase(await resolvedPhase(probes, who));
+      const { probes, me } = await startBootSession(body.token);
+      setPhase(await resolvedPhase(probes, me));
       return;
     }
     const error =

@@ -370,13 +370,12 @@ test('E391: the badge holds one anchored position across sign-in and the splash,
   // And the frame is gone the moment the app's own screen is there.
   await expect(page.getByTestId('hosted-booting')).toHaveCount(0);
 
-  // One bounding box on both badge screens (½px slack for subpixel centering).
-  for (const [name, box] of [['signed-out', signedOut]] as const) {
-    expect(Math.abs(box.x - splash.x), `${name} x`).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(box.y - splash.y), `${name} y`).toBeLessThanOrEqual(0.5);
-    expect(box.w, `${name} w`).toBe(splash.w);
-    expect(box.h, `${name} h`).toBe(splash.h);
-  }
+  // The sign-in badge and the splash badge share one bounding box (½px slack
+  // for subpixel centering).
+  expect(Math.abs(signedOut.x - splash.x), 'signed-out x').toBeLessThanOrEqual(0.5);
+  expect(Math.abs(signedOut.y - splash.y), 'signed-out y').toBeLessThanOrEqual(0.5);
+  expect(signedOut.w, 'signed-out w').toBe(splash.w);
+  expect(signedOut.h, 'signed-out h').toBe(splash.h);
 });
 
 /** Create a workspace and return its id (PRD 007 Req 10: creator → Owner). */
@@ -5842,7 +5841,6 @@ test('E505: a signed-in boot at a file deep link paints no sign-in page, no bare
   expect(landed.screens).toEqual([]);
   // The one stable frame: a single holding surface, entered exactly once.
   expect(landed.holds).toEqual(['hosted-booting']);
-  expect(new Set(landed.holds).size).toBeLessThanOrEqual(1);
   expect(meProbes).toEqual(['GET']);
   // And it is gone once the workspace is there.
   await expect(page.getByTestId('hosted-booting')).toHaveCount(0);
