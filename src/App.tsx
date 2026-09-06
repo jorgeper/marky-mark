@@ -317,6 +317,36 @@ const UNTITLED_SENTINEL = '\u0000untitled';
  */
 type ParkEntry = { buffer: string; savedText: string; comments: CommentData[]; stores: DocStores; editorHistory: unknown };
 
+/** openDoc's options: SPEC35 §4.2's edit intent, and issue #311's tab-switch park (set by parkAndOpen alone). */
+type OpenOpts = { editIntent?: boolean; parkScratch?: boolean };
+
+/** SPEC36 §2.6: the action the unsaved-changes prompt guards, resumed on Save / Don't save. */
+type OpenPromptIntent =
+  // SPEC35 §4.2 (issue #194): editIntent rides along so a just-created
+  // file still lands in edit mode after the guard resolves.
+  | { kind: 'open'; path: string; editIntent?: boolean }
+  | { kind: 'new' }
+  | { kind: 'close-file'; path: string }
+  // Issue #22: File → Close File over a dirty untitled buffer.
+  | { kind: 'close-untitled' }
+  // Issue #311: restoring the parked scratch buffer over a dirty untitled.
+  | { kind: 'open-scratch' };
+
+/** The prompt's "Save before …?" — the guarded action in words. */
+function openPromptAction(prompt: OpenPromptIntent, basename: (p: string) => string): string {
+  switch (prompt.kind) {
+    case 'open':
+      return `opening “${basename(prompt.path)}”`;
+    case 'open-scratch':
+      return `opening “${SCRATCH_NAME}”`; // issue #311
+    case 'close-file':
+    case 'close-untitled':
+      return 'closing it';
+    case 'new':
+      return 'starting a new file';
+  }
+}
+
 /**
  * Issue #42: the identity editor pushes are routed by — the doc path, the
  * untitled sentinel, or null when nothing is open. editorSessionDocRef and
@@ -558,6 +588,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // what the row and the tab render from (the entry's dirtiness is fixed at
   // park time — nothing edits a parked buffer). Every write goes through
   // setScratchPark so the two can never disagree (the issue #291 pattern).
+  // Filled only by the commit that replaces the buffer (parkScratch, from
+  // openDoc) and emptied by the restore, so the slot is never occupied while
+  // the scratch buffer is on screen.
   // In-memory only: never persisted to session/foldertree (PRD 023 Reqs 1–3
   // — a reload or a fresh visit starts a fresh buffer with this one gone).
   const scratchParkRef = useRef<ParkEntry | null>(null);
@@ -759,18 +792,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Pending intent awaiting the unsaved-changes decision: open a path, start
   // a new untitled buffer (SPEC22 §1.2), or close one open file (SPEC36 §3.4).
-  const [openPrompt, setOpenPrompt] = useState<
-    // SPEC35 §4.2 (issue #194): editIntent rides along so a just-created
-    // file still lands in edit mode after the guard resolves.
-    | { kind: 'open'; path: string; editIntent?: boolean }
-    | { kind: 'new' }
-    | { kind: 'close-file'; path: string }
-    // Issue #22: File → Close File over a dirty untitled buffer.
-    | { kind: 'close-untitled' }
-    // Issue #311: restoring the parked scratch buffer over a dirty untitled.
-    | { kind: 'open-scratch' }
-    | null
-  >(null);
+  const [openPrompt, setOpenPrompt] = useState<OpenPromptIntent | null>(null);
   /**
    * Issue #22: the changed-workspace Save / Don't Save / Cancel prompt. The
    * ref holds the continuation (close / replace / quit) to run on proceed.
@@ -2082,11 +2104,17 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   }, [canonicalOf]);
 
   /**
-   * Issue #311: parkActive's twin for the scratch buffer — called by every
-   * user-initiated open that leaves the ACTIVE scratch buffer (sidebar click,
-   * Mod+click, tab click, deep link, cycling), in place of the PRD 019 Req 11
-   * silent discard. Same entry shape, own slot; the editor-history fixup
-   * rides the same post-commit effect under the untitled sentinel.
+   * Issue #311: parkActive's twin for the scratch buffer — openDoc calls it
+   * at the COMMIT of a tab switch (parkAndOpen: sidebar click, Mod+click, tab
+   * click, deep link, cycling) that replaces the active scratch buffer, in
+   * place of the PRD 019 Req 11 silent discard. Parking at the commit rather
+   * than at the click means an open that never lands (unreadable file, a
+   * rejected hosted round trip, superseded by a later click or a close)
+   * leaves no stale entry to resurface as a parked row later, and the entry
+   * holds whatever was typed while the open was in flight. Same entry shape,
+   * own slot; the editor-history fixup rides the same post-commit effect
+   * under the untitled sentinel. A no-op unless the scratch buffer is on
+   * screen — parkAndOpen asks unconditionally.
    */
   const parkScratch = useCallback(() => {
     const s = stateRef.current;
@@ -2424,7 +2452,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // SPEC35 §4.2 (amended, issue #194): `editIntent` marks an open of a file
   // the app just created — it lands in edit mode instead of the remembered
   // view mode. Only creation call sites set it; ordinary opens stay neutral.
-  const openDoc = useCallback(async (p: Platform, path: string, opts?: { editIntent?: boolean }) => {
+  const openDoc = useCallback(async (p: Platform, path: string, opts?: OpenOpts) => {
     // Issue #136: take the open token synchronously — a later openDoc (or a
     // close) overtakes this one, and an overtaken open commits nothing.
     const seq = ++openSeqRef.current;
@@ -2536,6 +2564,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       setFmOverride(null); // SPEC26 §3.3: a new document follows the setting
       setDocPath(path);
       setUntitled(false); // SPEC22 §3.3: a real document replaces any untitled buffer
+      // Issue #311: a tab switch over the active scratch buffer parks it here,
+      // where the discard used to be (see parkScratch). Every other landing —
+      // Save As, the picker's New File, boot, a close's neighbour — leaves the
+      // buffer's fate as before.
+      if (opts?.parkScratch) parkScratch();
       setScratchMark(false); // PRD 019 Req 11: replaced (or saved via Save As, which lands here) ⇒ exemption over
       setBuffer(content);
       setSavedText(saved);
@@ -2570,7 +2603,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       // alone: the newer open owns the marker now.
       if (isCurrent()) openTargetRef.current = null;
     }
-  }, [loadDocParts, recordPosition, currentTopLine, commitRecent, revealInFolders, commitOpenSet, installWatcher, requestEditorFocus]);
+  }, [loadDocParts, recordPosition, currentTopLine, commitRecent, revealInFolders, commitOpenSet, installWatcher, requestEditorFocus, parkScratch]);
 
   /**
    * SPEC36: the editor snapshots its state into editorHistoryRef during its
@@ -2610,7 +2643,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       // flight, so the EARLIER file won instead of the last-clicked one.
       if ((openTargetRef.current ?? stateRef.current.docPath) === path) return;
       parkActive();
-      await openDoc(p, path, opts);
+      // Issue #311: and the active scratch buffer parks at the commit —
+      // parkAndOpen IS the tab switch, so every route through here asks.
+      await openDoc(p, path, { editIntent: opts?.editIntent, parkScratch: true });
     },
     [parkActive, openDoc]
   );
@@ -2636,17 +2671,17 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       // from it keeps the classic guard, open-set member or not.
       // PRD 019 Req 11: except the scratchpad's scratch buffer — no prompt,
       // even dirty. Issue #311 (amending the discard leg): it PARKS instead
-      // of being discarded, so its row and tab stay and a click brings it back.
+      // of being discarded (parkAndOpen ⇒ openDoc ⇒ parkScratch), so its row
+      // and tab stay and a click brings it back.
       if (s.untitled && s.dirty && !scratchRef.current) {
         // SPEC35 §4.2 (issue #194): the intent survives the prompt — a
         // resolution that still opens the new file still lands in edit mode.
         setOpenPrompt({ kind: 'open', path, editIntent: opts?.editIntent });
         return;
       }
-      parkScratch();
       void parkAndOpen(p, path, opts);
     },
-    [openDoc, parkAndOpen, parkScratch]
+    [openDoc, parkAndOpen]
   );
 
   /** SPEC36 §3.1: Mod+click — open IN ADDITION and activate; no guard ever. */
@@ -2656,15 +2691,14 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       if (!p) return;
       const s = stateRef.current;
       // PRD 019 Req 11: the scratch buffer raises no prompt; issue #311: it
-      // parks (parkScratch) instead of being discarded.
+      // parks (parkAndOpen's commit) instead of being discarded.
       if (s.untitled && s.dirty && !scratchRef.current) {
         setOpenPrompt({ kind: 'open', path }); // §2.6: untitled can't park
         return;
       }
-      parkScratch();
       void parkAndOpen(p, path); // active ⇒ no-op; not-open adds and activates
     },
-    [parkAndOpen, parkScratch]
+    [parkAndOpen]
   );
 
   /** SPEC4 clean start: close the buffer down to the splash (SPEC36 §3.5). */
@@ -2825,16 +2859,13 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         // PRD 019 Req 11: a dirty scratch buffer cycles away without a prompt
         // — issue #311: parked, not discarded, like every other open.
         if (s.dirty && !scratchRef.current) setOpenPrompt({ kind: 'open', path: target });
-        else {
-          parkScratch();
-          void parkAndOpen(p, target);
-        }
+        else void parkAndOpen(p, target);
         return;
       }
       const target = cycleOpen(list, s.docPath, dir);
       if (target) void parkAndOpen(p, target);
     },
-    [parkAndOpen, parkScratch]
+    [parkAndOpen]
   );
 
   /** SPEC36 §7: the dirty documents, tree order, dirty untitled last. */
@@ -4076,54 +4107,69 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   }, [openLocalFile]);
 
   /**
+   * The in-place swap to an untitled buffer, shared by File → New
+   * (startUntitled) and the scratch buffer's restore (finishRestoreScratch,
+   * issue #311): reset the document surface — find, front matter, selection,
+   * diff, watcher — and put `next` on screen in edit mode. Callers settle
+   * what differs before calling: the editor history (cleared, or the parked
+   * snapshot), whether the outgoing document parks, in-flight opens.
+   */
+  const swapInUntitled = useCallback(
+    (next: { buffer: string; savedText: string; comments: CommentData[]; stores: DocStores; scratch: boolean }) => {
+      recordPosition(stateRef.current.docPath, currentTopLine()); // park the outgoing doc (SPEC16 §3.2)
+      pendingScrollLineRef.current = null;
+      skipSaveRef.current = true;
+      pendingEditorSelRef.current = null;
+      pendingPreviewSelRef.current = null;
+      lastEditorSelRef.current = { from: 0, to: 0 };
+      setFmOverride(null); // SPEC26 §3.3
+      setFindOpen(false); // SPEC30 §1.5
+      setFindQuery('');
+      setFindDebounced('');
+      setFindOptions(DEFAULT_SEARCH_OPTIONS); // PRD 014 Req 10 (issue #154)
+      setDocPath(null);
+      setUntitled(true);
+      setScratchMark(next.scratch);
+      setBuffer(next.buffer);
+      setSavedText(next.savedText);
+      setHtml('');
+      setComments(next.comments);
+      setStores(next.stores);
+      setPositions({});
+      setActiveId(null);
+      setPending(null);
+      setMode('edit');
+      // SPEC22 §1.1 (issue #262): the untitled buffer is entered ready to type.
+      // The Editor carries no `key` and is not remounted for this in-place
+      // buffer swap, so its once-per-view mount focus cannot cover ⌘N over an
+      // open document — this ask is what does. PRD 019 Req 10 rides along: the
+      // scratchpad's boot buffer comes through here too.
+      requestEditorFocus();
+      setShowDiff(false);
+      setDiff(null);
+      unwatchRef.current?.();
+      unwatchRef.current = null;
+      // SPEC36 §2.6: untitled sits outside the set — the set is untouched
+      // (the replaced file stays open, lazily reloadable). Deliberately no
+      // persist here: ⌘N must not touch the disk (E78 discipline);
+      // activeFile self-corrects on the next real open.
+    },
+    [recordPosition, currentTopLine, setScratchMark, requestEditorFocus]
+  );
+
+  /**
    * File → New v2 (SPEC22 §1.1): swap in a blank unsaved buffer in edit mode.
    * Nothing touches the disk and no dialog opens — the first Save asks where.
    */
   const startUntitled = useCallback(() => {
-    const s = stateRef.current;
-    recordPosition(s.docPath, currentTopLine()); // park the outgoing doc (SPEC16 §3.2)
-    pendingScrollLineRef.current = null;
-    skipSaveRef.current = true;
     editorHistoryRef.current = null;
-    pendingEditorSelRef.current = null;
-    pendingPreviewSelRef.current = null;
-    lastEditorSelRef.current = { from: 0, to: 0 };
-    setFmOverride(null); // SPEC26 §3.3
-    setFindOpen(false); // SPEC30 §1.5
-    setFindQuery('');
-    setFindDebounced('');
-    setFindOptions(DEFAULT_SEARCH_OPTIONS); // PRD 014 Req 10 (issue #154)
-    setDocPath(null);
-    setUntitled(true);
     // PRD 019 Req 11: a NEW untitled buffer is ordinary — only the boot's
     // scratchStart hook re-arms the exemption, after calling this.
     // PRD 023 Req 8: so a ⌘N buffer (even inside the scratch workspace)
     // reads "Untitled", normally styled.
-    setScratchMark(false);
-    setBuffer('');
-    setSavedText('');
-    setHtml('');
-    setComments([]);
-    setStores(CLEAN_STORES); // PRD 004: a clean buffer never inherits a verdict
-    setPositions({});
-    setActiveId(null);
-    setPending(null);
-    setMode('edit');
-    // SPEC22 §1.1 (issue #262): the untitled buffer is entered ready to type.
-    // The Editor carries no `key` and is not remounted for this in-place
-    // buffer swap, so its once-per-view mount focus cannot cover ⌘N over an
-    // open document — this ask is what does. PRD 019 Req 10 rides along: the
-    // scratchpad's boot buffer comes through here too.
-    requestEditorFocus();
-    setShowDiff(false);
-    setDiff(null);
-    unwatchRef.current?.();
-    unwatchRef.current = null;
-    // SPEC36 §2.6: untitled sits outside the set — the set is untouched
-    // (the replaced file stays open, lazily reloadable). Deliberately no
-    // persist here: ⌘N must not touch the disk (E78 discipline);
-    // activeFile self-corrects on the next real open.
-  }, [recordPosition, currentTopLine, requestEditorFocus]);
+    // PRD 004: a clean buffer never inherits a verdict (CLEAN_STORES).
+    swapInUntitled({ buffer: '', savedText: '', comments: [], stores: CLEAN_STORES, scratch: false });
+  }, [swapInUntitled]);
   // The boot effect's PRD 019 Req 10 scratch-start hook calls through here.
   startUntitledRef.current = startUntitled;
 
@@ -4141,7 +4187,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const finishRestoreScratch = useCallback(() => {
     const entry = scratchParkRef.current;
     if (!entry) return;
-    const s = stateRef.current;
     // Issue #136: an open in flight loses to the restore — it must not
     // commit its document over the restored buffer.
     openSeqRef.current++;
@@ -4149,53 +4194,27 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     docEpochRef.current++; // issue #43: orphan the outgoing doc's render
     parkActive(); // the outgoing real file keeps its text and history
     setScratchPark(null);
-    recordPosition(s.docPath, currentTopLine()); // SPEC16 §3.2
-    pendingScrollLineRef.current = null;
-    skipSaveRef.current = true;
     // The parked history installs after the commit, over the unmounting
     // editor's clobber — openDoc's own pattern.
     pendingHistoryRef.current = { value: entry.editorHistory };
-    pendingEditorSelRef.current = null;
-    pendingPreviewSelRef.current = null;
-    lastEditorSelRef.current = { from: 0, to: 0 };
-    activeCueRef.current = null;
-    setFmOverride(null); // SPEC26 §3.3
-    setFindOpen(false); // SPEC30 §1.5
-    setFindQuery('');
-    setFindDebounced('');
-    setFindOptions(DEFAULT_SEARCH_OPTIONS); // PRD 014 Req 10
-    setDocPath(null);
-    setUntitled(true);
-    setScratchMark(true); // PRD 019 Req 11 / PRD 023 Req 6: the exemption and the label return
-    setBuffer(entry.buffer);
-    setSavedText(entry.savedText);
-    setHtml('');
-    setComments(entry.comments);
-    setStores(entry.stores);
-    setPositions({});
-    setActiveId(null);
-    setPending(null);
-    setMode('edit'); // the scratch buffer is an edit-mode surface (PRD 019 Req 10)
-    requestEditorFocus();
-    setShowDiff(false);
-    setDiff(null);
-    unwatchRef.current?.();
-    unwatchRef.current = null;
-    // SPEC36 §2.6: untitled sits outside the set — the set is untouched;
-    // the parked file stays open, lazily reloadable (startUntitled's rule).
-  }, [parkActive, setScratchPark, recordPosition, currentTopLine, setScratchMark, requestEditorFocus]);
+    activeCueRef.current = null; // SPEC44: cues re-derive from the new caret
+    // PRD 019 Req 11 / PRD 023 Req 6: `scratch` re-arms — the exemption and
+    // the label return; PRD 019 Req 10: an edit-mode surface, like at boot.
+    swapInUntitled({
+      buffer: entry.buffer,
+      savedText: entry.savedText,
+      comments: entry.comments,
+      stores: entry.stores,
+      scratch: true,
+    });
+  }, [parkActive, setScratchPark, swapInUntitled]);
 
   /** Issue #311: the row's / the tab's click — a no-op while already active. */
   const restoreScratch = useCallback(() => {
     const s = stateRef.current;
-    if (scratchRef.current) {
-      // Already on screen: nothing to restore. Any entry left in the slot is
-      // stale (an open that parked the buffer but never committed), so it
-      // is dropped rather than rendered as a second scratch.
-      setScratchPark(null);
-      return;
-    }
-    if (!scratchParkRef.current) return;
+    // Already on screen (the slot is empty then — see scratchParkRef), or
+    // nothing parked: nothing to restore.
+    if (scratchRef.current || !scratchParkRef.current) return;
     // SPEC36 §2.6: an ordinary dirty untitled buffer can't park — the classic
     // guard stands, exactly as it does for any other open over it.
     if (s.untitled && s.dirty) {
@@ -4203,7 +4222,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       return;
     }
     finishRestoreScratch();
-  }, [finishRestoreScratch, setScratchPark]);
+  }, [finishRestoreScratch]);
 
   /** SPEC30 §3.2: remove the shadow draft (best effort) — an explicit discard. */
   const deleteDraft = useCallback(async () => {
@@ -8898,15 +8917,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             <h2>Unsaved changes</h2>
             <p className="dialog-note">
               “{docPath ? platform.basename(docPath) : untitled ? 'Untitled' : 'This file'}” has unsaved changes. Save
-              before{' '}
-              {openPrompt.kind === 'open'
-                ? `opening “${platform.basename(openPrompt.path)}”`
-                : openPrompt.kind === 'open-scratch'
-                  ? `opening “${SCRATCH_NAME}”`
-                  : openPrompt.kind === 'close-file' || openPrompt.kind === 'close-untitled'
-                    ? 'closing it'
-                    : 'starting a new file'}
-              ?
+              before {openPromptAction(openPrompt, platform.basename)}?
             </p>
             <div className="dialog-actions">
               <Button

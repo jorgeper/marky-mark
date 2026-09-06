@@ -4490,16 +4490,9 @@ test('E397: /scratchpad gates on sign-in, then lands on /<username>/scratchpad �
   expect(new URL(page.url()).pathname).toBe(scratchPath);
 });
 
-test('E398: the scratch buffer starts fresh over existing files and parks silently when one opens — no unsaved-changes prompt, dirty or not, and its text returns on click-back', async ({
-  page,
-}) => {
-  // PRD 019 Req 10+11 (issue #215): every visit starts a new untitled buffer
-  // even when the scratchpad already holds files, and that buffer — alone —
-  // is exempt from the SPEC36 §2.6 three-way prompt: opening a sidebar file
-  // over it, dirty, lands directly with no dialog. The dirty dot stays the
-  // only "unsaved" signal. Issue #311 amends the discard leg: the buffer is
-  // PARKED, not discarded — its row and tab stay and a click brings it back.
-  const token = await signIn(page.request, 'grace');
+/** Issue #311: sign in to the scratchpad with `kept.md` already resident. */
+async function scratchpadWithKept(page: Page, username: string): Promise<{ id: string; token: string }> {
+  const token = await signIn(page.request, username);
   await dropDraft(page, token);
   const resolve = await page.request.post(`${HOSTED}/api/me/scratchpad`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -4511,15 +4504,27 @@ test('E398: the scratch buffer starts fresh over existing files and parks silent
     data: '# Kept\n\nA scratchpad resident.\n',
   });
   expect(put.status()).toBe(200);
-
   await page.goto(`${HOSTED}/scratchpad`);
-  await page.getByTestId('hosted-sign-in-username').fill('grace');
+  await page.getByTestId('hosted-sign-in-username').fill(username);
   await page.getByTestId('hosted-sign-in-submit').click();
-
-  // Req 10: a fresh untitled buffer — the existing file stays visible and
-  // reachable in the sidebar, not auto-opened over the scratch.
   await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
+  return { id, token };
+}
+
+test('E398: the scratch buffer starts fresh over existing files and parks silently when one opens — no unsaved-changes prompt, dirty or not, and its text returns on click-back', async ({
+  page,
+}) => {
+  // PRD 019 Req 10+11 (issue #215): every visit starts a new untitled buffer
+  // even when the scratchpad already holds files, and that buffer — alone —
+  // is exempt from the SPEC36 §2.6 three-way prompt: opening a sidebar file
+  // over it, dirty, lands directly with no dialog. The dirty dot stays the
+  // only "unsaved" signal. Issue #311 amends the discard leg: the buffer is
+  // PARKED, not discarded — its row and tab stay and a click brings it back.
+  // Req 10 is the helper's landing: a fresh untitled buffer, the existing
+  // file visible and reachable in the sidebar, not auto-opened over it.
+  await scratchpadWithKept(page, 'grace');
 
   // Dirty the scratch buffer; the dot shows (the one "unsaved" signal kept).
   await page.locator('.cm-content').click();
@@ -4553,29 +4558,6 @@ test('E398: the scratch buffer starts fresh over existing files and parks silent
   // PRD 020 Req 10: the same workspace, shown at its canonical scratch URL.
   expect(new URL(page.url()).pathname).toBe('/grace/scratchpad');
 });
-
-/** Issue #311: sign in to the scratchpad with `kept.md` already resident. */
-async function scratchpadWithKept(page: Page, username: string): Promise<{ id: string; token: string }> {
-  const token = await signIn(page.request, username);
-  await dropDraft(page, token);
-  const resolve = await page.request.post(`${HOSTED}/api/me/scratchpad`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  expect(resolve.status()).toBe(200);
-  const id = ((await resolve.json()) as { id: string }).id;
-  const put = await page.request.put(`${HOSTED}/api/workspaces/${id}/files/kept.md`, {
-    headers: { Authorization: `Bearer ${token}` },
-    data: '# Kept\n\nA scratchpad resident.\n',
-  });
-  expect(put.status()).toBe(200);
-  await page.goto(`${HOSTED}/scratchpad`);
-  await page.getByTestId('hosted-sign-in-username').fill(username);
-  await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
-  await expect(page.getByTestId('editor')).toBeVisible();
-  await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
-  return { id, token };
-}
 
 test('E550: issue #311 — the folder panel shows a "Scratchpad file" row for the boot’s scratch buffer: first under the root and in the only-open list, selected while active, in the --mm-scratch-name accent/italic treatment', async ({
   page,
@@ -4772,6 +4754,41 @@ test('E553: issue #311 — the first save turns the scratch buffer into an ordin
   await expect(page.getByTestId('folder-item-scratch')).toHaveCount(0);
   await expect(page.locator('.scratch-name')).toHaveCount(0);
   await expect(page.getByTestId('folder-item').filter({ hasText: name }).first()).toHaveClass(/\bselected\b/);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(0);
+});
+
+test('E554: issue #311 — an open that never lands parks nothing: closing the still-active scratch buffer afterwards resurrects no parked row', async ({
+  page,
+}) => {
+  // The park is made at the commit that replaces the buffer, not at the
+  // click — so a failed open (here: the file vanished under its row) leaves
+  // no entry, and the close that follows shows no stale "Scratchpad file"
+  // row or tab holding the pre-failure text.
+  const { id, token } = await scratchpadWithKept(page, 'grace');
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('never parked');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  const gone = await page.request.delete(`${HOSTED}/api/workspaces/${id}/files/kept.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(gone.status()).toBe(200);
+  const refused = page.waitForResponse((r) => r.url().endsWith('/files/kept.md') && r.status() === 404);
+  await page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first().click();
+  await refused;
+  // The open failed: the scratch buffer is still the document on screen.
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.locator('.cm-content')).toContainText('never parked');
+  const row = page.getByTestId('folder-item-scratch');
+  await expect(row).toHaveClass(/\bselected\b/);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(1);
+
+  // Close it: the splash, and nothing left claiming to be a parked scratch.
+  await row.hover();
+  await row.getByTestId('folder-tab-close').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(page.getByTestId('folder-item-scratch')).toHaveCount(0);
   await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(0);
 });
 

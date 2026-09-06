@@ -80,9 +80,10 @@ export function scratchPresence(s: {
   /** Issue #311: the parked scratch entry's dirtiness, or null when none is parked. */
   parked: { dirty: boolean } | null;
 }): ScratchPresence | null {
-  // The active buffer wins over any park entry: while the scratch is on
-  // screen, an entry could only be a stale one (an open that never
-  // committed), and rendering both would show the buffer twice.
+  // The active buffer wins over any park entry: the slot is filled only by
+  // the commit that replaces the buffer and emptied by the restore, so while
+  // the scratch is on screen an entry could only be a caller's mistake — and
+  // rendering both would show the buffer twice.
   if (s.scratch) return { active: true, dirty: s.dirty };
   if (s.parked) return { active: false, dirty: s.parked.dirty };
   return null;

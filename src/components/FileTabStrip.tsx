@@ -227,6 +227,8 @@ export function FileTabStrip(p: FileTabStripProps) {
   // PRD 023 Req 6: the untitled tab's label rides the same resolution the
   // toolbar and the title effect use, so the surfaces cannot drift.
   const untitledName = untitledDisplayName(p.untitledScratch);
+  // Issue #311: the parked scratch tab's — the scratch resolution, always.
+  const scratchName = untitledDisplayName(true).name;
   // PRD 013 Req 7: the context menu's anchor — transient UI state only.
   const [menu, setMenu] = useState<{ path: string; x: number; y: number } | null>(null);
   // SPEC35 §3.2: anchored at the pointer and dismissed by Esc / outside
@@ -414,8 +416,8 @@ export function FileTabStrip(p: FileTabStripProps) {
           // the untitled tab it was). Same label resolution as the active one.
           <Tab
             active={false}
-            label={untitledDisplayName(true).name}
-            title={untitledDisplayName(true).name}
+            label={scratchName}
+            title={scratchName}
             path=""
             dirty={p.scratchParked.dirty}
             scratch
