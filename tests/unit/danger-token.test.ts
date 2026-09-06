@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { STYLES, THEMES, contrast, hexToRgb, mix, rgbToken, tokenValue, type Rgb } from './css-contrast';
 
@@ -76,5 +77,38 @@ describe('Issue #245: the error colour is legible on every bundled theme', () =>
     // And the value that was refused reads in the same colour as its message.
     const valueRule = /\.dialog input\.invalid-value\s*\{([^}]*)\}/.exec(STYLES)?.[1] ?? '';
     expect(valueRule, '.dialog input.invalid-value rule in src/styles.css').toContain('color: var(--mm-danger)');
+  });
+});
+
+// Issue #250: the Names section of workspace settings had the same two
+// problems #245 fixed in the New Workspace dialog — its refusals rendered in
+// the 11px muted hint (type-time) or the small `.workspace-settings-error`
+// (save-time), and the field itself was left unpainted. It renders through
+// the very same `.form-error` / `.invalid` / `.invalid-value` rules now, so
+// this pin is over the component's source: a hand-rolled copy of the
+// treatment would pass a CSS-only check while the two surfaces drift apart.
+const NAMES = readFileSync(new URL('../../src/components/WorkspaceNames.tsx', import.meta.url), 'utf8');
+
+describe('Issue #250: the Names section shares the New Workspace error treatment', () => {
+  test('U1234: both unique-name refusals render through .form-error and the field wears .invalid/.invalid-value', () => {
+    // Both lines — the type-time problem and the save-time refusal — carry
+    // the shared class, and neither is a hint any more.
+    for (const testid of ['workspace-unique-name-problem', 'workspace-names-error']) {
+      const line = new RegExp(`<p className="([^"]*)" data-testid="${testid}"`).exec(NAMES)?.[1];
+      expect(line, `${testid} in WorkspaceNames.tsx`).toBe('form-error');
+    }
+    expect(NAMES, 'the small members/roles error class is no longer applied here').not.toMatch(
+      /className="[^"]*workspace-settings-error/,
+    );
+
+    // The field paint is #245's pair of classes, gated on the same judge —
+    // `isUniqueNameError`, imported rather than re-implemented, so a
+    // permission or network refusal leaves the field alone.
+    expect(NAMES).toContain("className={nameRejected ? 'field invalid invalid-value' : 'field'}");
+    expect(NAMES).toMatch(/import \{ isUniqueNameError \} from '\.\.\/lib\/workspaceLifecycle'/);
+    expect(NAMES).toMatch(/const nameRejected =[^;]*isUniqueNameError\(error\)/);
+
+    // And editing the name retires the refusal without another Save.
+    expect(NAMES.replace(/\s+/g, ' ')).toContain("setError(''); setUniqueName(e.target.value);");
   });
 });

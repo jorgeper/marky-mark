@@ -6231,6 +6231,81 @@ test('E492: a duplicate unique name paints the New Workspace dialog red — body
   expect(await paint()).toEqual(normal);
 });
 
+test('E535: renaming to a taken unique name paints the Names section red — body-size error text, error border and error-coloured value — and editing the name clears it', async ({
+  page,
+  request,
+}) => {
+  // Issue #250: workspace settings → Names caught the collision already (the
+  // server re-checks on the manifest PUT), but the refusal read as an 11px
+  // muted hint / small line with the field looking perfectly normal. It wears
+  // the #245 treatment now — the same shared rules, asserted the same way
+  // E492 asserts them, against tokens resolved from the live page.
+  const ada = await signIn(request, 'ada');
+  const taken = await pathWorkspace(request, ada, 'e535-taken');
+  const mine = await pathWorkspace(request, ada, 'e535-mine');
+
+  await signInTo(page, 'ada', mine.id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await openSettings(page, 'workspace');
+  const panel = page.getByTestId('settings-panel');
+  await expect(page.getByTestId('workspace-names-section')).toBeVisible();
+
+  // What this theme resolves the dialog's body size and error colour to —
+  // read out of the live page rather than hard-coded px/hex (E492's probe).
+  const { bodySize, danger } = await panel.evaluate((el) => {
+    const probe = document.createElement('span');
+    probe.style.fontSize = 'var(--mm-text-body)';
+    probe.style.color = 'var(--mm-danger)';
+    el.appendChild(probe);
+    const cs = getComputedStyle(probe);
+    const resolved = { bodySize: cs.fontSize, danger: cs.color };
+    probe.remove();
+    return resolved;
+  });
+
+  const input = page.getByTestId('workspace-unique-name');
+  await expect(input).toHaveValue(mine.unique);
+  const paint = () =>
+    input.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { color: cs.color, border: cs.borderTopColor };
+    });
+  // Sampled focused — typing leaves the field focused, and the focus ring is
+  // its own border colour, so an unfocused baseline would compare two states.
+  await input.click();
+  const normal = await paint();
+  expect(normal.color, 'the untouched field is not already red').not.toBe(danger);
+  expect(normal.border, 'nor is its border').not.toBe(danger);
+
+  // The real rename-collision path: the server's 409 lands inline, verbatim.
+  await input.fill(taken.unique);
+  await page.getByTestId('workspace-names-save').click();
+  const error = page.getByTestId('workspace-names-error');
+  await expect(error).toHaveText(`The unique name "${taken.unique}" is already taken.`);
+  expect(await error.evaluate((el) => getComputedStyle(el).fontSize)).toBe(bodySize);
+  expect(await error.evaluate((el) => getComputedStyle(el).color)).toBe(danger);
+  // The field wears it too: error border, and the typed name in the same red.
+  expect(await paint()).toEqual({ color: danger, border: danger });
+
+  // Editing the name retires the stale refusal — message and paint — at once,
+  // without waiting for another Save.
+  await input.fill(`${mine.unique}-2`);
+  await expect(error).toHaveCount(0);
+  expect(await paint()).toEqual(normal);
+
+  // A type-time problem (PRD 020 Req 2) reads exactly the same way.
+  await input.fill('has spaces');
+  const typed = page.getByTestId('workspace-unique-name-problem');
+  await expect(typed).toBeVisible();
+  expect(await typed.evaluate((el) => getComputedStyle(el).fontSize)).toBe(bodySize);
+  expect(await typed.evaluate((el) => getComputedStyle(el).color)).toBe(danger);
+  expect(await paint()).toEqual({ color: danger, border: danger });
+
+  await input.fill(mine.unique);
+  await expect(typed).toHaveCount(0);
+  expect(await paint()).toEqual(normal);
+});
+
 test('E494: the hosted home page is the badge and the start actions — no version, alpha, developer/license or repo text', async ({
   page,
 }) => {

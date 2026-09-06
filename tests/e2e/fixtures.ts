@@ -21,12 +21,14 @@ const EXPECTED_NETWORK_LOG = /Failed to load resource:.*412 \(Precondition Faile
  * `/api/admin/invitations` into a directory refusal to prove the inline 502
  * lane. Issue #245: E492 submits an already-taken unique name, and the 409
  * refusal is the feature working — the New Workspace dialog catches it and
- * paints the message, the field and the typed name.
+ * paints the message, the field and the typed name. Issue #250: E535 does the
+ * same through the rename path, where the 409 comes off the manifest PUT.
  */
 const EXPECTED_FAILURE_LOGS: { message: RegExp; url: RegExp }[] = [
   { message: /Failed to load resource/, url: /\/api\/directory\/search/ },
   { message: /Failed to load resource/, url: /\/api\/admin\/invitations/ },
   { message: /409 \(Conflict\)/, url: /\/api\/workspaces$/ },
+  { message: /409 \(Conflict\)/, url: /\/api\/workspaces\/[^/]+\/manifest$/ },
 ];
 
 /**

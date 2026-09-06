@@ -8,6 +8,7 @@
 
 import { useState } from 'react';
 import { friendlyNameOf, type WorkspaceManifest } from '../lib/hostedWorkspace';
+import { isUniqueNameError } from '../lib/workspaceLifecycle';
 import { uniqueNameProblem } from '../lib/workspaceNames';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 import { Button } from './ui/Button';
@@ -28,6 +29,13 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
   // PRD 020 Req 2: format/length/reserved problems appear while typing; the
   // empty field waits for Save to complain, like the creation dialog.
   const typedProblem = uniqueName === '' ? null : uniqueNameProblem(uniqueName);
+  // Issue #250 (the #245 treatment, same decision): the unique-name field
+  // wears the error paint — border and typed value — exactly while the name
+  // is what was refused, whether that came from typing or from the server's
+  // collision/reserved refusal on the manifest PUT. `isUniqueNameError` is
+  // the shared judge, so a permission or network refusal still shows its
+  // message with the field left alone.
+  const nameRejected = typedProblem !== null || (error !== '' && isUniqueNameError(error));
 
   const save = async () => {
     const problem = uniqueNameProblem(uniqueName);
@@ -63,15 +71,25 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
         <label htmlFor="workspace-unique-name">Unique name</label>
         <input
           id="workspace-unique-name"
-          className="field"
+          className={nameRejected ? 'field invalid invalid-value' : 'field'}
           data-testid="workspace-unique-name"
           type="text"
           value={uniqueName}
           disabled={busy}
-          onChange={(e) => setUniqueName(e.target.value)}
+          onChange={(e) => {
+            // Issue #250: editing the name retires the save-time refusal it
+            // earned — message and paint both — without waiting for another
+            // Save (WorkspaceSwitcher's onChange behaviour).
+            setError('');
+            setUniqueName(e.target.value);
+          }}
         />
         {typedProblem && (
-          <p className="hotkey-hint" data-testid="workspace-unique-name-problem" role="alert">
+          // Issue #250: an error line, not a hint — the dialog's body size in
+          // the theme's danger colour, through the same shared `.form-error`
+          // rule the New Workspace dialog uses (the 11px muted `.hotkey-hint`
+          // was the "field looks completely normal" the issue reports).
+          <p className="form-error" data-testid="workspace-unique-name-problem" role="alert">
             {typedProblem}
           </p>
         )}
@@ -89,7 +107,10 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
         />
       </div>
       {error && (
-        <p className="workspace-settings-error" data-testid="workspace-names-error" role="alert">
+        // Issue #250: the save-time refusal joins the same shared rule as the
+        // type-time one — `.workspace-settings-error` (small) stays what the
+        // members and roles sections use.
+        <p className="form-error" data-testid="workspace-names-error" role="alert">
           {error}
         </p>
       )}
