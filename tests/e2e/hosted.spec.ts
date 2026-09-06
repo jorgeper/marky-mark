@@ -1440,13 +1440,15 @@ test('E191: a member without file.upload/file.download/file.rename sees no affor
 
   await signInTo(page, 'grace', id);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
-  // The file row's menu offers nothing but Copy Path — no rename, no delete,
-  // no download; the empty-area menu offers no creation or upload at all.
+  // The file row's menu offers nothing but Copy Link (issue #259: the hosted
+  // file menu's copy item) — no rename, no delete, no download; the
+  // empty-area menu offers no creation or upload at all.
   await page.getByTestId('folder-item').filter({ hasText: 'readonly.md' }).first().click({ button: 'right' });
   await expect(page.getByTestId('folder-menu')).toBeVisible();
-  for (const item of ['rename', 'delete', 'download', 'upload']) {
+  for (const item of ['rename', 'delete', 'download', 'upload', 'copy-path', 'copy-relative-path']) {
     await expect(page.getByTestId(`folder-menu-${item}`)).toHaveCount(0);
   }
+  await expect(page.getByTestId('folder-menu-copy-link')).toBeVisible();
   await page.keyboard.press('Escape');
   await page.locator('.folder-list').click({ button: 'right', position: { x: 40, y: 140 } });
   for (const item of ['new-file', 'new-folder', 'upload']) {
@@ -4968,6 +4970,65 @@ test('E408: the file copy-link is absent for an untitled buffer while the worksp
   await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('copy-link-workspace')).toBeVisible();
   await expect(page.getByTestId('copy-link-file')).toHaveCount(0);
+});
+
+test('E517: the hosted file menu copies a link, not paths — any row, nested and unopened included', async ({
+  page,
+  request,
+}) => {
+  // PRD 020 Req 15/17 + SPEC35 §2.5 (issue #259): a filesystem path means
+  // nothing on the cloud build, so a file row's menu trades Copy Path / Copy
+  // Relative Path for one Copy Link — the row's own canonical Req 5 URL, for
+  // any row in the pane, not just the open document.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e517');
+  const headers = { Authorization: `Bearer ${token}` };
+  // Spaces in both names pin the per-segment percent-encoding of the URL.
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/top note.md`, { headers, data: '# Top\n' });
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guides/deep note.md`, { headers, data: '# Deep\n' });
+  await stubClipboard(page);
+  await signInTo(page, 'ada', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  const menuIds = () =>
+    page.$$eval('[data-testid="folder-menu"] [data-testid^="folder-menu-"]', (els) =>
+      els.map((e) => e.getAttribute('data-testid')!.replace('folder-menu-', '')),
+    );
+
+  // A top-level file row: the exact item set — Download, Rename, Delete in
+  // their old positions, Copy Link where the two path items used to be.
+  await page.locator(`[data-path="/w/${id}/files/top note.md"]`).click({ button: 'right' });
+  await expect(page.getByTestId('folder-menu')).toBeVisible();
+  expect(await menuIds()).toEqual(['download', 'rename', 'delete', 'copy-link']);
+  await expect(page.getByTestId('folder-menu-copy-link')).toHaveText('Copy Link');
+  await page.getByTestId('folder-menu-copy-link').click();
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/top%20note.md`);
+
+  // A nested row nobody has opened — no document is open at all here — copies
+  // its own full path inside the workspace.
+  await page.locator(`[data-path="/w/${id}/files/guides"]`).click(); // expand
+  await page.locator(`[data-path="/w/${id}/files/guides/deep note.md"]`).click({ button: 'right' });
+  expect(await menuIds()).toEqual(['download', 'rename', 'delete', 'copy-link']);
+  await page.getByTestId('folder-menu-copy-link').click();
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guides/deep%20note.md`);
+
+  // …byte-identical to what the open file's own copy-link control copies once
+  // that same file IS the open document (Req 17, the E407 placement).
+  await openFromSidebar(page, 'deep note.md');
+  await page.getByTestId('copy-link-file').click();
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guides/deep%20note.md`);
+
+  // The directory and root menus are untouched on hosted: their path items
+  // stay, and neither grows a Copy Link.
+  await page.locator(`[data-path="/w/${id}/files/guides"]`).click({ button: 'right' });
+  await expect(page.getByTestId('folder-menu')).toBeVisible();
+  expect(await menuIds()).toEqual(expect.arrayContaining(['copy-path', 'copy-relative-path']));
+  expect(await menuIds()).not.toContain('copy-link');
+  await page.keyboard.press('Escape');
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 40, y: 260 } });
+  await expect(page.getByTestId('folder-menu')).toBeVisible();
+  expect(await menuIds()).toContain('copy-path');
+  expect(await menuIds()).not.toContain('copy-link');
 });
 
 // --- heading share links and #<slug> landing (PRD 020 Reqs 18–19, issue #223) --

@@ -114,7 +114,9 @@ Either way it's a one-time step — the app opens normally afterwards.
   Right-click for file management: New File / New Folder (named in place),
   Rename (the open document follows — title, recents, even mid-edit),
   Delete to the Trash with a confirm, Reveal in Finder / File Explorer,
-  and Copy Path / Copy Relative Path.
+  and Copy Path / Copy Relative Path — on the cloud build, where a
+  filesystem path means nothing, one Copy Link (the file's shareable URL)
+  takes their place.
 - **Tabs, sideways** — ⌘-click opens a file *in addition* to the current
   one; every open file renders as a tab pill right in the sidebar, the
   active one on the front plane. Each keeps its own unsaved edits and

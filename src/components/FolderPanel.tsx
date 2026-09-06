@@ -82,6 +82,14 @@ export interface FolderPanelProps {
     canDownload: boolean;
   };
   /**
+   * PRD 020 Req 15/17 (issue #259): the share URL of a file row, or null when
+   * that row has no address to share. Present only where share links exist —
+   * hosted — and its presence IS the seam test: with it, a file row's menu
+   * copies the row's link instead of the two filesystem paths (which mean
+   * nothing to a cloud user); absent, the menu is exactly what it was.
+   */
+  shareUrl?(path: string): string | null;
+  /**
    * PRD 007 Req 18: a row was dragged onto a folder row — move it there. The
    * owner validates the target (`moveTarget` in lib/folderOps.ts) and runs
    * the rename seam. Absent ⇒ rows are not draggable at all.
@@ -814,7 +822,15 @@ export function FolderPanel(p: FolderPanelProps) {
             ref={menuRef}
             style={{ left: menu.x, top: menu.y }}
           >
-            {folderContextMenu(menu.kind, { isMac: p.isMac, ...p.caps }).map((it, i) =>
+            {folderContextMenu(menu.kind, {
+              isMac: p.isMac,
+              ...p.caps,
+              // SPEC35 §2.5 + PRD 020 Req 15/17 (issue #259): asked here, as
+              // the menu opens, so the answer is for THIS row and reads the
+              // address bar as it stands — not as it stood at the owner's
+              // last render.
+              fileCopy: p.shareUrl ? (p.shareUrl(menu.path) === null ? 'none' : 'link') : 'paths',
+            }).map((it, i) =>
               it === 'sep' ? (
                 <div key={`sep-${i}`} className="menu-sep" />
               ) : (

@@ -11,7 +11,7 @@
  * from scraping DOM), the heading share URL that rides them, and the
  * landing-side match from a visited `#<slug>` back to a source line.
  */
-import { buildAppPath, parseAppPath } from './hostedPaths';
+import { buildAppPath, parseAppPath, parseHostedPath } from './hostedPaths';
 import type { DocumentSections } from './sectionModel';
 
 /**
@@ -75,6 +75,26 @@ export function fileShareUrl(origin: string, pathname: string): string | null {
   return target.kind === 'workspace' && target.file.length > 0
     ? `${origin}${buildAppPath(target.name, target.file)}`
     : null;
+}
+
+/**
+ * PRD 020 Req 17 extended by issue #259: the share URL of any file the hosted
+ * folder pane lists — the same Req 5 URL `fileShareUrl` answers, derived for a
+ * row the user has not opened. The workspace name still comes from the
+ * canonical address bar (Req 6 keeps `location.pathname` on the Req 5 form),
+ * and the path inside the workspace from the row's virtual path
+ * (`/w/<id>/files/<rel>`, `hostedPaths.ts`) — so for the OPEN document this
+ * answers byte-identically to `fileShareUrl`: one name, one per-segment
+ * encoding. Null when the page is not on a canonical workspace path (the
+ * start page, a scratchpad route) or the row is not a workspace blob — the
+ * caller omits the affordance rather than copying a wrong string.
+ */
+export function entryShareUrl(origin: string, pathname: string, entryPath: string): string | null {
+  const page = parseAppPath(pathname);
+  const entry = parseHostedPath(entryPath);
+  if (page.kind !== 'workspace') return null;
+  if (entry === null || entry.kind !== 'workspace' || entry.rel === '') return null;
+  return `${origin}${buildAppPath(page.name, entry.rel.split('/'))}`;
 }
 
 /**
