@@ -1540,10 +1540,10 @@ test('E564: issue #307 — the preview and comments edge toggles carry distinct 
   await expect(commentsIcon).toBeVisible();
 
   // Issue #307: the two glyphs never coincide — a split pane vs. a speech
-  // bubble, not one chevron twice.
+  // bubble, not one chevron twice. Pinning each exact value also proves the
+  // pair differ, here and after every toggle below.
   await expect(previewIcon).toHaveAttribute('data-icon', 'preview-open');
   await expect(commentsIcon).toHaveAttribute('data-icon', 'comments-closed');
-  expect(await previewIcon.getAttribute('data-icon')).not.toBe(await commentsIcon.getAttribute('data-icon'));
 
   // Collapsing the preview flips only the preview glyph to its closed state.
   await page.getByTestId('preview-collapse').click();
@@ -1556,7 +1556,6 @@ test('E564: issue #307 — the preview and comments edge toggles carry distinct 
   await expect(page.getByTestId('comments-pane')).toBeVisible();
   await expect(commentsIcon).toHaveAttribute('data-icon', 'comments-open');
   await expect(previewIcon).toHaveAttribute('data-icon', 'preview-closed');
-  expect(await previewIcon.getAttribute('data-icon')).not.toBe(await commentsIcon.getAttribute('data-icon'));
 
   // And each returns to where it started, still independently.
   await page.getByTestId('preview-expand').click();

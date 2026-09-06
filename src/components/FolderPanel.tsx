@@ -307,10 +307,10 @@ export function FolderExpandButton({ onClick }: { onClick(): void }) {
  * flips, so the menu checkbox, Mod+\, and the Settings toggle stay in sync.
  *
  * Issue #307: the glyph is a split pane, not a chevron, so it can be told
- * apart from the comments toggle beside it. Open shows the frame with its
- * divider and the preview half filled; closed shows the same frame with the
- * divider alone — one glyph, two visibly different states, pinned by
- * `data-icon` for tests.
+ * apart from the comments toggle beside it. The frame and divider are the
+ * same in both states; the text lines sit in the right (preview) half while
+ * the preview is open and in the left (editor) half while it is closed — one
+ * glyph, two visibly different states, pinned by `data-icon` for tests.
  */
 export function PreviewToggleButton({ open, onClick }: { open: boolean; onClick(): void }) {
   const label = open ? 'Hide the preview pane' : 'Show the preview pane';
