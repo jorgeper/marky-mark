@@ -180,3 +180,25 @@ export function deleteOffered(
 export function deleteConfirmationMatches(typed: string, workspaceName: string): boolean {
   return typed === workspaceName;
 }
+
+/**
+ * Issue #245: is a failed create the unique name's fault? The New Workspace
+ * dialog paints the name field and its typed value in the error colour only
+ * when the answer is yes — a permission or network refusal still shows its
+ * message, but the name the user typed is not what went wrong.
+ *
+ * Three shapes count, all of them phrasings this deployment's own unique-name
+ * rules produce: the server's collision refusal (`uniqueNameTakenError` in
+ * server/workspaces.ts, the one check that needs deployment state), the
+ * format/length refusals from `uniqueNameFormatProblem`, and the reserved-word
+ * refusal — the last two shared verbatim by client and server through
+ * lib/workspaceNames.ts. The unit tests feed real `uniqueNameProblem` output
+ * in, so a reworded rule fails there rather than silently stopping matching.
+ */
+export function isUniqueNameError(message: string): boolean {
+  return (
+    /^The unique name .+ is already taken\.$/.test(message) ||
+    /^A unique name /.test(message) ||
+    /^".*" is a reserved name\.$/.test(message)
+  );
+}

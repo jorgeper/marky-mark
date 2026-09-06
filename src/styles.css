@@ -1177,7 +1177,20 @@ mark.hl.ghost {
   border-color: var(--mm-danger);
 }
 
-.picker-error {
+/* Issue #245: when the typed value itself is what was refused — the New
+   Workspace unique name — the value reads in the error colour too, on top of
+   the `.invalid` border above. Its own class, so the save picker's invalid
+   path keeps the border alone and its filename in normal text. */
+.dialog input.invalid-value {
+  color: var(--mm-danger);
+}
+
+/* Issue #245: a dialog's error line — the dialog's own body text size in the
+   theme's danger colour. `.picker-error` was already exactly that rule, so
+   the New Workspace errors join it instead of growing a parallel one; the
+   small muted `.dialog .hotkey-hint` stays what its name says, a hint. */
+.picker-error,
+.form-error {
   margin: 10px 0 4px;
   font-size: var(--mm-text-body);
   color: var(--mm-danger);

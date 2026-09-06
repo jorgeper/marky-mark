@@ -12,6 +12,12 @@
   --mm-accent: #bb9af7;
   --mm-border: #2f3549;
 
+  /* Issue #245: the shared --mm-danger default (#cf222e tempered toward
+     --mm-fg) reaches only 2.81:1 here — under the 4.5:1 floor
+     tests/unit/danger-token.test.ts holds error text to on every theme.
+     Tokyo Night's own red, at 5.51:1. */
+  --mm-danger: #f7768e;
+
   --mm-content-width: 60rem;
   --mm-font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --mm-font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;

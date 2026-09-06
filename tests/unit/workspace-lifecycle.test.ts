@@ -9,12 +9,14 @@ import {
   type WorkspaceManifest,
 } from '../../src/lib/hostedWorkspace';
 import type { MemberEntry } from '../../src/lib/membership';
+import { UNIQUE_NAME_MAX_LENGTH, uniqueNameProblem } from '../../src/lib/workspaceNames';
 import {
   deleteConfirmationMatches,
   deleteOffered,
   emptyNewWorkspaceForm,
   filterWorkspaces,
   formatOwnerNames,
+  isUniqueNameError,
   noAccessMessage,
   validateNewWorkspaceForm,
   workspaceRowBadge,
@@ -329,5 +331,30 @@ describe('PRD 020 Req 1+2: buildNewWorkspaceManifest and the unique name', () =>
       ok: false,
       error: 'uniqueName must be a string',
     });
+  });
+});
+
+describe('Issue #245: which create failures the unique name earned', () => {
+  it('U1182: the collision refusal and every unique-name rule refusal are the name\'s fault', () => {
+    // The server's 409 template (server/workspaces.ts `uniqueNameTakenError`),
+    // asserted verbatim in tests/unit/server-workspaces.test.ts.
+    expect(isUniqueNameError('The unique name "design-docs" is already taken.')).toBe(true);
+    // Every phrasing the shared rule module produces, fed in as real output
+    // so a reworded rule fails here instead of silently stopping matching.
+    for (const bad of ['', 'has spaces', 'x'.repeat(UNIQUE_NAME_MAX_LENGTH + 1), 'scratch']) {
+      const problem = uniqueNameProblem(bad);
+      expect(problem, `uniqueNameProblem(${JSON.stringify(bad)})`).not.toBeNull();
+      expect(isUniqueNameError(problem!), problem!).toBe(true);
+    }
+  });
+
+  it('U1183: a failure that is not about the name leaves the name field alone', () => {
+    // These still show their message; they just must not paint the field red.
+    expect(isUniqueNameError('forbidden')).toBe(false);
+    expect(isUniqueNameError('Network request failed')).toBe(false);
+    expect(isUniqueNameError('malformed JSON body')).toBe(false);
+    expect(isUniqueNameError('')).toBe(false);
+    // A name in the text is not enough — the refusal has to be about it.
+    expect(isUniqueNameError('The unique name service is unavailable.')).toBe(false);
   });
 });

@@ -5347,3 +5347,78 @@ test('E482: SPEC43 §11 (issue #270) — the hosted build carries the Link ▸ s
   }
   await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
 });
+
+test('E491: a duplicate unique name paints the New Workspace dialog red — body-size error text, error border and error-coloured value — and editing the name clears it', async ({
+  page,
+  request,
+}) => {
+  // Issue #245: the refusal used to render in the 11px muted `.hotkey-hint`
+  // with the field and the name the user typed looking perfectly fine, so the
+  // one thing that went wrong was the one thing nothing pointed at.
+  const w = test.info().workerIndex;
+  const ada = await signIn(request, 'ada');
+  // (timestamped so a retry never collides with its own earlier attempt)
+  const taken = `e491-taken-w${w}-${Date.now()}`;
+  const created = await request.post(`${HOSTED}/api/workspaces`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: { uniqueName: taken, name: `E491 taken w${w}` },
+  });
+  expect(created.status()).toBe(201);
+
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await openAppMenu(page);
+  await page.getByTestId('menu-new-workspace').click();
+  const dialog = page.getByTestId('new-workspace-dialog');
+  await expect(dialog).toBeVisible();
+
+  // What the theme resolves the dialog's body size and error colour to —
+  // read out of the live page, so this asserts the tokens rather than the
+  // px string and hex they happen to hold in the default theme.
+  const { bodySize, danger } = await dialog.evaluate((el) => {
+    const probe = document.createElement('span');
+    probe.style.fontSize = 'var(--mm-text-body)';
+    probe.style.color = 'var(--mm-danger)';
+    el.appendChild(probe);
+    const cs = getComputedStyle(probe);
+    const resolved = { bodySize: cs.fontSize, danger: cs.color };
+    probe.remove();
+    return resolved;
+  });
+
+  const input = page.getByTestId('new-workspace-unique-name');
+  const paint = () =>
+    input.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { color: cs.color, border: cs.borderTopColor };
+    });
+  const normal = await paint();
+  expect(normal.color, 'the untouched field is not already red').not.toBe(danger);
+
+  // The real duplicate path: the server's 409 message lands in the dialog.
+  await input.fill(taken);
+  await page.getByTestId('new-workspace-create').click();
+  const error = page.getByTestId('new-workspace-error');
+  await expect(error).toHaveText(`The unique name "${taken}" is already taken.`);
+  expect(await error.evaluate((el) => getComputedStyle(el).fontSize)).toBe(bodySize);
+  expect(await error.evaluate((el) => getComputedStyle(el).color)).toBe(danger);
+  // The field wears it too: error border, and the typed value in the same red.
+  expect(await paint()).toEqual({ color: danger, border: danger });
+
+  // Editing the name retires the stale refusal — message and paint — at once.
+  await input.fill(`${taken}-2`);
+  await expect(error).toHaveCount(0);
+  expect(await paint()).toEqual(normal);
+
+  // A type-time problem (PRD 020 Req 2) reads exactly the same way.
+  await input.fill('has spaces');
+  const typed = page.getByTestId('new-workspace-unique-name-error');
+  await expect(typed).toBeVisible();
+  expect(await typed.evaluate((el) => getComputedStyle(el).fontSize)).toBe(bodySize);
+  expect(await typed.evaluate((el) => getComputedStyle(el).color)).toBe(danger);
+  expect(await paint()).toEqual({ color: danger, border: danger });
+
+  await input.fill(`${taken}-3`);
+  await expect(typed).toHaveCount(0);
+  expect(await paint()).toEqual(normal);
+});

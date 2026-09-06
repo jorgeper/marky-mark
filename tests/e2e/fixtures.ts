@@ -20,6 +20,16 @@ const EXPECTED_NETWORK_LOG = /Failed to load resource:.*412 \(Precondition Faile
 const EXPECTED_FAILURE_URLS = [/\/api\/directory\/search/, /\/api\/admin\/invitations/];
 
 /**
+ * Issue #245: E491 submits a unique name that is already taken to prove the
+ * New Workspace dialog's error treatment. The 409 refusal is the feature
+ * working — the dialog catches it and paints the message, the field and the
+ * typed name — but Chromium logs the failed request just like the 412 above.
+ * Scoped to that status on that route, so any other workspace-API failure
+ * still fails the test.
+ */
+const EXPECTED_FAILURE_LOGS = [{ message: /409 \(Conflict\)/, url: /\/api\/workspaces$/ }];
+
+/**
  * Shared test fixture: any browser console error or uncaught page error
  * fails the test (SPEC §4 — zero console errors during any e2e run).
  */
@@ -32,6 +42,13 @@ export const test = base.extend<{ consoleGuard: void; loopbackGuard: void }>({
         if (
           /Failed to load resource/.test(msg.text()) &&
           EXPECTED_FAILURE_URLS.some((url) => url.test(msg.location().url ?? ''))
+        ) {
+          return;
+        }
+        if (
+          EXPECTED_FAILURE_LOGS.some(
+            ({ message, url }) => message.test(msg.text()) && url.test(msg.location().url ?? ''),
+          )
         ) {
           return;
         }

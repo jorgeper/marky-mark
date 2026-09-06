@@ -12,6 +12,12 @@
   --mm-accent: #a0642c;
   --mm-border: #ddd0b2;
 
+  /* Issue #245: the shared --mm-danger default (#cf222e tempered toward
+     --mm-fg) reaches only 4.47:1 here — under the 4.5:1 floor
+     tests/unit/danger-token.test.ts holds error text to on every theme.
+     A deep oxblood, in keeping with the printed-page palette, at 7.11:1. */
+  --mm-danger: #8c1c13;
+
   --mm-content-width: 60rem;
   --mm-font-body: Georgia, "Iowan Old Style", "Times New Roman", serif;
   --mm-font-heading: Georgia, "Iowan Old Style", "Times New Roman", serif;
