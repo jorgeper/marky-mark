@@ -39,7 +39,7 @@ const HUGE = [
   '',
 ].join('\n');
 
-describe('PRD 020 Req 18 (issue #260): the gutter heading pre-filter', () => {
+describe('PRD 020 Req 18 (issue #260): the heading pre-filter behind the line-end copy-link control', () => {
   test('U1187: a heading past the background parse still answers "heading" — the snapshot tree alone does not', () => {
     const state = fresh(HUGE);
     const bottom = state.doc.lines - 1;

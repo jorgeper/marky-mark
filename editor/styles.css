@@ -817,15 +817,30 @@
   filter: brightness(1.2);
 }
 
-/* PRD 020 Req 18 (issue #223): the heading copy-link gutter — a dedicated
-   column right of the line numbers, present only on hosted (the Editor gets
-   the seam nowhere else). The marker rides the cursor's line and only when
-   that line is a heading with an address. */
-.cm-heading-link-gutter {
-  width: 22px;
+/* PRD 020 Req 18 (issue #223, moved by issue #261): the heading copy-link
+   control — inline at the END of the cursor's heading line, present only on
+   hosted (the Editor gets the seam nowhere else). It rides the cursor's line
+   and only when that line is a heading with an address.
+
+   The geometry is .smart-edit-anchor's, mirrored: a zero-size inline anchor
+   the widget parks at the line's last character, plus an absolutely
+   positioned button hanging RIGHT of it (the smart-edit hash hangs left from
+   the line's start). The heading's glyphs never move, and the control can
+   never overlap them. 6px + 20px of button clears the line end well inside
+   .cm-content's 32px right padding, so a heading that fills the column still
+   keeps its control inside the pane. Removing this control's old 22px gutter
+   column is what narrowed .cm-gutters to the digits (issue #261). */
+.heading-link-anchor {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+  vertical-align: top;
 }
 .heading-link-btn {
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -840,17 +855,22 @@
 .heading-link-btn:hover {
   filter: brightness(1.2);
 }
-.heading-link-btn.is-copied svg {
-  display: none;
-}
-/* The ~2s confirmation caption, floated toward the content so the narrow
-   gutter never has to fit the words. */
+/* PRD 020 Req 18 (issue #261): the ~2s confirmation caption — BELOW the
+   button, right-aligned to it. In the gutter the caption could float toward
+   the content, since the narrow column never had to fit the words; at the
+   end of a heading line no other direction is free. Growing right runs off
+   the pane, since the button already sits in .cm-content's right padding on
+   a heading that fills the column; growing left covers the heading it names;
+   and growing UP covers it too as soon as the heading wraps, because the
+   control rests on the last visual line with the heading's own text above
+   it. Below the last visual line is the only side that is never the heading.
+   The glyph stays lit underneath rather than being swapped out, so the
+   control keeps its place while it confirms. */
 .heading-link-btn.is-copied::after {
   content: 'Link copied';
   position: absolute;
-  left: 100%;
-  top: 50%;
-  transform: translateY(-50%);
+  right: 0;
+  top: calc(100% + 2px);
   padding: 1px 6px;
   font-size: var(--mm-text-caption);
   white-space: nowrap;
@@ -860,8 +880,11 @@
   border-radius: var(--mm-radius-small);
   z-index: 10;
 }
-/* The marker's own aria-live text, visually hidden like .copy-link-live. */
-.heading-link-btn .heading-link-live {
+/* The view's own aria-live text — a child of .cm-editor, outside
+   .cm-content, so the announcement never joins the document's text space
+   (Editor.tsx: editorHeadingLiveRegion). Visually hidden like
+   .copy-link-live. */
+.heading-link-live {
   position: absolute;
   width: 1px;
   height: 1px;

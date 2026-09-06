@@ -18,6 +18,9 @@ interface Props {
 
 type Item = Exclude<SmartMenuEntry, 'sep'>;
 
+/** Issue #261: the largest ancestor-scroll nudge read as layout, not a scroll. */
+const SETTLE_PX = 3;
+
 const items = (entries: SmartMenuEntry[]): Item[] =>
   entries.filter((e): e is Item => e !== 'sep' && e.enabled);
 
@@ -65,6 +68,17 @@ export function SmartEditMenu({ x, y, entries, onInvoke, onClose }: Props) {
     // own host (the editor's scroller). A scroll in an unrelated pane (the
     // split preview's async sync-follow after a caret move) must not close
     // the menu the caret's pane just opened.
+    // Issue #261: and a HAIRLINE settle is not a scroll. Where the edit pane
+    // is horizontally scrollable (a narrow split), inserting the menu makes
+    // the browser nudge that ancestor a pixel or two; with the heading-link
+    // gutter's 22px out of the layout the nudge started landing right after
+    // the menu mounted and closed it on its own (E528). Ancestor offsets are
+    // remembered at open and compared against, so a real gesture — which
+    // clears SETTLE_PX in its first frame — still dismisses at once.
+    const settled = new Map<Element, [number, number]>();
+    for (let el = menuRef.current?.parentElement ?? null; el; el = el.parentElement) {
+      settled.set(el, [el.scrollLeft, el.scrollTop]);
+    }
     const onScroll = (e: Event) => {
       const menu = menuRef.current;
       const t = e.target;
@@ -72,6 +86,11 @@ export function SmartEditMenu({ x, y, entries, onInvoke, onClose }: Props) {
         const host = menu.parentElement;
         const movesAnchor = t.contains(menu) || host?.contains(t) === true;
         if (!movesAnchor) return;
+        const el = t instanceof Element ? t : null;
+        const was = el ? settled.get(el) : undefined;
+        if (el && was && Math.abs(el.scrollLeft - was[0]) <= SETTLE_PX && Math.abs(el.scrollTop - was[1]) <= SETTLE_PX) {
+          return;
+        }
       }
       onClose();
     };

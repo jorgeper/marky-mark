@@ -14,10 +14,12 @@
  * The confirmation contract itself (copy at click time, confirm only on a
  * landed write, ~2s, then revert) is `createCopyLinkController` in
  * `lib/copyLink.ts` — the same controller the Req 16/17 placements use.
- * The editor gutter placement (`components/Editor.tsx`) builds its marker
- * from the same `createHeadingLinkButton` factory below. PRD 021 Req 5
- * (issue #236): this module imports only the pure `copyLink.ts`, never
- * `shareLinks`/`hostedPaths` — heading URLs arrive through `getUrl`.
+ * The editor placement (`components/Editor.tsx`) — a widget decoration at
+ * the end of the cursor's heading line, since issue #261 moved it out of a
+ * gutter column — builds its button from the same `createHeadingLinkButton`
+ * factory below. PRD 021 Req 5 (issue #236): this module imports only the
+ * pure `copyLink.ts`, never `shareLinks`/`hostedPaths` — heading URLs arrive
+ * through `getUrl`.
  */
 import { COPY_LINK_HEADING_LABEL, LINK_COPIED_LABEL, createCopyLinkController } from './copyLink';
 
@@ -56,7 +58,7 @@ export function ensureCopyLinkLiveRegion(root: HTMLElement): HTMLElement | null 
 
 /**
  * PRD 020 Req 18: the plain-DOM heading copy-link button both placements
- * share — the preview graft below and the editor gutter marker
+ * share — the preview graft below and the editor's line-end widget
  * (`components/Editor.tsx`). One factory so the glyph and the confirmation's
  * DOM contract (the `is-copied` class, the aria-label swap, the live-region
  * text) cannot drift between placements; each caller adds only its own

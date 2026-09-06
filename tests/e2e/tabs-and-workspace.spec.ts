@@ -1015,7 +1015,7 @@ test('E406: the copy-link share controls are hosted-only — the dev-shim worksp
   await expect(page.getByTestId('copy-link-file')).toHaveCount(0);
 });
 
-test('E413: the heading copy-link placements are hosted-only — dev-shim preview headings grow no button and a heading-line cursor grows no gutter', async ({
+test('E413: the heading copy-link placements are hosted-only — dev-shim preview headings grow no button and a heading-line cursor grows no inline control', async ({
   page,
 }) => {
   // PRD 020 Req 15 (issue #223): same gate as E406's share controls, for the
@@ -1030,6 +1030,6 @@ test('E413: the heading copy-link placements are hosted-only — dev-shim previe
   await expect(page.getByTestId('mm-heading-link')).toHaveCount(0);
   await page.keyboard.press('Control+e');
   await page.getByTestId('editor').locator('.cm-line').first().click();
-  await expect(page.getByTestId('heading-copy-link-gutter')).toHaveCount(0);
-  await expect(page.locator('.cm-heading-link-gutter')).toHaveCount(0);
+  await expect(page.getByTestId('heading-copy-link-inline')).toHaveCount(0);
+  await expect(page.locator('.heading-link-anchor')).toHaveCount(0);
 });

@@ -5368,7 +5368,7 @@ test('E409: hovering a preview heading reveals the copy-link control, which copi
   expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guide.md#notes-1`);
 });
 
-test('E410: a cursor resting on a heading line reveals the editor gutter copy-link, copying the same slugged URL; a body line shows none', async ({
+test('E410: a cursor resting on a heading line reveals the editor copy-link beside the heading text, copying the same slugged URL; a body line shows none', async ({
   page,
   request,
 }) => {
@@ -5387,16 +5387,132 @@ test('E410: a cursor resting on a heading line reveals the editor gutter copy-li
 
   const editor = page.getByTestId('editor');
   await editor.locator('.cm-line').filter({ hasText: 'Set Up & Go' }).click();
-  const gutterLink = page.getByTestId('heading-copy-link-gutter');
-  await expect(gutterLink).toBeVisible();
-  await expect(gutterLink).toHaveAttribute('aria-label', 'Copy link to heading');
-  await gutterLink.click();
+  const headingLink = page.getByTestId('heading-copy-link-inline');
+  await expect(headingLink).toBeVisible();
+  await expect(headingLink).toHaveAttribute('aria-label', 'Copy link to heading');
+  await headingLink.click();
   expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guide.md#set-up--go`);
-  await expect(gutterLink).toHaveAttribute('aria-label', 'Link copied');
+  await expect(headingLink).toHaveAttribute('aria-label', 'Link copied');
 
   // Resting on a body line, the control does not exist.
   await editor.locator('.cm-line').filter({ hasText: 'setup words.' }).click();
-  await expect(page.getByTestId('heading-copy-link-gutter')).toHaveCount(0);
+  await expect(page.getByTestId('heading-copy-link-inline')).toHaveCount(0);
+});
+
+// Issue #261: a short heading and one long enough to WRAP in the editor
+// column, so the control's resting place can be measured on both.
+const WRAPPED_DOC = [
+  '# Guide',
+  '',
+  '## Set Up & Go',
+  '',
+  'setup words.',
+  '',
+  '## A deliberately very long heading that runs past the editor column width and therefore wraps onto a second visual line in the edit pane',
+  '',
+  'wrapped words.',
+  '',
+].join('\n');
+
+test('E530: the editor heading copy-link sits right of the heading text (last visual line when it wraps) and the gutter is only the line numbers', async ({
+  page,
+  request,
+}) => {
+  // PRD 020 Req 18 as amended by issue #261: the control left its own gutter
+  // column for the end of the heading's own line. Two things follow, and
+  // both would have failed before the move: the button's box starts at or
+  // right of the heading text's last glyph inside the line's vertical band,
+  // and .cm-gutters is back to the line-number column alone.
+  const token = await signIn(request, 'ada');
+  const { id } = await pathWorkspace(request, token, 'e530');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guide.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: WRAPPED_DOC,
+  });
+  await stubClipboard(page);
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'guide.md');
+  await page.keyboard.press('Control+e');
+
+  const editor = page.getByTestId('editor');
+  // The measurement, for whichever heading line holds the cursor: the text's
+  // LAST client rect (its last visual line, wrapped or not) against the
+  // control's box.
+  const geometry = (text: string) =>
+    editor
+      .locator('.cm-line')
+      .filter({ hasText: text })
+      .evaluate((line) => {
+        const anchor = line.querySelector('.heading-link-anchor')!;
+        const btn = anchor.querySelector('.heading-link-btn')!.getBoundingClientRect();
+        const range = line.ownerDocument.createRange();
+        range.selectNodeContents(line);
+        range.setEndBefore(anchor); // the text alone, chrome excluded
+        const rects = Array.from(range.getClientRects());
+        const last = rects[rects.length - 1];
+        const box = line.getBoundingClientRect();
+        return {
+          textRight: last.right,
+          textTop: last.top,
+          textBottom: last.bottom,
+          rows: rects.length,
+          btnLeft: btn.left,
+          btnTop: btn.top,
+          btnBottom: btn.bottom,
+          lineTop: box.top,
+          lineBottom: box.bottom,
+        };
+      });
+
+  await editor.locator('.cm-line').filter({ hasText: 'Set Up & Go' }).click();
+  await expect(page.getByTestId('heading-copy-link-inline')).toBeVisible();
+  const short = await geometry('Set Up & Go');
+  expect(short.btnLeft).toBeGreaterThanOrEqual(short.textRight - 1);
+  // …and shares that text's row: overlapping it vertically, inside the line.
+  expect(short.btnTop).toBeLessThan(short.textBottom);
+  expect(short.btnBottom).toBeGreaterThan(short.textTop);
+  expect(short.btnTop).toBeGreaterThanOrEqual(short.lineTop - 2);
+  expect(short.btnBottom).toBeLessThanOrEqual(short.lineBottom + 2);
+
+  // The announcement lands OUTSIDE the document's text space: the live region
+  // is a child of .cm-editor, not of .cm-content, so a copy of the heading
+  // line during the confirmation carries no "Link copied" with it.
+  await page.getByTestId('heading-copy-link-inline').click();
+  await expect(editor.locator('.cm-editor > .heading-link-live')).toHaveText('Link copied');
+  await expect(editor.locator('.cm-content .heading-link-live')).toHaveCount(0);
+  expect(
+    await editor.locator('.cm-line').filter({ hasText: 'Set Up & Go' }).textContent()
+  ).not.toContain('Link copied');
+
+  // The heading text does not move when the control appears: the line's own
+  // left edge and width are the same with the cursor elsewhere.
+  const lineBox = async () =>
+    (await editor.locator('.cm-line').filter({ hasText: 'Set Up & Go' }).boundingBox())!;
+  const withControl = await lineBox();
+  await editor.locator('.cm-line').filter({ hasText: 'setup words.' }).click();
+  await expect(page.getByTestId('heading-copy-link-inline')).toHaveCount(0);
+  const without = await lineBox();
+  expect(Math.abs(withControl.x - without.x)).toBeLessThan(1);
+
+  // The wrapped heading: the control rests at the end of the LAST visual
+  // line, still clear of the glyphs.
+  await editor.locator('.cm-line').filter({ hasText: 'wraps onto a second visual line' }).click();
+  await expect(page.getByTestId('heading-copy-link-inline')).toBeVisible();
+  const wrapped = await geometry('wraps onto a second visual line');
+  expect(wrapped.rows).toBeGreaterThan(1);
+  expect(wrapped.btnLeft).toBeGreaterThanOrEqual(wrapped.textRight - 1);
+  expect(wrapped.btnTop).toBeLessThan(wrapped.textBottom);
+  expect(wrapped.btnBottom).toBeGreaterThan(wrapped.textTop);
+  expect(wrapped.btnBottom).toBeLessThanOrEqual(wrapped.lineBottom + 2);
+
+  // The gutter kept only the numbers: no second column reserving width for
+  // the control, and issue #272's flush left edge survives (E136's contract).
+  const numbers = (await editor.locator('.cm-gutter.cm-lineNumbers').boundingBox())!;
+  const gutters = (await editor.locator('.cm-gutters').boundingBox())!;
+  expect(gutters.width).toBeLessThanOrEqual(numbers.width + 2);
+  await expect(editor.locator('.cm-gutters .heading-link-btn')).toHaveCount(0);
+  const wrap = (await page.locator('.editor-wrap').boundingBox())!;
+  expect(gutters.x - wrap.x).toBeLessThanOrEqual(2);
 });
 
 test('E411: landing on a #<slug> file URL opens the file scrolled to that heading, with no miss notice', async ({
@@ -5506,12 +5622,12 @@ test('E414: container-nested headings at the bottom of a document carry the copy
   await quoted.getByTestId('mm-heading-link').click();
   expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guide.md#quoted-tail`);
 
-  // The editor gutter shows the marker for the same nested heading.
+  // The editor shows the control beside the same nested heading's text.
   await page.keyboard.press('Control+e');
   await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'Listed Tail' }).click();
-  const gutterLink = page.getByTestId('heading-copy-link-gutter');
-  await expect(gutterLink).toBeVisible();
-  await gutterLink.click();
+  const headingLink = page.getByTestId('heading-copy-link-inline');
+  await expect(headingLink).toBeVisible();
+  await headingLink.click();
   expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/guide.md#listed-tail`);
 
   // The copied link lands ON the nested heading — no miss notice.
@@ -5566,8 +5682,8 @@ test('E493: headings hundreds of lines down carry the copy-link control in both 
   // Issue #260: the affordance appeared only near the top of a long document.
   // PRD 020 Req 18 says EVERY heading carries it, first to last — so the
   // document's last heading (and a container-nested one just above it) must
-  // offer the control in the preview AND in the editor gutter, reached by
-  // scrolling rather than by happening to be on screen at load.
+  // offer the control in the preview AND in the editor, reached by scrolling
+  // rather than by happening to be on screen at load.
   const token = await signIn(request, 'ada');
   const { id, unique } = await pathWorkspace(request, token, 'e493');
   await request.put(`${HOSTED}/api/workspaces/${id}/files/deep.md`, {
@@ -5591,12 +5707,12 @@ test('E493: headings hundreds of lines down carry the copy-link control in both 
   await listed.getByTestId('mm-heading-link').click();
   expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/deep.md#listed-tail`);
 
-  // Editor gutter: the same deep headings, reached by scrolling down — below
-  // the gridded table, where the raw editor line and the canonical line part.
+  // Editor: the same deep headings, reached by scrolling down — below the
+  // gridded table, where the raw editor line and the canonical line part.
   await page.keyboard.press('Control+e');
   const editor = page.getByTestId('editor');
   await expect(editor.locator('.cm-line').first()).toBeVisible();
-  const gutterLink = page.getByTestId('heading-copy-link-gutter');
+  const headingLink = page.getByTestId('heading-copy-link-inline');
   for (const [text, slug] of [
     ['## Listed Tail', 'listed-tail'],
     ['## Deep Tail', 'deep-tail'],
@@ -5606,8 +5722,8 @@ test('E493: headings hundreds of lines down carry the copy-link control in both 
       await editor.locator('.cm-scroller').evaluate((el) => el.scrollBy(0, el.clientHeight * 0.8));
     }
     await line.click();
-    await expect(gutterLink).toBeVisible();
-    await gutterLink.click();
+    await expect(headingLink).toBeVisible();
+    await headingLink.click();
     expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/deep.md#${slug}`);
   }
 });
@@ -6358,3 +6474,11 @@ test('E508: the legacy ?workspace=<uuid> form boots into the workspace with no i
   expect(painted.screens).toEqual([]);
   expect(painted.holds).toEqual(['hosted-booting']);
 });
+
+
+
+
+
+
+
+

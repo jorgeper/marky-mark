@@ -1,13 +1,14 @@
 /**
  * PRD 020 Req 18 (issue #260): "is this line a markdown heading?" — the cheap
- * pre-filter the editor's copy-link gutter (`components/Editor.tsx`) runs in
- * front of the section-model lookup that actually addresses the heading, so
- * that parse never runs while the cursor sits on ordinary text.
+ * pre-filter the editor's copy-link control (`components/Editor.tsx`, at the
+ * end of the cursor's heading line since issue #261) runs in front of the
+ * section-model lookup that actually addresses the heading, so that parse
+ * never runs while the cursor sits on ordinary text.
  *
  * Reading the Lezer tree is the whole subtlety, and issue #260's bug.
  * `syntaxTree(state)` reports only as far as the background parse has
  * reached: on a long document the tail is still unparsed, every heading past
- * the cut-off answered "not a heading", and the marker silently vanished —
+ * the cut-off answered "not a heading", and the control silently vanished —
  * the "top headings only" shape. `ensureSyntaxTree` parses up to the line
  * first (the `components/diagramView.ts` precedent, same 20 ms budget), and
  * when even that runs out of budget the pre-filter ABSTAINS rather than

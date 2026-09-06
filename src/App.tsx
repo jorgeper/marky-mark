@@ -4297,7 +4297,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * PRD 020 Req 18: heading slugs come from the SECTION MODEL of the buffer
    * of the moment (`lib/shareLinks.ts` derives them from `parseSections`,
    * never from scraping DOM). Parsed lazily and cached on the source text,
-   * so a gutter query or a click never re-parses an unchanged document.
+   * so a control query or a click never re-parses an unchanged document.
    */
   const headingAnchorsCacheRef = useRef<{ src: string; anchors: HeadingAnchor[] } | null>(null);
   const getHeadingAnchors = useCallback(() => {
@@ -4309,7 +4309,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   }, [canonicalOf]);
   /**
    * PRD 020 Req 18: what BOTH heading placements (preview button, editor
-   * gutter) copy for a 1-based source line — the file's canonical Req 5 URL
+   * line-end control) copy for a 1-based source line — the file's canonical Req 5 URL
    * off the address bar plus `#<slug>`, or null when the line is no heading
    * or no file rides the path (untitled buffers share nothing). Read at
    * click time, like the Req 16/17 placements.
@@ -8337,10 +8337,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                 linkView={settings.linkView}
                 onToggleLinkView={toggleLinkView}
                 themeVariant={activeThemeVariant}
-                // PRD 020 Req 18 (issue #223): the heading copy-link gutter —
+                // PRD 020 Req 18 (issue #223): the heading copy-link seam —
                 // hosted-only (Req 15), and only for a document with an
                 // address; the dev shim, Tauri and the single-file build
-                // never grow the gutter.
+                // never grow the control (which since issue #261 rides the
+                // end of the cursor's heading line, not a gutter).
                 headingLink={
                   platform?.kind === 'hosted' && docPath
                     ? { getUrl: headingUrlForLine, copy: copyToClipboard }

@@ -3,13 +3,13 @@ import {
   Decoration,
   drawSelection,
   EditorView,
-  gutter,
-  GutterMarker,
   keymap,
   lineNumbers,
   highlightActiveLine,
+  ViewPlugin,
   WidgetType,
   type DecorationSet,
+  type ViewUpdate,
 } from '@codemirror/view';
 import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField, type Extension } from '@codemirror/state';
 import {
@@ -438,10 +438,11 @@ export interface EditorProps {
   /** PRD 013 Req 9: the app's active theme side — diagram widgets draw to match. */
   themeVariant: 'light' | 'dark';
   /**
-   * PRD 020 Req 18 (issue #223): the heading copy-link gutter — a cursor
-   * resting on a heading line reveals a copy-link control beside it. The
-   * owner passes this on the hosted platform only (Req 15); absent ⇒ the
-   * gutter does not exist at all. `getUrl` answers the heading share URL for
+   * PRD 020 Req 18 (issue #223): the heading copy-link seam — a cursor
+   * resting on a heading line reveals a copy-link control at the end of
+   * that line (issue #261; it used to be a gutter marker). The owner passes
+   * this on the hosted platform only (Req 15); absent ⇒ the control does
+   * not exist at all. `getUrl` answers the heading share URL for
    * a 1-based source line (null when the line is no section-model heading or
    * no file rides the path), read at click time like every placement.
    */
@@ -483,7 +484,7 @@ export interface AnnotationSelection {
   idsAtHead: readonly string[];
 }
 
-/** PRD 020 Req 18: the App-provided half of the heading copy-link gutter. */
+/** PRD 020 Req 18: the App-provided half of the heading copy-link control. */
 export interface HeadingLinkSeam {
   /**
    * The share URL for a 1-based line of the CANONICAL buffer — what
@@ -1019,20 +1020,62 @@ function smartEditButton(title: string, onOpen: (view: EditorView, rect: DOMRect
 }
 
 /**
- * PRD 020 Req 18 (issue #223): the heading copy-link marker — one per view,
- * on the cursor's line only. `eq` compares lines so a cursor that stays put
- * keeps its DOM (and a running confirmation) across unrelated updates. The
- * button and its Req 14 confirmation contract (copy at click time, "Link
- * copied" only on a landed write, ~2s, then rest) come from the shared
- * `createHeadingLinkButton` factory (`lib/headingLinks.ts`) — the visible
- * caption is a `::after` pseudo-element (styles.css) and the real text lives
- * in the marker's own `aria-live` span, which is gutter chrome, safely
- * outside the preview's comment-anchor text space.
+ * PRD 020 Req 18 (issue #261): the ONE polite live region the editor's
+ * heading copy-link announces through, parked on the view's outer element —
+ * a sibling of `.cm-content`, never a node inside it.
+ *
+ * The control used to be gutter chrome, so its live span could sit inside
+ * the button safely. Now the button rides an inline widget in the content,
+ * and a live span nested in it would sit in the document's text space: a
+ * copy of the heading line during the ~2s confirmation would carry "Link
+ * copied" along with it. Parking the span on `view.dom` is the same move
+ * `ensureCopyLinkLiveRegion` makes for the preview (out of the addressed
+ * text, onto a parent) without dragging the preview's shared region into
+ * the editor, where a split view would then own two nodes with one testid.
+ * Created once per view, reused by every later widget.
  */
-class HeadingLinkMarker extends GutterMarker {
+function editorHeadingLiveRegion(view: EditorView): HTMLElement {
+  const existing = view.dom.querySelector<HTMLElement>(':scope > .heading-link-live');
+  if (existing) return existing;
+  const live = view.dom.ownerDocument.createElement('span');
+  live.className = 'heading-link-live';
+  live.setAttribute('aria-live', 'polite');
+  view.dom.appendChild(live);
+  return live;
+}
+
+/**
+ * PRD 020 Req 18 (issue #223, moved by issue #261): the heading copy-link
+ * control — one per view, on the cursor's line only, rendered at the END of
+ * the heading's own text. It used to be a marker in a dedicated gutter
+ * column left of the text; that column charged every line ~22px of width and
+ * put the control far from the heading it addresses.
+ *
+ * The mechanism is SPEC43 §3's smart-edit pattern mirrored: a zero-size
+ * inline anchor widget plus an absolutely positioned button (styles.css), so
+ * the control hangs off the line without shifting a glyph and without
+ * entering `state.doc` — a widget decoration is chrome, not text. The
+ * smart-edit button hangs LEFT from the line's start; this one hangs RIGHT
+ * from its end, so it can never overlap the heading.
+ *
+ * Wrapped headings: the anchor is the line's last character, so on a heading
+ * long enough to wrap the control rests at the end of the LAST visual line —
+ * the one spot that is text-free on every wrap, and stable as the wrap point
+ * moves with the pane's width.
+ *
+ * `eq` compares lines so a cursor that stays put keeps its DOM (and a
+ * running confirmation) across unrelated updates. The button and its Req 14
+ * confirmation contract (copy at click time, "Link copied" only on a landed
+ * write, ~2s, then rest) come from the shared `createHeadingLinkButton`
+ * factory (`lib/headingLinks.ts`) — the visible caption is a `::after`
+ * pseudo-element (styles.css) and the announced text goes to the view's own
+ * live region above.
+ */
+class HeadingLinkWidget extends WidgetType {
   private ctrl: { click(): Promise<void>; dispose(): void } | null = null;
+  private live: HTMLElement | null = null;
   constructor(
-    /** The raw editor line the marker sits on — its identity for `eq`. */
+    /** The raw editor line the control sits on — its identity for `eq`. */
     private readonly lineNo: number,
     /** Issue #260: the seam's coordinate — the canonical line `lineNo` maps to. */
     private readonly canonicalLine: number,
@@ -1040,44 +1083,49 @@ class HeadingLinkMarker extends GutterMarker {
   ) {
     super();
   }
-  override eq(other: HeadingLinkMarker) {
+  override eq(other: HeadingLinkWidget) {
     // Both lines: an edit that regrids a table above moves the canonical line
     // under a resting cursor, and the kept DOM would copy the stale slug.
     return other.lineNo === this.lineNo && other.canonicalLine === this.canonicalLine;
   }
-  override toDOM() {
-    const live = document.createElement('span');
-    live.className = 'heading-link-live';
-    live.setAttribute('aria-live', 'polite');
-    const { btn, ctrl } = createHeadingLinkButton(document, {
+  override toDOM(view: EditorView) {
+    const doc = view.dom.ownerDocument;
+    const live = editorHeadingLiveRegion(view);
+    this.live = live;
+    const anchor = doc.createElement('span');
+    anchor.className = 'heading-link-anchor';
+    const { btn, ctrl } = createHeadingLinkButton(doc, {
       className: 'heading-link-btn',
-      testid: 'heading-copy-link-gutter',
+      testid: 'heading-copy-link-inline',
       getUrl: () => this.seam.current?.getUrl(this.canonicalLine) ?? null,
       copy: (text) => this.seam.current?.copy(text) ?? false,
       setLiveText: (text) => {
         live.textContent = text;
       },
     });
-    btn.appendChild(live);
     this.ctrl = ctrl;
     // preventDefault on mousedown keeps focus (and the resting cursor) in
-    // the editor — the smart-edit gutter precedent.
+    // the editor — the smart-edit button's precedent.
     btn.addEventListener('mousedown', (e) => e.preventDefault());
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       void ctrl.click();
     });
-    return btn;
+    anchor.appendChild(btn);
+    return anchor;
   }
   override destroy() {
     this.ctrl?.dispose();
+    // The live region outlives the widget now, so a control torn down
+    // mid-confirmation must clear what it announced.
+    if (this.live) this.live.textContent = '';
   }
 }
 
 /**
- * PRD 020 Req 18: the gutter itself — a marker appears only on the line the
- * cursor rests on, and only when that line is a heading twice over: the
- * syntax check says so (`isHeadingLine`, which excludes fenced
+ * PRD 020 Req 18: the control's extension — a widget appears only on the
+ * line the cursor rests on, and only when that line is a heading twice over:
+ * the syntax check says so (`isHeadingLine`, which excludes fenced
  * `# not-a-heading` lines the same way the preview excludes them) AND the
  * section model resolves it to a slugged share URL (`getUrl`, which also
  * gates out untitled buffers with no address). The syntax check is the cheap
@@ -1087,26 +1135,50 @@ class HeadingLinkMarker extends GutterMarker {
  * Issue #260: that pre-filter used to read `syntaxTree(view.state)` directly,
  * which reports only as far as the background parse has reached — so every
  * heading past the cut-off of a long document was called "not a heading" and
- * lost its marker. `isHeadingLine` (`lib/headingLine.ts`) owns the fix and
- * the reasoning; the gutter just asks it.
+ * lost its control. `isHeadingLine` (`lib/headingLine.ts`) owns the fix and
+ * the reasoning; this extension just asks it.
+ *
+ * It rides a ViewPlugin holding its set rather than a plain decoration
+ * function (the `smartEditButton` shape above), because a function is re-run
+ * on EVERY view update — a scroll measure included — while both questions
+ * here cost real work: `isHeadingLine` may parse, and the seam's `getUrl`
+ * canonicalizes the buffer to address the line. Recomputing on selection and
+ * document changes alone is exactly the budget the gutter's
+ * `lineMarkerChange` kept, and nothing else can change the answer.
  */
-function headingLinkGutter(seam: MutableRefObject<HeadingLinkSeam | undefined>): Extension {
-  return gutter({
-    class: 'cm-heading-link-gutter',
-    lineMarker(view, block) {
-      const cfg = seam.current;
-      if (!cfg) return null;
-      const head = view.state.doc.lineAt(view.state.selection.main.head);
-      if (block.from !== head.from) return null;
-      if (!isHeadingLine(view.state, head)) return null;
-      // Issue #260: the seam addresses the CANONICAL buffer, this gutter a raw
-      // editor line — a gridded table above the cursor puts them apart.
-      const canonical = canonicalLineAt(view.state, head);
-      if (cfg.getUrl(canonical) === null) return null;
-      return new HeadingLinkMarker(head.number, canonical, seam);
+function headingLinkDecoration(
+  view: EditorView,
+  seam: MutableRefObject<HeadingLinkSeam | undefined>
+): DecorationSet {
+  const cfg = seam.current;
+  if (!cfg) return Decoration.none;
+  const head = view.state.doc.lineAt(view.state.selection.main.head);
+  if (!isHeadingLine(view.state, head)) return Decoration.none;
+  // Issue #260: the seam addresses the CANONICAL buffer, the view a raw
+  // editor line — a gridded table above the cursor puts them apart.
+  const canonical = canonicalLineAt(view.state, head);
+  if (cfg.getUrl(canonical) === null) return Decoration.none;
+  const widget = new HeadingLinkWidget(head.number, canonical, seam);
+  // side: 1 — after anything else parked at the line's end, so the control is
+  // the last thing on the line, right of every glyph.
+  return Decoration.set(Decoration.widget({ widget, side: 1 }).range(head.to));
+}
+
+function headingLinkControl(seam: MutableRefObject<HeadingLinkSeam | undefined>): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) {
+        this.decorations = headingLinkDecoration(view, seam);
+      }
+      update(update: ViewUpdate) {
+        if (update.selectionSet || update.docChanged) {
+          this.decorations = headingLinkDecoration(update.view, seam);
+        }
+      }
     },
-    lineMarkerChange: (update) => update.selectionSet || update.docChanged,
-  });
+    { decorations: (v) => v.decorations }
+  );
 }
 
 const VIM_MOTIONS: Partial<Record<VimEditAction, (view: EditorView) => void>> = {
@@ -1202,9 +1274,9 @@ export default function Editor({
   const smartComp = useRef(new Compartment());
   // PRD 007 Req 17: read-only rides a compartment like every other live prop.
   const readOnlyComp = useRef(new Compartment());
-  // PRD 020 Req 18: the heading copy-link gutter — a compartment for its
+  // PRD 020 Req 18: the heading copy-link control — a compartment for its
   // hosted-only presence; the callbacks read through a live ref so the
-  // gutter (and a running confirmation) survives App re-renders.
+  // control (and a running confirmation) survives App re-renders.
   const headingComp = useRef(new Compartment());
   const headingLinkRef = useRef(headingLink);
   headingLinkRef.current = headingLink;
@@ -1760,9 +1832,10 @@ export default function Editor({
     if (!host) return;
     const extensions = [
       gutterComp.current.of(showLineNumbers ? lineNumbers() : []),
-      // PRD 020 Req 18: the heading copy-link gutter, right of the line
-      // numbers — present only when the owner passed the hosted seam.
-      headingComp.current.of(headingLinkRef.current ? headingLinkGutter(headingLinkRef) : []),
+      // PRD 020 Req 18 (issue #261): the heading copy-link control, inline
+      // at the end of the cursor's heading line — present only when the
+      // owner passed the hosted seam.
+      headingComp.current.of(headingLinkRef.current ? headingLinkControl(headingLinkRef) : []),
       // SPEC43 §3.2: the smart-edit button, in the content area's left
       // padding — same geometry with or without line numbers.
       smartComp.current.of(smartEditButton(gutterTitle(), openMenuAtGutter)),
@@ -2293,14 +2366,14 @@ export default function Editor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hotkeys.smartMenu, isMac]);
 
-  // PRD 020 Req 18: the heading copy-link gutter follows the seam's
+  // PRD 020 Req 18: the heading copy-link control follows the seam's
   // PRESENCE live (a file gaining or losing an address); the callbacks
   // themselves read through headingLinkRef, so identity churn never
-  // rebuilds the gutter mid-confirmation.
+  // rebuilds the control mid-confirmation.
   const hasHeadingLink = !!headingLink;
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: headingComp.current.reconfigure(hasHeadingLink ? headingLinkGutter(headingLinkRef) : []),
+      effects: headingComp.current.reconfigure(hasHeadingLink ? headingLinkControl(headingLinkRef) : []),
     });
   }, [hasHeadingLink]);
 

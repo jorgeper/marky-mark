@@ -167,6 +167,16 @@ icons at the three depths that matter — workspace, file, heading.
     lowercased, punctuation dropped, spaces → `-`, duplicate slugs
     deduped `-1`, `-2`… in document order (derived from the section
     model, `src/lib/sectionModel.ts` — never from scraping DOM).
+
+    > **Amendment (issue #261, 2026-09-06):** "in the gutter" is
+    > retired — the editor's control now renders **inline at the right
+    > of the heading's own text**, at the end of the cursor's heading
+    > line (the last visual line when the heading wraps). It is a
+    > widget decoration, so it enters neither the document text nor the
+    > heading's layout. The dedicated gutter column it used to occupy
+    > is gone with it, and the left gutter is again only the line
+    > numbers and their padding. The trigger, the glyph, the Req 14
+    > confirmation and the Req 15 hosted-only gate are unchanged.
 19. **Opening a heading link.** Landing on `#<slug>` scrolls the
     opened file to that heading in the current view mode (the TOC's
     existing navigate-to-line machinery, PRD 012). If no heading
