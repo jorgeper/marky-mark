@@ -309,13 +309,29 @@ export function scratchBootsFresh(target: AppPathTarget, callerHandle: string | 
  * server enforces uniqueness — case-insensitively via `uniqueNameKey`, so
  * `/Notes` and `/notes` open the same workspace. Rows without a unique name
  * (a pre-migration manifest) simply cannot be addressed by path.
+ *
+ * PRD 024 Req 7+14 (issue #303): the names a row has given up (its
+ * `formerNames`, PRD 024 Req 5) answer too, so a link shared under an old
+ * name still opens the workspace — resolveHostedVisit's replaceState rewrite
+ * then puts the bar on the current name, which is the whole redirect. Two
+ * passes, in order: every row's CURRENT name across the whole listing, and
+ * only if none matches, the rows' former names. A stale former name a race
+ * left behind on another row can therefore never shadow a current name,
+ * whatever order the listing arrives in; and once a former name is reclaimed
+ * (Req 8 strips it server-side), `/<name>` opens its new holder with no
+ * client-side special case. Former names on a row that has no current unique
+ * name stay unaddressable, like the row itself.
  */
-export function findWorkspaceByUniqueName<T extends { uniqueName?: string }>(
+export function findWorkspaceByUniqueName<T extends { uniqueName?: string; formerNames?: readonly string[] }>(
   rows: readonly T[],
   name: string,
 ): T | undefined {
   const key = uniqueNameKey(name);
-  return rows.find((r) => r.uniqueName !== undefined && uniqueNameKey(r.uniqueName) === key);
+  const addressable = rows.filter((r) => r.uniqueName !== undefined);
+  return (
+    addressable.find((r) => uniqueNameKey(r.uniqueName!) === key) ??
+    addressable.find((r) => r.formerNames?.some((former) => uniqueNameKey(former) === key))
+  );
 }
 
 /**

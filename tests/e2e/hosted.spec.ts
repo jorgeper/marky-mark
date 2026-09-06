@@ -5566,6 +5566,10 @@ test('E403: a path matching no workspace, no file, or an unknown legacy UUID ren
   await page.getByTestId('hosted-sign-in-submit').click();
   await expect(page.getByTestId('hosted-not-found')).toBeVisible();
   await expect(page.getByTestId('hosted-not-found-message')).toContainText(`${unique}-nope`);
+  // PRD 024 Req 15 (issue #303): renames redirect now, so the hint no longer
+  // blames them — the copy is exactly the two remaining causes.
+  await expect(page.getByTestId('hosted-not-found')).toContainText('It may have been deleted or shared by mistake.');
+  await expect(page.getByTestId('hosted-not-found')).not.toContainText('renamed');
 
   // A file path not present in an otherwise-valid workspace.
   await page.goto(`${HOSTED}/${unique}/missing/nothing.md`);
@@ -6980,6 +6984,147 @@ test('E537: after a rename the tab keeps writing the new name — the next docum
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await expect(page.getByTestId('hosted-not-found')).toHaveCount(0);
   expect(new URL(page.url()).pathname).toBe(`/${renamed}/other.md`);
+});
+
+/**
+ * PRD 024 Req 2 (issue #303): rename a workspace the API way — a manifest PUT
+ * carrying the new `uniqueName` — so the redirect tests need no dialog; E536
+ * is the test that drives the Names UI.
+ */
+async function renameWorkspace(request: APIRequestContext, token: string, id: string, next: string): Promise<void> {
+  const headers = { Authorization: `Bearer ${token}` };
+  const { manifest } = (await (await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, { headers })).json()) as {
+    manifest: Record<string, unknown>;
+  };
+  const res = await request.put(`${HOSTED}/api/workspaces/${id}/manifest`, {
+    headers,
+    data: { ...manifest, uniqueName: next },
+  });
+  expect(res.status()).toBe(200);
+}
+
+test('E569: a signed-in visit to a former-name URL — bare, with a file, with a #heading — opens the workspace, file and heading and silently rewrites the bar to the current name; a missing file under the old name is not-found under the current one', async ({
+  page,
+  request,
+}) => {
+  // PRD 024 Req 7+14: the listing row's formerNames match like current names
+  // (hostedPaths.ts), so the visit binds exactly as the canonical URL would,
+  // and the replaceState rewrite of PRD 020 Req 6 is the whole redirect —
+  // nothing is rendered to announce it.
+  const ada = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, ada, 'e569');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guides/guide.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: HEADED_DOC,
+  });
+  const renamed = `${unique}-renamed`;
+  await renameWorkspace(request, ada, id, renamed);
+
+  // Land signed in on the CURRENT name; the token is what the visits ride on.
+  await signInTo(page, 'ada', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe(`/${renamed}`);
+
+  // The bare old name: same workspace, bar on the current name, no banner —
+  // case-insensitively, like a current name (Req 14).
+  await page.goto(`${HOSTED}/${unique.toUpperCase()}`);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('docname-workspace')).toContainText('e569');
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${renamed}`);
+  await expect(page.getByTestId('hosted-not-found')).toHaveCount(0);
+  // Nothing announces the redirect: no toast (the SPEC20 §2 notice) and no
+  // status strip of any kind.
+  await expect(page.getByTestId('notice')).toHaveCount(0);
+  await expect(page.getByRole('status')).toHaveCount(0);
+
+  // The old name with a nested file: the document opens, the file segments
+  // survive the rewrite.
+  await page.goto(`${HOSTED}/${unique}/guides/guide.md`);
+  await expect(page.getByTestId('docname')).toContainText('guide.md');
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${renamed}/guides/guide.md`);
+  expect(new URL(page.url()).hash).toBe('');
+
+  // …and with a #heading: the fragment rides the rewrite and the file lands
+  // ON the heading (PRD 020 Req 19), exactly as the current-name URL does.
+  await page.goto(`${HOSTED}/${unique}/guides/guide.md#deep-section`);
+  await expect(page.getByTestId('docname')).toContainText('guide.md');
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${renamed}/guides/guide.md`);
+  expect(new URL(page.url()).hash).toBe('#deep-section');
+  await landInPreview(page);
+  await expect(page.getByTestId('doc').locator('h2').filter({ hasText: 'Deep Section' })).toBeInViewport();
+  await expect(page.getByTestId('heading-miss-notice')).toHaveCount(0);
+
+  // A file that does not exist under the old name is not-found the way it is
+  // under the current one — the page names the CURRENT unique name.
+  await page.goto(`${HOSTED}/${unique}/missing/nothing.md`);
+  await expect(page.getByTestId('hosted-not-found')).toBeVisible();
+  await expect(page.getByTestId('hosted-not-found-message')).toContainText('missing/nothing.md');
+  await expect(page.getByTestId('hosted-not-found-message')).toContainText(renamed);
+});
+
+test('E570: a signed-out visit to a former-name file#heading URL passes through sign-in and continues to the canonical URL, file and heading honoured', async ({
+  page,
+  request,
+}) => {
+  // PRD 024 Req 14 + PRD 020 Req 9: the stored visit intent carries the
+  // visited (old) path through the sign-in leg, and the same resolve on the
+  // way out lands it on the current name — no new plumbing, so this pins it.
+  const ada = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, ada, 'e570');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guides/guide.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: HEADED_DOC,
+  });
+  const renamed = `${unique}-renamed`;
+  await renameWorkspace(request, ada, id, renamed);
+  await dropDraft(page, ada);
+
+  await page.goto(`${HOSTED}/${unique}/guides/guide.md#deep-section`);
+  await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+
+  await expect(page.getByTestId('docname')).toContainText('guide.md');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${renamed}/guides/guide.md`);
+  const landed = new URL(page.url());
+  expect(landed.hash).toBe('#deep-section');
+  expect(landed.search).toBe('');
+  await landInPreview(page);
+  await expect(page.getByTestId('doc').locator('h2').filter({ hasText: 'Deep Section' })).toBeInViewport();
+});
+
+test('E571: reclaiming a former name ends the redirect — a new workspace created under the old name is what /<old> opens, and the renamed one stays at its new name', async ({
+  page,
+  request,
+}) => {
+  // PRD 024 Req 7+8: the server strips a reclaimed name from the other
+  // workspace's history, and the client match prefers current names anyway,
+  // so no client-side special case is needed for the old link to move.
+  const ada = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, ada, 'e571');
+  const renamed = `${unique}-renamed`;
+  await renameWorkspace(request, ada, id, renamed);
+  const reclaimer = await request.post(`${HOSTED}/api/workspaces`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: { uniqueName: unique, name: 'e571 reclaimed' },
+  });
+  expect(reclaimer.status()).toBe(201);
+
+  await signInTo(page, 'ada');
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+
+  // The old link opens the NEW holder of the name, under that name.
+  await page.goto(`${HOSTED}/${unique}`);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('docname-workspace')).toContainText('e571 reclaimed');
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${unique}`);
+
+  // The renamed workspace is unaffected: its current name still opens it.
+  await page.goto(`${HOSTED}/${renamed}`);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('docname-workspace')).not.toContainText('reclaimed');
+  await expect.poll(() => new URL(page.url()).pathname).toBe(`/${renamed}`);
 });
 
 test('E494: the hosted home page is the badge and the start actions — no version, alpha, developer/license or repo text', async ({

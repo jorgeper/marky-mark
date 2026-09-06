@@ -326,6 +326,50 @@ describe('PRD 020 Req 5 the canonical path router', () => {
     // A pre-migration row (no unique name) is unaddressable, never matched.
     expect(findWorkspaceByUniqueName(rows, '')).toBeUndefined();
   });
+
+  // PRD 024 Reqs 7+14 (issue #303): the same match also answers to the names
+  // a row has given up, so a link shared under an old name still opens the
+  // workspace — and a current name always wins over a former one.
+  it('U1278: a former name resolves to its row case-insensitively, like a current name', () => {
+    const rows = [
+      { id: 'a', uniqueName: 'notes' },
+      { id: 'b', uniqueName: 'field-notes', formerNames: ['Old-Name', 'older'] },
+    ];
+    expect(findWorkspaceByUniqueName(rows, 'old-name')?.id).toBe('b');
+    expect(findWorkspaceByUniqueName(rows, 'OLDER')?.id).toBe('b');
+    // The current name still resolves as before — history adds, never replaces.
+    expect(findWorkspaceByUniqueName(rows, 'Field-Notes')?.id).toBe('b');
+    expect(findWorkspaceByUniqueName(rows, 'notes')?.id).toBe('a');
+  });
+
+  it('U1279: a name that is current on one row and former on another resolves to the current row, whatever the row order', () => {
+    // PRD 024 Req 7: a stale former name a race left behind is inert — the
+    // current-name pass runs over the WHOLE listing before any former name
+    // is consulted, so row order cannot let history shadow the present.
+    const holder = { id: 'holder', uniqueName: 'shared', formerNames: [] as string[] };
+    const stale = { id: 'stale', uniqueName: 'moved-on', formerNames: ['Shared'] };
+    expect(findWorkspaceByUniqueName([holder, stale], 'shared')?.id).toBe('holder');
+    expect(findWorkspaceByUniqueName([stale, holder], 'shared')?.id).toBe('holder');
+    expect(findWorkspaceByUniqueName([stale, holder], 'SHARED')?.id).toBe('holder');
+    // With no current holder, the former name is what resolves.
+    expect(findWorkspaceByUniqueName([stale], 'shared')?.id).toBe('stale');
+  });
+
+  it('U1280: rows with no formerNames, or an empty array, match exactly as before; an unknown name is still undefined', () => {
+    const rows = [
+      { id: 'a' },
+      { id: 'b', uniqueName: 'Design-Docs' },
+      { id: 'c', uniqueName: 'notes', formerNames: [] as string[] },
+      { id: 'd', uniqueName: 'wiki', formerNames: ['old-wiki'] },
+    ];
+    expect(findWorkspaceByUniqueName(rows, 'design-docs')?.id).toBe('b');
+    expect(findWorkspaceByUniqueName(rows, 'NOTES')?.id).toBe('c');
+    expect(findWorkspaceByUniqueName(rows, 'missing')).toBeUndefined();
+    expect(findWorkspaceByUniqueName(rows, '')).toBeUndefined();
+    // A former name on a row that has no current unique name (a pre-migration
+    // manifest) stays unaddressable, like the row itself.
+    expect(findWorkspaceByUniqueName([{ id: 'e', formerNames: ['ghost'] }], 'ghost')).toBeUndefined();
+  });
 });
 
 // PRD 024 Reqs 11–13 (issue #302): where the address bar goes when the

@@ -156,7 +156,13 @@ async function getJson<T>(
  *   - `/<workspace-name>[/<path…>/<file>]` matches the unique name
  *     case-insensitively against the caller's workspace listing — so a
  *     workspace the PRD 017 Req 11 policy hides resolves as not-found for
- *     this caller, revealing nothing — and verifies the file half exists;
+ *     this caller, revealing nothing — and verifies the file half exists.
+ *     PRD 024 Req 14 (issue #303): a name the workspace has since given up
+ *     (its listing row's `formerNames`) matches too, current names first
+ *     (hostedPaths.ts), so an old link binds the same workspace, file and
+ *     fragment and the replaceState rewrite below silently lands the bar on
+ *     the canonical current-name URL — through the Req 9 sign-in redirect
+ *     as well, since the stored intent carries the visited path;
  *   - the legacy `/?workspace=<uuid>` form (Req 7) resolves the id the same
  *     way and redirects to the canonical path.
  *
@@ -667,7 +673,9 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
             <>There’s no workspace named “{phase.workspace}”.</>
           )}
         </p>
-        <p className="hosted-signin-hint">It may have been renamed, deleted, or shared by mistake.</p>
+        {/* PRD 024 Req 15 (issue #303): renames redirect now (Req 14), so the
+            hint no longer names them; the rest of the page is unchanged. */}
+        <p className="hosted-signin-hint">It may have been deleted or shared by mistake.</p>
         <a className="hosted-notfound-link" href="/" data-testid="hosted-not-found-home">
           Go to your workspaces
         </a>
