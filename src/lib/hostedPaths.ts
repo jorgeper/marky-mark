@@ -327,9 +327,9 @@ export function findWorkspaceByUniqueName<T extends { uniqueName?: string; forme
   name: string,
 ): T | undefined {
   const key = uniqueNameKey(name);
-  const addressable = rows.filter((r) => r.uniqueName !== undefined);
+  const addressable = rows.filter((r): r is T & { uniqueName: string } => r.uniqueName !== undefined);
   return (
-    addressable.find((r) => uniqueNameKey(r.uniqueName!) === key) ??
+    addressable.find((r) => uniqueNameKey(r.uniqueName) === key) ??
     addressable.find((r) => r.formerNames?.some((former) => uniqueNameKey(former) === key))
   );
 }
