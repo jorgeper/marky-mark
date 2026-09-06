@@ -1,22 +1,16 @@
 import { describe, expect, test } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { DEFAULT_SETTINGS } from '../../src/lib/settings';
+import { ROOT, STYLES, THEMES, contrast, mix, rgbToken, tokenValue } from './css-contrast';
 
 // PRD 023 Req 21 (issue #289): the marker/comment tint vocabulary and its
 // WCAG AA claim were asserted only in prose (PRD 022 Req 13, PRD 023 §§2–3)
 // and in a hand-computed comment in themes/gruvbox-dark.css. Nothing under
 // tests/ computed a contrast ratio, so a theme could regress the claim
-// silently. These tests read the shipped CSS and do the arithmetic.
+// silently. These tests read the shipped CSS and do the arithmetic (the
+// reading and the arithmetic themselves live in ./css-contrast).
 
-const ROOT = fileURLToPath(new URL('../../', import.meta.url));
-const STYLES = readFileSync(`${ROOT}src/styles.css`, 'utf8');
 const PACKAGE_STYLES = readFileSync(`${ROOT}editor/styles.css`, 'utf8');
-
-/** Every bundled theme, read once — the only other source of marker tokens. */
-const THEMES = readdirSync(`${ROOT}themes`)
-  .filter((file) => file.endsWith('.css'))
-  .map((file) => ({ file, css: readFileSync(`${ROOT}themes/${file}`, 'utf8') }));
 
 /** PRD 023 §2: the vocabulary, in the order styles.css declares it. */
 const MARKERS: readonly string[] = ['yellow', 'green', 'orange', 'pink'];
@@ -34,51 +28,6 @@ const STRENGTHS = [...STYLES.matchAll(/color-mix\(in srgb, var\(--marker-hue\) (
 /** Every `--mm-marker-<name>` token declared anywhere in a CSS source. */
 function markerTokens(css: string): string[] {
   return [...css.matchAll(/--mm-marker-([a-z-]+)\s*:/g)].map((m) => m[1]);
-}
-
-/** The value of a custom property inside a source, last declaration winning. */
-function tokenValue(css: string, name: string): string | undefined {
-  const hits = [...css.matchAll(new RegExp(`--mm-${name}\\s*:\\s*([^;]+);`, 'g'))];
-  return hits.length ? hits[hits.length - 1][1].trim() : undefined;
-}
-
-type Rgb = [number, number, number];
-
-function hexToRgb(hex: string): Rgb {
-  const h = hex.trim().replace('#', '');
-  const full = h.length === 3 ? [...h].map((c) => c + c).join('') : h;
-  return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16)) as Rgb;
-}
-
-/**
- * A hex token's RGB, the first source that declares it winning (a theme's
- * override over the styles.css default). Fails by name rather than throwing
- * on NaN when no source defines it or the value is not a hex literal.
- */
-function rgbToken(name: string, label: string, ...sources: string[]): Rgb {
-  const value = sources.map((css) => tokenValue(css, name)).find((v) => v !== undefined) ?? '';
-  expect(value, `${label} --mm-${name}`).toMatch(/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i);
-  return hexToRgb(value);
-}
-
-/** WCAG 2.x relative luminance. */
-function luminance([r, g, b]: Rgb): number {
-  const lin = (c: number) => {
-    const s = c / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-}
-
-/** WCAG 2.x contrast ratio between two opaque colors. */
-function contrast(a: Rgb, b: Rgb): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
-
-/** `color-mix(in srgb, hue <pct>%, transparent)` composited over a backdrop. */
-function overBackdrop(hue: Rgb, backdrop: Rgb, alpha: number): Rgb {
-  return hue.map((c, i) => alpha * c + (1 - alpha) * backdrop[i]) as Rgb;
 }
 
 describe('PRD 023 §2–§3: the marker and comment tint token vocabulary', () => {
@@ -136,7 +85,8 @@ describe('PRD 023 §2–§3: the marker and comment tint token vocabulary', () =
         // A theme that overrides the hue wins; otherwise the styles.css default.
         const hue = rgbToken(`marker-${name}`, themeId, theme, STYLES);
         for (const strength of STRENGTHS) {
-          const ratio = contrast(fg, overBackdrop(hue, bg, strength));
+          // The tint is `strength` alpha over the theme background.
+          const ratio = contrast(fg, mix(hue, bg, strength));
           // AA for body text is 4.5:1 (PRD 022 Req 13).
           expect(ratio, `${themeId} ${name} @${strength * 100}%`).toBeGreaterThanOrEqual(4.5);
         }

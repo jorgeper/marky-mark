@@ -21,6 +21,7 @@ import {
   GRANTABLE_ROLES,
   emptyNewWorkspaceForm,
   filterWorkspaces,
+  isUniqueNameError,
   noAccessMessage,
   validateNewWorkspaceForm,
   workspaceRowBadge,
@@ -50,6 +51,11 @@ export function NewWorkspaceDialog({
   // PRD 020 Req 2: format/length/reserved problems appear while typing; the
   // empty field waits for submit to complain (WorkspaceNames does the same).
   const typedProblem = form.uniqueName === '' ? null : uniqueNameProblem(form.uniqueName);
+  // Issue #245: the unique name wears the refusal — an error-coloured border
+  // and typed value — while it is the thing being rejected, whether that came
+  // from typing or from the server's collision refusal. A permission or
+  // network failure still shows its message with the field left alone.
+  const nameRejected = typedProblem !== null || (error !== '' && isUniqueNameError(error));
 
   const addMember = (user: DirectoryEntry) => {
     setPicked((prev) => [...prev, { ...user, resolved: true }]);
@@ -90,15 +96,24 @@ export function NewWorkspaceDialog({
           <label htmlFor="new-workspace-unique-name">Unique name</label>
           <input
             id="new-workspace-unique-name"
-            className="field"
+            className={nameRejected ? 'field invalid invalid-value' : 'field'}
             data-testid="new-workspace-unique-name"
             type="text"
             value={form.uniqueName}
             autoFocus
-            onChange={(e) => setForm((prev) => ({ ...prev, uniqueName: e.target.value }))}
+            onChange={(e) => {
+              // Issue #245: editing the name retires the submit-time refusal
+              // it earned — message and styling both — so a corrected name
+              // reads as normal without waiting for the next submit.
+              setError('');
+              setForm((prev) => ({ ...prev, uniqueName: e.target.value }));
+            }}
           />
           {typedProblem && (
-            <p className="hotkey-hint" data-testid="new-workspace-unique-name-error" role="alert">
+            // Issue #245: an error line, not a hint — dialog body size in the
+            // theme's danger colour (the 11px muted .hotkey-hint was the "too
+            // small, not red" the issue reports).
+            <p className="form-error" data-testid="new-workspace-unique-name-error" role="alert">
               {typedProblem}
             </p>
           )}
@@ -183,7 +198,9 @@ export function NewWorkspaceDialog({
         )}
 
         {error && (
-          <p className="hotkey-hint" data-testid="new-workspace-error" role="alert">
+          // Issue #245: the submit-time refusal — the server's duplicate-name
+          // message lands here — in the same error treatment.
+          <p className="form-error" data-testid="new-workspace-error" role="alert">
             {error}
           </p>
         )}

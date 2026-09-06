@@ -12,6 +12,12 @@
   --mm-accent: #fe8019;
   --mm-border: #504945;
 
+  /* Issue #245: the shared --mm-danger default (#cf222e tempered toward
+     --mm-fg) reaches only 2.37:1 here — under the 4.5:1 floor
+     tests/unit/danger-token.test.ts holds error text to on every theme.
+     Gruvbox's bright red (#fb4934) lightened, at 5.39:1. */
+  --mm-danger: #ff9384;
+
   /* PRD 022 Req 13 / PRD 023 §3 (issue #283): darker marker hues than the
      theme-independent defaults, so the light body text keeps WCAG AA over
      every tint (blue→orange ratios in the issue #283 summary; the rest in

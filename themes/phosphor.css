@@ -12,6 +12,12 @@
   --mm-accent: #33ff66;
   --mm-border: #164a26;
 
+  /* Issue #245: the shared --mm-danger default (#cf222e tempered toward
+     --mm-fg) reaches only 3.31:1 here — under the 4.5:1 floor
+     tests/unit/danger-token.test.ts holds error text to on every theme.
+     A red bright enough to read as one beside the phosphor-green foreground, at 6.08:1. */
+  --mm-danger: #ff5f5f;
+
   --mm-content-width: 60rem;
   --mm-font-body: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --mm-font-heading: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
