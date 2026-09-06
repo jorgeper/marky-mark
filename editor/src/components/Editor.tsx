@@ -276,6 +276,19 @@ export interface EditorSyncHandle {
 export type SelectSourceRange = (from: number, to: number, opts?: { reveal?: boolean }) => void;
 
 /**
+ * Issue #262: focus the editing surface and park the caret IN the document,
+ * so the next keystroke types into the buffer. `caret` places the caret at a
+ * document offset (clamped to the doc, so a stale offset can never throw);
+ * omitted, the current selection is kept and only focus moves.
+ *
+ * The new-file paths pass `caret: 0` — the empty buffer they just created has
+ * exactly one legal caret position, and saying so is what makes the promise
+ * hold when the view was NOT remounted (a `value` swap into a live view: its
+ * mount `focus()` has long since run and never runs again).
+ */
+export type FocusEditor = (opts?: { caret?: number }) => void;
+
+/**
  * PRD 021 Req 4: the Editor's full prop contract, exported. Every
  * app-flavored capability (clipboard, images, external links, heading links,
  * paste handling) arrives through a seam callback here — the component
@@ -327,6 +340,13 @@ export interface EditorProps {
   onPasteImages?(files: File[]): Promise<string | null>;
   /** Imperative insert-at-cursor for menu-driven insertions (Insert Image…). */
   insertRef?: MutableRefObject<((text: string) => void) | null>;
+  /**
+   * Issue #262: populated at mount with the focus seam — the owner's way to
+   * hand the keyboard to the editing surface with the caret in the document.
+   * A prop rather than a DOM reach-in: the host never queries `.cm-content`,
+   * and the package keeps ownership of what "focused" means here.
+   */
+  focusRef?: MutableRefObject<FocusEditor | null>;
   /** SPEC23 §3: markdown syntax highlighting (live-reconfigured, no remount). */
   syntax: boolean;
   /**
@@ -1115,6 +1135,7 @@ export default function Editor({
   onHighlightClick,
   onPasteImages,
   insertRef,
+  focusRef,
   syntax,
   codeSyntax,
   livePreview,
@@ -1928,6 +1949,22 @@ export default function Editor({
       };
     }
 
+    // Issue #262: the focus seam. The mount's own `view.focus()` above fires
+    // exactly once per view; this one is callable at any time, so an owner
+    // swapping the buffer under a LIVE view (⌘N over an open document, whose
+    // Editor is never remounted) can still land the caret. The caret dispatch
+    // precedes the focus so nothing paints at the outgoing position first.
+    if (focusRef) {
+      focusRef.current = (opts) => {
+        const at = opts?.caret;
+        if (at !== undefined) {
+          const pos = Math.max(0, Math.min(at, view.state.doc.length));
+          view.dispatch({ selection: { anchor: pos, head: pos } });
+        }
+        view.focus();
+      };
+    }
+
     // SPEC23 §1: mirrored selection entry point — no focus() here, ever, and
     // no reveal unless the caller asks for one (SPEC23 §1.3 as amended by
     // issue #278; the why is on `SelectSourceRange`).
@@ -2127,6 +2164,7 @@ export default function Editor({
       cancelAnimationFrame(chipsRaf.current);
       if (syncRef) syncRef.current = null;
       if (insertRef) insertRef.current = null;
+      if (focusRef) focusRef.current = null; // issue #262: never outlives the view
       if (selectRangeRef) selectRangeRef.current = null;
       if (searchRef) searchRef.current = null;
       if (smartRef) smartRef.current = null;

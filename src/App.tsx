@@ -40,6 +40,7 @@ import {
   type DiffLineSets,
   type EditorSearchHandle,
   type EditorSyncHandle,
+  type FocusEditor,
   type LineMatch,
   type SearchMatcher,
   type SearchOptions,
@@ -844,6 +845,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const navLabelRef = useRef('');
   const editorSyncRef = useRef<EditorSyncHandle | null>(null);
   const editorInsertRef = useRef<((text: string) => void) | null>(null);
+  /**
+   * Issue #262: the package's focus seam, populated while an Editor is
+   * mounted (null in preview). `requestEditorFocus` below is the only caller.
+   */
+  const editorFocusRef = useRef<FocusEditor | null>(null);
   /** SPEC23 §1: imperative mirrored-selection entry into the mounted editor.
    * Scroll-neutral unless the caller opts into `reveal` (issue #278). */
   const editorSelectRef = useRef<SelectSourceRange | null>(null);
@@ -1021,6 +1027,29 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     // SIDEBAR's grants (file.create) — not the open document's.
     folderGrants,
   };
+
+  /**
+   * Issue #262: every new-file path ends with the caret in the editor, ready
+   * for the first keystroke. The paths ask for that with a counter bump
+   * rather than calling the seam inline, because the buffer they just set is
+   * only in the DOM one commit later — and because the surface that owned
+   * focus (the sidebar's rename input, the save picker, the unsaved-changes
+   * prompt) unmounts in that same commit. The effect below runs after both,
+   * so the editor keeps the focus instead of losing it to a late blur.
+   */
+  const [editorFocusReq, setEditorFocusReq] = useState(0);
+  const requestEditorFocus = useCallback(() => setEditorFocusReq((n) => n + 1), []);
+
+  useEffect(() => {
+    if (!editorFocusReq) return; // 0 is "never asked" — no focus steal at boot
+    // PRD 007 Req 17: a preview landing (a role without doc.edit, or a
+    // request the mode rule declined) is never given a caret. The ref is null
+    // outside edit mode anyway; this states the rule where it can be read.
+    if (stateRef.current.mode === 'preview') return;
+    // The seam is null while the Editor's lazy chunk is still loading; that
+    // mount runs its own focus(), so dropping the request there is correct.
+    editorFocusRef.current?.({ caret: 0 }); // the buffers these paths create are empty
+  }, [editorFocusReq]);
 
   // PRD 015 Req 7: the full preview's render-result cache — a buffer write
   // re-injects the preview, and this is what keeps the re-render of every
@@ -2352,7 +2381,13 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       setActiveId(null);
       setPending(null);
       // Issue #125; SPEC35 §4.2 (issue #194): edit intent beats the memory.
-      setMode(viewModeForOpen(stateRef.current.settings.lastViewMode, mayEdit, opts?.editIntent));
+      const opened = viewModeForOpen(stateRef.current.settings.lastViewMode, mayEdit, opts?.editIntent);
+      setMode(opened);
+      // SPEC35 §4.2 (issue #262): a file the app just created is entered
+      // ready to type — the same `editIntent` that chose edit mode also asks
+      // for the caret. Ordinary opens (and a read-only landing, which never
+      // resolves to edit) are untouched: no existing-file focus steal.
+      if (opts?.editIntent && opened === 'edit') requestEditorFocus();
       setShowDiff(false); // SPEC16 §2: the diff toggle resets per document
       setDiff(null);
 
@@ -2371,7 +2406,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       // alone: the newer open owns the marker now.
       if (isCurrent()) openTargetRef.current = null;
     }
-  }, [loadDocParts, recordPosition, currentTopLine, commitRecent, revealInFolders, commitOpenSet, installWatcher]);
+  }, [loadDocParts, recordPosition, currentTopLine, commitRecent, revealInFolders, commitOpenSet, installWatcher, requestEditorFocus]);
 
   /**
    * SPEC36: the editor snapshots its state into editorHistoryRef during its
@@ -3675,7 +3710,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         if (kind === 'new') {
           await p.writeTextFile(target, '');
           await revealNewEntry(p, folder);
-          await openDoc(p, target);
+          // PRD 009 Req 13 (issue #262): the picker's New File is a creation,
+          // so it opens like every other one — edit mode with the caret in
+          // the text, never the remembered view of an empty page.
+          await openDoc(p, target, { editIntent: true });
         } else {
           await writeDocCopyTo(p, target);
         }
@@ -3893,6 +3931,12 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     setActiveId(null);
     setPending(null);
     setMode('edit');
+    // SPEC22 §1.1 (issue #262): the untitled buffer is entered ready to type.
+    // The Editor carries no `key` and is not remounted for this in-place
+    // buffer swap, so its once-per-view mount focus cannot cover ⌘N over an
+    // open document — this ask is what does. PRD 019 Req 10 rides along: the
+    // scratchpad's boot buffer comes through here too.
+    requestEditorFocus();
     setShowDiff(false);
     setDiff(null);
     unwatchRef.current?.();
@@ -3901,7 +3945,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     // (the replaced file stays open, lazily reloadable). Deliberately no
     // persist here: ⌘N must not touch the disk (E78 discipline);
     // activeFile self-corrects on the next real open.
-  }, [recordPosition, currentTopLine]);
+  }, [recordPosition, currentTopLine, requestEditorFocus]);
   // The boot effect's PRD 019 Req 10 scratch-start hook calls through here.
   startUntitledRef.current = startUntitled;
 
@@ -8149,6 +8193,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                 onHighlightClick={activateFromHit}
                 onPasteImages={pasteImages}
                 insertRef={editorInsertRef}
+                // Issue #262: the focus seam every new-file path lands through.
+                focusRef={editorFocusRef}
                 syntax={settings.editorSyntax}
                 codeSyntax={settings.codeSyntax}
                 livePreview={settings.livePreview}

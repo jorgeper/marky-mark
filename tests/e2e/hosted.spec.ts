@@ -25,6 +25,7 @@ import {
   addComment,
   addHighlight,
   clickClearOfToolbar,
+  expectReadyToType,
   landInPreview,
   menuSave,
   openCommentsPane,
@@ -2797,6 +2798,48 @@ test('E218: workspace New File names the file in the picker, creates it through 
   await expect.poll(() => readAs(request, ada, id, 'minted.md')).toContain('# Minted');
 });
 
+test('E520: issue #262 — the workspace New File picker lands in EDIT mode with the caret in the text, even when the remembered view is preview', async ({
+  page,
+  request,
+}) => {
+  // The regression this issue fixes on hosted: `commitSavePicker` opened its
+  // just-created file with no edit intent, so `viewModeForOpen` handed back
+  // the remembered `lastViewMode` — a reader whose last view was preview got
+  // a rendered empty page, and no caret anywhere.
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E520 w${test.info().workerIndex}`);
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/seed.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: '# Seed\n',
+  });
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'seed.md'); // leaves the remembered view at preview
+  await expect(page.getByTestId('mode-switch')).toHaveAttribute('data-mode', 'preview');
+
+  await openAppMenu(page);
+  await page.getByTestId('menu-new').click();
+  await page.getByTestId('save-picker-name').fill('minted.md');
+  await page.getByTestId('save-picker-confirm').click();
+  await expect(page.getByTestId('save-picker')).toHaveCount(0);
+
+  // PRD 009 Req 13 (issue #262): edit mode, and the picker dialog's focus
+  // released to the editor — the write and the open are awaited first, so
+  // this can only pass once that whole async landing has settled.
+  await expect(page.getByTestId('docname')).toContainText('minted.md');
+  await expect(page.getByTestId('mode-switch')).toHaveAttribute('data-mode', 'edit');
+  await expectReadyToType(page, '# Typed on arrival');
+  await menuSave(page);
+  await expect.poll(() => readAs(request, ada, id, 'minted.md')).toContain('# Typed on arrival');
+
+  // Existing files are untouched by the fix: seed.md still opens in the
+  // remembered preview, with no editor to hand a caret to.
+  await page.getByTestId('folder-item').filter({ hasText: 'seed.md' }).first().click();
+  await expect(page.getByTestId('docname')).toContainText('seed.md');
+  await expect(page.getByTestId('mode-switch')).toHaveAttribute('data-mode', 'preview');
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+});
+
 test('E219: workspace Save As… writes the copy through the picker and switches to it, leaving the original intact', async ({
   page,
   request,
@@ -4208,6 +4251,24 @@ test('E398: the scratch buffer starts fresh over existing files and discards sil
   await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
   // PRD 020 Req 10: the same workspace, shown at its canonical scratch URL.
   expect(new URL(page.url()).pathname).toBe('/grace/scratchpad');
+});
+
+test('E521: issue #262 — the scratchpad’s auto-started buffer arrives focused: PRD 019’s blinking cursor, no click', async ({
+  page,
+}) => {
+  // PRD 019 Req 10 promises "a cursor blinking in an empty Markdown file".
+  // The boot's scratchStart hook goes through the same `startUntitled` every
+  // ⌘N does, so this is that promise asserted at the keyboard.
+  const token = await signIn(page.request, 'grace');
+  await dropDraft(page, token);
+  await page.goto(`${HOSTED}/scratchpad`);
+  await page.getByTestId('hosted-sign-in-username').fill('grace');
+  await page.getByTestId('hosted-sign-in-submit').click();
+
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.getByTestId('mode-switch')).toHaveAttribute('data-mode', 'edit');
+  await expectReadyToType(page, 'blinking right here');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
 });
 
 test('E399: the scratch buffer’s first save pre-fills a free Untitled.md at the scratchpad root; cancel keeps the buffer, an empty buffer still asks, and the saved file is a normal document', async ({

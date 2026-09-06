@@ -768,3 +768,18 @@ export async function menuSave(page: Page): Promise<void> {
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('menu-save').click();
 }
+
+/**
+ * Issue #262: the new-file promise, asserted in full — the editor holds the
+ * keyboard AND the caret is in the document, so the very first keystroke
+ * types into the buffer with zero clicks in between. Both halves matter: a
+ * focused `.cm-content` with the caret nowhere would still swallow the
+ * keystroke, so the probe text is typed bare (no click, no Tab) and read back
+ * out of the buffer.
+ */
+export async function expectReadyToType(page: Page, probe = 'READY262'): Promise<void> {
+  const content = page.getByTestId('editor').locator('.cm-content');
+  await expect(content).toBeFocused();
+  await page.keyboard.type(probe);
+  await expect(content).toContainText(probe);
+}

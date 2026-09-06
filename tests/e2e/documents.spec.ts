@@ -6,6 +6,7 @@ import {
   fsRead,
   fsWrite,
   menuClick,
+  expectReadyToType,
   openWelcomeViaHelp,
   PHRASE,
   revealToolbar,
@@ -128,6 +129,66 @@ test('E78: ⌘N opens an untitled buffer — no dialog, nothing on disk; first �
   await expect(page.getByTestId('docname')).toHaveAttribute('title', '/docs/fresh.md');
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
   expect(await fsRead(page, '/docs/fresh.md')).toContain('# Fresh Start');
+});
+
+test('E517: issue #262 — ⌘N lands the caret in the text: over a document sitting in preview, and from the splash', async ({
+  page,
+}) => {
+  // The mode half (SPEC22 §1.1) has always worked; the focus half is new. A
+  // ⌘N over a document in PREVIEW mounts a fresh Editor, so this case proves
+  // the mount focus and the seam agree — nobody blurs the other.
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await page.keyboard.press('Control+n');
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expect(page.getByTestId('mode-switch')).toHaveAttribute('data-mode', 'edit');
+  await expectReadyToType(page, 'typed straight in');
+  expect(await fsRead(page, WELCOME)).not.toContain('typed straight in'); // the doc was left alone
+
+  // The splash: no document at all, so ⌘N is the first thing that ever
+  // mounts an editor here (E78's pristine launch).
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  await page.keyboard.press('Control+n');
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expectReadyToType(page, 'from the splash');
+});
+
+test('E518: issue #262 — ⌘N focuses an ALREADY-MOUNTED editor, and the dirty-buffer prompt still ends ready to type', async ({
+  page,
+}) => {
+  // The always-reproducible case: in edit mode the Editor carries no `key`,
+  // so ⌘N swaps `value` under a live view and its mount focus never re-runs.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  // Park the keyboard anywhere else — stands for the folder tree, the find
+  // bar, a toolbar button — so the assertion below cannot pass on leftover
+  // focus the editor happened to still hold.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect(page.getByTestId('editor').locator('.cm-content')).not.toBeFocused();
+
+  await page.keyboard.press('Control+n');
+  await expect(page.getByTestId('docname')).toContainText('Untitled');
+  await expectReadyToType(page, 'live view');
+
+  // SPEC22 §1.2: that probe dirtied the buffer, so the next ⌘N routes through
+  // the three-way prompt. Cancel changes nothing — and steals no focus.
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.keyboard.press('Control+n');
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  await page.getByTestId('open-cancel').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('live view');
+  await expect(page.getByTestId('mode-switch')).toHaveAttribute('data-mode', 'edit');
+
+  // Don't Save resolves the guard into beginNewFile — the new empty buffer
+  // arrives focused too, with the prompt's own focus already released.
+  await page.keyboard.press('Control+n');
+  await expect(page.getByTestId('open-prompt')).toBeVisible();
+  await page.getByTestId('open-discard').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expectReadyToType(page, 'after the prompt');
 });
 
 test('E79: unsaved-changes guard — around New, and Save-through when opening over a dirty untitled buffer', async ({

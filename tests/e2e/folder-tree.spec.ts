@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures';
 import {
+  expectReadyToType,
   freshApp,
   freshNativeMenuApp,
   fsRead,
@@ -440,6 +441,50 @@ test('E389: issue #194 — sidebar New File lands in edit mode on both christeni
   await page.getByTestId('open-discard').click();
   await expect(page.getByTestId('docname')).toContainText('Untitled 2.md');
   await expect(page.getByTestId('editor')).toBeVisible();
+});
+
+test('E519: issue #262 — the sidebar’s New File lands the caret in the text on both christening exits, and leaves the side pane as it was', async ({
+  page,
+}) => {
+  await seedFolders(page);
+  await openFolderRoot(page);
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+
+  // The pane is open here and must stay exactly that across a creation —
+  // entering a new file neither opens nor closes it (issue #262 "Unchanged").
+  const pane = page.getByTestId('folder-panel');
+  await expect(pane).toBeVisible();
+
+  // Commit exit: the rename input owned the keyboard, so the editor can only
+  // be focused if the seam ran AFTER that input released it.
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 60, y: 400 } });
+  await page.getByTestId('folder-menu-new-file').click();
+  await expect(page.getByTestId('folder-rename-input')).toHaveValue('Untitled.md');
+  await page.keyboard.type('christened');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('docname')).toContainText('christened.md');
+  await expectReadyToType(page, 'straight into the new file');
+  await expect(pane).toBeVisible();
+  await page.keyboard.press('Control+s'); // the typed text was really the buffer's
+  await expect.poll(() => fsRead(page, '/notes/christened.md')).toContain('straight into the new file');
+
+  // Cancel exit: Esc keeps the placeholder name and still lands ready to type.
+  await page.locator('.folder-list').click({ button: 'right', position: { x: 60, y: 400 } });
+  await page.getByTestId('folder-menu-new-file').click();
+  await expect(page.getByTestId('folder-rename-input')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('docname')).toContainText('Untitled.md');
+  await expectReadyToType(page, 'after the cancelled christening');
+  await expect(pane).toBeVisible();
+
+  // …and an EXISTING file opened from the same sidebar keeps its own
+  // behaviour: the remembered preview, and no caret handed to an editor.
+  // (SPEC36 §3.1: the switch parks the dirty Untitled.md, it never prompts.)
+  await page.locator('[data-path="/notes/a.md"]').click();
+  await expect(page.getByTestId('docname')).toContainText('a.md');
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(pane).toBeVisible();
 });
 
 test('E98: rename in place — open dirty file remaps path/title/recents, dir rename remaps state, invalid names refuse', async ({
