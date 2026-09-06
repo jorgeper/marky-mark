@@ -16,18 +16,18 @@ const matchOf = (lineText: string, needle: string, line = 1, nth = 0): LineMatch
 };
 
 describe('rawMatchOffsets — canonical match → raw editor offsets', () => {
-  test('U1250: a line the grid did not touch is exact — the match offsets apply to the raw line as-is', () => {
+  test('U1257: a line the grid did not touch is exact — the match offsets apply to the raw line as-is', () => {
     const m = matchOf('> quoted needleword five', 'needleword five', 5);
     expect(rawMatchOffsets([{ from: 120, text: '> quoted needleword five' }], m)).toEqual({ from: 129, to: 144 });
   });
 
-  test('U1251: inside a gridded row the hit is re-found by text on the display row — the same occurrence, not the canonical offset', () => {
+  test('U1258: inside a gridded row the hit is re-found by text on the display row — the same occurrence, not the canonical offset', () => {
     const m = matchOf('| cell | needleword four |', 'needleword four', 3);
     const rows = [{ from: 40, text: '│ cell  │ needleword four │' }];
     expect(rawMatchOffsets(rows, m)).toEqual({ from: 40 + 10, to: 40 + 25 });
   });
 
-  test('U1252: a repeated needle keeps its occurrence index across the re-layout — the second canonical hit is the second display hit', () => {
+  test('U1259: a repeated needle keeps its occurrence index across the re-layout — the second canonical hit is the second display hit', () => {
     const lineText = '| aa | aa |';
     const second = matchOf(lineText, 'aa', 3, 1);
     const rows = [{ from: 0, text: '│ aa    │ aa    │' }];
@@ -36,7 +36,7 @@ describe('rawMatchOffsets — canonical match → raw editor offsets', () => {
     expect(rawMatchOffsets(rows, first)).toEqual({ from: 2, to: 4 });
   });
 
-  test('U1253: a wrapped cell spreads the row over several display rows — the hit is found on whichever row carries it', () => {
+  test('U1260: a wrapped cell spreads the row over several display rows — the hit is found on whichever row carries it', () => {
     const m = matchOf('| short | long text needleword |', 'needleword', 3);
     const rows = [
       { from: 0, text: '│ short │ long text  │' },
@@ -45,7 +45,7 @@ describe('rawMatchOffsets — canonical match → raw editor offsets', () => {
     expect(rawMatchOffsets(rows, m)).toEqual({ from: 23 + 10, to: 23 + 20 });
   });
 
-  test('U1254: a hit the display rows cannot show (split mid-word by wrapping, or spanning a cell boundary) is null; no rows at all is null; an empty hit is a caret at the first row', () => {
+  test('U1261: a hit the display rows cannot show (split mid-word by wrapping, or spanning a cell boundary) is null; no rows at all is null; an empty hit is a caret at the first row', () => {
     const split = matchOf('| a | needleword |', 'needleword', 3);
     const wrapped = [
       { from: 0, text: '│ a │ needle │' },
@@ -61,7 +61,7 @@ describe('rawMatchOffsets — canonical match → raw editor offsets', () => {
 });
 
 describe('blockLineRange / blockOccurrenceIndex — the preview block a match renders in', () => {
-  test('U1255: the block is the nearest anchor at or above the line and spans to the next anchor; the last block runs to the end; before the first anchor is null', () => {
+  test('U1262: the block is the nearest anchor at or above the line and spans to the next anchor; the last block runs to the end; before the first anchor is null', () => {
     const anchors = [1, 3, 7, 12];
     expect(blockLineRange(anchors, 5)).toEqual({ from: 3, to: 7 });
     expect(blockLineRange(anchors, 7)).toEqual({ from: 7, to: 12 });
@@ -70,7 +70,7 @@ describe('blockLineRange / blockOccurrenceIndex — the preview block a match re
     expect(blockLineRange([], 2)).toBeNull();
   });
 
-  test('U1256: the occurrence index counts only the file matches inside the block span, in document order — so a hit below a table is its block-relative ordinal, not its file ordinal', () => {
+  test('U1263: the occurrence index counts only the file matches inside the block span, in document order — so a hit below a table is its block-relative ordinal, not its file ordinal', () => {
     const text = [
       'Intro needleword one.',
       '',
