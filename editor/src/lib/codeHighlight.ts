@@ -1,0 +1,215 @@
+/**
+ * SPEC23 §3 (issue #269): the editor pane's fenced-code token model.
+ *
+ * Issue #122 wired three CodeMirror language packages into `codeLanguages`,
+ * so only `js`/`ts`/`jsx`/`tsx`, `css` and `html` fences coloured while the
+ * preview coloured everything `lowlight`'s `common` set covers. Rather than
+ * pull ~30 more grammar packages into the single-file web build, this module
+ * reuses the highlighter the preview ALREADY ships — `lowlight`, in the tree
+ * behind `rehype-highlight` (`lib/markdown.ts`) — and flattens its hast
+ * output into flat offset ranges a CodeMirror decoration layer can paint.
+ * Same grammar, same scopes, one class mapping: edit and preview agree by
+ * construction, and the bundle grows by nothing.
+ *
+ * Pure logic only (no react, no @codemirror/*): the view plumbing lives in
+ * `components/Editor.tsx`.
+ */
+import { common, createLowlight } from 'lowlight';
+
+const lowlight = createLowlight(common);
+
+/** One highlighted run, as offsets into the code text handed to `highlightCode`. */
+export interface CodeToken {
+  from: number;
+  to: number;
+  /** One of the eight `mm-code-*` classes. */
+  cls: string;
+}
+
+/**
+ * SPEC23 §3 (issue #269): hljs scope → `mm-code-*` class, transcribed from the
+ * preview's `.doc .hljs-*` rules in `styles.css` so both panes resolve the
+ * same eight `--mm-syn-*` theme tokens. No new class and no new colour: every
+ * bundled theme drives the new languages with no theme-file change.
+ */
+const SCOPE_CLASS: Readonly<Record<string, string>> = {
+  keyword: 'mm-code-keyword',
+  'selector-tag': 'mm-code-keyword',
+  tag: 'mm-code-keyword',
+  name: 'mm-code-keyword',
+  string: 'mm-code-string',
+  regexp: 'mm-code-string',
+  addition: 'mm-code-string',
+  comment: 'mm-code-comment',
+  quote: 'mm-code-comment',
+  deletion: 'mm-code-comment',
+  number: 'mm-code-number',
+  symbol: 'mm-code-number',
+  title: 'mm-code-title',
+  section: 'mm-code-title',
+  attr: 'mm-code-attr',
+  attribute: 'mm-code-attr',
+  property: 'mm-code-attr',
+  variable: 'mm-code-attr',
+  params: 'mm-code-attr',
+  literal: 'mm-code-literal',
+  built_in: 'mm-code-literal',
+  type: 'mm-code-literal',
+  meta: 'mm-code-meta',
+  doctag: 'mm-code-meta',
+};
+
+/**
+ * SPEC23 §3 (issue #269): the fence's info string → a lowlight language name,
+ * or `null` for "leave this fence as plain code text". Null covers an absent
+ * or empty info string, an unknown or bogus tag (```` ```notalang ````), and a
+ * language `isNativeFence` claims — no error, nothing lost. Only the first
+ * whitespace-separated word counts, so highlight-meta such as
+ * ```` ```python {1,3} ```` still resolves.
+ *
+ * `isNativeFence` is the caller's answer to "does a nested CodeMirror parser
+ * already colour this one?" (issue #122's `codeLanguages`). Those bodies are
+ * mounted sub-trees painted off real Lezer tags, so running lowlight over them
+ * too would double every span; the editor answers it with the very matcher
+ * `markdown({ codeLanguages })` uses, which is why the question is asked here
+ * rather than answered from a second list that could drift.
+ */
+export function resolveFenceLanguage(
+  info: string | null | undefined,
+  isNativeFence: (name: string) => boolean
+): string | null {
+  if (!info) return null;
+  const name = info.trim().split(/\s+/, 1)[0]?.toLowerCase();
+  if (!name || isNativeFence(name)) return null;
+  return lowlight.registered(name) ? name : null;
+}
+
+interface HastLike {
+  type: string;
+  value?: string;
+  properties?: { className?: unknown };
+  children?: HastLike[];
+}
+
+/** The innermost ancestor class that maps, mirroring CSS's nearest-wins. */
+function classOf(stack: readonly string[]): string | undefined {
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const hit = SCOPE_CLASS[stack[i]];
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+/** hljs scope names arrive as `['hljs-title', 'function_']` — take the prefixed ones. */
+function scopesOf(node: HastLike): string[] {
+  const raw = node.properties?.className;
+  const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(/\s+/) : [];
+  const out: string[] = [];
+  for (const c of list) if (typeof c === 'string' && c.startsWith('hljs-')) out.push(c.slice(5));
+  return out;
+}
+
+/**
+ * SPEC23 §3 (issue #269): flatten lowlight's hast into non-overlapping token
+ * ranges in document order — exactly the shape `RangeSetBuilder` wants.
+ * Unmapped scopes (and bare text) simply produce no range, so those runs stay
+ * in the flat code foreground the fence already paints.
+ */
+export function flattenHighlight(root: HastLike): CodeToken[] {
+  const out: CodeToken[] = [];
+  let pos = 0;
+  const walk = (node: HastLike, stack: string[]): void => {
+    if (node.type === 'text') {
+      const len = node.value?.length ?? 0;
+      const cls = classOf(stack);
+      if (len > 0 && cls) out.push({ from: pos, to: pos + len, cls });
+      pos += len;
+      return;
+    }
+    const scopes = scopesOf(node);
+    const next = scopes.length ? [...stack, ...scopes] : stack;
+    for (const child of node.children ?? []) walk(child, next);
+  };
+  walk(root, []);
+  return out;
+}
+
+/**
+ * SPEC23 §3 (issue #269): `code` highlighted as `lang`, as flat token ranges.
+ * A grammar that throws yields no tokens rather than breaking the editor —
+ * the fence falls back to plain code text, which is the pre-#269 behaviour.
+ */
+export function highlightCode(lang: string, code: string): CodeToken[] {
+  if (!code) return [];
+  try {
+    return flattenHighlight(lowlight.highlight(lang, code));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * SPEC23 §3 (issue #269): how much of one fence body is highlighted per
+ * measure. Bodies at or under the budget are highlighted whole — the common
+ * case, and the only one where a grammar's multi-line state (a docstring, a
+ * heredoc) is guaranteed right. Past it the work is clamped to the viewport,
+ * so typing into a several-hundred-line fence costs a viewport's worth of
+ * highlighting per keystroke and not a document's.
+ */
+export const CODE_HIGHLIGHT_BUDGET = 20000;
+
+export interface Span {
+  from: number;
+  to: number;
+}
+
+/**
+ * SPEC23 §3 (issue #269): the slice of `body` to highlight for a viewport of
+ * `visible`, snapped outwards to whole lines (`lineBounds` reports the line
+ * containing an offset) so a token never starts mid-line. `null` when the body
+ * is off-screen entirely — nothing to paint.
+ */
+export function codeHighlightSlice(
+  body: Span,
+  visible: Span,
+  lineBounds: (pos: number) => Span,
+  budget: number = CODE_HIGHLIGHT_BUDGET
+): Span | null {
+  if (body.to <= body.from) return null;
+  if (body.to <= visible.from || body.from >= visible.to) return null;
+  if (body.to - body.from <= budget) return body;
+  const from = Math.max(body.from, lineBounds(Math.max(visible.from, body.from)).from);
+  const to = Math.min(body.to, lineBounds(Math.min(visible.to, body.to)).to);
+  return to > from ? { from, to } : null;
+}
+
+/**
+ * SPEC23 §3 (issue #269): a tiny memo over `highlightCode`, so the layer
+ * recomputes only when the slice's text or language actually changes —
+ * scrolling, cursor moves, selection changes and edits outside the fence all
+ * hit the cache. Bounded and insertion-ordered: the oldest entry is evicted,
+ * so an editing session cannot grow it without bound.
+ */
+const CACHE_LIMIT = 48;
+const cache = new Map<string, CodeToken[]>();
+
+export function highlightCodeCached(lang: string, code: string): CodeToken[] {
+  // A literal \u0000 separator: it cannot occur in `lang` (a lowlight grammar
+  // name), so no pair of inputs can collide on one key. Written escaped —
+  // a raw NUL byte in the source makes the file undiffable.
+  const key = `${lang}\u0000${code}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const tokens = highlightCode(lang, code);
+  cache.set(key, tokens);
+  if (cache.size > CACHE_LIMIT) {
+    const oldest = cache.keys().next();
+    if (!oldest.done) cache.delete(oldest.value);
+  }
+  return tokens;
+}
+
+/** Test seam: drop the memo so a case can measure a cold call. */
+export function clearCodeHighlightCache(): void {
+  cache.clear();
+}

@@ -41,6 +41,14 @@ import { markdown } from '@codemirror/lang-markdown';
 import { css as cssLanguage } from '@codemirror/lang-css';
 import { html as htmlLanguage } from '@codemirror/lang-html';
 import { javascript as jsLanguage } from '@codemirror/lang-javascript';
+// SPEC23 §3 (issue #269): the rest of the fenced-code languages, coloured by
+// the highlighter the preview already ships (lowlight, behind rehype-highlight
+// in lib/markdown.ts) instead of ~30 more CodeMirror grammar packages.
+import {
+  codeHighlightSlice,
+  highlightCodeCached,
+  resolveFenceLanguage,
+} from '../lib/codeHighlight';
 import { createHeadingLinkButton } from '../lib/headingLinks';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
 import type { CompiledPattern } from '../lib/searchCore';
@@ -611,13 +619,92 @@ const CODE_LANGUAGES = [
 ];
 
 /**
+ * SPEC23 §3 (issue #269): does one of the nested parsers above already own
+ * this info string? Asked of `CODE_LANGUAGES` itself, with the very matcher
+ * `markdown({ codeLanguages })` applies to a fence — so the answer includes
+ * its fuzzy hits (```` ```scss ```` mounts the CSS grammar) and cannot drift
+ * from the parser list the way a hand-kept second list of names would.
+ */
+const nativeFenceLanguage = (name: string): boolean =>
+  LanguageDescription.matchLanguageName(CODE_LANGUAGES, name, true) !== null;
+
+/** One reusable mark per `mm-code-*` class — there are eight of them. */
+const codeTokenMarks = new Map<string, Decoration>();
+
+function codeTokenMark(cls: string): Decoration {
+  let mark = codeTokenMarks.get(cls);
+  if (!mark) {
+    mark = Decoration.mark({ class: cls });
+    codeTokenMarks.set(cls, mark);
+  }
+  return mark;
+}
+
+/**
+ * SPEC23 §3 (issue #269): the languages the three nested parsers above do NOT
+ * cover — python, bash, json, yaml, rust, go, java, sql, c/cpp and the rest of
+ * lowlight's `common` set — painted as mark decorations over the fence body
+ * instead. `lib/codeHighlight.ts` owns the grammar call and the hljs-scope →
+ * `mm-code-*` mapping, so both panes resolve the same eight `--mm-syn-*`
+ * tokens; here we only turn its offsets into ranges.
+ *
+ * Cost shape, per the spec's typing-responsiveness criterion: the layer walks
+ * the syntax tree over the VISIBLE ranges only, and each fence body is sliced
+ * by `codeHighlightSlice` (whole body under the budget, viewport-clamped past
+ * it) before it is highlighted, with the result memoized on slice text — so a
+ * keystroke inside a several-hundred-line fence re-highlights a viewport, and
+ * a keystroke anywhere else re-highlights nothing.
+ *
+ * `Prec.highest` so these spans nest INSIDE the highlighter's `mm-md-code`
+ * (Prec.high): the fence keeps its background and radius, and the token colour
+ * paints on top of the flat code foreground rather than under it.
+ */
+function lowlightCodeDeco(view: EditorView): DecorationSet {
+  const ranges = view.visibleRanges;
+  if (!ranges.length) return Decoration.none;
+  const visible = { from: ranges[0].from, to: ranges[ranges.length - 1].to };
+  const doc = view.state.doc;
+  const lineBounds = (pos: number) => {
+    const line = doc.lineAt(pos);
+    return { from: line.from, to: line.to };
+  };
+  const builder = new RangeSetBuilder<Decoration>();
+  syntaxTree(view.state).iterate({
+    from: visible.from,
+    to: visible.to,
+    enter: (n) => {
+      if (n.name !== 'FencedCode') return;
+      const info = n.node.getChild('CodeInfo');
+      const lang = resolveFenceLanguage(
+        info ? doc.sliceString(info.from, info.to) : null,
+        nativeFenceLanguage
+      );
+      if (!lang) return false; // unlabelled, unknown, or a nested parser's own
+      const body = n.node.getChild('CodeText');
+      if (!body) return false; // an empty fence has no body to colour
+      const slice = codeHighlightSlice({ from: body.from, to: body.to }, visible, lineBounds);
+      if (!slice) return false;
+      const code = doc.sliceString(slice.from, slice.to);
+      for (const t of highlightCodeCached(lang, code)) {
+        builder.add(slice.from + t.from, slice.from + t.to, codeTokenMark(t.cls));
+      }
+      return false;
+    },
+  });
+  return builder.finish();
+}
+
+const lowlightCodeExt: Extension = Prec.highest(EditorView.decorations.of(lowlightCodeDeco));
+
+/**
  * Issue #122: the code-colour compartment's content. Only the highlight style
  * rides it — the nested parsers stay installed either way, so toggling is a
  * pure restyle (no re-parse, no history touched). Independent of `syntaxExt`
  * above: markdown highlighting off with code colour on, or the reverse, are
  * both coherent states, and PRD 006's live preview supersedes neither.
  */
-const codeSyntaxExt = (on: boolean): Extension => (on ? syntaxHighlighting(mmCodeHighlight) : []);
+const codeSyntaxExt = (on: boolean): Extension =>
+  on ? [syntaxHighlighting(mmCodeHighlight), lowlightCodeExt] : [];
 
 /**
  * CodeMirror 6 markdown editor. This module is loaded lazily (React.lazy) so
