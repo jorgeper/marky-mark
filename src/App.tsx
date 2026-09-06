@@ -521,8 +521,12 @@ function summaryPriceFor(ctx: { providerId: string; modelId: string }): TokenPri
  * selection instead of floating detached.
  */
 const PREVIEW_BTN = { size: 24, gap: 4, edge: 4, toolbarFloor: 46 };
-/** The preview selection's placement inputs — see previewButtonPos. */
-interface PreviewSelectionRect {
+/**
+ * What previewButtonPos places the button against — not the selection's own
+ * rect (issue #306): the host doc's content edge for `left`, and the
+ * selection's first line box for `top`.
+ */
+interface PreviewButtonAnchor {
   /** The host .doc's content-left edge (its rect left + padding-left), viewport px. */
   contentLeft: number;
   /** Top of the selection's first non-empty line box, viewport px. */
@@ -530,7 +534,7 @@ interface PreviewSelectionRect {
   /** Height of that first line box. */
   h: number;
 }
-function previewButtonPos(sel: PreviewSelectionRect): { left: number; top: number } {
+function previewButtonPos(sel: PreviewButtonAnchor): { left: number; top: number } {
   const { size, gap, edge, toolbarFloor } = PREVIEW_BTN;
   return {
     left: Math.max(edge, Math.min(sel.contentLeft - gap - size, window.innerWidth - size - edge)),
@@ -753,8 +757,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const [draft, setDraft] = useState('');
   // PRD 023 §13 (issue #287): the preview selection button's anchor — the
   // host doc's content-left edge and the selection's first line box (issue
-  // #306, PreviewSelectionRect), in viewport coords.
-  const [selInfo, setSelInfo] = useState<({ start: number; end: number } & PreviewSelectionRect) | null>(null);
+  // #306, PreviewButtonAnchor), in viewport coords.
+  const [selInfo, setSelInfo] = useState<({ start: number; end: number } & PreviewButtonAnchor) | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // PRD 017 Req 13: the deployment-admin Management dialog.
   const [managementOpen, setManagementOpen] = useState(false);
@@ -8791,11 +8795,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           band (the issue #18 toolbar floor; z-index in styles.css). Both
           preview surfaces — full and split pane — place it through the one
           previewButtonPos, each fed its own doc's content edge. It rides
-          selInfo, so it exists exactly when the
-          annotation hotkeys would act: both preview surfaces, either build,
-          never the split editor half. Absent — not disabled — when the
-          commentsEnabled/frozen/comment.write gate is closed. It is chrome:
-          never inside .doc's text space, hidden in print (styles.css). */}
+          selInfo, so it exists exactly when the annotation hotkeys would
+          act: both preview surfaces, either build, never the split editor
+          half. Absent — not disabled — when the commentsEnabled/frozen/
+          comment.write gate is closed. It is chrome: never inside .doc's text
+          space, hidden in print (styles.css). */}
       {selInfo && settings.commentsEnabled && mayComment && (
         <button
           type="button"
