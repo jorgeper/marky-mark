@@ -89,6 +89,17 @@ export interface Platform {
   /** SPEC20 follow-up (Insert Image…): pick an image file; null = cancelled. */
   openImageDialog?(): Promise<string | null>;
   /**
+   * SPEC20 follow-up (issue #266): pick an image from the user's machine as
+   * BYTES — the Insert Image… seam for a flavor with no local filesystem for
+   * `openImageDialog` + `copyFile` to copy FROM. Hosted opens the browser's
+   * own file dialog and the picked File is uploaded through `writeBinaryFile`
+   * (PRD 007 Req 8), landing the same workspace blob a paste does; null =
+   * cancelled. Present with `writeBinaryFile` ⇒ Insert Image… uploads;
+   * absent ⇒ the copy-into-place path where that pair exists, and the
+   * needs-desktop notice where neither does.
+   */
+  pickImageFile?(): Promise<File | null>;
+  /**
    * SPEC34 §1: the folder sidebar's two seams. Absent (web) ⇒ the entire
    * feature never renders. Direct children only; names, not paths.
    */

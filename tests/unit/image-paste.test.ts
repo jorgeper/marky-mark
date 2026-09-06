@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'vitest';
-import { expandImageName, extForMime, imageMarkdownRef, isValidImageFolder, sanitizeImageName } from '../../src/lib/imagePaste';
+import {
+  expandImageName,
+  extForMime,
+  IMAGE_PICK_ACCEPT,
+  IMAGE_PICK_EXTENSIONS,
+  imageMarkdownRef,
+  isValidImageFolder,
+  pickedImageName,
+  sanitizeImageName,
+} from '../../src/lib/imagePaste';
 
 const ctx = (existing: string[], docName = 'mods') => ({
   docName,
@@ -72,5 +81,32 @@ describe('SPEC20 §1 pasted-image naming', () => {
     expect(isValidImageFolder('a\\b')).toBe(false);
     expect(isValidImageFolder('..')).toBe(false);
     expect(isValidImageFolder('.')).toBe(false);
+  });
+  test('U1222: a PICKED image keeps its own name — sanitized, extension preserved, numbered past collisions', () => {
+    // SPEC20 follow-up (issue #266): the one naming rule both Insert Image…
+    // seams use — a desktop path's basename and a hosted picker's File.name
+    // land under the same name, so the flavors cannot drift.
+    const taken = (existing: string[]) => (fn: string) => existing.some((e) => e.toLowerCase() === fn.toLowerCase());
+    expect(pickedImageName('logo.png', taken([]))).toBe('logo.png');
+    // Extension case is normalized; the stem's spaces survive.
+    expect(pickedImageName('My Shot.JPG', taken([]))).toBe('My Shot.jpg');
+    // A collision numbers rather than overwrites — case-insensitively.
+    expect(pickedImageName('logo.png', taken(['LOGO.PNG']))).toBe('logo 1.png');
+    expect(pickedImageName('logo.png', taken(['logo.png', 'logo 1.png']))).toBe('logo 2.png');
+    // Filesystem-hostile characters and reserved basenames are sanitized.
+    expect(pickedImageName('a/b:c*.png', taken([]))).toBe('abc.png');
+    expect(pickedImageName('con.png', taken([]))).toBe('con-img.png');
+    // No extension at all ⇒ png; a dotfile has no stem to split on either.
+    expect(pickedImageName('screenshot', taken([]))).toBe('screenshot.png');
+    expect(pickedImageName('.hidden', taken([]))).toBe('hidden.png');
+    // Nothing usable left still yields a name, never an empty one.
+    expect(pickedImageName('///:::.png', taken([]))).toBe('image.png');
+  });
+
+  test('U1223: the picker offers the image types, one list for both pickers', () => {
+    // SPEC20 follow-up (issue #266): the desktop dialog's filter list is the
+    // reference; the hosted browser input's accept value is derived from it.
+    expect(IMAGE_PICK_EXTENSIONS).toEqual(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']);
+    expect(IMAGE_PICK_ACCEPT).toBe('.png,.jpg,.jpeg,.gif,.webp,.svg');
   });
 });

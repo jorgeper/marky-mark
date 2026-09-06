@@ -1,5 +1,5 @@
 import type { Platform } from './types';
-import { createLocalDocs } from './localDocs';
+import { createLocalDocs, pickViaInput } from './localDocs';
 import {
   clearToken,
   HostedSessionExpiredError,
@@ -14,6 +14,7 @@ import { createHostedSummaryCache } from './hostedSummaryCache';
 import { ALL_FILE_GRANTS, fileGrantsFromPermissions, type FileGrants } from '../lib/fileGrants';
 import type { SessionMe } from '../lib/deploymentSettings';
 import { uploadRejection } from '../lib/fileTransfer';
+import { IMAGE_PICK_ACCEPT } from '../lib/imagePaste';
 import { parseWorkspaceManifest, resolvePermissions, type Permission } from '../lib/hostedWorkspace';
 import { SaveConflictError } from '../lib/saveConflict';
 import {
@@ -692,6 +693,16 @@ export function createHostedPlatform(): Platform {
       // the named 403, and neither is a bare status code (issue #267).
       if (!res.ok) throw await requestError(res, `binary write failed (${res.status}): ${path}`);
     },
+
+    /**
+     * SPEC20 follow-up (issue #266): Insert Image… on hosted. There is no
+     * local filesystem for `openImageDialog` + `copyFile` to copy FROM, so
+     * the pick is the browser's own file dialog — the same hidden input the
+     * hosted Open File… fallback picks through — and the bytes land through
+     * `writeBinaryFile` above (PRD 007 Req 8). No request is made here: this
+     * seam adds no second network call site (SPEC11 §6.6).
+     */
+    pickImageFile: () => pickViaInput(IMAGE_PICK_ACCEPT),
 
     readDirEntries(dir) {
       return childrenOf(dir);

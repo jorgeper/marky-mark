@@ -162,7 +162,7 @@ import {
   type SlidePhase,
 } from './lib/paneSlide';
 import { countWords } from './lib/wordCount';
-import { expandImageName, extForMime, imageMarkdownRef, sanitizeImageName } from './lib/imagePaste';
+import { expandImageName, extForMime, imageMarkdownRef, pickedImageName } from './lib/imagePaste';
 import { HeadingPalette, type PaletteHeading } from './components/HeadingPalette';
 import {
   buildAuxInit,
@@ -1637,15 +1637,27 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   );
 
   /**
-   * SPEC20 follow-up: Insert Image… — pick an image file, copy it into the
-   * images folder next to the doc (unless it already lives there), reference
-   * it at the cursor. Edit mode only; the notices explain everything else.
+   * SPEC20 follow-up: Insert Image… — pick an image file, land it in the
+   * images folder next to the doc, reference it at the cursor. Edit mode
+   * only; the notices explain everything else.
+   *
+   * Issue #266: two ways to land it, chosen by the capabilities the platform
+   * offers and never by asking which flavor is running. A platform with a
+   * local filesystem (`openImageDialog` + `copyFile`) copies the picked path
+   * into place, skipping the copy when the pick already lives in the folder;
+   * a platform that picks BYTES instead (`pickImageFile` + `writeBinaryFile`
+   * — hosted, PRD 007 Req 8) uploads them as a workspace blob, exactly where
+   * a pasted image lands and readable by every member holding doc.read.
+   * Naming, collision numbering and the reference insertion are the same code
+   * for both. Neither pair — the static web build — keeps the notice.
    */
   const insertImage = useCallback(async () => {
     const s = stateRef.current;
     const p = s.platform;
     if (!p) return;
-    if (!p.openImageDialog || !p.copyFile) {
+    const copyInPlace = p.openImageDialog && p.copyFile ? { open: p.openImageDialog, copy: p.copyFile } : null;
+    const upload = p.pickImageFile && p.writeBinaryFile ? { pick: p.pickImageFile, write: p.writeBinaryFile } : null;
+    if (!copyInPlace && !upload) {
       showNotice('Insert Image needs the desktop app');
       return;
     }
@@ -1657,30 +1669,42 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       showNotice('Save the document first to insert images');
       return;
     }
-    const picked = await p.openImageDialog();
+    // The pick comes first and unguarded: cancelling it inserts nothing and
+    // says nothing, on either seam.
+    const picked = copyInPlace ? await copyInPlace.open() : await upload!.pick();
     if (!picked) return;
     const folder = s.settings.imageFolder;
     const folderPath = p.join(p.dirname(s.docPath), folder);
+    /** A free name in the folder for what was picked — one rule, both seams. */
+    const freeName = async (base: string) => {
+      const taken = new Set((await p.readDirNames(folderPath)).map((n) => n.toLowerCase()));
+      return pickedImageName(base, (fn) => taken.has(fn.toLowerCase()));
+    };
     try {
       let fileName: string;
-      if (p.dirname(picked) === folderPath) {
-        fileName = p.basename(picked); // already in the folder — just reference it
+      if (typeof picked === 'string') {
+        if (p.dirname(picked) === folderPath) {
+          fileName = p.basename(picked); // already in the folder — just reference it
+        } else {
+          fileName = await freeName(p.basename(picked));
+          await copyInPlace!.copy(picked, p.join(folderPath, fileName));
+        }
       } else {
-        const base = p.basename(picked);
-        const dot = base.lastIndexOf('.');
-        const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : 'png';
-        const stem = sanitizeImageName(dot > 0 ? base.slice(0, dot) : base);
-        const taken = new Set((await p.readDirNames(folderPath)).map((n) => n.toLowerCase()));
-        fileName = expandImageName(stem, ext, {
-          docName: '',
-          now: new Date(),
-          exists: (fn) => taken.has(fn.toLowerCase()),
-        });
-        await p.copyFile(picked, p.join(folderPath, fileName));
+        fileName = await freeName(picked.name);
+        await upload!.write(p.join(folderPath, fileName), new Uint8Array(await picked.arrayBuffer()));
       }
       editorInsertRef.current?.(imageMarkdownRef(folder, fileName));
     } catch (err) {
-      showNotice(`Couldn’t insert the image: ${err instanceof Error ? err.message : String(err)}`);
+      // PRD 007 Req 5+17 (issue #266, following pasteImages): the upload can
+      // fail because the session expired — that is the gate's sign-in-again
+      // wording, not an insert failure with a status code stapled to it. A
+      // role missing `file.create`/`doc.edit` arrives here as the named 403
+      // refusal #267 mints, and rides the insert notice that names the verb.
+      showNotice(
+        isHostedSessionExpired(err)
+          ? err.message
+          : `Couldn’t insert the image: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }, [showNotice]);
 

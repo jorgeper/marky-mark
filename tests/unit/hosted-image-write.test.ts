@@ -21,6 +21,7 @@ import {
   storeToken,
 } from '../../src/lib/hostedGate';
 import { createHostedPlatform } from '../../src/platform/hosted';
+import { imageMarkdownRef, pickedImageName } from '../../src/lib/imagePaste';
 import type { Platform } from '../../src/platform/types';
 
 /** The bytes a paste hands the platform — a PNG header is enough to be one. */
@@ -179,6 +180,64 @@ describe('PRD 007 Req 8 (SPEC20 §2) hosted pasted-image write', () => {
         // A refused verb is not a dead session — the token stays put.
         expect(readStoredToken(store)).toBe('mock:alan');
       });
+    } finally {
+      await h.close();
+    }
+  });
+});
+
+describe('SPEC20 follow-up (issue #266) hosted Insert Image… upload', () => {
+  it('U1224: a picked image uploads into the document’s image folder under a collision-free name and reads back for a doc.read member', async () => {
+    const h = await harness();
+    try {
+      const id = await h.workspace('ada');
+      const root = hostedFilesRoot(id);
+      await withHostedPlatform(h, id, 'mock:ada', async (platform) => {
+        await platform.writeTextFile(`${root}/notes.md`, '# notes\n');
+        // The folder already holds a picture of that name: the upload numbers
+        // past it rather than replacing it, off the LIVE listing.
+        await platform.writeBinaryFile?.(`${root}/images/logo.png`, PNG);
+        const folder = platform.join(platform.dirname(`${root}/notes.md`), 'images');
+        const taken = new Set((await platform.readDirNames(folder)).map((n) => n.toLowerCase()));
+        const name = pickedImageName('Logo.PNG', (fn) => taken.has(fn.toLowerCase()));
+        expect(name).toBe('Logo 1.png');
+        // Insert Image… writes through the SAME seam a paste does — the
+        // `?raw=1` PUT, no second call site (issue #266 criterion 2).
+        await platform.writeBinaryFile?.(platform.join(folder, name), PNG);
+        expect(imageMarkdownRef('images', name)).toBe('![Logo 1](images/Logo%201.png)');
+      });
+      // PRD 007 Req 8: a workspace blob, not a data: URI in one browser —
+      // served back byte for byte to a second member holding doc.read.
+      await memberWith(h, id, 'grace', ['doc.read']);
+      const got = await h.call('grace', 'GET', `/api/workspaces/${id}/files/images/Logo%201.png?raw=1`);
+      expect(got.status).toBe(200);
+      expect(new Uint8Array(await got.arrayBuffer())).toEqual(PNG);
+      expect(got.headers.get('content-type')).toBe('image/png');
+      // The picture that was already there is untouched.
+      expect((await h.call('ada', 'GET', `/api/workspaces/${id}/files/images/logo.png?raw=1`)).status).toBe(200);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it('U1225: a member without the write verb gets the named refusal from the insert upload and nothing is stored', async () => {
+    const h = await harness();
+    try {
+      const id = await h.workspace('ada');
+      const root = hostedFilesRoot(id);
+      // PRD 007 Req 17 (issue #266 criterion 3): an editor who may not create
+      // files is refused BY NAME, and the document keeps no reference to an
+      // image that never landed.
+      await memberWith(h, id, 'alan', ['doc.read', 'doc.edit']);
+      await withHostedPlatform(h, id, 'mock:alan', async (platform) => {
+        const folder = platform.join(platform.dirname(`${root}/notes.md`), 'images');
+        const taken = new Set((await platform.readDirNames(folder)).map((n) => n.toLowerCase()));
+        const name = pickedImageName('shot.png', (fn) => taken.has(fn.toLowerCase()));
+        const failed = await platform.writeBinaryFile?.(platform.join(folder, name), PNG).catch((e: unknown) => e);
+        expect(isHostedSessionExpired(failed)).toBe(false);
+        expect((failed as Error).message).toBe('You need the file.create permission to do that.');
+      });
+      expect((await h.call('ada', 'GET', `/api/workspaces/${id}/files/images/shot.png?raw=1`)).status).toBe(404);
     } finally {
       await h.close();
     }

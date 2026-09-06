@@ -75,6 +75,31 @@ export function expandImageName(pattern: string, ext: string, ctx: NamingContext
 }
 
 /**
+ * SPEC20 follow-up (issue #266): the image types Insert Image… offers. One
+ * list for both pickers — the desktop dialog's filters and the hosted
+ * browser input's `accept` — so the two can never drift apart.
+ */
+export const IMAGE_PICK_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+
+/** The same list as an `<input type="file" accept>` value. */
+export const IMAGE_PICK_ACCEPT = IMAGE_PICK_EXTENSIONS.map((e) => `.${e}`).join(',');
+
+/**
+ * SPEC20 follow-up (issue #266): the name a PICKED image lands under, derived
+ * from what the user picked — its own stem, sanitized, keeping its extension
+ * (png when it has none), numbered past whatever the folder already holds.
+ * Both Insert Image… branches name through this one function: the desktop
+ * copy-into-place passes a path's basename, the hosted upload passes the
+ * picked File's name, so the two flavors mint identical names.
+ */
+export function pickedImageName(base: string, exists: (fileName: string) => boolean): string {
+  const dot = base.lastIndexOf('.');
+  const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : 'png';
+  const stem = sanitizeImageName(dot > 0 ? base.slice(0, dot) : base);
+  return expandImageName(stem, ext, { docName: '', now: new Date(), exists });
+}
+
+/**
  * A single path segment: non-empty, no separators, not a dot-walk. Used by
  * both the settings parser and the Settings panel's inline validation.
  */

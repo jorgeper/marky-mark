@@ -5,6 +5,7 @@ import type { AuxKind } from '../lib/auxProtocol';
 import { dispatchRecent, dispatchCommand } from '../lib/commands';
 import { createDesktopLlmTransport } from '../lib/llmDesktopTransport';
 import { parseCombo } from '@marky-mark/editor';
+import { IMAGE_PICK_EXTENSIONS } from '../lib/imagePaste';
 
 /**
  * Real desktop platform. All Tauri imports are dynamic so this module only
@@ -215,7 +216,9 @@ export async function createTauriPlatform(): Promise<Platform> {
       const picked = await dialog.open({
         multiple: false,
         directory: false,
-        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] }],
+        // SPEC20 follow-up (issue #266): the shared list the hosted
+        // browser picker offers too — one source of truth for image types.
+        filters: [{ name: 'Images', extensions: [...IMAGE_PICK_EXTENSIONS] }],
       });
       return typeof picked === 'string' ? picked : null;
     },

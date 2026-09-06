@@ -821,6 +821,58 @@ test('E332: a pasted image is a workspace blob that renders for a second member'
   expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
 });
 
+test('E527: hosted Insert Image… picks a picture off the machine and uploads it into the workspace', async ({
+  page,
+  request,
+}) => {
+  // Issue #266 (SPEC20 follow-up): hosted has no local filesystem for the
+  // desktop's copy-into-place to copy FROM, so Insert Image… opens the
+  // browser's OWN file dialog and the picked bytes land through the same
+  // writeBinaryFile blob write a paste uses (PRD 007 Req 8) — never the
+  // "needs the desktop app" refusal.
+  const TINY_PNG =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const ada = await signIn(request, 'ada');
+  const id = await createWorkspace(request, ada, `E527 w${test.info().workerIndex}`);
+  const headers = { Authorization: `Bearer ${ada}` };
+  const put = await request.put(`${HOSTED}/api/workspaces/${id}/files/shots.md`, {
+    headers,
+    data: '# Shots\n\nInsert lands here.\n',
+  });
+  expect(put.status()).toBe(200);
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'shots.md');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.getByTestId('editor').locator('.cm-line').first().click();
+  await page.keyboard.press('Control+End');
+
+  // The SPEC41 Image ▸ submenu's Insert Image… — the real file chooser.
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('smart-edit-gutter').click();
+  await page.getByTestId('smart-edit-image').click();
+  await page.getByTestId('smart-edit-insert-image').click();
+  await (
+    await chooser
+  ).setFiles({ name: 'My Shot.PNG', mimeType: 'image/png', buffer: Buffer.from(TINY_PNG, 'base64') });
+
+  // The picked file's own name (sanitized, lowercased extension) is referenced
+  // at the cursor, exactly as the desktop copy-into-place names it.
+  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('![My Shot](images/My%20Shot.png)');
+  await expect(page.getByTestId('notice')).toHaveCount(0);
+
+  // PRD 007 Req 8: the bytes are a workspace blob under the document's image
+  // folder, served back with an image media type — not a data: URI.
+  const asset = `${HOSTED}/api/workspaces/${id}/files/images/My Shot.png?raw=1`;
+  await expect
+    .poll(async () => (await request.get(asset, { headers })).status(), { timeout: 10_000 })
+    .toBe(200);
+  const bytes = await request.get(asset, { headers });
+  expect(bytes.headers()['content-type']).toBe('image/png');
+  expect((await bytes.body()).length).toBeGreaterThan(0);
+});
+
 test('E333: the User settings layer roams per user while the Workspace layer comes from the manifest', async ({
   page,
   request,
