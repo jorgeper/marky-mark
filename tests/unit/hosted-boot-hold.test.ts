@@ -13,7 +13,7 @@ const cold: BootHoldState = { platformReady: false, workspaceOpen: false, bootDo
 // PRD 020 Req 5+6 (issue #253): which page loads hold a frame, and when the
 // frame may go — the two decisions behind "no intermediate screens".
 describe('hosted boot hold', () => {
-  it('U1199: a stored session holds the frame; a signed-out visitor does not', () => {
+  it('U1207: a stored session holds the frame; a signed-out visitor does not', () => {
     expect(holdsBootFrame({ token: 'tok', search: '' })).toBe(true);
     // The sign-in page is the signed-out visitor's destination, not an
     // intermediate screen — nothing is painted in front of it.

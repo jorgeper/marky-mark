@@ -528,9 +528,12 @@ test('E481: SPEC43 §11 — Link ▸ Open Link opens through the seam with the c
 
   // Caret into the anchor link: the shared managed-link rule (SPEC11 §4)
   // handles #target exactly as a preview click would — it is NEVER handed to
-  // the browser and the app never navigates. (The rendered pane carries no
-  // element for a plain markdown heading id today, so like the preview the
-  // jump resolves to a safe no-op — the deliberate parity contract.)
+  // the browser and the app never navigates. Issue #268: "exactly as a
+  // preview click would" now means it LANDS — the fragment resolves through
+  // the same PRD 020 Req 18 heading anchors and the editor scrolls to that
+  // heading's source line (the E337 path), where it used to resolve to a
+  // no-op `getElementById` lookup.
+  const editorScrollTop = () => editor.locator('.cm-scroller').evaluate((el) => el.scrollTop);
   await editor.locator('.cm-line').filter({ hasText: 'jump' }).click();
   await page.keyboard.press('Home');
   for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowRight');
@@ -538,8 +541,10 @@ test('E481: SPEC43 §11 — Link ▸ Open Link opens through the seam with the c
   await page.getByTestId('smart-edit-gutter').click();
   await page.getByTestId('smart-edit-link-view').click();
   await expect(page.getByTestId('smart-edit-open-link')).toBeEnabled();
+  const beforeJump = await editorScrollTop();
   await page.getByTestId('smart-edit-open-link').click();
-  await page.waitForTimeout(150);
+  await expect.poll(editorScrollTop).toBeGreaterThan(beforeJump + 200);
+  await expect(editor.locator('.cm-line').filter({ hasText: '## Target' })).toBeInViewport();
   expect((await externalOpens(page)).length).toBe(opens); // not handed off
   expect(page.url()).toBe(appUrl); // the app never navigated
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);

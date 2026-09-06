@@ -5797,7 +5797,7 @@ async function seedSession(page: Page, token: string): Promise<void> {
   await page.addInitScript((t: string) => window.localStorage.setItem('marky-mark.hosted.token', t), token);
 }
 
-test('E505: a signed-in boot at a file deep link paints no sign-in page, no bare shell and no home page — ONE held frame, then the workspace', async ({
+test('E512: a signed-in boot at a file deep link paints no sign-in page, no bare shell and no home page — ONE held frame, then the workspace', async ({
   page,
   request,
 }) => {
@@ -5843,7 +5843,7 @@ test('E505: a signed-in boot at a file deep link paints no sign-in page, no bare
   expect(reloaded.holds).toEqual(['hosted-booting']);
 });
 
-test('E506: clicking a workspace row lands in that workspace with no home page, sign-in page or bare shell in between', async ({
+test('E513: clicking a workspace row lands in that workspace with no home page, sign-in page or bare shell in between', async ({
   page,
   request,
 }) => {
@@ -5851,7 +5851,7 @@ test('E506: clicking a workspace row lands in that workspace with no home page, 
   // navigateTo), so the whole boot runs again on the new document — the home
   // page the click started from must not be repainted on the way in.
   const token = await signIn(request, 'ada');
-  const name = `E506 row w${test.info().workerIndex}`;
+  const name = `E513 row w${test.info().workerIndex}`;
   const id = await createWorkspace(request, token, name);
   const unique = await uniqueNameOf(request, token, id);
   await dropDraft(page, token);
