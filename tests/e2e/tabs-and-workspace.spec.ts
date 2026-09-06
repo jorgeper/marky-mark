@@ -6,6 +6,7 @@ import {
   fsRead,
   fsWrite,
   menuClick,
+  menuItem,
   openNotesRoot,
   openSettings,
   saveSettings,
@@ -79,7 +80,7 @@ test('E100: plain click opens IN ADDITION (issue #64) — clicks accumulate tabs
   await expect(page.getByTestId('docname')).toContainText('b.md');
 });
 
-test('E101: only-open-files mode — button/hotkey/View menu, flat tree-order list, # disabled, empty state, sync returns, persists', async ({
+test('E101: only-open-files mode — hotkey and View menu, flat tree-order list, Show All Files disabled, empty state, sync returns, persists', async ({
   page,
 }) => {
   await freshNativeMenuApp(page);
@@ -98,12 +99,12 @@ test('E101: only-open-files mode — button/hotkey/View menu, flat tree-order li
       ) as { checked?: boolean };
     });
 
-  // Nothing open: the header button still works (root set) — empty state,
-  // # filter disabled, View checkbox on, accent class on.
-  await page.getByTestId('folder-open-only').click();
-  await expect(page.getByTestId('folder-open-only')).toHaveClass(/(^|\s)on(\s|$)/);
+  // Nothing open: the View row still works (root set) — empty state, the
+  // Show All Files row disabled beneath it (issue #257 moved both filters
+  // there), the Only Open Files checkbox on.
+  await menuClick(page, 'toggleOpenOnly');
   await expect(page.getByTestId('folder-open-empty')).toBeVisible();
-  await expect(page.getByTestId('folder-filter')).toBeDisabled();
+  await expect.poll(async () => (await menuItem(page, 'toggleNonMd'))!.disabled).toBe(true);
   await expect.poll(async () => (await openOnlyItem()).checked).toBe(true);
 
   // The hotkey flips it back to the tree.
@@ -133,17 +134,18 @@ test('E101: only-open-files mode — button/hotkey/View menu, flat tree-order li
 
   // Sync returns to the tree with the active row revealed and selected.
   await page.getByTestId('folder-sync').click();
-  await expect(page.getByTestId('folder-open-only')).not.toHaveClass(/(^|\s)on(\s|$)/);
+  await expect.poll(async () => (await openOnlyItem()).checked).toBe(false);
   await expect(page.locator('[data-path="/notes/sub"]')).toBeVisible();
   await expect(page.locator('[data-path="/notes/sub/deep/c.md"]')).toHaveClass(/selected/);
-  await expect(page.getByTestId('folder-filter')).toBeEnabled();
+  // Issue #257: with the tree back, View ▸ Show All Files is live again.
+  await expect.poll(async () => (await menuItem(page, 'toggleNonMd'))!.disabled).toBeFalsy();
 
   // Mode + set live in the workspace session (issue #81): a relaunch lands
   // on the splash; reopening the folder revives openOnly, the open set, and
   // the active file.
   await page.waitForTimeout(200);
-  await page.getByTestId('folder-open-only').click();
-  await expect(page.getByTestId('folder-open-only')).toHaveClass(/(^|\s)on(\s|$)/);
+  await menuClick(page, 'toggleOpenOnly');
+  await expect.poll(async () => (await openOnlyItem()).checked).toBe(true);
   await page.reload();
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await expect.poll(() => page.evaluate(() => !!window.__mmMenu)).toBe(true);
@@ -151,7 +153,7 @@ test('E101: only-open-files mode — button/hotkey/View menu, flat tree-order li
     window.__mmfs!.nextFolderPath = '/notes';
   });
   await menuClick(page, 'openFolder');
-  await expect(page.getByTestId('folder-open-only')).toHaveClass(/(^|\s)on(\s|$)/);
+  await expect.poll(async () => (await openOnlyItem()).checked).toBe(true);
   await expect.poll(names).toEqual(['/notes/sub/deep/c.md', '/notes/sub/b.md', '/notes/a.md']);
   await expect(page).toHaveTitle(/c\.md/);
 });
@@ -942,10 +944,12 @@ test('E210: a local file opened with a workspace open closes the workspace first
   await page.getByTestId('close-discard').click();
   await expect(page.getByTestId('docname')).toContainText('welcome.md');
   await expect(page.getByTestId('empty-hint')).toHaveCount(0);
-  // PRD 009 Req 2: no folder sidebar (nor its collapsed reveal seam) in
-  // single-file mode, whatever the flavor can browse.
+  // PRD 009 Req 2: no folder sidebar in single-file mode, whatever the
+  // flavor can browse. Issue #257: the collapsed chevron is the SIDEBAR's
+  // show control now — a document means the TOC view can show, so it is
+  // there, and it opens no folder pane.
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
-  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toHaveAttribute('aria-label', 'Show sidebar');
 
   // PRD 009 Req 2: "single file" means "no workspace", not "one document" —
   // a second file joins the open set and Ctrl+Tab still cycles both.

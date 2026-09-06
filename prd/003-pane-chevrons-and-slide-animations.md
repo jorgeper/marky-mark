@@ -81,6 +81,13 @@ slide, like the toolbar already does, instead of popping in and out.
    it reopens the pane (`showFolders → true`). It carries
    `data-testid="folder-expand"`, a tooltip, and an `aria-label` (e.g.
    "Show the folder panel").
+
+   > **Amended (issue #257, 2026-09-06):** the two chevrons are the
+   > SIDEBAR's show/hide control — the pane hosts three views — so both are
+   > worded **"Hide sidebar"** / **"Show sidebar"** (title and aria-label),
+   > and the closed-state one renders wherever the sidebar could show: the
+   > folder seam, or an open document for the TOC view. It reopens the
+   > sidebar on the view it was last showing. Test ids are unchanged.
 3. The closed-state chevron does not overlap or obscure document content
    beyond its own compact hit target (comparable to the existing header
    buttons' hit area), and renders correctly in both light and dark themes.

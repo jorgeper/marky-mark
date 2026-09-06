@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures';
 import {
+  closeAppMenu,
   expectReadyToType,
   freshApp,
   freshNativeMenuApp,
@@ -8,8 +9,10 @@ import {
   menuClick,
   openFolderRoot,
   openNotesRoot,
+  openViewMenu,
   seedFolders,
   stableBox,
+  viewMenuClick,
 } from './helpers';
 
 // The folder tree: listing, chrome, reveal, context menu, create, rename,
@@ -28,11 +31,13 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   await seedFolders(page);
 
   // Issue #22: outside workspace mode the folder view doesn't exist — the
-  // hotkey is inert and no panel (or empty state) ever renders. PRD 003
-  // Req 5: nor does the closed-state edge chevron.
+  // hotkey is inert and no panel (or empty state) ever renders. Issue #257:
+  // the closed-state chevron is the SIDEBAR's show control now, so with
+  // freshApp's welcome doc open it is there for the TOC view — and it opens
+  // no folder pane.
   await page.keyboard.press('Control+Shift+E');
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
-  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toHaveAttribute('aria-label', 'Show sidebar');
 
   // Open Folder… (hook-armed): workspace mode — the root lists, folders
   // first, dotfiles hidden.
@@ -43,16 +48,23 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   // Non-markdown files are hidden by default — folders and markdown only.
   await expect.poll(names).toEqual(['/notes/sub', '/notes/a.md']);
 
-  // The # filter toggle reveals them: dim and inert, # glyphs only on
-  // markdown. Accent # = markdown-only; grey # = everything. All three
-  // header icons carry tooltips.
-  await expect(page.getByTestId('folder-filter')).toHaveAttribute('title', 'Show all files');
+  // Issue #257: View ▸ Show All Files reveals them (the header's # button is
+  // gone), dim and inert, # glyphs only on markdown. The header keeps its two
+  // remaining buttons and their tooltips — the collapse chevron worded for
+  // the SIDEBAR, not the folder panel — and no filter button remains.
   await expect(page.getByTestId('folder-sync')).toHaveAttribute('title', 'Navigate to the open file');
-  await expect(page.getByTestId('folder-collapse')).toHaveAttribute('title', 'Hide the folder panel');
-  await expect(page.getByTestId('folder-filter')).toHaveClass(/(^|\s)on(\s|$)/);
-  await page.getByTestId('folder-filter').click();
-  await expect(page.getByTestId('folder-filter')).toHaveAttribute('title', 'Show markdown files only');
-  await expect(page.getByTestId('folder-filter')).not.toHaveClass(/(^|\s)on(\s|$)/);
+  await expect(page.getByTestId('folder-collapse')).toHaveAttribute('title', 'Hide sidebar');
+  await expect(page.getByTestId('folder-filter')).toHaveCount(0);
+  await expect(page.getByTestId('folder-open-only')).toHaveCount(0);
+  const nonMdRow = await openViewMenu(page);
+  await expect(nonMdRow.getByTestId('menu-view-toggleNonMd')).toHaveAttribute('aria-checked', 'false');
+  await closeAppMenu(page);
+  await viewMenuClick(page, 'toggleNonMd');
+  await expect((await openViewMenu(page)).getByTestId('menu-view-toggleNonMd')).toHaveAttribute(
+    'aria-checked',
+    'true'
+  );
+  await closeAppMenu(page);
   await expect.poll(names).toEqual(['/notes/sub', '/notes/a.md', '/notes/pic.png', '/notes/zzz.txt']);
   await expect(page.locator('[data-path="/notes/a.md"] .folder-glyph svg')).toBeVisible();
   await expect(page.locator('[data-path="/notes/pic.png"] .folder-glyph svg')).toHaveCount(0);
@@ -100,7 +112,7 @@ test('E93: folder tree — empty state, listing, sorting, dotfiles, expansion pe
   // The eye choice survived the restart above (the revived session); hiding
   // again drops the rows without collapsing sub or losing the selection.
   await expect.poll(names).toContain('/notes/pic.png');
-  await page.getByTestId('folder-filter').click();
+  await viewMenuClick(page, 'toggleNonMd');
   await expect.poll(names).not.toContain('/notes/pic.png');
   await expect(page.locator('[data-path="/notes/sub/b.md"]')).toHaveClass(/selected/);
 
@@ -155,13 +167,13 @@ test('E94: folder chrome — divider resize persists, chevrons / View checkbox /
       };
     });
   expect((await foldersItem()).checked).toBe(true);
-  await expect(page.getByTestId('folder-collapse')).toHaveAttribute('aria-label', 'Hide the folder panel');
+  await expect(page.getByTestId('folder-collapse')).toHaveAttribute('aria-label', 'Hide sidebar');
   await page.getByTestId('folder-collapse').click();
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
   await expect.poll(async () => (await foldersItem()).checked).toBe(false);
   await expect(page.getByTestId('folder-expand')).toBeVisible();
-  await expect(page.getByTestId('folder-expand')).toHaveAttribute('title', 'Show the folder panel');
-  await expect(page.getByTestId('folder-expand')).toHaveAttribute('aria-label', 'Show the folder panel');
+  await expect(page.getByTestId('folder-expand')).toHaveAttribute('title', 'Show sidebar');
+  await expect(page.getByTestId('folder-expand')).toHaveAttribute('aria-label', 'Show sidebar');
 
   // Issue #81: a restart lands on the splash — no panel AND no chevron
   // (there is no workspace to expand). Reopening the folder shows the
@@ -294,7 +306,7 @@ test('E96: folder context menu — per-kind items, dismissal, left-click inertne
   await expect(page.getByTestId('folder-menu')).toHaveCount(0);
 
   // A dim non-markdown row offers the same file menu.
-  await page.getByTestId('folder-filter').click(); // show all files
+  await viewMenuClick(page, 'toggleNonMd'); // issue #257: View ▸ Show All Files
   await expect(page.locator('[data-path="/notes/pic.png"]')).toBeVisible();
   await page.locator('[data-path="/notes/pic.png"]').click({ button: 'right' });
   await expect(page.getByTestId('folder-menu')).toBeVisible();
@@ -572,7 +584,7 @@ test('E99: delete — cancel no-op, dim file trashes, open dirty file to splash,
 }) => {
   await seedFolders(page);
   await openFolderRoot(page);
-  await page.getByTestId('folder-filter').click(); // show all files
+  await viewMenuClick(page, 'toggleNonMd'); // issue #257: View ▸ Show All Files
 
   // Cancel is a no-op.
   await page.locator('[data-path="/notes/zzz.txt"]').click({ button: 'right' });
@@ -752,8 +764,10 @@ test('E305: open rows do not indent — open, closed and active labels share one
 
   // (c) SPEC36 §5.3: only-open mode is a FLAT list — every row, active and
   // inactive alike, sits on one flush left column.
-  await page.getByTestId('folder-open-only').click();
-  await expect(page.getByTestId('folder-open-only')).toHaveClass(/(^|\s)on(\s|$)/);
+  // Issue #257: the only-open view is reached from View ▸ Only Open Files —
+  // the header button that used to flip it is gone.
+  await viewMenuClick(page, 'toggleOpenOnly');
+  await expect(page.locator('.folder-item-dir')).toHaveCount(0);
   const lefts = await page.$$eval('[data-testid="folder-item"]', (els) =>
     els.map((e) => Math.round(e.getBoundingClientRect().left + parseFloat(getComputedStyle(e).paddingLeft)))
   );

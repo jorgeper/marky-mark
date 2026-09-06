@@ -123,6 +123,9 @@ const row = (
 const WORKSPACE_VIEW_COMMANDS: ReadonlySet<CommandId> = new Set<CommandId>([
   'toggleFolders',
   'toggleOpenOnly',
+  // Issue #257: the markdown-only/all-files filter joins its neighbour — no
+  // folder tree to filter without the workspace seam, so no dead row.
+  'toggleNonMd',
   'nextFile',
   'prevFile',
 ]);

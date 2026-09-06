@@ -2025,9 +2025,10 @@ input.palette-input {
   position: relative; /* anchors the edge chevrons */
 }
 /* PRD 003 / PRD 012 Req 9 / issue #125: the workspace's corner controls —
-   .folder-expand (the closed pane's reopen chevron) + the view switch at the
-   left, .mode-edge (edit/preview) + .preview-edge (the split chevron) at the
-   right. They are the pane header's icon buttons, verbatim: same padding,
+   .folder-expand (the closed pane's one Show sidebar chevron; issue #257
+   took the view switch out of the collapsed state, so it is alone there) at
+   the left, .mode-edge (edit/preview) + .preview-edge (the split chevron) at
+   the right. They are the pane header's icon buttons, verbatim: same padding,
    radius, colour and hover, so the chevron that closes the pane and the one
    that reopens it are one glyph in one spot. With the file tab strip up they
    live in its end slots (.file-tab-strip-lead / -trail); with the strip
@@ -2041,19 +2042,9 @@ input.palette-input {
   gap: 4px;
 }
 /* PRD 018 Req 12 (issue #204): the corner controls are .icon-btn
-   primitives now — the duplicated descendant rule pair is gone.
-   The view switch rides the clusters as a plain pair of icon buttons — the
-   header flavour (below) is the same thing with the live view accented. */
-.edge-cluster-left .sidebar-switch,
-.file-tab-strip-lead .sidebar-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-.edge-cluster-left .sidebar-switch-btn,
-.file-tab-strip-lead .sidebar-switch-btn {
-  padding: 3px var(--mm-space-1);
-}
+   primitives now — the duplicated descendant rule pair is gone. Issue #257:
+   the view switch is a panel-header control only (see .folder-header
+   .sidebar-switch below), so the clusters carry no switch rules at all. */
 /* The strip-hidden fallback: the same controls float at the workspace's
    corners, at the header's own inset (12px / 9px) so they keep their spot,
    on a pane-coloured pill so they read over the document. */

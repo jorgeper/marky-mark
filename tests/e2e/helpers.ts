@@ -532,6 +532,30 @@ export async function openViewMenu(page: Page): Promise<Locator> {
   return view;
 }
 
+/**
+ * Issue #257: put the sidebar on the TOC view. The view switch renders only
+ * while the sidebar shows, so a collapsed pane takes the toggleToc hotkey —
+ * the same command the button dispatches — and the button itself is clicked
+ * only to SWITCH a sidebar that is already up.
+ */
+export async function showToc(page: Page): Promise<void> {
+  const btn = page.getByTestId('sidebar-view-toc');
+  if ((await btn.count()) > 0) await btn.click();
+  else await page.keyboard.press('Control+Shift+T');
+  await expect(page.getByTestId('toc-panel')).toBeVisible();
+}
+
+/**
+ * Issue #257: flip a View ▸ checkbox from the in-app menu — the surface the
+ * folder header's two filter buttons moved to. Choosing a row closes the
+ * menu (E13), so the caller lands back on the document.
+ */
+export async function viewMenuClick(page: Page, command: string): Promise<void> {
+  const view = await openViewMenu(page);
+  await view.getByTestId(`menu-view-${command}`).click();
+  await expect(page.getByTestId('app-menu-view')).toHaveCount(0);
+}
+
 /** Dismiss the in-app menu and its flyout (one mousedown outside the subtree). */
 export async function closeAppMenu(page: Page): Promise<void> {
   await page.getByTestId('docname').click();
@@ -548,7 +572,9 @@ export const menuItem = (page: Page, command: string) =>
       window
         .__mmMenu!.spec!.submenus.flatMap((m) => m.items)
         .find((i) => i.type === 'command' && i.command === c) as
-        | { label: string; checked?: boolean }
+        // Issue #257: `disabled` rides along too — the View filters gate on
+        // each other, and the tests read that off the spec.
+        | { label: string; checked?: boolean; disabled?: boolean }
         | undefined,
     command
   );

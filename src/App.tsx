@@ -285,6 +285,18 @@ const EMPTY_TOC_COLLAPSED: ReadonlySet<string> = new Set<string>();
 /** PRD 014 Req 7: the Search view's own "nothing collapsed" set, same idiom. */
 const EMPTY_SEARCH_COLLAPSED: ReadonlySet<string> = new Set<string>();
 
+/**
+ * Issue #257: each sidebar view's command — the one route that puts it on
+ * screen. The collapsed state's Show sidebar chevron dispatches through this
+ * map so reopening lands on the view the sidebar was last showing, and the
+ * per-view gating stays inside the commands themselves.
+ */
+const SIDEBAR_VIEW_COMMANDS: Record<SidebarView, CommandId> = {
+  folders: 'toggleFolders',
+  toc: 'toggleToc',
+  search: 'toggleSearch',
+};
+
 /** Auto-hiding toolbar timings (SPEC4 §2). */
 export const TOOLBAR_GRACE_MS = 2500;
 export const TOOLBAR_HIDE_DELAY_MS = 400;
@@ -2000,8 +2012,18 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     [listFolderDir, persistFolderState]
   );
 
-  /** The eye toggle: flip non-markdown visibility, persist with the tree state. */
+  /**
+   * Issue #257: flip non-markdown visibility, persist with the tree state.
+   * The `toggleNonMd` command's one handler now that View ▸ Show All Files
+   * replaced the header's filter button — same session write, same
+   * `displayEntries` filtering, so only the surface moved. Gated exactly like
+   * `toggleOpenOnly` beside it: no folder seam or no workspace ⇒ silent
+   * no-op (the toggleFolders discipline).
+   */
   const toggleFolderNonMd = useCallback(() => {
+    const st = stateRef.current;
+    if (!st.platform?.readDirEntries) return; // no sidebar seam (web) ⇒ no-op
+    if (curWorkspaceRef.current.kind === 'none') return; // issue #22: workspace mode only
     const next = !folderStateRef.current.showNonMd;
     folderStateRef.current = { ...folderStateRef.current, showNonMd: next };
     setFolderShowNonMd(next);
@@ -4907,6 +4929,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       applyHighlight: () => annotationHotkeyRef.current('highlight'),
       // SPEC36 §5.2/§6.3: the tabs commands (silent no-ops without the seam).
       toggleOpenOnly,
+      // Issue #257: View ▸ Show All Files — the markdown-only/all-files
+      // filter's one route now that the folder header's button is gone.
+      toggleNonMd: toggleFolderNonMd,
       nextFile: () => cycleFile(1),
       prevFile: () => cycleFile(-1),
       // SPEC12 §1.5 + SPEC13 §1.3: Quit/Exit/Close Window with an aux window
@@ -4922,7 +4947,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         })();
       },
     });
-  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, showSidebarView, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard, runPrint, closeFocusedAux]);
+  }, [newFile, openViaDialog, saveDoc, saveDocAs, toggleMode, openHelp, stepZoom, updateSettings, navigateComment, insertImage, commitRecent, commitRecentWs, openFind, openFolderCmd, openWorkspaceCmd, newWorkspaceCmd, addFolderToWorkspaceCmd, saveWorkspaceAsCmd, closeWorkspaceCmd, closeOpenFile, closeToSplash, fmtCommand, toggleOpenOnly, toggleFolderNonMd, showSidebarView, cycleFile, dirtyDocsQueue, processQuitWalk, crossModes, guardWorkspaceDiscard, runPrint, closeFocusedAux]);
 
   // SPEC29 §3.4: an Open Recent pick — guarded open if it still exists,
   // otherwise a notice and the entry drops off the list.
@@ -5365,6 +5390,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       // same value it always was for every pre-#132 route.
       showFolders: settings.showFolders && sidebarView === 'folders',
       openOnly: folderOpenOnly,
+      // Issue #257: the markdown-only/all-files filter is a View row now, so
+      // its checkbox mirrors the same session setting the removed header
+      // button flipped.
+      showNonMd: folderShowNonMd,
       // Issue #84: gates View → Next/Previous Open File.
       openFileCount: openFiles.length,
     }),
@@ -5386,6 +5415,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       settings.showFolders,
       sidebarView,
       folderOpenOnly,
+      folderShowNonMd,
       openFiles.length,
     ]
   );
@@ -7645,30 +7675,41 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   if (!platform) return bootHeld ? null : <div className="theme-root" />;
 
   /**
-   * PRD 012 Req 9: the one Folders/TOC switch, built here and handed to
-   * whichever surface is up — the open panel's header, or the closed pane's
-   * edge cluster. One instance is mounted at a time, so `sidebar-view-folders`
-   * and `sidebar-view-toc` each resolve to exactly one element in every state.
-   * A button exists only where its view could: folders needs the seam (and so
-   * keeps the folders route's existing gating), the TOC needs a document.
+   * PRD 012 Req 9 (amended by issue #257): the one Folders/TOC/Search switch,
+   * built here and handed to whichever panel header is up. It is mounted only
+   * while the sidebar shows — the buttons choose what is INSIDE the sidebar,
+   * so the collapsed state renders none of them — and one header is up at a
+   * time, so each testid resolves to exactly one element while it shows and
+   * to zero while it does not. A button exists only where its view could:
+   * folders needs the seam (and so keeps the folders route's existing
+   * gating), the TOC needs a document.
+   *
+   * Issue #257: a press on the view already showing is dropped here rather
+   * than in the commands — the buttons are stateless mode switches, while
+   * `toggleFolders`/`toggleToc`/`toggleSearch` keep the toggle semantics the
+   * hotkeys and the View menu ride on.
    */
-  const sidebarSwitch = (
+  const switchToView = (view: SidebarView, command: CommandId) => () => {
+    if (sidebarView === view) return; // the switch exists only while shown
+    dispatchCommand(command);
+  };
+  const sidebarSwitch = sidebarShown ? (
     <SidebarViewSwitch
-      active={sidebarShown ? sidebarView : null}
+      active={sidebarView}
       folders={folderSeam}
       toc={docOpen}
       // PRD 014 Req 2: the Search button exists exactly where its view could
       // show — the folder seam, the scan's scope.
       search={folderSeam}
-      onFolders={() => dispatchCommand('toggleFolders')}
+      onFolders={switchToView('folders', 'toggleFolders')}
       // PRD 012 Req 10: the button dispatches the command the hotkey dispatches
       // — one action with two surfaces, not two copies of it.
-      onToc={() => dispatchCommand('toggleToc')}
+      onToc={switchToView('toc', 'toggleToc')}
       // PRD 014 Req 2: the button dispatches the named command, like its two
       // neighbours — showSidebarView is the shared path underneath all three.
-      onSearch={() => dispatchCommand('toggleSearch')}
+      onSearch={switchToView('search', 'toggleSearch')}
     />
-  );
+  ) : null;
 
   // PRD 020 Req 15: the copy-link placements are hosted-only — Tauri, the
   // dev shim and the single-file build render neither (this `kind` check is
@@ -7711,12 +7752,20 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         copy={copyToClipboard}
       />
     ) : null;
+  // Issue #257: the collapsed state holds exactly ONE control — Show sidebar
+  // — and it exists wherever the sidebar itself could show, the folder seam
+  // or (for the TOC view) an open document; with neither there is no cluster
+  // wrapper at all. It reopens on the view the sidebar was last showing,
+  // falling back to the one view this platform/state can actually put up, so
+  // taking the switch out of the cluster left no view hotkey-only.
+  const reopenView: SidebarView = folderSeam
+    ? sidebarView === 'toc' && !docOpen
+      ? 'folders'
+      : sidebarView
+    : 'toc';
   const leftCluster =
     !sidebarShown && (folderSeam || docOpen) ? (
-      <>
-        {folderSeam && <FolderExpandButton onClick={() => dispatchCommand('toggleFolders')} />}
-        {sidebarSwitch}
-      </>
+      <FolderExpandButton onClick={() => dispatchCommand(SIDEBAR_VIEW_COMMANDS[reopenView])} />
     ) : null;
   // PRD 020 Req 17: the file copy-link rides this cluster but not its edit
   // gate — a read-only reader in preview mode still shares the file.
@@ -7841,11 +7890,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             join={platform.join}
             basename={platform.basename}
             onToggleDir={toggleFolderDir}
-            onToggleNonMd={toggleFolderNonMd}
             onOpenFile={(path) => openDocGuarded(platform, path)}
             onModOpenFile={modOpenFile}
             onCloseFile={closeOpenFile}
-            onToggleOpenOnly={() => dispatchCommand('toggleOpenOnly')}
             onOpenFolder={() => dispatchCommand('openFolder')}
             // PRD 007 Req 22: with a workspace open and no roots yet (the
             // state local New Workspace… creates), the empty panel's button

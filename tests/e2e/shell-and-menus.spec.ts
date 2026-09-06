@@ -970,6 +970,8 @@ test('E214: PRD 009 Req 12 — View ▸ opens the shared View items: checked, gr
   expect(rows).toEqual([
     'menu-view-toggleFolders',
     'menu-view-toggleOpenOnly',
+    // Issue #257: the folder header's markdown-only/all-files filter row.
+    'menu-view-toggleNonMd',
     'menu-view-nextFile',
     'menu-view-prevFile',
     // Issue #258: File Tabs (a Settings ▸ Appearance checkbox now) and Sync

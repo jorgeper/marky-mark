@@ -10,6 +10,7 @@ import {
   openSettings,
   saveSettings,
   seedFolders,
+  viewMenuClick,
 } from './helpers';
 
 // PRD 013 (issue #144): the file tab strip — presence, the tab list,
@@ -309,8 +310,9 @@ test('E271: a pure view of the open set — Ctrl+Tab moves the active tab; a ren
   await page.locator('[data-path="/notes/sub"]').click();
   await page.locator('[data-path="/notes/sub/b.md"]').click();
   await expect.poll(() => tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/z.md']);
-  await page.getByTestId('folder-open-only').click();
-  await expect(page.getByTestId('folder-open-only')).toHaveClass(/(^|\s)on(\s|$)/);
+  // Issue #257: the mode is entered from View ▸ Only Open Files now.
+  await viewMenuClick(page, 'toggleOpenOnly');
+  await expect(page.getByTestId('folder-open-empty')).toHaveCount(0);
   expect(await tabPaths(page)).toEqual(['/notes/sub/b.md', '/notes/z.md']);
   await expect(page.locator('[data-tab="/notes/sub/b.md"]')).toHaveAttribute('data-active', 'true');
   await page.locator('[data-tab="/notes/z.md"]').click();

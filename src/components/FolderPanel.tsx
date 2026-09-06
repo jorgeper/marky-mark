@@ -28,7 +28,8 @@ export interface FolderPanelProps {
   expanded: Set<string>;
   /** The open document's path (row gets `selected`); null clears. */
   selectedPath: string | null;
-  /** The eye toggle: list non-markdown files too (dim, inert). */
+  /** Issue #257: View ▸ Show All Files — list non-markdown files too (dim,
+      inert). The panel only READS it now; the flip is a menu row. */
   showNonMd: boolean;
   /** SPEC36 §1: the open set, tree-ordered — these rows render as tabs. */
   openFiles: string[];
@@ -46,13 +47,11 @@ export interface FolderPanelProps {
   join(...parts: string[]): string;
   basename(path: string): string;
   onToggleDir(path: string): void;
-  onToggleNonMd(): void;
   onOpenFile(path: string): void;
   /** SPEC36 §3.1: Mod+click — open in addition and activate. */
   onModOpenFile(path: string): void;
   /** SPEC36 §3.4: the row ✕ — close this open file. */
   onCloseFile(path: string): void;
-  onToggleOpenOnly(): void;
   onOpenFolder(): void;
   /**
    * PRD 007 Req 22: the root-less state of a workspace that HAS been created
@@ -262,16 +261,21 @@ export function paneWidthDrag({
 
 /**
  * PRD 003 Req 2: the closed pane's reopen chevron, pinned at the workspace's
- * top-left edge. The owner renders it only in workspace mode on platforms
- * with the folder seam — the web build keeps zero folder-pane DOM.
+ * top-left edge. The owner renders it only where the sidebar itself could
+ * show — the folder seam, or an open document for the TOC view (issue #257,
+ * which took the view switch out of the collapsed state) — so the web build
+ * still keeps zero folder-pane DOM.
+ *
+ * Issue #257: it is the ONE show control for the whole sidebar, so it is
+ * worded for the sidebar ("Show sidebar"), not for the folder panel.
  */
 export function FolderExpandButton({ onClick }: { onClick(): void }) {
   return (
     <IconButton
       className="folder-expand"
       data-testid="folder-expand"
-      title="Show the folder panel"
-      aria-label="Show the folder panel"
+      title="Show sidebar"
+      aria-label="Show sidebar"
       onClick={onClick}
     >
       <Chevron dir="right" />
@@ -687,49 +691,24 @@ export function FolderPanel(p: FolderPanelProps) {
           {/* The collapse chevron leads the header, so it sits exactly where
               the closed pane's reopen chevron sits (FolderExpandButton at the
               head of the left cluster): open or closed, one spot, one glyph
-              that only flips direction. */}
+              that only flips direction. Issue #257: it hides the SIDEBAR —
+              the same wording the TOC and Search panels' chevrons carry, the
+              pane being whatever view is showing. */}
           <IconButton
             data-testid="folder-collapse"
-            title="Hide the folder panel"
-            aria-label="Hide the folder panel"
+            title="Hide sidebar"
+            aria-label="Hide sidebar"
             onClick={p.onClose}
           >
             <Chevron dir="left" />
           </IconButton>
           {p.viewSwitch}
           <span className="folder-title">{p.roots.length === 1 ? p.basename(p.roots[0]) : 'Folders'}</span>
-          <IconButton
-            data-testid="folder-open-only"
-            className={p.openOnly ? 'on' : undefined}
-            title={p.openOnly ? 'Show the folder tree' : 'Show only open files'}
-            disabled={p.roots.length === 0 && p.openFiles.length === 0}
-            onClick={p.onToggleOpenOnly}
-          >
-            {/* Two stacked tab cards — the open files, front and behind. */}
-            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-              <g stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2.2" y="5.4" width="9.2" height="7.6" rx="1.7" />
-                <path d="M5.4 2.8h6.7a1.7 1.7 0 0 1 1.7 1.7v5.9" />
-              </g>
-            </svg>
-          </IconButton>
-          <IconButton
-            data-testid="folder-filter"
-            className={p.showNonMd ? undefined : 'on'}
-            title={p.showNonMd ? 'Show markdown files only' : 'Show all files'}
-            disabled={p.roots.length === 0 || p.openOnly}
-            onClick={p.onToggleNonMd}
-          >
-            {/* The app icon's hash: straight bars, except the top one tilts -9°. */}
-            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-              <g stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round">
-                <line x1="5.6" y1="2.6" x2="5.6" y2="13.4" />
-                <line x1="10.4" y1="2.6" x2="10.4" y2="13.4" />
-                <line x1="2.6" y1="6.7" x2="13.4" y2="5" />
-                <line x1="2.6" y1="10.2" x2="13.4" y2="10.2" />
-              </g>
-            </svg>
-          </IconButton>
+          {/* Issue #257: the header keeps ONE right-side button. The two
+              filters it used to carry — Only Open Files and the
+              markdown-only/all-files switch — are View menu rows now
+              (lib/menuSpec.ts `buildViewItems`), reached from both View
+              surfaces; no hidden or disabled remnant stays here. */}
           <IconButton
             data-testid="folder-sync"
             title="Navigate to the open file"

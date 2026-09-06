@@ -76,6 +76,15 @@ Numbered, testable statements. Each becomes acceptance criteria on an issue.
    pressing it while the TOC is already showing hides the sidebar. The
    folders button behaves symmetrically for its view. Each button indicates
    when its view is the one showing.
+
+   > **Amended (issue #257, 2026-09-06):** the view buttons are stateless
+   > mode switches. Pressing the button whose view is already showing does
+   > nothing (the sidebar stays open on that view), each tooltip is a fixed
+   > constant, and the switch is not rendered at all while the sidebar is
+   > hidden — hiding belongs to the panel header's **Hide sidebar** chevron,
+   > the View ▸ Sidebar row and the hotkeys. The buttons still indicate
+   > which view is showing, and the `toggleToc` / `toggleFolders` /
+   > `toggleSearch` COMMANDS keep the toggle semantics Req 10 gives them.
 10. A `toggleToc` hotkey (default `Mod+Shift+T`) performs exactly the action
     of the TOC toolbar button. It is a standard entry in the existing
     hotkeys map — remappable in settings, persisted, and conflict-checked

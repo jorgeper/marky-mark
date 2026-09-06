@@ -73,12 +73,38 @@ test('E339: the Search view — the third switch button, one view at a time, and
   await page.getByTestId('sidebar-view-toc').click();
   await expect(page.getByTestId('toc-item')).toHaveCount(1);
 
-  // PRD 014 Req 2: pressing Search while Search is showing hides the sidebar.
+  // Issue #257: pressing Search while Search is showing does NOTHING — the
+  // panel stays, still pressed, and the pane never slides. The header's
+  // chevron is the hide control, and with the sidebar hidden the whole
+  // switch is gone; the tooltips are fixed constants throughout.
   await page.getByTestId('sidebar-view-search').click();
   await expect(page.getByTestId('search-panel')).toBeVisible();
+  const searchBox = (await page.getByTestId('search-panel').boundingBox())!;
   await page.getByTestId('sidebar-view-search').click();
+  await expect(page.getByTestId('search-panel')).toBeVisible();
+  await expect(page.getByTestId('sidebar-view-search')).toHaveAttribute('aria-pressed', 'true');
+  expect((await page.getByTestId('search-panel').boundingBox())!.x).toBe(searchBox.x);
+  for (const [id, label] of [
+    ['sidebar-view-folders', 'Show workspace files'],
+    ['sidebar-view-toc', 'Show the table of contents'],
+    ['sidebar-view-search', 'Search in workspace'],
+  ] as const) {
+    await expect(page.getByTestId(id)).toHaveAttribute('title', label);
+    await expect(page.getByTestId(id)).toHaveAttribute('aria-label', label);
+  }
+  await expect(page.getByTestId('search-collapse')).toHaveAttribute('title', 'Hide sidebar');
+  await expect(page.getByTestId('search-collapse')).toHaveAttribute('aria-label', 'Hide sidebar');
+  await page.getByTestId('search-collapse').click();
   await expect(page.getByTestId('search-panel')).toHaveCount(0);
-  await expect(page.getByTestId('sidebar-view-search')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('sidebar-switch')).toHaveCount(0);
+  for (const id of ['sidebar-view-folders', 'sidebar-view-toc', 'sidebar-view-search']) {
+    await expect(page.getByTestId(id)).toHaveCount(0);
+  }
+  // The one control left reopens the sidebar on the view it was left on.
+  await expect(page.getByTestId('folder-expand')).toHaveAttribute('title', 'Show sidebar');
+  await page.getByTestId('folder-expand').click();
+  await expect(page.getByTestId('search-panel')).toBeVisible();
+  await expect(page.getByTestId('sidebar-view-search')).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('E340: a query scans the folder tree — grouped by file, filename matches first, counts and highlighted context; dotfiles and non-markdown never match', async ({
@@ -447,15 +473,16 @@ test('E284: the searchAllFiles hotkey opens the sidebar on Search with the query
   // sits inside the query box — the listener runs in the capture phase.
   await page.keyboard.press('Control+Shift+F');
   await expect(page.getByTestId('search-panel')).toHaveCount(0);
-  await expect(page.getByTestId('sidebar-view-search')).toHaveAttribute('aria-pressed', 'false');
+  // Issue #257: the hotkey keeps its toggle; the switch goes with the sidebar.
+  await expect(page.getByTestId('sidebar-view-search')).toHaveCount(0);
 
-  // Exactly the button's action, from either surface: the button opens it and
-  // the hotkey hides what the button opened.
-  await page.getByTestId('sidebar-view-search').click();
+  // Exactly the same action from either surface: the collapsed state's Show
+  // sidebar control opens it, and the hotkey hides what it opened.
+  await page.getByTestId('folder-expand').click();
   await expect(page.getByTestId('search-panel')).toBeVisible();
-  // Past SPEC12 §1.3's exactly-once window first: button and hotkey dispatch
-  // the SAME command id, so a keypress inside 150ms of the click is swallowed
-  // as a duplicate arrival — which is itself the proof they are one action.
+  // Past SPEC12 §1.3's exactly-once window first: the chevron and the hotkey
+  // dispatch the SAME command id, so a keypress inside 150ms of the click is
+  // swallowed as a duplicate arrival — itself the proof they are one action.
   await page.waitForTimeout(200);
   await page.keyboard.press('Control+Shift+F');
   await expect(page.getByTestId('search-panel')).toHaveCount(0);

@@ -119,6 +119,13 @@ export interface ViewMenuState {
    */
   openOnly?: boolean;
   /**
+   * Issue #257: the folder tree's markdown-only/all-files filter, checked
+   * when non-markdown files show. OPTIONAL so every pre-#257 call site (and
+   * the frozen test fixtures) stays valid; absent reads as off — markdown
+   * only, the setting's own default.
+   */
+  showNonMd?: boolean;
+  /**
    * Issue #84: how many files are in the open set — gates the Next/Previous
    * Open File items (cycling under two is a no-op). OPTIONAL so pre-#84
    * MenuState call sites (and frozen test fixtures) stay valid; absent
@@ -212,6 +219,12 @@ export function buildViewItems(s: ViewMenuState): MenuItemSpec[] {
     cmd('toggleFolders', 'Sidebar', s.hotkeys.toggleFolders, s.showFolders, !wsOpen),
     // SPEC36 §5.2: the only-open-files view rides directly after the sidebar.
     cmd('toggleOpenOnly', 'Only Open Files', s.hotkeys.toggleOpenOnly, s.openOnly ?? false, !wsOpen),
+    // Issue #257: the folder header's filter button moved here, right after
+    // its neighbour filter. Checked means "non-markdown files show too"; it
+    // is grayed outside workspace mode like the rows around it, and while
+    // Only Open Files is on — that view lists the open set, so the filter is
+    // inert there exactly as the removed button was disabled there.
+    cmd('toggleNonMd', 'Show All Files', undefined, s.showNonMd ?? false, !wsOpen || (s.openOnly ?? false)),
     // Issue #84 (SPEC36 §6.4, amended): the cycle is discoverable, not
     // hotkey-only — accelerators follow the live map.
     cmd('nextFile', 'Next Open File', s.hotkeys.nextFile, undefined, noCycle),

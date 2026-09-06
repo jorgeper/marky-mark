@@ -131,8 +131,8 @@ export function TocPanel(p: TocPanelProps) {
           <span className="folder-title">Contents</span>
           <IconButton
             data-testid="toc-collapse"
-            title="Hide the sidebar"
-            aria-label="Hide the sidebar"
+            title="Hide sidebar"
+            aria-label="Hide sidebar"
             onClick={p.onClose}
           >
             <Chevron dir="left" />
@@ -164,15 +164,19 @@ export function TocPanel(p: TocPanelProps) {
 }
 
 /**
- * PRD 012 Req 9: the switch that says which view the one pane is showing and
- * puts any of them on screen. It renders in exactly one place at a
- * time — inside whichever panel header is up, or in the closed pane's edge
- * cluster — so a test's `getByTestId` always resolves to one button.
+ * PRD 012 Req 9 (amended by issue #257): the switch that says which view the
+ * one pane is showing and puts any of them on screen. It renders inside
+ * whichever panel header is up, and NOWHERE while the sidebar is hidden —
+ * these buttons only choose what is inside the sidebar, so a test's
+ * `getByTestId` resolves to one button while it shows and to none while it
+ * does not.
  *
- * Each button is its own toggle: pressing the view that is already showing
- * hides the sidebar, pressing another one switches to it (opening the
- * sidebar if it was closed). `aria-pressed` and `data-active` carry which is
- * live; the owner decides all of it, this only reports the clicks.
+ * Issue #257: the buttons are stateless mode switches. Each tooltip is a
+ * constant — it never turns into "hide" for the live view — and pressing the
+ * button whose view is already showing does nothing at all; hiding belongs to
+ * the header's Hide sidebar chevron, the View ▸ Sidebar row and the hotkeys.
+ * `aria-pressed`, `data-active` and `.on` still mark the live view; the owner
+ * decides all of it, this only reports the clicks.
  *
  * PRD 014 Req 2: the Search button is the third member, with the same
  * semantics and its own stable testid.
@@ -186,8 +190,8 @@ export function SidebarViewSwitch({
   onToc,
   onSearch,
 }: {
-  /** The view on screen, or null while the sidebar is hidden. */
-  active: SidebarView | null;
+  /** The view on screen (the switch is unmounted while the sidebar is not). */
+  active: SidebarView;
   /** Whether the folders button exists at all (the folder seam, Req 12). */
   folders: boolean;
   /** Whether the TOC button exists at all (a document is open, Req 12). */
@@ -206,8 +210,8 @@ export function SidebarViewSwitch({
           data-testid="sidebar-view-folders"
           data-active={active === 'folders' ? 'true' : 'false'}
           aria-pressed={active === 'folders'}
-          title={active === 'folders' ? 'Hide the sidebar' : 'Show the folders'}
-          aria-label={active === 'folders' ? 'Hide the sidebar' : 'Show the folders'}
+          title="Show workspace files"
+          aria-label="Show workspace files"
           onClick={onFolders}
         >
           {/* A folder tab. */}
@@ -224,8 +228,8 @@ export function SidebarViewSwitch({
           data-testid="sidebar-view-toc"
           data-active={active === 'toc' ? 'true' : 'false'}
           aria-pressed={active === 'toc'}
-          title={active === 'toc' ? 'Hide the sidebar' : 'Show the table of contents'}
-          aria-label={active === 'toc' ? 'Hide the sidebar' : 'Show the table of contents'}
+          title="Show the table of contents"
+          aria-label="Show the table of contents"
           onClick={onToc}
         >
           {/* An indented list — the heading tree. */}
@@ -245,8 +249,8 @@ export function SidebarViewSwitch({
           data-testid="sidebar-view-search"
           data-active={active === 'search' ? 'true' : 'false'}
           aria-pressed={active === 'search'}
-          title={active === 'search' ? 'Hide the sidebar' : 'Search in files'}
-          aria-label={active === 'search' ? 'Hide the sidebar' : 'Search in files'}
+          title="Search in workspace"
+          aria-label="Search in workspace"
           onClick={onSearch}
         >
           {/* A magnifier. */}

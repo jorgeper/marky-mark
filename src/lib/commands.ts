@@ -37,6 +37,10 @@ export type CommandId =
   // than each carrying its own copy of the show/switch/focus/hide logic.
   | 'toggleSearch'
   | 'toggleOpenOnly'
+  // Issue #257: the folder tree's markdown-only/all-files filter. Was the
+  // header's `folder-filter` button; it is a View row on both surfaces now,
+  // so the flip needs a command id of its own (no hotkey — non-goal).
+  | 'toggleNonMd'
   // PRD 013 Req 13: show/hide the file tab strip — the View item and the
   // in-app flyout dispatch this one id; deliberately no hotkey (non-goal).
   | 'toggleFileTabs'

@@ -422,11 +422,37 @@ describe('SPEC12 menu spec', () => {
     expect(parseSettings('{"hotkeys":{"save":"Mod+S"}}').hotkeys.toggleFolders).toBe('Mod+Shift+E');
   });
 
+  test('U1214: issue #257 — Show All Files is the View row for the folder filter, right after Only Open Files', () => {
+    // Present, labelled, and seated immediately behind its neighbour filter.
+    const view = commandsIn(base, 'View').map((i) => i.command);
+    expect(view.slice(0, 3)).toEqual(['toggleFolders', 'toggleOpenOnly', 'toggleNonMd']);
+    expect(find(base, 'View', 'toggleNonMd')!.label).toBe('Show All Files');
+    // A checkbox that reads truthfully against the session setting, both ways
+    // (absent — every pre-#257 call site and the frozen fixtures — reads off).
+    expect(find(base, 'View', 'toggleNonMd')!.checked).toBe(false);
+    expect(find({ ...base, showNonMd: false }, 'View', 'toggleNonMd')!.checked).toBe(false);
+    expect(find({ ...base, showNonMd: true }, 'View', 'toggleNonMd')!.checked).toBe(true);
+    // No hotkey — the filter never had one, and this issue added none.
+    expect(find(base, 'View', 'toggleNonMd')!.accelerator).toBeUndefined();
+    // Grayed outside workspace mode like its neighbours…
+    for (const appMode of ['splash', 'file'] as const) {
+      expect(find({ ...base, appMode, docOpen: appMode === 'file' }, 'View', 'toggleNonMd')!.disabled).toBe(true);
+    }
+    // …and while Only Open Files is on: that view lists the open set, so the
+    // filter is inert there exactly as the removed header button was disabled.
+    expect(find({ ...base, openOnly: true }, 'View', 'toggleNonMd')!.disabled).toBe(true);
+    expect(find({ ...base, openOnly: false }, 'View', 'toggleNonMd')!.disabled).toBeUndefined();
+    // Only Open Files itself is untouched by the newcomer.
+    expect(find(base, 'View', 'toggleOpenOnly')!.label).toBe('Only Open Files');
+    expect(find(base, 'View', 'toggleOpenOnly')!.accelerator).toBe(DEFAULT_HOTKEYS.toggleOpenOnly);
+  });
+
   test('U271: issue #84 — View carries Next/Previous Open File with live accelerators, gated on the open set', () => {
     const ws = { ...base, openFileCount: 2 };
-    // Placed with the other open-file entries, straight after Only Open Files.
+    // Placed with the other open-file entries, after the two filters
+    // (issue #257 seated Show All Files behind Only Open Files).
     const view = commandsIn(ws, 'View').map((i) => i.command);
-    expect(view.slice(0, 4)).toEqual(['toggleFolders', 'toggleOpenOnly', 'nextFile', 'prevFile']);
+    expect(view.slice(0, 5)).toEqual(['toggleFolders', 'toggleOpenOnly', 'toggleNonMd', 'nextFile', 'prevFile']);
     expect(find(ws, 'View', 'nextFile')!.label).toBe('Next Open File');
     expect(find(ws, 'View', 'prevFile')!.label).toBe('Previous Open File');
     expect(find(ws, 'View', 'nextFile')!.accelerator).toBe('Ctrl+Tab');

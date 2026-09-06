@@ -1,6 +1,15 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { editorTopGutterLine, freshApp, fsRead, fsWrite, openFolderRoot, openPath, seedFolders } from './helpers';
+import {
+  editorTopGutterLine,
+  freshApp,
+  fsRead,
+  fsWrite,
+  openFolderRoot,
+  openPath,
+  seedFolders,
+  showToc,
+} from './helpers';
 
 // PRD 012 (issue #132): the sidebar's second view — the table of contents.
 // Reqs 1–6, 8, 9, 12: one pane with two mutually exclusive views, the heading
@@ -66,27 +75,35 @@ const openTree = async (page: Page) => {
   await expect(page.getByTestId('doc')).toContainText('Alpha');
 };
 
-test('E334: TOC view — the button shows and hides it, the tree comes from the section model, and no folder DOM appears in file mode', async ({
+test('E334: TOC view — the switch shows it (and is gone while hidden), the tree comes from the section model, and no folder DOM appears in file mode', async ({
   page,
 }) => {
   await openTree(page);
 
-  // PRD 012 Req 12: file mode has no folder seam — no folders button, no
-  // panel, no chevron — and the TOC button is there all the same.
+  // Issue #257: with the sidebar hidden the switch renders NOTHING — the
+  // buttons only choose what is inside it. PRD 012 Req 12: file mode has no
+  // folder seam either, so no folders button and no panel; the one control
+  // left is Show sidebar, which reopens on the TOC — the only view this
+  // platform/state can put up.
+  await expect(page.getByTestId('sidebar-switch')).toHaveCount(0);
   await expect(page.getByTestId('sidebar-view-folders')).toHaveCount(0);
+  await expect(page.getByTestId('sidebar-view-toc')).toHaveCount(0);
+  await expect(page.getByTestId('sidebar-view-search')).toHaveCount(0);
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
-  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
-  const tocBtn = page.getByTestId('sidebar-view-toc');
-  await expect(tocBtn).toHaveAttribute('aria-pressed', 'false');
-  await expect(tocBtn).toHaveAttribute('data-active', 'false');
-  await expect(tocBtn).toHaveAttribute('title', /table of contents/i);
-  await expect(tocBtn).toHaveAttribute('aria-label', /table of contents/i);
+  const expand = page.getByTestId('folder-expand');
+  await expect(expand).toHaveAttribute('title', 'Show sidebar');
+  await expect(expand).toHaveAttribute('aria-label', 'Show sidebar');
 
-  // PRD 012 Req 9: press it — the sidebar opens on the TOC view and the
-  // button says so.
-  await tocBtn.click();
+  // PRD 012 Req 9: press it — the sidebar opens on the TOC view, the switch
+  // comes back with its fixed tooltip, and the button says which view is on.
+  await expand.click();
   await expect(page.getByTestId('toc-panel')).toBeVisible();
-  await expect(page.getByTestId('sidebar-view-toc')).toHaveAttribute('aria-pressed', 'true');
+  const tocBtn = page.getByTestId('sidebar-view-toc');
+  await expect(tocBtn).toHaveAttribute('aria-pressed', 'true');
+  await expect(tocBtn).toHaveAttribute('data-active', 'true');
+  await expect(tocBtn).toHaveAttribute('title', 'Show the table of contents');
+  await expect(tocBtn).toHaveAttribute('aria-label', 'Show the table of contents');
+  await expect(page.getByTestId('sidebar-view-folders')).toHaveCount(0); // still no seam
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
 
   // PRD 012 Reqs 2/3: every H1–H6 in document order, indented under its
@@ -109,17 +126,24 @@ test('E334: TOC view — the button shows and hides it, the tree comes from the 
   expect(lefts[3]).toBe(lefts[1]);
   expect(lefts[4]).toBe(lefts[0]);
 
-  // PRD 012 Req 9: pressing it while the TOC shows hides the sidebar.
+  // Issue #257: pressing the button whose view is showing does NOTHING —
+  // the panel stays, on the same view, still pressed. Hiding is the
+  // chevron's job, and that brings the Show sidebar control back.
   await page.getByTestId('sidebar-view-toc').click();
+  await expect(page.getByTestId('toc-panel')).toBeVisible();
+  await expect(page.getByTestId('sidebar-view-toc')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('toc-collapse')).toHaveAttribute('title', 'Hide sidebar');
+  await page.getByTestId('toc-collapse').click();
   await expect(page.getByTestId('toc-panel')).toHaveCount(0);
-  await expect(page.getByTestId('sidebar-view-toc')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('sidebar-view-toc')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toBeVisible();
 });
 
 test('E335: TOC click in preview scrolls the heading to the viewport top, and duplicate titles reach their own occurrence', async ({
   page,
 }) => {
   await openTree(page);
-  await page.getByTestId('sidebar-view-toc').click();
+  await showToc(page);
   await expect(page.getByTestId('toc-item')).toHaveCount(5);
 
   // PRD 012 Req 3: the two `Notes` rows carry different source lines.
@@ -148,7 +172,7 @@ test('E336: TOC expand/collapse — default expanded, the collapsed row stays, s
   page,
 }) => {
   await openTree(page);
-  await page.getByTestId('sidebar-view-toc').click();
+  await showToc(page);
   await expect(page.getByTestId('toc-item')).toHaveCount(5);
 
   // PRD 012 Req 4: collapse Alpha — its descendants go, Alpha stays, Beta
@@ -201,7 +225,7 @@ test('E337: TOC click in edit mode scrolls the editor and puts the caret on the 
   page,
 }) => {
   await openTree(page);
-  await page.getByTestId('sidebar-view-toc').click();
+  await showToc(page);
   await expect(page.getByTestId('toc-item')).toHaveCount(5);
 
   const beta = page.getByTestId('toc-item').filter({ hasText: 'Beta' });
@@ -230,7 +254,7 @@ test('E338: the TOC re-derives from the buffer while typing, and says so when a 
 }) => {
   await fsWrite(page, '/docs/flat.md', 'Just a paragraph, no headings anywhere.\n');
   await openPath(page, '/docs/flat.md');
-  await page.getByTestId('sidebar-view-toc').click();
+  await showToc(page);
 
   // PRD 012 Req 8: an empty state, not a blank pane.
   await expect(page.getByTestId('toc-empty')).toBeVisible();
@@ -255,7 +279,7 @@ test('E338: the TOC re-derives from the buffer while typing, and says so when a 
   await expect.poll(() => rowLabels(page)).toEqual(['1:Typed']);
 });
 
-test('E254: one pane, two views — the buttons switch and hide, folder-tree state survives the round trip, and the folders seams keep their meaning', async ({
+test('E254: one pane, two views — the buttons switch (never hide), folder-tree state survives the round trip, and the folders seams keep their meaning', async ({
   page,
 }) => {
   test.slow();
@@ -291,12 +315,17 @@ test('E254: one pane, two views — the buttons switch and hide, folder-tree sta
   await expect(headRow).toBeVisible(); // /notes/sub is still expanded
   await expect(headRow).toHaveClass(/selected/);
 
-  // Pressing it again, with folders showing, hides the sidebar — and the
-  // legacy chevron is back on its own seam.
+  // Issue #257: pressing it again, with folders showing, does nothing at
+  // all — the pane stays open on the same view, still pressed. The header's
+  // chevron is what hides it, and then the switch is gone entirely.
   await page.getByTestId('sidebar-view-folders').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('sidebar-view-folders')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('folder-collapse').click();
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
   await expect(page.getByTestId('folder-expand')).toBeVisible();
-  await expect(page.getByTestId('sidebar-view-folders')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('sidebar-switch')).toHaveCount(0);
+  await expect(page.getByTestId('sidebar-view-folders')).toHaveCount(0);
 
   // PRD 003/012: Mod+Shift+E and the View checkbox still drive and reflect
   // the folders view exactly as before.
@@ -306,8 +335,16 @@ test('E254: one pane, two views — the buttons switch and hide, folder-tree sta
   await page.keyboard.press('Control+Shift+E');
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
 
-  // From the closed pane the TOC button opens the pane on the TOC view.
+  // Issue #257: the closed pane's one control reopens on the view the
+  // sidebar was last showing. Hidden on folders ⇒ it comes back on folders;
+  // hidden on the TOC ⇒ it comes back on the TOC.
+  await page.getByTestId('folder-expand').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
   await page.getByTestId('sidebar-view-toc').click();
+  await expect(page.getByTestId('toc-panel')).toBeVisible();
+  await page.getByTestId('toc-collapse').click();
+  await expect(page.getByTestId('toc-panel')).toHaveCount(0);
+  await page.getByTestId('folder-expand').click();
   await expect(page.getByTestId('toc-panel')).toBeVisible();
   // …and Mod+Shift+E, the folders route, switches the pane to Folders.
   await page.keyboard.press('Control+Shift+E');
@@ -387,7 +424,7 @@ test('E255: the preview scroll moves the highlight to the section at the viewpor
   page,
 }) => {
   await openTree(page);
-  await page.getByTestId('sidebar-view-toc').click();
+  await showToc(page);
   await expect(page.getByTestId('toc-item')).toHaveCount(5);
   const lines = await rowLines(page);
 
@@ -429,7 +466,7 @@ test('E256: scrolling the editor moves the highlight too, in the split and in fu
 }) => {
   test.slow();
   await openTree(page);
-  await page.getByTestId('sidebar-view-toc').click();
+  await showToc(page);
   await expect(page.getByTestId('toc-item')).toHaveCount(5);
   const lines = await rowLines(page);
 
@@ -500,7 +537,7 @@ test('E257: scrolling into a manually collapsed subtree auto-expands the chain t
 }) => {
   await fsWrite(page, '/docs/reveal.md', REVEAL_DOC);
   await openPath(page, '/docs/reveal.md');
-  await page.getByTestId('sidebar-view-toc').click();
+  await showToc(page);
   await expect.poll(() => rowLabels(page)).toEqual(['1:One', '2:One A', '3:One A deep', '1:Two', '2:Two A']);
   const lines = await rowLines(page);
 
@@ -562,18 +599,20 @@ test('E258: the toggleToc hotkey opens the sidebar on the TOC, hides it again, a
     '1:Beta',
   ]);
 
-  // PRD 012 Req 10: showing the TOC → the sidebar hides.
+  // PRD 012 Req 10: showing the TOC → the sidebar hides. Issue #257: the
+  // hotkey keeps that toggle (only the BUTTONS stopped hiding), and the
+  // switch goes with the sidebar.
   await page.keyboard.press('Control+Shift+T');
   await expect(page.getByTestId('toc-panel')).toHaveCount(0);
-  await expect(page.getByTestId('sidebar-view-toc')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('sidebar-view-toc')).toHaveCount(0);
 
-  // Exactly the button's action, from either surface: the button opens it and
-  // the hotkey hides what the button opened.
-  await page.getByTestId('sidebar-view-toc').click();
+  // Exactly the same action from either surface: the collapsed state's Show
+  // sidebar control opens it, and the hotkey hides what it opened.
+  await page.getByTestId('folder-expand').click();
   await expect(page.getByTestId('toc-panel')).toBeVisible();
-  // Past SPEC12 §1.3's exactly-once window first: button and hotkey dispatch
-  // the SAME command id, so a keypress inside 150ms of the click is swallowed
-  // as a duplicate arrival — which is itself the proof they are one action.
+  // Past SPEC12 §1.3's exactly-once window first: the chevron and the hotkey
+  // dispatch the SAME command id, so a keypress inside 150ms of the click is
+  // swallowed as a duplicate arrival — itself the proof they are one action.
   await page.waitForTimeout(200);
   await page.keyboard.press('Control+Shift+T');
   await expect(page.getByTestId('toc-panel')).toHaveCount(0);

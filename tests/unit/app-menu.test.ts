@@ -299,6 +299,8 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
     expect(viewRows().map((r) => r.command)).toEqual([
       'toggleFolders',
       'toggleOpenOnly',
+      // Issue #257: the folder header's filter button is this row now.
+      'toggleNonMd',
       'nextFile',
       'prevFile',
       // Issue #258: File Tabs (now a Settings checkbox) and Sync Scrolling
@@ -342,7 +344,9 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
   });
 
   test('U351: no workspace capability ⇒ the sidebar and open-set rows are absent, not greyed', () => {
-    const gated: CommandId[] = ['toggleFolders', 'toggleOpenOnly', 'nextFile', 'prevFile'];
+    // Issue #257: Show All Files joined the gated set — no folder tree to
+    // filter without the workspace seam, so no permanently dead row.
+    const gated: CommandId[] = ['toggleFolders', 'toggleOpenOnly', 'toggleNonMd', 'nextFile', 'prevFile'];
     const web = viewRows(state({ entryActions: CAPS.web, view: viewState({ appMode: 'file' }) })).map((r) => r.command);
     for (const c of gated) expect(web, c).not.toContain(c);
     // Where the capability exists they are present — merely disabled when the
@@ -351,6 +355,26 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
     for (const c of gated) expect(outsideWs.find((r) => r.command === c)?.disabled, c).toBe(true);
     const inWs = viewRows();
     for (const c of gated) expect(inWs.find((r) => r.command === c)?.disabled, c).toBeFalsy();
+  });
+
+  test('U1215: issue #257 — Show All Files is an in-app View row, checkbox and gating included', () => {
+    const rowFor = (over: Partial<ViewMenuState> = {}) =>
+      viewRows(state({ view: viewState(over) })).find((r) => r.command === 'toggleNonMd');
+    // Present, labelled and seated behind Only Open Files, with the derived id.
+    expect(rowFor()?.label).toBe('Show All Files');
+    expect(rowFor()?.testId).toBe('menu-view-toggleNonMd');
+    const commandsNow = viewRows().map((r) => r.command);
+    expect(commandsNow.indexOf('toggleNonMd')).toBe(commandsNow.indexOf('toggleOpenOnly') + 1);
+    // The checkbox reads the session setting, both ways.
+    expect(rowFor({ showNonMd: true })?.checked).toBe(true);
+    expect(rowFor({ showNonMd: false })?.checked).toBe(false);
+    // Grayed outside workspace mode and while Only Open Files is on.
+    expect(rowFor({ appMode: 'file' })?.disabled).toBe(true);
+    expect(rowFor({ openOnly: true })?.disabled).toBe(true);
+    expect(rowFor()?.disabled).toBeFalsy();
+    // No workspace seam ⇒ no row at all (U351 covers the whole gated set).
+    const web = viewRows(state({ entryActions: CAPS.web, view: viewState({ appMode: 'file' }) }));
+    expect(web.map((r) => r.command)).not.toContain('toggleNonMd');
   });
 
   test('U917: PRD 013 Req 13 (issue #258) — the flyout carries no File Tabs row on any flavor or state', () => {
@@ -386,6 +410,8 @@ describe('PRD 009 Req 12: the View submenu rides the shared menuSpec items', () 
     const allowed: CommandId[] = [
       'toggleFolders',
       'toggleOpenOnly',
+      // Issue #257: the folder header's filter button is this row now.
+      'toggleNonMd',
       'nextFile',
       'prevFile',
       // Issue #258: toggleFileTabs and toggleSyncScroll are no longer View

@@ -15,6 +15,7 @@ import {
   openWelcomeViaHelp,
   revealToolbar,
   saveSettings,
+  showToc,
 } from './helpers';
 
 // PRD 007 Req 4: the hosted backend in local dev mode (see hosted.spec.ts)
@@ -104,8 +105,7 @@ async function assertChromeAgreement(page: Page, expectedElevated: string): Prom
   // Toolbar icon buttons (.icon-btn): the tab strip's mode switch and the
   // TOC pane header's collapse chevron are one primitive.
   const modeSwitch = await sampleControl(page.getByTestId('mode-switch'));
-  await page.getByTestId('sidebar-view-toc').click();
-  await expect(page.getByTestId('toc-panel')).toBeVisible();
+  await showToc(page); // issue #257: the switch exists only while the sidebar does
   const tocCollapse = await sampleControl(page.getByTestId('toc-collapse'));
   expectSameGeometry('icon-btn: mode-switch vs toc-collapse', modeSwitch, tocCollapse);
   await page.getByTestId('toc-collapse').click();

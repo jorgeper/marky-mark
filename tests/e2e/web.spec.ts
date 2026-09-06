@@ -410,12 +410,20 @@ test('W11: the find bar works on the web build; reload still lands on the splash
 test('W12: §H25 platform boundary — no folder sidebar, no scope selector or Workspace tab, no workspace stores', async ({
   page,
 }) => {
-  // No folder sidebar or folder affordance anywhere in the DOM — including
-  // the pane chevrons in either state (PRD 003 Req 5).
+  // No folder sidebar or folder affordance anywhere in the DOM — the pane,
+  // its open button and its collapse chevron (PRD 003 Req 5). Issue #257:
+  // the closed pane's chevron is the SIDEBAR's one show control now, and the
+  // web build has a sidebar (the TOC view) whenever a document is open — so
+  // it is there, worded for the sidebar, with no folder pane behind it.
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
   await expect(page.getByTestId('folder-open-btn')).toHaveCount(0);
   await expect(page.getByTestId('folder-collapse')).toHaveCount(0);
-  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
+  await expect(page.getByTestId('folder-expand')).toHaveAttribute('aria-label', 'Show sidebar');
+  await page.getByTestId('folder-expand').click();
+  await expect(page.getByTestId('toc-panel')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await page.getByTestId('toc-collapse').click();
+  await expect(page.getByTestId('toc-panel')).toHaveCount(0);
   // The Folders hotkey (a desktop workspace surface) stays silently inert.
   await page.keyboard.press('Control+Shift+e');
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);

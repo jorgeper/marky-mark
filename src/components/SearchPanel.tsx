@@ -235,8 +235,8 @@ export function SearchPanel(p: SearchPanelProps) {
           <span className="folder-title">Search</span>
           <IconButton
             data-testid="search-collapse"
-            title="Hide the sidebar"
-            aria-label="Hide the sidebar"
+            title="Hide sidebar"
+            aria-label="Hide sidebar"
             onClick={p.onClose}
           >
             <Chevron dir="left" />

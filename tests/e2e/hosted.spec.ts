@@ -2481,7 +2481,11 @@ test('E212: on hosted, Open File… with a workspace open crosses into single-fi
   await expect(page.getByTestId('docname')).toContainText('mine.md');
   await expect(page.getByTestId('empty-hint')).toHaveCount(0);
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
-  await expect(page.getByTestId('folder-expand')).toHaveCount(0);
+  // Issue #257: with the workspace closed there is no folder pane, but a
+  // document means the TOC view can show — so the collapsed state keeps its
+  // one Show sidebar control (the switch is gone while the sidebar is).
+  await expect(page.getByTestId('folder-expand')).toHaveAttribute('aria-label', 'Show sidebar');
+  await expect(page.getByTestId('sidebar-switch')).toHaveCount(0);
 
   // …and it is a local document: fully editable, nothing uploaded.
   await landInPreview(page);

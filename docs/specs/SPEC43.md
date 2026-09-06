@@ -112,8 +112,9 @@ applies the result as **one** CodeMirror transaction (single undo step).
 
 1. A custom CodeMirror gutter (class `mm-smart-gutter`) renders in edit
    mode — full-screen and split alike — showing one marker: the Marky
-   Mark hash icon (same slanted-top-bar geometry as the folder-filter
-   button, SPEC34; rendered at **18 px**, vs the 16 px file icon) on
+   Mark hash icon (the slanted-top-bar geometry the folder header's
+   `folder-filter` button carried until issue #257 retired it; rendered at
+   **18 px**, vs the 16 px file icon) on
    the **selection head's line only**. It tracks every cursor move and
    scrolls natively with the document.
 2. Placement: with line numbers on, the smart gutter sits **between the

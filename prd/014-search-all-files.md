@@ -52,6 +52,12 @@ Numbered, testable statements. Each becomes acceptance criteria on an issue.
    the sidebar if hidden and focusing the query box); pressing it while
    Search is showing hides the sidebar; the button indicates when its view
    is active.
+
+   > **Amended (issue #257, 2026-09-06):** pressing it while Search is
+   > showing does nothing, its tooltip is the fixed **Search in workspace**,
+   > and the whole switch is absent while the sidebar is hidden — see PRD
+   > 012 Req 9's amendment, which this button follows verbatim. The
+   > `toggleSearch` command (Req 3's hotkey route) keeps its toggle.
 3. A `searchAllFiles` hotkey (default `Mod+Shift+F`) performs exactly the
    toolbar button's action. It is a standard entry in the existing hotkeys
    map — remappable in settings, persisted, conflict-checked like every
