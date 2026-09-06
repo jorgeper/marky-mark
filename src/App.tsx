@@ -4162,8 +4162,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * full-preview `docRef` the line above queries.
    */
   const scrollSplitPreviewToLine = useCallback(
-    (line: number): boolean =>
-      scrollPreviewPaneToLine(splitPreviewRef.current, splitDocRef.current, line),
+    (line: number): boolean => scrollPreviewPaneToLine(splitPreviewRef.current, splitDocRef.current, line),
     [scrollPreviewPaneToLine]
   );
 
@@ -4220,23 +4219,18 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   }, []);
 
   /**
-   * SPEC11 §4 (issue #268): ONE managed-link click path for BOTH rendered
-   * surfaces — the full preview and the split half — so they cannot drift.
-   * The webview never navigates: every link click is prevented, `http(s)`
-   * hands off to the platform's opener, an in-document `#fragment` resolves
-   * through the PRD 020 Req 18 anchors (`getHeadingAnchors`, the same slugs
-   * the copy-link affordance and the TOC use) to a source line and lands on
-   * the SPEC16 §4 scroll path in the pane that was clicked, an unmatched
-   * fragment takes the PRD 020 Req 19 miss notice, and anything else is
-   * inert. Returns true when the click was a link, so the caller skips the
-   * PRD 023 §5/§18 comment/placement handling.
+   * SPEC11 §4 (issue #268): what a managed link DOES, once, for every surface
+   * that has one — both rendered panes and the editor's hand-off. `http(s)`
+   * goes to the platform's opener, an in-document `#fragment` resolves through
+   * the PRD 020 Req 18 anchors (`getHeadingAnchors`, the same slugs the
+   * copy-link affordance and the TOC agree on) to a source line, an unmatched
+   * fragment takes the PRD 020 Req 19 miss notice, and anything else is inert:
+   * no hand-off, no navigation, no error. The surfaces differ in ONE thing —
+   * where a heading lands — so each passes its own scroll and shares the rest.
    */
-  const handlePreviewLinkClick = useCallback(
-    (target: EventTarget | null, prevent: () => void, scrollToLine: (line: number) => boolean): boolean => {
-      const a = (target as HTMLElement | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
-      if (!a) return false;
-      prevent();
-      const action = previewLinkAction(a.getAttribute('href') ?? '', getHeadingAnchors());
+  const runManagedLink = useCallback(
+    (href: string, scrollToLine: (line: number) => void) => {
+      const action = previewLinkAction(href, getHeadingAnchors());
       if (action.kind === 'external') {
         void stateRef.current.platform?.openExternal(action.url); // explicit hand-off
       } else if (action.kind === 'heading') {
@@ -4247,30 +4241,37 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       } else if (action.kind === 'miss') {
         showFragmentMiss('heading');
       }
-      return true; // 'inert' too: prevented, no hand-off, no navigation
     },
     [getHeadingAnchors, showFragmentMiss]
   );
 
   /**
+   * SPEC11 §4 (issue #268): ONE managed-link click path for BOTH rendered
+   * surfaces — the full preview and the split half — so they cannot drift.
+   * The webview never navigates: every link click is prevented, whatever the
+   * rule above then does with it. Returns true when the click was a link, so
+   * the caller skips the PRD 023 §5/§18 comment/placement handling.
+   */
+  const handlePreviewLinkClick = useCallback(
+    (e: React.MouseEvent, scrollToLine: (line: number) => void): boolean => {
+      const a = (e.target as HTMLElement | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!a) return false;
+      e.preventDefault();
+      runManagedLink(a.getAttribute('href') ?? '', scrollToLine);
+      return true;
+    },
+    [runManagedLink]
+  );
+
+  /**
    * SPEC43 §11 (issue #270) + SPEC11 §4 (issue #268): every href leaving the
    * editor (modifier-click, the openLink hotkey, Link ▸ Open Link) gets
-   * EXACTLY the preview's rule through the one shared decision — http(s) to
-   * the OS browser, a `#fragment` to its heading's SOURCE LINE in the editor
-   * (the PRD 012 Req 6 scroll path), an unmatched fragment to the Req 19
-   * notice, anything else inert.
+   * EXACTLY the preview's rule — the same decision, landing a `#fragment` on
+   * its heading's SOURCE LINE in the editor (the PRD 012 Req 6 scroll path)
+   * rather than in a rendered pane.
    */
-  openEditorLinkRef.current = (href: string) => {
-    const action = previewLinkAction(href, getHeadingAnchors());
-    if (action.kind === 'external') {
-      void stateRef.current.platform?.openExternal(action.url);
-    } else if (action.kind === 'heading') {
-      pendingScrollLineRef.current = null;
-      editorSyncRef.current?.scrollToLine(action.line);
-    } else if (action.kind === 'miss') {
-      showFragmentMiss('heading');
-    }
-  };
+  openEditorLinkRef.current = (href) =>
+    runManagedLink(href, (line) => editorSyncRef.current?.scrollToLine(line));
 
   /**
    * PRD 020 Req 19 + PRD 022 Req 11 (issue #233): land the just-opened boot
@@ -8036,7 +8037,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                 // Managed links (SPEC11 §4, issue #268): the webview never
                 // navigates, and a `#fragment` lands in THIS pane — the one
                 // shared handler, so the split half cannot drift from it.
-                if (handlePreviewLinkClick(e.target, () => e.preventDefault(), scrollPreviewToLine)) return;
+                if (handlePreviewLinkClick(e, scrollPreviewToLine)) return;
                 // PRD 023 §5/§18 (issue #285): the comment wins over the
                 // highlight it shares text with, and reaching a comment opens
                 // the pane onto its card; a highlight has no pane effect.
@@ -8102,7 +8103,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                 // interception at all — a link click there fell through to
                 // the browser. It routes through the one shared handler now,
                 // landing a `#fragment` in this preview half.
-                if (handlePreviewLinkClick(e.target, () => e.preventDefault(), scrollSplitPreviewToLine)) return;
+                if (handlePreviewLinkClick(e, scrollSplitPreviewToLine)) return;
                 // PRD 023 §5/§18 (issue #285): same contract as the
                 // full-preview click above.
                 activateFromPreviewClick(e.target);
