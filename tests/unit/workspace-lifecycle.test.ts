@@ -223,8 +223,8 @@ describe('PRD 007 Req 11: the Open Workspace list', () => {
 // the JSX. `filterWorkspaces` still answers the whole filtered listing (U286 /
 // U287); the cap is the separate seam layered over it.
 describe('PRD 007 Req 11 (issue #252): the Open Workspace list is capped at the newest few', () => {
-  const at = (id: string, day: number, name = `Workspace ${id}`): WorkspaceListing =>
-    listing({ id, name, modified: `2026-08-${String(day).padStart(2, '0')}T00:00:00.000Z` });
+  const at = (id: string, day: number): WorkspaceListing =>
+    listing({ id, name: `Workspace ${id}`, modified: `2026-08-${String(day).padStart(2, '0')}T00:00:00.000Z` });
   // Eight workspaces, deliberately out of order, so truncation cannot pass by
   // accident on an already-sorted input.
   const many = [at('a', 1), at('h', 8), at('c', 3), at('f', 6), at('b', 2), at('g', 7), at('d', 4), at('e', 5)];
