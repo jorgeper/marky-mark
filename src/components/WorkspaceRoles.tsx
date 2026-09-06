@@ -20,6 +20,7 @@ import {
 } from '../lib/hostedWorkspace';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 import { Button } from './ui/Button';
+import { SectionHeader } from './ui/SectionHeader';
 
 export interface WorkspaceRolesProps {
   lifecycle: WorkspaceLifecycle;
@@ -103,7 +104,8 @@ export function WorkspaceRoles({ lifecycle, workspaceId, manifest, onManifest }:
 
   return (
     <div className="workspace-roles" data-testid="workspace-roles-section">
-      <h2>Roles</h2>
+      {/* Issue #249: the settings-page section header primitive. */}
+      <SectionHeader>Roles</SectionHeader>
       <p className="hotkey-hint">
         The five built-in roles are fixed. Custom roles are named sets of permissions you can grant like any
         other role.

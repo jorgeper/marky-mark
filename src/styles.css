@@ -484,6 +484,25 @@ textarea.field:focus-visible,
   outline-offset: 1px;
 }
 
+/* Issue #249: `.section-header` — the settings-page section header, the one
+   second-level heading inside the Settings dialog (and the only heading
+   style its tabs may use). Small all-caps caption in the muted foreground:
+   the convention General/Editor/LLM providers already followed as
+   `.tab-section`, promoted to a primitive so the Workspace tab's sections
+   (which rendered a bare <h2> and picked up `.dialog h2`'s 14px title look)
+   render identically. Emitted by the SectionHeader wrapper. */
+.section-header {
+  margin: 14px 0 8px;
+  font-size: var(--mm-text-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mm-fg-muted, #59636e);
+}
+
+.section-header:first-child {
+  margin-top: 0;
+}
+
 /* PRIMITIVES — END (PRD 018 §B, issue #203) */
 
 .theme-root {
@@ -1313,18 +1332,6 @@ mark.hl.ghost {
   min-width: 0;
 }
 
-.settings-modal .tab-section {
-  margin: 14px 0 8px;
-  font-size: var(--mm-text-caption);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--mm-fg-muted, #59636e);
-}
-
-.settings-modal .tab-section:first-child {
-  margin-top: 0;
-}
-
 .dialog .inline-row {
   display: flex;
   align-items: center;
@@ -1359,7 +1366,11 @@ mark.hl.ghost {
   margin-top: 2px;
 }
 
-.dialog h2:not(:first-child) {
+/* Issue #249: scoped from `.dialog h2:not(:first-child)` to the ONE dialog
+   that stacks several <h2> titles — ManagementPanel. The Workspace tab's
+   sections used to be the other reader of the `.dialog h2` chrome; they
+   render `.section-header` now, and no other dialog has a second <h2>. */
+.management-modal h2:not(:first-child) {
   margin-top: 20px;
   padding-top: 14px;
   border-top: 1px solid var(--mm-border, #d1d9e0);
@@ -2888,15 +2899,13 @@ input.folder-rename-input.invalid {
   z-index: 60;
 }
 
-/* §5.3: the Smart Edit group heading in Settings → Hotkeys. */
+/* SPEC43 §5.3: the Smart Edit group heading in Settings → Hotkeys.
+   Issue #249: LAYOUT ONLY — the rule above it separating the group stays
+   here; its type and colour come from `.section-header`, which the heading
+   now carries, so the two headers cannot disagree. */
 .dialog .hotkey-group {
-  margin: 14px 0 8px;
   padding-top: 10px;
   border-top: 1px solid var(--mm-border, #d1d9e0);
-  font-size: var(--mm-text-caption);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--mm-fg-muted, #59636e);
 }
 
 /* PRD 018 §E26 (issue #205): the SPEC39 `.table-badge` rules that stood here

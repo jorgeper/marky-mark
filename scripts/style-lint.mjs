@@ -184,6 +184,37 @@ export function lintCss(css, { contractVars, definedVars }) {
   return findings;
 }
 
+/** The opening JSX tag starting at src[start] ('<'), up to the first '>'
+ * outside braces and quotes. */
+function openingTag(src, start) {
+  let tag = '';
+  let depth = 0;
+  for (let i = start; i < src.length; i++) {
+    const c = src[i];
+    if (c === '"' || c === "'" || c === '`') {
+      const quote = c;
+      tag += c;
+      for (i++; i < src.length && src[i] !== quote; i++) tag += src[i];
+      tag += src[i] ?? '';
+      continue;
+    }
+    if (c === '{') depth++;
+    if (c === '}') depth--;
+    tag += c;
+    if (c === '>' && depth === 0) break;
+  }
+  return tag;
+}
+
+/** The className attribute's text on an opening tag — the quoted string, or
+ * the balanced brace expression — or null when the tag has no className. */
+function classAttr(tag) {
+  const cls = /className\s*=\s*/.exec(tag);
+  if (cls === null) return null;
+  const rest = tag.slice(cls.index + cls[0].length);
+  return rest[0] === '{' ? braceSlice(rest, 0) : (/^"([^"]*)"/.exec(rest)?.[1] ?? '');
+}
+
 /** Balanced-brace slice starting at src[start] === '{'; quote-aware. */
 function braceSlice(src, start) {
   let depth = 0;
@@ -203,61 +234,68 @@ function braceSlice(src, start) {
 // what the MenuItem wrapper emits, and how the palette/smart-edit rows
 // migrated in issue #204).
 function hasPrimitiveButtonClass(classText) {
+  return staticClassTokens(classText).some(
+    (t) => t === 'btn' || t === 'icon-btn' || t === 'menu-item' || t.startsWith('btn-'),
+  );
+}
+
+/** The class tokens a className attribute states STATICALLY — the literal
+ * parts of a template/expression, with `${…}` holes blanked, so a class the
+ * lint cannot see never counts as present. */
+function staticClassTokens(classText) {
   const statics = [...classText.matchAll(/'([^']*)'|"([^"]*)"|`([^`]*)`/g)]
     .map((m) => (m[1] ?? m[2] ?? m[3]).replace(/\$\{[^}]*\}/g, ' '));
   const source = statics.length > 0 ? statics.join(' ') : classText;
-  return source
-    .split(/\s+/)
-    .some((t) => t === 'btn' || t === 'icon-btn' || t === 'menu-item' || t.startsWith('btn-'));
+  return source.split(/\s+/).filter((t) => t !== '');
 }
 
 const STYLE_KEYS = ['fontSize', 'color', 'background', 'borderRadius'];
 
 /**
  * PRD 018 §E27: lint one TSX source. Fails on `<button` without a primitive
- * class (files under src/components/ui/ are exempt at the caller) and on
- * inline style={{ … }} objects giving fontSize / color / background /
- * borderRadius a literal value (a number, or a string that is not a var()
- * reference — computed geometry through variables stays allowed).
+ * class (files under src/components/ui/ are exempt at the caller), on a
+ * second-level heading (`<h3>`/`<h4>`) without the `.section-header`
+ * primitive (issue #249), and on inline style={{ … }} objects giving
+ * fontSize / color / background / borderRadius a literal value (a number, or
+ * a string that is not a var() reference — computed geometry through
+ * variables stays allowed).
  */
 export function lintTsx(source) {
   const findings = [];
   const text = source;
 
   for (const m of text.matchAll(/<button\b/g)) {
-    // The opening tag: forward to the first '>' outside braces/quotes.
-    let tag = '';
-    let depth = 0;
-    for (let i = m.index; i < text.length; i++) {
-      const c = text[i];
-      if (c === '"' || c === "'" || c === '`') {
-        const quote = c;
-        tag += c;
-        for (i++; i < text.length && text[i] !== quote; i++) tag += text[i];
-        tag += text[i] ?? '';
-        continue;
-      }
-      if (c === '{') depth++;
-      if (c === '}') depth--;
-      tag += c;
-      if (c === '>' && depth === 0) break;
-    }
+    const tag = openingTag(text, m.index);
     // No attribute at all ⇒ not an element this codebase writes (every real
     // chrome button carries at least a handler or testid) — it is a
     // `<button>` mention inside a comment. Real tags proceed to the class
     // check.
     if (!tag.includes('=')) continue;
-    const cls = /className\s*=\s*/.exec(tag);
-    let classText = null;
-    if (cls !== null) {
-      const rest = tag.slice(cls.index + cls[0].length);
-      classText = rest[0] === '{' ? braceSlice(rest, 0) : (/^"([^"]*)"/.exec(rest)?.[1] ?? '');
-    }
+    const classText = classAttr(tag);
     if (classText === null || !hasPrimitiveButtonClass(classText)) {
       findings.push({
         line: lineOf(text, m.index),
         message:
           '<button> without a primitive class — use the Button/IconButton/MenuItem wrappers (src/components/ui/) or carry .btn*/.icon-btn/.menu-item',
+      });
+    }
+  }
+
+  // Issue #249: a second-level heading in TSX is a settings-page section
+  // header and nothing else — every <h3>/<h4> under src/ is one. It renders
+  // through the SectionHeader wrapper (or carries `.section-header`
+  // directly), so a hand-rolled heading inside a settings tab — the
+  // Workspace tab's bare <h2>-styled sections were exactly that — fails
+  // here instead of drifting. <h1>/<h2> are titles and are left alone.
+  for (const m of text.matchAll(/<h[34]\b/g)) {
+    const tag = openingTag(text, m.index);
+    const classText = classAttr(tag);
+    const statics = staticClassTokens(classText ?? '');
+    if (classText === null || !statics.includes('section-header')) {
+      findings.push({
+        line: lineOf(text, m.index),
+        message:
+          'second-level heading without the .section-header primitive — a settings section header is <SectionHeader> (src/components/ui/) or carries .section-header',
       });
     }
   }

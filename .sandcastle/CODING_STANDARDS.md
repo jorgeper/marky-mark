@@ -35,6 +35,8 @@ App chrome is built from PRD 018's tokens and primitives; the style lint in
 - no selector ends in a bare descendant ` button`/` input`/` select`/` textarea`;
 - `font-size` / `border-radius` / `box-shadow` resolve through scale tokens;
 - every TSX `<button>` is a ui/ wrapper or carries `.btn*`/`.icon-btn`/`.menu-item`;
+- every TSX `<h3>`/`<h4>` is a `SectionHeader` or carries `.section-header`
+  (settings-page section headers are never hand-rolled);
 - no literal `fontSize`/`color`/`background`/`borderRadius` in inline styles.
 
 Vocabulary, wrapper props, and the full Do / Don't: `docs/STYLE-GUIDE.md`.

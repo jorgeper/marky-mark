@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { deleteConfirmationMatches, deleteOffered } from '../lib/workspaceLifecycle';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 import { Button } from './ui/Button';
+import { SectionHeader } from './ui/SectionHeader';
 
 export function WorkspaceDangerZone({ lifecycle }: { lifecycle: WorkspaceLifecycle }) {
   const id = lifecycle.currentId();
@@ -53,7 +54,8 @@ export function WorkspaceDangerZone({ lifecycle }: { lifecycle: WorkspaceLifecyc
 
   return (
     <div className="workspace-danger" data-testid="workspace-delete-section">
-      <h2>Delete workspace</h2>
+      {/* Issue #249: the settings-page section header primitive. */}
+      <SectionHeader>Delete workspace</SectionHeader>
       <p className="hotkey-hint">
         Deleting “{name}” permanently removes its documents, comments and images for everyone. This cannot be
         undone.

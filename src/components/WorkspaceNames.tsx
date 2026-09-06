@@ -11,6 +11,7 @@ import { friendlyNameOf, type WorkspaceManifest } from '../lib/hostedWorkspace';
 import { uniqueNameProblem } from '../lib/workspaceNames';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 import { Button } from './ui/Button';
+import { SectionHeader } from './ui/SectionHeader';
 
 export interface WorkspaceNamesProps {
   lifecycle: WorkspaceLifecycle;
@@ -51,7 +52,9 @@ export function WorkspaceNames({ lifecycle, workspaceId, manifest, onManifest }:
 
   return (
     <div className="workspace-names" data-testid="workspace-names-section">
-      <h2>Names</h2>
+      {/* Issue #249: the settings-page section header primitive — the
+          Workspace tab's sections read like every other tab's. */}
+      <SectionHeader>Names</SectionHeader>
       <p className="hotkey-hint">
         The unique name identifies this workspace across the deployment. The display name is what
         the app shows; leave it blank to display the unique name.

@@ -89,6 +89,17 @@ primitive, never per call site.
 - **`.dialog`**, **`.dialog-header`**, **`.dialog-body`**,
   **`.dialog-actions`** — the modal shell. Backdrop (`.overlay`), portal
   and dismiss behaviour stay with the call site.
+- **`.section-header`** — the settings-page section header: the small
+  all-caps caption (`--mm-text-caption`, `0.06em` tracking, the muted
+  foreground) that names a second-level section inside the Settings
+  dialog — "Editor", "Navigation", "People", "Roles". Always an `<h3>`
+  (`.dialog h2` is a dialog *title* and outranks the class), `14px 0 8px`
+  of spacing with the top margin dropped on a tab's first section. The
+  settings-section chrome around it stays with the section's own container
+  class as layout only: a separating `border-top` plus padding, as the
+  Workspace sections (`.workspace-names`, …) and the Hotkeys tab's
+  `.hotkey-group` do. Every settings tab uses it — none rolls its own
+  heading.
 
 The one sanctioned exception to "every button is a primitive variant" is
 the Microsoft-branded sign-in button (PRD 018 Req 20): a
@@ -115,6 +126,9 @@ disproportionate (the lint accepts either).
 - **`Dialog`** — a `<div className="dialog">` with `header?: ReactNode`
   and `actions?: ReactNode` slot props; `children` fill `.dialog-body`.
   Absent slots render no element.
+- **`SectionHeader`** — an `<h3 className="section-header">` taking native
+  heading props; `className` appends, so a section's layout hook
+  (`.hotkey-group`) composes with it.
 
 `className` passed to any wrapper is **appended** after the primitive
 classes, never replaced — so a call site can add a layout hook
@@ -169,6 +183,11 @@ RENDERING` blocks, and every `.tsx` under `src/` except
 - **Don't** write literal `font-size`, `border-radius`, or `box-shadow`
   values in a chrome rule. **Do** use the type/radius/shadow scale tokens
   (keywords like `none`/`inherit`/`0` are fine). **[lint]**
+- **Don't** hand-roll a section heading inside a settings tab — a bare
+  `<h2>`/`<h3>`/`<h4>`, or a class restating the caption type. **Do** use
+  `SectionHeader` (or `.section-header` on an `<h3>`), and keep any
+  section chrome of your own to layout: spacing and a separating rule.
+  Every `<h3>`/`<h4>` in TSX must carry the primitive. **[lint]**
 - **Don't** ship a `<button>` in TSX without a primitive: use the
   `Button`/`IconButton`/`MenuItem` wrappers or carry a `.btn*`,
   `.icon-btn`, or `.menu-item` class (a static class string, so the lint

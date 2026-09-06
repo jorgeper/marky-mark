@@ -30,6 +30,7 @@ import {
 } from '../lib/llmPricing';
 import { EMPTY_USAGE_TALLY, usageSentence } from '../lib/llmUsage';
 import { Button } from './ui/Button';
+import { SectionHeader } from './ui/SectionHeader';
 
 /**
  * PRD 011 Reqs 4+5+6+7+9+10: the LLM providers settings page. It is the
@@ -232,7 +233,7 @@ export function LlmSettings({
 
   const cacheSection = cacheOffered && (
     <>
-      <h3 className="tab-section">Summary cache</h3>
+      <SectionHeader>Summary cache</SectionHeader>
       <p className="hotkey-hint" data-testid="summary-cache-size">
         {cacheSentence(cache)}
       </p>
@@ -272,7 +273,7 @@ export function LlmSettings({
   const recommendation = recommendationFor(pricedKind);
   const pricingSection = (
     <>
-      <h3 className="tab-section">Recommended model and price</h3>
+      <SectionHeader>Recommended model and price</SectionHeader>
       {recommendation ? (
         <>
           <p className="hotkey-hint" data-testid="llm-recommended-model">
@@ -303,7 +304,7 @@ export function LlmSettings({
    */
   const usageSection = (
     <>
-      <h3 className="tab-section">Measured usage</h3>
+      <SectionHeader>Measured usage</SectionHeader>
       <p className="hotkey-hint" data-testid="llm-usage-last">
         {`Most recent summarization: ${usageSentence(values.llmUsageLast)}`}
       </p>
@@ -339,7 +340,7 @@ export function LlmSettings({
 
   // Every branch below opens with this; they differ only in which controls the
   // capability makes it honest to draw.
-  const heading = <h3 className="tab-section">LLM provider</h3>;
+  const heading = <SectionHeader>LLM provider</SectionHeader>;
   const availability = (
     <p className="hotkey-hint" data-testid="llm-availability">
       {area.message}
@@ -477,7 +478,7 @@ export function LlmSettings({
         </div>
       </div>
 
-      <h3 className="tab-section">Credential</h3>
+      <SectionHeader>Credential</SectionHeader>
       <div className="field">
         <label htmlFor="llm-api-key">API key</label>
         <input

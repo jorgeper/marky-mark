@@ -126,6 +126,27 @@ describe('PRD 018 §E27 style lint — TSX rules', () => {
     expect(lintTsx('<button className="table-chip" onClick={d}>chip</button>')).toHaveLength(1);
   });
 
+  it('U1226: a hand-rolled settings section heading fails; <SectionHeader> and .section-header pass', () => {
+    // Issue #249: every <h3>/<h4> under src/ is a settings-page section
+    // header — the Workspace tab's sections were the drift this catches.
+    const bad = lintTsx('export const X = () => (\n  <h3>Names</h3>\n);');
+    expect(bad).toHaveLength(1);
+    expect(bad[0].line).toBe(2);
+    expect(bad[0].message).toContain('section-header');
+    // A class that is not the primitive is still a finding, and so is one the
+    // lint cannot see statically.
+    expect(lintTsx('<h4 className="hotkey-group">Smart Edit</h4>')).toHaveLength(1);
+    expect(lintTsx('<h3 className={cls}>Roles</h3>')).toHaveLength(1);
+    const good = [
+      '<SectionHeader>People</SectionHeader>',
+      '<h3 className="section-header">Roles</h3>',
+      '<h4 className="section-header hotkey-group" data-testid="hotkey-group-smart-edit">Smart Edit</h4>',
+      '<h2>Export</h2>', // a dialog TITLE is not a section header
+      '<h1 className="semantic-zoom-title">Doc</h1>',
+    ].join('\n');
+    expect(lintTsx(good)).toEqual([]);
+  });
+
   it('U1022: prose `<button>` mentions in comments carry no attributes and are not findings', () => {
     const src = [
       '/**',

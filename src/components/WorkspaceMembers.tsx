@@ -23,6 +23,7 @@ import type { MemberEntry } from '../lib/membership';
 import type { DeploymentAdmin } from '../platform/hostedAdmin';
 import type { WorkspaceLifecycle } from '../platform/hostedWorkspaces';
 import { MembershipPicker } from './MembershipPicker';
+import { SectionHeader } from './ui/SectionHeader';
 
 export interface WorkspaceMembersProps {
   lifecycle: WorkspaceLifecycle;
@@ -117,7 +118,8 @@ export function WorkspaceMembers({ lifecycle, workspaceId, manifest, onManifest,
 
   return (
     <div className="workspace-members" data-testid="workspace-members-section">
-      <h2>People</h2>
+      {/* Issue #249: the settings-page section header primitive. */}
+      <SectionHeader>People</SectionHeader>
       <p className="hotkey-hint">
         Members hold the role you give them here. A workspace always keeps at least one {OWNER_ROLE}.
       </p>

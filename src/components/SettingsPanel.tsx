@@ -40,6 +40,7 @@ import type { SessionMe } from '../lib/deploymentSettings';
 import { useWorkspaceAccess, WorkspaceSettingsTab } from './WorkspaceAccessSettings';
 import { Button } from './ui/Button';
 import { IconButton } from './ui/IconButton';
+import { SectionHeader } from './ui/SectionHeader';
 
 /**
  * Issue #246: what a host window needs to close a Settings dialog politely —
@@ -805,6 +806,11 @@ export function SettingsPanel({
     </div>
   );
 
+  // Issue #249: Appearance is a FLAT list of rows — font size, zoom, the two
+  // theme pickers, the theme actions, margins, the tab strip, pane width — so
+  // it has no second-level sections and no header of its own to unify (and no
+  // hand-rolled heading style to retire). Rows added here that do form a
+  // section take `<SectionHeader>`, never a heading of their own.
   const appearanceTab = (
     <>
       {fontSizeRow}
@@ -885,7 +891,7 @@ export function SettingsPanel({
 
   const generalTab = (
     <>
-      <h3 className="tab-section">Editor</h3>
+      <SectionHeader>Editor</SectionHeader>
       {/* Issue #10: line numbers moved to View → Line Numbers. The persisted
           `lineNumbers` key is unchanged — only this row is gone. */}
       <div className="checkbox-row">
@@ -917,7 +923,7 @@ export function SettingsPanel({
         {scopeNote('splitEdit')}
       </div>
 
-      <h3 className="tab-section">Comments</h3>
+      <SectionHeader>Comments</SectionHeader>
       <div className="checkbox-row">
         <input
           id="set-comments-enabled"
@@ -1027,7 +1033,7 @@ export function SettingsPanel({
         {scopeNote('showFrontmatter')}
       </div>
 
-      <h3 className="tab-section">Navigation</h3>
+      <SectionHeader>Navigation</SectionHeader>
       <div className="checkbox-row">
         <input
           id="settings-vimnav"
@@ -1046,7 +1052,7 @@ export function SettingsPanel({
 
   const editorTab = (
     <>
-      <h3 className="tab-section">Syntax</h3>
+      <SectionHeader>Syntax</SectionHeader>
       <div className="checkbox-row">
         <input
           id="editor-syntax"
@@ -1091,7 +1097,7 @@ export function SettingsPanel({
         {scopeNote('livePreview')}
       </div>
 
-      <h3 className="tab-section">Tables</h3>
+      <SectionHeader>Tables</SectionHeader>
       <div className="checkbox-row">
         <input
           id="settings-table-grid"
@@ -1106,7 +1112,7 @@ export function SettingsPanel({
         {scopeNote('tableGridView')}
       </div>
 
-      <h3 className="tab-section">Images</h3>
+      <SectionHeader>Images</SectionHeader>
       <div className="checkbox-row">
         <input
           id="settings-inline-images"
@@ -1124,7 +1130,7 @@ export function SettingsPanel({
       {imagePatternRow}
 
       {/* Issue #157: the fenced-code card view, beside its Tables/Images kin. */}
-      <h3 className="tab-section">Code</h3>
+      <SectionHeader>Code</SectionHeader>
       <div className="checkbox-row">
         <input
           id="settings-code-block-view"
@@ -1140,7 +1146,7 @@ export function SettingsPanel({
       </div>
 
       {/* PRD 013 Req 6: the edit-pane diagram view, beside its three view kin. */}
-      <h3 className="tab-section">Diagrams</h3>
+      <SectionHeader>Diagrams</SectionHeader>
       <div className="checkbox-row">
         <input
           id="settings-diagram-view"
@@ -1156,7 +1162,7 @@ export function SettingsPanel({
       </div>
 
       {/* SPEC43 §11 (issue #270): the rendered-links view, beside its four view kin. */}
-      <h3 className="tab-section">Links</h3>
+      <SectionHeader>Links</SectionHeader>
       <div className="checkbox-row">
         <input
           id="settings-link-view"
@@ -1207,10 +1213,12 @@ export function SettingsPanel({
       {(Object.keys(HOTKEY_LABELS) as Array<keyof HotkeyMap>)
         .filter((a) => !SMART_EDIT_KEYS.includes(a))
         .map(hotkeyRow)}
-      {/* SPEC43 §5.3: the Smart Edit group. */}
-      <h4 className="hotkey-group" data-testid="hotkey-group-smart-edit">
+      {/* SPEC43 §5.3: the Smart Edit group. Issue #249: through the same
+          section-header primitive as every other settings section —
+          `.hotkey-group` carries only its separating rule now. */}
+      <SectionHeader className="hotkey-group" data-testid="hotkey-group-smart-edit">
         {SMART_EDIT_NAME}
-      </h4>
+      </SectionHeader>
       {SMART_EDIT_KEYS.map(hotkeyRow)}
       <p className="hotkey-hint" data-testid="hotkey-hint">
         {hint || 'Click a field, then press the new key combination.'}

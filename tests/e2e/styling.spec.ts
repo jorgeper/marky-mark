@@ -242,6 +242,90 @@ test('E395: the workspace settings destructive button is the danger fill on the 
   );
 });
 
+/** Issue #249: the type and colour a `.section-header` owns — what every
+ * settings section's heading must agree on, whichever tab it is on. */
+type HeaderSample = {
+  tag: string;
+  size: string;
+  transform: string;
+  spacing: string;
+  color: string;
+  family: string;
+  weight: string;
+};
+
+function sampleHeader(header: Locator): Promise<HeaderSample> {
+  return header.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return {
+      tag: el.tagName,
+      size: s.fontSize,
+      transform: s.textTransform,
+      spacing: s.letterSpacing,
+      color: s.color,
+      family: s.fontFamily,
+      weight: s.fontWeight,
+    };
+  });
+}
+
+test('E529: every settings tab\'s section headers are one primitive — the Workspace tab included', async ({
+  page,
+}) => {
+  // Issue #249: the Workspace tab's sections rendered a bare <h2> and took
+  // `.dialog h2`'s 14px title look while every other tab used the small
+  // all-caps section header. They render `.section-header` now, so a
+  // computed-style comparison across tabs is the regression guard: General
+  // (both builds), Hotkeys' Smart Edit group, and the hosted-only Workspace
+  // tab all resolve to the same type and colour.
+  const headers = await hostedAuthHeaders(page, 'ada');
+  const created = await page.request.post(`${HOSTED}/api/workspaces`, {
+    headers,
+    data: { name: `E529 styling w${test.info().workerIndex}` },
+  });
+  expect(created.status()).toBe(201);
+  const id = ((await created.json()) as { id: string }).id;
+
+  await dropRoamingFile(page, headers, 'draft.json');
+  // PRD 020 Req 5: workspace visits arrive by canonical path URL.
+  const rows = (await (await page.request.get(`${HOSTED}/api/workspaces`, { headers })).json()) as {
+    id: string;
+    uniqueName?: string;
+  }[];
+  await page.goto(`${HOSTED}/${rows.find((r) => r.id === id)!.uniqueName!}`);
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  // The General tab's first section ("Editor") — the convention the rest of
+  // the dialog follows, and the reference every other header is held to.
+  await openSettings(page, 'general');
+  const general = page.locator('.settings-modal .section-header').first();
+  await expect(general).toBeVisible();
+  const reference = await sampleHeader(general);
+  expect(reference.transform, 'the settings section header is all-caps').toBe('uppercase');
+  expect(reference.tag, 'the primitive is an <h3> — `.dialog h2` styles a dialog TITLE').toBe('H3');
+
+  // The Hotkeys tab's Smart Edit group: its own class carries the separating
+  // rule, never the type.
+  await page.getByTestId('settings-tab-hotkeys').click();
+  const smartEdit = await sampleHeader(page.getByTestId('hotkey-group-smart-edit'));
+  expect(smartEdit, 'Hotkeys: the Smart Edit group header').toEqual(reference);
+
+  // The Workspace tab's four sections — the drift this issue reports.
+  await page.getByTestId('settings-tab-workspace').click();
+  for (const section of [
+    'workspace-names-section',
+    'workspace-members-section',
+    'workspace-roles-section',
+    'workspace-delete-section',
+  ]) {
+    const heading = page.getByTestId(section).locator('.section-header');
+    await expect(heading, `${section}: renders the section-header primitive`).toHaveCount(1);
+    expect(await sampleHeader(heading), `Workspace: ${section}`).toEqual(reference);
+  }
+});
+
 test('E396: overriding chrome tokens at the theme scope restyles the primitives — the override story is real', async ({
   page,
 }) => {
