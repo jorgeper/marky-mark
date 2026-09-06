@@ -21,10 +21,6 @@ interface Props {
   docPath: string | null;
   dirty: boolean;
   mode: 'preview' | 'edit';
-  showComments: boolean;
-  /** Comments master switch (SPEC7 §2): off hides the toggle entirely. */
-  commentsEnabled: boolean;
-  commentCount: number;
   hotkeys: HotkeyMap;
   isMac: boolean;
   /**
@@ -42,7 +38,6 @@ interface Props {
    */
   menu: AppMenuGroup[];
   onToggleMode(): void;
-  onToggleComments(): void;
   /** PRD 009 Req 8: every row dispatches through this one seam. */
   onCommand(id: CommandId): void;
   /** Reports the menu popover state so the auto-hiding shell can stay pinned. */
@@ -93,26 +88,12 @@ export function AppBadge({ size = 20, testId = 'app-badge' }: { size?: number; t
   );
 }
 
-/** Outline speech balloon (stroke only, inherits theme color). */
-function CommentsIcon() {
-  return (
-    <svg data-testid="comments-icon" width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M3 2.5 h10 a1.8 1.8 0 0 1 1.8 1.8 v5.4 a1.8 1.8 0 0 1 -1.8 1.8 H7.2 L4 14.2 v-2.7 H3 a1.8 1.8 0 0 1 -1.8 -1.8 V4.3 A1.8 1.8 0 0 1 3 2.5 Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 /**
- * v2 toolbar (SPEC2 FR-U.1): one overflow menu · filename · Edit/Preview ·
- * comments toggle. Nothing else. PRD 009 Req 7/8: the menu leads the toolbar
- * on the left, and its rows are the data lib/appMenu.ts derives — this
- * component renders them and dispatches, nothing more.
+ * v2 toolbar (SPEC2 FR-U.1, amended issue #256): one overflow menu ·
+ * filename · Edit/Preview. Nothing else — the comments toggle left the
+ * toolbar for the View menu row and its hotkey. PRD 009 Req 7/8: the menu
+ * leads the toolbar on the left, and its rows are the data lib/appMenu.ts
+ * derives — this component renders them and dispatches, nothing more.
  */
 export function Toolbar(p: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -270,18 +251,6 @@ export function Toolbar(p: Props) {
         >
           {p.mode === 'edit' ? 'Preview' : 'Edit'}
           <kbd>{displayCombo(p.hotkeys.toggleEdit, p.isMac)}</kbd>
-        </button>
-      )}
-
-      {p.commentsEnabled && (
-        <button
-          className={`btn btn-quiet btn-sm${p.showComments ? ' on' : ''}`}
-          data-testid="comments-toggle"
-          title={`Show / hide comments (${displayCombo(p.hotkeys.toggleComments, p.isMac)})`}
-          onClick={p.onToggleComments}
-        >
-          <CommentsIcon />
-          {p.commentCount > 0 ? ` ${p.commentCount}` : ''}
         </button>
       )}
     </header>

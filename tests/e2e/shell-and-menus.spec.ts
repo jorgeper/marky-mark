@@ -168,20 +168,13 @@ test('E14: hovering the filename reveals the full on-disk path (title attribute)
   await expect(page.getByTestId('docname')).toContainText('welcome.md');
 });
 
-test('E17: hamburger and outline-balloon SVG icons replace the glyph/emoji', async ({ page }) => {
+// Amended for issue #256: the outline-balloon half went with the toolbar's
+// comments button — the hamburger is the toolbar's one remaining SVG icon.
+test('E17: the hamburger SVG icon replaces the ⋯ glyph', async ({ page }) => {
   const menuBtn = page.getByTestId('menu-btn');
   await expect(menuBtn.getByTestId('menu-icon')).toBeVisible();
   expect(await menuBtn.evaluate((el) => el.querySelector('svg') !== null)).toBe(true);
   expect(await menuBtn.textContent()).not.toContain('⋯');
-
-  const commentsBtn = page.getByTestId('comments-toggle');
-  await expect(commentsBtn.getByTestId('comments-icon')).toBeVisible();
-  expect(await commentsBtn.evaluate((el) => el.querySelector('svg') !== null)).toBe(true);
-  expect(await commentsBtn.textContent()).not.toContain('💬');
-  // The balloon is an outline: stroked, unfilled path.
-  const path = commentsBtn.locator('svg path');
-  await expect(path).toHaveAttribute('fill', 'none');
-  await expect(path).toHaveAttribute('stroke', 'currentColor');
 });
 
 test('E25: toolbar auto-hides after launch, reveals on top-edge hover (with shadow), pins while the menu is open', async ({

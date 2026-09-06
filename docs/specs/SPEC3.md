@@ -16,6 +16,13 @@ coding. The Definition of Done in §9 is the goal condition.
 2. **Save As…** in the menu.
 3. **Icon polish**: the menu button becomes a hamburger (three horizontal bars); the
    comments toggle becomes an outline speech-balloon icon (no color emoji).
+
+   > **Amendment (issue #256, 2026-09-06):** only the hamburger half
+   > survives. The toolbar's show/hide-comments button is removed, and the
+   > balloon icon went with it; the View ▸ **Comments** menu row and its
+   > `toggleComments` hotkey are the toggle's only home now (plus the
+   > edge-cluster chevron of PRD 023 §14).
+
 4. **Text margins** option and **Show line numbers** option.
 5. **Vim-style navigation** (simplified, opt-in): `gg`, `G`/`GG`, `Ctrl+u`, `Ctrl+d`,
    `j`, `k`.
@@ -93,6 +100,15 @@ vimNav: boolean             // default false
 3. Both SVGs get `data-testid` (`menu-icon`, `comments-icon`) so tests can assert
    `svg` presence and emoji absence.
 
+   > **Amendment (issue #256, 2026-09-06):** §4.2 and the `comments-icon`
+   > half of §4.3 no longer apply — the toolbar's show/hide-comments button
+   > is removed, balloon and all. The View ▸ **Comments** menu row and its
+   > `toggleComments` hotkey are the toggle's only home now (plus the
+   > edge-cluster chevron of PRD 023 §14), and the comment count the button
+   > carried lives in that row's live label ("Comments (3)", SPEC12 §1).
+   > §4.1 and the `menu-icon` testid stand, and "no 💬 emoji anywhere in the
+   > toolbar" holds trivially.
+
 ## 5. Vim-style navigation (FR-V)
 
 1. Off by default; enabled by the `vimNav` setting (Navigation section).
@@ -164,6 +180,15 @@ Unit:
 Desktop e2e (rewritten per §3.3: **E13** now asserts 4 menu items incl. Save As…):
 - **E17**: `menu-btn` contains an `svg` (`menu-icon`) and no "⋯" text;
   `comments-toggle` contains an `svg` (`comments-icon`) and its text contains no 💬.
+
+  > **Amendment (issue #256, 2026-09-06):** E17 keeps its `menu-icon`
+  > assertions and drops the balloon half — the toolbar's
+  > show/hide-comments button is removed, so there is no `comments-toggle`
+  > left to assert. The View ▸ **Comments** menu row and its
+  > `toggleComments` hotkey are the toggle's only home now (plus the
+  > edge-cluster chevron of PRD 023 §14). The test's title was updated to
+  > name only the assertion it still makes.
+
 - **E18**: Save As — set `__mmfs.nextSavePath = '/docs/copy.md'`, menu → Save As… →
   the new file exists with the buffer content, `docname` shows `copy.md` with
   `title="/docs/copy.md"`, and (sidecar mode) comments were written next to the new

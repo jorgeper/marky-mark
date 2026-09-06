@@ -288,8 +288,8 @@ export function PreviewToggleButton({ open, onClick }: { open: boolean; onClick(
  * document mode. The same compact edge tab as its two siblings, pointing in
  * the direction a click will move the pane (open ⇒ right, toward the edge;
  * closed ⇒ left, back in). The owner dispatches the existing `toggleComments`
- * command — only the persisted `settings.showComments` flips, so the toolbar
- * button, View → Comments and Mod+Shift+C stay in sync.
+ * command — only the persisted `settings.showComments` flips, so View →
+ * Comments and Mod+Shift+C stay in sync.
  */
 export function CommentsToggleButton({ open, onClick }: { open: boolean; onClick(): void }) {
   const label = open ? 'Hide the comments pane' : 'Show the comments pane';

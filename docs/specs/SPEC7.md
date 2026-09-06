@@ -31,6 +31,14 @@ of scope (author's call): scroll sync between split panes, a fully fledged edito
    floating 💬 button, no type-to-comment (§3 — both superseded by PRD 023 §6),
    and the toolbar's comment-panel toggle is hidden. The document renders as if
    the file had no comments.
+
+   > **Amendment (issue #256, 2026-09-06):** the toolbar's
+   > show/hide-comments button is removed — the View ▸ **Comments** menu
+   > row and its `toggleComments` hotkey are the toggle's home now. So what
+   > the switch hides here is that **View row** (with Next/Previous Comment
+   > alongside it) and the edge-cluster chevron of PRD 023 §14, not a
+   > toolbar toggle. The master switch's contract is otherwise unchanged.
+
 3. Disabling is **non-destructive**: stored comments (sidecar or embedded) are never
    read-modified or deleted by the switch; re-enabling restores everything exactly.
    While OFF, saving an edited document must still preserve existing embedded
@@ -39,6 +47,13 @@ of scope (author's call): scroll sync between split panes, a fully fledged edito
 4. **E36** asserts: doc with comments → disable → highlights, panel, and toolbar
    toggle gone; select text → no floating button; re-enable → all back, comment
    count unchanged.
+
+   > **Amendment (issue #256, 2026-09-06):** the toolbar's
+   > show/hide-comments button is removed, so E36 asserts in its place that
+   > the **View ▸ Comments row** (`menu-view-toggleComments`) and the
+   > edge-cluster chevron (`comments-collapse` / `comments-expand`) disappear
+   > and come back. The View row and its `toggleComments` hotkey are the
+   > toggle's home now.
 
 ## 3. Type-to-comment (FR-T) — superseded
 

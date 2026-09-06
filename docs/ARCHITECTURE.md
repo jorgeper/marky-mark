@@ -329,7 +329,9 @@ migrates to `themeLight`):
   `.tab-content` while the rail and chrome stay put.
 - **Comments master switch**: `commentsEnabled` (default on) gates every
   comment affordance — highlight injection, the margin panel, the authoring
-  menu entries and hotkeys, the toolbar toggle, and its hotkey.
+  menu entries and hotkeys, the View ▸ Comments row and its hotkey, and the
+  edge-cluster chevron. (Issue #256 removed the toolbar toggle it used to
+  gate as well; the View row is the toggle's home now.)
   It is strictly non-destructive: stored comments (sidecar or trailer) are
   never rewritten by the switch; disabling only stops *rendering* them, and
   saves keep attaching the untouched comment set as before.

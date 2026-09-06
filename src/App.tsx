@@ -469,8 +469,8 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   // PRD 023 §15 (issue #284): the comments pane's open/closed state is the
   // persisted setting — the old ephemeral React state is gone, so the
-  // chevron, toolbar button, View → Comments and Mod+Shift+C all read (and
-  // survive a reload through) this one source.
+  // chevron, View → Comments and Mod+Shift+C all read (and survive a reload
+  // through) this one source.
   const showComments = settings.showComments;
   // PRD 002 §E18: the raw per-layer objects behind `settings` (the resolved
   // result). settings.json is the USER layer only; the Workspace layer lives
@@ -7525,7 +7525,8 @@ export default function App() {
         )}
         {/* PRD 023 §14 (issue #284): the comments chevron — immediately
             right of the preview chevron, in EVERY document mode, dispatching
-            the same command as the toolbar button, menu and hotkey. */}
+            the same command as the View menu row and hotkey (issue #256
+            retired the toolbar button that used to share it). */}
         {commentsSeam && (
           <CommentsToggleButton open={showComments} onClick={() => dispatchCommand('toggleComments')} />
         )}
@@ -7560,9 +7561,6 @@ export default function App() {
               docPath={docPath}
               dirty={dirty}
               mode={mode}
-              showComments={showComments}
-              commentsEnabled={settings.commentsEnabled}
-              commentCount={comments.length}
               hotkeys={settings.hotkeys}
               isMac={platform.isMac}
               // PRD 009 Req 11: the open workspace's name, where the removed
@@ -7573,7 +7571,6 @@ export default function App() {
               // PRD 009 Req 8: the whole item set, already gated.
               menu={appMenu}
               onToggleMode={() => dispatchCommand('toggleMode')}
-              onToggleComments={() => dispatchCommand('toggleComments')}
               onCommand={(id) => dispatchCommand(id)}
               onMenuOpenChange={setMenuPin}
             />
