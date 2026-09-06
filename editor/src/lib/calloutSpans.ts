@@ -67,22 +67,25 @@ export function computeCalloutViews(
       to: vr.to,
       enter(n) {
         if (n.name !== 'Blockquote') return;
-        // Never descend: a callout's inner blockquotes ride its tint, and a
-        // plain quote's inner callouts would double-paint the shared lines.
+        // A block straddling two visible ranges is entered once per range;
+        // emit it once.
         if (seen.has(n.from)) return false;
         seen.add(n.from);
+        // Every early return below is `false` — never descend: a callout's
+        // inner blockquotes ride its tint, and a plain quote's inner callouts
+        // would double-paint the shared lines.
         if (excluded.some((s) => n.from < s.to && n.to > s.from)) return false;
         const first = doc.lineAt(n.from);
         const head = first.text.slice(n.from - first.from);
         const m = MARKER_LINE.exec(head);
         const kind = m ? calloutKindOf(m[1]) : null;
         if (!m || !kind) return false;
-        const markerFrom = n.from + head.indexOf('[!');
-        const marker = { from: markerFrom, to: markerFrom + m[1].length + 3 };
-        // A Blockquote node can end on the newline that closes its last
-        // line; the block's last line is the last one it has text on.
-        const endLine = doc.lineAt(n.to);
-        const lastLine = n.to === endLine.from && n.to > n.from ? endLine.number - 1 : endLine.number;
+        const markerText = `[!${m[1]}]`;
+        const markerFrom = n.from + head.indexOf(markerText);
+        const marker = { from: markerFrom, to: markerFrom + markerText.length };
+        // A Blockquote node ends on the last character of its last line,
+        // never on the newline after it.
+        const lastLine = doc.lineAt(n.to).number;
         const revealed = ranges.some((r) => r.from <= first.to && r.to >= first.from);
         out.push({ from: n.from, to: n.to, kind, firstLine: first.number, lastLine, marker, revealed });
         return false;

@@ -60,27 +60,30 @@ export interface CalloutHastNode {
 /**
  * Where a blockquote's marker is, when it is a callout: the first element
  * child is a paragraph whose first child is a text node starting with the
- * marker line. Returns the paragraph, the text node and the match, or null.
+ * marker line. Returns the paragraph, its children, the text node, the kind
+ * and the text left once the marker line is cut — or null.
  */
 function findMarker(quote: CalloutHastNode): {
   paragraph: CalloutHastNode;
+  children: CalloutHastNode[];
   text: CalloutHastNode;
   kind: CalloutKind;
-  length: number;
+  rest: string;
 } | null {
   const paragraph = quote.children?.find((c) => c.type === 'element');
   if (!paragraph || paragraph.tagName !== 'p') return null;
-  const text = paragraph.children?.[0];
+  const children = paragraph.children ?? [];
+  const text = children[0];
   if (!text || text.type !== 'text' || typeof text.value !== 'string') return null;
   const m = MARKER_LINE.exec(text.value);
   if (!m) return null;
   // The marker must be alone on its line: a match that ends at the text
   // node's end (no newline) but is followed by inline siblings (`[!NOTE]
   // **bold**`) is a first line with more on it — not a callout.
-  if (!m[0].endsWith('\n') && (paragraph.children?.length ?? 0) > 1) return null;
+  if (!m[0].endsWith('\n') && children.length > 1) return null;
   const kind = calloutKindOf(m[1]);
   if (!kind) return null;
-  return { paragraph, text, kind, length: m[0].length };
+  return { paragraph, children, text, kind, rest: text.value.slice(m[0].length) };
 }
 
 /**
@@ -92,12 +95,12 @@ function findMarker(quote: CalloutHastNode): {
 function rewriteCallout(quote: CalloutHastNode): boolean {
   const hit = findMarker(quote);
   if (!hit) return false;
-  const { paragraph, text, kind, length } = hit;
-  text.value = (text.value as string).slice(length);
-  if (text.value === '') {
-    paragraph.children!.shift();
-    if (paragraph.children!.length === 0) {
-      quote.children = quote.children!.filter((c) => c !== paragraph);
+  const { paragraph, children, text, kind, rest } = hit;
+  text.value = rest;
+  if (rest === '') {
+    children.shift();
+    if (children.length === 0) {
+      quote.children = (quote.children ?? []).filter((c) => c !== paragraph);
     }
   }
   const existing = quote.properties?.className;
