@@ -23,8 +23,8 @@ of scope (author's call): scroll sync between split panes, a fully fledged edito
    (`data-testid="set-comments-enabled"`), listed above the other comment settings.
 2. When OFF: no comment highlights in preview, no comments panel, no selection →
    floating 💬 button, no type-to-comment (§3 — both superseded by PRD 023 §6),
-   and the toolbar's comment-panel
-   toggle is hidden. The document renders as if the file had no comments.
+   and the toolbar's comment-panel toggle is hidden. The document renders as if
+   the file had no comments.
 3. Disabling is **non-destructive**: stored comments (sidecar or embedded) are never
    read-modified or deleted by the switch; re-enabling restores everything exactly.
    While OFF, saving an edited document must still preserve existing embedded

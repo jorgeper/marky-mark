@@ -9,7 +9,7 @@ import { DEFAULT_SETTINGS, parseSettings } from '../../src/lib/settings';
 // their place in the recorder were unpinned by any unit test — a rename or a
 // silent default change would only surface in the slow lane.
 
-const ROOT = fileURLToPath(new URL('../..', import.meta.url));
+const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
 /** PRD 023 §12: the two annotation actions and the combos they ship with. */
 const ANNOTATION_DEFAULTS = {
@@ -24,17 +24,12 @@ describe('PRD 023 §12: the annotation hotkey defaults', () => {
     expect(DEFAULT_HOTKEYS.applyHighlight).toBe('Mod+Alt+H');
     // `Mod+` is the portable modifier; both parse as real combos.
     for (const combo of Object.values(ANNOTATION_DEFAULTS)) {
-      const parts = parseCombo(combo);
-      expect(parts, combo).not.toBeNull();
-      expect(parts!.mod).toBe(true);
-      expect(parts!.alt).toBe(true);
+      expect(parseCombo(combo), combo).toMatchObject({ mod: true, alt: true });
     }
     // PRD 023 §12: no per-color hotkeys — Highlight carries the last-used
-    // color, so the two actions are the whole annotation vocabulary.
-    const annotationActions = (Object.keys(DEFAULT_HOTKEYS) as Array<keyof HotkeyMap>).filter(
-      (k) => k === 'insertComment' || k === 'applyHighlight' || /^highlight[A-Z]/.test(k)
-    );
-    expect(annotationActions.sort()).toEqual(['applyHighlight', 'insertComment']);
+    // color, so the two actions above are the whole annotation vocabulary.
+    const perColor = Object.keys(DEFAULT_HOTKEYS).filter((k) => /^highlight[A-Z]/.test(k));
+    expect(perColor).toEqual([]);
 
     // Neither default collides with another shipped binding.
     for (const [action, combo] of Object.entries(ANNOTATION_DEFAULTS)) {
@@ -67,16 +62,16 @@ describe('PRD 023 §12: the annotation hotkey defaults', () => {
 
   test('U1165: both are reachable in the Settings → Hotkeys recorder — labelled rows, rendered off the label registry', () => {
     const panel = readFileSync(`${ROOT}src/components/SettingsPanel.tsx`, 'utf8');
-    const registry = /const HOTKEY_LABELS[^=]*=\s*\{([\s\S]*?)\n\};/.exec(panel)?.[1];
-    expect(registry).toBeDefined();
+    const registry = /const HOTKEY_LABELS[^=]*=\s*\{([\s\S]*?)\n\};/.exec(panel)?.[1] ?? '';
+    expect(registry, 'HOTKEY_LABELS').toBeTruthy();
     // A labelled entry each — the recorder shows a row per registry key, so
     // presence here is reachability (the `Record<keyof HotkeyMap, string>`
     // type keeps the registry total, this keeps the labels meaningful).
     for (const action of Object.keys(ANNOTATION_DEFAULTS)) {
-      const label = new RegExp(`\\n\\s*${action}:\\s*'([^']+)'`).exec(registry!)?.[1];
+      const label = new RegExp(`\\n\\s*${action}:\\s*'([^']+)'`).exec(registry)?.[1];
       expect(label, action).toBeTruthy();
     }
     // The rows are generated from the registry, not hand-listed.
-    expect(panel).toContain('(Object.keys(HOTKEY_LABELS) as Array<keyof HotkeyMap>)');
+    expect(panel).toMatch(/Object\.keys\(HOTKEY_LABELS\)\s+as\s+Array<keyof HotkeyMap>/);
   });
 });

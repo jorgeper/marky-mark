@@ -198,8 +198,8 @@ applies the result as **one** CodeMirror transaction (single undo step).
    time; the menu never holds stale offsets (any formatting applies to
    the selection as of invocation).
 3. While the menu is open, editor typing is unreachable (menu holds
-   focus); vim nav-mode cannot fire (nor could type-to-comment, retired
-   since — superseded by PRD 023 §6); app hotkeys
+   focus); vim nav-mode cannot fire (nor could type-to-comment, named here
+   when this spec shipped and since superseded by PRD 023 §6); app hotkeys
    still dismiss nothing except via Esc (which the menu consumes).
 
 ## 7. Styling (FR-STYLE)
