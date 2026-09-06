@@ -159,6 +159,10 @@ export function AuxWindow({ kind }: { kind: AuxKind }) {
           isMac={init.isMac}
           storageLocked={false}
           autoHideAvailable={false}
+          // PRD 013 Req 13 (issue #258): aux windows exist only on the hosts
+          // that carry `multiFileSession` (tauri, and the e2e shim), so the
+          // strip's seam is always there when this window is up.
+          fileTabsAvailable
           onEdit={(scope, patch) => {
             // §E18: only the changed keys travel, tagged with the target
             // layer; the main window persists and echoes the canonical state.

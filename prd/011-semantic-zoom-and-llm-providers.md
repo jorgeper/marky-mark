@@ -194,6 +194,14 @@ features reuse, not buried inside this one.
     menu entries, its own commands, and its own accelerators
     (`Mod+Shift+=` / `Mod+Shift+-` / `Mod+Shift+0`). SPEC4 §4 text zoom
     is untouched.
+
+    > **Amended (issue #258, 2026-09-06):** semantic zoom has **no View
+    > menu entries, no commands and no accelerators** — on every build and
+    > with the Experimental switch on or off. Its routes are the docked
+    > `SemanticZoomControl`, the zoomed view's **Full document** button and
+    > heading dives. SPEC4 §4 text zoom ("Zoom In" `Mod+=`, "Zoom Out"
+    > `Mod+-`, "Actual Size" `Mod+0`) remains untouched, which is what the
+    > distinctness above was for.
 24. Structure comes from a real **source-level section model** — a
     parsed tree of headings and their bodies with source line ranges —
     not from scraping rendered HTML. Existing consumers of rendered

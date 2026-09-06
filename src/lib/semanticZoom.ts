@@ -261,13 +261,6 @@ export function canStepZoom(level: ZoomLevel, delta: number): boolean {
   return delta > 0 ? level < ZOOM_LEVEL_MAX : level > ZOOM_LEVEL_MIN;
 }
 
-/**
- * PRD 011 Req 23: the three accelerators, spelled once. `Mod+Shift+=` steps
- * toward the full document, `Mod+Shift+-` away from it, `Mod+Shift+0` returns
- * to L5 — deliberately parallel to, and distinct from, SPEC4 §4 text zoom.
- */
-export const SEMANTIC_ZOOM_COMBOS = {
-  semanticZoomIn: 'Mod+Shift+=',
-  semanticZoomOut: 'Mod+Shift+-',
-  semanticZoomReset: 'Mod+Shift+0',
-} as const;
+// PRD 011 Req 23 (issue #258): semantic zoom has no accelerators. The combo
+// table that spelled Mod+Shift+= / Mod+Shift+- / Mod+Shift+0 is gone with the
+// View rows it fed; the docked control and heading dives are the only routes.

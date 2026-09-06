@@ -45,7 +45,7 @@ export function SemanticZoomControl({ level, onLevel }: ControlProps) {
         className="icon-btn semantic-zoom-step"
         data-testid="semantic-zoom-out"
         aria-label="Zoom out semantically"
-        title="Zoom Out Semantically (Mod+Shift+-)"
+        title="Zoom Out Semantically"
         disabled={!canStepZoom(level, -1)}
         onClick={() => onLevel(stepZoomLevel(level, -1))}
       >
@@ -66,7 +66,7 @@ export function SemanticZoomControl({ level, onLevel }: ControlProps) {
         className="icon-btn semantic-zoom-step"
         data-testid="semantic-zoom-in"
         aria-label="Zoom in semantically"
-        title="Zoom In Semantically (Mod+Shift+=)"
+        title="Zoom In Semantically"
         disabled={!canStepZoom(level, 1)}
         onClick={() => onLevel(stepZoomLevel(level, 1))}
       >

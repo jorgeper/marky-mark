@@ -68,13 +68,10 @@ export type CommandId =
   | 'zoomIn'
   | 'zoomOut'
   | 'zoomReset'
-  // PRD 011 Req 23: semantic zoom is a DISTINCT feature from SPEC4 §4 text
-  // zoom — its own ids, so nothing about `zoomIn`/`zoomOut`/`zoomReset` or
-  // the `settings.zoom` multiplier changes. Inert while the Experimental
-  // flag is off (PRD 011 Req 2).
-  | 'semanticZoomIn'
-  | 'semanticZoomOut'
-  | 'semanticZoomReset'
+  // PRD 011 Req 23 (issue #258): semantic zoom has no command ids — its menu
+  // rows and accelerators are gone, and its docked control drives the level
+  // directly. `zoomIn`/`zoomOut`/`zoomReset` above are SPEC4 §4 text zoom and
+  // are untouched.
   | 'close'
   // SPEC43 §5.2: Smart Edit — silent no-ops outside edit mode.
   | 'smartMenu'

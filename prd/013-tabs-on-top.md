@@ -127,12 +127,24 @@ tabs on the left *and* on top.
 13. A **"File Tabs"** item in the View menu (checked when on) toggles
     the strip, backed by a persisted default-on setting. The setting
     only hides/shows the strip; it never alters the open set.
+
+    > **Amended (issue #258, 2026-09-06):** the toggle is a **Settings ▸
+    > Appearance checkbox** (`settings-file-tabs`), not a View menu item —
+    > the View row is gone from both menu surfaces and the command keeps
+    > its no-hotkey status. The setting, its default-on value, its scope
+    > and its "never alters the open set" guarantee are unchanged, and the
+    > checkbox rides the same `multiFileSession` seam the row did (Req 14),
+    > so the static web build shows no row.
 14. The setting persists across launches through the existing settings
     pipeline and is absent on the static web build. *(Amended by issue
     #186: originally "desktop-only (absent or inert on web)" — the
     hosted flavor now has the strip and its View ▸ File Tabs row too,
     gated on the `multiFileSession` capability; only the static
     single-file build stays without them.)*
+
+    > **Amended (issue #258, 2026-09-06):** the hosted flavor has the strip
+    > and the **Settings ▸ Appearance checkbox** — the View row named above
+    > is gone everywhere (Req 13). The seam that gates them is unchanged.
 
 ### Fit with existing behavior
 
