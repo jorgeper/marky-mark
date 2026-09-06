@@ -22,7 +22,7 @@ export { Preview } from './components/Preview';
 export type { PreviewProps } from './components/Preview';
 /** PRD 021 Req 3: editor + divider + preview with synchronized scrolling. */
 export { SplitView } from './components/SplitView';
-export type { SplitViewProps } from './components/SplitView';
+export type { SplitViewProps, SplitFollowHandle } from './components/SplitView';
 
 // --- The Editor contract (PRD 021 Req 4) --------------------------------------
 // EditorProps (every prop, documented inline), the imperative handles

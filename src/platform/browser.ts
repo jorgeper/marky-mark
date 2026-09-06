@@ -82,6 +82,8 @@ declare global {
       selText: string;
       /** SPEC24 §1: whether the editor had focus at report time. */
       focused: boolean;
+      /** Issue #310: 'host' for a mirrored/placed selection, 'editor' for the editor's own moves. */
+      origin?: 'editor' | 'host';
       nav: boolean;
     };
     /** SPEC35 §1: paths moved to the (virtual) Trash, newest last. */

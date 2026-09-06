@@ -65,3 +65,34 @@ export function offsetForLine(anchors: SyncAnchor[], contentHeight: number, line
   }
   return table[table.length - 1].top;
 }
+
+/** A row's vertical extent in its pane's CONTENT coordinates (scrollTop 0 = 0). */
+export interface RowRect {
+  top: number;
+  bottom: number;
+}
+
+/**
+ * Issue #310 (SPEC45 amended): whether a cue at `vpOffset` — its vertical
+ * position relative to the viewport's top — is close enough to the leading
+ * pane's viewport for cue-anchored alignment: one viewport above through two
+ * below. Outside this window the SPEC15 block interpolation applies instead,
+ * so a caret far from the reading position never yanks the follower.
+ */
+export function withinCueWindow(vpOffset: number, viewportHeight: number): boolean {
+  return vpOffset > -viewportHeight && vpOffset < viewportHeight * 2;
+}
+
+/**
+ * Issue #310 (SPEC45 amended): the follower's scrollTop that puts the vertical
+ * CENTRE of its cue row level with the centre of the leader's row — centres,
+ * not tops, so a heading's larger font no longer offsets the panes. Both rows
+ * are in their own pane's content coordinates; the result clamps to
+ * [0, followerMax] (SPEC15 §1.3: ends stay reachable), so an already-level
+ * pair returns the follower's current position unchanged.
+ */
+export function centreAlignedOffset(leaderRow: RowRect, leaderScrollTop: number, followerCue: RowRect, followerMax: number): number {
+  const leaderVpCentre = (leaderRow.top + leaderRow.bottom) / 2 - leaderScrollTop;
+  const target = (followerCue.top + followerCue.bottom) / 2 - leaderVpCentre;
+  return Math.min(Math.max(target, 0), Math.max(followerMax, 0));
+}

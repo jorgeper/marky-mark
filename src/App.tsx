@@ -48,6 +48,7 @@ import {
   type SelectSourceRange,
   type SmartEditHandle,
   type SmartFormatOp,
+  type SplitFollowHandle,
 } from '@marky-mark/editor';
 // PRD 023 §9 (issue #286): MARKER_COLORS is the Highlight ▸ rows' fixed
 // order/vocabulary (formerly the swatch popup's).
@@ -915,6 +916,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const docTextRef = useRef('');
   const navLabelRef = useRef('');
   const editorSyncRef = useRef<EditorSyncHandle | null>(null);
+  // Issue #310: the split controller's follow handle — live only while
+  // synchronized scrolling is on; null means "sync off, nothing follows".
+  const splitFollowRef = useRef<SplitFollowHandle | null>(null);
   const editorInsertRef = useRef<((text: string) => void) | null>(null);
   /**
    * Issue #262: the package's focus seam, populated while an Editor is
@@ -1446,6 +1450,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
   // --- SPEC24 §1: editor → preview synthetic highlight -------------------------
   const mirrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Issue #310: the pending cue repaint for the latest caret report.
+  const cueRafRef = useRef<number | null>(null);
 
   /** Unwrap every mirror mark; text-node normalization keeps anchors stable. */
   const clearMirrorMarks = useCallback(() => {
@@ -1461,7 +1467,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const activeCueRef = useRef<{ head: number; headLine: number; hasSel: boolean } | null>(null);
 
   const clearActiveCues = useCallback((pane: HTMLElement) => {
-    pane.querySelectorAll('.mm-active-block').forEach((el) => el.classList.remove('mm-active-block'));
+    pane.querySelectorAll<HTMLElement>('.mm-active-block, [data-mm-head]').forEach((el) => {
+      el.classList.remove('mm-active-block');
+      delete el.dataset.mmHead; // Issue #310: the head offset rides on the tint
+    });
     unwrapMarks(pane, 'mark.mm-active-word');
   }, []);
 
@@ -1496,36 +1505,59 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       // exists, the stamped element is the last resort.
       const containerOf = (el: Element | null): HTMLElement | null =>
         (el?.closest<HTMLElement>(ACTIVE_CONTAINERS) ?? null);
-      const containerAtHead = (): HTMLElement | null => {
+      // The head's rendered point: its innermost container plus the exact
+      // text position, for the issue #310 head marker.
+      const headPoint = (): { container: HTMLElement | null; at: { node: Node; offset: number } | null } => {
         const off = renderedOffsetForSource(buffer, blockStart, head, blockRendered);
-        if (off === null) return null;
+        if (off === null) return { container: null, at: null };
         const r = offsetsToRange(pane, rs + Math.min(off, Math.max(0, blockRendered.length - 1)), rs + Math.min(off + 1, blockRendered.length));
-        if (!r) return null;
+        if (!r) return { container: null, at: null };
         // The range START can land at the tail of an inter-item whitespace
         // node (parent = the list itself); the END sits inside the real
-        // container's text — take the first that resolves.
-        for (const node of [r.startContainer, r.endContainer]) {
-          const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+        // container's text — take the first that resolves (the END point
+        // steps back one character so it still sits BEFORE the head's char).
+        const ends = [
+          { node: r.startContainer, offset: r.startOffset },
+          { node: r.endContainer, offset: r.endContainer.nodeType === Node.TEXT_NODE ? Math.max(0, r.endOffset - 1) : r.endOffset },
+        ];
+        for (const at of ends) {
+          const el = at.node.nodeType === Node.ELEMENT_NODE ? (at.node as Element) : at.node.parentElement;
           const c = el && pane.contains(el) ? containerOf(el) : null;
-          if (c) return c;
+          if (c) return { container: c, at };
         }
-        return null;
+        return { container: null, at: null };
       };
       const tint = (el: HTMLElement | null) => (el && pane.contains(el) ? el : blockEl).classList.add('mm-active-block');
+      // Issue #310: when no word mark is painted (a selection, a whitespace or
+      // punctuation caret), the head's RENDERED ROW still has to reach the
+      // split sync controller: the head's text offset WITHIN its container
+      // rides on the tint as `data-mm-head`, and the controller reads that
+      // character's rect through a Range. Nothing is inserted into the DOM,
+      // so text nodes stay whole for the find and comment marks painted over
+      // them (E291) and rendered text and offsets are untouched.
+      const tintAtHead = () => {
+        const { container, at } = headPoint();
+        tint(container); // the head's container — like the editor's active line
+        if (!at || !container || !pane.contains(container)) return;
+        const pre = document.createRange();
+        pre.setStart(container, 0);
+        pre.setEnd(at.node, at.offset);
+        container.dataset.mmHead = String(pre.toString().length);
+      };
       if (hasSel) {
-        tint(containerAtHead()); // the head's container — like the editor's active line
+        tintAtHead();
         return;
       }
       const w = wordAt(buffer, head);
       const needle = w ? visibleTextForRange(buffer, w.start, w.end) : '';
       if (!w || !needle.trim()) {
-        tint(containerAtHead());
+        tintAtHead();
         return;
       }
       const nth = countNormalized(visibleTextForRange(buffer, blockStart, w.start), needle);
       const hit = findNormalizedNth(blockRendered, needle, nth);
       if (!hit) {
-        tint(containerAtHead());
+        tintAtHead();
         return;
       }
       const marks = highlightRange(pane, rs + hit.start, rs + hit.end, '__aw__');
@@ -1533,7 +1565,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         m.className = 'mm-active-word';
         delete m.dataset.cid; // never the comment machinery's business
       }
-      tint(containerOf(marks[0] ?? null) ?? containerAtHead());
+      tint(containerOf(marks[0] ?? null) ?? headPoint().container);
     },
     [clearActiveCues]
   );
@@ -1595,20 +1627,54 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * own dispatch can never bounce back (SPEC24 §1.4).
    */
   const handleEditState = useCallback(
-    (s: { canonHead: number; head: number; headLine: number; selFrom: number; selTo: number; selText: string; focused: boolean }) => {
+    (s: {
+      canonHead: number;
+      head: number;
+      headLine: number;
+      selFrom: number;
+      selTo: number;
+      selText: string;
+      focused: boolean;
+      origin: 'editor' | 'host';
+    }) => {
       seamEditState(s);
       lastEditorSelRef.current = { from: s.selFrom, to: s.selTo }; // SPEC25 §2.1
       const st = stateRef.current;
       if (st.mode !== 'edit' || !st.settings.splitEdit) return;
+      // SPEC44 §3: block + word cues follow every caret report — in
+      // CANONICAL coordinates (the grid's padding never reaches the html).
+      // Issue #310: they land on the NEXT FRAME (a burst of reports paints
+      // once), and a caret move made in the editor then asks the split
+      // controller to level the preview with the caret's visual row —
+      // SPEC15 §1.5's "typing never re-syncs" leg amended: the preview
+      // follows, the editor still never scrolls for it. A host-placed
+      // selection (the SPEC23 mirror, a preview click) paints its cues but
+      // moves nothing (E464).
+      let cuesPainted = false;
+      const paintCues = () => {
+        cuesPainted = true;
+        const pane = splitDocRef.current;
+        if (!pane) return;
+        activeCueRef.current = { head: s.canonHead, headLine: s.headLine, hasSel: s.selFrom !== s.selTo };
+        applyActiveCues(pane, s.canonHead, s.headLine, s.selFrom !== s.selTo);
+        if (s.origin === 'editor') splitFollowRef.current?.followCaret();
+      };
+      if (cueRafRef.current) cancelAnimationFrame(cueRafRef.current);
+      cueRafRef.current = requestAnimationFrame(() => {
+        cueRafRef.current = null;
+        paintCues();
+      });
       if (mirrorTimerRef.current) clearTimeout(mirrorTimerRef.current);
       mirrorTimerRef.current = setTimeout(() => {
         const pane = splitDocRef.current;
         if (!pane) return;
         clearMirrorMarks();
-        // SPEC44 §3: block + word cues follow every caret report — in
-        // CANONICAL coordinates (the grid's padding never reaches the html).
-        activeCueRef.current = { head: s.canonHead, headLine: s.headLine, hasSel: s.selFrom !== s.selTo };
-        applyActiveCues(pane, s.canonHead, s.headLine, s.selFrom !== s.selTo);
+        // The frame callback is skipped in a hidden tab — paint here then.
+        if (!cuesPainted) {
+          if (cueRafRef.current) cancelAnimationFrame(cueRafRef.current);
+          cueRafRef.current = null;
+          paintCues();
+        }
         if (!s.focused || s.selFrom === s.selTo) return;
         const buffer = stateRef.current.buffer;
         const needle = visibleTextForRange(buffer, s.selFrom, s.selTo);
@@ -8509,6 +8575,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             split={splitActive}
             editorSyncRef={editorSyncRef}
             syncScroll={settings.syncScroll}
+            followRef={splitFollowRef} // Issue #310: caret → preview following
             splitRatio={settings.splitRatio}
             onSplitRatioChange={(ratio) => updateSettings({ ...stateRef.current.settings, splitRatio: ratio })}
             preview={{

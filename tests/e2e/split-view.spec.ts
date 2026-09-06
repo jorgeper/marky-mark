@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
   clickCharBoundary,
@@ -1227,4 +1228,299 @@ test('E355: issue #165 — the split slide opens over rendered content, the edit
   expect(
     await page.getByTestId('split-preview').evaluate((el) => getComputedStyle(el).transform)
   ).toBe('none');
+});
+
+// --- Issue #310: the preview follows the editor caret ------------------------
+// A long document with a uniquely worded heading, a long wrapped paragraph
+// mid-way (so a caret can walk visual rows without leaving its block) and a
+// run of blank lines the editor shows as rows but the preview collapses (so
+// following produces a large, predictable preview move), plus filler on both
+// sides so neither pane sits at an end clamp.
+const CARET_SYNC_DOC = (() => {
+  const filler = (tag: string, n: number) =>
+    Array.from({ length: n }, (_, i) => `${tag} filler paragraph ${i} carrying a few plain words\n`).join('\n');
+  const walk = Array.from({ length: 60 }, (_, i) => `walk${i}`).join(' ');
+  const blankRun = '\n'.repeat(9); // eight blank source lines
+  return `# Top\n\n${filler('upper', 30)}\n## Heading Target Here\n\n${walk}\n\nlower anchor sentence\n${blankRun}gap landing sentence\n\n${filler('lower', 30)}`;
+})();
+
+async function caretSyncApp(page: Page): Promise<void> {
+  await fsWrite(page, '/docs/caret-sync.md', CARET_SYNC_DOC);
+  await page.goto('/#open=/docs/caret-sync.md');
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Top');
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+}
+
+/**
+ * Scroll the (virtualized) editor until the line renders, then click its
+ * top-left corner (the E128 idiom) — a wrapped paragraph is one `.cm-line`,
+ * so the caret lands at its FIRST row's start, not somewhere mid-paragraph.
+ */
+async function clickEditorLine(page: Page, text: string): Promise<void> {
+  const target = page.getByTestId('editor').locator('.cm-line', { hasText: text });
+  await page.getByTestId('editor').locator('.cm-content').hover();
+  for (let i = 0; i < 80 && (await target.count()) === 0; i++) {
+    await page.mouse.wheel(0, 500);
+    await page.waitForTimeout(40);
+  }
+  await target.scrollIntoViewIfNeeded();
+  await target.click({ position: { x: 4, y: 6 } });
+}
+
+/** Put the caret's line mid-viewport (an editor lead — the preview follows), away from both end clamps. */
+const centreEditorOnCaret = (page: Page) =>
+  page.evaluate(() => {
+    const sc = document.querySelector('.cm-scroller')!;
+    const line = document.querySelector('.cm-activeLine')!;
+    const r = line.getBoundingClientRect();
+    const s = sc.getBoundingClientRect();
+    sc.scrollTop += r.top - s.top - s.height / 2;
+  });
+
+/**
+ * Issue #310's yardstick: the vertical centre of the editor caret's visual
+ * row (the drawn cursor — coordsAtPos geometry) against the centre of the
+ * preview cue's first rendered row (the word mark, else the character at the
+ * `data-mm-head` offset stamped on the tinted container).
+ */
+const caretLevelGap = (page: Page) =>
+  page.evaluate(() => {
+    const pv = document.querySelector('[data-testid="split-preview"] .doc');
+    const ed = document.querySelector('.cm-cursor-primary') ?? document.querySelector('.cm-content .mm-active-word');
+    if (!pv || !ed) return Infinity;
+    let c: DOMRect | undefined;
+    const word = pv.querySelector('mark.mm-active-word');
+    if (word) c = word.getClientRects()[0] ?? word.getBoundingClientRect();
+    else {
+      const block = pv.querySelector<HTMLElement>('.mm-active-block[data-mm-head]');
+      if (!block) return Infinity;
+      const offset = Number(block.dataset.mmHead);
+      const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+      let acc = 0;
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const len = (node as Text).data.length;
+        if (offset < acc + len) {
+          const range = document.createRange();
+          range.setStart(node, offset - acc);
+          range.setEnd(node, offset - acc + 1);
+          c = range.getClientRects()[0];
+          break;
+        }
+        acc += len;
+      }
+    }
+    if (!c) return Infinity;
+    const e = ed.getClientRects()[0] ?? ed.getBoundingClientRect();
+    if (c.height === 0 || e.height === 0) return Infinity;
+    return Math.abs((c.top + c.bottom) / 2 - (e.top + e.bottom) / 2);
+  });
+
+const editorScrollTop = (page: Page) => page.locator('.cm-scroller').evaluate((el) => el.scrollTop);
+const previewScrollTop = (page: Page) => page.getByTestId('split-preview').evaluate((el) => el.scrollTop);
+
+/** Screen point on the first visible `.cm-line` row at least `dy` px below the caret's row. */
+const editorRowBelowCaret = (page: Page, dy: number) =>
+  page.evaluate((delta) => {
+    const cursor = document.querySelector('.cm-cursor-primary')!.getBoundingClientRect();
+    const sc = document.querySelector('.cm-scroller')!.getBoundingClientRect();
+    const lines = Array.from(document.querySelectorAll('.cm-line')).filter((l) => /filler|walk|anchor/.test(l.textContent ?? ''));
+    const line = lines.find((l) => {
+      const r = l.getBoundingClientRect();
+      return r.top >= cursor.top + delta && r.bottom <= sc.bottom - 40;
+    })!;
+    const r = line.getBoundingClientRect();
+    return { x: r.left + 30, y: r.top + 8 };
+  }, dy);
+
+test('E555: Issue #310 — a click on a lower editor row levels the preview cue with the caret while the editor stays put', async ({
+  page,
+}) => {
+  await caretSyncApp(page);
+  await clickEditorLine(page, 'lower anchor sentence');
+  await centreEditorOnCaret(page);
+  await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
+
+  // Mis-scroll the preview by hand: it leads, the editor follows, and the
+  // panes settle level on the CURRENT caret. The row nine editor rows down
+  // (across the collapsed blank run) is one rendered block down — far from
+  // level until the caret gets there.
+  await page.getByTestId('split-preview').evaluate((el) => (el.scrollTop += 140));
+  await page.waitForTimeout(300);
+  const edBefore = await editorScrollTop(page);
+  const pvBefore = await previewScrollTop(page);
+
+  // CodeMirror repositions its drawn cursor a frame after the click — wait
+  // for it to reach the new row so the level check cannot pass on the old.
+  const cursorTop = () => page.locator('.cm-cursor-primary').evaluate((el) => el.getBoundingClientRect().top);
+  const cursorBefore = await cursorTop();
+  await page.getByTestId('editor').locator('.cm-line', { hasText: 'gap landing sentence' }).click({ position: { x: 4, y: 6 } });
+  await expect.poll(cursorTop).toBeGreaterThan(cursorBefore + 100);
+  // The preview realigns on the new caret's cue (body text: centres within 10 px)…
+  await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
+  // …by really moving: the caret sits ~nine rows lower in the editor's
+  // viewport while its rendered block is one block lower, so the preview
+  // scrolled UP by the difference…
+  expect(pvBefore - (await previewScrollTop(page))).toBeGreaterThan(50);
+  // …while the editor pane never scrolled for the click.
+  expect(Math.abs((await editorScrollTop(page)) - edBefore)).toBeLessThan(1);
+  // Settled: no oscillation between frames.
+  const settled = await previewScrollTop(page);
+  await page.waitForTimeout(200);
+  expect(Math.abs((await previewScrollTop(page)) - settled)).toBeLessThan(2);
+});
+
+test('E556: Issue #310 — ArrowDown and Shift+ArrowDown walk visual rows and the preview stays level on the head, word mark or not', async ({
+  page,
+}) => {
+  await caretSyncApp(page);
+  await clickEditorLine(page, 'walk0 walk1');
+  await page.keyboard.press('Home');
+  await centreEditorOnCaret(page);
+  await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
+  const edBefore = await editorScrollTop(page);
+  const pvWord = page.locator('[data-testid="split-preview"] .doc mark.mm-active-word');
+  const pvHead = page.locator('[data-testid="split-preview"] .doc .mm-active-block[data-mm-head]');
+
+  // Collapsed caret: each ArrowDown lands on the next wrapped row of the
+  // same paragraph; the preview keeps the word under the caret level with
+  // it (the preview's own rows wrap differently, so its scrollTop is free to
+  // move either way — only the level matters). Each step is checked after
+  // the follower settles, so a stale pass cannot mask a missed row.
+  const cursorTop = () => page.locator('.cm-cursor-primary').evaluate((el) => el.getBoundingClientRect().top);
+  let lastCursor = await cursorTop();
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(cursorTop).toBeGreaterThan(lastCursor + 8); // really one row down
+    lastCursor = await cursorTop();
+    await expect(pvWord).toHaveCount(1);
+    await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
+  }
+  // Selection extension: SPEC44 clears the word mark on both sides; the tint
+  // carries the head's rendered offset and the panes stay level on that row.
+  for (let i = 0; i < 2; i++) {
+    await page.keyboard.press('Shift+ArrowUp');
+    await expect.poll(cursorTop).toBeLessThan(lastCursor - 8);
+    lastCursor = await cursorTop();
+    await expect(pvWord).toHaveCount(0);
+    await expect(pvHead).toHaveCount(1);
+    await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
+  }
+  // Through it all the editor never scrolled.
+  expect(Math.abs((await editorScrollTop(page)) - edBefore)).toBeLessThan(1);
+});
+
+test('E557: Issue #310 — Enter and typing low in a long document keep the preview level after the re-render; the editor does not move', async ({
+  page,
+}) => {
+  await caretSyncApp(page);
+  await clickEditorLine(page, 'lower filler paragraph 20');
+  await page.keyboard.press('End');
+  await centreEditorOnCaret(page);
+  await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
+  const edBefore = await editorScrollTop(page);
+  const pvBefore = await previewScrollTop(page);
+
+  // Six blank lines: six editor rows the rendered preview collapses into one
+  // block gap, so keeping level means the preview visibly moves.
+  for (let i = 0; i < 6; i++) await page.keyboard.press('Enter');
+  await page.keyboard.type('freshly typed words');
+  // The debounced live re-render landed the new paragraph…
+  await expect(page.getByTestId('split-preview')).toContainText('freshly typed words');
+  await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveText('words');
+  // …and the preview is level with the caret's new row, six rows lower.
+  await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
+  // The editor never scrolled, so the caret sits six rows lower in its
+  // viewport; the rendered paragraph is only one block lower, so the preview
+  // had to scroll UP by the difference to keep the cue level.
+  expect(pvBefore - (await previewScrollTop(page))).toBeGreaterThan(40);
+  expect(Math.abs((await editorScrollTop(page)) - edBefore)).toBeLessThan(1);
+  // Keep typing: still level after the next re-render, editor still put.
+  await page.keyboard.type(' and more');
+  await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveText('more');
+  await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
+  expect(Math.abs((await editorScrollTop(page)) - edBefore)).toBeLessThan(1);
+});
+
+test('E558: Issue #310 — with sync scrolling off, caret moves, selection and typing leave the preview exactly where it was', async ({
+  page,
+}) => {
+  await caretSyncApp(page);
+  await clickEditorLine(page, 'walk0 walk1');
+  await page.keyboard.press('Home');
+  await centreEditorOnCaret(page);
+  await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
+
+  await page.getByTestId('sync-scroll-toggle').click();
+  await expect(page.getByTestId('sync-scroll-toggle')).toHaveAttribute('data-state', 'off');
+  await page.getByTestId('split-preview').evaluate((el) => (el.scrollTop += 200)); // free-scroll: nothing follows
+  await page.waitForTimeout(300);
+  const pvBefore = await previewScrollTop(page);
+  const edBefore = await editorScrollTop(page);
+
+  // Click back in, walk rows, extend a selection, type — the cues still
+  // repaint (SPEC44) but the preview's scrollTop is untouched.
+  const at = await editorRowBelowCaret(page, 60);
+  await page.mouse.click(at.x, at.y);
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Shift+ArrowUp');
+  await page.keyboard.press('End');
+  await page.keyboard.type(' typedwhileoff');
+  await expect(page.getByTestId('split-preview')).toContainText('typedwhileoff');
+  await expect(page.locator('[data-testid="split-preview"] .doc mark.mm-active-word')).toHaveText('typedwhileoff');
+  await page.waitForTimeout(300); // outlast any frame-coalesced write
+  expect(Math.abs((await previewScrollTop(page)) - pvBefore)).toBeLessThan(1);
+  expect(Math.abs((await editorScrollTop(page)) - edBefore)).toBeLessThan(1);
+});
+
+test('E559: Issue #310 — a heading cue levels within 16 px and a body-text cue within 10 px, whichever pane leads', async ({
+  page,
+}) => {
+  await caretSyncApp(page);
+  const pvWord = page.locator('[data-testid="split-preview"] .doc mark.mm-active-word');
+
+  // Heading: caret on "Heading" (past the '## ' marker).
+  await clickEditorLine(page, 'Heading Target Here');
+  await page.keyboard.press('Home');
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+  await expect(pvWord).toHaveText('Heading');
+  await centreEditorOnCaret(page);
+  await expect.poll(() => caretLevelGap(page)).toBeLessThan(16);
+  // Each wheel gets the E128 settle: the wheel lands, the follower writes,
+  // and its 120 ms quiet window closes before the other pane leads.
+  await page.getByTestId('editor').locator('.cm-content').hover();
+  for (const dy of [200, -150]) {
+    await page.mouse.wheel(0, dy);
+    await page.waitForTimeout(250);
+    expect(await caretLevelGap(page)).toBeLessThan(16);
+  }
+  await page.getByTestId('split-preview').hover();
+  for (const dy of [220, -180]) {
+    await page.mouse.wheel(0, dy);
+    await page.waitForTimeout(250);
+    expect(await caretLevelGap(page)).toBeLessThan(16);
+  }
+
+  // Body text: caret on "walk0", the same drill at the tighter tolerance.
+  await page.waitForTimeout(250);
+  await clickEditorLine(page, 'walk0 walk1');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  await expect(pvWord).toHaveText('walk0');
+  await centreEditorOnCaret(page);
+  await expect.poll(() => caretLevelGap(page)).toBeLessThan(10);
+  await page.getByTestId('editor').locator('.cm-content').hover();
+  for (const dy of [200, -150]) {
+    await page.mouse.wheel(0, dy);
+    await page.waitForTimeout(250);
+    expect(await caretLevelGap(page)).toBeLessThan(10);
+  }
+  await page.getByTestId('split-preview').hover();
+  for (const dy of [220, -180]) {
+    await page.mouse.wheel(0, dy);
+    await page.waitForTimeout(250);
+    expect(await caretLevelGap(page)).toBeLessThan(10);
+  }
 });

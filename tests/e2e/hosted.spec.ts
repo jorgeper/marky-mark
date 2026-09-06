@@ -1371,7 +1371,7 @@ test('E504: the Open Workspace dialog lists at most the newest few workspaces, n
   expect(await page.getByTestId('open-workspace-dialog').boundingBox()).toEqual(unfiltered);
 });
 
-test('E550: the Open Workspace dialog lists the signed-in user’s most recently opened workspaces first, and opening another moves it to the top', async ({
+test('E560: the Open Workspace dialog lists the signed-in user’s most recently opened workspaces first, and opening another moves it to the top', async ({
   page,
   request,
 }) => {
@@ -1387,7 +1387,7 @@ test('E550: the Open Workspace dialog lists the signed-in user’s most recently
   const w = test.info().workerIndex;
   const alan = await signIn(request, 'alan');
   const headers = { Authorization: `Bearer ${alan}` };
-  const prefix = `E550 wombat w${w}`;
+  const prefix = `E560 wombat w${w}`;
   const ids: string[] = [];
   for (let i = 0; i < OPEN_WORKSPACE_ROW_CAP + 2; i++) ids.push(await createWorkspace(request, alan, `${prefix} n${i}`));
   const [oldest, second] = ids;

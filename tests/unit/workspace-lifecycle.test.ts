@@ -408,7 +408,7 @@ describe('PRD 007 Req 11 (issue #312): recently used workspaces lead the Open Wo
     listing({ id, name: `Workspace ${id}`, modified: `2026-08-${String(day).padStart(2, '0')}T00:00:00.000Z` });
   const many = [at('a', 1), at('h', 8), at('c', 3), at('f', 6), at('b', 2), at('g', 7), at('d', 4), at('e', 5)];
 
-  it('U1265: recently used ids come first in the given order, then the rest most recently modified', () => {
+  it('U1272: recently used ids come first in the given order, then the rest most recently modified', () => {
     expect(orderByRecentUse(many, ['c', 'a']).map((w) => w.id)).toEqual(['c', 'a', 'h', 'g', 'f', 'e', 'd', 'b']);
     expect(filterWorkspaces('', many, ['c', 'a']).map((w) => w.id)).toEqual(['c', 'a', 'h', 'g', 'f', 'e', 'd', 'b']);
     // A repeated id counts at its first (most recent) position, once.
@@ -420,7 +420,7 @@ describe('PRD 007 Req 11 (issue #312): recently used workspaces lead the Open Wo
     expect(many.map((w) => w.id)).toEqual(before);
   });
 
-  it('U1266: a recent id the listing does not contain is skipped without a row or a gap', () => {
+  it('U1273: a recent id the listing does not contain is skipped without a row or a gap', () => {
     expect(orderByRecentUse(many, ['zzz', 'd', 'deleted']).map((w) => w.id)).toEqual([
       'd', 'h', 'g', 'f', 'e', 'c', 'b', 'a',
     ]);
@@ -428,7 +428,7 @@ describe('PRD 007 Req 11 (issue #312): recently used workspaces lead the Open Wo
     expect(orderByRecentUse([], ['a'])).toEqual([]);
   });
 
-  it('U1267: recency-first ordering is applied before the row cap, so a used-but-old workspace stays visible', () => {
+  it('U1274: recency-first ordering is applied before the row cap, so a used-but-old workspace stays visible', () => {
     // 'a' (oldest modified) was opened most recently; 'b' after it. Both make
     // the five rows, pushing the merely newest-modified 'e' and 'd' off.
     expect(visibleWorkspaces('', many, ['a', 'b']).map((w) => w.id)).toEqual(['a', 'b', 'h', 'g', 'f']);
@@ -436,7 +436,7 @@ describe('PRD 007 Req 11 (issue #312): recently used workspaces lead the Open Wo
     expect(visibleWorkspaces('', many, ['a', 'b']).map((w) => w.id)).not.toContain('e');
   });
 
-  it('U1268: with a query the match set is unchanged and, among equal scores, recent use precedes modified', () => {
+  it('U1275: with a query the match set is unchanged and, among equal scores, recent use precedes modified', () => {
     const named = [
       listing({ id: 'a', name: 'Design docs', modified: '2026-08-01T00:00:00.000Z' }),
       listing({ id: 'b', name: 'Release notes', modified: '2026-08-05T00:00:00.000Z' }),

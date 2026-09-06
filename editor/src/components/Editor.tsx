@@ -11,7 +11,7 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from '@codemirror/view';
-import { Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField, type Extension, type Range } from '@codemirror/state';
+import { Annotation, Compartment, EditorState, Prec, RangeSetBuilder, StateEffect, StateField, type Extension, type Range } from '@codemirror/state';
 import {
   cursorCharLeft,
   cursorCharRight,
@@ -250,8 +250,13 @@ export interface EditorSyncHandle {
    */
   goToLine(line: number): void;
   scrollInfo(): { top: number; max: number };
-  /** SPEC45: caret line's top in CONTENT coordinates (cue-anchored sync). */
-  headTop(): number;
+  /**
+   * SPEC45 (amended by issue #310): the caret head's VISUAL row — top and
+   * bottom in CONTENT coordinates — for cue-anchored sync. A wrapped source
+   * line reports the row the caret is actually on; a head outside the
+   * measured viewport falls back to its whole line block.
+   */
+  headRow(): { top: number; bottom: number };
   setScrollTop(top: number): void;
   /** Subscribe to scroll events; returns the unsubscribe function. */
   onScroll(cb: () => void): () => void;
@@ -390,6 +395,14 @@ export interface EditorProps {
     selTo: number;
     selText: string;
     focused: boolean;
+    /**
+     * Issue #310: 'host' when the editor did not make the move itself — the
+     * selection arrived through `selectRangeRef` (a mirrored preview
+     * selection or a preview-click placement) or is the mount-time seed;
+     * 'editor' for every user, keymap or editor-internal move — the split
+     * follower realigns the preview only for those.
+     */
+    origin: 'editor' | 'host';
   }): void;
   /** SPEC23 §1: populated at mount with the select-source-range seam. */
   selectRangeRef?: MutableRefObject<SelectSourceRange | null>;
@@ -1064,6 +1077,15 @@ const highlightsExt = (
 };
 
 /**
+ * Issue #310: marks a selection the HOST placed through `selectRangeRef` — a
+ * mirrored preview selection (SPEC23 §1) or a preview-click placement (SPEC44
+ * §4). The edit-state report carries it as `origin: 'host'`, so the split
+ * follower leaves both panes where they are for those (E464) and follows only
+ * caret moves made in the editor itself.
+ */
+const hostSelection = Annotation.define<boolean>();
+
+/**
  * SPEC23 §1 / SPEC25 §1: select a source range, clamped into the document.
  * `reveal` centres the range in the viewport; without it the dispatch is
  * scroll-neutral (SPEC23 §1.3, amended by issue #278).
@@ -1075,6 +1097,7 @@ function selectSourceRange(view: EditorView, from: number, to: number, reveal: b
   view.dispatch({
     selection: { anchor, head },
     effects: reveal ? EditorView.scrollIntoView(anchor, { y: 'center' }) : [],
+    annotations: hostSelection.of(true), // Issue #310: not an editor-made move
   });
 }
 
@@ -2102,6 +2125,8 @@ export default function Editor({
             selTo: main.to,
             selText: u.state.sliceDoc(main.from, main.to),
             focused: u.view.hasFocus,
+            // Issue #310: a host-placed selection is told apart by its annotation.
+            origin: u.transactions.some((tr) => tr.annotation(hostSelection)) ? 'host' : 'editor',
           });
         }
       }),
@@ -2291,6 +2316,10 @@ export default function Editor({
         selTo: main.to,
         selText: view.state.sliceDoc(main.from, main.to),
         focused: view.hasFocus,
+        // Issue #310: nobody moved this caret — a follow here would race a
+        // preview the user is already scrolling (E58); the split mount's own
+        // settle realign covers the opening alignment.
+        origin: 'host',
       });
     }
 
@@ -2326,8 +2355,18 @@ export default function Editor({
           });
           view.focus();
         },
-        headTop() {
-          return view.lineBlockAt(view.state.selection.main.head).top;
+        headRow() {
+          // Issue #310: the caret's VISUAL row via coordsAtPos (a wrapped line
+          // reports the row the caret is on), in content coordinates; the
+          // line block stands in when the head is outside the measured
+          // viewport (coordsAtPos has nothing to measure there).
+          const main = view.state.selection.main;
+          const base = dom.getBoundingClientRect().top - dom.scrollTop;
+          const c = view.coordsAtPos(main.head, main.assoc < 0 ? -1 : 1);
+          if (c) return { top: c.top - base, bottom: c.bottom - base };
+          const block = view.lineBlockAt(main.head);
+          const top = view.documentTop - base + block.top;
+          return { top, bottom: top + block.height };
         },
         scrollInfo() {
           return { top: dom.scrollTop, max: dom.scrollHeight - dom.clientHeight };
