@@ -118,37 +118,25 @@ export function createHostedPlatform(): Platform {
   let bootDocPending = boot?.file !== undefined;
 
   /**
-   * PRD 007 Req 5 (issue #267): a 401 can only come from the server's single
-   * auth guard (server/app.ts), so it means this session's bearer token is no
-   * longer accepted — expired, above all, since sign-in stores an Entra
-   * access token and this client has no refresh token to renew it with.
-   * Handled here, once, for every request the platform makes: the stored
-   * token is dropped through hostedGate's one owner of that key, so the gate
-   * renders sign-in on the next load rather than the app running on a dead
-   * session, and the held /api/me record dies with it. Callers turn the same
-   * status into the re-auth outcome the user sees (`requestError` below).
-   */
-  let sessionDead = false;
-  const sessionExpired = (): void => {
-    if (sessionDead) return;
-    sessionDead = true;
-    me = null;
-    clearToken(window.localStorage);
-  };
-
-  /**
    * The bundle's hosted-platform network call site (SPEC11 §6.6 bundle-scan
    * allowlist): every API request this platform makes funnels through here,
    * always same-origin and always bearer-authenticated — the raw `?raw=1`
-   * byte writes of PRD 007 Req 8 exactly like the JSON document saves, which
-   * is what makes the 401 handling above one behaviour and not per-caller.
+   * byte writes of PRD 007 Req 8 exactly like the JSON document saves.
+   *
+   * PRD 007 Req 5 (issue #267): a 401 can only come from the server's single
+   * auth guard (server/app.ts), so it means this session's bearer token is no
+   * longer accepted — expired, above all, since sign-in stores an Entra
+   * access token and this client has no refresh token to renew it with. That
+   * ends the session here, for every request the platform makes, rather than
+   * per caller; callers turn the same status into the re-auth outcome the
+   * user sees (`requestError` below).
    */
   const api = (
     path: string,
     init: { method?: string; headers?: Record<string, string>; body?: BodyInit } = {},
   ): Promise<Response> =>
     fetch(path, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token()}` } }).then((res) => {
-      if (res.status === 401) sessionExpired();
+      if (res.status === 401) dropSession();
       return res;
     });
 
@@ -158,13 +146,26 @@ export function createHostedPlatform(): Platform {
    * PRD 017 Req 3: the session's `/api/me` record — fetched ONCE per page
    * load (lazily, on first use after sign-in) and held for the session, so
    * every consumer (permissions, the entry surfaces, the lifecycle) reads
-   * the one answer instead of re-fetching per use. Sign-out drops it below.
+   * the one answer instead of re-fetching per use. `dropSession` drops it.
    */
   let me: Promise<SessionMe | null> | null = null;
   const sessionMe = (): Promise<SessionMe | null> =>
     (me ??= api('/api/me')
       .then((res) => json<SessionMe>(res))
       .catch(() => null));
+
+  /**
+   * PRD 009 Req 17 / PRD 007 Req 5: end this session client-side. The bearer
+   * token IS the session, so dropping it — through hostedGate's one owner of
+   * that key — ends it, and the held /api/me record (PRD 017 Req 3) dies with
+   * it, so the gate renders sign-in on the next load instead of the app
+   * running on a session the server no longer accepts. Sign-out below asks
+   * for this deliberately; a 401 means the server decided it (issue #267).
+   */
+  const dropSession = (): void => {
+    me = null;
+    clearToken(window.localStorage);
+  };
 
   /**
    * PRD 007 Req 10/11/12: the workspace lifecycle the New/Open dialogs and
@@ -206,10 +207,10 @@ export function createHostedPlatform(): Platform {
 
   /**
    * PRD 007 Req 5+17 (issue #267): the error a refused write becomes, shared
-   * by every write this platform makes so the raw image PUT and the ordinary
-   * JSON document save answer a refusal identically. A 401 is the dead
-   * session `api()` just dropped — a sign-in-again outcome, never a status
-   * code the user can do nothing with; a 403 keeps its named verb.
+   * by the document save and the raw image PUT so both answer a refusal
+   * identically. A 401 is the session `api()` just dropped — a sign-in-again
+   * outcome, never a status code the user can do nothing with; anything else
+   * keeps `refusal`'s wording, a 403 its named verb.
    */
   const requestError = async (res: Response, fallback: string): Promise<Error> =>
     res.status === 401 ? new HostedSessionExpiredError() : new Error(await refusal(res, fallback));
@@ -788,16 +789,13 @@ export function createHostedPlatform(): Platform {
     // from it and asks once).
     sessionUser: sessionMe,
 
-    // PRD 009 Req 17: sign-out is client-side only — the bearer token IS the
-    // session, so dropping it (through hostedGate's one owner of that key)
-    // ends it, with no endpoint to call and no new network call site. The
+    // PRD 009 Req 17: sign-out is client-side only — `dropSession` above ends
+    // the session, with no endpoint to call and no new network call site. The
     // landing is the lifecycle seam's own origin-root navigation: it drops
     // any workspace path binding, so the boot that follows finds no token
     // and renders the sign-in screen bound to nothing.
     signOut() {
-      // PRD 017 Req 3: the session record dies with the session.
-      me = null;
-      clearToken(window.localStorage);
+      dropSession();
       workspaces.navigateTo(null);
     },
 

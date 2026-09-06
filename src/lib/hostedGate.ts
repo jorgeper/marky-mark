@@ -70,9 +70,9 @@ export class HostedSessionExpiredError extends Error {
   }
 }
 
-/** Is this the session-expired outcome? (`instanceof` across bundle chunks.) */
-export function isHostedSessionExpired(err: unknown): err is HostedSessionExpiredError {
-  return err instanceof Error && err.name === 'HostedSessionExpiredError';
+/** Is this the session-expired outcome? (Answered like `isSaveConflict`.) */
+export function isHostedSessionExpired(error: unknown): error is HostedSessionExpiredError {
+  return error instanceof HostedSessionExpiredError;
 }
 
 /**

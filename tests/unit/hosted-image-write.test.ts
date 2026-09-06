@@ -13,7 +13,13 @@ import { createMockAuthProvider } from '../../server/providers/mock/auth';
 import { createMockDirectoryProvider } from '../../server/providers/mock/directory';
 import { createMemoryStorage } from './storage-contract';
 import { hostedFilesRoot } from '../../src/lib/hostedPaths';
-import { HOSTED_SESSION_EXPIRED, isHostedSessionExpired, readStoredToken, storeToken } from '../../src/lib/hostedGate';
+import {
+  HOSTED_SESSION_EXPIRED,
+  isHostedSessionExpired,
+  type KeyValueStore,
+  readStoredToken,
+  storeToken,
+} from '../../src/lib/hostedGate';
 import { createHostedPlatform } from '../../src/platform/hosted';
 import type { Platform } from '../../src/platform/types';
 
@@ -58,22 +64,22 @@ async function harness(): Promise<Harness> {
  * Run `fn` with a hosted platform bound to `id` and signed in as `token` —
  * the browser globals `createHostedPlatform` reads, stubbed and restored
  * (the suite shares worker contexts: `isolate: false` in vitest.config.ts).
- * `store` is the localStorage the session's token lives in, so a test can
- * read back whether the session survived.
+ * `store` is the localStorage the session's token lives in, handed to `fn`
+ * so a test can re-arm the token or read back whether the session survived.
  */
 async function withHostedPlatform(
   h: Harness,
   id: string,
   token: string,
-  fn: (platform: Platform, store: Map<string, string>) => Promise<void>,
+  fn: (platform: Platform, store: KeyValueStore) => Promise<void>,
 ): Promise<void> {
   const realFetch = globalThis.fetch;
   const realWindow = (globalThis as { window?: unknown }).window;
   const kv = new Map<string, string>();
-  const store = {
-    getItem: (k: string) => kv.get(k) ?? null,
-    setItem: (k: string, v: string) => void kv.set(k, v),
-    removeItem: (k: string) => void kv.delete(k),
+  const store: KeyValueStore = {
+    getItem: (k) => kv.get(k) ?? null,
+    setItem: (k, v) => void kv.set(k, v),
+    removeItem: (k) => void kv.delete(k),
   };
   storeToken(store, token);
   (globalThis as { window?: unknown }).window = {
@@ -92,7 +98,7 @@ async function withHostedPlatform(
     return realFetch(url.startsWith('http') ? url : `${h.base}${url}`, init);
   }) as typeof fetch;
   try {
-    await fn(createHostedPlatform(), kv);
+    await fn(createHostedPlatform(), store);
   } finally {
     globalThis.fetch = realFetch;
     (globalThis as { window?: unknown }).window = realWindow;
@@ -139,11 +145,8 @@ describe('PRD 007 Req 8 (SPEC20 §2) hosted pasted-image write', () => {
       const root = hostedFilesRoot(id);
       // The session's Entra access token expired mid-edit: the client holds
       // no refresh token, so the stored bearer is simply no longer accepted.
-      await withHostedPlatform(h, id, 'mock:ada', async (platform, kv) => {
-        storeToken(
-          { getItem: (k) => kv.get(k) ?? null, setItem: (k, v) => void kv.set(k, v), removeItem: (k) => void kv.delete(k) },
-          'mock:expired-session',
-        );
+      await withHostedPlatform(h, id, 'mock:ada', async (platform, store) => {
+        storeToken(store, 'mock:expired-session');
         const failed = await platform.writeBinaryFile?.(`${root}/images/pasted 1.png`, PNG).catch((e: unknown) => e);
         expect(isHostedSessionExpired(failed)).toBe(true);
         expect((failed as Error).message).toBe(HOSTED_SESSION_EXPIRED);
@@ -151,7 +154,7 @@ describe('PRD 007 Req 8 (SPEC20 §2) hosted pasted-image write', () => {
         // PRD 007 Req 5: the dead token is dropped through hostedGate's one
         // owner of that key, so the gate renders sign-in on the next load
         // instead of the app running on a session that cannot write.
-        expect(readStoredToken({ getItem: (k) => kv.get(k) ?? null, setItem: () => {}, removeItem: () => {} })).toBe(null);
+        expect(readStoredToken(store)).toBe(null);
       });
       // Nothing was stored under a rejected session.
       expect((await h.call('ada', 'GET', `/api/workspaces/${id}/files/images/pasted%201.png?raw=1`)).status).toBe(404);
@@ -165,17 +168,16 @@ describe('PRD 007 Req 8 (SPEC20 §2) hosted pasted-image write', () => {
     try {
       const id = await h.workspace('ada');
       const root = hostedFilesRoot(id);
-      // A reader may see the workspace and nothing more: the paste refuses by
-      // NAME (PRD 007 Req 17), exactly as an ordinary save refuses.
+      // A member who may edit documents but may not create files: the paste
+      // lands on a path holding nothing yet, so it needs `file.create` and is
+      // refused by NAME (PRD 007 Req 17), exactly as an ordinary save refuses.
       await memberWith(h, id, 'alan', ['doc.read', 'doc.edit']);
-      await withHostedPlatform(h, id, 'mock:alan', async (platform, kv) => {
+      await withHostedPlatform(h, id, 'mock:alan', async (platform, store) => {
         const failed = await platform.writeBinaryFile?.(`${root}/images/pasted 1.png`, PNG).catch((e: unknown) => e);
         expect(isHostedSessionExpired(failed)).toBe(false);
         expect((failed as Error).message).toBe('You need the file.create permission to do that.');
         // A refused verb is not a dead session — the token stays put.
-        expect(readStoredToken({ getItem: (k) => kv.get(k) ?? null, setItem: () => {}, removeItem: () => {} })).toBe(
-          'mock:alan',
-        );
+        expect(readStoredToken(store)).toBe('mock:alan');
       });
     } finally {
       await h.close();
