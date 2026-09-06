@@ -14,7 +14,9 @@
  *
  * PRD 014 Req 8 rides along at the bottom (`matchDocOffsets`): the same
  * line-numbering rule read backwards, turning a result row's line-relative
- * match into the document offsets the edit pane selects.
+ * match into offsets in the canonical text. Since issue #313 the landing
+ * itself resolves against the surface's own text (`src/lib/searchLanding.ts`);
+ * this stays as the canonical-offset primitive, pinned by its unit tests.
  */
 
 import { isMarkdownFile, visibleEntries, type DirEntry } from './folderTree.ts';
@@ -213,8 +215,10 @@ export async function runSearchScan(
 
 /**
  * PRD 014 Req 8: a match's absolute [from, to) offsets in the document text,
- * from the line-relative `LineMatch` the result row carried — what the edit
- * pane's selection needs to highlight the hit. Line terminators are counted
+ * from the line-relative `LineMatch` the result row carried. Not what the
+ * edit pane lands on since issue #313 — the editor holds the gridded-table
+ * expanded form, so `searchLanding.ts` re-finds the hit on the raw rows; this
+ * remains the offset rule over canonical text. Line terminators are counted
  * with the SAME rule `findMatches` split on (`\r\n`, `\n`, and a lone `\r`
  * are each one break), so the offsets cannot skew against the match. Null
  * when the text cannot hold the match at all — fewer lines than the match

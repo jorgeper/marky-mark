@@ -15,7 +15,7 @@ const matchOf = (lineText: string, needle: string, line = 1, nth = 0): LineMatch
   return { line, lineText, start, end: start + needle.length };
 };
 
-describe('rawMatchOffsets — canonical match → raw editor offsets', () => {
+describe('PRD 014 Req 8 (issue #313): rawMatchOffsets — canonical match → raw editor offsets', () => {
   test('U1257: a line the grid did not touch is exact — the match offsets apply to the raw line as-is', () => {
     const m = matchOf('> quoted needleword five', 'needleword five', 5);
     expect(rawMatchOffsets([{ from: 120, text: '> quoted needleword five' }], m)).toEqual({ from: 129, to: 144 });
@@ -60,7 +60,7 @@ describe('rawMatchOffsets — canonical match → raw editor offsets', () => {
   });
 });
 
-describe('blockLineRange / blockOccurrenceIndex — the preview block a match renders in', () => {
+describe('PRD 014 Req 8 (issue #313): blockLineRange / blockOccurrenceIndex — the preview block a match renders in', () => {
   test('U1262: the block is the nearest anchor at or above the line and spans to the next anchor; the last block runs to the end; before the first anchor is null', () => {
     const anchors = [1, 3, 7, 12];
     expect(blockLineRange(anchors, 5)).toEqual({ from: 3, to: 7 });

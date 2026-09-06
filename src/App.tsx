@@ -68,7 +68,7 @@ import { updateHighlightLink } from './lib/highlightLink';
 import { CopyLinkButton } from './components/CopyLinkButton';
 import { rewriteFenceWidthAt } from './lib/diagramResize';
 import { DiagramResizer } from './components/DiagramResizer';
-import { getDocText, highlightRange, offsetsToRange, rangeToOffsets, rectForOffsets } from './lib/domtext';
+import { getDocText, highlightRange, offsetsToRange, rangeToOffsets, rectForOffsets, unwrapMarks } from './lib/domtext';
 import { readSidecar, serializeSidecar, sidecarPathFor } from './lib/sidecar';
 import { attachEmbedded, mergeComments, splitEmbedded } from './lib/embedded';
 import {
@@ -1296,33 +1296,21 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     const pane = docRef.current;
     findMarksRef.current = [];
     if (!pane) return;
-    pane.querySelectorAll('mark.mm-find').forEach((m) => {
-      const parent = m.parentNode;
-      if (!parent) return;
-      while (m.firstChild) parent.insertBefore(m.firstChild, m);
-      m.remove();
-      parent.normalize();
-    });
+    unwrapMarks(pane, 'mark.mm-find');
   }, []);
 
   /**
    * PRD 014 Req 8 (issue #313): unwrap the landed Search-view hit's mark —
-   * `mark.mm-search-hit`, the preview's word-level landing cue. Unwrap and
-   * `normalize()`, exactly as the find marks go, so the document's text is
-   * unchanged and nothing survives into the comment anchoring pass. Queried
-   * from the pane rather than held in a ref: a re-injection replaces the DOM
-   * anyway, and a stale handle could never point at a live mark.
+   * `mark.mm-search-hit`, the preview's word-level landing cue. Unwrapped
+   * exactly as the find marks go, so the document's text is unchanged and
+   * nothing survives into the comment anchoring pass. Queried from the pane
+   * rather than held in a ref: a re-injection replaces the DOM anyway, and a
+   * stale handle could never point at a live mark.
    */
   const clearSearchHitMark = useCallback(() => {
     const pane = docRef.current;
     if (!pane) return;
-    pane.querySelectorAll('mark.mm-search-hit').forEach((m) => {
-      const parent = m.parentNode;
-      if (!parent) return;
-      while (m.firstChild) parent.insertBefore(m.firstChild, m);
-      m.remove();
-      parent.normalize();
-    });
+    unwrapMarks(pane, 'mark.mm-search-hit');
   }, []);
 
   /** Toggle the active class onto group i and center it. */
@@ -1414,13 +1402,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   const clearMirrorMarks = useCallback(() => {
     const pane = splitDocRef.current;
     if (!pane) return;
-    pane.querySelectorAll('mark.mm-mirror-sel').forEach((m) => {
-      const parent = m.parentNode;
-      if (!parent) return;
-      while (m.firstChild) parent.insertBefore(m.firstChild, m);
-      m.remove();
-      parent.normalize();
-    });
+    unwrapMarks(pane, 'mark.mm-mirror-sel');
   }, []);
 
   // --- SPEC44: active line & word cues (either preview pane) -------------------
@@ -1431,13 +1413,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
   const clearActiveCues = useCallback((pane: HTMLElement) => {
     pane.querySelectorAll('.mm-active-block').forEach((el) => el.classList.remove('mm-active-block'));
-    pane.querySelectorAll('mark.mm-active-word').forEach((m) => {
-      const parent = m.parentNode;
-      if (!parent) return;
-      while (m.firstChild) parent.insertBefore(m.firstChild, m);
-      m.remove();
-      parent.normalize();
-    });
+    unwrapMarks(pane, 'mark.mm-active-word');
   }, []);
 
   /**
@@ -7701,8 +7677,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         anchored.map((el) => Number(el.dataset.mmLine)),
         match.line
       );
-      const target = range ? (anchored.find((el) => Number(el.dataset.mmLine) === range.from) ?? null) : null;
-      if (!target || !range) return;
+      if (!range) return;
+      const target = anchored.find((el) => Number(el.dataset.mmLine) === range.from);
+      if (!target) return;
       const fileMatches = searchResults?.files.find((f) => f.path === stateRef.current.docPath)?.matches ?? [];
       const nth = blockOccurrenceIndex(fileMatches, match, range);
       const hit =
