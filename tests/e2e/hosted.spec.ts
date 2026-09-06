@@ -3982,11 +3982,11 @@ test.describe('PRD 017 in-app guest invitations', () => {
   });
 });
 
-test('E397: /scratch gates on sign-in, then lands on /<username>/scratch — untitled buffer in edit mode, canonical scratch URL, fresh again on the bare URL and its reload', async ({
+test('E397: /scratchpad gates on sign-in, then lands on /<username>/scratchpad — untitled buffer in edit mode, canonical scratch URL, fresh again on the bare URL and its reload', async ({
   page,
 }) => {
   // PRD 019 Req 1+2 as amended by PRD 020 Req 10+11 (issue #221) and PRD 023
-  // Req 1 (issue #290): an unauthenticated visit to the /scratch shortcut
+  // Req 1 (issue #290): an unauthenticated visit to the /scratchpad shortcut
   // shows the normal hosted sign-in gate; local dev mode never navigates, so
   // completing sign-in continues to the caller's own scratch — resolved
   // through the existing POST /api/me/scratchpad and normalized in place via
@@ -3994,29 +3994,29 @@ test('E397: /scratch gates on sign-in, then lands on /<username>/scratch — unt
   // a reload of the canonical one all boot the fresh scratch buffer.
   const token = await signIn(page.request, 'alan');
   await dropDraft(page, token);
-  await page.goto(`${HOSTED}/scratch`);
+  await page.goto(`${HOSTED}/scratchpad`);
   await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
   await page.getByTestId('hosted-sign-in-username').fill('alan');
   await page.getByTestId('hosted-sign-in-submit').click();
 
   // Req 1+10: the landing is a fresh untitled buffer in edit mode, inside
   // the scratch workspace (sidebar present, workspace name beside it).
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
 
   // PRD 020 Req 10+11: the address bar reads the canonical
-  // /<username>/scratch form — alan's assigned username IS his alias — and
+  // /<username>/scratchpad form — alan's assigned username IS his alias — and
   // the legacy query form is emitted nowhere.
   const landed = new URL(page.url());
   expect(landed.search).toBe('');
-  const scratchPath = '/alan/scratch';
+  const scratchPath = '/alan/scratchpad';
   expect(landed.pathname).toBe(scratchPath);
 
   // Req 5 (pinned client-side): a repeat signed-in visit reuses the same
   // workspace — provisioned exactly once per user — and starts fresh again.
-  await page.goto(`${HOSTED}/scratch`);
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await page.goto(`${HOSTED}/scratchpad`);
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
   expect(new URL(page.url()).pathname).toBe(scratchPath);
 
@@ -4024,7 +4024,7 @@ test('E397: /scratch gates on sign-in, then lands on /<username>/scratch — unt
   // an own-scratch, no-target-file entry — it boots fresh exactly like the
   // shortcut form.
   await page.goto(`${HOSTED}${scratchPath}`);
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
   expect(new URL(page.url()).pathname).toBe(scratchPath);
 
@@ -4033,7 +4033,7 @@ test('E397: /scratch gates on sign-in, then lands on /<username>/scratch — unt
   // a fresh scratch buffer boots here too.
   await page.reload();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
   // PRD 020 Req 10: and the reloaded page keeps the canonical scratch URL.
   expect(new URL(page.url()).pathname).toBe(scratchPath);
@@ -4060,13 +4060,13 @@ test('E398: the scratch buffer starts fresh over existing files and discards sil
   });
   expect(put.status()).toBe(200);
 
-  await page.goto(`${HOSTED}/scratch`);
+  await page.goto(`${HOSTED}/scratchpad`);
   await page.getByTestId('hosted-sign-in-username').fill('grace');
   await page.getByTestId('hosted-sign-in-submit').click();
 
   // Req 10: a fresh untitled buffer — the existing file stays visible and
   // reachable in the sidebar, not auto-opened over the scratch.
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
 
   // Dirty the scratch buffer; the dot shows (the one "unsaved" signal kept).
@@ -4082,11 +4082,11 @@ test('E398: the scratch buffer starts fresh over existing files and discards sil
 
   // Req 10 again: a repeat visit starts fresh once more — untitled buffer,
   // same workspace, the last-active file NOT reopened over it.
-  await page.goto(`${HOSTED}/scratch`);
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await page.goto(`${HOSTED}/scratchpad`);
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
   // PRD 020 Req 10: the same workspace, shown at its canonical scratch URL.
-  expect(new URL(page.url()).pathname).toBe('/grace/scratch');
+  expect(new URL(page.url()).pathname).toBe('/grace/scratchpad');
 });
 
 test('E399: the scratch buffer’s first save pre-fills a free Untitled.md at the scratchpad root; cancel keeps the buffer, an empty buffer still asks, and the saved file is a normal document', async ({
@@ -4108,10 +4108,10 @@ test('E399: the scratch buffer’s first save pre-fills a free Untitled.md at th
   expect(resolve.status()).toBe(200);
   const id = ((await resolve.json()) as { id: string }).id;
 
-  await page.goto(`${HOSTED}/scratch`);
+  await page.goto(`${HOSTED}/scratchpad`);
   await page.getByTestId('hosted-sign-in-username').fill('katherine');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
 
   // Content that begins with a heading, then Save — on an untitled buffer it
@@ -4132,11 +4132,11 @@ test('E399: the scratch buffer’s first save pre-fills a free Untitled.md at th
   const name = await prefill.inputValue();
   await expect(page.getByTestId('save-picker-folder')).toHaveValue(hostedFilesRoot(id));
 
-  // Req 10: cancel keeps the buffer — still "Scratch file", still dirty,
+  // Req 10: cancel keeps the buffer — still "Scratchpad file", still dirty,
   // its text intact, and nothing written to the workspace.
   await page.getByTestId('save-picker-cancel').click();
   await expect(picker).toHaveCount(0);
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
   await expect(page.locator('.cm-content')).toContainText('body text');
   expect(await listFiles(request, token, id)).not.toContain(name);
@@ -4184,8 +4184,8 @@ test('E399: the scratch buffer’s first save pre-fills a free Untitled.md at th
   // Req 11: an empty buffer still asks — a fresh scratch visit, Save with
   // nothing typed, and the picker opens with the same Untitled pre-fill,
   // deduped against the file just written; committing lands an empty file.
-  await page.goto(`${HOSTED}/scratch`);
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await page.goto(`${HOSTED}/scratchpad`);
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
   await page.locator('.cm-content').click(); // focus only — the buffer stays empty
   await page.keyboard.press('Control+s');
@@ -4200,19 +4200,19 @@ test('E399: the scratch buffer’s first save pre-fills a free Untitled.md at th
   expect(await readAs(request, token, id, emptyName)).toMatch(/^\s*$/);
 });
 
-test('E404: a file saved in scratch shows its canonical /<username>/scratch/… URL, and that URL reopens it', async ({
+test('E404: a file saved in scratchpad shows its canonical /<username>/scratchpad/… URL, and that URL reopens it', async ({
   page,
 }) => {
   // PRD 020 Req 13 (issue #221): scratch files get Req 5 URLs under the
-  // owner's /<username>/scratch prefix — what the bar shows after a save is
+  // owner's /<username>/scratchpad prefix — what the bar shows after a save is
   // exactly what a caller with access can follow back in. Mary is the seeded
   // guest, doubling as PRD 019 Req 7 coverage: guests get a scratch too.
   const token = await signIn(page.request, 'mary');
   await dropDraft(page, token);
-  await page.goto(`${HOSTED}/scratch`);
+  await page.goto(`${HOSTED}/scratchpad`);
   await page.getByTestId('hosted-sign-in-username').fill('mary');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
 
   await page.locator('.cm-content').click();
@@ -4226,8 +4226,8 @@ test('E404: a file saved in scratch shows its canonical /<username>/scratch/… 
   await expect(page.getByTestId('docname')).toContainText(name);
 
   // Req 10+13: the address bar reads the file's canonical scratch URL —
-  // /<username>/scratch/<file>, percent-encoded per segment.
-  const filePath = `/mary/scratch/${encodeURIComponent(name)}`;
+  // /<username>/scratchpad/<file>, percent-encoded per segment.
+  const filePath = `/mary/scratchpad/${encodeURIComponent(name)}`;
   await expect.poll(() => new URL(page.url()).pathname).toBe(filePath);
 
   // And the URL round-trips: a fresh visit boots straight back into the
@@ -4238,16 +4238,17 @@ test('E404: a file saved in scratch shows its canonical /<username>/scratch/… 
   expect(new URL(page.url()).pathname).toBe(filePath);
 });
 
-test('E405: /scratchpad is replaced, not kept — it resolves like any workspace name and renders the not-found page', async ({
+test('E405: a nested /scratchpad/<anything> is still no route — it resolves like any workspace name and renders the not-found page', async ({
   page,
 }) => {
-  // PRD 020 Req 10 (issue #221): the old reserved path falls through to
-  // normal workspace-name resolution; `scratchpad` stays a reserved name no
-  // workspace can hold, so the visit lands on the Req 8 not-found page —
-  // reached through sign-in like any deep link, never a blank screen.
+  // Issue #244 gave `/scratchpad` back its PRD 019 Req 1 meaning (E397), but
+  // only as a WHOLE segment: anything nested under it still falls through to
+  // normal workspace-name resolution, and `scratchpad` stays a reserved name
+  // no workspace can hold — so the visit lands on the PRD 020 Req 8
+  // not-found page, reached through sign-in like any deep link.
   const token = await signIn(page.request, 'ada');
   await dropDraft(page, token);
-  await page.goto(`${HOSTED}/scratchpad`);
+  await page.goto(`${HOSTED}/scratchpad/notes.md`);
   await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
   await page.getByTestId('hosted-sign-in-username').fill('ada');
   await page.getByTestId('hosted-sign-in-submit').click();
@@ -4257,7 +4258,54 @@ test('E405: /scratchpad is replaced, not kept — it resolves like any workspace
   await expect(page.getByTestId('hosted-not-found-home')).toBeVisible();
 });
 
-test('E433: the Open Workspace dialog’s badged "My scratch" row boots a fresh scratch buffer, while a scratch file URL boots none', async ({
+test('E491: the legacy /scratch URLs still resolve and normalize — the shortcut, a user’s bare scratchpad and a scratchpad file all land on the canonical /scratchpad form', async ({
+  page,
+}) => {
+  // Issue #244: `/scratch` and `/<username>/scratch[/<file…>]` are the words
+  // PRD 020 Req 10+11 shipped, so they may be bookmarked or shared. They stay
+  // parse-only aliases: the same workspace binds, the same file opens, the
+  // same PRD 023 fresh-buffer decision is made — and resolveHostedVisit's
+  // replaceState rewrite leaves the address bar on the canonical URL. The
+  // unauthenticated leg is covered too: the shortcut visit rides the PRD 020
+  // Req 9 stored intent through the sign-in gate.
+  const token = await signIn(page.request, 'ada');
+  await dropDraft(page, token);
+
+  // A legacy `/scratch` visit, gated on sign-in like E397's canonical one.
+  await page.goto(`${HOSTED}/scratch`);
+  await expect(page.getByTestId('hosted-sign-in')).toBeVisible();
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  // PRD 023 Req 1: the fresh buffer boots, exactly as the canonical form does…
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  // …and the bar ends on the canonical URL — no dead bookmark, no /scratch.
+  expect(new URL(page.url()).pathname).toBe('/ada/scratchpad');
+
+  // Save a file into the scratchpad so the legacy file URL has a target.
+  const resolve = await page.request.post(`${HOSTED}/api/me/scratchpad`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const { id } = (await resolve.json()) as { id: string };
+  await page.request.put(`${HOSTED}/api/workspaces/${id}/files/legacy.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# Legacy\n\nReached through the old URL.\n',
+  });
+
+  // The legacy per-user bare form: same workspace, still a fresh buffer.
+  await page.goto(`${HOSTED}/ada/scratch`);
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  expect(new URL(page.url()).pathname).toBe('/ada/scratchpad');
+
+  // The legacy file form: the file opens (PRD 023 Req 2 suppresses the fresh
+  // buffer) and the bar shows the canonical file URL.
+  await page.goto(`${HOSTED}/ada/scratch/legacy.md`);
+  await expect(page.getByTestId('docname')).toContainText('legacy.md');
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/ada/scratchpad/legacy.md');
+});
+
+test('E433: the Open Workspace dialog’s badged "My scratchpad" row boots a fresh scratch buffer, while a scratch file URL boots none', async ({
   page,
 }) => {
   // PRD 023 Req 3 (issue #290): choosing your own scratch in the Open
@@ -4280,24 +4328,24 @@ test('E433: the Open Workspace dialog’s badged "My scratch" row boots a fresh 
   expect(put.status()).toBe(200);
 
   // PRD 023 Req 2: the file URL opens the file — no fresh buffer boots.
-  await page.goto(`${HOSTED}/alan/scratch/opened.md`);
+  await page.goto(`${HOSTED}/alan/scratchpad/opened.md`);
   await page.getByTestId('hosted-sign-in-username').fill('alan');
   await page.getByTestId('hosted-sign-in-submit').click();
   await expect(page.getByTestId('docname')).toContainText('opened.md');
-  // PRD 023 Req 6 (issue #291): a booted scratch tab would read "Scratch
-  // file" now — assert neither label boots over the opened file.
-  await expect(page.getByTestId('file-tab').filter({ hasText: /Untitled|Scratch file/ })).toHaveCount(0);
+  // PRD 023 Req 6 (issues #291/#244): a booted scratchpad tab would read
+  // "Scratchpad file" now — assert neither label boots over the opened file.
+  await expect(page.getByTestId('file-tab').filter({ hasText: /Untitled|Scratchpad file/ })).toHaveCount(0);
 
-  // PRD 023 Req 3: the badged "My scratch" row (PRD 019 Req 8) re-enters the
+  // PRD 023 Req 3: the badged "My scratchpad" row (PRD 019 Req 8) re-enters the
   // scratch workspace with no target file — and lands in a fresh, empty
   // scratch buffer in edit mode at the canonical bare URL.
   await openAppMenu(page);
   await page.getByTestId('menu-open-workspace').click();
   await expect(page.getByTestId(`open-workspace-scratchpad-${id}`)).toBeVisible();
   await page.getByTestId(`open-workspace-item-${id}`).click();
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
-  await expect.poll(() => new URL(page.url()).pathname).toBe('/alan/scratch');
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/alan/scratchpad');
   // The file the visit came from stays reachable in the sidebar — visible,
   // not reopened over the fresh boot.
   await expect(page.getByTestId('folder-item').filter({ hasText: 'opened.md' })).toBeVisible();
@@ -4318,10 +4366,10 @@ test('E434: re-entering the scratch workspace over a dirty scratch buffer replac
   });
   const token = await signIn(page.request, 'katherine');
   await dropDraft(page, token);
-  await page.goto(`${HOSTED}/scratch`);
+  await page.goto(`${HOSTED}/scratchpad`);
   await page.getByTestId('hosted-sign-in-username').fill('katherine');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
 
   // Dirty the scratch buffer; the dot is the one "unsaved" signal shown.
@@ -4333,11 +4381,11 @@ test('E434: re-entering the scratch workspace over a dirty scratch buffer replac
   // first: PRD 019 Req 11 keeps the SPEC30 §3 draft as a separate concern,
   // and its boot-time restore offer is not the prompt under test here.)
   await dropDraft(page, token);
-  await page.goto(`${HOSTED}/katherine/scratch`);
+  await page.goto(`${HOSTED}/katherine/scratchpad`);
 
   // PRD 023 Req 4: the dirty buffer is gone — silently — and a fresh empty
   // scratch buffer stands in its place, in edit mode.
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.locator('.cm-content')).not.toContainText('doomed scratch text');
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
@@ -4345,32 +4393,32 @@ test('E434: re-entering the scratch workspace over a dirty scratch buffer replac
   expect(dialogs).toEqual([]);
 });
 
-test('E446: the browser tab title reads "Scratch file" while the scratch buffer is focused — dirty marker included — and reverts to the file’s real name once saved', async ({
+test('E446: the browser tab title reads "Scratchpad file" while the scratch buffer is focused — dirty marker included — and reverts to the file’s real name once saved', async ({
   page,
 }) => {
   // PRD 023 Req 6 (issue #293): the scratch buffer titles the browser tab
-  // "Scratch file" through the same docDisplayName resolution as the toolbar
+  // "Scratchpad file" through the same docDisplayName resolution as the toolbar
   // and its file tab — nothing else in the suite asserts document.title for
   // it. PRD 023 Req 12: once committed, the title sheds the placeholder for
   // the file's real name like any ordinary document.
   const token = await signIn(page.request, 'ada');
   await dropDraft(page, token);
-  await page.goto(`${HOSTED}/scratch`);
+  await page.goto(`${HOSTED}/scratchpad`);
   await page.getByTestId('hosted-sign-in-username').fill('ada');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
 
   // Req 6: the tab title carries the placeholder in the SPEC12 §2.2
   // "<name> — Marky Mark" frame.
-  await expect(page).toHaveTitle('Scratch file — Marky Mark');
+  await expect(page).toHaveTitle('Scratchpad file — Marky Mark');
 
   // The usual unsaved signal reaches the title too (SPEC12 §2.2's bullet
   // beside Req 7's dirty dot in the chrome).
   await page.locator('.cm-content').click();
   await page.keyboard.type('titled scratch text');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
-  await expect(page).toHaveTitle('Scratch file • — Marky Mark');
+  await expect(page).toHaveTitle('Scratchpad file • — Marky Mark');
 
   // Req 12: commit the save — the picker pre-fills a free Untitled name
   // (E399 owns that contract) — and the title reverts to the real name.
@@ -4387,7 +4435,7 @@ test('E446: the browser tab title reads "Scratch file" while the scratch buffer 
 test('E447: the scratch placeholder renders in the accent/italic token treatment on both name surfaces — the toolbar name and the file-tab label resolve the --mm-scratch-name tokens', async ({
   page,
 }) => {
-  // PRD 023 Req 7 (issue #293): "Scratch file" is not just label text — the
+  // PRD 023 Req 7 (issue #293): "Scratchpad file" is not just label text — the
   // toolbar name (span.scratch-name[data-scratch]) and the file-tab label
   // (.file-tab-label.scratch-name) resolve to italic and the theme accent
   // colour through the --mm-scratch-name / --mm-scratch-name-style chrome
@@ -4395,17 +4443,17 @@ test('E447: the scratch placeholder renders in the accent/italic token treatment
   // defining anything (tests/unit/theme-catalog.test.ts pins the token side).
   const token = await signIn(page.request, 'alan');
   await dropDraft(page, token);
-  await page.goto(`${HOSTED}/scratch`);
+  await page.goto(`${HOSTED}/scratchpad`);
   await page.getByTestId('hosted-sign-in-username').fill('alan');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
 
   // Both surfaces carry the marked span with the placeholder text.
   const toolbarName = page.getByTestId('docname').locator('span.scratch-name[data-scratch="true"]');
-  await expect(toolbarName).toHaveText('Scratch file');
+  await expect(toolbarName).toHaveText('Scratchpad file');
   const tabLabel = page.getByTestId('file-tab').locator('.file-tab-label.scratch-name');
-  await expect(tabLabel).toHaveText('Scratch file');
+  await expect(tabLabel).toHaveText('Scratchpad file');
 
   // Resolve the treatment where each surface sits (the E380 probe pattern):
   // sibling probes styled straight off the tokens give the expected computed
@@ -4451,7 +4499,7 @@ test('E447: the scratch placeholder renders in the accent/italic token treatment
   await page.locator('.cm-content').click();
   await page.keyboard.type('accented scratch text');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
-  await expect(toolbarName).toHaveText('Scratch file');
+  await expect(toolbarName).toHaveText('Scratchpad file');
   const dirty = await toolbarName.evaluate(paint);
   expect(dirty.fontStyle).toBe('italic');
   expect(dirty.color).toBe(dirty.accent);
@@ -4471,10 +4519,10 @@ test('E448: a non-boot buffer inside the scratch workspace is not scratch-labell
   // U1125 in tests/unit/doc-name.test.ts.
   const token = await signIn(page.request, 'mary');
   await dropDraft(page, token);
-  await page.goto(`${HOSTED}/scratch`);
+  await page.goto(`${HOSTED}/scratchpad`);
   await page.getByTestId('hosted-sign-in-username').fill('mary');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
   // Sanity: the boot's own buffer IS scratch-marked before ⌘N replaces it.
   await expect(page.getByTestId('docname').locator('.scratch-name')).toBeVisible();
@@ -4491,7 +4539,7 @@ test('E448: a non-boot buffer inside the scratch workspace is not scratch-labell
   // named normally, with no scratch label or treatment anywhere in the
   // chrome: toolbar name, file tab, or browser tab title.
   await expect(page.getByTestId('docname')).toContainText(name);
-  await expect(page.getByTestId('docname')).not.toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).not.toContainText('Scratchpad file');
   await expect(page.locator('.scratch-name')).toHaveCount(0);
   await expect(page.locator('[data-scratch]')).toHaveCount(0);
   const label = page
@@ -4687,16 +4735,16 @@ test('E407: hosted copy-link — the workspace control (pane open) and the file 
 test('E408: the file copy-link is absent for an untitled buffer while the workspace control stays', async ({
   page,
 }) => {
-  // PRD 020 Req 17: the scratch landing is hosted's untitled buffer — the
-  // workspace placement shows (a scratch workspace is bound, PRD 019), the
-  // file placement does not exist. PRD 020 Req 11 renamed the entry route
-  // from /scratchpad to /scratch (the old name now resolves to not-found).
+  // PRD 020 Req 17: the scratchpad landing is hosted's untitled buffer — the
+  // workspace placement shows (a scratchpad workspace is bound, PRD 019), the
+  // file placement does not exist. The entry route is `/scratchpad` (PRD 020
+  // Req 11 as amended by issue #244).
   const token = await signIn(page.request, 'alan');
   await dropDraft(page, token);
-  await page.goto(`${HOSTED}/scratch`);
+  await page.goto(`${HOSTED}/scratchpad`);
   await page.getByTestId('hosted-sign-in-username').fill('alan');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('copy-link-workspace')).toBeVisible();
   await expect(page.getByTestId('copy-link-file')).toHaveCount(0);
 });
@@ -5069,10 +5117,10 @@ test('E432: an active highlight on an untitled buffer offers no copy-link — no
   // does not exist (E408's reasoning for the file placement).
   const token = await signIn(page.request, 'alan');
   await dropDraft(page, token);
-  await page.goto(`${HOSTED}/scratch`);
+  await page.goto(`${HOSTED}/scratchpad`);
   await page.getByTestId('hosted-sign-in-username').fill('alan');
   await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('docname')).toContainText('Scratch file');
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
 
   await page.locator('.cm-content').click();
   await page.keyboard.type('# Draft\n\nAn unshareable phrase sits here.\n');

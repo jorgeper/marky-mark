@@ -151,23 +151,35 @@ export function workspaceIdFromSearch(search: string): string | null {
 }
 
 /**
- * PRD 020 Req 10+11: the scratch route words. `/scratch` alone is the Req 11
- * shortcut to the visitor's own scratch workspace (replacing PRD 019 Req 1's
- * `/scratchpad`, which now falls through to normal workspace-name resolution
- * and — the name being reserved — the Req 8 not-found page). As a SECOND
- * segment, `scratch` is reserved: `/<seg1>/scratch[/<file…>]` always
- * addresses user seg1's scratch workspace, never a folder named `scratch`
- * inside workspace seg1 (the documented shadowing, PRD 020 Non-goals).
- * Compared case-insensitively, like workspace-name matching itself.
+ * PRD 020 Req 10+11, amended by issue #244: the scratchpad route word, back to
+ * PRD 019 Req 1's own spelling. `/scratchpad` alone is the Req 11 shortcut to
+ * the visitor's own scratchpad workspace. As a SECOND segment it is reserved:
+ * `/<seg1>/scratchpad[/<file…>]` always addresses user seg1's scratchpad
+ * workspace, never a folder named `scratchpad` inside workspace seg1 (the
+ * documented shadowing, PRD 020 Non-goals). Compared case-insensitively, like
+ * workspace-name matching itself.
  */
-export const SCRATCH_SEGMENT = 'scratch';
+export const SCRATCH_SEGMENT = 'scratchpad';
 
-const isScratchSegment = (segment: string): boolean => uniqueNameKey(segment) === SCRATCH_SEGMENT;
+/**
+ * Issue #244: the word PRD 020 Req 10 shipped, kept as a PARSE-ONLY alias so
+ * bookmarked and shared `/scratch` and `/<username>/scratch[/<file…>]` URLs
+ * still resolve. Nothing emits it — buildScratchPath writes only the
+ * canonical word, and resolveHostedVisit's replaceState rewrite is what puts
+ * a legacy visit's address bar on the canonical URL (HostedSignIn.tsx).
+ */
+export const LEGACY_SCRATCH_SEGMENT = 'scratch';
+
+/** Either route word, compared the case-insensitive workspace-name way. */
+const isScratchSegment = (segment: string): boolean => {
+  const key = uniqueNameKey(segment);
+  return key === SCRATCH_SEGMENT || key === LEGACY_SCRATCH_SEGMENT;
+};
 
 /**
  * PRD 020 Req 5+10+11: what a hosted page's `location.pathname` addresses.
  * `home` is the plain start page, `scratch` the Req 11 shortcut,
- * `user-scratch` one user's scratch workspace (optionally a file in it), and
+ * `user-scratch` one user's scratchpad workspace (optionally a file in it), and
  * everything else is a workspace by unique name — bare (`/<name>`) or with a
  * file inside it (`/<name>/<segments…>`), each `file` entry one
  * percent-decoded segment.
@@ -191,11 +203,13 @@ function decodeSegment(segment: string): string {
 export function parseAppPath(pathname: string): AppPathTarget {
   const segments = pathname.split('/').filter((s) => s !== '').map(decodeSegment);
   if (segments.length === 0) return { kind: 'home' };
-  // PRD 020 Req 11: exactly `/scratch` is the shortcut; anything nested under
-  // it resolves as a workspace named `scratch` — reserved, so never found.
+  // PRD 020 Req 11 + issue #244: exactly `/scratchpad` (or its legacy alias
+  // `/scratch`) is the shortcut; anything nested under either resolves as a
+  // workspace by that name — both reserved, so never found.
   if (segments.length === 1 && isScratchSegment(segments[0])) return { kind: 'scratch' };
-  // PRD 020 Req 10: `scratch` as the second segment is reserved for user
-  // seg1's scratch workspace, whatever comes after it.
+  // PRD 020 Req 10 + issue #244: `scratchpad` (or legacy `scratch`) as the
+  // second segment is reserved for user seg1's scratchpad workspace, whatever
+  // comes after it.
   if (segments.length >= 2 && isScratchSegment(segments[1])) {
     return { kind: 'user-scratch', username: segments[0], file: segments.slice(2) };
   }
@@ -213,20 +227,21 @@ export function buildAppPath(name: string, file: readonly string[] = []): string
 }
 
 /**
- * PRD 020 Req 10+13: the canonical URL of one user's scratch workspace —
- * `/<username>/scratch`, or `/<username>/scratch/<segments…>` for a file in
- * it, percent-encoded per segment exactly like buildAppPath.
+ * PRD 020 Req 10+13 (issue #244): the canonical URL of one user's scratchpad
+ * workspace — `/<username>/scratchpad`, or `/<username>/scratchpad/<segments…>`
+ * for a file in it, percent-encoded per segment exactly like buildAppPath.
+ * Only the canonical word is ever emitted; the legacy alias is parse-only.
  */
 export function buildScratchPath(username: string, file: readonly string[] = []): string {
   return buildAppPath(username, [SCRATCH_SEGMENT, ...file]);
 }
 
-/** PRD 020 Req 10+11: the two targets that address a scratch workspace. */
+/** PRD 020 Req 10+11: the two targets that address a scratchpad workspace. */
 type ScratchTarget = Extract<AppPathTarget, { kind: 'scratch' | 'user-scratch' }>;
 
 /**
- * PRD 020 Req 12: does this target address the CALLER'S OWN scratch?
- * `/scratch` is definitionally the caller's own; `/<username>/scratch[/…]`
+ * PRD 020 Req 12: does this target address the CALLER'S OWN scratchpad?
+ * `/scratchpad` is definitionally the caller's own; `/<username>/scratchpad[/…]`
  * matches its username against the caller's handle through `uniqueNameKey`,
  * the same case-insensitive comparison workspace-name matching makes. A
  * caller whose handle never resolved owns no scratch here.
@@ -238,16 +253,17 @@ export function isOwnScratch(target: AppPathTarget, callerHandle: string | undef
 }
 
 /**
- * PRD 023 Reqs 1–5 (amending PRD 019 Req 10): the ONE scratch boot decision.
- * A visit boots the fresh scratch buffer iff it enters the caller's own
- * scratch workspace with no target file — whatever route delivered it. A
- * file segment (Req 2), someone else's scratch (Req 5), or a caller with no
+ * PRD 023 Reqs 1–5 (amending PRD 019 Req 10): the ONE scratchpad boot
+ * decision. A visit boots the fresh buffer iff it enters the caller's own
+ * scratchpad workspace with no target file — whatever route delivered it (the
+ * legacy `/scratch` spelling included). A file segment (Req 2), someone
+ * else's scratchpad (Req 5), or a caller with no
  * resolved handle boots nothing. Stateless on purpose (Req 4): re-entry asks
  * the same question and gets the same yes, so the new buffer silently
  * replaces whatever was open.
  */
 export function scratchBootsFresh(target: AppPathTarget, callerHandle: string | undefined): boolean {
-  // `/scratch` carries no file segments at all; the canonical form must
+  // `/scratchpad` carries no file segments at all; the canonical form must
   // likewise name none.
   return isOwnScratch(target, callerHandle) && (target.kind === 'scratch' || target.file.length === 0);
 }

@@ -106,7 +106,7 @@ export function createHostedPlatform(): Platform {
           id: boot.workspaceId,
           uniqueName: boot.uniqueName ?? null,
           // PRD 020 Req 10: a scratch binding remembers whose scratch it is —
-          // the canonical bar form is `/<username>/scratch`, never the
+          // the canonical bar form is `/<username>/scratchpad`, never the
           // workspace's own unique-name path.
           scratchOwner: boot.scratchOwner ?? null,
         }
@@ -616,7 +616,7 @@ export function createHostedPlatform(): Platform {
       }
       const segments = rel !== null ? rel.split('/') : [];
       // PRD 020 Req 10+13: a scratch binding's canonical form is
-      // `/<username>/scratch[/…]`; every other workspace shows its
+      // `/<username>/scratchpad[/…]`; every other workspace shows its
       // unique-name path (and one with neither cannot be addressed).
       let url: string;
       if (bound.scratchOwner) url = buildScratchPath(bound.scratchOwner, segments);

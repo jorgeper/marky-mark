@@ -1076,10 +1076,11 @@ describe('PRD 020 Req 1+3+4 workspace unique names over HTTP', () => {
     expect(res.status).toBe(200);
     const { id } = (await res.json()) as { id: string };
     const manifest = await readManifest(id);
-    // PRD 020 Req 1+10: "My scratch" slugifies to `my-scratch` — deduped
-    // deployment-wide, never a reserved word (uniqueNameProblem holds).
-    expect(manifest.uniqueName).toBe('my-scratch');
-    expect(manifest.name).toBe('My scratch');
+    // PRD 020 Req 1+10 (issue #244): "My scratchpad" slugifies to
+    // `my-scratchpad` — deduped deployment-wide, never a reserved word
+    // (uniqueNameProblem holds).
+    expect(manifest.uniqueName).toBe('my-scratchpad');
+    expect(manifest.name).toBe('My scratchpad');
     blobs.clear();
   });
 

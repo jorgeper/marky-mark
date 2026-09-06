@@ -140,7 +140,7 @@ export interface HostedBoot {
   scratch?: boolean;
   /**
    * PRD 020 Req 10+13: the bound workspace is a scratch workspace, owned by
-   * this username — the canonical URL is `/<scratchOwner>/scratch[/…]`, never
+   * this username — the canonical URL is `/<scratchOwner>/scratchpad[/…]`, never
    * the workspace's own unique-name path.
    */
   scratchOwner?: string;

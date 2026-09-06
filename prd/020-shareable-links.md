@@ -126,6 +126,19 @@ icons at the three depths that matter — workspace, file, heading.
     workspace model (scratch listing stays personal per PRD 019
     Req 8, but a member you add can follow links into it).
 
+> **Amended (issue #244, 2026-09-06):** Reqs 10–13's rename is reverted. The
+> word is `scratchpad` everywhere a user reads or types it: the friendly name
+> is **My scratchpad**, the canonical URLs are `/scratchpad`,
+> `/<username>/scratchpad` and `/<username>/scratchpad/…`, and the API route
+> is `GET /api/scratchpad/<username>`. Contrary to Req 10's "the old
+> `/scratchpad` route is replaced, not kept", the *old* word — `scratch`, in
+> both the shortcut and the second-segment position — is now the one kept, as
+> a parse-only alias that resolves identically and is normalized to the
+> canonical URL by the Req 6 `replaceState` rewrite. Both words stay reserved
+> per Req 11, so neither can be shadowed by a workspace name or a Req 12
+> username, and Req 11's second-segment shadowing rule (a root folder named
+> `scratch`, and now `scratchpad`) is unchanged.
+
 ### The share affordance
 
 14. **One primitive.** A single reusable copy-link control: a link

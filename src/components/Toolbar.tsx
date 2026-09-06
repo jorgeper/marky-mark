@@ -7,7 +7,7 @@ interface Props {
   docName: string | null;
   /**
    * PRD 023 Req 7 (issue #291): docName is the scratch buffer's placeholder
-   * ("Scratch file") — rendered in the `--mm-scratch-name` token treatment
+   * ("Scratchpad file") — rendered in the `--mm-scratch-name` token treatment
    * (accent + italic) with a `data-scratch` hook for the hosted e2e slice.
    */
   docNameScratch?: boolean;

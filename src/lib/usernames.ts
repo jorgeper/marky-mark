@@ -1,6 +1,6 @@
 /**
  * PRD 020 Req 12: the pure half of per-user URL segments (usernames) — how a
- * signed-in identity is turned into the `/<username>/scratch` path segment.
+ * signed-in identity is turned into the `/<username>/scratchpad` path segment.
  * Derivation happens ONCE per user (the server stores the result and never
  * re-derives), so everything here is deterministic and I/O-free: the server
  * layers the storage claims on top, and unit tests cover the rules alone.

@@ -92,7 +92,7 @@ export interface HostedBinding {
   /**
    * PRD 020 Req 10: `scratchOwner` set means the bound workspace is a scratch
    * workspace owned by that username — its canonical URL is
-   * `/<scratchOwner>/scratch`, never the unique-name path.
+   * `/<scratchOwner>/scratchpad`, never the unique-name path.
    */
   current: { id: string; uniqueName: string | null; scratchOwner?: string | null } | null;
 }
@@ -267,7 +267,7 @@ export function createHostedWorkspaceLifecycle(
         const rows = (await json<WorkspaceListing[]>(await api('/api/workspaces'))) ?? [];
         const row = rows.find((r) => r.id === id);
         // PRD 020 Req 10: the caller's own scratch opens at its canonical
-        // `/<username>/scratch` URL (a flagged row is always the caller's
+        // `/<username>/scratchpad` URL (a flagged row is always the caller's
         // own); every other workspace at its unique-name path.
         if (row?.scratchpad) {
           const handle = (await sessionMe())?.handle;

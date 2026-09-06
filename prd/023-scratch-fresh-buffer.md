@@ -62,6 +62,11 @@ or single-file builds (PRD 019 Req 4).
 - **Not a rename of the workspace.** "My scratch" (PRD 020 Req 10) stays;
   only the unsaved buffer gets the "Scratch file" label.
 
+> **Amended (issue #244, 2026-09-06):** both names read "scratchpad" now —
+> the workspace is **My scratchpad** and the buffer's placeholder label is
+> **Scratchpad file**. This PRD's non-goal still holds in substance: issue
+> #244 renamed the feature, this PRD did not.
+
 ## Requirements
 
 ### Fresh on every entry
@@ -77,6 +82,12 @@ or single-file builds (PRD 019 Req 4).
 2. **A file URL opens the file.** `/<username>/scratch/<path>` opens that
    file and never boots a scratch buffer (PRD 020 Req 13 unchanged). A
    missing file still lands on the not-found page as today.
+
+> **Amended (issue #244, 2026-09-06):** read `scratchpad` for `scratch` in
+> every URL in this PRD — `/scratchpad`, `/<username>/scratchpad` and
+> `/<username>/scratchpad/<path>`. The boot decision is unchanged and is not
+> per-route: the legacy `/scratch` spellings parse to the same targets, so
+> they make exactly the same fresh-buffer decision.
 3. **In-app entry boots fresh too.** Choosing your own scratch workspace
    from the Open Workspace dialog (the "My scratch" row, PRD 019 Req 8)
    lands in a fresh scratch buffer with the same semantics as Req 1. The

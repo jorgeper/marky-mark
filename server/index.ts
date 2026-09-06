@@ -32,10 +32,11 @@ try {
 const migrated = await migrateWorkspaceUniqueNames(providers.storage, console.log);
 if (migrated > 0) console.log(`marky-mark server: migrated ${migrated} workspace unique name(s)`);
 
-// PRD 020 Req 10: the scratch rename pass — pre-existing scratch workspaces
-// still named "Scratchpad" display as "My scratch". Idempotent like above.
+// PRD 020 Req 10 + issue #244: the scratchpad rename pass — pre-existing
+// scratchpad workspaces on either legacy name ("Scratchpad", "My scratch")
+// display as "My scratchpad". Idempotent like above.
 const renamed = await migrateScratchNames(providers.storage, console.log);
-if (renamed > 0) console.log(`marky-mark server: renamed ${renamed} scratch workspace(s)`);
+if (renamed > 0) console.log(`marky-mark server: renamed ${renamed} scratchpad workspace(s)`);
 
 // PRD 011 Req 8+13: the LLM routes, built from the optional LLM section. No
 // section ⇒ an api that answers "not configured" and contacts nothing.

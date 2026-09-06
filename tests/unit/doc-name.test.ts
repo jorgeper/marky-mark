@@ -24,11 +24,12 @@ describe('PRD 023 Req 6 — document display-name resolution (issue #291)', () =
     expect(untitledDisplayName(false)).toEqual({ name: 'Untitled', scratch: false });
   });
 
-  test('U1126: the scratch buffer shows "Scratch file", flagged for the token treatment (PRD 023 Req 7)', () => {
+  test('U1126: the scratch buffer shows "Scratchpad file", flagged for the token treatment (PRD 023 Req 7)', () => {
     expect(docDisplayName({ path: null, untitled: true, scratch: true }, basename))
       .toEqual({ name: SCRATCH_NAME, scratch: true });
     expect(untitledDisplayName(true)).toEqual({ name: SCRATCH_NAME, scratch: true });
-    expect(SCRATCH_NAME).toBe('Scratch file');
+    // Issue #244: the placeholder every surface renders reads "Scratchpad".
+    expect(SCRATCH_NAME).toBe('Scratchpad file');
   });
 
   test('U1127: nothing open (splash) resolves to no name at all', () => {

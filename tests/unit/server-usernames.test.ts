@@ -58,7 +58,7 @@ describe('PRD 020 Req 12 username assignment', () => {
     blobs.clear();
   });
 
-  it('U1068: GET /api/scratch/<username> resolves for the owner’s members and 404s identically for unknown and inaccessible', async () => {
+  it('U1068: GET /api/scratchpad/<username> resolves for the owner’s members and 404s identically for unknown and inaccessible', async () => {
     // Assign handles and provision ada's scratch workspace.
     expect((await me('ada')).handle).toBe('ada');
     const resolve = await call('ada', 'POST', '/api/me/scratchpad');
@@ -66,25 +66,25 @@ describe('PRD 020 Req 12 username assignment', () => {
     const { id } = (await resolve.json()) as { id: string };
     // The owner resolves it by username, whatever the visited casing — the
     // canonical stored casing comes back for the address bar.
-    const own = await call('ada', 'GET', '/api/scratch/Ada');
+    const own = await call('ada', 'GET', '/api/scratchpad/Ada');
     expect(own.status).toBe(200);
     expect(await own.json()).toEqual({ id, owner: 'ada' });
     // PRD 020 Req 13: a caller the access model does not admit gets 404…
-    const denied = await call('grace', 'GET', '/api/scratch/ada');
+    const denied = await call('grace', 'GET', '/api/scratchpad/ada');
     expect(denied.status).toBe(404);
     // …byte-identical to an unknown username — no probe can tell them apart.
-    const unknown = await call('grace', 'GET', '/api/scratch/nobody');
+    const unknown = await call('grace', 'GET', '/api/scratchpad/nobody');
     expect(unknown.status).toBe(404);
     expect(await denied.json()).toEqual(await unknown.json());
     // …and identical again for a user who exists but has no scratch yet.
     expect((await me('grace')).handle).toBe('grace');
-    const unprovisioned = await call('alan', 'GET', '/api/scratch/grace');
+    const unprovisioned = await call('alan', 'GET', '/api/scratchpad/grace');
     expect(unprovisioned.status).toBe(404);
     // A member the owner added CAN resolve it (PRD 019 Req 8's listing
     // exclusion stands; this route is what makes the link followable).
     const added = await call('ada', 'POST', `/api/workspaces/${id}/members`, JSON.stringify({ id: 'mock-grace', role: 'Viewer' }));
     expect(added.status).toBe(200);
-    const member = await call('grace', 'GET', '/api/scratch/ada');
+    const member = await call('grace', 'GET', '/api/scratchpad/ada');
     expect(member.status).toBe(200);
     expect(((await member.json()) as { id: string }).id).toBe(id);
     // The listing still never carries ada's scratch row for grace.

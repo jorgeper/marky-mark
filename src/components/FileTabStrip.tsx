@@ -36,7 +36,7 @@ export interface FileTabStripProps {
   untitled: boolean;
   /**
    * PRD 023 Reqs 6–8 (issue #291): the untitled buffer is the scratch
-   * boot's buffer — its tab reads "Scratch file" in the token-driven
+   * boot's buffer — its tab reads "Scratchpad file" in the token-driven
    * accent/italic treatment instead of "Untitled". False for every other
    * untitled buffer (⌘N stays "Untitled", normally styled).
    */
@@ -383,7 +383,7 @@ export function FileTabStrip(p: FileTabStripProps) {
           // untitled). No onMenu: the menu's walks are open-set walks this
           // buffer sits outside, so right-click opens nothing here.
           // PRD 023 Req 6: the label comes from the shared resolution — the
-          // scratch buffer's tab reads "Scratch file", any other "Untitled".
+          // scratch buffer's tab reads "Scratchpad file", any other "Untitled".
           <Tab
             active
             label={untitledName.name}

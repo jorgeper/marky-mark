@@ -300,10 +300,10 @@ export function OpenWorkspaceDialog({
         )}
         {/* PRD 020 Req 12: the signed-in identity surface — display name,
             assigned username (the URL segment, distinct from the UPN), and
-            the resulting scratch URL, right where workspaces are picked. */}
+            the resulting scratchpad URL, right where workspaces are picked. */}
         {me && (
           <p className="hotkey-hint" data-testid="open-workspace-identity">
-            Signed in as {me.displayName} ({me.handle}) — your scratch lives at{' '}
+            Signed in as {me.displayName} ({me.handle}) — your scratchpad lives at{' '}
             <span data-testid="open-workspace-identity-scratch-url">{buildScratchPath(me.handle)}</span>
           </p>
         )}

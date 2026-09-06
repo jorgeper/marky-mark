@@ -502,7 +502,7 @@ export default function App() {
   // exit — a save or a real document replacing the buffer (openDoc), closing
   // to the splash, or a fresh ⌘N buffer (an ordinary untitled prompts as
   // always). PRD 023 Req 6 (issue #291): state AND a ref now — the name
-  // surfaces (toolbar, file tab, window title) render the "Scratch file"
+  // surfaces (toolbar, file tab, window title) render the "Scratchpad file"
   // placeholder from `scratch`, while the guards keep reading `scratchRef`,
   // which is correct synchronously inside callbacks where state would lag.
   // Every write goes through setScratchMark so the two can never disagree.
@@ -2891,7 +2891,7 @@ export default function App() {
       if (p.scratchStart) {
         startUntitledRef.current();
         // PRD 019 Req 11: and that one buffer is the prompt-exempt scratch —
-        // PRD 023 Req 6: the same mark drives its "Scratch file" label.
+        // PRD 023 Req 6: the same mark drives its "Scratchpad file" label.
         setScratchMark(true);
       }
       // PRD 020 Req 5: a path deep link's file half — armed before the
@@ -6012,7 +6012,7 @@ export default function App() {
     const p = platform;
     if (!p) return;
     // PRD 023 Req 6: the shared resolution — the scratch buffer titles the
-    // window/browser tab "Scratch file" like the toolbar and its file tab.
+    // window/browser tab "Scratchpad file" like the toolbar and its file tab.
     const { name } = docDisplayName({ path: docPath, untitled, scratch }, p.basename);
     const title = name ? `${name}${dirty ? ' •' : ''} — Marky Mark` : 'Marky Mark';
     void p.setTitle(title);
@@ -7553,7 +7553,7 @@ export default function App() {
           >
             <Toolbar
               // PRD 023 Req 6: the shared resolution — the scratch buffer's
-              // toolbar name reads "Scratch file"; Req 7: flagged so the
+              // toolbar name reads "Scratchpad file"; Req 7: flagged so the
               // Toolbar applies the accent/italic token treatment.
               docName={docNameDisplay.name}
               docNameScratch={docNameDisplay.scratch}
@@ -7779,7 +7779,7 @@ export default function App() {
           activePath={docPath}
           untitled={untitled}
           // PRD 023 Reqs 6–8: only the scratch boot's buffer gets the
-          // "Scratch file" tab treatment; ⌘N buffers stay "Untitled".
+          // "Scratchpad file" tab treatment; ⌘N buffers stay "Untitled".
           untitledScratch={scratch}
           // PRD 013 Req 8 (SPEC36 §2.6): the untitled buffer sits outside
           // the open set — and so outside dirtyOpenFiles — so its tab's ●

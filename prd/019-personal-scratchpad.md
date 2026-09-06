@@ -77,6 +77,15 @@ requirements of this one:
    single-file build have no `/scratchpad` behavior; their platform code
    paths do not change.
 
+> **Amended (issue #244, 2026-09-06):** the route words above are current
+> again. PRD 020 Req 10 renamed them to `/scratch` / `/<username>/scratch`;
+> issue #244 renamed them back to `/scratchpad` and
+> `/<username>/scratchpad[/<file…>]`, and kept the `/scratch` forms as
+> parse-only aliases so no shared or bookmarked URL died. Req 3's
+> normalization now rewrites to `/<username>/scratchpad` (PRD 020 Req 5's
+> path form) rather than `/?workspace=<id>`, and that rewrite is what puts a
+> legacy visit on the canonical URL.
+
 ### The workspace
 
 5. **Resolve-or-create, idempotent, keyed by token identity.** The server
@@ -100,6 +109,10 @@ requirements of this one:
    policy (PRD 007 Req 11 / PRD 017). The owner's own listing includes
    it, flagged so the Open Workspace dialog can label it distinctly
    ("My scratchpad", with a distinguishing icon or badge).
+
+> **Amended (issue #244, 2026-09-06):** "My scratchpad" is the shipped badge
+> and workspace name again — PRD 020 Req 10's "My scratch" is gone, and the
+> server's startup rename pass converges a manifest on either legacy name.
 9. **Full workspace powers, minus delete.** Members, roles, sharing, and
    every other verb behave as in any workspace the user Owns. Deleting a
    scratchpad workspace is refused server-side (the existing

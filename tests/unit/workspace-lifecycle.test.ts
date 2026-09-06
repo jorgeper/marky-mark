@@ -282,9 +282,10 @@ describe('PRD 007 Req 12: the delete confirmation gate', () => {
 });
 
 describe('PRD 019 Reqs 8–9: the scratchpad row in the lifecycle UI', () => {
-  it('U1033: only the flagged scratchpad row reads "My scratch"; every other row gets no badge', () => {
-    // PRD 020 Req 10: the badge carries the feature's new friendly name.
-    expect(workspaceRowBadge(listing({ id: 'sp', name: 'My scratch', scratchpad: true }))).toBe('My scratch');
+  it('U1033: only the flagged scratchpad row reads "My scratchpad"; every other row gets no badge', () => {
+    // PRD 020 Req 10 as amended by issue #244: the badge carries the
+    // feature's friendly name, and that name is "My scratchpad".
+    expect(workspaceRowBadge(listing({ id: 'sp', name: 'My scratchpad', scratchpad: true }))).toBe('My scratchpad');
     expect(workspaceRowBadge(listing({ id: 'w', name: 'Docs' }))).toBeNull();
   });
 

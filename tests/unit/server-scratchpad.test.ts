@@ -108,15 +108,16 @@ describe('PRD 019 Reqs 5–9 scratchpad over HTTP', () => {
     blobs.clear();
   });
 
-  it('U1026: the scratchpad is a real workspace — opaque UUID id, normal manifest, caller as sole Owner, named My scratch', async () => {
+  it('U1026: the scratchpad is a real workspace — opaque UUID id, normal manifest, caller as sole Owner, named My scratchpad', async () => {
     const id = await resolveScratchpad('ada');
     // Opaque server-generated UUID (PRD 019 Req 6), nothing user-derived.
     expect(id).toMatch(UUID_RE);
     const owned = manifestsOwnedBy('mock-ada');
     expect(owned.map((w) => w.id)).toEqual([id]);
     const { manifest } = owned[0];
-    // PRD 020 Req 10: the feature's friendly name is "My scratch".
-    expect(manifest.name).toBe('My scratch');
+    // PRD 020 Req 10 as amended by issue #244: the friendly name every
+    // user-visible surface shows is "My scratchpad".
+    expect(manifest.name).toBe('My scratchpad');
     // Sole Owner, display name snapshotted from the caller's own token —
     // the same shape POST /api/workspaces stamps for a creator.
     expect(manifest.members).toEqual([{ id: 'mock-ada', role: 'Owner', displayName: 'Ada Lovelace' }]);
@@ -264,12 +265,12 @@ describe('PRD 019 Reqs 5–9 scratchpad over HTTP', () => {
     blobs.clear();
   });
 
-  it('U1072: the PRD 020 Req 10 rename migration turns a pre-existing "Scratchpad" into "My scratch", idempotently', async () => {
+  it('U1072: the PRD 020 Req 10 rename migration turns a pre-existing "Scratchpad" into "My scratchpad", idempotently', async () => {
     const spId = await resolveScratchpad('ada');
-    // Rewind this scratch workspace to its PRD 019-era display name; a
+    // Rewind this scratchpad workspace to its PRD 019-era display name; a
     // regular workspace with the same name is the control that must not move.
     const blob = `workspaces/${spId}/manifest.json`;
-    await provider.write(blob, blobs.get(blob)!.replace('"My scratch"', '"Scratchpad"'));
+    await provider.write(blob, blobs.get(blob)!.replace('"My scratchpad"', '"Scratchpad"'));
     const created = await call('ada', 'POST', '/api/workspaces', JSON.stringify({ uniqueName: 'plain', name: 'Scratchpad-like' }));
     expect(created.status).toBe(201);
     const log: string[] = [];
@@ -277,10 +278,39 @@ describe('PRD 019 Reqs 5–9 scratchpad over HTTP', () => {
     expect(log.length).toBe(1);
     expect(log[0]).toContain(spId);
     const migrated = parseWorkspaceManifest(blobs.get(blob)!);
-    expect(migrated.ok && migrated.manifest.name).toBe('My scratch');
+    expect(migrated.ok && migrated.manifest.name).toBe('My scratchpad');
     // Idempotent: the second run rewrites nothing.
     const before = new Map(blobs);
     expect(await migrateScratchNames(provider, (line) => log.push(line))).toBe(0);
+    expect(blobs).toEqual(before);
+    blobs.clear();
+  });
+
+  it('U1182: issue #244 widens the rename pass — PRD 020’s "My scratch" converges on "My scratchpad" too, idempotently, and a hand-renamed scratchpad is left alone', async () => {
+    // A deployment that shipped PRD 020 carries the interim name; one that
+    // never left PRD 019 carries "Scratchpad" (U1072). Both converge.
+    const spId = await resolveScratchpad('ada');
+    const blob = `workspaces/${spId}/manifest.json`;
+    await provider.write(blob, blobs.get(blob)!.replace('"My scratchpad"', '"My scratch"'));
+    // The control: another user's scratchpad, renamed by hand to something
+    // that is neither legacy name, must survive the pass untouched.
+    const graceId = await resolveScratchpad('grace');
+    const graceBlob = `workspaces/${graceId}/manifest.json`;
+    await provider.write(graceBlob, blobs.get(graceBlob)!.replace('"My scratchpad"', '"Ideas"'));
+    const graceBefore = blobs.get(graceBlob)!;
+
+    const log: string[] = [];
+    expect(await migrateScratchNames(provider, (line) => log.push(line))).toBe(1);
+    expect(log.length).toBe(1);
+    expect(log[0]).toContain(spId);
+    expect(log[0]).toContain('My scratch');
+    expect(parseWorkspaceManifest(blobs.get(blob)!)).toMatchObject({ ok: true, manifest: { name: 'My scratchpad' } });
+    expect(blobs.get(graceBlob)).toBe(graceBefore);
+
+    // Idempotent: a second run renames nothing and logs nothing.
+    const before = new Map(blobs);
+    expect(await migrateScratchNames(provider, (line) => log.push(line))).toBe(0);
+    expect(log.length).toBe(1);
     expect(blobs).toEqual(before);
     blobs.clear();
   });

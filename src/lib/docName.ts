@@ -4,12 +4,12 @@
  * window-title effect all consume this helper, so the three surfaces cannot
  * drift: a named document shows its basename, an ordinary untitled buffer
  * shows "Untitled", and the boot-opened scratch buffer shows the
- * "Scratch file" placeholder (marked `scratch` so the surfaces can apply
+ * "Scratchpad file" placeholder (marked `scratch` so the surfaces can apply
  * the PRD 023 Req 7 accent/italic treatment).
  */
 
-/** PRD 023 Req 6: the scratch buffer's placeholder display name. */
-export const SCRATCH_NAME = 'Scratch file';
+/** PRD 023 Req 6 (issue #244): the scratch buffer's placeholder display name. */
+export const SCRATCH_NAME = 'Scratchpad file';
 
 export interface DocNameState {
   /** The open document's path, or null (untitled buffer or splash). */

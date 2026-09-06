@@ -36,7 +36,7 @@ import {
  * unchecked scaffold.
  */
 // PRD 020 Req 12: the username claims join the reserved set — they resolve
-// only through /api/me and /api/scratch, never the unchecked scaffold.
+// only through /api/me and /api/scratchpad, never the unchecked scaffold.
 const RESERVED_PREFIXES = [WORKSPACES_PREFIX, USERS_PREFIX, DEPLOYMENT_PREFIX, USERNAMES_PREFIX];
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -141,11 +141,14 @@ async function handleApi(
     return;
   }
 
-  // PRD 020 Req 13: resolve one user's scratch workspace by username — the
-  // route a `/<username>/scratch[/…]` visit needs, since scratch workspaces
-  // are never listed to non-owners (server/workspaces.ts handleScratchVisit).
-  if (pathname.startsWith('/api/scratch/') && req.method === 'GET') {
-    const username = tryDecode(pathname.slice('/api/scratch/'.length));
+  // PRD 020 Req 13 (issue #244: `scratchpad`, matching the route word): resolve
+  // one user's scratchpad workspace by username — the route a
+  // `/<username>/scratchpad[/…]` visit needs, since scratchpad workspaces are
+  // never listed to non-owners (server/workspaces.ts handleScratchVisit). The
+  // old `/api/scratch/<username>` spelling was app-internal and never
+  // bookmarkable, so it is gone rather than aliased.
+  if (pathname.startsWith('/api/scratchpad/') && req.method === 'GET') {
+    const username = tryDecode(pathname.slice('/api/scratchpad/'.length));
     if (!username || username.includes('/')) {
       sendJson(res, 404, { error: 'not found' });
       return;

@@ -124,8 +124,8 @@ body,
   --mm-hover: color-mix(in srgb, var(--mm-accent, #0969da) 8%, transparent);
   --mm-muted: var(--mm-fg-muted, #59636e);
   --mm-focus-ring: color-mix(in srgb, var(--mm-accent, #0969da) 35%, transparent);
-  /* Scratch placeholder name (PRD 023 Req 7, issue #291): the boot-opened
-     scratch buffer's "Scratch file" label in the toolbar and its file tab —
+  /* Scratchpad placeholder name (PRD 023 Req 7, issues #291/#244): the
+     boot-opened buffer's "Scratchpad file" label in the toolbar and its tab —
      the theme accent, italicised. Colour derives from the contract accent
      (PRD 018 Req 2), so every bundled theme restyles it without defining
      anything; a theme may override either half. */

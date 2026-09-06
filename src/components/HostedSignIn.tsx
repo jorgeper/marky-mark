@@ -86,14 +86,19 @@ async function getJson<T>(
  * app. Four shapes resolve:
  *
  *   - `/` binds nothing (the normal splash);
- *   - `/scratch` (PRD 020 Req 11) resolves the caller's OWN scratch through
- *     the idempotent POST /api/me/scratchpad and lands on the canonical
- *     `/<username>/scratch`;
- *   - `/<username>/scratch[/<file…>]` (Req 10+13) is that user's scratch
+ *   - `/scratchpad` (PRD 020 Req 11, issue #244) resolves the caller's OWN
+ *     scratchpad through the idempotent POST /api/me/scratchpad and lands on
+ *     the canonical `/<username>/scratchpad`;
+ *   - `/<username>/scratchpad[/<file…>]` (Req 10+13) is that user's scratchpad
  *     workspace — the caller's own via the same resolve-or-create, anyone
- *     else's via GET /api/scratch/<username>, which answers only when the
+ *     else's via GET /api/scratchpad/<username>, which answers only when the
  *     workspace's access model admits the caller and 404s identically for
  *     unknown and inaccessible alike;
+ *   - issue #244: the legacy `/scratch` and `/<username>/scratch[/<file…>]`
+ *     spellings parse to those same two targets (hostedPaths.ts), so an old
+ *     bookmark resolves identically and the replaceState rewrite below leaves
+ *     the bar on the canonical `/scratchpad` URL — including when the visit
+ *     rode through the Req 9 sign-in redirect as a stored intent;
  *   - `/<workspace-name>[/<path…>/<file>]` matches the unique name
  *     case-insensitively against the caller's workspace listing — so a
  *     workspace the PRD 017 Req 11 policy hides resolves as not-found for
@@ -125,9 +130,10 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
     (await getJson<WorkspaceListing[]>('/api/workspaces', auth)) ?? [];
 
   /**
-   * PRD 020 Req 10+13: land in a scratch workspace — verify the file half
+   * PRD 020 Req 10+13: land in a scratchpad workspace — verify the file half
    * exists (like any workspace visit), rewrite the bar to the canonical
-   * `/<username>/scratch[/…]` form, and bind. `fresh` is what boots the PRD
+   * `/<username>/scratchpad[/…]` form (issue #244: which is what normalizes a
+   * legacy `/scratch` visit), and bind. `fresh` is what boots the PRD
    * 019 Req 10 scratch buffer, and every caller answers it the one PRD 023
    * way: scratchBootsFresh — own scratch, no target file.
    */
@@ -154,7 +160,7 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
 
   /**
    * PRD 020 Req 12: the caller's assigned handle, from /api/me — what
-   * `/scratch` lands on, and what tells an own-scratch visit from someone
+   * `/scratchpad` lands on, and what tells an own-scratch visit from someone
    * else's. Undefined on any failure, like every getJson miss.
    */
   const myHandle = async (): Promise<string | undefined> =>
@@ -194,7 +200,7 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
     // and an existing-but-inaccessible one. The not-found page names the
     // visited path either way, so no probe distinguishes them here either.
     const resolved = await getJson<{ id?: string; owner?: string }>(
-      `/api/scratch/${encodeURIComponent(path.username)}`,
+      `/api/scratchpad/${encodeURIComponent(path.username)}`,
       auth,
     );
     if (!resolved?.id) {
@@ -211,9 +217,9 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
   const rows = await listRows();
   const wanted = path.kind === 'workspace' ? path : null;
   const row = wanted ? findWorkspaceByUniqueName(rows, wanted.name) : rows.find((r) => r.id === legacyId);
-  // PRD 020 Req 10: a scratch workspace reached by any OTHER address — its
+  // PRD 020 Req 10: a scratchpad workspace reached by any OTHER address — its
   // own unique-name path or the legacy ?workspace= form — still shows the
-  // canonical `/<username>/scratch` bar form (a flagged row is always the
+  // canonical `/<username>/scratchpad` bar form (a flagged row is always the
   // caller's own scratch; nobody else's is ever listed).
   if (row?.scratchpad) {
     const handle = await myHandle();

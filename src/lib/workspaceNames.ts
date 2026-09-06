@@ -17,7 +17,9 @@ const UNIQUE_NAME_RE = /^[A-Za-z0-9._-]+$/;
 
 /**
  * PRD 020 Req 1 (Req 11's reserved words): names no workspace may take —
- * `scratch`/`scratchpad` (the scratch feature's own path words) and the
+ * `scratch`/`scratchpad` (the scratchpad feature's canonical path word and
+ * its issue #244 legacy alias — both stay reserved so neither can be
+ * shadowed by a real workspace or a derived username) and the
  * top-level route segments already in use: `api` (the whole REST surface,
  * server/app.ts) and `assets` (the built SPA's asset directory, which path
  * routing must keep addressable). Compared case-insensitively, like

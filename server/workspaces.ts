@@ -448,18 +448,25 @@ async function snapshotDisplayName(
   return name && name !== id ? name : undefined;
 }
 
-// --- the personal scratch workspace (PRD 019 Reqs 5–7, PRD 020 Reqs 10–13) ---
-
-/** PRD 019 Req 6 + PRD 020 Req 10: the scratch workspace's friendly name. */
-export const SCRATCHPAD_NAME = 'My scratch';
+// --- the personal scratchpad workspace (PRD 019 Reqs 5–7, PRD 020 Reqs 10–13) ---
 
 /**
- * PRD 020 Req 10: the rename migration — a pre-existing scratch workspace
- * still carrying PRD 019's "Scratchpad" display name becomes "My scratch".
+ * PRD 019 Req 6 + PRD 020 Req 10, amended by issue #244: the scratchpad
+ * workspace's friendly name — every user-visible surface reads "scratchpad".
+ */
+export const SCRATCHPAD_NAME = 'My scratchpad';
+
+/**
+ * PRD 020 Req 10, widened by issue #244: the rename migration — a pre-existing
+ * scratchpad workspace still carrying EITHER legacy display name (PRD 019's
+ * "Scratchpad" or PRD 020's "My scratch") becomes "My scratchpad", so a
+ * deployment that skipped a release still converges on one name.
  * Idempotent like the unique-name migration above (a manifest already renamed
  * — or renamed by hand to anything else — is skipped) and logged per
  * workspace. Runs once at server startup (server/index.ts).
  */
+const LEGACY_SCRATCHPAD_NAMES: readonly string[] = ['Scratchpad', 'My scratch'];
+
 export async function migrateScratchNames(
   storage: StorageProvider,
   log: (line: string) => void,
@@ -470,9 +477,10 @@ export async function migrateScratchNames(
     if (!id) continue;
     const manifest = await loadManifest(storage, id);
     if (!manifest || typeof manifest === 'string') continue;
-    if (manifest.scratchpad !== true || manifest.name !== 'Scratchpad') continue;
+    if (manifest.scratchpad !== true || !LEGACY_SCRATCHPAD_NAMES.includes(manifest.name)) continue;
+    const was = manifest.name;
     await storage.write(manifestBlob(id), serializeWorkspaceManifest({ ...manifest, name: SCRATCHPAD_NAME }));
-    log(`scratch rename migration: ${id} "Scratchpad" → ${JSON.stringify(SCRATCHPAD_NAME)}`);
+    log(`scratchpad rename migration: ${id} ${JSON.stringify(was)} → ${JSON.stringify(SCRATCHPAD_NAME)}`);
     renamed += 1;
   }
   return renamed;
@@ -537,10 +545,10 @@ export async function handleScratchpadResolve(
   }
   const displayName = auth.user.displayName.trim();
   // PRD 020 Req 1: a workspace provisioned here carries a unique name from
-  // birth, minted exactly like the Req 3 migration would — "My scratch"
-  // slugifies to `my-scratch`, deduped `-2`, `-3`… deployment-wide. The
+  // birth, minted exactly like the Req 3 migration would — "My scratchpad"
+  // slugifies to `my-scratchpad`, deduped `-2`, `-3`… deployment-wide. The
   // unique name stays the workspace's manifest identity; its CANONICAL URL
-  // is the Req 10 `/<username>/scratch` form.
+  // is the Req 10 `/<username>/scratchpad` form.
   const uniqueName = dedupeUniqueName(
     slugifyWorkspaceName(SCRATCHPAD_NAME),
     await takenUniqueNames(storage),
@@ -577,9 +585,10 @@ export async function handleScratchpadResolve(
 }
 
 /**
- * GET /api/scratch/<username> — resolve one user's scratch workspace for the
- * calling visitor. PRD 020 Req 13: scratch workspaces are never LISTED to
- * non-owners (PRD 019 Req 8 stands), so following a `/<username>/scratch[/…]`
+ * GET /api/scratchpad/<username> — resolve one user's scratchpad workspace for
+ * the calling visitor. PRD 020 Req 13: scratchpad workspaces are never LISTED
+ * to non-owners (PRD 019 Req 8 stands), so following a
+ * `/<username>/scratchpad[/…]`
  * link needs this resolution instead: username → owner (the deployment-wide
  * claim) → their recorded workspace, answered `{id, owner}` ONLY when the
  * workspace's normal access model admits the caller (the same doc.read the

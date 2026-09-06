@@ -12,6 +12,8 @@ import {
   parseHostedPath,
   workspaceFileToManifestSettings,
   workspaceIdFromSearch,
+  LEGACY_SCRATCH_SEGMENT,
+  SCRATCH_SEGMENT,
   buildAppPath,
   buildScratchPath,
   findWorkspaceByUniqueName,
@@ -20,6 +22,7 @@ import {
   scratchBootsFresh,
 } from '../../src/lib/hostedPaths';
 import { parseWorkspaceFile } from '../../src/lib/workspace';
+import { isReservedWorkspaceName } from '../../src/lib/workspaceNames';
 
 // PRD 007 Req 2+8+9: the hosted platform's whole path→URL translation, proven
 // without a server. The platform itself (src/platform/hosted.ts) does nothing
@@ -92,57 +95,103 @@ describe('PRD 007 Req 2 hosted virtual paths', () => {
 });
 
 describe('PRD 020 Req 10+11 the scratch routes', () => {
-  it('U1036: exactly /scratch (trailing slash tolerated, case-insensitive like name matching) is the shortcut — nothing nested or prefixed', () => {
-    // PRD 020 Req 11 replaces PRD 019 Req 1's /scratchpad shortcut.
+  it('U1036: exactly /scratchpad (trailing slash tolerated, case-insensitive like name matching) is the shortcut — nothing nested or prefixed', () => {
+    // PRD 020 Req 11, amended by issue #244: the shortcut word is PRD 019
+    // Req 1's own `/scratchpad` again.
+    expect(parseAppPath('/scratchpad')).toEqual({ kind: 'scratch' });
+    expect(parseAppPath('/scratchpad/')).toEqual({ kind: 'scratch' });
+    expect(parseAppPath('/Scratchpad')).toEqual({ kind: 'scratch' });
+    // Everything else boots as a normal page: nested variants resolve as a
+    // workspace named `scratchpad` — reserved, so never found.
+    expect(parseAppPath('/scratchpad/notes.md')).toEqual({
+      kind: 'workspace',
+      name: 'scratchpad',
+      file: ['notes.md'],
+    });
+    expect(parseAppPath('/scratchpads')).toEqual({ kind: 'workspace', name: 'scratchpads', file: [] });
+  });
+
+  it('U1061: the legacy /scratch shortcut still resolves — same target as /scratchpad, no dead bookmark', () => {
+    // Issue #244: PRD 020 Req 11's shipped word stays a parse-only alias, so
+    // an old bookmark lands in exactly the same place; HostedSignIn's
+    // replaceState rewrite is what moves the bar to the canonical URL.
     expect(parseAppPath('/scratch')).toEqual({ kind: 'scratch' });
     expect(parseAppPath('/scratch/')).toEqual({ kind: 'scratch' });
     expect(parseAppPath('/Scratch')).toEqual({ kind: 'scratch' });
-    // Everything else boots as a normal page: nested variants resolve as a
-    // workspace named `scratch` — reserved, so never found.
+    // The alias is only the whole segment: nested and prefixed forms still
+    // fall through to workspace-name resolution, reserved so never found.
     expect(parseAppPath('/scratch/notes.md')).toEqual({ kind: 'workspace', name: 'scratch', file: ['notes.md'] });
     expect(parseAppPath('/scratches')).toEqual({ kind: 'workspace', name: 'scratches', file: [] });
   });
 
-  it('U1061: /scratchpad is replaced, not kept — it falls through to workspace-name resolution', () => {
-    // PRD 020 Req 10: the old route resolves like any other name; being
-    // reserved, no workspace can hold it, so the visit renders not-found.
-    expect(parseAppPath('/scratchpad')).toEqual({ kind: 'workspace', name: 'scratchpad', file: [] });
-    expect(parseAppPath('/scratchpad/')).toEqual({ kind: 'workspace', name: 'scratchpad', file: [] });
-  });
-
-  it('U1062: scratch as a second segment always addresses user seg1’s scratch workspace — files beneath, shadowing folders', () => {
-    expect(parseAppPath('/ada/scratch')).toEqual({ kind: 'user-scratch', username: 'ada', file: [] });
-    expect(parseAppPath('/ada/scratch/')).toEqual({ kind: 'user-scratch', username: 'ada', file: [] });
-    expect(parseAppPath('/ada/Scratch')).toEqual({ kind: 'user-scratch', username: 'ada', file: [] });
-    expect(parseAppPath('/ada/scratch/guides/intro.md')).toEqual({
+  it('U1062: scratchpad as a second segment always addresses user seg1’s scratchpad workspace — files beneath, shadowing folders', () => {
+    expect(parseAppPath('/ada/scratchpad')).toEqual({ kind: 'user-scratch', username: 'ada', file: [] });
+    expect(parseAppPath('/ada/scratchpad/')).toEqual({ kind: 'user-scratch', username: 'ada', file: [] });
+    expect(parseAppPath('/ada/Scratchpad')).toEqual({ kind: 'user-scratch', username: 'ada', file: [] });
+    expect(parseAppPath('/ada/scratchpad/guides/intro.md')).toEqual({
       kind: 'user-scratch',
       username: 'ada',
       file: ['guides', 'intro.md'],
     });
     // The documented shadowing (PRD 020 Non-goals): a workspace named `notes`
-    // with a root folder literally named `scratch` cannot be path-addressed —
-    // seg2 `scratch` is the reserved word, whoever seg1 names.
+    // with a root folder literally named `scratchpad` cannot be path-addressed
+    // — seg2 is the reserved word, whoever seg1 names.
+    expect(parseAppPath('/notes/scratchpad/kept.md')).toEqual({
+      kind: 'user-scratch',
+      username: 'notes',
+      file: ['kept.md'],
+    });
+    // A THIRD segment named scratchpad is an ordinary file segment.
+    expect(parseAppPath('/notes/docs/scratchpad')).toEqual({
+      kind: 'workspace',
+      name: 'notes',
+      file: ['docs', 'scratchpad'],
+    });
+  });
+
+  it('U1180: the legacy /<username>/scratch[/<file…>] form resolves to the identical target, and both words stay reserved', () => {
+    // Issue #244: an old shared link keeps working — same username, same file
+    // segments, same kind — so the visit binds the same workspace and opens
+    // the same file before the bar is normalized.
+    expect(parseAppPath('/ada/scratch')).toEqual(parseAppPath('/ada/scratchpad'));
+    expect(parseAppPath('/ada/Scratch/')).toEqual({ kind: 'user-scratch', username: 'ada', file: [] });
+    expect(parseAppPath('/ada/scratch/guides/intro.md')).toEqual(parseAppPath('/ada/scratchpad/guides/intro.md'));
     expect(parseAppPath('/notes/scratch/kept.md')).toEqual({
       kind: 'user-scratch',
       username: 'notes',
       file: ['kept.md'],
     });
-    // A THIRD segment named scratch is an ordinary file segment.
-    expect(parseAppPath('/notes/docs/scratch')).toEqual({
-      kind: 'workspace',
-      name: 'notes',
-      file: ['docs', 'scratch'],
-    });
+    // Neither word can be shadowed by a real workspace or a derived username.
+    expect(isReservedWorkspaceName('scratch')).toBe(true);
+    expect(isReservedWorkspaceName('Scratchpad')).toBe(true);
   });
 
-  it('U1063: buildScratchPath builds the canonical /<username>/scratch[/…] URL and round-trips through parseAppPath', () => {
-    expect(buildScratchPath('ada')).toBe('/ada/scratch');
-    expect(buildScratchPath('ada', ['guides', 'meeting notes.md'])).toBe('/ada/scratch/guides/meeting%20notes.md');
+  it('U1063: buildScratchPath builds the canonical /<username>/scratchpad[/…] URL and round-trips through parseAppPath', () => {
+    expect(buildScratchPath('ada')).toBe('/ada/scratchpad');
+    expect(buildScratchPath('ada', ['guides', 'meeting notes.md'])).toBe('/ada/scratchpad/guides/meeting%20notes.md');
     expect(parseAppPath(buildScratchPath('ada', ['meeting notes.md']))).toEqual({
       kind: 'user-scratch',
       username: 'ada',
       file: ['meeting notes.md'],
     });
+  });
+
+  it('U1181: the canonical word is the only one ever emitted — a legacy visit normalizes through buildScratchPath', () => {
+    // Issue #244: this is the whole redirect contract in pure form —
+    // resolveHostedVisit rewrites the bar to buildScratchPath(owner, file)
+    // on EVERY scratchpad landing, so a legacy visit ends on the canonical
+    // URL, and re-parsing that URL yields the same target it started from.
+    expect(SCRATCH_SEGMENT).toBe('scratchpad');
+    expect(LEGACY_SCRATCH_SEGMENT).toBe('scratch');
+    for (const legacy of ['/ada/scratch', '/ada/scratch/guides/intro.md', '/Ada/Scratch']) {
+      const target = parseAppPath(legacy);
+      expect(target.kind).toBe('user-scratch');
+      const canonical =
+        target.kind === 'user-scratch' ? buildScratchPath(target.username, target.file) : '';
+      expect(canonical).not.toContain('/scratch/');
+      expect(canonical.split('/')[2]).toBe(SCRATCH_SEGMENT);
+      expect(parseAppPath(canonical)).toEqual(target);
+    }
   });
 });
 
@@ -150,16 +199,21 @@ describe('PRD 023 Reqs 1–5 the scratch boot decision', () => {
   // One rule, not per-route: own scratch AND no target file boots the fresh
   // scratch buffer; everything else boots nothing. scratchBootsFresh is the
   // pure decision every bindScratch call in HostedSignIn.tsx routes through.
-  it('U1115: /scratch boots fresh — it is definitionally the caller’s own; without a resolved handle nothing binds, so nothing boots', () => {
+  it('U1115: /scratchpad boots fresh — it is definitionally the caller’s own; without a resolved handle nothing binds, so nothing boots', () => {
+    expect(scratchBootsFresh(parseAppPath('/scratchpad'), 'ada')).toBe(true);
+    expect(scratchBootsFresh(parseAppPath('/scratchpad'), undefined)).toBe(false);
+    // Issue #244: the legacy shortcut makes the very same decision.
     expect(scratchBootsFresh(parseAppPath('/scratch'), 'ada')).toBe(true);
     expect(scratchBootsFresh(parseAppPath('/scratch'), undefined)).toBe(false);
   });
 
-  it('U1116: the caller’s own bare /<username>/scratch boots fresh on EVERY ask — case-insensitively, and again on re-entry (the decision is stateless)', () => {
-    const target = parseAppPath('/ada/scratch');
+  it('U1116: the caller’s own bare /<username>/scratchpad boots fresh on EVERY ask — case-insensitively, and again on re-entry (the decision is stateless)', () => {
+    const target = parseAppPath('/ada/scratchpad');
     expect(scratchBootsFresh(target, 'ada')).toBe(true);
     // Handle matching is case-insensitive, like workspace-name matching.
-    expect(scratchBootsFresh(parseAppPath('/Ada/scratch'), 'ada')).toBe(true);
+    expect(scratchBootsFresh(parseAppPath('/Ada/scratchpad'), 'ada')).toBe(true);
+    // Issue #244: and the legacy spelling of the same bare form.
+    expect(scratchBootsFresh(parseAppPath('/ada/scratch'), 'ada')).toBe(true);
     expect(scratchBootsFresh(target, 'Ada')).toBe(true);
     // PRD 023 Req 4: re-entry (a reload, the Open Workspace row, a repeat
     // visit) re-asks the same question and gets the same yes — no "already
@@ -167,18 +221,21 @@ describe('PRD 023 Reqs 1–5 the scratch boot decision', () => {
     expect(scratchBootsFresh(target, 'ada')).toBe(true);
   });
 
-  it('U1117: a file segment suppresses the boot — the caller’s own /<username>/scratch/<path> opens the file, fresh buffer never', () => {
+  it('U1117: a file segment suppresses the boot — the caller’s own /<username>/scratchpad/<path> opens the file, fresh buffer never', () => {
+    expect(scratchBootsFresh(parseAppPath('/ada/scratchpad/notes.md'), 'ada')).toBe(false);
+    expect(scratchBootsFresh(parseAppPath('/ada/scratchpad/guides/intro.md'), 'ada')).toBe(false);
+    // Issue #244: the legacy file URL suppresses it the same way.
     expect(scratchBootsFresh(parseAppPath('/ada/scratch/notes.md'), 'ada')).toBe(false);
-    expect(scratchBootsFresh(parseAppPath('/ada/scratch/guides/intro.md'), 'ada')).toBe(false);
   });
 
-  it('U1118: someone else’s scratch boots nothing — with or without a file segment, and whether or not the caller’s handle resolved', () => {
+  it('U1118: someone else’s scratchpad boots nothing — with or without a file segment, and whether or not the caller’s handle resolved', () => {
+    expect(scratchBootsFresh(parseAppPath('/grace/scratchpad'), 'ada')).toBe(false);
+    expect(scratchBootsFresh(parseAppPath('/grace/scratchpad/notes.md'), 'ada')).toBe(false);
+    expect(scratchBootsFresh(parseAppPath('/grace/scratchpad'), undefined)).toBe(false);
     expect(scratchBootsFresh(parseAppPath('/grace/scratch'), 'ada')).toBe(false);
-    expect(scratchBootsFresh(parseAppPath('/grace/scratch/notes.md'), 'ada')).toBe(false);
-    expect(scratchBootsFresh(parseAppPath('/grace/scratch'), undefined)).toBe(false);
   });
 
-  it('U1119: only scratch targets can boot — home and workspace paths never do, and the unique-name/legacy route decides on its canonical user-scratch form', () => {
+  it('U1119: only scratchpad targets can boot — home and workspace paths never do, and the unique-name/legacy route decides on its canonical user-scratch form', () => {
     expect(scratchBootsFresh(parseAppPath('/'), 'ada')).toBe(false);
     expect(scratchBootsFresh(parseAppPath('/notes/intro.md'), 'ada')).toBe(false);
     // The row?.scratchpad branch (a flagged row is always the caller's own)
@@ -190,14 +247,18 @@ describe('PRD 023 Reqs 1–5 the scratch boot decision', () => {
 
   it('U1120: the ownership half (PRD 020 Req 12) is its own answer — the routing gate in HostedSignIn.tsx asks it, and a file segment does not change it', () => {
     // isOwnScratch decides own-vs-someone-else's (resolve-or-create against
-    // /api/scratch/<username>); scratchBootsFresh adds "no target file".
+    // /api/scratchpad/<username>); scratchBootsFresh adds "no target file".
+    expect(isOwnScratch(parseAppPath('/scratchpad'), 'ada')).toBe(true);
+    expect(isOwnScratch(parseAppPath('/Ada/scratchpad'), 'ada')).toBe(true);
+    expect(isOwnScratch(parseAppPath('/ada/scratchpad/notes.md'), 'ada')).toBe(true);
+    expect(isOwnScratch(parseAppPath('/grace/scratchpad'), 'ada')).toBe(false);
+    expect(isOwnScratch(parseAppPath('/notes/intro.md'), 'ada')).toBe(false);
+    // No resolved handle: not even the shortcut is anyone's own scratchpad.
+    expect(isOwnScratch(parseAppPath('/scratchpad'), undefined)).toBe(false);
+    // Issue #244: a legacy URL answers ownership identically.
     expect(isOwnScratch(parseAppPath('/scratch'), 'ada')).toBe(true);
-    expect(isOwnScratch(parseAppPath('/Ada/scratch'), 'ada')).toBe(true);
     expect(isOwnScratch(parseAppPath('/ada/scratch/notes.md'), 'ada')).toBe(true);
     expect(isOwnScratch(parseAppPath('/grace/scratch'), 'ada')).toBe(false);
-    expect(isOwnScratch(parseAppPath('/notes/intro.md'), 'ada')).toBe(false);
-    // No resolved handle: not even the shortcut is anyone's own scratch.
-    expect(isOwnScratch(parseAppPath('/scratch'), undefined)).toBe(false);
   });
 });
 
