@@ -39,6 +39,7 @@ import {
   type SearchMatcher,
   type SearchOptions,
   type SearchResults,
+  type SelectSourceRange,
   type SmartEditHandle,
   type SmartFormatOp,
 } from '@marky-mark/editor';
@@ -771,7 +772,7 @@ export default function App() {
   const editorInsertRef = useRef<((text: string) => void) | null>(null);
   /** SPEC23 §1: imperative mirrored-selection entry into the mounted editor.
    * Scroll-neutral unless the caller opts into `reveal` (issue #278). */
-  const editorSelectRef = useRef<((from: number, to: number, opts?: { reveal?: boolean }) => void) | null>(null);
+  const editorSelectRef = useRef<SelectSourceRange | null>(null);
   /** SPEC30 §1.4: the mounted editor's find/replace engine. */
   const editorSearchRef = useRef<EditorSearchHandle | null>(null);
   /** SPEC43 §5.2: the mounted editor's Smart Edit handle — null in preview,
