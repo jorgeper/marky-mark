@@ -846,9 +846,9 @@ const removedBlockWidget = (lines: readonly string[], side: -1 | 1): Decoration 
  * SPEC16 §2 (issue #315): the diff decorations as a StateField. Block widgets
  * change the vertical layout, so CodeMirror requires them from a field
  * (`diagramView`'s rule) rather than the view-function facet the line tints
- * used to ride. Rebuilt when the text or a grid/diagram span changes (the
- * effects), never on a bare selection move — the picture depends on the doc
- * and the tracked spans only.
+ * used to ride. Rebuilt when the text changes or a transaction carries
+ * effects (the grid and diagram span sets arrive that way), never on a bare
+ * selection move — the picture depends on the doc and the tracked spans only.
  */
 function diffField(diff: DiffLineSets): Extension {
   return StateField.define<DecorationSet>({

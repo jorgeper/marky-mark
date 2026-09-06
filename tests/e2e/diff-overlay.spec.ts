@@ -4,7 +4,7 @@
 // RAW editor lines, so these assert WHICH line each mark lands on, that an
 // unedited document paints none at all, and that the widgets keep their own
 // rendering while the diff is on.
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { caretInto, freshApp, openGridDoc, openViewMenu } from './helpers';
 
@@ -223,14 +223,17 @@ async function removedEdge(page: Page): Promise<string> {
 
 const rgb = (s: string) => (s.match(/[\d.]+/g) ?? []).map(Number);
 
-/** Delete the `intro prose` line whole (caret on it, select down, backspace). */
-async function deleteIntroLine(page: Page) {
-  const editor = page.getByTestId('editor');
-  await editor.locator('.cm-line').filter({ hasText: 'intro prose' }).first().click();
+/** Delete `count` whole lines starting at `line` (caret there, select down, backspace). */
+async function deleteLines(page: Page, line: Locator, count = 1) {
+  await line.click();
   await page.keyboard.press('Home');
-  await page.keyboard.press('Shift+ArrowDown');
+  for (let i = 0; i < count; i++) await page.keyboard.press('Shift+ArrowDown');
   await page.keyboard.press('Backspace');
 }
+
+/** Delete the `intro prose` line whole. */
+const deleteIntroLine = (page: Page) =>
+  deleteLines(page, page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'intro prose' }).first());
 
 test('E543: deleting a prose line shows ONE red block of its text directly under the anchor, coloured from --mm-diff-removed', async ({
   page,
@@ -269,10 +272,7 @@ test('E543: deleting a prose line shows ONE red block of its text directly under
 
 test('E544: a deletion before line 1 places its block ABOVE line 1', async ({ page }) => {
   const editor = await openMixWithDiff(page);
-  await editor.locator('.cm-line').first().click();
-  await page.keyboard.press('Home');
-  await page.keyboard.press('Shift+ArrowDown');
-  await page.keyboard.press('Backspace');
+  await deleteLines(page, editor.locator('.cm-line').first());
   const block = editor.getByTestId('diff-removed-block');
   await expect(block).toHaveCount(1);
   await expect(block).toHaveText('---'); // the front matter's opening fence
@@ -333,10 +333,7 @@ test('E547: removing a whole fenced block yields ONE block carrying all three of
   page,
 }) => {
   const editor = await openMixWithDiff(page);
-  await editor.locator('.cm-line.mm-fence-card-first').click();
-  await page.keyboard.press('Home');
-  for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowDown');
-  await page.keyboard.press('Backspace');
+  await deleteLines(page, editor.locator('.cm-line.mm-fence-card-first'), 3);
   await caretToTail(page);
   const block = editor.getByTestId('diff-removed-block');
   await expect(block).toHaveCount(1);
