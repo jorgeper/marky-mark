@@ -74,7 +74,8 @@ body,
    or every token there resolves to nothing and the primitives collapse to
    unstyled defaults (E394 pins the agreement). */
 .theme-root,
-.hosted-signin {
+.hosted-signin,
+.hosted-booting {
   /* Spacing scale (PRD 018 Req 1): the file's most common chrome gaps and
      paddings, smallest to largest. */
   --mm-space-1: 4px;
@@ -2940,6 +2941,42 @@ input.folder-rename-input.invalid {
   --mm-fg: #1f2328;
   --mm-border: #d1d9e0;
   --mm-accent: #0969da;
+}
+
+/* PRD 020 Req 5+6 (issue #253): the hosted boot's ONE holding frame. Raised
+   before the first paint of any load that may end up inside the app and
+   dropped when the destination surface is on screen, so entering a workspace
+   paints no sign-in shell, no bare app frame and no home page on the way.
+   Deliberately almost nothing to look at: the app background (this mounts
+   OUTSIDE .theme-root, like the sign-in page, so no theme colours it — it is
+   the same unchanging surface the browser already showed while the bundle
+   loaded), with issue #252's spinner idiom fading in only if the wait
+   outlasts a beat. A boot that lands quickly therefore shows one still frame
+   and then the workspace. */
+.hosted-booting {
+  position: fixed;
+  inset: 0;
+  /* Above every App surface — the tallest chrome in this file is 120. */
+  z-index: 130;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--mm-bg, #ffffff);
+}
+
+/* The spinner itself is `search-scanning-spinner` (keyframes included); this
+   adds only the late fade-in, so the shorthand restates the spin it rides. */
+.hosted-booting-spinner {
+  opacity: 0;
+  animation:
+    mm-search-spin 0.8s linear infinite,
+    mm-boot-hold-in 120ms linear 400ms forwards;
+}
+
+@keyframes mm-boot-hold-in {
+  to {
+    opacity: 1;
+  }
 }
 
 .hosted-signin-hint {

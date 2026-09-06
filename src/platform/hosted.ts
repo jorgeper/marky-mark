@@ -1,6 +1,12 @@
 import type { Platform } from './types';
 import { createLocalDocs } from './localDocs';
-import { clearToken, HostedSessionExpiredError, readStoredToken, takeHostedBoot } from '../lib/hostedGate';
+import {
+  clearToken,
+  HostedSessionExpiredError,
+  readStoredToken,
+  takeHostedBoot,
+  takeSessionRecord,
+} from '../lib/hostedGate';
 import { createHostedWorkspaceLifecycle, type HostedBinding } from './hostedWorkspaces';
 import { createHostedAdmin } from './hostedAdmin';
 import { createHostedLlm } from './hostedLlm';
@@ -148,7 +154,11 @@ export function createHostedPlatform(): Platform {
    * every consumer (permissions, the entry surfaces, the lifecycle) reads
    * the one answer instead of re-fetching per use. `dropSession` drops it.
    */
-  let me: Promise<SessionMe | null> | null = null;
+  // PRD 020 Req 5+6 (issue #253): the gate already fetched it to validate the
+  // session — that one answer is handed over here, so a boot into a workspace
+  // asks `/api/me` ONCE in total instead of once per asker.
+  const primed = takeSessionRecord(window.sessionStorage);
+  let me: Promise<SessionMe | null> | null = primed ? Promise.resolve(primed) : null;
   const sessionMe = (): Promise<SessionMe | null> =>
     (me ??= api('/api/me')
       .then((res) => json<SessionMe>(res))

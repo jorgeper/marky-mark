@@ -5,6 +5,8 @@
 // shim, and static hosting serve unmarked HTML and never gate on sign-in.
 // Storage is a passed-in Storage-shaped object, keeping this module pure.
 
+import type { SessionMe } from './deploymentSettings';
+
 export type HostedMode = 'local' | 'azure';
 
 /** The marker name server/app.ts injects; content is the server's mode. */
@@ -14,6 +16,7 @@ const TOKEN_KEY = 'marky-mark.hosted.token';
 const PENDING_KEY = 'marky-mark.hosted.pending-sign-in';
 const VISIT_INTENT_KEY = 'marky-mark.hosted.visit-intent';
 const BOOT_KEY = 'marky-mark.hosted.boot';
+const SESSION_KEY = 'marky-mark.hosted.session';
 
 interface MetaSource {
   querySelector(selector: string): { getAttribute(name: string): string | null } | null;
@@ -210,6 +213,35 @@ export function takePendingSignIn(store: KeyValueStore): PendingSignIn | null {
         scope: parsed.scope,
       };
     }
+  } catch {
+    // corrupt sessionStorage entry — treat as absent
+  }
+  return null;
+}
+
+/**
+ * PRD 017 Req 3 + PRD 020 Req 5+6 (issue #253): the ONE `/api/me` of a page
+ * load, handed from the gate to the platform. The gate must fetch it anyway
+ * — it is how a stored token is revalidated, and how a scratch visit learns
+ * whose scratch it is — and the platform holds the same record for the whole
+ * session; without this hand-off the boot asked twice (three times, with the
+ * visit resolve's own handle probe) before the workspace was even on screen.
+ * Read-and-clear like the boot record: the gate re-mints it on every load, so
+ * nothing stale can outlive the session it describes.
+ */
+export function storeSessionRecord(store: KeyValueStore, me: unknown): void {
+  store.setItem(SESSION_KEY, JSON.stringify(me));
+}
+
+export function takeSessionRecord(store: KeyValueStore): SessionMe | null {
+  const raw = store.getItem(SESSION_KEY);
+  store.removeItem(SESSION_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<SessionMe>;
+    // The one field every consumer keys on — anything without it is unusable
+    // as a session record, exactly as a failed fetch would be.
+    if (typeof parsed.id === 'string') return parsed as SessionMe;
   } catch {
     // corrupt sessionStorage entry — treat as absent
   }

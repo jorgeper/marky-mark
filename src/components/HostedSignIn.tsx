@@ -15,12 +15,15 @@ import {
   parseAuthCallback,
   parseAuthorizeUrl,
 } from '../lib/hostedAuth';
+import { BOOT_HOLD_TIMEOUT_MS, holdsBootFrame, type BootHoldTarget } from '../lib/hostedBootHold';
+import type { SessionMe } from '../lib/deploymentSettings';
 import {
   clearToken,
   clearVisitIntent,
   readStoredToken,
   storeHostedBoot,
   storePendingSignIn,
+  storeSessionRecord,
   storeToken,
   storeVisitIntent,
   takePendingSignIn,
@@ -61,6 +64,56 @@ const SIGN_IN_FAILED = 'Sign-in failed — the server did not answer as expected
 interface VisitNotFound {
   workspace: string;
   file: string | null;
+}
+
+/**
+ * What the visit resolved to. PRD 020 Req 5+6 (issue #253): "bound a
+ * workspace" and "landed on the home page" are now different answers rather
+ * than one shared `null` — the holding frame below waits for a different
+ * surface in each case, and only the gate knows which one this load is.
+ */
+type VisitOutcome = { kind: 'bound' } | { kind: 'home' } | ({ kind: 'not-found' } & VisitNotFound);
+
+/**
+ * PRD 020 Req 5+6 (issue #253): the boot's network reads, started TOGETHER.
+ * The session validation (`GET /api/me`) and the reads the visit's own shape
+ * calls for — the workspace listing, the own-scratch resolve-or-create — have
+ * no data dependency on each other, so chaining them through awaits only
+ * staggered the boot; each is started here and awaited where its answer is
+ * first needed. PRD 017 Req 3: the session record is fetched ONCE for the
+ * whole boot — the validation, the visit's handle lookup, and (through
+ * storeSessionRecord) the platform all read this one answer.
+ */
+interface BootProbes {
+  auth: { Authorization: string };
+  visit: HostedVisit;
+  path: AppPathTarget;
+  legacyId: string | null;
+  me: Promise<SessionMe | null>;
+  /** The caller's workspaces — only a visit a listing can name asks for it. */
+  rows: Promise<WorkspaceListing[] | null> | null;
+  /** PRD 019 Reqs 5–7: the own-scratch resolve-or-create. */
+  scratch: Promise<{ id?: string } | null> | null;
+}
+
+function startBootProbes(visit: HostedVisit, token: string): BootProbes {
+  const auth = { Authorization: `Bearer ${token}` };
+  const path = parseAppPath(visit.pathname);
+  const legacyId = workspaceIdFromSearch(visit.search);
+  return {
+    auth,
+    visit,
+    path,
+    legacyId,
+    me: getJson<SessionMe>('/api/me', auth),
+    rows:
+      path.kind === 'workspace' || (path.kind === 'home' && legacyId !== null)
+        ? getJson<WorkspaceListing[]>('/api/workspaces', auth)
+        : null,
+    // PRD 020 Req 11: a bare `/scratchpad` is always the caller's OWN, so its
+    // idempotent resolve-or-create needs no other answer to start.
+    scratch: path.kind === 'scratch' ? getJson<{ id?: string }>('/api/me/scratchpad', auth, { method: 'POST' }) : null,
+  };
 }
 
 /**
@@ -114,20 +167,15 @@ async function getJson<T>(
  * rewrite untouched. Req 8: an unresolvable visit answers what was looked
  * for, and the caller renders the not-found page instead of the app.
  */
-async function resolveHostedVisit(): Promise<VisitNotFound | null> {
-  const intent = takeVisitIntent(window.sessionStorage);
-  const visit: HostedVisit = intent ?? {
-    pathname: window.location.pathname,
-    search: window.location.search,
-    hash: window.location.hash,
-  };
-  const legacyId = workspaceIdFromSearch(visit.search);
-  const path = parseAppPath(visit.pathname);
-  if (path.kind === 'home' && legacyId === null) return null;
-
-  const auth = { Authorization: `Bearer ${readStoredToken(window.localStorage) ?? ''}` };
-  const listRows = async (): Promise<WorkspaceListing[]> =>
-    (await getJson<WorkspaceListing[]>('/api/workspaces', auth)) ?? [];
+async function resolveHostedVisit(probes: BootProbes, me: SessionMe | null): Promise<VisitOutcome> {
+  const { auth, visit, path, legacyId } = probes;
+  if (path.kind === 'home' && legacyId === null) return { kind: 'home' };
+  // PRD 020 Req 12 (issue #253): the caller's assigned handle — what
+  // `/scratchpad` lands on, and what tells an own-scratch visit from someone
+  // else's. It rides the ONE session record this boot fetched, so resolving a
+  // scratch route costs no second `/api/me`. Undefined when that read failed,
+  // exactly as the handle probe it replaces was.
+  const handle = me?.handle;
 
   /**
    * PRD 020 Req 10+13: land in a scratchpad workspace — verify the file half
@@ -142,11 +190,13 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
     owner: string,
     file: readonly string[],
     fresh: boolean,
-  ): Promise<VisitNotFound | null> => {
+  ): Promise<VisitOutcome> => {
     const rel = file.length > 0 ? file.join('/') : null;
     if (rel !== null) {
       const files = await getJson<{ path: string }[]>(`/api/workspaces/${encodeURIComponent(id)}/files`, auth);
-      if (!files?.some((f) => f.path === rel)) return { workspace: `${owner}/${SCRATCH_SEGMENT}`, file: rel };
+      if (!files?.some((f) => f.path === rel)) {
+        return { kind: 'not-found', workspace: `${owner}/${SCRATCH_SEGMENT}`, file: rel };
+      }
     }
     window.history.replaceState(null, '', `${buildScratchPath(owner, file)}${visit.hash}`);
     storeHostedBoot(window.sessionStorage, {
@@ -155,29 +205,21 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
       ...(rel !== null ? { file: rel } : {}),
       ...(fresh ? { scratch: true } : {}),
     });
-    return null;
+    return { kind: 'bound' };
   };
 
-  /**
-   * PRD 020 Req 12: the caller's assigned handle, from /api/me — what
-   * `/scratchpad` lands on, and what tells an own-scratch visit from someone
-   * else's. Undefined on any failure, like every getJson miss.
-   */
-  const myHandle = async (): Promise<string | undefined> =>
-    (await getJson<{ handle?: string }>('/api/me', auth))?.handle;
-
   if (path.kind === 'scratch' || path.kind === 'user-scratch') {
-    const handle = await myHandle();
     // PRD 020 Req 12: whose scratch this addresses — the same case-insensitive
     // handle match the boot decision below makes, so the two can't disagree.
     if (handle !== undefined && isOwnScratch(path, handle)) {
-      // The caller's own scratch: the idempotent resolve-or-create (PRD 019 Reqs 5–7).
-      const body = await getJson<{ id?: string }>('/api/me/scratchpad', auth, { method: 'POST' });
+      // The caller's own scratch: the idempotent resolve-or-create (PRD 019
+      // Reqs 5–7) — already in flight for a bare `/scratchpad` (issue #253).
+      const body = await (probes.scratch ?? getJson<{ id?: string }>('/api/me/scratchpad', auth, { method: 'POST' }));
       if (!body?.id) {
         // An unanswerable resolve must not leave the app parked on a path
         // only this gate understands: land on the plain start page instead.
         window.history.replaceState(null, '', '/');
-        return null;
+        return { kind: 'home' };
       }
       // PRD 023 Req 1 (amending PRD 019 Req 10): BOTH bare URL forms boot the
       // fresh scratch buffer on every entry, reloads of the canonical URL
@@ -193,7 +235,7 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
     if (path.kind === 'scratch') {
       // No handle to land on — same bail-out as an unanswerable resolve.
       window.history.replaceState(null, '', '/');
-      return null;
+      return { kind: 'home' };
     }
     // PRD 020 Req 13: someone else's scratch — server-side resolution, which
     // 404s identically for an unknown username, an unprovisioned scratch,
@@ -205,6 +247,7 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
     );
     if (!resolved?.id) {
       return {
+        kind: 'not-found',
         workspace: `${path.username}/${SCRATCH_SEGMENT}`,
         file: path.file.length > 0 ? path.file.join('/') : null,
       };
@@ -214,7 +257,7 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
     return bindScratch(resolved.id, resolved.owner ?? path.username, path.file, scratchBootsFresh(path, handle));
   }
 
-  const rows = await listRows();
+  const rows = (await probes.rows) ?? [];
   const wanted = path.kind === 'workspace' ? path : null;
   const row = wanted ? findWorkspaceByUniqueName(rows, wanted.name) : rows.find((r) => r.id === legacyId);
   // PRD 020 Req 10: a scratchpad workspace reached by any OTHER address — its
@@ -222,7 +265,6 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
   // canonical `/<username>/scratchpad` bar form (a flagged row is always the
   // caller's own scratch; nobody else's is ever listed).
   if (row?.scratchpad) {
-    const handle = await myHandle();
     if (handle !== undefined) {
       // PRD 023 Reqs 1+2 (one rule, not per-route): a flagged row is always
       // the caller's OWN scratch, so this address decides the boot the same
@@ -236,13 +278,13 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
   if (!row?.uniqueName) {
     // PRD 020 Req 8: no workspace to bind — name exactly what was asked for
     // (an unlisted workspace answers the same way as a nonexistent one).
-    return { workspace: wanted ? wanted.name : (legacyId ?? ''), file: null };
+    return { kind: 'not-found', workspace: wanted ? wanted.name : (legacyId ?? ''), file: null };
   }
   if (file !== null && row.access) {
     // PRD 020 Req 8: the workspace is real but the file half must be too —
     // checked against the files listing, the same read the sidebar makes.
     const files = await getJson<{ path: string }[]>(`/api/workspaces/${encodeURIComponent(row.id)}/files`, auth);
-    if (!files?.some((f) => f.path === file)) return { workspace: row.uniqueName, file };
+    if (!files?.some((f) => f.path === file)) return { kind: 'not-found', workspace: row.uniqueName, file };
   }
   const openFile = row.access && wanted ? wanted.file : [];
   window.history.replaceState(null, '', `${buildAppPath(row.uniqueName, openFile)}${visit.hash}`);
@@ -251,7 +293,7 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
     uniqueName: row.uniqueName,
     ...(file !== null && row.access ? { file } : {}),
   });
-  return null;
+  return { kind: 'bound' };
 }
 
 type Phase =
@@ -260,24 +302,87 @@ type Phase =
   // PRD 020 Req 8: the visit resolved to nothing — render the friendly
   // not-found page (naming what was looked for) instead of the app.
   | { kind: 'not-found'; workspace: string; file: string | null }
-  | { kind: 'ready' };
+  // PRD 020 Req 5+6 (issue #253): `target` is what the holding frame waits
+  // for inside <App/> — the bound workspace, or the home page's own shell.
+  | { kind: 'ready'; target: BootHoldTarget };
 
 /** Resolve the visit and pick the phase entry into the app lands on. */
-async function resolvedPhase(): Promise<Phase> {
-  const missing = await resolveHostedVisit();
-  return missing ? { kind: 'not-found', ...missing } : { kind: 'ready' };
+async function resolvedPhase(probes: BootProbes, me: SessionMe | null): Promise<Phase> {
+  const outcome = await resolveHostedVisit(probes, me);
+  return outcome.kind === 'not-found'
+    ? { kind: 'not-found', workspace: outcome.workspace, file: outcome.file }
+    : { kind: 'ready', target: outcome.kind === 'bound' ? 'workspace' : 'app' };
+}
+
+/**
+ * The visit this page load entered on: the live location (local dev mode
+ * never navigates, so it survives naturally) or the sessionStorage record the
+ * azure redirect leg left behind (PRD 020 Req 9). Read-and-clear, once per
+ * boot, like the intent it consumes.
+ */
+function currentVisit(): HostedVisit {
+  return (
+    takeVisitIntent(window.sessionStorage) ?? {
+      pathname: window.location.pathname,
+      search: window.location.search,
+      hash: window.location.hash,
+    }
+  );
+}
+
+/**
+ * PRD 007 Req 5 + PRD 020 Req 5+6 (issue #253): the phase the very first paint
+ * shows. A visitor with no session and no callback to finish IS signed out —
+ * knowable synchronously — so their destination, the sign-in page, is the
+ * first thing painted, with no "Checking session…" frame in front of it.
+ * Every other load starts held (`holdsBootFrame`, the same one answer), and
+ * paints nothing until the app itself is ready.
+ */
+function initialPhase(): Phase {
+  return holdsBootFrame({ token: readStoredToken(window.localStorage), search: window.location.search })
+    ? { kind: 'checking' }
+    : { kind: 'signed-out', error: null, busy: false };
 }
 
 export function HostedShell({ mode }: { mode: HostedMode }) {
-  const [phase, setPhase] = useState<Phase>({ kind: 'checking' });
+  const [phase, setPhase] = useState<Phase>(initialPhase);
   const [username, setUsername] = useState('');
+  /**
+   * PRD 020 Req 5+6 (issue #253): the ONE holding frame. Raised before the
+   * first paint of any load that may end up inside the app, dropped exactly
+   * once — when the gate answers with a surface of its own (sign-in,
+   * not-found) or, for a load that enters the app, when <App/> reports its
+   * destination on screen. Nothing intermediate is painted under it, and it
+   * is never raised a second time: entering a workspace is one frame held,
+   * and then the workspace.
+   */
+  const [holding, setHolding] = useState(() =>
+    holdsBootFrame({ token: readStoredToken(window.localStorage), search: window.location.search })
+  );
+  const releaseHold = useCallback(() => setHolding(false), []);
+
+  // The backstop — never the timing anything correct relies on: however a boot
+  // ends (a workspace open that failed, a seam that never answered), the held
+  // frame is not the last word on screen.
+  useEffect(() => {
+    if (!holding) return;
+    const timer = window.setTimeout(() => setHolding(false), BOOT_HOLD_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [holding]);
 
   // Boot: finish an in-flight Entra callback if this is one, else revalidate
   // a stored session against the API guard so it survives a page reload.
   useEffect(() => {
     let cancelled = false;
     const finish = (p: Phase) => {
-      if (!cancelled) setPhase(p);
+      if (cancelled) return;
+      setPhase(p);
+      // Issue #253: the gate's own surfaces ARE the destination — sign-in for
+      // a visitor whose session is gone, the PRD 020 Req 8 not-found page for
+      // a visit that resolves to nothing. Each is the first screen painted, so
+      // the frame comes down in the same update that renders it; only a load
+      // entering the app keeps holding (App drops that one).
+      if (p.kind !== 'ready') setHolding(false);
     };
     void (async () => {
       if (mode === 'azure') {
@@ -303,8 +408,13 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
             });
             storeToken(window.localStorage, token);
             // PRD 020 Req 9: the sign-in that just completed may have begun
-            // at a deep link — the recorded intent continues there now.
-            finish(await resolvedPhase());
+            // at a deep link — the recorded intent continues there now, with
+            // its probes started together like any other boot (issue #253),
+            // and no home page painted on the way.
+            const probes = startBootProbes(currentVisit(), token);
+            const who = await probes.me;
+            if (who) storeSessionRecord(window.sessionStorage, who);
+            finish(await resolvedPhase(probes, who));
           } catch (err) {
             finish({ kind: 'signed-out', error: err instanceof Error ? err.message : String(err), busy: false });
           }
@@ -313,11 +423,18 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
       }
       const token = readStoredToken(window.localStorage);
       if (token) {
-        const res = await hostedFetch('/api/me', { headers: { Authorization: `Bearer ${token}` } }).catch(() => null);
-        if (res?.ok) {
+        // Issue #253: the session validation IS the visit's `/api/me` read —
+        // one request, started alongside the visit's own probes rather than in
+        // front of them, and handed on to the platform (PRD 017 Req 3) so
+        // nothing asks the server who this is a second time before the
+        // workspace is on screen.
+        const probes = startBootProbes(currentVisit(), token);
+        const who = await probes.me;
+        if (who) {
+          storeSessionRecord(window.sessionStorage, who);
           // PRD 020 Req 5+7: an already-signed-in path (or legacy-query)
           // visit resolves and canonicalizes before the app mounts.
-          finish(await resolvedPhase());
+          finish(await resolvedPhase(probes, who));
           return;
         }
         clearToken(window.localStorage);
@@ -342,7 +459,10 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
       storeToken(window.localStorage, body.token);
       // PRD 020 Req 9: local dev mode never navigated, so a sign-in that
       // began at a deep link still sits on that URL — continue there.
-      setPhase(await resolvedPhase());
+      const probes = startBootProbes(currentVisit(), body.token);
+      const who = await probes.me;
+      if (who) storeSessionRecord(window.sessionStorage, who);
+      setPhase(await resolvedPhase(probes, who));
       return;
     }
     const error =
@@ -396,7 +516,33 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
     );
   }, []);
 
-  if (phase.kind === 'ready') return <App />;
+  // PRD 020 Req 5+6 (issue #253): ONE element, in ONE slot, for the whole
+  // wait — React keeps this node mounted across every phase change under it,
+  // so a boot can never alternate between two holding surfaces or re-enter
+  // this one. Quiet by construction: the app background, and a spinner that
+  // only fades in if the wait outlasts a beat.
+  const hold = holding ? (
+    <div className="hosted-booting" data-testid="hosted-booting" role="status" aria-label="Opening Marky Mark">
+      <span className="search-scanning-spinner hosted-booting-spinner" aria-hidden="true" />
+    </div>
+  ) : null;
+
+  // Issue #253: while the frame is up the app mounts UNDER it and paints
+  // nothing of its own until its destination is ready (App's `bootHold`), so
+  // no bare shell and no home page ever exists on the way into a workspace.
+  if (phase.kind === 'ready') {
+    return (
+      <>
+        {hold}
+        <App bootHold={holding ? phase.target : undefined} onBootHoldRelease={releaseHold} />
+      </>
+    );
+  }
+
+  // Issue #253: the session is still being resolved — the held frame above is
+  // the whole screen. No sign-in shell, no "Checking session…": a signed-in
+  // visitor never sees a screen they did not ask for.
+  if (phase.kind === 'checking') return hold;
 
   // PRD 020 Req 8: the friendly not-found page — in-app chrome (the sign-in
   // page's splash shape), naming exactly what was looked for, with a link
@@ -433,9 +579,10 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
       <div className="splash-mark" aria-hidden="true">
         <AppBadge size={132} testId="hosted-sign-in-badge" />
       </div>
-      {phase.kind === 'checking' ? (
-        <p className="hosted-signin-hint">Checking session…</p>
-      ) : mode === 'local' ? (
+      {/* Issue #253: the "Checking session…" frame is gone — a load with a
+          session to check never renders this page at all, so what is left here
+          is only ever the signed-out visitor's own destination. */}
+      {mode === 'local' ? (
         <form
           className="hosted-signin-form"
           onSubmit={(e) => {
@@ -485,7 +632,7 @@ export function HostedShell({ mode }: { mode: HostedMode }) {
           Sign in with Microsoft
         </Button>
       )}
-      {phase.kind === 'signed-out' && phase.error && (
+      {phase.error && (
         <p className="hosted-signin-error" data-testid="hosted-sign-in-error" role="alert">
           {phase.error}
         </p>
