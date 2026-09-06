@@ -40,6 +40,33 @@ async function dropRoamingFile(page: Page, headers: { Authorization: string }, f
   expect([200, 404]).toContain(dropped.status());
 }
 
+/** Create this worker's own workspace (`<label> styling w<n>`) and enter it
+ * signed in as ada — the hosted entry the workspace-surface tests here share.
+ * PRD 020 Req 5: the visit arrives by canonical path URL, so the unique name
+ * the server minted is read back rather than guessed. Resolves once the app
+ * has booted (the folder panel is up). */
+async function enterFreshWorkspace(page: Page, label: string): Promise<void> {
+  const headers = await hostedAuthHeaders(page, 'ada');
+  const created = await page.request.post(`${HOSTED}/api/workspaces`, {
+    headers,
+    data: { name: `${label} styling w${test.info().workerIndex}` },
+  });
+  expect(created.status()).toBe(201);
+  const id = ((await created.json()) as { id: string }).id;
+
+  await dropRoamingFile(page, headers, 'draft.json');
+  const rows = (await (await page.request.get(`${HOSTED}/api/workspaces`, { headers })).json()) as {
+    id: string;
+    uniqueName?: string;
+  }[];
+  const uniqueName = rows.find((r) => r.id === id)?.uniqueName;
+  if (uniqueName === undefined) throw new Error(`workspace ${id} came back without a unique name`);
+  await page.goto(`${HOSTED}/${uniqueName}`);
+  await page.getByTestId('hosted-sign-in-username').fill('ada');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+}
+
 /** The computed properties PRD 018 Req 30 makes the agreement contract. */
 type ChromeSample = {
   radius: string;
@@ -212,24 +239,7 @@ test('E395: the workspace settings destructive button is the danger fill on the 
   // PRD 018 Req 30: the destructive control from a workspace settings
   // surface — .btn-danger.btn-primary — keeps the .btn geometry and takes
   // its fill from the one danger token.
-  const headers = await hostedAuthHeaders(page, 'ada');
-  const created = await page.request.post(`${HOSTED}/api/workspaces`, {
-    headers,
-    data: { name: `E395 styling w${test.info().workerIndex}` },
-  });
-  expect(created.status()).toBe(201);
-  const id = ((await created.json()) as { id: string }).id;
-
-  await dropRoamingFile(page, headers, 'draft.json');
-  // PRD 020 Req 5: workspace visits arrive by canonical path URL.
-  const rows = (await (await page.request.get(`${HOSTED}/api/workspaces`, { headers })).json()) as {
-    id: string;
-    uniqueName?: string;
-  }[];
-  await page.goto(`${HOSTED}/${rows.find((r) => r.id === id)!.uniqueName!}`);
-  await page.getByTestId('hosted-sign-in-username').fill('ada');
-  await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await enterFreshWorkspace(page, 'E395');
 
   // Issue #183 §1: the danger zone lives at the foot of the Workspace tab.
   await openSettings(page, 'workspace');
@@ -278,24 +288,7 @@ test('E529: every settings tab\'s section headers are one primitive — the Work
   // computed-style comparison across tabs is the regression guard: General
   // (both builds), Hotkeys' Smart Edit group, and the hosted-only Workspace
   // tab all resolve to the same type and colour.
-  const headers = await hostedAuthHeaders(page, 'ada');
-  const created = await page.request.post(`${HOSTED}/api/workspaces`, {
-    headers,
-    data: { name: `E529 styling w${test.info().workerIndex}` },
-  });
-  expect(created.status()).toBe(201);
-  const id = ((await created.json()) as { id: string }).id;
-
-  await dropRoamingFile(page, headers, 'draft.json');
-  // PRD 020 Req 5: workspace visits arrive by canonical path URL.
-  const rows = (await (await page.request.get(`${HOSTED}/api/workspaces`, { headers })).json()) as {
-    id: string;
-    uniqueName?: string;
-  }[];
-  await page.goto(`${HOSTED}/${rows.find((r) => r.id === id)!.uniqueName!}`);
-  await page.getByTestId('hosted-sign-in-username').fill('ada');
-  await page.getByTestId('hosted-sign-in-submit').click();
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await enterFreshWorkspace(page, 'E529');
 
   // The General tab's first section ("Editor") — the convention the rest of
   // the dialog follows, and the reference every other header is held to.

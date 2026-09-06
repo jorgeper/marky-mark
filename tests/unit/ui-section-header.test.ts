@@ -6,7 +6,7 @@ import { mount, unmountAll, withTestId } from './ui-dom';
 
 afterEach(unmountAll);
 
-describe('Issue #249 SectionHeader wrapper', () => {
+describe('PRD 018 §B9–B11 (issue #249) SectionHeader wrapper', () => {
   test('U1227: emits exactly "section-header" on an <h3> — never an <h2>, which `.dialog h2` styles as a dialog title', () => {
     const el = mount(h(SectionHeader, null, 'People'));
     expect(el.tagName).toBe('H3');

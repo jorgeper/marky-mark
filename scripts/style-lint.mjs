@@ -288,10 +288,9 @@ export function lintTsx(source) {
   // Workspace tab's bare <h2>-styled sections were exactly that — fails
   // here instead of drifting. <h1>/<h2> are titles and are left alone.
   for (const m of text.matchAll(/<h[34]\b/g)) {
-    const tag = openingTag(text, m.index);
-    const classText = classAttr(tag);
-    const statics = staticClassTokens(classText ?? '');
-    if (classText === null || !statics.includes('section-header')) {
+    // A tag with no className states no tokens, so it fails this check too.
+    const classText = classAttr(openingTag(text, m.index)) ?? '';
+    if (!staticClassTokens(classText).includes('section-header')) {
       findings.push({
         line: lineOf(text, m.index),
         message:
