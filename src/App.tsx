@@ -40,6 +40,7 @@ import {
   type SearchMatcher,
   type SearchOptions,
   type SearchResults,
+  type SelectSourceRange,
   type SmartEditHandle,
   type SmartFormatOp,
 } from '@marky-mark/editor';
@@ -807,8 +808,9 @@ export default function App() {
   const navLabelRef = useRef('');
   const editorSyncRef = useRef<EditorSyncHandle | null>(null);
   const editorInsertRef = useRef<((text: string) => void) | null>(null);
-  /** SPEC23 §1: imperative mirrored-selection entry into the mounted editor. */
-  const editorSelectRef = useRef<((from: number, to: number) => void) | null>(null);
+  /** SPEC23 §1: imperative mirrored-selection entry into the mounted editor.
+   * Scroll-neutral unless the caller opts into `reveal` (issue #278). */
+  const editorSelectRef = useRef<SelectSourceRange | null>(null);
   /** SPEC30 §1.4: the mounted editor's find/replace engine. */
   const editorSearchRef = useRef<EditorSearchHandle | null>(null);
   /** SPEC43 §5.2: the mounted editor's Smart Edit handle — null in preview,
@@ -1390,7 +1392,8 @@ export default function App() {
         }
       }
       if (stateRef.current.mode === 'edit') {
-        editorSelectRef.current?.(caret, caret); // the report loop paints the cues
+        // SPEC44 §4: a click legitimately reveals the placed caret (E125).
+        editorSelectRef.current?.(caret, caret, { reveal: true }); // the report loop paints the cues
       } else {
         pendingEditorSelRef.current = { from: caret, to: caret }; // Mod+E lands here
         const headLine = hit.buffer.slice(0, caret).split('\n').length;
@@ -6534,6 +6537,9 @@ export default function App() {
       const pane = splitDocRef.current;
       if (!pane) return;
       const mapped = sourceRangeFromDomSelection(pane);
+      // SPEC23 §1.3 (amended by issue #278): the mirror is scroll-neutral —
+      // no reveal, or the editor jump feeds SPEC15's follower and one
+      // preview selection moves BOTH panes' scroll positions.
       if (mapped) editorSelectRef.current?.(mapped.from, mapped.to);
     };
     const onSel = () => {
@@ -7226,7 +7232,8 @@ export default function App() {
         pendingScrollLineRef.current = null; // the click outvotes a queued restore
         editorSyncRef.current?.goToLine(match.line);
         const off = matchDocOffsets(stateRef.current.buffer, match);
-        if (off) editorSelectRef.current?.(off.from, off.to);
+        // PRD 014 Req 8: landing on a match is a reveal by definition.
+        if (off) editorSelectRef.current?.(off.from, off.to, { reveal: true });
         return;
       }
       const ws = workspaceRef.current;

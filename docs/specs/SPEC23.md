@@ -7,7 +7,8 @@ wins on conflict; nothing may regress. §7 is the goal condition.
 **What ships:**
 1. **Mirrored selection (split edit):** selecting text in the split
    preview also selects the corresponding **source text** in the editor
-   pane and scrolls it into view.
+   pane, without moving either pane's scroll position (§1.3 as amended
+   by issue #278; originally the range was also scrolled into view).
 2. **Vim navigation mode in the editor:** with the existing Vim setting
    on, **Esc** puts the editor in a navigation-only modal state (h j k l,
    w b, 0 $, gg G, Ctrl+d/u — **no editing verbs, typing is inert**),
@@ -49,8 +50,20 @@ content (fallback below covers them).
    (end bound: the next stamped block's line, else the buffer end).
    On `selectionchange` (debounced ≤ 200 ms, selection anchored inside
    the split preview only) the mapped range is dispatched to CodeMirror
-   as its selection plus `scrollIntoView` — **without focusing the
-   editor** (the preview selection must survive).
+   as its selection — **without focusing the editor** (the preview
+   selection must survive).
+
+   > **Amendment (issue #278, 2026-09-05):** the dispatch is
+   > **scroll-neutral** — the original "plus `scrollIntoView`" reveal is
+   > dropped. Revealing the mirrored range scrolled the editor, and
+   > SPEC15's sync-scroll follower propagated that scroll to the preview,
+   > so selecting text in the preview jolted BOTH panes (and the editor
+   > alone with sync scrolling off). A preview selection now leaves both
+   > panes' scroll positions untouched; the mirrored selection is still
+   > produced and drawn (§1.5). Paths that legitimately reveal —
+   > preview-click caret placement (SPEC44 §4), search-match landings
+   > (PRD 014 Req 8), and the mode-switch carry (SPEC25 §1) — opt in
+   > explicitly and are unchanged.
 4. **Fallback:** a `null` mapping selects the whole covered source line
    range (line start of `fromLine` to line end of `toLine`). Never
    throw, never move the selection to a wrong-guess offset.
@@ -149,6 +162,12 @@ The desktop and web builds never set it (same gating style as
    preview selection survived; a click (collapsed) leaves the editor
    selection unchanged; a selection inside a table falls back to the
    covering line range.
+
+   > **Amendment (issue #278, 2026-09-05):** "the editor scrolled to
+   > it" is retired with §1.3's reveal: E80 now asserts the editor's
+   > scroll position is UNCHANGED by the mirror (the drawn selection is
+   > verified after scrolling to it manually). E464 covers the
+   > scroll-neutral contract for both panes, sync scrolling on and off.
 5. **E81** — vim nav: with the setting off, Esc in the editor does
    nothing (no badge, typing still edits). Turn it on: Esc → `vim-badge`
    visible; `j`/`k`/`w`/`0`/`$`/`gg`/`G` move `__mmEdit.headLine`/`head`

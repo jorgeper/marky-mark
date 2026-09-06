@@ -213,13 +213,20 @@ test('E80: split-preview selections mirror into the editor as exact source range
   await page.getByTestId('split-preview').click({ position: { x: 10, y: 10 } });
 
   // A phrase crossing a bold boundary lands on the exact SOURCE spelling.
+  const edScroller = page.locator('[data-testid="editor"] .cm-scroller');
+  const edTopBefore = await edScroller.evaluate((el) => el.scrollTop);
   await selectSpanInPane(page, '[data-testid="split-preview"] .doc', 'brown', 'fox jumps');
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('brown** fox jumps');
-  // The unfocused editor draws the selection and scrolled it into view.
-  expect(await page.locator('[data-testid="editor"] .cm-selectionBackground').count()).toBeGreaterThan(0);
-  expect(
-    await page.locator('[data-testid="editor"] .cm-scroller').evaluate((el) => el.scrollTop)
-  ).toBeGreaterThan(0);
+  // SPEC23 §1.3 (amended by issue #278): the mirror is scroll-neutral — the
+  // editor does NOT scroll to the mirrored range (E464 covers both panes).
+  await page.waitForTimeout(300); // outlast any jolt-and-settle
+  expect(Math.abs((await edScroller.evaluate((el) => el.scrollTop)) - edTopBefore)).toBeLessThan(2);
+  // The unfocused editor still DRAWS the selection — visible once the user
+  // scrolls to it themselves.
+  await edScroller.evaluate((el) => (el.scrollTop = el.scrollHeight));
+  await expect
+    .poll(() => page.locator('[data-testid="editor"] .cm-selectionBackground').count())
+    .toBeGreaterThan(0);
   // The preview's own selection survived the mirror.
   expect(await page.evaluate(() => document.getSelection()?.toString())).toBe('brown fox jumps');
 
@@ -234,6 +241,47 @@ test('E80: split-preview selections mirror into the editor as exact source range
   // Ambiguous text (two identical phrases in range) → covering-line fallback.
   await selectPhraseInPane(page, '[data-testid="split-preview"] .doc', 'repeat me');
   await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe('repeat me and repeat me.');
+});
+
+test('E464: Issue #278 — a preview selection is scroll-neutral: neither pane moves, sync scrolling on or off', async ({
+  page,
+}) => {
+  await splitApp(page); // long doc, split edit, sync scrolling on (default)
+  const editor = page.locator('[data-testid="editor"] .cm-scroller');
+  const preview = page.getByTestId('split-preview');
+  const scrollTops = async () => ({
+    editor: await editor.evaluate((el) => el.scrollTop),
+    preview: await preview.evaluate((el) => el.scrollTop),
+  });
+  // SPEC23 §1.3 (amended by issue #278): selecting `phrase` in the preview
+  // mirrors it into the editor and moves NEITHER pane's scroll position.
+  const expectScrollNeutralSelection = async (phrase: string) => {
+    const before = await scrollTops();
+    await selectPhraseInPane(page, '[data-testid="split-preview"] .doc', phrase);
+    await expect.poll(() => page.evaluate(() => window.__mmEdit?.selText)).toBe(phrase);
+    await page.waitForTimeout(300); // outlast any jolt-and-settle
+    const after = await scrollTops();
+    expect(Math.abs(after.editor - before.editor)).toBeLessThan(2);
+    expect(Math.abs(after.preview - before.preview)).toBeLessThan(2);
+  };
+
+  // Mid-document: scroll the editor half-way; the SPEC15 follower aligns
+  // the preview.
+  await editor.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.5));
+  await expect.poll(() => preview.evaluate((el) => el.scrollTop)).toBeGreaterThan(100);
+  // Blur the editor the way a real preview interaction does (pointerdown),
+  // and let the caret-placement reveal (SPEC44 §4 — legitimate) settle.
+  await preview.click({ position: { x: 40, y: 40 } });
+  await page.waitForTimeout(400);
+  await expectScrollNeutralSelection('Marker 30');
+
+  // Sync scrolling OFF: the editor must not jump on its own either.
+  await page.getByTestId('sync-scroll-toggle').click();
+  await expect(page.getByTestId('sync-scroll-toggle')).toHaveAttribute('data-state', 'off');
+  await editor.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.25));
+  await preview.evaluate((el) => (el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.6));
+  await page.waitForTimeout(300); // free-scroll: no follower, just settle
+  await expectScrollNeutralSelection('Marker 12');
 });
 
 test('E83: editor selections mirror into the split preview as synthetic marks; both directions coexist loop-free', async ({

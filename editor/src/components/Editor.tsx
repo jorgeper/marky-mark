@@ -245,6 +245,16 @@ export interface EditorSyncHandle {
 }
 
 /**
+ * SPEC23 §1: imperative select-source-range for mirrored preview selections —
+ * sets the CM selection WITHOUT focusing the editor (the preview selection
+ * must survive). `reveal` opts into scrolling the range into view (preview-click
+ * carets, search landings); the mirror omits it, because its reveal scrolled the
+ * editor and SPEC15's follower dragged the preview along (SPEC23 §1.3, amended
+ * by issue #278).
+ */
+export type SelectSourceRange = (from: number, to: number, opts?: { reveal?: boolean }) => void;
+
+/**
  * PRD 021 Req 4: the Editor's full prop contract, exported. Every
  * app-flavored capability (clipboard, images, external links, heading links,
  * paste handling) arrives through a seam callback here — the component
@@ -323,12 +333,8 @@ export interface EditorProps {
     selText: string;
     focused: boolean;
   }): void;
-  /**
-   * SPEC23 §1: imperative select-source-range for mirrored preview
-   * selections — sets the CM selection and scrolls it into view WITHOUT
-   * focusing the editor (the preview selection must survive).
-   */
-  selectRangeRef?: MutableRefObject<((from: number, to: number) => void) | null>;
+  /** SPEC23 §1: populated at mount with the select-source-range seam. */
+  selectRangeRef?: MutableRefObject<SelectSourceRange | null>;
   /**
    * SPEC25 §1: a selection carried across a mode switch — consumed once at
    * mount, applied AFTER the parked-history restore so it wins over the
@@ -780,6 +786,21 @@ const highlightsExt = (
     }),
   ];
 };
+
+/**
+ * SPEC23 §1 / SPEC25 §1: select a source range, clamped into the document.
+ * `reveal` centres the range in the viewport; without it the dispatch is
+ * scroll-neutral (SPEC23 §1.3, amended by issue #278).
+ */
+function selectSourceRange(view: EditorView, from: number, to: number, reveal: boolean): void {
+  const len = view.state.doc.length;
+  const anchor = Math.max(0, Math.min(from, len));
+  const head = Math.max(anchor, Math.min(to, len));
+  view.dispatch({
+    selection: { anchor, head },
+    effects: reveal ? EditorView.scrollIntoView(anchor, { y: 'center' }) : [],
+  });
+}
 
 /** SPEC23 §2: Ctrl+d/u — half the viewport, cursor moves, view centers on it. */
 function halfPage(view: EditorView, dir: 1 | -1): void {
@@ -1736,10 +1757,7 @@ export default function Editor({
     if (pendingSelectionRef?.current) {
       const { from, to } = pendingSelectionRef.current;
       pendingSelectionRef.current = null;
-      const len = view.state.doc.length;
-      const a = Math.max(0, Math.min(from, len));
-      const b = Math.max(a, Math.min(to, len));
-      view.dispatch({ selection: { anchor: a, head: b }, effects: EditorView.scrollIntoView(a, { y: 'center' }) });
+      selectSourceRange(view, from, to, true); // the carried selection is revealed
     }
 
     if (insertRef) {
@@ -1750,17 +1768,11 @@ export default function Editor({
       };
     }
 
-    // SPEC23 §1: mirrored selection entry point — no focus() here, ever.
+    // SPEC23 §1: mirrored selection entry point — no focus() here, ever, and
+    // no reveal unless the caller asks for one (SPEC23 §1.3 as amended by
+    // issue #278; the why is on `SelectSourceRange`).
     if (selectRangeRef) {
-      selectRangeRef.current = (from, to) => {
-        const len = view.state.doc.length;
-        const a = Math.max(0, Math.min(from, len));
-        const b = Math.max(a, Math.min(to, len));
-        view.dispatch({
-          selection: { anchor: a, head: b },
-          effects: EditorView.scrollIntoView(a, { y: 'center' }),
-        });
-      };
+      selectRangeRef.current = (from, to, opts) => selectSourceRange(view, from, to, opts?.reveal === true);
     }
 
     // SPEC43 §5.2: the App's format commands land here; the ref is null
