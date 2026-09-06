@@ -346,6 +346,19 @@ migrates to `themeLight`):
   the entries where the mapping is ambiguous, never guessing an anchor.
   Vim-nav still ignores keys whenever a selection is live — a selection is
   authoring context now, never nav's to scroll.
+- **The preview selection button** (PRD 023 §13, issue #287): a selection in
+  either preview surface (full preview, split live preview) grows the blue
+  Marky Mark hash button left of it — the editor package's shared
+  `SMART_EDIT_HASH_SVG` glyph and `.smart-edit-btn` styling as floating
+  viewport chrome, absent whenever the commentsEnabled/frozen/comment.write
+  gate is closed. It opens the same `SmartEditMenu` component over the
+  shared `buildAnnotationMenu` rows — Comment ▸ and Highlight ▸ ONLY, no
+  text-editing entry — resolved by the pure `previewAnnotationModel` in
+  `src/lib/annotationMenu.ts`: the preview has no caret, so the selection is
+  both insert anchor and hit context (overlap arms Delete Comment,
+  recolor-in-place, Remove Highlight). Rows route through the same
+  insert/recolor/delete operations as the hotkeys; the menu dismisses on
+  Esc, outside pointerdown, an anchor-moving scroll, and selection collapse.
 - **Resolved ghosts, settings-owned**: the "Show resolved" switch moved from
   the panel header into Settings → General → Comments, and its default
   flipped to **on** — resolving now ghosts the card in place immediately.

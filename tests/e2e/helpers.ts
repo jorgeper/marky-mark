@@ -249,9 +249,11 @@ export async function addComment(page: Page, phrase: string, body: string): Prom
 /**
  * Issue #286 (PRD 023 §12): author a highlight over `phrase` in the preview
  * via Mod+Alt+H — always the ARMED (last-used) color, yellow on a fresh
- * profile; color choice lives in the editor's Smart Edit menu until issue
- * #287's selection button. Retried like addComment: once the insert lands
- * the selection is cleared, so a duplicate press is a silent no-op.
+ * profile; a specific color is chosen through the annotation menu instead
+ * (the editor's Smart Edit menu, or the preview selection button's —
+ * `previewSelectionAnnotation`, issue #287). Retried like addComment: once
+ * the insert lands the selection is cleared, so a duplicate press is a
+ * silent no-op.
  */
 export async function addHighlight(page: Page, phrase: string): Promise<void> {
   await selectPhrase(page, phrase);
@@ -285,6 +287,35 @@ export async function smartEditAnnotation(
       await page.keyboard.press('Escape');
     }
     await page.keyboard.press('Control+.');
+    await expect(page.getByTestId('smart-edit-menu')).toBeVisible({ timeout: 1000 });
+    await page.getByTestId(`smart-edit-${submenu}`).click();
+    const row = page.getByTestId(`smart-edit-${leaf}`);
+    await expect(row).toBeEnabled({ timeout: 700 });
+    await row.click();
+  }).toPass({ timeout: 15000 });
+}
+
+/**
+ * Issue #287 (PRD 023 §13): invoke an annotation row from the PREVIEW
+ * selection button — click the floating hash left of the selection, enter
+ * the Comment/Highlight submenu, click the leaf. Assumes a selection was
+ * just made in a preview surface (selectPhrase / selectPhraseInPane).
+ * Retried whole, mirroring smartEditAnnotation: the button appears a beat
+ * after the selectionchange handler commits, and a landed row clears the
+ * selection (button and menu go with it), so a retry can never
+ * double-author. Escape is only sent while the menu (which holds focus) is
+ * open, so it can't disturb the app underneath.
+ */
+export async function previewSelectionAnnotation(
+  page: Page,
+  submenu: 'comment' | 'highlight',
+  leaf: string
+): Promise<void> {
+  await expect(async () => {
+    for (let i = 0; i < 3 && (await page.getByTestId('smart-edit-menu').count()); i++) {
+      await page.keyboard.press('Escape');
+    }
+    await clickClearOfToolbar(page.getByTestId('smart-edit-selection'));
     await expect(page.getByTestId('smart-edit-menu')).toBeVisible({ timeout: 1000 });
     await page.getByTestId(`smart-edit-${submenu}`).click();
     const row = page.getByTestId(`smart-edit-${leaf}`);

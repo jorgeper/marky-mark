@@ -354,7 +354,13 @@ record('editor package boundary', Date.now() - boundaryStart);
 // 386 as of issue #206 (PRD 018 Reqs 30–33): E392–E396 — computed-style
 // agreement of the chrome primitives across surfaces, under a light and a
 // dark bundled theme, and the chrome-token override proof.
-const E2E_TEST_FLOOR = 386;
+// 464 as of issue #287 (PRD 023 §13): the floor had drifted 68 behind the
+// suite (454 collected before this issue — the PRD 023 slices #283–#286,
+// the copy-link and scratch work all added tests without re-pinning).
+// Re-pinned to the collected count, which now includes this issue's
+// E465–E473 (the preview selection button in comments.spec.ts) and E474
+// (the hosted flavor's button, hosted.spec.ts).
+const E2E_TEST_FLOOR = 464;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {

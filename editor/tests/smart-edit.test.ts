@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { combosConflict, DEFAULT_HOTKEYS } from '../src/lib/hotkeys';
 import {
+  buildAnnotationMenu,
   buildSmartMenu,
   detectContext,
   insertCallout,
@@ -458,5 +459,41 @@ describe('PRD 023 §§7–12 annotation menu entries (issue #286)', () => {
         expect(combosConflict(fresh, combo), `${fresh} vs ${name}`).toBe(false);
       }
     }
+  });
+
+  test('U1147: PRD 023 §13 (issue #287) — the shared annotation builder emits exactly the Comment/Highlight rows, and buildSmartMenu embeds its output verbatim', () => {
+    const a = annotations({ armedColor: 'green', deleteCommentEnabled: true });
+    const built = buildAnnotationMenu(a, DEFAULT_HOTKEYS, true);
+
+    // Exactly two top-level rows — no text-editing id, no separator, ever.
+    expect(ids(built)).toEqual(['comment', 'highlight']);
+    const leafIds = built.flatMap((e) =>
+      e === 'sep' || !e.submenu ? [] : e.submenu.map((s) => (s === 'sep' ? 'sep' : s.id))
+    );
+    expect(leafIds).toEqual([
+      'insert-comment', 'delete-comment',
+      'hl-yellow', 'hl-green', 'hl-orange', 'hl-pink', 'remove-highlight',
+    ]);
+
+    // The known id set is closed: nothing outside it can appear from this
+    // builder — the preview menu can never grow a text-editing row.
+    const KNOWN = new Set([
+      'comment', 'highlight',
+      'insert-comment', 'delete-comment',
+      'hl-yellow', 'hl-green', 'hl-orange', 'hl-pink', 'remove-highlight',
+    ]);
+    for (const id of [...ids(built), ...leafIds]) expect(KNOWN.has(id)).toBe(true);
+
+    // Hotkey cues render through displayCombo like the editor rows: Insert
+    // Comment always, the ARMED color's row only.
+    const insert = find(built, 'comment').submenu!.find((e) => e !== 'sep' && e.id === 'insert-comment');
+    expect(insert !== 'sep' && insert?.hotkey).toBe('⌘⌥M');
+    const armed = find(built, 'highlight').submenu!.find((e) => e !== 'sep' && e.id === 'hl-green');
+    expect(armed !== 'sep' && armed?.hotkey).toBe('⌘⌥H');
+
+    // buildSmartMenu's Comment/Highlight block IS the shared builder's
+    // output — deep-equal, so the two surfaces cannot drift.
+    const full = buildSmartMenu(ctx({ annotations: a }));
+    expect([find(full, 'comment'), find(full, 'highlight')]).toEqual(built);
   });
 });

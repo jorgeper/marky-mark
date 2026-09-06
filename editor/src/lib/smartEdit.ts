@@ -13,6 +13,21 @@ import { tableRegionAt } from './tableEdit.ts';
 /** SPEC43 §1: every user-visible string lives here — a rename is one file. */
 export const SMART_EDIT_NAME = 'Smart Edit';
 
+/**
+ * SPEC43 §3: the Marky Mark hash (the FolderPanel slanted-top-bar geometry)
+ * at 18px — the smart-edit button's glyph. Exported (PRD 023 §13, issue
+ * #287) so the preview selection button renders the SAME markup as the
+ * editor's gutter button rather than a second copy.
+ */
+export const SMART_EDIT_HASH_SVG =
+  '<svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">' +
+  '<g stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round">' +
+  '<line x1="5.6" y1="2.6" x2="5.6" y2="13.4" />' +
+  '<line x1="10.4" y1="2.6" x2="10.4" y2="13.4" />' +
+  '<line x1="2.6" y1="6.7" x2="13.4" y2="5" />' +
+  '<line x1="2.6" y1="10.2" x2="13.4" y2="10.2" />' +
+  '</g></svg>';
+
 export interface EditResult {
   text: string;
   from: number;
@@ -373,6 +388,58 @@ export interface SmartMenuAnnotations {
   removeHighlightEnabled: boolean;
 }
 
+/**
+ * PRD 023 §13 (issue #287): the ONE definition of the Comment ▸ and
+ * Highlight ▸ entries, shared by `buildSmartMenu` (the editor's full menu)
+ * and the preview selection button's annotation-only menu — labels, ids,
+ * order and enabled rules can never drift between the two surfaces. Ids stay
+ * `comment` / `highlight` / `insert-comment` / `delete-comment` /
+ * `hl-<color>` / `remove-highlight`, so the `smart-edit-<id>` testids match
+ * everywhere.
+ */
+export function buildAnnotationMenu(
+  a: SmartMenuAnnotations,
+  hotkeys: HotkeyMap,
+  isMac: boolean
+): SmartMenuEntry[] {
+  const hk = (combo: string) => displayCombo(combo, isMac);
+  return [
+    {
+      id: 'comment',
+      label: 'Comment',
+      enabled: true,
+      submenu: [
+        {
+          id: 'insert-comment',
+          label: 'Insert Comment',
+          hotkey: hk(hotkeys.insertComment),
+          enabled: a.insertCommentEnabled,
+        },
+        { id: 'delete-comment', label: 'Delete Comment', enabled: a.deleteCommentEnabled },
+      ],
+    },
+    {
+      id: 'highlight',
+      label: 'Highlight',
+      enabled: true,
+      submenu: [
+        // PRD 023 §9: the four colors in fixed vocabulary order — never
+        // reordered by last-used; the armed color's cue is the Mod+Alt+H
+        // hotkey it would apply (PRD 022 Req 4).
+        ...a.colors.map(
+          (c): SmartMenuEntry => ({
+            id: `hl-${c}`,
+            label: c.charAt(0).toUpperCase() + c.slice(1),
+            enabled: a.colorsEnabled,
+            ...(c === a.armedColor ? { hotkey: hk(hotkeys.applyHighlight) } : {}),
+          })
+        ),
+        { id: 'remove-highlight', label: 'Remove Highlight', enabled: a.removeHighlightEnabled },
+      ],
+    },
+  ];
+}
+
 export interface SmartMenuCtx {
   table: boolean;
   image: boolean;
@@ -451,36 +518,11 @@ export function buildSmartMenu(ctx: SmartMenuCtx): SmartMenuEntry[] {
   );
   // PRD 023 §§7–11 (issue #286): Comment then Highlight, below Diagram and
   // above the Bold separator — the Table submenu's always-listed Insert/
-  // Delete idiom, each row enabled by its own condition. The ids ('comment',
-  // 'highlight', 'insert-comment', 'delete-comment', 'hl-<color>',
-  // 'remove-highlight') collide with nothing existing.
+  // Delete idiom, each row enabled by its own condition. The rows come from
+  // the shared builder (PRD 023 §13, issue #287), so the editor menu and the
+  // preview selection button's annotation-only menu can never drift.
   if (ctx.annotations) {
-    const a = ctx.annotations;
-    out.push(
-      item('comment', 'Comment', {
-        submenu: [
-          item('insert-comment', 'Insert Comment', {
-            hotkey: hk(h.insertComment),
-            enabled: a.insertCommentEnabled,
-          }),
-          item('delete-comment', 'Delete Comment', { enabled: a.deleteCommentEnabled }),
-        ],
-      }),
-      item('highlight', 'Highlight', {
-        submenu: [
-          // PRD 023 §9: the four colors in fixed vocabulary order — never
-          // reordered by last-used; the armed color's cue is the Mod+Alt+H
-          // hotkey it would apply (PRD 022 Req 4).
-          ...a.colors.map((c) =>
-            item(`hl-${c}`, c.charAt(0).toUpperCase() + c.slice(1), {
-              enabled: a.colorsEnabled,
-              ...(c === a.armedColor ? { hotkey: hk(h.applyHighlight) } : {}),
-            })
-          ),
-          item('remove-highlight', 'Remove Highlight', { enabled: a.removeHighlightEnabled }),
-        ],
-      })
-    );
+    out.push(...buildAnnotationMenu(ctx.annotations, ctx.hotkeys, ctx.isMac));
   }
   out.push('sep');
 

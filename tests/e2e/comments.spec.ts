@@ -3,6 +3,7 @@ import {
   addComment,
   addHighlight,
   caretInto,
+  clickClearOfToolbar,
   dragAcrossText,
   freshApp,
   freshNativeMenuApp,
@@ -20,6 +21,7 @@ import {
   openSettings,
   openWelcomeViaHelp,
   PHRASE,
+  previewSelectionAnnotation,
   seedFolders,
   selectPhrase,
   selectPhraseInPane,
@@ -2213,4 +2215,222 @@ test('E462: PRD 023 §6 — no selection popup exists on any surface: preview, s
   await page.keyboard.press('Home');
   await page.keyboard.press('Shift+End');
   await assertNoPopup();
+});
+
+// --- Issue #287 (PRD 023 §13): the preview selection button ------------------
+// A selection in either preview surface grows the blue hash button left of
+// it; its menu carries ONLY the shared Comment ▸ / Highlight ▸ rows.
+
+test('E465: PRD 023 §13 — a full-preview selection grows the hash button left of it; collapse removes it; comments-off means absent', async ({
+  page,
+}) => {
+  await selectPhrase(page, PHRASE);
+  const btn = page.getByTestId('smart-edit-selection');
+  await expect(btn).toBeVisible();
+
+  // Left of the selection and vertically on it — and clear of the toolbar.
+  const rect = await page.evaluate(() => {
+    const r = window.getSelection()!.getRangeAt(0).getBoundingClientRect();
+    return { left: r.left, top: r.top, bottom: r.bottom };
+  });
+  const box = await stableBox(btn);
+  expect(box.x + box.width).toBeLessThanOrEqual(rect.left);
+  expect(box.y + box.height).toBeGreaterThan(rect.top);
+  expect(box.y).toBeLessThan(rect.bottom);
+  expect(box.y).toBeGreaterThanOrEqual(42); // the issue #18 toolbar band
+
+  // Collapsing the selection removes the button the moment it happens.
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  await expect(btn).toHaveCount(0);
+
+  // The all-or-nothing gate: with the master switch off the button is
+  // ABSENT on a fresh selection, not disabled.
+  await openSettings(page, 'general');
+  await page.getByTestId('set-comments-enabled').uncheck();
+  await page.getByTestId('settings-close').click();
+  await selectPhrase(page, PHRASE);
+  await page.waitForTimeout(200);
+  await expect(btn).toHaveCount(0);
+});
+
+test('E466: PRD 023 §13 — the split preview grows the button and inserts without leaving split; the split editor half never does', async ({
+  page,
+}) => {
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  // A real pointer drag, as a user selects: the mousedown takes focus off
+  // the editor first, so the SPEC23 §1 selection mirror stays DOM-neutral
+  // (a programmatic selection under a still-focused editor is a state no
+  // real interaction produces).
+  await dragAcrossText(page, '[data-testid="split-preview"] .doc', 'renders GitHub-flavored', 'markdown');
+  await expect(page.getByTestId('smart-edit-selection')).toBeVisible();
+
+  // Insert Comment from the button: composer opens, split stays split.
+  await previewSelectionAnnotation(page, 'comment', 'insert-comment');
+  await expect(page.getByTestId('composer')).toBeVisible();
+  await expect(page.getByTestId('composer-input')).toBeFocused();
+  await expect(page.getByTestId('split-preview')).toBeVisible(); // no mode switch
+  await page.getByTestId('composer-input').fill('from the split preview button');
+  await page.getByTestId('composer-submit').click();
+  await expect.poll(() => fsRead(page, WELCOME_SIDECAR)).toContain('from the split preview button');
+
+  // A selection in the split EDITOR half grows no button — that half has
+  // the SPEC43 §3 gutter button instead.
+  await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'saved to a sidecar' }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.waitForTimeout(200);
+  await expect(page.getByTestId('smart-edit-selection')).toHaveCount(0);
+});
+
+test('E467: PRD 023 §13 — the button menu holds ONLY the Comment/Highlight rows, and Esc dismisses without authoring', async ({
+  page,
+}) => {
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('smart-edit-selection'));
+  const menu = page.getByTestId('smart-edit-menu');
+  await expect(menu).toBeVisible();
+
+  // Exactly the two annotation rows — no text-editing entry, no separator.
+  await expect(page.getByTestId('smart-edit-comment')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-highlight')).toBeVisible();
+  for (const absent of ['table', 'image', 'code-block-view', 'diagram', 'bold', 'italic', 'link', 'heading', 'lists', 'cut', 'copy', 'paste']) {
+    await expect(page.getByTestId(`smart-edit-${absent}`)).toHaveCount(0);
+  }
+  expect(await menu.locator('.menu-item').count()).toBe(2);
+  expect(await menu.locator('.menu-sep').count()).toBe(0);
+
+  // The flyout lists the four colors in fixed order plus Remove Highlight.
+  await page.getByTestId('smart-edit-highlight').click();
+  const flyout = page.getByTestId('smart-edit-flyout-highlight');
+  await expect(flyout).toBeVisible();
+  expect(await flyout.locator('.menu-item').allTextContents()).toEqual([
+    expect.stringContaining('Yellow'),
+    'Green',
+    'Orange',
+    'Pink',
+    'Remove Highlight',
+  ]);
+
+  // Esc closes the flyout, then the menu — no record, no composer, and the
+  // selection (with its button) survives.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+  await expect(page.getByTestId('smart-edit-selection')).toBeVisible();
+});
+
+test('E468: PRD 023 §§8,13 — Insert Comment from the button: pane auto-opens, composer focused, mode unchanged, record persisted', async ({
+  page,
+}) => {
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0); // ships closed
+  await selectPhrase(page, PHRASE);
+  await previewSelectionAnnotation(page, 'comment', 'insert-comment');
+
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(page.getByTestId('composer-input')).toBeFocused();
+  await expect(page.getByTestId('doc')).toBeVisible(); // still full preview
+  await expect(page.getByTestId('editor')).toHaveCount(0); // never a mode switch
+
+  await page.getByTestId('composer-input').fill('button-authored note');
+  await page.getByTestId('composer-submit').click();
+  await expect(page.getByTestId('card-body')).toHaveText('button-authored note');
+  await expect(page.locator('mark.hl').first()).toBeVisible();
+  await expect.poll(() => fsRead(page, WELCOME_SIDECAR)).toContain('button-authored note');
+  expect(await fsRead(page, WELCOME_SIDECAR)).toContain('"kind": "comment"');
+});
+
+test('E469: PRD 023 §§8,13 — a selection overlapping a comment arms Delete Comment, which removes record, card and marks', async ({
+  page,
+}) => {
+  await addComment(page, PHRASE, 'doomed note');
+  await expect(page.getByTestId('comment-card')).toHaveCount(1);
+
+  await selectPhrase(page, 'saved to a sidecar');
+  await previewSelectionAnnotation(page, 'comment', 'delete-comment');
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+  await waitForSidecar(page, (s) => s === null || !s.includes('doomed note'));
+});
+
+test('E470: PRD 023 §§9,13 — a color row over a plain selection inserts a highlight in THAT color, not the armed one', async ({
+  page,
+}) => {
+  await selectPhrase(page, NAV_P2);
+  await previewSelectionAnnotation(page, 'highlight', 'hl-green');
+  const mark = page.locator('mark.hl[data-color="green"]');
+  await expect(mark.first()).toBeVisible();
+  await expect.poll(() => fsRead(page, WELCOME_SIDECAR)).toContain('"kind": "highlight"');
+  expect(await fsRead(page, WELCOME_SIDECAR)).toContain('"color": "green"');
+  // The selection settled: cleared, button gone, no composer for highlights.
+  await expect(page.getByTestId('smart-edit-selection')).toHaveCount(0);
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+});
+
+test('E471: PRD 023 §§9,13 — a color row over an existing highlight recolors it in place: same id, one record, new color', async ({
+  page,
+}) => {
+  await addHighlight(page, NAV_P2); // armed yellow on a fresh profile
+  await expect(page.locator('mark.hl[data-color="yellow"]').first()).toBeVisible();
+  await waitForSidecar(page, (s) => s !== null && s.includes('"color": "yellow"'));
+  const before = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
+  expect(before.comments).toHaveLength(1);
+
+  await selectPhrase(page, NAV_P2);
+  await previewSelectionAnnotation(page, 'highlight', 'hl-pink');
+  await expect(page.locator('mark.hl[data-color="pink"]').first()).toBeVisible();
+  await expect(page.locator('mark.hl[data-color="yellow"]')).toHaveCount(0);
+  await waitForSidecar(page, (s) => s !== null && s.includes('"color": "pink"'));
+  const after = JSON.parse((await fsRead(page, WELCOME_SIDECAR))!);
+  expect(after.comments).toHaveLength(1); // recolored, never a second record
+  expect(after.comments[0].id).toBe(before.comments[0].id);
+});
+
+test('E472: PRD 023 §§9,13 — Remove Highlight over an overlapping highlight deletes the record and its marks', async ({
+  page,
+}) => {
+  await addHighlight(page, NAV_P2);
+  await expect(page.locator('mark.hl').first()).toBeVisible();
+
+  await selectPhrase(page, 'GitHub-flavored');
+  await previewSelectionAnnotation(page, 'highlight', 'remove-highlight');
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+  await waitForSidecar(page, (s) => s === null || !s.includes('"kind": "highlight"'));
+});
+
+test('E473: PRD 023 §13 — outside pointerdown, scroll and selection collapse each dismiss the menu without authoring', async ({
+  page,
+}) => {
+  const menu = page.getByTestId('smart-edit-menu');
+  const open = async () => {
+    await selectPhrase(page, PHRASE);
+    await clickClearOfToolbar(page.getByTestId('smart-edit-selection'));
+    await expect(menu).toBeVisible();
+  };
+
+  // An outside pointerdown closes it (and collapses the selection with it).
+  await open();
+  await page.mouse.click(40, 300);
+  await expect(menu).toHaveCount(0);
+
+  // A scroll of the preview scroller the selection lives in closes it.
+  // Upward: selectPhrase centred the phrase, which can leave the scroller
+  // at its bottom limit where a further down-scroll would be a no-op.
+  await open();
+  await page.evaluate(() => {
+    document.querySelector('.workspace')!.scrollTop -= 80;
+  });
+  await expect(menu).toHaveCount(0);
+
+  // The selection going away closes it — no pointer, no key.
+  await open();
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+  await expect(menu).toHaveCount(0);
+
+  // None of the dismissals authored anything.
+  await expect(page.getByTestId('composer')).toHaveCount(0);
+  await expect(page.locator('mark.hl')).toHaveCount(0);
+  expect(await fsRead(page, WELCOME_SIDECAR)).toBeNull();
 });

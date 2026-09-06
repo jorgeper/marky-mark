@@ -18,7 +18,7 @@ import {
 // the module that owns the format, so a rephrased size fails here loudly.
 import { formatByteSize } from '../../src/lib/deploymentAdmin';
 import { expect, test } from './fixtures';
-import { addComment, addHighlight, landInPreview, menuSave, openCommentsPane, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
+import { addComment, addHighlight, clickClearOfToolbar, landInPreview, menuSave, openCommentsPane, openSettings, pasteImage, revealToolbar, selectPhrase } from './helpers';
 // PRD 011 Req 9 (#121): the sentence under test comes from the module that
 // owns it, so a reworded message fails E246 rather than passing a stale copy.
 import { NO_LLM_CONFIGURED_MESSAGE } from '../../src/lib/llmDeployment';
@@ -594,6 +594,33 @@ test('E331: a comment one member writes is a workspace blob the next member read
   await openCommentsPane(page); // issue #284: stored comments need the pane opened
   await expect(page.getByTestId('comment-card')).toHaveCount(1);
   await expect(page.getByTestId('comment-card')).toContainText('Ada was here');
+});
+
+test('E474: PRD 023 §13 (issue #287) — the hosted build grows the preview selection button too, menu carrying only the two annotation rows', async ({
+  page,
+  request,
+}) => {
+  // PRD 023's "both builds" line: the button is never gated on
+  // platform.kind — the hosted flavor shows the same chrome as the shim.
+  const ada = await signIn(request, 'ada');
+  const id = await sharedWorkspace(request, ada, `E474 w${test.info().workerIndex}`, []);
+  const put = await request.put(`${HOSTED}/api/workspaces/${id}/files/button.md`, {
+    headers: { Authorization: `Bearer ${ada}` },
+    data: SHARED_DOC,
+  });
+  expect(put.status()).toBe(200);
+
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'button.md');
+  await selectPhrase(page, PHRASE);
+  await clickClearOfToolbar(page.getByTestId('smart-edit-selection'));
+  await expect(page.getByTestId('smart-edit-menu')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-comment')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-highlight')).toBeVisible();
+  await expect(page.getByTestId('smart-edit-table')).toHaveCount(0);
+  await expect(page.getByTestId('smart-edit-bold')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
 });
 
 test('E332: a pasted image is a workspace blob that renders for a second member', async ({ page, request }) => {
@@ -2243,8 +2270,10 @@ test('E208: comment.read gates whether comments load at all, and comment.write w
   await expect(page.getByTestId('comment-card')).toContainText('Ada started a thread');
   await selectPhrase(page, PHRASE);
   // Issue #286: without comment.write the annotation hotkeys are inert (the
-  // popup they replaced is gone everywhere).
+  // popup they replaced is gone everywhere). Issue #287: the preview
+  // selection button is ABSENT on the same gate, not disabled.
   await page.waitForTimeout(200);
+  await expect(page.getByTestId('smart-edit-selection')).toHaveCount(0);
   await page.keyboard.press('Control+Alt+M');
   await page.keyboard.press('Control+Alt+H');
   await expect(page.getByTestId('composer')).toHaveCount(0);

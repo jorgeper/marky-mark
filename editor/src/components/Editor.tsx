@@ -54,6 +54,7 @@ import {
   insertCallout,
   insertHr,
   setHeading,
+  SMART_EDIT_HASH_SVG,
   SMART_EDIT_NAME,
   toggleCodeBlock,
   toggleInline,
@@ -812,19 +813,10 @@ function halfPage(view: EditorView, dir: 1 | -1): void {
 }
 
 /**
- * SPEC43 §3: the smart-edit button — the Marky Mark hash (the FolderPanel
- * slanted-top-bar geometry) at 18px, rendered on the selection head's line
- * only. A real <button> so it is clickable and titled.
+ * SPEC43 §3: the smart-edit button — the shared hash glyph
+ * (SMART_EDIT_HASH_SVG, lib/smartEdit.ts), rendered on the selection head's
+ * line only. A real <button> so it is clickable and titled.
  */
-const HASH_SVG =
-  '<svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">' +
-  '<g stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round">' +
-  '<line x1="5.6" y1="2.6" x2="5.6" y2="13.4" />' +
-  '<line x1="10.4" y1="2.6" x2="10.4" y2="13.4" />' +
-  '<line x1="2.6" y1="6.7" x2="13.4" y2="5" />' +
-  '<line x1="2.6" y1="10.2" x2="13.4" y2="10.2" />' +
-  '</g></svg>';
-
 class SmartEditWidget extends WidgetType {
   constructor(
     private title: string,
@@ -845,7 +837,7 @@ class SmartEditWidget extends WidgetType {
     btn.className = 'smart-edit-btn';
     btn.setAttribute('data-testid', 'smart-edit-gutter');
     btn.title = this.title;
-    btn.innerHTML = HASH_SVG;
+    btn.innerHTML = SMART_EDIT_HASH_SVG;
     btn.addEventListener('mousedown', (event) => {
       event.preventDefault();
       this.onOpen(view, btn.getBoundingClientRect());

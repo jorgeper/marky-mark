@@ -31,7 +31,11 @@ import {
   VimNavResolver,
   visibleTextForRange,
   wordAt,
+  buildAnnotationMenu,
+  SMART_EDIT_HASH_SVG,
+  SmartEditMenu,
   type AnnotationSelection,
+  type SmartMenuEntry,
   type DiagramRenderCache,
   type DiffLineSets,
   type EditorSearchHandle,
@@ -234,7 +238,7 @@ import {
 import { parseFrontMatter } from './lib/frontmatter';
 // PRD 023 §§7–12 + §19 (issue #286): the annotation menu/hotkey context model
 // and the editor-side rendered-text mapping — one pure rule for both paths.
-import { annotationMenuModel, type AnnotationMenuModel } from './lib/annotationMenu';
+import { annotationMenuModel, previewAnnotationModel, type AnnotationMenuModel } from './lib/annotationMenu';
 import { commentsPaneOpen, commentsSeamUp } from './lib/commentsPane';
 import { pickHitRecord } from './lib/markHit';
 import { isStaleDraft, parseDraft, serializeDraft, type Draft } from './lib/drafts';
@@ -627,7 +631,9 @@ export default function App() {
     null
   );
   const [draft, setDraft] = useState('');
-  const [selInfo, setSelInfo] = useState<{ start: number; end: number; x: number; y: number } | null>(null);
+  // PRD 023 §13 (issue #287): x/y/h are the selection rect's LEFT edge, top
+  // and height (viewport coords) — the preview selection button's anchor.
+  const [selInfo, setSelInfo] = useState<{ start: number; end: number; x: number; y: number; h: number } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // PRD 017 Req 13: the deployment-admin Management dialog.
   const [managementOpen, setManagementOpen] = useState(false);
@@ -6576,9 +6582,10 @@ export default function App() {
   // --- preview selection tracking ------------------------------------------------------
   // Preview mode and the split-edit preview pane both host selections (#19).
   // PRD 023 §12 (issue #286): the floating popup this fed is gone — `selInfo`
-  // is now the preview surfaces' authoring anchor (the annotation hotkeys)
-  // and the word-count chip's selection source. The rect rides along for the
-  // preview selection button issue #287 places on it.
+  // is the preview surfaces' authoring anchor (the annotation hotkeys) and
+  // the word-count chip's selection source. PRD 023 §13 (issue #287): the
+  // rect anchors the preview selection button, so a scroll or resize
+  // re-measures the live selection to keep the button glued to it.
   useEffect(() => {
     const inSplit = mode === 'edit' && settings.splitEdit;
     if (mode !== 'preview' && !inSplit) return;
@@ -6600,11 +6607,26 @@ export default function App() {
         return;
       }
       const rect = range.getBoundingClientRect();
-      setSelInfo({ start, end, x: rect.left + rect.width / 2, y: rect.top });
+      const next = { start, end, x: rect.left, y: rect.top, h: rect.height };
+      // Identity-stable when nothing moved: scroll fires per frame.
+      setSelInfo((prev) =>
+        prev !== null &&
+        prev.start === next.start && prev.end === next.end &&
+        prev.x === next.x && prev.y === next.y && prev.h === next.h
+          ? prev
+          : next
+      );
     };
     document.addEventListener('selectionchange', onSelection);
+    // Issue #287: scrolling any surface (and resizing) moves the selection's
+    // viewport rect without a selectionchange — re-measure so the button
+    // rides along instead of floating detached.
+    document.addEventListener('scroll', onSelection, true);
+    window.addEventListener('resize', onSelection);
     return () => {
       document.removeEventListener('selectionchange', onSelection);
+      document.removeEventListener('scroll', onSelection, true);
+      window.removeEventListener('resize', onSelection);
       // A surface swap (mode/split toggle) orphans the old selection.
       setSelInfo((prev) => (prev === null ? prev : null));
     };
@@ -6698,7 +6720,10 @@ export default function App() {
   // mapping (`editorHighlights`) and the rendered-text cache. The resolution
   // is stashed so the invoked row acts on exactly what the open-time menu
   // showed (never a re-derived, possibly different context).
-  const annotationModelRef = useRef<AnnotationMenuModel | null>(null);
+  // The stash carries the anchor-space text with the model (issue #287): the
+  // editor's rows anchor into the rendered-text cache, the preview button's
+  // into the preview's docText — one invoke path serves both surfaces.
+  const annotationModelRef = useRef<{ model: AnnotationMenuModel; text: string } | null>(null);
   const resolveAnnotationModel = (sel: AnnotationSelection): AnnotationMenuModel => {
     const model = annotationMenuModel({
       gate: {
@@ -6718,35 +6743,38 @@ export default function App() {
       idsAtCaret: sel.idsAtHead,
       records: comments,
     });
-    annotationModelRef.current = model;
+    annotationModelRef.current = { model, text: editRenderedTextRef.current };
     return model;
   };
 
   // PRD 023 §8 (issue #286): Insert Comment against a resolved model — the
   // menu row and Mod+Alt+M share this, so both act on the same anchor rule.
-  const applyModelComment = (model: AnnotationMenuModel) => {
+  // `text` is the space the model's anchor offsets index into (issue #287).
+  const applyModelComment = (model: AnnotationMenuModel, text: string) => {
     if (!model.anchor || !model.insertCommentEnabled) return;
-    insertCommentAt(editRenderedTextRef.current, model.anchor.start, model.anchor.end);
+    insertCommentAt(text, model.anchor.start, model.anchor.end);
   };
 
   // PRD 023 §9 (issue #286): a color against a resolved model — recolor the
   // caret's highlight, else insert over the model's anchor. Shared by the
   // color rows and Mod+Alt+H (which passes the armed color), so the hotkey
   // can never drift from the row it mirrors.
-  const applyModelColor = (model: AnnotationMenuModel, color: CommentColor) => {
+  const applyModelColor = (model: AnnotationMenuModel, color: CommentColor, text: string) => {
     if (model.recolorId) recolorHighlight(model.recolorId, color);
     else if (model.anchor && model.colorsEnabled) {
-      insertHighlightAt(editRenderedTextRef.current, model.anchor.start, model.anchor.end, color);
+      insertHighlightAt(text, model.anchor.start, model.anchor.end, color);
     }
   };
 
   // PRD 023 §§8–11 (issue #286): an annotation menu row was invoked — act on
-  // the stashed open-time resolution.
+  // the stashed open-time resolution. One route for both surfaces' menus
+  // (issue #287): the stash names the anchor text the model resolved in.
   const handleAnnotationAction = (id: string) => {
-    const model = annotationModelRef.current;
-    if (!model || !model.show) return;
+    const stash = annotationModelRef.current;
+    if (!stash || !stash.model.show) return;
+    const { model, text } = stash;
     if (id === 'insert-comment') {
-      applyModelComment(model);
+      applyModelComment(model, text);
     } else if (id === 'delete-comment' && model.deleteCommentId) {
       deleteComment(model.deleteCommentId);
     } else if (id === 'remove-highlight' && model.removeHighlightId) {
@@ -6755,9 +6783,85 @@ export default function App() {
       // The row id names one of the four marker literals — looked up rather
       // than cast, so an id from anywhere else resolves to nothing.
       const color = MARKER_COLORS.find((c) => c === id.slice(3));
-      if (color) applyModelColor(model, color);
+      if (color) applyModelColor(model, color, text);
     }
   };
+
+  // PRD 023 §13 (issue #287): the preview selection button's annotation-only
+  // menu — entries built by the SHARED builder (buildAnnotationMenu, the same
+  // rows buildSmartMenu embeds) and stashed at open time with the context the
+  // pure preview model resolved, so the invoked row acts on exactly what the
+  // menu showed.
+  const [previewMenu, setPreviewMenu] = useState<{ x: number; y: number; entries: SmartMenuEntry[] } | null>(null);
+
+  const openPreviewMenu = (rect: DOMRect) => {
+    if (!selInfo) return;
+    const model = previewAnnotationModel({
+      gate: {
+        commentsEnabled: settings.commentsEnabled,
+        authoringFrozen,
+        canWrite: docGrants.commentWrite,
+      },
+      start: selInfo.start,
+      end: selInfo.end,
+      positions,
+      records: comments,
+    });
+    if (!model.show) return; // the model is fed the button's own gate
+    annotationModelRef.current = { model, text: docTextRef.current };
+    setPreviewMenu({
+      x: rect.left,
+      y: rect.bottom + 4,
+      entries: buildAnnotationMenu(
+        {
+          insertCommentEnabled: model.insertCommentEnabled,
+          deleteCommentEnabled: model.deleteCommentId !== null,
+          colors: MARKER_COLORS,
+          colorsEnabled: model.colorsEnabled,
+          armedColor,
+          removeHighlightEnabled: model.removeHighlightId !== null,
+        },
+        settings.hotkeys,
+        platform?.isMac ?? true
+      ),
+    });
+  };
+
+  // A row landed: act on the stashed context, then settle the surface the
+  // way the preview hotkeys do (previewAnnotation) — selection cleared,
+  // button and menu gone, no double-authoring on a second invocation.
+  const invokePreviewRow = (id: string) => {
+    handleAnnotationAction(id);
+    setPreviewMenu(null);
+    window.getSelection()?.removeAllRanges();
+    setSelInfo(null);
+  };
+
+  // §13 dismissal: the selection collapsing (or leaving the surface) closes
+  // the menu — selInfo is the one source of that state.
+  useEffect(() => {
+    if (!selInfo) setPreviewMenu((prev) => (prev === null ? prev : null));
+  }, [selInfo]);
+
+  // §13 dismissal: a scroll closes the menu app-side — the package menu's
+  // own anchor-scroll rule keys on its parentElement, which from this mount
+  // point does not contain the preview scroller. Same anchor rule as issue
+  // #286's, re-expressed for this surface: only a scroll that can move the
+  // menu's ANCHOR (the preview selection) dismisses — the document, or a
+  // scroller containing the selection's surface. A scroll in an unrelated
+  // pane (the split editor's cm-scroller settling after the focus shift to
+  // the menu) must not close the menu that pane didn't open.
+  useEffect(() => {
+    if (!previewMenu) return;
+    const onScroll = (e: Event) => {
+      const t = e.target;
+      const surface = mode === 'preview' ? docRef.current : splitDocRef.current;
+      if (t instanceof Node && t !== document && surface && !t.contains(surface)) return;
+      setPreviewMenu(null);
+    };
+    window.addEventListener('scroll', onScroll, true);
+    return () => window.removeEventListener('scroll', onScroll, true);
+  }, [previewMenu, mode]);
 
   // PRD 023 §12 (issue #286): the two annotation hotkeys, dispatched through
   // the command registry like every hotkey. Read through a live ref so the
@@ -6791,8 +6895,8 @@ export default function App() {
     if (settings.splitEdit && !sel.focused) return;
     const model = resolveAnnotationModel(sel);
     if (!model.show) return;
-    if (kind === 'comment') applyModelComment(model);
-    else applyModelColor(model, armedColor);
+    if (kind === 'comment') applyModelComment(model, editRenderedTextRef.current);
+    else applyModelColor(model, armedColor, editRenderedTextRef.current);
   };
 
   const submitComment = () => {
@@ -7982,6 +8086,54 @@ export default function App() {
           platform.kind. It sits bottom-RIGHT, clear of the word-count chip. */}
       {settings.semanticZoom && docOpen && (
         <SemanticZoomControl level={zoomLevel} onLevel={setZoomLevel} />
+      )}
+
+      {/* PRD 023 §13 (issue #287): the preview selection button — the SPEC43
+          §3 hash glyph as floating viewport chrome, LEFT of the selection and
+          vertically centred on it, clamped into the viewport and below the
+          .toolbar-shell band (the issue #18 toolbar floor; z-index in
+          styles.css). It rides selInfo, so it exists exactly when the
+          annotation hotkeys would act: both preview surfaces, either build,
+          never the split editor half. Absent — not disabled — when the
+          commentsEnabled/frozen/comment.write gate is closed. It is chrome:
+          never inside .doc's text space, hidden in print (styles.css). */}
+      {selInfo && settings.commentsEnabled && mayComment && (
+        <button
+          type="button"
+          className="icon-btn smart-edit-btn preview-sel-btn"
+          data-testid="smart-edit-selection"
+          title="Comment / Highlight"
+          style={{
+            left: Math.max(4, Math.min(selInfo.x - 30, window.innerWidth - 28)),
+            top: Math.max(46, Math.min(selInfo.y + selInfo.h / 2 - 12, window.innerHeight - 28)),
+          }}
+          // SPEC43 §3's widget idiom, verbatim: open on mousedown with the
+          // default prevented, so the press never collapses the selection
+          // the menu's rows are about to act on (a prevented mousedown also
+          // suppresses the browser's click synthesis, so click is not the
+          // event to open on).
+          onMouseDown={(e) => {
+            e.preventDefault();
+            openPreviewMenu(e.currentTarget.getBoundingClientRect());
+          }}
+          dangerouslySetInnerHTML={{ __html: SMART_EDIT_HASH_SVG }}
+        />
+      )}
+      {/* PRD 023 §13 (issue #287): the annotation-only menu — the same
+          SmartEditMenu component (SPEC43 §4 clamping, flyouts, keyboard nav,
+          Esc/outside/scroll dismissal) over the shared builder's two rows.
+          The capture-phase mousedown preventDefault keeps a row click from
+          collapsing the preview selection before the click lands. */}
+      {previewMenu && (
+        <div onMouseDownCapture={(e) => e.preventDefault()}>
+          <SmartEditMenu
+            x={previewMenu.x}
+            y={previewMenu.y}
+            entries={previewMenu.entries}
+            onInvoke={invokePreviewRow}
+            onClose={() => setPreviewMenu(null)}
+          />
+        </div>
       )}
 
       {/* SPEC16 §5: quiet word-count chip, bottom-left (toggleable). */}

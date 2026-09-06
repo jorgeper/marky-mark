@@ -1611,6 +1611,26 @@ mark.hl.ghost {
   pointer-events: none;
 }
 
+/* PRD 023 §13 (issue #287): the preview selection button — the editor
+   sheet's .smart-edit-btn (SPEC43 §3 accent glyph, no second CSS copy)
+   re-anchored as floating viewport chrome; the inline left/top carry the
+   selection anchor, clamped app-side. z-index 80 is the issue #18 toolbar
+   floor: the button is never intercepted by .toolbar-shell. */
+.smart-edit-btn.preview-sel-btn {
+  position: fixed;
+  top: auto;
+  right: auto;
+  width: 24px;
+  height: 24px;
+  z-index: 80;
+}
+/* Keep the SPEC43 accent look through .icon-btn's higher-specificity hover
+   (the class rides along only to mark the button as a chrome primitive). */
+.icon-btn.preview-sel-btn:hover:not(:disabled) {
+  color: var(--mm-accent, #0969da);
+  background: none;
+}
+
 /* --- SPEC20 §2: transient paste-feedback notice, bottom-center --- */
 .mm-notice {
   position: fixed;
@@ -1743,6 +1763,10 @@ input.palette-input {
   .file-tab-strip,
   .comment-nav,
   .word-chip,
+  /* PRD 023 §13 (issue #287): the preview selection button and its menu are
+     chrome — never on paper. */
+  .preview-sel-btn,
+  .smart-edit-menu,
   .split-divider,
   /* PRD 023 §15 (issue #284): the comments pane is chrome — never on paper. */
   .comments-slide,

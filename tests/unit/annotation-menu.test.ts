@@ -2,7 +2,9 @@ import { describe, expect, test } from 'vitest';
 import {
   annotationMenuModel,
   mapSourceRangeToRendered,
+  previewAnnotationModel,
   type AnnotationMenuInput,
+  type PreviewAnnotationInput,
 } from '../../src/lib/annotationMenu';
 import type { CommentData } from '../../src/lib/anchoring';
 
@@ -194,5 +196,98 @@ describe('PRD 023 §§7–11 annotation menu context model (issue #286)', () => 
     expect(word.recolorId).toBeNull();
     expect(word.removeHighlightId).toBeNull();
     expect(word.deleteCommentId).toBeNull();
+  });
+});
+
+describe('PRD 023 §13 preview selection context model (issue #287)', () => {
+  const pinput = (over: Partial<PreviewAnnotationInput> = {}): PreviewAnnotationInput => ({
+    gate: openGate,
+    start: 10,
+    end: 20,
+    positions: {},
+    records: [],
+    ...over,
+  });
+
+  test('U1145: the gate closes as a whole for comments-off, frozen store, and missing comment.write — and a collapsed selection is no context', () => {
+    for (const gate of [
+      { ...openGate, commentsEnabled: false },
+      { ...openGate, authoringFrozen: true },
+      { ...openGate, canWrite: false },
+    ]) {
+      const model = previewAnnotationModel(pinput({ gate }));
+      // §7: absence is the pinned expression — show:false means no button
+      // and no menu at all, so gate and rows can never disagree.
+      expect(model.show).toBe(false);
+      expect(model.insertCommentEnabled).toBe(false);
+      expect(model.deleteCommentId).toBeNull();
+      expect(model.colorsEnabled).toBe(false);
+      expect(model.recolorId).toBeNull();
+    }
+    expect(previewAnnotationModel(pinput()).show).toBe(true);
+    // A collapsed or inverted range is no selection: closed, never a guess.
+    expect(previewAnnotationModel(pinput({ start: 5, end: 5 })).show).toBe(false);
+    expect(previewAnnotationModel(pinput({ start: 9, end: 4 })).show).toBe(false);
+  });
+
+  test('U1146: no caret in preview — the selection is both insert anchor and hit context: overlap arms delete/recolor/remove, kind-aware', () => {
+    // A plain selection: insert-only context, anchored on the selection
+    // itself (rendered offsets, nothing to map).
+    const plain = previewAnnotationModel(pinput());
+    expect(plain.anchor).toEqual({ start: 10, end: 20 });
+    expect(plain.insertCommentEnabled).toBe(true);
+    expect(plain.colorsEnabled).toBe(true);
+    expect(plain.deleteCommentId).toBeNull();
+    expect(plain.recolorId).toBeNull();
+    expect(plain.removeHighlightId).toBeNull();
+
+    // Overlapping an existing comment's painted range arms Delete Comment;
+    // a merely adjacent range (end == start) never does.
+    const overComment = previewAnnotationModel(
+      pinput({ records: [comment('c1', 12)], positions: { c1: { start: 12, end: 25 } } })
+    );
+    expect(overComment.deleteCommentId).toBe('c1');
+    expect(overComment.recolorId).toBeNull();
+    const adjacent = previewAnnotationModel(
+      pinput({ records: [comment('c1', 20)], positions: { c1: { start: 20, end: 25 } } })
+    );
+    expect(adjacent.deleteCommentId).toBeNull();
+
+    // Overlapping a highlight: the color rows RECOLOR that record in place
+    // and Remove Highlight arms — the Reqs 8–9 reading for a caret-free
+    // surface (the editor's selection-wins rule would make these
+    // unreachable here). Insert Comment still anchors on the selection.
+    const overHl = previewAnnotationModel(
+      pinput({ records: [highlight('h1', 5)], positions: { h1: { start: 5, end: 15 } } })
+    );
+    expect(overHl.recolorId).toBe('h1');
+    expect(overHl.removeHighlightId).toBe('h1');
+    expect(overHl.colorsEnabled).toBe(true);
+    expect(overHl.insertCommentEnabled).toBe(true);
+    expect(overHl.anchor).toEqual({ start: 10, end: 20 });
+
+    // Overlapping both kinds: the comment arms delete, the highlight still
+    // owns recolor/remove — the comment never shadows it (pickHitRecord's
+    // kind-aware split, same as the editor model).
+    const both = previewAnnotationModel(
+      pinput({
+        records: [comment('c1', 8), highlight('h1', 12)],
+        positions: { c1: { start: 8, end: 18 }, h1: { start: 12, end: 25 } },
+      })
+    );
+    expect(both.deleteCommentId).toBe('c1');
+    expect(both.recolorId).toBe('h1');
+    expect(both.removeHighlightId).toBe('h1');
+
+    // Among several overlapping highlights the first painted wins; an
+    // unpainted record (null position) is no context at all.
+    const stacked = previewAnnotationModel(
+      pinput({
+        records: [highlight('h2', 14), highlight('h1', 11), comment('c9', 0)],
+        positions: { h1: { start: 11, end: 22 }, h2: { start: 14, end: 19 }, c9: null },
+      })
+    );
+    expect(stacked.recolorId).toBe('h1');
+    expect(stacked.deleteCommentId).toBeNull();
   });
 });

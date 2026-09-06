@@ -125,6 +125,76 @@ const CLOSED: AnnotationMenuModel = {
  * enables Delete Comment (kind-aware pick, `pickHitRecord`). Rows whose
  * mapping is ambiguous are disabled, never mis-anchored (§19).
  */
+export interface PreviewAnnotationInput {
+  gate: AnnotationGate;
+  /** The selection as rendered-plain-text offsets (rangeToOffsets — no
+   * source→rendered mapping exists to fail in this surface). */
+  start: number;
+  end: number;
+  /** The paint effect's resolved rendered range per record id (`positions`);
+   * null/absent means the record is not painted in this surface. */
+  positions: Readonly<Record<string, RenderedRange | null | undefined>>;
+  records: readonly CommentData[];
+}
+
+/**
+ * PRD 023 §13 + Reqs 8–9 (issue #287): the preview selection button's
+ * context — the same model shape as the editor's, resolved for a surface
+ * with NO caret. The selection is the only pointing context there, so it
+ * plays both roles: it is the insert anchor for Insert Comment and the
+ * color rows, AND it is the hit context — a selection overlapping an
+ * existing comment's painted range arms Delete Comment, one overlapping a
+ * highlight turns the color rows into a recolor of that record and arms
+ * Remove Highlight. This is a deliberate reading of Reqs 8–9: "a selection
+ * always wins over caret context" disambiguates two competing contexts in
+ * the editor, and applying it literally here would make recolor/remove
+ * unreachable from the preview. The consequence is pinned: a second
+ * highlight overlapping an existing one is not authorable from the preview
+ * button (Req 5's overlap case — a comment over a highlight — stays
+ * authorable). Records are picked by the existing kind-aware rule
+ * (pickHitRecord) over the overlapping painted ranges in document order,
+ * never a second divergent rule.
+ */
+export function previewAnnotationModel(input: PreviewAnnotationInput): AnnotationMenuModel {
+  const { gate, start, end, positions, records } = input;
+  if (!gate.commentsEnabled || gate.authoringFrozen || !gate.canWrite) return CLOSED;
+  if (end <= start) return CLOSED; // no selection ⇒ no button, no context
+
+  // The records whose painted range overlaps the selection, document order
+  // (painted start) — the order the editor feeds pickHitRecord too.
+  const overlapping = records
+    .map((r) => ({ r, m: positions[r.id] }))
+    .filter((x): x is { r: CommentData; m: RenderedRange } =>
+      x.m != null && x.m.start < end && x.m.end > start
+    )
+    .sort((a, b) => a.m.start - b.m.start)
+    .map((x) => x.r);
+
+  // Delete Comment: the kind-aware pick — a highlight never counts.
+  const hit = pickHitRecord(overlapping.map((r) => r.id), records);
+  const hitRec = hit === null ? undefined : records.find((r) => r.id === hit);
+  const deleteCommentId = hitRec && isComment(hitRec) ? hitRec.id : null;
+
+  // The color rows recolor an overlapped highlight in place (same id, never
+  // a second record); with none they insert over the selection. Filtering to
+  // highlights first keeps an overlapping comment from shadowing the pick.
+  const highlightId = pickHitRecord(
+    overlapping.filter((r) => !isComment(r)).map((r) => r.id),
+    records
+  );
+
+  return {
+    show: true,
+    // Straight from the rendered DOM — always a confident anchor.
+    anchor: { start, end },
+    insertCommentEnabled: true,
+    deleteCommentId,
+    colorsEnabled: true,
+    recolorId: highlightId,
+    removeHighlightId: highlightId,
+  };
+}
+
 export function annotationMenuModel(input: AnnotationMenuInput): AnnotationMenuModel {
   const { gate, source, rendered, selFrom, selTo, head, idsAtCaret, records } = input;
   if (!gate.commentsEnabled || gate.authoringFrozen || !gate.canWrite) return CLOSED;
