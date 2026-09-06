@@ -498,6 +498,67 @@ test('E54: fixed navigator pill — appears on selection, steps in order, wraps,
   await expect(page.getByTestId('comment-nav')).toBeHidden(); // fades out, stays mounted
 });
 
+/** Two viewport rects do not overlap (touching edges count as clear). */
+function disjoint(a: Box, b: Box): boolean {
+  return a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
+}
+type Box = { x: number; y: number; width: number; height: number };
+
+test('E565: issue #305 — the navigator pill, the word-count chip and the zoom control stack in the corner, none covering another, and the stack collapses when a piece leaves', async ({
+  page,
+}) => {
+  // SPEC14 §3 + SPEC16 §5 + PRD 011 Req 21 (issue #305): three fixed pieces
+  // share the bottom-right corner. They are one vertical stack — pill on
+  // top, zoom control (desktop only) beneath it, chip at the bottom edge —
+  // rather than three independent fixed boxes that paint over each other.
+  await addComment(page, NAV_P1, 'first');
+  await addComment(page, NAV_P3, 'second');
+
+  // The chip is on (the shim ships showWordCount on; E62 relies on the same
+  // default) and a selected comment shows the pill.
+  const chip = page.getByTestId('word-chip');
+  const nav = page.getByTestId('comment-nav');
+  await expect(chip).toBeVisible();
+  await page.getByTestId('doc').locator('h1').click();
+  await expect(nav).toBeHidden();
+  await page.locator('mark.hl').first().click();
+  await expect(nav).toBeVisible();
+  await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 2');
+
+  let navBox = await stableBox(nav);
+  let chipBox = await stableBox(chip);
+  expect(disjoint(navBox, chipBox)).toBe(true);
+  // Above the chip, not beside or over it.
+  expect(navBox.y + navBox.height).toBeLessThanOrEqual(chipBox.y);
+
+  // Desktop (platform.semanticZoom): the docked level control joins the stack.
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-semantic-zoom').check();
+  await saveSettings(page);
+  const zoom = page.getByTestId('semantic-zoom-control');
+  await expect(zoom).toBeVisible();
+  await page.locator('mark.hl').first().click();
+  await expect(nav).toBeVisible();
+  navBox = await stableBox(nav);
+  chipBox = await stableBox(chip);
+  const zoomBox = await stableBox(zoom);
+  expect(disjoint(navBox, chipBox)).toBe(true);
+  expect(disjoint(navBox, zoomBox)).toBe(true);
+  expect(disjoint(zoomBox, chipBox)).toBe(true);
+  expect(navBox.y + navBox.height).toBeLessThanOrEqual(zoomBox.y);
+  expect(zoomBox.y + zoomBox.height).toBeLessThanOrEqual(chipBox.y);
+
+  // No reserved rows: with the chip gone (Mod+Shift+W, SPEC16 §5) the control
+  // drops to where the chip's bottom edge was, and the pill follows it down.
+  await page.keyboard.press('Control+Shift+W');
+  await expect(chip).toHaveCount(0);
+  const dropped = await stableBox(zoom);
+  expect(dropped.y + dropped.height).toBeGreaterThanOrEqual(chipBox.y + chipBox.height - 1);
+  const navDropped = await stableBox(nav);
+  expect(navDropped.y).toBeGreaterThan(navBox.y);
+  expect(disjoint(navDropped, dropped)).toBe(true);
+});
+
 test('E55: nav hotkeys — defaults enter at first/last; rebinding Next takes effect immediately and persists', async ({
   page,
 }) => {

@@ -891,7 +891,7 @@ mark.hl.ghost[data-color] {
    position: fixed because .doc fills the workspace at every ordinary width
    (no gutter) and .workspace clips sideways overflow: fixed escapes that
    clip, so the pill lands over the workspace's left seam / the folder pane
-   instead of being cut off, above the document and panes like .comment-nav
+   instead of being cut off, above the document and panes like .corner-stack
    (z-index 60, below .overlay). lib/highlightLink.ts sets the coordinates
    at click time from the button's viewport box (--mm-hl-caption-x is the
    right inset on the left side, the left inset on the right side) and
@@ -1633,16 +1633,34 @@ mark.hl.ghost {
   overflow: auto;
 }
 
-/* --- SPEC14: fixed comment navigator pill — never moves while stepping.
-   Centered over the 300px comment margin (right = half the panel width),
-   fading in/out via opacity+visibility so it leaves as softly as it
-   arrives. --- */
-.comment-nav {
+/* --- Issue #305: the bottom-right corner stack. The SPEC14 §3 navigator
+   pill, the PRD 011 Req 21 semantic-zoom control and the SPEC16 §5 word-count
+   chip all live in this corner; as three independently fixed boxes they
+   painted over one another (the chip across the control, the pill over
+   both). One fixed flex column holds them instead — pill on top, control
+   beneath, chip at the bottom edge — so no two ever intersect, and a piece
+   that is not mounted leaves no empty row. The wrapper itself is inert
+   (pointer-events: none) so the empty corner stays clickable; the pill and
+   the control opt back in. --- */
+.corner-stack {
   position: fixed;
-  right: 150px;
-  transform: translateX(50%);
-  bottom: 18px;
+  right: 14px;
+  bottom: 14px;
   z-index: 60; /* above the document, below .overlay (100) */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+/* --- SPEC14: fixed comment navigator pill — never moves while stepping.
+   The top row of the .corner-stack (issue #305): its position is the
+   stack's, which nothing in a step changes, and it fades in/out via
+   opacity+visibility so it leaves as softly as it arrives — hidden, it
+   still holds its row, so the rows beneath never shift. --- */
+.comment-nav {
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -1669,12 +1687,10 @@ mark.hl.ghost {
   font-variant-numeric: tabular-nums;
 }
 
-/* --- SPEC16: word-count chip, bottom-right corner --- */
+/* --- SPEC16 §5: word-count chip — the bottom row of the .corner-stack
+   (issue #305), so it sits at the corner's bottom edge and the navigator
+   pill / zoom control stack above it instead of over it. --- */
 .word-chip {
-  position: fixed;
-  right: 14px;
-  bottom: 14px;
-  z-index: 60;
   font-size: var(--mm-text-caption);
   padding: 4px 10px;
   border-radius: var(--mm-radius-pill);
@@ -1790,8 +1806,12 @@ mark.hl.ghost {
   .edge-cluster,
   /* PRD 013 Req 1: the tab strip is chrome — never on paper. */
   .file-tab-strip,
+  /* Issue #305: the corner stack and each of its rows are chrome — never on
+     paper. */
+  .corner-stack,
   .comment-nav,
   .word-chip,
+  .semantic-zoom-control,
   /* PRD 023 §13 (issue #287): the preview selection button and its menu are
      chrome — never on paper. */
   .preview-sel-btn,
@@ -3440,14 +3460,12 @@ input.folder-rename-input.invalid {
   color: var(--mm-fg-muted, #59636e);
 }
 
-/* PRD 011 Req 21: the docked semantic-zoom level indicator. Bottom-RIGHT, so
-   it never overlaps the SPEC16 §5 word-count chip (bottom-left) or the
-   toolbar, and it is only mounted with a document open. */
+/* PRD 011 Req 21: the docked semantic-zoom level indicator. The middle row
+   of the bottom-right .corner-stack (issue #305): above the SPEC16 §5
+   word-count chip and below the SPEC14 §3 navigator pill, never over either,
+   and only mounted with a document open on a host with the capability. */
 .semantic-zoom-control {
-  position: fixed;
-  right: 14px;
-  bottom: 10px;
-  z-index: 40;
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 8px;
