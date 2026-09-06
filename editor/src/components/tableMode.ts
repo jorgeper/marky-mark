@@ -280,6 +280,42 @@ export function canonicalizeAll(text: string, set: GridSet): string {
   return out;
 }
 
+/**
+ * SPEC40 §2.4 + PRD 020 Req 18 (issue #260): the CANONICAL 1-based line a raw
+ * editor line sits on.
+ *
+ * A gridded table occupies more lines on screen than in the file, so once a
+ * document holds one every raw line below it is ahead of the canonical line
+ * `canonicalText` hands the app. Anything that resolves an editor line
+ * against the canonical buffer — the heading copy-link gutter's
+ * `getUrl(line)` — must come through here first, or it silently misses:
+ * that drift is why headings below the first table lost their copy-link
+ * while the headings above kept theirs.
+ *
+ * Identity, and free, when no grid is tracked. Spans are sorted and
+ * non-overlapping (`GridSet`), so the walk stops at the first one reaching
+ * past `pos`; a span that no longer parses is skipped exactly as
+ * `canonicalizeAll` skips it, keeping the two arithmetics in step.
+ */
+export function canonicalLineAt(state: EditorState, pos: number, rawLine: number): number {
+  const set = state.field(tableModeField, false);
+  if (!set || set.spans.length === 0) return rawLine;
+  const text = state.doc.toString();
+  const newlines = (s: string): number => {
+    let n = 0;
+    for (let i = s.indexOf('\n'); i !== -1; i = s.indexOf('\n', i + 1)) n++;
+    return n;
+  };
+  let line = rawLine;
+  for (const span of set.spans) {
+    if (span.to > pos) break;
+    const collapsed = collapseSpan(text, span);
+    if (collapsed === null) continue;
+    line -= newlines(text.slice(span.from, span.to)) - newlines(collapsed);
+  }
+  return line;
+}
+
 /** SPEC40 §2.2: grid every untracked valid table (history-transparent). */
 export function gridifyAll(view: EditorView, canonicalHint?: string): void {
   const set = view.state.field(tableModeField, false) ?? null;

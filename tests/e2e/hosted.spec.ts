@@ -4970,6 +4970,96 @@ test('E414: container-nested headings at the bottom of a document carry the copy
   await expect(page.getByTestId('heading-miss-notice')).toHaveCount(0);
 });
 
+// Issue #260: a long document whose deep half sits BELOW a markdown table.
+// The table is what matters: the editor grids it (SPEC40), so on screen it
+// occupies more lines than in the file, and every raw editor line under it
+// runs ahead of the canonical line the share seam addresses. Front matter and
+// a fenced `#` line ride along so the section model's line arithmetic is
+// exercised at depth too.
+const DEEP_DOC = [
+  '---',
+  'title: Deep',
+  '---',
+  '',
+  '# Guide',
+  '',
+  '```sh',
+  '# not a heading',
+  '```',
+  '',
+  ...Array.from({ length: 120 }, (_, i) => [`early filler ${i} pushes the tail down.`, '']).flat(),
+  '## Measured',
+  '',
+  '| Metric | Value |',
+  '| --- | --- |',
+  '| one | 1 |',
+  '| two | 2 |',
+  '| three | 3 |',
+  '',
+  ...Array.from({ length: 120 }, (_, i) => [`late filler ${i} pushes the tail further.`, '']).flat(),
+  '- checklist item',
+  '  ## Listed Tail',
+  '',
+  '## Deep Tail',
+  '',
+  'the very bottom.',
+  '',
+].join('\n');
+
+test('E493: headings hundreds of lines down carry the copy-link control in both placements', async ({
+  page,
+  request,
+}) => {
+  // Issue #260: the affordance appeared only near the top of a long document.
+  // PRD 020 Req 18 says EVERY heading carries it, first to last — so the
+  // document's last heading (and a container-nested one just above it) must
+  // offer the control in the preview AND in the editor gutter, reached by
+  // scrolling rather than by happening to be on screen at load.
+  const token = await signIn(request, 'ada');
+  const { id, unique } = await pathWorkspace(request, token, 'e493');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/deep.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: DEEP_DOC,
+  });
+  await stubClipboard(page);
+  await signInTo(page, 'ada', id);
+  await openFromSidebar(page, 'deep.md');
+  await landInPreview(page);
+
+  // Preview: the LAST heading, hundreds of lines down, hovers and copies.
+  const tail = page.getByTestId('doc').locator('h2').filter({ hasText: 'Deep Tail' });
+  await tail.hover();
+  await tail.getByTestId('mm-heading-link').click();
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/deep.md#deep-tail`);
+  // The container-nested heading beside it (issue #226's data-mm-hline path)
+  // keeps working at this depth too.
+  const listed = page.getByTestId('doc').locator('h2').filter({ hasText: 'Listed Tail' });
+  await listed.hover();
+  await listed.getByTestId('mm-heading-link').click();
+  expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/deep.md#listed-tail`);
+
+  // Editor gutter: the same deep headings, reached by scrolling down — below
+  // the gridded table, where the raw editor line and the canonical line part.
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.cm-line').first()).toBeVisible();
+  const gutterLink = page.getByTestId('heading-copy-link-gutter');
+  for (const [text, slug] of [
+    ['## Listed Tail', 'listed-tail'],
+    ['## Deep Tail', 'deep-tail'],
+  ]) {
+    const line = editor.locator('.cm-line', { hasText: text }).first();
+    for (let i = 0; i < 60 && (await line.count()) === 0; i++) {
+      await editor.locator('.cm-scroller').evaluate((el) => el.scrollBy(0, el.clientHeight * 0.8));
+    }
+    await line.click();
+    await expect(gutterLink).toBeVisible();
+    await gutterLink.click();
+    expect(await lastCopy(page)).toBe(`${HOSTED}/${unique}/deep.md#${slug}`);
+  }
+});
+
+
 // --- highlight share links and #hl-<id> landing (PRD 022 Reqs 10–11, issue #233) --
 
 test('E429: the active highlight reveals a left-margin copy-link that copies the file URL plus #hl-<id>, confirming inline', async ({

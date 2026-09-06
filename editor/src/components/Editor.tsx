@@ -50,6 +50,7 @@ import {
   resolveFenceLanguage,
 } from '../lib/codeHighlight';
 import { createHeadingLinkButton } from '../lib/headingLinks';
+import { isHeadingLine } from '../lib/headingLine';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
 import type { CompiledPattern } from '../lib/searchCore';
 import { mapOffsetByLineFlat, wordAt } from '../lib/activePosition';
@@ -139,6 +140,7 @@ import {
   tableModeExtension,
   tableModeField,
   type GridSpan,
+  canonicalLineAt,
 } from './tableMode';
 
 /** SPEC43 §5.2: the ops the App's format commands drive (menu ids, same set). */
@@ -985,12 +987,16 @@ class HeadingLinkMarker extends GutterMarker {
   private ctrl: { click(): Promise<void>; dispose(): void } | null = null;
   constructor(
     private readonly lineNo: number,
+    /** Issue #260: the seam's coordinate — the canonical line `lineNo` maps to. */
+    private readonly canonicalLine: number,
     private readonly seam: MutableRefObject<HeadingLinkSeam | undefined>
   ) {
     super();
   }
   override eq(other: HeadingLinkMarker) {
-    return other.lineNo === this.lineNo;
+    // Both lines: an edit that regrids a table above moves the canonical line
+    // under a resting cursor, and the kept DOM would copy the stale slug.
+    return other.lineNo === this.lineNo && other.canonicalLine === this.canonicalLine;
   }
   override toDOM() {
     const live = document.createElement('span');
@@ -999,7 +1005,7 @@ class HeadingLinkMarker extends GutterMarker {
     const { btn, ctrl } = createHeadingLinkButton(document, {
       className: 'heading-link-btn',
       testid: 'heading-copy-link-gutter',
-      getUrl: () => this.seam.current?.getUrl(this.lineNo) ?? null,
+      getUrl: () => this.seam.current?.getUrl(this.canonicalLine) ?? null,
       copy: (text) => this.seam.current?.copy(text) ?? false,
       setLiveText: (text) => {
         live.textContent = text;
@@ -1024,11 +1030,18 @@ class HeadingLinkMarker extends GutterMarker {
 /**
  * PRD 020 Req 18: the gutter itself — a marker appears only on the line the
  * cursor rests on, and only when that line is a heading twice over: the
- * Lezer tree says so (fenced `# not-a-heading` lines are excluded the same
- * way the preview excludes them) AND the section model resolves it to a
- * slugged share URL (`getUrl`, which also gates out untitled buffers with no
- * address). The Lezer check is the cheap pre-filter, so the section-model
- * parse never runs while the cursor sits on ordinary text.
+ * syntax check says so (`isHeadingLine`, which excludes fenced
+ * `# not-a-heading` lines the same way the preview excludes them) AND the
+ * section model resolves it to a slugged share URL (`getUrl`, which also
+ * gates out untitled buffers with no address). The syntax check is the cheap
+ * pre-filter, so the section-model parse never runs while the cursor sits on
+ * ordinary text.
+ *
+ * Issue #260: that pre-filter used to read `syntaxTree(view.state)` directly,
+ * which reports only as far as the background parse has reached — so every
+ * heading past the cut-off of a long document was called "not a heading" and
+ * lost its marker. `isHeadingLine` (`lib/headingLine.ts`) owns the fix and
+ * the reasoning; the gutter just asks it.
  */
 function headingLinkGutter(seam: MutableRefObject<HeadingLinkSeam | undefined>): Extension {
   return gutter({
@@ -1038,21 +1051,12 @@ function headingLinkGutter(seam: MutableRefObject<HeadingLinkSeam | undefined>):
       if (!cfg) return null;
       const head = view.state.doc.lineAt(view.state.selection.main.head);
       if (block.from !== head.from) return null;
-      // Scan the whole cursor line for a heading node rather than resolving
-      // at line start: a container-nested heading (issue #226 — indented
-      // under a list item, or blockquoted) begins AFTER the `  `/`> ` prefix,
-      // so a line-start resolve walks up through ListItem/Blockquote and
-      // never meets it.
-      let onHeading = false;
-      syntaxTree(view.state).iterate({
-        from: head.from,
-        to: head.to,
-        enter: (node) => {
-          if (/^(ATX|Setext)Heading/.test(node.name)) onHeading = true;
-        },
-      });
-      if (!onHeading || cfg.getUrl(head.number) === null) return null;
-      return new HeadingLinkMarker(head.number, seam);
+      if (!isHeadingLine(view.state, head)) return null;
+      // Issue #260: the seam addresses the CANONICAL buffer, this gutter a raw
+      // editor line — a gridded table above the cursor puts them apart.
+      const canonical = canonicalLineAt(view.state, head.from, head.number);
+      if (cfg.getUrl(canonical) === null) return null;
+      return new HeadingLinkMarker(head.number, canonical, seam);
     },
     lineMarkerChange: (update) => update.selectionSet || update.docChanged,
   });
