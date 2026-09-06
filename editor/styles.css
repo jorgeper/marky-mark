@@ -689,6 +689,21 @@
 .cm-line.mm-diff-deleted-after {
   box-shadow: inset 3px 0 0 var(--mm-diff-removed);
 }
+/* SPEC16 §2 (issue #264): inside a fenced-code card the tint moves INTO the
+   card's own background layer instead of riding the line's. The card paints
+   an opaque --mm-code-bg through .mm-fence-card::before; painting the tint
+   on the line as well would stack two layers whose order depends on the
+   card's z-index games, so the card composites the tint over its own
+   background in one declaration — visibly changed code, card ring, rounded
+   edges, copy button and syntax colours all untouched. */
+.editor-wrap .cm-line.mm-fence-card.mm-diff-changed {
+  background: transparent;
+}
+.editor-wrap .cm-line.mm-fence-card.mm-diff-changed::before {
+  background:
+    linear-gradient(var(--mm-diff-changed-bg), var(--mm-diff-changed-bg)),
+    var(--mm-code-bg, #f6f8fa);
+}
 
 /* PRD 022 Req 12 (issue #234): editor-pane comment highlights — the same
    strengths the preview's mark.hl derives (42% of the marker hue; the

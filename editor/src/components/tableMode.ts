@@ -269,12 +269,23 @@ const alignFilter = EditorState.transactionFilter.of((tr) => {
   ];
 });
 
-/** Collapse one span to its canonical text: original bytes when the model is
- * untouched, the compact form when it was edited. Null when unparseable. */
-function collapseSpan(text: string, span: GridSpan): string | null {
+/** Collapse one span to its canonical text, keeping the parse it took to get
+ * there (`canonicalLineMapper` needs both). Null when unparseable. */
+function collapseParsed(
+  text: string,
+  span: GridSpan
+): { collapsed: string; parsed: ParsedDisplay } | null {
   const parsed = parseDisplay(text, { start: span.from, end: span.to });
   if (!parsed) return null;
-  return modelSig(parsed.model) === span.sig ? span.original : serializeCompactTable(parsed.model);
+  // The original bytes when the model is untouched, the compact form when it
+  // was edited.
+  const collapsed = modelSig(parsed.model) === span.sig ? span.original : serializeCompactTable(parsed.model);
+  return { collapsed, parsed };
+}
+
+/** Collapse one span to its canonical text. Null when unparseable. */
+function collapseSpan(text: string, span: GridSpan): string | null {
+  return collapseParsed(text, span)?.collapsed ?? null;
 }
 
 const countNewlines = (s: string): number => {
@@ -324,6 +335,95 @@ export function canonicalLineAt(state: EditorState, line: Line): number {
     canonical -= countNewlines(text.slice(span.from, span.to)) - countNewlines(collapsed);
   }
   return canonical;
+}
+
+/** One tracked span, prepared: where it sits in each coordinate system. */
+interface MappedSpan {
+  /** Its first raw editor line (1-based). */
+  firstRaw: number;
+  /** The canonical line that raw line is. */
+  canonFirst: number;
+  /** How many canonical lines it collapses to. */
+  canonLines: number;
+  parsed: ParsedDisplay;
+}
+
+/**
+ * SPEC16 §2 (issue #264): the INVERSE of `canonicalLineAt` — given a CANONICAL
+ * 1-based line, the raw editor lines it occupies. The changes-since-save sets
+ * are computed by the app over the canonical buffer, but the decorations paint
+ * raw editor lines, so without this every line below the first grid drifted
+ * down by the grid's extra rows (the same drift issue #260 hit from the
+ * other direction).
+ *
+ * Prepared once per state and then queried, because the overlay maps a whole
+ * diff on every repaint: the walk costs a `doc.toString()` and a parse per
+ * span, and that is paid here rather than per line.
+ *
+ * A grid is TALLER than its source, so the map is one-to-many: a canonical
+ * table row is however many display rows its cells wrapped into, and the
+ * canonical separator row is the grid's first separator (the one carrying
+ * the alignment markers). A canonical line inside a span whose canonical text
+ * is not the header/separator/rows shape every markdown table has degrades to
+ * the span's first raw line rather than guessing an offset: a marker on the
+ * table beats one on an unrelated line below it.
+ *
+ * Identity, and free, when no grid is tracked. Spans are skipped exactly as
+ * `canonicalizeAll` and `canonicalLineAt` skip them, so all three
+ * arithmetics stay in step. Yields [] for a canonical line past the
+ * document's end (a stale set, mid-debounce).
+ */
+export function canonicalLineMapper(state: EditorState): (canonicalLine: number) => number[] {
+  const lines = state.doc.lines;
+  const inDoc = (n: number): number[] => (n >= 1 && n <= lines ? [n] : []);
+  const set = state.field(tableModeField, false);
+  if (!set || set.spans.length === 0) return inDoc;
+
+  const text = state.doc.toString();
+  const mapped: MappedSpan[] = [];
+  let delta = 0; // raw line − canonical line, accumulated over earlier spans
+  for (const span of set.spans) {
+    const canon = collapseParsed(text, span);
+    if (canon === null) continue; // canonicalizeAll left this one raw
+    const firstRaw = state.doc.lineAt(span.from).number;
+    const canonLines = countNewlines(canon.collapsed) + 1;
+    mapped.push({ firstRaw, canonFirst: firstRaw - delta, canonLines, parsed: canon.parsed });
+    delta += countNewlines(text.slice(span.from, span.to)) - (canonLines - 1);
+  }
+  const deltaBelowAll = delta;
+
+  return (canonicalLine: number): number[] => {
+    for (const span of mapped) {
+      const deltaAbove = span.firstRaw - span.canonFirst; // what the earlier grids added
+      if (canonicalLine < span.canonFirst) return inDoc(canonicalLine + deltaAbove);
+      if (canonicalLine < span.canonFirst + span.canonLines) {
+        const rows = spanDisplayRows(span, canonicalLine - span.canonFirst) ?? [0];
+        return rows.map((i) => span.firstRaw + i).filter((n) => n <= lines);
+      }
+    }
+    return inDoc(canonicalLine + deltaBelowAll);
+  };
+}
+
+/**
+ * SPEC16 §2 (issue #264): the display rows (0-based, within the span) a
+ * canonical row of a collapsed table lives on. Canonical markdown tables are
+ * always header / separator / one line per row, so the offset names the row;
+ * the display repeats that row once per wrapped fragment. Null when the
+ * canonical text is not that shape.
+ */
+function spanDisplayRows(span: MappedSpan, offset: number): number[] | null {
+  const { lineInfo, model } = span.parsed;
+  if (span.canonLines !== model.rows.length + 2) return null;
+  // The canonical separator is the grid's FIRST one — the row carrying the
+  // alignment markers; the later ones are the grid's between-row rules.
+  if (offset === 1) {
+    const i = lineInfo.findIndex((info) => info.kind === 'separator');
+    return i === -1 ? null : [i];
+  }
+  const wanted = offset === 0 ? -1 : offset - 2; // 0 header (row −1), 2+k row k
+  const rows = lineInfo.flatMap((info, i) => (info.kind === 'cells' && info.row === wanted ? [i] : []));
+  return rows.length ? rows : null;
 }
 
 /** SPEC40 §2.2: grid every untracked valid table (history-transparent). */

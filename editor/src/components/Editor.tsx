@@ -142,6 +142,7 @@ import {
   type GridSpan,
   canonicalLineAt,
 } from './tableMode';
+import { diffLineMarks, type DiffLineMark } from './diffMarks';
 
 /** SPEC43 §5.2: the ops the App's format commands drive (menu ids, same set). */
 export type SmartFormatOp =
@@ -720,22 +721,42 @@ const codeSyntaxExt = (on: boolean): Extension =>
  */
 const changedLine = Decoration.line({ class: 'mm-diff-changed' });
 const deletedAfterLine = Decoration.line({ class: 'mm-diff-deleted-after' });
+/**
+ * SPEC16 §2 (issue #264): a deletion whose anchor line was itself edited
+ * needs BOTH treatments — one Map keyed by line used to let the changed tint
+ * overwrite the deletion marker, losing the only sign that text vanished
+ * there. The two classes are independent (background vs left edge), so the
+ * shared line simply carries both.
+ */
+const changedAndDeletedLine = Decoration.line({ class: 'mm-diff-changed mm-diff-deleted-after' });
 
-/** SPEC16 §2: line decorations for the changes-since-save tint. */
-function diffDecorations(view: EditorView, diff: DiffLineSets): DecorationSet {
+/**
+ * SPEC16 §2: line decorations for the changes-since-save tint.
+ *
+ * Issue #264: which lines carry which treatment is `diffLineMarks` (canonical
+ * → raw coordinates, changed and deleted coexisting on one line); this side
+ * is only the RangeSet assembly.
+ *
+ * Fence delimiter rows: a ```js → ```python edit changes the delimiter line
+ * and is marked THERE, on the card's own first (or last) row. `codeBlockView`
+ * hides that row's text, so it renders as the card's empty top edge — a
+ * tinted band on the card, which is where the change really is. The
+ * alternative, re-attributing to the first body line, would claim a code line
+ * changed when it did not.
+ */
+function diffDecorations(state: EditorState, diff: DiffLineSets): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
-  const lines = view.state.doc.lines;
-  const marks = new Map<number, Decoration>();
-  for (const n of diff.deletedAfter) {
-    const at = Math.min(Math.max(n, 1), lines); // deletion before line 1 clamps onto it
-    marks.set(at, deletedAfterLine);
-  }
-  for (const n of diff.changed) if (n >= 1 && n <= lines) marks.set(n, changedLine);
-  for (const n of [...marks.keys()].sort((a, b) => a - b)) {
-    const from = view.state.doc.line(n).from;
-    builder.add(from, from, marks.get(n)!);
+  for (const m of diffLineMarks(state, diff)) {
+    const from = state.doc.line(m.line).from;
+    builder.add(from, from, lineDeco(m));
   }
   return builder.finish();
+}
+
+/** The one line decoration a mark's treatments add up to. */
+function lineDeco(m: DiffLineMark): Decoration {
+  if (!m.changed) return deletedAfterLine;
+  return m.deleted ? changedAndDeletedLine : changedLine;
 }
 
 /** PRD 022 Req 12 (issue #234): one editor-pane comment highlight. */
@@ -2260,7 +2281,7 @@ export default function Editor({
     if (!view) return;
     view.dispatch({
       effects: diffComp.current.reconfigure(
-        diff ? EditorView.decorations.of((v) => diffDecorations(v, diff)) : []
+        diff ? EditorView.decorations.of((v) => diffDecorations(v.state, diff)) : []
       ),
     });
   }, [diff]);
