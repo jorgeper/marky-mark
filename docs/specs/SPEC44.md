@@ -89,8 +89,10 @@ diverging (same behavior there — this is pure webview UI).
    word immediately and a later ⌘E lands the editor caret on that word
    (E85's survival contract extends to this collapsed case).
 3. Text selection in the preview (click-drag) is untouched — a click is
-   only a placement when the selection stays collapsed; type-to-comment
-   and comment-add flows keep priority.
+   only a placement when the selection stays collapsed; the annotation
+   authoring flows keep priority. (Type-to-comment, named here when
+   this spec shipped, is superseded by PRD 023 §6; the flows that keep
+   priority are now the menu, hotkey and selection-button routes.)
 
 ## 5. Modes & lifecycle (FR-MODES)
 

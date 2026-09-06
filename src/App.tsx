@@ -7134,7 +7134,10 @@ export default function App() {
               placeholder="Add a comment…"
               autoFocus
               value={draft}
-              // Type-to-comment seeds the draft; the caret belongs after it.
+              // PRD 023 §6 (issue #286): type-to-comment is gone, so the
+              // draft opens empty on the insert routes — but a reopened
+              // composer can still carry text, and the caret belongs
+              // after it rather than selecting the whole draft.
               onFocus={(e) => {
                 const n = e.currentTarget.value.length;
                 e.currentTarget.setSelectionRange(n, n);

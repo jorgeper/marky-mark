@@ -360,7 +360,13 @@ record('editor package boundary', Date.now() - boundaryStart);
 // Re-pinned to the collected count, which now includes this issue's
 // E465–E473 (the preview selection button in comments.spec.ts) and E474
 // (the hosted flavor's button, hosted.spec.ts).
-const E2E_TEST_FLOOR = 464;
+// 473 as of issue #289 (PRD 023 Req 21): the verification sweep added no
+// e2e tests — it closed the two unit gaps instead (U1162/U1163 the marker
+// and comment-tint token vocabulary with its WCAG AA contrast arithmetic,
+// U1164/U1165 the annotation hotkey defaults). The floor had drifted 9
+// behind again through issues #270 and #272; re-pinned to the collected
+// count.
+const E2E_TEST_FLOOR = 473;
 console.log(`\n=== validate: e2e test-count floor (desktop shim) === (start ${elapsed()})`);
 const floorStart = Date.now();
 const listed = spawnSync('npx', ['playwright', 'test', '--list'], {

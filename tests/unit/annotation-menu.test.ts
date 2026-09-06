@@ -291,3 +291,13 @@ describe('PRD 023 §13 preview selection context model (issue #287)', () => {
     expect(stacked.deleteCommentId).toBeNull();
   });
 });
+
+// PRD 023 Req 21 (issue #289) — retired numbers. U819 and U323 lived in the
+// deleted tests/unit/comment-affordance.test.ts: they pinned the floating
+// swatch popup's gate (PRD 022 Req 1) and its comment.write gate (PRD 007
+// Req 17). The popup itself is retired (PRD 023 §6; E462 asserts its absence
+// on every surface), and the gates it carried moved onto the menu context
+// model above — U1143 closes the editor gate as a whole for comments-off, a
+// frozen store and a missing comment.write, U1145 does the same for the
+// preview selection button, and E154/E463 drive them through the shipped
+// menu. Both numbers are retired, never reused.

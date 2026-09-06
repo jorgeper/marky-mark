@@ -112,7 +112,9 @@ them.
   after any sequence of events are pixel-identical to v45.
 - **3.2 Selection equality bail.** The preview `selectionchange` handler
   bails (`prev` returned) when `{start,end,x,y}` are unchanged; the
-  type-to-comment effect depends on the fields it reads, not the object.
+  selection-dependent effects read those fields, not the object. (The
+  type-to-comment effect named here is superseded by PRD 023 §6; the
+  bail contract is unchanged for the effects that remain.)
 - **3.3 Dirty fast path.** `buffer === savedText` short-circuits `dirty` to
   false without invoking `canonicalText` (`savedText` is canonical by
   construction and canonicalization is idempotent — SPEC38 §3.5); otherwise

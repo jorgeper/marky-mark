@@ -22,7 +22,8 @@ of scope (author's call): scroll sync between split panes, a fully fledged edito
 1. New setting **`commentsEnabled: boolean`, default `true`**, in General → Comments
    (`data-testid="set-comments-enabled"`), listed above the other comment settings.
 2. When OFF: no comment highlights in preview, no comments panel, no selection →
-   floating 💬 button, no type-to-comment (§3), and the toolbar's comment-panel
+   floating 💬 button, no type-to-comment (§3 — both superseded by PRD 023 §6),
+   and the toolbar's comment-panel
    toggle is hidden. The document renders as if the file had no comments.
 3. Disabling is **non-destructive**: stored comments (sidecar or embedded) are never
    read-modified or deleted by the switch; re-enabling restores everything exactly.
@@ -33,7 +34,15 @@ of scope (author's call): scroll sync between split panes, a fully fledged edito
    toggle gone; select text → no floating button; re-enable → all back, comment
    count unchanged.
 
-## 3. Type-to-comment (FR-T)
+## 3. Type-to-comment (FR-T) — superseded
+
+> **Superseded by PRD 023 §6** (`prd/023-comments-highlights-split.md`,
+> issue #286). Type-to-comment is retired along with the floating
+> selection popup: pressing a printable key over a selection opens
+> nothing, the `typeToComment` setting is gone, and comments are
+> authored from the Smart Edit menu, the `Mod+Alt+M` hotkey, or the
+> preview selection button (PRD 023 §§7–13). This section is kept for
+> history; it is no longer contract. E37 now asserts the absence.
 
 1. New setting **`typeToComment: boolean`, default `true`** (General → Comments,
    `data-testid="set-type-to-comment"`).
@@ -80,7 +89,9 @@ The bigger feature. Full-screen swap stays the default; this adds an opt-in spli
 3. The right pane renders through the existing sanitized markdown pipeline,
    re-rendered **live as the buffer changes, debounced ≤ 300 ms**. It is a plain
    reading pane: no comment highlights, panel, selection button, or type-to-comment
-   there — reading preview remains the comments surface.
+   there — reading preview remains the comments surface. (Superseded by
+   PRD 023 §§8,13: the split live preview is a full annotation surface —
+   the menu, the hotkeys and the selection button all reach it.)
 4. A **draggable divider** (`data-testid="split-divider"`, ~5 px hit area, col-resize
    cursor) sits between the panes. Dragging resizes both panes live, clamps to
    0.2–0.8, and persists `splitRatio` on release. Double-click resets to 0.5.
