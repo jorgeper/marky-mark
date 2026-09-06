@@ -12,6 +12,12 @@
   --mm-accent: #b58900;
   --mm-border: #0d4552;
 
+  /* Issue #318: Solarized's body text (#839496 on #002b36) is 4.75:1 on the
+     bare background and drops under the 4.5:1 floor
+     tests/unit/callout-tokens.test.ts holds callout text to once a tint is
+     behind it. Callouts read in base2 instead. */
+  --mm-callout-fg: #eee8d5;
+
   /* Issue #245: the shared --mm-danger default (#cf222e tempered toward
      --mm-fg) reaches only 2.40:1 here — under the 4.5:1 floor
      tests/unit/danger-token.test.ts holds error text to on every theme.

@@ -7,6 +7,7 @@ import rehypeSanitize, { defaultSchema, type Options as SanitizeSchema } from 'r
 import rehypeHighlight from 'rehype-highlight';
 import rehypeStringify from 'rehype-stringify';
 import { readFenceWidth } from './fenceWidth.ts';
+import { CALLOUT_KINDS, calloutClass, renderCallouts } from './callouts.ts';
 
 /**
  * The rendering pipeline is intentionally identical to ../md-with-comments
@@ -35,6 +36,15 @@ const schema: SanitizeSchema = {
     // SPEC20 §4.1: resize needs the size pair plus the inert source-span
     // offsets (numbers into the markdown text) — exactly these, nothing else.
     img: [...(defaultSchema.attributes?.img ?? []), 'width', 'height', 'dataMmSrcStart', 'dataMmSrcEnd'],
+    // Issue #318: the callout container's classes and its title row's —
+    // exactly the values `renderCallouts` writes (inert class names, no URL
+    // or script surface); sanitize runs after the transform and would strip
+    // an unlisted className.
+    blockquote: [
+      ...(defaultSchema.attributes?.blockquote ?? []),
+      ['className', 'mm-callout', ...CALLOUT_KINDS.map(calloutClass)],
+    ],
+    p: [...(defaultSchema.attributes?.p ?? []), ['className', 'mm-callout-title']],
   },
   protocols: {
     ...defaultSchema.protocols,
@@ -266,6 +276,13 @@ const processor = unified()
   .use(stampNestedHeadingLines)
   .use(stampImageSpans)
   .use(blockRemoteImages)
+  // Issue #318: GitHub-alert blockquotes become tinted callouts — after the
+  // line stamps (the container keeps its data-mm-line) and before sanitize
+  // (whose schema admits the classes this writes). This is the one transform
+  // that changes rendered text: the `[!KIND]` marker leaves and the kind's
+  // label arrives as a title row, so comment anchors inside a callout
+  // re-anchor by their quoted text (SPEC6) rather than by raw offset.
+  .use(renderCallouts)
   .use(rehypeSanitize, schema)
   // PRD 015 Req 4: post-sanitize like rehype-highlight — the width stamp
   // never widens the schema and never touches rendered text.

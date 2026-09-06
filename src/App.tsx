@@ -946,6 +946,13 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Issue #318: the Callout ▸ toggle and the Settings checkbox flip this.
+  const toggleCalloutView = useCallback(() => {
+    const s = stateRef.current.settings;
+    updateSettings({ ...s, calloutView: !s.calloutView });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // SPEC43 §11 (issue #270): every href leaving the editor (modifier-click,
   // openLink hotkey, Link ▸ Open Link, live-preview links) lands here and gets
   // EXACTLY the preview pane's managed-link rule (SPEC11 §4) through the one
@@ -8379,6 +8386,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                 onToggleDiagramView={toggleDiagramView}
                 linkView={settings.linkView}
                 onToggleLinkView={toggleLinkView}
+                calloutView={settings.calloutView}
+                onToggleCalloutView={toggleCalloutView}
                 themeVariant={activeThemeVariant}
                 // PRD 020 Req 18 (issue #223): the heading copy-link seam —
                 // hosted-only (Req 15), and only for a document with an

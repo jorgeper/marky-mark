@@ -110,6 +110,63 @@
   color: var(--mm-blockquote-fg, #59636e);
 }
 
+/* DOCUMENT RENDERING — BEGIN (PRD 018 Req 17) */
+/* Issue #318: GitHub-alert callouts. A `> [!NOTE]` blockquote (markdown.ts
+   renderCallouts) is a tinted block with an accent edge and a kind-labelled
+   title row. The five hues are theme tokens, declared here once on
+   .theme-root (the --mm-marker-* precedent) and overridable per theme; the
+   tint and the title colour DERIVE from them with color-mix against the
+   theme's own --mm-bg and body colour, so every bundled theme — dark ones
+   included — paints a pastel of its own background behind its own text.
+   tests/unit/callout-tokens.test.ts holds body and title text over every
+   tint to WCAG AA on every bundled theme and the package default; the
+   strengths below (12% tint, 25% title cast) are read off this file there.
+   --mm-callout-fg is deliberately undeclared here: it falls back to --mm-fg,
+   and only a theme whose body text is under the floor on its bare
+   background (the solarized pair) sets it. The edit-pane view
+   (components/calloutView.ts) paints the same tokens per line, further
+   down in the editor block. */
+.theme-root {
+  --mm-callout-note: #0969da;
+  --mm-callout-tip: #1a7f37;
+  --mm-callout-important: #8250df;
+  --mm-callout-warning: #9a6700;
+  --mm-callout-caution: #cf222e;
+}
+/* Each kind resolves its hue once (the mark.hl[data-color] idiom), for the
+   preview blockquote and the edit-pane line alike — both carry the class. */
+.mm-callout-note {
+  --mm-callout-hue: var(--mm-callout-note, #0969da);
+}
+.mm-callout-tip {
+  --mm-callout-hue: var(--mm-callout-tip, #1a7f37);
+}
+.mm-callout-important {
+  --mm-callout-hue: var(--mm-callout-important, #8250df);
+}
+.mm-callout-warning {
+  --mm-callout-hue: var(--mm-callout-warning, #9a6700);
+}
+.mm-callout-caution {
+  --mm-callout-hue: var(--mm-callout-caution, #cf222e);
+}
+.doc blockquote.mm-callout {
+  padding: 0.55em 1.1em 0.6em;
+  border-left-color: var(--mm-callout-hue);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--mm-callout-hue) 12%, var(--mm-bg, #ffffff));
+  color: var(--mm-callout-fg, var(--mm-fg, #1f2328));
+}
+.doc blockquote.mm-callout > .mm-callout-title {
+  margin: 0.35em 0 0;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--mm-callout-hue) 25%, var(--mm-callout-fg, var(--mm-fg, #1f2328)));
+}
+.doc blockquote.mm-callout > .mm-callout-title + * {
+  margin-top: 0.35em;
+}
+/* DOCUMENT RENDERING — END (PRD 018 Req 17) */
+
 .doc table {
   border-collapse: collapse;
   margin: 1em 0;
@@ -507,6 +564,42 @@
 .editor-wrap .mm-link-modifier .mm-md-link,
 .editor-wrap .mm-link-modifier .mm-md-url {
   cursor: pointer;
+}
+/* Issue #318: the edit-pane callout view — the preview's tint, edge and
+   title colour painted per line (components/calloutView.ts) through the
+   same --mm-callout-* tokens and the same strengths as the .doc rules above.
+   The wash lives on a ::before at z-index -3 for the reason .mm-fence-card
+   documents (the selection layer must paint above it); the line goes
+   position: relative to anchor it. The label widget replaces the `[!KIND]`
+   text, and the quote's muted italic gives way to the callout body colour
+   so the block reads as the preview does. */
+.editor-wrap .cm-line.mm-callout-line {
+  position: relative;
+}
+.editor-wrap .cm-line.mm-callout-line::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  background: color-mix(in srgb, var(--mm-callout-hue) 12%, var(--mm-bg, #ffffff));
+  box-shadow: inset 3px 0 var(--mm-callout-hue);
+}
+.editor-wrap .cm-line.mm-callout-first::before {
+  border-radius: 0 6px 0 0;
+}
+.editor-wrap .cm-line.mm-callout-last::before {
+  border-radius: 0 0 6px 0;
+}
+.editor-wrap .cm-line.mm-callout-first.mm-callout-last::before {
+  border-radius: 0 6px 6px 0;
+}
+.editor-wrap .cm-line.mm-callout-line .mm-md-quote {
+  color: var(--mm-callout-fg, var(--mm-fg, #1f2328));
+  font-style: normal;
+}
+.editor-wrap .mm-callout-label {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--mm-callout-hue) 25%, var(--mm-callout-fg, var(--mm-fg, #1f2328)));
 }
 /* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 

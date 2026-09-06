@@ -115,6 +115,8 @@ export interface Settings {
   diagramView: boolean;
   /** SPEC43 §11 (issue #270): inline links collapse to styled link text in the editor (default on). */
   linkView: boolean;
+  /** Issue #318: GitHub-alert callouts render as tinted blocks in the editor (default on). */
+  calloutView: boolean;
   /** SPEC26 §3: show the front-matter card by default when a doc has one. */
   showFrontmatter: boolean;
   /** SPEC34 §2.2: the folder sidebar's visibility (persisted toggle). */
@@ -215,6 +217,8 @@ export const DEFAULT_SETTINGS: Settings = {
   diagramView: true,
   // SPEC43 §11 (issue #270): like its four view siblings, links ship rendered.
   linkView: true,
+  // Issue #318: like its five view siblings, callouts ship rendered.
+  calloutView: true,
   showFrontmatter: true,
   showFolders: false,
   folderWidth: 240,
@@ -311,6 +315,9 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   // SPEC43 §11 (issue #270): User scope like codeBlockView/diagramView —
   // how links read in someone's editor is theirs, not a workspace's to set.
   linkView: 'U',
+  // Issue #318: User scope like linkView — how callouts read in someone's
+  // editor is theirs, not a workspace's to set.
+  calloutView: 'U',
   showFrontmatter: 'U',
   showFolders: 'M',
   folderWidth: 'M',
@@ -432,6 +439,8 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   diagramView: bool,
   // SPEC43 §11 (issue #270): a hand-edited non-boolean falls back to the default.
   linkView: bool,
+  // Issue #318: a hand-edited non-boolean falls back to the default.
+  calloutView: bool,
   showFrontmatter: bool,
   showFolders: bool,
   folderWidth: clampedInt(FOLDER_WIDTH_MIN, FOLDER_WIDTH_MAX),
