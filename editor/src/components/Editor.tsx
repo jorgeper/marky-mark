@@ -142,7 +142,7 @@ import {
   type GridSpan,
   canonicalLineAt,
 } from './tableMode';
-import { diffLineMarks } from './diffMarks';
+import { diffLineMarks, type DiffLineMark } from './diffMarks';
 
 /** SPEC43 §5.2: the ops the App's format commands drive (menu ids, same set). */
 export type SmartFormatOp =
@@ -747,11 +747,16 @@ const changedAndDeletedLine = Decoration.line({ class: 'mm-diff-changed mm-diff-
 function diffDecorations(state: EditorState, diff: DiffLineSets): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   for (const m of diffLineMarks(state, diff)) {
-    const deco = m.changed ? (m.deleted ? changedAndDeletedLine : changedLine) : deletedAfterLine;
     const from = state.doc.line(m.line).from;
-    builder.add(from, from, deco);
+    builder.add(from, from, lineDeco(m));
   }
   return builder.finish();
+}
+
+/** The one line decoration a mark's treatments add up to. */
+function lineDeco(m: DiffLineMark): Decoration {
+  if (!m.changed) return deletedAfterLine;
+  return m.deleted ? changedAndDeletedLine : changedLine;
 }
 
 /** PRD 022 Req 12 (issue #234): one editor-pane comment highlight. */

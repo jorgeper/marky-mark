@@ -6,7 +6,7 @@
 // rendering while the diff is on.
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { caretInto, closeAppMenu, freshApp, openGridDoc, openViewMenu } from './helpers';
+import { caretInto, freshApp, openGridDoc, openViewMenu } from './helpers';
 
 const PATH = '/docs/diffmix.md';
 
@@ -49,7 +49,7 @@ async function openMixWithDiff(page: Page) {
   await expect(editor.locator('.cm-line.mm-fence-card').first()).toBeVisible();
   const view = await openViewMenu(page);
   await view.getByTestId('menu-view-toggleDiff').click();
-  if (await page.getByTestId('app-menu-view').count()) await closeAppMenu(page);
+  await expect(page.getByTestId('app-menu-view')).toHaveCount(0); // choosing a row closes the menu (E13)
   return editor;
 }
 

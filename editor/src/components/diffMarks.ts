@@ -7,7 +7,7 @@
  * gridded table is taller on screen than in the file, so every raw line below
  * one runs ahead of its canonical line and the marks used to land N rows low
  * — the same drift issue #260 hit from the other direction.
- * `docLinesAtCanonical` is that conversion, sharing `canonicalLineAt`'s
+ * `canonicalLineMapper` is that conversion, sharing `canonicalLineAt`'s
  * arithmetic; a canonical table row maps to every display row its cells
  * wrapped into, so a cell edit marks its own row(s) and nothing below.
  *
@@ -20,7 +20,7 @@
  */
 import type { EditorState } from '@codemirror/state';
 import type { DiffLineSets } from '../lib/diffLines';
-import { docLinesAtCanonical } from './tableMode';
+import { canonicalLineMapper } from './tableMode';
 
 /** One raw editor line and the treatments it carries (both can apply). */
 export interface DiffLineMark {
@@ -31,21 +31,23 @@ export interface DiffLineMark {
 
 export function diffLineMarks(state: EditorState, diff: DiffLineSets): DiffLineMark[] {
   const lines = state.doc.lines;
+  const docLinesAt = canonicalLineMapper(state);
   const changed = new Set<number>();
   const deleted = new Set<number>();
-  for (const n of diff.changed) for (const raw of docLinesAtCanonical(state, n)) changed.add(raw);
+  for (const n of diff.changed) for (const raw of docLinesAt(n)) changed.add(raw);
   for (const n of diff.deletedAfter) {
     // The marker sits on the line the deletion FOLLOWS: 0 means saved lines
     // vanished before line 1, and an anchor past the end (a stale set,
-    // mid-debounce) belongs on the last line — both are lines the user can
-    // see. A mapped anchor takes its LAST raw row, so a deletion after a grid
-    // marks the grid's bottom row rather than its top.
-    const raw = n < 1 ? [1] : docLinesAtCanonical(state, n);
-    deleted.add(raw.length ? Math.min(Math.max(raw[raw.length - 1], 1), lines) : lines);
+    // mid-debounce, so the mapper yields nothing) belongs on the last line —
+    // both are lines the user can see. A mapped anchor takes its LAST raw
+    // row, so a deletion after a grid marks the grid's bottom row rather
+    // than its top.
+    const raw = n < 1 ? [1] : docLinesAt(n);
+    deleted.add(raw.length ? raw[raw.length - 1] : lines);
   }
-  // A deletion whose anchor line was itself edited needs BOTH treatments: the
-  // one Map keyed by line this replaced let the changed tint overwrite the
-  // deletion marker, losing the only sign that text vanished there.
+  // Changed and deleted both landing on one line is not a conflict — the two
+  // treatments are independent, so the line carries both flags and the
+  // caller paints both (`Editor.tsx`'s `changedAndDeletedLine`).
   return [...new Set([...changed, ...deleted])]
     .sort((a, b) => a - b)
     .map((line) => ({ line, changed: changed.has(line), deleted: deleted.has(line) }));
