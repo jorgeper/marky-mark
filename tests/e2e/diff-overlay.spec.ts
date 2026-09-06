@@ -58,7 +58,7 @@ async function caretToTail(page: Page) {
   await page.getByTestId('editor').locator('.cm-line').filter({ hasText: 'tail line' }).first().click();
 }
 
-test('E494: an unedited mixed document paints no changed tints and no deletion markers', async ({
+test('E501: an unedited mixed document paints no changed tints and no deletion markers', async ({
   page,
 }) => {
   const editor = await openMixWithDiff(page);
@@ -73,7 +73,7 @@ test('E494: an unedited mixed document paints no changed tints and no deletion m
   await expect(editor.locator('.cm-line.mm-diff-deleted-after')).toHaveCount(0);
 });
 
-test('E495: an edit below a gridded table tints its own line, and a cell edit tints its own grid row', async ({
+test('E502: an edit below a gridded table tints its own line, and a cell edit tints its own grid row', async ({
   page,
 }) => {
   // SPEC16 §2: the sets are canonical coordinates; a grid is taller than its
