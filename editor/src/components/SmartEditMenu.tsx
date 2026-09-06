@@ -70,7 +70,8 @@ export function SmartEditMenu({ x, y, entries, onInvoke, onClose }: Props) {
       const t = e.target;
       if (menu && t instanceof Node && t !== document) {
         const host = menu.parentElement;
-        if (!t.contains(menu) && !(host && host.contains(t))) return;
+        const movesAnchor = t.contains(menu) || host?.contains(t) === true;
+        if (!movesAnchor) return;
       }
       onClose();
     };

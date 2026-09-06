@@ -6567,8 +6567,12 @@ export default function App() {
     };
   }, [mode, settings.splitEdit, sourceRangeFromDomSelection]);
 
-  // --- selection → floating "Add comment" button ---------------------------------------
+  // --- preview selection tracking ------------------------------------------------------
   // Preview mode and the split-edit preview pane both host selections (#19).
+  // PRD 023 §12 (issue #286): the floating popup this fed is gone — `selInfo`
+  // is now the preview surfaces' authoring anchor (the annotation hotkeys)
+  // and the word-count chip's selection source. The rect rides along for the
+  // preview selection button issue #287 places on it.
   useEffect(() => {
     const inSplit = mode === 'edit' && settings.splitEdit;
     if (mode !== 'preview' && !inSplit) return;
@@ -6595,7 +6599,7 @@ export default function App() {
     document.addEventListener('selectionchange', onSelection);
     return () => {
       document.removeEventListener('selectionchange', onSelection);
-      // A surface swap (mode/split toggle) orphans the old selection's button.
+      // A surface swap (mode/split toggle) orphans the old selection.
       setSelInfo((prev) => (prev === null ? prev : null));
     };
   }, [mode, settings.splitEdit]);
@@ -6708,9 +6712,26 @@ export default function App() {
       idsAtCaret: sel.idsAtHead,
       records: comments,
     });
-    (window as unknown as { __mmAnnotProbe?: unknown }).__mmAnnotProbe = { sel: { from: sel.from, to: sel.to, head: sel.head, ids: sel.idsAtHead, textLen: sel.text.length }, model, renderedLen: editRenderedTextRef.current.length };
     annotationModelRef.current = model;
     return model;
+  };
+
+  // PRD 023 §8 (issue #286): Insert Comment against a resolved model — the
+  // menu row and Mod+Alt+M share this, so both act on the same anchor rule.
+  const applyModelComment = (model: AnnotationMenuModel) => {
+    if (!model.anchor || !model.insertCommentEnabled) return;
+    insertCommentAt(editRenderedTextRef.current, model.anchor.start, model.anchor.end);
+  };
+
+  // PRD 023 §9 (issue #286): a color against a resolved model — recolor the
+  // caret's highlight, else insert over the model's anchor. Shared by the
+  // color rows and Mod+Alt+H (which passes the armed color), so the hotkey
+  // can never drift from the row it mirrors.
+  const applyModelColor = (model: AnnotationMenuModel, color: CommentColor) => {
+    if (model.recolorId) recolorHighlight(model.recolorId, color);
+    else if (model.anchor && model.colorsEnabled) {
+      insertHighlightAt(editRenderedTextRef.current, model.anchor.start, model.anchor.end, color);
+    }
   };
 
   // PRD 023 §§8–11 (issue #286): an annotation menu row was invoked — act on
@@ -6718,19 +6739,17 @@ export default function App() {
   const handleAnnotationAction = (id: string) => {
     const model = annotationModelRef.current;
     if (!model || !model.show) return;
-    if (id === 'insert-comment' && model.anchor && model.insertCommentEnabled) {
-      insertCommentAt(editRenderedTextRef.current, model.anchor.start, model.anchor.end);
+    if (id === 'insert-comment') {
+      applyModelComment(model);
     } else if (id === 'delete-comment' && model.deleteCommentId) {
       deleteComment(model.deleteCommentId);
     } else if (id === 'remove-highlight' && model.removeHighlightId) {
       deleteComment(model.removeHighlightId);
     } else if (id.startsWith('hl-')) {
-      const color = id.slice(3) as CommentColor;
-      if (!MARKER_COLORS.includes(color)) return;
-      if (model.recolorId) recolorHighlight(model.recolorId, color);
-      else if (model.anchor && model.colorsEnabled) {
-        insertHighlightAt(editRenderedTextRef.current, model.anchor.start, model.anchor.end, color);
-      }
+      // The row id names one of the four marker literals — looked up rather
+      // than cast, so an id from anywhere else resolves to nothing.
+      const color = MARKER_COLORS.find((c) => c === id.slice(3));
+      if (color) applyModelColor(model, color);
     }
   };
 
@@ -6766,15 +6785,8 @@ export default function App() {
     if (settings.splitEdit && !sel.focused) return;
     const model = resolveAnnotationModel(sel);
     if (!model.show) return;
-    if (kind === 'comment') {
-      if (model.anchor && model.insertCommentEnabled) {
-        insertCommentAt(editRenderedTextRef.current, model.anchor.start, model.anchor.end);
-      }
-    } else if (model.recolorId) {
-      recolorHighlight(model.recolorId, armedColor);
-    } else if (model.anchor && model.colorsEnabled) {
-      insertHighlightAt(editRenderedTextRef.current, model.anchor.start, model.anchor.end, armedColor);
-    }
+    if (kind === 'comment') applyModelComment(model);
+    else applyModelColor(model, armedColor);
   };
 
   const submitComment = () => {
@@ -6815,10 +6827,6 @@ export default function App() {
     setComments((prev) => prev.filter((c) => c.id !== id));
     setActiveId((a) => (a === id ? null : a));
   };
-
-  // PRD 023 §16 (issue #284): recolorHighlight is gone with the card swatch
-  // row — no live surface reaches a highlight's color in this slice (PRD 023
-  // Req 9 restores recolor in the menu slice).
 
   // PRD 023 §15 (issue #284) + §8 (issue #286): inserting a comment
   // auto-opens the pane — every authoring surface (menu Insert Comment on

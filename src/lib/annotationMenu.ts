@@ -152,8 +152,9 @@ export function annotationMenuModel(input: AnnotationMenuInput): AnnotationMenuM
 
   // No selection: a caret on an existing highlight makes the color rows a
   // recolor of that record (same id, no second record) and arms Remove
-  // Highlight; among several overlapping highlights the kind-aware pick over
-  // the highlight candidates chooses (comments never shadow a recolor).
+  // Highlight. Filtering to highlights first is what keeps a comment at the
+  // same caret from shadowing the recolor; among several overlapping
+  // highlights `pickHitRecord`'s comment-free branch takes the first painted.
   const highlightIds = idsAtCaret.filter((id) => {
     const r = records.find((c) => c.id === id);
     return r !== undefined && !isComment(r);
