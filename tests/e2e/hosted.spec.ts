@@ -1,4 +1,4 @@
-import type { APIRequestContext, APIResponse, Page } from '@playwright/test';
+import type { APIRequestContext, APIResponse, Locator, Page } from '@playwright/test';
 // Issue #243: E494 asserts the hosted splash does NOT carry the build version,
 // read from the same package.json the desktop splash's E87 asserts it from.
 import pkg from '../../package.json' with { type: 'json' };
@@ -6156,6 +6156,34 @@ test('E482: SPEC43 §11 (issue #270) — the hosted build carries the Link ▸ s
   await expect(page.getByTestId('smart-edit-menu')).toHaveCount(0);
 });
 
+/**
+ * Issue #245: what this theme resolves the dialog's body text size and error
+ * colour to, read off the live page — so the error-treatment tests (E492, E535)
+ * assert the tokens rather than the px string and hex the default theme happens
+ * to hold. The probe is a scratch span inside `scope`, so it inherits the same
+ * cascade the error line it stands in for does.
+ */
+async function errorTokens(scope: Locator): Promise<{ bodySize: string; danger: string }> {
+  return scope.evaluate((el) => {
+    const probe = document.createElement('span');
+    probe.style.fontSize = 'var(--mm-text-body)';
+    probe.style.color = 'var(--mm-danger)';
+    el.appendChild(probe);
+    const cs = getComputedStyle(probe);
+    const resolved = { bodySize: cs.fontSize, danger: cs.color };
+    probe.remove();
+    return resolved;
+  });
+}
+
+/** Issue #245: the paint a unique-name field wears — its value's colour and its border. */
+function fieldPaint(input: Locator): Promise<{ color: string; border: string }> {
+  return input.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { color: cs.color, border: cs.borderTopColor };
+  });
+}
+
 test('E492: a duplicate unique name paints the New Workspace dialog red — body-size error text, error border and error-coloured value — and editing the name clears it', async ({
   page,
   request,
@@ -6180,26 +6208,10 @@ test('E492: a duplicate unique name paints the New Workspace dialog red — body
   const dialog = page.getByTestId('new-workspace-dialog');
   await expect(dialog).toBeVisible();
 
-  // What the theme resolves the dialog's body size and error colour to —
-  // read out of the live page, so this asserts the tokens rather than the
-  // px string and hex they happen to hold in the default theme.
-  const { bodySize, danger } = await dialog.evaluate((el) => {
-    const probe = document.createElement('span');
-    probe.style.fontSize = 'var(--mm-text-body)';
-    probe.style.color = 'var(--mm-danger)';
-    el.appendChild(probe);
-    const cs = getComputedStyle(probe);
-    const resolved = { bodySize: cs.fontSize, danger: cs.color };
-    probe.remove();
-    return resolved;
-  });
+  const { bodySize, danger } = await errorTokens(dialog);
 
   const input = page.getByTestId('new-workspace-unique-name');
-  const paint = () =>
-    input.evaluate((el) => {
-      const cs = getComputedStyle(el);
-      return { color: cs.color, border: cs.borderTopColor };
-    });
+  const paint = () => fieldPaint(input);
   const normal = await paint();
   expect(normal.color, 'the untouched field is not already red').not.toBe(danger);
 
@@ -6245,31 +6257,14 @@ test('E535: renaming to a taken unique name paints the Names section red — bod
   const mine = await pathWorkspace(request, ada, 'e535-mine');
 
   await signInTo(page, 'ada', mine.id);
-  await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await openSettings(page, 'workspace');
-  const panel = page.getByTestId('settings-panel');
+  await openWorkspaceSettings(page);
   await expect(page.getByTestId('workspace-names-section')).toBeVisible();
 
-  // What this theme resolves the dialog's body size and error colour to —
-  // read out of the live page rather than hard-coded px/hex (E492's probe).
-  const { bodySize, danger } = await panel.evaluate((el) => {
-    const probe = document.createElement('span');
-    probe.style.fontSize = 'var(--mm-text-body)';
-    probe.style.color = 'var(--mm-danger)';
-    el.appendChild(probe);
-    const cs = getComputedStyle(probe);
-    const resolved = { bodySize: cs.fontSize, danger: cs.color };
-    probe.remove();
-    return resolved;
-  });
+  const { bodySize, danger } = await errorTokens(page.getByTestId('settings-panel'));
 
   const input = page.getByTestId('workspace-unique-name');
   await expect(input).toHaveValue(mine.unique);
-  const paint = () =>
-    input.evaluate((el) => {
-      const cs = getComputedStyle(el);
-      return { color: cs.color, border: cs.borderTopColor };
-    });
+  const paint = () => fieldPaint(input);
   // Sampled focused — typing leaves the field focused, and the focus ring is
   // its own border colour, so an unfocused baseline would compare two states.
   await input.click();

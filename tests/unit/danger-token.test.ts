@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
-import { STYLES, THEMES, contrast, hexToRgb, mix, rgbToken, tokenValue, type Rgb } from './css-contrast';
+import { ROOT, STYLES, THEMES, contrast, hexToRgb, mix, rgbToken, tokenValue, type Rgb } from './css-contrast';
 
 // Issue #245: the New Workspace dialog's refusals moved off the small muted
 // `.hotkey-hint` treatment onto `--mm-danger` at the dialog's body text size.
@@ -87,7 +87,7 @@ describe('Issue #245: the error colour is legible on every bundled theme', () =>
 // the very same `.form-error` / `.invalid` / `.invalid-value` rules now, so
 // this pin is over the component's source: a hand-rolled copy of the
 // treatment would pass a CSS-only check while the two surfaces drift apart.
-const NAMES = readFileSync(new URL('../../src/components/WorkspaceNames.tsx', import.meta.url), 'utf8');
+const NAMES = readFileSync(`${ROOT}src/components/WorkspaceNames.tsx`, 'utf8');
 
 describe('Issue #250: the Names section shares the New Workspace error treatment', () => {
   test('U1234: both unique-name refusals render through .form-error and the field wears .invalid/.invalid-value', () => {
@@ -103,12 +103,17 @@ describe('Issue #250: the Names section shares the New Workspace error treatment
 
     // The field paint is #245's pair of classes, gated on the same judge —
     // `isUniqueNameError`, imported rather than re-implemented, so a
-    // permission or network refusal leaves the field alone.
-    expect(NAMES).toContain("className={nameRejected ? 'field invalid invalid-value' : 'field'}");
+    // permission or network refusal leaves the field alone. Read off the
+    // unique-name input alone, so the display-name field next to it can never
+    // be what satisfies this.
+    const field = /<input\s+id="workspace-unique-name"([\s\S]*?)\n\s*\/>/.exec(NAMES)?.[1];
+    expect(field, 'the unique-name input in WorkspaceNames.tsx').toBeTruthy();
+    expect(field).toMatch(/className=\{nameRejected \? 'field invalid invalid-value' : 'field'\}/);
     expect(NAMES).toMatch(/import \{ isUniqueNameError \} from '\.\.\/lib\/workspaceLifecycle'/);
     expect(NAMES).toMatch(/const nameRejected =[^;]*isUniqueNameError\(error\)/);
 
-    // And editing the name retires the refusal without another Save.
-    expect(NAMES.replace(/\s+/g, ' ')).toContain("setError(''); setUniqueName(e.target.value);");
+    // And editing the name retires the refusal without another Save — the
+    // clearing call, not the order it is written in.
+    expect(field, 'editing the unique name clears the save-time refusal').toMatch(/onChange=[\s\S]*setError\(''\)/);
   });
 });
