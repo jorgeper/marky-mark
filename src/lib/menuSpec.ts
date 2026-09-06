@@ -281,6 +281,11 @@ export function buildMenuSpec(s: MenuState): MenuSpec {
       ? [cmd('newWorkspace', 'New Workspace…', undefined, undefined, s.canCreateWorkspace === false)]
       : []),
     ...(entry.has('openWorkspace') ? [cmd('openWorkspace', 'Open Workspace…')] : []),
+    // Issue #275 (PRD 019): the scratchpad entry rides the same list too —
+    // after Open Workspace…, before Management…, and present only where the
+    // platform declares the seam (hosted). Close Workspace is untouched: it
+    // stays in this menu's own SPEC12 close cluster.
+    ...(entry.has('openScratchpad') ? [cmd('openScratchpad', 'Open Scratchpad')] : []),
     // PRD 017 Req 13: Management… rides the same list — the app appends the
     // action only when /api/me says admin, so no extra flag lives here.
     ...(entry.has('management') ? [cmd('management', 'Management…')] : []),

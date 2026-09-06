@@ -173,6 +173,13 @@ later without a rewrite.
     Workspace, Open Workspace — no Open Folder. Dragging or opening a local
     file works fully client-side, like the existing web build: the file is
     never uploaded and no workspace is required.
+
+> **Amended (issue #275, 2026-09-06):** Req 21's list gains a fourth action —
+> **Open Scratchpad**, sitting immediately after Open Workspace and taking
+> the user straight to `/<username>/scratchpad` (PRD 019). It is hosted-only,
+> like the scratchpad itself, and derived from the same capability list as the
+> rest: Req 22's client start page is unchanged.
+
 22. The client (desktop/web) start page gains the same action list where it
     applies — drag a file, Open File, Open Folder, New Workspace, Open
     Workspace (the PRD 002 local kind) — with the equivalent entries in the

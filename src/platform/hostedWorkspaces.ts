@@ -73,6 +73,15 @@ export interface WorkspaceLifecycle {
   /** Bind the page to a workspace (null: leave — the start page, no workspace). */
   navigateTo(id: string | null): void;
   /**
+   * Issue #275 (PRD 019 Req 1 + PRD 020 Req 10): take the caller to their OWN
+   * scratchpad, exactly as visiting `/<username>/scratchpad` does — the same
+   * navigation `navigateTo` makes for a flagged row, asked for directly. It
+   * is optional on this seam because the scratchpad is a hosted concept: a
+   * lifecycle without it is what lib/startActions.ts reads as "no Open
+   * Scratchpad entry", so the capability is never a flavor sniff.
+   */
+  openScratchpad?(): void;
+  /**
    * PRD 009 Req 6: drop the binding WITHOUT navigating — Close Workspace and
    * every crossing action into single-file mode must leave a reload on the
    * initial page, and a navigation would discard the file being opened.
@@ -117,6 +126,19 @@ export function createHostedWorkspaceLifecycle(
    */
   const withAvatarToken = <T extends DirectoryEntry>(user: T): T =>
     user.avatarUrl ? { ...user, avatarUrl: `${user.avatarUrl}?access_token=${encodeURIComponent(token())}` } : user;
+
+  // PRD 020 Req 10 (issue #275): the ONE construction of the caller's own
+  // scratch URL — the canonical `/<username>/scratchpad` navigation both
+  // `navigateTo`'s flagged-row branch and `openScratchpad` go through.
+  // Answers whether it navigated, so a session with no handle (the record
+  // never landed) can fall back rather than land nowhere.
+  const goToOwnScratch = async (): Promise<boolean> => {
+  const handle = (await sessionMe())?.handle;
+    if (handle === undefined) return false;
+    window.location.assign(buildScratchPath(handle));
+    return true;
+  };
+
 
   const getUser = async (id: string): Promise<DirectoryEntry | null> => {
     const user = await json<DirectoryEntry>(await api(`/api/directory/users/${encodeURIComponent(id)}`));
@@ -269,15 +291,20 @@ export function createHostedWorkspaceLifecycle(
         // PRD 020 Req 10: the caller's own scratch opens at its canonical
         // `/<username>/scratchpad` URL (a flagged row is always the caller's
         // own); every other workspace at its unique-name path.
-        if (row?.scratchpad) {
-          const handle = (await sessionMe())?.handle;
-          if (handle !== undefined) {
-            window.location.assign(buildScratchPath(handle));
-            return;
-          }
-        }
+        if (row?.scratchpad && (await goToOwnScratch())) return;
         window.location.assign(row?.uniqueName ? buildAppPath(row.uniqueName) : '/');
       })();
+    },
+
+    // Issue #275: the menu row and the home-page button's one destination —
+    // a real navigation to the canonical scratch URL, so the boot gate opens
+    // the PRD 023 Req 1 fresh buffer exactly as typing the URL would (a
+    // repeat from inside the scratchpad re-lands on a fresh buffer too). No
+    // handle yet ⇒ the start page, never a malformed URL.
+    openScratchpad() {
+      void goToOwnScratch().then((went) => {
+        if (!went) window.location.assign('/');
+      });
     },
 
     unbind() {

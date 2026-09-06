@@ -32,8 +32,12 @@ const HOSTED: StartPlatformCaps = {
   openFolderDialog: noop,
   openWorkspaceDialog: noop,
   readDirEntries: noop,
-  workspaces: {},
+  // Issue #275: the hosted lifecycle is the only one that defines the
+  // scratchpad seam (src/platform/hostedWorkspaces.ts).
+  workspaces: { openScratchpad: noop },
 };
+/** A managed-workspace flavor WITHOUT the scratchpad seam — the pre-#275 hosted shape. */
+const MANAGED_NO_SCRATCH: StartPlatformCaps = { ...HOSTED, workspaces: {} };
 
 describe('PRD 007 Req 21/22: the entry action list', () => {
   test('U311: desktop and the e2e shim offer all four actions, Open File first', () => {
@@ -51,7 +55,7 @@ describe('PRD 007 Req 21/22: the entry action list', () => {
     expect(caps.localFolders).toBe(false);
     expect(caps.managedWorkspaces).toBe(true);
     const actions = startActions(caps);
-    expect(actions).toEqual(['openFile', 'newWorkspace', 'openWorkspace']);
+    expect(actions).toEqual(['openFile', 'newWorkspace', 'openWorkspace', 'openScratchpad']);
     expect(actions).not.toContain('openFolder');
   });
 
@@ -68,6 +72,8 @@ describe('PRD 007 Req 21/22: the entry action list', () => {
       localWorkspaceOpen: false,
       localWorkspaceSave: false,
       managedWorkspaces: false,
+      // Issue #275: no workspace seam at all ⇒ no scratchpad either.
+      scratchpad: false,
     });
     expect(startActions(caps)).toEqual(['openFile']);
   });
@@ -83,6 +89,26 @@ describe('PRD 007 Req 21/22: the entry action list', () => {
       'openFolder',
       'newWorkspace',
     ]);
+  });
+
+  test('U1206: Open Scratchpad is the hosted seam’s own capability — right after Open Workspace, and nowhere else', () => {
+    // Issue #275 (PRD 019): a capability test, never a flavor sniff. Only the
+    // hosted lifecycle defines `openScratchpad`, so only the hosted set
+    // carries the action — and it lands immediately after `openWorkspace`,
+    // which is where the start page's button and the menus' row follow from.
+    const hosted = startActions(startCapabilities(HOSTED));
+    expect(startCapabilities(HOSTED).scratchpad).toBe(true);
+    expect(hosted.indexOf('openScratchpad')).toBe(hosted.indexOf('openWorkspace') + 1);
+    // The desktop, the shim and the single-file web build do not carry it at
+    // all — nor does a managed-workspace flavor whose lifecycle omits the
+    // member (the pre-#275 hosted shape), which is the proof the derivation
+    // reads the seam rather than `workspaces` being present.
+    for (const caps of [TAURI, SHIM, WEB, MANAGED_NO_SCRATCH]) {
+      expect(startCapabilities(caps).scratchpad).toBe(false);
+      expect(startActions(startCapabilities(caps))).not.toContain('openScratchpad');
+    }
+    // It asks no question, so its label carries no ellipsis (#275).
+    expect(START_ACTION_LABELS.openScratchpad).toBe('Open Scratchpad');
   });
 
   test('U316: every action has a label, and the legacy default is the pre-#78 desktop set', () => {

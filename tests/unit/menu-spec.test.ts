@@ -485,6 +485,29 @@ describe('PRD 007 Req 22: File-menu entry items follow the flavor', () => {
     }
   });
 
+  test('U1209: Open Scratchpad sits between Open Workspace… and Management… in the File menu', () => {
+    // Issue #275 (PRD 019): the native menu's entry items ride the same list
+    // the start page and the hamburger do, so the scratchpad entry keeps its
+    // one position there too — and Close Workspace stays in its own SPEC12
+    // close cluster, untouched by this issue.
+    for (const isMac of [true, false]) {
+      const cmds = fileCommands({
+        ...base,
+        isMac,
+        entryActions: ['openFile', 'newWorkspace', 'openWorkspace', 'openScratchpad', 'management'],
+      });
+      expect(cmds.indexOf('openScratchpad')).toBe(cmds.indexOf('openWorkspace') + 1);
+      expect(cmds.indexOf('management')).toBe(cmds.indexOf('openScratchpad') + 1);
+      expect(find({ ...base, isMac, entryActions: ['openScratchpad'] }, 'File', 'openScratchpad')!.label).toBe(
+        'Open Scratchpad'
+      );
+      // A flavor without the capability carries no such item.
+      expect(fileCommands({ ...base, isMac, entryActions: ['openFile', 'newWorkspace', 'openWorkspace'] })).not.toContain(
+        'openScratchpad'
+      );
+    }
+  });
+
   test('U319: the single-file web list drops all three; an absent list keeps the pre-#78 desktop menu', () => {
     for (const isMac of [true, false]) {
       const web = fileCommands({ ...base, isMac, entryActions: ['openFile'] });

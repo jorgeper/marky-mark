@@ -12,9 +12,14 @@ import type { StartActionId } from '../../src/lib/startActions';
  */
 
 /** The capability lists lib/startActions.ts derives per flavor (PRD 007 Req 22). */
-const CAPS: Record<'desktopish' | 'hosted' | 'web', StartActionId[]> = {
+const CAPS: Record<'desktopish' | 'hosted' | 'hostedScratch' | 'web', StartActionId[]> = {
   desktopish: ['openFile', 'openFolder', 'newWorkspace', 'openWorkspace'],
+  // A managed-workspace flavor without the scratchpad seam — the neutral
+  // baseline every item-set test below is frozen against.
   hosted: ['openFile', 'newWorkspace', 'openWorkspace'],
+  // Issue #275: what the hosted flavor actually derives now — the scratchpad
+  // seam adds `openScratchpad` immediately after `openWorkspace`.
+  hostedScratch: ['openFile', 'newWorkspace', 'openWorkspace', 'openScratchpad'],
   web: ['openFile'],
 };
 
@@ -199,6 +204,47 @@ describe('PRD 009 Req 9: mode and capability gating', () => {
     const web = state({ entryActions: CAPS.web });
     expect(groupIds(web)).not.toContain('workspace');
     for (const id of wsRows) expect(testIds(web), id).not.toContain(id);
+  });
+
+  test('U1207: the hosted workspace group is New → Open → Scratchpad → Close → Management, in that order', () => {
+    // Issue #275 (PRD 009 Req 8 amended): the group's pinned order. Management…
+    // moved from third place to last, and Open Scratchpad took the slot right
+    // after Open Workspace… — the same position it holds on the entry list.
+    const admin = state({ entryActions: [...CAPS.hostedScratch, 'management'] });
+    const workspaceRows = buildAppMenu(admin).find((g) => g.id === 'workspace')!.rows;
+    expect(workspaceRows.map((r) => r.testId)).toEqual([
+      'menu-new-workspace',
+      'menu-open-workspace',
+      'menu-open-scratchpad',
+      'menu-close-workspace',
+      'menu-management',
+    ]);
+    // The labels of the four existing rows are untouched; the new one carries
+    // no ellipsis because it opens straight through (#275).
+    expect(workspaceRows.map((r) => r.label)).toEqual([
+      'New Workspace',
+      'Open Workspace…',
+      'Open Scratchpad',
+      'Close Workspace',
+      'Management…',
+    ]);
+    expect(row(admin, 'menu-open-scratchpad')?.command).toBe('openScratchpad');
+    // The desktop set is untouched: no scratchpad seam, so no row at all.
+    expect(testIds(state({ entryActions: CAPS.desktopish }))).not.toContain('menu-open-scratchpad');
+  });
+
+  test('U1208: Open Scratchpad follows the capability alone — every signed-in hosted state has it, admin or not, in a workspace or not', () => {
+    // Issue #275: not admin-gated (unlike Management…) and not mode-gated
+    // (unlike Close Workspace) — the home page and a bound workspace alike.
+    for (const mode of ['splash', 'file', 'workspace'] as const) {
+      const s = state({ mode, docOpen: mode !== 'splash', entryActions: CAPS.hostedScratch });
+      expect(testIds(s), mode).toContain('menu-open-scratchpad');
+      expect(testIds(s), mode).not.toContain('menu-management');
+    }
+    // And nowhere without the capability — the static web build has no
+    // workspace group at all, the pre-#275 managed set no scratchpad row.
+    expect(testIds(state({ entryActions: CAPS.web }))).not.toContain('menu-open-scratchpad');
+    expect(testIds(state({ entryActions: CAPS.hosted }))).not.toContain('menu-open-scratchpad');
   });
 
   test('U345: Save / Save As… are hidden for a non-editable file, disabled with no document', () => {

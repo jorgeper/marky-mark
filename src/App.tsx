@@ -4623,6 +4623,18 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           else openWorkspaceCmd();
         });
       },
+      // Issue #275 (PRD 019 Req 1 + PRD 023 Req 1): straight to the caller's
+      // own scratchpad — no picker, no question. It crosses modes like the
+      // two flows above (the destination is a real navigation, so unsaved
+      // single-file work is walked FIRST rather than being left behind the
+      // browser's own dialog); the PRD 019 Req 11 scratch-buffer exemption
+      // still lets a dirty scratch buffer go silently. Silently inert where
+      // the lifecycle has no scratchpad seam — the entry never renders there.
+      openScratchpad: () => {
+        const p = stateRef.current.platform;
+        if (!p?.workspaces?.openScratchpad) return;
+        crossModes(p, 'workspace', () => p.workspaces?.openScratchpad?.());
+      },
       addFolderToWorkspace: () => void addFolderToWorkspaceCmd(),
       saveWorkspaceAs: () => void saveWorkspaceAsCmd(),
       closeWorkspace: closeWorkspaceCmd,

@@ -2060,7 +2060,7 @@ test('E366: the Add people input and the role select share the one text-input ru
   expect(seenBorders[0]).not.toBe(seenBorders[1]);
 });
 
-test('E201: the hosted start page offers exactly Open File + the two workspace flows — no Open Folder, on the page or in the menu', async ({
+test('E201: the hosted start page offers exactly Open File + the two workspace flows + Open Scratchpad — no Open Folder, on the page or in the menu', async ({
   page,
 }) => {
   // PRD 007 Req 21: signed in with no workspace bound, the start page is the
@@ -2071,11 +2071,14 @@ test('E201: the hosted start page offers exactly Open File + the two workspace f
   await signInTo(page, 'ada');
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await expect(page.getByTestId('start-drop')).toBeVisible();
-  for (const id of ['openFile', 'newWorkspace', 'openWorkspace']) {
+  // Issue #275: the scratchpad button joined the list, right after Open
+  // Workspace — the hosted page's exact set is these four (E509 pins the
+  // order and the button's own behaviour).
+  for (const id of ['openFile', 'newWorkspace', 'openWorkspace', 'openScratchpad']) {
     await expect(page.getByTestId(`start-${id}`)).toBeVisible();
   }
   await expect(page.getByTestId('start-openFolder')).toHaveCount(0);
-  await expect(page.getByTestId('start-actions').getByRole('button')).toHaveCount(3);
+  await expect(page.getByTestId('start-actions').getByRole('button')).toHaveCount(4);
 
   // PRD 009 Req 7: the hamburger leads the toolbar — its right edge sits left
   // of the document name's — and the popover is anchored to it, not to the
@@ -2100,6 +2103,9 @@ test('E201: the hosted start page offers exactly Open File + the two workspace f
     'menu-open',
     'menu-new-workspace',
     'menu-open-workspace',
+    // Issue #275: the scratchpad row rides the hosted entry list, right after
+    // Open Workspace… and on the initial page like everywhere else.
+    'menu-open-scratchpad',
     'menu-save',
     'menu-save-as',
     'menu-view',
@@ -2695,6 +2701,9 @@ test('E217: Close Workspace returns to the initial page and drops the ?workspace
     'menu-close-file',
     'menu-new-workspace',
     'menu-open-workspace',
+    // Issue #275 (PRD 009 Req 8 amended): Open Scratchpad between Open
+    // Workspace… and Close Workspace.
+    'menu-open-scratchpad',
     'menu-close-workspace',
     'menu-save',
     'menu-save-as',
@@ -4310,6 +4319,100 @@ test('E399: the scratch buffer’s first save pre-fills a free Untitled.md at th
   await expect(page.getByTestId('docname')).toContainText(emptyName);
   await expect.poll(() => listFiles(request, token, id)).toContain(emptyName);
   expect(await readAs(request, token, id, emptyName)).toMatch(/^\s*$/);
+});
+
+test('E509: the hosted home page offers Open Scratchpad beside Open Workspace, and it lands on the caller’s own fresh scratchpad', async ({
+  page,
+}) => {
+  // Issue #275 (PRD 007 Req 21 amended, PRD 019, PRD 023 Req 1): the second
+  // in-app way into the scratchpad — a home-page button next to Open
+  // Workspace, reaching exactly where the /<username>/scratchpad URL reaches
+  // (E397): the canonical path, the fresh untitled buffer, edit mode, cursor
+  // ready. Grace is a non-admin, so the button list is the plain hosted four.
+  const token = await signIn(page.request, 'grace');
+  await dropDraft(page, token);
+  await page.goto(`${HOSTED}/`);
+  await page.getByTestId('hosted-sign-in-username').fill('grace');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('start-openFile')).toBeVisible();
+
+  // PRD 007 Req 22: one derived list, so the button sits immediately after
+  // Open Workspace — and no Open Folder, and no Management for a non-admin.
+  const actions = await page
+    .getByTestId('start-actions')
+    .locator('button')
+    .evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.testid));
+  expect(actions).toEqual(['start-openFile', 'start-newWorkspace', 'start-openWorkspace', 'start-openScratchpad']);
+  await expect(page.getByTestId('start-openScratchpad')).toHaveText('Open Scratchpad');
+
+  // It asks nothing — no picker, no dialog — and lands straight on the
+  // scratchpad, exactly as visiting the URL does.
+  await page.getByTestId('start-openScratchpad').click();
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  await expect(page.getByTestId('new-workspace-dialog')).toHaveCount(0);
+  await expect(page.getByTestId('open-workspace-dialog')).toHaveCount(0);
+  const landed = new URL(page.url());
+  expect(landed.pathname).toBe('/grace/scratchpad');
+  expect(landed.search).toBe('');
+  // Cursor ready: typing goes into the fresh buffer without another click.
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('from the home page');
+  await expect(page.locator('.cm-content')).toContainText('from the home page');
+});
+
+test('E510: the hamburger’s workspace group reads New → Open → Scratchpad → Close → Management, and the row opens the scratchpad from inside a workspace', async ({
+  page,
+  request,
+}) => {
+  // Issue #275 (PRD 009 Req 8 amended): the group's pinned order, with
+  // Management… now last. Katherine is local mode's seeded deployment admin,
+  // so all five rows are present at once here.
+  const token = await signIn(request, 'katherine');
+  const id = await createWorkspace(request, token, `E510 w${test.info().workerIndex}`);
+  await dropDraft(page, token);
+  await signInTo(page, 'katherine', id);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+
+  await openAppMenu(page);
+  const rows = await page
+    .getByTestId('app-menu')
+    .locator('button')
+    .evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.testid));
+  const group = [
+    'menu-new-workspace',
+    'menu-open-workspace',
+    'menu-open-scratchpad',
+    'menu-close-workspace',
+    'menu-management',
+  ];
+  // Every one of them, in this order, and contiguous — one group, no gaps.
+  expect(rows.filter((id) => group.includes(id!))).toEqual(group);
+  expect(rows.indexOf('menu-management') - rows.indexOf('menu-new-workspace')).toBe(group.length - 1);
+
+  // PRD 023 Req 1: the row's destination is the URL's destination — the
+  // canonical path and a fresh buffer, from inside a workspace.
+  await page.getByTestId('menu-open-scratchpad').click();
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/katherine/scratchpad');
+
+  // Again from inside the scratchpad itself: it re-lands on a fresh buffer
+  // rather than doing nothing (#275 — activating it twice is not a no-op).
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('typed into the first buffer');
+  await openAppMenu(page);
+  await page.getByTestId('menu-open-scratchpad').click();
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/katherine/scratchpad');
+  // PRD 019 Req 11: the dirty scratch buffer went silently — no prompt, and
+  // the new buffer carries none of its text.
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.locator('.cm-content')).not.toContainText('typed into the first buffer');
+
+  await request.delete(`${HOSTED}/api/workspaces/${id}`, { headers: { Authorization: `Bearer ${token}` } });
 });
 
 test('E404: a file saved in scratchpad shows its canonical /<username>/scratchpad/… URL, and that URL reopens it', async ({

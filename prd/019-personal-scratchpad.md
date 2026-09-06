@@ -86,6 +86,15 @@ requirements of this one:
 > path form) rather than `/?workspace=<id>`, and that rewrite is what puts a
 > legacy visit on the canonical URL.
 
+> **Amended (issue #275, 2026-09-06):** the URL is no longer the only way in.
+> The hosted app offers two in-app entry points beside it — an **Open
+> Scratchpad** row in the hamburger's workspace group and an **Open
+> Scratchpad** button on the home page, beside Open Workspace — and both
+> simply navigate to the Req 1 URL, so they land exactly where it lands (the
+> PRD 023 Req 1 fresh buffer, cursor ready), asking no question on the way.
+> Req 4 is untouched: neither surface exists on Tauri, the dev shim or the
+> single-file build, because both ride the capability-derived entry list.
+
 ### The workspace
 
 5. **Resolve-or-create, idempotent, keyed by token identity.** The server

@@ -115,6 +115,14 @@ with the initial-page buttons acting as shortcuts to those same actions.
    actions (New Workspace, Open Workspace…, Close Workspace), save
    actions (Save, Save As…), **View ▸** submenu, app actions (Sign out
    — hosted only, Settings…, Help, About Marky Mark).
+
+> **Amended (issue #275, 2026-09-06):** the workspace group's order is now
+> New Workspace, Open Workspace…, **Open Scratchpad**, Close Workspace,
+> Management… — two changes. Open Scratchpad joins the group on flavors that
+> declare the scratchpad seam (hosted only, PRD 019), immediately after Open
+> Workspace…; and Management… (PRD 017 Req 13), which used to sit third,
+> moves to last. Every existing row keeps its label and its `data-testid`.
+
 9. Item visibility is mode- and capability-gated:
    - **New File** appears only in workspace mode.
    - **Close File** appears only when at least one file is open;

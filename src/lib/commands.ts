@@ -52,6 +52,10 @@ export type CommandId =
   // PRD 002 §D14: the workspace flows.
   | 'newWorkspace'
   | 'openWorkspace'
+  // Issue #275 (PRD 019): go to the signed-in user's own scratchpad — the
+  // hamburger row and the start-page button dispatch this one id, and it is
+  // a silent no-op where the platform has no scratchpad seam.
+  | 'openScratchpad'
   | 'addFolderToWorkspace'
   | 'saveWorkspaceAs'
   | 'closeWorkspace'

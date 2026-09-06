@@ -190,11 +190,17 @@ export function buildAppMenu(s: AppMenuState): AppMenuGroup[] {
       ? [row('newWorkspace', 'New Workspace', 'menu-new-workspace', undefined, s.canCreateWorkspace === false ? true : undefined)]
       : []),
     ...(entry.has('openWorkspace') ? [row('openWorkspace', 'Open Workspace…', 'menu-open-workspace')] : []),
-    // PRD 017 Req 13: the admin's Management view — present exactly when the
-    // app put `management` on the entry list (an admin session), like the
-    // File menu's twin item.
-    ...(entry.has('management') ? [row('management', 'Management…', 'menu-management')] : []),
+    // Issue #275 (PRD 009 Req 8 amended): the scratchpad row rides the same
+    // entry list, so it appears exactly where the capability does (hosted) and
+    // sits immediately after Open Workspace… — not admin-gated, not
+    // mode-gated: the home page and a bound workspace both offer it.
+    ...(entry.has('openScratchpad') ? [row('openScratchpad', 'Open Scratchpad', 'menu-open-scratchpad')] : []),
     ...(inWorkspace && hasWorkspaces ? [row('closeWorkspace', 'Close Workspace', 'menu-close-workspace')] : []),
+    // PRD 017 Req 13 (order amended by issue #275): the admin's Management
+    // view — present exactly when the app put `management` on the entry list
+    // (an admin session), like the File menu's twin item, and last in the
+    // group.
+    ...(entry.has('management') ? [row('management', 'Management…', 'menu-management')] : []),
   ];
 
   // PRD 007 Req 17: a read-only document has no Save rows at all. PRD 009

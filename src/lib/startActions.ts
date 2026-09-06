@@ -10,7 +10,15 @@
 
 /** An entry-surface action. The drag-a-file drop target is not one — it is
  *  always present on the start page and has no menu equivalent. */
-export type StartActionId = 'openFile' | 'openFolder' | 'newWorkspace' | 'openWorkspace' | 'management';
+export type StartActionId =
+  | 'openFile'
+  | 'openFolder'
+  | 'newWorkspace'
+  | 'openWorkspace'
+  // Issue #275 (PRD 019): the hosted scratchpad's in-app entry — the row and
+  // the start-page button that land where its URL lands.
+  | 'openScratchpad'
+  | 'management';
 
 /** What the platform declares about the four actions' prerequisites. */
 export interface StartCapabilities {
@@ -27,6 +35,14 @@ export interface StartCapabilities {
   localWorkspaceSave: boolean;
   /** The platform owns workspaces itself — the hosted lifecycle seam. */
   managedWorkspaces: boolean;
+  /**
+   * Issue #275 (PRD 019 Req 1): the platform can take the user to their own
+   * scratchpad. The scratchpad is a hosted-only concept, so this is the
+   * lifecycle seam's own `openScratchpad` member — asked for by name, never
+   * inferred from `workspaces` being present at all (a managed-workspace
+   * flavor without a scratchpad would answer no).
+   */
+  scratchpad: boolean;
 }
 
 /** The structural subset of Platform the derivation reads. */
@@ -36,7 +52,9 @@ export interface StartPlatformCaps {
   openWorkspaceDialog?: unknown;
   saveFileDialog?: unknown;
   readDirEntries?: unknown;
-  workspaces?: unknown;
+  /** Issue #275: read as a bag of members — `openScratchpad` is asked for by
+   *  name below, and its absence is what a non-scratchpad flavor looks like. */
+  workspaces?: { openScratchpad?: unknown };
 }
 
 /**
@@ -53,6 +71,9 @@ export function startCapabilities(p: StartPlatformCaps): StartCapabilities {
     localWorkspaceOpen: local && !!p.openWorkspaceDialog,
     localWorkspaceSave: local && !!p.saveFileDialog,
     managedWorkspaces: !!p.workspaces,
+    // Issue #275 (PRD 019): hosted-only by construction — only the hosted
+    // lifecycle defines the member.
+    scratchpad: !!p.workspaces?.openScratchpad,
   };
 }
 
@@ -68,6 +89,9 @@ export function startActions(caps: StartCapabilities): StartActionId[] {
   if (caps.localFolders) list.push('openFolder');
   if (caps.managedWorkspaces || caps.localWorkspaceSave) list.push('newWorkspace');
   if (caps.managedWorkspaces || caps.localWorkspaceOpen) list.push('openWorkspace');
+  // Issue #275: immediately after Open Workspace on every surface — the start
+  // page's button sits beside it, the menus' row follows it.
+  if (caps.scratchpad) list.push('openScratchpad');
   // PRD 017 Req 13: `management` is deliberately NOT derived here — being a
   // deployment admin is a session fact (/api/me), not a platform capability.
   // The app appends it to this list when both hold, and every surface that
@@ -85,6 +109,8 @@ export const START_ACTION_LABELS: Record<StartActionId, string> = {
   openFolder: 'Open Folder…',
   newWorkspace: 'New Workspace…',
   openWorkspace: 'Open Workspace…',
+  // Issue #275: no ellipsis — it opens straight through, it asks nothing.
+  openScratchpad: 'Open Scratchpad',
   // PRD 017 Req 13: the admin's Management view — same label everywhere.
   management: 'Management…',
 };
