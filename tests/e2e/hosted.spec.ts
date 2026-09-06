@@ -6222,7 +6222,7 @@ test('E429: the active highlight reveals a left-margin copy-link that copies the
   await expect(page.getByTestId('mm-hl-link')).toHaveCount(0);
 });
 
-test('E564: the highlight copy-link\'s "Link copied" caption is an opaque pill beside the glyph, clear of the paragraph text', async ({
+test('E567: the highlight copy-link\'s "Link copied" caption is an opaque pill beside the glyph, clear of the paragraph text', async ({
   page,
   request,
 }) => {
