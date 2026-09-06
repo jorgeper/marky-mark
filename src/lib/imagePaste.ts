@@ -79,7 +79,7 @@ export function expandImageName(pattern: string, ext: string, ctx: NamingContext
  * list for both pickers — the desktop dialog's filters and the hosted
  * browser input's `accept` — so the two can never drift apart.
  */
-export const IMAGE_PICK_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+export const IMAGE_PICK_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] as const;
 
 /** The same list as an `<input type="file" accept>` value. */
 export const IMAGE_PICK_ACCEPT = IMAGE_PICK_EXTENSIONS.map((e) => `.${e}`).join(',');

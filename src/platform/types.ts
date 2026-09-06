@@ -94,9 +94,9 @@ export interface Platform {
    * `openImageDialog` + `copyFile` to copy FROM. Hosted opens the browser's
    * own file dialog and the picked File is uploaded through `writeBinaryFile`
    * (PRD 007 Req 8), landing the same workspace blob a paste does; null =
-   * cancelled. Present with `writeBinaryFile` ⇒ Insert Image… uploads;
-   * absent ⇒ the copy-into-place path where that pair exists, and the
-   * needs-desktop notice where neither does.
+   * cancelled. Insert Image… takes the copy-into-place pair where a platform
+   * has one and this pair with `writeBinaryFile` otherwise; a flavor with
+   * neither keeps the needs-desktop notice.
    */
   pickImageFile?(): Promise<File | null>;
   /**

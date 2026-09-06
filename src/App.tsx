@@ -1649,7 +1649,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * — hosted, PRD 007 Req 8) uploads them as a workspace blob, exactly where
    * a pasted image lands and readable by every member holding doc.read.
    * Naming, collision numbering and the reference insertion are the same code
-   * for both. Neither pair — the static web build — keeps the notice.
+   * for both. A flavor with neither pair — the static web build — keeps the
+   * needs-desktop notice.
    */
   const insertImage = useCallback(async () => {
     const s = stateRef.current;
@@ -1669,10 +1670,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       showNotice('Save the document first to insert images');
       return;
     }
-    // The pick comes first and unguarded: cancelling it inserts nothing and
-    // says nothing, on either seam.
-    const picked = copyInPlace ? await copyInPlace.open() : await upload!.pick();
-    if (!picked) return;
     const folder = s.settings.imageFolder;
     const folderPath = p.join(p.dirname(s.docPath), folder);
     /** A free name in the folder for what was picked — one rule, both seams. */
@@ -1680,20 +1677,35 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       const taken = new Set((await p.readDirNames(folderPath)).map((n) => n.toLowerCase()));
       return pickedImageName(base, (fn) => taken.has(fn.toLowerCase()));
     };
-    try {
-      let fileName: string;
-      if (typeof picked === 'string') {
-        if (p.dirname(picked) === folderPath) {
-          fileName = p.basename(picked); // already in the folder — just reference it
-        } else {
-          fileName = await freeName(p.basename(picked));
-          await copyInPlace!.copy(picked, p.join(folderPath, fileName));
-        }
-      } else {
-        fileName = await freeName(picked.name);
-        await upload!.write(p.join(folderPath, fileName), new Uint8Array(await picked.arrayBuffer()));
+    // The pick comes first and unguarded: cancelling it inserts nothing and
+    // says nothing, on either seam. What a pick leaves behind is the step that
+    // lands it in the folder and answers with the name to reference — bound to
+    // the seam that picked, so the landing never has to ask again what kind of
+    // thing came back.
+    let landPicked: (() => Promise<string>) | null = null;
+    if (copyInPlace) {
+      const path = await copyInPlace.open();
+      if (path) {
+        landPicked = async () => {
+          if (p.dirname(path) === folderPath) return p.basename(path); // already there — just reference it
+          const fileName = await freeName(p.basename(path));
+          await copyInPlace.copy(path, p.join(folderPath, fileName));
+          return fileName;
+        };
       }
-      editorInsertRef.current?.(imageMarkdownRef(folder, fileName));
+    } else if (upload) {
+      const file = await upload.pick();
+      if (file) {
+        landPicked = async () => {
+          const fileName = await freeName(file.name);
+          await upload.write(p.join(folderPath, fileName), new Uint8Array(await file.arrayBuffer()));
+          return fileName;
+        };
+      }
+    }
+    if (!landPicked) return; // cancelled
+    try {
+      editorInsertRef.current?.(imageMarkdownRef(folder, await landPicked()));
     } catch (err) {
       // PRD 007 Req 5+17 (issue #266, following pasteImages): the upload can
       // fail because the session expired — that is the gate's sign-in-again
