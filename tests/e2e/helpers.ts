@@ -239,7 +239,7 @@ export async function clickClearOfToolbar(target: Locator): Promise<void> {
 }
 
 /** The non-null shape of `Locator.boundingBox()`. */
-type Box = { x: number; y: number; width: number; height: number };
+export type Box = { x: number; y: number; width: number; height: number };
 
 /**
  * A `boundingBox()` that has stopped moving: the same rect on two consecutive

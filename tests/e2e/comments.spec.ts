@@ -1,5 +1,6 @@
 import type { Locator } from '@playwright/test';
 import { expect, test } from './fixtures';
+import type { Box } from './helpers';
 import {
   addComment,
   addHighlight,
@@ -502,7 +503,6 @@ test('E54: fixed navigator pill — appears on selection, steps in order, wraps,
 function disjoint(a: Box, b: Box): boolean {
   return a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y;
 }
-type Box = { x: number; y: number; width: number; height: number };
 
 test('E565: issue #305 — the navigator pill, the word-count chip and the zoom control stack in the corner, none covering another, and the stack collapses when a piece leaves', async ({
   page,
@@ -549,7 +549,9 @@ test('E565: issue #305 — the navigator pill, the word-count chip and the zoom 
   expect(zoomBox.y + zoomBox.height).toBeLessThanOrEqual(chipBox.y);
 
   // No reserved rows: with the chip gone (Mod+Shift+W, SPEC16 §5) the control
-  // drops to where the chip's bottom edge was, and the pill follows it down.
+  // drops to where the chip's bottom edge was (the two share the stack's
+  // bottom inset; 1px of slack absorbs sub-pixel rounding between the two
+  // measurements), and the pill follows it down.
   await page.keyboard.press('Control+Shift+W');
   await expect(chip).toHaveCount(0);
   const dropped = await stableBox(zoom);
