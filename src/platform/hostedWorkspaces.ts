@@ -147,11 +147,11 @@ export function createHostedWorkspaceLifecycle(
    * and every copy-link (they read `location.pathname` at call time) carries
    * the new name with no second source of truth for it.
    *
-   * Three saves move nothing, which is Req 12: one that left the unique name
-   * as it was (a friendly-name-only save writes neither path nor fragment),
-   * one against a workspace this page is not bound to (the settings dialog
-   * only ever renames the bound one — the guard says so rather than assuming
-   * it), and one the server refused (never reaching here at all).
+   * Req 12 is the guard: a save that left the unique name as it was (the
+   * friendly-name-only save) and a save against a workspace this page is not
+   * bound to (the settings dialog only ever renames the bound one — the
+   * guard says so rather than assuming it) both write neither path nor
+   * fragment. A save the server refused never reaches here at all.
    */
   const adoptRenamedBinding = (id: string, uniqueName: string | undefined): void => {
     const bound = binding.current;

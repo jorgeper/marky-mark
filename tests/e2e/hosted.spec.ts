@@ -6370,6 +6370,14 @@ test('E536: renaming through settings → Names moves the tab to /<new-name>/<fi
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
 });
 
+/** The display name the server holds — a names save's own proof that it landed. */
+async function storedDisplayName(request: APIRequestContext, token: string, id: string): Promise<string | undefined> {
+  const res = await request.get(`${HOSTED}/api/workspaces/${id}/manifest`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return ((await res.json()) as { manifest?: { name?: string } }).manifest?.name;
+}
+
 test('E537: after a rename the tab keeps writing the new name — the next document switch and a reload both land on it, and a display-name-only save moves nothing', async ({
   page,
   request,
@@ -6397,11 +6405,18 @@ test('E537: after a rename the tab keeps writing the new name — the next docum
   await page.getByTestId('workspace-names-save').click();
   await expect.poll(() => new URL(page.url()).pathname).toBe(`/${renamed}/notes.md`);
 
-  // Req 12: a display-name-only save leaves the bar exactly as it is.
-  await page.getByTestId('workspace-friendly-name').fill('E537 display only');
+  // Req 12: a display-name-only save leaves the bar exactly as it is. Both
+  // waits are what make that assertion mean anything — the bar is read after
+  // the save round trip, never before it: the server holds the new display
+  // name, and the field has left its in-flight `disabled` state, which the
+  // section only leaves once putManifest has returned (after any rewrite it
+  // would have made).
+  const friendly = page.getByTestId('workspace-friendly-name');
+  await friendly.fill('E537 display only');
   await page.getByTestId('workspace-names-save').click();
+  await expect.poll(() => storedDisplayName(request, ada, id)).toBe('E537 display only');
+  await expect(friendly).toBeEnabled();
   await expect(page.getByTestId('workspace-names-error')).toHaveCount(0);
-  await expect(page.getByTestId('workspace-friendly-name')).toHaveValue('E537 display only');
   expect(new URL(page.url()).pathname).toBe(`/${renamed}/notes.md`);
   expect(new URL(page.url()).hash).toBe('');
 
