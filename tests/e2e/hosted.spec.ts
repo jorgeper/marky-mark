@@ -4286,11 +4286,13 @@ test('E491: the legacy /scratch URLs still resolve and normalize — the shortcu
   const resolve = await page.request.post(`${HOSTED}/api/me/scratchpad`, {
     headers: { Authorization: `Bearer ${token}` },
   });
+  expect(resolve.status()).toBe(200);
   const { id } = (await resolve.json()) as { id: string };
-  await page.request.put(`${HOSTED}/api/workspaces/${id}/files/legacy.md`, {
+  const put = await page.request.put(`${HOSTED}/api/workspaces/${id}/files/legacy.md`, {
     headers: { Authorization: `Bearer ${token}` },
     data: '# Legacy\n\nReached through the old URL.\n',
   });
+  expect(put.status()).toBe(200);
 
   // The legacy per-user bare form: same workspace, still a fresh buffer.
   await page.goto(`${HOSTED}/ada/scratch`);

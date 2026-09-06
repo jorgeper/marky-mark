@@ -113,6 +113,7 @@ requirements of this one:
 > **Amended (issue #244, 2026-09-06):** "My scratchpad" is the shipped badge
 > and workspace name again — PRD 020 Req 10's "My scratch" is gone, and the
 > server's startup rename pass converges a manifest on either legacy name.
+
 9. **Full workspace powers, minus delete.** Members, roles, sharing, and
    every other verb behave as in any workspace the user Owns. Deleting a
    scratchpad workspace is refused server-side (the existing

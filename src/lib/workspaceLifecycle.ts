@@ -149,10 +149,10 @@ export function noAccessMessage(workspaceName: string, owners: readonly MemberEn
 }
 
 /**
- * PRD 019 Req 8 + PRD 020 Req 10: the Open dialog's badge for one listing row
- * — the feature's user-facing name, "My scratchpad" (issue #244), on the caller's own scratchpad
- * workspace, nothing on every other row. Extracted so the labeling rule is
- * unit-testable apart from the dialog's DOM.
+ * PRD 019 Req 8 + PRD 020 Req 10 (issue #244): the Open dialog's badge for
+ * one listing row — the feature's user-facing name, "My scratchpad", on the
+ * caller's own scratchpad workspace, nothing on every other row. Extracted so
+ * the labeling rule is unit-testable apart from the dialog's DOM.
  */
 export function workspaceRowBadge(row: WorkspaceListing): string | null {
   return row.scratchpad ? 'My scratchpad' : null;

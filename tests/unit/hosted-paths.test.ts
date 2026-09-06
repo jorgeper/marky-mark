@@ -185,10 +185,8 @@ describe('PRD 020 Req 10+11 the scratch routes', () => {
     expect(LEGACY_SCRATCH_SEGMENT).toBe('scratch');
     for (const legacy of ['/ada/scratch', '/ada/scratch/guides/intro.md', '/Ada/Scratch']) {
       const target = parseAppPath(legacy);
-      expect(target.kind).toBe('user-scratch');
-      const canonical =
-        target.kind === 'user-scratch' ? buildScratchPath(target.username, target.file) : '';
-      expect(canonical).not.toContain('/scratch/');
+      if (target.kind !== 'user-scratch') throw new Error(`${legacy} must parse as a scratchpad target`);
+      const canonical = buildScratchPath(target.username, target.file);
       expect(canonical.split('/')[2]).toBe(SCRATCH_SEGMENT);
       expect(parseAppPath(canonical)).toEqual(target);
     }

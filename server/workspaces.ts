@@ -456,17 +456,17 @@ async function snapshotDisplayName(
  */
 export const SCRATCHPAD_NAME = 'My scratchpad';
 
-/**
- * PRD 020 Req 10, widened by issue #244: the rename migration — a pre-existing
- * scratchpad workspace still carrying EITHER legacy display name (PRD 019's
- * "Scratchpad" or PRD 020's "My scratch") becomes "My scratchpad", so a
- * deployment that skipped a release still converges on one name.
- * Idempotent like the unique-name migration above (a manifest already renamed
- * — or renamed by hand to anything else — is skipped) and logged per
- * workspace. Runs once at server startup (server/index.ts).
- */
+/** The legacy display names the rename pass below converges — PRD 019's, then PRD 020's. */
 const LEGACY_SCRATCHPAD_NAMES: readonly string[] = ['Scratchpad', 'My scratch'];
 
+/**
+ * PRD 020 Req 10, widened by issue #244: the rename migration — a pre-existing
+ * scratchpad workspace still carrying EITHER legacy display name becomes
+ * "My scratchpad", so a deployment that skipped a release still converges on
+ * one name. Idempotent like the unique-name migration above (a manifest
+ * already renamed — or renamed by hand to anything else — is skipped) and
+ * logged per workspace. Runs once at server startup (server/index.ts).
+ */
 export async function migrateScratchNames(
   storage: StorageProvider,
   log: (line: string) => void,
@@ -588,14 +588,13 @@ export async function handleScratchpadResolve(
  * GET /api/scratchpad/<username> — resolve one user's scratchpad workspace for
  * the calling visitor. PRD 020 Req 13: scratchpad workspaces are never LISTED
  * to non-owners (PRD 019 Req 8 stands), so following a
- * `/<username>/scratchpad[/…]`
- * link needs this resolution instead: username → owner (the deployment-wide
- * claim) → their recorded workspace, answered `{id, owner}` ONLY when the
- * workspace's normal access model admits the caller (the same doc.read the
- * manifest read requires, admin union included). Leak-free by construction:
- * an unknown username, a user with no scratch workspace yet, and an
- * existing-but-inaccessible one all answer the SAME 404 — no probe can tell
- * them apart.
+ * `/<username>/scratchpad[/…]` link needs this resolution instead: username →
+ * owner (the deployment-wide claim) → their recorded workspace, answered
+ * `{id, owner}` ONLY when the workspace's normal access model admits the
+ * caller (the same doc.read the manifest read requires, admin union
+ * included). Leak-free by construction: an unknown username, a user with no
+ * scratchpad workspace yet, and an existing-but-inaccessible one all answer
+ * the SAME 404 — no probe can tell them apart.
  */
 export async function handleScratchVisit(
   res: ServerResponse,

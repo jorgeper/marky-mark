@@ -88,6 +88,7 @@ or single-file builds (PRD 019 Req 4).
 > `/<username>/scratchpad/<path>`. The boot decision is unchanged and is not
 > per-route: the legacy `/scratch` spellings parse to the same targets, so
 > they make exactly the same fresh-buffer decision.
+
 3. **In-app entry boots fresh too.** Choosing your own scratch workspace
    from the Open Workspace dialog (the "My scratch" row, PRD 019 Req 8)
    lands in a fresh scratch buffer with the same semantics as Req 1. The

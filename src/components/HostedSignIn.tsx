@@ -132,10 +132,10 @@ async function resolveHostedVisit(): Promise<VisitNotFound | null> {
   /**
    * PRD 020 Req 10+13: land in a scratchpad workspace — verify the file half
    * exists (like any workspace visit), rewrite the bar to the canonical
-   * `/<username>/scratchpad[/…]` form (issue #244: which is what normalizes a
-   * legacy `/scratch` visit), and bind. `fresh` is what boots the PRD
-   * 019 Req 10 scratch buffer, and every caller answers it the one PRD 023
-   * way: scratchBootsFresh — own scratch, no target file.
+   * `/<username>/scratchpad[/…]` form, and bind. That rewrite is also what
+   * normalizes a legacy `/scratch` visit (issue #244). `fresh` is what boots
+   * the PRD 019 Req 10 scratch buffer, and every caller answers it the one
+   * PRD 023 way: scratchBootsFresh — own scratchpad, no target file.
    */
   const bindScratch = async (
     id: string,

@@ -179,9 +179,9 @@ const isScratchSegment = (segment: string): boolean => {
 /**
  * PRD 020 Req 5+10+11: what a hosted page's `location.pathname` addresses.
  * `home` is the plain start page, `scratch` the Req 11 shortcut,
- * `user-scratch` one user's scratchpad workspace (optionally a file in it), and
- * everything else is a workspace by unique name — bare (`/<name>`) or with a
- * file inside it (`/<name>/<segments…>`), each `file` entry one
+ * `user-scratch` one user's scratchpad workspace (optionally a file in it),
+ * and everything else is a workspace by unique name — bare (`/<name>`) or
+ * with a file inside it (`/<name>/<segments…>`), each `file` entry one
  * percent-decoded segment.
  */
 export type AppPathTarget =
@@ -241,10 +241,11 @@ type ScratchTarget = Extract<AppPathTarget, { kind: 'scratch' | 'user-scratch' }
 
 /**
  * PRD 020 Req 12: does this target address the CALLER'S OWN scratchpad?
- * `/scratchpad` is definitionally the caller's own; `/<username>/scratchpad[/…]`
- * matches its username against the caller's handle through `uniqueNameKey`,
- * the same case-insensitive comparison workspace-name matching makes. A
- * caller whose handle never resolved owns no scratch here.
+ * `/scratchpad` is definitionally the caller's own;
+ * `/<username>/scratchpad[/…]` matches its username against the caller's
+ * handle through `uniqueNameKey`, the same case-insensitive comparison
+ * workspace-name matching makes. A caller whose handle never resolved owns no
+ * scratchpad here.
  */
 export function isOwnScratch(target: AppPathTarget, callerHandle: string | undefined): target is ScratchTarget {
   if (callerHandle === undefined) return false;
@@ -256,11 +257,10 @@ export function isOwnScratch(target: AppPathTarget, callerHandle: string | undef
  * PRD 023 Reqs 1–5 (amending PRD 019 Req 10): the ONE scratchpad boot
  * decision. A visit boots the fresh buffer iff it enters the caller's own
  * scratchpad workspace with no target file — whatever route delivered it (the
- * legacy `/scratch` spelling included). A file segment (Req 2), someone
- * else's scratchpad (Req 5), or a caller with no
- * resolved handle boots nothing. Stateless on purpose (Req 4): re-entry asks
- * the same question and gets the same yes, so the new buffer silently
- * replaces whatever was open.
+ * legacy `/scratch` spelling included). A file segment (Req 2), someone else's
+ * scratchpad (Req 5), or a caller with no resolved handle boots nothing.
+ * Stateless on purpose (Req 4): re-entry asks the same question and gets the
+ * same yes, so the new buffer silently replaces whatever was open.
  */
 export function scratchBootsFresh(target: AppPathTarget, callerHandle: string | undefined): boolean {
   // `/scratchpad` carries no file segments at all; the canonical form must
