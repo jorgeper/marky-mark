@@ -5,6 +5,7 @@ import {
   dedupeUniqueName,
   isReservedWorkspaceName,
   planUniqueNameMigration,
+  recordFormerName,
   slugifyWorkspaceName,
   uniqueNameFormatProblem,
   uniqueNameKey,
@@ -94,5 +95,30 @@ describe('PRD 020 Req 3 slugify and dedupe', () => {
         { id: 'w1', name: 'Design Docs', uniqueName: 'design-docs-2', created: '2026-02-01T00:00:00.000Z' },
       ]),
     ).toEqual([]);
+  });
+});
+
+describe('PRD 024 Req 2+3+4 former-name history', () => {
+  it('U1240: recordFormerName appends the name given up, ignores a case-only change, and reclaims a name off the list', () => {
+    // Req 2: a real rename appends the previous name; Req 4: append order is
+    // the whole history — one flat list, no old→new mapping.
+    expect(recordFormerName([], 'a', 'b')).toEqual(['a']);
+    expect(recordFormerName(['a'], 'b', 'c')).toEqual(['a', 'b']);
+    // Req 2: a case-only change shares a key with the previous name, so it
+    // records nothing.
+    expect(recordFormerName(['a'], 'B', 'b')).toEqual(['a']);
+    // Req 3: the name becoming current leaves the list (case-insensitively),
+    // so after A → B → A the history is exactly [B] and never holds the
+    // current name.
+    expect(recordFormerName(['a', 'b'], 'c', 'A')).toEqual(['b', 'c']);
+    expect(recordFormerName(['ping'], 'pong', 'PING')).toEqual(['pong']);
+    // An entry is never duplicated, and a rename from nothing — a manifest
+    // that carried no unique name — records nothing.
+    expect(recordFormerName(['a'], 'a', 'b')).toEqual(['a']);
+    expect(recordFormerName(['a'], undefined, 'b')).toEqual(['a']);
+    // The input is left alone: the caller's stored array is not mutated.
+    const history = ['a'];
+    recordFormerName(history, 'b', 'c');
+    expect(history).toEqual(['a']);
   });
 });

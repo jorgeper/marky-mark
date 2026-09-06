@@ -84,8 +84,10 @@ export function recordFormerName(
 ): string[] {
   const nextKey = uniqueNameKey(next);
   const kept = formerNames.filter((name) => uniqueNameKey(name) !== nextKey);
-  if (previous === undefined || uniqueNameKey(previous) === nextKey) return kept;
-  return kept.some((name) => uniqueNameKey(name) === uniqueNameKey(previous)) ? kept : [...kept, previous];
+  if (previous === undefined) return kept;
+  const previousKey = uniqueNameKey(previous);
+  if (previousKey === nextKey) return kept;
+  return kept.some((name) => uniqueNameKey(name) === previousKey) ? kept : [...kept, previous];
 }
 
 /**

@@ -345,12 +345,14 @@ async function releaseFormerName(
   for (const holderId of scan.formerHolders.get(key) ?? []) {
     const manifest = await loadManifest(storage, holderId);
     if (!manifest || typeof manifest === 'string') continue;
-    const formerNames = (manifest.formerNames ?? []).filter((former) => uniqueNameKey(former) !== key);
-    if (formerNames.length === (manifest.formerNames ?? []).length) continue;
-    const { formerNames: _replaced, ...rest } = manifest;
+    // `rest` is the manifest without the field, so an emptied history is
+    // written as an absent field rather than an empty array.
+    const { formerNames: held = [], ...rest } = manifest;
+    const kept = held.filter((former) => uniqueNameKey(former) !== key);
+    if (kept.length === held.length) continue;
     await storage.write(
       manifestBlob(holderId),
-      serializeWorkspaceManifest(formerNames.length > 0 ? { ...rest, formerNames } : rest),
+      serializeWorkspaceManifest(kept.length > 0 ? { ...rest, formerNames: kept } : rest),
     );
   }
 }
@@ -859,10 +861,10 @@ export async function handleWorkspaceApi(
     // files/, comment sidecars, pasted images and the summary cache (PRD 011
     // Req 29) alike. Listing the prefix (rather than the files/ subtree) is
     // what makes that exhaustive: nothing of the workspace survives to be
-    // listed or read afterwards. PRD 024 Req 10: that
-    // includes the former-name history, which lives on the manifest and
-    // nowhere else — so deletion takes it with it and no tombstone or
-    // separate name index has to be swept.
+    // listed or read afterwards. PRD 024 Req 10: that includes the
+    // former-name history, which lives on the manifest and nowhere else — so
+    // deletion takes it with it and no tombstone or separate name index has
+    // to be swept.
     const prefix = `${WORKSPACES_PREFIX}${id}/`;
     const blobs = await storage.list(prefix);
     const manifestPath = manifestBlob(id);
@@ -909,7 +911,11 @@ export async function handleWorkspaceApi(
       // omits the field keeps the stored one — a pre-#219 client's manifest
       // write must never strip the workspace's identity.
       const requested = validated.manifest.uniqueName;
-      let scan: UniqueNameScan | null = null;
+      // PRD 024 Req 8: set only when the body asks for a different name and
+      // that name passed the checks — it carries the scan the reclaim below
+      // strips the name from its old holder with, so a PUT that leaves the
+      // name alone reclaims nothing and pays for no fan-out.
+      let rename: { name: string; scan: UniqueNameScan } | null = null;
       if (requested !== undefined && requested !== existing.uniqueName) {
         // Format already passed validateWorkspaceManifest, so the shared rule
         // can only trip on a reserved word — same message the dialogs show.
@@ -924,11 +930,12 @@ export async function handleWorkspaceApi(
         // PRD 024 Req 6: `taken` is current names only, so renaming ONTO
         // another workspace's former name is not a collision — it succeeds
         // and reclaims the name below.
-        scan = await scanUniqueNames(storage, id);
+        const scan = await scanUniqueNames(storage, id);
         if (scan.taken.has(uniqueNameKey(requested))) {
           sendJson(res, 409, { error: uniqueNameTakenError(requested) });
           return;
         }
+        rename = { name: requested, scan };
       }
       const uniqueName = requested ?? existing.uniqueName;
       // PRD 024 Req 1: `formerNames` is server-owned — computed from the
@@ -954,9 +961,8 @@ export async function handleWorkspaceApi(
       };
       await storage.write(manifestBlob(id), serializeWorkspaceManifest(manifest));
       // PRD 024 Req 8: the requested name is current here now, so any other
-      // workspace still listing it as former stops answering to it. Only on a
-      // real rename — `scan` is null when nothing about the name changed.
-      if (scan && requested !== undefined) await releaseFormerName(storage, scan, requested);
+      // workspace still listing it as former stops answering to it.
+      if (rename) await releaseFormerName(storage, rename.scan, rename.name);
       sendJson(res, 200, { id, manifest });
       return;
     }
