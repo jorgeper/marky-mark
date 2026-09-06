@@ -3,6 +3,7 @@ import { displayEntries, isMarkdownFile, type DirEntry } from '../lib/folderTree
 import { folderContextMenu, validateEntryName } from '../lib/folderOps';
 import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN, type ViewMode } from '../lib/settings';
 import { slideClasses, type SlidePhase } from '../lib/paneSlide';
+import { untitledDisplayName, type ScratchPresence } from '../lib/docName';
 import { useAnchoredMenu } from '@marky-mark/editor';
 import { Button } from './ui/Button';
 import { IconButton } from './ui/IconButton';
@@ -52,6 +53,19 @@ export interface FolderPanelProps {
   onModOpenFile(path: string): void;
   /** SPEC36 §3.4: the row ✕ — close this open file. */
   onCloseFile(path: string): void;
+  /**
+   * Issue #311: the scratchpad's boot-opened scratch buffer, while alive —
+   * active (row `selected`) or parked (row `open`) — with its dirtiness. Null
+   * (or absent: desktop, the shim, the single-file build) renders no row; an
+   * ordinary "Untitled" buffer never gets one (PRD 023 Req 8). The row sits
+   * outside the path-keyed open set: first under the root in tree view and
+   * first in the only-open list.
+   */
+  scratch?: ScratchPresence | null;
+  /** Issue #311: the scratch row's click — restore the parked buffer (no-op while active). */
+  onOpenScratch?(): void;
+  /** Issue #311: the scratch row's ✕ — discard the buffer, silently, dirty or not. */
+  onCloseScratch?(): void;
   onOpenFolder(): void;
   /**
    * PRD 007 Req 22: the root-less state of a workspace that HAS been created
@@ -457,6 +471,91 @@ function RenameRow({ p, dir, entry, depth }: { p: FolderPanelProps; dir: string;
   );
 }
 
+/** The markdown-file glyph every file row leads with. */
+function MdGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+      <g stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round">
+        <line x1="5.6" y1="2.6" x2="5.6" y2="13.4" />
+        <line x1="10.4" y1="2.6" x2="10.4" y2="13.4" />
+        <line x1="2.6" y1="6.7" x2="13.4" y2="5" />
+        <line x1="2.6" y1="10.2" x2="13.4" y2="10.2" />
+      </g>
+    </svg>
+  );
+}
+
+/**
+ * SPEC36 §3.4/§3.6: the trailing slot on an open row — the dirty ● swaps for
+ * the ✕ on hover (styles.css). A span with role=button: the row itself is
+ * already a <button>.
+ */
+function TabSlot({ dirty, onClose }: { dirty: boolean; onClose(): void }) {
+  return (
+    <span className="folder-tab-slot">
+      {dirty && <span className="folder-dirty" data-testid="folder-dirty" aria-hidden="true" />}
+      <span
+        className="folder-tab-close"
+        data-testid="folder-tab-close"
+        role="button"
+        title="Close file"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+      >
+        <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+          <g stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+            <line x1="4.4" y1="4.4" x2="11.6" y2="11.6" />
+            <line x1="11.6" y1="4.4" x2="4.4" y2="11.6" />
+          </g>
+        </svg>
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Issue #311: the scratchpad's scratch buffer as a folder-panel row — the
+ * same tab pill an open file gets (SPEC36 §4: `selected` while active, `open`
+ * while parked, the ●/✕ slot), labelled from the shared name resolution and
+ * carrying `.scratch-name` so it resolves the --mm-scratch-name token pair
+ * exactly like the toolbar name and the tab label (PRD 023 Req 7). Its own
+ * test id (never `folder-item`, so existing row counts are untouched). No
+ * context menu, no drag source, no rename: it is not a file.
+ */
+function ScratchRow({ depth, p }: { depth: number | null; p: FolderPanelProps }) {
+  const s = p.scratch;
+  if (!s) return null;
+  const { name } = untitledDisplayName(true);
+  return (
+    <button
+      className={`folder-item btn-quiet${s.active ? ' selected' : ' open'}`}
+      data-testid="folder-item-scratch"
+      data-scratch="true"
+      style={depth === null ? undefined : ({ '--mm-depth': `${10 + depth * 14}px` } as CSSProperties)}
+      onMouseDown={(e) => e.preventDefault()}
+      // Right-click opens nothing — and must not bubble to the list's
+      // root menu (this row has no data-path for that handler to skip on).
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      // Clicking the active row is a no-op; the parked one restores.
+      onClick={s.active ? undefined : p.onOpenScratch}
+    >
+      <span className="folder-glyph">
+        <MdGlyph />
+      </span>
+      <span className="scratch-name" data-scratch="true">
+        {name}
+      </span>
+      <TabSlot dirty={s.dirty} onClose={() => p.onCloseScratch?.()} />
+    </button>
+  );
+}
+
 /**
  * A markdown (or dim) file row — shared by the tree and the only-open flat
  * list. Open rows are tab pills carrying the dirty ● and the hover ✕ (a
@@ -507,44 +606,9 @@ function FileRow({
           : undefined
       }
     >
-      <span className="folder-glyph">
-        {md ? (
-          <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
-            <g stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round">
-              <line x1="5.6" y1="2.6" x2="5.6" y2="13.4" />
-              <line x1="10.4" y1="2.6" x2="10.4" y2="13.4" />
-              <line x1="2.6" y1="6.7" x2="13.4" y2="5" />
-              <line x1="2.6" y1="10.2" x2="13.4" y2="10.2" />
-            </g>
-          </svg>
-        ) : (
-          '·'
-        )}
-      </span>
+      <span className="folder-glyph">{md ? <MdGlyph /> : '·'}</span>
       {name}
-      {open && (
-        <span className="folder-tab-slot">
-          {p.dirtyFiles.has(path) && <span className="folder-dirty" data-testid="folder-dirty" aria-hidden="true" />}
-          <span
-            className="folder-tab-close"
-            data-testid="folder-tab-close"
-            role="button"
-            title="Close file"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              p.onCloseFile(path);
-            }}
-          >
-            <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
-              <g stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
-                <line x1="4.4" y1="4.4" x2="11.6" y2="11.6" />
-                <line x1="11.6" y1="4.4" x2="4.4" y2="11.6" />
-              </g>
-            </svg>
-          </span>
-        </span>
-      )}
+      {open && <TabSlot dirty={p.dirtyFiles.has(path)} onClose={() => p.onCloseFile(path)} />}
     </button>
   );
 }
@@ -730,14 +794,18 @@ export function FolderPanel(p: FolderPanelProps) {
           // SPEC36 §5.3: the flat only-open list — tree order, no chevrons, no
           // indent, full tab styling; the root-less empty state never shows here.
           <div className="folder-list" ref={listRef}>
-            {p.openFiles.length === 0 ? (
+            {p.openFiles.length === 0 && !p.scratch ? (
               <div className="folder-open-empty" data-testid="folder-open-empty">
                 No open files
               </div>
             ) : (
-              p.openFiles.map((path) => (
-                <FileRow key={path} path={path} name={p.basename(path)} depth={null} p={p} dnd={dnd} onRowMenu={openMenu} />
-              ))
+              <>
+                {/* Issue #311: the scratch buffer leads the only-open list. */}
+                <ScratchRow depth={null} p={p} />
+                {p.openFiles.map((path) => (
+                  <FileRow key={path} path={path} name={p.basename(path)} depth={null} p={p} dnd={dnd} onRowMenu={openMenu} />
+                ))}
+              </>
             )}
           </div>
         ) : p.roots.length === 1 ? (
@@ -752,12 +820,16 @@ export function FolderPanel(p: FolderPanelProps) {
               openMenu('root', p.roots[0], e);
             }}
           >
+            {/* Issue #311: the scratch buffer is the first row under the root. */}
+            <ScratchRow depth={0} p={p} />
             <Rows dir={p.roots[0]} depth={0} p={p} dnd={dnd} onRowMenu={openMenu} />
           </div>
         ) : p.roots.length > 1 ? (
           // PRD 002 §D17: multiple roots — each gets a collapsible header row
           // and, when expanded, the exact same lazy tree as the single case.
           <div className="folder-list" ref={listRef}>
+            {/* Issue #311: the scratch buffer leads the multi-root list too. */}
+            <ScratchRow depth={0} p={p} />
             {p.roots.map((root) => {
               const open = p.expanded.has(root);
               return (

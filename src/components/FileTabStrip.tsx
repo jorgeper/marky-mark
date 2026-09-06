@@ -17,7 +17,7 @@ import {
   railWheelTarget,
   type RailArrowState,
 } from '../lib/fileTabs';
-import { untitledDisplayName } from '../lib/docName';
+import { untitledDisplayName, type ScratchPresence } from '../lib/docName';
 import { useAnchoredMenu } from '@marky-mark/editor';
 import { IconButton } from './ui/IconButton';
 
@@ -47,6 +47,20 @@ export interface FileTabStripProps {
    * and therefore outside `dirtyFiles`. Drives the untitled tab's ●.
    */
   untitledDirty: boolean;
+  /**
+   * Issue #311: the scratchpad's scratch buffer while PARKED (another file
+   * is active) — its tab stays, inactive, labelled "Scratchpad file" in the
+   * same token treatment, with the parked entry's dirtiness; clicking it
+   * restores the buffer, its ✕ / middle-click discards the park entry. Null
+   * ⇒ no parked scratch (the ACTIVE scratch renders through `untitled` +
+   * `untitledScratch` as before). The same presence value the folder panel's
+   * row renders from, so the two never disagree.
+   */
+  scratchParked: ScratchPresence | null;
+  /** Issue #311: the parked scratch tab's click — restore the buffer. */
+  onActivateScratch(): void;
+  /** Issue #311: the parked scratch tab's ✕ / middle-click — drop it silently. */
+  onCloseScratchParked(): void;
   /** PRD 013 Req 5 (SPEC36 §3.6): open files with unsaved changes — their
    *  tabs carry the dirty ●. The very set the sidebar's rows read. */
   dirtyFiles: ReadonlySet<string>;
@@ -392,6 +406,21 @@ export function FileTabStrip(p: FileTabStripProps) {
             dirty={p.untitledDirty}
             scratch={untitledName.scratch}
             onClose={p.onCloseUntitled}
+          />
+        )}
+        {p.scratchParked && (
+          // Issue #311: the parked scratch buffer keeps its tab — inactive,
+          // clickable to restore, no menu (it sits outside the open set like
+          // the untitled tab it was). Same label resolution as the active one.
+          <Tab
+            active={false}
+            label={untitledDisplayName(true).name}
+            title={untitledDisplayName(true).name}
+            path=""
+            dirty={p.scratchParked.dirty}
+            scratch
+            onClick={p.onActivateScratch}
+            onClose={p.onCloseScratchParked}
           />
         )}
       </div>
