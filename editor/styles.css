@@ -503,27 +503,15 @@
   font-size: calc(var(--mm-font-size, 16px) * 0.875 * var(--mm-zoom));
 }
 
-/* The edit-mode text column matches preview's exactly (SPEC6 §1): same
-   centered --mm-content-width (border-box, like .doc), same 32px side
-   padding. With line numbers on, the gutter+content pair is centered, so the
-   text shifts by at most half the gutter width. */
+/* SPEC6 §1 (issue #272): the edit-mode text column anchors at the pane's
+   LEFT edge — all leftover width lands on the right, in every mode. It keeps
+   preview's --mm-content-width cap (border-box, like .doc) and 32px side
+   padding just below, so line length is unchanged; only the anchor moved.
+   This is the geometry split mode always had (issue #7: hugging the folder
+   seam), promoted to the base so plain edit and split match. Preview (.doc)
+   stays centred — the two columns no longer share a left edge. */
 .editor-wrap .cm-editor .cm-scroller {
-  justify-content: center;
-}
-
-/* Issue #10: when the gutter+content pair is centered, the line-number strip
-   floats inside the pane with editor background either side, so a right-only
-   border reads as a half-drawn box. The inset strip gets a matching left rule
-   off the same --mm-border token as the unconditional right rule below
-   (issue #63), so the two sides can never drift apart when both show.
-   Gated on .gutter-inset, which Editor.tsx puts on the wrap only while the
-   pane actually has centring slack either side. "Inset" is geometry, not a
-   mode: the split pane hugs the folder seam (issue #7), but so does a
-   full-screen pane once the folder panel or a narrow window eats its slack,
-   and a left rule drawn flush on that seam doubles .folder-panel::after's own
-   hairline in the very same token. */
-.editor-wrap.gutter-inset .cm-editor .cm-gutters {
-  border-left: 1px solid var(--mm-border, #d1d9e0);
+  justify-content: flex-start;
 }
 
 /* Issue #52: CodeMirror's base theme paints the gutter surface itself — a
@@ -532,9 +520,10 @@
    The gutter reads the same surface token as .cm-editor and the digits the
    muted foreground, so both follow the active theme.
    Issue #63: the right rule lives here, ungated, because the base theme's
-   hardcoded right border (#ddd in &light) otherwise wins whenever the gutter
-   sits flush and .gutter-inset is absent — gray on every theme. It reads the
-   same --mm-border token as the inset-only left rule above. */
+   hardcoded right border (#ddd in &light) otherwise wins — gray on every
+   theme. Right side only: the gutter sits flush at the pane's left edge
+   (issue #272), where a left rule would double the folder seam's own
+   hairline in the same token. */
 .editor-wrap .cm-editor .cm-gutters {
   background: var(--mm-bg, #ffffff);
   color: var(--mm-fg-muted, #59636e);
@@ -763,7 +752,10 @@
 /* §3: the cursor-line button — a zero-size inline anchor at the line's
    start; the 18px hash hangs left into .cm-content's 32px side padding, so
    the line's text never shifts and the geometry is the same with line
-   numbers on or off, full-screen or split (SPEC6 swap alignment untouched). */
+   numbers on or off, full-screen or split. With the column flush left
+   (issue #272) that padding meets the pane edge when numbers are off; the
+   24px button ends 4px in from the line start, so it stays inside the
+   padding and is never clipped. */
 .smart-edit-anchor {
   display: inline-block;
   position: relative;

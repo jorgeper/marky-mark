@@ -1127,9 +1127,10 @@ test('E355: issue #165 — the split slide opens over rendered content, the edit
   expect(before.activeText.length).toBeGreaterThan(0);
   const topLineBefore = await editorTopGutterLine(page);
   expect(topLineBefore).toBeGreaterThan(1); // really scrolled away from the top
-  // The glide's own probe: the column's transform, which must be 'none' in
-  // both settled states (a resting transform would become the containing
-  // block for fixed-position menus).
+  // The column's transform, which must be 'none' in both settled states (a
+  // resting transform would become the containing block for fixed-position
+  // menus). Issue #272 removed the mid-slide glide entirely — the column is
+  // flush-left at both ends, so nothing may translate it at any point.
   const columnTransform = () =>
     page.locator('.split-editor .cm-scroller > .cm-content').evaluate((el) => getComputedStyle(el).transform);
   expect(await columnTransform()).toBe('none');
@@ -1195,8 +1196,8 @@ test('E355: issue #165 — the split slide opens over rendered content, the edit
   // caret still sits on the same (uniquely worded) line.
   expect(Math.abs((await editorTopGutterLine(page)) - topLineBefore)).toBeLessThanOrEqual(2);
   expect(afterOpen.activeText).toBe(before.activeText);
-  // And the text column settles transform-free too (issue #165's glide is
-  // strictly a mid-slide affair).
+  // And the text column stays transform-free (issue #272: it never moves —
+  // the slide animates the pane's width only).
   await expect.poll(columnTransform).toBe('none');
 
   // Close plays the same motion in reverse and hands back the same editor.
@@ -1210,7 +1211,7 @@ test('E355: issue #165 — the split slide opens over rendered content, the edit
   expect(afterClose.marker).toBe('survivor');
   expect(afterClose.activeText).toBe(before.activeText);
   expect(Math.abs((await editorTopGutterLine(page)) - topLineBefore)).toBeLessThanOrEqual(2);
-  await expect.poll(columnTransform).toBe('none'); // back to centred, transform-free
+  await expect.poll(columnTransform).toBe('none'); // still flush-left, transform-free
 
   // PRD 003 Req 11: reduced motion still switches instantly — no slide
   // phases at all — and the pane STILL arrives already holding content.

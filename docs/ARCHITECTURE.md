@@ -313,13 +313,13 @@ migrates to `themeLight`):
 - **Line numbers** — toggled from **View → Line Numbers** (issue #10: a
   checkbox menu item, no hotkey; the Settings row is gone, the persisted
   `lineNumbers` key is not). A CodeMirror `Compartment` reconfigures the
-  gutter live without recreating the editor. The gutter strip carries the same
-  1px `--mm-border` rule on both sides so a centered (inset) column reads as a
-  strip rather than a half-drawn box. Both rules ride a `gutter-inset` class
-  that `Editor.tsx` measures onto `.editor-wrap` — the pane really has centring
-  slack — rather than a mode class: split (issue #7), an open folder panel and
-  a narrow window all leave the gutter flush against a seam, where a left rule
-  would double the seam's own hairline. Flush keeps CodeMirror's right border.
+  gutter live without recreating the editor. The edit column anchors at the
+  pane's left edge (issue #272 — split, full-screen, every theme), so the
+  gutter always sits flush there and carries a 1px `--mm-border` rule on its
+  **right side only**: a left rule would double the folder seam's own
+  hairline in the same token, and there is never editor background to the
+  gutter's left to outline. (The old centred column needed a measured
+  `gutter-inset` class and a matching left rule; both went with the centring.)
 
 ## v7 (SPEC7)
 
@@ -384,12 +384,14 @@ migrates to `themeLight`):
 
 ## v6 (SPEC6)
 
-- **Editor column alignment**: the CodeMirror scroller centers its content
-  (`justify-content: center`) with the content element capped at
-  `--mm-content-width` (border-box, 32px side padding) — the same geometry as
-  preview's `.doc`, so toggling modes never shifts the text column. With the
-  line-number gutter on, the gutter+content pair is centered, shifting text
-  by at most half the gutter width.
+- **Editor column alignment**: the CodeMirror scroller anchors its content
+  flush left (`justify-content: flex-start`; issue #272 superseded the
+  original centred anchor, SPEC6 §1 as amended) with the content element
+  capped at `--mm-content-width` (border-box, 32px side padding) — the same
+  column width as preview's `.doc`, but pinned to the pane's left edge with
+  all leftover space on the right, while preview stays centred. With the
+  line-number gutter on, the gutter sits flush at that edge and the text
+  starts one gutter width in.
 - **Word-style comment flow**: margin cards are absolutely positioned with
   animated `top`s (180 ms). Flow margins were replaced because they can only
   push cards DOWN — the Word behavior needs the active card anchored level
@@ -642,9 +644,8 @@ The gutter button is a custom CM `gutter()` (class `mm-smart-gutter`)
 whose only marker — the 18 px slanted-top hash — rides the selection
 head's line, placed after `lineNumbers()` so it sits between the numbers
 and the text. With numbers hidden in full-screen edit it keeps ZERO
-layout width (the button hangs into the centered column's left margin) so
-the SPEC6 swap alignment stays pixel-exact; the split pane keeps the real
-width. Openers: the button, right-click in the editor pane (native menu
+layout width (the button hangs into the column's own 32px left padding) so
+the line's text never shifts; the split pane keeps the real width. Openers: the button, right-click in the editor pane (native menu
 suppressed there only), and the rebindable `smartMenu` hotkey (⌘. by
 default) — 18 new `HotkeyMap` fields ride the existing recorder/conflict
 machinery under a "Smart Edit" group, and Alt/Shift combos now record and

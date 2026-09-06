@@ -150,7 +150,6 @@ import { DEFAULT_SEARCH_OPTIONS } from './lib/searchOptions';
 import { matchDocOffsets, runSearchScan } from './lib/searchScan';
 import { deriveSearchView } from './lib/searchView';
 import {
-  centeredColumnOffset,
   SLIDE_SETTLE_MS,
   slideClasses,
   slideMounted,
@@ -3053,36 +3052,10 @@ export default function App() {
   // only — programmatic flips (auto-open on insert, doc close) switch
   // instantly, the same contract as its two arm-ref neighbours.
   const armCommentsSlide = useRef(false);
-  // Issue #165: the centred text column's offset from its pane's left edge —
-  // the distance the column glides during the split slide. Measured at toggle
-  // time (the only moment both end states are known) and published to CSS as
-  // --mm-split-text-nudge on the workspace element.
-  const splitNudgeRef = useRef(0);
   // Issue #165: an opening toggle's pre-render is in flight — a second
   // splitEdit edit inside that window commits directly instead of stacking
   // another render (the html it needs is already on the way).
   const splitPrerenderRef = useRef(false);
-
-  /**
-   * Issue #165: where the centred text column WOULD sit at full pane width —
-   * both ends of the split slide (open starts there, close lands there), so
-   * one measurement serves both directions. The full width is the
-   * workspace's, floored at the editor wrap's min width (past that the
-   * workspace scrolls sideways instead of crushing the column).
-   */
-  const measureSplitNudge = useCallback((): number => {
-    const ws = workspaceRef.current;
-    const wrap = ws?.querySelector<HTMLElement>('.editor-wrap');
-    const scroller = wrap?.querySelector<HTMLElement>('.cm-editor .cm-scroller');
-    const content = scroller?.querySelector<HTMLElement>('.cm-content');
-    if (!ws || !wrap || !scroller || !content) return 0;
-    const maxW = parseFloat(getComputedStyle(content).maxWidth);
-    if (!Number.isFinite(maxW)) return 0; // an uncapped column fills the pane
-    const minW = parseFloat(getComputedStyle(wrap).minWidth);
-    const full = Math.max(ws.clientWidth, Number.isFinite(minW) ? minW : 0);
-    const gutters = scroller.querySelector<HTMLElement>('.cm-gutters');
-    return centeredColumnOffset(full, gutters?.offsetWidth ?? 0, maxW);
-  }, []);
 
   /**
    * Issue #165: render the buffer BEFORE an opening split toggle flips the
@@ -3146,10 +3119,6 @@ export default function App() {
       // programmatic resolution changes (workspace open/close) never do.
       if (patch.splitEdit !== undefined && patch.splitEdit !== stateRef.current.settings.splitEdit) {
         armSplitSlide.current = true;
-        // Issue #165: capture the glide distance while the toggle-time layout
-        // is still measurable — the same full-width offset serves the open's
-        // from-state and the close's to-state.
-        if (stateRef.current.mode === 'edit') splitNudgeRef.current = measureSplitNudge();
         // Issue #165: an OPENING toggle waits on one render first, so the
         // pane mounts already holding its content (prerenderSplitPane).
         if (patch.splitEdit && stateRef.current.mode === 'edit' && !splitPrerenderRef.current) {
@@ -3159,7 +3128,7 @@ export default function App() {
       }
       commit();
     },
-    [applyResolved, updateWorkspace, measureSplitNudge, prerenderSplitPane]
+    [applyResolved, updateWorkspace, prerenderSplitPane]
   );
 
   /** Whole-Settings seam kept for in-app controls: the changed keys become a User-layer patch. */
@@ -7979,9 +7948,6 @@ export default function App() {
             splitActive
               ? ({
                   '--mm-split': `${settings.splitRatio * 100}%`,
-                  // Issue #165: the centred column offset the text glides
-                  // across during the slide (measured at toggle time).
-                  '--mm-split-text-nudge': `${splitNudgeRef.current}px`,
                 } as React.CSSProperties)
               : { overflowY: 'hidden', overflowX: 'auto' }
           }

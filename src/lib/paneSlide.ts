@@ -67,21 +67,3 @@ export function slideClasses(phase: SlidePhase): { sliding: boolean; out: boolea
     pre: phase === 'pre-open',
   };
 }
-
-/**
- * Issue #165: how far the centred editor column sits from its pane's left
- * edge at FULL pane width — the distance the text column glides while the
- * split preview slides (PRD 003 Reqs 9–12 motion language). The centred
- * state only exists at full width (plain edit, either end of the slide), so
- * callers pass the full-width scroller geometry: the gutter+content pair is
- * centred as one flex group (SPEC6 §1), content is border-box capped at its
- * max width, and the leftover splits evenly either side.
- */
-export function centeredColumnOffset(
-  scrollerWidth: number,
-  gutterWidth: number,
-  contentMaxWidth: number
-): number {
-  const content = Math.min(contentMaxWidth, Math.max(scrollerWidth - gutterWidth, 0));
-  return Math.max(0, (scrollerWidth - gutterWidth - content) / 2);
-}

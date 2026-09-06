@@ -11,11 +11,27 @@ of scope (author's call): vim mode in the editor — do NOT build it.
 1. The editor's text column must sit exactly where preview's text column sits: same
    centered column, same `--mm-content-width`, same 32 px inner padding — including
    when the margins setting changes and when a theme sets its own width.
+
+   > **Amendment (issue #272, 2026-09-06):** superseded for edit mode — the
+   > edit column **anchors at the left edge of the editor area** (the flush
+   > geometry split mode adopted in issue #7), with all leftover horizontal
+   > space on the right; preview stays centred, so the two columns no longer
+   > share a left edge. The column's *width* contract is unchanged: same
+   > `--mm-content-width` cap, same 32 px inner padding, still following the
+   > margins setting and theme widths — only the anchor moved. With line
+   > numbers on, the gutter sits flush at that left edge with nothing (rule,
+   > spacer or centring slack) to its left. E31 asserts the new anchor.
+
 2. With line numbers OFF, the first character of a `.cm-line` must align with the
    preview `.doc` content-box left edge within ±2 px (E31 asserts both default and
    `wide` margins). With line numbers ON, the gutter should live in the left margin
    so the text column stays put; if that proves impractical, the text may shift by at
    most the gutter width (E31's lenient branch).
+
+   > **Amendment (issue #272, 2026-09-06):** the alignment bound is
+   > superseded with §1.1 — the edit column no longer tracks preview's left
+   > edge in either gutter state. E31 (amended in place) and E476 pin the
+   > flush-left geometry instead.
 
 ## 2. Word-style comment flow (FR-W)
 

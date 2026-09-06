@@ -263,15 +263,17 @@ test('E35: the settings dialog keeps one fixed size across all three tabs', asyn
   }
 });
 
-test('E136: issue #10 — View → Line Numbers toggles the gutter live and persists; an inset gutter is ruled on both sides', async ({
+test('E136: issue #10 — View → Line Numbers toggles the gutter live and persists; the flush gutter carries a right rule only (issue #272)', async ({
   page,
 }) => {
   await freshNativeMenuApp(page);
   await menuClick(page, 'help');
   await expect(page.getByTestId('doc')).toBeVisible();
 
-  // Wide margins + full-screen edit: the gutter+content pair is centered, so
-  // the strip floats inset from the pane's left edge — the issue's case.
+  // Wide margins + full-screen edit: maximum horizontal slack. Before issue
+  // #272 the gutter+content pair centred here and the strip floated inset
+  // (issue #10's case); the column now anchors flush left, so this is the
+  // configuration where any leftover centring would show.
   const popup = page.waitForEvent('popup');
   await menuClick(page, 'settings');
   const sp = await popup;
@@ -330,51 +332,33 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
         right: `${cs.borderRightWidth} ${cs.borderRightStyle} ${cs.borderRightColor}`,
       };
     });
+  /** Issue #272's contract, the same in every configuration this test walks:
+   *  flush at the pane edge, nothing (no rule) to the gutter's left, and the
+   *  themed right rule (issue #63) still present. */
+  const expectFlushRightRuled = async () => {
+    await expect.poll(async () => (await gutter()).inset).toBeLessThanOrEqual(2);
+    const g = await gutter();
+    expect(g.left).toMatch(/^0px /);
+    expect(g.right).toMatch(/^1px solid /);
+    expect(g.right).not.toContain('rgb(221, 221, 221)'); // --mm-border, never CM's #ddd
+    return g;
+  };
 
-  // .gutter-inset lands on a rAF scheduled by the pane ResizeObserver
-  // (Editor.tsx), so the rules appear a frame after the toggle above settles —
-  // poll for the ruled state like every other reading below, rather than
-  // one-shot sampling into that gap.
-  await expect.poll(async () => (await gutter()).left).toMatch(/^1px solid /);
-  const light = await gutter();
-  expect(light.inset).toBeGreaterThan(20); // genuinely inset — margins either side
-  expect(light.left).toBe(light.right); // both sides read the same --mm-border token
-  expect(light.left).toMatch(/^1px solid /);
-  expect(light.left).not.toContain('rgba(0, 0, 0, 0)');
+  // Wide margins, full-screen edit, maximum slack: flush anyway — the slack
+  // is all on the column's right (issue #272; the left rule that used to
+  // outline the centred strip is gone with the centring).
+  const light = await expectFlushRightRuled();
 
-  // Dark theme: both sides read the same --mm-border token, so they follow it
-  // together instead of drifting apart.
+  // Dark theme: the right rule reads --mm-border, so it follows the theme —
+  // and the left side stays bare rather than drifting back in.
   await page.emulateMedia({ colorScheme: 'dark' });
-  await expect.poll(async () => (await gutter()).left).not.toBe(light.left);
-  const dark = await gutter();
-  expect(dark.left).toBe(dark.right);
-  expect(dark.left).toMatch(/^1px solid /);
+  await expect.poll(async () => (await gutter()).right).not.toBe(light.right);
+  await expectFlushRightRuled();
   await page.emulateMedia({ colorScheme: 'light' });
+  await expect.poll(async () => (await gutter()).right).toBe(light.right);
 
-  // The predicate is slack, not mode. At the DEFAULT margins the column all
-  // but fills a 1280px window, so the folder panel alone squeezes the last of
-  // it out: this same full-screen, non-split pane goes flush, and the left
-  // rule has to come off there too — it would otherwise land on
-  // .folder-panel::after's own seam hairline, in the same token, and read as
-  // a doubled seam.
-  const popup2 = page.waitForEvent('popup');
-  await menuClick(page, 'settings');
-  const sp2 = await popup2;
-  await sp2.getByTestId('settings-panel').waitFor();
-  await sp2.getByTestId('settings-tab-appearance').click();
-  await sp2.getByTestId('settings-margins').selectOption('super-narrow');
-  await sp2.close();
-  await seedFolders(page);
-  await openFolderRoot(page);
-  await expect(page.locator('.editor-wrap .cm-gutters')).toBeVisible();
-  await expect.poll(async () => (await gutter()).left).toMatch(/^0px /);
-  expect((await gutter()).inset).toBeLessThanOrEqual(2);
-
-  // A third mover of the slack, distinct from the two above: the margins
-  // preset resizes the text column off a ROOT variable, so the pane never
-  // resizes and no edit happens — nothing moves here but --mm-content-width.
-  // Widening the column back inside this same squeezed pane hands the slack
-  // back, and the rules have to follow.
+  // The movers that used to change the slack now change nothing about the
+  // anchor. The folder panel squeezes the pane from the left…
   const setMargins = async (value: string) => {
     const p = page.waitForEvent('popup');
     await menuClick(page, 'settings');
@@ -384,48 +368,36 @@ test('E136: issue #10 — View → Line Numbers toggles the gutter live and pers
     await s.getByTestId('settings-margins').selectOption(value);
     await s.close();
   };
+  await setMargins('super-narrow');
+  await seedFolders(page);
+  await openFolderRoot(page);
+  await expect(page.locator('.editor-wrap .cm-gutters')).toBeVisible();
+  await expectFlushRightRuled(); // flush against the folder seam, no doubled hairline
+
+  // …the margins preset resizes the column off a ROOT variable (no pane
+  // resize, no edit — only --mm-content-width moves)…
   await setMargins('wide');
   await expect(page.getByTestId('folder-panel')).toBeVisible(); // nothing resized
-  await expect.poll(async () => (await gutter()).left).toBe(light.left);
-  expect((await gutter()).inset).toBeGreaterThan(20);
-
-  // …and the other direction, which is where a stale latch draws the left rule
-  // flush on the folder seam.
+  await expectFlushRightRuled();
   await setMargins('super-narrow');
   await expect(page.getByTestId('folder-panel')).toBeVisible();
-  await expect.poll(async () => (await gutter()).left).toMatch(/^0px /);
-  expect((await gutter()).inset).toBeLessThanOrEqual(2);
+  await expectFlushRightRuled();
 
-  // …and back: closing the panel hands the slack back, so both rules return —
-  // nothing about the mode changed between these two measurements.
+  // …closing the panel hands the width back…
   await menuClick(page, 'toggleFolders');
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
-  await expect.poll(async () => (await gutter()).left).toBe(light.left);
-  expect((await gutter()).inset).toBeGreaterThan(0);
+  await expectFlushRightRuled();
 
-  // Split mode hugs the folder seam (issue #7) — nothing to outline there, so
-  // the left rule stays off rather than doubling up on the seam.
+  // …and split mode hugs the folder seam exactly as before (issue #7) —
+  // now simply the same geometry as everything above.
   await menuClick(page, 'toggleSplit');
   await expect(page.getByTestId('split-preview')).toBeVisible();
-  // Issue #165: the column now GLIDES to the seam through the 180ms slide
-  // instead of snapping flush on its first frame — poll for the settled
-  // geometry (the contract is the resting state, not the flight).
-  await expect.poll(async () => (await gutter()).inset).toBeLessThanOrEqual(2);
-  const flush = await gutter();
-  expect(flush.inset).toBeLessThanOrEqual(2);
-  expect(flush.left).toMatch(/^0px /);
-  expect(flush.right).toMatch(/^1px solid /);
+  await expectFlushRightRuled();
 
-  // Issue #63: the flush right rule is themed too. It reads --mm-border —
-  // never CodeMirror's hardcoded #ddd — so it follows a theme change, while
-  // the left rule stays off the seam throughout.
-  expect(flush.right).not.toContain('rgb(221, 221, 221)');
+  // Dark again in split, for the full matrix: themed right rule, bare left.
   await page.emulateMedia({ colorScheme: 'dark' });
-  await expect.poll(async () => (await gutter()).right).not.toBe(flush.right);
-  const darkFlush = await gutter();
-  expect(darkFlush.right).toMatch(/^1px solid /);
-  expect(darkFlush.right).not.toContain('rgb(221, 221, 221)');
-  expect(darkFlush.left).toMatch(/^0px /);
+  await expect.poll(async () => (await gutter()).right).not.toBe(light.right);
+  await expectFlushRightRuled();
 });
 
 test('E156: issue #52 — the line-number gutter follows the theme instead of staying CodeMirror gray', async ({

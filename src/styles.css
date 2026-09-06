@@ -160,7 +160,6 @@ body,
    Crisp. */
 .theme-root {
   --mm-zoom: 1; /* settings zoom factor; App.tsx sets it inline when ≠ 100% */
-  --mm-split-text-nudge: 0px; /* split-drag text anchor; set inline by App.tsx */
   --mm-toolbar-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); /* SPEC4 §2.4 */
   --mm-panel-bg: rgba(127, 127, 127, 0.14); /* semantic-zoom pill wash */
   --mm-diff-changed-bg: rgba(46, 160, 67, 0.14); /* SPEC16 changed-line tint */
@@ -1055,22 +1054,6 @@ mark.hl.ghost {
   opacity: 0.75;
 }
 
-/* Issue #7: in split mode the column starts at the editor pane's left edge
-   instead. Centering only reads as "margins" when the pane IS the window; in
-   the split it strands a dead editor-background strip between the folder seam
-   and the gutter whenever the pane outgrows --mm-content-width (wide margins,
-   a wide window, or the divider dragged right), which reads as a blank folder
-   pane — exactly what the issue's screenshot shows. Hugging the seam keeps the
-   leftover width on the inside, next to the preview's own page margin.
-   Scoped through .editor-wrap (the split pane's own wrapper) so it outranks
-   the rule above on specificity rather than on source order. Issue #165: the
-   wrapper now persists in plain edit mode too (display:contents, so the
-   Editor survives the split toggle), so the flush-left rule keys on the
-   workspace's .split class — plain edit stays centred. */
-.workspace.split .split-editor .editor-wrap .cm-editor .cm-scroller {
-  justify-content: flex-start;
-}
-
 /* ---------- split edit (SPEC7 §5): editor | divider | live preview ---------- */
 
 .workspace.split {
@@ -1102,24 +1085,11 @@ mark.hl.ghost {
 .workspace.split.preview-sliding:not(.preview-pre) .split-editor {
   transition: width 180ms var(--mm-slide-ease);
 }
-/* Issue #165: the text column rides the same 180ms curve instead of snapping
-   centred → flush the frame the class flips. flex-start is the base for the
-   whole run (the scroller rule above), and the centred position is expressed
-   as a transform of the scroller's children — gutters, content AND
-   CodeMirror's cursor/selection layers, which are scroller children too, so
-   caret and selection glide with the text. Transform, not margin: the
-   compositor carries it, and both settled states stay transform-free (a
-   resting transform would become the containing block for fixed-position
-   menus — the reason .sliding/.preview-sliding exist at all). */
-.workspace.split.preview-sliding:not(.preview-pre) .split-editor .cm-editor .cm-scroller > * {
-  transition: transform 180ms var(--mm-slide-ease);
-}
-.workspace.split.preview-out .split-editor .cm-editor .cm-scroller > * {
-  transform: translateX(var(--mm-split-text-nudge));
-}
-/* Issue #165: mid-flight the translated column can hang a few px past the
-   narrowing scroller before both settle; never surface that as a transient
-   horizontal scrollbar. Vertical scrolling stays live. */
+/* Issue #165: the text column is flush-left in plain edit and split alike
+   (issue #272), so it never moves during the slide — only the pane's width
+   animates. But mid-flight CodeMirror can rewrap a beat behind the narrowing
+   scroller; never surface that as a transient horizontal scrollbar. Vertical
+   scrolling stays live. */
 .workspace.split.preview-sliding .split-editor .cm-editor .cm-scroller {
   overflow-x: hidden;
 }
@@ -1149,11 +1119,9 @@ mark.hl.ghost {
   /* PRD 023 §14 (issue #284): the comments pane's slide is stilled too. */
   .comments-slide.sliding,
   .comments-slide.sliding .comments-pane,
-  /* Issue #165: the :not(.preview-pre) forms match the armed rules above at
-     equal-or-higher specificity, so this carve-out still wins by source
-     order — including the text column's transform transition. */
+  /* Issue #165: the :not(.preview-pre) form matches the armed rule above at
+     equal specificity, so this carve-out still wins by source order. */
   .workspace.split.preview-sliding:not(.preview-pre) .split-editor,
-  .workspace.split.preview-sliding:not(.preview-pre) .split-editor .cm-editor .cm-scroller > *,
   .workspace.split.preview-sliding .split-preview {
     transition: none;
   }
