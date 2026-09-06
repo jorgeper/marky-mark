@@ -1055,22 +1055,23 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // SPEC30 §3.2 (issue #319): the shadow copy's sequencing lives in the pure
   // DraftShadow; only the I/O is bound here. Its io reads the platform lazily
   // so it can outlive the binding and the write/remove never race the ref.
-  const draftShadow = useMemo(
-    () =>
-      new DraftShadow({
-        write: async (d) => {
-          const pf = stateRef.current.platform;
-          if (!pf) return;
-          await pf.writeTextFile(pf.join(await pf.configDir(), 'draft.json'), serializeDraft(d));
-        },
-        remove: async () => {
-          const pf = stateRef.current.platform;
-          if (!pf) return;
-          const d = pf.join(await pf.configDir(), 'draft.json');
-          if (await pf.exists(d)) await pf.remove(d);
-        },
-      }),
-    []
+  // A ref, not useMemo: the instance carries state (what landed, what was
+  // dropped), and React may discard a memoized value at any time.
+  const draftPath = async (pf: Platform) => pf.join(await pf.configDir(), 'draft.json');
+  const draftShadowRef = useRef(
+    new DraftShadow({
+      write: async (d) => {
+        const pf = stateRef.current.platform;
+        if (!pf) return;
+        await pf.writeTextFile(await draftPath(pf), serializeDraft(d));
+      },
+      remove: async () => {
+        const pf = stateRef.current.platform;
+        if (!pf) return;
+        const d = await draftPath(pf);
+        if (await pf.exists(d)) await pf.remove(d);
+      },
+    })
   );
 
   /**
@@ -4068,8 +4069,8 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
   /** SPEC30 §3.2: remove the shadow draft (best effort) — an explicit discard. */
   const deleteDraft = useCallback(async () => {
-    await draftShadow.discard();
-  }, [draftShadow]);
+    await draftShadowRef.current.discard();
+  }, []);
 
   /** SPEC36 §5.2: flip the only-open-files view (shows the panel if hidden). */
   const toggleOpenOnly = useCallback(() => {
@@ -6116,7 +6117,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     if (!platform || restorePrompt) return;
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     if (!dirty) {
-      void draftShadow.clean();
+      void draftShadowRef.current.clean();
       return;
     }
     draftTimerRef.current = setTimeout(() => {
@@ -6124,12 +6125,12 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       if (!s.dirty || !s.platform) return;
       // SPEC38 §3.5: drafts shadow-save the canonical text, never the grid.
       const draft: Draft = { version: 1, docPath: s.docPath, content: canonicalOf(s.buffer), at: new Date().toISOString() };
-      void draftShadow.write(draft, () => stateRef.current.dirty);
+      void draftShadowRef.current.write(draft, () => stateRef.current.dirty);
     }, 2000);
     return () => {
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     };
-  }, [buffer, dirty, platform, restorePrompt, draftShadow, canonicalOf]);
+  }, [buffer, dirty, platform, restorePrompt, canonicalOf]);
 
   // --- SPEC16 §3: capture the reading position on preview scrolls (debounced) ---
   useEffect(() => {
