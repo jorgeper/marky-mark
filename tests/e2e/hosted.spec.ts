@@ -3783,6 +3783,52 @@ test.describe('PRD 017 the Management view', () => {
     await expect(page.getByTestId('admin-user-guest-mock-ada')).toHaveCount(0);
     await expect(page.getByTestId('admin-user-admin-mock-ada')).toHaveCount(0);
   });
+
+  test('E538: issue #317 — the Management dialog is the Settings dialog’s box, with all three tabs still reachable inside it', async ({
+    page,
+  }) => {
+    // PRD 017 Req 13 as amended by issue #317: the two dialogs size from one
+    // rule in styles.css, so this compares them against EACH OTHER rather
+    // than against 778x662 — at this suite's viewport the shared height is
+    // already clamped by `.dialog`'s `max-height: 84vh`.
+    await signInTo(page, 'katherine');
+    await page.getByTestId('start-management').click();
+    const management = page.getByTestId('management-panel');
+    await expect(management).toBeVisible();
+    const managementBox = (await management.boundingBox())!;
+
+    // The three tabs are all there, and their content is reachable: the tab
+    // content scrolls rather than clipping rows away at the smaller size.
+    for (const tab of ['workspaces', 'people', 'settings'] as const) {
+      await expect(page.getByTestId(`management-tab-${tab}`)).toBeVisible();
+    }
+    await page.getByTestId('management-tab-people').click();
+    await expect(page.getByTestId('admin-user-row-mock-mary')).toBeVisible();
+    const content = page.getByTestId('management-content');
+    expect(
+      await content.evaluate((el) => {
+        const style = getComputedStyle(el);
+        // A visible overflow-x computes to auto beside an auto overflow-y, so
+        // a wide table scrolls sideways instead of being clipped unreachably.
+        return { y: style.overflowY, x: style.overflowX, scrollable: el.scrollHeight >= el.clientHeight };
+      })
+    ).toEqual({ y: 'auto', x: 'auto', scrollable: true });
+
+    await page.getByTestId('management-close').click();
+    await expect(management).toHaveCount(0);
+
+    await openSettings(page, 'general');
+    const settingsBox = (await page.getByTestId('settings-panel').boundingBox())!;
+    expect(Math.abs(managementBox.width - settingsBox.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(managementBox.height - settingsBox.height)).toBeLessThanOrEqual(1);
+    // …and it is the shared box, not two dialogs that both happen to fill the
+    // window: 94vw/85vh capped at 778x662, height further capped at 84vh.
+    const viewport = page.viewportSize()!;
+    expect(Math.abs(managementBox.width - Math.min(778, viewport.width * 0.94))).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(managementBox.height - Math.min(662, viewport.height * 0.85, viewport.height * 0.84))
+    ).toBeLessThanOrEqual(1);
+  });
 });
 
 /**

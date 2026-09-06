@@ -1,7 +1,8 @@
-// PRD 017 Req 13: the Management view — the deployment-admin dialog behind
-// the `management` command, styled after SettingsPanel but sized near
-// full-window (its own .management-modal rule; it must NOT inherit the
-// Settings dialog's fixed maximum width). Three tabs: Workspaces (Req 16–18),
+// PRD 017 Req 13 (amended by issue #317): the Management view — the
+// deployment-admin dialog behind the `management` command, styled after
+// SettingsPanel and, since #317, sized exactly like it: the two share one
+// sizing rule in styles.css instead of this dialog claiming the window.
+// Three tabs: Workspaces (Req 16–18),
 // People (Req 19, plus the invite and rescind actions) and Settings
 // (Req 20). Mounted only when the platform defines the deploymentAdmin
 // capability AND /api/me says admin — and the server gates every route

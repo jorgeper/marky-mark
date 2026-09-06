@@ -1228,13 +1228,20 @@ mark.hl.ghost {
 /* Tabbed settings (SPEC4 §3). Fixed box (SPEC7 §1): switching tabs never
    resizes the dialog — long tabs scroll inside .tab-content instead. */
 /* Issue #246: ~15% more room in each dimension (was 560x480), keeping the
-   viewport caps so a small screen still clamps it. */
-.settings-modal {
+   viewport caps so a small screen still clamps it.
+   Issue #317: 20% more again (648x552 -> 778x662), same caps — and the
+   Management dialog now sizes from this one rule rather than its old
+   near-full-window 95vw/95vh, so the two dialogs are the same box at every
+   viewport and cannot drift apart in a later edit. Neither overrides the
+   .dialog `max-height: 84vh` above, so both clamp together on a short
+   window too. */
+.settings-modal,
+.dialog.management-modal {
   display: flex;
   flex-direction: column;
   padding: 0;
-  width: min(648px, 94vw);
-  height: min(552px, 85vh);
+  width: min(778px, 94vw);
+  height: min(662px, 85vh);
   overflow: hidden;
 }
 
@@ -3497,28 +3504,12 @@ input.folder-rename-input.invalid {
   background-color: var(--mm-fg-muted, #59636e);
 }
 
-/* PRD 017 Req 13: the Management dialog — near full-window, its own sizing
-   (deliberately NOT .settings-modal, whose fixed maximum width it must not
-   inherit): the window minus a ~2.5% uniform inset, zero on narrow windows,
-   content scrolling inside and tables using the full width. */
-.dialog.management-modal {
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  width: 95vw;
-  height: 95vh;
-  max-height: none;
-  overflow: hidden;
-}
-
-@media (max-width: 640px) {
-  .dialog.management-modal {
-    width: 100vw;
-    height: 100vh;
-    border-radius: 0;
-    border: none;
-  }
-}
+/* PRD 017 Req 13, amended by issue #317: the Management dialog is the same
+   box as the Settings dialog, not near full-window — so its sizing lives in
+   the shared `.settings-modal, .dialog.management-modal` rule above and there
+   is no rule (nor narrow-window full-bleed override) here to drift from it.
+   What stays local to this dialog is its inside: content scrolling within the
+   fixed box and tables using its full width. */
 
 .management-modal .settings-body {
   display: flex;

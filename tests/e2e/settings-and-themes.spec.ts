@@ -729,9 +729,16 @@ test('E486: issue #246 — the action footer is pinned outside the scrolling tab
   await openSettings(page, 'general');
   const panel = page.getByTestId('settings-panel');
   const panelBox = (await panel.boundingBox())!;
-  // A little bigger than the old 560x480, still inside the viewport caps.
-  expect(panelBox.width).toBeGreaterThanOrEqual(640);
-  expect(panelBox.height).toBeGreaterThanOrEqual(540);
+  // Issue #317: 20% bigger again (was 648x552), still inside the viewport
+  // caps — which is why this is computed rather than a bare 778x662: at this
+  // suite's 720px-tall window the height clamps to `.dialog`'s `max-height:
+  // 84vh` (~605px) long before it reaches 662.
+  const viewport = page.viewportSize()!;
+  expect(panelBox.width).toBeLessThanOrEqual(Math.min(778, viewport.width * 0.94) + 1);
+  expect(panelBox.width).toBeGreaterThanOrEqual(Math.min(778, viewport.width * 0.94) - 1);
+  const cappedHeight = Math.min(662, viewport.height * 0.85, viewport.height * 0.84);
+  expect(panelBox.height).toBeLessThanOrEqual(cappedHeight + 1);
+  expect(panelBox.height).toBeGreaterThanOrEqual(cappedHeight - 1);
 
   // The footer is a child of the dialog and a SIBLING of the scrolling
   // region — the whole point: it cannot scroll away with the tab content.

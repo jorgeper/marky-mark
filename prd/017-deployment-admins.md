@@ -238,6 +238,19 @@ it crosses the membership boundary.
     dimension), the inset shrinking to zero on narrow windows; the tab
     content scrolls inside the dialog and tables use its full width. It
     must not inherit the Settings dialog's fixed maximum width.
+
+    > **Amended (issue #317, 2026-09-06):** Req 13's **Size** paragraph — and
+    > the "near-full-window" wording above it — is reversed. The Management
+    > dialog is *exactly* the Settings dialog's box —
+    > it inherits that fixed maximum width deliberately, from one shared rule
+    > in `src/styles.css`, so the two cannot drift apart. The near-full-window
+    > 95vw/95vh sizing and the narrow-window full-bleed override are both
+    > gone; on a small window Management now clamps the way Settings does
+    > rather than filling the screen. What survives unchanged is the inside:
+    > the tab content still scrolls within the dialog and the tables still use
+    > its full width (a horizontal scroll inside the tab content is the
+    > accepted cost of the smaller box). The Settings dialog itself grew 20%
+    > in each dimension in the same change.
 14. **Admin routes.** Four routes exist, each requiring `deployment.admin`
     (403 per Req 2 for everyone else, including non-admins who are Owners
     of every workspace):
@@ -453,9 +466,10 @@ it crosses the membership boundary.
   two values and filters admins' ordinary listing too; disallowed creators
   see New Workspace disabled with a hint, not hidden; corrupt settings
   fail closed; statistics are on-demand aggregates of one blob listing;
-  Management is a near-full-window dialog (not a route) with Workspaces /
-  People (read-only) / Settings tabs; the local lane seeds `katherine` as
-  admin and `mary` as a guest.
+  Management is a dialog (not a route) with Workspaces / People
+  (read-only) / Settings tabs — near full-window as first shipped, the same
+  box as the Settings dialog since issue #317's amendment to Req 13; the
+  local lane seeds `katherine` as admin and `mary` as a guest.
 - Invitations were settled in the follow-up interview (2026-08-31): admins
   only; two surfaces, with a role granted at invite time from a
   workspace's People section; Microsoft's invitation email with a fixed
