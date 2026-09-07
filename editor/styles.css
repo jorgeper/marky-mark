@@ -1259,6 +1259,38 @@
   visibility: hidden;
 }
 
+/* PRD 025 Req 12 (issue #336): the deletion ghost — a re-rendered copy of
+   the removed text, in the content's base font and the theme's foreground,
+   placed where that text was last painted (a content-wide block whose
+   `text-indent`, `line-height` and box are set inline from the measured
+   removal) and dissolved by the Web Animations API: Fade (opacity), Pop
+   (scale to 0.8 + opacity) or Burst (opacity, plus particles). Overlay-only:
+   it never enters the content DOM and never affects layout. */
+.fluid-deletion-ghost {
+  position: absolute;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--mm-font-mono, monospace);
+  color: var(--mm-fg, #1f2328);
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* PRD 025 Reqs 7, 8 (issue #336): one Burst particle — a 3px accent dot
+   translated outward along its own vector while fading, for no longer than
+   FLUID_DURATIONS_MS.burst (380 ms). */
+.fluid-burst-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%;
+  background: var(--mm-accent, #0969da);
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
 /* §4: the chip layer — overlay only, children opt back into pointer events. */
 .table-chip-layer {
   position: absolute;

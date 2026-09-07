@@ -63,6 +63,7 @@ export * from './lib/fenceWidth';
 export * from './lib/fluid';
 export * from './lib/fluidCursor';
 export * from './lib/fluidSelection';
+export * from './lib/fluidDeletion';
 export * from './lib/headingLinks';
 export * from './lib/hotkeys';
 export * from './lib/imageResize';
