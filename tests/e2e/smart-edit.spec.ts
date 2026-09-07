@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { freshApp, fsWrite, openSettings, saveSettings } from './helpers';
+import { editorCaret, freshApp, fsWrite, openSettings, saveSettings } from './helpers';
 
 // Smart Edit: the gutter button, formatting commands, the context menu and
 // its hotkeys.
@@ -545,6 +545,10 @@ test('E481: SPEC43 §11 — Link ▸ Open Link opens through the seam with the c
   await page.getByTestId('smart-edit-open-link').click();
   await expect.poll(editorScrollTop).toBeGreaterThan(beforeJump + 200);
   await expect(editor.locator('.cm-line').filter({ hasText: '## Target' })).toBeInViewport();
+  // PRD 012 Req 6 (issue #300): the landing is the TOC jump's — the caret
+  // rests on the heading's TEXT, after the `## ` markers, as an empty
+  // selection, so typing continues in the title.
+  await expect.poll(() => editorCaret(page)).toEqual({ column: 3, collapsed: true, text: '## Target' });
   expect((await externalOpens(page)).length).toBe(opens); // not handed off
   expect(page.url()).toBe(appUrl); // the app never navigated
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);

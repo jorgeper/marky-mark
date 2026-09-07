@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
+  editorCaret,
   editorTopGutterLine,
   freshApp,
   fsRead,
@@ -249,6 +250,9 @@ test('E337: TOC click in edit mode scrolls the editor and puts the caret on the 
   await expect(page.getByTestId('editor')).toBeVisible();
   await beta.click();
   await expect(page.locator('.cm-activeLine')).toHaveText('# Beta');
+  // PRD 012 Req 6 (issue #300): on the heading's TEXT — after the `# ` run,
+  // never at column 0 in front of the markers — as an empty selection.
+  await expect.poll(() => editorCaret(page)).toEqual({ column: 2, collapsed: true, text: '# Beta' });
   await expect
     .poll(() => editorTopGutterLine(page), { timeout: 20000 })
     .toBeGreaterThan(betaLine - 6);
@@ -260,6 +264,7 @@ test('E337: TOC click in edit mode scrolls the editor and puts the caret on the 
   const deep = page.getByTestId('toc-item').filter({ hasText: 'Deep one' });
   await deep.click();
   await expect(page.locator('.cm-activeLine')).toHaveText('### Deep one');
+  await expect.poll(() => editorCaret(page)).toEqual({ column: 4, collapsed: true, text: '### Deep one' });
 });
 
 test('E338: the TOC re-derives from the buffer while typing, and says so when a document has no headings', async ({
@@ -283,12 +288,14 @@ test('E338: the TOC re-derives from the buffer while typing, and says so when a 
   await expect(page.getByTestId('toc-empty')).toHaveCount(0);
   await expect(page.getByTestId('dirty-dot')).toBeVisible(); // never saved
 
-  // Deleting the sub-heading's hashes drops the row again.
+  // Deleting the sub-heading's hashes drops the row again. PRD 012 Req 6
+  // (issue #300): the jump leaves the caret on the heading's TEXT, so the
+  // `## ` to remove is the three characters BEHIND it.
   await page.getByTestId('toc-item').filter({ hasText: 'Under' }).click();
   await expect(page.locator('.cm-activeLine')).toHaveText('## Under');
-  await page.keyboard.press('Delete');
-  await page.keyboard.press('Delete');
-  await page.keyboard.press('Delete');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Backspace');
   await expect.poll(() => rowLabels(page)).toEqual(['1:Typed']);
 });
 

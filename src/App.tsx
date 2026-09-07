@@ -4682,7 +4682,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * where a heading lands — so each passes its own scroll and shares the rest.
    */
   const runManagedLink = useCallback(
-    (href: string, scrollToLine: (line: number) => void) => {
+    (href: string, landOnLine: (line: number) => void) => {
       const action = previewLinkAction(href, getHeadingAnchors());
       if (action.kind === 'external') {
         void stateRef.current.platform?.openExternal(action.url); // explicit hand-off
@@ -4690,7 +4690,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         // Cancel any in-flight scroll carry for the TOC jump's reason: its
         // retry loop would yank the viewport back and swallow this landing.
         pendingScrollLineRef.current = null;
-        scrollToLine(action.line);
+        landOnLine(action.line);
       } else if (action.kind === 'miss') {
         showFragmentMiss('heading');
       }
@@ -4706,11 +4706,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * the caller skips the PRD 023 §5/§18 comment/placement handling.
    */
   const handlePreviewLinkClick = useCallback(
-    (e: React.MouseEvent, scrollToLine: (line: number) => void): boolean => {
+    (e: React.MouseEvent, landOnLine: (line: number) => void): boolean => {
       const a = (e.target as HTMLElement | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
       if (!a) return false;
       e.preventDefault();
-      runManagedLink(a.getAttribute('href') ?? '', scrollToLine);
+      runManagedLink(a.getAttribute('href') ?? '', landOnLine);
       return true;
     },
     [runManagedLink]
@@ -4720,22 +4720,26 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * SPEC43 §11 (issue #270) + SPEC11 §4 (issue #268): every href leaving the
    * editor (modifier-click, the openLink hotkey, Link ▸ Open Link) gets
    * EXACTLY the preview's rule — the same decision, landing a `#fragment` on
-   * its heading's SOURCE LINE in the editor (the PRD 012 Req 6 scroll path)
-   * rather than in a rendered pane.
+   * its heading's SOURCE LINE in the editor rather than in a rendered pane.
+   * PRD 012 Req 6 (issue #300): the landing is the TOC jump's — the line at
+   * the viewport top AND the caret on the heading's text (`goToHeading`).
    */
   openEditorLinkRef.current = (href) =>
-    runManagedLink(href, (line) => editorSyncRef.current?.scrollToLine(line));
+    runManagedLink(href, (line) => editorSyncRef.current?.goToHeading(line));
 
   /**
    * PRD 020 Req 19 + PRD 022 Req 11 (issue #233): land the just-opened boot
    * document on the visited fragment, in whatever view mode is current. A
    * `#<slug>` goes through the
-   * TOC's existing navigate-to-line machinery (PRD 012): `scrollToLine` in
-   * edit, the preview scroll path in read. The preview renders on a
-   * debounce, so the scroll retries per frame (the PRD 011 Req 19 dive
-   * pattern) until the heading's line is in the DOM; an unmatched slug —
-   * parsed from the real buffer, once it holds text — shows the
-   * renamed-section notice instead and leaves the file at the top.
+   * TOC's existing navigate-to-line machinery (PRD 012): `goToHeading` in
+   * edit (issue #300: the line at the viewport top and the caret on the
+   * heading's text, in the plain editor and in the split — where the preview
+   * half follows through the editor-led scroll sync, no second landing), the
+   * preview scroll path in read. The preview renders on a debounce, so the
+   * scroll retries per frame (the PRD 011 Req 19 dive pattern) until the
+   * heading's line is in the DOM; an unmatched slug — parsed from the real
+   * buffer, once it holds text — shows the renamed-section notice instead
+   * and leaves the file at the top.
    */
   const landOnFragment = useCallback(() => {
     // PRD 022 Req 11 (issue #233): `hl-` is a reserved namespace, split off
@@ -4777,8 +4781,32 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     const slug = slugFromHash(window.location.hash);
     if (slug === null) return;
     let tries = 0;
+    // Every branch below leaves through this one bounded retry — ~300 frames
+    // of watching, so a boot that never settles cannot spin forever. False
+    // once that budget is spent and nothing more is scheduled.
+    const retry = () => {
+      if (tries++ >= 300) return false;
+      requestAnimationFrame(tick);
+      return true;
+    };
+    // PRD 020 Req 19 (issue #300): the mode the app comes up in settles
+    // ASYNCHRONOUSLY — issue #125's remembered view mode arrives after the
+    // boot document opens, so the first frames of a visit can still be the
+    // preview. A landing that returned there left the editor at the top when
+    // edit mode followed a frame later: the reported bug. So the landing
+    // records the mode it landed in and keeps watching, within the same
+    // bounded frame budget, to land again in the mode the app settles into.
+    let landedIn: ViewMode | null = null;
     const tick = () => {
       const s = stateRef.current;
+      if (landedIn !== null) {
+        // Landed, and the mode has not moved under us: watch on.
+        if (landedIn === s.mode) {
+          retry();
+          return;
+        }
+        landedIn = null; // the mode moved — land again, in the new one
+      }
       const src = canonicalOf(s.buffer);
       if (src !== '') {
         const line = getHeadingAnchors().find((a) => a.slug === slug)?.line ?? null;
@@ -4789,22 +4817,46 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         // Cancel any in-flight scroll carry, the TOC jump's reason: its retry
         // loop would yank the viewport back and swallow this landing.
         if (s.mode === 'edit') {
-          if (editorSyncRef.current) {
+          // PRD 020 Req 19 (issue #300): land only once the editor HOLDS the
+          // linked document — its `[value]` effect converges the view to a
+          // new buffer asynchronously, so a tick can run while it still shows
+          // the previous document (a session-restored one, or the buffer's
+          // empty placeholder) and the line clamp would land anywhere. The
+          // heading line's raw text agreeing with the buffer's is the proof.
+          // Then verify next frame and retry, bounded, the way the mode-switch
+          // restore does (grep "Into edit (full or split)"): one dispatch into
+          // a freshly-created view is swallowed by its initial layout, and a
+          // SPEC16 §3 position restore racing this landing must lose to it.
+          const ed = editorSyncRef.current;
+          if (ed && ed.rawLinesOf(line)[0]?.text === src.split('\n')[line - 1]) {
             pendingScrollLineRef.current = null;
-            editorSyncRef.current.scrollToLine(line);
+            ed.goToHeading(line);
+            requestAnimationFrame(() => {
+              const now = editorSyncRef.current;
+              if (now) {
+                const { top, max } = now.scrollInfo();
+                // Landed when the line is at the top, or the document is too
+                // short to put it there (the scroller is at its end).
+                if (Math.abs(now.topLine() - line) < 2 || top >= max - 1) landedIn = 'edit';
+              }
+              // Short of that — or unmounted meanwhile by a mode switch —
+              // keep watching, so the fragment lands wherever the mode
+              // settles.
+              retry();
+            });
             return;
           }
         } else if (scrollPreviewToLine(line)) {
           pendingScrollLineRef.current = null;
+          landedIn = 'preview';
+          retry();
           return;
         }
       }
       // The buffer, the lazy editor, or the debounced render isn't there
-      // yet — retry per frame, bounded so a never-rendering document cannot
-      // spin forever. A buffer still empty at the bound is a real document
-      // with no headings at all: no slug can match, so say so.
-      if (tries++ < 300) requestAnimationFrame(tick);
-      else if (src === '') showFragmentMiss('heading');
+      // yet — retry per frame. A buffer still empty at the bound is a real
+      // document with no headings at all: no slug can match, so say so.
+      if (!retry() && src === '') showFragmentMiss('heading');
     };
     requestAnimationFrame(tick);
   }, [canonicalOf, getHeadingAnchors, scrollPreviewToLine, showFragmentMiss]);
@@ -5622,7 +5674,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   /**
    * PRD 012 Reqs 5–6: one click, two modes, no new scroll implementation.
    * Preview goes through `scrollPreviewToLine`; edit goes through the editor
-   * handle — `goToLine`, which is `scrollToLine` plus the caret Req 6 asks for.
+   * handle — `goToHeading`, which is `scrollToLine` plus the caret Req 6 asks
+   * for, on the heading's text rather than in front of its markers (issue
+   * #300).
    * The in-flight mode-switch restore is cancelled first, or its retry loop
    * would yank the viewport back and swallow the jump on a slow machine.
    *
@@ -5634,7 +5688,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     (line: number) => {
       if (stateRef.current.mode === 'edit') {
         pendingScrollLineRef.current = null;
-        editorSyncRef.current?.goToLine(line);
+        editorSyncRef.current?.goToHeading(line);
         return;
       }
       scrollPreviewToLine(line);

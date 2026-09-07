@@ -618,6 +618,26 @@ export const editorTopGutterLine = (page: Page) =>
     return first ? Number(first.textContent) : -1;
   });
 
+/**
+ * PRD 012 Req 6 (issue #300): where the editor's caret is, read from the DOM
+ * selection CodeMirror keeps in sync while focused — the column within the
+ * caret's `.cm-line`, whether the selection is collapsed, and that line's
+ * text. `null` when nothing in the editor holds the selection.
+ */
+export const editorCaret = (page: Page) =>
+  page.evaluate(() => {
+    const sel = document.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const r = sel.getRangeAt(0);
+    const start = r.startContainer instanceof Element ? r.startContainer : r.startContainer.parentElement;
+    const lineEl = start?.closest('.cm-line');
+    if (!lineEl) return null;
+    const pre = document.createRange();
+    pre.setStart(lineEl, 0);
+    pre.setEnd(r.startContainer, r.startOffset);
+    return { column: pre.toString().length, collapsed: r.collapsed, text: lineEl.textContent ?? '' };
+  });
+
 /** Source lines of the anchors bracketing the given scroller's top edge. */
 export const previewTopAnchorLines = (page: Page, scrollerSel = '.split-preview') =>
   page.evaluate((sel) => {
