@@ -989,10 +989,11 @@ test('E580: PRD 025 Reqs 9, 10, 16 (issue #334) — with Fluid mode on, reduced 
   await page.keyboard.press('Z');
   expect(await firstLine.textContent()).toMatch(/^QZ/);
   expect(await ghosts()).toBe(0);
-  // Deleting is not a navigation move either.
+  // Deleting is not a navigation move either (issue #336: a deletion ghost
+  // may now be fading here, so only the caret-effect claim is asserted).
   await page.keyboard.press('Backspace');
   expect(await firstLine.textContent()).toMatch(/^Q[^Z]/);
-  expect(await ghosts()).toBe(0);
+  await expect(page.getByTestId('fluid-caret-ghost')).toHaveCount(0);
 
   // (c) Cursor movement → None: a navigation move draws nothing.
   await openSettings(page, 'experimental');
@@ -1066,6 +1067,95 @@ test('E582: PRD 025 Reqs 9, 11, 14, 16 (issue #335) — with Fluid mode on, redu
   await content.click();
   await page.keyboard.press('Control+Home'); // line 1 is non-empty, so Shift+End lands a range
   await page.keyboard.press('Shift+End');
+  expect(await ghosts()).toBe(0);
+  await expect(layer).toHaveCount(1);
+});
+
+test('E586: PRD 025 Reqs 9, 12, 14, 16 (issue #336) — with Fluid mode on, reduced motion draws no deletion ghost, a replacement or insertion never draws one, a deletion lands synchronously, a large removal draws nothing, Burst under reduced motion draws no particle, and Deletion → None draws nothing', async ({
+  page,
+}) => {
+  await freshApp(page);
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor).toBeVisible();
+  // On, with the default mapping (Deletion → Fade).
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-fluid-mode').check();
+  await saveSettings(page);
+  await expect(editor).toHaveAttribute('data-fluid', 'cursor=glide;selection=elastic;deletion=fade;insertion=pop');
+  const layer = page.getByTestId('fluid-overlay');
+  await expect(layer).toHaveCount(1);
+  const ghosts = () => layer.evaluate((el) => el.childElementCount);
+  const deletionGhosts = page.getByTestId('fluid-deletion-ghost');
+  const particles = page.getByTestId('fluid-burst-particle');
+  const content = editor.locator('.cm-content');
+  const firstLine = content.locator('.cm-line').first();
+
+  // (a) Req 16: reduced motion — a deletion creates no ghost at all, yet the
+  // mode stays configured (the root keeps its attribute).
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await content.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.press('Backspace');
+  expect(await ghosts()).toBe(0);
+  await expect(editor).toHaveAttribute('data-fluid', /;deletion=fade;/);
+
+  // (b) Reqs 9, 12: motion allowed again — a replacement (typing over a
+  // selection) never draws a deletion ghost, nor does an insertion, and a
+  // deletion is real and synchronous: the line reads `Q` with no wait
+  // between key and check (the ghost that may now be fading is not asserted).
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.keyboard.press('Q');
+  expect(await firstLine.textContent()).toBe('Q');
+  await expect(deletionGhosts).toHaveCount(0);
+  await page.keyboard.press('Z');
+  expect(await firstLine.textContent()).toBe('QZ');
+  await expect(deletionGhosts).toHaveCount(0);
+  await page.keyboard.press('Backspace');
+  expect(await firstLine.textContent()).toBe('Q');
+
+  // (c) Req 14: the large-operation rule — once the document is past
+  // FLUID_LARGE_OPERATION_LINES lines, select-all + Backspace draws nothing.
+  await page.keyboard.press('Control+End');
+  for (let i = 0; i < 8; i++) await page.keyboard.press('Enter');
+  expect(await content.locator('.cm-line').count()).toBeGreaterThan(50);
+  await page.keyboard.press('Control+a');
+  await page.keyboard.press('Backspace');
+  await expect(content.locator('.cm-line')).toHaveCount(1);
+  expect(await firstLine.textContent()).toBe('');
+  expect(await ghosts()).toBe(0);
+
+  // (d) Deletion → Burst under reduced motion: neither a ghost nor a particle.
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-fluid-mode-settings').click();
+  await page.getByTestId('fluid-pick-deletion').selectOption('burst');
+  await saveSettings(page);
+  await expect(editor).toHaveAttribute('data-fluid', /;deletion=burst;/);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await content.click();
+  await page.keyboard.press('W');
+  expect(await firstLine.textContent()).toBe('W');
+  await page.keyboard.press('Backspace');
+  expect(await firstLine.textContent()).toBe('');
+  await expect(deletionGhosts).toHaveCount(0);
+  await expect(particles).toHaveCount(0);
+  expect(await ghosts()).toBe(0);
+
+  // (e) Deletion → None (motion allowed): a deletion draws nothing; the layer stays.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-fluid-mode-settings').click();
+  await page.getByTestId('fluid-pick-deletion').selectOption('none');
+  await saveSettings(page);
+  await expect(editor).toHaveAttribute('data-fluid', /;deletion=none;/);
+  await content.click();
+  await page.keyboard.press('X');
+  expect(await firstLine.textContent()).toBe('X');
+  await page.keyboard.press('Backspace');
+  expect(await firstLine.textContent()).toBe('');
   expect(await ghosts()).toBe(0);
   await expect(layer).toHaveCount(1);
 });

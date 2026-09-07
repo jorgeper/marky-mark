@@ -1,23 +1,33 @@
 /**
- * PRD 025 (issues #334, #335): the Fluid mode view extension — the overlay
- * layer, the in-flight registry every effect adds to, the Cursor movement
- * effect (Req 10) and the Selection change effect (Req 11). Loaded only
- * while the `fluid` prop carries a mapping (its Compartment is empty
- * otherwise, Req 3), so with the mode off there is no listener, no timer and
- * no overlay element.
+ * PRD 025 (issues #334, #335, #336): the Fluid mode view extension — the
+ * overlay layer, the in-flight registry every effect adds to, the Cursor
+ * movement effect (Req 10), the Selection change effect (Req 11) and the
+ * Deletion effect (Req 12). Loaded only while the `fluid` prop carries a
+ * mapping (its Compartment is empty otherwise, Req 3), so with the mode off
+ * there is no listener, no timer and no overlay element.
  *
  * Req 9 (never-delay): nothing here intercepts a key, wraps `dispatch`, or
  * defers a change. A ghost is drawn from an update listener AFTER the
  * transaction is applied — `update.state` is already the final state — and
  * the only synchronous work added is the decision, a few `coordsAtPos`
- * reads (plus one content-rect read for a selection), the ghost elements
- * appended to the overlay or re-targeted, and the animation started.
+ * reads (plus one content-rect read for a selection or a deletion, and one
+ * overlay-rect read for a Burst), the ghost elements appended to the overlay
+ * or re-targeted, and the animation started.
  */
 
 import { EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 import { Transaction, type Extension } from '@codemirror/state';
-import type { FluidEffectMap } from '../lib/fluid';
+import { FLUID_DURATIONS_MS, type FluidEffectMap } from '../lib/fluid';
 import { fluidCurveSamples, fluidCursorCurve, isFluidNavigationMove } from '../lib/fluidCursor';
+import {
+  FLUID_BURST_PARTICLES,
+  fluidBurstParticles,
+  fluidDeletionBox,
+  fluidDeletionSpans,
+  type FluidChangedSpan,
+  type FluidDeletionBox,
+  type FluidDeletionEffect,
+} from '../lib/fluidDeletion';
 import {
   fluidRectAt,
   fluidSelectionCurve,
@@ -25,6 +35,7 @@ import {
   fluidSelectionRects,
   fluidSelectionShape,
   type FluidPosCoords,
+  type FluidRect,
   type FluidSelectionEffect,
   type FluidSelectionShape,
 } from '../lib/fluidSelection';
@@ -47,10 +58,14 @@ function prefersReducedMotion(): boolean {
   );
 }
 
-/** One effect in flight: its overlay elements, the root class it wears, and how to stop it early. */
+/** Which effect an in-flight entry belongs to — the caret and selection effects replace their own kind; a deletion ghost is left to finish. */
+type FluidGhostKind = 'caret' | 'selection' | 'deletion';
+
+/** One effect in flight: its kind, its overlay elements, the root class it wears (none for a deletion ghost), and how to stop it early. */
 interface InFlight {
+  kind: FluidGhostKind;
   els: HTMLElement[];
-  cls: string;
+  cls: string | null;
   stop: () => void;
 }
 
@@ -131,20 +146,45 @@ class FluidOverlay {
   }
 
   cancelAll(): void {
-    for (const f of this.inFlight) {
+    for (const f of [...this.inFlight]) {
       f.stop();
-      for (const el of f.els) el.remove();
+      this.discard(f);
     }
-    this.inFlight.clear();
-    this.selection = null;
     this.view.dom.classList.remove(CARET_IN_FLIGHT_CLASS, SELECTION_IN_FLIGHT_CLASS);
   }
 
+  /**
+   * PRD 025 Reqs 15, 17 (issue #336): the caret and selection effects'
+   * "replace the one in flight" cancel, narrowed to their own kinds — a
+   * deletion ghost is left to finish under a navigation move or Shift+arrow;
+   * only the Req 15 triggers (`cancelAll`) remove it early.
+   */
+  private cancelKinds(...kinds: FluidGhostKind[]): void {
+    for (const f of [...this.inFlight]) {
+      if (!kinds.includes(f.kind)) continue;
+      f.stop();
+      this.discard(f);
+    }
+  }
+
+  /** An animation ran to its end: the entry leaves the registry (a no-op when a cancel already dropped it). */
   private finish(f: InFlight): void {
-    if (!this.inFlight.delete(f)) return;
+    if (!this.inFlight.has(f)) return;
+    this.discard(f);
+  }
+
+  /**
+   * The one teardown every cancel and finish path runs: the entry leaves the
+   * registry and its elements leave the overlay (Req 15: gone the moment it
+   * ends), and the root class it wore is dropped unless another entry still
+   * wears it (Req 17: the real caret / selection is hidden only while its
+   * ghost flies).
+   */
+  private discard(f: InFlight): void {
+    this.inFlight.delete(f);
     if (f === this.selection) this.selection = null;
-    for (const el of f.els) el.remove(); // Req 15: gone the moment it finishes
-    // Req 17: the real caret / selection is hidden only while its ghost flies.
+    for (const el of f.els) el.remove();
+    if (!f.cls) return;
     const stillWorn = [...this.inFlight].some((other) => other.cls === f.cls);
     if (!stillWorn) this.view.dom.classList.remove(f.cls);
   }
@@ -180,8 +220,9 @@ class FluidOverlay {
     const el = document.createElement('div');
     if (typeof el.animate !== 'function') return; // no Web Animations: no static ghost either
     // Req 17: at most one caret ghost — a new move replaces the one in flight
-    // (and a caret result has already cancelled any selection ghost).
-    this.cancelAll();
+    // (and a caret result has already cancelled any selection ghost); a
+    // deletion ghost fading under an undo's caret landing is left alone.
+    this.cancelKinds('caret', 'selection');
     // The overlay sits at inset 0 of the scroller and scrolls with the
     // content, so client coordinates translate by the layer's own rect
     // (layout is already clean after coordsAtPos; this forces nothing).
@@ -201,7 +242,7 @@ class FluidOverlay {
     }));
     this.layer.appendChild(el);
     const anim = el.animate(keyframes, { duration: durationMs, easing: 'linear', fill: 'forwards' });
-    const entry: InFlight = { els: [el], cls: CARET_IN_FLIGHT_CLASS, stop: () => anim.cancel() };
+    const entry: InFlight = { kind: 'caret', els: [el], cls: CARET_IN_FLIGHT_CLASS, stop: () => anim.cancel() };
     this.inFlight.add(entry);
     view.dom.classList.add(CARET_IN_FLIGHT_CLASS); // Req 17: the real caret hides only while the ghost flies
     anim.onfinish = () => this.finish(entry);
@@ -214,7 +255,7 @@ class FluidOverlay {
    * then proceeds as Req 10 defines.
    */
   caretResult(u: ViewUpdate): void {
-    if (this.selection) this.cancelAll();
+    if (this.selection) this.cancelKinds('selection');
     this.cursorMoved(u);
   }
 
@@ -230,8 +271,8 @@ class FluidOverlay {
   selectionChanged(u: ViewUpdate): void {
     // Req 17: a range result cancels a caret ghost in flight (the only other
     // effect a selection ghost never coexists with); a selection ghost stays
-    // to be re-targeted below.
-    if (this.inFlight.size > 0 && !this.selection) this.cancelAll();
+    // to be re-targeted below, and a deletion ghost is left to finish.
+    this.cancelKinds('caret');
     const effect = this.map.selection;
     if (effect !== 'glide' && effect !== 'elastic') return;
     const to = u.state.selection.main;
@@ -252,8 +293,8 @@ class FluidOverlay {
     if (decision === 'none') return;
     if (decision === 'snap' || prefersReducedMotion() || typeof requestAnimationFrame !== 'function') {
       // Req 14: a large operation snaps; Req 16: reduced motion is inert — no
-      // element, no frame. Either way any ghost in flight goes at once.
-      this.cancelAll();
+      // element, no frame. Either way any selection ghost in flight goes at once.
+      this.cancelKinds('selection');
       return;
     }
     const view = this.view;
@@ -271,7 +312,7 @@ class FluidOverlay {
     const toStart = at(to.from);
     const toEnd = at(to.to);
     if (!toStart || !toEnd) {
-      this.cancelAll(); // not rendered / off-screen: snap
+      this.cancelKinds('selection'); // not rendered / off-screen: snap
       return;
     }
     const target = fluidSelectionShape(fluidSelectionRects({ start: toStart, end: toEnd, contentLeft, contentRight }));
@@ -287,7 +328,7 @@ class FluidOverlay {
     const fromStart = at(Math.min(from.anchor, from.head));
     const fromEnd = at(Math.max(from.anchor, from.head));
     if (!fromStart || !fromEnd) {
-      this.cancelAll();
+      this.cancelKinds('selection');
       return;
     }
     const start = fluidSelectionShape(
@@ -301,7 +342,8 @@ class FluidOverlay {
    * the shape, painted at `start` — register it, and run the frame loop
    * that tweens it toward `target` (whatever `target` holds by the time a
    * frame samples it, which is how re-targeting takes effect). The caller
-   * has already cancelled any caret ghost, so the overlay is empty here.
+   * has already cancelled any caret ghost, so at most a deletion ghost
+   * shares the overlay here.
    */
   private startSelectionGhost(
     start: FluidSelectionShape,
@@ -316,6 +358,7 @@ class FluidOverlay {
       return el;
     });
     const entry: SelectionGhost = {
+      kind: 'selection',
       els,
       cls: SELECTION_IN_FLIGHT_CLASS,
       stop: () => cancelAnimationFrame(entry.raf),
@@ -345,6 +388,143 @@ class FluidOverlay {
     this.view.dom.classList.add(SELECTION_IN_FLIGHT_CLASS); // Req 17: the real selection hides only while the ghost flies
     entry.raf = requestAnimationFrame(step);
   }
+
+  /**
+   * PRD 025 Reqs 9, 12, 14, 16 (issue #336): runs from the update listener
+   * for a transaction that changed the document — after the transaction, so
+   * `u.state.doc` already lacks the removed text and layout may be read.
+   * Under a Fade, Pop or Burst mapping the pure decision picks the
+   * pure-removal spans (never a replacement, nothing for a large
+   * operation) and each gets a ghost: a re-render of the removed text at its
+   * last painted position, measured as `coordsAtPos(fromB)` — nothing can be
+   * captured before the change without intercepting dispatch, which Req 9
+   * forbids. With Deletion → None nothing beyond this branch runs.
+   */
+  deletionChanged(u: ViewUpdate): void {
+    const effect = this.map.deletion;
+    if (effect !== 'fade' && effect !== 'pop' && effect !== 'burst') return;
+    const startDoc = u.startState.doc;
+    const spans: FluidChangedSpan[] = [];
+    u.changes.iterChanges((fromA, toA, fromB, toB) => {
+      spans.push({
+        fromA,
+        toA,
+        fromB,
+        insertedLength: toB - fromB,
+        lines: toA > fromA ? startDoc.lineAt(toA).number - startDoc.lineAt(fromA).number + 1 : 1,
+      });
+    });
+    const ghosted = fluidDeletionSpans({ docChanged: u.docChanged, userEvent: userEventOf(u), spans });
+    if (ghosted.length === 0) return;
+    if (prefersReducedMotion()) return; // Req 16: inert — no element, no particle, no frame
+    if (typeof document.createElement('div').animate !== 'function') return; // no Web Animations: no static ghost either
+    const view = this.view;
+    // The overlay sits at inset 0 of the scroller, so client coordinates
+    // translate by the layer's own rect; one content-rect read gives the
+    // edges a multi-line ghost wraps between.
+    const frame = this.layer.getBoundingClientRect();
+    const content = view.contentDOM.getBoundingClientRect();
+    const contentLeft = content.left - frame.left;
+    const contentRight = content.right - frame.left;
+    for (const span of ghosted) {
+      const c = view.coordsAtPos(span.fromB);
+      if (!c) continue; // not rendered / off-screen: this span draws nothing
+      const box = fluidDeletionBox({
+        start: { left: c.left - frame.left, top: c.top - frame.top, bottom: c.bottom - frame.top },
+        contentLeft,
+        contentRight,
+      });
+      this.startDeletionGhost(startDoc.sliceString(span.fromA, span.toA), box, effect, frame);
+    }
+  }
+
+  /**
+   * PRD 025 Reqs 7, 8, 12, 15 (issue #336): one deletion ghost — the removed
+   * text (set as text, never HTML) in a content-wide block indented to where
+   * it started — and its animation: Fade dissolves it, Pop scales it out to
+   * 0.8 about the removed span's start while dissolving, Burst dissolves it
+   * as Fade does and scatters particles from its first painted line. Every
+   * element is removed the moment its own animation finishes; the entry
+   * finishes with the longest one (Burst: the particles). No root class is
+   * worn: nothing real needs hiding.
+   */
+  private startDeletionGhost(text: string, box: FluidDeletionBox, effect: FluidDeletionEffect, frame: DOMRect): void {
+    const el = document.createElement('div');
+    el.className = 'fluid-deletion-ghost';
+    el.setAttribute('data-testid', 'fluid-deletion-ghost');
+    el.textContent = text;
+    const st = el.style;
+    st.left = `${box.left}px`;
+    st.top = `${box.top}px`;
+    st.width = `${box.width}px`;
+    st.textIndent = `${box.indent}px`;
+    st.lineHeight = `${box.lineHeight}px`;
+    // Each overlay element is appended and animated as one pair, so the
+    // finish handler below always removes the element its animation drove.
+    const parts: Array<{ el: HTMLElement; anim: Animation }> = [];
+    const animate = (target: HTMLElement, keyframes: Keyframe[], duration: number) => {
+      this.layer.appendChild(target);
+      parts.push({ el: target, anim: target.animate(keyframes, { duration, easing: 'ease-out', fill: 'forwards' }) });
+    };
+    if (effect === 'pop') {
+      // Req 7: Pop — scale out to ~0.8 about the removed span's start, on its first line's centre.
+      st.transformOrigin = `${box.indent}px ${box.lineHeight / 2}px`;
+      animate(
+        el,
+        [
+          { opacity: 1, transform: 'scale(1)' },
+          { opacity: 0, transform: 'scale(0.8)' },
+        ],
+        FLUID_DURATIONS_MS.pop
+      );
+    } else {
+      // Req 7: Fade (and Burst's text) — opacity 1 → 0.
+      animate(el, [{ opacity: 1 }, { opacity: 0 }], FLUID_DURATIONS_MS.fade);
+    }
+    if (effect === 'burst') {
+      // Req 7: Burst — particles scatter from the removed text's first
+      // painted line: one layout read of the ghost's own text node (an
+      // overlay element, never content), falling back to the removal point.
+      let line: FluidRect = { left: box.left + box.indent, top: box.top, width: 0, height: box.lineHeight };
+      if (el.firstChild && typeof document.createRange === 'function') {
+        const range = document.createRange();
+        range.selectNodeContents(el.firstChild);
+        const rect = range.getClientRects()[0];
+        if (rect) line = { left: rect.left - frame.left, top: rect.top - frame.top, width: rect.width, height: rect.height };
+      }
+      for (const p of fluidBurstParticles(line, FLUID_BURST_PARTICLES)) {
+        const dot = document.createElement('div');
+        dot.className = 'fluid-burst-particle';
+        dot.setAttribute('data-testid', 'fluid-burst-particle');
+        dot.style.left = `${p.x}px`;
+        dot.style.top = `${p.y}px`;
+        animate(
+          dot,
+          [
+            { opacity: 1, transform: 'translate(0, 0)' },
+            { opacity: 0, transform: `translate(${p.dx}px, ${p.dy}px)` },
+          ],
+          FLUID_DURATIONS_MS.burst // Req 8: ≤ 400 ms
+        );
+      }
+    }
+    const entry: InFlight = {
+      kind: 'deletion',
+      els: parts.map((part) => part.el),
+      cls: null,
+      stop: () => {
+        for (const part of parts) part.anim.cancel();
+      },
+    };
+    this.inFlight.add(entry);
+    let pending = parts.length;
+    for (const part of parts) {
+      part.anim.onfinish = () => {
+        part.el.remove(); // Req 15: each element goes the moment it finishes
+        if (--pending === 0) this.finish(entry);
+      };
+    }
+  }
 }
 
 /**
@@ -361,13 +541,20 @@ export function fluidExtension(map: FluidEffectMap): Extension {
     // ghost is drawn from the applied state and may read layout — a
     // ViewPlugin's own `update` runs mid-update and may not.
     EditorView.updateListener.of((u) => {
-      if (!u.selectionSet) return;
+      if (!u.selectionSet && !u.docChanged) return;
       const overlay = u.view.plugin(plugin);
       if (!overlay) return;
       // Req 10 / Req 11: a caret result is the cursor effect's; a range
       // result is the selection effect's — never both for one transaction.
-      if (u.state.selection.main.empty) overlay.caretResult(u);
-      else overlay.selectionChanged(u);
+      if (u.selectionSet) {
+        if (u.state.selection.main.empty) overlay.caretResult(u);
+        else overlay.selectionChanged(u);
+      }
+      // Req 12 (issue #336): a document change is the deletion effect's,
+      // routed on `docChanged` so a host `applyEdit` that sets no selection
+      // still animates; it runs after the caret/selection branch so an undo
+      // shows both the caret ghost and the deletion ghost.
+      if (u.docChanged) overlay.deletionChanged(u);
     }),
   ];
 }

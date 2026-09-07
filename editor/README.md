@@ -212,6 +212,25 @@ characters or `FLUID_LARGE_OPERATION_LINES` lines snaps: no ghost, and any
 in flight is removed. `fluidSelectionDecision` and `fluidSelectionRects` are
 the pure decision and geometry behind it.
 
+**Deletion.** Any change that purely *removes* text animates, whatever caused
+it — Backspace and Delete, deleting a selection, cut, delete-line, undo/redo
+that removes text, a drop's removal, a host `applyEdit` or vim `x`/`dd`. A
+*replacement* — typing or pasting over a selection, a completion, an IME
+composition, a smart-edit rewrite — never does: that change removes and
+inserts at once and belongs to the insertion effect. The ghost is a
+re-rendered copy of the removed text (its base font and the theme's
+foreground, without Markdown styling) drawn in the overlay at the text's last
+painted position, after the document has already changed. **Fade** dissolves
+it (180 ms); **Pop** scales it out to ~0.8 about the removed span's start
+while dissolving (160 ms); **Burst** dissolves it as Fade does and scatters
+`FLUID_BURST_PARTICLES` small accent particles outward from its first line,
+each living no longer than 380 ms. A change removing more than
+`FLUID_LARGE_OPERATION_CHARS` characters or `FLUID_LARGE_OPERATION_LINES`
+lines draws nothing. A scroll, resize, further edit or theme change removes a
+ghost at once; a caret move or selection change leaves it to finish.
+`fluidDeletionSpans`, `fluidDeletionBox` and `fluidBurstParticles` are the
+pure decision, box and particle geometry behind it.
+
 ```tsx
 <Editor value={text} onChange={setText} lineNumbers
         fluid={{ cursor: 'glide', selection: 'elastic', deletion: 'fade', insertion: 'pop' }} />
