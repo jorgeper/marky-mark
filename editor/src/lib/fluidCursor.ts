@@ -6,7 +6,10 @@
  * plain numbers. Both are unit-tested without a DOM (Req 21).
  */
 
-import { FLUID_DURATIONS_MS, type FluidEffect } from './fluid';
+import { FLUID_DURATIONS_MS } from './fluid';
+
+/** PRD 025 Req 7: the two effects the applicability table allows on the cursor. */
+export type FluidCursorEffect = 'glide' | 'elastic';
 
 /**
  * PRD 025 Req 10: what the decision needs to know about one applied
@@ -57,6 +60,9 @@ export function glideAt(t: number): number {
   return 1 - u * u * u;
 }
 
+const ELASTIC_DAMPING = 0.62;
+const ELASTIC_OMEGA = 9.5;
+
 /**
  * PRD 025 Req 7: Elastic — an under-damped spring's unit-step response,
  * closed-form so no per-frame integration is needed. The damping ratio sets
@@ -64,8 +70,6 @@ export function glideAt(t: number): number {
  * around t ≈ 0.42 so the spring has settled to within 1% by t = 1, which is
  * why `FLUID_DURATIONS_MS.elastic` runs longer than Glide (Req 8).
  */
-const ELASTIC_DAMPING = 0.62;
-const ELASTIC_OMEGA = 9.5;
 export function elasticAt(t: number): number {
   const x = clamp01(t);
   if (x === 0) return 0;
@@ -77,7 +81,7 @@ export function elasticAt(t: number): number {
 }
 
 /** PRD 025 Req 7: the curve and duration behind each cursor effect. */
-export function fluidCursorCurve(effect: FluidEffect): { at: (t: number) => number; durationMs: number } {
+export function fluidCursorCurve(effect: FluidCursorEffect): { at: (t: number) => number; durationMs: number } {
   return effect === 'elastic'
     ? { at: elasticAt, durationMs: FLUID_DURATIONS_MS.elastic }
     : { at: glideAt, durationMs: FLUID_DURATIONS_MS.glide };

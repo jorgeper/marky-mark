@@ -58,7 +58,6 @@ import { mapOffsetByLineFlat, wordAt } from '../lib/activePosition';
 import { intersectCodeSelection, type CodeRange } from '../lib/codeSelection';
 import type { DiffLineSets } from '../lib/diffLines';
 import { fluidAttribute, type FluidEffectMap } from '../lib/fluid';
-import { fluidExtension } from './fluidView';
 import { displayCombo, type HotkeyMap } from '../lib/hotkeys';
 import {
   buildSmartMenu,
@@ -87,6 +86,7 @@ import { linkOpenExtension, linkViewExtension } from './linkView';
 import { calloutViewExtension } from './calloutView';
 import { linkAt } from '../lib/linkSpans';
 import { livePreviewExtension } from './livePreview';
+import { fluidExtension } from './fluidView';
 import { allImageRefs, applyImageRewrite, deleteImageAt, type ImageRef } from '../lib/imageResize';
 
 /** SPEC42 §1: the eight-chip ring — every border middle, every corner. */

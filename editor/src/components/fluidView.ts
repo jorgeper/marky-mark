@@ -21,6 +21,9 @@ import { fluidCurveSamples, fluidCursorCurve, isFluidNavigationMove } from '../l
 /** Req 17: the class the editor root wears while a caret ghost is in flight. */
 const IN_FLIGHT_CLASS = 'fluid-caret-in-flight';
 
+/** Req 20: spacing of the sampled keyframes — close enough that linear interpolation between them reads as the curve. */
+const KEYFRAME_STEP_MS = 8;
+
 /** Req 16: read at scheduling time, never cached — an OS change takes effect on the next move. */
 function prefersReducedMotion(): boolean {
   return (
@@ -33,6 +36,15 @@ function prefersReducedMotion(): boolean {
 interface InFlight {
   el: HTMLElement;
   anim: Animation;
+}
+
+/** The first `Transaction.userEvent` annotation across the update's transactions, or null when none carries one. */
+function userEventOf(u: ViewUpdate): string | null {
+  for (const tr of u.transactions) {
+    const event = tr.annotation(Transaction.userEvent);
+    if (event != null) return event;
+  }
+  return null;
 }
 
 /**
@@ -104,7 +116,7 @@ class FluidOverlay {
       !isFluidNavigationMove({
         docChanged: u.docChanged,
         selectionSet: u.selectionSet,
-        userEvent: u.transactions.map((tr) => tr.annotation(Transaction.userEvent)).find((e) => e != null) ?? null,
+        userEvent: userEventOf(u),
         fromHead,
         toHead: main.head,
         toEmpty: main.empty,
@@ -117,14 +129,14 @@ class FluidOverlay {
     const from = view.coordsAtPos(fromHead);
     const to = view.coordsAtPos(main.head);
     if (!from || !to) return; // not rendered / off-screen: nothing to tween between
+    const el = document.createElement('div');
+    if (typeof el.animate !== 'function') return; // no Web Animations: no static ghost either
     // Req 17: at most one caret ghost — a new move replaces the one in flight.
     this.cancelAll();
     // The overlay sits at inset 0 of the scroller and scrolls with the
     // content, so client coordinates translate by the layer's own rect
     // (layout is already clean after coordsAtPos; this forces nothing).
     const frame = this.layer.getBoundingClientRect();
-    const el = document.createElement('div');
-    if (typeof el.animate !== 'function') return; // no Web Animations: no static ghost either
     el.className = 'fluid-caret-ghost';
     el.setAttribute('data-testid', 'fluid-caret-ghost');
     el.style.left = `${from.left - frame.left}px`;
@@ -133,9 +145,9 @@ class FluidOverlay {
     const dx = to.left - from.left;
     const dy = to.top - from.top;
     const { at, durationMs } = fluidCursorCurve(effect);
-    // Req 20: keyframes sampled from the in-package curve, ~8 ms apart,
-    // played linearly by the Web Animations API — no library involved.
-    const keyframes = fluidCurveSamples(at, Math.ceil(durationMs / 8)).map((f) => ({
+    // Req 20: keyframes sampled from the in-package curve, played linearly
+    // by the Web Animations API — no library involved.
+    const keyframes = fluidCurveSamples(at, Math.ceil(durationMs / KEYFRAME_STEP_MS)).map((f) => ({
       transform: `translate(${dx * f}px, ${dy * f}px)`,
     }));
     this.layer.appendChild(el);
