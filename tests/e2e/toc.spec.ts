@@ -246,8 +246,14 @@ test('E337: TOC click in edit mode scrolls the editor and puts the caret on the 
   const betaLine = Number(await beta.getAttribute('data-line'));
 
   // PRD 012 Req 6: edit mode — scrolled AND the caret is on the heading line.
+  // Full edit first: splitEdit ships on, so Mod+\ closes the split that
+  // Ctrl+E opened. (Issue #328: the divider leaves the DOM the same frame —
+  // before that, this test's `Mod+\` leg caught the divider mid exit-slide
+  // and both legs really ran in the other layout.)
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('editor')).toBeVisible();
+  await page.keyboard.press('Control+\\');
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
   await beta.click();
   await expect(page.locator('.cm-activeLine')).toHaveText('# Beta');
   // PRD 012 Req 6 (issue #300): on the heading's TEXT — after the `# ` run,
@@ -258,7 +264,7 @@ test('E337: TOC click in edit mode scrolls the editor and puts the caret on the 
     .toBeGreaterThan(betaLine - 6);
   expect(await editorTopGutterLine(page)).toBeLessThan(betaLine + 6);
 
-  // The same click works from the split's editor pane.
+  // The same click works from the split's editor pane: reopen the split.
   await page.keyboard.press('Control+\\');
   await expect(page.getByTestId('split-divider')).toBeVisible();
   const deep = page.getByTestId('toc-item').filter({ hasText: 'Deep one' });
@@ -349,6 +355,9 @@ test('E254: one pane, two views — the buttons switch (never hide), folder-tree
 
   // PRD 003/012: Mod+Shift+E and the View checkbox still drive and reflect
   // the folders view exactly as before.
+  // SPEC12 §1.3 cross-source dedup window: the pane switches instantly now
+  // (issue #328), so nothing else spaces this toggle from the last one.
+  await page.waitForTimeout(250);
   await page.keyboard.press('Control+Shift+E');
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await expect(page.getByTestId('folder-expand')).toHaveCount(0);
@@ -358,6 +367,9 @@ test('E254: one pane, two views — the buttons switch (never hide), folder-tree
   // Issue #257: the closed pane's one control reopens on the view the
   // sidebar was last showing. Hidden on folders ⇒ it comes back on folders;
   // hidden on the TOC ⇒ it comes back on the TOC.
+  // SPEC12 §1.3 cross-source dedup window: the pane switches instantly now
+  // (issue #328), so nothing else spaces this toggle from the last one.
+  await page.waitForTimeout(250);
   await page.getByTestId('folder-expand').click();
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await page.getByTestId('sidebar-view-toc').click();
@@ -367,6 +379,9 @@ test('E254: one pane, two views — the buttons switch (never hide), folder-tree
   await page.getByTestId('folder-expand').click();
   await expect(page.getByTestId('toc-panel')).toBeVisible();
   // …and Mod+Shift+E, the folders route, switches the pane to Folders.
+  // SPEC12 §1.3 cross-source dedup window: the pane switches instantly now
+  // (issue #328), so nothing else spaces this toggle from the last one.
+  await page.waitForTimeout(250);
   await page.keyboard.press('Control+Shift+E');
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await expect(page.getByTestId('toc-panel')).toHaveCount(0);
@@ -628,6 +643,9 @@ test('E258: the toggleToc hotkey opens the sidebar on the TOC, hides it again, a
 
   // Exactly the same action from either surface: the collapsed state's Show
   // sidebar control opens it, and the hotkey hides what it opened.
+  // SPEC12 §1.3 cross-source dedup window: the pane switches instantly now
+  // (issue #328), so nothing else spaces this toggle from the last one.
+  await page.waitForTimeout(250);
   await page.getByTestId('folder-expand').click();
   await expect(page.getByTestId('toc-panel')).toBeVisible();
   // Past SPEC12 §1.3's exactly-once window first: the chevron and the hotkey

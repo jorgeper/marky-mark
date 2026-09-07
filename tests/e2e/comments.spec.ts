@@ -2109,7 +2109,11 @@ test('E445: PRD 023 Req 18 — activating a card in plain edit scrolls the EDITO
   // The editor sits at the top; the anchor's decoration is out of view (CM
   // may not even render it yet). Activating the card scrolls the EDITOR —
   // plain edit has no preview to aim at — and flashes the decoration
-  // (SPEC14 §1.3 through the revealHighlight seam).
+  // (SPEC14 §1.3 through the revealHighlight seam). The editor's anchor
+  // mapping lands on a 200ms debounce after entering edit mode (the PRD 023
+  // §18 effect); the pane's entry slide used to cover it, and since issue
+  // #328 the pane is instant, so wait it out before activating the card.
+  await page.waitForTimeout(300);
   await page.locator('[data-testid="comment-card"][data-cid="far"]').click();
   const hl = page.getByTestId('editor').locator('.mm-hl[data-cid="far"]');
   await expect(hl.first()).toBeVisible();

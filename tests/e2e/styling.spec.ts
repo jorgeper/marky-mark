@@ -135,6 +135,9 @@ async function assertChromeAgreement(page: Page, expectedElevated: string): Prom
   await showToc(page); // issue #257: the switch exists only while the sidebar does
   const tocCollapse = await sampleControl(page.getByTestId('toc-collapse'));
   expectSameGeometry('icon-btn: mode-switch vs toc-collapse', modeSwitch, tocCollapse);
+  // SPEC12 §1.3 cross-source dedup window: the pane switches instantly now
+  // (issue #328), so nothing else spaces this toggle from the last one.
+  await page.waitForTimeout(250);
   await page.getByTestId('toc-collapse').click();
   await expect(page.getByTestId('toc-panel')).toHaveCount(0);
 

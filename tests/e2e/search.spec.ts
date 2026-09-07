@@ -594,6 +594,9 @@ test('E284: the searchAllFiles hotkey opens the sidebar on Search with the query
 
   // Exactly the same action from either surface: the collapsed state's Show
   // sidebar control opens it, and the hotkey hides what it opened.
+  // SPEC12 §1.3 cross-source dedup window: the pane switches instantly now
+  // (issue #328), so nothing else spaces this toggle from the last one.
+  await page.waitForTimeout(250);
   await page.getByTestId('folder-expand').click();
   await expect(page.getByTestId('search-panel')).toBeVisible();
   // Past SPEC12 §1.3's exactly-once window first: the chevron and the hotkey

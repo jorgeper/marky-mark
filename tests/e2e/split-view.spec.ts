@@ -389,6 +389,9 @@ test('E84: ⌘\\ toggles split live — buffer, selection, and undo survive; set
   expect(collapseBox.y).toBeLessThan(previewBox.y + 64); // near the top
 
   // Clicking it closes the split (today's full-screen editor), persisted.
+  // SPEC12 §1.3 cross-source dedup window: the pane switches instantly now
+  // (issue #328), so nothing else spaces this toggle from the last one.
+  await page.waitForTimeout(250);
   await collapse.click();
   await expect(page.getByTestId('split-preview')).toHaveCount(0);
   await expect(collapse).toHaveCount(0);
