@@ -176,13 +176,16 @@ function commonPrefixLength(a: string, b: string): number {
 }
 
 /**
- * Score a candidate occurrence of `exact` at `index` by how well the stored
- * prefix/suffix context agrees with the text around that occurrence.
+ * Score a candidate occurrence of a `length`-character quote at `index` in
+ * `text` by how well the stored prefix/suffix context agrees with the text
+ * around it. The caller passes the context in the same space as `text`: the
+ * anchor's own strings against rendered text, or (issue #341) their
+ * whitespace-collapsed forms against the visible-text index.
  */
-function contextScore(anchor: Anchor, text: string, index: number): number {
+function contextScore(text: string, index: number, length: number, prefix: string, suffix: string): number {
   const before = text.slice(Math.max(0, index - CONTEXT_LENGTH), index);
-  const after = text.slice(index + anchor.exact.length, index + anchor.exact.length + CONTEXT_LENGTH);
-  return commonSuffixLength(before, anchor.prefix) + commonPrefixLength(after, anchor.suffix);
+  const after = text.slice(index + length, index + length + CONTEXT_LENGTH);
+  return commonSuffixLength(before, prefix) + commonPrefixLength(after, suffix);
 }
 
 function fuzzyMatch(anchor: Anchor, text: string): ReanchorMatch | null {
@@ -275,11 +278,15 @@ export function mapHighlightsToSource(
     const occurrences = allIndexes(index.text, needle);
     let at: number | null = occurrences.length === 1 ? occurrences[0] : null;
     if (occurrences.length > 1) {
+      // Issue #341: the stored (rendered) context collapsed the way the
+      // visible index is, so it is scored in the same space as the match.
+      const prefix = collapseSpace(e.anchor.prefix);
+      const suffix = collapseSpace(e.anchor.suffix);
       let best: number | null = null;
       let bestScore = 0; // a winner must agree with SOME context, not just win a 0–0
       let tied = false;
       for (const idx of occurrences) {
-        const score = visibleContextScore(e.anchor, index.text, idx, needle.length);
+        const score = contextScore(index.text, idx, needle.length, prefix, suffix);
         if (score > bestScore) {
           best = idx;
           bestScore = score;
@@ -304,23 +311,13 @@ export function mapHighlightsToSource(
   return out;
 }
 
-/** Issue #341: whitespace runs (line breaks included) read as one space. */
+/**
+ * Issue #341: whitespace runs (line breaks included) read as one space — the
+ * same collapse `visibleIndex` applies, so a rendered quote or context
+ * string compares against the index character for character.
+ */
 function collapseSpace(text: string): string {
   return text.replace(/\s+/g, ' ');
-}
-
-/**
- * Issue #341: contextScore in visible-text space — the stored prefix/suffix
- * (rendered text) collapsed the way the visible index is, scored against the
- * index around an occurrence of the collapsed quote of `length` chars.
- */
-function visibleContextScore(anchor: Anchor, visible: string, index: number, length: number): number {
-  const before = visible.slice(Math.max(0, index - CONTEXT_LENGTH), index);
-  const after = visible.slice(index + length, index + length + CONTEXT_LENGTH);
-  return (
-    commonSuffixLength(before, collapseSpace(anchor.prefix)) +
-    commonPrefixLength(after, collapseSpace(anchor.suffix))
-  );
 }
 
 /**
@@ -349,7 +346,7 @@ export function reanchor(anchor: Anchor, text: string): ReanchorMatch | null {
     let best = occurrences[0];
     let bestScore = -1;
     for (const idx of occurrences) {
-      const score = contextScore(anchor, text, idx);
+      const score = contextScore(text, idx, exact.length, anchor.prefix, anchor.suffix);
       const closer = Math.abs(idx - start) < Math.abs(best - start);
       if (score > bestScore || (score === bestScore && closer)) {
         best = idx;

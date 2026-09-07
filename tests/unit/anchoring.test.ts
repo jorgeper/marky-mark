@@ -179,7 +179,7 @@ describe('PRD 022 Req 12 editor-pane highlight mapping (issue #234)', () => {
 
   // --- Issue #341: visible-text mapping across inline syntax ---------------
 
-  /** The source text the one mapped range of `entries` covers. */
+  /** The source text a single record's one mapped range covers — null when it skips. */
   const painted = (source: string, exact: string, prefix = '', suffix = ''): string | null => {
     const ranges = mapHighlightsToSource([note('c1', anchorFor(exact, prefix, suffix))], source);
     if (ranges.length === 0) return null;

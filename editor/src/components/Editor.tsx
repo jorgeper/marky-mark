@@ -1080,7 +1080,7 @@ const highlightsExt = (
   );
   return [
     EditorView.decorations.of((view) => highlightDecorations(view.state, ranges)),
-    EditorView.domEventHandlers({ mousedown: (event, view) => mousedown(event, view) }),
+    EditorView.domEventHandlers({ mousedown }),
   ];
 };
 
