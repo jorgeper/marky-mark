@@ -683,7 +683,7 @@ test('W19: PRD 025 Reqs 7, 11, 27 (issue #331) — the static build shows the bo
   page,
 }) => {
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
-  await expect(page.locator('.folder-slide')).toHaveCount(0);
+  await expect(page.locator('.folder-wrap')).toHaveCount(0);
   await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
   const body = page.locator('.body-row');
   const stack = page.locator('.workspace-stack');
@@ -705,10 +705,10 @@ test('W19: PRD 025 Reqs 7, 11, 27 (issue #331) — the static build shows the bo
   const pane = page.getByTestId('comments-pane');
   await expect(pane).toBeVisible();
   await expect(body).not.toHaveClass(/panes-none/);
-  await expect.poll(async () => Math.round((await rectOf('.comments-slide')).width)).toBe(300);
+  await expect.poll(async () => Math.round((await rectOf('.comments-wrap')).width)).toBe(300);
   await expect
     .poll(async () => {
-      const [st, c] = await Promise.all([rectOf('.workspace-stack'), rectOf('.comments-slide')]);
+      const [st, c] = await Promise.all([rectOf('.workspace-stack'), rectOf('.comments-wrap')]);
       return Math.abs(st.right - c.left);
     })
     .toBeLessThanOrEqual(1);
@@ -721,4 +721,42 @@ test('W19: PRD 025 Reqs 7, 11, 27 (issue #331) — the static build shows the bo
   }));
   expect(rounded.radius).toBe(radius);
   expect(rounded.shadow).not.toBe('none');
+});
+
+test('W20: PRD 025 Reqs 20, 27 (issue #332) — the static build renders the one Edit/Preview toggle in .edge-cluster, the page-level control row at the page\'s top-right, and none in the toolbar; there is no strip for it to ride', async ({
+  page,
+}) => {
+  // The single-file build has no multiFileSession, so the strip never
+  // renders (W16) and the toggle's only home is the .edge-cluster pill the
+  // strip-off desktop form uses (E579). Same gate (`canToggleEdit`), same
+  // button, same test id — proven here on the built artifact.
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
+  const toggle = page.getByTestId('edit-toggle');
+  await expect(toggle).toHaveCount(1);
+  await expect(toggle).toBeVisible();
+  await expect(page.locator('.edge-cluster').getByTestId('edit-toggle')).toHaveCount(1);
+  await expect(page.locator('.toolbar').getByTestId('edit-toggle')).toHaveCount(0);
+  // Req 19's form carries over: a quiet button labelled for the mode a click
+  // moves TO, with the hotkey hint.
+  await expect(toggle).toHaveClass(/\bbtn-quiet\b/);
+  await expect(toggle).toHaveText(/Edit/);
+  // Top-right of the page: the cluster's right edge sits at (or within the
+  // page's padding of) the page's right edge, at the page's top.
+  const [cluster, stack] = await Promise.all(
+    ['.edge-cluster', '.workspace-stack'].map((sel) =>
+      page.evaluate((s) => {
+        const r = document.querySelector(s)!.getBoundingClientRect();
+        return { top: r.top, right: r.right, left: r.left };
+      }, sel)
+    )
+  );
+  expect(cluster.right).toBeLessThanOrEqual(stack.right + 1);
+  expect(cluster.left).toBeGreaterThan((stack.left + stack.right) / 2);
+  expect(cluster.top).toBeGreaterThanOrEqual(stack.top - 1);
+  // A click still flips the mode and the label, and the toggle stays put.
+  await toggle.click();
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.locator('.edge-cluster').getByTestId('edit-toggle')).toHaveText(/Preview/);
+  await expect(page.locator('.toolbar').getByTestId('edit-toggle')).toHaveCount(0);
 });

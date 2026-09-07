@@ -8842,7 +8842,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           (issue #328): it mounts and unmounts in place — the wrapper is a
           plain fixed-width container, no slide phases. */}
       {commentsPaneMounted && (
-        <div className="comments-slide">
+        <div className="comments-wrap">
           <aside className="comments-pane" data-testid="comments-pane" ref={commentsPaneRef}>
             {panelInner}
           </aside>

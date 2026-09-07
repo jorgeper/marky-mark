@@ -1760,7 +1760,7 @@ test('E435: the comments pane ships closed; the second chevron opens and closes 
 
   // Print (PRD 023 §15): the pane is chrome — never on paper.
   await page.emulateMedia({ media: 'print' });
-  await expect.poll(() => page.locator('.comments-slide').evaluate((el) => getComputedStyle(el).display)).toBe('none');
+  await expect.poll(() => page.locator('.comments-wrap').evaluate((el) => getComputedStyle(el).display)).toBe('none');
   await page.emulateMedia({ media: 'screen' });
 
   // Open state persists across a reload (PRD 023 §15)…

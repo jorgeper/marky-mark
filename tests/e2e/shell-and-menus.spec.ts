@@ -883,7 +883,7 @@ test('E578: PRD 025 Reqs 12/22 (issue #328) — no transition applies on a pane 
         };
         const phaseSeen = new Set<string>();
         const scan = () => {
-          for (const el of document.querySelectorAll('.workspace, .folder-slide, .comments-slide')) {
+          for (const el of document.querySelectorAll('.workspace, .folder-wrap, .comments-wrap')) {
             for (const c of el.classList) {
               if (c.startsWith('preview-') || c === 'sliding' || c === 'out') phaseSeen.add(c);
             }
@@ -960,17 +960,17 @@ test('E578: PRD 025 Reqs 12/22 (issue #328) — no transition applies on a pane 
 
   // Folder sidebar: chevron close, chevron open (Req 12).
   await settle();
-  expectInstant(await toggle('folder-collapse', '[data-testid="folder-panel"]', '.folder-slide', false), false);
+  expectInstant(await toggle('folder-collapse', '[data-testid="folder-panel"]', '.folder-wrap', false), false);
   await settle();
-  expectInstant(await toggle('folder-expand', '[data-testid="folder-panel"]', '.folder-slide', true), true);
+  expectInstant(await toggle('folder-expand', '[data-testid="folder-panel"]', '.folder-wrap', true), true);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
 
   // Comments column: chevron open, chevron close (Req 12).
   await settle();
-  expectInstant(await toggle('comments-expand', '[data-testid="comments-pane"]', '.comments-slide', true), true);
+  expectInstant(await toggle('comments-expand', '[data-testid="comments-pane"]', '.comments-wrap', true), true);
   await expect(page.getByTestId('comments-pane')).toBeVisible();
   await settle();
-  expectInstant(await toggle('comments-collapse', '[data-testid="comments-pane"]', '.comments-slide', false), false);
+  expectInstant(await toggle('comments-collapse', '[data-testid="comments-pane"]', '.comments-wrap', false), false);
   await expect(page.getByTestId('comments-pane')).toHaveCount(0);
 });
 

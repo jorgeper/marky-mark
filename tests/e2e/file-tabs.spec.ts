@@ -1302,8 +1302,8 @@ test('E583: PRD 025 Reqs 2, 8, 10–11 (issue #331) — at 1800px the ground lef
   await expect(page.getByTestId('comments-pane')).toBeVisible();
   const body = page.locator('.body-row');
   const stack = page.locator('.workspace-stack');
-  const folder = page.locator('.folder-slide');
-  const comments = page.locator('.comments-slide');
+  const folder = page.locator('.folder-wrap');
+  const comments = page.locator('.comments-wrap');
 
   // Both panes: equal ground outside the cluster, none inside it.
   await expect
@@ -1413,7 +1413,7 @@ test('E585: PRD 025 Reqs 6–7, 9 (issue #331) — both panes closed the page sp
       motion: {
         stack: read('.workspace-stack'),
         body: read('.body-row'),
-        folder: read('.folder-slide'),
+        folder: read('.folder-wrap'),
       },
     };
   });

@@ -205,12 +205,12 @@ function FileGroup({
 
 export function SearchPanel(p: SearchPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const slideRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // PRD 012 Req 1: the folder pane's own width drag — one pane, one
   // `settings.folderWidth`, so dragging in any view moves the same edge.
-  const dragWidth = paneWidthDrag({ panelRef, slideRef, width: p.width, onWidth: p.onWidth });
+  const dragWidth = paneWidthDrag({ panelRef, wrapRef, width: p.width, onWidth: p.onWidth });
 
   // PRD 014 Req 2: the Search button's press focuses the query box — a tick,
   // not an autofocus, so a session that merely RESTORES on the Search view
@@ -221,8 +221,8 @@ export function SearchPanel(p: SearchPanelProps) {
 
   return (
     <div
-      className="folder-slide"
-      ref={slideRef}
+      className="folder-wrap"
+      ref={wrapRef}
       style={{ '--mm-folders': `${p.width}px` } as CSSProperties}
     >
       <div className="folder-panel search-panel" data-testid="search-panel" ref={panelRef}>

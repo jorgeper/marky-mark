@@ -1164,7 +1164,7 @@ test('E586: PRD 025 Reqs 9, 12, 14, 16 (issue #336) — with Fluid mode on, redu
   await expect(layer).toHaveCount(1);
 });
 
-test('E587: PRD 025 Reqs 9, 13, 14, 16 (issue #337) — with Fluid mode on, reduced motion draws no insertion mask, a replacement lands synchronously, a pure removal or a navigation move never draws one, a large replacement draws nothing, Fade under reduced motion draws nothing, and Insertion → None draws nothing', async ({
+test('E588: PRD 025 Reqs 9, 13, 14, 16 (issue #337) — with Fluid mode on, reduced motion draws no insertion mask, a replacement lands synchronously, a pure removal or a navigation move never draws one, a large replacement draws nothing, Fade under reduced motion draws nothing, and Insertion → None draws nothing', async ({
   page,
 }) => {
   await freshApp(page);

@@ -1181,7 +1181,11 @@ test('E355: issue #165 — the split opens over rendered content, the editor ins
           }
         }
         if (document.querySelector('[data-testid="editor-loading"]')) rec.loadingSeen = true;
-        if (document.querySelector('.workspace.preview-sliding')) rec.slideSeen = true;
+        // Any `preview-*` phase class on the workspace (the retired slide
+        // phases were `preview-sliding` / `preview-out`) — matched by prefix
+        // so a renamed phase cannot slip past.
+        const ws = document.querySelector('.workspace');
+        if (ws && Array.from(ws.classList).some((c) => c.startsWith('preview-'))) rec.slideSeen = true;
       });
       mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
       rec.stop = () => mo.disconnect();
@@ -1203,7 +1207,7 @@ test('E355: issue #165 — the split opens over rendered content, the editor ins
     .poll(() => page.getByTestId('split-preview').evaluate((el) => getComputedStyle(el).transform))
     .toBe('none');
   const open = await watched();
-  expect(open.slideSeen).toBe(false); // no preview-sliding phase, ever
+  expect(open.slideSeen).toBe(false); // no preview-* slide phase, ever (retired by issue #328)
   expect(open.docChildrenAtMount).toBeGreaterThan(0); // content from the first frame
   expect(open.loadingSeen).toBe(false); // no Suspense fallback = no remount window
 
