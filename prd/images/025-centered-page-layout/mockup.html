@@ -1,0 +1,223 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>mock</title>
+<style>
+  :root{
+    --chrome:#dedfe2;        /* darker gray chrome ground */
+    --chrome-2:#e6e7ea;      /* top bar */
+    --page:#ffffff;
+    --fg:#1f2328;
+    --muted:#6e7781;
+    --accent:#2f6fed;
+    --sel:rgba(47,111,237,.14);
+    --line:#d0d3d8;
+    --shadow:0 2px 18px rgba(0,0,0,.14);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--chrome);font:13px -apple-system,system-ui,sans-serif;color:var(--fg)}
+  .top{height:32px;background:var(--chrome-2);display:flex;align-items:center;padding:0 12px;gap:14px;border-bottom:1px solid #d3d5d9}
+  .top .crumb{color:var(--muted)} .top .crumb b{color:var(--fg);font-weight:600}
+  .top .right{margin-left:auto;color:var(--accent);font-weight:500}
+  .stage{position:absolute;top:33px;left:0;right:0;bottom:0;display:flex;justify-content:center}
+  .cluster{display:flex;align-items:stretch;height:100%;max-width:100%}
+
+  /* sidebar: same ground as chrome, no seam, icons directly above tree */
+  .side{width:240px;flex:0 0 240px;padding:10px 8px 0 10px}
+  .side .icons{display:flex;gap:14px;padding:2px 6px 8px;color:#4b5158}
+  .side .icons .sp{margin-left:auto}
+  .tree{margin-top:2px}
+  .row{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border-radius:6px;font-size:14px;color:#2b3036;white-space:nowrap}
+  .row.folder{font-weight:600;color:#3c4148}
+  .row.file{padding-left:24px}
+  .row.sel{background:var(--sel);color:#1a3f9e;font-weight:600}
+  .row .g{color:var(--accent);opacity:.75;font-weight:600}
+  .row.scratch{color:var(--accent);font-style:italic;padding-left:10px}
+  .outline{margin:10px 0 0 24px;border-left:1px solid var(--line);padding-left:10px;color:var(--muted);font-size:12.5px}
+  .outline div{height:22px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .outline .h2{padding-left:10px}
+
+  /* page */
+  .pagecol{flex:0 1 var(--pagew);max-width:var(--pagew);display:flex;flex-direction:column;min-width:0}
+  .tabsrow{height:40px;display:flex;align-items:flex-end;gap:4px;padding:8px 14px 0 8px}
+  .tab{height:28px;line-height:28px;padding:0 12px;border-radius:6px 6px 0 0;font-size:12.5px;color:#4b5158;background:rgba(0,0,0,.035);border:1px solid var(--line);border-bottom:none;white-space:nowrap}
+  .tab.on{background:var(--page);color:var(--fg);font-weight:600;border-color:transparent;position:relative;top:1px;z-index:2}
+  .tab.scratch{color:var(--accent);font-style:italic}
+  .tabsrow .icons{margin-left:auto;display:flex;align-items:center;gap:14px;height:28px;color:#4b5158}
+  .page{flex:1;background:var(--page);box-shadow:var(--shadow);border-radius:6px 6px 0 0;display:flex;flex-direction:column;position:relative;overflow:hidden;min-height:0}
+  .pagebar{display:none}
+  .body{flex:1;display:flex;min-height:0}
+  .pane{flex:1;min-width:0;position:relative;overflow:hidden}
+  .pane + .pane{border-left:1px solid var(--line)}
+  .sb{position:absolute;right:3px;top:8px;width:6px;height:120px;border-radius:3px;background:rgba(0,0,0,.18)}
+  .pane.prev .sb{top:24px;height:105px}
+  .ed{font:14px/15.5px "SF Mono",Menlo,monospace;padding:14px 26px 0 0;white-space:pre}
+  .ln{display:inline-block;width:56px;text-align:right;padding-right:22px;color:#8b9197;font-size:12px}
+  .h1{font-size:23px;font-weight:700;line-height:32px}
+  .h2{font-size:18px;font-weight:700;line-height:28px}
+  .b{font-weight:700}.lk{color:var(--accent);text-decoration:underline}
+  .code{display:inline-block;background:#f6f7f8;border:1px solid var(--line);border-radius:6px;padding:4px 10px;margin:2px 0;position:relative}
+  .code .copy{position:absolute;right:6px;top:4px;font:11px system-ui;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:1px 6px;background:#fff}
+  .prev{font:15.5px/1.5 -apple-system,system-ui,sans-serif;padding:26px 36px 0 32px;color:var(--fg)}
+  .prev h1{font-size:28px;margin:0 0 14px}.prev h2{font-size:21px;margin:22px 0 8px}
+  .prev p{margin:0 0 12px}.prev pre{background:#f6f7f8;border:1px solid var(--line);border-radius:6px;padding:10px 12px;font:12.5px/1.4 Menlo,monospace;overflow:hidden}
+  .prev code{font:13px Menlo,monospace}
+  .wc{position:absolute;right:12px;bottom:12px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:11.5px;color:var(--muted);box-shadow:0 1px 4px rgba(0,0,0,.08)}
+
+  /* comments column hugging the page on the right */
+  .cm{width:236px;flex:0 0 236px;padding:60px 0 0 10px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:8px;padding:10px 12px;box-shadow:0 1px 6px rgba(0,0,0,.09);font-size:12.5px;width:214px}
+  .card .who{font-weight:600}.card .t{color:var(--muted);font-size:11px;margin-left:6px}
+  .card .txt{margin:6px 0 8px}.card .acts{color:#4b5158;font-size:11.5px;display:flex;gap:12px}
+  .card.anchor{position:relative;top:0}
+
+  .note{position:absolute;left:14px;bottom:12px;font-size:11px;color:#8b9197}
+  .callout{position:absolute;font:11.5px/1.35 system-ui;color:#7a2e00;background:#fff3cd;border:1px solid #e6c15a;border-radius:6px;padding:5px 8px;max-width:200px;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+
+  /* both side panes collapsed: window is the page, text column centered */
+  body.collapsed{background:var(--page)}
+  body.collapsed .stage{background:var(--page)}
+  body.collapsed .cluster{width:100%;max-width:none}
+  body.collapsed .pagecol{flex:1 1 auto;max-width:none}
+  body.collapsed .stage{background:var(--chrome)}
+  body.collapsed .tabsrow{background:var(--chrome)}
+  body.collapsed .page{border-radius:0}
+  body.collapsed .body{justify-content:center}
+  body.collapsed .pane{flex:0 1 var(--colw);max-width:var(--colw)}
+  body.collapsed .pane .sb{right:3px}
+  body.collapsed .lefticons{display:flex;gap:14px;align-items:center;height:28px;color:#4b5158;margin-right:10px}
+  .lefticons{display:none}
+  .pv{color:var(--accent);font-weight:500;font-size:12.5px}
+</style></head>
+<body>
+<div class="top">☰ &nbsp;🔗 <span class="crumb">My scratchpad / <b>FORK-MANUAL.md</b></span></div>
+<div class="stage">
+ <div class="cluster">
+  <div class="side">
+    <div class="icons"><span>‹</span><span>▢</span><span>☰</span><span>⌕</span><span class="sp">✧</span></div>
+    <div class="tree">
+      <div class="row scratch"><span class="g">#</span> Scratchpad file</div>
+      <div class="row folder">▾ &nbsp;My scratchpad</div>
+      <div class="row file"><span class="g">#</span> 323232.md</div>
+      <div class="row file sel"><span class="g">#</span> FORK-MANUAL.md</div>
+      <div class="row file"><span class="g">#</span> Untitled 2.md</div>
+      <div class="row file"><span class="g">#</span> Untitled 3.md</div>
+      <div class="row file"><span class="g">#</span> Untitled.md</div>
+      <div class="outline">
+        <div>Fork manual — how to drive this thing</div>
+        <div class="h2">The big picture: one inbox, four lanes</div>
+        <div class="h2">Onboarding a repo</div>
+        <div class="h2">Day-to-day flows</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pagecol">
+   <div class="tabsrow"><span class="lefticons">▢ &nbsp;☰</span><span class="tab">323232.md</span><span class="tab on">FORK-MANUAL.md</span><span class="tab">Untitled 2.md</span><span class="tab">Untitled 3.md</span><span class="tab">Untitled.md</span><span class="tab scratch">Scratchpad file</span><span class="icons">🔗 <span>👁</span> <span>▣</span> <span>💬</span> <span class="pv">Preview ⌘E</span></span></div>
+   <div class="page">
+    <div class="body">
+      <div class="pane">
+        <div class="sb"></div>
+<div class="ed"><span class="ln">1</span><span class="h1">Fork manual — how to drive this thing</span>
+<span class="ln">2</span>
+<span class="ln">3</span>The operator's guide to this fork's agent pipeline: every flow, every
+<span class="ln">4</span>touchpoint, and exactly how the human communicates with the agents.
+<span class="ln">5</span>Written for future-me who forgot the details. Companion docs:
+<span class="ln">6</span><span class="lk">README-FORK.md</span> (what changed vs upstream),
+<span class="ln">7</span>prd/ (the specs), docs/adr/ (the decisions).
+<span class="ln">8</span>
+<span class="ln">9</span><span class="h2">The big picture: one inbox, four lanes</span>
+<span class="ln">10</span>
+<span class="ln">11</span>Everything is a GitHub issue. A <span class="b">routing label</span> decides which lane —
+<span class="ln">12</span>which agent — handles it. You talk to conversational agents through a chat
+<span class="ln">13</span>CLI (and PR comments); autonomous agents run unattended. Approvals are
+<span class="ln">14</span>always labels; merges and issue-closing are always done by scripts, never
+<span class="ln">15</span>by you and never by an agent deciding on its own. <span class="b">Every path tells you</span>
+<span class="ln">16</span><span class="b">the next step</span> — if a script or agent ends without guiding you, that's a
+<span class="ln">17</span>bug.
+<span class="ln">18</span>
+<span class="ln">19</span><span class="code"><span class="copy">Copy</span>   you have a thing ──▶ issue.ts (filer) files + routes it
+                     or: create the issue yourself and add a label
+                                   │
+              ┌────────────────────┼────────────────────┐
+     sandcastle:design   sandcastle:decompose      Sandcastle
+              │                    │                    │
+       design script        decompose script        main loop
+       (conversation)        (conversation)        (autonomous)
+              │                    │                    │
+   PRD PR ──merge──▶ decompose issue ──▶ parent + impl issues ──▶ impl PRs</span>
+<span class="ln">34</span>
+<span class="ln">35</span>The chain is fully traceable <span class="b">and a real GitHub sub-issue tree</span>: design
+<span class="ln">36</span>issue #41 → anchor comment → conversation → PRD PR #45 (Closes #41,
+<span class="ln">37</span>sandcastle:ready) → approved → script merges → decompose issue #46
+<span class="ln">38</span>(sub-issue of #41, **PRD:** line) → parent #47 (sub-issue of #46) +
+<span class="ln">39</span>children #48–#50 (sub-issues of #47) → impl PRs (Closes #&lt;child&gt;,
+<span class="ln">40</span>enforced by the orchestrator even if the pr-writer forgets).
+<span class="ln">41</span>
+<span class="ln">42</span><span class="h2">Onboarding a repo</span>
+<span class="ln">43</span>
+<span class="ln">44</span>How to put an existing repo on the full four-lane pipeline. Written from a
+<span class="ln">45</span>real onboarding (marky-mark) — every numbered caveat below was a bug or a
+<span class="ln">46</span>forgotten step the first time through. If a step surprises you, fix this
+<span class="ln">47</span>manual, not just the repo.
+<span class="ln">48</span>
+<span class="ln">49</span><span class="b">Prerequisites:</span> Docker running, gh authed, Node with npm, and a local
+<span class="ln">50</span>build of this fork (npm run build in ~/src/sandcastle) — the fork
+<span class="ln">51</span>isn't on npm.
+<span class="ln">52</span>
+<span class="ln">53</span><span class="b">0. Decide where the agents play.</span> The pipeline lives in issues, labels,
+<span class="ln">54</span>and PRs — the repo the agents see is the repo they write to. To trial
+<span class="ln">55</span>without risk, onboard a <span class="b">pushed clone</span> with origin re-pointed and
+<span class="ln">56</span>deliberately <span class="b">no upstream remote</span>.</div>
+      </div>
+      <div class="pane prev" id="previewPane">
+        <div class="sb"></div>
+        <h1>Fork manual — how to drive this thing</h1>
+        <p>The operator's guide to this fork's agent pipeline: every flow, every touchpoint, and exactly how the human communicates with the agents. Written for future-me who forgot the details. Companion docs: <a href="#" style="color:var(--accent)">README-FORK.md</a> (what changed vs upstream), <code>prd/</code> (the specs), <code>docs/adr/</code> (the decisions).</p>
+        <h2>The big picture: one inbox, four lanes</h2>
+        <p>Everything is a GitHub issue. A <b>routing label</b> decides which lane — which agent — handles it. You talk to conversational agents through a chat CLI (and PR comments); autonomous agents run unattended. Approvals are always labels; merges and issue-closing are always done by scripts, never by you and never by an agent deciding on its own. <b>Every path tells you the next step</b> — if a script or agent ends without guiding you, that's a bug.</p>
+<pre>   you have a thing ──▶ issue.ts (filer) files + routes it
+                     or: create the issue yourself and add a label
+                                   │
+              ┌────────────────────┼────────────────────┐
+     sandcastle:design   sandcastle:decompose      Sandcastle
+              │                    │                    │
+       design script        decompose script        main loop
+       (conversation)        (conversation)        (autonomous)</pre>
+        <p>The chain is fully traceable <b>and a real GitHub sub-issue tree</b>: design issue #41 → anchor comment → conversation → PRD PR #45 (Closes #41, sandcastle:ready) → approved → script merges → decompose issue #46 (sub-issue of #41) → parent #47 (sub-issue of #46) + children #48–#50 (sub-issues of #47) → impl PRs.</p>
+        <h2>Onboarding a repo</h2>
+        <p>How to put an existing repo on the full four-lane pipeline. Written from a real onboarding (marky-mark) — every numbered caveat below was a bug or a forgotten step the first time through.</p>
+      </div>
+    </div>
+    <div class="wc">1,566 words · 12 min</div>
+   </div>
+  </div>
+
+  <div class="cm">
+    <div class="card"><span class="who">Jorge Pereira</span><span class="t">7m ago</span><span style="float:right;color:#8b9197">🔗</span>
+      <div class="txt">ttest</div><div class="acts"><span>Reply</span><span>Edit</span><span>Resolve</span><span>Delete</span></div></div>
+  </div>
+ </div>
+</div>
+<script>
+  const q=new URLSearchParams(location.search);
+  const preview=q.get('preview')==='1';
+  const pane=document.getElementById('previewPane');
+  if(!preview){pane.remove();}
+  document.documentElement.style.setProperty('--pagew',preview?'1440px':'1000px');
+
+  if(q.get('collapsed')==='1'){
+    document.body.classList.add('collapsed');
+    document.querySelector('.side').remove();
+    document.querySelector('.cm').remove();
+    document.documentElement.style.setProperty('--colw',preview?'760px':'800px');
+  }
+  document.querySelectorAll('.callout').forEach(e=>e.remove());
+  if(q.get('notes')==='1'){
+    const add=(l,t,txt)=>{const d=document.createElement('div');d.className='callout';d.style.left=l;d.style.top=t;d.textContent=txt;document.body.appendChild(d)};
+    add('16px','60px','Surplus width becomes the darker gray ground, at the screen edges.');
+    add('16px','120px','Sidebar hugs the page. Icons sit directly above the tree, no underline, same ground.');
+    add('16px','200px','Only the open file gets a flat, theme-tinted selection. No tabs, no lift, no shadow.');
+    if(preview){add('calc(50% + 120px)','44px','Preview lives inside the same page: a 1px divider, own scrollbar, no slide-in, no shadow. Page widens up to its max.');}
+    else{add('calc(50% + 380px)','44px','Page is centered with a max width; it shrinks with the window.');}
+  }
+</script>
+</body></html>
