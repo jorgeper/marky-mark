@@ -5627,17 +5627,23 @@ test('E448: a non-boot buffer inside the scratch workspace is not scratch-labell
   await expect(picker).toHaveCount(0);
 
   // The created file is the open document, opened over the scratch buffer —
-  // named normally, with no scratch label or treatment anywhere in the
-  // chrome: toolbar name, file tab, or browser tab title.
+  // named normally, with no scratch label or treatment on any of ITS chrome
+  // surfaces: toolbar name, file tab, or browser tab title. Issue #320: the
+  // scratch buffer it replaced is now PARKED rather than discarded, so the
+  // only scratch-treated elements left are that buffer's own parked row and
+  // inactive tab — never the new file's.
   await expect(page.getByTestId('docname')).toContainText(name);
   await expect(page.getByTestId('docname')).not.toContainText('Scratchpad file');
-  await expect(page.locator('.scratch-name')).toHaveCount(0);
-  await expect(page.locator('[data-scratch]')).toHaveCount(0);
-  const label = page
-    .getByTestId('file-tab')
-    .filter({ hasText: name })
-    .first()
-    .locator('.file-tab-label');
+  await expect(page.getByTestId('docname').locator('.scratch-name')).toHaveCount(0);
+  await expect(page.getByTestId('docname').locator('[data-scratch]')).toHaveCount(0);
+  const tab = page.getByTestId('file-tab').filter({ hasText: name }).first();
+  await expect(tab).toHaveAttribute('data-active', 'true');
+  await expect(tab.locator('.scratch-name')).toHaveCount(0);
+  await expect(tab.locator('[data-scratch]')).toHaveCount(0);
+  await expect(page.locator('.scratch-name')).toHaveCount(2); // the parked scratch row + its inactive tab
+  await expect(page.getByTestId('folder-item-scratch')).toHaveClass(/\bopen\b/);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveAttribute('data-active', 'false');
+  const label = tab.locator('.file-tab-label');
   expect(await label.evaluate((el) => getComputedStyle(el).fontStyle)).toBe('normal');
   await expect(page).toHaveTitle(`${name} — Marky Mark`);
 });
