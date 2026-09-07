@@ -62,6 +62,7 @@ export * from './lib/fenceWidth';
 // applicability table, durations and the large-operation constants.
 export * from './lib/fluid';
 export * from './lib/fluidCursor';
+export * from './lib/fluidSelection';
 export * from './lib/headingLinks';
 export * from './lib/hotkeys';
 export * from './lib/imageResize';

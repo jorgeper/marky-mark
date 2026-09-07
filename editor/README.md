@@ -195,6 +195,23 @@ change mid-flight removes the ghost at once. `isFluidNavigationMove`,
 `prefers-reduced-motion: reduce` (read on every move, never cached) no ghost
 is created at all: the mode stays selectable and inert.
 
+**Selection change.** Any change that leaves a *range* animates — Shift+arrow
+and Shift+Home/End, select-all, shift-click, a host `selectRange`, a
+find-hit, vim visual moves, undo/redo landing a range, and each step of a
+mouse drag: a further change while the ghost is in flight re-targets it from
+its current geometry, so the band chases the pointer instead of restarting.
+The ghost is up to three translucent rectangles (first line's tail, middle
+block, last line's head) in the overlay, tinted with the theme's selection
+colour, tweening from the previous painted shape to the new one — **Glide**
+eases into place (160 ms), **Elastic** stretches the band a little past its
+new end and settles (320 ms) — while the real selection is already at its
+destination. A change that leaves a caret is the cursor effect's territory,
+and typing, pasting or deleting over a selection never animates it. A change
+whose previous or new range spans more than `FLUID_LARGE_OPERATION_CHARS`
+characters or `FLUID_LARGE_OPERATION_LINES` lines snaps: no ghost, and any
+in flight is removed. `fluidSelectionDecision` and `fluidSelectionRects` are
+the pure decision and geometry behind it.
+
 ```tsx
 <Editor value={text} onChange={setText} lineNumbers
         fluid={{ cursor: 'glide', selection: 'elastic', deletion: 'fade', insertion: 'pop' }} />

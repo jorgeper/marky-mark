@@ -1007,3 +1007,65 @@ test('E580: PRD 025 Reqs 9, 10, 16 (issue #334) — with Fluid mode on, reduced 
   expect(await ghosts()).toBe(0);
   await expect(layer).toHaveCount(1);
 });
+
+test('E581: PRD 025 Reqs 9, 11, 14, 16 (issue #335) — with Fluid mode on, reduced motion draws no selection ghost, typing over a selection replaces it synchronously and draws nothing, a large selection snaps, and Selection change → None draws nothing', async ({
+  page,
+}) => {
+  await freshApp(page);
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor).toBeVisible();
+  // On, with the default mapping (Selection change → Elastic).
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-fluid-mode').check();
+  await saveSettings(page);
+  await expect(editor).toHaveAttribute('data-fluid', 'cursor=glide;selection=elastic;deletion=fade;insertion=pop');
+  const layer = page.getByTestId('fluid-overlay');
+  await expect(layer).toHaveCount(1);
+  const ghosts = () => layer.evaluate((el) => el.childElementCount);
+  const content = editor.locator('.cm-content');
+  const firstLine = content.locator('.cm-line').first();
+
+  // (a) Req 16: reduced motion — range results create no ghost at all, yet
+  // the mode stays configured (the root keeps its attribute).
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await content.click();
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('Shift+End');
+  expect(await ghosts()).toBe(0);
+  await page.keyboard.press('Shift+ArrowDown');
+  expect(await ghosts()).toBe(0);
+  await expect(editor).toHaveAttribute('data-fluid', /;selection=elastic;/);
+
+  // (b) Reqs 9, 11: motion allowed again — the selection is real and
+  // synchronous (typing replaces exactly what Shift+End selected, with no
+  // wait between key and check), a document change cancels any ghost, and
+  // typing over a selection never animates one.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.keyboard.press('Q');
+  expect(await firstLine.textContent()).toBe('Q');
+  expect(await ghosts()).toBe(0);
+
+  // (c) Req 14: the large-operation snap — once the document is past
+  // FLUID_LARGE_OPERATION_LINES lines, select-all draws nothing.
+  await page.keyboard.press('Control+End');
+  for (let i = 0; i < 8; i++) await page.keyboard.press('Enter');
+  expect(await content.locator('.cm-line').count()).toBeGreaterThan(50);
+  await page.keyboard.press('Control+a');
+  expect(await ghosts()).toBe(0);
+
+  // (d) Selection change → None: a range result draws nothing; the layer stays.
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-fluid-mode-settings').click();
+  await page.getByTestId('fluid-pick-selection').selectOption('none');
+  await saveSettings(page);
+  await expect(editor).toHaveAttribute('data-fluid', /;selection=none;/);
+  await content.click();
+  await page.keyboard.press('Control+Home'); // line 1 is non-empty, so Shift+End lands a range
+  await page.keyboard.press('Shift+End');
+  expect(await ghosts()).toBe(0);
+  await expect(layer).toHaveCount(1);
+});

@@ -1241,6 +1241,24 @@
   visibility: hidden;
 }
 
+/* PRD 025 Req 11 (issue #335): the selection ghost — three rectangle slots
+   (first line's tail, full-width middle block, last line's head) in the
+   theme's existing translucent selection tint, tweened by a frame loop from
+   the previous painted shape toward the new range. Overlay-only: never in
+   the content DOM, never part of layout. */
+.fluid-selection-ghost {
+  position: absolute;
+  background: var(--mm-selection, rgba(9, 105, 218, 0.18));
+  pointer-events: none;
+}
+
+/* PRD 025 Req 17: the real painted selection is hidden — CSS only, no
+   layout — for exactly as long as a selection ghost is in flight; every
+   finish and cancel path drops the class. */
+.cm-editor.fluid-selection-in-flight .cm-selectionBackground {
+  visibility: hidden;
+}
+
 /* §4: the chip layer — overlay only, children opt back into pointer events. */
 .table-chip-layer {
   position: absolute;
