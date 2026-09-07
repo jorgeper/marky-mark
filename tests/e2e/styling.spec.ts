@@ -279,15 +279,15 @@ function sampleHeader(header: Locator): Promise<HeaderSample> {
   });
 }
 
-test('E529: every settings tab\'s section headers are one primitive — the Workspace tab included', async ({
+test('E529: every settings tab\'s section headers are one primitive — the Manage tab included', async ({
   page,
 }) => {
   // Issue #249: the Workspace tab's sections rendered a bare <h2> and took
   // `.dialog h2`'s 14px title look while every other tab used the small
   // all-caps section header. They render `.section-header` now, so a
   // computed-style comparison across tabs is the regression guard: General
-  // (both builds), Hotkeys' Smart Edit group, and the hosted-only Workspace
-  // tab all resolve to the same type and colour.
+  // (both builds), Hotkeys' Smart Edit group, and the hosted-only Manage
+  // tab (issue #314's label for it) all resolve to the same type and colour.
   await enterFreshWorkspace(page, 'E529');
 
   // The General tab's first section ("Editor") — the convention the rest of
@@ -305,7 +305,9 @@ test('E529: every settings tab\'s section headers are one primitive — the Work
   const smartEdit = await sampleHeader(page.getByTestId('hotkey-group-smart-edit'));
   expect(smartEdit, 'Hotkeys: the Smart Edit group header').toEqual(reference);
 
-  // The Workspace tab's four sections — the drift this issue reports.
+  // The Manage tab's four sections — the drift this issue reports. Issue
+  // #314: the tab exists only under the Workspace scope.
+  await page.getByTestId('settings-scope-workspace').click();
   await page.getByTestId('settings-tab-workspace').click();
   for (const section of [
     'workspace-names-section',
@@ -315,8 +317,44 @@ test('E529: every settings tab\'s section headers are one primitive — the Work
   ]) {
     const heading = page.getByTestId(section).locator('.section-header');
     await expect(heading, `${section}: renders the section-header primitive`).toHaveCount(1);
-    expect(await sampleHeader(heading), `Workspace: ${section}`).toEqual(reference);
+    expect(await sampleHeader(heading), `Manage: ${section}`).toEqual(reference);
   }
+});
+
+test('E573: the Manage tab\'s sections draw no separator and its role names read at the member-name size', async ({
+  page,
+}) => {
+  // Issue #314: the four sections of Manage used to be the only place in the
+  // dialog with a top border (plus their own margin/padding); and a role's
+  // name inherited the dialog's base size while a member's name in People
+  // took `--mm-text-small` from `.dialog label`. Both are held to the rest
+  // of the dialog now: computed border-top-width 0px on every section, and
+  // the role name's font-size equal to the member label's.
+  await enterFreshWorkspace(page, 'E573');
+  await openSettings(page, 'workspace');
+  for (const section of [
+    'workspace-names-section',
+    'workspace-members-section',
+    'workspace-roles-section',
+    'workspace-delete-section',
+  ]) {
+    const el = page.getByTestId(section);
+    await expect(el).toBeVisible();
+    expect(
+      await el.evaluate((n) => getComputedStyle(n).borderTopWidth),
+      `${section}: no top border`,
+    ).toBe('0px');
+  }
+  const memberLabel = page.locator('.workspace-member-field label').first();
+  await expect(memberLabel).toBeVisible();
+  const memberSize = await memberLabel.evaluate((n) => getComputedStyle(n).fontSize);
+  const roleName = page.getByTestId('workspace-builtin-role-Owner').locator('.workspace-role-name');
+  await expect(roleName).toBeVisible();
+  expect(await roleName.evaluate((n) => getComputedStyle(n).fontSize), 'role name = member name size').toBe(memberSize);
+  // The hints beside the names keep their hint styling — a different size
+  // from the name, as before.
+  const hint = page.getByTestId('workspace-builtin-role-Owner').locator('.hotkey-hint');
+  expect(await hint.evaluate((n) => getComputedStyle(n).fontSize)).not.toBe(memberSize);
 });
 
 test('E396: overriding chrome tokens at the theme scope restyles the primitives — the override story is real', async ({

@@ -1973,11 +1973,12 @@ test('E225: a concurrent save that overlaps still fails 412 and shows the unchan
 
 // --- Workspace settings: membership and custom roles (PRD 007 Req 15+16) -----
 
-/** Issue #183 §1: open the Workspace tab of Settings for the bound workspace. */
+/** Issue #183 §1: open the Manage tab of Settings for the bound workspace. */
 async function openWorkspaceSettings(page: Page): Promise<void> {
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   // The tab button appears once the panel has the manifest + permissions;
-  // the click auto-waits for it.
+  // the click auto-waits for it. Issue #314: `openSettings` selects the
+  // Workspace scope first — the tab is absent under User scope.
   await openSettings(page, 'workspace');
 }
 
@@ -2210,24 +2211,24 @@ test('E198: a member without workspace.members or workspace.roles sees neither s
 // Renumbered from E360 (issue #189): the parallel issue-#188 merge already
 // used E360–E362, and test IDs are unique — the newer tests took the next
 // unused numbers.
-test('E364: Workspace is its own settings tab, immediately after Editor, holding members, roles and the danger zone — and absent without a workspace', async ({
+test('E364: Manage is its own settings tab, immediately after Editor under the Workspace scope only, holding members, roles and the danger zone — bouncing to General when the scope leaves, and absent without a workspace', async ({
   page,
   request,
 }) => {
   // Issue #183 §1: a real destination in the tab rail, not sections appended
-  // to the General tab's Workspace scope.
+  // to the General tab's Workspace scope. Issue #314: labelled Manage, and a
+  // Workspace-scope tab — the User-scope rail has no trace of it.
   const ada = await signIn(request, 'ada');
   const id = await createWorkspace(request, ada, `E364 w${test.info().workerIndex}`);
 
   await signInTo(page, 'ada', id);
   await expect(page.getByTestId('folder-panel')).toBeVisible();
   await openSettings(page, 'general');
-  await expect(page.getByTestId('settings-tab-workspace')).toBeVisible();
+  await expect(page.getByTestId('settings-tab-workspace')).toHaveCount(0);
   await expect(page.getByTestId('settings-tabs').locator('button')).toHaveText([
     'General',
     'Appearance',
     'Editor',
-    'Workspace',
     'Hotkeys',
     // Issue #247: no 'LLM providers' — it is a nested page under the Semantic
     // zoom experiment now, not a rail tab, in this build or any other.
@@ -2240,12 +2241,27 @@ test('E364: Workspace is its own settings tab, immediately after Editor, holding
   await expect(page.getByTestId('settings-scope-content-workspace')).toBeVisible();
   await expect(page.getByTestId('workspace-members-section')).toHaveCount(0);
   await expect(page.getByTestId('workspace-delete-section')).toHaveCount(0);
-  // The tab is workspace-tied, not layer-tied: it opens from Workspace scope
-  // too, and one tab holds all three sections.
+  // Issue #314: under the Workspace scope the tab is there, right after
+  // Editor (issue #21: Hotkeys and Experimental are User-only, so the rail
+  // ends at Manage), and one tab holds all three sections.
+  await expect(page.getByTestId('settings-tabs').locator('button')).toHaveText([
+    'General',
+    'Appearance',
+    'Editor',
+    'Manage',
+  ]);
   await page.getByTestId('settings-tab-workspace').click();
+  await expect(page.getByTestId('settings-tab-workspace')).toHaveClass(/\bon\b/);
   await expect(page.getByTestId('workspace-members-section')).toBeVisible();
   await expect(page.getByTestId('workspace-roles-section')).toBeVisible();
   await expect(page.getByTestId('workspace-delete-section')).toBeVisible();
+  // Issue #314: leaving the Workspace scope while on Manage bounces to
+  // General — the mirror of the Hotkeys/Experimental bounce — and the tab
+  // itself goes with the scope.
+  await page.getByTestId('settings-scope-user').click();
+  await expect(page.getByTestId('settings-tab-general')).toHaveClass(/\bon\b/);
+  await expect(page.getByTestId('settings-tab-workspace')).toHaveCount(0);
+  await expect(page.getByTestId('workspace-members-section')).toHaveCount(0);
   await saveSettings(page);
 
   // Without a workspace bound there is no Workspace tab at all.
@@ -2350,7 +2366,10 @@ test('E366: the Add people input and the role select share the one text-input ru
   const seenBorders: string[] = [];
   for (const theme of ['crisp', 'one-dark']) {
     // Issue #246: the theme applies on Save, which closes the dialog — so
-    // pick, save, and come back to the Workspace tab to measure.
+    // pick, save, and come back to the Manage tab to measure. Issue #314:
+    // Manage lives under the Workspace scope, and the theme is a User-only
+    // setting (inert there), so step back to User scope to pick it.
+    await page.getByTestId('settings-scope-user').click();
     await page.getByTestId('settings-tab-appearance').click();
     await page.getByTestId('settings-theme-light').selectOption(theme);
     await saveSettings(page);

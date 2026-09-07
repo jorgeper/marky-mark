@@ -116,6 +116,9 @@ export async function openSettings(
   await page.getByTestId('menu-btn').click();
   await page.getByTestId('menu-settings').click();
   await page.getByTestId('settings-panel').waitFor();
+  // Issue #314: the Manage tab (`workspace`) exists only under the Workspace
+  // scope, so reaching it means selecting that scope first.
+  if (tab === 'workspace') await page.getByTestId('settings-scope-workspace').click();
   await page.getByTestId(`settings-tab-${tab}`).click();
 }
 

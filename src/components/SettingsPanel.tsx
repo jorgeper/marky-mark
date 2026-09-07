@@ -328,12 +328,12 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'editor', label: 'Editor' },
   // Issue #183 §1: the workspace tab sits immediately after Editor. It
   // renders only while a hosted workspace is open and the member holds a
-  // permitted section (the render-time filter below), and — being
-  // workspace-tied, not layer-tied — it shows in both scopes of the scope
-  // selector.
-  // Issue #248: named for its scope, not its first section — the tab holds
-  // the workspace's own settings (names, members, roles, danger zone).
-  { id: 'workspace', label: 'Workspace' },
+  // permitted section (the render-time filter below).
+  // Issue #314: labelled "Manage" and shown only while the Workspace scope
+  // is selected — it manages the workspace, so it lives under the
+  // workspace's scope (reversing #183's "shows in both scopes"). The tab id
+  // and the `settings-tab-workspace` test id are unchanged: only the label.
+  { id: 'workspace', label: 'Manage' },
   { id: 'hotkeys', label: 'Hotkeys' },
   // Issue #247: no `llm` tab — PRD 011 Req 4's top-level LLM providers tab is
   // superseded; the page is nested under the Semantic zoom experiment it
@@ -435,6 +435,17 @@ export function SettingsPanel({
   useEffect(() => {
     if (tab === 'workspace' && !wsAccess.workspaceTab) setTab('general');
   }, [tab, wsAccess.workspaceTab]);
+  // Issue #314: Manage is Workspace-scope-only — the mirror of the
+  // USER_ONLY_TABS bounce above. Landing in User scope while on it (a click
+  // on the scope rail, or the automatic reset when the workspace closes or
+  // there is no scope selector) bounces to General and closes any nested
+  // page with it.
+  useEffect(() => {
+    if (scope === 'user' && tab === 'workspace') {
+      setTab('general');
+      setPage(null);
+    }
+  }, [scope, tab]);
   const [hint, setHint] = useState('');
   // SPEC20 §1: the folder field keeps the raw draft; only valid single-segment
   // names commit to settings (the last valid value survives bad keystrokes).
@@ -1426,8 +1437,10 @@ export function SettingsPanel({
           (t) =>
             (scope === 'user' || !USER_ONLY_TABS.includes(t.id)) &&
             // Issue #183 §1: no workspace open, or no permitted section —
-            // no Workspace tab (and no placeholder in its place).
-            (t.id !== 'workspace' || wsAccess.workspaceTab),
+            // no Manage tab (and no placeholder in its place).
+            // Issue #314: and only under the Workspace scope — in User scope
+            // it is absent, not disabled.
+            (t.id !== 'workspace' || (scope === 'workspace' && wsAccess.workspaceTab)),
         ).map((t) => (
           <button
             key={t.id}
