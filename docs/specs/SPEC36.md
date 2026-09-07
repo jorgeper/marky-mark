@@ -151,6 +151,16 @@ like `folderTree.ts`:
    `.selected` front-plane treatment unchanged — it remains the ONLY
    element that breaks the panel/workspace seam. Colors via existing
    theme variables; no new required theme keys.
+   > **Amended (issue #329, 2026-09-07):** the three-plane / tab-pill
+   > treatment is **retired**. Open-but-inactive rows are plain rows —
+   > no surface, shadow, stacking or pill geometry — distinguished from a
+   > closed sibling only by their trailing slot (§3.4/§3.6) and the `open`
+   > class (PRD 025 Req 14). The active row is a flat, full-width,
+   > accent-tinted (`--mm-selected-row`, derived from `--mm-accent`),
+   > rounded (`--mm-radius-small`), bold row — the ONLY highlighted row;
+   > it no longer breaks the panel/workspace seam, and every other row
+   > hovers through `--mm-hover` (PRD 025 Req 15). Labels still share one
+   > column per depth (E305).
 2. In tree view, open rows appear only where their ancestors are
    expanded — opening or restoring files never auto-expands the tree.
    The existing reveal-on-selection scroll behavior is unchanged and

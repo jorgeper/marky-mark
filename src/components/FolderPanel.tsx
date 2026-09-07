@@ -783,8 +783,8 @@ export function FolderPanel(p: FolderPanelProps) {
     const el = list?.querySelector(`[data-path="${CSS.escape(p.selectedPath)}"]`);
     if (!list || !el) return;
     // Vertical-only reveal: scrollIntoView also scrolls horizontally toward
-    // the row's right edge, which would drag the selected tab's left gap
-    // off-screen in a horizontally-scrollable tree.
+    // the row's right edge, which would drag the tree's left column (the
+    // depth indents) off-screen in a horizontally-scrollable tree.
     const x = list.scrollLeft;
     el.scrollIntoView({ block: 'nearest' });
     list.scrollLeft = x;

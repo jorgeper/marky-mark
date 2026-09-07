@@ -101,6 +101,12 @@ body,
   /* The row/button hover wash: the theme accent at 8% — exactly the old
      rgba(9, 105, 218, 0.08) fallback under the default Crisp accent. */
   --mm-hover: color-mix(in srgb, var(--mm-accent, #0969da) 8%, transparent);
+  /* PRD 025 Req 15 (issue #329): the active file's row in the sidebar — the
+     ONE tinted row. The theme accent at 14%: a shade past --mm-hover so the
+     selection still reads under a hovered neighbour, a shade short of
+     --mm-active-word. Derives from the contract accent, so every bundled
+     theme tints it without defining anything. */
+  --mm-selected-row: color-mix(in srgb, var(--mm-accent, #0969da) 14%, transparent);
   --mm-muted: var(--mm-fg-muted, #59636e);
   --mm-focus-ring: color-mix(in srgb, var(--mm-accent, #0969da) 35%, transparent);
   /* Scratchpad placeholder name (PRD 023 Req 7, issues #291/#244): the
@@ -146,16 +152,14 @@ body,
   --mm-diff-removed: var(--mm-danger); /* SPEC16 deleted-run edge */
   --mm-active-line: color-mix(in srgb, var(--mm-accent, #0969da) 5.5%, transparent); /* SPEC44 */
   --mm-active-word: color-mix(in srgb, var(--mm-accent, #0969da) 16%, transparent); /* SPEC44 */
-  /* PRD 018 Req 17 (issue #204): the three-plane lift shadows (SPEC36 §4.1 /
-     PRD 013 Reqs 10–12) — deliberate one-offs like --mm-toolbar-shadow, not
-     the card/panel scale: the tab system reads depth from these exact casts
-     (tabs cast upward, sidebar rows cast up-left), values kept verbatim. */
+  /* PRD 018 Req 17 (issue #204): the tab strip's lift shadows (PRD 013
+     Reqs 10–12) — deliberate one-offs like --mm-toolbar-shadow, not the
+     card/panel scale: the strip reads depth from these exact upward casts,
+     values kept verbatim. PRD 025 Req 14 (issue #329): the sidebar rows'
+     up-left casts (--mm-lift-row / --mm-lift-row-active) are gone — sidebar
+     rows no longer lift; the strip's pair is sibling #331's. */
   --mm-lift-tab: 0 -1px 3px rgba(0, 0, 0, 0.11), 0 -2px 6px rgba(0, 0, 0, 0.08);
   --mm-lift-tab-active: 0 -2px 6px rgba(0, 0, 0, 0.115), 0 -4px 9px rgba(0, 0, 0, 0.08);
-  --mm-lift-row: -1px -1px 3px rgba(0, 0, 0, 0.11), -1px -2px 6px rgba(0, 0, 0, 0.08),
-    0 1px 3px rgba(0, 0, 0, 0.07);
-  --mm-lift-row-active: -1px -2px 6px rgba(0, 0, 0, 0.115), -2px -4px 9px rgba(0, 0, 0, 0.08),
-    0 1px 3px rgba(0, 0, 0, 0.08);
   /* PRD 018 §E26 (issue #205): the last one-off colours the style lint found
      living inline in chrome rules — hoisted here verbatim (a colour literal
      may live only in a token definition or a contract-variable fallback),
@@ -2367,19 +2371,19 @@ mark.hl.ghost {
   -webkit-user-select: none; /* WKWebView belt to the unprefixed suspenders */
   user-select: none;
 }
-/* The workspace floats "in front": its cast shadow + the seam hairline are
-   painted ONCE by .workspace-stack::after (see the tab-strip section) — an
-   overlay on the workspace rect whose outward shadow falls onto this panel
-   and the strip alike, so rows wider than the panel (long names) get the
-   seam at the true boundary and the strip/pane corner casts continuously.
-   It paints above the tree AND the open-tab middle plane (z 1) and under
-   the active tab alone (z 2) — the one row that truly breaks the seam. */
+/* PRD 025 Req 13 (issue #329): the sidebar's header row — shared by the
+   folder, outline and search views (all three render `.folder-header`) —
+   carries NO bottom rule: its controls sit directly above the tree on the
+   panel's own --mm-bg-elevated ground (no background of its own). The
+   workspace's cast shadow + seam hairline are still painted ONCE by
+   .workspace-stack::after (see the tab-strip section; sibling #331). */
 .folder-header {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 9px 8px 6px 12px; /* 38px with the rule: the tab strip's height */
-  border-bottom: 1px solid var(--mm-border, #d1d9e0);
+  /* 38px, the tab strip's height — the removed 1px rule went back into the
+     bottom padding so the header keeps its rendered height. */
+  padding: 9px 8px 7px 12px;
 }
 
 /* Only where an in-app toolbar actually exists (web/shim static mode) does
@@ -2423,65 +2427,32 @@ mark.hl.ghost {
   color: var(--mm-fg, #1f2328);
   white-space: nowrap;
 }
+/* PRD 025 Req 15 (issue #329): every row hovers through the shared wash —
+   the sidebar is one flat ground, so nothing needs a plane-preserving mix. */
 .folder-item:hover:not(:disabled) {
-  /* Stays on the panel's plane — a translucent darkening tint, so the
-     workspace's inset shadow keeps casting over it; the selected tab's
-     solid surface stays the only front-plane element. */
-  background: color-mix(in srgb, var(--mm-fg, #1f2328) 9%, transparent);
+  background: var(--mm-hover);
 }
-/* SPEC34 polish / SPEC36 §4.1: the tab pill geometry — one rule for the
-   ACTIVE row and every open-but-inactive row, because their labels must land
-   on the same column as each other and as a plain sibling (issue #126: the
-   two rules drifted apart and opening a file read as an indent). The pill
-   floats clear of the window edge; the inner padding gives that margin back
-   so the label stays EXACTLY where an untabbed row at the same depth puts
-   it — neither selecting nor opening may read as indentation. min-width
-   restores the margin so the pill stays flush right WITHOUT widening the
-   scroll range — otherwise the reveal's scrollIntoView chases the overflow
-   and scrolls the gap off-screen. */
-.folder-item.selected,
-.folder-item.open {
-  border-radius: var(--mm-radius-small) 0 0 var(--mm-radius-small);
-  margin-left: 10px;
-  min-width: calc(100% - 10px);
-  padding-left: max(0px, calc(var(--mm-depth, 10px) - 10px));
-  position: relative;
-}
-/* SPEC34 polish: the ACTIVE file reads as a TAB on the front plane — the
-   workspace's own surface, lifted by a soft shadow that punches through the
-   panel's inset shadow. */
+/* PRD 025 Req 15 (issue #329): the ACTIVE file is the only tinted row — a
+   flat, full-width row (the plain depth padding of any sibling, so the
+   label lands on the same column as a closed row at its depth: issue #126 /
+   E305), the --mm-selected-row accent tint, small radius on all four
+   corners, bold label, no shadow, no stacking. The SPEC34/SPEC36 §4.1
+   tab-pill treatment (left gap, front-plane surface, lift shadow) is
+   retired; SPEC36 §4.1 carries the amendment. */
 .folder-item.selected {
-  background: var(--mm-bg, #ffffff);
+  background: var(--mm-selected-row);
   color: var(--mm-fg, #1f2328);
   font-weight: 600;
-  z-index: 2; /* the front plane — above the open-tab middle plane */
-  /* The same lift as .file-tab.active — same offsets, blur and alpha, so
-     the top edge reads identically — nudged a touch left, off the seam,
-     with a faint bottom edge (rows float free below too).
-     Token: --mm-lift-row-active (PRD 018 Req 17, issue #204). */
-  box-shadow: var(--mm-lift-row-active);
+  border-radius: var(--mm-radius-small);
 }
 .folder-item.selected:hover:not(:disabled) {
-  background: var(--mm-bg, #ffffff); /* the tab doesn't flicker on hover */
+  background: var(--mm-selected-row); /* the selection doesn't flicker on hover */
 }
-/* SPEC36 §4.1 (amended by owner): three planes. The tree sits deepest; every
-   open file is a REAL tab on a middle plane — the pill geometry above, a
-   near-workspace surface one shade back, and its own soft shadow — and the
-   ACTIVE tab stacks above them all (z-index 2, stronger shadow, solid
-   workspace surface). Depth reads from surface + shadow strength, not from
-   the seam alone. */
-.folder-item.open {
-  background: color-mix(in srgb, var(--mm-bg, #ffffff) 72%, var(--mm-bg-elevated, #f6f8fa));
-  z-index: 1;
-  /* The tab's own lift only — the seam hairline + workspace cast shadow are
-     painted by .workspace-stack::after, so rows wider than the panel
-     (long names) get them at the true boundary too.
-     Token: --mm-lift-row (PRD 018 Req 17, issue #204). */
-  box-shadow: var(--mm-lift-row);
-}
-.folder-item.open:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--mm-bg, #ffffff) 86%, var(--mm-bg-elevated, #f6f8fa));
-}
+/* PRD 025 Req 14 (issue #329): `.folder-item.open` — the open-but-inactive
+   rows — sets NOTHING: no surface, no shadow, no stacking, no pill
+   geometry. A file is no longer marked merely for being open; the class
+   stays (FolderPanel keys the trailing slot on it, and the tests read it)
+   and the only visible difference from a closed sibling is that slot. */
 /* SPEC36 §3.4/§3.6: the trailing slot on open rows — the dirty ● swaps for
    the ✕ on row hover. */
 .folder-tab-slot {
@@ -2671,11 +2642,12 @@ input.folder-rename-input.invalid {
   text-overflow: ellipsis;
 }
 /* PRD 012 Req 7: "you are here" — the section the viewport is in. Deliberately
-   NOT the `.folder-item.selected` tab pill: that one says "you picked this" and
-   lifts a row onto the front plane, while this is a passive readout that moves
-   under the reader's scrolling. So it stays flat on the panel's plane and
-   speaks in the accent: a bar down the left edge, an accent tint, accent text.
-   No layout property changes, so the highlight moving never shifts a row. */
+   NOT the folder view's `.folder-item.selected` row: that one says "you picked
+   this" (bold, accent-tinted, rounded — PRD 025 Req 15), while this is a
+   passive readout that moves under the reader's scrolling. So it speaks in
+   the accent a different way: a bar down the left edge, an accent tint,
+   accent text. No layout property changes, so the highlight moving never
+   shifts a row. */
 .folder-item.toc-active {
   background: color-mix(in srgb, var(--mm-accent, #0969da) 12%, transparent);
   color: var(--mm-accent, #0969da);
