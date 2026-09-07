@@ -1130,11 +1130,13 @@ test('E304: File → New with an overflowing strip leaves the Untitled tab in vi
   expect(await tabPaths(page)).toEqual([...Array(10).keys()].map((i) => ovf(i + 1)).concat(['']));
 });
 
-// ---- PRD 025 Reqs 6, 17–18 (issue #331): the flat strip, from computed
-// styles. PRD 013 Reqs 10–12's three planes are retired: the strip is a flat
-// --mm-bg-elevated band on the ground, the active tab is the page's own
-// --mm-bg joined to it, inactive tabs are --mm-border-outlined pills with no
-// lift, and depth is the page's own radius + shadow — no seam overlay.
+// ---- PRD 025 Reqs 6, 17–18 (issue #331; amended by issue #340): the page
+// and its tabs, from computed styles. PRD 013 Reqs 10–12's three planes stay
+// retired: the strip is a flat --mm-bg-elevated band on the ground with no
+// shadow or radius of its own; the page proper below it carries the radius,
+// the shadow and a 1px --mm-border outline; every tab is outlined and casts
+// --mm-tab-shadow on the page's plane, the active tab the page's own --mm-bg
+// joined to it through a break in the page's top hairline — no seam overlay.
 
 /** A computed color's 0–255 channels — accepts the rgb()/rgba() legacy
  *  serialization AND color(srgb r g b), which is how Chromium serializes a
@@ -1165,6 +1167,21 @@ const colorTokenOf = (page: Page, name: string) =>
     return c;
   }, name);
 
+/** The sheet treatment an element carries, from computed styles: its radius
+ *  shorthand, its shadow, and its border widths as [top, right, bottom,
+ *  left]. Passed to `Locator.evaluate`, so it runs in the page. */
+const sheetOf = (el: Element) => {
+  const st = getComputedStyle(el);
+  return {
+    radius: st.borderRadius,
+    shadow: st.boxShadow,
+    widths: [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth],
+  };
+};
+/** What everything on the ground plane reads — the column, the band, the
+ *  sidebar and the body row carry no treatment of their own in any state. */
+const flatSheet = { radius: '0px', shadow: 'none', widths: ['0px', '0px', '0px', '0px'] };
+
 /** The page-and-tabs assertions of issue #340 (PRD 025 Reqs 6, 17–18 as
  *  amended), valid under any theme currently on and any number of
  *  open-but-inactive tabs (openThree leaves two of them): the strip band is
@@ -1189,14 +1206,9 @@ async function assertPageAndTabs(page: Page): Promise<void> {
   const stripBg = channels(await bgOf(strip));
   expect(stripBg).toEqual(channels(await bgOf(page.getByTestId('folder-panel'))));
   expect(stripBg).toEqual(channels(await bgOf(page.locator('.body-row'))));
-  const flatStyle = (el: Element) => {
-    const s = getComputedStyle(el);
-    return { shadow: s.boxShadow, radius: s.borderRadius, borderWidths: s.borderWidth };
-  };
-  const flat = { shadow: 'none', radius: '0px', borderWidths: '0px' };
-  expect(await strip.evaluate(flatStyle)).toEqual(flat);
+  expect(await strip.evaluate(sheetOf)).toEqual(flatSheet);
   for (const sel of ['.workspace-stack', '.folder-wrap', '.body-row']) {
-    expect(await page.locator(sel).evaluate(flatStyle)).toEqual(flat);
+    expect(await page.locator(sel).evaluate(sheetOf)).toEqual(flatSheet);
   }
   expect(await page.getByTestId('folder-panel').evaluate((el) => getComputedStyle(el).boxShadow)).toBe('none');
 
@@ -1475,23 +1487,15 @@ test('E585: PRD 025 Reqs 6–7, 9 (issue #331; Req 6 amended by issue #340) — 
   const [b, s] = await Promise.all([rectOf(body), rectOf(stack)]);
   expect(Math.abs(b.left - s.left)).toBeLessThanOrEqual(1);
   expect(Math.abs(b.right - s.right)).toBeLessThanOrEqual(1);
-  const readSheet = (el: Element) => {
-    const st = getComputedStyle(el);
-    return {
-      radius: st.borderRadius,
-      shadow: st.boxShadow,
-      widths: [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth],
-    };
-  };
   // Req 7 (amended): flat and edge to edge — the top hairline stays (Req 18:
   // the strip and the tabs look the same in every pane state).
-  expect(await pageProper.evaluate(readSheet)).toEqual({
+  expect(await pageProper.evaluate(sheetOf)).toEqual({
     radius: '0px',
     shadow: 'none',
     widths: ['1px', '0px', '0px', '0px'],
   });
   // The column never carries the treatment itself, in either state.
-  expect(await stack.evaluate(readSheet)).toEqual({ radius: '0px', shadow: 'none', widths: ['0px', '0px', '0px', '0px'] });
+  expect(await stack.evaluate(sheetOf)).toEqual(flatSheet);
 
   // Reopen: radius + shadow + outline are back two frames after the click —
   // no transition anywhere on the page or its wrappers (Req 9).
@@ -1524,7 +1528,7 @@ test('E585: PRD 025 Reqs 6–7, 9 (issue #331; Req 6 amended by issue #340) — 
   expect(after.widths).toEqual(['1px', '1px', '1px', '1px']);
   const still = { duration: '0s', transform: 'none', willChange: 'auto' };
   expect(after.motion).toEqual({ stack: still, page: still, body: still, folder: still });
-  expect(await stack.evaluate(readSheet)).toEqual({ radius: '0px', shadow: 'none', widths: ['0px', '0px', '0px', '0px'] });
+  expect(await stack.evaluate(sheetOf)).toEqual(flatSheet);
 });
 
 test('E589: issue #340 point A from geometry — the page\'s shadowed, outlined element starts exactly at the strip band\'s bottom edge and spans the column\'s width, the band and the column around it paint no shadow at their sides, and the page\'s outline is 1px on four sides with a pane open and on its top edge only with both panes closed', async ({

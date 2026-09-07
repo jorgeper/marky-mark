@@ -700,6 +700,7 @@ test('W19: PRD 025 Reqs 7, 11, 27 (issue #331; Req 6 amended by issue #340) — 
   // the column), never on the column; with no pane it is flat — the top
   // hairline alone remains, as in every pane state.
   const pageProper = page.locator('.workspace-stack > .workspace');
+  // Radius shorthand, shadow and border widths as [top, right, bottom, left].
   const readSheet = (el: Element) => {
     const st = getComputedStyle(el);
     return {
@@ -708,12 +709,14 @@ test('W19: PRD 025 Reqs 7, 11, 27 (issue #331; Req 6 amended by issue #340) — 
       widths: [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth],
     };
   };
+  // The column never carries the treatment itself, in either pane state.
+  const flatSheet = { radius: '0px', shadow: 'none', widths: ['0px', '0px', '0px', '0px'] };
   expect(await pageProper.evaluate(readSheet)).toEqual({
     radius: '0px',
     shadow: 'none',
     widths: ['1px', '0px', '0px', '0px'],
   });
-  expect(await stack.evaluate(readSheet)).toEqual({ radius: '0px', shadow: 'none', widths: ['0px', '0px', '0px', '0px'] });
+  expect(await stack.evaluate(readSheet)).toEqual(flatSheet);
 
   // Comments on: the column is the cluster's right member.
   await page.getByTestId('comments-expand').click();
@@ -741,7 +744,7 @@ test('W19: PRD 025 Reqs 7, 11, 27 (issue #331; Req 6 amended by issue #340) — 
   expect(rounded.radius).toBe(radius);
   expect(rounded.shadow).not.toBe('none');
   expect(rounded.widths).toEqual(['1px', '1px', '1px', '1px']);
-  expect(await stack.evaluate(readSheet)).toEqual({ radius: '0px', shadow: 'none', widths: ['0px', '0px', '0px', '0px'] });
+  expect(await stack.evaluate(readSheet)).toEqual(flatSheet);
 });
 
 test('W20: PRD 025 Reqs 20, 27 (issue #332) — the static build renders the one Edit/Preview toggle in .edge-cluster, the page-level control row at the page\'s top-right, and none in the toolbar; there is no strip for it to ride', async ({

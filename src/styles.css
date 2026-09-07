@@ -2150,9 +2150,10 @@ mark.hl.ghost {
 /* PRD 025 Req 7 (issue #331): both side panes closed — or absent, as on the
    static web build. App.tsx derives `panes-none` from the two mount
    predicates (sidebar shown, comments pane mounted), so tests key on the
-   class rather than on sibling structure: the page spans the body row edge
-   to edge, flat — no radius, no shadow — and the text column keeps centring
-   at --mm-content-width inside it as .workspace always has. */
+   class rather than on sibling structure: the column spans the body row
+   edge to edge (the page proper inside it goes flat — next rule) and the
+   text column keeps centring at --mm-content-width inside it as .workspace
+   always has. */
 .body-row.panes-none > .workspace-stack {
   flex: 1;
 }
@@ -2312,10 +2313,11 @@ mark.hl.ghost {
 .file-tab:hover {
   color: var(--mm-fg, #1f2328);
 }
-/* PRD 025 Req 17 (issue #331): an inactive pill hovers through --mm-hover,
-   like any quiet control; the ACTIVE tab is exempt — joined to the page, it
-   never flickers on hover (its outline stays invisible under .btn-quiet's
-   hover too). */
+/* PRD 025 Req 17 (issue #331; amended by issue #340): an inactive pill
+   hovers through --mm-hover, like any quiet control; the ACTIVE tab is
+   exempt — joined to the page, it never flickers on hover (the --mm-border
+   outline every tab wears since issue #340 is the colour .btn-quiet's hover
+   paints anyway, so nothing changes there either). */
 .file-tab:hover:not(.active) {
   background: var(--mm-hover);
 }
