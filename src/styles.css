@@ -3443,6 +3443,25 @@ input.folder-rename-input.invalid {
   margin: 8px 0 0 24px;
 }
 
+/* PRD 025 Req 5: the Fluid mode page's four action rows — label and picker
+   side by side, on the shared .field primitive. */
+.settings-modal .fluid-page-hint {
+  margin: 0 0 12px;
+}
+.settings-modal .fluid-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.settings-modal .fluid-row label {
+  flex: 0 0 11rem;
+}
+.settings-modal .fluid-row select.field {
+  width: auto;
+  min-width: 10rem;
+}
+
 /* Issue #247: a second-level settings page. It takes the place of the rail +
    tab content inside the same fixed-size dialog, so the pinned footer below is
    untouched and Save / Cancel still govern both levels. */

@@ -8783,6 +8783,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                 value={buffer}
                 // PRD 007 Req 17: a role without doc.edit types nothing.
                 readOnly={docReadOnly}
+                // PRD 025 Req 18: the mapping travels through the package
+                // seam; null with the switch off means the mode is ABSENT
+                // (Req 3), not a mapping of Nones.
+                fluid={settings.fluidMode ? settings.fluidEffects : null}
                 lineNumbers={settings.lineNumbers}
                 onChange={editorChanged}
                 historyRef={editorHistoryRef}

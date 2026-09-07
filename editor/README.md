@@ -137,6 +137,56 @@ highlighting through exactly this hook. A change of callback identity
 re-injects the HTML first, so decorations always start from a clean
 pipeline-produced tree.
 
+### Fluid mode
+
+`EditorProps.fluid` (PRD 025) turns on an opt-in mode in which editor
+operations are animated. It takes a `FluidEffectMap` — one entry per
+action, naming an effect or `'none'` — and `null`/absent means the mode is
+**off**: the editor then loads no effect extension, renders no overlay
+element, registers no listener, and the editor root carries no `data-fluid`
+attribute. With a mapping, the root carries
+`data-fluid="cursor=…;selection=…;deletion=…;insertion=…"` and an inert,
+`pointer-events: none`, `aria-hidden` overlay layer (`fluid-overlay`) is
+mounted inside the scroller for effects to draw into.
+
+The four actions and their defaults (`DEFAULT_FLUID_EFFECTS`):
+
+| Action (`FluidAction`) | Default   |
+|------------------------|-----------|
+| `cursor` (movement)    | `glide`   |
+| `selection` (change)   | `elastic` |
+| `deletion`             | `fade`    |
+| `insertion`            | `pop`     |
+
+The five-effect catalogue (`FluidEffect`) and where each applies
+(`FLUID_APPLICABILITY`, or `fluidEffectsFor(action)` read by column):
+
+| Effect    | Meaning                                              | Applies to            |
+|-----------|------------------------------------------------------|-----------------------|
+| `fade`    | opacity in (insert) / out (delete)                   | deletion, insertion   |
+| `glide`   | eased position tween, no overshoot                   | cursor, selection     |
+| `elastic` | spring toward the target with a small overshoot      | cursor, selection     |
+| `pop`     | scale in from ~0.8 (insert) / out to ~0.8 (delete)   | deletion, insertion   |
+| `burst`   | small particles scattering from the removed span     | deletion              |
+
+Durations are per-effect constants (`FLUID_DURATIONS_MS`), not options.
+A single change touching more than `FLUID_LARGE_OPERATION_CHARS` (2000)
+characters or more than `FLUID_LARGE_OPERATION_LINES` (50) lines gets no
+deletion or insertion effect, and a selection change spanning more than that
+snaps; `isFluidLargeOperation(chars, lines)` is that rule as a pure
+predicate (strictly greater than either threshold).
+
+**Never-delay guarantee.** The document, the real selection and the caret
+position CodeMirror reports change synchronously, exactly as with the mode
+off. An effect is an overlay drawn *afterwards*; no effect defers, debounces
+or batches an edit or a selection update, and overlays never touch layout.
+The mode is inert under `prefers-reduced-motion: reduce`.
+
+```tsx
+<Editor value={text} onChange={setText} lineNumbers
+        fluid={{ cursor: 'glide', selection: 'elastic', deletion: 'fade', insertion: 'pop' }} />
+```
+
 ## Theming
 
 Every color, font and size in the package stylesheet rides CSS variables

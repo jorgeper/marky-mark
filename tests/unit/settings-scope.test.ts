@@ -51,6 +51,22 @@ describe('PRD 002 §E18 workspace-eligible keys', () => {
     expect(resolveSettings({ user: { semanticZoom: true } }).semanticZoom).toBe(true);
   });
 
+  test('U1288: PRD 025 Req 2 — fluidMode and fluidEffects are user-scoped experiments, never workspace-editable', () => {
+    expect(EXPERIMENTAL_KEYS).toContain('fluidMode');
+    expect(EXPERIMENTAL_KEYS).toContain('fluidEffects');
+    expect(SETTINGS_SCOPES.fluidMode).toBe('U');
+    expect(SETTINGS_SCOPES.fluidEffects).toBe('U');
+    for (const k of ['fluidMode', 'fluidEffects'] as const) {
+      expect(WORKSPACE_PINNABLE_KEYS).not.toContain(k);
+      expect(WORKSPACE_ELIGIBLE_KEYS).not.toContain(k);
+    }
+    // Shown on the Workspace tab, but the workspace layer cannot supply either.
+    expect(settingsRowStatus('fluidMode', 'workspace', {}).userOnly).toBe(true);
+    expect(settingsRowStatus('fluidEffects', 'workspace', {}).userOnly).toBe(true);
+    expect(resolveSettings({ user: {} }).fluidMode).toBe(false);
+    expect(resolveSettings({ user: { fluidMode: true } }).fluidMode).toBe(true);
+  });
+
   test('U576: PRD 011 Req 7 — no LLM key is workspace-editable, and no layer but User supplies one', () => {
     const llmKeys: Array<keyof Settings> = ['llmProvider', 'llmModel', 'llmApiKey', 'llmBaseUrl'];
     for (const k of llmKeys) {

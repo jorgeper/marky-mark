@@ -33,6 +33,9 @@ describe('PRD 002 §B5 scope inventory', () => {
       livePreview: 'U',
       // PRD 011 Req 1: the Experimental section's switch — user-personal.
       semanticZoom: 'U',
+      // PRD 025 Req 2: Fluid mode's switch and mapping, user-personal.
+      fluidMode: 'U',
+      fluidEffects: 'U',
       tableGridView: 'U',
       inlineImages: 'U',
       // Issue #157: the fenced-code card view sits beside its two view

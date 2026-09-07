@@ -1214,6 +1214,17 @@
 }
 /* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
+/* PRD 025 Reqs 15+17: the Fluid mode overlay layer — absolutely positioned
+   over the scroller's content, never a hit target, never part of layout. It
+   holds nothing in increment (1); later increments draw the effects into it. */
+.fluid-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  pointer-events: none;
+  overflow: visible;
+}
+
 /* §4: the chip layer — overlay only, children opt back into pointer events. */
 .table-chip-layer {
   position: absolute;

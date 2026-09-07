@@ -856,3 +856,94 @@ test('E489: issue #246 — Esc and a scrim click take the Cancel path; a clean d
   await expect(page.getByTestId('settings-panel')).toHaveCount(0);
   expect(await readSetting(page, 'editorSyntax')).toBeUndefined();
 });
+
+test('E577: PRD 025 Reqs 1–7, 22 — the Fluid mode row is off by default; on, its nested page maps four actions through Save, the editor root carries the mapping and an inert overlay; off again, both are gone', async ({
+  page,
+}) => {
+  await freshApp(page);
+  // Editor pane up first, so the root's attribute can be read with the switch off.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  // Req 3: off by default — no configuration attribute, no overlay element.
+  await expect(page.getByTestId('editor')).not.toHaveAttribute('data-fluid');
+  await expect(page.getByTestId('fluid-overlay')).toHaveCount(0);
+
+  // Req 1: the registry row, unchecked, with the one-line description; the
+  // page button is dead while the switch is off (issue #247's rule).
+  await openSettings(page, 'experimental');
+  const row = page.getByTestId('experimental-fluid-mode');
+  await expect(row).not.toBeChecked();
+  await expect(page.getByTestId('experimental-fluid-mode-description')).toHaveText(
+    'Animates the editor — the cursor glides, selections stretch, and text fades in and out. Does nothing when your system asks for reduced motion.'
+  );
+  await expect(page.getByTestId('experimental-fluid-mode-settings')).toBeDisabled();
+  await row.check();
+  await expect(page.getByTestId('experimental-fluid-mode-settings')).toBeEnabled();
+
+  // Req 4: the nested page, in the shared shell with its breadcrumb.
+  await page.getByTestId('experimental-fluid-mode-settings').click();
+  await expect(page.getByTestId('settings-page-fluid')).toBeVisible();
+  await expect(page.getByTestId('settings-page-crumb')).toHaveText('Experimental › Fluid mode');
+  await expect(page.getByTestId('settings-page-back')).toBeVisible();
+
+  // Req 5 + 7: exactly four pickers, in order, each None + the applicable effects.
+  const pickers = page.getByTestId('settings-page-fluid').locator('select');
+  await expect(pickers).toHaveCount(4);
+  const ids = await pickers.evaluateAll((els) => els.map((el) => el.getAttribute('data-testid')));
+  expect(ids).toEqual(['fluid-pick-cursor', 'fluid-pick-selection', 'fluid-pick-deletion', 'fluid-pick-insertion']);
+  const options = async (id: string) =>
+    page
+      .getByTestId(id)
+      .locator('option')
+      .evaluateAll((els) => els.map((el) => [(el as HTMLOptionElement).value, el.textContent]));
+  expect(await options('fluid-pick-cursor')).toEqual([
+    ['none', 'None'],
+    ['glide', 'Glide'],
+    ['elastic', 'Elastic'],
+  ]);
+  expect(await options('fluid-pick-selection')).toEqual([
+    ['none', 'None'],
+    ['glide', 'Glide'],
+    ['elastic', 'Elastic'],
+  ]);
+  expect(await options('fluid-pick-deletion')).toEqual([
+    ['none', 'None'],
+    ['fade', 'Fade'],
+    ['pop', 'Pop'],
+    ['burst', 'Burst'],
+  ]);
+  expect(await options('fluid-pick-insertion')).toEqual([
+    ['none', 'None'],
+    ['fade', 'Fade'],
+    ['pop', 'Pop'],
+  ]);
+  // Req 6: the defaults on first enable.
+  await expect(page.getByTestId('fluid-pick-cursor')).toHaveValue('glide');
+  await expect(page.getByTestId('fluid-pick-selection')).toHaveValue('elastic');
+  await expect(page.getByTestId('fluid-pick-deletion')).toHaveValue('fade');
+  await expect(page.getByTestId('fluid-pick-insertion')).toHaveValue('pop');
+
+  // Change one mapping; Save commits it with the switch (issue #246).
+  await page.getByTestId('fluid-pick-deletion').selectOption('pop');
+  await saveSettings(page);
+
+  // Req 3 + 18: the root encodes the saved mapping and the inert layer exists.
+  await expect(page.getByTestId('editor')).toHaveAttribute(
+    'data-fluid',
+    'cursor=glide;selection=elastic;deletion=pop;insertion=pop'
+  );
+  await expect(page.getByTestId('fluid-overlay')).toHaveCount(1);
+  await expect(page.getByTestId('fluid-overlay')).toHaveAttribute('aria-hidden', 'true');
+  expect(
+    await page.getByTestId('fluid-overlay').evaluate((el) => getComputedStyle(el).pointerEvents)
+  ).toBe('none');
+  // The layer lives inside the editor's scroller, never in the content DOM.
+  expect(await page.getByTestId('fluid-overlay').evaluate((el) => el.parentElement?.classList.contains('cm-scroller'))).toBe(true);
+
+  // Off again: the feature is absent, not disabled.
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-fluid-mode').uncheck();
+  await saveSettings(page);
+  await expect(page.getByTestId('fluid-overlay')).toHaveCount(0);
+  await expect(page.getByTestId('editor')).not.toHaveAttribute('data-fluid');
+});

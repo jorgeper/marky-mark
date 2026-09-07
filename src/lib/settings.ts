@@ -1,4 +1,12 @@
-import { DEFAULT_HOTKEYS, type HotkeyMap } from '@marky-mark/editor';
+import {
+  DEFAULT_FLUID_EFFECTS,
+  DEFAULT_HOTKEYS,
+  FLUID_ACTIONS,
+  type FluidEffectMap,
+  type HotkeyMap,
+  isFluidEffect,
+  isFluidEffectApplicable,
+} from '@marky-mark/editor';
 // PRD 022 Req 4: the marker vocabulary is the comment format's — the setting
 // validates against the same four literals the `color` field admits.
 import { type CommentColor, MARKER_COLORS } from './anchoring.ts';
@@ -176,6 +184,18 @@ export interface Settings {
    * the View rows, the commands and the accelerators do not exist.
    */
   semanticZoom: boolean;
+  /**
+   * PRD 025 Reqs 1+2: the Experimental section's Fluid mode switch, off by
+   * default. Off means the editor loads no effect extension and renders no
+   * overlay — the feature is absent, not disabled (Req 3).
+   */
+  fluidMode: boolean;
+  /**
+   * PRD 025 Reqs 5+6: the action → effect mapping behind the switch, one
+   * entry per editor action; `'none'` leaves that action instant. Read only
+   * while `fluidMode` is on.
+   */
+  fluidEffects: FluidEffectMap;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -254,6 +274,11 @@ export const DEFAULT_SETTINGS: Settings = {
   llmConfirmSummaries: true,
   // PRD 011 Req 1: every Experimental feature ships off.
   semanticZoom: false,
+  // PRD 025 Req 1: off by default like every experiment.
+  fluidMode: false,
+  // PRD 025 Req 6: Glide / Elastic / Fade / Pop on first enable — the
+  // catalogue's own defaults, imported rather than restated here.
+  fluidEffects: { ...DEFAULT_FLUID_EFFECTS },
 };
 
 /**
@@ -367,6 +392,11 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
   // It is kept out of WORKSPACE_PINNABLE_KEYS explicitly below, so no shared
   // layer can switch an experiment on for someone else.
   semanticZoom: 'U',
+  // PRD 025 Req 2: user-personal exactly like semanticZoom — the switch and
+  // its mapping are listed in EXPERIMENTAL_KEYS below, so no workspace layer
+  // can turn the mode on, or choose effects, for someone else.
+  fluidMode: 'U',
+  fluidEffects: 'U',
 };
 
 /**
@@ -374,9 +404,30 @@ export const SETTINGS_SCOPES: Record<keyof Settings, Scope> = {
  * them for themselves, but never workspace-editable: they appear in neither
  * WORKSPACE_PINNABLE_KEYS nor WORKSPACE_ELIGIBLE_KEYS.
  */
-export const EXPERIMENTAL_KEYS: ReadonlyArray<keyof Settings> = ['semanticZoom'];
+// PRD 025 Req 2: Fluid mode's switch and mapping join the list.
+export const EXPERIMENTAL_KEYS: ReadonlyArray<keyof Settings> = ['semanticZoom', 'fluidMode', 'fluidEffects'];
 
 const bool = (raw: unknown): boolean | undefined => (typeof raw === 'boolean' ? raw : undefined);
+
+/**
+ * PRD 025 Req 6: the Fluid mode mapping's tolerance, as a pure function so
+ * the fallbacks are testable on their own. Per action: `'none'` is kept; an
+ * applicable effect is kept; an unknown name, an effect the applicability
+ * table does not tick for that action, or a missing entry loads as that
+ * action's default. A value that is not an object at all loads as the whole
+ * default mapping.
+ */
+export function parseFluidEffects(raw: unknown): FluidEffectMap {
+  const out: FluidEffectMap = { ...DEFAULT_FLUID_EFFECTS };
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out;
+  const rec = raw as Record<string, unknown>;
+  for (const action of FLUID_ACTIONS) {
+    const v = rec[action];
+    if (v === 'none') out[action] = 'none';
+    else if (isFluidEffect(v) && isFluidEffectApplicable(action, v)) out[action] = v;
+  }
+  return out;
+}
 /**
  * PRD 011 Req 6: any string, INCLUDING the empty one. A model id is free text
  * and the unconfigured state is a real value, so `''` must survive a save and
@@ -492,6 +543,11 @@ const VALIDATORS: { [K in keyof Settings]: (raw: unknown) => Settings[K] | undef
   llmUsageTotal: (raw) => (isUsageTally(raw) ? raw : undefined),
   llmConfirmSummaries: bool,
   semanticZoom: bool,
+  // PRD 025 Req 2: a hand-edited non-boolean falls back to the default (off).
+  fluidMode: bool,
+  // PRD 025 Req 6: never rejected as a whole — every malformed entry falls
+  // back per action, so one bad name cannot reset a reader's other choices.
+  fluidEffects: parseFluidEffects,
 };
 
 /**

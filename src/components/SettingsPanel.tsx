@@ -32,6 +32,7 @@ import {
 } from '@marky-mark/editor';
 import { expandImageName, isValidImageFolder } from '../lib/imagePaste';
 import { LlmSettings } from './LlmSettings';
+import { FluidSettings } from './FluidSettings';
 import { NO_LLM_CAPABILITIES, type LlmCapabilities, type LlmTestResult } from '../lib/llmSettings';
 import type { SummaryCacheClearResult, SummaryCacheSizeResult } from '../lib/summaryCacheReport';
 import type { DeploymentAdmin } from '../platform/hostedAdmin';
@@ -247,7 +248,8 @@ type SettingsTab = 'appearance' | 'general' | 'editor' | 'workspace' | 'hotkeys'
  * descriptor to its `EXPERIMENTAL_FEATURES` entry and one entry to
  * `pageContent` below — no copy of the markup.
  */
-type SettingsPageId = 'llm';
+// PRD 025 Req 4: `'fluid'` is the Fluid mode row's nested page.
+type SettingsPageId = 'llm' | 'fluid';
 
 /**
  * PRD 011 Req 22 (amended by issue #247): where a caller that already knows
@@ -306,6 +308,17 @@ const EXPERIMENTAL_FEATURES: Array<{
         'Turning this off stops every summary but deletes nothing. Your API key and the cached summaries are removed on the LLM providers page, one action each:',
       linkLabel: 'Remove the key or clear the summary cache',
     },
+  },
+  // PRD 025 Req 1: Fluid mode — a data entry, no bespoke row. No capability:
+  // the mode is available on desktop, hosted and the static web build alike.
+  {
+    key: 'fluidMode',
+    testId: 'experimental-fluid-mode',
+    label: 'Fluid mode',
+    description:
+      'Animates the editor — the cursor glides, selections stretch, and text fades in and out. Does nothing when your system asks for reduced motion.',
+    // PRD 025 Req 4: the action → effect mapping, one level down.
+    page: { id: 'fluid', buttonLabel: 'Settings…' },
   },
 ];
 
@@ -394,8 +407,11 @@ export function SettingsPanel({
   // Issue #247: an `'llm'` route is the nested page under Experimental, so it
   // sets both levels at once — the reader lands on the page with the tab
   // behind it, and Back leads somewhere sensible.
+  // PRD 025 Req 4: generalized for the second nested page — any page route
+  // opens on the tab that owns it (read off the registry), not just 'llm'.
+  const initialPageOwner = EXPERIMENTAL_FEATURES.find((f) => f.page?.id === initialTab);
   const [tab, setTab] = useState<SettingsTab>(
-    initialTab === 'llm' ? 'experimental' : (initialTab ?? 'general'),
+    initialPageOwner ? 'experimental' : ((initialTab as SettingsTab | undefined) ?? 'general'),
   );
   /**
    * Issue #247: the second-level page on top of `tab`, or null for the tab
@@ -403,7 +419,7 @@ export function SettingsPanel({
    * descriptor on the row says which page opens, so a second experiment adds
    * data here, not markup.
    */
-  const [page, setPage] = useState<SettingsPageId | null>(initialTab === 'llm' ? 'llm' : null);
+  const [page, setPage] = useState<SettingsPageId | null>(initialPageOwner?.page?.id ?? null);
   /** Issue #247: what each nested page is reached from — its breadcrumb and Back. */
   const pageOwner = EXPERIMENTAL_FEATURES.find((f) => f.page?.id === page);
   const capabilities: ExperimentalCapabilities = {
@@ -1281,7 +1297,10 @@ export function SettingsPanel({
    * and Back below are shared, so adding a page is an entry here plus a `page`
    * field on the row, never a copy of the nesting markup.
    */
-  const pageContent: Record<SettingsPageId, ReactNode> = { llm: llmPage };
+  // PRD 025 Reqs 4+5: the Fluid mode page, fed the same pending `settings`
+  // and the same `onChange` as every tab, so Save / Cancel govern it.
+  const fluidPage = <FluidSettings values={settings} onChange={(patch) => onChange({ ...settings, ...patch })} />;
+  const pageContent: Record<SettingsPageId, ReactNode> = { llm: llmPage, fluid: fluidPage };
 
   // PRD 011 Req 1: one row per data entry — off by default, each carrying the
   // one line that says what turning it on does.

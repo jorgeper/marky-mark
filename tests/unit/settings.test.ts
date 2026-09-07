@@ -6,6 +6,7 @@ import {
   NO_PENDING_EDITS,
   overlayPendingLayers,
   overlayPendingSettings,
+  parseFluidEffects,
   parseSettings,
   pendingIsDirty,
   pendingScopePatches,
@@ -17,7 +18,7 @@ import {
   type Settings,
   type SettingsLayers,
 } from '../../src/lib/settings';
-import { combosConflict, DEFAULT_HOTKEYS, type HotkeyMap } from '@marky-mark/editor';
+import { combosConflict, DEFAULT_FLUID_EFFECTS, DEFAULT_HOTKEYS, type HotkeyMap } from '@marky-mark/editor';
 
 describe('v3 settings', () => {
   test('U13: new fields parse with defaults, invalid values fall back, legacy `theme` migrates to themeLight', () => {
@@ -305,6 +306,62 @@ describe('PRD 011 Req 1: the Experimental section ships off', () => {
     // A non-boolean is rejected rather than coerced — the feature stays off.
     expect(parseSettings('{"semanticZoom":"yes"}').semanticZoom).toBe(false);
     expect(parseSettings(serializeSettings({ ...DEFAULT_SETTINGS, semanticZoom: true })).semanticZoom).toBe(true);
+  });
+
+  test('U1286: PRD 025 Reqs 1, 2, 6 — fluidMode defaults off and fluidEffects to Glide/Elastic/Fade/Pop; both round-trip', () => {
+    expect(DEFAULT_SETTINGS.fluidMode).toBe(false);
+    expect(DEFAULT_SETTINGS.fluidEffects).toEqual({ cursor: 'glide', selection: 'elastic', deletion: 'fade', insertion: 'pop' });
+    expect(DEFAULT_SETTINGS.fluidEffects).toEqual(DEFAULT_FLUID_EFFECTS);
+    expect(SETTINGS_SCOPES.fluidMode).toBe('U');
+    expect(SETTINGS_SCOPES.fluidEffects).toBe('U');
+    expect(parseSettings('{}').fluidMode).toBe(false);
+    expect(parseSettings('{"fluidMode":true}').fluidMode).toBe(true);
+    // A hand-edited non-boolean falls back to the default (off).
+    expect(parseSettings('{"fluidMode":"yes"}').fluidMode).toBe(false);
+    const on: Settings = {
+      ...DEFAULT_SETTINGS,
+      fluidMode: true,
+      fluidEffects: { cursor: 'elastic', selection: 'none', deletion: 'burst', insertion: 'fade' },
+    };
+    const back = parseSettings(serializeSettings(on));
+    expect(back.fluidMode).toBe(true);
+    expect(back.fluidEffects).toEqual({ cursor: 'elastic', selection: 'none', deletion: 'burst', insertion: 'fade' });
+  });
+
+  test('U1287: PRD 025 Req 6 — the mapping parser falls back per action and keeps None', () => {
+    // Unknown effect → that action's default; the rest untouched.
+    expect(parseFluidEffects({ cursor: 'sparkle', selection: 'glide', deletion: 'pop', insertion: 'fade' })).toEqual({
+      cursor: 'glide',
+      selection: 'glide',
+      deletion: 'pop',
+      insertion: 'fade',
+    });
+    // An effect the table does not tick for that action → its default.
+    expect(parseFluidEffects({ cursor: 'fade', insertion: 'burst', deletion: 'glide', selection: 'pop' })).toEqual(
+      DEFAULT_FLUID_EFFECTS
+    );
+    // A missing action → its default.
+    expect(parseFluidEffects({ deletion: 'burst' })).toEqual({ ...DEFAULT_FLUID_EFFECTS, deletion: 'burst' });
+    // 'none' is a real choice and survives.
+    expect(parseFluidEffects({ cursor: 'none', selection: 'none', deletion: 'none', insertion: 'none' })).toEqual({
+      cursor: 'none',
+      selection: 'none',
+      deletion: 'none',
+      insertion: 'none',
+    });
+    // Not an object at all → the whole default mapping.
+    expect(parseFluidEffects('glide')).toEqual(DEFAULT_FLUID_EFFECTS);
+    expect(parseFluidEffects(null)).toEqual(DEFAULT_FLUID_EFFECTS);
+    expect(parseFluidEffects(['glide'])).toEqual(DEFAULT_FLUID_EFFECTS);
+    expect(parseFluidEffects(undefined)).toEqual(DEFAULT_FLUID_EFFECTS);
+    // The parser never hands back the shared default object itself.
+    expect(parseFluidEffects(7)).not.toBe(DEFAULT_FLUID_EFFECTS);
+    // Through the settings layer: a bad entry inside a file resolves the same way.
+    expect(parseSettings('{"fluidEffects":{"cursor":"burst","deletion":"none"}}').fluidEffects).toEqual({
+      ...DEFAULT_FLUID_EFFECTS,
+      deletion: 'none',
+    });
+    expect(parseSettings('{"fluidEffects":42}').fluidEffects).toEqual(DEFAULT_FLUID_EFFECTS);
   });
 });
 

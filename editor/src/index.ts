@@ -58,6 +58,9 @@ export * from './lib/diffLines';
 export * from './lib/fenceDiagrams';
 export * from './lib/fenceRenderers';
 export * from './lib/fenceWidth';
+// PRD 025 Req 18: Fluid mode's vocabulary — action/effect names, the
+// applicability table, durations and the large-operation constants.
+export * from './lib/fluid';
 export * from './lib/headingLinks';
 export * from './lib/hotkeys';
 export * from './lib/imageResize';

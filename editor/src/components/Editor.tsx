@@ -57,6 +57,7 @@ import type { CompiledPattern } from '../lib/searchCore';
 import { mapOffsetByLineFlat, wordAt } from '../lib/activePosition';
 import { intersectCodeSelection, type CodeRange } from '../lib/codeSelection';
 import type { DiffLineSets } from '../lib/diffLines';
+import { fluidAttribute, type FluidEffectMap } from '../lib/fluid';
 import { displayCombo, type HotkeyMap } from '../lib/hotkeys';
 import {
   buildSmartMenu,
@@ -328,6 +329,18 @@ export type FocusEditor = (opts?: { caret?: number }) => void;
  */
 export interface EditorProps {
   value: string;
+  /**
+   * PRD 025 Req 18: Fluid mode — the action → effect mapping (see
+   * `FluidEffectMap`, `FLUID_APPLICABILITY`, `DEFAULT_FLUID_EFFECTS`).
+   * `null`/absent means the mode is OFF: no extension, no overlay element,
+   * no listener, and no `data-fluid` attribute on the editor root (Req 3).
+   * With a mapping, the root carries `data-fluid` (`cursor=…;selection=…;
+   * deletion=…;insertion=…`) and an inert, `pointer-events: none`,
+   * `aria-hidden` overlay layer is mounted inside the scroller for the
+   * effects to draw into. Effects never delay the document, the real
+   * selection or the caret (Req 9). Live-reconfigured, no remount.
+   */
+  fluid?: FluidEffectMap | null;
   /** Show the line-number gutter (SPEC3 §2, reconfigurable live). */
   lineNumbers: boolean;
   onChange(next: string): void;
@@ -1359,6 +1372,7 @@ const VIM_MOTIONS: Partial<Record<VimEditAction, (view: EditorView) => void>> = 
 
 export default function Editor({
   value,
+  fluid = null,
   lineNumbers: showLineNumbers,
   onChange,
   historyRef,
@@ -2639,11 +2653,36 @@ export default function Editor({
     });
   }, [highlights]);
 
+  // PRD 025 Req 3 (issue #333): the Fluid mode overlay layer — mounted
+  // inside CodeMirror's scroller (the chip layers above are the precedent for
+  // a scroller-hosted overlay) only while a mapping is set, and removed the
+  // moment the prop returns to null. Increment (1) of PRD 025 Req 24: the
+  // layer is INERT — no listener, no timer, no animation frame, no
+  // transition and no Web Animations call is scheduled here; every effect is
+  // a no-op until the increment that draws it. It is imperative rather than
+  // JSX because `view.scrollDOM` is CodeMirror's DOM, not React's.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !fluid) return;
+    const layer = document.createElement('div');
+    layer.className = 'fluid-overlay';
+    layer.setAttribute('data-testid', 'fluid-overlay');
+    // PRD 025 Req 17: never a hit target, never read by assistive tech.
+    layer.setAttribute('aria-hidden', 'true');
+    view.scrollDOM.appendChild(layer);
+    return () => {
+      layer.remove();
+    };
+  }, [fluid]);
+
   return (
     <div
       className="editor-wrap"
       data-testid="editor"
       ref={hostRef}
+      // PRD 025 Req 3: the configuration attribute — present, encoding the
+      // four pairs in fixed order, only while the mode is on; absent otherwise.
+      data-fluid={fluid ? fluidAttribute(fluid) : undefined}
       // SPEC43 §4.4: right-click opens the Smart Edit menu at the pointer —
       // the native menu is suppressed in the edit pane ONLY.
       onContextMenu={(e) => {
