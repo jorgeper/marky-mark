@@ -1362,7 +1362,9 @@ test('E306: the page-and-tabs treatment holds in a dark theme — ground / page 
 const rectOf = (loc: Locator) =>
   loc.evaluate((el) => {
     const r = el.getBoundingClientRect();
-    return { left: r.left, right: r.right, width: r.width };
+    // Issue #339 (E594): the vertical fields too — the pane's top and height
+    // are read against the page's and the strip's.
+    return { left: r.left, right: r.right, width: r.width, top: r.top, bottom: r.bottom, height: r.height };
   });
 
 /** `max(var(--mm-content-width), var(--mm-pane-min))` in px, resolved by
@@ -1755,4 +1757,130 @@ test('E579: PRD 025 Reqs 19–20 (issue #330) — the Edit/Preview toggle is the
   await edgeToggle.click();
   await expect(page.getByTestId('doc')).toBeVisible();
   await expect(edgeToggle).toHaveText(/Edit/);
+});
+
+test('E594: issue #339 (PRD 025 Req 11 amended) — the comments pane\'s scroll box starts at the page\'s top edge: level with the page proper and the strip\'s bottom in full preview, split edit and plain edit, its height the body row\'s minus the band\'s, the band above it plain ground; strip hidden, pane, page and body row share one top', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await openThree(page);
+  await page.getByTestId('comments-expand').click();
+  const pane = page.getByTestId('comments-pane');
+  await expect(pane).toBeVisible();
+  const body = page.locator('.body-row');
+  const strip = page.getByTestId('file-tab-strip');
+  const wrap = page.locator('.comments-wrap');
+  // The page proper — the element issue #340 gave the outline, radius and
+  // shadow; its top edge is the document scroller's top in every mode.
+  const pageProper = page.locator('.workspace-stack > .workspace');
+  await expect(strip).toBeVisible();
+
+  // The one ask: the pane's top IS the page's top IS the strip's bottom.
+  // Polled — layout settles a frame after the pane mounts (the E5xx idiom).
+  const assertLevel = async () => {
+    await expect
+      .poll(async () => {
+        const [p, w, s] = await Promise.all([rectOf(pane), rectOf(pageProper), rectOf(strip)]);
+        return Math.max(Math.abs(p.top - w.top), Math.abs(p.top - s.bottom));
+      })
+      .toBeLessThanOrEqual(1);
+    // …and it is the wrapper's band-high top padding that lands it there:
+    // the wrapper still spans the body row's full height (E583's cluster
+    // read), the pane is exactly the row minus everything above the strip's
+    // bottom — the band, plus the strip's own toolbar clearance where a
+    // static toolbar exists (the shim's default), never a pixel higher.
+    const [p, b, s, w] = await Promise.all([rectOf(pane), rectOf(body), rectOf(strip), rectOf(wrap)]);
+    expect(Math.abs(w.top - b.top)).toBeLessThanOrEqual(1);
+    expect(Math.abs(w.height - b.height)).toBeLessThanOrEqual(1);
+    expect(Math.abs(p.height - (b.bottom - s.bottom))).toBeLessThanOrEqual(1);
+    expect(Math.abs(p.bottom - b.bottom)).toBeLessThanOrEqual(1);
+  };
+  await assertLevel();
+
+  // The pane is the scroll box, with no inner clearance while the strip
+  // shows (the toolbar clearance, where a static toolbar exists, rides the
+  // wrapper's padding outside the box), and nothing between it and the
+  // body row scrolls — so its scrollbar runs from the page's top down.
+  expect(await pane.evaluate((el) => getComputedStyle(el).overflowY)).toBe('auto');
+  expect(await pane.evaluate((el) => getComputedStyle(el).paddingTop)).toBe('0px');
+  expect(await wrap.evaluate((el) => getComputedStyle(el).overflowY)).toBe('hidden');
+  const bandPx = await page
+    .locator('.theme-root')
+    .evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue('--mm-tabstrip-h')));
+  expect((await rectOf(strip)).height).toBe(bandPx);
+
+  // The band-high region above the pane is ground: whatever paints there
+  // has the body row's own background, and no shadow, edge or radius.
+  const groundColour = await body.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const above = await (async () => {
+    const [p, s] = await Promise.all([rectOf(pane), rectOf(strip)]);
+    return page.evaluate(
+      ([x, y]) => {
+        let el = document.elementFromPoint(x, y);
+        while (el && getComputedStyle(el).backgroundColor === 'rgba(0, 0, 0, 0)') el = el.parentElement;
+        if (!el) return null;
+        const st = getComputedStyle(el);
+        return {
+          className: el.className,
+          background: st.backgroundColor,
+          shadow: st.boxShadow,
+          radius: st.borderRadius,
+          border: [st.borderTopWidth, st.borderBottomWidth],
+        };
+      },
+      [p.left + p.width / 2, p.top - s.height / 2] as [number, number]
+    );
+  })();
+  expect(above).toEqual({
+    className: 'comments-wrap',
+    background: groundColour,
+    shadow: 'none',
+    radius: '0px',
+    border: ['0px', '0px'],
+  });
+  expect(await strip.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(groundColour);
+
+  // Split edit: the document scrollers are inside the page; the page's top
+  // edge is still the reference and the pane still meets it.
+  await openSettings(page);
+  await page.getByTestId('settings-tab-general').click();
+  await page.getByTestId('set-split-edit').check();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toBeVisible();
+  await expect(pane).toBeVisible();
+  await assertLevel();
+
+  // Plain edit too.
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await openSettings(page);
+  await page.getByTestId('settings-tab-general').click();
+  await page.getByTestId('set-split-edit').uncheck();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('editor').locator('.cm-content')).toBeVisible();
+  await expect(page.getByTestId('split-preview')).toHaveCount(0);
+  await expect(pane).toBeVisible();
+  await assertLevel();
+
+  // Strip hidden: no band, so no spacer — pane, page and body row share one
+  // top, and the pane mirrors whatever inner clearance the document scroller
+  // keeps (the static toolbar's, where one exists; none otherwise).
+  await toggleFileTabsViaSettings(page);
+  await expect(strip).toHaveCount(0);
+  await expect(body).not.toHaveClass(/with-tabs/);
+  await expect(pane).toBeVisible();
+  await expect
+    .poll(async () => {
+      const [p, w, b] = await Promise.all([rectOf(pane), rectOf(pageProper), rectOf(body)]);
+      return Math.max(Math.abs(p.top - w.top), Math.abs(p.top - b.top));
+    })
+    .toBeLessThanOrEqual(1);
+  const [paneClear, docClear] = await Promise.all([
+    pane.evaluate((el) => getComputedStyle(el).paddingTop),
+    pageProper.evaluate((el) => getComputedStyle(el).paddingTop),
+  ]);
+  expect(paneClear).toBe(docClear);
+  expect(await wrap.evaluate((el) => getComputedStyle(el).paddingTop)).toBe('0px');
 });

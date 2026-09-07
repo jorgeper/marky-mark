@@ -8847,7 +8847,12 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           the workspace's RIGHT edge, in every document mode. Fixed at 300px
           (no drag handle, no breakpoints — PRD non-goal). PRD 025 Req 12
           (issue #328): it mounts and unmounts in place — the wrapper is a
-          plain fixed-width container, no slide phases. */}
+          plain fixed-width container, no slide phases. Issue #339: the
+          wrapper carries the strip band's height as top padding (styles.css
+          `.body-row.with-tabs > .comments-wrap`), so the aside — the scroll
+          box layoutFlowCards, the pane-scroll listener and scrollIntoView
+          all read — starts at the page's top edge, level with the document
+          scroller. */}
       {commentsPaneMounted && (
         <div className="comments-wrap">
           <aside className="comments-pane" data-testid="comments-pane" ref={commentsPaneRef}>

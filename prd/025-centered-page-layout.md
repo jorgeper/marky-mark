@@ -161,6 +161,15 @@ implementation reference, and its pixel sizes are placeholders.
     present whenever `showComments` is on, regardless of how many comments
     the document has, so the page does not shift when the first comment is
     added. Cards keep their line anchoring inside the column.
+
+    > **Amended (issue #339, 2026-09-07):** the column's scroll box (the
+    > `comments-pane` aside, whose scrollbar is the column's) starts at the
+    > page's top edge — level with the document scroller, at the bottom of
+    > the tab strip band — not at the body row's top. The band's height
+    > above it is plain `--mm-bg-elevated` ground (the strip-hidden state
+    > has no band, so the two tops coincide with the body row's), and in
+    > static-toolbar mode the column clears the toolbar the way the strip
+    > does. Width, edge-hugging, fill and card anchoring are unchanged.
 12. The sidebar and comments-column toggles (edge chevrons, View menu
     rows, hotkeys) keep working; the pane appears or disappears instantly
     (Req 9). The `.folder-slide` / `.comments-slide` 180 ms width and

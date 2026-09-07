@@ -527,9 +527,16 @@ button {
   transform: translateY(0);
 }
 
-/* Auto-hide off (default): the bar is permanent, content sits below it. */
+/* Auto-hide off (default): the bar is permanent, content sits below it.
+   Issue #339: the bar's height is ONE token, --mm-toolbar-clear, defined
+   only here on the static root (undefined elsewhere, so consumers' `0px`
+   fallbacks apply) — the strip, the sidebar panel and the comments column
+   read it rather than restating 42px. */
+.theme-root.toolbar-static {
+  --mm-toolbar-clear: 42px;
+}
 .theme-root.toolbar-static .workspace {
-  padding-top: 42px;
+  padding-top: var(--mm-toolbar-clear);
 }
 
 .toolbar-hotzone {
@@ -917,6 +924,26 @@ mark.hl.ghost[data-color] {
   flex-shrink: 0;
   display: flex;
   overflow: hidden;
+  /* Issue #339: the wrapper is the ground the band-high spacer below shows
+     — the same --mm-bg-elevated plane as .body-row and the strip, with no
+     shadow, border or radius of its own. */
+  background: var(--mm-bg-elevated, #f6f8fa);
+}
+/* Issue #339 (PRD 025 Req 11 amended): the column's SCROLL BOX starts at the
+   page's top edge, level with the document scroller, not at the body row's.
+   The wrapper — which still spans the body row's full height, so the cluster
+   geometry E583 / W19 read is untouched — takes the strip band's height as
+   top padding while the strip shows (.body-row.with-tabs, the class App
+   derives from showFileTabs), plus the static toolbar's clearance the way
+   .file-tab-strip takes it as margin below; the pane inside it, the scroll
+   box, therefore begins exactly where `.workspace-stack > .workspace` does
+   and its scrollbar never runs up into the band. The padding is ground
+   (the wrapper's own fill above): no bar, no edge. Strip hidden: no band,
+   no spacer — nothing keys on the strip's absence with a literal height —
+   so the scroll box starts at the body row's top exactly as the page does.
+   Height follows the --mm-tabstrip-h token, never a literal 38. */
+.body-row.with-tabs > .comments-wrap {
+  padding-top: calc(var(--mm-tabstrip-h) + var(--mm-toolbar-clear, 0px));
 }
 /* PRD 025 Req 11 (issue #331): the cluster's right member — it hugs the
    page's right edge on the --mm-bg-elevated ground and paints the ground's
@@ -933,9 +960,18 @@ mark.hl.ghost[data-color] {
   overflow-x: hidden;
 }
 /* Only where an in-app toolbar exists (web/shim static mode) does the pane
-   need to clear it — the .folder-panel precedent. */
+   need to clear it — the .folder-panel precedent, and the .workspace one:
+   with the strip hidden the document scroller keeps its own inner
+   clearance, so the pane keeps the same and the two scroll boxes still
+   start on one line (the body row's top). Issue #339: with the strip shown
+   the clearance sits on the wrapper above (the spacer rule), outside the
+   scroll box, exactly as .workspace's moves onto the strip — so the bar
+   does not run under the toolbar. */
 .theme-root.toolbar-static .comments-pane {
-  padding-top: 42px;
+  padding-top: var(--mm-toolbar-clear);
+}
+.theme-root.toolbar-static .body-row.with-tabs .comments-pane {
+  padding-top: 0;
 }
 
 /* ---------- comments panel ---------- */
@@ -2408,7 +2444,7 @@ mark.hl.ghost {
    the way .folder-panel does, and the workspace's own 42px clearance moves
    onto it (the corner controls ride the strip, so nothing else to clear). */
 .theme-root.toolbar-static .workspace-stack.with-tabs .file-tab-strip {
-  margin-top: 42px;
+  margin-top: var(--mm-toolbar-clear);
 }
 .theme-root.toolbar-static .workspace-stack.with-tabs .workspace {
   padding-top: 0;
@@ -2454,7 +2490,7 @@ mark.hl.ghost {
 /* Only where an in-app toolbar actually exists (web/shim static mode) does
    the panel need to clear it — desktop has a native menu bar and no overlay. */
 .theme-root.toolbar-static .folder-panel {
-  padding-top: 42px;
+  padding-top: var(--mm-toolbar-clear);
 }
 /* The root's name is not printed (owner: icons only in the header) — it stays
    in the DOM for assistive tech and the header's accessible name, and a

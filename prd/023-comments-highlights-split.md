@@ -144,6 +144,12 @@ blue marker) while keeping its anchoring, decoration, and copy-link machinery.
     > `--mm-bg-elevated` ground and the page's `--mm-panel-shadow` falls onto
     > it (PRD 025 Req 11). The 180 ms slide was retired by issue #328
     > (PRD 025 Req 12).
+
+    > **Amended (issue #339, 2026-09-07; §14–15):** the pane's scroll box
+    > starts at the page's top edge, level with the document scroller (the
+    > bottom of the file tab strip band); the band's height above it is
+    > plain `--mm-bg-elevated` ground with no bar through it. See PRD 025
+    > Req 11's amendment.
 16. The pane is the single home for comments in **all** modes — plain edit,
     full preview, and split — and the PRD 022-era in-preview comment aside is
     removed. Cards keep today's flow behavior (Word-style balloon flow,
