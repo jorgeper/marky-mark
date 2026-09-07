@@ -25,11 +25,12 @@ import {
   fluidSelectionRects,
   fluidSelectionShape,
   type FluidPosCoords,
+  type FluidSelectionEffect,
   type FluidSelectionShape,
 } from '../lib/fluidSelection';
 
 /** Req 17: the class the editor root wears while a caret ghost is in flight. */
-const IN_FLIGHT_CLASS = 'fluid-caret-in-flight';
+const CARET_IN_FLIGHT_CLASS = 'fluid-caret-in-flight';
 
 /** PRD 025 Req 17 (issue #335): the class the editor root wears while a selection ghost is in flight. */
 const SELECTION_IN_FLIGHT_CLASS = 'fluid-selection-in-flight';
@@ -75,6 +76,17 @@ function userEventOf(u: ViewUpdate): string | null {
     if (event != null) return event;
   }
   return null;
+}
+
+/** Req 11: write one shape's rectangles into the ghost's slot elements, in overlay-layer pixels. */
+function paintSelectionShape(els: HTMLElement[], shape: FluidSelectionShape): void {
+  shape.forEach((r, i) => {
+    const st = els[i].style;
+    st.left = `${r.left}px`;
+    st.top = `${r.top}px`;
+    st.width = `${r.width}px`;
+    st.height = `${r.height}px`;
+  });
 }
 
 /**
@@ -125,7 +137,7 @@ class FluidOverlay {
     }
     this.inFlight.clear();
     this.selection = null;
-    this.view.dom.classList.remove(IN_FLIGHT_CLASS, SELECTION_IN_FLIGHT_CLASS);
+    this.view.dom.classList.remove(CARET_IN_FLIGHT_CLASS, SELECTION_IN_FLIGHT_CLASS);
   }
 
   private finish(f: InFlight): void {
@@ -133,8 +145,7 @@ class FluidOverlay {
     if (f === this.selection) this.selection = null;
     for (const el of f.els) el.remove(); // Req 15: gone the moment it finishes
     // Req 17: the real caret / selection is hidden only while its ghost flies.
-    let stillWorn = false;
-    for (const other of this.inFlight) if (other.cls === f.cls) stillWorn = true;
+    const stillWorn = [...this.inFlight].some((other) => other.cls === f.cls);
     if (!stillWorn) this.view.dom.classList.remove(f.cls);
   }
 
@@ -190,9 +201,9 @@ class FluidOverlay {
     }));
     this.layer.appendChild(el);
     const anim = el.animate(keyframes, { duration: durationMs, easing: 'linear', fill: 'forwards' });
-    const entry: InFlight = { els: [el], cls: IN_FLIGHT_CLASS, stop: () => anim.cancel() };
+    const entry: InFlight = { els: [el], cls: CARET_IN_FLIGHT_CLASS, stop: () => anim.cancel() };
     this.inFlight.add(entry);
-    view.dom.classList.add(IN_FLIGHT_CLASS); // Req 17: the real caret hides only while the ghost flies
+    view.dom.classList.add(CARET_IN_FLIGHT_CLASS); // Req 17: the real caret hides only while the ghost flies
     anim.onfinish = () => this.finish(entry);
   }
 
@@ -217,6 +228,9 @@ class FluidOverlay {
    * alone. With Selection change → None nothing beyond this branch runs.
    */
   selectionChanged(u: ViewUpdate): void {
+    // Req 17: a range result cancels a caret ghost in flight (the only other
+    // effect a selection ghost never coexists with); a selection ghost stays
+    // to be re-targeted below.
     if (this.inFlight.size > 0 && !this.selection) this.cancelAll();
     const effect = this.map.selection;
     if (effect !== 'glide' && effect !== 'elastic') return;
@@ -261,15 +275,13 @@ class FluidOverlay {
       return;
     }
     const target = fluidSelectionShape(fluidSelectionRects({ start: toStart, end: toEnd, contentLeft, contentRight }));
-    const now = performance.now();
-    const { at: curve, durationMs } = fluidSelectionCurve(effect);
     const ghost = this.selection;
     if (ghost) {
       // Req 11: re-target — the ghost's current geometry (the curve sampled
       // at the elapsed fraction) becomes the new start; the clock restarts.
       ghost.start = ghost.current;
       ghost.target = target;
-      ghost.startedAt = now;
+      ghost.startedAt = performance.now();
       return;
     }
     const fromStart = at(Math.min(from.anchor, from.head));
@@ -281,15 +293,28 @@ class FluidOverlay {
     const start = fluidSelectionShape(
       fluidSelectionRects({ start: fromStart, end: fromEnd, contentLeft, contentRight })
     );
-    // Req 17: a range result replaced any caret ghost above, so the overlay
-    // is empty here; the ghost is three fixed slots (Req 11) in the layer.
-    const els: HTMLElement[] = [];
-    for (let i = 0; i < 3; i++) {
+    this.startSelectionGhost(start, target, effect);
+  }
+
+  /**
+   * Req 11: create the selection ghost — one slot element per rectangle of
+   * the shape, painted at `start` — register it, and run the frame loop
+   * that tweens it toward `target` (whatever `target` holds by the time a
+   * frame samples it, which is how re-targeting takes effect). The caller
+   * has already cancelled any caret ghost, so the overlay is empty here.
+   */
+  private startSelectionGhost(
+    start: FluidSelectionShape,
+    target: FluidSelectionShape,
+    effect: FluidSelectionEffect
+  ): void {
+    const { at: curve, durationMs } = fluidSelectionCurve(effect);
+    const els = start.map(() => {
       const el = document.createElement('div');
       el.className = 'fluid-selection-ghost';
       el.setAttribute('data-testid', 'fluid-selection-ghost');
-      els.push(el);
-    }
+      return el;
+    });
     const entry: SelectionGhost = {
       els,
       cls: SELECTION_IN_FLIGHT_CLASS,
@@ -297,36 +322,27 @@ class FluidOverlay {
       start,
       target,
       current: start,
-      startedAt: now,
+      startedAt: performance.now(),
       raf: 0,
-    };
-    const paint = (shape: FluidSelectionShape): void => {
-      for (let i = 0; i < 3; i++) {
-        const r = shape[i];
-        const st = els[i].style;
-        st.left = `${r.left}px`;
-        st.top = `${r.top}px`;
-        st.width = `${r.width}px`;
-        st.height = `${r.height}px`;
-      }
     };
     const step = (t: number): void => {
       if (this.selection !== entry) return;
       const fraction = Math.min(1, Math.max(0, (t - entry.startedAt) / durationMs));
+      const f = curve(fraction);
       entry.current = [
-        fluidRectAt(entry.start[0], entry.target[0], curve(fraction)),
-        fluidRectAt(entry.start[1], entry.target[1], curve(fraction)),
-        fluidRectAt(entry.start[2], entry.target[2], curve(fraction)),
+        fluidRectAt(entry.start[0], entry.target[0], f),
+        fluidRectAt(entry.start[1], entry.target[1], f),
+        fluidRectAt(entry.start[2], entry.target[2], f),
       ];
-      paint(entry.current);
+      paintSelectionShape(els, entry.current);
       if (fraction >= 1) this.finish(entry);
       else entry.raf = requestAnimationFrame(step);
     };
-    paint(start);
+    paintSelectionShape(els, start);
     for (const el of els) this.layer.appendChild(el);
     this.inFlight.add(entry);
     this.selection = entry;
-    view.dom.classList.add(SELECTION_IN_FLIGHT_CLASS); // Req 17: the real selection hides only while the ghost flies
+    this.view.dom.classList.add(SELECTION_IN_FLIGHT_CLASS); // Req 17: the real selection hides only while the ghost flies
     entry.raf = requestAnimationFrame(step);
   }
 }

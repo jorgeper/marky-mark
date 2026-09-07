@@ -6,8 +6,8 @@
  * measured. Both are unit-tested with plain numbers (Req 21).
  */
 
-import { FLUID_DURATIONS_MS, isFluidLargeOperation } from './fluid';
-import { elasticAt, glideAt } from './fluidCursor';
+import { isFluidLargeOperation } from './fluid';
+import { fluidCursorCurve } from './fluidCursor';
 
 /** PRD 025 Req 7: the two effects the applicability table allows on the selection. */
 export type FluidSelectionEffect = 'glide' | 'elastic';
@@ -102,6 +102,9 @@ export type FluidSelectionShape = [FluidRect, FluidRect, FluidRect];
 
 const nonNegative = (n: number): number => (n > 0 ? n : 0);
 
+/** Sub-pixel slack in the "does the end box start below the start box?" test — measured boxes on one line can differ by rounding. */
+const SAME_LINE_TOLERANCE_PX = 0.5;
+
 /**
  * PRD 025 Req 11: a range's painted shape as at most three rectangles — the
  * first line's tail (start → content right edge), the full-width middle
@@ -113,7 +116,7 @@ const nonNegative = (n: number): number => (n > 0 ? n : 0);
  */
 export function fluidSelectionRects(c: FluidSelectionCoords): FluidRect[] {
   const { start, end } = c;
-  const multiLine = end.top >= start.bottom - 0.5;
+  const multiLine = end.top >= start.bottom - SAME_LINE_TOLERANCE_PX;
   if (!multiLine) {
     const top = Math.min(start.top, end.top);
     const bottom = Math.max(start.bottom, end.bottom);
@@ -163,9 +166,7 @@ export function fluidRectAt(from: FluidRect, to: FluidRect, f: number): FluidRec
   };
 }
 
-/** PRD 025 Req 7: the curve and duration behind each selection effect — the same curves as the cursor's. */
+/** PRD 025 Req 7: the curve and duration behind each selection effect — the cursor's own, by name and by number. */
 export function fluidSelectionCurve(effect: FluidSelectionEffect): { at: (t: number) => number; durationMs: number } {
-  return effect === 'elastic'
-    ? { at: elasticAt, durationMs: FLUID_DURATIONS_MS.elastic }
-    : { at: glideAt, durationMs: FLUID_DURATIONS_MS.glide };
+  return fluidCursorCurve(effect);
 }
