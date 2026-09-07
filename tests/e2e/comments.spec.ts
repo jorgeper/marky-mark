@@ -1506,8 +1506,10 @@ test('E424: PRD 022 Req 12 — a highlight paints in the plain-edit editor as a 
 
 // Rewritten for issue #285 (PRD 023 §18): the split-edit editor click is
 // two-way sync now — a comment range opens the closed pane and activates its
-// card; a highlight range keeps its no-pane-effect contract.
-test('E425: PRD 022 Req 12 — the split-edit editor paints too, and clicking a painted range activates the marks in the preview', async ({
+// card; a highlight range keeps its no-pane-effect contract. Rewritten again
+// for issue #341: the gesture is the SPEC43 §11 link gesture — a ⌘/Ctrl
+// click; a plain click only places the caret (E589).
+test('E425: PRD 022 Req 12 — the split-edit editor paints too, and a modifier-click on a painted range activates the marks in the preview', async ({
   page,
 }) => {
   await addHighlight(page, PHRASE); // issue #286: hotkey-authored, armed color
@@ -1525,28 +1527,40 @@ test('E425: PRD 022 Req 12 — the split-edit editor paints too, and clicking a 
   const hl = editor.locator('.mm-hl[data-color="yellow"]');
   await expect(hl.first()).toBeVisible();
 
-  // The highlight range: activation shows on the preview marks, and the pane
-  // stays closed — a highlight click has no pane effect (PRD 023 §18).
-  await hl.first().click();
+  // The highlight range: a ⌘/Ctrl click shows activation on the preview
+  // marks, and the pane stays closed — a highlight has no pane effect
+  // (PRD 023 §18, amended by issue #341).
+  await hl.first().click({ modifiers: ['ControlOrMeta'] });
   await expect(page.locator('mark.hl.active').first()).toBeVisible();
   await expect(page.getByTestId('comments-pane')).toHaveCount(0);
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
 
-  // The comment range (no data-color): the click opens the pane, activates
-  // the card, and reveals it (PRD 023 §18, issue #285).
+  // The comment range (no data-color): the modifier-click opens the pane,
+  // activates the card, and reveals it (PRD 023 §18, issues #285/#341).
   const commentHl = editor.locator('.mm-hl:not([data-color])');
   await expect(commentHl.first()).toBeVisible();
-  await commentHl.first().click();
+  await commentHl.first().click({ modifiers: ['ControlOrMeta'] });
   await expect(page.getByTestId('comments-pane')).toBeVisible();
   await expect(page.getByTestId('comment-card')).toHaveClass(/active/);
   await expect(page.getByTestId('comment-card')).toBeInViewport();
 });
 
-test('E426: PRD 022 Req 12 — anchors the source cannot place confidently (absent or ambiguous quotes) do not paint in the editor', async ({
+// Updated for issue #341 (the PRD 023 Req 21 "updated to the new UX, not
+// deleted" precedent): the editor locates quotes in the source's VISIBLE
+// text now, so the `absent` entry — rendered "bold prose" across a `**`
+// marker — paints over the source span from its first through its last
+// visible character; the `ambiguous` entry still never paints.
+test('E426: PRD 022 Req 12 — an ambiguous quote does not paint in the editor, while a quote crossing inline syntax paints over its visible-text match (issue #341)', async ({
   page,
 }) => {
   const DOC = '/docs/best-effort.md';
-  const twinLine = 'identical sentence with the twin phrase inside it and identical padding after.';
+  // Issue #341: the app re-derives each anchor's context to CONTEXT_LENGTH
+  // (32) rendered characters, and the visible-text mapping scores that
+  // context across block boundaries — so for the twins to stay genuinely
+  // ambiguous, the 32 characters on each side of "twin phrase" must agree
+  // inside the line itself (the old byte-exact mapping tied one character
+  // earlier, at the block break).
+  const twinLine = 'a fully identical sentence with the twin phrase inside it and identical padding after.';
   await fsWrite(
     page,
     DOC,
@@ -1567,10 +1581,12 @@ test('E426: PRD 022 Req 12 — anchors the source cannot place confidently (abse
       {
         version: '2.0.0',
         comments: [
-          // Rendered "bold prose" crosses a ** marker in source: absent there.
+          // Rendered "bold prose" crosses a ** marker in source: absent
+          // byte-for-byte, present in the visible text (issue #341) — it
+          // paints over `bold** prose`.
           entry('absent', 'green', 'bold prose', 'Some ', ' here.'),
           // "twin phrase" occurs twice in source with identical context: ambiguous.
-          entry('ambiguous', 'pink', 'twin phrase', 'sentence with the ', ' inside it and '),
+          entry('ambiguous', 'pink', 'twin phrase', 'identical sentence with the ', ' inside it and identical padding'),
           entry('unique', 'yellow', 'unique control phrase', 'A ', ' paints.'),
         ],
       },
@@ -1585,20 +1601,33 @@ test('E426: PRD 022 Req 12 — anchors the source cannot place confidently (abse
     await expect(page.locator(`mark.hl[data-cid="${cid}"]`).first()).toBeVisible();
   }
 
-  // …the editor paints only the one the source places confidently.
+  // …the editor paints the two the source places confidently and never the
+  // ambiguous one.
   await page.keyboard.press('Control+e');
-  const hl = page.getByTestId('editor').locator('.mm-hl');
-  await expect(hl).toHaveCount(1);
-  await expect(hl).toHaveAttribute('data-cid', 'unique');
-  await expect(hl).toHaveAttribute('data-color', 'yellow');
+  const editor = page.getByTestId('editor');
+  const hl = editor.locator('.mm-hl');
+  // Distinct ids, not elements: the syntax highlighting splits a range that
+  // crosses a `**` token into several spans.
+  await expect
+    .poll(async () => [...new Set(await hl.evaluateAll((els) => els.map((el) => el.getAttribute('data-cid'))))].sort())
+    .toEqual(['absent', 'unique']);
+  await expect(editor.locator('.mm-hl[data-cid="ambiguous"]')).toHaveCount(0);
+  await expect(editor.locator('.mm-hl[data-cid="unique"]')).toHaveAttribute('data-color', 'yellow');
+  const crossing = editor.locator('.mm-hl[data-cid="absent"]');
+  await expect(crossing.first()).toHaveAttribute('data-color', 'green');
+  // First through last visible character: the closing ** between them is
+  // painted along, the opening ** before them is not.
+  await expect.poll(async () => (await crossing.allTextContents()).join('')).toBe('bold** prose');
 });
 
 // Rewritten for issue #285 (PRD 023 §18): plain edit is no longer paint-only
-// — clicks are wired here too. A HIGHLIGHT click still has no pane effect
-// (the mark treatment is its whole surface), the caret still lands where the
-// click fell, and the unpaint-over-mispaint rule is unchanged; the comment
-// side of the plain-edit click is E442's.
-test('E427: PRD 022 Req 12 — a plain-edit highlight click places the caret and opens nothing, and an edited quote unpaints instead of mispainting', async ({
+// — clicks are wired here too. Rewritten for issue #341: the activation
+// gesture is a ⌘/Ctrl click, which leaves the selection exactly where it
+// was; a HIGHLIGHT still has no pane effect (the mark treatment is its whole
+// surface); a plain click only places the caret, and the unpaint-over-
+// mispaint rule is unchanged. The comment side of the plain-edit gesture is
+// E444's.
+test('E427: PRD 022 Req 12 — a plain-edit highlight modifier-click gives the active cue, opens nothing and moves no caret; a plain click places the caret and an edited quote unpaints', async ({
   page,
 }) => {
   await addHighlight(page, PHRASE); // issue #286: hotkey-authored, armed color
@@ -1610,22 +1639,38 @@ test('E427: PRD 022 Req 12 — a plain-edit highlight click places the caret and
   await saveSettings(page);
   await page.keyboard.press('Control+e');
   await expect(page.getByTestId('split-divider')).toHaveCount(0);
-  const hl = page.getByTestId('editor').locator('.mm-hl');
+  const editor = page.getByTestId('editor');
+  const hl = editor.locator('.mm-hl');
   await expect(hl.first()).toBeVisible();
+
+  // Park the caret on the visual line above the phrase (a plain click into
+  // the range places it, ArrowUp moves it off the quote without scrolling)
+  // and mark the spot with a keystroke; then modifier-click the range.
   await hl.first().click();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.type('Qz');
+  await expect(editor.locator('.cm-content')).toContainText('Qz');
+  await hl.first().click({ modifiers: ['ControlOrMeta'] });
 
   // A highlight has no pane effect (PRD 023 §18): no card, no pane opening.
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
   await expect(page.getByTestId('panel')).toHaveCount(0);
   await expect(page.getByTestId('comments-pane')).toHaveCount(0);
   // …but the click DID reach the record: the decoration carries the active cue.
-  await expect(page.getByTestId('editor').locator('.mm-hl.active').first()).toBeVisible();
+  await expect(editor.locator('.mm-hl.active').first()).toBeVisible();
+  // The modified click claimed the event: the caret is still where the
+  // marker left it (no move, no second cursor), so the next keystroke lands
+  // right after it and the quote — still intact — stays painted.
+  await page.keyboard.type('R');
+  await expect(editor.locator('.cm-content')).toContainText('QzR');
+  await expect.poll(async () => (await hl.allTextContents()).join('')).toBe(PHRASE);
 
-  // Normal cursor placement stands: typing edits at the clicked point, which
-  // breaks the exact quote — the highlight skips (unpaints) rather than
-  // guessing at a range.
+  // A plain click is ordinary caret placement: typing edits at the clicked
+  // point, which breaks the quote — the highlight skips (unpaints) rather
+  // than guessing at a range.
+  await hl.first().click();
   await page.keyboard.type('X');
-  await expect(page.getByTestId('editor').locator('.cm-content')).toContainText('X');
+  await expect(editor.locator('.cm-content')).toContainText('X');
   await expect(hl).toHaveCount(0);
 });
 
@@ -2044,7 +2089,9 @@ test('E443: PRD 023 Req 18 — clicking a run the highlight covers alone activat
   await expect(page.getByTestId('comment-card')).toHaveCount(0);
 });
 
-test('E444: PRD 023 Req 18 — clicking a comment decoration in the PLAIN edit editor opens the closed pane and activates the card', async ({
+// Rewritten for issue #341: the editor's activation gesture is a ⌘/Ctrl
+// click (the SPEC43 §11 link gesture); the plain click is E589's.
+test('E444: PRD 023 Req 18 — a modifier-click on a comment decoration in the PLAIN edit editor opens the closed pane and activates the card', async ({
   page,
 }) => {
   await seedOverlapDoc(page);
@@ -2058,9 +2105,9 @@ test('E444: PRD 023 Req 18 — clicking a comment decoration in the PLAIN edit e
 
   const editor = page.getByTestId('editor');
   await expect(editor.locator('.mm-hl[data-cid="c-cross"]').first()).toBeVisible();
-  // The click lands inside the intersecting pair's shared run — the editor
-  // reports every covering range and the kind rule picks the comment.
-  await editor.locator('.mm-hl[data-cid="c-cross"]').first().click();
+  // The modifier-click lands inside the intersecting pair's shared run — the
+  // editor reports every covering range and the kind rule picks the comment.
+  await editor.locator('.mm-hl[data-cid="c-cross"]').first().click({ modifiers: ['ControlOrMeta'] });
   await expect(page.getByTestId('comments-pane')).toBeVisible();
   const card = page.locator('[data-testid="comment-card"][data-cid="c-cross"]');
   await expect(card).toHaveClass(/active/);
@@ -2068,6 +2115,236 @@ test('E444: PRD 023 Req 18 — clicking a comment decoration in the PLAIN edit e
   // The activation cue exists on the editor side too: the active card's
   // decoration is visibly distinguishable (PRD 023 §18, editor half).
   await expect(editor.locator('.mm-hl.active[data-cid="c-cross"]').first()).toBeVisible();
+});
+
+test('E589: issue #341 — a PLAIN click on a comment decoration in plain edit is inert: no activation, no pane, no card — the caret simply lands where clicked', async ({
+  page,
+}) => {
+  await seedOverlapDoc(page);
+  await expect(page.locator('mark.hl[data-cid="c-cross"]').first()).toBeVisible();
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+
+  const editor = page.getByTestId('editor');
+  const hl = editor.locator('.mm-hl[data-cid="c-cross"]');
+  await expect(hl.first()).toBeVisible();
+  await hl.first().click();
+  // Nothing activates: no pane, no card, no active cue on any decoration.
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await expect(page.getByTestId('comment-card')).toHaveCount(0);
+  await expect(editor.locator('.mm-hl.active')).toHaveCount(0);
+  // The caret landed where the click fell — inside the clicked run — so a
+  // typed character appears within "quick brown fox".
+  await page.keyboard.type('X');
+  const line = editor.locator('.cm-line').filter({ hasText: /X/ }); // regex: a string match is case-insensitive ('fox')
+  await expect(line).toHaveCount(1);
+  const text = await line.textContent();
+  const x = text!.indexOf('X');
+  expect(x).toBeGreaterThanOrEqual(text!.indexOf('quick'));
+  expect(x).toBeLessThanOrEqual(text!.indexOf('fox') + 'fox'.length);
+  // And still no activation after the edit.
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await expect(editor.locator('.mm-hl.active')).toHaveCount(0);
+});
+
+// --- Issue #341: the editor paints what the preview paints -----------------
+
+const SYNTAX_DOC = '/docs/inline-syntax.md';
+const SYNTAX_SOURCE = [
+  '# Heading words here',
+  '',
+  'Some **bold** prose and *em* text with `code()` inside, then [link text](https://example.com/x) after, and 5\\*3 escaped.',
+  '',
+  'A soft',
+  'line break here.',
+  '',
+  '- list item words',
+  '',
+  '> quoted words here',
+  '',
+].join('\n');
+
+/**
+ * Issue #341: a document whose quotes all cross inline syntax, with one
+ * record per construct. `exact` is the RENDERED text (what the preview's
+ * anchoring stores); the editor must paint each over the source span from
+ * the quote's first through its last visible character.
+ */
+async function seedSyntaxDoc(page: import('@playwright/test').Page): Promise<void> {
+  await fsWrite(page, SYNTAX_DOC, SYNTAX_SOURCE);
+  const base = { author: 'Reader', createdAt: '2026-01-01T00:00:00.000Z' };
+  const anchor = (exact: string, prefix: string, suffix: string) => ({ exact, prefix, suffix, start: 0, end: exact.length });
+  const hl = (id: string, color: string, exact: string, prefix: string, suffix: string) => ({
+    kind: 'highlight',
+    id,
+    ...base,
+    color,
+    anchor: anchor(exact, prefix, suffix),
+  });
+  await fsWrite(
+    page,
+    `${SYNTAX_DOC}.comments.json`,
+    JSON.stringify(
+      {
+        version: '2.0.0',
+        comments: [
+          { kind: 'comment', id: 'c-bold', ...base, body: 'bold note', resolved: false, thread: [], anchor: anchor('bold prose', 'Some ', ' and ') },
+          hl('h-em', 'green', 'em text with code()', 'and ', ' inside'),
+          hl('h-link', 'pink', 'link text after', 'then ', ', and'),
+          hl('h-esc', 'orange', '5*3 escaped', 'and ', '.'),
+          hl('h-soft', 'yellow', 'soft\nline break', 'A ', ' here'),
+          hl('h-head', 'green', 'Heading words', '', ' here'),
+          hl('h-list', 'pink', 'list item words', '', ''),
+          hl('h-quote', 'orange', 'quoted words', '', ' here'),
+        ],
+      },
+      null,
+      2
+    )
+  );
+  await page.goto(`/#open=${SYNTAX_DOC}`);
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Heading words here');
+}
+
+/** The source text each record must paint over in the editor (CM lines join without their break). */
+const SYNTAX_PAINT: Record<string, string> = {
+  'c-bold': 'bold** prose',
+  'h-em': 'em* text with `code()',
+  'h-esc': '5\\*3 escaped',
+  'h-soft': 'softline break',
+  'h-head': 'Heading words',
+  'h-list': 'list item words',
+  'h-quote': 'quoted words',
+};
+
+async function expectSyntaxPaint(editor: Locator, paint: Record<string, string>): Promise<void> {
+  for (const [cid, text] of Object.entries(paint)) {
+    const hl = editor.locator(`.mm-hl[data-cid="${cid}"]`);
+    await expect(hl.first()).toBeVisible();
+    await expect.poll(async () => (await hl.allTextContents()).join(''), { message: cid }).toBe(text);
+  }
+}
+
+test('E590: issue #341 — quotes crossing strong/em, inline code, link text, escapes, a soft line break and block prefixes paint in split edit and plain edit over their visible-text span, and a card click activates the editor decoration', async ({
+  page,
+}) => {
+  await seedSyntaxDoc(page);
+  // With the rendered-links view on (its default) the link's `](url)` is
+  // hidden from the DOM, so the painted text reads as the rendered text.
+  const paint = { ...SYNTAX_PAINT, 'h-link': 'link text after' };
+
+  // Split edit (the default).
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  const editor = page.getByTestId('editor');
+  await expectSyntaxPaint(editor, paint);
+  await expect(editor.locator('.mm-hl[data-cid="c-bold"]').first()).not.toHaveAttribute('data-color', /./);
+  await expect(editor.locator('.mm-hl[data-cid="h-esc"]').first()).toHaveAttribute('data-color', 'orange');
+
+  // Plain edit.
+  await page.keyboard.press('Control+e');
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  await expectSyntaxPaint(editor, paint);
+
+  // Pane → editor: activating the formatted-text comment's card lands the
+  // active cue and the reveal flash on its decoration (PRD 023 §18).
+  await openCommentsPane(page);
+  await page.waitForTimeout(300); // the mapping's 200ms debounce (E445)
+  await page.locator('[data-testid="comment-card"][data-cid="c-bold"]').click();
+  await expect(editor.locator('.mm-hl.active[data-cid="c-bold"]').first()).toBeVisible();
+  await expect(editor.locator('.mm-hl.flash[data-cid="c-bold"]').first()).toBeVisible();
+  await expect(page.locator('[data-testid="comment-card"][data-cid="c-bold"]')).toHaveClass(/active/);
+});
+
+test('E591: issue #341 — with the rendered-links view off, a quote through link text paints the raw `](url)` tail along in plain edit', async ({
+  page,
+}) => {
+  await seedSyntaxDoc(page);
+  await openSettings(page, 'editor');
+  await page.getByTestId('settings-link-view').uncheck();
+  await saveSettings(page);
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  const editor = page.getByTestId('editor');
+  await expect(editor.locator('.mm-link-view')).toHaveCount(0);
+  await expectSyntaxPaint(editor, { ...SYNTAX_PAINT, 'h-link': 'link text](https://example.com/x) after' });
+});
+
+test('E592: issue #341 — a modifier-click on text that is both a link and a painted comment opens the link and activates nothing; off the link it activates; the pointer cue shows while the modifier is held', async ({
+  page,
+}) => {
+  const LINK_DOC = '/docs/link-comment.md';
+  await fsWrite(page, LINK_DOC, '# Links\n\nvisit [the site](https://example.com/docs) today\n\ntail\n');
+  await fsWrite(
+    page,
+    `${LINK_DOC}.comments.json`,
+    JSON.stringify({
+      version: '2.0.0',
+      comments: [
+        {
+          kind: 'comment',
+          id: 'c-link',
+          author: 'Reader',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          body: 'a note over a link',
+          resolved: false,
+          thread: [],
+          anchor: { exact: 'the site today', prefix: 'visit ', suffix: '', start: 0, end: 14 },
+        },
+      ],
+    })
+  );
+  await page.goto(`/#open=${LINK_DOC}`);
+  await expect(page.locator('mark.hl[data-cid="c-link"]').first()).toBeVisible();
+  await openSettings(page, 'general');
+  await page.getByTestId('set-split-edit').uncheck();
+  await saveSettings(page);
+  await page.keyboard.press('Control+e');
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+
+  const editor = page.getByTestId('editor');
+  const hl = editor.locator('.mm-hl[data-cid="c-link"]');
+  await expect(hl.first()).toBeVisible();
+  // The rendered-links view (default on) hides `](url)`, so the painted
+  // text reads "the site today": the first piece is the link text, the last
+  // is " today" — plain prose.
+  await expect.poll(async () => (await hl.allTextContents()).join('')).toBe('the site today');
+
+  // The cursor cue: a pointer over the painted range only while ⌘/Ctrl is
+  // held (the mm-link-modifier root class, SPEC43 §11).
+  const cursor = () => hl.first().evaluate((el) => getComputedStyle(el).cursor);
+  expect(await cursor()).not.toBe('pointer');
+  await page.keyboard.down('Control');
+  await expect.poll(cursor).toBe('pointer');
+  await page.keyboard.up('Control');
+  await expect.poll(cursor).not.toBe('pointer');
+
+  // On the link text: the link opens (the shim records it) and no record
+  // activates — the pane stays closed, no active cue.
+  await hl.first().click({ modifiers: ['ControlOrMeta'] });
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __mmExternalOpens?: string[] }).__mmExternalOpens ?? []))
+    .toContain('https://example.com/docs');
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await expect(editor.locator('.mm-hl.active')).toHaveCount(0);
+
+  // Off the link, on the same painted range: the comment activates.
+  await hl.last().click({ modifiers: ['ControlOrMeta'] });
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  await expect(page.locator('[data-testid="comment-card"][data-cid="c-link"]')).toHaveClass(/active/);
+  await expect(editor.locator('.mm-hl.active[data-cid="c-link"]').first()).toBeVisible();
 });
 
 test('E445: PRD 023 Req 18 — activating a card in plain edit scrolls the EDITOR to the anchor with the centre-and-flash feel', async ({

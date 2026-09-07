@@ -6356,7 +6356,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // --- PRD 022 Req 12 (issue #234): editor-pane highlight ranges ----------------
   // Best-effort anchors→source mapping over the CANONICAL text, recomputed on
   // the diff seam's debounce so typing repaints within a beat, never per
-  // keystroke. Gated to the entry set the preview would paint: comments on,
+  // keystroke. Issue #341: the mapping locates each quote in the source's
+  // VISIBLE text (one index per pass, built inside mapHighlightsToSource),
+  // so quotes crossing inline syntax paint too; the skip rule stands.
+  // Gated to the entry set the preview would paint: comments on,
   // resolved entries only while "Show resolved" is — the editor paints at
   // most what the preview shows, and skips anything the source can't place.
   useEffect(() => {
@@ -8758,9 +8761,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
                 // PRD 023 §18 (issue #285): the click callback is wired in
                 // EVERY edit layout — plain edit included — reporting the
                 // full hit set; the kind-aware rule picks the record and
-                // handleMarkClick opens the pane for a comment. The caret
-                // still lands where the click fell (the handler never claims
-                // the event).
+                // handleMarkClick opens the pane for a comment. Issue #341:
+                // the report rides a ⌘/Ctrl click (the link gesture), which
+                // the package claims so the caret stays put; a plain click
+                // only places the caret and reports nothing.
                 highlights={editorMarks}
                 onHighlightClick={activateFromHit}
                 onPasteImages={pasteImages}

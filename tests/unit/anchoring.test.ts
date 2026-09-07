@@ -128,12 +128,17 @@ describe('PRD 022 Req 12 editor-pane highlight mapping (issue #234)', () => {
     expect(source.slice(ranges[0].from, ranges[0].to)).toBe('lone needle phrase');
   });
 
-  test('U1108: an absent quote skips — rendered text that crosses markdown syntax never mispaints', () => {
-    // Rendered "bold prose" spans a ** marker in source, so the exact quote
-    // is absent there; the entry simply does not map.
+  // Rewritten for issue #341: the quote is located in the source's VISIBLE
+  // text now, so a rendered quote that crosses a `**` marker paints (the
+  // PRD 023 Req 21 "updated to the new UX, not deleted" precedent). The
+  // painted span runs from the first through the last visible character:
+  // the closing `**` between them paints along, the opening one before
+  // them does not.
+  test('U1108: a quote crossing a ** marker paints over the visible-text match, first through last visible character', () => {
     const source = 'Some **bold** prose here.\n';
     const ranges = mapHighlightsToSource([note('c1', anchorFor('bold prose'))], source);
-    expect(ranges).toEqual([]);
+    expect(ranges).toHaveLength(1);
+    expect(source.slice(ranges[0].from, ranges[0].to)).toBe('bold** prose');
   });
 
   test('U1109: an ambiguous quote with no deciding context skips — never a guess', () => {
@@ -170,5 +175,95 @@ describe('PRD 022 Req 12 editor-pane highlight mapping (issue #234)', () => {
     );
     expect(ranges.map((r) => r.id)).toEqual(['ok']);
     expect(ranges[0].color).toBeUndefined();
+  });
+
+  // --- Issue #341: visible-text mapping across inline syntax ---------------
+
+  /** The source text the one mapped range of `entries` covers. */
+  const painted = (source: string, exact: string, prefix = '', suffix = ''): string | null => {
+    const ranges = mapHighlightsToSource([note('c1', anchorFor(exact, prefix, suffix))], source);
+    if (ranges.length === 0) return null;
+    expect(ranges).toHaveLength(1);
+    return source.slice(ranges[0].from, ranges[0].to);
+  };
+
+  test('U1306: issue #341 — strong and emphasis markers inside or at the edges of the quote: between-syntax paints along, outer syntax does not', () => {
+    const source = 'Say **strong** then *em* and _under_ words.\n';
+    // Markers inside the match paint along; the opening ** before the first
+    // visible char and the closing _ after the last are excluded.
+    expect(painted(source, 'strong then em and under')).toBe('strong** then *em* and _under');
+    // A quote ending on a marked word stops at its last visible character.
+    expect(painted(source, 'Say strong')).toBe('Say **strong');
+    // A quote starting mid-word inside the marker.
+    expect(painted(source, 'em and')).toBe('em* and');
+  });
+
+  test('U1307: issue #341 — inline code backticks vanish from the match and paint along only when they sit inside it', () => {
+    const source = 'Call `foo()` now, then ``x`y`` later.\n';
+    expect(painted(source, 'Call foo() now')).toBe('Call `foo()` now');
+    expect(painted(source, 'foo() now')).toBe('foo()` now');
+    expect(painted(source, 'then x`y later')).toBe('then ``x`y`` later');
+  });
+
+  test('U1308: issue #341 — link text maps to its source text, with the `](url)` tail painted only when the quote continues past it', () => {
+    const source = 'Read [the docs](https://example.com/d) today and [more](./m.md).\n';
+    expect(painted(source, 'the docs today')).toBe('the docs](https://example.com/d) today');
+    expect(painted(source, 'Read the docs')).toBe('Read [the docs');
+    expect(painted(source, 'the docs')).toBe('the docs');
+  });
+
+  test('U1309: issue #341 — backslash escapes: the escaped character is the visible one, the backslash paints only between visible characters', () => {
+    const source = 'Costs 5\\*3 or \\_ten\\_ dollars.\n';
+    expect(painted(source, '5*3 or')).toBe('5\\*3 or');
+    expect(painted(source, '*3 or _ten_')).toBe('*3 or \\_ten\\_');
+  });
+
+  test('U1310: issue #341 — a soft line break inside one paragraph collapses like a space, whichever way the rendered quote spells it', () => {
+    const source = '# Title\n\nfirst line of prose\nsecond line of prose\n';
+    expect(painted(source, 'prose\nsecond')).toBe('prose\nsecond');
+    expect(painted(source, 'prose second')).toBe('prose\nsecond');
+    expect(painted(source, 'line of prose  second  line')).toBe('line of prose\nsecond line');
+  });
+
+  test('U1311: issue #341 — a quote beginning on a heading, list or blockquote line starts after the block prefix', () => {
+    const source = '# Heading words\n\n- item text here\n\n1. ordered item\n\n> quoted text\n';
+    expect(painted(source, 'Heading words')).toBe('Heading words');
+    expect(painted(source, 'item text here')).toBe('item text here');
+    expect(painted(source, 'ordered item')).toBe('ordered item');
+    expect(painted(source, 'quoted text')).toBe('quoted text');
+    // …and a quote spanning a heading into its paragraph paints across the
+    // block boundary from first to last visible character.
+    expect(painted(source, 'words item')).toBe('words\n\n- item');
+  });
+
+  test('U1312: issue #341 — the skip rule survives in visible space: absent skips, a tie skips, a strictly best context wins, one occurrence across syntax paints', () => {
+    // Absent: no visible-text occurrence at all.
+    expect(painted('Some **bold** prose here.\n', 'bold prose nowhere')).toBeNull();
+    // Ambiguous: the twin lines (E426's fixture) have identical context.
+    const line = 'identical sentence with the twin phrase inside it and identical padding after.';
+    expect(painted(`${line}\n\n${line}\n`, 'twin phrase', 'sentence with the ', ' inside it and ')).toBeNull();
+    // Ambiguous across syntax: a literal and a marked-up occurrence, no
+    // context — a 0–0 tie never guesses.
+    const mixed = 'first bold prose here.\n\nthen **bold** prose again.\n';
+    expect(painted(mixed, 'bold prose')).toBeNull();
+    // The stored (rendered) context picks the marked-up one strictly.
+    expect(painted(mixed, 'bold prose', 'then ', ' again.')).toBe('bold** prose');
+    // The rendered quote spelled with a literal `*` in code does not match
+    // emphasis-stripped prose: `2 * 3` renders the asterisk but the source's
+    // is a vanished marker, so no occurrence exists and nothing paints.
+    expect(painted('a *b* c\n', 'a *b* c')).toBeNull();
+  });
+
+  test('U1313: issue #341 — the visible index is built once per mapping pass and shared by every record', () => {
+    // Fifty records over one document map in a single pass; the offsets of
+    // every mapped range agree with the source (no per-record drift), which
+    // is the observable contract of one shared index.
+    const source = Array.from({ length: 50 }, (_, i) => `Paragraph **p${i}x** marks *item q${i}x* clearly.`).join('\n\n') + '\n';
+    const entries = Array.from({ length: 50 }, (_, i) => note(`n${i}`, anchorFor(`p${i}x marks item q${i}x`)));
+    const ranges = mapHighlightsToSource(entries, source);
+    expect(ranges).toHaveLength(50);
+    for (let i = 0; i < 50; i++) {
+      expect(source.slice(ranges[i].from, ranges[i].to)).toBe(`p${i}x** marks *item q${i}x`);
+    }
   });
 });
