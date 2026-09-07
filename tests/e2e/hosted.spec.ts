@@ -4768,51 +4768,71 @@ test('E551: issue #311 — opening another file parks the scratch buffer; its ro
   expect(new URL(page.url()).pathname).toBe('/grace/scratchpad');
 });
 
-test('E552: issue #311 — the scratch row’s ✕ discards the buffer silently, active or parked, and a parked close leaves the active file untouched', async ({
+test('E552: issue #320 — the scratch buffer cannot be closed: neither its tab nor its row has a ✕ (active or parked), and middle-click and ⌘W leave the dirty buffer on screen with its text', async ({
   page,
 }) => {
+  // Inside the owner's own scratchpad a "Scratchpad file" buffer is always
+  // alive, so nothing offers to close it: the trailing slot of its tab and
+  // its row carries the dirty ● alone (through hover, where the ✕ would
+  // otherwise swap in), middle-click on the tab is inert, and File → Close /
+  // ⌘W over it is a no-op — no prompt, no splash, the text stays.
   await scratchpadWithKept(page, 'katherine');
   await page.locator('.cm-content').click();
-  await page.keyboard.type('doomed scratch text');
+  await page.keyboard.type('unclosable scratch text');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
 
-  // Parked: open kept.md, then ✕ the parked scratch row — no prompt, the
-  // row and tab go, kept.md stays the open document.
-  await page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first().click();
-  await expect(page.getByTestId('docname')).toContainText('kept.md');
+  // Active: the selected row and the active tab — ● yes, ✕ no, hover included.
   const row = page.getByTestId('folder-item-scratch');
-  await expect(row).toHaveClass(/\bopen\b/);
+  await expect(row).toHaveClass(/\bselected\b/);
   await row.hover();
-  await row.getByTestId('folder-tab-close').click();
-  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
-  await expect(page.getByTestId('folder-item-scratch')).toHaveCount(0);
-  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(0);
-  await expect(page.getByTestId('docname')).toContainText('kept.md');
-  await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first()).toHaveClass(/\bselected\b/);
+  await expect(row.getByTestId('folder-tab-close')).toHaveCount(0);
+  await expect(row.getByTestId('folder-dirty')).toBeVisible();
+  const tab = page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' });
+  await expect(tab).toHaveCount(1);
+  await tab.hover();
+  await expect(tab.getByTestId('file-tab-close')).toHaveCount(0);
+  await expect(tab.getByTestId('file-tab-dirty')).toBeVisible();
 
-  // Active: a fresh visit, dirty the new scratch, ✕ its (selected) row — no
-  // prompt, the row and tab go, SPEC36 §3.5 follows (nothing else open ⇒
-  // the splash: no document name, no editor).
-  await page.goto(`${HOSTED}/scratchpad`);
+  // Middle-click the tab, then ⌘W: nothing changes.
+  await tab.click({ button: 'middle' });
+  await page.keyboard.press('Control+w');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
   await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.getByTestId('editor')).toBeVisible();
-  await page.locator('.cm-content').click();
-  await page.keyboard.type('also doomed');
+  await expect(page.locator('.cm-content')).toContainText('unclosable scratch text');
   await expect(page.getByTestId('dirty-dot')).toBeVisible();
-  const active = page.getByTestId('folder-item-scratch');
-  await expect(active).toHaveClass(/\bselected\b/);
-  await active.hover();
-  await active.getByTestId('folder-tab-close').click();
-  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
-  await expect(page.getByTestId('folder-item-scratch')).toHaveCount(0);
-  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(0);
-  await expect(page.getByTestId('docname')).not.toContainText('Scratchpad file');
-  await expect(page.getByTestId('editor')).toHaveCount(0);
-  // The workspace's own files are still there to open.
-  await expect(page.getByTestId('folder-item').filter({ hasText: 'kept.md' })).toBeVisible();
+  await expect(row).toHaveClass(/\bselected\b/);
+  await expect(tab).toHaveCount(1);
+
+  // Parked: open kept.md over it — the row (open) and the tab (inactive)
+  // stay, still with no ✕; middle-click on the parked tab does nothing.
+  await page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first().click();
+  await expect(page.getByTestId('docname')).toContainText('kept.md');
+  await expect(row).toHaveClass(/\bopen\b/);
+  await row.hover();
+  await expect(row.getByTestId('folder-tab-close')).toHaveCount(0);
+  await expect(row.getByTestId('folder-dirty')).toBeVisible();
+  await expect(tab).toHaveAttribute('data-active', 'false');
+  await tab.hover();
+  await expect(tab.getByTestId('file-tab-close')).toHaveCount(0);
+  await expect(tab.getByTestId('file-tab-dirty')).toBeVisible();
+  await tab.click({ button: 'middle' });
+  await expect(page.getByTestId('docname')).toContainText('kept.md');
+  await expect(row).toHaveClass(/\bopen\b/);
+  await expect(tab).toHaveCount(1);
+  // An ordinary file's tab still offers SPEC36 §3.4's ✕ — only the scratch
+  // buffer is exempt.
+  const keptTab = page.getByTestId('file-tab').filter({ hasText: 'kept.md' });
+  await keptTab.hover();
+  await expect(keptTab.getByTestId('file-tab-close')).toBeVisible();
+  // And click-back (issue #311) still brings the text home.
+  await row.click();
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.locator('.cm-content')).toContainText('unclosable scratch text');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
 });
 
-test('E553: issue #311 — the first save turns the scratch buffer into an ordinary file: the scratch row disappears and the saved file’s own row is the selected one', async ({
+test('E553: issue #320 — the first save turns the scratch buffer into an ordinary file AND leaves a fresh, empty, clean scratch buffer parked beside it, whose row and tab restore an empty buffer at the canonical URL', async ({
   page,
   request,
 }) => {
@@ -4827,23 +4847,51 @@ test('E553: issue #311 — the first save turns the scratch buffer into an ordin
   await page.getByTestId('save-picker-confirm').click();
   await expect(picker).toHaveCount(0);
 
-  // PRD 023 Req 12 + issue #311: an ordinary document now — no scratch row,
-  // no scratch tab, no scratch treatment anywhere; its own row is selected.
+  // PRD 023 Req 12 + issue #311: the written file is an ordinary document —
+  // its own row is selected, its name plain, its tab the active one.
   await expect(page.getByTestId('docname')).toContainText(name);
+  await expect(page.getByTestId('docname').locator('.scratch-name')).toHaveCount(0);
   await expect.poll(() => listFiles(request, token, id)).toContain(name);
-  await expect(page.getByTestId('folder-item-scratch')).toHaveCount(0);
-  await expect(page.locator('.scratch-name')).toHaveCount(0);
   await expect(page.getByTestId('folder-item').filter({ hasText: name }).first()).toHaveClass(/\bselected\b/);
-  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(0);
+  await expect(page.getByTestId('file-tab').filter({ hasText: name })).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+
+  // Issue #320: and a fresh scratch buffer is PARKED beside it — the row
+  // (open, clean) and the inactive tab (no ●) never disappeared.
+  const row = page.getByTestId('folder-item-scratch');
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveClass(/\bopen\b/);
+  await expect(row.locator('.scratch-name')).toHaveText('Scratchpad file');
+  await expect(row.getByTestId('folder-dirty')).toHaveCount(0);
+  const tab = page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' });
+  await expect(tab).toHaveCount(1);
+  await expect(tab).toHaveAttribute('data-active', 'false');
+  await expect(tab.getByTestId('file-tab-dirty')).toHaveCount(0);
+
+  // Clicking the row restores an EMPTY scratch buffer in edit mode at the
+  // canonical URL (the issue #311 path) — the typed text went with the file;
+  // the saved file parks as an ordinary open row.
+  await row.click();
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('mode-switch')).toHaveAttribute('data-mode', 'edit');
+  await expect(page.locator('.cm-content')).not.toContainText('saved scratch text');
+  await expect(page.locator('.cm-line')).toHaveCount(1);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(row).toHaveClass(/\bselected\b/);
+  await expect(tab).toHaveAttribute('data-active', 'true');
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/ada/scratchpad');
+  await expect(page.getByTestId('folder-item').filter({ hasText: name }).first()).toHaveClass(/\bopen\b/);
+  expect(await readAs(request, token, id, name)).toContain('saved scratch text');
 });
 
-test('E554: issue #311 — an open that never lands parks nothing: closing the still-active scratch buffer afterwards resurrects no parked row', async ({
+test('E554: issue #311/#320 — an open that never lands parks nothing: the still-active scratch buffer is the only scratch on screen afterwards, one row and one tab, with its text', async ({
   page,
 }) => {
   // The park is made at the commit that replaces the buffer, not at the
   // click — so a failed open (here: the file vanished under its row) leaves
-  // no entry, and the close that follows shows no stale "Scratchpad file"
-  // row or tab holding the pre-failure text.
+  // no entry: no second "Scratchpad file" row or tab appears beside the
+  // active one, and the buffer keeps its pre-failure text.
   const { id, token } = await scratchpadWithKept(page, 'grace');
   await page.locator('.cm-content').click();
   await page.keyboard.type('never parked');
@@ -4856,20 +4904,148 @@ test('E554: issue #311 — an open that never lands parks nothing: closing the s
   const refused = page.waitForResponse((r) => r.url().endsWith('/files/kept.md') && r.status() === 404);
   await page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first().click();
   await refused;
-  // The open failed: the scratch buffer is still the document on screen.
+  // The open failed: the scratch buffer is still the document on screen —
+  // and the only scratch there is.
   await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
   await expect(page.locator('.cm-content')).toContainText('never parked');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
   const row = page.getByTestId('folder-item-scratch');
+  await expect(row).toHaveCount(1);
   await expect(row).toHaveClass(/\bselected\b/);
   await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(1);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveAttribute('data-active', 'true');
 
-  // Close it: the splash, and nothing left claiming to be a parked scratch.
-  await row.hover();
-  await row.getByTestId('folder-tab-close').click();
+  // Issue #320: ⌘W over it is a no-op — no stale parked entry surfaces, no
+  // splash, the text stays.
+  await page.keyboard.press('Control+w');
   await expect(page.getByTestId('open-prompt')).toHaveCount(0);
-  await expect(page.getByTestId('editor')).toHaveCount(0);
-  await expect(page.getByTestId('folder-item-scratch')).toHaveCount(0);
-  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(0);
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.locator('.cm-content')).toContainText('never parked');
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveClass(/\bselected\b/);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveCount(1);
+});
+
+test('E573: issue #320 — saving an ordinary file while the scratch buffer is parked leaves the parked buffer exactly as it was, and closing that file leaves the scratch buffer alive', async ({
+  page,
+  request,
+}) => {
+  const { id, token } = await scratchpadWithKept(page, 'grace');
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('kept aside');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+
+  // Park it under kept.md, edit and save kept.md: the save touches only the
+  // file — the parked row and tab keep their ● and the slot is untouched.
+  await page.getByTestId('folder-item').filter({ hasText: 'kept.md' }).first().click();
+  await expect(page.getByTestId('docname')).toContainText('kept.md');
+  const row = page.getByTestId('folder-item-scratch');
+  await expect(row).toHaveClass(/\bopen\b/);
+  await expect(row.getByTestId('folder-dirty')).toBeVisible();
+  await landInPreview(page);
+  await page.getByTestId('edit-toggle').click();
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' and more');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.keyboard.press('Control+s');
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(page.getByTestId('save-picker')).toHaveCount(0);
+  await expect.poll(() => readAs(request, token, id, 'kept.md')).toContain('and more');
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveClass(/\bopen\b/);
+  await expect(row.getByTestId('folder-dirty')).toBeVisible();
+  const tab = page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' });
+  await expect(tab).toHaveCount(1);
+  await expect(tab).toHaveAttribute('data-active', 'false');
+  await expect(tab.getByTestId('file-tab-dirty')).toBeVisible();
+
+  // Close kept.md (clean now) through its tab ✕: SPEC36 §3.5 has no open-set
+  // neighbour, so the splash — but the parked scratch buffer is still there,
+  // and its row brings the text back.
+  const keptTab = page.getByTestId('file-tab').filter({ hasText: 'kept.md' });
+  await keptTab.hover();
+  await keptTab.getByTestId('file-tab-close').click();
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'kept.md' })).toHaveCount(0);
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveClass(/\bopen\b/);
+  await row.click();
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.locator('.cm-content')).toContainText('kept aside');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await expect(row).toHaveClass(/\bselected\b/);
+  expect(new URL(page.url()).pathname).toBe('/grace/scratchpad');
+});
+
+test('E574: issue #320 — a file URL into the owner’s scratchpad parks an empty scratch buffer whose row restores it at the canonical URL, and New File over the active scratch buffer parks it instead of discarding it', async ({
+  page,
+}) => {
+  const token = await signIn(page.request, 'grace');
+  await dropDraft(page, token);
+  const resolve = await page.request.post(`${HOSTED}/api/me/scratchpad`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(resolve.status()).toBe(200);
+  const id = ((await resolve.json()) as { id: string }).id;
+  const put = await page.request.put(`${HOSTED}/api/workspaces/${id}/files/opened.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: '# Opened\n\nA scratch resident.\n',
+  });
+  expect(put.status()).toBe(200);
+
+  // PRD 023 Req 2 (amended): the file is the active document; an empty,
+  // clean scratch buffer is parked beside it.
+  await page.goto(`${HOSTED}/grace/scratchpad/opened.md`);
+  await page.getByTestId('hosted-sign-in-username').fill('grace');
+  await page.getByTestId('hosted-sign-in-submit').click();
+  await expect(page.getByTestId('docname')).toContainText('opened.md');
+  const row = page.getByTestId('folder-item-scratch');
+  await expect(row).toHaveClass(/\bopen\b/);
+  await expect(row.getByTestId('folder-dirty')).toHaveCount(0);
+  expect(new URL(page.url()).pathname).toBe('/grace/scratchpad/opened.md');
+
+  // Its row restores an EMPTY scratch buffer in edit mode at the canonical
+  // bare URL — what a bare visit would have booted — and opened.md parks.
+  await row.click();
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(page.getByTestId('mode-switch')).toHaveAttribute('data-mode', 'edit');
+  await expect(page.locator('.cm-line')).toHaveCount(1);
+  await expect(page.getByTestId('dirty-dot')).toHaveCount(0);
+  await expect(row).toHaveClass(/\bselected\b/);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' })).toHaveAttribute('data-active', 'true');
+  await expect(page.getByTestId('folder-item').filter({ hasText: 'opened.md' }).first()).toHaveClass(/\bopen\b/);
+  await expect.poll(() => new URL(page.url()).pathname).toBe('/grace/scratchpad');
+
+  // Type, then ⌘N: hosted has no native dialog, so New File is the
+  // in-workspace picker creating a real file (PRD 009 Req 13) — it opens
+  // active, and the dirty scratch buffer PARKS (no prompt, text kept)
+  // instead of being discarded, so its row and tab survive a New File too.
+  await page.locator('.cm-content').click();
+  await page.keyboard.type('parked by new file');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  await page.keyboard.press('Control+n');
+  const picker = page.getByTestId('save-picker');
+  await expect(picker).toBeVisible();
+  const name = await page.getByTestId('save-picker-name').inputValue();
+  await page.getByTestId('save-picker-confirm').click();
+  await expect(picker).toHaveCount(0);
+  await expect(page.getByTestId('docname')).toContainText(name);
+  await expect(page.getByTestId('open-prompt')).toHaveCount(0);
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveClass(/\bopen\b/);
+  await expect(row.getByTestId('folder-dirty')).toBeVisible();
+  const tab = page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' });
+  await expect(tab).toHaveCount(1);
+  await expect(tab).toHaveAttribute('data-active', 'false');
+  await tab.click();
+  await expect(page.getByTestId('docname')).toContainText('Scratchpad file');
+  await expect(page.locator('.cm-content')).toContainText('parked by new file');
+  await expect(page.getByTestId('dirty-dot')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/grace/scratchpad');
 });
 
 test('E521: issue #262 — the scratchpad’s auto-started buffer arrives focused: PRD 019’s blinking cursor, no click', async ({
@@ -5230,8 +5406,22 @@ test('E433: the Open Workspace dialog’s badged "My scratchpad" row boots a fre
   await page.getByTestId('hosted-sign-in-submit').click();
   await expect(page.getByTestId('docname')).toContainText('opened.md');
   // PRD 023 Req 6 (issues #291/#244): a booted scratchpad tab would read
-  // "Scratchpad file" now — assert neither label boots over the opened file.
-  await expect(page.getByTestId('file-tab').filter({ hasText: /Untitled|Scratchpad file/ })).toHaveCount(0);
+  // "Scratchpad file" now — assert no ACTIVE untitled or scratch tab boots
+  // over the opened file: the file's tab is the active one.
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'Untitled' })).toHaveCount(0);
+  await expect(page.getByTestId('file-tab').filter({ hasText: 'opened.md' })).toHaveAttribute('data-active', 'true');
+  // Issue #320 (amending Req 2's wording to "never boots an *active* scratch
+  // buffer"): an empty, clean scratch buffer is PARKED beside the opened
+  // file — its row (open, no ●) and its inactive tab are present.
+  const scratchRow = page.getByTestId('folder-item-scratch');
+  await expect(scratchRow).toHaveCount(1);
+  await expect(scratchRow).toHaveClass(/\bopen\b/);
+  await expect(scratchRow).not.toHaveClass(/\bselected\b/);
+  await expect(scratchRow.getByTestId('folder-dirty')).toHaveCount(0);
+  const scratchTab = page.getByTestId('file-tab').filter({ hasText: 'Scratchpad file' });
+  await expect(scratchTab).toHaveCount(1);
+  await expect(scratchTab).toHaveAttribute('data-active', 'false');
+  await expect(scratchTab.getByTestId('file-tab-dirty')).toHaveCount(0);
 
   // PRD 023 Req 3: the badged "My scratchpad" row (PRD 019 Req 8) re-enters the
   // scratch workspace with no target file — and lands in a fresh, empty

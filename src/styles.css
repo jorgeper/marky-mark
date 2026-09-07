@@ -2400,6 +2400,11 @@ mark.hl.ghost {
 .file-tab:hover .file-tab-dirty {
   display: none; /* hover swaps ● for ✕ */
 }
+/* Issue #320: a slot with no ✕ (the scratch buffer's tabs) has nothing to
+   swap to — its ● stays through hover. */
+.file-tab:hover .file-tab-slot.no-close .file-tab-dirty {
+  display: inline-flex;
+}
 .file-tab-close:hover {
   background: color-mix(in srgb, var(--mm-fg, #1f2328) 12%, transparent);
   color: var(--mm-fg, #1f2328);
@@ -2616,6 +2621,10 @@ mark.hl.ghost {
 }
 .folder-item:hover .folder-dirty {
   display: none; /* hover swaps ● for ✕ */
+}
+/* Issue #320: the scratch row's slot has no ✕ — its ● stays through hover. */
+.folder-item:hover .folder-tab-slot.no-close .folder-dirty {
+  display: inline-flex;
 }
 .folder-tab-close:hover {
   background: color-mix(in srgb, var(--mm-fg, #1f2328) 12%, transparent);

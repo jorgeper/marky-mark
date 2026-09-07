@@ -319,7 +319,7 @@ const UNTITLED_SENTINEL = '\u0000untitled';
  */
 type ParkEntry = { buffer: string; savedText: string; comments: CommentData[]; stores: DocStores; editorHistory: unknown };
 
-/** openDoc's options: SPEC35 §4.2's edit intent, and issue #311's tab-switch park (set by parkAndOpen alone). */
+/** openDoc's options: SPEC35 §4.2's edit intent, and issue #311's tab-switch park (set by parkAndOpen, and — issue #320 — the picker's New File). */
 type OpenOpts = { editIntent?: boolean; parkScratch?: boolean };
 
 /** SPEC36 §2.6: the action the unsaved-changes prompt guards, resumed on Save / Don't save. */
@@ -474,6 +474,23 @@ interface DocStores {
 /** A document with nothing unreadable — the state every clean doc gets. */
 const CLEAN_STORES: DocStores = { trailer: null, sidecar: null, trailerBytes: null };
 
+/**
+ * Issue #320: the park entry of a brand-new scratch buffer — empty, clean,
+ * no comments, no store verdict, fresh (null) editor history. Inside the
+ * owner's own scratchpad a scratch buffer is always alive, active or parked:
+ * this is what a save leaves parked beside the file it wrote, and what a
+ * file URL into the scratchpad parks beside the file it opened, so the
+ * "Scratchpad file" row and tab never disappear there. Restoring it (issue
+ * #311's path) puts an empty buffer on screen, exactly like the boot's.
+ */
+const freshScratchPark = (): ParkEntry => ({
+  buffer: '',
+  savedText: '',
+  comments: [],
+  stores: CLEAN_STORES,
+  editorHistory: null,
+});
+
 /** True when either store of the document could not be interpreted. */
 function hasUnreadableStore(stores: DocStores): boolean {
   return stores.trailer !== null || stores.sidecar !== null;
@@ -616,9 +633,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // what the row and the tab render from (the entry's dirtiness is fixed at
   // park time — nothing edits a parked buffer). Every write goes through
   // setScratchPark so the two can never disagree (the issue #291 pattern).
-  // Filled only by the commit that replaces the buffer (parkScratch, from
-  // openDoc) and emptied by the restore, so the slot is never occupied while
-  // the scratch buffer is on screen.
+  // Filled by the commit that replaces the buffer (parkScratch, from
+  // openDoc) — and, issue #320, by a fresh entry when the buffer is saved
+  // away or a file URL boots the owner's scratchpad (freshScratchPark) —
+  // and emptied by the restore, so the slot is never occupied while the
+  // scratch buffer is on screen.
   // In-memory only: never persisted to session/foldertree (PRD 023 Reqs 1–3
   // — a reload or a fresh visit starts a fresh buffer with this one gone).
   const scratchParkRef = useRef<ParkEntry | null>(null);
@@ -2660,9 +2679,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       setDocPath(path);
       setUntitled(false); // SPEC22 §3.3: a real document replaces any untitled buffer
       // Issue #311: a tab switch over the active scratch buffer parks it here,
-      // where the discard used to be (see parkScratch). Every other landing —
-      // Save As, the picker's New File, boot, a close's neighbour — leaves the
-      // buffer's fate as before.
+      // where the discard used to be (see parkScratch); issue #320: so does
+      // the picker's New File. Every other landing — Save As (which spawns a
+      // fresh parked buffer instead, writeDocCopyTo), boot, a close's
+      // neighbour — leaves the buffer's fate as before.
       if (opts?.parkScratch) parkScratch();
       setScratchMark(false); // PRD 019 Req 11: replaced (or saved via Save As, which lands here) ⇒ exemption over
       setBuffer(content);
@@ -3247,6 +3267,16 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         // PRD 019 Req 11: and that one buffer is the prompt-exempt scratch —
         // PRD 023 Req 6: the same mark drives its "Scratchpad file" label.
         setScratchMark(true);
+      } else if (p.scratchOwn) {
+        // Issue #320: a file URL into the owner's OWN scratchpad opens that
+        // file (bootDocument, below) — no ACTIVE scratch buffer boots over
+        // it, the file wins (amending PRD 023 Req 2's "never boots a scratch
+        // buffer" to "never boots an *active* one") — but an empty, clean
+        // scratch buffer parks beside it, so the "Scratchpad file" row and
+        // tab are present from the first paint and a click brings up the
+        // same empty buffer a bare visit would have. Someone else's
+        // scratchpad (PRD 023 Req 5) and every other workspace set neither.
+        setScratchPark(freshScratchPark());
       }
       // PRD 020 Req 5: a path deep link's file half — armed before the
       // workspace binding below opens; the workspace open consumes it.
@@ -3957,9 +3987,18 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         await p.writeTextFile(sidecarPathFor(target), serializeSidecar(s.comments));
       }
       await p.commitFile?.(target);
+      // Issue #320: read before the switch — openDoc clears the mark (PRD 023
+      // Req 12: the written file is an ordinary document from here on).
+      const wasScratch = s.untitled && scratchRef.current;
       await openDoc(p, target); // switch to the new document (title, watcher, sidecar)
+      // Issue #320: saving the scratch buffer away spawns a fresh one, PARKED
+      // beside the saved file — empty, clean, fresh history — so inside the
+      // owner's scratchpad the "Scratchpad file" row and tab survive the
+      // save (every save route lands here: ⌘S, Save, Save As…, the picker).
+      // Saving an ordinary file never touches the slot.
+      if (wasScratch) setScratchPark(freshScratchPark());
     },
-    [openDoc]
+    [openDoc, setScratchPark]
   );
 
   /**
@@ -4017,7 +4056,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           // PRD 009 Req 13 (issue #262): the picker's New File is a creation,
           // so it opens like every other one — edit mode with the caret in
           // the text, never the remembered view of an empty page.
-          await openDoc(p, target, { editIntent: true });
+          // Issue #320: and over the ACTIVE scratch buffer it is an open like
+          // any other inside the owner's scratchpad — the buffer parks (text
+          // and dirty state kept) instead of being discarded, so the
+          // "Scratchpad file" row and tab survive a New File too.
+          await openDoc(p, target, { editIntent: true, parkScratch: true });
         } else {
           await writeDocCopyTo(p, target);
         }
@@ -5078,8 +5121,12 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             return;
           }
           if (!s.untitled) return; // splash — nothing to close
-          // PRD 019 Req 11: closing the scratch buffer discards it silently.
-          if (s.dirty && !scratchRef.current) setOpenPrompt({ kind: 'close-untitled' });
+          // Issue #320: the scratch buffer cannot be closed — inside the
+          // owner's scratchpad one is always alive, so File → Close / ⌘W
+          // over it is a no-op: no splash, no prompt, the text stays. (PRD
+          // 019 Req 11's silent discard is now leaving the workspace's alone.)
+          if (scratchRef.current) return;
+          if (s.dirty) setOpenPrompt({ kind: 'close-untitled' });
           else closeToSplash();
         })();
       },
@@ -8296,15 +8343,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             onCloseFile={closeOpenFile}
             // Issue #311: the "Scratchpad file" row — alive (active or
             // parked) per the shared presence value; its click restores the
-            // parked buffer; its ✕ closes through the very command the tab's
-            // ✕ uses while active (silent, PRD 019 Req 11) and just drops the
-            // park entry while parked (the active file is untouched).
+            // parked buffer. Issue #320: it has no ✕ — the buffer cannot be
+            // closed (the row renders no close control, so there is nothing
+            // to wire).
             scratch={scratchPresent}
             onOpenScratch={restoreScratch}
-            onCloseScratch={() => {
-              if (scratchRef.current) dispatchCommand('closeFile');
-              else setScratchPark(null);
-            }}
             onOpenFolder={() => dispatchCommand('openFolder')}
             // PRD 007 Req 22: with a workspace open and no roots yet (the
             // state local New Workspace… creates), the empty panel's button
@@ -8477,10 +8520,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           untitledDirty={untitled && dirty}
           // Issue #311: the PARKED scratch buffer keeps its tab (inactive)
           // — the same presence value the folder row renders from; clicking
-          // it restores the buffer, its ✕ drops the park entry.
+          // it restores the buffer. Issue #320: no ✕, no middle-click close —
+          // the strip renders the scratch tabs (active and parked) without a
+          // close control, so nothing is wired for them.
           scratchParked={scratchPresent && !scratchPresent.active ? scratchPresent : null}
           onActivateScratch={restoreScratch}
-          onCloseScratchParked={() => setScratchPark(null)}
           // PRD 013 Req 5 (SPEC36 §3.6): the same dirty set the sidebar rows
           // read — active or parked, one source of truth.
           dirtyFiles={dirtyOpenFiles}
@@ -8498,7 +8542,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           // PRD 013 Req 8: the untitled tab's ✕ / middle-click dispatch the
           // very command File → Close File does — its untitled branch is the
           // existing dirty-untitled guard (dirty ⇒ the close-untitled
-          // prompt, clean ⇒ splash). No second close path.
+          // prompt, clean ⇒ splash). No second close path. Issue #320: the
+          // strip only offers this for an ORDINARY Untitled tab — the active
+          // scratch tab renders no ✕ and ignores middle-click.
           onCloseUntitled={() => dispatchCommand('closeFile')}
         />
       )}

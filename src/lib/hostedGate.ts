@@ -142,6 +142,14 @@ export interface HostedBoot {
    */
   scratch?: boolean;
   /**
+   * Issue #320: this binding entered the caller's OWN scratchpad (with or
+   * without a target file — `scratch` is the no-file subset). App keeps a
+   * scratch buffer alive for the whole visit: active when `scratch` boots
+   * it, parked (empty, clean) beside the file a file URL opens. Someone
+   * else's scratchpad and every other workspace leave it unset.
+   */
+  scratchOwn?: boolean;
+  /**
    * PRD 020 Req 10+13: the bound workspace is a scratchpad workspace, owned
    * by this username — the canonical URL is `/<scratchOwner>/scratchpad[/…]`,
    * never the workspace's own unique-name path.
@@ -165,6 +173,7 @@ export function takeHostedBoot(store: KeyValueStore): HostedBoot | null {
         ...(typeof parsed.uniqueName === 'string' ? { uniqueName: parsed.uniqueName } : {}),
         ...(typeof parsed.file === 'string' ? { file: parsed.file } : {}),
         ...(parsed.scratch === true ? { scratch: true } : {}),
+        ...(parsed.scratchOwn === true ? { scratchOwn: true } : {}), // issue #320
         ...(typeof parsed.scratchOwner === 'string' ? { scratchOwner: parsed.scratchOwner } : {}),
       };
     }

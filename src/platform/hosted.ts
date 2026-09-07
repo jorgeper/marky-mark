@@ -105,6 +105,9 @@ export function createHostedPlatform(): Platform {
   // PRD 019 Req 10: the boot record says whether this binding is a
   // scratchpad visit (fresh scratch buffer, prompt-exempt).
   const scratchStart = boot?.scratch === true;
+  // Issue #320: and whether the binding is the caller's OWN scratchpad at all
+  // (a file URL into it says yes here and no above).
+  const scratchOwn = boot?.scratchOwn === true;
   // PRD 020 Req 6: the live binding `currentId()` answers from and `unbind`
   // drops — see HostedBinding in hostedWorkspaces.ts.
   const binding: HostedBinding = {
@@ -804,6 +807,9 @@ export function createHostedPlatform(): Platform {
     // PRD 019 Req 10+11: only a /scratchpad visit resolved by the sign-in
     // gate sets this — App starts (and exempts) the scratch buffer from it.
     ...(scratchStart ? { scratchStart: true } : {}),
+    // Issue #320: own scratchpad, file URL or not — App keeps a scratch
+    // buffer alive (parked beside an opened file) from this.
+    ...(scratchOwn ? { scratchOwn: true } : {}),
 
     // PRD 017 Req 3: the held /api/me record rides the same capability seam
     // as the rest of the session (App renders the entry-surface affordances

@@ -127,6 +127,20 @@ describe('PRD 020 Req 5+6+9 visit intent and boot hand-off', () => {
     expect(takeHostedBoot(store)).toBeNull();
     expect(store.size()).toBe(0);
   });
+  it('U1281: issue #320 — the boot record carries the own-scratchpad flag beside the fresh-boot one, and only when set', () => {
+    const store = memoryStore();
+    // A file URL into the caller's own scratchpad: own, not fresh — App
+    // parks an empty scratch buffer beside the opened file from this.
+    storeHostedBoot(store, { workspaceId: 'ws-42', scratchOwner: 'ada', file: 'opened.md', scratchOwn: true });
+    expect(takeHostedBoot(store)).toEqual({ workspaceId: 'ws-42', scratchOwner: 'ada', file: 'opened.md', scratchOwn: true });
+    // A bare own-scratch visit: both — the fresh boot implies own.
+    storeHostedBoot(store, { workspaceId: 'ws-42', scratchOwner: 'ada', scratch: true, scratchOwn: true });
+    expect(takeHostedBoot(store)).toEqual({ workspaceId: 'ws-42', scratchOwner: 'ada', scratch: true, scratchOwn: true });
+    // Someone else's scratchpad: neither, and the flag is absent rather than false.
+    storeHostedBoot(store, { workspaceId: 'ws-7', scratchOwner: 'grace' });
+    expect(takeHostedBoot(store)).toEqual({ workspaceId: 'ws-7', scratchOwner: 'grace' });
+    expect(store.size()).toBe(0);
+  });
   it('U1205: the session record rides one page load from the gate to the platform', () => {
     const store = memoryStore();
     expect(takeSessionRecord(store)).toBeNull();

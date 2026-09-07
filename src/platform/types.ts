@@ -279,6 +279,18 @@ export interface Platform {
   scratchStart?: boolean;
 
   /**
+   * Issue #320: the bound workspace is the signed-in user's OWN scratchpad —
+   * whatever the entry route. `scratchStart` is its no-target-file subset:
+   * when that boots the active scratch buffer this is true too; when a file
+   * URL opens a file instead, App parks an empty, clean scratch buffer beside
+   * it so the "Scratchpad file" row and tab are always present inside the
+   * owner's scratchpad. Set only by the hosted platform from the sign-in
+   * gate's binding; desktop, the dev shim and the single-file build never set
+   * it, and app code mounts on the capability, never on the flavor.
+   */
+  scratchOwn?: boolean;
+
+  /**
    * PRD 020 Req 5: a document the platform's boot binding asks App to open
    * once the bound workspace has landed — the file half of a path deep link
    * (`/<workspace-name>/<path…>/<file>`), as a virtual platform path. Opened

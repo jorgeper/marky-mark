@@ -29,7 +29,8 @@ export interface FileTabStripProps {
   /**
    * PRD 013 Req 8: an untitled buffer is open — it renders as an active tab
    * labeled "Untitled" after the open set's tabs, carrying the same trailing
-   * ●/✕ slot (its ✕ and middle-click close through `onCloseUntitled`). On
+   * ●/✕ slot (its ✕ and middle-click close through `onCloseUntitled`; issue
+   * #320: the scratch buffer's tab carries the ● only — no ✕). On
    * Save As the owner clears this flag and opens the saved file, so the
    * ephemeral tab is replaced by the real one (SPEC36, via openDoc's addOpen).
    */
@@ -51,7 +52,8 @@ export interface FileTabStripProps {
    * Issue #311: the scratchpad's scratch buffer while PARKED (another file
    * is active) — its tab stays, inactive, labelled "Scratchpad file" in the
    * same token treatment, with the parked entry's dirtiness; clicking it
-   * restores the buffer, its ✕ / middle-click discards the park entry. Null
+   * restores the buffer. Issue #320: it has no ✕ and ignores middle-click —
+   * inside the owner's scratchpad a scratch buffer is always alive. Null
    * ⇒ no parked scratch (the ACTIVE scratch renders through `untitled` +
    * `untitledScratch` as before). The same presence value the folder panel's
    * row renders from, so the two never disagree.
@@ -59,8 +61,6 @@ export interface FileTabStripProps {
   scratchParked: ScratchPresence | null;
   /** Issue #311: the parked scratch tab's click — restore the buffer. */
   onActivateScratch(): void;
-  /** Issue #311: the parked scratch tab's ✕ / middle-click — drop it silently. */
-  onCloseScratchParked(): void;
   /** PRD 013 Req 5 (SPEC36 §3.6): open files with unsaved changes — their
    *  tabs carry the dirty ●. The very set the sidebar's rows read. */
   dirtyFiles: ReadonlySet<string>;
@@ -84,7 +84,7 @@ export interface FileTabStripProps {
   /** PRD 013 Req 7: Close All — the owner walks the whole open set. */
   onCloseAll(): void;
   /**
-   * PRD 013 Req 8: close the untitled buffer through the owner's EXISTING
+   * PRD 013 Req 8: close the ORDINARY untitled buffer through the owner's EXISTING
    * dirty-untitled guard — the very call File → Close File makes (App's
    * `closeFile` command: dirty ⇒ the close-untitled prompt, clean ⇒ splash).
    * The untitled tab's ✕ and middle-click both call this; no second path.
@@ -113,10 +113,13 @@ function Tab({ active, label, title, path, dirty, scratch, onClick, onClose, onM
   scratch?: boolean;
   /** Absent (the ACTIVE tab, and the untitled one) ⇒ clicking it is inert. */
   onClick?: () => void;
-  /** Every tab closes — open-set tabs via SPEC36 §3.4, the untitled tab via
-   *  the owner's dirty-untitled guard (PRD 013 Req 8). Behind the ✕ and the
-   *  middle-click alike. */
-  onClose: () => void;
+  /** Open-set tabs close via SPEC36 §3.4, the untitled tab via the owner's
+   *  dirty-untitled guard (PRD 013 Req 8) — behind the ✕ and the middle-click
+   *  alike. Issue #320: ABSENT for the scratch buffer's tabs (active and
+   *  parked): no ✕ renders (the slot keeps its width and shows the ● alone,
+   *  hover included) and middle-click does nothing — the buffer cannot be
+   *  closed. */
+  onClose?: () => void;
   /** Absent (the untitled tab) ⇒ no context menu: Close Others / Close All
    *  are SPEC36 open-set walks, which the untitled buffer sits outside
    *  (§2.6), so its close affordances are the ✕ and middle-click only. */
@@ -147,7 +150,7 @@ function Tab({ active, label, title, path, dirty, scratch, onClick, onClose, onM
       onAuxClick={(e) => {
         if (e.button !== 1) return;
         e.preventDefault();
-        onClose();
+        onClose?.(); // issue #320: a no-op on the scratch tabs
       }}
       // PRD 013 Req 7: right-click opens the tab menu (owner-suppressed OS
       // menu, no activation — activation rides onClick, main button only).
@@ -166,10 +169,13 @@ function Tab({ active, label, title, path, dirty, scratch, onClick, onClose, onM
           the dirty ● swaps for the ✕ on tab hover (styles.css); the slot
           always renders so the label never reflows when they swap. The ✕
           is a span[role=button], not a nested <button> (the tab is one),
-          with its own testids distinct from the sidebar's folder-* ids. */}
-      <span className="file-tab-slot">
+          with its own testids distinct from the sidebar's folder-* ids.
+          Issue #320: a tab with no `onClose` (the scratch buffer's) renders
+          no ✕ at all — `no-close` keeps its ● visible under hover, where the
+          swap would otherwise empty the slot. */}
+      <span className={`file-tab-slot${onClose ? '' : ' no-close'}`}>
         {dirty && <span className="file-tab-dirty" data-testid="file-tab-dirty" aria-hidden="true" />}
-        <span
+        {onClose && <span
           className="file-tab-close"
           data-testid="file-tab-close"
           role="button"
@@ -189,7 +195,7 @@ function Tab({ active, label, title, path, dirty, scratch, onClick, onClose, onM
               <line x1="11.6" y1="4.4" x2="4.4" y2="11.6" />
             </g>
           </svg>
-        </span>
+        </span>}
       </span>
     </button>
   );
@@ -407,13 +413,16 @@ export function FileTabStrip(p: FileTabStripProps) {
             path=""
             dirty={p.untitledDirty}
             scratch={untitledName.scratch}
-            onClose={p.onCloseUntitled}
+            // Issue #320: the scratch buffer's tab cannot close — no ✕, no
+            // middle-click; an ordinary Untitled keeps PRD 013 Req 8's close.
+            onClose={untitledName.scratch ? undefined : p.onCloseUntitled}
           />
         )}
         {p.scratchParked && (
           // Issue #311: the parked scratch buffer keeps its tab — inactive,
           // clickable to restore, no menu (it sits outside the open set like
           // the untitled tab it was). Same label resolution as the active one.
+          // Issue #320: and no close (no `onClose`) — it cannot be discarded.
           <Tab
             active={false}
             label={scratchName}
@@ -422,7 +431,6 @@ export function FileTabStrip(p: FileTabStripProps) {
             dirty={p.scratchParked.dirty}
             scratch
             onClick={p.onActivateScratch}
-            onClose={p.onCloseScratchParked}
           />
         )}
       </div>

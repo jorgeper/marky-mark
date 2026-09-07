@@ -64,8 +64,6 @@ export interface FolderPanelProps {
   scratch?: ScratchPresence | null;
   /** Issue #311: the scratch row's click — restore the parked buffer (no-op while active). */
   onOpenScratch?(): void;
-  /** Issue #311: the scratch row's ✕ — discard the buffer, silently, dirty or not. */
-  onCloseScratch?(): void;
   onOpenFolder(): void;
   /**
    * PRD 007 Req 22: the root-less state of a workspace that HAS been created
@@ -523,13 +521,15 @@ function MdGlyph() {
 /**
  * SPEC36 §3.4/§3.6: the trailing slot on an open row — the dirty ● swaps for
  * the ✕ on hover (styles.css). A span with role=button: the row itself is
- * already a <button>.
+ * already a <button>. Issue #320: with no `onClose` (the scratch row) the
+ * slot renders no ✕ at all and keeps its ● through hover — `no-close`
+ * cancels the swap — so the row cannot be closed and never reflows.
  */
-function TabSlot({ dirty, onClose }: { dirty: boolean; onClose(): void }) {
+function TabSlot({ dirty, onClose }: { dirty: boolean; onClose?(): void }) {
   return (
-    <span className="folder-tab-slot">
+    <span className={`folder-tab-slot${onClose ? '' : ' no-close'}`}>
       {dirty && <span className="folder-dirty" data-testid="folder-dirty" aria-hidden="true" />}
-      <span
+      {onClose && <span
         className="folder-tab-close"
         data-testid="folder-tab-close"
         role="button"
@@ -546,7 +546,7 @@ function TabSlot({ dirty, onClose }: { dirty: boolean; onClose(): void }) {
             <line x1="11.6" y1="4.4" x2="4.4" y2="11.6" />
           </g>
         </svg>
-      </span>
+      </span>}
     </span>
   );
 }
@@ -558,7 +558,9 @@ function TabSlot({ dirty, onClose }: { dirty: boolean; onClose(): void }) {
  * carrying `.scratch-name` so it resolves the --mm-scratch-name token pair
  * exactly like the toolbar name and the tab label (PRD 023 Req 7). Its own
  * test id (never `folder-item`, so existing row counts are untouched). No
- * context menu, no drag source, no rename: it is not a file.
+ * context menu, no drag source, no rename: it is not a file. Issue #320: and
+ * no ✕ — inside the owner's scratchpad the buffer is always alive, so the
+ * slot carries the dirty ● alone.
  */
 function ScratchRow({ depth, p }: { depth: number | null; p: FolderPanelProps }) {
   const s = p.scratch;
@@ -586,7 +588,7 @@ function ScratchRow({ depth, p }: { depth: number | null; p: FolderPanelProps })
       <span className="scratch-name" data-scratch="true">
         {name}
       </span>
-      <TabSlot dirty={s.dirty} onClose={() => p.onCloseScratch?.()} />
+      <TabSlot dirty={s.dirty} />
     </button>
   );
 }

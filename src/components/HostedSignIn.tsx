@@ -190,13 +190,17 @@ async function resolveHostedVisit(probes: BootProbes, me: SessionMe | null): Pro
    * `/<username>/scratchpad[/…]` form, and bind. That rewrite is also what
    * normalizes a legacy `/scratch` visit (issue #244). `fresh` is what boots
    * the PRD 019 Req 10 scratch buffer, and every caller answers it the one
-   * PRD 023 way: scratchBootsFresh — own scratchpad, no target file.
+   * PRD 023 way: scratchBootsFresh — own scratchpad, no target file. Issue
+   * #320: `own` (isOwnScratch, the same handle match) rides beside it so a
+   * file URL into the caller's own scratchpad still parks an empty scratch
+   * buffer next to the opened file — `fresh` implies `own`, never the reverse.
    */
   const bindScratch = async (
     id: string,
     owner: string,
     file: readonly string[],
     fresh: boolean,
+    own: boolean,
   ): Promise<VisitOutcome> => {
     const rel = file.length > 0 ? file.join('/') : null;
     if (rel !== null) {
@@ -211,6 +215,7 @@ async function resolveHostedVisit(probes: BootProbes, me: SessionMe | null): Pro
       scratchOwner: owner,
       ...(rel !== null ? { file: rel } : {}),
       ...(fresh ? { scratch: true } : {}),
+      ...(own ? { scratchOwn: true } : {}), // issue #320
     });
     return { kind: 'bound' };
   };
@@ -237,6 +242,7 @@ async function resolveHostedVisit(probes: BootProbes, me: SessionMe | null): Pro
         handle,
         path.kind === 'user-scratch' ? path.file : [],
         scratchBootsFresh(path, handle),
+        true, // issue #320: the caller's own — isOwnScratch just said so
       );
     }
     if (path.kind === 'scratch') {
@@ -261,7 +267,9 @@ async function resolveHostedVisit(probes: BootProbes, me: SessionMe | null): Pro
     }
     // PRD 023 Req 5: someone else's scratch (or an own visit with no resolved
     // handle) never boots a scratch buffer — the same one decision answers no.
-    return bindScratch(resolved.id, resolved.owner ?? path.username, path.file, scratchBootsFresh(path, handle));
+    // Issue #320: and keeps no parked one either — isOwnScratch already said
+    // no above (that is how this branch was reached), so `own` is false.
+    return bindScratch(resolved.id, resolved.owner ?? path.username, path.file, scratchBootsFresh(path, handle), false);
   }
 
   const rows = (await probes.rows) ?? [];
@@ -278,7 +286,9 @@ async function resolveHostedVisit(probes: BootProbes, me: SessionMe | null): Pro
       // way the URLs do — on the canonical target bindScratch rewrites to.
       const file = wanted?.file ?? [];
       const canonical: AppPathTarget = { kind: 'user-scratch', username: handle, file };
-      return bindScratch(row.id, handle, file, scratchBootsFresh(canonical, handle));
+      // Issue #320: a flagged row is the caller's own, so the buffer stays
+      // alive here too (parked beside a file, active without one).
+      return bindScratch(row.id, handle, file, scratchBootsFresh(canonical, handle), isOwnScratch(canonical, handle));
     }
   }
   const file = wanted && wanted.file.length > 0 ? wanted.file.join('/') : null;
