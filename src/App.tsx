@@ -8492,10 +8492,13 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           full-edit branches alike. Its `with-tabs` hands the workspace's
           static-toolbar clearance to the strip, which is now the column's
           top edge (styles.css).
-          PRD 025 Reqs 1–6 (issue #331): this column IS the page — the
-          centred, max-width --mm-bg surface on the body row's ground, with
-          its own top radius and shadow while a side pane is open; the old
-          ::after seam overlay is gone (styles.css .workspace-stack). */}
+          PRD 025 Reqs 1–6 (issue #331; Req 6 amended by issue #340): this
+          column is the page's slot — centred and capped at --mm-page-w on
+          the body row's ground. The page proper is the .workspace below the
+          strip: it carries the --mm-bg fill, the top radius, the 1px
+          outline and the shadow while a side pane is open, so the shadow
+          starts at the page's corners under the strip band; the old ::after
+          seam overlay is gone (styles.css .workspace-stack > .workspace). */}
       <div className={`workspace-stack${showFileTabs ? ' with-tabs' : ''}`}>
         {/* PRD 003 Req 2: with the pane closed, a chevron at the workspace's
             left edge reopens it — PRD 012 Req 9 seats the view switch beside

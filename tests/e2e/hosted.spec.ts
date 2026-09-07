@@ -3455,7 +3455,7 @@ test('E359: hosted — ✕ closes a tab without switching, and Settings ▸ Appe
   await expect(hostedTab(page, 'keep.md')).toHaveAttribute('data-active', 'true');
 });
 
-test('E587: PRD 025 Req 27 (issue #332) — hosted: at 1800px the sidebar and the comments column hug the centred page with equal ground either side, the page carries its radius and shadow, and the Edit/Preview toggle closes the strip\'s control group', async ({
+test('E587: PRD 025 Req 27 (issue #332; Req 6 amended by issue #340) — hosted: at 1800px the sidebar and the comments column hug the centred page with equal ground either side, the page proper below the strip carries its radius, shadow and 1px outline with the tabs outlined and shadowed on it, and the Edit/Preview toggle closes the strip\'s control group', async ({
   page,
   request,
 }) => {
@@ -3499,17 +3499,58 @@ test('E587: PRD 025 Req 27 (issue #332) — hosted: at 1800px the sidebar and th
   expect(Math.abs(f.right - s.left)).toBeLessThanOrEqual(1);
   expect(Math.abs(s.right - c.left)).toBeLessThanOrEqual(1);
 
-  // Reqs 6–7: the page is the lifted, rounded surface — its radius the
-  // theme's --mm-radius-small, its shadow present.
+  // Reqs 6–7 (Req 6 amended by issue #340): the page proper — the surface
+  // below the strip band — is the lifted, rounded, outlined sheet: its
+  // radius the theme's --mm-radius-small, its shadow present, a 1px outline
+  // on four sides, its top edge at the band's bottom; the band and the
+  // column paint no shadow of their own.
   const radius = await page
     .locator('.theme-root')
     .evaluate((el) => getComputedStyle(el).getPropertyValue('--mm-radius-small').trim());
-  const rounded = await stack.evaluate((el) => ({
-    radius: getComputedStyle(el).borderTopLeftRadius,
-    shadow: getComputedStyle(el).boxShadow,
-  }));
-  expect(rounded.radius).toBe(radius);
-  expect(rounded.shadow).not.toBe('none');
+  const sheet = await page.evaluate(() => {
+    const strip = document.querySelector('[data-testid="file-tab-strip"]')!;
+    const stack = document.querySelector('.workspace-stack')!;
+    const el = document.querySelector('.workspace-stack > .workspace')!;
+    const st = getComputedStyle(el);
+    return {
+      radius: st.borderTopLeftRadius,
+      shadow: st.boxShadow,
+      widths: [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth],
+      topMinusStripBottom: el.getBoundingClientRect().top - strip.getBoundingClientRect().bottom,
+      stripShadow: getComputedStyle(strip).boxShadow,
+      stackShadow: getComputedStyle(stack).boxShadow,
+    };
+  });
+  expect(sheet.radius).toBe(radius);
+  expect(sheet.shadow).not.toBe('none');
+  expect(sheet.widths).toEqual(['1px', '1px', '1px', '1px']);
+  expect(Math.abs(sheet.topMinusStripBottom)).toBeLessThanOrEqual(0.5);
+  expect(sheet.stripShadow).toBe('none');
+  expect(sheet.stackShadow).toBe('none');
+  // Req 17 (amended): every tab is outlined and shadowed on the page's plane,
+  // the active tab with the page's fill and no bottom edge.
+  const tabs = await page.locator('.file-tab').evaluateAll((els) =>
+    els.map((el) => {
+      const s = getComputedStyle(el);
+      return {
+        active: el.classList.contains('active'),
+        bg: s.backgroundColor,
+        topWidth: s.borderTopWidth,
+        bottomWidth: s.borderBottomWidth,
+        shadow: s.boxShadow,
+      };
+    })
+  );
+  expect(tabs.length).toBeGreaterThan(0);
+  const pageBg = await page.locator('.workspace-stack > .workspace').evaluate((el) => getComputedStyle(el).backgroundColor);
+  for (const t of tabs) {
+    expect(t.topWidth).toBe('1px');
+    expect(t.shadow).not.toBe('none');
+    if (t.active) {
+      expect(t.bottomWidth).toBe('0px');
+      expect(t.bg).toBe(pageBg);
+    }
+  }
 
   // Reqs 19–20: the toggle is the LAST member of the strip's trailing group
   // and the toolbar renders none (E579's form, on hosted).

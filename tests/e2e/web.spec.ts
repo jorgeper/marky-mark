@@ -679,7 +679,7 @@ test('W18: PRD 015 Req 12 (issue #172) — the corner-drag resize persists width
   expect(Math.abs(n - target)).toBeLessThanOrEqual(2);
 });
 
-test('W19: PRD 025 Reqs 7, 11, 27 (issue #331) — the static build shows the both-panes-closed page (no sidebar, no strip, flat and edge to edge); turning comments on mounts the 300px column hugging the page, which gains its radius and shadow', async ({
+test('W19: PRD 025 Reqs 7, 11, 27 (issue #331; Req 6 amended by issue #340) — the static build shows the both-panes-closed page (no sidebar, no strip, flat and edge to edge, no side or bottom outline); turning comments on mounts the 300px column hugging the page proper, which gains its radius, shadow and four-sided 1px outline', async ({
   page,
 }) => {
   await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
@@ -696,9 +696,24 @@ test('W19: PRD 025 Reqs 7, 11, 27 (issue #331) — the static build shows the bo
   const [b, s] = await Promise.all([rectOf('.body-row'), rectOf('.workspace-stack')]);
   expect(Math.abs(b.left - s.left)).toBeLessThanOrEqual(1);
   expect(Math.abs(b.right - s.right)).toBeLessThanOrEqual(1);
-  expect(
-    await stack.evaluate((el) => ({ radius: getComputedStyle(el).borderRadius, shadow: getComputedStyle(el).boxShadow }))
-  ).toEqual({ radius: '0px', shadow: 'none' });
+  // Issue #340: the treatment lives on the page proper (.workspace inside
+  // the column), never on the column; with no pane it is flat — the top
+  // hairline alone remains, as in every pane state.
+  const pageProper = page.locator('.workspace-stack > .workspace');
+  const readSheet = (el: Element) => {
+    const st = getComputedStyle(el);
+    return {
+      radius: st.borderRadius,
+      shadow: st.boxShadow,
+      widths: [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth],
+    };
+  };
+  expect(await pageProper.evaluate(readSheet)).toEqual({
+    radius: '0px',
+    shadow: 'none',
+    widths: ['1px', '0px', '0px', '0px'],
+  });
+  expect(await stack.evaluate(readSheet)).toEqual({ radius: '0px', shadow: 'none', widths: ['0px', '0px', '0px', '0px'] });
 
   // Comments on: the column is the cluster's right member.
   await page.getByTestId('comments-expand').click();
@@ -715,12 +730,18 @@ test('W19: PRD 025 Reqs 7, 11, 27 (issue #331) — the static build shows the bo
   const radius = await page
     .locator('.theme-root')
     .evaluate((el) => getComputedStyle(el).getPropertyValue('--mm-radius-small').trim());
-  const rounded = await stack.evaluate((el) => ({
-    radius: getComputedStyle(el).borderTopLeftRadius,
-    shadow: getComputedStyle(el).boxShadow,
-  }));
+  const rounded = await pageProper.evaluate((el) => {
+    const st = getComputedStyle(el);
+    return {
+      radius: st.borderTopLeftRadius,
+      shadow: st.boxShadow,
+      widths: [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth],
+    };
+  });
   expect(rounded.radius).toBe(radius);
   expect(rounded.shadow).not.toBe('none');
+  expect(rounded.widths).toEqual(['1px', '1px', '1px', '1px']);
+  expect(await stack.evaluate(readSheet)).toEqual({ radius: '0px', shadow: 'none', widths: ['0px', '0px', '0px', '0px'] });
 });
 
 test('W20: PRD 025 Reqs 20, 27 (issue #332) — the static build renders the one Edit/Preview toggle in .edge-cluster, the page-level control row at the page\'s top-right, and none in the toolbar; there is no strip for it to ride', async ({

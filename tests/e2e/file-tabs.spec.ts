@@ -1165,84 +1165,170 @@ const colorTokenOf = (page: Page, name: string) =>
     return c;
   }, name);
 
-/** The issue #331 flat-strip assertions, valid under any theme currently on
- *  and any number of open-but-inactive tabs (openThree leaves two of them). */
-async function assertFlatStrip(page: Page): Promise<void> {
+/** The page-and-tabs assertions of issue #340 (PRD 025 Reqs 6, 17–18 as
+ *  amended), valid under any theme currently on and any number of
+ *  open-but-inactive tabs (openThree leaves two of them): the strip band is
+ *  flat ground; the page proper below it carries the radius, the shadow and
+ *  a 1px outline on four sides; every tab is outlined and shadowed on the
+ *  page's plane; the active tab has the page's fill, no bottom edge, and
+ *  overhangs the page's top hairline so the two are one surface. */
+async function assertPageAndTabs(page: Page): Promise<void> {
   const active = page.locator('.file-tab.active');
   const inactive = page.locator('.file-tab:not(.active)');
+  const strip = page.getByTestId('file-tab-strip');
+  const pageProper = page.locator('.workspace-stack > .workspace');
   await expect(active).toHaveCount(1);
+  const border = channels(await colorTokenOf(page, '--mm-border'));
+  const radius = await tokenOf(page, '--mm-radius-small');
 
   // Req 17: the strip is the ground's own colour — the folder panel's and
-  // the body row's (one continuous --mm-bg-elevated plane).
-  const stripBg = channels(await bgOf(page.getByTestId('file-tab-strip')));
+  // the body row's (one continuous --mm-bg-elevated plane) — and, above the
+  // page's corner, nothing on that plane paints a shadow, hairline or radius
+  // (issue #340 point A): not the band, not the column around it, not the
+  // sidebar, not the ground.
+  const stripBg = channels(await bgOf(strip));
   expect(stripBg).toEqual(channels(await bgOf(page.getByTestId('folder-panel'))));
   expect(stripBg).toEqual(channels(await bgOf(page.locator('.body-row'))));
+  const flatStyle = (el: Element) => {
+    const s = getComputedStyle(el);
+    return { shadow: s.boxShadow, radius: s.borderRadius, borderWidths: s.borderWidth };
+  };
+  const flat = { shadow: 'none', radius: '0px', borderWidths: '0px' };
+  expect(await strip.evaluate(flatStyle)).toEqual(flat);
+  for (const sel of ['.workspace-stack', '.folder-wrap', '.body-row']) {
+    expect(await page.locator(sel).evaluate(flatStyle)).toEqual(flat);
+  }
+  expect(await page.getByTestId('folder-panel').evaluate((el) => getComputedStyle(el).boxShadow)).toBe('none');
 
-  // The active tab IS the page: the theme root's --mm-bg (.workspace itself
-  // is transparent over the page) and .workspace-stack's own background.
+  // Req 6 (amended): the page proper is the theme root's --mm-bg sheet with
+  // the tabs' radius on its top corners, --mm-panel-shadow, a 1px
+  // --mm-border outline on all four sides, and no ::after seam overlay
+  // anywhere on the column.
   const pageBg = channels(await bgOf(page.locator('.theme-root')));
-  expect(channels(await bgOf(page.locator('.workspace-stack')))).toEqual(pageBg);
-  const activeBg = channels(await bgOf(active));
-  expect(activeBg).toEqual(pageBg);
-  expect(activeBg).not.toEqual(stripBg);
+  expect(channels(await bgOf(pageProper))).toEqual(pageBg);
+  const sheet = await pageProper.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return {
+      shadow: s.boxShadow,
+      radiusLeft: s.borderTopLeftRadius,
+      radiusRight: s.borderTopRightRadius,
+      widths: [s.borderTopWidth, s.borderRightWidth, s.borderBottomWidth, s.borderLeftWidth],
+      colors: [s.borderTopColor, s.borderRightColor, s.borderBottomColor, s.borderLeftColor],
+    };
+  });
+  expect(sheet.shadow).not.toBe('none');
+  expect(sheet.radiusLeft).toBe(radius);
+  expect(sheet.radiusRight).toBe(radius);
+  expect(sheet.widths).toEqual(['1px', '1px', '1px', '1px']);
+  for (const c of sheet.colors) expect(channels(c)).toEqual(border);
+  expect(await page.locator('.workspace-stack').evaluate((el) => getComputedStyle(el, '::after').content)).toBe(
+    'none'
+  );
 
-  // Inactive tabs: flat pills on the ground — the strip's colour, a 1px
-  // --mm-border outline open at the bottom, no lift, no stacking.
-  const border = channels(await colorTokenOf(page, '--mm-border'));
-  const inactiveStyles = await inactive.evaluateAll((els) =>
+  // Req 17 (amended): every tab — active and inactive — stands on the page's
+  // plane: a 1px --mm-border outline on top and sides, the page's radius on
+  // its top corners, and a shadow that resolves through --mm-tab-shadow
+  // (the page's shadow at tab scale). No stacking. The active tab has no
+  // bottom edge; an inactive tab's bottom edge is the hairline itself.
+  expect(await tokenOf(page, '--mm-tab-shadow')).not.toBe('');
+  // The token's value as the browser computes it, through a probe box.
+  const tabShadow = await page.locator('.theme-root').evaluate((el) => {
+    const probe = document.createElement('div');
+    probe.style.boxShadow = 'var(--mm-tab-shadow)';
+    el.appendChild(probe);
+    const v = getComputedStyle(probe).boxShadow;
+    probe.remove();
+    return v;
+  });
+  const tabStyles = await page.locator('.file-tab').evaluateAll((els) =>
     els.map((el) => {
       const s = getComputedStyle(el);
       return {
+        active: el.classList.contains('active'),
         bg: s.backgroundColor,
         topWidth: s.borderTopWidth,
+        leftWidth: s.borderLeftWidth,
+        rightWidth: s.borderRightWidth,
         topColor: s.borderTopColor,
         bottomWidth: s.borderBottomWidth,
+        bottomColor: s.borderBottomColor,
+        radius: s.borderTopLeftRadius,
         shadow: s.boxShadow,
         z: s.zIndex,
       };
     })
   );
-  expect(inactiveStyles.length).toBeGreaterThan(0);
-  for (const st of inactiveStyles) {
-    expect(channels(st.bg)).toEqual(stripBg);
+  expect(tabStyles.length).toBeGreaterThan(1);
+  for (const st of tabStyles) {
     expect(st.topWidth).toBe('1px');
+    expect(st.leftWidth).toBe('1px');
+    expect(st.rightWidth).toBe('1px');
     expect(channels(st.topColor)).toEqual(border);
-    expect(st.bottomWidth).toBe('0px');
-    expect(st.shadow).toBe('none');
+    if (st.active) expect(st.bottomWidth).toBe('0px');
+    else {
+      expect(st.bottomWidth).toBe('1px');
+      expect(channels(st.bottomColor)).toEqual(border);
+    }
+    expect(st.radius).toBe(radius);
+    expect(st.shadow).not.toBe('none');
     expect(st.z).toBe('auto');
+    // The one shadow system: the tab's resolved shadow IS the token's value
+    // (same colour and softness family as the page's --mm-panel-shadow).
+    expect(st.shadow).toBe(tabShadow);
   }
+  const activeStyle = tabStyles.find((st) => st.active)!;
+  const activeBg = channels(activeStyle.bg);
+  expect(activeBg).toEqual(pageBg);
+  expect(activeBg).not.toEqual(stripBg);
+  for (const st of tabStyles.filter((t) => !t.active)) expect(channels(st.bg)).toEqual(stripBg);
 
-  // The active tab: no shadow, no bottom edge between it and the page, no
-  // stacking — nothing breaks a seam any more.
-  const activeStyle = await active.evaluate((el) => {
-    const s = getComputedStyle(el);
-    return { shadow: s.boxShadow, bottomWidth: s.borderBottomWidth, z: s.zIndex };
-  });
-  expect(activeStyle).toEqual({ shadow: 'none', bottomWidth: '0px', z: 'auto' });
-
-  // Req 6: with the sidebar open the page carries the radius + shadow, and
-  // no ::after seam overlay remains on the stack.
-  const stack = await page.locator('.workspace-stack').evaluate((el) => {
-    const s = getComputedStyle(el);
+  // The join: every tab is one box — same top, same bottom, reaching 1px
+  // past the page's top edge onto its hairline row (E268 / E349's one-row
+  // contract holds). On that row the ACTIVE tab is what paints
+  // (elementFromPoint under its centre is the tab), with no bottom border
+  // and the page's opaque colour — the hairline is broken there; an
+  // inactive tab's 1px --mm-border bottom edge (asserted above) is the
+  // hairline continuing under it.
+  const seam = await page.evaluate(() => {
+    const pageTop = document.querySelector('.workspace-stack > .workspace')!.getBoundingClientRect().top;
+    const a = document.querySelector('.file-tab.active')!;
+    const i = document.querySelector('.file-tab:not(.active)')!;
+    const ar = a.getBoundingClientRect();
+    const ir = i.getBoundingClientRect();
+    const underActive = document.elementFromPoint((ar.left + ar.right) / 2, pageTop + 0.5);
     return {
-      shadow: s.boxShadow,
-      radius: s.borderTopLeftRadius,
-      after: getComputedStyle(el, '::after').content,
+      activeOverhang: ar.bottom - pageTop,
+      inactiveOverhang: ir.bottom - pageTop,
+      topsAligned: Math.abs(ar.top - ir.top),
+      heightsEqual: Math.abs(ar.height - ir.height),
+      activePaintsSeam: underActive !== null && a.contains(underActive),
+      activeOpaque: getComputedStyle(a).backgroundColor,
     };
   });
-  expect(stack.shadow).not.toBe('none');
-  expect(stack.radius).toBe(await tokenOf(page, '--mm-radius-small'));
-  expect(stack.after).toBe('none');
+  expect(Math.abs(seam.activeOverhang - 1)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(seam.inactiveOverhang - 1)).toBeLessThanOrEqual(0.5);
+  expect(seam.topsAligned).toBeLessThanOrEqual(0.5);
+  expect(seam.heightsEqual).toBeLessThanOrEqual(0.5);
+  expect(seam.activePaintsSeam).toBe(true);
+  expect(seam.activeOpaque).not.toMatch(/rgba\(.*, 0\)$/);
+
+  // Inactive pills hover through --mm-hover; the active tab does not change.
+  const hoverBg = channels(await colorTokenOf(page, '--mm-hover'));
+  await inactive.first().hover();
+  expect(channels(await bgOf(inactive.first()))).toEqual(hoverBg);
+  await active.hover();
+  expect(channels(await bgOf(active))).toEqual(pageBg);
+  await page.mouse.move(0, 0);
 }
 
-test('E353: the flat strip from computed styles — strip on the ground, active tab joined to the page, inactive tabs outlined pills without lift, the page rounded and shadowed with no seam overlay', async ({
+test('E353: PRD 025 Reqs 6, 17–18 as amended by issue #340 — from computed styles: the strip band is flat ground with no shadow or radius, the page proper below it is rounded, shadowed and outlined 1px on four sides, every tab is outlined and shadowed on the page\'s plane, and the active tab has the page\'s fill and breaks its top hairline', async ({
   page,
 }) => {
   await openThree(page);
-  await assertFlatStrip(page);
+  await assertPageAndTabs(page);
 });
 
-test('E306: the flat strip holds in a dark theme — ground / page contrast under One Dark, the active tab still the page surface, pills outlined in the theme\'s border', async ({
+test('E306: the page-and-tabs treatment holds in a dark theme — ground / page contrast under One Dark, the active tab still the page surface, tabs outlined in the theme\'s border and shadowed, the page outlined and shadowed', async ({
   page,
 }) => {
   await openThree(page);
@@ -1256,7 +1342,7 @@ test('E306: the flat strip holds in a dark theme — ground / page contrast unde
   await expect
     .poll(() => bgOf(page.locator('.theme-root')))
     .toBe('rgb(40, 44, 52)'); // One Dark #282c34
-  await assertFlatStrip(page);
+  await assertPageAndTabs(page);
 });
 
 // ---- PRD 025 Reqs 1–9 (issue #331): the centred page, from geometry.
@@ -1374,12 +1460,13 @@ test('E584: PRD 025 Reqs 3–5 (issue #331) — the page\'s inner width is max(c
   await expect.poll(() => pageInnerWidth(page)).toBe(wide);
 });
 
-test('E585: PRD 025 Reqs 6–7, 9 (issue #331) — both panes closed the page spans the body row flat, no radius or shadow; reopening the sidebar restores both within two frames, with no transition on the page or the wrappers', async ({
+test('E585: PRD 025 Reqs 6–7, 9 (issue #331; Req 6 amended by issue #340) — both panes closed the page proper spans the body row flat: no radius, shadow or side/bottom outline, its top hairline kept; reopening the sidebar restores radius, shadow and the four-sided outline within two frames, with no transition on the page or the wrappers', async ({
   page,
 }) => {
   await openThree(page);
   const body = page.locator('.body-row');
   const stack = page.locator('.workspace-stack');
+  const pageProper = page.locator('.workspace-stack > .workspace');
   await page.getByTestId('folder-collapse').click();
   await expect(page.getByTestId('folder-panel')).toHaveCount(0);
   await expect(page.getByTestId('comments-pane')).toHaveCount(0);
@@ -1388,14 +1475,26 @@ test('E585: PRD 025 Reqs 6–7, 9 (issue #331) — both panes closed the page sp
   const [b, s] = await Promise.all([rectOf(body), rectOf(stack)]);
   expect(Math.abs(b.left - s.left)).toBeLessThanOrEqual(1);
   expect(Math.abs(b.right - s.right)).toBeLessThanOrEqual(1);
-  const flat = await stack.evaluate((el) => {
+  const readSheet = (el: Element) => {
     const st = getComputedStyle(el);
-    return { radius: st.borderRadius, shadow: st.boxShadow };
+    return {
+      radius: st.borderRadius,
+      shadow: st.boxShadow,
+      widths: [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth],
+    };
+  };
+  // Req 7 (amended): flat and edge to edge — the top hairline stays (Req 18:
+  // the strip and the tabs look the same in every pane state).
+  expect(await pageProper.evaluate(readSheet)).toEqual({
+    radius: '0px',
+    shadow: 'none',
+    widths: ['1px', '0px', '0px', '0px'],
   });
-  expect(flat).toEqual({ radius: '0px', shadow: 'none' });
+  // The column never carries the treatment itself, in either state.
+  expect(await stack.evaluate(readSheet)).toEqual({ radius: '0px', shadow: 'none', widths: ['0px', '0px', '0px', '0px'] });
 
-  // Reopen: radius + shadow are back two frames after the click — no
-  // transition anywhere on the page or its wrappers (Req 9).
+  // Reopen: radius + shadow + outline are back two frames after the click —
+  // no transition anywhere on the page or its wrappers (Req 9).
   const after = await page.evaluate(async () => {
     (document.querySelector('[data-testid="folder-expand"]') as HTMLElement).click();
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -1405,13 +1504,15 @@ test('E585: PRD 025 Reqs 6–7, 9 (issue #331) — both panes closed the page sp
       const st = getComputedStyle(el);
       return { duration: st.transitionDuration, transform: st.transform, willChange: st.willChange };
     };
-    const st = getComputedStyle(document.querySelector('.workspace-stack')!);
+    const st = getComputedStyle(document.querySelector('.workspace-stack > .workspace')!);
     return {
       radius: st.borderTopLeftRadius,
       shadow: st.boxShadow,
+      widths: [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth],
       panesNone: document.querySelector('.body-row')!.classList.contains('panes-none'),
       motion: {
         stack: read('.workspace-stack'),
+        page: read('.workspace-stack > .workspace'),
         body: read('.body-row'),
         folder: read('.folder-wrap'),
       },
@@ -1420,8 +1521,60 @@ test('E585: PRD 025 Reqs 6–7, 9 (issue #331) — both panes closed the page sp
   expect(after.panesNone).toBe(false);
   expect(after.radius).toBe(await tokenOf(page, '--mm-radius-small'));
   expect(after.shadow).not.toBe('none');
+  expect(after.widths).toEqual(['1px', '1px', '1px', '1px']);
   const still = { duration: '0s', transform: 'none', willChange: 'auto' };
-  expect(after.motion).toEqual({ stack: still, body: still, folder: still });
+  expect(after.motion).toEqual({ stack: still, page: still, body: still, folder: still });
+  expect(await stack.evaluate(readSheet)).toEqual({ radius: '0px', shadow: 'none', widths: ['0px', '0px', '0px', '0px'] });
+});
+
+test('E589: issue #340 point A from geometry — the page\'s shadowed, outlined element starts exactly at the strip band\'s bottom edge and spans the column\'s width, the band and the column around it paint no shadow at their sides, and the page\'s outline is 1px on four sides with a pane open and on its top edge only with both panes closed', async ({
+  page,
+}) => {
+  await openThree(page);
+  await expect(page.getByTestId('folder-panel')).toBeVisible();
+  const geometry = () =>
+    page.evaluate(() => {
+      const strip = document.querySelector('[data-testid="file-tab-strip"]')!;
+      const stack = document.querySelector('.workspace-stack')!;
+      const sheet = document.querySelector('.workspace-stack > .workspace')!;
+      const sr = strip.getBoundingClientRect();
+      const kr = stack.getBoundingClientRect();
+      const pr = sheet.getBoundingClientRect();
+      const st = getComputedStyle(sheet);
+      return {
+        sheetTopMinusStripBottom: pr.top - sr.bottom,
+        sheetLeftMinusStripLeft: pr.left - sr.left,
+        sheetRightMinusStripRight: pr.right - sr.right,
+        sheetBottomMinusStackBottom: pr.bottom - kr.bottom,
+        stripShadow: getComputedStyle(strip).boxShadow,
+        stackShadow: getComputedStyle(stack).boxShadow,
+        sheetShadow: st.boxShadow,
+        widths: [st.borderTopWidth, st.borderRightWidth, st.borderBottomWidth, st.borderLeftWidth],
+      };
+    });
+
+  const open = await geometry();
+  expect(Math.abs(open.sheetTopMinusStripBottom)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(open.sheetLeftMinusStripLeft)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(open.sheetRightMinusStripRight)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(open.sheetBottomMinusStackBottom)).toBeLessThanOrEqual(0.5);
+  expect(open.stripShadow).toBe('none');
+  expect(open.stackShadow).toBe('none');
+  expect(open.sheetShadow).not.toBe('none');
+  expect(open.widths).toEqual(['1px', '1px', '1px', '1px']);
+
+  // Both panes closed: the sides and bottom go (edge to edge), the top
+  // hairline under the strip stays, and the geometry above is unchanged.
+  await page.getByTestId('folder-collapse').click();
+  await expect(page.locator('.body-row')).toHaveClass(/panes-none/);
+  const closed = await geometry();
+  expect(Math.abs(closed.sheetTopMinusStripBottom)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(closed.sheetLeftMinusStripLeft)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(closed.sheetRightMinusStripRight)).toBeLessThanOrEqual(0.5);
+  expect(closed.stripShadow).toBe('none');
+  expect(closed.stackShadow).toBe('none');
+  expect(closed.sheetShadow).toBe('none');
+  expect(closed.widths).toEqual(['1px', '0px', '0px', '0px']);
 });
 
 test('E307: Ctrl+Tab across multi-table documents — the wrap past the last tab lands the new document in the editor with no page error', async ({

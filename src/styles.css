@@ -155,7 +155,12 @@ body,
   /* PRD 025 Reqs 14, 17 (issues #329, #331): the lift-shadow one-offs are
      gone — --mm-lift-row / --mm-lift-row-active went with the sidebar
      planes, --mm-lift-tab / --mm-lift-tab-active with the tab-strip planes.
-     Depth is the page's own --mm-panel-shadow now (.workspace-stack). */
+     Depth is the page's own --mm-panel-shadow now (.workspace-stack > .workspace).
+     PRD 025 Req 17 amended by issue #340: the file tabs stand on the page's
+     plane and cast the page's shadow at tab scale — the same black at the
+     same 0.14 alpha as --mm-panel-shadow, a quarter of its blur, no spread,
+     so it fades inside the strip's 9px headroom above the tabs. */
+  --mm-tab-shadow: 0 0 6px rgba(0, 0, 0, 0.14);
   /* PRD 018 §E26 (issue #205): the last one-off colours the style lint found
      living inline in chrome rules — hoisted here verbatim (a colour literal
      may live only in a token definition or a contract-variable fallback),
@@ -1755,6 +1760,11 @@ mark.hl.ghost {
   }
   .workspace-stack {
     flex: 1 !important;
+  }
+  /* Issue #340: the page proper carries them now — flat on paper, no
+     outline either. */
+  .workspace-stack > .workspace {
+    border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
   }
@@ -2110,19 +2120,21 @@ mark.hl.ghost {
    flex-shrink 0; min-width 0 so it never refuses). Below --mm-pane-min per
    pane the content inside floors and .workspace scrolls sideways exactly as
    before — no breakpoints, no resize JS, no transition (Req 9).
-   Req 6: with a side pane open the page has rounded top corners and casts
-   --mm-panel-shadow onto the ground. This REPLACES the .workspace-stack::after
-   "seam painted once" overlay of PRD 013 Reqs 10–12 / SPEC36 §4.1 (retired):
-   no pseudo-element remains on the stack, and nothing clips the shadow —
-   neither the stack nor .body-row sets overflow. */
+   Req 6 (amended by issue #340): the stack is the page COLUMN — the strip
+   band over the page proper — and paints nothing of its own: the ground
+   shows through it, and the fill, radius, outline and --mm-panel-shadow of
+   Req 6 belong to `.workspace-stack > .workspace` below, the white document
+   surface, so the shadow starts at the page's top corners under the strip
+   and never runs up the band's sides. This REPLACES the
+   .workspace-stack::after "seam painted once" overlay of PRD 013 Reqs 10–12
+   / SPEC36 §4.1 (retired): no pseudo-element remains on the stack, and
+   nothing clips the shadow — neither the stack nor .body-row sets
+   overflow. */
 .workspace-stack {
   flex: 0 1 var(--mm-page-w);
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--mm-bg, #ffffff);
-  border-radius: var(--mm-radius-small) var(--mm-radius-small) 0 0;
-  box-shadow: var(--mm-panel-shadow);
   /* PRD 003 Req 2: the edge clusters anchor to the PAGE — with the folder
      pane open the left pill still sits at the page's own top-left corner,
      not over the pane's header. */
@@ -2143,20 +2155,44 @@ mark.hl.ghost {
    at --mm-content-width inside it as .workspace always has. */
 .body-row.panes-none > .workspace-stack {
   flex: 1;
-  border-radius: 0;
-  box-shadow: none;
 }
+/* PRD 025 Req 6 amended by issue #340: THE PAGE PROPER — the white document
+   surface below the strip band (the editor and the split preview). It, not
+   the column, is the sheet: --mm-bg fill, --mm-radius-small top corners
+   (the tabs' radius), --mm-panel-shadow cast onto the ground, and a 1px
+   --mm-border outline on all four sides. Its top corners sit level with the
+   band's bottom edge, so the shadow begins there — the band, the sidebar
+   and the ground above that corner are one flat plane with nothing painted
+   between them. The top hairline runs under the strip and is broken by the
+   active tab, which overhangs it by 1px (.file-tab.active). The outline
+   sits inside the column's --mm-page-w (E584 measures the column), so the
+   page's measured width is unchanged. */
 .workspace-stack > .workspace {
   min-height: 0; /* the column's scroll box — the strip drives no overflow */
+  background: var(--mm-bg, #ffffff);
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-radius: var(--mm-radius-small) var(--mm-radius-small) 0 0;
+  box-shadow: var(--mm-panel-shadow);
+}
+/* PRD 025 Req 7 (issue #331; amended by issue #340): both panes closed the
+   page is flat and edge to edge — no side or bottom edge, no radius, no
+   shadow. The top hairline stays: the strip and the tabs on it look the
+   same in every pane state (Req 18). */
+.body-row.panes-none > .workspace-stack > .workspace {
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 /* PRD 025 Reqs 17–18 (issue #331): the strip is a flat --mm-bg-elevated band
    at the top of the page — the ground's own colour, no seam of its own, the
    same look in every pane state (both closed included, where it simply spans
-   the full width). Its top corners take the page's radii so the band is
-   clipped to the page's rounded corners while the page's shadow stays
-   unclipped (nothing here sets overflow). The three-plane / L-shaped-backdrop
-   treatment of PRD 013 Reqs 10–12 (issue #148) is retired: depth is the
-   page's radius + shadow now. */
+   the full width). Amended by issue #340: the band has no radius and no
+   shadow of its own — it is part of the ground plane, and the page's
+   rounded, shadowed, outlined top edge starts at the band's bottom
+   (.workspace-stack > .workspace). The three-plane / L-shaped-backdrop
+   treatment of PRD 013 Reqs 10–12 (issue #148) is retired. */
 .file-tab-strip {
   flex: none;
   box-sizing: border-box;
@@ -2166,10 +2202,6 @@ mark.hl.ghost {
   align-items: flex-end;
   padding: 9px 8px 0;
   background: var(--mm-bg-elevated, #f6f8fa);
-  border-radius: var(--mm-radius-small) var(--mm-radius-small) 0 0;
-}
-.body-row.panes-none .file-tab-strip {
-  border-radius: 0;
 }
 /* PRD 013 Req 9 (issue #147): overflow scrolls instead of clipping — the
    tabs live in this inner rail, a one-row horizontal scroll box between the
@@ -2204,9 +2236,17 @@ mark.hl.ghost {
      through the strip's 9px top padding — the headroom kept so the strip
      stays --mm-tabstrip-h tall after PRD 025 Req 17 (issue #331) took the
      lift shadows that once needed it — so a tab's rounded, outlined top is
-     never sliced at the rail's edge. */
-  height: calc(100% + 9px);
+     never sliced at the rail's edge.
+     Issue #340: and 1px DOWN past the strip's bottom edge, over the page's
+     top hairline (.workspace-stack > .workspace's border-top), so the active
+     tab can overhang and break that edge; z-index 1 paints the overhang
+     above the later .workspace sibling (the rail holds only tabs, so the
+     stacking context it becomes traps nothing else). The negative bottom
+     margin keeps the strip's flex line at --mm-tabstrip-h. */
+  height: calc(100% + 10px);
   margin-top: -9px;
+  margin-bottom: -1px;
+  z-index: 1;
   /* Likewise sideways: the rail reaches into the strip's 8px left padding
      (as scroll-box padding, so the tabs still start 8px in) so the first
      tab's outline is never sliced at the rail's edge. Reveal math is
@@ -2239,11 +2279,16 @@ mark.hl.ghost {
 /* PRD 013 Req 4: one tab — bounded width; the label span clips with an
    ellipsis (no wrap, no strip-height growth) and the button's title carries
    the full path.
-   PRD 025 Req 17 (issue #331): an open-but-inactive tab is a flat quiet pill
-   on the ground — the strip's own --mm-bg-elevated with a 1px --mm-border
-   outline that is open at the bottom (it stands on the page's top edge),
-   rounded top corners, no lift shadow, no stacking. PRD 013 Reqs 10–12's
-   three planes (issue #148) are retired. */
+   PRD 025 Req 17 (issue #331; amended by issue #340): every tab stands on
+   the PAGE's plane — a 1px --mm-border outline on its top and sides,
+   --mm-radius-small top corners, and --mm-tab-shadow cast onto the band
+   around it (the page's shadow at tab scale). Every tab is one box: the
+   same height and the same bottom edge (E268, E349), which is the rail's
+   1px overhang onto the page's top hairline. An inactive tab is the band's
+   own --mm-bg-elevated and its bottom edge IS that hairline — a 1px
+   --mm-border border-bottom on the very row the page's border-top paints,
+   so the hairline runs under it unbroken. No stacking. PRD 013 Reqs 10–12's
+   three planes (issue #148) stay retired. */
 .file-tab {
   display: flex;
   align-items: center;
@@ -2254,7 +2299,6 @@ mark.hl.ghost {
   max-width: 160px;
   padding: 4px 10px;
   border: 1px solid var(--mm-border, #d1d9e0);
-  border-bottom: none;
   border-radius: var(--mm-radius-small) var(--mm-radius-small) 0 0;
   background: var(--mm-bg-elevated, #f6f8fa);
   color: var(--mm-fg-muted, #59636e);
@@ -2263,7 +2307,7 @@ mark.hl.ghost {
   line-height: 1.4;
   cursor: pointer;
   position: relative;
-  box-shadow: none;
+  box-shadow: var(--mm-tab-shadow);
 }
 .file-tab:hover {
   color: var(--mm-fg, #1f2328);
@@ -2275,15 +2319,20 @@ mark.hl.ghost {
 .file-tab:hover:not(.active) {
   background: var(--mm-hover);
 }
-/* PRD 025 Req 17 (issue #331): the ACTIVE tab is joined to the page — the
-   page's own --mm-bg, no visible outline, no shadow, and no bottom edge
-   between it and the workspace: the tab's bottom pixel row and the page's
-   top row are one colour. No stacking — nothing breaks a seam any more. */
+/* PRD 025 Req 17 (issue #331; amended by issue #340): the ACTIVE tab is
+   joined to the page — the page's own --mm-bg, the same --mm-border outline
+   on top and sides as its neighbours, and NO bottom edge: the 1px its
+   neighbours spend on the hairline goes to padding instead (same box
+   height, same bottom edge), so its own fill paints over the page's top
+   hairline and breaks it. The tab's bottom pixel row and the page's top
+   row are one colour. Its shadow stays within the rail, which the page's
+   surface never reaches. */
 .file-tab.active,
 .file-tab.active:hover {
   background: var(--mm-bg, #ffffff);
   color: var(--mm-fg, #1f2328);
-  border-color: transparent;
+  border-bottom: none;
+  padding-bottom: 5px;
 }
 .file-tab-label {
   min-width: 0;

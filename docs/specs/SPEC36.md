@@ -167,6 +167,10 @@ like `folderTree.ts`:
    > column is removed. The page's own `--mm-radius-small` top corners and
    > `--mm-panel-shadow`, cast onto the `--mm-bg-elevated` ground the sidebar
    > hugs, replace it (PRD 025 Req 6). No row breaks a seam any more.
+   > **Amended (issue #340, 2026-09-07):** "the page" there is the page
+   > proper — the white surface below the file tab strip band. Its corners,
+   > 1px `--mm-border` outline and shadow start at the band's bottom edge;
+   > the band and the sidebar above that corner are one flat ground plane.
 2. In tree view, open rows appear only where their ancestors are
    expanded — opening or restoring files never auto-expands the tree.
    The existing reveal-on-selection scroll behavior is unchanged and

@@ -128,6 +128,16 @@ implementation reference, and its pixel sizes are placeholders.
    (PRD 013 Reqs 10–12 / SPEC36 §4.1), which today paints an L-shaped
    shadow onto the strip, sidebar and comments pane, is removed; the
    page's own shadow replaces it.
+
+   > **Amended (issue #340, 2026-09-07):** the radius and shadow belong to
+   > the **page proper** — the white `--mm-bg` surface below the strip band
+   > (`.workspace-stack > .workspace`), not the whole column. The shadow's
+   > top edge begins at the page's top corners, level with the band's
+   > bottom; the band, the sidebar, the comments column and the ground
+   > above that corner are one flat `--mm-bg-elevated` plane with no shadow,
+   > hairline or radius between them. While a side pane is open the page
+   > also carries a 1px `--mm-border` outline on all four sides; its top
+   > edge runs under the band and is broken by the active tab (Req 17).
 7. **Both side panes closed** (or absent, as in the static web build):
    the page spans the full window width below the tab strip, with no
    radius and no shadow. The text column stays centered at
@@ -184,8 +194,27 @@ implementation reference, and its pixel sizes are placeholders.
     between tab and page. Inactive tabs are flat quiet pills on the ground
     (`--mm-bg-elevated` with a `--mm-border` outline), no lift shadow. The
     `--mm-lift-tab` / `--mm-lift-tab-active` tokens are removed.
+
+    > **Amended (issue #340, 2026-09-07):** the tabs stand on the page's
+    > plane, not the ground's. Every tab, active and inactive, has a 1px
+    > `--mm-border` outline on its top and sides, `--mm-radius-small` top
+    > corners and casts `--mm-tab-shadow` (an internal token beside
+    > `--mm-toolbar-shadow`, `--mm-panel-shadow`'s colour and alpha at tab
+    > scale) onto the band around it. The active tab keeps the page's
+    > `--mm-bg` and no bottom edge: it overhangs the page's top hairline by
+    > 1px and breaks it, so tab and page are one surface. Inactive tabs stay
+    > `--mm-bg-elevated`; their bottom edge is the hairline itself (the same
+    > 1px `--mm-border` row, so it runs under them unbroken), every tab one
+    > box height on one bottom edge, and they hover through `--mm-hover`;
+    > the active tab does not change on hover.
 18. The strip's look is identical in every state, including both panes
     closed (mockups 4 and 5), where it simply spans the full width.
+
+    > **Amended (issue #340, 2026-09-07):** still true with the page's
+    > hairline and the tabs' outlines and shadows: with both panes closed the
+    > page keeps its top hairline under the strip (only the side and bottom
+    > edges, the radius and the shadow go), so the band and the tabs look
+    > the same in every pane state.
 19. The existing page-level control group at the strip's right end stays
     where it is. The edit/preview **mode** toggle (`edit-toggle`, the
     "Preview ⌘E" / "Edit ⌘E" button) moves from the toolbar into that

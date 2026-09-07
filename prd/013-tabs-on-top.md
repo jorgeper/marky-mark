@@ -134,6 +134,14 @@ tabs on the left *and* on top.
     > longer exists. The sidebar analogue was retired by issue #329
     > (SPEC36 §4.1). Light and dark themes both render the ground / page
     > contrast from their own `--mm-bg-elevated` (E353 / E306).
+    > **Amended (issue #340, 2026-09-07):** the page's shadow, radius and a
+    > new 1px `--mm-border` outline moved from the page column onto the page
+    > proper below the strip band, so the shadow starts at the page's top
+    > corners and the band stays on the flat ground; every tab is outlined
+    > and casts `--mm-tab-shadow` on the page's plane, the active tab joined
+    > to the page through a break in its top hairline (PRD 025 Reqs 6, 17–18
+    > as amended). Reqs 10–12 stay retired: no `::after` seam, no lift
+    > tokens, no stacking.
 
 ### Toggle & persistence
 
