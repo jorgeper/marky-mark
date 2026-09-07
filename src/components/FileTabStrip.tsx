@@ -175,27 +175,29 @@ function Tab({ active, label, title, path, dirty, scratch, onClick, onClose, onM
           swap would otherwise empty the slot. */}
       <span className={`file-tab-slot${onClose ? '' : ' no-close'}`}>
         {dirty && <span className="file-tab-dirty" data-testid="file-tab-dirty" aria-hidden="true" />}
-        {onClose && <span
-          className="file-tab-close"
-          data-testid="file-tab-close"
-          role="button"
-          title="Close file"
-          // PRD 013 Req 5: the ✕'s pointer events never reach the tab —
-          // an inactive tab's close must not first activate it (a dirty
-          // file still activates, but through the §3.4 close path).
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose();
-          }}
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
-            <g stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
-              <line x1="4.4" y1="4.4" x2="11.6" y2="11.6" />
-              <line x1="11.6" y1="4.4" x2="4.4" y2="11.6" />
-            </g>
-          </svg>
-        </span>}
+        {onClose && (
+          <span
+            className="file-tab-close"
+            data-testid="file-tab-close"
+            role="button"
+            title="Close file"
+            // PRD 013 Req 5: the ✕'s pointer events never reach the tab —
+            // an inactive tab's close must not first activate it (a dirty
+            // file still activates, but through the §3.4 close path).
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+              <g stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+                <line x1="4.4" y1="4.4" x2="11.6" y2="11.6" />
+                <line x1="11.6" y1="4.4" x2="4.4" y2="11.6" />
+              </g>
+            </svg>
+          </span>
+        )}
       </span>
     </button>
   );

@@ -529,24 +529,26 @@ function TabSlot({ dirty, onClose }: { dirty: boolean; onClose?(): void }) {
   return (
     <span className={`folder-tab-slot${onClose ? '' : ' no-close'}`}>
       {dirty && <span className="folder-dirty" data-testid="folder-dirty" aria-hidden="true" />}
-      {onClose && <span
-        className="folder-tab-close"
-        data-testid="folder-tab-close"
-        role="button"
-        title="Close file"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-      >
-        <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
-          <g stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
-            <line x1="4.4" y1="4.4" x2="11.6" y2="11.6" />
-            <line x1="11.6" y1="4.4" x2="4.4" y2="11.6" />
-          </g>
-        </svg>
-      </span>}
+      {onClose && (
+        <span
+          className="folder-tab-close"
+          data-testid="folder-tab-close"
+          role="button"
+          title="Close file"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+            <g stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+              <line x1="4.4" y1="4.4" x2="11.6" y2="11.6" />
+              <line x1="11.6" y1="4.4" x2="4.4" y2="11.6" />
+            </g>
+          </svg>
+        </span>
+      )}
     </span>
   );
 }
