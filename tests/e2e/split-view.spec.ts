@@ -955,7 +955,8 @@ test('E247: issue #125 — the edit/preview switch sits left of the preview chev
   await expect(sw).toHaveAttribute('data-mode', 'preview');
 
   // PRD 007 Req 17 + issue #40: no document, no switch — the splash is
-  // preview-only, the same gate the toolbar's Edit button uses.
+  // preview-only. (The labelled Edit toggle has a wider gate and stays on
+  // the splash, inert — E141; PRD 025 Req 19, issue #330.)
   await page.goto('/');
   await expect(page.getByTestId('empty-hint')).toBeVisible();
   await expect(sw).toHaveCount(0);

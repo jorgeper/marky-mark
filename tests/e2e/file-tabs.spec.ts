@@ -1334,11 +1334,11 @@ test('E579: PRD 025 Reqs 19–20 (issue #330) — the Edit/Preview toggle is the
   await expect(toggle.locator('kbd')).toHaveText(/E/);
   await expect(toggle).toHaveAttribute('title', /Toggle edit \/ preview/);
 
-  /** The trail's element children as test ids, in DOM order. */
-  const trailIds = () =>
-    trail.evaluate((el) => Array.from(el.children).map((c) => (c as HTMLElement).dataset.testid ?? c.className));
+  /** A group's element children as test ids (class name when there is none), in DOM order. */
+  const childIds = (group: Locator) =>
+    group.evaluate((el) => Array.from(el.children).map((c) => (c as HTMLElement).dataset.testid ?? c.className));
   const expectLast = async () => {
-    const ids = await trailIds();
+    const ids = await childIds(trail);
     expect(ids[ids.length - 1]).toBe('edit-toggle');
     expect(ids.indexOf('mode-switch')).toBeGreaterThanOrEqual(0);
     expect(ids.indexOf('mode-switch')).toBeLessThan(ids.indexOf('edit-toggle'));
@@ -1378,7 +1378,7 @@ test('E579: PRD 025 Reqs 19–20 (issue #330) — the Edit/Preview toggle is the
   await expect(edgeToggle).toBeVisible();
   await expect(page.getByTestId('edit-toggle')).toHaveCount(1);
   await expect(edge.getByTestId('mode-switch')).toBeVisible();
-  const ids = await edge.evaluate((el) => Array.from(el.children).map((c) => (c as HTMLElement).dataset.testid ?? c.className));
+  const ids = await childIds(edge);
   expect(ids[ids.length - 1]).toBe('edit-toggle');
   const pill = (await edge.boundingBox())!;
   const btn = (await edgeToggle.boundingBox())!;
