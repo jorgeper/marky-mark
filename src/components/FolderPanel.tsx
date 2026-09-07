@@ -226,9 +226,9 @@ export function Chevron({ open, dir }: { open?: boolean; dir?: 'left' | 'right' 
 
 /**
  * SPEC34 §3: the pane's width drag — the split divider's pointer-capture
- * pattern. The live width lands on the `.folder-wrap` wrapper's `--mm-folders` (the
- * wrapper and the panel both read it, so they track the pointer together) and
- * only the settled width is handed back to the owner to persist.
+ * pattern. The live width lands on the `.folder-wrap` wrapper's `--mm-folders`
+ * (the wrapper and the panel both read it, so they track the pointer together)
+ * and only the settled width is handed back to the owner to persist.
  *
  * PRD 012 Req 1: both views of the one pane drag the one `settings.folderWidth`
  * — shared from here so the two panels cannot drift apart.
