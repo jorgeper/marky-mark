@@ -12,7 +12,19 @@
  *
  * PRD 021 Req 5: pure and app-free — a line's text in, a column out.
  */
+
+/**
+ * Everything in front of a heading's text, in three parts:
+ *   `(?:[ \t]*(?:>|[-*+]|\d{1,9}[.)])(?=[ \t]|$))*`  container prefixes, nesting
+ *   `[ \t]*`                                          the indentation
+ *   `(?:#{1,6}(?:[ \t]+|$))?`                         the `#` run and its space
+ * The last part is OPTIONAL and demands whitespace (or the line's end) after
+ * the run, so a setext text line, `#hashtag` and a seven-`#` paragraph all
+ * fall through it and stop at the indentation.
+ */
+const HEADING_TEXT_START = /^(?:[ \t]*(?:>|[-*+]|\d{1,9}[.)])(?=[ \t]|$))*[ \t]*(?:#{1,6}(?:[ \t]+|$))?/;
+
+/** The column of the first text character of the heading on `lineText`. */
 export function headingTextColumn(lineText: string): number {
-  const m = /^(?:[ \t]*(?:>|[-*+]|\d{1,9}[.)])(?=[ \t]|$))*[ \t]*(?:#{1,6}(?:[ \t]+|$))?/.exec(lineText);
-  return m ? m[0].length : 0;
+  return HEADING_TEXT_START.exec(lineText)?.[0].length ?? 0;
 }

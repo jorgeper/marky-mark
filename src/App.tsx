@@ -4738,6 +4738,14 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     const slug = slugFromHash(window.location.hash);
     if (slug === null) return;
     let tries = 0;
+    // Every branch below leaves through this one bounded retry — ~300 frames
+    // of watching, so a boot that never settles cannot spin forever. False
+    // once that budget is spent and nothing more is scheduled.
+    const retry = () => {
+      if (tries++ >= 300) return false;
+      requestAnimationFrame(tick);
+      return true;
+    };
     // PRD 020 Req 19 (issue #300): the mode the app comes up in settles
     // ASYNCHRONOUSLY — issue #125's remembered view mode arrives after the
     // boot document opens, so the first frames of a visit can still be the
@@ -4749,10 +4757,9 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     const tick = () => {
       const s = stateRef.current;
       if (landedIn !== null) {
-        // Landed, and the mode has not moved under us: watch on, bounded, so
-        // a never-settling boot cannot spin forever.
+        // Landed, and the mode has not moved under us: watch on.
         if (landedIn === s.mode) {
-          if (tries++ < 300) requestAnimationFrame(tick);
+          retry();
           return;
         }
         landedIn = null; // the mode moved — land again, in the new one
@@ -4783,33 +4790,30 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             ed.goToHeading(line);
             requestAnimationFrame(() => {
               const now = editorSyncRef.current;
-              if (!now) {
-                // Unmounted meanwhile (a mode switch): keep watching so the
-                // fragment lands again wherever the mode settles.
-                if (tries++ < 300) requestAnimationFrame(tick);
-                return;
+              if (now) {
+                const { top, max } = now.scrollInfo();
+                // Landed when the line is at the top, or the document is too
+                // short to put it there (the scroller is at its end).
+                if (Math.abs(now.topLine() - line) < 2 || top >= max - 1) landedIn = 'edit';
               }
-              const { top, max } = now.scrollInfo();
-              // Landed when the line is at the top, or the document is too
-              // short to put it there (the scroller is at its end).
-              if (Math.abs(now.topLine() - line) < 2 || top >= max - 1) landedIn = 'edit';
-              if (tries++ < 300) requestAnimationFrame(tick);
+              // Short of that — or unmounted meanwhile by a mode switch —
+              // keep watching, so the fragment lands wherever the mode
+              // settles.
+              retry();
             });
             return;
           }
         } else if (scrollPreviewToLine(line)) {
           pendingScrollLineRef.current = null;
           landedIn = 'preview';
-          if (tries++ < 300) requestAnimationFrame(tick);
+          retry();
           return;
         }
       }
       // The buffer, the lazy editor, or the debounced render isn't there
-      // yet — retry per frame, bounded so a never-rendering document cannot
-      // spin forever. A buffer still empty at the bound is a real document
-      // with no headings at all: no slug can match, so say so.
-      if (tries++ < 300) requestAnimationFrame(tick);
-      else if (src === '') showFragmentMiss('heading');
+      // yet — retry per frame. A buffer still empty at the bound is a real
+      // document with no headings at all: no slug can match, so say so.
+      if (!retry() && src === '') showFragmentMiss('heading');
     };
     requestAnimationFrame(tick);
   }, [canonicalOf, getHeadingAnchors, scrollPreviewToLine, showFragmentMiss]);

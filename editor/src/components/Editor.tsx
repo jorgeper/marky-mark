@@ -2338,13 +2338,13 @@ export default function Editor({
       // PRD 012 Req 6: same clamp and same scroll effect as scrollToLine,
       // plus the selection — one dispatch so the caret and the viewport
       // never disagree. Focus follows so typing continues where the click
-      // landed. `column` picks the caret's place on the line: its start for
+      // landed. `columnOf` picks the caret's place on the line: its start for
       // `goToLine`, the heading text for `goToHeading` (issue #300).
-      const landCaret = (line: number, column: (text: string) => number) => {
+      const landCaret = (line: number, columnOf: (text: string) => number) => {
         const doc = view.state.doc;
         const n = Math.min(Math.max(Math.round(line), 1), doc.lines);
-        const l = doc.line(n);
-        const pos = l.from + Math.min(column(l.text), l.length);
+        const target = doc.line(n);
+        const pos = target.from + Math.min(columnOf(target.text), target.length);
         view.dispatch({
           selection: { anchor: pos, head: pos },
           effects: EditorView.scrollIntoView(pos, { y: 'start' }),
