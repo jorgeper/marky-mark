@@ -1,0 +1,70 @@
+# Spec: Fluid mode (2/5): cursor movement effects (Glide, Elastic) and the overlay behaviour rules (#334)
+
+## Goal
+
+All acceptance criteria in issue-specs/issue-334.md are satisfied for issue #334, with evidence visible in the session: with the Fluid mode switch on and Cursor movement mapped to Glide or Elastic, a navigation move (arrow/Home/End keys, mouse click, find-hit or heading-palette jump, vim nav, undo/redo landing the caret, host `selectRange`) draws a caret ghost that tweens from the old caret position to the new one inside the existing `fluid-overlay` layer, while a caret move caused by typing or deleting draws nothing; the document, the real selection and the caret CodeMirror reports change synchronously exactly as with the mode off, and the only synchronous work added is appending the ghost and starting its animation; the ghost never enters the content DOM, is cancelled and removed immediately on scroll, resize, document change, theme-variant change or the mode turning off, and is removed the moment it finishes; under `prefers-reduced-motion: reduce` no ghost is created at all while the switch and page stay editable; the "is this a navigation move" decision plus the Glide easing and Elastic spring are pure, unit-tested functions in the editor package; one e2e test proves the negatives without any time-based wait; `npm run validate:quick` passes in the implementer's session; and a summary comment from the implementer exists on issue #334.
+
+## Acceptance criteria
+
+### The navigation-move decision (PRD 025 Req 10)
+
+- A pure, exported function in the editor package (in `editor/src/lib/fluid.ts` or a sibling `editor/src/lib/fluidCursor.ts`, re-exported from `editor/src/index.ts`) decides whether a CodeMirror transaction is a cursor **navigation move**. It takes a plain descriptor, not a `Transaction` — e.g. `{ docChanged: boolean; selectionSet: boolean; userEvent: string | null; fromHead: number; toHead: number; toEmpty: boolean }` — so it is unit-testable without a view.
+- It returns `true` for: a selection-only transaction (`selectionSet` and not `docChanged`) whether its user event is `select` (arrow/Home/End keymap), `select.pointer` (mouse click), or absent (host `selectRange` via the `hostSelection` annotation, vim nav's `view.dispatch({ selection })`, find-hit and heading-palette jumps, `halfPage`); and for a `docChanged` transaction whose user event is `undo` or `redo` (the caret landing after history).
+- It returns `false` for: any other `docChanged` transaction (`input.type`, `input.paste`, `delete.backward`, `delete.forward`, `delete.selection`, `input.complete`, smart-edit / table-edit rewrites); a transaction without `selectionSet`; a move whose head did not change (`fromHead === toHead`); and a move whose resulting main selection is not empty (`toEmpty === false` — range selections belong to increment (3), Req 11).
+- The editor consults this function only when the mode is on and the cursor mapping is `glide` or `elastic`; with `cursor=none` no per-transaction work beyond the branch happens.
+
+### The effects (PRD 025 Reqs 7, 8, 20)
+
+- **Glide** is an eased position tween from the old caret rect to the new one, monotone, no overshoot, lasting `FLUID_DURATIONS_MS.glide`. **Elastic** is a spring toward the target with a small overshoot, settling within `FLUID_DURATIONS_MS.elastic`. Both curves are computed in-package as pure, exported functions of normalized time `t ∈ [0, 1]` (e.g. `glideAt(t)` and `elasticAt(t)`, returning the fraction of the distance covered): Glide is non-decreasing with `glideAt(0) = 0`, `glideAt(1) = 1` and never exceeds 1; Elastic reaches `1` before `t = 1`, its peak is above 1 and below ~1.15, and `elasticAt(1)` is within 0.01 of 1.
+- The tween is driven by the Web Animations API (`element.animate(keyframes, …)` with keyframes sampled from the curve) or a `requestAnimationFrame` loop that samples the curve; either way no library is added. `dependencies` in `package.json` and `editor/package.json` and `THIRD-PARTY-NOTICES.md` are unchanged.
+- The ghost is a caret-shaped element (a thin vertical bar sized to the line height of the destination) coloured from the theme's existing variables (the foreground `--mm-fg` or the accent; themes gain no new tokens). Its start and end rects come from `view.coordsAtPos` (the old head mapped through `update.changes` for undo/redo) translated into the overlay layer's coordinate frame; if either position has no coordinates (not rendered / off-screen), no ghost is drawn.
+- The ghost and its animation carry a citation comment (`// PRD 025 Req <n>: …`) per `.sandcastle/CODING_STANDARDS.md`; no `console.*` in `editor/src/`.
+
+### Never-delay (PRD 025 Req 9)
+
+- The effect is scheduled from the editor's existing `EditorView.updateListener` path (or a dedicated update listener inside the fluid extension) *after* the transaction is applied: nothing calls `preventDefault`, intercepts a keymap, wraps `dispatch`, debounces, batches or defers a document change or a selection update. `update.state` and `view.state.selection` already equal their final values when the ghost is created.
+- The only synchronous work the effect adds is: the navigation-move check, two `coordsAtPos` reads, creating and appending one element to the overlay layer, and starting its animation. No layout-forcing read of `.cm-content` beyond `coordsAtPos`, no synchronous `getComputedStyle` of content, no `MutationObserver` on the content DOM.
+
+### The overlay rules (PRD 025 Reqs 3, 15, 17)
+
+- The fluid behaviour is a CodeMirror extension held in its own `Compartment` in `Editor.tsx`, live-reconfigured like `diffComp` / `hlComp`: empty (`[]`) when `fluid` is `null`/absent, so with the mode off there is still no extension, no listener, no timer and no overlay element (E577's off-state assertions keep passing).
+- The ghost is appended only inside the existing `fluid-overlay` layer (mounted in `view.scrollDOM` by #333) and never into `.cm-content`, `.cm-line`, or any CodeMirror-managed element. It is absolutely positioned, `pointer-events: none` (inherited from `.fluid-overlay` or set explicitly), and inherits the layer's `aria-hidden`. It never resizes or reflows the content DOM; the content's `getBoundingClientRect` before and after a move is unchanged by the effect.
+- A ghost in flight is **cancelled and removed immediately** (the animation's `cancel()` or the rAF loop torn down, the element removed) when any of these happen: a `scroll` event on `view.scrollDOM`; a resize (`update.geometryChanged`, or a `ResizeObserver` on the scroller); any `docChanged` update; a `themeVariant` prop change; the mapping changing or the mode turning off (the layer's cleanup cancels every child before removing the layer); the editor view being destroyed. A new navigation move while one is in flight retargets or replaces the previous ghost so at most one caret ghost exists at a time.
+- The ghost is removed from the DOM the moment its animation finishes (`animation.finished` / the loop's last frame); no finished ghost lingers. The `fluid-overlay` layer has zero children whenever no effect is in flight.
+- The real caret (`.cm-cursor`) is never moved, hidden or restyled for longer than the effect's duration. The implementer may hide it via a class on the editor root or layer while a ghost is in flight (CSS only, no layout) but must restore it on finish and on every cancel path above.
+- The scroll listener (and any `ResizeObserver`) exists only while the extension is loaded; both are removed when the mode turns off or the view is destroyed.
+
+### Reduced motion (PRD 025 Req 16)
+
+- `window.matchMedia('(prefers-reduced-motion: reduce)').matches` is read at scheduling time (not cached at mount, so a change of OS preference takes effect on the next move without a remount). When it matches, no ghost element is created, no animation or frame is scheduled, and the update listener returns after the check. The `fluid-overlay` layer and `data-fluid` attribute remain (the mode is inert, not absent), and the Settings row, its page and its pickers stay visible and editable unchanged.
+- Environments without `matchMedia` (unit tests, some shims) are treated as no-preference.
+
+### Documentation (PRD 025 Req 19)
+
+- The existing **Fluid mode** section of `editor/README.md` gains a short paragraph on cursor movement: which moves animate (navigation) and which never do (typing/deleting), what Glide and Elastic look like, and that reduced motion makes the mode inert. No second section is added.
+
+### Tests (PRD 025 Reqs 21–23)
+
+- Unit tests in `editor/tests/fluid.test.ts` (or a new `editor/tests/fluid-cursor.test.ts` if the module is a sibling), IDs continuing from the next unused `U` number (U1289 at spec time; check with `grep -rhoE 'U[0-9]+:' tests editor/tests | sort -t U -k2 -n | tail -1`), cover: the navigation-move decision for every `true` and `false` case listed above (arrow `select`, `select.pointer`, absent user event, `undo`, `redo`, `input.type`, `input.paste`, `delete.backward`, no `selectionSet`, same head, non-empty result); the Glide curve's endpoints, monotonicity and no-overshoot; the Elastic curve's overshoot band and settling. Curves are sampled with plain numbers; no test uses timers, fake timers or `requestAnimationFrame`.
+- One e2e test, ID the next unused `E` number (E579 at spec time), in `tests/e2e/editor.spec.ts` (or next to E577 in `tests/e2e/settings-and-themes.spec.ts`): enables the switch with the default mapping via `openSettings(page, 'experimental')` + `saveSettings`; then asserts only **negatives that need no animation observation** — (a) under `page.emulateMedia({ reducedMotion: 'reduce' })`, after pressing ArrowRight/End in the editor the `fluid-overlay` layer has zero children and the editor root still carries `data-fluid`; (b) with reduced motion back to `no-preference`, after typing a character the layer has zero children (typing never animates) and the typed character is in the document and the caret advanced (never-delay: the assertion follows the keystroke with no wait); (c) after re-saving with Cursor movement → None, ArrowRight leaves zero children. It never waits for, measures or screenshots an animation and uses no `waitForTimeout`.
+- No existing test or test ID is changed, renamed, weakened or skipped. The rest of the e2e suite runs with the switch off and is unaffected.
+
+### Dogfood hand-off (PRD 025 Req 25)
+
+- The implementer's summary comment states the increment is ready for the owner's `/dogfood` pass and lists what to try (arrow keys, Home/End, click, Ctrl+F jump, heading palette, undo, typing — and switching Cursor movement between Glide, Elastic and None). The owner's install and verdict happen after this issue; increment (3) does not start until then.
+
+### Gate
+
+- Iterate with `npm run typecheck` and `npm run test:unit` (or `npx vitest run editor/tests/fluid.test.ts` / `npx playwright test -g '<title>'` targeted at the change); baseline an attempt with that quick pair only.
+- `npm run validate:quick` has been run once in the implementer's session, right before declaring the goal met, and prints `QUICK VALIDATION: ALL PASSED`. If it reports `docs/MAP.md` stale, `npm run map` has been run and the result committed.
+- A summary comment from the implementer exists on issue #334, stating what landed, the test IDs added, the validate:quick result, and the dogfood hand-off above.
+
+## Context
+
+- **PRD:** `prd/025-fluid-mode.md` — this increment is Req 10 plus the first implementation of Reqs 9, 15, 16, 17 (they bind increments (3)–(5) too, so build the cancel/cleanup plumbing to be reused: one "in-flight registry" the later effects add to). **Parent:** #322. **Blocked by:** #333 (merged in `fd07203`; its spec is `issue-specs/issue-333.md`).
+- **What #333 left behind:** `editor/src/lib/fluid.ts` (names, `FLUID_DURATIONS_MS` — glide 160 / elastic 320 — applicability, `fluidAttribute`); the `fluid` prop on `EditorProps` (`editor/src/components/Editor.tsx` ~L333); the inert layer mounted imperatively in `view.scrollDOM` (~L2656, `useEffect` on `[fluid]`) with its rule in `editor/styles.css` ~L1213 (`position: absolute; inset: 0; z-index: 25; pointer-events: none; overflow: visible`); the app mount `fluid={settings.fluidMode ? settings.fluidEffects : null}` at `src/App.tsx` ~L8701 and `themeVariant={activeThemeVariant}` ~L8757; E577 in `tests/e2e/settings-and-themes.spec.ts` ~L860; U1283–U1285 in `editor/tests/fluid.test.ts`.
+- **Editor plumbing:** the Compartment pattern (`diffComp`, `hlComp` ~L1430–1460, reconfigured in `useEffect`s ~L2505–2655); the existing `EditorView.updateListener` ~L2130 (reads `u.selectionSet`, `u.docChanged`, `tr.annotation(hostSelection)`); `selectSourceRange` ~L1116 (host selection, no user event) and `halfPage` ~L1128 (vim nav, no user event); one `requestAnimationFrame` precedent at ~L2013 (`chipsRaf`). CodeMirror user events: `Transaction.isUserEvent('select')`, `'select.pointer'`, `'input.type'`, `'delete'`, `'undo'`, `'redo'`; `view.coordsAtPos(pos)` returns client coordinates or `null`.
+- **Boundary:** `editor/AGENTS.md` — nothing under `editor/` imports from `src/`; the editor-package-boundary check in `scripts/validate.mjs` enforces it. Reduced motion is read in-package via `matchMedia`; the app is not involved.
+- **Theme change caveat:** the editor can only observe the app's theme through the `themeVariant` prop (light/dark side). A theme swap that keeps the variant is not observable in-package; the ghost reads its colour at creation, so at worst a ≤350 ms tween finishes in the old colour. That is the accepted reading of Req 15's "theme change" for this increment.
+- **Reduced-motion precedent in tests:** `tests/e2e/hosted.spec.ts` ~L552 uses `page.emulateMedia({ reducedMotion: 'reduce' })` and restores `'no-preference'`.
+- **Conventions:** `.sandcastle/CODING_STANDARDS.md` (citation comments, stable `U<n>`/`E<n>` IDs, `getByTestId` first). IDs top out at E578 / U1288 at spec time.
