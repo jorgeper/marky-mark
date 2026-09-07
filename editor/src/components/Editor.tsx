@@ -51,6 +51,7 @@ import {
 } from '../lib/codeHighlight';
 import { createHeadingLinkButton } from '../lib/headingLinks';
 import { isHeadingLine } from '../lib/headingLine';
+import { headingTextColumn } from '../lib/headingCaret';
 import { VimEditResolver, type VimEditAction } from '../lib/vimnav';
 import type { CompiledPattern } from '../lib/searchCore';
 import { mapOffsetByLineFlat, wordAt } from '../lib/activePosition';
@@ -249,6 +250,15 @@ export interface EditorSyncHandle {
    * a preview-link landing) keeps moving the viewport and nothing else.
    */
   goToLine(line: number): void;
+  /**
+   * PRD 012 Req 6 (issue #300): `goToLine` for a HEADING line — the caret
+   * rests on the heading's first text character (after the `#` run and its
+   * whitespace; a setext heading's text line start), never at column 0 in
+   * front of the markers. The one entry point for every edit-mode heading
+   * navigation (the TOC jump, an editor-opened `#fragment`, the boot
+   * fragment landing); scroll-only callers keep `scrollToLine`.
+   */
+  goToHeading(line: number): void;
   scrollInfo(): { top: number; max: number };
   /**
    * SPEC45 (amended by issue #310): the caret head's VISUAL row — top and
@@ -2325,6 +2335,22 @@ export default function Editor({
 
     if (syncRef) {
       const dom = view.scrollDOM;
+      // PRD 012 Req 6: same clamp and same scroll effect as scrollToLine,
+      // plus the selection — one dispatch so the caret and the viewport
+      // never disagree. Focus follows so typing continues where the click
+      // landed. `column` picks the caret's place on the line: its start for
+      // `goToLine`, the heading text for `goToHeading` (issue #300).
+      const landCaret = (line: number, column: (text: string) => number) => {
+        const doc = view.state.doc;
+        const n = Math.min(Math.max(Math.round(line), 1), doc.lines);
+        const l = doc.line(n);
+        const pos = l.from + Math.min(column(l.text), l.length);
+        view.dispatch({
+          selection: { anchor: pos, head: pos },
+          effects: EditorView.scrollIntoView(pos, { y: 'start' }),
+        });
+        view.focus();
+      };
       syncRef.current = {
         topLine() {
           const y = Math.max(dom.scrollTop - view.documentPadding.top, 0);
@@ -2342,18 +2368,13 @@ export default function Editor({
           view.dispatch({ effects: EditorView.scrollIntoView(doc.line(n).from, { y: 'start' }) });
         },
         goToLine(line) {
-          // PRD 012 Req 6: same clamp and same scroll effect as scrollToLine,
-          // plus the selection — one dispatch so the caret and the viewport
-          // never disagree. Focus follows so typing continues where the click
-          // landed.
-          const doc = view.state.doc;
-          const n = Math.min(Math.max(Math.round(line), 1), doc.lines);
-          const pos = doc.line(n).from;
-          view.dispatch({
-            selection: { anchor: pos, head: pos },
-            effects: EditorView.scrollIntoView(pos, { y: 'start' }),
-          });
-          view.focus();
+          landCaret(line, () => 0);
+        },
+        goToHeading(line) {
+          // PRD 012 Req 6 (issue #300): the column comes from the line the
+          // view actually holds, so the caret sits on the title whatever the
+          // marker width and indentation.
+          landCaret(line, headingTextColumn);
         },
         headRow() {
           // Issue #310: the caret's VISUAL row via coordsAtPos (a wrapped line

@@ -26,12 +26,15 @@ import {
   addHighlight,
   cancelSettings,
   clickClearOfToolbar,
+  editorCaret,
+  editorTopGutterLine,
   expectReadyToType,
   landInPreview,
   menuSave,
   openCommentsPane,
   openSettings,
   pasteImage,
+  previewTopAnchorLines,
   revealToolbar,
   saveSettings,
   selectPhrase,
@@ -7092,6 +7095,147 @@ test('E570: a signed-out visit to a former-name file#heading URL passes through 
   expect(landed.search).toBe('');
   await landInPreview(page);
   await expect(page.getByTestId('doc').locator('h2').filter({ hasText: 'Deep Section' })).toBeInViewport();
+});
+
+test('E573: a #heading visit that comes up in edit mode lands the EDITOR on the heading line — top of the viewport, caret on the heading text, over a remembered scroll position — in plain edit and in the split, where the preview half follows', async ({
+  page,
+  request,
+}) => {
+  // PRD 020 Req 19 (issue #300): the reported symptom is a hosted
+  // `<file>#<slug>` visit that comes up in EDIT mode and leaves the editor
+  // at the top — the edit branch of the landing was a single fire-and-forget
+  // scrollToLine, dispatched with no check of where (or whether) the editor
+  // landed. This pins the contract the landing owes: the heading's source
+  // line at the top of the editor, in plain edit and in the split, over a
+  // remembered SPEC16 §3 position and over a session-restored other buffer.
+  // PRD 012 Req 6 (issue #300): and the caret on the heading's first text
+  // character, after the `## ` markers, never at column 0.
+  test.slow();
+  // The hosted lane shares the seeded users across parallel workers, and the
+  // per-user settings blob this test pins is a read-modify-write file: it
+  // signs in as katherine, whose settings blob no other test writes (E333 and
+  // E566 own ada's and grace's), and re-pins if a concurrent write still
+  // beats it to the boot read.
+  const token = await signIn(request, 'katherine');
+  const { id, unique } = await pathWorkspace(request, token, 'e573');
+  // HEADED_DOC's headings, with enough text BELOW the last one that the
+  // editor (which, unlike the preview, has no scroll-past-end room) can put
+  // its line at the viewport top at all.
+  const doc =
+    HEADED_DOC + Array.from({ length: 60 }, (_, i) => `trailing paragraph ${i} gives the editor room.\n\n`).join('');
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/guide.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: doc,
+  });
+  // A SECOND document, longer than the linked one, left open when the visit
+  // arrives: the session restore mounts the editor on THIS buffer, so the
+  // landing runs against a view that starts out holding another document —
+  // the state the issue was reported from.
+  await request.put(`${HOSTED}/api/workspaces/${id}/files/other.md`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: `# Other\n\n${Array.from({ length: 400 }, (_, i) => `other line ${i}`).join('\n')}\n`,
+  });
+  const deepLine = doc.split('\n').indexOf('## Deep Section') + 1;
+  const url = `${HOSTED}/${unique}/guide.md#deep-section`;
+  const modeSwitch = page.getByTestId('mode-switch');
+
+  // Set the browser state the visit has to overcome, in the PLAIN editor
+  // (split off if the default left it on).
+  await signInTo(page, 'katherine', id);
+  await openFromSidebar(page, 'guide.md');
+  await page.keyboard.press('Control+e');
+  await expect(modeSwitch).toHaveAttribute('data-mode', 'edit');
+  await expect(page.locator('.cm-content')).toBeVisible();
+  if (await page.getByTestId('split-divider').isVisible()) {
+    await page.keyboard.press('Control+\\');
+    await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  }
+  // Leave a remembered SPEC16 §3 position well below the top: scroll the
+  // editor, round-trip the mode (which records and restores it) and check
+  // the memory took — the fragment has to win over it.
+  await page.evaluate(() => {
+    document.querySelector('.cm-scroller')!.scrollTop = 900;
+  });
+  await expect.poll(() => editorTopGutterLine(page)).toBeGreaterThan(10);
+  const remembered = await editorTopGutterLine(page);
+  await page.waitForTimeout(200); // CROSS_SOURCE_DEDUP_MS between toggles
+  await page.keyboard.press('Control+e');
+  await expect(modeSwitch).toHaveAttribute('data-mode', 'preview');
+  await page.waitForTimeout(200);
+  await page.keyboard.press('Control+e');
+  await expect(modeSwitch).toHaveAttribute('data-mode', 'edit');
+  await expect.poll(() => editorTopGutterLine(page), { timeout: 20000 }).toBeGreaterThan(remembered - 6);
+  expect(remembered).toBeLessThan(deepLine - 20);
+
+  // Leave the OTHER document open and active: this is the browser state the
+  // link's recipient arrives in — an editor already mounted on a
+  // session-restored buffer that is not the linked one.
+  await page.getByTestId('folder-item').filter({ hasText: 'other.md' }).first().click();
+  await expect(page.getByTestId('docname')).toContainText('other.md');
+  await expect(modeSwitch).toHaveAttribute('data-mode', 'edit');
+  await expect(page.locator('.cm-content')).toContainText('other line 3');
+
+  // The visit under test is a FRESH page load. The sidebar open left the
+  // file's own path in the address bar, so going straight to the same path
+  // with a `#slug` is a same-document navigation the browser does not
+  // reload — leave the page first, the way a recipient arrives from a chat.
+  // The two things the visit must come up in (issue #125's remembered view
+  // mode, and split or not) are pinned through the per-user settings blob
+  // (PRD 007 Req 9, E566's seam) rather than left to the app's own write,
+  // which leaving the page aborts.
+  const settingsBlob = `${HOSTED}/api/me/files/settings.json`;
+  const headers = { Authorization: `Bearer ${token}` };
+  const visit = async (splitEdit: boolean) => {
+    for (let attempt = 3; ; attempt--) {
+      const res = await request.get(settingsBlob, { headers });
+      const stored = res.status() === 200 ? ((await res.json()) as Record<string, unknown>) : {};
+      const put = await request.put(settingsBlob, {
+        headers,
+        data: JSON.stringify({ ...stored, lastViewMode: 'edit', splitEdit }),
+      });
+      expect(put.status()).toBe(200);
+      await page.goto('about:blank');
+      await page.goto(url);
+      await expect(page.getByTestId('docname')).toContainText('guide.md');
+      // The premise, not the subject: E248 owns the mode memory and E77 the
+      // split. If a parallel worker's write to the shared blob landed between
+      // the pin and this boot, come up again rather than assert the landing
+      // against a page that is not in the mode under test.
+      const landedIn = await modeSwitch.getAttribute('data-mode');
+      const landedSplit = (await page.getByTestId('split-divider').count()) > 0;
+      if ((landedIn === 'edit' && landedSplit === splitEdit) || attempt === 1) return;
+    }
+  };
+
+  const expectEditorLanded = async () => {
+    await expect(page.getByTestId('docname')).toContainText('guide.md');
+    await expect(modeSwitch).toHaveAttribute('data-mode', 'edit');
+    await expect.poll(() => editorTopGutterLine(page), { timeout: 20000 }).toBeGreaterThan(deepLine - 6);
+    expect(await editorTopGutterLine(page)).toBeLessThan(deepLine + 6);
+    await expect(page.locator('.cm-activeLine')).toHaveText('## Deep Section');
+    await expect.poll(() => editorCaret(page)).toEqual({ column: 3, collapsed: true, text: '## Deep Section' });
+    await expect(page.getByTestId('heading-miss-notice')).toHaveCount(0);
+  };
+
+  // Plain edit: the editor lands, top line and caret both.
+  await visit(false);
+  await expect(page.getByTestId('split-divider')).toHaveCount(0);
+  await expectEditorLanded();
+
+  // The split: the editor is the pane that lands, and the preview half
+  // follows through the existing editor-led scroll sync — no second landing.
+  await visit(true);
+  await expect(page.getByTestId('split-divider')).toBeVisible();
+  await expectEditorLanded();
+  await expect
+    .poll(
+      async () => {
+        const { before, after } = await previewTopAnchorLines(page);
+        return Math.min(Math.abs(before - deepLine), Math.abs(after - deepLine));
+      },
+      { timeout: 20000 }
+    )
+    .toBeLessThanOrEqual(6);
 });
 
 test('E571: reclaiming a former name ends the redirect — a new workspace created under the old name is what /<old> opens, and the renamed one stays at its new name', async ({
