@@ -25,6 +25,7 @@ import {
   fluidDeletionBox,
   fluidDeletionSpans,
   type FluidChangedSpan,
+  type FluidDeletionBox,
   type FluidDeletionEffect,
 } from '../lib/fluidDeletion';
 import {
@@ -34,6 +35,7 @@ import {
   fluidSelectionRects,
   fluidSelectionShape,
   type FluidPosCoords,
+  type FluidRect,
   type FluidSelectionEffect,
   type FluidSelectionShape,
 } from '../lib/fluidSelection';
@@ -144,12 +146,10 @@ class FluidOverlay {
   }
 
   cancelAll(): void {
-    for (const f of this.inFlight) {
+    for (const f of [...this.inFlight]) {
       f.stop();
-      for (const el of f.els) el.remove();
+      this.discard(f);
     }
-    this.inFlight.clear();
-    this.selection = null;
     this.view.dom.classList.remove(CARET_IN_FLIGHT_CLASS, SELECTION_IN_FLIGHT_CLASS);
   }
 
@@ -163,19 +163,28 @@ class FluidOverlay {
     for (const f of [...this.inFlight]) {
       if (!kinds.includes(f.kind)) continue;
       f.stop();
-      for (const el of f.els) el.remove();
-      this.inFlight.delete(f);
-      if (f === this.selection) this.selection = null;
-      if (f.cls) this.view.dom.classList.remove(f.cls);
+      this.discard(f);
     }
   }
 
+  /** An animation ran to its end: the entry leaves the registry (a no-op when a cancel already dropped it). */
   private finish(f: InFlight): void {
-    if (!this.inFlight.delete(f)) return;
+    if (!this.inFlight.has(f)) return;
+    this.discard(f);
+  }
+
+  /**
+   * The one teardown every cancel and finish path runs: the entry leaves the
+   * registry and its elements leave the overlay (Req 15: gone the moment it
+   * ends), and the root class it wore is dropped unless another entry still
+   * wears it (Req 17: the real caret / selection is hidden only while its
+   * ghost flies).
+   */
+  private discard(f: InFlight): void {
+    this.inFlight.delete(f);
     if (f === this.selection) this.selection = null;
-    for (const el of f.els) el.remove(); // Req 15: gone the moment it finishes
+    for (const el of f.els) el.remove();
     if (!f.cls) return;
-    // Req 17: the real caret / selection is hidden only while its ghost flies.
     const stillWorn = [...this.inFlight].some((other) => other.cls === f.cls);
     if (!stillWorn) this.view.dom.classList.remove(f.cls);
   }
@@ -439,7 +448,7 @@ class FluidOverlay {
    * finishes with the longest one (Burst: the particles). No root class is
    * worn: nothing real needs hiding.
    */
-  private startDeletionGhost(text: string, box: ReturnType<typeof fluidDeletionBox>, effect: FluidDeletionEffect, frame: DOMRect): void {
+  private startDeletionGhost(text: string, box: FluidDeletionBox, effect: FluidDeletionEffect, frame: DOMRect): void {
     const el = document.createElement('div');
     el.className = 'fluid-deletion-ghost';
     el.setAttribute('data-testid', 'fluid-deletion-ghost');
@@ -450,30 +459,33 @@ class FluidOverlay {
     st.width = `${box.width}px`;
     st.textIndent = `${box.indent}px`;
     st.lineHeight = `${box.lineHeight}px`;
-    this.layer.appendChild(el);
-    const anims: Animation[] = [];
-    const els: HTMLElement[] = [el];
+    // Each overlay element is appended and animated as one pair, so the
+    // finish handler below always removes the element its animation drove.
+    const parts: Array<{ el: HTMLElement; anim: Animation }> = [];
+    const animate = (target: HTMLElement, keyframes: Keyframe[], duration: number) => {
+      this.layer.appendChild(target);
+      parts.push({ el: target, anim: target.animate(keyframes, { duration, easing: 'ease-out', fill: 'forwards' }) });
+    };
     if (effect === 'pop') {
       // Req 7: Pop — scale out to ~0.8 about the removed span's start, on its first line's centre.
       st.transformOrigin = `${box.indent}px ${box.lineHeight / 2}px`;
-      anims.push(
-        el.animate(
-          [
-            { opacity: 1, transform: 'scale(1)' },
-            { opacity: 0, transform: 'scale(0.8)' },
-          ],
-          { duration: FLUID_DURATIONS_MS.pop, easing: 'ease-out', fill: 'forwards' }
-        )
+      animate(
+        el,
+        [
+          { opacity: 1, transform: 'scale(1)' },
+          { opacity: 0, transform: 'scale(0.8)' },
+        ],
+        FLUID_DURATIONS_MS.pop
       );
     } else {
       // Req 7: Fade (and Burst's text) — opacity 1 → 0.
-      anims.push(el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: FLUID_DURATIONS_MS.fade, easing: 'ease-out', fill: 'forwards' }));
+      animate(el, [{ opacity: 1 }, { opacity: 0 }], FLUID_DURATIONS_MS.fade);
     }
     if (effect === 'burst') {
       // Req 7: Burst — particles scatter from the removed text's first
       // painted line: one layout read of the ghost's own text node (an
       // overlay element, never content), falling back to the removal point.
-      let line = { left: box.left + box.indent, top: box.top, width: 0, height: box.lineHeight };
+      let line: FluidRect = { left: box.left + box.indent, top: box.top, width: 0, height: box.lineHeight };
       if (el.firstChild && typeof document.createRange === 'function') {
         const range = document.createRange();
         range.selectNodeContents(el.firstChild);
@@ -486,35 +498,32 @@ class FluidOverlay {
         dot.setAttribute('data-testid', 'fluid-burst-particle');
         dot.style.left = `${p.x}px`;
         dot.style.top = `${p.y}px`;
-        this.layer.appendChild(dot);
-        els.push(dot);
-        anims.push(
-          dot.animate(
-            [
-              { opacity: 1, transform: 'translate(0, 0)' },
-              { opacity: 0, transform: `translate(${p.dx}px, ${p.dy}px)` },
-            ],
-            { duration: FLUID_DURATIONS_MS.burst, easing: 'ease-out', fill: 'forwards' } // Req 8: ≤ 400 ms
-          )
+        animate(
+          dot,
+          [
+            { opacity: 1, transform: 'translate(0, 0)' },
+            { opacity: 0, transform: `translate(${p.dx}px, ${p.dy}px)` },
+          ],
+          FLUID_DURATIONS_MS.burst // Req 8: ≤ 400 ms
         );
       }
     }
     const entry: InFlight = {
       kind: 'deletion',
-      els,
+      els: parts.map((part) => part.el),
       cls: null,
       stop: () => {
-        for (const a of anims) a.cancel();
+        for (const part of parts) part.anim.cancel();
       },
     };
     this.inFlight.add(entry);
-    let pending = anims.length;
-    anims.forEach((anim, i) => {
-      anim.onfinish = () => {
-        els[i].remove(); // Req 15: each element goes the moment it finishes
+    let pending = parts.length;
+    for (const part of parts) {
+      part.anim.onfinish = () => {
+        part.el.remove(); // Req 15: each element goes the moment it finishes
         if (--pending === 0) this.finish(entry);
       };
-    });
+    }
   }
 }
 
