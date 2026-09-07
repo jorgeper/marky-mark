@@ -3471,8 +3471,10 @@ test('E587: PRD 025 Req 27 (issue #332) — hosted: at 1800px the sidebar and th
   await signInTo(page, 'ada', id);
   await openFromSidebar(page, 'page.md');
   await expect(page.getByTestId('file-tab-strip')).toBeVisible();
-  await page.getByTestId('comments-expand').click();
-  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  // The pane's open state roams per user (PRD 007), so a parallel test
+  // signed in as ada may have left it open already: the helper opens it
+  // only when the expand chevron is the one showing.
+  await openCommentsPane(page);
 
   const rectOf = (loc: Locator) =>
     loc.evaluate((el) => {
