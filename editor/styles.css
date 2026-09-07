@@ -1266,7 +1266,11 @@
    removal) and dissolved by the Web Animations API: Fade (opacity), Pop
    (scale to 0.8 + opacity) or Burst (opacity, plus particles). Overlay-only:
    it never enters the content DOM and never affects layout. */
-.fluid-deletion-ghost {
+/* PRD 025 Req 13 (issue #337): the insertion ghost shares the deletion
+   ghost's box and type — a re-rendered copy of the inserted text that Pop
+   scales in from ~0.8 above the masks below, then vanishes with them. */
+.fluid-deletion-ghost,
+.fluid-insertion-ghost {
   position: absolute;
   box-sizing: border-box;
   white-space: pre-wrap;
@@ -1275,6 +1279,19 @@
   color: var(--mm-fg, #1f2328);
   pointer-events: none;
   will-change: transform, opacity;
+}
+
+/* PRD 025 Reqs 13, 15 (issue #337): the insertion mask — one page-coloured
+   rectangle per painted rectangle of the inserted range (the same `--mm-bg`
+   the editor paints its background with, so themes gain no token), covering
+   the already-painted real text: Fade dissolves it so the text appears to
+   fade in; Pop holds it under the scaling copy. Overlay-only: the content
+   DOM is never restyled or entered, and layout is never touched. */
+.fluid-insertion-mask {
+  position: absolute;
+  background: var(--mm-bg, #ffffff);
+  pointer-events: none;
+  will-change: opacity;
 }
 
 /* PRD 025 Reqs 7, 8 (issue #336): one Burst particle — a 3px accent dot

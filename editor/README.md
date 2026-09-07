@@ -231,6 +231,29 @@ ghost at once; a caret move or selection change leaves it to finish.
 `fluidDeletionSpans`, `fluidDeletionBox` and `fluidBurstParticles` are the
 pure decision, box and particle geometry behind it.
 
+**Insertion.** Any change that *inserts* text animates, whatever caused it —
+typing, paste, drop, Enter and auto-indent, undo/redo that reinserts text, a
+host `applyEdit` or vim `p` — and a replacement's new text counts: typing or
+pasting over a selection, a completion, a smart-edit or table-edit rewrite
+are insertions of what they put in place. A pure removal never animates
+here, nor does an IME composition step (its text is still being decided and
+stays readable). Because the real, Markdown-styled text is already painted
+and the content DOM is never restyled, the effect is a page-coloured mask
+drawn in the overlay over the inserted range's painted rectangles: **Fade**
+dissolves the mask (180 ms) so the real text appears to fade in; **Pop**
+holds the mask while a re-rendered copy of the inserted text (base font,
+theme foreground, no Markdown styling) scales in from ~0.8 about the span's
+start (160 ms), then the copy and mask vanish together. With all four
+actions now live, the caret still keeps pace with typing: the insertion is
+never deferred and a caret move caused by typing is not animated. A change
+inserting or removing more than `FLUID_LARGE_OPERATION_CHARS` characters or
+`FLUID_LARGE_OPERATION_LINES` lines (counting what the change inserted or
+removed, so select-all + type on a long document) draws nothing. A scroll,
+resize, further edit or theme change removes the mask at once; a caret move
+or selection change leaves it to finish. `fluidInsertionSpans` is the pure
+decision behind it; the mask and copy reuse `fluidSelectionRects` and
+`fluidDeletionBox`.
+
 ```tsx
 <Editor value={text} onChange={setText} lineNumbers
         fluid={{ cursor: 'glide', selection: 'elastic', deletion: 'fade', insertion: 'pop' }} />

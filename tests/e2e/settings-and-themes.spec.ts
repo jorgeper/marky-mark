@@ -985,10 +985,12 @@ test('E580: PRD 025 Reqs 9, 10, 16 (issue #334) — with Fluid mode on, reduced 
   const firstLine = content.locator('.cm-line').first();
   await page.keyboard.press('Q');
   expect(await firstLine.textContent()).toMatch(/^Q/);
-  expect(await ghosts()).toBe(0);
+  // Issue #337: an insertion mask may now be in flight here, so only the
+  // caret-effect claim is asserted.
+  await expect(page.getByTestId('fluid-caret-ghost')).toHaveCount(0);
   await page.keyboard.press('Z');
   expect(await firstLine.textContent()).toMatch(/^QZ/);
-  expect(await ghosts()).toBe(0);
+  await expect(page.getByTestId('fluid-caret-ghost')).toHaveCount(0);
   // Deleting is not a navigation move either (issue #336: a deletion ghost
   // may now be fading here, so only the caret-effect claim is asserted).
   await page.keyboard.press('Backspace');
@@ -1048,7 +1050,9 @@ test('E582: PRD 025 Reqs 9, 11, 14, 16 (issue #335) — with Fluid mode on, redu
   await page.keyboard.press('Shift+End');
   await page.keyboard.press('Q');
   expect(await firstLine.textContent()).toBe('Q');
-  expect(await ghosts()).toBe(0);
+  // Issue #337: an insertion mask may now be in flight here, so only the
+  // selection-effect claim is asserted.
+  await expect(page.getByTestId('fluid-selection-ghost')).toHaveCount(0);
 
   // (c) Req 14: the large-operation snap — once the document is past
   // FLUID_LARGE_OPERATION_LINES lines, select-all draws nothing.
@@ -1056,7 +1060,7 @@ test('E582: PRD 025 Reqs 9, 11, 14, 16 (issue #335) — with Fluid mode on, redu
   for (let i = 0; i < 8; i++) await page.keyboard.press('Enter');
   expect(await content.locator('.cm-line').count()).toBeGreaterThan(50);
   await page.keyboard.press('Control+a');
-  expect(await ghosts()).toBe(0);
+  await expect(page.getByTestId('fluid-selection-ghost')).toHaveCount(0);
 
   // (d) Selection change → None: a range result draws nothing; the layer stays.
   await openSettings(page, 'experimental');
@@ -1156,6 +1160,96 @@ test('E586: PRD 025 Reqs 9, 12, 14, 16 (issue #336) — with Fluid mode on, redu
   expect(await firstLine.textContent()).toBe('X');
   await page.keyboard.press('Backspace');
   expect(await firstLine.textContent()).toBe('');
+  expect(await ghosts()).toBe(0);
+  await expect(layer).toHaveCount(1);
+});
+
+test('E587: PRD 025 Reqs 9, 13, 14, 16 (issue #337) — with Fluid mode on, reduced motion draws no insertion mask, a replacement lands synchronously, a pure removal or a navigation move never draws one, a large replacement draws nothing, Fade under reduced motion draws nothing, and Insertion → None draws nothing', async ({
+  page,
+}) => {
+  await freshApp(page);
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor).toBeVisible();
+  // On, with the default mapping (Insertion → Pop).
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-fluid-mode').check();
+  await saveSettings(page);
+  await expect(editor).toHaveAttribute('data-fluid', 'cursor=glide;selection=elastic;deletion=fade;insertion=pop');
+  const layer = page.getByTestId('fluid-overlay');
+  await expect(layer).toHaveCount(1);
+  const ghosts = () => layer.evaluate((el) => el.childElementCount);
+  const masks = page.getByTestId('fluid-insertion-mask');
+  const copies = page.getByTestId('fluid-insertion-ghost');
+  const content = editor.locator('.cm-content');
+  const firstLine = content.locator('.cm-line').first();
+
+  // (a) Req 16: reduced motion — typing creates no element at all, lands
+  // synchronously, and the mode stays configured (the root keeps its attribute).
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await content.click();
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Q');
+  expect(await firstLine.textContent()).toMatch(/^Q/);
+  expect(await ghosts()).toBe(0);
+  await expect(editor).toHaveAttribute('data-fluid', /;insertion=pop$/);
+
+  // (b) Reqs 9, 13: motion allowed again — a replacement (typing over a
+  // selection) is real and synchronous: the line reads `W` with no wait
+  // between key and check (the mask and copy that may now be in flight are
+  // not asserted). A pure removal never draws an insertion element, and
+  // neither does a navigation move.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+End');
+  await page.keyboard.press('W');
+  expect(await firstLine.textContent()).toBe('W');
+  await page.keyboard.press('Backspace');
+  expect(await firstLine.textContent()).toBe('');
+  await expect(masks).toHaveCount(0);
+  await expect(copies).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('End');
+  await expect(masks).toHaveCount(0);
+  await expect(copies).toHaveCount(0);
+
+  // (c) Req 14: the large-operation rule — once the document is past
+  // FLUID_LARGE_OPERATION_LINES lines, select-all + type replaces it all
+  // with one character and draws nothing.
+  await page.keyboard.press('Control+End');
+  for (let i = 0; i < 8; i++) await page.keyboard.press('Enter');
+  expect(await content.locator('.cm-line').count()).toBeGreaterThan(50);
+  await page.keyboard.press('Control+a');
+  await page.keyboard.press('M');
+  await expect(content.locator('.cm-line')).toHaveCount(1);
+  expect(await firstLine.textContent()).toBe('M');
+  expect(await ghosts()).toBe(0);
+
+  // (d) Insertion → Fade under reduced motion: no mask either.
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-fluid-mode-settings').click();
+  await page.getByTestId('fluid-pick-insertion').selectOption('fade');
+  await saveSettings(page);
+  await expect(editor).toHaveAttribute('data-fluid', /;insertion=fade$/);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await content.click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('K');
+  expect(await firstLine.textContent()).toBe('MK');
+  expect(await ghosts()).toBe(0);
+
+  // (e) Insertion → None (motion allowed): typing draws nothing; the layer stays.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-fluid-mode-settings').click();
+  await page.getByTestId('fluid-pick-insertion').selectOption('none');
+  await saveSettings(page);
+  await expect(editor).toHaveAttribute('data-fluid', /;insertion=none$/);
+  await content.click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('X');
+  expect(await firstLine.textContent()).toBe('MKX');
   expect(await ghosts()).toBe(0);
   await expect(layer).toHaveCount(1);
 });
