@@ -947,3 +947,63 @@ test('E577: PRD 025 Reqs 1–7, 22 — the Fluid mode row is off by default; on,
   await expect(page.getByTestId('fluid-overlay')).toHaveCount(0);
   await expect(page.getByTestId('editor')).not.toHaveAttribute('data-fluid');
 });
+
+test('E579: PRD 025 Reqs 9, 10, 16 (issue #334) — with Fluid mode on, reduced motion draws no caret ghost, typing never draws one and lands synchronously, and Cursor movement → None draws nothing', async ({
+  page,
+}) => {
+  await freshApp(page);
+  await page.keyboard.press('Control+e');
+  const editor = page.getByTestId('editor');
+  await expect(editor).toBeVisible();
+  // On, with the default mapping (Cursor movement → Glide).
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-fluid-mode').check();
+  await saveSettings(page);
+  await expect(editor).toHaveAttribute('data-fluid', 'cursor=glide;selection=elastic;deletion=fade;insertion=pop');
+  const layer = page.getByTestId('fluid-overlay');
+  await expect(layer).toHaveCount(1);
+  const ghosts = () => layer.evaluate((el) => el.childElementCount);
+
+  // (a) Req 16: reduced motion — navigation moves create no ghost at all,
+  // yet the mode stays configured (the root keeps its attribute).
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const content = editor.locator('.cm-content');
+  await content.click();
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.press('End');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  expect(await ghosts()).toBe(0);
+  await expect(editor).toHaveAttribute('data-fluid', /^cursor=glide;/);
+
+  // (b) Reqs 9, 10: motion allowed again — typing never animates, and the
+  // document and caret land synchronously: the second character follows the
+  // first because the caret advanced, with no wait between key and check.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.keyboard.press('Home');
+  const firstLine = content.locator('.cm-line').first();
+  await page.keyboard.press('Q');
+  expect(await firstLine.textContent()).toMatch(/^Q/);
+  expect(await ghosts()).toBe(0);
+  await page.keyboard.press('Z');
+  expect(await firstLine.textContent()).toMatch(/^QZ/);
+  expect(await ghosts()).toBe(0);
+  // Deleting is not a navigation move either.
+  await page.keyboard.press('Backspace');
+  expect(await firstLine.textContent()).toMatch(/^Q[^Z]/);
+  expect(await ghosts()).toBe(0);
+
+  // (c) Cursor movement → None: a navigation move draws nothing.
+  await openSettings(page, 'experimental');
+  await page.getByTestId('experimental-fluid-mode-settings').click();
+  await page.getByTestId('fluid-pick-cursor').selectOption('none');
+  await saveSettings(page);
+  await expect(editor).toHaveAttribute('data-fluid', /^cursor=none;/);
+  await content.click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('End');
+  expect(await ghosts()).toBe(0);
+  await expect(layer).toHaveCount(1);
+});

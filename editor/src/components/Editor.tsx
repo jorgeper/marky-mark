@@ -58,6 +58,7 @@ import { mapOffsetByLineFlat, wordAt } from '../lib/activePosition';
 import { intersectCodeSelection, type CodeRange } from '../lib/codeSelection';
 import type { DiffLineSets } from '../lib/diffLines';
 import { fluidAttribute, type FluidEffectMap } from '../lib/fluid';
+import { fluidExtension } from './fluidView';
 import { displayCombo, type HotkeyMap } from '../lib/hotkeys';
 import {
   buildSmartMenu,
@@ -1432,6 +1433,10 @@ export default function Editor({
   // PRD 022 Req 12 (issue #234): comment highlights ride a compartment like
   // diff; the click seam reads through a live ref (headingLink precedent).
   const hlComp = useRef(new Compartment());
+  // PRD 025 Req 3 (issue #334): the Fluid mode extension rides its own
+  // compartment — empty while the mode is off, so no listener, timer or
+  // overlay element exists then (E577's off-state).
+  const fluidComp = useRef(new Compartment());
   const onHighlightClickRef = useRef(onHighlightClick);
   onHighlightClickRef.current = onHighlightClick;
   // PRD 023 §18 (issue #285): revealHighlight reads the CURRENT ranges — the
@@ -2035,6 +2040,7 @@ export default function Editor({
       hlFlashField,
       searchHitField, // PRD 014 Req 8 (issue #313): the landed Search hit's mark
       hlComp.current.of([]),
+      fluidComp.current.of([]), // PRD 025 Req 3: filled by the effect below, like diff
       // SPEC23 §3: highlighting rides a compartment — toggling the setting
       // reconfigures live, undo history intact. PRD 006 §12: while live
       // preview is on it supersedes the setting — revealed raw lines keep
@@ -2653,27 +2659,20 @@ export default function Editor({
     });
   }, [highlights]);
 
-  // PRD 025 Req 3 (issue #333): the Fluid mode overlay layer — mounted
-  // inside CodeMirror's scroller (the chip layers above are the precedent for
-  // a scroller-hosted overlay) only while a mapping is set, and removed the
-  // moment the prop returns to null. Increment (1) of PRD 025 Req 24: the
-  // layer is INERT — no listener, no timer, no animation frame, no
-  // transition and no Web Animations call is scheduled here; every effect is
-  // a no-op until the increment that draws it. It is imperative rather than
-  // JSX because `view.scrollDOM` is CodeMirror's DOM, not React's.
+  // PRD 025 Req 3 (issues #333, #334): the Fluid mode extension — the
+  // overlay layer inside CodeMirror's scroller plus the effects that draw
+  // into it — is a compartment reconfigure like diff and highlights: loaded
+  // only while a mapping is set, gone (layer, listener and every in-flight
+  // ghost) the moment the prop returns to null. `themeVariant` is a
+  // dependency on purpose: a theme-side change swaps the plugin instance,
+  // which cancels anything in flight (Req 15).
   useEffect(() => {
     const view = viewRef.current;
-    if (!view || !fluid) return;
-    const layer = document.createElement('div');
-    layer.className = 'fluid-overlay';
-    layer.setAttribute('data-testid', 'fluid-overlay');
-    // PRD 025 Req 17: never a hit target, never read by assistive tech.
-    layer.setAttribute('aria-hidden', 'true');
-    view.scrollDOM.appendChild(layer);
-    return () => {
-      layer.remove();
-    };
-  }, [fluid]);
+    if (!view) return;
+    view.dispatch({
+      effects: fluidComp.current.reconfigure(fluid ? fluidExtension(fluid) : []),
+    });
+  }, [fluid, themeVariant]);
 
   return (
     <div

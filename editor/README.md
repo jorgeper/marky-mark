@@ -182,6 +182,19 @@ off. An effect is an overlay drawn *afterwards*; no effect defers, debounces
 or batches an edit or a selection update, and overlays never touch layout.
 The mode is inert under `prefers-reduced-motion: reduce`.
 
+**Cursor movement.** Only *navigation* moves animate — arrow and Home/End
+keys, mouse clicks, find-hit and heading-palette jumps, vim nav, undo/redo
+landing the caret, and a host `selectRange`. A caret move caused by typing
+or deleting never does: the caret keeps pace with the keys. The effect is a
+ghost caret drawn in the overlay that tweens from the old position to the
+new one — **Glide** eases there with no overshoot (160 ms), **Elastic**
+springs past the target by a few percent and settles (320 ms) — while the
+real caret is already at its destination. A scroll, resize, edit or theme
+change mid-flight removes the ghost at once. `isFluidNavigationMove`,
+`glideAt` and `elasticAt` are the pure decision and curves behind it. Under
+`prefers-reduced-motion: reduce` (read on every move, never cached) no ghost
+is created at all: the mode stays selectable and inert.
+
 ```tsx
 <Editor value={text} onChange={setText} lineNumbers
         fluid={{ cursor: 'glide', selection: 'elastic', deletion: 'fade', insertion: 'pop' }} />

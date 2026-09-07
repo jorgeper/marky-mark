@@ -1221,6 +1221,26 @@
   overflow: visible;
 }
 
+/* PRD 025 Req 10 (issue #334): the caret ghost — a thin bar the height of
+   the destination line, in the caret's accent colour, translated by the Web
+   Animations API from the old caret position to the new one. Overlay-only:
+   it never enters the content DOM and never affects layout. */
+.fluid-caret-ghost {
+  position: absolute;
+  width: 2px;
+  margin-left: -0.5px;
+  background: var(--mm-accent, #0969da);
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* PRD 025 Req 17: the real caret is hidden — CSS only, no layout — for
+   exactly as long as a ghost is in flight; every finish and cancel path
+   drops the class. */
+.cm-editor.fluid-caret-in-flight .cm-cursor {
+  visibility: hidden;
+}
+
 /* §4: the chip layer — overlay only, children opt back into pointer events. */
 .table-chip-layer {
   position: absolute;
