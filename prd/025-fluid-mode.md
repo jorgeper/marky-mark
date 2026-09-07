@@ -1,4 +1,4 @@
-# PRD 025: Delightful editing — animated editor operations, off by default
+# PRD 025: Fluid mode — animated editor operations, off by default
 
 **Status:** Draft
 **Date:** 2026-09-07
@@ -76,7 +76,7 @@ delivers one operation at a time, each dogfooded before the next starts.
 
 ### The switch
 
-1. Settings › Experimental gains a row **Delightful editing**, off by
+1. Settings › Experimental gains a row **Fluid mode**, off by
    default, with the one-line description: *"Animates the editor — the
    cursor glides, selections stretch, and text fades in and out. Does
    nothing when your system asks for reduced motion."* The row follows the
@@ -93,7 +93,7 @@ delivers one operation at a time, each dogfooded before the next starts.
 
 4. The row carries a **Settings…** button that opens a nested page in the
    Semantic zoom / LLM providers pattern: it takes the whole dialog body,
-   shows the breadcrumb *Experimental › Delightful editing* with a Back
+   shows the breadcrumb *Experimental › Fluid mode* with a Back
    button, and the dialog's pinned Save / Cancel footer governs it (Save
    commits the mapping with the rest of the settings; Cancel discards).
 5. The page lists exactly four actions, in this order, each with a picker:
