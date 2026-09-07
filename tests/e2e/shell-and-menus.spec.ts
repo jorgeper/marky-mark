@@ -900,7 +900,7 @@ test('E577: PRD 025 Reqs 12/22 (issue #328) — no transition applies on a pane 
         (document.querySelector(`[data-testid="${clickSel}"]`) as HTMLElement).click();
         for (let i = 0; i <= 2; i++) {
           const pane = document.querySelector(paneSel);
-          if (!!pane === (expectOpen as boolean) && out.framesToSettle < 0) {
+          if (!!pane === expectOpen && out.framesToSettle < 0) {
             out.framesToSettle = i;
             if (pane) {
               out.pane = read(pane);

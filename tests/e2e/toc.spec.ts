@@ -526,8 +526,9 @@ test('E256: scrolling the editor moves the highlight too, in the split and in fu
   await expect.poll(() => activeTocId(page)).toBeNull();
 
   // Full edit — the same, with no preview pane in the picture at all. Wait for
-  // the split's slide-out to finish: while it runs, SPEC15 is still holding
-  // the two panes together and would undo the scroll under the test.
+  // the divider to leave the DOM (issue #328: in place, no slide): until it
+  // does, SPEC15 is still holding the two panes together and would undo the
+  // scroll under the test.
   await page.keyboard.press('Control+\\');
   await expect(page.getByTestId('split-divider')).toHaveCount(0);
   await scrollEditorToLine(page, lines['2']); // # Beta

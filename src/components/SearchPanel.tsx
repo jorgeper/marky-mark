@@ -8,7 +8,7 @@ import { IconButton } from './ui/IconButton';
  * PRD 014 Req 6 (issue #152): the three query toggles — case-sensitive,
  * whole-word, regex — as a reusable control: a `SearchOptions` value in, the
  * flipped value out, state owned by the caller. The find bar (#154) mounts
- * this same control, so it carries no sidebar assumptions (no width, slide or
+ * this same control, so it carries no sidebar assumptions (no width or
  * result coupling) and no matching logic — every semantic lives in
  * `searchCore.ts`'s `compileQuery`. Same pressed-state idiom as
  * `SidebarViewSwitch` (aria-pressed, data-active, an accented `.on` state).

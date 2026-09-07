@@ -74,7 +74,7 @@ test('E339: the Search view — the third switch button, one view at a time, and
   await expect(page.getByTestId('toc-item')).toHaveCount(1);
 
   // Issue #257: pressing Search while Search is showing does NOTHING — the
-  // panel stays, still pressed, and the pane never slides. The header's
+  // panel stays, still pressed, and the pane never hides. The header's
   // chevron is the hide control, and with the sidebar hidden the whole
   // switch is gone; the tooltips are fixed constants throughout.
   await page.getByTestId('sidebar-view-search').click();

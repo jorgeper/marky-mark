@@ -300,12 +300,12 @@ export function FileTabStrip(p: FileTabStripProps) {
   useLayoutEffect(measure, [p.openFiles, p.untitled]);
 
   // PRD 013 Req 9: the rail's WIDTH changes without the strip owning any of
-  // those events — window resizes, the folder pane's open/close slide and
+  // those events — window resizes, the folder pane's open/close toggle and
   // width drag, split/preview layout changes. Each one re-reads the arrows
   // (a resize that removes the overflow removes them), and — unless the
   // user has parked the rail somewhere deliberate — keeps the active tab
-  // revealed, so a boot restore whose reveal ran mid pane-slide still ends
-  // with the tab in view once the layout settles.
+  // revealed, so a boot restore whose reveal ran before the panes settled
+  // still ends with the tab in view once the layout does.
   useEffect(() => {
     const rail = railRef.current;
     if (!rail) return;

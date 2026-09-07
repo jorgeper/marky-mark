@@ -132,11 +132,10 @@ body,
 /* CHROME TOKENS — END (PRD 018 Req 1) */
 
 /* Internal tokens — NOT part of the theme contract or the chrome scales
-   above (kept outside the BEGIN/END markers): one-off
-   hooks that PRD 018 Req 3 requires declared rather than resolved through
-   per-site var() fallbacks. Values are the former fallbacks verbatim; the
-   two caret tints are the theme accent at their old alphas, identical under
-   Crisp. */
+   above (kept outside the BEGIN/END markers): one-off hooks that PRD 018
+   Req 3 requires declared rather than resolved through per-site var()
+   fallbacks. Values are the former fallbacks verbatim; the two caret tints
+   are the theme accent at their old alphas, identical under Crisp. */
 .theme-root {
   --mm-zoom: 1; /* settings zoom factor; App.tsx sets it inline when ≠ 100% */
   --mm-toolbar-shadow: 0 2px 10px rgba(0, 0, 0, 0.08); /* SPEC4 §2.4 */
@@ -765,7 +764,7 @@ button {
    styling for DOM the app injects into those surfaces through the seams:
    comment highlights, find marks, SPEC44 preview cues, the diagram-resize
    overlay — plus everything keyed on app-owned classes (.workspace, the
-   pane slides). The --mm-* contract those moved rules consume is documented
+   pane wrappers). The --mm-* contract those moved rules consume is documented
    in editor/THEMING.md. */
 /* ---------- comment highlights ---------- */
 
@@ -1094,7 +1093,7 @@ mark.hl.ghost {
 /* Issue #165: outside split mode the wrapper contributes no box at all — the
    editor stays the workspace's own flex child, the exact pre-split layout —
    but the element (and the CodeMirror subtree inside it) survives the split
-   toggle, so opening the pane never tears the editor down mid-slide. */
+   toggle, so opening the pane never tears the editor down mid-toggle. */
 .workspace:not(.split) .split-editor {
   display: contents;
 }

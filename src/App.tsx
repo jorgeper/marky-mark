@@ -3484,7 +3484,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
    * Unconditional, unlike the pre-#134 version: with the view persisted (Req
    * 11) the pane can come back on the TOC, and a folder route that left it
    * there would open a pane with no tree in it. An already-open folders view
-   * diffs to no change, so nothing re-slides and nothing is rewritten.
+   * diffs to no change, so nothing re-mounts and nothing is rewritten.
    */
   const revealFolderPane = useCallback(() => {
     updateSettings({ ...stateRef.current.settings, showFolders: true, sidebarView: 'folders' });
@@ -7586,7 +7586,7 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
       updateSettings({ ...s.settings, showComments: true });
     }
     // Activation re-lays the flow out (the active card anchors level with its
-    // mark, SPEC6 §2), and the pane may first have to mount and slide — one
+    // mark, SPEC6 §2), and the pane may first have to mount — one
     // frame is not enough, so retry until the card exists (bounded, the
     // pendingScrollLine pattern).
     let tries = 120; // ~2s of frames
