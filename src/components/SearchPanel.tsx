@@ -1,6 +1,5 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { Chevron, paneWidthDrag } from './FolderPanel';
-import { slideClasses, type SlidePhase } from '../lib/paneSlide';
 import type { FileSearchResult, LineMatch, SearchOptions, SearchResults } from '@marky-mark/editor';
 import { SEARCH_OPTION_TOGGLES, toggleSearchOption } from '../lib/searchOptions';
 import { IconButton } from './ui/IconButton';
@@ -56,7 +55,7 @@ export function SearchOptionsBar({
  * contains no matching logic and touches no platform seam.
  *
  * It reuses the `.folder-*` treatment deliberately (PRD 012 Req 1): the three
- * views are one pane, so they share the slide, the width, the divider and the
+ * views are one pane, so they share the wrapper, the width, the divider and the
  * row look.
  */
 export interface SearchPanelProps {
@@ -100,8 +99,6 @@ export interface SearchPanelProps {
   collapsed: ReadonlySet<string>;
   /** PRD 014 Req 2: bumped by the Search button — focus the query box. */
   focusTick: number;
-  /** PRD 003 Req 9: the shared pane's open/close slide phase (App owns timing). */
-  slide: SlidePhase;
   /** PRD 012 Req 1: `settings.folderWidth` — one width for the one pane. */
   width: number;
   /** PRD 012 Req 9: the view switch, rendered at the head of the header. */
@@ -222,10 +219,9 @@ export function SearchPanel(p: SearchPanelProps) {
     if (p.focusTick > 0) inputRef.current?.select();
   }, [p.focusTick]);
 
-  const { sliding, out } = slideClasses(p.slide);
   return (
     <div
-      className={`folder-slide${sliding ? ' sliding' : ''}${out ? ' out' : ''}`}
+      className="folder-slide"
       ref={slideRef}
       style={{ '--mm-folders': `${p.width}px` } as CSSProperties}
     >

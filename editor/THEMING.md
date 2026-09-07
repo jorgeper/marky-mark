@@ -103,7 +103,6 @@ sets these eight is complete; there is nothing per-language to add.
 | `--mm-radius-pill` | Full-round radius: chips, the vim badge — **no fallback** |
 | `--mm-card-shadow` | Resting lift on chips and the vim badge — **no fallback** |
 | `--mm-fence-ring` | Hairline ring around editor fence cards — **no fallback** |
-| `--mm-split-edge-shade` | The split divider's inset edge shade — **no fallback** |
 
 ## Host-layout variables (JS-driven)
 

@@ -246,8 +246,9 @@ export type Box = { x: number; y: number; width: number; height: number };
 
 /**
  * A `boundingBox()` that has stopped moving: the same rect on two consecutive
- * polls. Geometry read straight after a pane slide (`paneSlide.ts`, 180ms) or
- * a ResizeObserver-driven relayout is otherwise a one-shot sample mid-flight,
+ * polls. Geometry read straight after a pane toggle (the panes switch
+ * instantly since issue #328, but a ResizeObserver-driven relayout or a drag
+ * can still land a frame later) is otherwise a one-shot sample mid-relayout,
  * and a drag started from it grabs the wrong pixel (issue #18).
  */
 export async function stableBox(target: Locator): Promise<Box> {

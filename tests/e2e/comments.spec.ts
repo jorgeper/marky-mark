@@ -477,7 +477,7 @@ test('E54: fixed navigator pill — appears on selection, steps in order, wraps,
   await expect(page.getByTestId('comment-nav-count')).toHaveText('1 / 3');
 
   // The don't-move-the-mouse guarantee: once shown, stepping never moves the
-  // pill (measure after the first step so the entrance slide has settled —
+  // pill (measure after the first step so the pill's fade-in has settled —
   // the invariant is about stepping, not the appear animation).
   await page.getByTestId('comment-nav-next').click();
   await expect(page.getByTestId('comment-nav-count')).toHaveText('2 / 3');
@@ -1749,7 +1749,7 @@ test('E435: the comments pane ships closed; the second chevron opens and closes 
   await expect(page.getByTestId('comments-collapse')).toBeVisible();
   await expect.poll(async () => Math.round((await pane.boundingBox())!.width)).toBe(300);
   // …at the workspace's right edge: the pane's right edge is the window's
-  // (polled — the 180ms entry slide has to settle first).
+  // (polled — layout settles a frame after the mount; issue #328: no slide).
   const innerWidth = await page.evaluate(() => window.innerWidth);
   await expect
     .poll(async () => {
@@ -2017,7 +2017,7 @@ test('E442: PRD 023 Req 18 — clicking the overlapped run in the preview resolv
 
   // The overlapped run hosts BOTH records' marks; the kind-aware rule picks
   // the comment (PRD 023 §5), and the click opens the pane, activates the
-  // card and reveals it — surviving the pane's mount + slide.
+  // card and reveals it — surviving the pane's mount.
   await page.locator('mark.hl[data-cid="h-same"]').first().click();
   await expect(page.getByTestId('comments-pane')).toBeVisible();
   const card = page.locator('[data-testid="comment-card"][data-cid="c-same"]');

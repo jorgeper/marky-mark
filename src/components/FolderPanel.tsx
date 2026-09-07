@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { displayEntries, isMarkdownFile, type DirEntry } from '../lib/folderTree';
 import { folderContextMenu, validateEntryName } from '../lib/folderOps';
 import { FOLDER_WIDTH_MAX, FOLDER_WIDTH_MIN, type ViewMode } from '../lib/settings';
-import { slideClasses, type SlidePhase } from '../lib/paneSlide';
 import { untitledDisplayName, type ScratchPresence } from '../lib/docName';
 import { useAnchoredMenu } from '@marky-mark/editor';
 import { Button } from './ui/Button';
@@ -41,9 +40,6 @@ export interface FolderPanelProps {
   /** SPEC36 §3.1 + SPEC35 §2.5: ⌘ is the additive click on mac (Ctrl stays
       the context menu's); also picks the platform reveal label. */
   isMac: boolean;
-  /** PRD 003 Req 9: the open/close slide phase — drives the wrapper's
-      width transition and the panel's transform (App owns the timing). */
-  slide: SlidePhase;
   width: number;
   join(...parts: string[]): string;
   basename(path: string): string;
@@ -771,16 +767,14 @@ export function FolderPanel(p: FolderPanelProps) {
 
   const dragWidth = paneWidthDrag({ panelRef, slideRef, width: p.width, onWidth: p.onWidth });
 
-  // PRD 003 Req 9: the slide wrapper animates its width (the workspace
-  // follows) while the panel inside keeps its full width and translates —
-  // both on the same 180ms ease, so the pane edge and the workspace edge
-  // track pixel-for-pixel. The transform lives only on the sliding phases:
-  // steady-state transforms would turn the panel into the containing block
-  // for the fixed-position context menu.
-  const { sliding, out } = slideClasses(p.slide);
+  // PRD 025 Req 12 (issue #328): the wrapper is a plain fixed-width
+  // container — the pane mounts and unmounts in place, no slide phases, no
+  // transform (a transform would turn the panel into the containing block
+  // for the fixed-position context menu). paneWidthDrag writes --mm-folders
+  // onto it.
   return (
     <div
-      className={`folder-slide${sliding ? ' sliding' : ''}${out ? ' out' : ''}`}
+      className="folder-slide"
       ref={slideRef}
       style={{ '--mm-folders': `${p.width}px` } as React.CSSProperties}
     >

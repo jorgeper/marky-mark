@@ -70,7 +70,6 @@
   --mm-radius-pill: 999px;
   --mm-card-shadow: 0 1px 6px rgba(0, 0, 0, 0.09);
   --mm-fence-ring: #d1d9e0;
-  --mm-split-edge-shade: inset -12px 0 14px -12px rgba(0, 0, 0, 0.28);
 
   /* Host-layout variables (JS-driven in Marky Mark; resting values here) */
   --mm-split: 50%;

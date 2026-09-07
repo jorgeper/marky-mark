@@ -100,6 +100,16 @@ of scope (author's call): scroll sync between split panes, a fully fledged edito
 
 The bigger feature. Full-screen swap stays the default; this adds an opt-in split.
 
+> **Amended (issue #328, 2026-09-07):** toggling the split no longer slides
+> the preview in or out (the PRD 003 Reqs 10–11 motion that later layered on
+> this section). Per PRD 025 Req 22 the preview mounts or unmounts in place
+> with no phase classes, `transform`, `transition` or `will-change`, and the
+> editor's width changes in the same frame; per PRD 025 Req 23 the divider
+> keeps its 1 px hairline and hover accent but drops the inset edge shade.
+> The pane-slide `prefers-reduced-motion` carve-out is gone with the slide.
+> Everything else here — the setting, the ratio, the drag/clamp/reset, the
+> live re-render — is unchanged.
+
 1. New setting **`splitEdit: boolean`, default `false`** (General → Editor,
    `data-testid="set-split-edit"`), plus persisted **`splitRatio: number`, default
    `0.5`** (editor pane's fraction, clamped to **0.2–0.8**; not shown in the dialog).
