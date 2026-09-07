@@ -8318,8 +8318,17 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
       {/* PRD 013 Req 1: `with-tabs` drops the absolutely-anchored edge
           clusters below the strip, so they stay visible and clickable rather
-          than sitting behind it (styles.css). */}
-      <div className={`body-row${showFileTabs ? ' with-tabs' : ''}`}>
+          than sitting behind it (styles.css).
+          PRD 025 Req 7 (issue #331): `panes-none` = neither side pane is on
+          screen — the sidebar predicate is `sidebarShown` (the setting AND a
+          view to fill it, so a web build with no folders view counts as
+          closed) and the comments one is `commentsPaneMounted`. The class,
+          not sibling structure, drives the page's full-width flat form. */}
+      <div
+        className={`body-row${showFileTabs ? ' with-tabs' : ''}${
+          sidebarShown || commentsPaneMounted ? '' : ' panes-none'
+        }`}
+      >
         {/* Issue #22: the folder sidebar is a workspace-mode surface only. */}
         {/* PRD 012 Req 1: exactly one view of the one pane renders — the
             folders tree only while it is the chosen view. */}
@@ -8476,13 +8485,17 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
           />
         )}
 
-      {/* PRD 013 Reqs 1–2: the strip + document column. The wrapper is layout
-          only — it takes the flex slot the workspace held and turns it into a
-          column, so the strip spans the full width of the WORKSPACE alone
-          (the sidebar is a body-row sibling it can never extend over), above
-          the preview, split and full-edit branches alike. Its `with-tabs`
-          hands the workspace's static-toolbar clearance to the strip, which
-          is now the column's top edge (styles.css). */}
+      {/* PRD 013 Reqs 1–2: the strip + document column. It takes the flex
+          slot the workspace held and turns it into a column, so the strip
+          spans the full width of the PAGE alone (the sidebar is a body-row
+          sibling it can never extend over), above the preview, split and
+          full-edit branches alike. Its `with-tabs` hands the workspace's
+          static-toolbar clearance to the strip, which is now the column's
+          top edge (styles.css).
+          PRD 025 Reqs 1–6 (issue #331): this column IS the page — the
+          centred, max-width --mm-bg surface on the body row's ground, with
+          its own top radius and shadow while a side pane is open; the old
+          ::after seam overlay is gone (styles.css .workspace-stack). */}
       <div className={`workspace-stack${showFileTabs ? ' with-tabs' : ''}`}>
         {/* PRD 003 Req 2: with the pane closed, a chevron at the workspace's
             left edge reopens it — PRD 012 Req 9 seats the view switch beside

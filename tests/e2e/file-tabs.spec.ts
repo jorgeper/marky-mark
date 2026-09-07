@@ -1130,14 +1130,15 @@ test('E304: File → New with an overflowing strip leaves the Untitled tab in vi
   expect(await tabPaths(page)).toEqual([...Array(10).keys()].map((i) => ovf(i + 1)).concat(['']));
 });
 
-// ---- PRD 013 Reqs 10–12 (issue #148): the plane treatment, from computed
-// styles. The sidebar's SPEC36 §4.1 three-plane system rotated to the top
-// edge: strip on the folder pane's surface, active tab on the workspace's
-// front plane, open-but-inactive tabs one shade back between the two.
+// ---- PRD 025 Reqs 6, 17–18 (issue #331): the flat strip, from computed
+// styles. PRD 013 Reqs 10–12's three planes are retired: the strip is a flat
+// --mm-bg-elevated band on the ground, the active tab is the page's own
+// --mm-bg joined to it, inactive tabs are --mm-border-outlined pills with no
+// lift, and depth is the page's own radius + shadow — no seam overlay.
 
 /** A computed color's 0–255 channels — accepts the rgb()/rgba() legacy
  *  serialization AND color(srgb r g b), which is how Chromium serializes a
- *  color-mix(in srgb, …) computed value (the middle plane's background). */
+ *  color-mix(in srgb, …) computed value. */
 const channels = (color: string): number[] => {
   const rgb = color.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/);
   if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
@@ -1148,66 +1149,100 @@ const channels = (color: string): number[] => {
 
 const bgOf = (loc: Locator) => loc.evaluate((el) => getComputedStyle(el).backgroundColor);
 
-/** The issue #148 plane assertions, valid under any theme currently on and
- *  any number of open-but-inactive tabs (openThree leaves two of them). */
-async function assertTabPlanes(page: Page): Promise<void> {
+/** A chrome token's value as the theme root computes it (`6px`, `#d1d9e0`…). */
+const tokenOf = (page: Page, name: string) =>
+  page.locator('.theme-root').evaluate((el, n) => getComputedStyle(el).getPropertyValue(n).trim(), name);
+
+/** A colour token resolved to a computed colour: painted through a probe
+ *  child of the theme root, so `#d1d9e0` and `rgb(209, 217, 224)` compare. */
+const colorTokenOf = (page: Page, name: string) =>
+  page.locator('.theme-root').evaluate((el, n) => {
+    const probe = document.createElement('div');
+    probe.style.color = `var(${n})`;
+    el.appendChild(probe);
+    const c = getComputedStyle(probe).color;
+    probe.remove();
+    return c;
+  }, name);
+
+/** The issue #331 flat-strip assertions, valid under any theme currently on
+ *  and any number of open-but-inactive tabs (openThree leaves two of them). */
+async function assertFlatStrip(page: Page): Promise<void> {
   const active = page.locator('.file-tab.active');
   const inactive = page.locator('.file-tab:not(.active)');
   await expect(active).toHaveCount(1);
 
-  // Req 10: the strip paints the folder pane's own surface — one continuous
-  // L-shaped backdrop around the workspace's top-left corner.
+  // Req 17: the strip is the ground's own colour — the folder panel's and
+  // the body row's (one continuous --mm-bg-elevated plane).
   const stripBg = channels(await bgOf(page.getByTestId('file-tab-strip')));
-  const panelBg = channels(await bgOf(page.getByTestId('folder-panel')));
-  expect(stripBg).toEqual(panelBg);
+  expect(stripBg).toEqual(channels(await bgOf(page.getByTestId('folder-panel'))));
+  expect(stripBg).toEqual(channels(await bgOf(page.locator('.body-row'))));
 
-  // Front plane: the active tab IS the workspace surface (the theme root's
-  // --mm-bg — .workspace itself is transparent over it), distinct from the
-  // strip surface behind it.
-  const workspaceBg = channels(await bgOf(page.locator('.theme-root')));
+  // The active tab IS the page: the theme root's --mm-bg (.workspace itself
+  // is transparent over the page) and .workspace-stack's own background.
+  const pageBg = channels(await bgOf(page.locator('.theme-root')));
+  expect(channels(await bgOf(page.locator('.workspace-stack')))).toEqual(pageBg);
   const activeBg = channels(await bgOf(active));
-  expect(activeBg).toEqual(workspaceBg);
+  expect(activeBg).toEqual(pageBg);
   expect(activeBg).not.toEqual(stripBg);
 
-  // Middle plane: EVERY inactive tab reads as one surface distinct from both
-  // the strip's and the front plane's, sitting BETWEEN them channel by
-  // channel — one shade back from the front.
-  const inactiveBgs = await inactive.evaluateAll((els) =>
-    els.map((el) => getComputedStyle(el).backgroundColor)
+  // Inactive tabs: flat pills on the ground — the strip's colour, a 1px
+  // --mm-border outline open at the bottom, no lift, no stacking.
+  const border = channels(await colorTokenOf(page, '--mm-border'));
+  const inactiveStyles = await inactive.evaluateAll((els) =>
+    els.map((el) => {
+      const s = getComputedStyle(el);
+      return {
+        bg: s.backgroundColor,
+        topWidth: s.borderTopWidth,
+        topColor: s.borderTopColor,
+        bottomWidth: s.borderBottomWidth,
+        shadow: s.boxShadow,
+        z: s.zIndex,
+      };
+    })
   );
-  expect(inactiveBgs.length).toBeGreaterThan(0);
-  for (const bg of inactiveBgs) {
-    const inactiveBg = channels(bg);
-    expect(inactiveBg).not.toEqual(activeBg);
-    expect(inactiveBg).not.toEqual(stripBg);
-    for (let i = 0; i < 3; i++) {
-      const lo = Math.min(stripBg[i], activeBg[i]);
-      const hi = Math.max(stripBg[i], activeBg[i]);
-      expect(inactiveBg[i]).toBeGreaterThanOrEqual(lo);
-      expect(inactiveBg[i]).toBeLessThanOrEqual(hi);
-    }
+  expect(inactiveStyles.length).toBeGreaterThan(0);
+  for (const st of inactiveStyles) {
+    expect(channels(st.bg)).toEqual(stripBg);
+    expect(st.topWidth).toBe('1px');
+    expect(channels(st.topColor)).toEqual(border);
+    expect(st.bottomWidth).toBe('0px');
+    expect(st.shadow).toBe('none');
+    expect(st.z).toBe('auto');
   }
 
-  // The lift: both planes carry a real shadow (the active one is asserted
-  // stronger by stacking, not by parsing blur radii), and the active tab
-  // stacks ABOVE every neighbor so that shadow falls over them, not under.
-  expect(await active.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe('none');
-  expect(await inactive.first().evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe('none');
-  const activeZ = await active.evaluate((el) => Number(getComputedStyle(el).zIndex));
-  const neighborZ = await inactive.evaluateAll((els) =>
-    els.map((el) => Number(getComputedStyle(el).zIndex))
-  );
-  expect(Math.max(...neighborZ)).toBeLessThan(activeZ);
+  // The active tab: no shadow, no bottom edge between it and the page, no
+  // stacking — nothing breaks a seam any more.
+  const activeStyle = await active.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { shadow: s.boxShadow, bottomWidth: s.borderBottomWidth, z: s.zIndex };
+  });
+  expect(activeStyle).toEqual({ shadow: 'none', bottomWidth: '0px', z: 'auto' });
+
+  // Req 6: with the sidebar open the page carries the radius + shadow, and
+  // no ::after seam overlay remains on the stack.
+  const stack = await page.locator('.workspace-stack').evaluate((el) => {
+    const s = getComputedStyle(el);
+    return {
+      shadow: s.boxShadow,
+      radius: s.borderTopLeftRadius,
+      after: getComputedStyle(el, '::after').content,
+    };
+  });
+  expect(stack.shadow).not.toBe('none');
+  expect(stack.radius).toBe(await tokenOf(page, '--mm-radius-small'));
+  expect(stack.after).toBe('none');
 }
 
-test('E353: the three planes from computed styles — strip on the pane surface, active tab on the workspace surface stacked above its lifted neighbors', async ({
+test('E353: the flat strip from computed styles — strip on the ground, active tab joined to the page, inactive tabs outlined pills without lift, the page rounded and shadowed with no seam overlay', async ({
   page,
 }) => {
   await openThree(page);
-  await assertTabPlanes(page);
+  await assertFlatStrip(page);
 });
 
-test('E306: the plane ordering holds in a dark theme — strip < inactive < active, the active tab still the workspace surface (One Dark)', async ({
+test('E306: the flat strip holds in a dark theme — ground / page contrast under One Dark, the active tab still the page surface, pills outlined in the theme\'s border', async ({
   page,
 }) => {
   await openThree(page);
@@ -1221,7 +1256,172 @@ test('E306: the plane ordering holds in a dark theme — strip < inactive < acti
   await expect
     .poll(() => bgOf(page.locator('.theme-root')))
     .toBe('rgb(40, 44, 52)'); // One Dark #282c34
-  await assertTabPlanes(page);
+  await assertFlatStrip(page);
+});
+
+// ---- PRD 025 Reqs 1–9 (issue #331): the centred page, from geometry.
+
+const rectOf = (loc: Locator) =>
+  loc.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: r.right, width: r.width };
+  });
+
+/** `max(var(--mm-content-width), var(--mm-pane-min))` in px, resolved by
+ *  the browser from the theme root's live custom properties (the 46rem
+ *  fallback included) through a probe box — never hardcoded. */
+const pagePaneWidth = (page: Page) =>
+  page.locator('.theme-root').evaluate((el) => {
+    const probe = document.createElement('div');
+    probe.style.position = 'absolute';
+    probe.style.width = 'max(var(--mm-content-width, 46rem), var(--mm-pane-min))';
+    el.appendChild(probe);
+    const w = probe.getBoundingClientRect().width;
+    probe.remove();
+    return Math.round(w);
+  });
+
+/** The page's inner width: its client box less its own horizontal padding. */
+const pageInnerWidth = (page: Page) =>
+  page.locator('.workspace-stack').evaluate((el) => {
+    const s = getComputedStyle(el);
+    return Math.round(el.clientWidth - parseFloat(s.paddingLeft) - parseFloat(s.paddingRight));
+  });
+
+const ensureEditMode = async (page: Page) => {
+  if ((await page.locator('.cm-content').count()) === 0) await page.keyboard.press('Control+e');
+  await expect(page.locator('.cm-content')).toBeVisible();
+};
+
+test('E583: PRD 025 Reqs 2, 8, 10–11 (issue #331) — at 1800px the ground left of the sidebar equals the ground right of the comments column, both panes hug the page, and the sidebar alone centres with the page the same way', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await openThree(page);
+  await page.getByTestId('comments-expand').click();
+  await expect(page.getByTestId('comments-pane')).toBeVisible();
+  const body = page.locator('.body-row');
+  const stack = page.locator('.workspace-stack');
+  const folder = page.locator('.folder-slide');
+  const comments = page.locator('.comments-slide');
+
+  // Both panes: equal ground outside the cluster, none inside it.
+  await expect
+    .poll(async () => {
+      const [b, f, c] = await Promise.all([rectOf(body), rectOf(folder), rectOf(comments)]);
+      return Math.abs(f.left - b.left - (b.right - c.right));
+    })
+    .toBeLessThanOrEqual(1);
+  const [b, f, s, c] = await Promise.all([rectOf(body), rectOf(folder), rectOf(stack), rectOf(comments)]);
+  expect(f.left - b.left).toBeGreaterThan(0);
+  expect(Math.abs(f.right - s.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(s.right - c.left)).toBeLessThanOrEqual(1);
+
+  // One pane: the sidebar + page pair is the cluster, centred by the same rule.
+  await page.getByTestId('comments-collapse').click();
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await expect
+    .poll(async () => {
+      const [b2, f2, s2] = await Promise.all([rectOf(body), rectOf(folder), rectOf(stack)]);
+      return Math.abs(f2.left - b2.left - (b2.right - s2.right));
+    })
+    .toBeLessThanOrEqual(1);
+  const [b2, f2, s2] = await Promise.all([rectOf(body), rectOf(folder), rectOf(stack)]);
+  expect(f2.left - b2.left).toBeGreaterThan(0);
+  expect(Math.abs(f2.right - s2.left)).toBeLessThanOrEqual(1);
+});
+
+test('E584: PRD 025 Reqs 3–5 (issue #331) — the page\'s inner width is max(content-width, pane-min) editor-only, twice that plus the measured divider with the preview open, and follows the Margins setting live', async ({
+  page,
+}) => {
+  // Wide enough for sidebar + two 76rem panes (the seeded super-narrow Margins).
+  await page.setViewportSize({ width: 3200, height: 900 });
+  await openThree(page);
+  await ensureEditMode(page);
+
+  // Preview open (whichever state the split chevron starts in): two panes
+  // plus the divider's flow width, measured.
+  if ((await page.getByTestId('preview-expand').count()) > 0) await page.getByTestId('preview-expand').click();
+  await expect(page.locator('.split-divider')).toBeVisible();
+  const dividerWidth = await page.locator('.split-divider').evaluate((el) => {
+    const s = getComputedStyle(el);
+    return el.getBoundingClientRect().width + parseFloat(s.marginLeft) + parseFloat(s.marginRight);
+  });
+  await expect
+    .poll(() => pageInnerWidth(page))
+    .toBe(Math.round(2 * (await pagePaneWidth(page)) + dividerWidth));
+
+  // Editor-only: exactly one pane of content.
+  await page.getByTestId('preview-collapse').click();
+  await expect(page.locator('.split-divider')).toHaveCount(0);
+  await expect.poll(() => pageInnerWidth(page)).toBe(await pagePaneWidth(page));
+
+  // Margins: super-narrow (76rem) lifts the page above the pane floor…
+  await openSettings(page);
+  await page.getByTestId('settings-margins').selectOption('super-narrow');
+  await saveSettings(page);
+  const superNarrow = await pagePaneWidth(page);
+  await expect.poll(() => pageInnerWidth(page)).toBe(superNarrow);
+  // …and wide (38rem) drops it back — never below the --mm-pane-min floor
+  // (the seeded paneMinWidth is small, so the column wins here; the probe's
+  // max() is what the page must equal either way).
+  await openSettings(page);
+  await page.getByTestId('settings-margins').selectOption('wide');
+  await saveSettings(page);
+  const wide = await pagePaneWidth(page);
+  expect(wide).toBeLessThan(superNarrow);
+  expect(wide).toBeGreaterThanOrEqual(Math.round(parseFloat(await tokenOf(page, '--mm-pane-min'))));
+  await expect.poll(() => pageInnerWidth(page)).toBe(wide);
+});
+
+test('E585: PRD 025 Reqs 6–7, 9 (issue #331) — both panes closed the page spans the body row flat, no radius or shadow; reopening the sidebar restores both within two frames, with no transition on the page or the wrappers', async ({
+  page,
+}) => {
+  await openThree(page);
+  const body = page.locator('.body-row');
+  const stack = page.locator('.workspace-stack');
+  await page.getByTestId('folder-collapse').click();
+  await expect(page.getByTestId('folder-panel')).toHaveCount(0);
+  await expect(page.getByTestId('comments-pane')).toHaveCount(0);
+  await expect(body).toHaveClass(/panes-none/);
+
+  const [b, s] = await Promise.all([rectOf(body), rectOf(stack)]);
+  expect(Math.abs(b.left - s.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(b.right - s.right)).toBeLessThanOrEqual(1);
+  const flat = await stack.evaluate((el) => {
+    const st = getComputedStyle(el);
+    return { radius: st.borderRadius, shadow: st.boxShadow };
+  });
+  expect(flat).toEqual({ radius: '0px', shadow: 'none' });
+
+  // Reopen: radius + shadow are back two frames after the click — no
+  // transition anywhere on the page or its wrappers (Req 9).
+  const after = await page.evaluate(async () => {
+    (document.querySelector('[data-testid="folder-expand"]') as HTMLElement).click();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const read = (sel: string) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const st = getComputedStyle(el);
+      return { duration: st.transitionDuration, transform: st.transform, willChange: st.willChange };
+    };
+    const st = getComputedStyle(document.querySelector('.workspace-stack')!);
+    return {
+      radius: st.borderTopLeftRadius,
+      shadow: st.boxShadow,
+      panesNone: document.querySelector('.body-row')!.classList.contains('panes-none'),
+      motion: {
+        stack: read('.workspace-stack'),
+        body: read('.body-row'),
+        folder: read('.folder-slide'),
+      },
+    };
+  });
+  expect(after.panesNone).toBe(false);
+  expect(after.radius).toBe(await tokenOf(page, '--mm-radius-small'));
+  expect(after.shadow).not.toBe('none');
+  const still = { duration: '0s', transform: 'none', willChange: 'auto' };
+  expect(after.motion).toEqual({ stack: still, body: still, folder: still });
 });
 
 test('E307: Ctrl+Tab across multi-table documents — the wrap past the last tab lands the new document in the editor with no page error', async ({

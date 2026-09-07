@@ -678,3 +678,47 @@ test('W18: PRD 015 Req 12 (issue #172) — the corner-drag resize persists width
   expect(n).toBeLessThanOrEqual(Math.ceil(vbW));
   expect(Math.abs(n - target)).toBeLessThanOrEqual(2);
 });
+
+test('W19: PRD 025 Reqs 7, 11, 27 (issue #331) — the static build shows the both-panes-closed page (no sidebar, no strip, flat and edge to edge); turning comments on mounts the 300px column hugging the page, which gains its radius and shadow', async ({
+  page,
+}) => {
+  await expect(page.getByTestId('doc').locator('h1')).toContainText('Welcome to Marky Mark');
+  await expect(page.locator('.folder-slide')).toHaveCount(0);
+  await expect(page.getByTestId('file-tab-strip')).toHaveCount(0);
+  const body = page.locator('.body-row');
+  const stack = page.locator('.workspace-stack');
+  const rectOf = (sel: string) =>
+    page.evaluate((s) => {
+      const r = document.querySelector(s)!.getBoundingClientRect();
+      return { left: r.left, right: r.right, width: r.width };
+    }, sel);
+  await expect(body).toHaveClass(/panes-none/);
+  const [b, s] = await Promise.all([rectOf('.body-row'), rectOf('.workspace-stack')]);
+  expect(Math.abs(b.left - s.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(b.right - s.right)).toBeLessThanOrEqual(1);
+  expect(
+    await stack.evaluate((el) => ({ radius: getComputedStyle(el).borderRadius, shadow: getComputedStyle(el).boxShadow }))
+  ).toEqual({ radius: '0px', shadow: 'none' });
+
+  // Comments on: the column is the cluster's right member.
+  await page.getByTestId('comments-expand').click();
+  const pane = page.getByTestId('comments-pane');
+  await expect(pane).toBeVisible();
+  await expect(body).not.toHaveClass(/panes-none/);
+  await expect.poll(async () => Math.round((await rectOf('.comments-slide')).width)).toBe(300);
+  await expect
+    .poll(async () => {
+      const [st, c] = await Promise.all([rectOf('.workspace-stack'), rectOf('.comments-slide')]);
+      return Math.abs(st.right - c.left);
+    })
+    .toBeLessThanOrEqual(1);
+  const radius = await page
+    .locator('.theme-root')
+    .evaluate((el) => getComputedStyle(el).getPropertyValue('--mm-radius-small').trim());
+  const rounded = await stack.evaluate((el) => ({
+    radius: getComputedStyle(el).borderTopLeftRadius,
+    shadow: getComputedStyle(el).boxShadow,
+  }));
+  expect(rounded.radius).toBe(radius);
+  expect(rounded.shadow).not.toBe('none');
+});

@@ -134,8 +134,8 @@ function Tab({ active, label, title, path, dirty, scratch, onClick, onClose, onM
       // element carrying the attribute would break their strict resolution.
       data-tab={path}
       // PRD 013 Req 3: a state a test can assert, beside the class and
-      // aria-selected — the basic active/inactive distinction (the full
-      // plane-and-shadow treatment is issue #148).
+      // aria-selected — the basic active/inactive distinction (the flat
+      // strip look — PRD 025 Req 17, issue #331 — lives in styles.css).
       data-active={active ? 'true' : 'false'}
       role="tab"
       aria-selected={active}
@@ -369,7 +369,7 @@ export function FileTabStrip(p: FileTabStripProps) {
       {/* PRD 013 Req 9: the arrows sit OUTSIDE the rail at the strip's ends,
           so they stay put while it scrolls; when the tabs fit they are not
           rendered at all and a one- or two-tab strip is untouched. Plain
-          theme-variable styling — the plane/shadow treatment is issue #148. */}
+          theme-variable styling — the flat-strip look is PRD 025 Req 17 (issue #331), styles.css. */}
       {arrows.overflow && <ScrollArrow dir={-1} enabled={arrows.leftEnabled} onStep={() => step(-1)} />}
       <div
         className="file-tab-rail"

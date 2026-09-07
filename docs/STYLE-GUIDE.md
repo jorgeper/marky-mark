@@ -45,7 +45,7 @@ bundled themes restyle the chrome without defining a single chrome token.
 | `--mm-split` / `--mm-folders` | `50%` / `240px` | JS-driven layout defaults before the user drags |
 
 A second, *internal* token family sits just below the chrome block (also on
-`.theme-root`, e.g. `--mm-toolbar-shadow`, `--mm-lift-tab`,
+`.theme-root`, e.g. `--mm-toolbar-shadow`, `--mm-selected-row`,
 `--mm-overlay-scrim`, `--mm-orphan-fg`): declared one-off values that are
 not part of any scale and not offered to themes as a vocabulary — but they
 follow the same law: **a colour literal lives in a token definition, never

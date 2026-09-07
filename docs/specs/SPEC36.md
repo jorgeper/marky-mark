@@ -161,6 +161,12 @@ like `folderTree.ts`:
    > it no longer breaks the panel/workspace seam, and every other row
    > hovers through `--mm-hover` (PRD 025 Req 15). Labels still share one
    > column per depth (E305).
+   > **Amended (issue #331, 2026-09-07):** the panel/workspace seam itself
+   > is gone: the `.workspace-stack::after` overlay that painted the hairline
+   > and cast shadow once for the sidebar, the tab strip and the comments
+   > column is removed. The page's own `--mm-radius-small` top corners and
+   > `--mm-panel-shadow`, cast onto the `--mm-bg-elevated` ground the sidebar
+   > hugs, replace it (PRD 025 Req 6). No row breaks a seam any more.
 2. In tree view, open rows appear only where their ancestors are
    expanded — opening or restoring files never auto-expands the tree.
    The existing reveal-on-selection scroll behavior is unchanged and

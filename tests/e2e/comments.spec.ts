@@ -1741,8 +1741,8 @@ test('E435: the comments pane ships closed; the second chevron opens and closes 
   await expect(page.getByTestId('comments-pane')).toHaveCount(0);
   await expect(page.getByTestId('comments-expand')).toBeVisible();
 
-  // The chevron opens the pane — fixed at 300px (PRD 023 §15), the
-  // second-plane backdrop under the workspace's seam.
+  // The chevron opens the pane — fixed at 300px (PRD 023 §15), hugging the
+  // page's right edge on the ground (PRD 025 Req 11, issue #331).
   await page.getByTestId('comments-expand').click();
   const pane = page.getByTestId('comments-pane');
   await expect(pane).toBeVisible();

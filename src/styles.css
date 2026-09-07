@@ -152,14 +152,10 @@ body,
   --mm-diff-removed: var(--mm-danger); /* SPEC16 deleted-run edge */
   --mm-active-line: color-mix(in srgb, var(--mm-accent, #0969da) 5.5%, transparent); /* SPEC44 */
   --mm-active-word: color-mix(in srgb, var(--mm-accent, #0969da) 16%, transparent); /* SPEC44 */
-  /* PRD 018 Req 17 (issue #204): the tab strip's lift shadows (PRD 013
-     Reqs 10–12) — deliberate one-offs like --mm-toolbar-shadow, not the
-     card/panel scale: the strip reads depth from these exact upward casts,
-     values kept verbatim. PRD 025 Req 14 (issue #329): the sidebar rows'
-     up-left casts (--mm-lift-row / --mm-lift-row-active) are gone — sidebar
-     rows no longer lift; the strip's pair is sibling #331's. */
-  --mm-lift-tab: 0 -1px 3px rgba(0, 0, 0, 0.11), 0 -2px 6px rgba(0, 0, 0, 0.08);
-  --mm-lift-tab-active: 0 -2px 6px rgba(0, 0, 0, 0.115), 0 -4px 9px rgba(0, 0, 0, 0.08);
+  /* PRD 025 Reqs 14, 17 (issues #329, #331): the lift-shadow one-offs are
+     gone — --mm-lift-row / --mm-lift-row-active went with the sidebar
+     planes, --mm-lift-tab / --mm-lift-tab-active with the tab-strip planes.
+     Depth is the page's own --mm-panel-shadow now (.workspace-stack). */
   /* PRD 018 §E26 (issue #205): the last one-off colours the style lint found
      living inline in chrome rules — hoisted here verbatim (a colour literal
      may live only in a token definition or a contract-variable fallback),
@@ -917,11 +913,12 @@ mark.hl.ghost[data-color] {
   display: flex;
   overflow: hidden;
 }
-/* The folder pane's second-plane treatment: the --mm-bg-elevated layer the
-   workspace floats in front of. The seam hairline + cast shadow are painted
-   once by .workspace-stack::after (its outward shadow now bleeds right onto
-   this pane exactly as it falls left onto the folder pane). The pane scrolls
-   its card flow itself — it sits outside the document scrollers. */
+/* PRD 025 Req 11 (issue #331): the cluster's right member — it hugs the
+   page's right edge on the --mm-bg-elevated ground and paints the ground's
+   own colour, so ground and column are one plane the page's shadow falls
+   onto; no seam of its own (the .workspace-stack::after overlay is gone).
+   The pane scrolls its card flow itself — it sits outside the document
+   scrollers. */
 .comments-pane {
   position: relative;
   width: 300px;
@@ -1751,6 +1748,16 @@ mark.hl.ghost {
   .overlay {
     display: none !important;
   }
+  /* PRD 025 Reqs 6–7 (issue #331): the ground, radius and shadow are screen
+     chrome — on paper the page is the sheet, edge to edge. */
+  .body-row {
+    background: none !important;
+  }
+  .workspace-stack {
+    flex: 1 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
 
   /* Path 2: unclip the scroll box, flatten the page, and keep paper light —
      a dark theme would otherwise print a slab (path 1 picks a light theme
@@ -1973,12 +1980,21 @@ mark.hl.ghost {
 }
 /* DOCUMENT RENDERING — END (PRD 018 Req 17) */
 
-/* SPEC34: the folder sidebar — left of the workspace, all modes. */
+/* SPEC34: the folder sidebar — left of the workspace, all modes.
+   PRD 025 Reqs 1–2, 8 (issue #331): the body row is the GROUND — the
+   --mm-bg-elevated plane the page, the sidebar and the comments column sit
+   on. ONE centring rule serves every pane state: the row centres its
+   children as a group, the pane wrappers are fixed-width (flex-shrink 0)
+   and the page is capped (.workspace-stack), so whatever the window has
+   beyond the cluster shows as ground split equally OUTSIDE it — never
+   between a pane and the page. */
 .body-row {
   flex: 1;
   display: flex;
+  justify-content: center;
   min-height: 0;
   align-items: stretch;
+  background: var(--mm-bg-elevated, #f6f8fa);
   position: relative; /* anchors the edge chevrons */
 }
 /* PRD 003 / PRD 012 Req 9 / issue #125: the workspace's corner controls —
@@ -2074,68 +2090,73 @@ mark.hl.ghost {
 
 /* PRD 013 Reqs 1–2: the strip + document column. The wrapper takes the flex
    slot the workspace held in .body-row and stacks the strip above it, so the
-   strip spans the workspace's full width — and only the workspace's: the
-   sidebar is a body-row sibling outside this column. */
+   strip spans the page's full width — and only the page's: the sidebar is a
+   body-row sibling outside this column. */
 .theme-root {
-  --mm-tabstrip-h: 38px; /* 29px tab + 9px headroom for the tabs' lift shadow */
+  --mm-tabstrip-h: 38px; /* 29px tab + 9px headroom above the tabs */
+  /* PRD 025 Reqs 3–4 (issue #331): the page's max width. One pane of
+     content is the text column or the pane floor, whichever is wider —
+     resolved through the same var(--mm-content-width, 46rem) fallback the
+     .doc / .cm-content column uses (editor/styles.css), so the page and its
+     column agree and the Margins setting (App writes --mm-content-width on
+     the theme root) moves both in the same frame. */
+  --mm-page-pane: max(var(--mm-content-width, 46rem), var(--mm-pane-min));
+  --mm-page-w: var(--mm-page-pane);
 }
+/* PRD 025 Reqs 1–6 (issue #331): THE PAGE. A --mm-bg surface on the body
+   row's ground, centred by .body-row with the open panes hugging it, capped
+   at --mm-page-w and the first thing to give up width when the window is
+   narrower than the cluster (flex-shrink 1 against the pane wrappers'
+   flex-shrink 0; min-width 0 so it never refuses). Below --mm-pane-min per
+   pane the content inside floors and .workspace scrolls sideways exactly as
+   before — no breakpoints, no resize JS, no transition (Req 9).
+   Req 6: with a side pane open the page has rounded top corners and casts
+   --mm-panel-shadow onto the ground. This REPLACES the .workspace-stack::after
+   "seam painted once" overlay of PRD 013 Reqs 10–12 / SPEC36 §4.1 (retired):
+   no pseudo-element remains on the stack, and nothing clips the shadow —
+   neither the stack nor .body-row sets overflow. */
 .workspace-stack {
-  flex: 1;
+  flex: 0 1 var(--mm-page-w);
   min-width: 0;
   display: flex;
   flex-direction: column;
-  /* PRD 003 Req 2: the edge clusters anchor to the workspace COLUMN — with
-     the folder pane open the left pill still sits at the workspace's own
-     top-left corner, not over the pane's header. */
+  background: var(--mm-bg, #ffffff);
+  border-radius: var(--mm-radius-small) var(--mm-radius-small) 0 0;
+  box-shadow: var(--mm-panel-shadow);
+  /* PRD 003 Req 2: the edge clusters anchor to the PAGE — with the folder
+     pane open the left pill still sits at the page's own top-left corner,
+     not over the pane's header. */
   position: relative;
+}
+/* PRD 025 Reqs 4, 25 (issue #331): the split preview doubles the page — two
+   panes plus the .split-divider's flow width (its 16px box less the 4px side
+   margins = 8px, editor/styles.css). Dragging the divider moves only
+   --mm-split; the page's width never follows the ratio. */
+.workspace-stack:has(> .workspace.split) {
+  --mm-page-w: calc(2 * var(--mm-page-pane) + 8px);
+}
+/* PRD 025 Req 7 (issue #331): both side panes closed — or absent, as on the
+   static web build. App.tsx derives `panes-none` from the two mount
+   predicates (sidebar shown, comments pane mounted), so tests key on the
+   class rather than on sibling structure: the page spans the body row edge
+   to edge, flat — no radius, no shadow — and the text column keeps centring
+   at --mm-content-width inside it as .workspace always has. */
+.body-row.panes-none > .workspace-stack {
+  flex: 1;
+  border-radius: 0;
+  box-shadow: none;
 }
 .workspace-stack > .workspace {
   min-height: 0; /* the column's scroll box — the strip drives no overflow */
 }
-/* PRD 013 Reqs 10–12 (issue #148) + SPEC36 §4.1: THE seam, painted once.
-   The workspace floats "in front" of the L-shaped backdrop (strip above,
-   folder pane left), so its hairline + cast shadow are an OUTWARD shadow on
-   a transparent overlay the exact size of the workspace — falling onto the
-   strip and the pane alike and wrapping the (square) top-left corner in
-   one continuous gradient, instead of two per-box overlays that cut each
-   other off at the corner.
-   The stack does not clip and .body-row does not either, so the shadow
-   reaches the pane (a body-row sibling); clip-path trims the bleed to the
-   top and left edges only. Stacking: z 1 in the body-row context — above
-   the tree/strip surfaces and the z-1 middle plane (the overlay is later
-   in tree order), under the z-2 active tab/row that alone breaks the seam.
-   Themeable via --mm-panel-shadow (the same optional key as before). */
-.workspace-stack {
-  position: relative;
-}
-.workspace-stack::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  top: -60px; /* no strip: only the left edge shows — the top is clipped */
-  pointer-events: none;
-  z-index: 1;
-  /* PRD 023 §14 (issue #284): the right bleed is open too, so the same
-     outward shadow falls onto the comments pane (a body-row sibling on the
-     right) exactly as it falls onto the folder pane. With no pane open the
-     workspace's right edge is the window's, and the bleed is off-screen. */
-  clip-path: inset(60px -48px 0 -48px);
-  box-shadow:
-    0 0 0 1px var(--mm-border, #d1d9e0),
-    var(--mm-panel-shadow);
-}
-.workspace-stack.with-tabs::after {
-  top: var(--mm-tabstrip-h);
-  clip-path: inset(-48px -48px 0 -48px);
-}
-.theme-root.toolbar-static .workspace-stack.with-tabs::after {
-  top: calc(42px + var(--mm-tabstrip-h));
-}
-/* PRD 013 Req 10 (issue #148): the strip sits on the folder pane's own
-   surface, so with the pane open the two form one continuous L-shaped
-   backdrop around the workspace's top-left corner. */
+/* PRD 025 Reqs 17–18 (issue #331): the strip is a flat --mm-bg-elevated band
+   at the top of the page — the ground's own colour, no seam of its own, the
+   same look in every pane state (both closed included, where it simply spans
+   the full width). Its top corners take the page's radii so the band is
+   clipped to the page's rounded corners while the page's shadow stays
+   unclipped (nothing here sets overflow). The three-plane / L-shaped-backdrop
+   treatment of PRD 013 Reqs 10–12 (issue #148) is retired: depth is the
+   page's radius + shadow now. */
 .file-tab-strip {
   flex: none;
   box-sizing: border-box;
@@ -2145,10 +2166,11 @@ mark.hl.ghost {
   align-items: flex-end;
   padding: 9px 8px 0;
   background: var(--mm-bg-elevated, #f6f8fa);
+  border-radius: var(--mm-radius-small) var(--mm-radius-small) 0 0;
 }
-/* PRD 013 Reqs 10–12 (issue #148): the strip/workspace seam is painted by
-   .workspace-stack::after below — one overlay for the whole L, not a
-   per-box one here (that cut the cast off at the corner). */
+.body-row.panes-none .file-tab-strip {
+  border-radius: 0;
+}
 /* PRD 013 Req 9 (issue #147): overflow scrolls instead of clipping — the
    tabs live in this inner rail, a one-row horizontal scroll box between the
    end-anchored arrows. No native scrollbar shows (the arrows and the wheel
@@ -2156,8 +2178,8 @@ mark.hl.ghost {
    the rail fills the strip's content box and the hidden scrollbar takes no
    layout space. position: relative makes the rail the tabs' offsetParent,
    so the reveal math reads offsetLeft in rail-content coordinates. */
-/* The end slots span the strip's full height (its top padding is the tabs'
-   shadow headroom, not theirs), centring their buttons on the header's
+/* The end slots span the strip's full height (its top padding is the strip's
+   headroom, not theirs), centring their buttons on the header's
    button row. The lead sits above the rail's 8px lead-in (z) so its last
    button keeps its clicks; its 4px inset + 5px button padding lands the
    chevron's glyph where the header's does (12px + 5px). */
@@ -2179,16 +2201,17 @@ mark.hl.ghost {
   flex: 1;
   min-width: 0;
   /* The rail is a scroll box, so it clips vertically too: it reaches up
-     through the strip's top padding so the tabs' lift shadow has the full
-     headroom to fade out instead of being sliced at the rail's edge. The
-     shadows below are sized to finish inside that 9px. */
+     through the strip's 9px top padding — the headroom kept so the strip
+     stays --mm-tabstrip-h tall after PRD 025 Req 17 (issue #331) took the
+     lift shadows that once needed it — so a tab's rounded, outlined top is
+     never sliced at the rail's edge. */
   height: calc(100% + 9px);
   margin-top: -9px;
   /* Likewise sideways: the rail reaches into the strip's 8px left padding
-     (as scroll-box padding, so the tabs still start 8px in) and the first
-     tab's shadow casts left instead of being sliced at the rail's edge.
-     Reveal math is unaffected — offsetLeft and scrollLeft both count from
-     the rail's padding edge. */
+     (as scroll-box padding, so the tabs still start 8px in) so the first
+     tab's outline is never sliced at the rail's edge. Reveal math is
+     unaffected — offsetLeft and scrollLeft both count from the rail's
+     padding edge. */
   margin-left: -8px;
   padding-left: 8px;
   display: flex;
@@ -2201,10 +2224,9 @@ mark.hl.ghost {
 .file-tab-rail::-webkit-scrollbar {
   display: none;
 }
-/* PRD 013 Req 9: the scroll arrows — plain theme-variable chrome (the #148
-   plane treatment leaves them on the strip surface, unpositioned so the
-   seam overlay and both tab planes paint above them), centred in the strip
-   and outside the rail so they hold still while it scrolls. */
+/* PRD 013 Req 9: the scroll arrows — plain theme-variable chrome on the
+   strip's band, centred in the strip and outside the rail so they hold
+   still while it scrolls. */
 /* PRD 018 Req 12 (issue #204): the arrows are .icon-btn primitives; the
    class keeps their fixed 20px box and rail-centring only. */
 .file-tab-scroll {
@@ -2217,13 +2239,11 @@ mark.hl.ghost {
 /* PRD 013 Req 4: one tab — bounded width; the label span clips with an
    ellipsis (no wrap, no strip-height growth) and the button's title carries
    the full path.
-   PRD 013 Reqs 10–12 (issue #148): the sidebar's three planes rotated to
-   the top edge (SPEC36 §4.1's system, .folder-item.open's analogue). Every
-   open-but-inactive tab is the MIDDLE plane: a near-workspace surface one
-   shade back, rounded top corners, its own soft lift — no border; depth
-   reads from surface + shadow strength, exactly as the sidebar rows do.
-   z-index 1 ties with the seam overlay above, which paints over these tabs
-   (later box wins), so the strip's bottom hairline cuts across them. */
+   PRD 025 Req 17 (issue #331): an open-but-inactive tab is a flat quiet pill
+   on the ground — the strip's own --mm-bg-elevated with a 1px --mm-border
+   outline that is open at the bottom (it stands on the page's top edge),
+   rounded top corners, no lift shadow, no stacking. PRD 013 Reqs 10–12's
+   three planes (issue #148) are retired. */
 .file-tab {
   display: flex;
   align-items: center;
@@ -2233,44 +2253,37 @@ mark.hl.ghost {
   flex-shrink: 0;
   max-width: 160px;
   padding: 4px 10px;
-  border: none;
+  border: 1px solid var(--mm-border, #d1d9e0);
+  border-bottom: none;
   border-radius: var(--mm-radius-small) var(--mm-radius-small) 0 0;
-  background: color-mix(in srgb, var(--mm-bg, #ffffff) 72%, var(--mm-bg-elevated, #f6f8fa));
+  background: var(--mm-bg-elevated, #f6f8fa);
   color: var(--mm-fg-muted, #59636e);
   font: inherit;
   font-size: var(--mm-text-small);
   line-height: 1.4;
   cursor: pointer;
   position: relative;
-  z-index: 1;
-  /* The lift: a soft cast sized to fade out inside the strip's 9px headroom
-     (the rail above reclaims it), never sliced by the scroll box's edge.
-     Token: --mm-lift-tab (PRD 018 Req 17, issue #204). */
-  box-shadow: var(--mm-lift-tab);
+  box-shadow: none;
 }
 .file-tab:hover {
   color: var(--mm-fg, #1f2328);
 }
-/* Issue #148: middle-plane hover lightens toward the workspace surface
-   (.folder-item.open:hover's mix); the ACTIVE tab is exempt — the front
-   plane never flickers on hover, like .folder-item.selected:hover. */
+/* PRD 025 Req 17 (issue #331): an inactive pill hovers through --mm-hover,
+   like any quiet control; the ACTIVE tab is exempt — joined to the page, it
+   never flickers on hover (its outline stays invisible under .btn-quiet's
+   hover too). */
 .file-tab:hover:not(.active) {
-  background: color-mix(in srgb, var(--mm-bg, #ffffff) 86%, var(--mm-bg-elevated, #f6f8fa));
+  background: var(--mm-hover);
 }
-/* PRD 013 Reqs 10–12 (issue #148): the ACTIVE tab is the FRONT plane —
-   .folder-item.selected rotated up: the workspace's own surface, rounded
-   top corners, flush bottom (its solid box paints over the seam overlay,
-   so the hairline + cast shadow break at exactly this tab and its surface
-   merges into the workspace below), and a stronger lift cast over the
-   neighboring tabs — z-index 2 stacks it above them AND the z-1 seam. */
-.file-tab.active {
+/* PRD 025 Req 17 (issue #331): the ACTIVE tab is joined to the page — the
+   page's own --mm-bg, no visible outline, no shadow, and no bottom edge
+   between it and the workspace: the tab's bottom pixel row and the page's
+   top row are one colour. No stacking — nothing breaks a seam any more. */
+.file-tab.active,
+.file-tab.active:hover {
   background: var(--mm-bg, #ffffff);
   color: var(--mm-fg, #1f2328);
-  z-index: 2;
-  /* Issue #156: softened like .file-tab above, but still the strongest
-     cast in the strip so the front plane keeps its extra lift.
-     Token: --mm-lift-tab-active (PRD 018 Req 17, issue #204). */
-  box-shadow: var(--mm-lift-tab-active);
+  border-color: transparent;
 }
 .file-tab-label {
   min-width: 0;
@@ -2374,9 +2387,10 @@ mark.hl.ghost {
 /* PRD 025 Req 13 (issue #329): the sidebar's header row — shared by the
    folder, outline and search views (all three render `.folder-header`) —
    carries NO bottom rule: its controls sit directly above the tree on the
-   panel's own --mm-bg-elevated ground (no background of its own). The
-   workspace's cast shadow + seam hairline are still painted ONCE by
-   .workspace-stack::after (see the tab-strip section; sibling #331). */
+   panel's own --mm-bg-elevated ground (no background of its own). PRD 025
+   Req 10 (issue #331): the panel is the cluster's left member, hugging the
+   page's left edge — the page's own shadow (.workspace-stack) is the only
+   depth cue between them; no seam overlay remains. */
 .folder-header {
   display: flex;
   align-items: center;

@@ -122,6 +122,19 @@ tabs on the left *and* on top.
 12. The treatment holds in both light and dark themes (surface tints
     and shadows derive from the same variables the sidebar planes use).
 
+    > **Amended (issue #331, 2026-09-07):** Reqs 10–12's three-plane strip
+    > and the L-shaped seam are **retired** (PRD 025 Reqs 6, 17–18). The
+    > strip is a flat `--mm-bg-elevated` band at the top of the page, the
+    > same in every pane state; the active tab is joined to the page
+    > (`--mm-bg`, no bottom edge, no shadow); open-but-inactive tabs are
+    > flat `--mm-border`-outlined pills on the ground with no lift; the
+    > `--mm-lift-tab` / `--mm-lift-tab-active` tokens are gone. Depth comes
+    > from the page's own `--mm-radius-small` top corners and
+    > `--mm-panel-shadow` — the `.workspace-stack::after` seam overlay no
+    > longer exists. The sidebar analogue was retired by issue #329
+    > (SPEC36 §4.1). Light and dark themes both render the ground / page
+    > contrast from their own `--mm-bg-elevated` (E353 / E306).
+
 ### Toggle & persistence
 
 13. A **"File Tabs"** item in the View menu (checked when on) toggles

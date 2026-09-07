@@ -135,6 +135,15 @@ blue marker) while keeping its anchoring, decoration, and copy-link machinery.
 15. The pane is **closed by default**; its open/closed state persists across
     sessions. Inserting a comment auto-opens it. It is fixed at 300 px wide
     and hidden in print.
+
+    > **Amended (issue #331, 2026-09-07; §14–15):** the column is the
+    > cluster's right member of PRD 025's centred page: its left edge hugs
+    > the page's right edge (never ground between them), it always reserves
+    > its 300 px while `showComments` is on regardless of how many comments
+    > the document has, and it has no seam shadow of its own — it paints the
+    > `--mm-bg-elevated` ground and the page's `--mm-panel-shadow` falls onto
+    > it (PRD 025 Req 11). The 180 ms slide was retired by issue #328
+    > (PRD 025 Req 12).
 16. The pane is the single home for comments in **all** modes — plain edit,
     full preview, and split — and the PRD 022-era in-preview comment aside is
     removed. Cards keep today's flow behavior (Word-style balloon flow,
