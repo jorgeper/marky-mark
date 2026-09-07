@@ -86,6 +86,18 @@ writing code. The Definition of Done in §8 is the goal condition.
    > affordance and changes no behaviour. Desktop, the dev shim and the
    > single-file web build keep today's toolbar exactly.
 
+   > **Amended (issue #330, 2026-09-07):** the Edit/Preview toggle leaves the
+   > toolbar. Per PRD 025 Reqs 19–20 it is the **last member of the
+   > page-level control group** at the file tab strip's right end — after
+   > the icon mode switch and the preview / comments chevrons — or, when no
+   > strip renders (desktop with the strip setting off, the single-file web
+   > build with no multi-file session), of the `.edge-cluster` row at the
+   > page's top-right, so its position is the same across builds. It keeps
+   > its label ("Edit" / "Preview"), `⌘E` hint, `edit-toggle` test id,
+   > tooltip, quiet-button styling, render gate (PRD 007 Req 17 and the #243
+   > amendment above) and `toggleMode` dispatch. The toolbar is filename ·
+   > overflow menu button.
+
 2. **Settings panel** gains the theme chooser as the primary control (the `<select>`
    already exists — keep it, listing built-ins and user themes) plus a
    **"Reload themes"** button (moved from the old picker) and (web only) "Import

@@ -2626,7 +2626,9 @@ test('E206: without doc.edit the editor is read-only with no Edit Mode or Save �
   await signInTo(page, 'grace', id);
   await openFromSidebar(page, 'locked.md');
   await expect(page.getByTestId('read-only-doc')).toBeVisible();
-  // No Edit toggle on the toolbar, and no Save rows in its menu.
+  // No Edit toggle in the page-level control group (it left the toolbar for
+  // the strip's trail — PRD 025 Req 19, issue #330; the gate is unchanged),
+  // and no Save rows in the toolbar's menu.
   await expect(page.getByTestId('edit-toggle')).toHaveCount(0);
   await page.getByTestId('menu-btn').click();
   await expect(page.getByTestId('app-menu')).toBeVisible();
@@ -7560,13 +7562,15 @@ test('E494: the hosted home page is the badge and the start actions — no versi
   await expect(hint).not.toContainText('github.com/jorgeper');
 });
 
-test('E495: the hosted home page hides the toolbar Edit toggle, and opening a file brings it back', async ({
+test('E495: the hosted home page hides the Edit toggle in the page-level control group, and opening a file brings it back', async ({
   page,
   request,
 }) => {
   // Issue #243 (SPEC2 §4.1 amendment): with nothing open, `toggleMode` is
   // already a no-op, so the button is removed rather than shown disabled.
-  // The rest of the toolbar is untouched — the hamburger, the name slot.
+  // PRD 025 Req 19 (issue #330): the toggle rides the page-level control
+  // group now, not the toolbar — the gate is the same. The toolbar is
+  // untouched either way — the hamburger, the name slot.
   const ada = await signIn(request, 'ada');
   const { id, unique } = await pathWorkspace(request, ada, 'e495');
   await request.put(`${HOSTED}/api/workspaces/${id}/files/note.md`, {
@@ -7579,15 +7583,16 @@ test('E495: the hosted home page hides the toolbar Edit toggle, and opening a fi
   await revealToolbar(page);
   await expect(page.getByTestId('menu-btn')).toBeVisible();
   // The name slot is still in the tree (empty, as it always is with nothing
-  // open) — only the Edit toggle goes.
+  // open) — only the Edit toggle goes, wherever it would render.
   await expect(page.getByTestId('docname')).toHaveCount(1);
   await expect(page.getByTestId('edit-toggle')).toHaveCount(0);
 
-  // With a document open it is back, and toggles both ways as it always has.
+  // With a document open it is back — in the tab strip's control group, its
+  // home since issue #330 — and toggles both ways as it always has.
   await page.goto(`${HOSTED}/${unique}`);
   await openFromSidebar(page, 'note.md');
-  await revealToolbar(page);
   await expect(page.getByTestId('edit-toggle')).toBeVisible();
+  await expect(page.getByTestId('file-tab-strip').locator('.file-tab-strip-trail').getByTestId('edit-toggle')).toHaveCount(1);
   await page.getByTestId('edit-toggle').click();
   await expect(page.getByTestId('editor')).toBeVisible();
   await expect(page.getByTestId('edit-toggle')).toHaveText(/Preview/);

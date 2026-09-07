@@ -147,7 +147,7 @@ import { uploadRejection } from './lib/fileTransfer';
 import { isSaveConflict, planSaveConflict, type SaveConflictChoice } from './lib/saveConflict';
 import { isHostedSessionExpired } from './lib/hostedGate';
 import { planMergedSave } from './lib/mergedSave';
-import { CommentsToggleButton, FolderExpandButton, FolderPanel, ModeSwitchButton, PreviewToggleButton, SyncScrollButton } from './components/FolderPanel';
+import { CommentsToggleButton, FolderExpandButton, FolderPanel, ModeSwitchButton, ModeToggleButton, PreviewToggleButton, SyncScrollButton } from './components/FolderPanel';
 import { FileTabStrip } from './components/FileTabStrip';
 import { SidebarViewSwitch, TocPanel } from './components/TocPanel';
 import { SearchPanel } from './components/SearchPanel';
@@ -5405,23 +5405,37 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
 
   // Issue #22: the derived three-mode model — splash | file | workspace.
   const docOpen = docPath !== null || untitled;
-  // PRD 007 Req 17: the edit gate the toolbar's Edit button and the edge
-  // switch (issue #125) share — an open document this reader may change.
+  // PRD 007 Req 17: the edit gate of the icon mode switch (issue #125) — an
+  // open document this reader may change. The labelled Edit/Preview toggle
+  // beside it keeps its own, wider gate (`canToggleEdit` below): PRD 025
+  // Req 19 (issue #330) moved it out of the toolbar without changing when it
+  // renders.
   const mayToggleMode = docOpen && docGrants.edit;
   /**
    * Issue #243 (SPEC27 §3 + SPEC2 §4.1 amendments): the cloud build with
    * nothing open — the hosted home page the amendments name, and equally a
    * bound workspace with no file picked. It gates both halves of the issue:
    * the About paragraphs under the splash badge (only ever rendered on the
-   * home page anyway), and the toolbar's Edit toggle, which `toggleMode`
-   * already ignores with no document (dispatchCommand's `toggleMode` case),
-   * so dropping the button removes an inert affordance rather than an action.
-   * Hosted-only is the owner's 2026-09-05 build-applicability decision — a
-   * deliberate flavor branch, not the capability-first default `Platform`
-   * states (platform/types.ts): desktop, the dev shim and the single-file web
-   * build keep today's splash text and toolbar exactly (E87, E78).
+   * home page anyway), and the labelled Edit/Preview toggle (now in the
+   * page-level control group, PRD 025 Req 19 / issue #330), which
+   * `toggleMode` already ignores with no document (dispatchCommand's
+   * `toggleMode` case), so dropping the button removes an inert affordance
+   * rather than an action. Hosted-only is the owner's 2026-09-05
+   * build-applicability decision — a deliberate flavor branch, not the
+   * capability-first default `Platform` states (platform/types.ts): desktop,
+   * the dev shim and the single-file web build keep today's splash text and
+   * the toggle exactly (E87, E78, E141).
    */
   const hostedNothingOpen = platform?.kind === 'hosted' && !docOpen;
+  /**
+   * PRD 025 Req 19 (issue #330): the labelled `edit-toggle`'s render gate,
+   * carried over verbatim from the toolbar — PRD 007 Req 17 hides it for a
+   * read-only role; issue #243 hides it on the hosted build with nothing
+   * open. Unlike `mayToggleMode` it does NOT require an open document: on the
+   * desktop splash the button is present and inert (E141), exactly as it was
+   * in the toolbar.
+   */
+  const canToggleEdit = docGrants.edit && !hostedNothingOpen;
 
   // --- PRD 012: the Table of Contents view of the sidebar -----------------------
   /**
@@ -8163,10 +8177,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
   // nodes overlay the workspace's corners (.edge-cluster-left / .edge-cluster).
   // PRD 003 Req 2 + PRD 012 Req 9: left = reopen chevron + view switch, only
   // while the pane is closed. PRD 003 Reqs 6–7 + issue #125 + PRD 007 Req 17:
-  // right = the mode switch (gated like the toolbar Edit button — absent on
-  // the splash and for a read-only document) and, in edit mode, the preview
-  // chevron (never in full preview: that's a different surface, not a
-  // closed split).
+  // right = the mode switch (an open document this reader may change —
+  // absent on the splash and for a read-only document) and, in edit mode,
+  // the preview chevron (never in full preview: that's a different surface,
+  // not a closed split). PRD 025 Req 19 (issue #330): the labelled
+  // Edit/Preview toggle closes the group, after the comments chevron.
   const fileShare =
     hostedWorkspace && docPath !== null ? (
       // PRD 020 Req 17: the file placement copies the open file's Req 5 URL
@@ -8193,8 +8208,11 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
     ) : null;
   // PRD 020 Req 17: the file copy-link rides this cluster but not its edit
   // gate — a read-only reader in preview mode still shares the file.
+  // PRD 025 Req 19 (issue #330): the cluster also exists whenever the
+  // labelled toggle's gate is true — on the desktop splash that is the only
+  // member, and without this term the toggle would vanish there.
   const rightCluster =
-    mode === 'edit' || mayToggleMode || fileShare || commentsSeam ? (
+    mode === 'edit' || mayToggleMode || canToggleEdit || fileShare || commentsSeam ? (
       <>
         {fileShare}
         {/* Issue #167: the sync toggle exists only where synchronized
@@ -8213,6 +8231,19 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
             retired the toolbar button that used to share it). */}
         {commentsSeam && (
           <CommentsToggleButton open={showComments} onClick={() => dispatchCommand('toggleComments')} />
+        )}
+        {/* PRD 025 Req 19 (issue #330): the labelled Edit/Preview toggle is the
+            group's LAST member — moved here from the toolbar with its testid,
+            label, hotkey hint, tooltip, gate (`canToggleEdit`) and
+            `toggleMode` dispatch unchanged. Riding `rightCluster` is what
+            gives it the same spot with the strip up (its trail slot) and
+            with the strip hidden (the .edge-cluster pill, Req 20). */}
+        {canToggleEdit && (
+          <ModeToggleButton
+            mode={mode}
+            combo={displayCombo(settings.hotkeys.toggleEdit, platform.isMac)}
+            onClick={() => dispatchCommand('toggleMode')}
+          />
         )}
       </>
     ) : null;
@@ -8244,7 +8275,6 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
               docNameScratch={docNameDisplay.scratch}
               docPath={docPath}
               dirty={dirty}
-              mode={mode}
               hotkeys={settings.hotkeys}
               isMac={platform.isMac}
               // PRD 009 Req 11: the open workspace's name, where the removed
@@ -8254,13 +8284,10 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
               // The gate and the click-time URL stay here; the Toolbar only
               // places what it is given.
               workspaceShare={workspaceShare}
-              // PRD 007 Req 17: no Edit toggle for a read-only role. Issue
-              // #243: nor on the hosted build with nothing open, where it
-              // would toggle nothing — hidden, never disabled.
-              canEdit={docGrants.edit && !hostedNothingOpen}
-              // PRD 009 Req 8: the whole item set, already gated.
+              // PRD 009 Req 8: the whole item set, already gated. PRD 025
+              // Req 19 (issue #330): no Edit toggle props any more — the
+              // toggle rides `rightCluster` with its gate (`canToggleEdit`).
               menu={appMenu}
-              onToggleMode={() => dispatchCommand('toggleMode')}
               onCommand={(id) => dispatchCommand(id)}
               onMenuOpenChange={setMenuPin}
             />
@@ -8465,15 +8492,21 @@ export default function App({ bootHold, onBootHoldRelease }: AppProps) {
         {!showFileTabs && leftCluster && <div className="edge-cluster-left">{leftCluster}</div>}
 
         {/* The workspace's top-right edge cluster: the edit/preview switch
-            (issue #125), then the preview chevron. Rendered as one row so the
-            switch always sits immediately to the chevron's left.
+            (issue #125), the preview chevron, the comments chevron, then the
+            labelled Edit/Preview toggle. Rendered as one row so the switch
+            always sits immediately to the chevron's left.
             PRD 003 Reqs 6–7: the preview's edge chevron collapses the open
             split and reopens the closed one. Never in full preview: that's a
             different surface, not a closed split (and the splash is
             preview-only, so it never shows one).
-            PRD 007 Req 17: the switch takes the toolbar Edit button's gate —
-            an open document this reader may change — so it is absent on the
-            splash and for a read-only document, in both modes. */}
+            PRD 007 Req 17: the switch's gate is an open document this reader
+            may change, so it is absent on the splash and for a read-only
+            document, in both modes.
+            PRD 025 Req 20 (issue #330): with no strip — the desktop build
+            with the fileTabs setting off, or the static single-file web
+            build, which never has a multiFileSession — this pill is where
+            the Edit/Preview toggle lands, at the page's top-right, so its
+            position is the same across builds. */}
         {!showFileTabs && rightCluster && <div className="edge-cluster">{rightCluster}</div>}
 
       {showFileTabs && (

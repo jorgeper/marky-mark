@@ -8,6 +8,7 @@ import {
   fsWrite,
   openNotesRoot,
   openSettings,
+  revealToolbar,
   saveSettings,
   seedFolders,
   viewMenuClick,
@@ -1311,4 +1312,90 @@ test('E308: issue #158 — Ctrl+W closes only the active file (neighbour activat
   // Still fully interactive: a fresh open works.
   await page.locator('[data-path="/notes/a.md"]').click();
   await expect(page.getByTestId('docname')).toContainText('a.md');
+});
+
+test('E579: PRD 025 Reqs 19–20 (issue #330) — the Edit/Preview toggle is the LAST member of the strip\'s control group, gone from the toolbar, and lands in .edge-cluster with the strip off', async ({
+  page,
+}) => {
+  // freshApp left welcome.md open with the strip up.
+  const strip = page.getByTestId('file-tab-strip');
+  await expect(strip).toBeVisible();
+  const trail = strip.locator('.file-tab-strip-trail');
+  const toggle = trail.getByTestId('edit-toggle');
+  await expect(toggle).toBeVisible();
+
+  // Req 19: a quiet button like its neighbours, labelled for the mode a click
+  // moves TO, carrying the hotkey hint and the tooltip the toolbar button had.
+  await expect(toggle).toHaveClass(/\bbtn\b/);
+  await expect(toggle).toHaveClass(/\bbtn-quiet\b/);
+  await expect(toggle).toHaveClass(/\bbtn-sm\b/);
+  await expect(toggle).not.toHaveClass(/\bon\b/);
+  await expect(toggle).toHaveText(/Edit/);
+  await expect(toggle.locator('kbd')).toHaveText(/E/);
+  await expect(toggle).toHaveAttribute('title', /Toggle edit \/ preview/);
+
+  /** The trail's element children as test ids, in DOM order. */
+  const trailIds = () =>
+    trail.evaluate((el) => Array.from(el.children).map((c) => (c as HTMLElement).dataset.testid ?? c.className));
+  const expectLast = async () => {
+    const ids = await trailIds();
+    expect(ids[ids.length - 1]).toBe('edit-toggle');
+    expect(ids.indexOf('mode-switch')).toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf('mode-switch')).toBeLessThan(ids.indexOf('edit-toggle'));
+    // The comments chevron, when present, sits immediately before the toggle.
+    if (ids.includes('comments-expand')) expect(ids.indexOf('comments-expand')).toBe(ids.length - 2);
+  };
+  await expectLast();
+
+  // Req 19: the toolbar renders no toggle — not even once revealed; the one
+  // in the page is the one in the strip.
+  await revealToolbar(page);
+  await expect(page.getByTestId('toolbar-shell')).toHaveAttribute('data-visible', 'true');
+  await expect(page.locator('.toolbar').getByTestId('edit-toggle')).toHaveCount(0);
+  await expect(page.getByTestId('edit-toggle')).toHaveCount(1);
+  await expect(page.getByTestId('menu-btn')).toBeVisible();
+  await expect(page.getByTestId('docname')).toContainText('welcome.md');
+
+  // Behaviour unchanged: a click mounts the editor, the label flips to
+  // Preview and the button reads `on` — and it is still the group's last
+  // member with the preview chevron now in the row.
+  await toggle.click();
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(toggle).toHaveText(/Preview/);
+  await expect(toggle).toHaveClass(/\bon\b/);
+  await expectLast();
+  await toggle.click();
+  await expect(page.getByTestId('doc')).toBeVisible();
+  await expect(page.getByTestId('editor')).toHaveCount(0);
+  await expect(toggle).toHaveText(/Edit/);
+
+  // Req 20: strip off ⇒ the same node lands in the .edge-cluster pill at the
+  // page's top-right — visible, inside the pill's box, and still toggling.
+  await toggleFileTabsViaSettings(page);
+  await expect(strip).toHaveCount(0);
+  const edge = page.locator('.edge-cluster');
+  const edgeToggle = edge.getByTestId('edit-toggle');
+  await expect(edgeToggle).toBeVisible();
+  await expect(page.getByTestId('edit-toggle')).toHaveCount(1);
+  await expect(edge.getByTestId('mode-switch')).toBeVisible();
+  const ids = await edge.evaluate((el) => Array.from(el.children).map((c) => (c as HTMLElement).dataset.testid ?? c.className));
+  expect(ids[ids.length - 1]).toBe('edit-toggle');
+  const pill = (await edge.boundingBox())!;
+  const btn = (await edgeToggle.boundingBox())!;
+  expect(btn.x).toBeGreaterThanOrEqual(pill.x - 0.5);
+  expect(btn.x + btn.width).toBeLessThanOrEqual(pill.x + pill.width + 0.5);
+  expect(btn.y).toBeGreaterThanOrEqual(pill.y - 0.5);
+  expect(btn.y + btn.height).toBeLessThanOrEqual(pill.y + pill.height + 0.5);
+  // The pill hugs the workspace's right edge, like the header inset it keeps.
+  const viewport = page.viewportSize()!;
+  expect(pill.x + pill.width).toBeGreaterThanOrEqual(viewport.width - 1);
+
+  await edgeToggle.click();
+  await expect(page.getByTestId('editor')).toBeVisible();
+  await expect(edgeToggle).toHaveText(/Preview/);
+  await expect(edgeToggle).toHaveClass(/\bon\b/);
+  await expect(edgeToggle).toBeVisible();
+  await edgeToggle.click();
+  await expect(page.getByTestId('doc')).toBeVisible();
+  await expect(edgeToggle).toHaveText(/Edit/);
 });

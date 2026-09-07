@@ -587,9 +587,12 @@ button {
 }
 
 /* PRD 018 Reqs 12–13 (issue #204): the toolbar buttons are .btn-quiet.btn-sm
-   primitives now (.tbtn is gone); only the hotkey hint and icon layout are
-   toolbar-specific. */
-.toolbar .btn kbd {
+   primitives now (.tbtn is gone); only the icon layout is toolbar-specific.
+   PRD 025 Req 19 (issue #330): the hotkey-hint treatment moved with the one
+   button that carried it — the Edit/Preview toggle, now .mode-toggle in the
+   page-level control group (the strip's trail slot or the .edge-cluster pill,
+   Req 20) — so the <kbd> keeps its caption size and muted weight there. */
+.mode-toggle kbd {
   font-family: var(--mm-font-mono, monospace);
   font-size: var(--mm-text-caption);
   opacity: 0.55;
