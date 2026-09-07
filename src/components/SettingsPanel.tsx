@@ -326,14 +326,12 @@ const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'general', label: 'General' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'editor', label: 'Editor' },
-  // Issue #183 §1: the workspace tab sits immediately after Editor. It
-  // renders only while a hosted workspace is open and the member holds a
-  // permitted section (the render-time filter below), and — being
-  // workspace-tied, not layer-tied — it shows in both scopes of the scope
-  // selector.
-  // Issue #248: named for its scope, not its first section — the tab holds
-  // the workspace's own settings (names, members, roles, danger zone).
-  { id: 'workspace', label: 'Workspace' },
+  // Issue #183 §1: the workspace tab sits immediately after Editor and
+  // renders only when `manageTabShown` says so (an open hosted workspace, a
+  // permitted section, and — issue #314 — the Workspace scope selected).
+  // Issue #314: labelled "Manage"; the tab id and the
+  // `settings-tab-workspace` test id are unchanged, only the label.
+  { id: 'workspace', label: 'Manage' },
   { id: 'hotkeys', label: 'Hotkeys' },
   // Issue #247: no `llm` tab — PRD 011 Req 4's top-level LLM providers tab is
   // superseded; the page is nested under the Semantic zoom experiment it
@@ -430,11 +428,24 @@ export function SettingsPanel({
   // Issue #183 §1: what the Workspace tab may show, loaded once per open
   // workspace; the tab itself appears only when there is something to show.
   const wsAccess = useWorkspaceAccess(workspaceLifecycle);
-  // Closing the workspace (or losing the permission) while Workspace is up
-  // bounces to General, like the scope machinery above.
+  /**
+   * Whether the Manage tab (`workspace`) is in the rail. Issue #183 §1: only
+   * with a hosted workspace open and a permitted section to show. Issue
+   * #314: and only under the Workspace scope — it manages the workspace, so
+   * it lives under the workspace's scope (reversing #183's "shows in both
+   * scopes"). The one rule for the rail filter and the bounce below.
+   */
+  const manageTabShown = scope === 'workspace' && wsAccess.workspaceTab;
+  // Losing the tab while on it — the workspace closes, the permission goes
+  // (issue #183 §1), or the scope leaves for User (issue #314: a click on
+  // the scope rail, or the automatic reset above) — bounces to General and
+  // closes any nested page with it, the mirror of the USER_ONLY_TABS bounce.
   useEffect(() => {
-    if (tab === 'workspace' && !wsAccess.workspaceTab) setTab('general');
-  }, [tab, wsAccess.workspaceTab]);
+    if (tab === 'workspace' && !manageTabShown) {
+      setTab('general');
+      setPage(null);
+    }
+  }, [tab, manageTabShown]);
   const [hint, setHint] = useState('');
   // SPEC20 §1: the folder field keeps the raw draft; only valid single-segment
   // names commit to settings (the last valid value survives bad keystrokes).
@@ -1425,9 +1436,9 @@ export function SettingsPanel({
         {TABS.filter(
           (t) =>
             (scope === 'user' || !USER_ONLY_TABS.includes(t.id)) &&
-            // Issue #183 §1: no workspace open, or no permitted section —
-            // no Workspace tab (and no placeholder in its place).
-            (t.id !== 'workspace' || wsAccess.workspaceTab),
+            // Issue #183 §1 / #314: no Manage tab outside `manageTabShown`
+            // (and no placeholder or disabled button in its place).
+            (t.id !== 'workspace' || manageTabShown),
         ).map((t) => (
           <button
             key={t.id}

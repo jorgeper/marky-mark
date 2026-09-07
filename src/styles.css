@@ -3282,6 +3282,9 @@ input.folder-rename-input.invalid {
 
 .workspace-role-name {
   flex: 1;
+  /* Issue #314: a role's name reads at the same small chrome size as a
+     member's name in People (`.dialog label`), not the dialog's base size. */
+  font-size: var(--mm-text-small);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3381,18 +3384,11 @@ input.folder-rename-input.invalid {
   padding: 2px 8px;
 }
 
-/* PRD 007 Req 12+15+16 + PRD 020 Req 4: the sections of Workspace settings —
-   names, people, custom roles and the danger zone — are separated the same
-   way, off the same theme variables, so every bundled theme dresses them
-   without a rule of its own. */
-.workspace-names,
-.workspace-members,
-.workspace-roles,
-.workspace-danger {
-  margin-top: 18px;
-  border-top: 1px solid var(--mm-border, #d1d9e0);
-  padding-top: 12px;
-}
+/* Issue #314: the sections of the Manage tab — names, people, custom roles
+   and the danger zone — carry no separator rule of their own. Like every
+   other tab's sections, their vertical rhythm comes only from
+   `.section-header`'s margins (PRD 007 Req 12+15+16 / PRD 020 Req 4 used to
+   draw a top border here; the dialog has no separators anywhere else). */
 
 .workspace-role-list {
   list-style: none;
