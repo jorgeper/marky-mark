@@ -19,6 +19,14 @@ as today.
 > the native-menu replacement changes: on desktop the header still does not
 > render at all (§3.1).
 
+> **Amended (issue #330, 2026-09-07):** the header loses one more item — the
+> Edit/Preview button now lives in the page-level control group at the tab
+> strip's right end (or the `.edge-cluster` row at the page's top-right
+> without a strip) per PRD 025 Reqs 19–20, unchanged in label, hotkey hint,
+> test id and behaviour. The header the web build keeps is filename and
+> hamburger menu. On desktop the header still does not render at all (§3.1);
+> the toggle, being page chrome rather than header chrome, renders there too.
+
 Out of scope: Linux menus, tray icons, a Recent Files menu, macOS proxy
 icons, touch bar, per-window menus beyond the single main window, README
 screenshot refresh (appearance changed, but re-shooting is a manual follow-up).

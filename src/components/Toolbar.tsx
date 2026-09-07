@@ -28,29 +28,15 @@ interface Props {
   /** Full on-disk path, shown as the filename's hover tooltip (SPEC2 FR-U.3). */
   docPath: string | null;
   dirty: boolean;
-  mode: 'preview' | 'edit';
+  /** The menu rows' hotkey hints (PRD 009 Req 8) — the only hotkey use left here. */
   hotkeys: HotkeyMap;
   isMac: boolean;
-  /**
-   * PRD 007 Req 17: whether this user may change the open document. Absent ⇒
-   * no permission model (desktop, the shim, the web build) — the Edit toggle
-   * stays exactly as it was. False hides it, matching the native menu's
-   * grayed items. The menu's own Save rows ride the same flag through
-   * lib/appMenu.ts.
-   *
-   * Issue #243: the hosted home page rides this flag too — App.tsx passes
-   * false there as well, so false means "no Edit toggle" either because the
-   * reader may not edit or because there is nothing open to edit. This
-   * component decides neither.
-   */
-  canEdit?: boolean;
   /**
    * PRD 009 Req 8: the menu's item set, already gated — this component
    * renders it and decides nothing about order, membership or gating
    * (lib/appMenu.ts).
    */
   menu: AppMenuGroup[];
-  onToggleMode(): void;
   /** PRD 009 Req 8: every row dispatches through this one seam. */
   onCommand(id: CommandId): void;
   /** Reports the menu popover state so the auto-hiding shell can stay pinned. */
@@ -102,11 +88,14 @@ export function AppBadge({ size = 20, testId = 'app-badge' }: { size?: number; t
 }
 
 /**
- * v2 toolbar (SPEC2 FR-U.1, amended issue #256): one overflow menu ·
- * filename · Edit/Preview. Nothing else — the comments toggle left the
- * toolbar for the View menu row and its hotkey. PRD 009 Req 7/8: the menu
- * leads the toolbar on the left, and its rows are the data lib/appMenu.ts
- * derives — this component renders them and dispatches, nothing more.
+ * v2 toolbar (SPEC2 FR-U.1, amended issues #256 and #330): one overflow
+ * menu · filename. Nothing else — the comments toggle left the toolbar for
+ * the View menu row and its hotkey (#256), and PRD 025 Req 19 (issue #330)
+ * moved the Edit/Preview toggle into the page-level control group at the
+ * tab strip's right end (App.tsx `rightCluster`, ModeToggleButton). PRD 009
+ * Req 7/8: the menu leads the toolbar on the left, and its rows are the data
+ * lib/appMenu.ts derives — this component renders them and dispatches,
+ * nothing more.
  */
 export function Toolbar(p: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -136,8 +125,6 @@ export function Toolbar(p: Props) {
     if (!menuOpen) setSubOpen(false);
   }, [menuOpen]);
 
-  // PRD 007 Req 17: absent ⇒ no permission model ⇒ the Edit toggle stays.
-  const canEdit = p.canEdit !== false;
   // PRD 009 Req 12: the one submenu parent's rows (View ▸), already grouped.
   const submenuRows = p.menu.flatMap((g) => g.rows).find((r) => r.submenu)?.submenu;
 
@@ -258,18 +245,9 @@ export function Toolbar(p: Props) {
           </span>
         )}
       </span>
-
-      {canEdit && (
-        <button
-          className={`btn btn-quiet btn-sm${p.mode === 'edit' ? ' on' : ''}`}
-          data-testid="edit-toggle"
-          title={`Toggle edit / preview (${displayCombo(p.hotkeys.toggleEdit, p.isMac)})`}
-          onClick={p.onToggleMode}
-        >
-          {p.mode === 'edit' ? 'Preview' : 'Edit'}
-          <kbd>{displayCombo(p.hotkeys.toggleEdit, p.isMac)}</kbd>
-        </button>
-      )}
+      {/* PRD 025 Req 19 (issue #330): no Edit/Preview toggle here any more —
+          it is the last member of the page-level control group (App.tsx
+          `rightCluster`), on the tab strip's row or the .edge-cluster pill. */}
     </header>
   );
 }

@@ -948,7 +948,7 @@ test('E577: PRD 025 Reqs 1–7, 22 — the Fluid mode row is off by default; on,
   await expect(page.getByTestId('editor')).not.toHaveAttribute('data-fluid');
 });
 
-test('E579: PRD 025 Reqs 9, 10, 16 (issue #334) — with Fluid mode on, reduced motion draws no caret ghost, typing never draws one and lands synchronously, and Cursor movement → None draws nothing', async ({
+test('E580: PRD 025 Reqs 9, 10, 16 (issue #334) — with Fluid mode on, reduced motion draws no caret ghost, typing never draws one and lands synchronously, and Cursor movement → None draws nothing', async ({
   page,
 }) => {
   await freshApp(page);

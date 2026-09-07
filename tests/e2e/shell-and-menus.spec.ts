@@ -78,7 +78,7 @@ test('E1: launch shows the clean empty state; Help opens the welcome doc fully r
   await expect(doc.locator('input[type="checkbox"]').first()).toBeVisible();
 });
 
-test('E141: no document open — the edit hotkey and toolbar control leave the splash in preview; no editor mounts, nothing goes dirty (#40)', async ({
+test('E141: no document open — the edit hotkey and the control group\'s Edit toggle leave the splash in preview; no editor mounts, nothing goes dirty (#40)', async ({
   page,
 }) => {
   // beforeEach opened welcome — reset to a pristine launch for this test.
@@ -94,9 +94,11 @@ test('E141: no document open — the edit hotkey and toolbar control leave the s
   await expect(page.getByTestId('editor')).toHaveCount(0);
   await expect(page.locator('.cm-content')).toHaveCount(0);
 
-  // The toolbar's mode control dispatches the same command — inert too.
-  await revealToolbar(page);
-  await page.getByTestId('edit-toggle').click();
+  // The labelled Edit toggle dispatches the same command — inert too. PRD 025
+  // Req 19 (issue #330): it lives in the page-level control group now (the
+  // .edge-cluster pill here, since the splash has no tab strip), still
+  // present on the desktop splash exactly as it was in the toolbar.
+  await page.locator('.edge-cluster').getByTestId('edit-toggle').click();
   await expect(hint).toBeVisible();
   await expect(page.getByTestId('editor')).toHaveCount(0);
   await expect(page.getByTestId('dirty-dot')).toHaveCount(0);

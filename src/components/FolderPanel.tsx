@@ -382,7 +382,7 @@ export function CommentsToggleButton({ open, onClick }: { open: boolean; onClick
  * `data-mode` still carries the current mode. The owner dispatches the
  * existing `toggleMode` command, so the selection and reading-position
  * carry-over, autosave-on-toggle and the edit-grant guard behave exactly as
- * they do for the toolbar button and Mod+E.
+ * they do for the labelled ModeToggleButton beside it and Mod+E.
  */
 export function ModeSwitchButton({ mode, onClick }: { mode: ViewMode; onClick(): void }) {
   const toEdit = mode !== 'edit';
@@ -410,6 +410,31 @@ export function ModeSwitchButton({ mode, onClick }: { mode: ViewMode; onClick():
         )}
       </svg>
     </IconButton>
+  );
+}
+
+/**
+ * PRD 025 Req 19 (issue #330): the labelled edit/preview toggle — "Edit ⌘E"
+ * / "Preview ⌘E" — moved out of the toolbar (SPEC2 §4.1 / SPEC12 header,
+ * both amended) to be the LAST member of the page-level control group, after
+ * the comments chevron, styled `.btn-quiet` like its neighbours. Everything
+ * the toolbar button had is kept verbatim: the `edit-toggle` testid, the
+ * label, the `<kbd>` combo hint (the `toggleEdit` hotkey, display-formatted
+ * for the platform), the tooltip and the `on` state in edit mode. The owner
+ * dispatches `toggleMode`, so the icon `mode-switch`, Mod+E and the View ▸
+ * menu row all share one command path; the render gate stays in App.tsx.
+ */
+export function ModeToggleButton({ mode, combo, onClick }: { mode: ViewMode; combo: string; onClick(): void }) {
+  return (
+    <button
+      className={`btn btn-quiet btn-sm mode-toggle${mode === 'edit' ? ' on' : ''}`}
+      data-testid="edit-toggle"
+      title={`Toggle edit / preview (${combo})`}
+      onClick={onClick}
+    >
+      {mode === 'edit' ? 'Preview' : 'Edit'}
+      <kbd>{combo}</kbd>
+    </button>
   );
 }
 
