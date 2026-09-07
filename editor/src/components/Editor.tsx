@@ -83,6 +83,7 @@ import { diagramViewExtension } from './diagramView';
 import { fenceRendererFor } from '../lib/fenceRenderers';
 import { imageViewExtension, setImageView } from './imageView';
 import { linkOpenExtension, linkViewExtension } from './linkView';
+import { highlightViewMousedown } from './highlightClick';
 import { calloutViewExtension } from './calloutView';
 import { linkAt } from '../lib/linkSpans';
 import { livePreviewExtension } from './livePreview';
@@ -360,13 +361,16 @@ export interface EditorProps {
    */
   highlights?: readonly HighlightRange[] | null;
   /**
-   * PRD 022 Req 12, amended by PRD 023 §18 (issue #285): a click landing on
+   * PRD 022 Req 12, amended by PRD 023 §18 (issue #285) and issue #341: a
+   * ⌘ (macOS) / Ctrl click — the SPEC43 §11 link gesture — landing on
    * painted ranges reports the ids of EVERY range covering the position
    * (document order), read through a live ref so identity churn never
-   * rebuilds the extension. Overlap resolution is the owner's (its kind
-   * rule needs the records this package never sees); the click itself is
-   * never claimed, so caret placement always stands. Absent ⇒ painting is
-   * display-only.
+   * rebuilds the extension. That modified click is claimed (the caret and
+   * selection stay where they were, no second cursor); a plain click is
+   * never reported and only places the caret. Text that is both a link and
+   * a painted range goes to the link handler alone. Overlap resolution is
+   * the owner's (its kind rule needs the records this package never sees).
+   * Absent ⇒ painting is display-only.
    */
   onHighlightClick?(ids: readonly string[]): void;
   /**
@@ -1057,46 +1061,26 @@ function highlightDecorations(state: EditorState, ranges: readonly HighlightRang
 
 /**
  * PRD 022 Req 12: the highlight extension — decorations plus the click
- * report. The handlers never claim their events (return false), so normal
- * cursor placement always stands; they only name the painted ranges under
- * the pointer to the owner. Hit-testing is by document position, not DOM
- * ancestry, and rides a mousedown+mouseup pair rather than `click`: the
- * mousedown's selection change re-renders the line (the active-line band
- * and the caret-word cue move), which can detach the pressed mark element —
- * and a click whose mousedown target left the DOM is never dispatched at
- * all (issue #285). A press that travels more than a few pixels is a drag,
- * not a click, and reports nothing.
+ * report. Issue #341: the report rides the SPEC43 §11 link gesture — a
+ * ⌘/Ctrl mousedown over a painted range names every covering id to the
+ * owner and claims the event (no caret move, no second cursor), exactly
+ * like linkViewMousedown; a plain mousedown is not handled here at all, so
+ * ordinary caret placement stands. Hit-testing is by document position,
+ * not DOM ancestry, and a link under the pointer yields to the link handler
+ * (see highlightClick.ts). The handler is built once per reconfigure and
+ * reads the ranges and the owner callback per call.
  */
 const highlightsExt = (
   ranges: readonly HighlightRange[],
   onClick: MutableRefObject<((ids: readonly string[]) => void) | undefined>
 ): Extension => {
-  const DRAG_SLOP_PX = 3; // past this the press was a selection drag, not a click
-  let downAt: { x: number; y: number } | null = null;
+  const mousedown = highlightViewMousedown(
+    (state) => docHighlightRanges(state, ranges),
+    () => onClick.current
+  );
   return [
     EditorView.decorations.of((view) => highlightDecorations(view.state, ranges)),
-    EditorView.domEventHandlers({
-      mousedown: (event) => {
-        downAt = { x: event.clientX, y: event.clientY };
-        return false;
-      },
-      mouseup: (event, view) => {
-        const down = downAt;
-        downAt = null;
-        if (!down || !onClick.current) return false;
-        if (Math.abs(event.clientX - down.x) > DRAG_SLOP_PX || Math.abs(event.clientY - down.y) > DRAG_SLOP_PX) {
-          return false;
-        }
-        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-        if (pos === null) return false;
-        // PRD 023 §5 (issue #285): overlapping records stack — report EVERY
-        // painted range covering the position and let the owner's kind-aware
-        // rule pick, instead of whichever range the array yields first.
-        const hits = docHighlightRanges(view.state, ranges).filter((h) => pos >= h.from && pos <= h.to);
-        if (hits.length > 0) onClick.current(hits.map((h) => h.id));
-        return false;
-      },
-    }),
+    EditorView.domEventHandlers({ mousedown }),
   ];
 };
 

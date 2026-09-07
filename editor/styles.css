@@ -565,6 +565,12 @@
 .editor-wrap .mm-link-modifier .mm-md-url {
   cursor: pointer;
 }
+/* Issue #341: the same cue over painted comment/highlight ranges — while
+   ⌘/Ctrl is held a click there activates the record (PRD 023 §18, amended),
+   so the pointer advertises it exactly as it does over a link. */
+.editor-wrap .mm-link-modifier .cm-content .mm-hl {
+  cursor: pointer;
+}
 /* Issue #318: the edit-pane callout view — the preview's tint, edge and
    title colour painted per line (components/calloutView.ts) through the
    same --mm-callout-* tokens and the same strengths as the .doc rules above.
@@ -817,8 +823,9 @@
    strengths the preview's mark.hl derives (42% of the marker hue; the
    fixed comment tint for comment records, issue #283), over the host's
    tokens with the tokens' own documented defaults as fallbacks.
-   No cursor affordance: a click reports the hit (PRD 023 §18) but stays
-   ordinary caret placement first. */
+   No cursor affordance at rest: a plain click is ordinary caret placement;
+   the ⌘/Ctrl activation gesture (issue #341) advertises itself through the
+   modifier cue below. */
 .editor-wrap .cm-content .mm-hl {
   background: var(--mm-comment-tint, rgba(121, 192, 255, 0.45));
   border-radius: 2px;

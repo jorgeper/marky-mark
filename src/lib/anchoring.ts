@@ -1,4 +1,7 @@
 import DiffMatchPatch from 'diff-match-patch';
+// Issue #341: the editor package's visible-text machinery (the annotationMenu
+// precedent, PRD 023 §19) — the one place inline-markdown stripping lives.
+import { visibleIndex } from '@marky-mark/editor';
 
 /**
  * Pure anchoring logic, ported from ../md-with-comments (schema-compatible).
@@ -173,13 +176,16 @@ function commonPrefixLength(a: string, b: string): number {
 }
 
 /**
- * Score a candidate occurrence of `exact` at `index` by how well the stored
- * prefix/suffix context agrees with the text around that occurrence.
+ * Score a candidate occurrence of a `length`-character quote at `index` in
+ * `text` by how well the stored prefix/suffix context agrees with the text
+ * around it. The caller passes the context in the same space as `text`: the
+ * anchor's own strings against rendered text, or (issue #341) their
+ * whitespace-collapsed forms against the visible-text index.
  */
-function contextScore(anchor: Anchor, text: string, index: number): number {
+function contextScore(text: string, index: number, length: number, prefix: string, suffix: string): number {
   const before = text.slice(Math.max(0, index - CONTEXT_LENGTH), index);
-  const after = text.slice(index + anchor.exact.length, index + anchor.exact.length + CONTEXT_LENGTH);
-  return commonSuffixLength(before, anchor.prefix) + commonPrefixLength(after, anchor.suffix);
+  const after = text.slice(index + length, index + length + CONTEXT_LENGTH);
+  return commonSuffixLength(before, prefix) + commonPrefixLength(after, suffix);
 }
 
 function fuzzyMatch(anchor: Anchor, text: string): ReanchorMatch | null {
@@ -239,13 +245,22 @@ export interface SourceHighlight {
 /**
  * PRD 022 Req 12 (issue #234): best-effort mapping of rendered-text anchors
  * onto markdown SOURCE ranges for editor-pane painting. Anchors live in
- * rendered-plain-text space; the editor shows source — so only an exact
- * occurrence of `anchor.exact` in the source counts. A unique occurrence
- * maps; zero map nothing (rendered text that crosses markdown syntax is
- * simply absent); several map only when the stored context picks ONE
- * strictly best-scoring occurrence — a tie, or no context agreement at
- * all, skips. Skipping is the contract: a highlight the source cannot
- * place confidently does not paint, and is never guessed at.
+ * rendered-plain-text space; the editor shows source.
+ *
+ * Issue #341: the quote is located in the source's VISIBLE text (the editor
+ * package's `visibleIndex`: inline markers, link syntax, escapes and block
+ * prefixes stripped, whitespace and line breaks collapsed) instead of
+ * byte-for-byte in the raw source, so a quote that crosses `**`, backticks,
+ * link text, an escape or a soft line break paints too. The painted range
+ * runs from the first through the last visible character of the match, so
+ * syntax sitting between them (a closing `**`, a link's `](url)`) paints
+ * along and syntax before or after them does not. The skip rule stands: a
+ * unique occurrence maps; zero map nothing; several map only when the
+ * stored context (scored in the same visible space) picks ONE strictly
+ * best occurrence — a tie, or no context agreement at all, skips. Skipping
+ * is the contract: a record the source cannot place confidently does not
+ * paint, and is never guessed at. The visible text and its offset map are
+ * built once per call, not once per record.
  *
  * PRD 023 §1 (issue #283): both record kinds paint — a highlight rides its
  * required color; a comment record carries none, which the editor renders
@@ -256,17 +271,22 @@ export function mapHighlightsToSource(
   source: string
 ): SourceHighlight[] {
   const out: SourceHighlight[] = [];
+  const index = visibleIndex(source); // Issue #341: one index for every record
   for (const e of entries) {
-    const { exact } = e.anchor;
-    if (!exact) continue;
-    const occurrences = allIndexes(source, exact);
+    const needle = collapseSpace(e.anchor.exact).trim();
+    if (!needle) continue;
+    const occurrences = allIndexes(index.text, needle);
     let at: number | null = occurrences.length === 1 ? occurrences[0] : null;
     if (occurrences.length > 1) {
+      // Issue #341: the stored (rendered) context collapsed the way the
+      // visible index is, so it is scored in the same space as the match.
+      const prefix = collapseSpace(e.anchor.prefix);
+      const suffix = collapseSpace(e.anchor.suffix);
       let best: number | null = null;
       let bestScore = 0; // a winner must agree with SOME context, not just win a 0–0
       let tied = false;
       for (const idx of occurrences) {
-        const score = contextScore(e.anchor, source, idx);
+        const score = contextScore(index.text, idx, needle.length, prefix, suffix);
         if (score > bestScore) {
           best = idx;
           bestScore = score;
@@ -280,14 +300,24 @@ export function mapHighlightsToSource(
     if (at === null) continue;
     out.push({
       id: e.id,
-      from: at,
-      to: at + exact.length,
+      // Issue #341: first through last visible character, in source offsets.
+      from: index.abs[at],
+      to: index.abs[at + needle.length - 1] + 1,
       ...(e.kind === 'highlight' ? { color: e.color } : {}),
       // PRD 023 §18 (issue #285): resolved comments ghost in the editor too.
       ...(isComment(e) && e.resolved ? { ghost: true } : {}),
     });
   }
   return out;
+}
+
+/**
+ * Issue #341: whitespace runs (line breaks included) read as one space — the
+ * same collapse `visibleIndex` applies, so a rendered quote or context
+ * string compares against the index character for character.
+ */
+function collapseSpace(text: string): string {
+  return text.replace(/\s+/g, ' ');
 }
 
 /**
@@ -316,7 +346,7 @@ export function reanchor(anchor: Anchor, text: string): ReanchorMatch | null {
     let best = occurrences[0];
     let bestScore = -1;
     for (const idx of occurrences) {
-      const score = contextScore(anchor, text, idx);
+      const score = contextScore(text, idx, exact.length, anchor.prefix, anchor.suffix);
       const closer = Math.abs(idx - start) < Math.abs(best - start);
       if (score > bestScore || (score === bestScore && closer)) {
         best = idx;

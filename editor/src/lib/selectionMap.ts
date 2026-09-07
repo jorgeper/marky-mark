@@ -460,3 +460,51 @@ export function sourceRangeForVisibleMatch(
   if (!hit) return null;
   return { from: abs[hit.start], to: abs[hit.end - 1] + 1 };
 }
+
+/**
+ * Issue #341: the whole document's rendered-visible text as ONE
+ * whitespace-normalized haystack — `text[i]` sits at absolute source offset
+ * `abs[i]`. Built ONCE per editor-pane mapping pass (App's PRD 022 Req 12
+ * effect) and searched for every record's quote, where
+ * sourceRangeForVisibleMatch would rebuild the visible text per needle.
+ * Whitespace runs, soft line breaks and block boundaries all collapse to a
+ * single space, so a quote taken from rendered text matches after the same
+ * collapse; a joining space anchors to the next visible character. Fence
+ * bodies map verbatim and fence delimiters show nothing (issue #138).
+ */
+export interface VisibleIndex {
+  /** The normalized visible text of the whole source. */
+  text: string;
+  /** abs[i] = absolute source offset of text[i]. */
+  abs: number[];
+}
+
+export function visibleIndex(source: string): VisibleIndex {
+  const lines = source.split('\n');
+  const visibleAt = fenceAwareVisible(lines); // Issue #138: fences map verbatim
+  const text: string[] = [];
+  const abs: number[] = [];
+  let pendingSpace = false;
+  let lineStart = 0;
+  for (let n = 0; n < lines.length; n++) {
+    const { visible, map } = visibleAt(n);
+    for (let k = 0; k < visible.length; k++) {
+      const ch = visible[k];
+      if (/\s/.test(ch)) {
+        pendingSpace = text.length > 0;
+        continue;
+      }
+      const at = lineStart + map[k];
+      if (pendingSpace) {
+        text.push(' ');
+        abs.push(at); // the joiner anchors to the next visible char
+        pendingSpace = false;
+      }
+      text.push(ch);
+      abs.push(at);
+    }
+    pendingSpace = text.length > 0; // line breaks collapse like spaces
+    lineStart += lines[n].length + 1;
+  }
+  return { text: text.join(''), abs };
+}

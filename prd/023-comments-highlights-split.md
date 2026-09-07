@@ -161,6 +161,24 @@ blue marker) while keeping its anchoring, decoration, and copy-link machinery.
     mark opens the pane (if closed) and activates that card; activating a card
     scrolls the text to its anchor — two-way sync. Clicking a highlight has no
     pane effect.
+
+    > **Amended (issue #341, 2026-09-07):** in the editor the activation
+    > gesture is the SPEC43 §11 link gesture: a ⌘ (macOS) / Ctrl click on a
+    > painted comment range opens the pane (if closed) and activates the
+    > card, a modifier-click on a highlight range gives the active cue only,
+    > and a plain click on either only places the caret (never activates,
+    > never opens the pane); the modified click claims the event, so the
+    > selection stays where it was, and where the text is also a link the
+    > link opens and no record activates. Painted ranges show the pointer
+    > while the modifier is held, like links. The preview's plain-click
+    > activation is unchanged. And the editor paints what the preview
+    > paints: a quote is located in the source's *visible* text (inline
+    > markers, link syntax, escapes, block prefixes stripped; whitespace and
+    > soft line breaks collapsed), superseding PRD 022 Req 12's "exact-quote
+    > match against the source" — a quote crossing `**`, backticks, link
+    > text, an escape or a soft line break paints over the source span from
+    > its first through its last visible character. Req 12's skip rule is
+    > kept: absent or ambiguous quotes never mispaint.
 19. Editor-side authoring maps the editor selection/caret to rendered-text
     anchors; where the mapping is ambiguous the entries are disabled rather
     than mis-anchored (the PRD 022 Req 12 skip rule, extended to authoring).
